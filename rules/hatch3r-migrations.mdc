@@ -1,0 +1,15 @@
+---
+description: Database migration and schema change patterns for the project
+alwaysApply: false
+---
+# Migrations
+
+- Schema changes must be backward-compatible. Add fields with defaults; never remove or rename without migration.
+- Migration scripts live in a dedicated `migrations/` directory. One script per migration.
+- Every migration is idempotent. Safe to re-run. Use document version or `migratedAt` to skip.
+- Migration functions log progress and are resumable. Handle partial failures.
+- Test migrations against emulator or staging before deploying. Verify data integrity.
+- Order: deploy new code (handles old + new schema) → run migration → remove old schema handling.
+- Document schema changes in project data model spec.
+- Rollback plan required for every migration. Never run destructive migrations without backup verification.
+- Hot documents must stay within size limits after migration.

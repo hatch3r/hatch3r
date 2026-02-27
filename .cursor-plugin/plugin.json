@@ -1,0 +1,28 @@
+{
+  "name": "hatch3r",
+  "description": "Battle-tested agentic coding setup: 10 agents, 15 skills, 13 rules, 17 commands, and MCP integrations -- in one plugin.",
+  "version": "1.0.0",
+  "author": {
+    "name": "hatch3r"
+  },
+  "homepage": "https://github.com/hatch3r/hatch3r",
+  "repository": "https://github.com/hatch3r/hatch3r",
+  "license": "MIT",
+  "keywords": [
+    "agents",
+    "skills",
+    "rules",
+    "mcp",
+    "coding-assistant",
+    "agentic",
+    "sub-agents",
+    "board-management",
+    "code-review",
+    "testing"
+  ],
+  "rules": "rules/",
+  "skills": "skills/",
+  "agents": "agents/",
+  "commands": "commands/",
+  "mcp": "mcp.json"
+}

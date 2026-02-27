@@ -1,0 +1,85 @@
+name: PR Checks
+
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-commits:
+    name: Validate PR title (conventional commits)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check PR title
+        run: |
+          TITLE="${{ github.event.pull_request.title }}"
+          PATTERN="^(feat|fix|chore|docs|refactor|test|ci|perf|build|style)(\([a-z0-9-]+\))?!?: .+"
+          if ! echo "$TITLE" | grep -qE "$PATTERN"; then
+            echo "::error::PR title must follow conventional commits: $TITLE"
+            echo "Expected format: type(scope)?: description"
+            echo "Valid types: feat, fix, chore, docs, refactor, test, ci, perf, build, style"
+            exit 1
+          fi
+          echo "PR title is valid: $TITLE"
+
+  # NOTE: lint, typecheck, test, and audit overlap with ci.yml (which also
+  # triggers on pull_request). This job provides fast single-runner feedback
+  # while ci.yml covers the full OS x Node matrix. Keep both until PR status
+  # checks are consolidated.
+  quality:
+    name: Quality gates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Security audit
+        run: npm audit --audit-level=moderate
+
+  size-check:
+    name: Bundle size report
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Report dist size
+        run: |
+          echo "## Bundle size report"
+          echo ""
+          echo "dist/ contents:"
+          du -sh dist/ 2>/dev/null || true
+          find dist -type f -exec du -h {} \; 2>/dev/null | sort -rh || true

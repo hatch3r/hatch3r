@@ -1,0 +1,15 @@
+---
+description: Rules for managing npm dependencies in the project
+alwaysApply: false
+---
+# Dependency Management
+
+- Always commit `package-lock.json`. Never use `npm install --no-save`.
+- Justify new dependencies in PR description: what it does, why needed, alternatives considered, bundle size impact.
+- Prefer well-maintained packages: recent commits, active issues, no known CVEs.
+- Pin exact versions for production deps. Use `npm ci` in CI.
+- Run `npm audit` before merging dependency changes. Fix high/critical before merge.
+- No duplicate packages serving the same purpose. Consolidate on one.
+- Remove unused dependencies on every cleanup pass.
+- Security patches (CVEs) are P0/P1 priority. Patch within 48h for critical.
+- Check bundle size impact against budget. Reject deps that exceed.

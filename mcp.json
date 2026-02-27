@@ -1,0 +1,33 @@
+{
+  "mcpServers": {
+    "github": {
+      "_description": "GitHub repository management, code review, issues, PRs, and project boards",
+      "url": "https://api.githubcopilot.com/mcp/",
+      "headers": {
+        "Authorization": "Bearer ${env:GITHUB_PAT}",
+        "X-MCP-Toolsets": "all"
+      }
+    },
+    "context7": {
+      "_description": "Up-to-date, version-specific library documentation for LLMs",
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp@2.1.1"]
+    },
+    "filesystem": {
+      "_description": "File management and code editing operations",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem@2026.1.14", "."]
+    },
+    "playwright": {
+      "_description": "Browser automation, web testing, and UI interaction",
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp@0.0.68"]
+    },
+    "brave-search": {
+      "_description": "Web research, fact-checking, and current information retrieval",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-brave-search@0.6.2"],
+      "env": { "BRAVE_API_KEY": "${env:BRAVE_API_KEY}" }
+    }
+  }
+}

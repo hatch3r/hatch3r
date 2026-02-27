@@ -1,0 +1,15 @@
+---
+description: Error handling patterns and conventions for the project
+alwaysApply: false
+---
+# Error Handling
+
+- Define a structured error hierarchy: base error class with `code`, `message`, `cause`.
+- Never swallow errors silently. Always re-throw or log with context.
+- Use typed error codes (not raw strings). Reference codes in project glossary when applicable.
+- User-facing errors are separate from internal errors. Never expose internal details to clients.
+- Retry with exponential backoff for transient failures (network, rate limits). Honor `Retry-After` on 429.
+- API endpoints return structured error responses `{ code, message, details? }`. Never return stack traces.
+- Use framework error boundaries for UI components. Surface user-friendly fallback UI.
+- Include `correlationId` in all error logs for tracing across client and server.
+- Security: no secrets, tokens, or PII in error messages or logs.

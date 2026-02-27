@@ -1,0 +1,28 @@
+node_modules/
+dist/
+coverage/
+*.bak
+.DS_Store
+.env
+.env.*
+
+# hatch3r safe-write backups
+.backups/
+
+# Log files
+*.log
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+Thumbs.db
+
+# Internal files (not for public repo)
+hatch3r-prd.md
+COMPETITIVE-ANALYSIS.md
+todo.md
+social_preview.png

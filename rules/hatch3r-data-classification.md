@@ -1,0 +1,85 @@
+---
+id: hatch3r-data-classification
+type: rule
+description: Data classification standards covering PII handling, encryption, retention policies, and regulatory compliance
+scope: always
+---
+# Data Classification Standards
+
+## Classification Levels
+
+| Level | Label | Examples | Handling |
+|-------|-------|----------|----------|
+| 1 | **Public** | Marketing content, open-source code, public docs | No restrictions |
+| 2 | **Internal** | Internal docs, non-sensitive configs, aggregated metrics | Access-controlled, no external sharing |
+| 3 | **Confidential** | PII, financial data, API keys, credentials | Encrypted at rest and in transit, audit-logged |
+| 4 | **Restricted** | SSN, payment card data, health records, biometrics | All Level 3 controls + additional access approval, data masking in non-production |
+
+## PII Handling
+
+- Identify and inventory all PII fields in the data model. Maintain a data map.
+- Minimize PII collection — only collect what's necessary for the stated purpose.
+- PII fields must be marked in the schema (annotation, decorator, or comment convention).
+- Never log PII. Use structured logging with PII fields explicitly excluded or masked.
+- Pseudonymize PII in analytics and reporting. Use irreversible hashing for identifiers.
+- Provide data export and deletion endpoints for data subject requests (GDPR Article 15/17, CCPA).
+
+## Encryption
+
+### At Rest
+- All Level 3+ data must be encrypted at rest using AES-256 or equivalent.
+- Use the cloud provider's managed encryption service (AWS KMS, GCP KMS, Azure Key Vault).
+- Database-level encryption is the minimum. Column-level encryption for highly sensitive fields.
+- Encryption keys must be rotated at least annually.
+
+### In Transit
+- All network communication uses TLS 1.2+ (prefer TLS 1.3).
+- Internal service-to-service communication also uses TLS — no plaintext even on private networks.
+- Certificate pinning for mobile and critical API clients.
+- HSTS headers on all web responses with a minimum max-age of 1 year.
+
+## Data Retention
+
+- Define retention periods per data category. Document in the data retention schedule.
+- Default retention: 90 days for logs, 1 year for transactional data, 3 years for financial records.
+- Implement automated deletion for data past its retention period.
+- Retention exceptions require written justification and legal review.
+- Backup retention aligns with source data retention — don't keep backups longer than the data policy allows.
+
+## Access Controls
+
+- Apply least-privilege access to all data stores.
+- Use role-based access control (RBAC) with named roles matching business functions.
+- Level 3+ data access requires multi-factor authentication.
+- Level 4 data access requires explicit per-request approval with audit trail.
+- Service accounts accessing Level 3+ data must use short-lived credentials (< 1 hour).
+- Review and recertify data access permissions quarterly.
+
+## Audit Logging
+
+- Log all access to Level 3+ data: who, what, when, from where.
+- Audit logs are immutable — write to append-only storage.
+- Retain audit logs for at least 1 year (or as required by applicable regulation).
+- Alert on anomalous access patterns: bulk reads, off-hours access, new IP addresses.
+- Audit log entries must include: timestamp, user/service identity, action, resource, result (success/failure).
+
+## Regulatory Compliance
+
+### GDPR
+- Maintain Records of Processing Activities (ROPA).
+- Implement consent management with granular per-purpose consent.
+- Support data portability (machine-readable export format).
+- 72-hour breach notification procedure documented and tested.
+
+### CCPA
+- Honor Do Not Sell requests.
+- Provide a clear privacy policy with data collection categories.
+- Support opt-out mechanisms for data sale/sharing.
+- Verify consumer identity before processing deletion or access requests.
+
+## Non-Production Environments
+
+- Never use production data in development or staging without anonymization.
+- Use synthetic data generators or anonymization pipelines for test data.
+- Level 4 data is never present in non-production environments under any circumstances.
+- Access to non-production environments follows the same RBAC model as production.

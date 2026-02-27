@@ -1,0 +1,84 @@
+{
+  "name": "hatch3r",
+  "version": "1.0.0",
+  "description": "Battle-tested agentic coding setup framework. One command to hatch your agent stack -- agents, skills, rules, commands, and MCP for every major AI coding tool.",
+  "type": "module",
+  "bin": {
+    "hatch3r": "./dist/cli/index.js"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "keywords": [
+    "agents",
+    "ai",
+    "coding-assistant",
+    "cursor",
+    "copilot",
+    "claude",
+    "opencode",
+    "windsurf",
+    "amp",
+    "codex",
+    "gemini",
+    "cline",
+    "agentic",
+    "ai-agents",
+    "mcp",
+    "skills",
+    "rules"
+  ],
+  "author": "hatch3r",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hatch3r/hatch3r.git"
+  },
+  "homepage": "https://github.com/hatch3r/hatch3r#readme",
+  "bugs": {
+    "url": "https://github.com/hatch3r/hatch3r/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "dist/",
+    "agents/",
+    "commands/",
+    "rules/",
+    "skills/",
+    "prompts/",
+    "github-agents/",
+    "mcp/",
+    "hooks/",
+    "README.md",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "boxen": "^8.0.1",
+    "chalk": "^5.4.0",
+    "commander": "^13.0.0",
+    "glob": "^11.0.0",
+    "inquirer": "^12.0.0",
+    "ora": "^9.3.0",
+    "yaml": "^2.7.0"
+  },
+  "overrides": {
+    "minimatch": ">=10.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.0",
+    "@vitest/coverage-v8": "^3.2.4",
+    "eslint": "^9.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.56.0",
+    "vitest": "^3.0.0"
+  }
+}

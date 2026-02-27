@@ -1,0 +1,100 @@
+---
+description: TypeScript and file naming conventions for the project
+alwaysApply: true
+---
+# Code Standards
+
+## Core Conventions
+
+- TypeScript strict mode. No `any`. No `@ts-ignore` without a linked issue.
+- Functions: `camelCase`. Types/Interfaces: `PascalCase`. Constants: `SCREAMING_SNAKE`.
+- Component files: `PascalCase` (match framework convention). Logic files: `camelCase.ts`.
+- Max function length: 50 lines. Max file: 400 lines. Cyclomatic complexity: 10.
+- Use framework-recommended component patterns (e.g., typed props and emits).
+- Use stores or equivalent for shared state. Prefer composables/hooks over mixins.
+- Use design tokens for colors, spacing, typography. No ad-hoc styling.
+- All animations must respect `prefers-reduced-motion`.
+- Run lint and typecheck before committing.
+
+## TypeScript-Specific Patterns
+
+### `satisfies` Over `as`
+
+- Use `satisfies` to validate a value conforms to a type while preserving its narrower inferred type. Prefer `satisfies Config` over `as Config` because `as` silences type errors and loses narrowing.
+- Use `as const` for literal types in configuration objects, action types, and discriminant values. Combine with `satisfies` when both literal inference and shape validation are needed: `const config = { ... } as const satisfies Config`.
+
+### Discriminated Unions
+
+- Model domain variants with discriminated unions over polymorphic classes or `type` string checks. Every variant must share a common literal discriminant field (e.g., `kind`, `type`, `status`).
+- Use exhaustive `switch` with a `never` default case to ensure all variants are handled. The compiler will error when a new variant is added but not handled.
+
+### Branded Types
+
+- Use branded types for domain identifiers that must not be accidentally interchanged (e.g., `UserId`, `OrderId`, `Currency`). Implement via intersection with a unique symbol: `type UserId = string & { readonly __brand: unique symbol }`.
+- Provide factory functions (`createUserId(raw: string): UserId`) that validate the input before branding. Never brand raw values without validation.
+
+### Strict Utility Types
+
+- Prefer `Readonly<T>` for function parameters and return types that should not be mutated by the caller.
+- Use `Record<string, never>` instead of `{}` to represent an empty object type. `{}` matches any non-nullish value.
+- Avoid `Omit` with string literals that do not exist on the source type — use `satisfies` or a helper type that enforces key existence.
+
+## Architecture Patterns
+
+### Barrel Exports
+
+- Use barrel files (`index.ts`) at module boundaries to define the public API of a module. Re-export only the types and functions intended for external consumption.
+- Never import from a module's internal files directly — import from the barrel. Enforce with ESLint `no-restricted-imports` or equivalent.
+- Keep barrel files thin — only re-exports, no logic. A barrel with logic is a code smell.
+
+### Module Boundaries
+
+- Define clear module boundaries: each module owns its types, logic, and tests. Cross-module imports go through barrel exports.
+- Circular imports between modules are forbidden. Use dependency inversion (interfaces at the boundary) to break cycles.
+- Shared types used across modules live in a `types/` or `shared/` directory, not duplicated in each module.
+
+### Dependency Injection
+
+- Inject dependencies through constructor parameters or factory function arguments — not through global imports of concrete implementations.
+- Define dependencies as interfaces at the module boundary. Concrete implementations live inside the module.
+- This enables testability (inject fakes in tests) and flexibility (swap implementations without changing consumers).
+
+## Error Handling Patterns
+
+### Result Types
+
+- For operations that can fail in expected ways (validation, parsing, external calls), prefer returning a `Result<T, E>` discriminated union over throwing exceptions. Exceptions are for unexpected/unrecoverable failures.
+- Define a project-wide `Result` type: `type Result<T, E = Error> = { ok: true; value: T } | { ok: false; error: E }`.
+- Callers must handle both variants — the type system enforces exhaustive error handling.
+
+### Custom Error Classes
+
+- Define domain-specific error classes extending a base `AppError` class. Include a machine-readable `code` field (string enum) for programmatic handling, separate from the human-readable `message`.
+- Error hierarchy example: `AppError` → `ValidationError`, `AuthError`, `NotFoundError`, `ConflictError`. Map error classes to HTTP status codes in the API layer.
+- Never throw raw `Error("message")` — always use a domain error class so error handlers can distinguish error types.
+
+### Error Boundaries
+
+- Catch errors at architectural boundaries: API route handlers, event handlers, background job processors, UI component error boundaries.
+- Log the full error (including stack trace) at the boundary. Return a safe, sanitized error response to the caller — no internal details.
+- Let errors propagate naturally within a module. Catching errors mid-flow and re-throwing obscures the stack trace. Handle at the boundary.
+
+## Import Ordering
+
+Enforce consistent import ordering via linter rules (e.g., `eslint-plugin-import`). The canonical order:
+
+1. **Built-in modules** — `node:fs`, `node:path`, etc.
+2. **External packages** — `zod`, `express`, etc.
+3. **Internal aliases** — `@/utils`, `@/types`, etc.
+4. **Relative imports** — `./sibling`, `../parent`, etc.
+5. **Type-only imports** — `import type { ... }` (grouped separately where the linter supports it)
+
+Separate each group with a blank line. Sort alphabetically within each group.
+
+## Dead Code Prevention
+
+- Remove unused imports, variables, functions, and type definitions immediately. Do not comment them out "for later."
+- Use the TypeScript compiler (`noUnusedLocals`, `noUnusedParameters`) and ESLint (`no-unused-vars`) to catch dead code automatically.
+- After removing a feature or completing a refactor, search for all references to the removed code. Delete orphaned tests, fixtures, and documentation.
+- Feature-flagged code that has been fully rolled out (flag removed) must have the flag-off branch deleted in the same PR.
+- Commented-out code is never acceptable in committed code. Use version control history to retrieve old implementations.
