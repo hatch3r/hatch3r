@@ -17,34 +17,40 @@ const tools = [
   'Kiro', 'Goose', 'Zed',
 ];
 
-const features: {title: string; description: string}[] = [
+const features: {title: string; description: string; icon: string}[] = [
   {
     title: 'One Command Setup',
+    icon: '>>',
     description:
       'Run npx hatch3r init and get agents, skills, rules, commands, and MCP integrations generated for your coding tool of choice.',
   },
   {
     title: 'Tool-Agnostic',
+    icon: '<>',
     description:
       'Single canonical source in /.agents/ with adapters that generate native config for 13 platforms. Switch tools without rewriting your setup.',
   },
   {
     title: 'Board Management',
+    icon: '[]',
     description:
       'Full GitHub Projects V2 integration. Parse todo.md into issues, auto-pick work, delegate to sub-agents, and create PRs.',
   },
   {
     title: 'Sub-Agentic Delegation',
+    icon: '{}',
     description:
       'Implementer agent receives issues, delivers code and tests. Dependency-aware orchestration with collision detection.',
   },
   {
     title: 'Safe Merge System',
+    icon: '</',
     description:
       'Managed blocks with HATCH3R:BEGIN/END markers. Your customizations outside the blocks survive every sync and update.',
   },
   {
     title: 'Extensible by Design',
+    icon: '+.',
     description:
       'Per-agent model selection, .customize.yaml overrides, composable recipes, and event-driven hooks for lifecycle automation.',
   },
@@ -54,15 +60,22 @@ function HomepageHeader(): ReactNode {
   return (
     <header className="hero hero--hatch3r">
       <div className="container">
+        <img
+          src="/hatch3r/img/dino.jpeg"
+          alt="hatch3r mascot"
+          className="hero__mascot"
+          width={160}
+          height={160}
+        />
         <Heading as="h1" className="hero__title">
           hatch3r
         </Heading>
         <p className="hero__subtitle">
-          Battle-tested agentic coding setup framework. One command to hatch your
-          agent stack for every major AI coding tool.
+          Battle-tested agentic coding setup framework. One command to hatch
+          your agent stack for every major AI coding tool.
         </p>
         <code>npx hatch3r init</code>
-        <div style={{display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap'}}>
+        <div className="hero__buttons">
           <Link className="button button--primary button--lg" to="/docs/getting-started/introduction">
             Get Started
           </Link>
@@ -91,7 +104,7 @@ function ToolsSection(): ReactNode {
     <section className="tools-section">
       <div className="container" style={{textAlign: 'center'}}>
         <Heading as="h2">Works With Your Tools</Heading>
-        <p style={{opacity: 0.7, maxWidth: 500, margin: '0 auto'}}>
+        <p style={{opacity: 0.6, maxWidth: 480, margin: '0 auto', fontSize: '0.95rem'}}>
           Generate native configuration for every major AI coding tool from a
           single canonical source.
         </p>
@@ -115,8 +128,17 @@ function FeaturesSection(): ReactNode {
           <Heading as="h2">Why hatch3r?</Heading>
         </div>
         <div className="feature-grid">
-          {features.map(({title, description}) => (
+          {features.map(({title, description, icon}) => (
             <div className="feature-card" key={title}>
+              <span style={{
+                display: 'inline-block',
+                fontFamily: "'Fira Mono', monospace",
+                fontSize: '1.4rem',
+                fontWeight: 700,
+                color: 'var(--ifm-color-primary)',
+                marginBottom: '0.5rem',
+                opacity: 0.7,
+              }}>{icon}</span>
               <h3>{title}</h3>
               <p>{description}</p>
             </div>

@@ -58,7 +58,8 @@ const config: Config = {
       title: 'hatch3r',
       logo: {
         alt: 'hatch3r',
-        src: 'img/logo.svg',
+        src: 'img/egg-logo.png',
+        style: {imageRendering: 'pixelated'},
       },
       items: [
         {
