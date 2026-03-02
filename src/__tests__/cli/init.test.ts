@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from "vitest";
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach, type MockInstance } from "vitest";
 import { mkdtemp, mkdir, writeFile, readFile, rm, access } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -6,16 +6,20 @@ import { tmpdir } from "node:os";
 const AGENTS_DIR = ".agents";
 
 describe("init command", () => {
+  let initCommand: (opts?: { tools?: string; yes?: boolean }) => Promise<void>;
   let tempDir: string;
-  let originalCwd: string;
+  let cwdSpy: MockInstance;
   let exitSpy: MockInstance;
   let consoleSpy: MockInstance;
   let consoleErrorSpy: MockInstance;
 
+  beforeAll(async () => {
+    ({ initCommand } = await import("../../cli/commands/init.js"));
+  });
+
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), "hatch3r-init-"));
-    originalCwd = process.cwd();
-    process.chdir(tempDir);
+    cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempDir);
     exitSpy = vi
       .spyOn(process, "exit")
       .mockImplementation((() => {
@@ -26,7 +30,7 @@ describe("init command", () => {
   });
 
   afterEach(async () => {
-    process.chdir(originalCwd);
+    cwdSpy.mockRestore();
     exitSpy.mockRestore();
     consoleSpy.mockRestore();
     consoleErrorSpy.mockRestore();
@@ -34,14 +38,12 @@ describe("init command", () => {
   });
 
   it("should create .agents/ directory with --yes flag", async () => {
-    const { initCommand } = await import("../../cli/commands/init.js");
     await initCommand({ yes: true });
 
     await expect(access(join(tempDir, AGENTS_DIR))).resolves.toBeUndefined();
   });
 
   it("should create hatch.json manifest with --yes flag", async () => {
-    const { initCommand } = await import("../../cli/commands/init.js");
     await initCommand({ yes: true });
 
     const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
@@ -61,7 +63,6 @@ describe("init command", () => {
   });
 
   it("should copy canonical files to .agents/", async () => {
-    const { initCommand } = await import("../../cli/commands/init.js");
     await initCommand({ yes: true });
 
     const agentsDir = join(tempDir, AGENTS_DIR);
@@ -72,7 +73,6 @@ describe("init command", () => {
   });
 
   it("should create AGENTS.md with managed content", async () => {
-    const { initCommand } = await import("../../cli/commands/init.js");
     await initCommand({ yes: true });
 
     const agentsMdPath = join(tempDir, "AGENTS.md");
@@ -84,7 +84,6 @@ describe("init command", () => {
   });
 
   it("should generate adapter output files", async () => {
-    const { initCommand } = await import("../../cli/commands/init.js");
     await initCommand({ yes: true, tools: "cursor" });
 
     await expect(access(join(tempDir, ".cursor"))).resolves.toBeUndefined();
@@ -92,7 +91,6 @@ describe("init command", () => {
   });
 
   it("should use specified tools from --tools flag", async () => {
-    const { initCommand } = await import("../../cli/commands/init.js");
     await initCommand({ yes: true, tools: "cursor,claude" });
 
     const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
@@ -103,8 +101,6 @@ describe("init command", () => {
   });
 
   it("should reject invalid tools", async () => {
-    const { initCommand } = await import("../../cli/commands/init.js");
-
     await expect(initCommand({ yes: true, tools: "invalid-tool" })).rejects.toThrow("process.exit called");
     expect(exitSpy).toHaveBeenCalledWith(1);
 
@@ -113,7 +109,6 @@ describe("init command", () => {
   });
 
   it("should set all default features with --yes flag", async () => {
-    const { initCommand } = await import("../../cli/commands/init.js");
     await initCommand({ yes: true });
 
     const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
@@ -130,7 +125,6 @@ describe("init command", () => {
   });
 
   it("should include MCP servers when mcp feature is enabled", async () => {
-    const { initCommand } = await import("../../cli/commands/init.js");
     await initCommand({ yes: true });
 
     const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
@@ -141,7 +135,6 @@ describe("init command", () => {
   });
 
   it("should create .env.mcp with required env vars for selected servers", async () => {
-    const { initCommand } = await import("../../cli/commands/init.js");
     await initCommand({ yes: true });
 
     const envPath = join(tempDir, ".env.mcp");
@@ -152,7 +145,6 @@ describe("init command", () => {
   });
 
   it("should filter canonical mcp.json to only include selected servers", async () => {
-    const { initCommand } = await import("../../cli/commands/init.js");
     await initCommand({ yes: true });
 
     const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
@@ -170,7 +162,6 @@ describe("init command", () => {
   });
 
   it("should print summary after init", async () => {
-    const { initCommand } = await import("../../cli/commands/init.js");
     await initCommand({ yes: true });
 
     const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
@@ -180,7 +171,6 @@ describe("init command", () => {
   });
 
   it("should display sourcing hint after add secrets message", async () => {
-    const { initCommand } = await import("../../cli/commands/init.js");
     await initCommand({ yes: true });
 
     const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
@@ -196,7 +186,6 @@ describe("init command", () => {
       JSON.stringify({ version: "1.0.0", hatch3rVersion: "0.0.1", tools: [], features: {}, mcp: { servers: [] }, managedFiles: [] }),
     );
 
-    const { initCommand } = await import("../../cli/commands/init.js");
     await initCommand({ yes: true });
 
     const manifest = JSON.parse(await readFile(join(agentsDir, "hatch.json"), "utf-8"));
@@ -204,7 +193,6 @@ describe("init command", () => {
   });
 
   it("should include AGENTS.md in managedFiles", async () => {
-    const { initCommand } = await import("../../cli/commands/init.js");
     await initCommand({ yes: true });
 
     const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
@@ -216,7 +204,6 @@ describe("init command", () => {
     const userContent = "# My Project Instructions\n\nUse TypeScript for all new code.";
     await writeFile(join(tempDir, "AGENTS.md"), userContent);
 
-    const { initCommand } = await import("../../cli/commands/init.js");
     await initCommand({ yes: true });
 
     const content = await readFile(join(tempDir, "AGENTS.md"), "utf-8");
@@ -230,7 +217,6 @@ describe("init command", () => {
     const userContent = "# My Claude Preferences\n\nAlways prefer functional style.";
     await writeFile(join(tempDir, "CLAUDE.md"), userContent);
 
-    const { initCommand } = await import("../../cli/commands/init.js");
     await initCommand({ yes: true, tools: "claude" });
 
     const content = await readFile(join(tempDir, "CLAUDE.md"), "utf-8");
@@ -240,7 +226,6 @@ describe("init command", () => {
   });
 
   it("should handle multiple valid tools from --tools flag", async () => {
-    const { initCommand } = await import("../../cli/commands/init.js");
     await initCommand({ yes: true, tools: "cursor,claude,gemini" });
 
     const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
@@ -253,8 +238,6 @@ describe("init command", () => {
   });
 
   it("should reject when any tool in --tools is invalid", async () => {
-    const { initCommand } = await import("../../cli/commands/init.js");
-
     await expect(initCommand({ yes: true, tools: "cursor,bogus" })).rejects.toThrow("process.exit called");
     expect(exitSpy).toHaveBeenCalledWith(1);
     const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
@@ -265,7 +248,6 @@ describe("init command", () => {
   it("should detect existing tools and use them as defaults with --yes", async () => {
     await mkdir(join(tempDir, ".cursor"), { recursive: true });
 
-    const { initCommand } = await import("../../cli/commands/init.js");
     await initCommand({ yes: true });
 
     const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
@@ -275,7 +257,6 @@ describe("init command", () => {
   });
 
   it("should create canonical content directories", async () => {
-    const { initCommand } = await import("../../cli/commands/init.js");
     await initCommand({ yes: true });
 
     const agentsDir = join(tempDir, AGENTS_DIR);
@@ -283,7 +264,6 @@ describe("init command", () => {
   });
 
   it("should create canonical AGENTS.md inside .agents/", async () => {
-    const { initCommand } = await import("../../cli/commands/init.js");
     await initCommand({ yes: true });
 
     const canonicalPath = join(tempDir, AGENTS_DIR, "AGENTS.md");
@@ -292,7 +272,6 @@ describe("init command", () => {
   });
 
   it("should handle a single tool from --tools flag", async () => {
-    const { initCommand } = await import("../../cli/commands/init.js");
     await initCommand({ yes: true, tools: "amp" });
 
     const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
