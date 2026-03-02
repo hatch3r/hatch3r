@@ -7,8 +7,8 @@ export default defineConfig({
     globalSetup: ["src/__tests__/globalSetup.ts"],
     coverage: {
       provider: "v8",
+      include: ["src/**"],
       exclude: [
-        "website/**",
         "src/cli/index.ts",
         "src/hooks/types.ts",
         "**/*.test.ts",
