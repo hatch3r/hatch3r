@@ -11,8 +11,8 @@ const config: Config = {
     v4: true,
   },
 
-  url: 'https://hatch3r.github.io',
-  baseUrl: '/hatch3r/',
+  url: 'https://docs.hatch3r.com',
+  baseUrl: '/',
 
   organizationName: 'hatch3r',
   projectName: 'hatch3r',
