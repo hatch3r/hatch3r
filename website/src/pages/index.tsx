@@ -1,5 +1,6 @@
 import type {ReactNode} from 'react';
 import Link from '@docusaurus/Link';
+import useBaseUrl from '@docusaurus/useBaseUrl';
 import Layout from '@theme/Layout';
 import Heading from '@theme/Heading';
 
@@ -61,7 +62,7 @@ function HomepageHeader(): ReactNode {
     <header className="hero hero--hatch3r">
       <div className="container">
         <img
-          src="/hatch3r/img/dino.jpeg"
+          src={useBaseUrl('/img/dino.jpeg')}
           alt="hatch3r mascot"
           className="hero__mascot"
           width={160}
