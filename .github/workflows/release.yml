@@ -49,9 +49,11 @@ jobs:
       - name: Security audit
         run: npm audit --audit-level=moderate
 
+      # Trusted publishing: setup-node with registry-url auto-configures
+      # NODE_AUTH_TOKEN via GITHUB_TOKEN for npm provenance. Org-level
+      # trusted publishing is configured on npmjs.com — no NPM_TOKEN
+      # secret is needed.
       - name: Publish to npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --access public --provenance
 
       - name: Create GitHub Release
