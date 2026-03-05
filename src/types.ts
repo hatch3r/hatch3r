@@ -1,13 +1,27 @@
+export type Platform = "github" | "azure-devops" | "gitlab";
+
 export interface ModelConfig {
   default?: string;
   agents?: Record<string, string>;
 }
 
+export interface ClaudeConfig {
+  permissions?: {
+    allow?: string[];
+    deny?: string[];
+  };
+  teammateMode?: "tool-using" | "full-trust" | "manual-approval";
+  agentTeams?: boolean;
+}
+
 export interface HatchManifest {
   version: string;
   hatch3rVersion: string;
+  platform: Platform;
   owner: string;
   repo: string;
+  namespace: string;
+  project: string;
   tools: Tool[];
   features: Features;
   mcp: McpConfig;
@@ -16,10 +30,14 @@ export interface HatchManifest {
   packages?: PackageEntry[];
   hooks?: HooksConfig;
   models?: ModelConfig;
+  claude?: ClaudeConfig;
   managedFiles: string[];
 }
 
-export type Tool = "cursor" | "copilot" | "claude" | "opencode" | "windsurf" | "amp" | "codex" | "gemini" | "cline" | "aider" | "kiro" | "goose" | "zed";
+export const TOOLS = ["cursor", "copilot", "claude", "opencode", "windsurf", "amp", "codex", "gemini", "cline", "aider", "kiro", "goose", "zed"] as const;
+export type Tool = (typeof TOOLS)[number];
+export const VALID_TOOLS = new Set<string>(TOOLS);
+export const TOOL_CHOICES = TOOLS.join(", ");
 
 export interface BoardConfig {
   owner: string;
@@ -63,7 +81,6 @@ export interface Features {
   prompts: boolean;
   commands: boolean;
   mcp: boolean;
-  guardrails: boolean;
   githubAgents: boolean;
   hooks: boolean;
 }
@@ -82,6 +99,11 @@ export interface CanonicalFile {
   description: string;
   scope?: string;
   model?: string;
+  protected?: boolean;
+  /** Agent runs with restricted write permissions (Cursor v2.5+ subagents). */
+  readonly?: boolean;
+  /** Agent runs in background without blocking the parent (Cursor v2.5+ async subagents). */
+  background?: boolean;
   content: string;
   rawContent: string;
   sourcePath: string;
@@ -91,9 +113,18 @@ export interface CanonicalMetadata {
   id: string;
   type: string;
   description: string;
-  scope?: string;
   name?: string;
-  [key: string]: string | undefined;
+  scope?: string;
+  model?: string;
+  agent?: string;
+  event?: string;
+  globs?: string;
+  protected?: boolean;
+  alwaysApply?: boolean;
+  /** Agent runs with restricted write permissions (Cursor v2.5+ subagents). */
+  readonly?: boolean;
+  /** Agent runs in background without blocking the parent (Cursor v2.5+ async subagents). */
+  background?: boolean;
 }
 
 export interface AdapterOutput {
@@ -108,12 +139,7 @@ export interface MergeResult {
   path: string;
   action: "created" | "updated" | "skipped" | "backed-up";
   backup?: string;
-}
-
-export interface SyncReport {
-  results: MergeResult[];
-  warnings: string[];
-  errors: string[];
+  warning?: string;
 }
 
 export interface RepoInfo {
@@ -130,6 +156,20 @@ export const MANAGED_BLOCK_END = "<!-- HATCH3R:END -->";
 export const HATCH3R_PREFIX = "hatch3r-";
 export const AGENTS_DIR = ".agents";
 
+export class HatchError extends Error {
+  constructor(
+    message: string,
+    public readonly exitCode: number = 1,
+  ) {
+    super(message);
+    this.name = "HatchError";
+  }
+}
+
+export function sanitizeId(id: string): string {
+  return id.replace(/[^a-zA-Z0-9._-]/g, "");
+}
+
 /** Returns id with exactly one hatch3r- prefix (strips existing prefix before adding). */
 export function toPrefixedId(id: string, prefix = HATCH3R_PREFIX): string {
   const base = id.replace(new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`), "");
@@ -144,7 +184,6 @@ export const DEFAULT_FEATURES: Features = {
   prompts: true,
   commands: true,
   mcp: true,
-  guardrails: false,
   githubAgents: true,
   hooks: true,
 };
@@ -156,8 +195,20 @@ export interface McpServerMeta {
 
 export const ENV_VAR_HELP: Record<string, { comment: string; url: string }> = {
   GITHUB_PAT: {
-    comment: "GitHub MCP server (classic PAT: repo, read:org — or fine-grained: Contents/Issues/PRs)",
+    comment: "GitHub MCP server — Classic PAT: repo, read:org, project. Fine-grained: Contents(RW), Issues(RW), Pull Requests(RW), Projects(RW)",
     url: "https://github.com/settings/tokens/new",
+  },
+  AZURE_DEVOPS_PAT: {
+    comment: "Azure DevOps Personal Access Token (Work Items, Code, Build RW)",
+    url: "https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/use-personal-access-tokens-to-authenticate",
+  },
+  AZURE_DEVOPS_ORG: {
+    comment: "Azure DevOps organization name",
+    url: "https://dev.azure.com/",
+  },
+  GITLAB_TOKEN: {
+    comment: "GitLab Personal Access Token (api scope)",
+    url: "https://gitlab.com/-/user_settings/personal_access_tokens",
   },
   BRAVE_API_KEY: {
     comment: "Brave Search (free: 2,000 queries/month)",
@@ -182,6 +233,16 @@ export const AVAILABLE_MCP_SERVERS: Record<string, McpServerMeta> = {
     description:
       "GitHub repository management, code review, issues, PRs, and project boards",
     requiresEnv: ["GITHUB_PAT"],
+  },
+  "azure-devops": {
+    description:
+      "Azure DevOps work items, repos, pipelines, and boards",
+    requiresEnv: ["AZURE_DEVOPS_PAT", "AZURE_DEVOPS_ORG"],
+  },
+  gitlab: {
+    description:
+      "GitLab issues, merge requests, pipelines, and project management",
+    requiresEnv: ["GITLAB_TOKEN"],
   },
   context7: {
     description:

@@ -95,7 +95,7 @@ Some agents ship with a default model in their canonical frontmatter. These defa
 | `hatch3r-a11y-auditor` | `sonnet` | WCAG standard interpretation requires solid reasoning |
 | `hatch3r-test-writer` | `sonnet` | Edge-case identification and test design need reasoning depth |
 
-Agents without a default (`hatch3r-implementer`, `hatch3r-researcher`, `hatch3r-reviewer`, `hatch3r-security-auditor`, `hatch3r-perf-profiler`) use the platform's own default. Their task complexity varies too widely for a single tier to fit.
+Agents without a default (`hatch3r-implementer`, `hatch3r-researcher`, `hatch3r-reviewer`, `hatch3r-security-auditor`, `hatch3r-perf-profiler`, `hatch3r-architect`, `hatch3r-context-rules`, `hatch3r-devops`, `hatch3r-fixer`, `hatch3r-learnings-loader`) use the platform's own default. Their task complexity varies too widely for a single tier to fit.
 
 These defaults sit at precedence level 3 (canonical frontmatter). Override them at any higher level:
 
@@ -142,6 +142,10 @@ When no model is set, each tool uses its own default.
 | Gemini | No | Emits guidance in GEMINI.md |
 | Windsurf | No | Emits guidance in .windsurfrules |
 | Amp | No | Emits guidance in .amp/AGENTS.md |
+| Aider | No | Emits guidance as comment in CONVENTIONS.md |
+| Kiro | No | Emits guidance in steering files |
+| Goose | No | Emits guidance as comment in .goosehints |
+| Zed | No | Emits guidance as comment in .rules |
 
 ## Adapter Support
 

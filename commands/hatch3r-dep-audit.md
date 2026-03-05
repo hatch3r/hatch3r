@@ -3,6 +3,11 @@ id: hatch3r-dep-audit
 type: command
 description: Scan, assess, and upgrade npm dependencies. Categorizes findings by severity (CVEs, major/minor/patch outdated), researches migration paths, upgrades packages one at a time with testing, and creates tracking issues for unaddressed items.
 ---
+
+## Agent Pipeline
+
+This command runs as a single orchestrator without sub-agent delegation. Dependency scanning uses CLI tools (npm audit, npm outdated) and research uses Context7 MCP and web search.
+
 # Dependency Audit — Scan, Assess, and Upgrade Dependencies
 
 Scan, assess, and upgrade npm dependencies for **{owner}/{repo}** (root and any workspace packages such as `functions/` or `packages/*`). Categorizes findings by severity (CVEs, major/minor/patch outdated), researches migration paths, upgrades packages one at a time with testing, and creates tracking issues for unaddressed items.

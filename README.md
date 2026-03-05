@@ -4,7 +4,7 @@
 
 **Crack the egg. Hatch better agents.**
 
-hatch3r is an open-source CLI and Cursor plugin that installs a battle-tested, tool-agnostic agentic coding setup into any repository. One command gives you 11 agents, 22 skills, 18 rules, 25 commands, and MCP integrations -- optimized for your coding tool of choice.
+hatch3r is an open-source CLI and Cursor plugin that installs a battle-tested, tool-agnostic agentic coding setup into any repository. One command gives you 16 agents, 25 skills, 22 rules, 33 commands, and MCP integrations -- optimized for your coding tool of choice.
 
 ## Quick Start
 
@@ -14,17 +14,30 @@ Requires Node.js 22+.
 npx hatch3r init
 ```
 
-That's it. hatch3r detects your repo, asks which tools you use, and generates everything. Run into issues? See [Troubleshooting](docs/troubleshooting.md).
+That's it. hatch3r detects your repo, asks which platform and tools you use, and generates everything. The platform (GitHub, Azure DevOps, or GitLab) is auto-detected from your git remote. Run into issues? See [Troubleshooting](docs/troubleshooting.md).
 
 ## What You Get
 
 | Category | Count | Highlights |
 |----------|-------|-----------|
-| **Agents** | 11 | Code reviewer, test writer, security auditor, implementer (sub-agentic), researcher, and more |
-| **Skills** | 22 | Bug fix, feature implementation, issue workflow, release, incident response, context health, cost tracking, recipes, customization, and more |
-| **Rules** | 18 | Code standards, error handling, testing, API design, observability, theming, i18n, security patterns, agent orchestration, and more |
-| **Commands** | 25 | Board init, board fill, board pickup, board refresh, planning (feature, bug, refactor), healthcheck, security-audit, context-health, cost-tracking, customization, and more |
-| **MCP Servers** | 5 | GitHub, Context7, Filesystem, Playwright, Brave Search |
+| **Agents** | 16 | Code reviewer, test writer, security auditor, implementer (sub-agentic), fixer, researcher, architect, DevOps, and more |
+| **Skills** | 25 | Bug fix, feature implementation, issue workflow, release, incident response, context health, cost tracking, recipes, API spec, CI pipeline, migration, customization, and more |
+| **Rules** | 22 | Code standards, testing, API design, observability, theming, i18n, security patterns, agent orchestration, deep context analysis, and more |
+| **Commands** | 33 | Board init, board fill, board groom, board pickup, board refresh, planning (feature, bug, refactor), workflow, quick-change, revision, debug, healthcheck, security-audit, context-health, cost-tracking, onboard, benchmark, customization, and more |
+| **MCP Servers** | 10 (3 default + 7 opt-in) | Playwright, Context7, Filesystem (default); GitHub, Brave Search, Sentry, Postgres, Linear, Azure DevOps, GitLab (opt-in) |
+| **Platforms** | 3 | GitHub, Azure DevOps, GitLab -- auto-detected from git remote |
+
+## Supported Platforms
+
+hatch3r supports three project management platforms as first-class targets:
+
+| Platform | Board system | MCP server | Auth |
+|----------|-------------|------------|------|
+| **GitHub** | Projects V2 | GitHub MCP (remote) | `GITHUB_PAT` |
+| **Azure DevOps** | Boards / Work Items | @tiberriver256/mcp-server-azure-devops | `AZURE_DEVOPS_PAT`, `AZURE_DEVOPS_ORG` |
+| **GitLab** | Issues / Boards | glab mcp | `GITLAB_TOKEN` |
+
+Platform is auto-detected from your git remote during `hatch3r init`. All board commands, agents, rules, and skills adapt to your selected platform. The manifest uses generic `namespace`/`project`/`repo` fields (backward-compatible with `owner`/`repo`).
 
 ## Supported Tools
 
@@ -36,7 +49,11 @@ That's it. hatch3r detects your repo, asks which tools you use, and generates ev
 - **Amp** -- `AGENTS.md`
 - **Codex CLI** -- `AGENTS.md`, `codex.md`
 - **Gemini CLI** -- `GEMINI.md`
-- **Cline / Roo Code** -- `.clinerules`, `.cursorrules`
+- **Cline / Roo Code** -- `.clinerules`
+- **Aider** -- `CONVENTIONS.md`
+- **Kiro** -- `kiro.md`, specs
+- **Goose** -- `.goosehints`
+- **Zed** -- `.rules`
 
 ### MCP Configuration
 
@@ -67,7 +84,7 @@ See [docs/mcp-setup.md](docs/mcp-setup.md) for full setup, per-server details, a
 ## How It Works
 
 ```
-/.agents/              <- Canonical source (tool-agnostic)
+.agents/              <- Canonical source (tool-agnostic)
   ├── agents/
   ├── skills/
   ├── rules/
@@ -83,9 +100,13 @@ CLAUDE.md              <- Generated (Claude adapter)
 AGENTS.md              <- Generated (OpenCode, Amp, Codex adapters)
 GEMINI.md              <- Generated (Gemini adapter)
 .clinerules            <- Generated (Cline adapter)
+CONVENTIONS.md         <- Generated (Aider adapter)
+kiro.md                <- Generated (Kiro adapter)
+.goosehints            <- Generated (Goose adapter)
+.rules                 <- Generated (Zed adapter)
 ```
 
-hatch3r keeps one source of truth in `/.agents/` and generates native configuration for each tool.
+hatch3r keeps one source of truth in `.agents/` and generates native configuration for each tool.
 
 ## Workflow
 
@@ -97,29 +118,29 @@ hatch3r provides a full project lifecycle, from setup to release. Here is the ty
 npx hatch3r init
 ```
 
-Interactive setup detects your repository, asks which coding tools you use (Cursor, Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline), and generates all agents, skills, rules, commands, and MCP configuration.
+Interactive setup detects your repository and platform (GitHub, Azure DevOps, or GitLab), asks which coding tools you use, and generates all agents, skills, rules, commands, and MCP configuration. See the [agentic process diagrams](docs/agentic-process.md) for a visual overview of the full workflow.
 
-> **Next steps after init:** For a new project, run `project-spec`. For an existing codebase, run `codebase-map`. To plan a single feature, run `feature-plan`. To investigate a complex bug, run `bug-plan`. To plan a refactoring effort, run `refactor-plan`. Or skip straight to creating a `todo.md` and running `board-fill`.
+> **Next steps after init:** For a new project, run `hatch3r-project-spec`. For an existing codebase, run `hatch3r-codebase-map`. To plan a single feature, run `hatch3r-feature-plan`. To investigate a complex bug, run `hatch3r-bug-plan`. To plan a refactoring effort, run `hatch3r-refactor-plan`. For small, board-free changes (typos, config tweaks, small refactors), run `hatch3r-quick-change`. Or skip straight to creating a `todo.md` and running `hatch3r-board-fill`.
 
 ### For new projects (greenfield)
 
-If you're starting from scratch, use `project-spec` to generate documentation from your vision, then `roadmap` to create a phased plan:
+If you're starting from scratch, use `hatch3r-project-spec` to generate documentation from your vision, then `hatch3r-roadmap` to create a phased plan:
 
-1. Run `project-spec` with your project idea — produces `docs/specs/`, `docs/adr/`, and `todo.md`
-2. Run `roadmap` to refine the plan into dependency-ordered epics
-3. Continue with board-fill (step 4 below) to create GitHub issues
+1. Run `hatch3r-project-spec` with your project idea — produces `docs/specs/`, `docs/adr/`, and `todo.md`
+2. Run `hatch3r-roadmap` to refine the plan into dependency-ordered epics
+3. Continue with `hatch3r-board-fill` (step 4 below) to create GitHub issues
 
 ### For existing projects (brownfield)
 
-If you're adding hatch3r to an existing codebase, use `codebase-map` to analyze what's already there:
+If you're adding hatch3r to an existing codebase, use `hatch3r-codebase-map` to analyze what's already there:
 
-1. Run `codebase-map` — spawns analyzers to discover modules, conventions, and tech debt
-2. Run `roadmap` to plan improvements from the analysis
-3. Continue with board-fill (step 4 below) to create GitHub issues
+1. Run `hatch3r-codebase-map` — spawns analyzers to discover modules, conventions, and tech debt
+2. Run `hatch3r-roadmap` to plan improvements from the analysis
+3. Continue with `hatch3r-board-fill` (step 4 below) to create GitHub issues
 
 ### 2. Set up the board
 
-Run the `board-init` command to create or connect a GitHub Projects V2 board. You do not need to manually create a GitHub Project -- board-init handles project creation via GraphQL, configures status fields (Backlog, Ready, In Progress, In Review, Done), creates the full label taxonomy, and writes all IDs back to `hatch.json`.
+Run the `hatch3r-board-init` command to create or connect a GitHub Projects V2 board. You do not need to manually create a GitHub Project -- `hatch3r-board-init` handles project creation via GraphQL, configures status fields (Backlog, Ready, In Progress, In Review, Done), creates the full label taxonomy, and writes all IDs back to `hatch.json`.
 
 ### 3. Define work
 
@@ -127,19 +148,23 @@ Create a `todo.md` file at the project root with your planned work -- epics, fea
 
 ### 4. Fill the board
 
-Run `board-fill` to parse `todo.md` and turn items into GitHub issues. board-fill classifies each item by type, priority, executor, area, and risk. It groups items into epics, analyzes dependencies, builds a dependency DAG, determines implementation order, identifies parallel work, and marks issues as `status:ready` when all readiness criteria are met.
+Run `hatch3r-board-fill` to parse `todo.md` and turn items into GitHub issues. `hatch3r-board-fill` classifies each item by type, priority, executor, area, and risk. It groups items into epics, analyzes dependencies, builds a dependency DAG, determines implementation order, identifies parallel work, and marks issues as `status:ready` when all readiness criteria are met.
 
-### 5. Pick up work
+### 5. Groom the backlog (ongoing)
 
-Run `board-pickup` to auto-select the next best issue based on dependency order, priority, and readiness. It performs collision detection against in-progress work and open PRs, creates a branch, delegates implementation to the appropriate skill (or spawns parallel sub-agents for epics), runs quality checks, and creates a pull request with full board status sync.
+As priorities shift, scope evolves, and work gets completed, run `hatch3r-board-groom` to refine the backlog. It surfaces stale items, priority imbalances, missing metadata, and decomposition candidates, then lets you selectively re-prioritize, reclassify, re-scope, archive, or restructure existing issues. Run periodically -- not required every cycle, but recommended when the board drifts from current reality.
 
-### 6. Review cycle
+### 6. Pick up work
 
-The reviewer, test-writer, and security-auditor agents review the work. Address feedback, push fixes, and re-request review.
+Run `hatch3r-board-pickup` to auto-select the next best issue based on dependency order, priority, and readiness. It performs collision detection against in-progress work and open PRs, creates a branch, delegates implementation to the appropriate skill (or spawns parallel sub-agents for epics), runs quality checks, and creates a pull request with full board status sync.
 
-### 7. Release
+### 7. Review cycle
 
-Run the `release` command to cut a versioned release. It classifies merged PRs to determine the semantic version bump, generates a grouped changelog, runs quality gates, creates a git tag, publishes a GitHub release, and optionally triggers deployment.
+The reviewer agent reviews the work. If Critical or Warning findings exist, the fixer agent automatically implements fixes, and the reviewer re-reviews — this loop repeats until clean (max 3 iterations). After the review loop passes, the test-writer and security-auditor agents run final quality checks in parallel. For structured post-implementation revision, open a fresh context window and run `hatch3r-revision` -- it interviews you for feedback, scans for agent leftovers, delegates fixes to specialist sub-agents, and drives toward merge readiness.
+
+### 8. Release
+
+Run the `hatch3r-release` command to cut a versioned release. It classifies merged PRs to determine the semantic version bump, generates a grouped changelog, runs quality gates, creates a git tag, publishes a GitHub release, and optionally triggers deployment.
 
 ## Commands
 
@@ -151,75 +176,97 @@ npx hatch3r sync          # Re-generate from canonical state
 npx hatch3r update        # Pull latest templates (safe merge)
 npx hatch3r status        # Check sync status between canonical and generated files
 npx hatch3r validate      # Validate canonical .agents/ structure
+npx hatch3r add <pack>    # Install a community pack (coming soon)
 ```
 
 ### Agent Commands
 
 These commands are invoked inside your coding tool (e.g., as Cursor commands):
 
-**board-init** -- Bootstrap a GitHub Projects V2 board for your repository. Creates a new project or connects to an existing one, configures status fields with five default columns, creates the full hatch3r label taxonomy (type, executor, status, priority, risk, meta), prompts for default branch (main/master), optionally migrates issues from another project, and writes all project IDs back to `hatch.json`. All mutations require user confirmation.
+**`hatch3r-board-init`** -- Bootstrap a GitHub Projects V2 board for your repository. Creates a new project or connects to an existing one, configures status fields with five default columns, creates the full hatch3r label taxonomy (type, executor, status, priority, risk, meta), prompts for default branch (main/master), optionally migrates issues from another project, and writes all project IDs back to `hatch.json`. All mutations require user confirmation.
 
-**board-fill** -- Parse `todo.md` and create GitHub epics and issues with full board reorganization. Deduplicates against existing issues, classifies each item by type/executor/priority/area/risk, groups into epics, builds a dependency graph, determines implementation order, identifies parallel work lanes, and marks issues as `status:ready` when all readiness criteria are met. Reads project documentation and codebase context to produce well-scoped issues.
+**`hatch3r-board-fill`** -- Parse `todo.md` and create GitHub epics and issues with full board reorganization. Deduplicates against existing issues, classifies each item by type/executor/priority/area/risk, groups into epics, builds a dependency graph, determines implementation order, identifies parallel work lanes, and marks issues as `status:ready` when all readiness criteria are met. Reads project documentation and codebase context to produce well-scoped issues.
 
-**board-pickup** -- Pick up the next best issue from the board for development. Auto-selects based on dependency order and priority when no specific issue is referenced. Performs collision detection against in-progress work, creates a branch, marks the issue in-progress, delegates to the appropriate implementation skill (or spawns parallel sub-agents for epics), runs quality checks, and creates a pull request with label transitions and Projects V2 status sync.
+**`hatch3r-board-groom`** -- Ongoing backlog refinement for existing board items. Scans all open issues, surfaces health-driven refinement suggestions (stale items, priority imbalances, missing metadata, decomposition candidates, duplicates), and lets you selectively apply grooming actions: re-prioritize, reclassify, re-scope, demote to triage, archive stale items, decompose oversized issues, merge duplicates, refresh dependencies, and remediate board health gaps. Complements `hatch3r-board-fill` (which ingests new work) and `hatch3r-board-refresh` (which is read-only).
 
-**board-refresh** -- Regenerate the living board overview dashboard on demand. Scans all open and recently closed issues, computes board health metrics (missing metadata, stale issues, blocked dependency chains), assigns recommended models using the quality-first heuristic, and updates the `meta:board-overview` issue with current status tables, epic progress, and health diagnostics. No user prompts required.
+**`hatch3r-board-pickup`** -- Pick up the next best issue from the board for development. Auto-selects based on dependency order and priority when no specific issue is referenced. Performs collision detection against in-progress work, creates a branch, marks the issue in-progress, runs adaptive deep context analysis (complexity scoring, requirements elicitation, similar implementation discovery, transitive dependency tracing), delegates to the appropriate implementation skill with convention lock, and creates a pull request with label transitions and Projects V2 status sync.
 
-**board-shared** -- Shared context and procedures referenced by all board commands. Provides board configuration from `hatch.json`, GitHub context, Projects V2 sync procedure, label taxonomy, tooling directives, and token-saving guidelines. Not invoked directly.
+**`hatch3r-board-refresh`** -- Regenerate the living board overview dashboard on demand. Scans all open and recently closed issues, computes board health metrics (missing metadata, stale issues, blocked dependency chains), assigns recommended models using the quality-first heuristic, and updates the `meta:board-overview` issue with current status tables, epic progress, and health diagnostics. No user prompts required.
 
-**healthcheck** -- Create a full-product QA and testing audit epic. Discovers logical modules from the project's directory structure, creates a parent epic with one sub-issue per module plus cross-cutting audits for inter-module wiring and product vision alignment. Each audit sub-issue, when picked up via board-pickup, performs deep static analysis and produces a findings epic with actionable sub-issues.
+**`hatch3r-board-shared`** -- Shared context and procedures referenced by all board commands. Provides board configuration from `hatch.json`, GitHub context, Projects V2 sync procedure, label taxonomy, tooling directives, and token-saving guidelines. Not invoked directly.
 
-**security-audit** -- Create a full-product security audit epic. Discovers logical modules from the project's directory structure, creates a parent epic with one sub-issue per module plus cross-cutting audits for trust boundaries and OWASP Top 10 alignment. Each module sub-issue audits 7 security domains (authentication, input validation, data protection, access control, secret management, error handling, API security) and produces a findings epic with severity-rated, actionable sub-issues.
+**`hatch3r-healthcheck`** -- Create a full-product QA and testing audit epic. Discovers logical modules from the project's directory structure, creates a parent epic with one sub-issue per module plus cross-cutting audits for inter-module wiring and product vision alignment. Each audit sub-issue, when picked up via `hatch3r-board-pickup`, performs deep static analysis and produces a findings epic with actionable sub-issues.
 
-**dep-audit** -- Scan, assess, and upgrade npm dependencies. Runs `npm audit` and `npm outdated` across root and workspace packages, categorizes findings by severity (CVEs, major/minor/patch outdated), researches migration paths via Context7 and web search, upgrades packages one at a time with testing after each, and creates tracking issues for any unaddressed items.
+**`hatch3r-security-audit`** -- Create a full-product security audit epic. Discovers logical modules from the project's directory structure, creates a parent epic with one sub-issue per module plus cross-cutting audits for trust boundaries and OWASP Top 10 alignment. Each module sub-issue audits 7 security domains (authentication, input validation, data protection, access control, secret management, error handling, API security) and produces a findings epic with severity-rated, actionable sub-issues.
 
-**release** -- Cut a versioned release with changelog. Determines the semantic version bump from merged PR classifications, generates a grouped changelog (features, fixes, refactors, docs, infra), runs quality verification, bumps `package.json`, creates a git tag, publishes a GitHub release with notes, and optionally verifies deployment.
+**`hatch3r-dep-audit`** -- Scan, assess, and upgrade npm dependencies. Runs `npm audit` and `npm outdated` across root and workspace packages, categorizes findings by severity (CVEs, major/minor/patch outdated), researches migration paths via Context7 and web search, upgrades packages one at a time with testing after each, and creates tracking issues for any unaddressed items.
 
-**project-spec** -- Generate complete project documentation from a project vision using parallel researcher sub-agents (stack, features, architecture, pitfalls, UX, business model & market, production & scale). Produces `docs/specs/`, `docs/adr/`, and `todo.md`. Works for any project type -- web apps, APIs, CLIs, libraries, or monorepos.
+**`hatch3r-release`** -- Cut a versioned release with changelog. Determines the semantic version bump from merged PR classifications, generates a grouped changelog (features, fixes, refactors, docs, infra), runs quality verification, bumps `package.json`, creates a git tag, publishes a GitHub release with notes, and optionally verifies deployment.
 
-**codebase-map** -- Analyze an existing codebase to reverse-engineer specifications. Spawns parallel analyzer sub-agents to discover modules, dependencies, conventions, and tech debt. Outputs structured documentation to `docs/specs/` and `docs/adr/`.
+**`hatch3r-project-spec`** -- Generate complete project documentation from a project vision using parallel researcher sub-agents (stack, features, architecture, pitfalls, UX, business model & market, production & scale). Produces `docs/specs/`, `docs/adr/`, and `todo.md`. Works for any project type -- web apps, APIs, CLIs, libraries, or monorepos.
 
-**roadmap** -- Generate a phased roadmap from specs or project vision. Breaks work into epics and features with dependency ordering and parallel work lane identification. Outputs to `todo.md` in `board-fill` format, ready for immediate board population.
+**`hatch3r-api-spec`** -- Generate API specifications from project requirements and existing code. Produces OpenAPI/Swagger specs with endpoint definitions, request/response schemas, authentication, and documentation. Integrates with `hatch3r-project-spec` for greenfield and `hatch3r-codebase-map` for brownfield.
 
-**feature-plan** -- Plan a single feature in depth. Spawns parallel researcher sub-agents (codebase impact, feature design, architecture, risk & pitfalls) to break a feature idea into a detailed spec, ADR(s) when architectural decisions are involved, and structured `todo.md` entries for `board-fill`. Optionally chains directly into `board-fill` to create GitHub issues.
+**`hatch3r-codebase-map`** -- Analyze an existing codebase to reverse-engineer specifications. Spawns parallel analyzer sub-agents to discover modules, dependencies, conventions, and tech debt. Outputs structured documentation to `docs/specs/` and `docs/adr/`.
 
-**bug-plan** -- Plan a complex bug investigation. Spawns parallel researcher sub-agents (symptom tracer, root cause investigator, impact assessor, regression researcher) to diagnose ambiguous bugs where the root cause is unknown. Produces an investigation report (`docs/investigations/`) with ranked hypotheses, evidence, and reproduction strategy, plus scoped `todo.md` entries for `board-fill`. Use when reproducing is non-trivial or multiple modules might be involved.
+**`hatch3r-roadmap`** -- Generate a phased roadmap from specs or project vision. Breaks work into epics and features with dependency ordering and parallel work lane identification. Outputs to `todo.md` in `hatch3r-board-fill` format, ready for immediate board population.
 
-**refactor-plan** -- Plan a refactoring or migration effort. Spawns parallel researcher sub-agents (current state analyzer, strategy designer, impact/risk assessor, migration path planner) to design a phased execution plan. Auto-detects the refactoring dimension (structural, logical, visual, migration, or mixed) and adapts researcher prompts accordingly. Produces a refactoring spec, ADR(s), and phased `todo.md` entries mapped to the appropriate execution skill.
+**`hatch3r-feature-plan`** -- Plan a single feature in depth. Spawns parallel researcher sub-agents (codebase impact, feature design, architecture, risk & pitfalls) to break a feature idea into a detailed spec, ADR(s) when architectural decisions are involved, and structured `todo.md` entries for `hatch3r-board-fill`. Optionally chains directly into `hatch3r-board-fill` to create GitHub issues.
 
-**workflow** -- Guided development lifecycle with 4 phases: Analyze, Plan, Implement, and Review. Includes a quick mode for small tasks that skips unnecessary ceremony. Scale-adaptive -- adjusts depth based on issue complexity and scope.
+**`hatch3r-bug-plan`** -- Plan a complex bug investigation. Spawns parallel researcher sub-agents (symptom tracer, root cause investigator, impact assessor, regression researcher) to diagnose ambiguous bugs where the root cause is unknown. Produces an investigation report (`docs/investigations/`) with ranked hypotheses, evidence, and reproduction strategy, plus scoped `todo.md` entries for `hatch3r-board-fill`. Use when reproducing is non-trivial or multiple modules might be involved.
 
-**hooks** -- Interactive hook management for event-driven agent activation. View, add, remove, and test lifecycle hooks that trigger agents on specific events (e.g., post-commit, pre-push, issue assignment). Supports both local and CI hook targets.
+**`hatch3r-refactor-plan`** -- Plan a refactoring or migration effort. Spawns parallel researcher sub-agents (current state analyzer, strategy designer, impact/risk assessor, migration path planner) to design a phased execution plan. Auto-detects the refactoring dimension (structural, logical, visual, migration, or mixed) and adapts researcher prompts accordingly. Produces a refactoring spec, ADR(s), and phased `todo.md` entries mapped to the appropriate execution skill.
 
-**learn** -- Capture learnings from completed issues, code reviews, and architectural decisions into reusable knowledge files. Learnings are indexed by topic and auto-consulted when similar work is encountered in the future.
+**`hatch3r-migration-plan`** -- Plan a database or system migration with backward-compatible schema changes, idempotent migration scripts, rollback plans, data validation, and phased execution strategy. Produces migration specs and `todo.md` entries for `hatch3r-board-fill`.
 
-**context-health** -- Monitor conversation context health and detect degradation during long agent sessions. Provides metrics on token usage, context window utilization, and recommendations for when to start a fresh session.
+**`hatch3r-onboard`** -- Interactive project onboarding for new team members and AI agents. Scans the repository to build a contextual overview of project structure, conventions, key modules, and development workflow. Produces a personalized onboarding guide.
 
-**cost-tracking** -- Track token usage and estimated costs across agent workflows. Provides per-command and per-agent cost breakdowns with budget alerts.
+**`hatch3r-benchmark`** -- Run and compare benchmark suites for code performance. Captures before/after metrics, detects regressions, and produces structured reports with statistical analysis.
 
-**recipe** -- Create and manage composable workflow recipes. Recipes are reusable workflow templates that chain multiple commands and skills into repeatable sequences.
+**`hatch3r-workflow`** -- Guided development lifecycle with 4 phases: Analyze, Plan, Implement, and Review. Includes a quick mode for small tasks that skips unnecessary ceremony. Scale-adaptive -- adjusts depth based on issue complexity and scope.
 
-**agent-customize** -- Configure per-agent customization via `.customize.yaml` files. Allows project-specific agent behavior overrides without modifying managed agent definitions.
+**`hatch3r-quick-change`** -- Lightweight command for small, board-free changes (typo fixes, constant tweaks, config updates, small refactors). Parses batch input, applies soft scope guards (5 files / 200 lines threshold), classifies items as trivial (inline) or nontrivial (implementer sub-agent), runs quality checks, and optionally delegates a light review. Supports batching multiple small changes into a single commit. Sits alongside `hatch3r-workflow` as a lower-ceremony alternative.
 
-**command-customize** -- Configure per-command customization via `.customize.yaml` files. Allows project-specific command behavior overrides without modifying managed command definitions.
+**`hatch3r-revision`** -- User-guided revision of agent-implemented code in a fresh context window. Reconstructs what was done from the git diff, interviews the user for structured feedback, proactively scans for agent leftovers (dead code, TODOs, type issues), delegates fixes to specialist sub-agents (implementer, lint-fixer, test-writer), runs quality checks, commits and pushes, and assesses merge readiness. Designed for the feedback loop between implementation and merge.
 
-**skill-customize** -- Configure per-skill customization via `.customize.yaml` files. Allows project-specific skill behavior overrides without modifying managed skill definitions.
+**`hatch3r-debug`** -- Standalone debug-and-fix command. Adds strategic debug logging (`[HATCH3R-DEBUG]` prefixed) to the affected code area, pauses for the user to reproduce the issue and provide runtime logs, performs root cause analysis from the collected evidence, implements the fix, removes all debug artifacts, and runs the full review-fix-test-security pipeline. Five stages: Gather Context, Add Debug Logging, Collect Logs, Root Cause Analysis, Implement Fix. No board integration required.
 
-**rule-customize** -- Configure per-rule customization via `.customize.yaml` files. Allows project-specific rule behavior overrides without modifying managed rule definitions.
+**`hatch3r-hooks`** -- Interactive hook management for event-driven agent activation. View, add, remove, and test lifecycle hooks that trigger agents on specific events (e.g., post-commit, pre-push, issue assignment). Supports both local and CI hook targets.
+
+**`hatch3r-learn`** -- Capture learnings from completed issues, code reviews, and architectural decisions into reusable knowledge files. Learnings are indexed by topic and auto-consulted when similar work is encountered in the future.
+
+**`hatch3r-context-health`** -- Monitor conversation context health and detect degradation during long agent sessions. Provides metrics on token usage, context window utilization, and recommendations for when to start a fresh session.
+
+**`hatch3r-cost-tracking`** -- Track token usage and estimated costs across agent workflows. Provides per-command and per-agent cost breakdowns with budget alerts.
+
+**`hatch3r-recipe`** -- Create and manage composable workflow recipes. Recipes are reusable workflow templates that chain multiple commands and skills into repeatable sequences.
+
+**`hatch3r-agent-customize`** -- Configure per-agent customization via `.customize.yaml` files. Allows project-specific agent behavior overrides without modifying managed agent definitions.
+
+**`hatch3r-command-customize`** -- Configure per-command customization via `.customize.yaml` files. Allows project-specific command behavior overrides without modifying managed command definitions.
+
+**`hatch3r-skill-customize`** -- Configure per-skill customization via `.customize.yaml` files. Allows project-specific skill behavior overrides without modifying managed skill definitions.
+
+**`hatch3r-rule-customize`** -- Configure per-rule customization via `.customize.yaml` files. Allows project-specific rule behavior overrides without modifying managed rule definitions.
 
 ## Agents
 
 | Agent | Description |
 |-------|-------------|
 | **a11y-auditor** | Accessibility specialist who audits WCAG AA compliance -- keyboard navigation, color contrast, ARIA attributes, and reduced motion support. |
+| **architect** | Architecture design and review specialist who evaluates system structure, proposes improvements, and produces ADRs. |
 | **ci-watcher** | CI/CD specialist who monitors GitHub Actions runs, reads failure logs to identify root causes, and suggests focused fixes with local verification commands. |
+| **context-rules** | Dynamic context rule generation agent that creates and maintains context-aware rules based on project patterns and conventions. |
 | **dependency-auditor** | Supply chain security analyst who scans for CVEs, evaluates upgrade paths, assesses bundle size impact, and verifies lockfile integrity. |
+| **devops** | CI/CD and deployment operations specialist who manages build pipelines, infrastructure configuration, and deployment workflows. |
 | **docs-writer** | Technical writer who maintains specs, ADRs, glossary, and process documentation, keeping them in sync with code changes. |
 | **implementer** | Focused implementation agent for a single sub-issue. Receives issue context from a parent orchestrator, delivers code and tests, and reports structured results. Does not handle git or board operations. |
+| **learnings-loader** | Load and apply project learnings from the knowledge base to provide relevant context for current development tasks. |
 | **lint-fixer** | Code quality enforcer who fixes ESLint, Prettier, and TypeScript strict mode violations without changing logic. Removes dead code and unused imports. |
 | **perf-profiler** | Performance engineer who profiles runtime performance, analyzes bundle size, identifies memory leaks, and benchmarks against defined performance budgets. |
 | **researcher** | Research specialist who performs deep investigation on assigned topics using parallel analysis. Used as a sub-agent by planning commands (project-spec, feature-plan, bug-plan, refactor-plan). |
 | **reviewer** | Senior code reviewer who checks for correctness, security, privacy invariants, performance regressions, and accessibility. Outputs structured feedback by priority (critical, warning, suggestion). |
+| **fixer** | Targeted fix agent that takes structured reviewer output (Critical and Warning findings) and implements minimal, focused fixes. Operates in the review loop between reviewer iterations. |
 | **security-auditor** | Security analyst who audits database rules, cloud functions, and data flows. Verifies privacy invariants, writes security rules tests, and validates entitlement enforcement. |
 | **test-writer** | QA engineer who writes deterministic, isolated tests -- unit, integration, E2E, security rules, and contract tests. Focuses on edge cases and regression coverage. |
 
@@ -229,8 +276,10 @@ These commands are invoked inside your coding tool (e.g., as Cursor commands):
 |-------|-------------|
 | **a11y-audit** | Comprehensive WCAG AA audit with automated scanning, manual verification, and fix implementation. |
 | **agent-customize** | Configure per-agent customization via `.customize.yaml` files. |
+| **api-spec** | API specification generation from project requirements, producing OpenAPI/Swagger specs with endpoint definitions, schemas, and documentation. |
 | **architecture-review** | Evaluate architectural decisions, compare options with pros/cons, and produce ADRs following the project template. |
 | **bug-fix** | Diagnose root cause, implement minimal fix, and write a regression test that fails before the fix. TDD/test-first workflow option. |
+| **ci-pipeline** | CI/CD pipeline setup and configuration for GitHub Actions, including build, test, lint, and deploy workflows. |
 | **command-customize** | Configure per-command customization via `.customize.yaml` files. |
 | **context-health** | Monitor conversation context health and detect degradation during long sessions. |
 | **cost-tracking** | Track token usage and estimated costs across agent workflows. |
@@ -240,6 +289,7 @@ These commands are invoked inside your coding tool (e.g., as Cursor commands):
 | **incident-response** | Structured triage, mitigation, root cause analysis, and post-mortem for production incidents with follow-up issues. |
 | **issue-workflow** | 8-step development workflow for GitHub issues: parse, load skill, read specs, plan, implement, test, PR, address review. |
 | **logical-refactor** | Change business logic or data flows without adding features, with explicit invariant tracking and verification. |
+| **migration** | Database and system migration planning with backward-compatible schema changes, rollback plans, and phased execution. |
 | **perf-audit** | Profile and optimize against defined performance budgets with before/after measurements for every change. |
 | **pr-creation** | Create pull requests following project conventions -- branch naming, PR template, self-review checklist, and size guidelines. |
 | **qa-validation** | E2E validation workflow producing structured pass/fail reports with evidence and ship/hold recommendations. |
@@ -254,13 +304,16 @@ These commands are invoked inside your coding tool (e.g., as Cursor commands):
 
 | Rule | Description |
 |------|-------------|
+| **accessibility-standards** | WCAG AA compliance, ARIA, focus management, color contrast, keyboard and screen reader support, and inclusive design. |
 | **agent-orchestration** | Agent delegation patterns, sub-agent spawning conventions, result aggregation, and multi-agent coordination protocols. |
 | **api-design** | Endpoint versioning, request validation, idempotency keys, structured error responses, auth, CORS, CSP, pagination, and webhook security. |
 | **browser-verification** | When and how to verify UI changes in the browser via automation MCP — dev server lifecycle, navigation, interaction, visual regression, screenshot evidence. |
+| **ci-cd** | CI/CD pipeline standards, build caching, artifact management, deployment gates, and rollback procedures. |
 | **code-standards** | TypeScript strict mode, naming conventions (`camelCase`/`PascalCase`/`SCREAMING_SNAKE`), and function/file length limits. |
 | **component-conventions** | Component structure, typed props/emits, design tokens, WCAG AA accessibility, loading/error/empty states, form UX, and 60fps render targets. |
+| **data-classification** | Data sensitivity levels, PII handling, encryption requirements, retention policies, and cross-border compliance. |
+| **deep-context** | Deep context retrieval, codebase understanding, and efficient context management for AI agents. |
 | **dependency-management** | Lockfile hygiene, new-dependency justification, CVE patching timelines (48h for critical), and bundle size budgets. |
-| **error-handling** | Structured error hierarchy, typed error codes, exponential backoff for retries, and correlation IDs for tracing. |
 | **feature-flags** | Flag naming (`FF_AREA_FEATURE`), storage, evaluation, gradual rollout, dependencies, kill switches, 30-day cleanup deadlines, and audit. |
 | **git-conventions** | Git workflow, branch naming, commit message conventions, and merge strategy. |
 | **i18n** | Internationalization, RTL support, locale management, and ICU message format. |
@@ -268,6 +321,7 @@ These commands are invoked inside your coding tool (e.g., as Cursor commands):
 | **migrations** | Backward-compatible schema changes, idempotent scripts, rollback plans, and deploy-then-migrate ordering. |
 | **observability** | Structured JSON logging, OpenTelemetry, SLO/SLI, distributed tracing, alerting, dashboards, and no PII in logs. |
 | **performance-budgets** | Core Web Vitals, API latency, database query budgets, bundle size, and enforcement mechanisms. |
+| **secrets-management** | Secret rotation, vault integration, environment variable handling, and credential lifecycle management. |
 | **security-patterns** | Input validation, output encoding, auth enforcement, AI/agentic security, and OWASP alignment. |
 | **testing** | Deterministic, isolated, fast tests with clear naming, regression coverage, no network in unit tests, no `any`. |
 | **theming** | Dark mode, `prefers-color-scheme`, CSS custom properties, and semantic color tokens. |
@@ -275,13 +329,14 @@ These commands are invoked inside your coding tool (e.g., as Cursor commands):
 
 ## Board Management
 
-hatch3r includes a complete board management system for GitHub-based workflows:
+hatch3r includes a complete board management system supporting GitHub, Azure DevOps, and GitLab:
 
-- **board-init** -- Create or connect a GitHub Projects V2 board with status fields, label taxonomy, and optional migration
-- **board-fill** -- Parse `todo.md`, create epics/issues, deduplicate, analyze dependencies, set implementation order
-- **board-pickup** -- Auto-pick the next best issue, check collisions, delegate to sub-agents, create PRs
-- **board-refresh** -- Regenerate the board overview dashboard with current state, health metrics, and model recommendations
-- **board-shared** -- Configurable shared context (org, repo, project board IDs, label taxonomy)
+- **`hatch3r-board-init`** -- Create or connect a GitHub Projects V2 board with status fields, label taxonomy, and optional migration
+- **`hatch3r-board-fill`** -- Parse `todo.md`, create epics/issues, deduplicate, analyze dependencies, set implementation order
+- **`hatch3r-board-groom`** -- Ongoing backlog refinement: re-prioritize, reclassify, re-scope, archive stale items, decompose, merge duplicates, refresh dependencies
+- **`hatch3r-board-pickup`** -- Auto-pick the next best issue, check collisions, delegate to sub-agents, create PRs
+- **`hatch3r-board-refresh`** -- Regenerate the board overview dashboard with current state, health metrics, and model recommendations
+- **`hatch3r-board-shared`** -- Configurable shared context (org, repo, project board IDs, label taxonomy)
 
 Configure your board in `hatch.json`:
 
@@ -312,7 +367,9 @@ See [docs/model-selection.md](docs/model-selection.md) for the full guide, alias
 
 hatch3r includes a proven sub-agentic delegation system:
 
+- **Four-phase pipeline** -- Research → Implement → Review Loop (reviewer + fixer, max 3 iterations) → Final Quality (testing + security)
 - **Implementer agent** -- Receives a single sub-issue, delivers code + tests, reports back
+- **Fixer agent** -- Takes reviewer findings and implements targeted fixes in the review loop
 - **Issue workflow skill** -- 8-step structured workflow with parallel sub-agent delegation for epics
 - **Board pickup** -- Dependency-aware auto-pick with collision detection and sub-agent orchestration
 - **Tooling hierarchy** -- Project docs > Codebase search > Library docs (Context7) > Web research
@@ -397,12 +454,11 @@ hatch3r uses a naming convention to separate managed from custom files:
 - `hatch3r-*` files are managed by hatch3r
 - Files without the prefix are your customizations and are never touched
 
-**All hatch3r-generated markdown files** (rules, agents, skills, commands, bridge files, shared instruction files like `AGENTS.md`, `CLAUDE.md`, `.windsurfrules`) use managed blocks. Only the content between `<!-- HATCH3R:BEGIN -->` and `<!-- HATCH3R:END -->` is updated on `hatch3r sync` or `hatch3r update`. Content you add outside these markers is preserved. Config files (JSON, TOML, YAML) are fully regenerated.
+**All hatch3r-generated markdown files** (rules, agents, skills, commands, bridge files, shared instruction files like `AGENTS.md`, `CLAUDE.md`, `.windsurfrules`) use managed blocks. Bridge files are emitted by 11 adapters: Cursor, Claude, Copilot, Cline, Codex, Gemini, Windsurf, Amp, OpenCode, Aider, Kiro. Only the content between `<!-- HATCH3R:BEGIN -->` and `<!-- HATCH3R:END -->` is updated on `hatch3r sync` or `hatch3r update`. Content you add outside these markers is preserved. Config files (JSON, TOML, YAML) are fully regenerated.
 
 ```
 .cursor/rules/
   hatch3r-code-standards.mdc     # Managed — add custom content outside the block
-  hatch3r-error-handling.mdc     # Managed — add custom content outside the block
   my-project-conventions.mdc     # Custom — never touched
 ```
 
@@ -427,10 +483,15 @@ Community pack support is coming soon.
 
 ## Documentation
 
+Full documentation is available in the [Docusaurus docs site](docs-site/) (`cd docs-site && npm start`).
+
 - [MCP Setup](docs/mcp-setup.md) — Connecting MCP servers and managing secrets
 - [Adapter Capability Matrix](docs/adapter-capability-matrix.md) — Per-tool support and output paths
+- [Agent Teams](docs/agent-teams.md) — Multi-agent team coordination and delegation patterns
 - [Model Selection](docs/model-selection.md) — Configuring AI models per agent
+- [Agentic Process](docs/agentic-process.md) — Visual diagrams of init flow, board workflow, and agent orchestration
 - [Troubleshooting](docs/troubleshooting.md) — Common issues and solutions
+- [Changelog](CHANGELOG.md) — Release history
 
 ## License
 

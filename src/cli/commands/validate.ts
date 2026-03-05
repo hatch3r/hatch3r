@@ -3,7 +3,9 @@ import { join, posix } from "node:path";
 import chalk from "chalk";
 import { parse as parseYaml } from "yaml";
 import { readManifest } from "../../manifest/hatchJson.js";
-import { AGENTS_DIR, HATCH3R_PREFIX } from "../../types.js";
+import { isValidHookEvent } from "../../hooks/types.js";
+import { AGENTS_DIR, HATCH3R_PREFIX, HatchError } from "../../types.js";
+import { scanForDeniedPatterns } from "../../adapters/customization.js";
 import {
   printBanner,
   createSpinner,
@@ -11,6 +13,13 @@ import {
   error as logError,
   warn,
 } from "../shared/ui.js";
+
+const KNOWN_AGENTS = new Set([
+  "hatch3r-a11y-auditor", "hatch3r-architect", "hatch3r-ci-watcher", "hatch3r-context-rules",
+  "hatch3r-dependency-auditor", "hatch3r-devops", "hatch3r-docs-writer", "hatch3r-fixer",
+  "hatch3r-implementer", "hatch3r-learnings-loader", "hatch3r-lint-fixer", "hatch3r-perf-profiler",
+  "hatch3r-researcher", "hatch3r-reviewer", "hatch3r-security-auditor", "hatch3r-test-writer",
+]);
 
 interface ValidationResult {
   errors: string[];
@@ -29,11 +38,12 @@ export async function validateCommand(): Promise<void> {
 
   try {
     await access(agentsDir);
-  } catch {
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
     spinner.fail("Validation failed");
     logError(".agents/ directory not found. Run `hatch3r init` first.");
     console.log();
-    process.exit(1);
+    throw new HatchError(".agents/ directory not found.", 1);
   }
 
   const manifest = await readManifest(rootDir);
@@ -46,7 +56,8 @@ export async function validateCommand(): Promise<void> {
     for (const managedFile of manifest.managedFiles ?? []) {
       try {
         await access(join(rootDir, managedFile));
-      } catch {
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
         result.warnings.push(`Managed file missing from disk: ${managedFile}`);
       }
     }
@@ -58,7 +69,8 @@ export async function validateCommand(): Promise<void> {
   for (const dir of requiredDirs) {
     try {
       await access(join(agentsDir, dir));
-    } catch {
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
       result.errors.push(`Required directory missing: .agents/${dir}/`);
     }
   }
@@ -66,7 +78,8 @@ export async function validateCommand(): Promise<void> {
   for (const dir of optionalDirs) {
     try {
       await access(join(agentsDir, dir));
-    } catch {
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
       result.warnings.push(`Optional directory missing: .agents/${dir}/`);
     }
   }
@@ -100,19 +113,21 @@ export async function validateCommand(): Promise<void> {
           const skillPath = join(dirPath, entry.name, "SKILL.md");
           try {
             await access(skillPath);
-          } catch {
+          } catch (err) {
+            if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
             result.warnings.push(`Skill directory missing SKILL.md: .agents/${dir}/${entry.name}/`);
           }
         }
       }
-    } catch {
-      // already reported
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
     }
   }
 
   try {
     await access(join(agentsDir, "AGENTS.md"));
-  } catch {
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
     result.warnings.push("Missing .agents/AGENTS.md");
   }
 
@@ -140,8 +155,8 @@ export async function validateCommand(): Promise<void> {
         try {
           const agentEntries = await readdir(join(agentsDir, "agents"));
           agentFiles = new Set(agentEntries.filter(f => f.endsWith(".md")));
-        } catch {
-          // agents dir unreadable; skip agent-ref validation
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
         }
 
         for (const hookFile of mdHooks) {
@@ -153,14 +168,26 @@ export async function validateCommand(): Promise<void> {
           const endIdx = hookContent.indexOf("---", 3);
           if (endIdx === -1) continue;
           const fm = parseYaml(hookContent.slice(3, endIdx).trim()) as Record<string, unknown> | null;
+          if (fm?.event && typeof fm.event === "string") {
+            if (!isValidHookEvent(fm.event)) {
+              result.errors.push(`Hook "${hookFile}" has invalid event "${fm.event}". Valid events: pre-commit, post-merge, ci-failure, file-save, session-start, pre-push`);
+            }
+          }
           if (fm?.agent && typeof fm.agent === "string" && agentFiles) {
-            const expectedFile = `${HATCH3R_PREFIX}${fm.agent}.md`;
+            const agentName = typeof fm.agent === "string" && fm.agent.startsWith(HATCH3R_PREFIX)
+              ? fm.agent
+              : `${HATCH3R_PREFIX}${fm.agent}`;
+            const expectedFile = `${agentName}.md`;
             if (!agentFiles.has(expectedFile)) {
               result.errors.push(`Hook "${hookFile}" references agent "${fm.agent}" but .agents/agents/${expectedFile} does not exist`);
             }
+            if (!KNOWN_AGENTS.has(agentName)) {
+              result.warnings.push(`Hook "${hookFile}" references agent "${fm.agent}" which is not in the standard hatch3r agent roster`);
+            }
           }
         }
-      } catch {
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
         result.warnings.push("Hooks feature enabled but .agents/hooks/ directory not found");
       }
     }
@@ -195,22 +222,52 @@ export async function validateCommand(): Promise<void> {
       }
     }
 
-    const customizeDir = join(rootDir, ".hatch3r", "agents");
+    const customizationTypes = [
+      { dir: "agents", canonical: "agents" },
+      { dir: "commands", canonical: "commands" },
+      { dir: "skills", canonical: "skills" },
+      { dir: "rules", canonical: "rules" },
+    ];
+
+    for (const { dir, canonical } of customizationTypes) {
+      const customDir = join(rootDir, ".hatch3r", dir);
+      try {
+        const customFiles = await readdir(customDir);
+        for (const file of customFiles) {
+          if (file.endsWith(".customize.yaml")) {
+            const itemId = file.replace(".customize.yaml", "");
+            const canonicalPath = canonical === "skills"
+              ? join(agentsDir, canonical, itemId)
+              : join(agentsDir, canonical, `${itemId}.md`);
+            try {
+              await access(canonicalPath);
+            } catch (err) {
+              if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+              result.warnings.push(`Customization file for non-existent ${canonical.slice(0, -1)}: .hatch3r/${dir}/${file}`);
+            }
+          }
+        }
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+      }
+    }
+
+    // Validate learnings for denied patterns
+    const learningsDir = join(agentsDir, "learnings");
     try {
-      const customizeFiles = await readdir(customizeDir);
-      for (const file of customizeFiles) {
-        if (file.endsWith(".customize.yaml")) {
-          const agentId = file.replace(".customize.yaml", "");
-          const agentFile = join(agentsDir, "agents", `${agentId}.md`);
-          try {
-            await access(agentFile);
-          } catch {
-            result.warnings.push(`Customization file for non-existent agent: .hatch3r/agents/${file}`);
+      const learningFiles = await readdir(learningsDir);
+      const mdFiles = learningFiles.filter(f => f.endsWith(".md"));
+      for (const file of mdFiles) {
+        const content = await readFile(join(learningsDir, file), "utf-8");
+        const violations = scanForDeniedPatterns(content);
+        if (violations.length > 0) {
+          for (const v of violations) {
+            result.warnings.push(`Learning file "${file}" contains suspicious content: ${v}`);
           }
         }
       }
-    } catch {
-      // No customization directory
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
     }
   }
 
@@ -243,7 +300,7 @@ export async function validateCommand(): Promise<void> {
       `${chalk.yellow("⚠")} ${result.warnings.length} warning(s)`,
     ];
     printBox("Validation failed", summaryLines, "error");
-    process.exit(1);
+    throw new HatchError("Validation failed", 1);
   } else {
     const summaryLines = [
       `${chalk.green("✔")} 0 errors`,

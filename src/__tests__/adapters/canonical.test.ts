@@ -95,19 +95,22 @@ describe("readCanonicalFiles", () => {
     it("should read agents from agents/ directory", async () => {
       const results = await readCanonicalFiles(FIXTURES_DIR, "agents");
 
-      expect(results.length).toBe(1);
-      expect(results[0]!.id).toBe("test-agent");
-      expect(results[0]!.type).toBe("agent");
-      expect(results[0]!.description).toBe("A test agent for unit testing");
+      expect(results.length).toBe(2);
+      const ids = results.map((r) => r.id);
+      expect(ids).toContain("test-agent");
+      expect(ids).toContain("readonly-agent");
+      for (const r of results) {
+        expect(r.type).toBe("agent");
+      }
     });
 
     it("should include rawContent and sourcePath", async () => {
       const results = await readCanonicalFiles(FIXTURES_DIR, "agents");
+      const testAgent = results.find((r) => r.id === "test-agent")!;
 
-      expect(results[0]!.rawContent).toContain("---");
-      expect(results[0]!.rawContent).toContain("id: test-agent");
-      // Cross-platform: Windows uses backslashes, Unix uses forward slashes
-      expect(results[0]!.sourcePath).toMatch(/agents[\\/]test-agent\.md$/);
+      expect(testAgent.rawContent).toContain("---");
+      expect(testAgent.rawContent).toContain("id: test-agent");
+      expect(testAgent.sourcePath).toMatch(/agents[\\/]test-agent\.md$/);
     });
 
     it("should handle empty agents directory", async () => {
@@ -260,6 +263,22 @@ describe("readCanonicalFiles", () => {
       const results = await readCanonicalFiles(dir, "rules");
       expect(results.length).toBe(1);
       expect(results[0]!.id).toBe("empty-fm");
+    });
+
+    it("should parse readonly and background boolean fields", async () => {
+      const dir = await createTempAgentsDir();
+      await mkdir(join(dir, "agents"), { recursive: true });
+      await writeFile(
+        join(dir, "agents", "ro-agent.md"),
+        "---\nid: ro-agent\ntype: agent\ndescription: Test readonly\nreadonly: true\nbackground: true\n---\n# RO Agent",
+      );
+
+      const results = await readCanonicalFiles(dir, "agents");
+      expect(results.length).toBe(1);
+      const agent = results[0]!;
+      expect(agent.id).toBe("ro-agent");
+      expect(agent.readonly).toBe(true);
+      expect(agent.background).toBe(true);
     });
 
     it("should preserve rawContent with frontmatter intact", async () => {

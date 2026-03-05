@@ -73,14 +73,34 @@ describe("CursorAdapter", () => {
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
     const agents = outputs.filter((o) => o.path.startsWith(".cursor/agents/"));
-    expect(agents.length).toBe(1);
+    expect(agents.length).toBe(2);
 
-    const agent = agents[0]!;
-    expect(agent.path).toBe(".cursor/agents/hatch3r-test-agent.md");
+    const agent = agents.find((o) => o.path === ".cursor/agents/hatch3r-test-agent.md")!;
+    expect(agent).toBeDefined();
     expect(agent.content).toContain("name: test-agent");
     expect(agent.content).toContain("description: A test agent for unit testing");
     expect(agent.content).toContain("You are a test agent");
     expect(agent.managedContent).toBeDefined();
+  });
+
+  it("emits readonly and background in agent frontmatter when set", async () => {
+    const manifest = makeManifest();
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const roAgent = outputs.find((o) => o.path === ".cursor/agents/hatch3r-readonly-agent.md");
+    expect(roAgent).toBeDefined();
+    expect(roAgent!.content).toContain("readonly: true");
+    expect(roAgent!.content).toContain("background: true");
+    expect(roAgent!.content).toContain("name: readonly-agent");
+  });
+
+  it("omits readonly and background when not set on agent", async () => {
+    const manifest = makeManifest();
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const agent = outputs.find((o) => o.path === ".cursor/agents/hatch3r-test-agent.md")!;
+    expect(agent.content).not.toContain("readonly:");
+    expect(agent.content).not.toContain("background:");
   });
 
   it("emits model from customization file when present", async () => {
@@ -180,6 +200,18 @@ You are a test agent.`,
     expect(bridge!.content).toContain("Mandatory Behaviors");
     expect(bridge!.content).toContain("Agent Quick Reference");
     expect(bridge!.managedContent).toBeDefined();
+  });
+
+  it("bridge includes Cursor v2.5+ subagent configuration guidance", async () => {
+    const manifest = makeManifest();
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const bridge = outputs.find((o) => o.path === ".cursor/rules/hatch3r-bridge.mdc");
+    expect(bridge).toBeDefined();
+    expect(bridge!.content).toContain("Cursor Subagent Configuration (v2.5+)");
+    expect(bridge!.content).toContain("up to 4 subagents");
+    expect(bridge!.content).toContain("readonly");
+    expect(bridge!.content).toContain("background");
   });
 
   it("skips rules when features.rules is false", async () => {

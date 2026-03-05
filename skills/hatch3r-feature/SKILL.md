@@ -25,6 +25,8 @@ Task Progress:
 - Parse the issue body: problem/goal, proposed solution, acceptance criteria, scope (in/out), UX notes, edge cases, security considerations, rollout plan.
 - Read relevant project documentation (glossary, user flows, behavior, event model, data model, privacy, monetization, as applicable).
 - Review existing code patterns in the affected area.
+- **Review reference implementations**: If the orchestrator provided `similar-implementation` researcher output, read the reference implementations and their extracted conventions. These define the patterns this feature should follow (file structure, state management, error handling, data fetching, test structure, component composition).
+- **Review resolved requirements**: If the orchestrator provided `requirements-elicitation` answers, read them to understand explicit user decisions on ambiguities (data shape, error behavior, UI states, security model, etc.). Do not guess when explicit answers are available.
 - For external library docs and current best practices, follow the project's tooling hierarchy.
 
 ## Step 2: Implementation Plan
@@ -32,6 +34,7 @@ Task Progress:
 Before coding, output:
 
 - **Approach:** high-level strategy
+- **Convention alignment:** which reference implementation's patterns this follows (from `similar-implementation` output), with divergences noted and justified. If no reference was provided, note "no reference — using best judgment from codebase conventions."
 - **Files to create/modify:** list with what changes
 - **Data model changes:** new collections/fields, if any
 - **Event changes:** new event types, if any
@@ -62,6 +65,7 @@ Use standard flow (implement → test) when:
 ## Step 3: Implement
 
 - Deliver a complete vertical slice (data -> logic -> UI).
+- Follow the convention lock from Step 1 / the implementer's Step 1b — match the reference implementation's patterns for file structure, state management, error handling, data fetching, and testing. Do not invent new patterns when established ones exist in the codebase.
 - Use stable IDs from the project glossary.
 - If database/backend data is needed, include security rules updates.
 - If feature is gated, enforce entitlements client-side AND server-side.
@@ -105,10 +109,12 @@ Use the project's PR template. Include:
 
 ## Required Agent Delegation
 
+> **Note:** When this skill is invoked via the orchestration pipeline (board-pickup or workflow commands), skip this section — the orchestrator handles agent delegation in Phases 3 and 4.
+
 You MUST spawn these agents via the Task tool (`subagent_type: "generalPurpose"`) at the appropriate points:
 
-- **`hatch3r-researcher`** — MUST spawn before implementation with modes `codebase-impact`, `feature-design`, `architecture`. Skip only for trivially simple features (`risk:low` AND `priority:p3`).
-- **`hatch3r-implementer`** — MUST spawn one per sub-issue when the feature is decomposed into multiple tasks. Each implementer receives its own sub-issue context.
+- **`hatch3r-researcher`** — MUST spawn before implementation with modes `codebase-impact`, `feature-design`, `architecture`. For Tier 2+ tasks (per `hatch3r-deep-context`), also include `similar-implementation` and `requirements-elicitation`. Skip only for trivially simple features (`risk:low` AND `priority:p3`).
+- **`hatch3r-implementer`** — MUST spawn one per sub-issue when the feature is decomposed into multiple tasks. Each implementer receives its own sub-issue context, plus reference conventions and resolved requirements from the researcher output.
 - **`hatch3r-reviewer`** — MUST spawn after implementation for code review before PR creation.
 
 ## Related Skills

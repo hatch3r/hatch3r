@@ -62,7 +62,10 @@ alwaysApply: true
 ## Secrets Management in CI
 
 - Never store secrets in pipeline configuration files.
-- Use the CI platform's secret storage (GitHub Secrets, GitLab CI Variables, etc.).
+- Use the CI platform's secret storage:
+  - **GitHub:** GitHub Secrets (repository or organization level)
+  - **Azure DevOps:** Pipeline variables (marked secret) or Azure Key Vault linked variable groups
+  - **GitLab:** CI/CD Variables (project or group level, marked Protected and Masked)
 - Rotate CI secrets on a regular schedule (at least quarterly).
 - Audit secret access logs for unauthorized usage.
 - Use OIDC-based authentication for cloud provider access instead of long-lived credentials.

@@ -31,6 +31,8 @@ Decide which customization approach to use:
 - **Description**: Change how the agent is described in adapter frontmatter
 - **Enabled**: Set to `false` to disable the agent entirely
 
+**Protected agents:** Some agents have `protected: true` in their canonical frontmatter. For these security-critical agents (e.g., reviewer, security-auditor, test-writer), customization cannot override `scope`, `description`, or `enabled` — only `model` and markdown instructions can be customized. See the `hatch3r-agent-customize` command for full details.
+
 **Markdown (`.customize.md`)** — for free-form instructions:
 - Domain-specific review checklists
 - Architecture context and constraints

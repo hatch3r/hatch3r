@@ -1,7 +1,7 @@
 ---
 id: hatch3r-context-rules
 description: Context-aware rules engine that applies coding standards based on file type, location, and project conventions. Use when enforcing project rules on save or reviewing files against established patterns.
-model: haiku
+model: fast
 ---
 You are a context-aware rules engine for the project.
 
@@ -36,7 +36,10 @@ Adapt to the project's actual directory structure and rule definitions.
 
 ## External Knowledge
 
-Follow the tooling hierarchy (specs > codebase > Context7 MCP > web research). Prefer `gh` CLI over GitHub MCP tools.
+Follow the tooling hierarchy (specs > codebase > Context7 MCP > web research). Use the project's configured platform CLI (check `platform` in `.agents/hatch.json`):
+- **GitHub:** `gh` CLI
+- **Azure DevOps:** `az devops` / `az boards` / `az repos` CLI
+- **GitLab:** `glab` CLI
 
 ## Output Format
 

@@ -3,6 +3,15 @@ id: hatch3r-bug-plan
 type: command
 description: Plan a complex bug investigation -- spawn parallel researchers, produce diagnosis report with ranked hypotheses and structured todo.md entries for board-fill.
 ---
+
+## Agent Pipeline
+
+| Stage | Agent(s) | Parallel | Required |
+|-------|----------|----------|----------|
+| 1. Research | `hatch3r-researcher` (4 parallel: symptom-trace, root-cause, impact-analysis, regression) | Yes | Yes |
+| 2. Document Generation | `hatch3r-docs-writer` (investigation report, ADRs) | Yes | Yes |
+| 3. Todo Generation | Orchestrator (inline) | No | Yes |
+
 # Bug Plan — Complex Bug Investigation from Symptom to Board-Ready Fix Items
 
 Take a complex or ambiguous bug report and produce a structured investigation report (`docs/investigations/`), architectural decision records (`docs/adr/`) when the fix requires significant design choices, and structured `todo.md` entries (scoped fix items) ready for `hatch3r-board-fill`. Spawns parallel researcher sub-agents (symptom tracing, root cause investigation, impact assessment, regression research) to diagnose the bug from multiple angles before generating artifacts. AI proposes all outputs; user confirms before any files are written. Optionally chains into `hatch3r-board-fill` to create GitHub issues immediately.
@@ -66,10 +75,10 @@ Bug Brief:
    - `docs/adr/` — architectural decision records (scan for decisions relevant to the affected area)
    - `docs/investigations/` — prior investigation reports (check for related or recurring bugs)
    - `README.md` — project overview
-   - `/.agents/hatch.json` — board configuration
+   - `.agents/hatch.json` — board configuration
    - Existing `todo.md` — current backlog (check for overlap or related items)
 2. Scan GitHub issues via `search_issues` for existing work related to the bug. Note duplicates, related bugs, or prior investigations.
-3. If `/.agents/learnings/` exists, scan for learnings relevant to the affected area. Match by area and tags against the bug brief.
+3. If `.agents/learnings/` exists, scan for learnings relevant to the affected area. Match by area and tags against the bug brief.
 4. Present a context summary:
 
 ```
@@ -103,8 +112,11 @@ Spawn one sub-agent per research domain below concurrently, each following the *
 | 2 | `root-cause` | Rank hypotheses by likelihood, identify code smells, analyze dependencies |
 | 3 | `impact-analysis` | Map blast radius, affected flows/modules, data integrity risk, related symptoms |
 | 4 | `regression` | Analyze git history, dependency changes, identify introduction window |
+| 5 | `requirements-elicitation` | Detect ambiguities in the bug report — missing reproduction details, unclear expected behavior, unstated assumptions about environment or data state |
 
 Each sub-agent produces the structured output defined by its mode in the hatch3r-researcher agent specification.
+
+The `requirements-elicitation` sub-agent is particularly valuable for complex bugs because bug reports often contain ambiguous symptoms, unclear expected behavior, or missing environment/data context. Its structured questions help resolve unknowns before the investigation report is generated, reducing the chance of investigating the wrong hypothesis.
 
 Wait for all sub-agents to complete before proceeding.
 
@@ -389,7 +401,7 @@ If yes, instruct the user to invoke the `hatch3r-board-fill` command. Note that 
 - **Sub-agent failure:** Retry the failed sub-agent once. If it fails again, present partial results from the remaining sub-agents and ask the user how to proceed (continue without that researcher's input / provide the missing information manually / abort).
 - **Conflicting researcher outputs:** Present both options side by side with trade-offs. Ask the user to decide. Do not silently pick one.
 - **File write failure:** Report the error and provide the full file content so the user can create the file manually.
-- **Missing project context:** If no `hatch3r-board-shared` or `/.agents/hatch.json` exists, proceed without board context — this command does not require board configuration.
+- **Missing project context:** If no `hatch3r-board-shared` or `.agents/hatch.json` exists, proceed without board context — this command does not require board configuration.
 - **No existing specs or docs:** Proceed without spec references. Warn that the investigation will be less contextualized without existing project documentation. Recommend running `hatch3r-project-spec` or `hatch3r-codebase-map` first for best results.
 - **Duplicate detection:** If the bug overlaps significantly with existing todo.md items, GitHub issues, or prior investigation reports found in Step 2, present the overlap and ASK whether to proceed (augment existing / replace / abort).
 - **No clear root cause:** If all hypotheses are low-confidence, state this clearly. Recommend a focused debugging session (using `hatch3r-bug-fix` skill with the top hypothesis) rather than generating speculative fix items. ASK the user how to proceed.

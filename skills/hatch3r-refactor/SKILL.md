@@ -23,6 +23,8 @@ Task Progress:
 - Read project quality standards documentation.
 - Read specs for the area being refactored.
 - Review all existing tests — every one must still pass after refactoring.
+- **Review reference implementations**: If the orchestrator provided `similar-implementation` researcher output, read the reference implementations and their extracted conventions. The refactored code should align with these established codebase patterns.
+- **Review resolved requirements**: If the orchestrator provided `requirements-elicitation` answers, use them to understand explicit user decisions on behavioral invariants and scope.
 - For external library docs and current best practices, follow the project's tooling hierarchy.
 
 ## Step 2: Refactor Plan
@@ -31,6 +33,7 @@ Before changing code, output:
 
 - **Goal:** what improves (readability, performance, maintainability)
 - **Strategy:** how the refactor works
+- **Convention alignment:** which reference implementation's patterns the refactored code will follow (from `similar-implementation` output), with divergences noted. If no reference was provided, note "using existing codebase conventions."
 - **Files to modify:** list with what changes
 - **Behavioral invariant:** what must NOT change
 - **Risk assessment:** what could go wrong, how to detect
@@ -65,9 +68,11 @@ Use the project's PR template. Include:
 
 ## Required Agent Delegation
 
+> **Note:** When this skill is invoked via the orchestration pipeline (board-pickup or workflow commands), skip this section — the orchestrator handles agent delegation in Phases 3 and 4.
+
 You MUST spawn these agents via the Task tool (`subagent_type: "generalPurpose"`) at the appropriate points:
 
-- **`hatch3r-researcher`** — MUST spawn before implementation with modes `current-state`, `refactoring-strategy`, `migration-path`. Skip only for trivially simple refactors (`risk:low` AND `priority:p3`).
+- **`hatch3r-researcher`** — MUST spawn before implementation with modes `current-state`, `refactoring-strategy`, `migration-path`. For Tier 2+ tasks (per `hatch3r-deep-context`), also include `similar-implementation` (refactors benefit most from convention alignment — ensures the refactored code follows established patterns) and `requirements-elicitation`. Skip only for trivially simple refactors (`risk:low` AND `priority:p3`).
 - **`hatch3r-reviewer`** — MUST spawn after implementation for code review, verifying behavioral preservation.
 
 ## Related Skills

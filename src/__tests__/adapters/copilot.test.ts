@@ -1,4 +1,7 @@
 import { describe, it, expect } from "vitest";
+import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { CopilotAdapter } from "../../adapters/copilot.js";
 import { createManifest } from "../../manifest/hatchJson.js";
 import type { HatchManifest } from "../../types.js";
@@ -10,13 +13,16 @@ const FIXTURES_DIR = resolveTestPath(import.meta.url, "../fixtures/agents");
 describe("CopilotAdapter", () => {
   const adapter = new CopilotAdapter();
 
-  function makeManifest(overrides: Partial<Parameters<typeof createManifest>[0]> = {}): HatchManifest {
-    return createManifest({
+  function makeManifest(
+    overrides: Partial<Parameters<typeof createManifest>[0]> & { models?: HatchManifest["models"] } = {},
+  ): HatchManifest {
+    const { models, ...createOpts } = overrides;
+    const base = createManifest({
       tools: ["copilot"],
-
       mcpServers: ["github"],
-      ...overrides,
+      ...createOpts,
     });
+    return models ? { ...base, models } : base;
   }
 
   it("has correct name", () => {
@@ -78,7 +84,7 @@ describe("CopilotAdapter", () => {
     const setupSteps = outputs.find((o) => o.path === ".github/workflows/copilot-setup-steps.yml");
     expect(setupSteps).toBeDefined();
     expect(setupSteps!.content).toContain("jobs:");
-    expect(setupSteps!.content).toContain("npm ci");
+    expect(setupSteps!.content).toContain("npm install");
     expect(setupSteps!.content).toContain("npm run build");
   });
 
@@ -107,7 +113,7 @@ describe("CopilotAdapter", () => {
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
     const agentFiles = outputs.filter((o) => o.path.startsWith(".github/agents/"));
-    expect(agentFiles.length).toBe(1);
+    expect(agentFiles.length).toBe(2);
 
     const regularAgent = agentFiles.find((a) => a.path.includes("test-agent"));
     expect(regularAgent).toBeDefined();
@@ -209,6 +215,45 @@ describe("CopilotAdapter", () => {
 
     const agentFiles = outputs.filter((o) => o.path.startsWith(".github/agents/"));
     expect(agentFiles.length).toBe(0);
+  });
+
+  it("emits model from customization file when present", async () => {
+    const manifest = makeManifest();
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const agentFile = outputs.find((o) => o.path === ".github/agents/hatch3r-test-agent.agent.md");
+    expect(agentFile).toBeDefined();
+    expect(agentFile!.content).toContain("model: claude-sonnet-4-6");
+  });
+
+  it("emits model in agent YAML frontmatter when configured via manifest", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-model-"));
+    try {
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "agents"), { recursive: true });
+      await writeFile(
+        join(agentsDir, "agents", "test-agent.md"),
+        `---
+id: test-agent
+type: agent
+description: A test agent
+---
+# Test Agent
+
+You are a test agent.`,
+        "utf-8",
+      );
+      const manifest = makeManifest({
+        models: { agents: { "test-agent": "gpt-4" } },
+      });
+      const outputs = await adapter.generate(agentsDir, manifest);
+
+      const agentFile = outputs.find((o) => o.path === ".github/agents/hatch3r-test-agent.agent.md");
+      expect(agentFile).toBeDefined();
+      expect(agentFile!.content).toContain("model: gpt-4");
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
   });
 
   it("all outputs have action 'create'", async () => {

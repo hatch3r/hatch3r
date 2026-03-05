@@ -2,6 +2,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import type { HookDefinition } from "./types.js";
+import { isValidHookEvent } from "./types.js";
 
 export async function readHookDefinitions(
   agentsDir: string,
@@ -12,7 +13,8 @@ export async function readHookDefinitions(
   try {
     const dirEntries = await readdir(hooksDir);
     entries = dirEntries.filter((f) => f.endsWith(".md"));
-  } catch {
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
     return [];
   }
 
@@ -38,9 +40,12 @@ function parseHookFrontmatter(content: string): HookDefinition | null {
 
   if (!parsed.id || !parsed.event || !parsed.agent) return null;
 
+  const eventStr = String(parsed.event);
+  if (!isValidHookEvent(eventStr)) return null;
+
   const hook: HookDefinition = {
     id: String(parsed.id),
-    event: String(parsed.event) as HookDefinition["event"],
+    event: eventStr,
     agent: String(parsed.agent),
     description: parsed.description ? String(parsed.description) : "",
   };
@@ -49,15 +54,21 @@ function parseHookFrontmatter(content: string): HookDefinition | null {
   let hasCondition = false;
 
   if (parsed.globs) {
-    condition.globs = String(parsed.globs).split(",").map((g: string) => g.trim());
+    condition.globs = Array.isArray(parsed.globs)
+      ? parsed.globs.map(String)
+      : String(parsed.globs).split(",").map((s: string) => s.trim());
     hasCondition = true;
   }
   if (parsed.labels) {
-    condition.labels = String(parsed.labels).split(",").map((l: string) => l.trim());
+    condition.labels = Array.isArray(parsed.labels)
+      ? parsed.labels.map(String)
+      : String(parsed.labels).split(",").map((s: string) => s.trim());
     hasCondition = true;
   }
   if (parsed.branches) {
-    condition.branches = String(parsed.branches).split(",").map((b: string) => b.trim());
+    condition.branches = Array.isArray(parsed.branches)
+      ? parsed.branches.map(String)
+      : String(parsed.branches).split(",").map((s: string) => s.trim());
     hasCondition = true;
   }
 

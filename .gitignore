@@ -5,6 +5,7 @@ coverage/
 .DS_Store
 .env
 .env.*
+.env.mcp
 
 # hatch3r safe-write backups
 .backups/
@@ -26,3 +27,9 @@ hatch3r-prd.md
 COMPETITIVE-ANALYSIS.md
 todo.md
 social_preview.png
+
+docs-site/build/
+docs-site/.docusaurus/
+
+# Audit scratch files
+AUDIT-REPORT.md

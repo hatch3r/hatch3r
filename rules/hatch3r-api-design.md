@@ -1,6 +1,8 @@
 ---
+id: hatch3r-api-design
+type: rule
 description: API endpoint and contract design patterns for the project
-alwaysApply: true
+scope: always
 ---
 # API Design
 

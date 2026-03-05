@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } fr
 import { mkdtemp, mkdir, writeFile, readFile, rm, access } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { HatchError } from "../../types.js";
 
 const AGENTS_DIR = ".agents";
 
@@ -48,8 +49,9 @@ describe("init command", () => {
     const raw = await readFile(manifestPath, "utf-8");
     const manifest = JSON.parse(raw);
 
-    expect(manifest.version).toBe("1.0.0");
+    expect(manifest.version).toBe("2.0.0");
     expect(manifest.hatch3rVersion).toBe("1.0.0");
+    expect(manifest.platform).toBe("github");
     expect(Array.isArray(manifest.tools)).toBe(true);
     expect(manifest.tools.length).toBeGreaterThan(0);
     expect(manifest.features).toBeDefined();
@@ -105,8 +107,8 @@ describe("init command", () => {
   it("should reject invalid tools", async () => {
     const { initCommand } = await import("../../cli/commands/init.js");
 
-    await expect(initCommand({ yes: true, tools: "invalid-tool" })).rejects.toThrow("process.exit called");
-    expect(exitSpy).toHaveBeenCalledWith(1);
+    await expect(initCommand({ yes: true, tools: "invalid-tool" })).rejects.toThrow(HatchError);
+    try { await initCommand({ yes: true, tools: "invalid-tool" }); } catch (e) { expect((e as HatchError).exitCode).toBe(1); }
 
     const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
     expect(allOutput).toContain("Invalid tool(s)");
@@ -125,7 +127,6 @@ describe("init command", () => {
     expect(manifest.features.prompts).toBe(true);
     expect(manifest.features.commands).toBe(true);
     expect(manifest.features.mcp).toBe(true);
-    expect(manifest.features.guardrails).toBe(false);
     expect(manifest.features.githubAgents).toBe(true);
   });
 
@@ -147,7 +148,6 @@ describe("init command", () => {
     const envPath = join(tempDir, ".env.mcp");
     const content = await readFile(envPath, "utf-8");
     expect(content).toContain("GITHUB_PAT=");
-    expect(content).toContain("BRAVE_API_KEY=");
     expect(content).toContain("hatch3r MCP secrets");
   });
 
@@ -193,7 +193,7 @@ describe("init command", () => {
     await mkdir(agentsDir, { recursive: true });
     await writeFile(
       join(agentsDir, "hatch.json"),
-      JSON.stringify({ version: "1.0.0", hatch3rVersion: "0.0.1", tools: [], features: {}, mcp: { servers: [] }, managedFiles: [] }),
+      JSON.stringify({ version: "2.0.0", hatch3rVersion: "0.0.1", platform: "github", tools: [], features: {}, mcp: { servers: [] }, managedFiles: [] }),
     );
 
     const { initCommand } = await import("../../cli/commands/init.js");
@@ -255,8 +255,8 @@ describe("init command", () => {
   it("should reject when any tool in --tools is invalid", async () => {
     const { initCommand } = await import("../../cli/commands/init.js");
 
-    await expect(initCommand({ yes: true, tools: "cursor,bogus" })).rejects.toThrow("process.exit called");
-    expect(exitSpy).toHaveBeenCalledWith(1);
+    await expect(initCommand({ yes: true, tools: "cursor,bogus" })).rejects.toThrow(HatchError);
+    try { await initCommand({ yes: true, tools: "cursor,bogus" }); } catch (e) { expect((e as HatchError).exitCode).toBe(1); }
     const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
     expect(allOutput).toContain("Invalid tool(s)");
     expect(allOutput).toContain("bogus");

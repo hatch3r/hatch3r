@@ -178,12 +178,12 @@ describe("analyzeRepo", () => {
       expect(info.packageManager).toBe("npm");
     });
 
-    it("returns unknown when no package indicators found", async () => {
+    it("defaults to npm when no package indicators found", async () => {
       const root = await createTempRepo();
       await writeFile(join(root, "README.md"), "# Hello");
 
       const info = await analyzeRepo(root);
-      expect(info.packageManager).toBe("unknown");
+      expect(info.packageManager).toBe("npm");
     });
 
     it("prioritizes bun over other lock files", async () => {

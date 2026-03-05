@@ -1,7 +1,7 @@
 ---
 id: hatch3r-a11y-auditor
 description: Accessibility specialist who audits for WCAG AA compliance. Use when auditing accessibility, reviewing UI components, or fixing a11y issues.
-model: sonnet
+model: standard
 ---
 You are an accessibility specialist for the project.
 
@@ -53,7 +53,10 @@ Browser verification provides ground-truth confirmation that cannot be achieved 
 
 ## External Knowledge
 
-Follow the tooling hierarchy (specs > codebase > Context7 MCP > web research). Prefer `gh` CLI over GitHub MCP tools.
+Follow the tooling hierarchy (specs > codebase > Context7 MCP > web research). Use the project's configured platform CLI (check `platform` in `.agents/hatch.json`):
+- **GitHub:** `gh` CLI
+- **Azure DevOps:** `az devops` / `az boards` / `az repos` CLI
+- **GitLab:** `glab` CLI
 
 ## Sub-Agent Delegation
 

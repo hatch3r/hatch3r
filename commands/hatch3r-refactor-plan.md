@@ -3,6 +3,15 @@ id: hatch3r-refactor-plan
 type: command
 description: Plan a refactoring or migration effort -- spawn parallel researchers, produce refactoring spec, ADR(s), and phased todo.md entries for board-fill.
 ---
+
+## Agent Pipeline
+
+| Stage | Agent(s) | Parallel | Required |
+|-------|----------|----------|----------|
+| 1. Research | `hatch3r-researcher` (4 parallel: current-state, refactoring-strategy, risk-assessment, migration-path) | Yes | Yes |
+| 2. Document Generation | `hatch3r-docs-writer` (refactoring spec, ADRs) | Yes | Yes |
+| 3. Todo Generation | Orchestrator (inline) | No | Yes |
+
 # Refactor Plan — Refactoring & Migration Specification from Problem to Phased Execution
 
 Take a refactoring goal or migration need and produce a complete refactoring specification (`docs/specs/`), architectural decision records (`docs/adr/`) when the approach involves significant design choices, and structured `todo.md` entries (phased work items) ready for `hatch3r-board-fill`. Spawns parallel researcher sub-agents (current state analysis, refactoring strategy, impact & risk assessment, migration path planning) to design the refactoring from multiple angles before generating artifacts. AI proposes all outputs; user confirms before any files are written. Optionally chains into `hatch3r-board-fill` to create GitHub issues immediately.
@@ -78,10 +87,10 @@ Refactoring Brief:
    - `docs/specs/` — project specifications (read TOC/headers first, expand relevant sections only)
    - `docs/adr/` — architectural decision records (scan for decisions relevant to the target area)
    - `README.md` — project overview
-   - `/.agents/hatch.json` — board configuration
+   - `.agents/hatch.json` — board configuration
    - Existing `todo.md` — current backlog (check for overlap or related items)
 2. Scan GitHub issues via `search_issues` for existing work related to the refactoring area. Note in-progress work, dependencies, or prior refactoring attempts.
-3. If `/.agents/learnings/` exists, scan for learnings relevant to the target area. Match by area and tags against the refactoring brief.
+3. If `.agents/learnings/` exists, scan for learnings relevant to the target area. Match by area and tags against the refactoring brief.
 4. Scan test coverage in the target area — identify which parts have strong test coverage (safe to refactor) vs. weak coverage (need tests first).
 5. Present a context summary:
 
@@ -117,8 +126,11 @@ Spawn one sub-agent per research domain below concurrently, each following the *
 | 2 | `refactoring-strategy` | Design transformations, behavioral invariants, interface contracts, effort |
 | 3 | `risk-assessment` | Breaking changes, downstream consumers, regression hotspots, rollback strategy |
 | 4 | `migration-path` | Phased execution plan, parallel lanes, rollback points, skill mapping |
+| 5 | `similar-implementation` | Find analogous refactored modules, extract their target patterns, recommend conventions to follow |
 
 Each sub-agent produces the structured output defined by its mode in the hatch3r-researcher agent specification. Modes `current-state` and `refactoring-strategy` apply dimension-specific focus (structural/logical/visual/migration) based on the dimension(s) passed in the brief.
+
+The `similar-implementation` sub-agent finds modules that have already been refactored or that represent the target state the refactoring should aim for. Its convention extraction ensures the refactored code aligns with established codebase patterns rather than inventing new ones.
 
 Wait for all sub-agents to complete before proceeding.
 
@@ -131,16 +143,17 @@ Wait for all sub-agents to complete before proceeding.
 ```
 Refactoring Summary:
 
-Title:             {title}
-Dimension(s):      {Structural / Logical / Visual / Migration}
-Affected files:    {N} files across {M} modules
-Phases:            {N} phases ({X} parallelizable)
-Total effort:      {estimate}
-ADRs needed:       {N} architectural decisions
-Risks:             {N} risks ({X} high, {Y} med, {Z} low)
-Breaking changes:  {N} ({list if any})
-Test gaps:         {N} areas need tests before refactoring
-Prerequisites:     {list — tests to add, docs to update, etc.}
+Title:               {title}
+Dimension(s):        {Structural / Logical / Visual / Migration}
+Affected files:      {N} files across {M} modules
+Phases:              {N} phases ({X} parallelizable)
+Total effort:        {estimate}
+ADRs needed:         {N} architectural decisions
+Risks:               {N} risks ({X} high, {Y} med, {Z} low)
+Breaking changes:    {N} ({list if any})
+Test gaps:           {N} areas need tests before refactoring
+Convention reference: {reference module} — refactored code should follow patterns from {name}
+Prerequisites:       {list — tests to add, docs to update, etc.}
 ```
 
 2. **Highlight conflicts** between researchers. Common conflict types:
@@ -161,6 +174,8 @@ Prerequisites:     {list — tests to add, docs to update, etc.}
 ---
 
 ### Step 5: Generate Refactoring Spec
+
+**Note:** Documents (refactoring spec and ADRs in Steps 5–6) should be generated by spawning parallel `hatch3r-docs-writer` sub-agents via the Task tool (`subagent_type: "generalPurpose"`) rather than the orchestrator writing directly.
 
 From the merged researcher outputs, generate a refactoring specification document. Present all content for review before writing any files.
 
@@ -403,7 +418,7 @@ If yes, instruct the user to invoke the `hatch3r-board-fill` command. Note that 
 - **Sub-agent failure:** Retry the failed sub-agent once. If it fails again, present partial results from the remaining sub-agents and ask the user how to proceed (continue without that researcher's input / provide the missing information manually / abort).
 - **Conflicting researcher outputs:** Present both options side by side with trade-offs. Ask the user to decide. Do not silently pick one.
 - **File write failure:** Report the error and provide the full file content so the user can create the file manually.
-- **Missing project context:** If no `hatch3r-board-shared` or `/.agents/hatch.json` exists, proceed without board context — this command does not require board configuration.
+- **Missing project context:** If no `hatch3r-board-shared` or `.agents/hatch.json` exists, proceed without board context — this command does not require board configuration.
 - **No existing specs or docs:** Proceed without spec references. Warn that the refactoring spec will be less contextualized without existing project documentation. Recommend running `hatch3r-project-spec` or `hatch3r-codebase-map` first for best results.
 - **Duplicate detection:** If the refactoring overlaps significantly with existing todo.md items or GitHub issues found in Step 2, present the overlap and ASK whether to proceed (augment existing / replace / abort).
 - **Weak test coverage:** If the current state analyzer finds weak test coverage in the target area, the migration path planner MUST include a Phase 0 for test scaffolding. Do not proceed with refactoring phases without adequate coverage.

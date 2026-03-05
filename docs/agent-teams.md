@@ -13,6 +13,7 @@ Hatch3r agent definitions in `.agents/agents/` map directly to teammate spawn pr
 | Agent definition (`.agents/agents/*.md`) | Teammate spawn prompt |
 | Agent `description` frontmatter | Teammate role summary |
 | Agent content body | Teammate system instructions |
+| Fixer agent (`hatch3r-fixer`) | Teammate spawned in reviewer → fixer loop |
 | Skill (`SKILL.md`) | Context file referenced in spawn prompt |
 | Rule (`.agents/rules/*.md`) | Included in teammate instructions or referenced |
 
@@ -21,7 +22,7 @@ Hatch3r agent definitions in `.agents/agents/` map directly to teammate spawn pr
 When spawning a teammate from a hatch3r agent definition:
 
 1. **Include the agent content verbatim** as the teammate's role definition. Don't summarize — the full instructions ensure consistent behavior.
-2. **Reference skills explicitly** — tell the teammate to read specific `SKILL.md` files: `"Read /.agents/skills/hatch3r-issue-workflow/SKILL.md for your workflow."`.
+2. **Reference skills explicitly** — tell the teammate to read specific `SKILL.md` files: `"Read .agents/skills/hatch3r-issue-workflow/SKILL.md for your workflow."`.
 3. **State the task goal clearly** at the top of the spawn prompt, before the agent instructions.
 4. **Set output expectations** — specify what the teammate should return (file paths modified, summary, test results).
 
@@ -30,12 +31,22 @@ Example spawn prompt:
 ```
 You are the hatch3r-implementer agent. Your task is to implement the feature described in issue #42.
 
-Read /.agents/skills/hatch3r-feature/SKILL.md for the implementation workflow.
-Read /.agents/rules/hatch3r-code-standards.md for coding conventions.
+Read .agents/skills/hatch3r-feature/SKILL.md for the implementation workflow.
+Read .agents/rules/hatch3r-code-standards.md for coding conventions.
 
 Focus on: src/api/ and src/services/
 Do not modify: tests/, docs/, config/
 ```
+
+**Review loop spawn pattern:**
+
+When implementing the reviewer → fixer loop as teammates:
+
+1. Spawn `hatch3r-reviewer` teammate with the diff
+2. If the reviewer returns Critical or Warning findings, spawn `hatch3r-fixer` teammate with the findings
+3. Spawn `hatch3r-reviewer` again with the fixed code
+4. Repeat steps 2–3 until clean or max 3 iterations
+5. Only then spawn `hatch3r-test-writer` and `hatch3r-security-auditor` as parallel teammates
 
 ## File Boundary Assignment
 
@@ -53,7 +64,7 @@ Teammates operate independently. Pass context explicitly:
 - **Task context** — include the issue body, requirements, or relevant excerpts in the spawn prompt.
 - **Codebase context** — list the key files the teammate needs to read. Don't assume they'll discover them.
 - **Cross-teammate results** — if teammate B depends on teammate A's output, spawn A first, then include A's results in B's prompt.
-- **Project conventions** — reference `/.agents/AGENTS.md` and specific rules files so teammates follow project standards.
+- **Project conventions** — reference `.agents/AGENTS.md` and specific rules files so teammates follow project standards.
 
 ## Limitations
 
@@ -67,11 +78,12 @@ Teammates operate independently. Pass context explicitly:
 
 ## Recommended Team Patterns
 
-**Sequential pipeline** — for dependent work (implement, then test, then review):
+**Four-phase pipeline** — the standard hatch3r quality pipeline:
 
-1. Spawn `hatch3r-implementer` with file scope
-2. Collect results, spawn `hatch3r-test-writer` with implementation summary
-3. Collect results, spawn `hatch3r-reviewer` with full diff
+1. Spawn `hatch3r-researcher` for context gathering. For Tier 2/3 tasks (per `hatch3r-deep-context` rule), include `requirements-elicitation` and `similar-implementation` modes alongside the standard task-type modes. Present elicitation questions to the user and await answers.
+2. Spawn `hatch3r-implementer` with file scope, researcher output, reference conventions (from `similar-implementation`), resolved requirements (user's elicitation answers), and blast radius data (from enhanced `codebase-impact`). The implementer's Convention Lock step (Step 1b) uses the reference conventions to align with established patterns.
+3. Review loop: spawn `hatch3r-reviewer`, if Critical/Warning findings exist spawn `hatch3r-fixer`, re-review — repeat until clean (max 3 iterations)
+4. Final quality: spawn `hatch3r-test-writer` + `hatch3r-security-auditor` in parallel (only after review loop is clean)
 
 **Parallel fan-out** — for independent work across areas:
 

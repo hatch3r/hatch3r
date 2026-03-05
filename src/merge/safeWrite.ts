@@ -7,18 +7,20 @@ import {
 } from "node:fs/promises";
 import { join, dirname, basename } from "node:path";
 import { HATCH3R_PREFIX, type MergeResult } from "../types.js";
-import { insertManagedBlock, hasManagedBlock } from "./managedBlocks.js";
+import { insertManagedBlock, hasManagedBlock, extractCustomContent } from "./managedBlocks.js";
+import { scanForDeniedPatterns } from "../adapters/customization.js";
 
-export async function fileExists(path: string): Promise<boolean> {
+async function fileExists(path: string): Promise<boolean> {
   try {
     await access(path);
     return true;
-  } catch {
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
     return false;
   }
 }
 
-export async function createBackup(filePath: string): Promise<string> {
+async function createBackup(filePath: string): Promise<string> {
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const backupDir = join(dirname(filePath), ".backups");
   await mkdir(backupDir, { recursive: true });
@@ -49,6 +51,8 @@ export async function safeWriteFile(
     backup?: boolean;
     /** When true, prepend managed block to existing content if file has no markers (init flow). */
     appendIfNoBlock?: boolean;
+    /** When true, always write through (with backup if enabled) regardless of filename prefix. */
+    force?: boolean;
   } = {},
 ): Promise<MergeResult> {
   await mkdir(dirname(filePath), { recursive: true });
@@ -68,20 +72,34 @@ export async function safeWriteFile(
         const prepended = [content.trim(), "", existingContent.trimStart()].join("\n");
         return writeWithBackup(filePath, prepended, !!options.backup);
       }
-      return { path: filePath, action: "skipped" };
+      return {
+        path: filePath,
+        action: "skipped",
+        warning: `Skipped ${filePath}: existing file without managed block. Run hatch3r init --force to overwrite.`,
+      };
     }
+    const customContent = extractCustomContent(existingContent);
+    const deniedFindings = customContent ? scanForDeniedPatterns(customContent) : [];
     const merged = insertManagedBlock(existingContent, options.managedContent);
-    return writeWithBackup(filePath, merged, !!options.backup);
+    const result = await writeWithBackup(filePath, merged, !!options.backup);
+    if (deniedFindings.length > 0) {
+      result.warning = `Content outside managed block in ${filePath} contains suspicious patterns: ${deniedFindings.join("; ")}`;
+    }
+    return result;
   }
 
   const fileName = basename(filePath) ?? "";
   const isManagedFile = fileName.startsWith(HATCH3R_PREFIX);
 
-  if (isManagedFile) {
+  if (isManagedFile || options.force) {
     return writeWithBackup(filePath, content, !!options.backup);
   }
 
-  return { path: filePath, action: "skipped" };
+  return {
+    path: filePath,
+    action: "skipped",
+    warning: `Skipped ${filePath}: existing file without managed block. Run hatch3r init --force to overwrite.`,
+  };
 }
 
 export function isManagedPath(filePath: string): boolean {

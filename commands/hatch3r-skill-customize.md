@@ -3,6 +3,11 @@ id: hatch3r-skill-customize
 type: command
 description: Configure per-skill customization including description overrides, enable/disable control, and project-specific markdown instructions
 ---
+
+## Agent Pipeline
+
+This command runs as a single orchestrator without sub-agent delegation. Customization file management is performed inline.
+
 # Skill Customization — Per-Skill Configuration
 
 Customize individual skill behavior for project-specific needs via `.hatch3r/skills/` configuration files. Supports structured YAML overrides and free-form markdown instruction injection, all propagated to every adapter output on sync.

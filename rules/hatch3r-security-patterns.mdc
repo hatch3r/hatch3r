@@ -168,7 +168,10 @@ alwaysApply: true
 
 - Maintain a software bill of materials (SBOM) for all direct and transitive dependencies.
 - Run `npm audit` (or equivalent) in CI on every build. Block merges with critical or high vulnerabilities.
-- Subscribe to security advisories for all critical dependencies (GitHub Dependabot, Snyk, or equivalent).
+- Subscribe to security advisories for all critical dependencies using the platform's built-in tools or third-party equivalents:
+  - **GitHub:** Dependabot alerts and security advisories
+  - **Azure DevOps:** Microsoft Defender for DevOps or WhiteSource/Mend integration
+  - **GitLab:** GitLab Dependency Scanning CI template, or Snyk integration
 - Remove unused dependencies. Unused code with known vulnerabilities is still a risk.
 - Pin dependency versions in lockfiles. Review lockfile changes in PRs with the same scrutiny as code changes.
 - Establish SLAs for vulnerability remediation: critical within 24 hours, high within 1 week, moderate within 1 sprint.
@@ -189,7 +192,10 @@ alwaysApply: true
 - CI/CD pipelines: require code review for all changes, enforce branch protection, sign commits where feasible.
 - Never deserialize untrusted data without validation. Use schemas (zod, JSON Schema) to validate structure before processing.
 - Protect CI/CD secrets and permissions: restrict who can modify pipeline configuration, require approval for deployment steps.
-- Pin GitHub Actions and CI plugins by commit SHA, not mutable tags.
+- Pin CI actions/tasks by commit SHA or exact version, not mutable tags:
+  - **GitHub Actions:** Pin by commit SHA (e.g., `actions/checkout@abc123`)
+  - **Azure DevOps:** Pin pipeline tasks by exact version (e.g., `task@2`)
+  - **GitLab CI:** Pin included templates by SHA or tag reference
 
 ### A09 — Security Logging and Monitoring Failures
 

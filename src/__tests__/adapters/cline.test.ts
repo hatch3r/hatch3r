@@ -90,11 +90,13 @@ describe("ClineAdapter", () => {
     expect(roomodes).toBeUndefined();
   });
 
-  it("skips rule files when features.rules is disabled", async () => {
+  it("skips rule files when features.rules is disabled (bridge still present)", async () => {
     const manifest = makeManifest({ features: { rules: false, hooks: false } });
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
-    const ruleFiles = outputs.filter((o) => o.path.startsWith(".roo/rules/"));
+    const ruleFiles = outputs.filter(
+      (o) => o.path.startsWith(".roo/rules/") && o.path !== ".roo/rules/hatch3r-bridge.md",
+    );
     expect(ruleFiles).toEqual([]);
   });
 
@@ -170,14 +172,15 @@ describe("ClineAdapter", () => {
     expect(mcp).toBeUndefined();
   });
 
-  it("returns empty when all content features are disabled", async () => {
+  it("returns only bridge when all content features are disabled", async () => {
     const manifest = makeManifest({
       mcpServers: [],
       features: { agents: false, rules: false, skills: false, hooks: false, mcp: false, commands: false },
     });
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
-    expect(outputs).toEqual([]);
+    expect(outputs.length).toBe(1);
+    expect(outputs[0].path).toBe(".roo/rules/hatch3r-bridge.md");
   });
 
   it("all outputs have action 'create'", async () => {

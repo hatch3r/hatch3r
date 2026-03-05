@@ -6,6 +6,19 @@ export type HookEvent =
   | "session-start"
   | "pre-push";
 
+export const VALID_HOOK_EVENTS = new Set<HookEvent>([
+  "pre-commit",
+  "post-merge",
+  "ci-failure",
+  "file-save",
+  "session-start",
+  "pre-push",
+]);
+
+export function isValidHookEvent(event: string): event is HookEvent {
+  return VALID_HOOK_EVENTS.has(event as HookEvent);
+}
+
 export interface HookDefinition {
   id: string;
   event: HookEvent;
@@ -18,8 +31,4 @@ export interface HookCondition {
   globs?: string[];
   labels?: string[];
   branches?: string[];
-}
-
-export interface HookConfig {
-  hooks: HookDefinition[];
 }

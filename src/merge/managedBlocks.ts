@@ -13,6 +13,15 @@ export function insertManagedBlock(
     throw new Error("Content must contain managed block markers");
   }
 
+  const secondStart = existingContent.indexOf(MANAGED_BLOCK_START, startIdx + 1);
+  const secondEnd = existingContent.indexOf(MANAGED_BLOCK_END, endIdx + 1);
+  if (secondStart !== -1) {
+    throw new Error("Corrupted managed block: duplicate start marker found. Remove the duplicate before syncing.");
+  }
+  if (secondEnd !== -1) {
+    throw new Error("Corrupted managed block: duplicate end marker found. Remove the duplicate before syncing.");
+  }
+
   if (startIdx >= endIdx) {
     throw new Error("Corrupted managed block: start marker must appear before end marker");
   }

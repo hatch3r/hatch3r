@@ -46,6 +46,13 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Security audit
+        run: npm audit --audit-level=moderate
+
+      # Auth: setup-node with registry-url auto-configures NODE_AUTH_TOKEN
+      # via the GITHUB_TOKEN for npm provenance. For trusted publishing,
+      # npm org-level provenance is configured on npmjs.com — no explicit
+      # NPM_TOKEN secret is needed in this workflow.
       - name: Publish to npm
         run: npm publish --access public --provenance
 

@@ -7,6 +7,14 @@ description: Reverse-engineer business and technical project specs from an exist
 
 Analyze an existing codebase to reverse-engineer project documentation across **two dimensions**: business domain analysis and technical architecture analysis. Discovers modules, dependencies, conventions, tech stack, technical debt, business logic, domain models, and production readiness using parallel analyzer sub-agents. Outputs structured specs to `docs/specs/business/` (business domain, market context, production readiness) and `docs/specs/technical/` (modules, conventions, stack, debt), plus inferred architectural decision records to `docs/adr/`. Optionally generates a root-level `AGENTS.md` as the project's "README for agents." This command is **purely read-only** until the final write step — all analysis is static (file reading, pattern matching). Works for any language or framework.
 
+## Agent Pipeline
+
+| Stage | Agent(s) | Parallel | Required |
+|-------|----------|----------|----------|
+| 1. Analysis | `hatch3r-researcher` analyzers (6 parallel: module, conventions, tech stack, concerns/debt, business domain, production readiness) | Yes | Yes |
+| 2. Document Generation | `hatch3r-docs-writer` (parallel: technical spec, business spec, ADRs, health report) | Yes | Yes |
+| 3. AGENTS.md | `hatch3r-docs-writer` (AGENTS.md generation/rework) | No | Yes |
+
 ---
 
 ## Shared Context
@@ -69,7 +77,7 @@ From config files and top-level imports, identify:
 - Check for `docs/specs/` — if exists, note contents (including `business/` and `technical/` subdirectories)
 - Check for `docs/adr/` — if exists, note contents
 - Check for `README.md`, `CONTRIBUTING.md`, `ARCHITECTURE.md`, or similar
-- Check for `/.agents/hatch.json` — if exists, this project already has hatch3r configuration
+- Check for `.agents/hatch.json` — if exists, this project already has hatch3r configuration
 - Check for root `AGENTS.md` — if exists, note its contents
 
 If `docs/specs/` or `docs/adr/` already exist:
@@ -978,7 +986,21 @@ Strengths:
 
 ### Step 7: Write All Files
 
-Write all confirmed files to disk.
+Spawn parallel `hatch3r-docs-writer` sub-agents via the Task tool (`subagent_type: "generalPurpose"`) to generate and write the documentation. Each docs-writer receives the merged analyzer output from Steps 3-6 and is responsible for one document category. All docs-writers run in parallel and follow the `hatch3r-docs-writer` agent protocol.
+
+| Docs-Writer | Responsibility | Input |
+|-------------|---------------|-------|
+| Technical Spec Writer | `docs/specs/technical/` (glossary, overview, module specs) | Merged analyzer outputs from Sub-Agents 1-4 |
+| Business Spec Writer | `docs/specs/business/` (glossary, overview, domain specs, production readiness) | Merged analyzer outputs from Sub-Agents 5-6, business context from Step 1 |
+| ADR Writer | `docs/adr/` (all architectural decision records) | Inferred decisions from Step 5 |
+| Health Report Writer | `docs/codebase-health.md` (if user confirmed in Step 6) | All 6 analyzer outputs, cross-reference findings from Step 3 |
+
+Each docs-writer prompt must include:
+- The full merged analyzer output relevant to its document category
+- The confirmed scope, company stage, and business context from Step 1
+- The directory structure and file naming conventions below
+- Instruction to follow the `hatch3r-docs-writer` agent protocol
+- Instruction to create directories as needed before writing files
 
 #### 7a. Create Directories
 
@@ -1080,13 +1102,27 @@ Next steps:
 
 ---
 
-### Step 8: AGENTS.md Generation
+### Step 8 — AGENTS.md (Mandatory)
 
-**ASK:** "Generate or update the root-level `AGENTS.md` with a project summary derived from the specs just created? This file serves as the 'README for agents' — consumed by OpenCode, Windsurf, and other AI coding tools so they understand your project's business context, architecture, and conventions from the first interaction.
+This step is MANDATORY, not optional.
 
-(a) Yes — generate it, (b) No — skip, (c) Let me review the content first."
+**If `AGENTS.md` exists at project root:**
 
-If yes or review-first: generate `AGENTS.md` at the project root containing:
+**ASK:** "Your existing AGENTS.md may be outdated after generating new documentation. Would you like to rework it based on the new specs?"
+
+- If **yes**: spawn a `hatch3r-docs-writer` sub-agent via the Task tool (`subagent_type: "generalPurpose"`) to regenerate AGENTS.md incorporating the newly generated specs, architecture overview, module map, and conventions. The docs-writer follows the `hatch3r-docs-writer` agent protocol.
+- If **no**: keep existing AGENTS.md unchanged. Log that the user declined the update.
+
+**If no `AGENTS.md` exists:**
+
+Generate AGENTS.md — there is no opt-out. Spawn a `hatch3r-docs-writer` sub-agent via the Task tool (`subagent_type: "generalPurpose"`) to create AGENTS.md following the `hatch3r-docs-writer` agent protocol. The docs-writer receives the full merged analyzer output and generates AGENTS.md with:
+- Project purpose and business context
+- Tech stack and architecture overview
+- Module map with responsibilities
+- Development conventions and patterns
+- Key specs and ADR references
+
+The generated `AGENTS.md` should follow this structure:
 
 ```markdown
 # {Project Name} — Agent Instructions
@@ -1136,10 +1172,6 @@ If yes or review-first: generate `AGENTS.md` at the project root containing:
 - Architecture decisions: `docs/adr/`
 - Health report: `docs/codebase-health.md`
 ```
-
-If the user chose "review first," present the content and **ASK** for confirmation before writing.
-
-If `AGENTS.md` already exists, **ASK** before overwriting: "Root `AGENTS.md` already exists. (a) Replace entirely, (b) Append hatch3r section, (c) Skip."
 
 ---
 

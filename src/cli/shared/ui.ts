@@ -105,10 +105,6 @@ export function printBox(
   );
 }
 
-export function success(msg: string): void {
-  console.log(`  ${chalk.green("✔")} ${msg}`);
-}
-
 export function error(msg: string): void {
   console.log(`  ${chalk.red("✖")} ${msg}`);
 }
@@ -123,10 +119,6 @@ export function info(msg: string): void {
 
 export function step(n: number, total: number, msg: string): string {
   return `${chalk.dim(`[${n}/${total}]`)} ${msg}`;
-}
-
-export function divider(): void {
-  console.log(`  ${chalk.dim("─".repeat(48))}`);
 }
 
 export function label(name: string, value: string): string {

@@ -3,83 +3,9 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
-  readAgentCustomization,
   readCustomization,
   readCustomizationMarkdown,
 } from "../../models/customize.js";
-
-describe("readAgentCustomization (backward compat)", () => {
-  let tempDir: string;
-
-  afterEach(async () => {
-    if (tempDir) {
-      await rm(tempDir, { recursive: true, force: true });
-    }
-  });
-
-  async function createProjectRoot(): Promise<string> {
-    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-customize-"));
-    return tempDir;
-  }
-
-  it("returns undefined when file does not exist", async () => {
-    const projectRoot = await createProjectRoot();
-    const result = await readAgentCustomization(projectRoot, "hatch3r-reviewer");
-    expect(result).toBeUndefined();
-  });
-
-  it("returns undefined when file has invalid YAML", async () => {
-    const projectRoot = await createProjectRoot();
-    const customizeDir = join(projectRoot, ".hatch3r", "agents");
-    await mkdir(customizeDir, { recursive: true });
-    await writeFile(
-      join(customizeDir, "hatch3r-reviewer.customize.yaml"),
-      "invalid: yaml: [",
-      "utf-8",
-    );
-    const result = await readAgentCustomization(projectRoot, "hatch3r-reviewer");
-    expect(result).toBeUndefined();
-  });
-
-  it("returns undefined when file has no recognized fields", async () => {
-    const projectRoot = await createProjectRoot();
-    const customizeDir = join(projectRoot, ".hatch3r", "agents");
-    await mkdir(customizeDir, { recursive: true });
-    await writeFile(
-      join(customizeDir, "hatch3r-reviewer.customize.yaml"),
-      "agent: hatch3r-reviewer\npersonality:\n  tone: concise",
-      "utf-8",
-    );
-    const result = await readAgentCustomization(projectRoot, "hatch3r-reviewer");
-    expect(result).toBeUndefined();
-  });
-
-  it("returns model when file has valid model field", async () => {
-    const projectRoot = await createProjectRoot();
-    const customizeDir = join(projectRoot, ".hatch3r", "agents");
-    await mkdir(customizeDir, { recursive: true });
-    await writeFile(
-      join(customizeDir, "hatch3r-reviewer.customize.yaml"),
-      "agent: hatch3r-reviewer\nmodel: opus",
-      "utf-8",
-    );
-    const result = await readAgentCustomization(projectRoot, "hatch3r-reviewer");
-    expect(result).toEqual({ model: "opus" });
-  });
-
-  it("returns undefined when model is empty string", async () => {
-    const projectRoot = await createProjectRoot();
-    const customizeDir = join(projectRoot, ".hatch3r", "agents");
-    await mkdir(customizeDir, { recursive: true });
-    await writeFile(
-      join(customizeDir, "hatch3r-reviewer.customize.yaml"),
-      "agent: hatch3r-reviewer\nmodel: \"\"",
-      "utf-8",
-    );
-    const result = await readAgentCustomization(projectRoot, "hatch3r-reviewer");
-    expect(result).toBeUndefined();
-  });
-});
 
 describe("readCustomization", () => {
   let tempDir: string;

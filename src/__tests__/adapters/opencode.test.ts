@@ -30,13 +30,16 @@ const EXTENDED_MCP = {
 describe("OpenCodeAdapter", () => {
   const adapter = new OpenCodeAdapter();
 
-  function makeManifest(overrides: Partial<Parameters<typeof createManifest>[0]> = {}): HatchManifest {
-    return createManifest({
+  function makeManifest(
+    overrides: Partial<Parameters<typeof createManifest>[0]> & { models?: HatchManifest["models"] } = {},
+  ): HatchManifest {
+    const { models, ...createOpts } = overrides;
+    const base = createManifest({
       tools: ["opencode"],
-
       mcpServers: ["github"],
-      ...overrides,
+      ...createOpts,
     });
+    return models ? { ...base, models } : base;
   }
 
   it("has correct name", () => {
@@ -94,10 +97,10 @@ describe("OpenCodeAdapter", () => {
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
     const agents = outputs.filter((o) => o.path.startsWith(".opencode/agents/"));
-    expect(agents.length).toBe(1);
+    expect(agents.length).toBe(2);
 
-    const agent = agents[0]!;
-    expect(agent.path).toBe(".opencode/agents/hatch3r-test-agent.md");
+    const agent = agents.find((o) => o.path === ".opencode/agents/hatch3r-test-agent.md")!;
+    expect(agent).toBeDefined();
     expect(agent.content).toContain("description: A test agent for unit testing");
     expect(agent.content).toContain("You are a test agent");
     expect(agent.managedContent).toBeDefined();
@@ -126,6 +129,45 @@ describe("OpenCodeAdapter", () => {
     expect(commands.length).toBe(1);
     expect(commands[0]!.path).toContain("hatch3r-");
     expect(commands[0]!.path).toMatch(/\.md$/);
+  });
+
+  it("emits model from customization file when present", async () => {
+    const manifest = makeManifest();
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const agentFile = outputs.find((o) => o.path === ".opencode/agents/hatch3r-test-agent.md");
+    expect(agentFile).toBeDefined();
+    expect(agentFile!.content).toContain("model: anthropic/claude-sonnet-4-6");
+  });
+
+  it("emits model with provider prefix when configured via manifest", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-opencode-model-"));
+    try {
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "agents"), { recursive: true });
+      await writeFile(
+        join(agentsDir, "agents", "test-agent.md"),
+        `---
+id: test-agent
+type: agent
+description: A test agent
+---
+# Test Agent
+
+You are a test agent.`,
+        "utf-8",
+      );
+      const manifest = makeManifest({
+        models: { agents: { "test-agent": "gpt-4" } },
+      });
+      const outputs = await adapter.generate(agentsDir, manifest);
+
+      const agentFile = outputs.find((o) => o.path === ".opencode/agents/hatch3r-test-agent.md");
+      expect(agentFile).toBeDefined();
+      expect(agentFile!.content).toContain("model: openai/gpt-4");
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
   });
 
   it("all outputs have action 'create'", async () => {

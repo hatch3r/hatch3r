@@ -25,7 +25,10 @@ Task Progress:
 | P2       | Partial degradation, limited impact         | Single flow broken, slow performance       |
 | P3       | Minor issue, workaround available            | Cosmetic bug, edge case                     |
 
-- Use **GitHub MCP** (`issue_read`, `search_issues`) to check for related issues or prior incidents.
+- Check for related issues or prior incidents using the platform tools (check `platform` in `.agents/hatch.json`):
+  - **GitHub:** Use **GitHub MCP** (`issue_read`, `search_issues`) or `gh issue list --search "..."`
+  - **Azure DevOps:** `az boards query --wiql "SELECT [System.Id] FROM WorkItems WHERE [System.Title] CONTAINS '...'"` or `az boards work-item show --id N`
+  - **GitLab:** `glab issue list --search "..."` or `glab issue view N`
 - For external library docs and current best practices, follow the project's tooling hierarchy.
 
 ## Step 2: Triage
@@ -61,15 +64,17 @@ Write a structured post-mortem document:
 - **Action items:** Permanent fixes, preventive measures, process improvements.
 - **Lessons learned:** What we'll do differently.
 
-Store in project incident docs or as a GitHub issue/wiki page. Follow project conventions.
+Store in project incident docs or as an issue/wiki page on the platform. Follow project conventions.
 
 ## Step 6: Follow-Up Issues
 
-- Create GitHub issues for each action item from the post-mortem.
+- Create follow-up issues/work items for each action item from the post-mortem (check `platform` in `.agents/hatch.json`):
+  - **GitHub:** `gh issue create --title "..." --body "..." --label "incident-follow-up"` (or use **GitHub MCP** `issue_create`)
+  - **Azure DevOps:** `az boards work-item create --type "Bug" --title "..." --description "..." --fields "System.Tags=incident-follow-up"`
+  - **GitLab:** `glab issue create --title "..." --description "..." --label "incident-follow-up"`
 - Label appropriately (e.g., `incident-follow-up`, `P0`, `P1`).
-- Link issues to the post-mortem and to each other.
+- Link issues/work items to the post-mortem and to each other.
 - Assign owners and due dates for critical fixes.
-- Use **GitHub MCP** (`issue_create` or equivalent) to create issues.
 
 ## Definition of Done
 

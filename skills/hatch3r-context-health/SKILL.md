@@ -53,7 +53,7 @@ Run through the self-assessment checklist:
 ### If 5 checks degraded (Red): Checkpoint and Stop
 1. Save all progress (files changed, tests written)
 2. Document remaining work and blockers
-3. Post progress on the GitHub issue
+3. Post progress on the issue/work item (GitHub Issue, ADO Work Item, or GitLab Issue — check `platform` in `.agents/hatch.json`)
 4. Recommend fresh conversation
 
 ## Step 4: Verify Improvement
