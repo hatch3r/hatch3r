@@ -50,6 +50,7 @@
   "files": [
     "dist/",
     "agents/",
+    "checks/",
     "commands/",
     "rules/",
     "skills/",

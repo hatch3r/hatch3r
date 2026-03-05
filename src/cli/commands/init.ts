@@ -43,7 +43,7 @@ import { HATCH3R_VERSION } from "../../version.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONTENT_ROOT = findPackageRoot(__dirname);
-const CONTENT_DIRS = ["agents", "commands", "rules", "skills", "prompts", "github-agents", "mcp", "hooks"];
+const CONTENT_DIRS = ["agents", "checks", "commands", "rules", "skills", "prompts", "github-agents", "mcp", "hooks"];
 
 const TOOL_DISPLAY_NAMES: Record<Tool, string> = {
   cursor: "Cursor",
