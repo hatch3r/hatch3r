@@ -357,7 +357,7 @@ describe("validate command", () => {
     );
 
     const { validateCommand } = await import("../../cli/commands/validate.js");
-    await expect(validateCommand()).rejects.toThrow("process.exit called");
+    await expect(validateCommand()).rejects.toThrow(HatchError);
 
     const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
     expect(allOutput).toContain('references agent "ghost-agent"');
@@ -371,7 +371,7 @@ describe("validate command", () => {
     await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
 
     const { validateCommand } = await import("../../cli/commands/validate.js");
-    await expect(validateCommand()).rejects.toThrow("process.exit called");
+    await expect(validateCommand()).rejects.toThrow(HatchError);
 
     const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
     expect(allOutput).toContain("models.default must be a string");
@@ -385,7 +385,7 @@ describe("validate command", () => {
     await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
 
     const { validateCommand } = await import("../../cli/commands/validate.js");
-    await expect(validateCommand()).rejects.toThrow("process.exit called");
+    await expect(validateCommand()).rejects.toThrow(HatchError);
 
     const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
     expect(allOutput).toContain("models.agents.coder must be a string");
@@ -420,7 +420,7 @@ describe("validate command", () => {
     );
 
     const { validateCommand } = await import("../../cli/commands/validate.js");
-    await expect(validateCommand()).rejects.toThrow("process.exit called");
+    await expect(validateCommand()).rejects.toThrow(HatchError);
 
     const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
     expect(allOutput).toContain("MCP config missing 'mcpServers' key");
