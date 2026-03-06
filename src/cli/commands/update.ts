@@ -200,7 +200,7 @@ export async function updateCommand(_opts?: Record<string, unknown>): Promise<vo
   const s0 = createSpinner(step(1, totalSteps, "Updating package..."));
   s0.start();
   try {
-    execFileSync(pm.updateCmd, pm.updateArgs, { stdio: "pipe" });
+    execFileSync(pm.updateCmd, pm.updateArgs, { stdio: "pipe", shell: process.platform === "win32" });
     CONTENT_ROOT = findPackageRoot(__dirname);
   } catch (err) {
     s0.fail(step(1, totalSteps, "Failed to update package"));
