@@ -34,7 +34,7 @@ All hatch3r-generated markdown files use managed blocks. Only the content betwee
 ...never overwritten...
 ```
 
-Config files (JSON, TOML, YAML) are fully regenerated on sync.
+Config files (JSON, TOML, YAML) are fully regenerated on sync. For details on how managed blocks work across the adapter system, see [Adapter System](../reference/architecture/adapter-system).
 
 ## Per-Component Customization
 

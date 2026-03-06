@@ -19,21 +19,21 @@ Living reference for framework capabilities vs. adapter implementations. Tracks 
 
 ## Implementation Matrix
 
-| Adapter | rules | agents | skills | prompts | commands | mcp | guardrails | hooks | model |
-|---------|:-----:|:------:|:------:|:-------:|:--------:|:---:|:----------:|:-----:|:-----:|
-| **cursor** | Y | Y | Y | -- | Y | Y | -- | Y | Y |
-| **copilot** | Y | Y | Y | Y | Y | Y | -- | -- | Y |
-| **claude** | Y | Y | Y | -- | Y | Y | -- | Y | Y |
-| **cline** | Y | Y | Y | -- | Y | Y | -- | Y | Y |
-| **codex** | B | B | Y | -- | -- | Y | -- | -- | Y |
-| **gemini** | Y | B | Y | -- | Y | Y | -- | Y | Y |
-| **windsurf** | Y | B | Y | -- | Y | Y | -- | -- | Y |
-| **amp** | B | B | Y | -- | ~ | Y | -- | -- | Y |
-| **opencode** | Y | Y | Y | -- | Y | Y | -- | -- | Y |
-| **aider** | B | B | Y | -- | -- | -- | -- | -- | Y |
-| **kiro** | Y | B | Y | -- | -- | Y | -- | -- | Y |
-| **goose** | B | B | B | -- | -- | -- | -- | -- | Y |
-| **zed** | B | B | -- | -- | -- | -- | -- | -- | Y |
+| Adapter | rules | agents | skills | prompts | commands | mcp | guardrails | hooks | model | githubAgents | agentTeams |
+|---------|:-----:|:------:|:------:|:-------:|:--------:|:---:|:----------:|:-----:|:-----:|:------------:|:----------:|
+| **cursor** | Y | Y | Y | -- | Y | Y | -- | Y | Y | -- | -- |
+| **copilot** | Y | Y | Y | Y | Y | Y | -- | -- | Y | Y | Y |
+| **claude** | Y | Y | Y | -- | Y | Y | -- | Y | Y | -- | -- |
+| **cline** | Y | Y | Y | -- | Y | Y | -- | Y | Y | -- | -- |
+| **codex** | B | B | Y | -- | -- | Y | -- | -- | Y | -- | -- |
+| **gemini** | Y | B | Y | -- | Y | Y | -- | Y | Y | -- | -- |
+| **windsurf** | Y | B | Y | -- | Y | Y | -- | -- | Y | -- | -- |
+| **amp** | B | B | Y | -- | ~ | Y | -- | -- | Y | -- | -- |
+| **opencode** | Y | Y | Y | -- | Y | Y | -- | -- | Y | -- | -- |
+| **aider** | B | B | Y | -- | -- | -- | -- | -- | Y | -- | -- |
+| **kiro** | Y | B | Y | -- | -- | Y | -- | -- | Y | -- | -- |
+| **goose** | B | B | B | -- | -- | -- | -- | -- | Y | -- | -- |
+| **zed** | B | B | -- | -- | -- | -- | -- | -- | Y | -- | -- |
 
 ## Agent Model Customization
 

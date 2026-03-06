@@ -9,17 +9,24 @@ How to connect hatch3r's MCP servers and manage secrets securely.
 
 ## Overview
 
-hatch3r ships with 5 MCP servers enabled by default and 3 opt-in servers. All secrets are centralized in a single `.env.mcp` file at the project root (gitignored by default). MCP configs use `${env:VAR}` placeholders so you never commit secrets.
+hatch3r ships with 10 MCP servers: 3 enabled by default (no env vars required) and 7 opt-in servers (GitHub, Brave Search, Sentry, Postgres, Linear, Azure DevOps, GitLab). All secrets are centralized in a single `.env.mcp` file at the project root (gitignored by default). MCP configs use `${env:VAR}` placeholders so you never commit secrets.
 
 ## Where MCP Config Lives
 
-| Tool | Config path | When created |
-|------|-------------|--------------|
-| Cursor | `.cursor/mcp.json` | `npx hatch3r init` (when MCP selected) |
-| Cursor plugin | `mcp.json` (project root) | Plugin install |
-| Claude Code | `.mcp.json` | `npx hatch3r init` |
-| Copilot / VS Code | `.vscode/mcp.json` | `npx hatch3r init` |
-| Cline / Roo | `.roo/mcp.json` | `npx hatch3r init` |
+All adapters that support MCP emit tool-specific configuration during `npx hatch3r init` or `npx hatch3r sync`. The canonical MCP source is `.agents/mcp/mcp.json`; each adapter transforms it into the format and path the tool expects.
+
+| Tool | Config path | Format | Notes |
+|------|-------------|--------|-------|
+| Cursor | `.cursor/mcp.json` | JSON (direct copy) | Also reads `mcp.json` at project root if using the Cursor plugin |
+| Claude Code | `.mcp.json` | JSON (direct copy) | Also generates `.claude/settings.json` with opinionated permissions |
+| Copilot / VS Code | `.vscode/mcp.json` | JSON with `envFile` | Adds `envFile: "${workspaceFolder}/.env.mcp"` per STDIO server for native secret loading |
+| OpenCode | `opencode.json` | JSON (inline) | MCP servers embedded in the top-level config under `mcp` key |
+| Windsurf | `.windsurf/mcp.json` | JSON | Standard `mcpServers` format |
+| Amp | `.amp/settings.json` | JSON | MCP servers under `amp.mcpServers` key |
+| Codex | `.codex/config.toml` | TOML | MCP servers as `[mcp_servers.<name>]` sections |
+| Gemini | `.gemini/settings.json` | JSON | MCP servers under `mcpServers` key alongside context and hooks |
+| Cline / Roo | `.roo/mcp.json` | JSON | Standard `mcpServers` format; remote servers use `streamable-http` transport |
+| Kiro | `.kiro/settings/mcp.json` | JSON | Standard `mcpServers` format |
 
 ## Connecting MCP Servers
 
@@ -91,14 +98,30 @@ set -a && source .env.mcp && set +a && claude
 | Sentry | `SENTRY_AUTH_TOKEN` | [Sentry Auth Tokens](https://sentry.io/settings/account/api/auth-tokens/) |
 | Postgres | `POSTGRES_URL` | Your PostgreSQL connection string |
 | Linear | `LINEAR_API_KEY` | [Linear API keys](https://linear.app/settings/api) |
+| Azure DevOps | `AZURE_DEVOPS_PAT`, `AZURE_DEVOPS_ORG` | [Create a PAT](https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/use-personal-access-tokens-to-authenticate) |
+| GitLab | `GITLAB_TOKEN` | [Create a PAT](https://docs.gitlab.com/ee/user/profile/personal_access_tokens.html) |
 
 ### GitHub PAT scopes {#github-pat-scopes}
 
 **Classic PAT** (Settings -> Developer settings -> Personal access tokens -> Tokens (classic)):
-- `repo` -- full control of private repositories (read/write code, issues, PRs, projects)
+- `repo` -- full control of private repositories (read/write code, issues, PRs)
 - `read:org` -- read org and team membership (needed for org projects)
+- `project` -- read/write access to GitHub Projects V2 (required for board commands: `hatch3r-board-init`, `hatch3r-board-fill`, `hatch3r-board-groom`, `hatch3r-board-pickup`, `hatch3r-board-refresh`)
 
-**Fine-grained PAT** (recommended): Grant repository permissions for Contents, Issues, Pull requests, Metadata. Add Organization permissions for Members (read) if using org projects.
+**Fine-grained PAT** (recommended):
+
+| Permission | Access | Required for |
+|------------|--------|-------------|
+| Contents | Read and write | Code, file operations |
+| Issues | Read and write | Issue creation, labeling, assignment |
+| Pull requests | Read and write | PR creation, review, merge |
+| Projects | Read and write | Board commands (`hatch3r-board-init`, etc.) |
+| Metadata | Read | Repository metadata (auto-granted) |
+| Members (Organization) | Read | Org projects and team membership |
+
+Fine-grained tokens have [limitations](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#fine-grained-personal-access-tokens-limitations) (e.g. user-owned Projects V2 may require classic PATs).
+
+**Note:** If board commands fail with GraphQL permission errors, the most likely cause is a missing `project` scope. For classic PATs, add the `project` scope. For fine-grained PATs, ensure Projects has read and write access. You can also run `gh auth refresh -s project` if using the GitHub CLI.
 
 ### Verifying connection
 
@@ -108,8 +131,15 @@ set -a && source .env.mcp && set +a && claude
 
 ## Server Details
 
-- **GitHub** -- Remote server at `https://api.githubcopilot.com/mcp/`. Uses `X-MCP-Toolsets` for repos, issues, pull_requests, projects
-- **Context7** -- No secrets. Fetches up-to-date library docs
-- **Filesystem** -- No secrets. Uses `.` (project root) as the allowed directory
-- **Playwright** -- No secrets. Browser automation
-- **Brave Search** -- Requires `BRAVE_API_KEY`
+| Server | Type | Requires | Notes |
+|--------|------|----------|-------|
+| **GitHub** | Remote | `GITHUB_PAT` | `https://api.githubcopilot.com/mcp/` with `X-MCP-Toolsets` |
+| **Context7** | STDIO | -- | Up-to-date library docs |
+| **Filesystem** | STDIO | -- | Uses `.` (project root) as allowed directory |
+| **Playwright** | STDIO | -- | Browser automation |
+| **Brave Search** | STDIO | `BRAVE_API_KEY` | Web research and fact-checking |
+| **Sentry** | STDIO | `SENTRY_AUTH_TOKEN` | Error tracking and performance monitoring |
+| **Postgres** | STDIO | `POSTGRES_URL` | Database queries and schema inspection |
+| **Linear** | STDIO | `LINEAR_API_KEY` | Issue tracking and project management |
+| **Azure DevOps** | STDIO | `AZURE_DEVOPS_PAT`, `AZURE_DEVOPS_ORG` | Boards, work items, repos |
+| **GitLab** | STDIO | `GITLAB_TOKEN` | Issues, merge requests, boards |

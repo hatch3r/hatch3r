@@ -23,6 +23,7 @@ const sidebars: SidebarsConfig = {
         'guides/model-selection',
         'guides/customization',
         'guides/sub-agentic-architecture',
+        'guides/agentic-process',
         'guides/agent-teams',
       ],
     },
@@ -30,6 +31,16 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Reference',
       items: [
+        {
+          type: 'category',
+          label: 'Architecture',
+          items: [
+            'reference/architecture/content-model',
+            'reference/architecture/adapter-system',
+            'reference/architecture/documentation-structure',
+          ],
+        },
+        'reference/configuration',
         'reference/agents',
         'reference/skills',
         'reference/rules',
