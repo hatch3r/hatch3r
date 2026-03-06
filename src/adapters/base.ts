@@ -10,6 +10,7 @@ import { BRIDGE_ORCHESTRATION } from "../cli/shared/agentsContent.js";
 import { readCanonicalFiles } from "./canonical.js";
 import { applyCustomization, applyCustomizationRaw } from "./customization.js";
 import { readMcpConfig, type McpServerEntry } from "./mcp-utils.js";
+import { readHookDefinitions } from "../hooks/index.js";
 
 export interface Adapter {
   name: string;
@@ -194,7 +195,6 @@ export abstract class BaseAdapter implements Adapter {
 
   protected async readHooks(ctx: AdapterContext) {
     if (!ctx.features.hooks) return [];
-    const { readHookDefinitions } = await import("../hooks/index.js");
     return readHookDefinitions(ctx.agentsDir);
   }
 }
