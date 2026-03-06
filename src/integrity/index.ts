@@ -39,7 +39,7 @@ async function collectFiles(dir: string, base: string): Promise<string[]> {
     const relPath = posix.join(base, entry.name);
     if (entry.isDirectory()) {
       files.push(...(await collectFiles(fullPath, relPath)));
-    } else if (entry.isFile() && (entry.name.endsWith(".md") || entry.name.endsWith(".json"))) {
+    } else if (entry.isFile() && (entry.name.endsWith(".md") || entry.name.endsWith(".mdc") || entry.name.endsWith(".json"))) {
       files.push(relPath);
     }
   }
