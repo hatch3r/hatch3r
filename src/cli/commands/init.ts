@@ -25,7 +25,7 @@ import {
   type Tool,
 } from "../../types.js";
 import { analyzeRepo } from "../../detect/repoAnalyzer.js";
-import { ensureEnvMcp, getSourceEnvMcpCommand } from "../../env/mcpEnv.js";
+import { ensureEnvMcp, ensureGitignoreEntry, getSourceEnvMcpCommand } from "../../env/mcpEnv.js";
 import { AGENTS_MD_INNER, AGENTS_MD_FULL, CANONICAL_AGENTS_MD } from "../shared/agentsContent.js";
 import {
   printBanner,
@@ -291,6 +291,7 @@ async function runInit(
   let envResult: { action: string; path: string; newVars: string[] } | undefined;
   if (features.mcp && mcpServers.length > 0) {
     envResult = await ensureEnvMcp(rootDir, mcpServers);
+    await ensureGitignoreEntry(rootDir);
   }
 
   s4.succeed(step(4, totalSteps, "Done"));

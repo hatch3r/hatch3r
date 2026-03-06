@@ -8,6 +8,7 @@ import {
   getSourceEnvMcpCommand,
   parseEnvFile,
   ensureEnvMcp,
+  ensureGitignoreEntry,
 } from "../../env/mcpEnv.js";
 
 describe("collectRequiredEnvVars", () => {
@@ -201,5 +202,58 @@ describe("ensureEnvMcp", () => {
     expect(content).toContain("GITHUB_PAT=ghp_token");
     expect(content).toContain("BRAVE_API_KEY=key123");
     expect(content).toContain("SENTRY_AUTH_TOKEN=");
+  });
+});
+
+describe("ensureGitignoreEntry", () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-gitignore-"));
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("creates .gitignore with .env.mcp when file does not exist", async () => {
+    await ensureGitignoreEntry(tempDir);
+    const content = await readFile(join(tempDir, ".gitignore"), "utf-8");
+    expect(content).toBe(".env.mcp\n");
+  });
+
+  it("appends .env.mcp to existing .gitignore", async () => {
+    await writeFile(join(tempDir, ".gitignore"), "node_modules/\ndist/\n", "utf-8");
+    await ensureGitignoreEntry(tempDir);
+    const content = await readFile(join(tempDir, ".gitignore"), "utf-8");
+    expect(content).toBe("node_modules/\ndist/\n.env.mcp\n");
+  });
+
+  it("adds newline separator when existing file lacks trailing newline", async () => {
+    await writeFile(join(tempDir, ".gitignore"), "node_modules/", "utf-8");
+    await ensureGitignoreEntry(tempDir);
+    const content = await readFile(join(tempDir, ".gitignore"), "utf-8");
+    expect(content).toBe("node_modules/\n.env.mcp\n");
+  });
+
+  it("skips when .env.mcp is already present", async () => {
+    await writeFile(join(tempDir, ".gitignore"), "node_modules/\n.env.mcp\n", "utf-8");
+    await ensureGitignoreEntry(tempDir);
+    const content = await readFile(join(tempDir, ".gitignore"), "utf-8");
+    expect(content).toBe("node_modules/\n.env.mcp\n");
+  });
+
+  it("skips when .env.* pattern covers .env.mcp", async () => {
+    await writeFile(join(tempDir, ".gitignore"), ".env.*\n", "utf-8");
+    await ensureGitignoreEntry(tempDir);
+    const content = await readFile(join(tempDir, ".gitignore"), "utf-8");
+    expect(content).toBe(".env.*\n");
+  });
+
+  it("handles .env.mcp with surrounding whitespace in gitignore", async () => {
+    await writeFile(join(tempDir, ".gitignore"), "  .env.mcp  \n", "utf-8");
+    await ensureGitignoreEntry(tempDir);
+    const content = await readFile(join(tempDir, ".gitignore"), "utf-8");
+    expect(content).toBe("  .env.mcp  \n");
   });
 });

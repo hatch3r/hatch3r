@@ -74,6 +74,22 @@ This guide helps you resolve common issues with the hatch3r CLI, MCP servers, bo
 2. Fix any validation errors (see [Validation](#validation-npx-hatch3r-validate))
 3. Re-run `npx hatch3r sync`
 
+### Corrupted managed block: duplicate start/end marker found
+
+**Symptom:** Sync or update fails with "Corrupted managed block: duplicate start marker found" (or "duplicate end marker found").
+
+**Cause:** A generated file (e.g. in `.cursor/`, `.claude/`, `.windsurf/`) was manually edited and now contains `<!-- HATCH3R:BEGIN -->` or `<!-- HATCH3R:END -->` more than once. hatch3r expects exactly one of each marker per file.
+
+**Solution:**
+1. Find files with duplicate markers (run from project root):
+   ```bash
+   grep -rl "HATCH3R:BEGIN" .cursor .claude .windsurf 2>/dev/null | while read f; do
+     [ "$(grep -c "HATCH3R:BEGIN" "$f")" -gt 1 ] && echo "$f"
+   done
+   ```
+2. Open each listed file and remove the extra `<!-- HATCH3R:BEGIN -->` / `<!-- HATCH3R:END -->` so only one pair remains. Keep the content between the first start and last end marker.
+3. Re-run `npx hatch3r sync` or `npx hatch3r update`.
+
 ---
 
 ## Validation (`npx hatch3r validate`)

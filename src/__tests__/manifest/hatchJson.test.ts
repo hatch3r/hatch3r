@@ -107,7 +107,7 @@ describe("hatchJson", () => {
   });
 
   describe("migrateManifest", () => {
-    it("adds platform github when missing", () => {
+    it("leaves platform undefined when missing so migration checkpoint can prompt", () => {
       const result = migrateManifest({
         version: "1.0.0",
         hatch3rVersion: "0.9.0",
@@ -118,7 +118,7 @@ describe("hatchJson", () => {
         mcp: { servers: [] },
         managedFiles: [],
       });
-      expect(result.platform).toBe("github");
+      expect(result.platform).toBeUndefined();
     });
 
     it("derives namespace from owner when missing", () => {
@@ -192,7 +192,7 @@ describe("hatchJson", () => {
 
     it("handles empty manifest gracefully", () => {
       const result = migrateManifest({});
-      expect(result.platform).toBe("github");
+      expect(result.platform).toBeUndefined();
       expect(result.namespace).toBe("");
       expect(result.project).toBe("");
     });

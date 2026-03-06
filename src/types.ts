@@ -17,7 +17,7 @@ export interface ClaudeConfig {
 export interface HatchManifest {
   version: string;
   hatch3rVersion: string;
-  platform: Platform;
+  platform?: Platform;
   owner: string;
   repo: string;
   namespace: string;

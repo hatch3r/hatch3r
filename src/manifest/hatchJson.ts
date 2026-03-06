@@ -74,10 +74,6 @@ export function createManifest(options: {
 export function migrateManifest(raw: Record<string, unknown>): Record<string, unknown> {
   const migrated = { ...raw };
 
-  if (!migrated.platform) {
-    migrated.platform = "github";
-  }
-
   if (!migrated.namespace && typeof migrated.owner === "string") {
     migrated.namespace = migrated.owner;
   }
@@ -105,7 +101,7 @@ function validateManifest(data: unknown): data is HatchManifest {
   return (
     typeof obj.version === "string" &&
     typeof obj.hatch3rVersion === "string" &&
-    typeof obj.platform === "string" &&
+    (!obj.platform || typeof obj.platform === "string") &&
     Array.isArray(obj.tools) &&
     obj.features !== null &&
     typeof obj.features === "object" &&

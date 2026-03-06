@@ -4,7 +4,7 @@ import { readManifest } from "../../manifest/hatchJson.js";
 import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
 import { safeWriteFile } from "../../merge/safeWrite.js";
 import { AGENTS_DIR, HatchError } from "../../types.js";
-import { ensureEnvMcp, getSourceEnvMcpCommand } from "../../env/mcpEnv.js";
+import { ensureEnvMcp, ensureGitignoreEntry, getSourceEnvMcpCommand } from "../../env/mcpEnv.js";
 import { AGENTS_MD_INNER, AGENTS_MD_FULL, CANONICAL_AGENTS_MD } from "../shared/agentsContent.js";
 import { verifyIntegrity } from "../../integrity/index.js";
 import {
@@ -114,6 +114,7 @@ export async function syncCommand(): Promise<void> {
 
   if (m.features.mcp && m.mcp.servers.length > 0) {
     const envResult = await ensureEnvMcp(rootDir, m.mcp.servers);
+    await ensureGitignoreEntry(rootDir);
     if (envResult.action !== "skipped") {
       results.push({ path: envResult.path, action: envResult.action });
     }

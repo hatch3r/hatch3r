@@ -221,7 +221,8 @@ export async function updateCommand(_opts?: Record<string, unknown>): Promise<vo
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
     }
   }
-  await safeWriteFile(join(agentsDir, "AGENTS.md"), CANONICAL_AGENTS_MD, { backup: true });
+  // no backup on update — managed files are overwritten in place
+  await safeWriteFile(join(agentsDir, "AGENTS.md"), CANONICAL_AGENTS_MD);
 
   s1.succeed(step(2, totalSteps, `Updated ${copied.length} canonical files`));
 
@@ -236,12 +237,12 @@ export async function updateCommand(_opts?: Record<string, unknown>): Promise<vo
       for (const out of outputs) {
         const fullPath = join(rootDir, out.path);
         if (out.managedContent) {
+          // no backup on update — managed files are overwritten in place
           await safeWriteFile(fullPath, out.content, {
             managedContent: out.managedContent,
-            backup: true,
           });
         } else {
-          await safeWriteFile(fullPath, out.content, { backup: true });
+          await safeWriteFile(fullPath, out.content);
         }
       }
     } catch (err) {

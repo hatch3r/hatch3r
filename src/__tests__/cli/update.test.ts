@@ -18,10 +18,13 @@ async function createTestProject(
   await mkdir(join(agentsDir, "commands"), { recursive: true });
 
   const manifest = {
-    version: "1.0.0",
+    version: "2.0.0",
     hatch3rVersion: "0.0.9",
+    platform: "github",
     owner: "test-org",
     repo: "test-repo",
+    namespace: "test-org",
+    project: "test-repo",
     tools: ["cursor"],
     features: {
       agents: true,

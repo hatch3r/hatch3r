@@ -80,7 +80,20 @@ export async function safeWriteFile(
     }
     const customContent = extractCustomContent(existingContent);
     const deniedFindings = customContent ? scanForDeniedPatterns(customContent) : [];
-    const merged = insertManagedBlock(existingContent, options.managedContent);
+    let merged: string;
+    try {
+      merged = insertManagedBlock(existingContent, options.managedContent);
+    } catch {
+      // Managed block is corrupted (duplicate markers, wrong order, etc.).
+      // Auto-repair by overwriting with the correct content; the file is under
+      // version control so any user additions outside the block are recoverable.
+      await writeFile(filePath, content, "utf-8");
+      return {
+        path: filePath,
+        action: "updated",
+        warning: `Auto-repaired corrupted managed block in ${filePath}`,
+      };
+    }
     const result = await writeWithBackup(filePath, merged, !!options.backup);
     if (deniedFindings.length > 0) {
       result.warning = `Content outside managed block in ${filePath} contains suspicious patterns: ${deniedFindings.join("; ")}`;
