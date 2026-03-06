@@ -175,4 +175,41 @@ describe("sync command", () => {
     expect(output).toContain("New secrets needed in .env.mcp");
     expect(output).toContain("GITHUB_PAT");
   });
+
+  it("should report 'skipped' for unchanged non-managed files on re-sync", async () => {
+    await createTestProject(tempDir);
+
+    const { syncCommand } = await import("../../cli/commands/sync.js");
+    await syncCommand();
+
+    consoleSpy.mockClear();
+    await syncCommand();
+
+    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(output).toContain("skipped");
+  });
+
+  it("should report 'updated' when a non-managed file has changed on disk", async () => {
+    await createTestProject(tempDir);
+
+    const { syncCommand } = await import("../../cli/commands/sync.js");
+    await syncCommand();
+
+    const envJsonPath = join(tempDir, ".cursor", "environment.json");
+    await writeFile(envJsonPath, '{"changed": true}');
+
+    consoleSpy.mockClear();
+    await syncCommand();
+
+    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(output).toContain("updated");
+  });
+
+  it("should exit with error when adapter generation fails", async () => {
+    await createTestProject(tempDir, { tools: ["nonexistent-tool"] });
+
+    const { syncCommand } = await import("../../cli/commands/sync.js");
+    await expect(syncCommand()).rejects.toThrow("process.exit called");
+    expect(exitSpy).toHaveBeenCalledWith(1);
+  });
 });

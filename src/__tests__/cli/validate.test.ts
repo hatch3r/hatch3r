@@ -288,4 +288,170 @@ describe("validate command", () => {
     expect(allOutput).toContain("Validation passed");
     expect(allOutput).toContain("warning(s)");
   });
+
+  it("should report all checks passed when structure is complete", async () => {
+    await createMinimalAgentsDir(tempDir);
+    const agentsDir = join(tempDir, AGENTS_DIR);
+    for (const dir of ["prompts", "policy", "github-agents", "hooks"]) {
+      await mkdir(join(agentsDir, dir), { recursive: true });
+    }
+
+    const manifestPath = join(agentsDir, "hatch.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf-8"));
+    manifest.features.hooks = false;
+    manifest.managedFiles = [];
+    await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+
+    const { validateCommand } = await import("../../cli/commands/validate.js");
+    await validateCommand();
+
+    const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    expect(allOutput).toContain("All checks passed");
+  });
+
+  it("should warn when hooks feature is enabled but no hooks exist", async () => {
+    await createMinimalAgentsDir(tempDir);
+    const agentsDir = join(tempDir, AGENTS_DIR);
+    await mkdir(join(agentsDir, "hooks"), { recursive: true });
+
+    const { validateCommand } = await import("../../cli/commands/validate.js");
+    await validateCommand();
+
+    const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    expect(allOutput).toContain("Hooks feature enabled but no hook definitions found");
+  });
+
+  it("should warn when hooks directory is missing despite feature being enabled", async () => {
+    await createMinimalAgentsDir(tempDir);
+
+    const { validateCommand } = await import("../../cli/commands/validate.js");
+    await validateCommand();
+
+    const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    expect(allOutput).toContain("Hooks feature enabled but .agents/hooks/ directory not found");
+  });
+
+  it("should warn about hook missing frontmatter", async () => {
+    await createMinimalAgentsDir(tempDir);
+    const hooksDir = join(tempDir, AGENTS_DIR, "hooks");
+    await mkdir(hooksDir, { recursive: true });
+    await writeFile(
+      join(hooksDir, "bad-hook.md"),
+      "# No frontmatter hook\n\nJust content.\n",
+    );
+
+    const { validateCommand } = await import("../../cli/commands/validate.js");
+    await validateCommand();
+
+    const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    expect(allOutput).toContain("Hook missing frontmatter");
+  });
+
+  it("should error when hook references non-existent agent", async () => {
+    await createMinimalAgentsDir(tempDir);
+    const hooksDir = join(tempDir, AGENTS_DIR, "hooks");
+    await mkdir(hooksDir, { recursive: true });
+    await writeFile(
+      join(hooksDir, "orphan-hook.md"),
+      "---\nid: orphan-hook\nagent: ghost-agent\nevent: pre-commit\n---\n# Orphan hook\n",
+    );
+
+    const { validateCommand } = await import("../../cli/commands/validate.js");
+    await expect(validateCommand()).rejects.toThrow("process.exit called");
+
+    const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    expect(allOutput).toContain('references agent "ghost-agent"');
+  });
+
+  it("should error when models.default is not a string", async () => {
+    await createMinimalAgentsDir(tempDir);
+    const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf-8"));
+    manifest.models = { default: 123 };
+    await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+
+    const { validateCommand } = await import("../../cli/commands/validate.js");
+    await expect(validateCommand()).rejects.toThrow("process.exit called");
+
+    const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    expect(allOutput).toContain("models.default must be a string");
+  });
+
+  it("should error when models.agents value is not a string", async () => {
+    await createMinimalAgentsDir(tempDir);
+    const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf-8"));
+    manifest.models = { agents: { coder: 42 } };
+    await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+
+    const { validateCommand } = await import("../../cli/commands/validate.js");
+    await expect(validateCommand()).rejects.toThrow("process.exit called");
+
+    const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    expect(allOutput).toContain("models.agents.coder must be a string");
+  });
+
+  it("should warn about customization file for non-existent agent", async () => {
+    await createMinimalAgentsDir(tempDir);
+    const customDir = join(tempDir, ".hatch3r", "agents");
+    await mkdir(customDir, { recursive: true });
+    await writeFile(
+      join(customDir, "nonexistent-agent.customize.yaml"),
+      "skip: true\n",
+    );
+
+    const { validateCommand } = await import("../../cli/commands/validate.js");
+    await validateCommand();
+
+    const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    expect(allOutput).toContain("Customization file for non-existent agent");
+  });
+
+  it("should error when mcp.json is missing mcpServers key", async () => {
+    await createMinimalAgentsDir(tempDir);
+    const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf-8"));
+    manifest.mcp = { servers: ["github"] };
+    await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+
+    await writeFile(
+      join(tempDir, AGENTS_DIR, "mcp", "mcp.json"),
+      JSON.stringify({ servers: {} }),
+    );
+
+    const { validateCommand } = await import("../../cli/commands/validate.js");
+    await expect(validateCommand()).rejects.toThrow("process.exit called");
+
+    const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    expect(allOutput).toContain("MCP config missing 'mcpServers' key");
+  });
+
+  it("should warn when mcp.json is missing despite servers being configured", async () => {
+    await createMinimalAgentsDir(tempDir);
+    const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf-8"));
+    manifest.mcp = { servers: ["github"] };
+    await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+    await rm(join(tempDir, AGENTS_DIR, "mcp", "mcp.json"), { force: true });
+
+    const { validateCommand } = await import("../../cli/commands/validate.js");
+    await validateCommand();
+
+    const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    expect(allOutput).toContain("MCP servers configured but .agents/mcp/mcp.json not found");
+  });
+
+  it("should warn about missing managed files on disk", async () => {
+    await createMinimalAgentsDir(tempDir);
+    const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf-8"));
+    manifest.managedFiles = ["AGENTS.md", "missing-file.md"];
+    await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+
+    const { validateCommand } = await import("../../cli/commands/validate.js");
+    await validateCommand();
+
+    const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    expect(allOutput).toContain("Managed file missing from disk: missing-file.md");
+  });
 });

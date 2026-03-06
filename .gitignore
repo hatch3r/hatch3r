@@ -33,3 +33,5 @@ docs-site/.docusaurus/
 
 # Audit scratch files
 AUDIT-REPORT.md
+.agents/
+skills-lock.json
