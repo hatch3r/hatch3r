@@ -159,3 +159,10 @@ export function addManagedFile(
     manifest.managedFiles.push(filePath);
   }
 }
+
+export function removeManagedFile(
+  manifest: HatchManifest,
+  filePath: string,
+): void {
+  manifest.managedFiles = manifest.managedFiles.filter((f) => f !== filePath);
+}

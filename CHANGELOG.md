@@ -2,6 +2,15 @@
 
 All notable changes to hatch3r are documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- `hatch3r config` CLI command for interactive reconfiguration of tools, MCP servers, features, and platform after init
+- Archive system: removed tool outputs are moved to `.hatch3r-archive/<tool>/<timestamp>/` instead of being deleted
+- Customization migration: manual customizations outside managed blocks are auto-migrated to `.hatch3r/<type>/<id>.customize.md` when a tool is removed
+- Shared `runUpdate()` function extracted from the update command for reuse by config
+
 ## [1.1.0] - 2026-03-05
 
 ### Added

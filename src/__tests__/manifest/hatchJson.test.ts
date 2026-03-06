@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createManifest, addManagedFile, migrateManifest } from "../../manifest/hatchJson.js";
+import { createManifest, addManagedFile, removeManagedFile, migrateManifest } from "../../manifest/hatchJson.js";
 
 describe("hatchJson", () => {
   describe("createManifest", () => {
@@ -226,6 +226,29 @@ describe("hatchJson", () => {
       const ref = manifest.managedFiles;
       addManagedFile(manifest, "new-file.md");
       expect(ref).toContain("new-file.md");
+    });
+  });
+
+  describe("removeManagedFile", () => {
+    it("removes a file from managed list", () => {
+      const manifest = createManifest({ tools: ["cursor"] });
+      addManagedFile(manifest, "file1.md");
+      addManagedFile(manifest, "file2.md");
+      removeManagedFile(manifest, "file1.md");
+      expect(manifest.managedFiles).toEqual(["file2.md"]);
+    });
+
+    it("is a no-op when file is not in list", () => {
+      const manifest = createManifest({ tools: ["cursor"] });
+      addManagedFile(manifest, "file1.md");
+      removeManagedFile(manifest, "nonexistent.md");
+      expect(manifest.managedFiles).toEqual(["file1.md"]);
+    });
+
+    it("handles empty managed files list", () => {
+      const manifest = createManifest({ tools: ["cursor"] });
+      removeManagedFile(manifest, "file.md");
+      expect(manifest.managedFiles).toEqual([]);
     });
   });
 });

@@ -16,6 +16,7 @@ export interface Adapter {
   name: string;
   warnings: string[];
   generate(agentsDir: string, manifest: HatchManifest): Promise<AdapterOutput[]>;
+  getOutputPaths(agentsDir: string, manifest: HatchManifest): Promise<string[]>;
 }
 
 export function output(
@@ -56,6 +57,11 @@ export abstract class BaseAdapter implements Adapter {
       features: manifest.features,
       projectRoot: dirname(agentsDir),
     });
+  }
+
+  async getOutputPaths(agentsDir: string, manifest: HatchManifest): Promise<string[]> {
+    const outputs = await this.generate(agentsDir, manifest);
+    return outputs.map((o) => o.path);
   }
 
   protected abstract doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]>;
