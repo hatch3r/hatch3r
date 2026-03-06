@@ -1,9 +1,13 @@
 import { access, cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, sep } from "node:path";
 import type { HatchManifest, Tool } from "../types.js";
 import { HATCH3R_PREFIX, sanitizeId } from "../types.js";
 import { extractCustomContent, hasManagedBlock } from "../merge/managedBlocks.js";
 import type { CustomizableType } from "../models/customize.js";
+
+function toPosixPath(p: string): string {
+  return sep === "\\" ? p.replaceAll("\\", "/") : p;
+}
 
 const ARCHIVE_DIR = ".hatch3r-archive";
 
@@ -99,7 +103,7 @@ async function collectToolFiles(rootDir: string, tool: Tool): Promise<string[]> 
         for (const entry of entries) {
           if (entry.isFile()) {
             const parent = entry.parentPath ?? (entry as unknown as { path: string }).path ?? absPath;
-            const relPath = join(prefix, parent.slice(absPath.length), entry.name);
+            const relPath = toPosixPath(join(prefix, parent.slice(absPath.length), entry.name));
             files.push(relPath);
           }
         }
