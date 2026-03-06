@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import { addCommand } from "./commands/add.js";
+import { configCommand } from "./commands/config.js";
 import { initCommand } from "./commands/init.js";
 import { syncCommand } from "./commands/sync.js";
 import { updateCommand } from "./commands/update.js";
@@ -52,6 +53,11 @@ program
   .command("verify")
   .description("Verify integrity of canonical agent files")
   .action(verifyCommand);
+
+program
+  .command("config")
+  .description("Reconfigure tools, MCP servers, features, and platform")
+  .action(configCommand);
 
 program
   .command("add [pack]")

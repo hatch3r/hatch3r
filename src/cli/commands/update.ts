@@ -58,6 +58,110 @@ async function copyHatch3rFiles(
   return copied;
 }
 
+export interface UpdateResult {
+  copiedFiles: number;
+  syncedTools: number;
+  failedTools: number;
+  version: string;
+}
+
+export async function runUpdate(
+  rootDir: string,
+  manifest: HatchManifest,
+  options: { stepOffset?: number; totalSteps?: number } = {},
+): Promise<UpdateResult> {
+  const offset = options.stepOffset ?? 0;
+  const total = options.totalSteps ?? 4;
+  const agentsDir = join(rootDir, AGENTS_DIR);
+
+  let contentRoot = findPackageRoot(__dirname);
+
+  const pm = await detectPackageManager(rootDir);
+  const s0 = createSpinner(step(offset + 1, total, "Updating package..."));
+  s0.start();
+  try {
+    const cmd = process.platform === "win32" && pm.name !== "bun"
+      ? `${pm.updateCmd}.cmd`
+      : pm.updateCmd;
+    execFileSync(cmd, pm.updateArgs, { stdio: "pipe" });
+    contentRoot = findPackageRoot(__dirname);
+  } catch (err) {
+    s0.fail(step(offset + 1, total, "Failed to update package"));
+    logError(err instanceof Error ? err.message : String(err));
+    throw new HatchError("Failed to update package", 1);
+  }
+  s0.succeed(step(offset + 1, total, "Package updated"));
+
+  const s1 = createSpinner(step(offset + 2, total, "Updating canonical files..."));
+  s1.start();
+  const copied: string[] = [];
+  for (const dir of CONTENT_DIRS) {
+    const srcDir = join(contentRoot, dir);
+    try {
+      const dirCopied = await copyHatch3rFiles(srcDir, join(agentsDir, dir));
+      copied.push(...dirCopied.map((p) => join(dir, p)));
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    }
+  }
+  await safeWriteFile(join(agentsDir, "AGENTS.md"), CANONICAL_AGENTS_MD);
+  s1.succeed(step(offset + 2, total, `Updated ${copied.length} canonical files`));
+
+  const s2 = createSpinner(step(offset + 3, total, "Re-syncing adapter output..."));
+  s2.start();
+  const adapterFailures: { tool: string; error: string }[] = [];
+  for (const tool of manifest.tools) {
+    const adapter = getAdapter(tool);
+    try {
+      const outputs = await adapter.generate(agentsDir, manifest);
+      for (const w of adapter.warnings) { warn(w); }
+      for (const out of outputs) {
+        const fullPath = join(rootDir, out.path);
+        if (out.managedContent) {
+          await safeWriteFile(fullPath, out.content, {
+            managedContent: out.managedContent,
+          });
+        } else {
+          await safeWriteFile(fullPath, out.content);
+        }
+      }
+    } catch (err) {
+      adapterFailures.push({
+        tool,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+  if (adapterFailures.length > 0) {
+    for (const f of adapterFailures) {
+      logError(`Failed to generate ${f.tool}: ${f.error}`);
+    }
+    if (adapterFailures.length === manifest.tools.length) {
+      s2.fail(step(offset + 3, total, "All adapters failed"));
+      throw new HatchError("All adapters failed", 1);
+    }
+  }
+  s2.succeed(step(offset + 3, total, adapterFailures.length > 0
+    ? `Re-synced ${manifest.tools.length - adapterFailures.length}/${manifest.tools.length} tool(s)`
+    : `Re-synced ${manifest.tools.length} tool(s)`));
+
+  const s3 = createSpinner(step(offset + 4, total, "Writing manifest..."));
+  s3.start();
+  manifest.hatch3rVersion = HATCH3R_VERSION;
+  await writeManifest(rootDir, manifest);
+
+  const integrityManifest = await generateIntegrityManifest(agentsDir, HATCH3R_VERSION);
+  await writeIntegrityManifest(agentsDir, integrityManifest);
+  s3.succeed(step(offset + 4, total, "Manifest updated"));
+
+  return {
+    copiedFiles: copied.length,
+    syncedTools: manifest.tools.length - adapterFailures.length,
+    failedTools: adapterFailures.length,
+    version: HATCH3R_VERSION,
+  };
+}
+
 interface MigrationCheckpoint {
   id: string;
   condition: (manifest: HatchManifest, rootDir: string) => Promise<boolean>;
@@ -167,7 +271,6 @@ export async function updateCommand(_opts?: Record<string, unknown>): Promise<vo
   printBanner(true);
 
   const rootDir = process.cwd();
-  const agentsDir = join(rootDir, AGENTS_DIR);
   const manifest = await readManifest(rootDir);
 
   if (!manifest) {
@@ -183,109 +286,20 @@ export async function updateCommand(_opts?: Record<string, unknown>): Promise<vo
     warn(notice);
   }
 
-  let CONTENT_ROOT = findPackageRoot(__dirname);
-  const currentVersion = m.hatch3rVersion;
-  const isUpToDate = currentVersion === HATCH3R_VERSION;
-
+  const isUpToDate = m.hatch3rVersion === HATCH3R_VERSION;
   if (isUpToDate) {
     info(`Already at hatch3r v${HATCH3R_VERSION}`);
   } else {
-    info(`Updating from v${currentVersion} to v${HATCH3R_VERSION}`);
+    info(`Updating from v${m.hatch3rVersion} to v${HATCH3R_VERSION}`);
   }
   console.log();
 
-  const totalSteps = 4;
-
-  const pm = await detectPackageManager(rootDir);
-  const s0 = createSpinner(step(1, totalSteps, "Updating package..."));
-  s0.start();
-  try {
-    // On Windows, npm/pnpm/yarn are .cmd batch files. execFileSync cannot
-    // resolve .cmd extensions without a shell, but shell:true triggers the
-    // npm.ps1 hang bug (npm/cli#8259). Appending .cmd at the call site
-    // keeps PackageManagerInfo platform-agnostic for generated content.
-    const cmd = process.platform === "win32" && pm.name !== "bun"
-      ? `${pm.updateCmd}.cmd`
-      : pm.updateCmd;
-    execFileSync(cmd, pm.updateArgs, { stdio: "pipe" });
-    CONTENT_ROOT = findPackageRoot(__dirname);
-  } catch (err) {
-    s0.fail(step(1, totalSteps, "Failed to update package"));
-    logError(err instanceof Error ? err.message : String(err));
-    throw new HatchError("Failed to update package", 1);
-  }
-  s0.succeed(step(1, totalSteps, "Package updated"));
-
-  const s1 = createSpinner(step(2, totalSteps, "Updating canonical files..."));
-  s1.start();
-  const copied: string[] = [];
-  for (const dir of CONTENT_DIRS) {
-    const srcDir = join(CONTENT_ROOT, dir);
-    try {
-      const dirCopied = await copyHatch3rFiles(srcDir, join(agentsDir, dir));
-      copied.push(...dirCopied.map((p) => join(dir, p)));
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
-    }
-  }
-  // no backup on update — managed files are overwritten in place
-  await safeWriteFile(join(agentsDir, "AGENTS.md"), CANONICAL_AGENTS_MD);
-
-  s1.succeed(step(2, totalSteps, `Updated ${copied.length} canonical files`));
-
-  const s2 = createSpinner(step(3, totalSteps, "Re-syncing adapter output..."));
-  s2.start();
-  const adapterFailures: { tool: string; error: string }[] = [];
-  for (const tool of m.tools) {
-    const adapter = getAdapter(tool);
-    try {
-      const outputs = await adapter.generate(agentsDir, m);
-      for (const w of adapter.warnings) { warn(w); }
-      for (const out of outputs) {
-        const fullPath = join(rootDir, out.path);
-        if (out.managedContent) {
-          // no backup on update — managed files are overwritten in place
-          await safeWriteFile(fullPath, out.content, {
-            managedContent: out.managedContent,
-          });
-        } else {
-          await safeWriteFile(fullPath, out.content);
-        }
-      }
-    } catch (err) {
-      adapterFailures.push({
-        tool,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
-  if (adapterFailures.length > 0) {
-    for (const f of adapterFailures) {
-      logError(`Failed to generate ${f.tool}: ${f.error}`);
-    }
-    if (adapterFailures.length === m.tools.length) {
-      s2.fail(step(3, totalSteps, "All adapters failed"));
-      throw new HatchError("All adapters failed", 1);
-    }
-  }
-  s2.succeed(step(3, totalSteps, adapterFailures.length > 0
-    ? `Re-synced ${m.tools.length - adapterFailures.length}/${m.tools.length} tool(s)`
-    : `Re-synced ${m.tools.length} tool(s)`));
-
-  const s3 = createSpinner(step(4, totalSteps, "Writing manifest..."));
-  s3.start();
-  m.hatch3rVersion = HATCH3R_VERSION;
-  await writeManifest(rootDir, m);
-
-  const integrityManifest = await generateIntegrityManifest(agentsDir, HATCH3R_VERSION);
-  await writeIntegrityManifest(agentsDir, integrityManifest);
-
-  s3.succeed(step(4, totalSteps, "Manifest updated"));
+  const result = await runUpdate(rootDir, m);
 
   console.log();
   printBox("Update complete", [
-    label("Files", `${copied.length} canonical files updated`),
-    label("Tools", `${m.tools.length} tool(s) re-synced`),
-    label("Version", `v${HATCH3R_VERSION}`),
+    label("Files", `${result.copiedFiles} canonical files updated`),
+    label("Tools", `${result.syncedTools} tool(s) re-synced`),
+    label("Version", `v${result.version}`),
   ], "success");
 }

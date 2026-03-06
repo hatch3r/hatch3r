@@ -11,12 +11,65 @@ hatch3r provides two categories of commands: **CLI commands** run directly in yo
 
 ```bash
 npx hatch3r init          # Interactive setup -- detect repo, select tools, generate everything
+npx hatch3r config        # Reconfigure tools, MCP servers, features, and platform
 npx hatch3r sync          # Re-generate tool outputs from canonical .agents/ source
 npx hatch3r update        # Pull latest hatch3r templates with safe merge
 npx hatch3r status        # Check sync status between canonical and generated files
 npx hatch3r validate      # Validate .agents/ structure and frontmatter
 npx hatch3r add <pack>    # Install a community pack (coming soon)
 ```
+
+### `hatch3r config`
+
+Interactively reconfigure your hatch3r setup after the initial `hatch3r init`. Presents all configuration prompts (platform, repo identity, default branch, tools, features, MCP servers) pre-populated with current values from `.agents/hatch.json`.
+
+**Usage:**
+
+```bash
+npx hatch3r config
+```
+
+**What it does:**
+
+1. Reads the current `.agents/hatch.json` manifest and displays your configuration
+2. Walks through each configuration section, pre-populated with current values:
+   - Platform (GitHub, Azure DevOps, GitLab)
+   - Repository identity (owner/namespace, project, repo)
+   - Default branch
+   - Coding tools (Cursor, Copilot, Claude Code, etc.)
+   - Features (agents, skills, rules, prompts, commands, MCP, hooks, GitHub agents)
+   - MCP servers
+3. Computes a diff between old and new configuration
+4. Archives removed tool outputs to `.hatch3r-archive/<tool>/<timestamp>/` -- files are moved, not deleted
+5. Detects manual customizations in generated files (content outside `<!-- HATCH3R:BEGIN -->` / `<!-- HATCH3R:END -->` managed blocks) and migrates them to `.hatch3r/<type>/<id>.customize.md`
+6. Writes the updated `.agents/hatch.json`
+7. Runs a full `hatch3r update` (pulls latest package, copies canonical templates, syncs all adapter outputs)
+8. Prints a diff summary showing what changed
+
+**Example output:**
+
+```
++ Tools added: Claude Code, Windsurf
+- Tools removed: Copilot
++ MCP added: sentry
+~ Default branch: develop
+
+  Files   3 canonical files updated
+  Tools   3 tool(s) synced
+  Version v1.1.0
+
+  Archived   12 files to .hatch3r-archive/
+
+Customizations migrated to .hatch3r/ (tool-agnostic):
+  .github/copilot-instructions.md → .hatch3r/rules/code-standards.customize.md
+```
+
+**Notes:**
+
+- Requires an existing `.agents/hatch.json` -- run `npx hatch3r init` first if you haven't initialized yet.
+- Interactive only (no subcommands or flags).
+- If no changes are detected, the command exits early without modifying anything.
+- Archived files can be found in `.hatch3r-archive/` if you need to recover them.
 
 ## Agent Commands
 

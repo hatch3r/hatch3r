@@ -10,6 +10,9 @@ coverage/
 # hatch3r safe-write backups
 .backups/
 
+# hatch3r config archive (removed tool outputs)
+.hatch3r-archive/
+
 # Log files
 *.log
 

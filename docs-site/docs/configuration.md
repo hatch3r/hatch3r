@@ -11,6 +11,8 @@ hatch3r is configured through `hatch.json` (the project manifest), `.env.mcp` (s
 
 The project manifest lives at `.agents/hatch.json` and is created by `npx hatch3r init`. It controls which tools are enabled, which MCP servers are active, board configuration, and model preferences.
 
+To change your configuration after init, run `npx hatch3r config`. This interactive command walks through all settings (platform, tools, features, MCP servers) pre-populated with current values, archives removed tool outputs, migrates any manual customizations, and runs a full update. See the [Command Reference](command-reference#hatch3r-config) for details.
+
 ### Minimal example
 
 ```json

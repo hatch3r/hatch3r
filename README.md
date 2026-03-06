@@ -172,6 +172,7 @@ Run the `hatch3r-release` command to cut a versioned release. It classifies merg
 
 ```bash
 npx hatch3r init          # Interactive setup
+npx hatch3r config        # Reconfigure tools, MCP servers, features, and platform
 npx hatch3r sync          # Re-generate from canonical state
 npx hatch3r update        # Pull latest templates (safe merge)
 npx hatch3r status        # Check sync status between canonical and generated files

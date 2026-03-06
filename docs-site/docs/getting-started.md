@@ -103,9 +103,20 @@ hatch3r-workflow       → Guided 4-phase development lifecycle
 hatch3r-debug          → Standalone debug-and-fix
 ```
 
+## Changing Your Configuration
+
+Need to add or remove tools, MCP servers, or change your platform after init? Run:
+
+```bash
+npx hatch3r config
+```
+
+This interactive command re-presents all configuration prompts pre-populated with your current settings, safely archives removed tool outputs, migrates any manual customizations you've added to generated files, and runs a full update. See the [Command Reference](command-reference#hatch3r-config) for the full walkthrough.
+
 ## Keeping Up to Date
 
 ```bash
+npx hatch3r config     # Reconfigure tools, MCP servers, features, platform
 npx hatch3r sync       # Re-generate tool outputs from canonical source
 npx hatch3r update     # Pull latest hatch3r templates (safe merge)
 npx hatch3r status     # Check sync status between canonical and generated files
