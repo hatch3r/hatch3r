@@ -62,6 +62,18 @@ Follow the tooling hierarchy (specs > codebase > Context7 MCP > web research). U
 - **Azure DevOps:** `az devops` / `az boards` / `az repos` CLI
 - **GitLab:** `glab` CLI
 
+## Context7 MCP Usage
+
+- Use `resolve-library-id` then `query-docs` to look up current APIs for testing frameworks (Vitest, Jest, Playwright, Cypress, Testing Library) before writing tests.
+- Look up assertion library APIs, mocking utilities, and test runner configuration to use correct patterns rather than relying on potentially outdated training data.
+- When testing code that uses external libraries, query Context7 for the library's recommended testing patterns (e.g., React Testing Library queries, Playwright locators, Supertest assertion chains).
+
+## Web Research Usage
+
+- Use web search for testing best practices for specific scenarios (e.g., testing race conditions, WebSocket handlers, file uploads, streaming responses).
+- Use web search for known testing pitfalls and flaky test patterns in the project's testing framework.
+- Use web search for security testing techniques (e.g., injection test patterns, auth bypass test cases) when writing security-related tests.
+
 ## Output Format
 
 ```

@@ -62,6 +62,13 @@ Use web search to retrieve current, real-world information not available in proj
 - Standard library API questions (use documentation MCP instead).
 - Internal project decisions (use project ADRs).
 
+**Fallback when web search is unavailable:**
+If no web search MCP server is configured (e.g., `brave-search` is not in `mcp.servers` in `.agents/hatch.json`), web research cannot be performed. In this case:
+- Note in your output when web research would have been valuable (e.g., "Web research recommended for CVE verification but not available").
+- Rely more heavily on Context7 documentation MCP and codebase exploration.
+- Flag security-sensitive decisions that would benefit from current advisory data.
+- Do NOT silently skip web research — surface the limitation so the user can decide whether to enable it.
+
 ## D. Browser Verification for UI Changes
 
 Use browser automation MCP tools to visually verify UI changes after automated tests pass.

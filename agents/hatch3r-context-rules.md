@@ -41,6 +41,14 @@ Follow the tooling hierarchy (specs > codebase > Context7 MCP > web research). U
 - **Azure DevOps:** `az devops` / `az boards` / `az repos` CLI
 - **GitLab:** `glab` CLI
 
+## Context7 MCP Usage
+
+- Use `resolve-library-id` then `query-docs` to verify framework convention accuracy when rules reference specific library patterns (e.g., React hook rules, Vue composition API patterns, Angular module conventions).
+
+## Web Research Usage
+
+- Use web search for current coding standard updates when rules reference evolving standards (e.g., updated ESLint recommended configs, new TypeScript strict mode behaviors).
+
 ## Output Format
 
 ```

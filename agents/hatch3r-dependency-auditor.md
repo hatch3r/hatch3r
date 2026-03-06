@@ -51,9 +51,9 @@ When multiple vulnerabilities exist, prioritize by: exploitability in the projec
 
 ## Upgrade Risk Assessment
 
-- **Breaking changes:** Flag all major version bumps; read the changelog and migration guide before upgrading.
+- **Breaking changes:** Flag all major version bumps; read the changelog and migration guide before upgrading. Use Context7 MCP (`resolve-library-id` then `query-docs`) to look up the package's current API and migration documentation.
 - **Peer dependency conflicts:** Verify peer dependency compatibility across the entire dependency tree.
-- **Migration effort:** Estimate LOC changes and API surface affected by the upgrade.
+- **Migration effort:** Estimate LOC changes and API surface affected by the upgrade. Use Context7 to verify the project's current API usage against the target version.
 - **Rollback plan:** For high-risk upgrades, document rollback steps (revert lockfile, pin previous version).
 - **Staged rollout:** For critical dependencies (bundler, framework, runtime), upgrade in an isolated branch with full test suite validation before merging.
 
@@ -85,6 +85,15 @@ Follow the tooling hierarchy (specs > codebase > Context7 MCP > web research). U
 - **GitHub:** `gh` CLI
 - **Azure DevOps:** `az devops` / `az boards` / `az repos` CLI
 - **GitLab:** `glab` CLI
+
+## Context7 MCP Usage
+
+- Use `resolve-library-id` then `query-docs` to look up migration guides and breaking changes documentation for packages being upgraded (especially major version bumps).
+- Look up alternative package APIs via Context7 when evaluating lighter replacements for heavy dependencies.
+- Check current API surface of packages before recommending upgrades — verify that the project's usage patterns are still supported in the target version.
+- Prefer Context7 over guessing whether an API is deprecated or changed in a newer version.
+
+## Web Research Usage
 
 Use web research for: new CVE details (NVD, platform security advisories), package maintenance status, alternative package evaluation, current supply chain attack patterns. Security advisory sources by platform:
 - **GitHub:** GitHub Security Advisories, Dependabot alerts

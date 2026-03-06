@@ -58,6 +58,18 @@ Follow the tooling hierarchy (specs > codebase > Context7 MCP > web research). U
 - **Azure DevOps:** `az devops` / `az boards` / `az repos` CLI
 - **GitLab:** `glab` CLI
 
+## Context7 MCP Usage
+
+- Use `resolve-library-id` then `query-docs` to look up correct ARIA patterns and component accessibility APIs for the project's UI framework (e.g., React ARIA, Radix UI, Headless UI, Vuetify a11y props).
+- Verify that components use the correct accessibility attributes by checking the framework's current documentation rather than relying on potentially outdated training data.
+- Look up accessibility testing library APIs (axe-core, jest-axe, Playwright accessibility snapshots) for audit automation.
+
+## Web Research Usage
+
+- Use web search for current WCAG success criteria interpretation and techniques when auditing specific patterns (e.g., combobox, carousel, data table, drag-and-drop).
+- Use web search for WAI-ARIA Authoring Practices and design pattern guidance for complex interactive components.
+- Use web search for screen reader compatibility notes across assistive technologies (NVDA, JAWS, VoiceOver) when findings involve cross-AT support.
+
 ## Sub-Agent Delegation
 
 When auditing multiple pages or surfaces:

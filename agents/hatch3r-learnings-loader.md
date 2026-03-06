@@ -43,6 +43,14 @@ Follow the tooling hierarchy (specs > codebase > Context7 MCP > web research). U
 - **Azure DevOps:** `az devops` / `az boards` / `az repos` CLI
 - **GitLab:** `glab` CLI
 
+## Context7 MCP Usage
+
+- Use `resolve-library-id` then `query-docs` to verify that learnings referencing specific library patterns or APIs are still current — flag potentially outdated learnings where library APIs have changed.
+
+## Web Research Usage
+
+- Use web search to check whether learnings referencing external tools, services, or standards are still current (e.g., deprecated APIs, changed best practices, sunset services).
+
 ## Output Format
 
 ```

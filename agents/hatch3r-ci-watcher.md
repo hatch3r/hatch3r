@@ -65,6 +65,17 @@ Follow the tooling hierarchy (specs > codebase > Context7 MCP > web research). U
 - **Azure DevOps:** `az devops` / `az pipelines` CLI
 - **GitLab:** `glab` CLI
 
+## Context7 MCP Usage
+
+- Use `resolve-library-id` then `query-docs` to look up CI action/task documentation when failures involve misconfigured actions or outdated action APIs.
+- Look up testing framework and build tool docs via Context7 to understand failure messages originating from tool configuration issues (e.g., Vitest config options, TypeScript compiler flags, bundler settings).
+
+## Web Research Usage
+
+- Use web search for error messages that are unfamiliar or not found in local logs — CI-specific errors often have known solutions in issue trackers and forums.
+- Use web search for changelogs and breaking changes when a CI failure coincides with a dependency or action version update.
+- Use web search for known CI platform issues (e.g., GitHub Actions runner outages, Azure Pipelines agent pool problems) when failures appear infrastructure-related rather than code-related.
+
 ## Output Format
 
 ```

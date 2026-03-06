@@ -29,7 +29,7 @@ Every task MUST follow this four-phase pipeline:
 **Phase 3 — Review Loop:**
 
 - 3a. Spawn `hatch3r-reviewer` to review the implementation.
-- 3b. If Critical or Warning findings exist: spawn `hatch3r-fixer` with the reviewer output.
+- 3b. If Critical or Warning findings exist: spawn `hatch3r-fixer` with the reviewer output. When fixes touch shared or public interfaces, also include blast radius data and reference conventions from Phase 1 (if available).
 - 3c. Re-review: spawn `hatch3r-reviewer` on the fixed code.
 - 3d. Repeat 3b–3c until the reviewer reports 0 Critical + 0 Warning, or max 3 iterations reached.
 - 3e. If max iterations reached with remaining findings: surface to user for manual resolution.

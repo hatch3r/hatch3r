@@ -355,7 +355,7 @@ For a single standalone issue (no sub-issues, not part of a batch), follow this 
 
 ##### 6a.1. Context Gathering (Researcher Subagent)
 
-**Skip this step only** for trivially simple issues (`risk:low` AND `priority:p3`).
+**Skip this step only** for trivial single-line edits (typos, comment fixes, single-value config changes) that score Tier 1 per `hatch3r-deep-context`. The `risk:low` and `priority:p3` labels alone are not sufficient to skip research — always score complexity first.
 
 **Score the issue's complexity** per the `hatch3r-deep-context` rule to determine the analysis tier (Light / Standard / Deep). This determines which additional researcher modes to include alongside the standard task-type modes.
 
@@ -407,7 +407,9 @@ After implementation completes, run the two-stage quality pipeline. Use the Task
 **Stage 1 — Review Loop (sequential):**
 
 1. Spawn **`hatch3r-reviewer`** — code review of all changes. Include the diff and acceptance criteria in the prompt.
-2. If the reviewer reports Critical or Warning findings, spawn **`hatch3r-fixer`** with the reviewer output to apply fixes.
+2. If the reviewer reports Critical or Warning findings, spawn **`hatch3r-fixer`** with the reviewer output to apply fixes. When fixes touch shared or public interfaces, also include:
+   - **Blast radius data** from Step 6a.1 (if available) — so the fixer knows which consumers and contracts must be preserved.
+   - **Reference conventions** from Step 6a.1 (if available) — so the fixer maintains established patterns when applying fixes.
 3. Re-spawn **`hatch3r-reviewer`** to verify fixes.
 4. Repeat steps 2-3 for a maximum of **3 iterations** until the reviewer reports 0 Critical + 0 Warning findings.
 5. If still not clean after 3 iterations, **ASK** the user how to proceed.
@@ -462,6 +464,31 @@ Before spawning implementer sub-agents, delegate context gathering to the **hatc
    - **Project context:** Pre-loaded documentation references from area labels.
 3. Await the researcher result. Include the structured output as shared context in all implementer sub-agent prompts in Step 6b.3.
 
+##### 6b.2b. Per-Sub-Issue Complexity Scoring and Tier-Adjusted Research
+
+After the shared epic-level research, score each sub-issue individually and run additional research for sub-issues that warrant it.
+
+1. **Score each sub-issue** per the `hatch3r-deep-context` rule to determine the analysis tier (Light / Standard / Deep).
+
+2. **For Tier 2+ sub-issues**, spawn per-sub-issue **hatch3r-researcher** sub-agents via the Task tool (`subagent_type: "generalPurpose"`). Launch as many concurrently as the platform supports.
+
+   Each per-sub-issue researcher prompt must include:
+   - The sub-issue title, body, acceptance criteria, and area labels.
+   - Research modes by issue type (same as Step 6a.1).
+   - **Tier-adjusted modes** (per `hatch3r-deep-context`):
+     - Tier 2: add `requirements-elicitation` + `similar-implementation` at `quick` depth
+     - Tier 3: add `requirements-elicitation` + `similar-implementation` at `deep` depth, plus `codebase-impact` at `deep` depth with transitive tracing
+   - Depth by risk level, with complexity tier overriding upward.
+   - The shared epic-level researcher output from Step 6b.2 (to avoid redundant analysis).
+
+3. **Await all per-sub-issue researchers.** Collect structured outputs. Each researcher's output feeds exclusively into its corresponding implementer in Step 6b.3.
+
+4. **For Tier 2 sub-issues:** Present the `requirements-elicitation` questions to the user inline and await answers before proceeding.
+
+5. **For Tier 3 sub-issues:** Present a full Pre-Implementation Summary per the `hatch3r-deep-context` rule. Do NOT proceed to 6b.3 until all unresolved questions are answered.
+
+6. **Tier 1 sub-issues** skip this step — they use only the shared epic-level context from Step 6b.2.
+
 ##### 6b.3. Execute Level-by-Level With Parallel Sub-Agents
 
 For each dependency level, starting at Level 1:
@@ -472,7 +499,11 @@ For each dependency level, starting at Level 1:
    - The sub-issue number, title, full body, and acceptance criteria.
    - The issue type (bug/feature/refactor/QA) and corresponding hatch3r skill name.
    - Parent epic context (title, goal, related sub-issues at the same level).
-   - The researcher output from Step 6b.2 (codebase impact and risk assessment as shared context).
+   - The shared researcher output from Step 6b.2 (codebase impact and risk assessment as shared context).
+   - The per-sub-issue researcher output from Step 6b.2b (if this sub-issue scored Tier 2+).
+   - **Reference conventions** from `similar-implementation` output (Tier 2/3) — triggers the implementer's Convention Lock step.
+   - **Resolved requirements** from `requirements-elicitation` answers (Tier 2/3) — explicit decisions on ambiguities.
+   - **Blast radius data** from enhanced `codebase-impact` (Tier 3) — transitive dependency trace and API consumer map.
    - Documentation references relevant to this sub-issue.
    - Instruction to follow the hatch3r-implementer agent protocol.
    - All `scope: always` rule directives from `.agents/rules/` — subagents do not inherit rules automatically.
@@ -512,7 +543,7 @@ For batches of multiple standalone issues (selected via batch mode in Step 1d or
 
 ##### 6c.2. Context Gathering (Parallel Researchers)
 
-**Skip this step only** if ALL issues in the batch are trivially simple (`risk:low` AND `priority:p3`).
+**Skip this step only** if ALL issues in the batch are trivial single-line edits (typos, comment fixes, single-value config changes) that score Tier 1 per `hatch3r-deep-context`. The `risk:low` and `priority:p3` labels alone are not sufficient to skip research — always score complexity first.
 
 Unlike epics (which share a single researcher), standalone issues in a batch are unrelated and each need individual context gathering.
 
@@ -570,7 +601,9 @@ After all implementations complete, run the two-stage quality pipeline across th
 **Stage 1 — Review Loop (sequential):**
 
 1. Spawn **`hatch3r-reviewer`** — code review of ALL changes across the batch. Include the full diff and acceptance criteria for each issue.
-2. If the reviewer reports Critical or Warning findings, spawn **`hatch3r-fixer`** with the reviewer output to apply fixes.
+2. If the reviewer reports Critical or Warning findings, spawn **`hatch3r-fixer`** with the reviewer output to apply fixes. When fixes touch shared or public interfaces, also include:
+   - **Blast radius data** from Step 6c.2 (if available) — so the fixer knows which consumers and contracts must be preserved.
+   - **Reference conventions** from Step 6c.2 (if available) — so the fixer maintains established patterns when applying fixes.
 3. Re-spawn **`hatch3r-reviewer`** to verify fixes.
 4. Repeat steps 2-3 for a maximum of **3 iterations** until the reviewer reports 0 Critical + 0 Warning findings.
 5. If still not clean after 3 iterations, **ASK** the user how to proceed.

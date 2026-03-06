@@ -20,6 +20,8 @@ The parent orchestrator provides:
 1. **Reviewer output** — structured findings organized by priority (Critical, Warning, Suggestion) with file paths, line references, and suggested fixes.
 2. **Original issue context** — issue number, acceptance criteria, and scope for reference.
 3. **Branch** — already checked out by the parent; you work on the current branch.
+4. **Blast radius (optional)** — enhanced `codebase-impact` output with transitive dependency trace and API consumer map from the original research phase. Provided when fixes touch shared or public interfaces. Use this to understand which downstream consumers and contracts must be preserved when applying fixes.
+5. **Reference conventions (optional)** — `similar-implementation` researcher output with reference implementations and convention extraction from the original research phase. Use this to maintain established patterns when applying fixes.
 
 ## Fix Protocol
 
@@ -37,6 +39,8 @@ For each Critical and Warning finding:
 - Read the referenced file and surrounding context.
 - Understand the root cause of the issue.
 - Determine the minimal fix that addresses the finding without introducing new issues.
+- If blast radius data is available, check whether the fix touches shared interfaces or APIs with downstream consumers — preserve those contracts.
+- If reference conventions are available, ensure the fix follows established patterns rather than introducing divergent approaches.
 - Use Context7 MCP (`resolve-library-id` then `query-docs`) for API patterns relevant to the fix.
 - Use web research for security advisories, CVE details, or best practices when the finding involves security or novel patterns.
 - Use the platform CLI to fetch additional context if needed (check `platform` in `.agents/hatch.json`):

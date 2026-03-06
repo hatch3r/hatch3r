@@ -88,6 +88,6 @@ This rule augments — not replaces — the existing Universal Sub-Agent Pipelin
 
 ## Exceptions
 
-- **`hatch3r-quick-change` command**: Tier 1 by design. The quick-change command intentionally skips deep analysis. If complexity scoring yields Tier 2 or higher, the quick-change soft guard already recommends switching to `hatch3r-workflow`.
-- **Trivial single-line edits**: Always Tier 1 regardless of scoring signals.
+- **`hatch3r-quick-change` command**: Tier 1 items proceed without research. Tier 2 items get lightweight `similar-implementation` at `quick` depth. Tier 3 items must be routed to `hatch3r-workflow` (hard block).
+- **Trivial single-line edits**: Always Tier 1 regardless of scoring signals. This is the only valid basis for skipping research — label-based shortcuts (e.g., `risk:low AND priority:p3`) are not sufficient alone.
 - **`hatch3r-revision` command**: Operates on already-implemented code. Deep context analysis applies to the original implementation, not the revision pass.

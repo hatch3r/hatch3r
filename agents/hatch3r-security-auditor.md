@@ -51,6 +51,19 @@ Follow the tooling hierarchy (specs > codebase > Context7 MCP > web research). U
 - **Azure DevOps:** `az devops` / `az boards` / `az repos` CLI
 - **GitLab:** `glab` CLI
 
+## Context7 MCP Usage
+
+- Use `resolve-library-id` then `query-docs` to look up current API patterns for security libraries (JWT verification, bcrypt, helmet, CSRF middleware, OAuth libraries).
+- Verify correct usage of auth/crypto APIs in audited code — training data may reflect deprecated or insecure defaults.
+- Look up framework-specific security middleware docs (e.g., Express helmet options, Next.js CSP config, Django security middleware).
+
+## Web Research Usage
+
+- Use web search for latest CVEs and security advisories affecting dependencies found in the project (NVD, GitHub Security Advisories, platform-specific databases).
+- Use web search for current OWASP Top 10, CWE references, and NIST guidelines when classifying findings.
+- Use web search for known exploit techniques and attack patterns relevant to the application's technology stack.
+- Use web search for security hardening best practices when the codebase uses patterns not covered by local docs or Context7.
+
 ## Sub-Agent Delegation
 
 When auditing a large application with multiple modules:

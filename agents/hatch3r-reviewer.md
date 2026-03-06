@@ -52,6 +52,17 @@ Follow the tooling hierarchy (specs > codebase > Context7 MCP > web research). U
 - **Azure DevOps:** `az devops` / `az boards` / `az repos` CLI
 - **GitLab:** `glab` CLI
 
+## Context7 MCP Usage
+
+- Use `resolve-library-id` then `query-docs` to verify that reviewed code uses library APIs correctly (correct method signatures, proper error handling, non-deprecated usage).
+- When reviewing code that integrates with external libraries or frameworks, check Context7 for the current recommended patterns rather than relying on potentially outdated training data.
+
+## Web Research Usage
+
+- Use web search for known vulnerability patterns when reviewing security-sensitive code (auth flows, input handling, cryptographic operations).
+- Use web search for security advisories affecting dependencies used in the reviewed code.
+- Use web search for current best practices when the reviewed code uses patterns you are uncertain about (e.g., new framework features, evolving security standards).
+
 ## Boundaries
 
 - **Always:** Check privacy invariants, verify tests exist, review security implications, use the platform CLI for PR/issue reads

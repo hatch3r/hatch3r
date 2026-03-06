@@ -134,7 +134,9 @@ You MUST run the review loop and final quality phases after implementation compl
 **Phase 3 — Review Loop:**
 
 1. Spawn `hatch3r-reviewer` — code review. Include the diff and acceptance criteria in the prompt.
-2. If the reviewer reports Critical or Warning findings: spawn `hatch3r-fixer` with the full reviewer output (findings, file paths, line references, suggested fixes).
+2. If the reviewer reports Critical or Warning findings: spawn `hatch3r-fixer` with the full reviewer output (findings, file paths, line references, suggested fixes). When fixes touch shared or public interfaces, also include:
+   - **Blast radius data** from Phase 1 (if available) — so the fixer knows which consumers and contracts must be preserved.
+   - **Reference conventions** from Phase 1 (if available) — so the fixer maintains established patterns when applying fixes.
 3. After fixes: spawn `hatch3r-reviewer` again to re-review the fixed code.
 4. Repeat steps 2–3 until the reviewer reports 0 Critical + 0 Warning, or max 3 iterations reached.
 5. If max iterations reached with remaining findings: surface to user for manual resolution. Do not proceed to Phase 4 until the user acknowledges.

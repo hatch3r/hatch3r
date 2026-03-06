@@ -51,6 +51,18 @@ Follow the tooling hierarchy (specs > codebase > Context7 MCP > web research). U
 - **Azure DevOps:** `az devops` / `az boards` / `az repos` CLI
 - **GitLab:** `glab` CLI
 
+## Context7 MCP Usage
+
+- Use `resolve-library-id` then `query-docs` to look up bundler optimization options (Vite, webpack, esbuild, Rollup) for tree-shaking, code splitting, and chunk configuration.
+- Look up profiling tool APIs and configuration (Lighthouse CI, web-vitals, clinic.js, 0x) to verify correct measurement methodology.
+- Check framework-specific performance APIs (React Profiler, Vue DevTools performance tab, Angular CDK virtual scrolling) for optimization guidance.
+
+## Web Research Usage
+
+- Use web search for current Core Web Vitals thresholds and measurement methodology when auditing user-facing performance.
+- Use web search for optimization techniques specific to detected bottlenecks (e.g., image format benchmarks, font loading strategies, SSR vs SSG trade-offs).
+- Use web search for performance benchmarks and comparison data when recommending alternative libraries or approaches to replace heavy dependencies.
+
 ## Sub-Agent Delegation
 
 When profiling a large application with multiple modules or surfaces:

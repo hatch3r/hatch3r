@@ -57,7 +57,7 @@ It retains:
 ## Token-Saving Directives
 
 1. **No shared context loading.** Do NOT read `hatch3r-board-shared`. Do NOT fetch GitHub issues or PRs.
-2. **No researcher sub-agent.** Context gathering is the user's responsibility for quick changes.
+2. **Minimal researcher usage.** No researcher for Tier 1 items. For Tier 2 items that proceed through quick-change, only `similar-implementation` at `quick` depth. Tier 3 items must be routed to `hatch3r-workflow`.
 3. **Targeted file reads only.** Read only files directly relevant to the described change(s).
 4. **No learnings capture.** Quick changes are too small to produce meaningful learnings.
 5. **Minimal rule loading.** Load `scope: always` rules only when spawning sub-agents in Steps 4b or 6.
@@ -95,19 +95,25 @@ For each change item, estimate:
 
 Aggregate across the batch for total estimated scope.
 
-#### 2b. Apply Soft Guard
+#### 2b. Apply Soft Guard and Complexity Scoring
 
-**Threshold triggers** (any one is sufficient):
+**Score complexity** per the `hatch3r-deep-context` rule for the overall change (or each item individually if items are unrelated). Determine the analysis tier (Light / Standard / Deep).
+
+**Hard block — Tier 3 (Deep):** If any item scores Tier 3, quick-change is not appropriate.
+
+**ASK:** "This change scores Tier 3 (Deep complexity): {reason}. Quick-change does not provide the research depth needed. Options: (a) switch to `hatch3r-workflow`, (b) narrow the scope."
+
+Do NOT offer a "proceed anyway" option for Tier 3. The user must switch to workflow or narrow scope.
+
+**Soft guard — Tier 2 (Standard) or threshold triggers:** If any item scores Tier 2, or if any of these threshold triggers fire (any one is sufficient):
 - Estimated total exceeds **5 files**
 - Estimated total exceeds **~200 lines changed**
 - Changes touch security-sensitive areas
 - Changes require new dependencies or architectural decisions
 
-If a threshold is triggered:
+**ASK:** "This looks larger than a quick change: {reason}. Options: (a) proceed with lightweight research, (b) switch to `hatch3r-workflow` for full ceremony, (c) narrow the scope."
 
-**ASK:** "This looks larger than a quick change: {reason}. Options: (a) proceed anyway, (b) switch to `hatch3r-workflow` for proper ceremony, (c) narrow the scope."
-
-If no threshold is triggered, present the change list:
+If no threshold is triggered and all items are Tier 1, present the change list:
 
 ```
 Quick Change Scope:
@@ -168,19 +174,26 @@ No sub-agent delegation. No researcher. Implement and move on.
 For each nontrivial item (or group of related nontrivial items):
 
 1. Read `scope: always` rules from `.agents/rules/`.
-2. Spawn a `hatch3r-implementer` sub-agent via the Task tool (`subagent_type: "generalPurpose"`).
+
+2. **Lightweight research (Tier 2 items only):** If the item scored Tier 2 in Step 2b and the user chose to proceed with lightweight research, spawn a `hatch3r-researcher` sub-agent with:
+   - **Modes:** `similar-implementation` at `quick` depth (1 reference implementation)
+   - **Research brief:** The change description and affected files.
+   - Await the result. Pass the output (reference conventions) to the implementer prompt in step 3.
+
+3. Spawn a `hatch3r-implementer` sub-agent via the Task tool (`subagent_type: "generalPurpose"`).
 
 The implementer prompt MUST include:
 - The change description and affected files.
 - All `scope: always` rule directives.
 - Explicit instruction: do NOT create branches, commits, or PRs.
-- Explicit instruction: no researcher context is available; work from the change description and codebase alone.
+- **Reference conventions** from `similar-implementation` output (if step 2 ran) — triggers the implementer's Convention Lock step.
+- If no researcher ran: explicit instruction that no researcher context is available; work from the change description and codebase alone.
 
 If multiple nontrivial items affect **independent areas** (no shared files), spawn one implementer per area and run them in parallel.
 
 If multiple nontrivial items affect **overlapping files**, process them sequentially through a single implementer to avoid conflicts.
 
-3. Await the implementer result. If the implementer reports BLOCKED, **ASK** the user for guidance.
+4. Await the implementer result. If the implementer reports BLOCKED, **ASK** the user for guidance.
 
 ---
 
