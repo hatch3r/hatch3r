@@ -200,7 +200,14 @@ export async function updateCommand(_opts?: Record<string, unknown>): Promise<vo
   const s0 = createSpinner(step(1, totalSteps, "Updating package..."));
   s0.start();
   try {
-    execFileSync(pm.updateCmd, pm.updateArgs, { stdio: "pipe" });
+    // On Windows, npm/pnpm/yarn are .cmd batch files. execFileSync cannot
+    // resolve .cmd extensions without a shell, but shell:true triggers the
+    // npm.ps1 hang bug (npm/cli#8259). Appending .cmd at the call site
+    // keeps PackageManagerInfo platform-agnostic for generated content.
+    const cmd = process.platform === "win32" && pm.name !== "bun"
+      ? `${pm.updateCmd}.cmd`
+      : pm.updateCmd;
+    execFileSync(cmd, pm.updateArgs, { stdio: "pipe" });
     CONTENT_ROOT = findPackageRoot(__dirname);
   } catch (err) {
     s0.fail(step(1, totalSteps, "Failed to update package"));
