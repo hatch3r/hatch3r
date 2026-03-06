@@ -68,7 +68,41 @@ How secrets are loaded depends on your editor:
 - **Cursor / Claude Code / others** -- Source before launching:
 
 ```bash
+# macOS/Linux
 set -a && source .env.mcp && set +a && cursor .
+
+# Windows (PowerShell)
+Get-Content .env.mcp | ForEach-Object { if ($_ -match '^\s*([^#][^=]+)=(.*)$') { [Environment]::SetEnvironmentVariable($matches[1].Trim(), $matches[2].Trim(), 'Process') } }
 ```
 
 See [MCP Setup](../guides/mcp-setup) for full details.
+
+## First Workflow
+
+After initialization, choose your starting point:
+
+### New project (greenfield)
+
+```
+hatch3r-project-spec   → Generate specs from your project vision
+hatch3r-roadmap        → Create a phased plan with epics
+hatch3r-board-init     → Set up a GitHub Projects V2 board
+hatch3r-board-fill     → Turn todo.md into GitHub issues
+```
+
+### Existing project (brownfield)
+
+```
+hatch3r-codebase-map   → Analyze your codebase structure
+hatch3r-roadmap        → Plan improvements from the analysis
+hatch3r-board-init     → Set up a GitHub Projects V2 board
+hatch3r-board-fill     → Turn todo.md into GitHub issues
+```
+
+### Quick tasks (no board needed)
+
+```
+hatch3r-quick-change   → Typo fixes, config tweaks, small refactors
+hatch3r-workflow       → Guided 4-phase development lifecycle
+hatch3r-debug          → Standalone debug-and-fix
+```

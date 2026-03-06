@@ -77,3 +77,5 @@ Planning commands use parallel researcher sub-agents:
 - `feature-plan` -- codebase impact, feature design, architecture, risk
 - `bug-plan` -- symptom tracer, root cause investigator, impact assessor, regression researcher
 - `refactor-plan` -- current state analyzer, strategy designer, impact assessor, migration planner
+
+For visual diagrams of these workflows, see [Agentic Process](agentic-process).
