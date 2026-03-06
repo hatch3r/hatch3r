@@ -73,7 +73,7 @@ describe("update command", () => {
     exitSpy.mockRestore();
     consoleSpy.mockRestore();
     consoleErrorSpy.mockRestore();
-    await rm(tempDir, { recursive: true, force: true });
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
   });
 
   it("should exit with error when no manifest exists", async () => {
