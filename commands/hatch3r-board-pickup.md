@@ -1,11 +1,35 @@
 ---
 id: hatch3r-board-pickup
 type: command
-description: Pick up one or more epics/issues from the GitHub board for development. Handles dependency-aware selection, collision detection, branching, parallel sub-agent delegation, and batch execution.
+description: Pick up one or more epics/issues from the project board for development. Handles dependency-aware selection, collision detection, branching, parallel sub-agent delegation, and batch execution. Supports GitHub, Azure DevOps, and GitLab.
 ---
-# Board Pickup -- Develop Issues from the GitHub Board
+# Board Pickup -- Develop Issues from the Project Board
 
-Pick up an epic (with all sub-issues), a single sub-issue, a standalone issue, or **a batch of independent issues** from **{owner}/{repo}** (read from `/.agents/hatch.json` board config) for development. Supports single-issue and multi-issue batch modes. When no specific issue is referenced, auto-picks the next best candidate(s). Respects dependency order and readiness status. Performs collision detection, creates a branch, then delegates implementation via one sub-agent per issue running in parallel.
+Pick up an epic (with all sub-issues), a single sub-issue, a standalone issue, or **a batch of independent issues** from **{owner}/{repo}** (read from `.agents/hatch.json` board config) for development. The `platform` field determines whether to interact with GitHub Issues, Azure DevOps Work Items, or GitLab Issues. Supports single-issue and multi-issue batch modes. When no specific issue is referenced, auto-picks the next best candidate(s). Respects dependency order and readiness status. Performs collision detection, creates a branch, then delegates implementation via one sub-agent per issue running in parallel.
+
+---
+
+## Agent Pipeline
+
+| Stage | Agent(s) | Parallel | Required |
+|-------|----------|----------|----------|
+| 1. Research | `hatch3r-researcher` (modes by task type) | Per issue | Yes |
+| 2. Implementation | `hatch3r-implementer` (one per issue) | Yes (per dependency level) | Yes |
+| 3a. Review Loop | `hatch3r-reviewer` -> `hatch3r-fixer` (max 3 iterations until clean) | No (sequential loop) | Yes |
+| 3b. Final Quality — Testing | `hatch3r-test-writer` | Yes | Yes (code changes) |
+| 3c. Final Quality — Security | `hatch3r-security-auditor` | Yes | Yes (code changes) |
+| 3d. Final Quality — Docs | `hatch3r-docs-writer` | Yes | When APIs/architecture/UX affected |
+| 3e. Final Quality — Conditional | `hatch3r-lint-fixer`, `hatch3r-a11y-auditor`, `hatch3r-perf-profiler` | Yes | When triggered |
+
+## Browser Automation
+
+At the start of this command, ask the user once:
+
+> "Would you like to enable browser verification for this session? This uses Playwright to test changes in the running application."
+
+If **yes**: implementation and review stages include browser verification steps — navigate to affected pages, interact with changed elements, check console for errors, capture screenshots.
+
+If **no**: all browser verification steps are skipped silently throughout the entire command.
 
 ---
 
@@ -15,6 +39,7 @@ hatch3r's board commands operate as the **implementation orchestration layer** a
 
 - **board-init** sets up the project management structure that agentic workflows operate within
 - **board-fill** creates the work items that agentic workflows can triage and label
+- **board-groom** refines existing work items as priorities, scope, and dependencies evolve over time
 - **board-pickup** orchestrates the implementation -> review -> merge pipeline that goes beyond what generic agentic workflows provide
 
 GitHub Agentic Workflows and hatch3r are complementary: use agentic workflows for continuous background automation, use hatch3r board commands for structured delivery orchestration.
@@ -23,7 +48,9 @@ GitHub Agentic Workflows and hatch3r are complementary: use agentic workflows fo
 
 ## Shared Context
 
-**Read the `hatch3r-board-shared` command at the start of the run.** It contains Board Configuration, GitHub Context, Project Reference, Projects v2 sync procedure, and tooling directives. Cache all values for the duration of this run.
+**Read the `hatch3r-board-shared` command at the start of the run.** It contains Board Configuration, Platform Detection, Platform Context, Board Sync Procedure, and tooling directives. Cache all values for the duration of this run.
+
+All issue operations in this command MUST follow the Board Sync Enforcement rules defined in `hatch3r-board-shared`. Every status change, issue creation, and update must be synced to the board immediately.
 
 ## Global Rule Overrides
 
@@ -43,9 +70,27 @@ Execute these steps in order. **Do not skip any step.** Ask the user at every ch
 
 #### 1a. Fetch and Parse Board State
 
-1. `list_issues` with `owner: {board.owner}`, `repo: {board.repo}`, `state: OPEN`, sorted by `CREATED_AT` descending. Paginate to get all. **Exclude** `meta:board-overview` issues.
-2. For each issue, check sub-issues (`issue_read` with `method: get_sub_issues`).
-3. Fetch labels (`issue_read` with `method: get_labels`).
+**Platform-specific: Fetch all open items**
+
+**If platform is `github`:**
+1. `gh issue list -R {owner}/{repo} --state open --limit 500 --json number,title,labels,state,createdAt,updatedAt,body` (fall back to `list_issues` MCP). Paginate to get all.
+
+**If platform is `azure-devops`:**
+1. `az boards query --org https://dev.azure.com/{namespace} --project {project} --wiql "SELECT [System.Id], [System.Title], [System.State], [System.Tags] FROM WorkItems WHERE [System.State] <> 'Closed' AND [System.State] <> 'Removed'"` (fall back to `list_work_items` MCP).
+
+**If platform is `gitlab`:**
+1. `glab issue list -R {namespace}/{project} --state opened --per-page 100`. Paginate to get all.
+
+**Exclude** `meta:board-overview` issues/work items.
+
+2. For each issue, check sub-issues:
+   - **GitHub:** `issue_read` with `method: get_sub_issues`.
+   - **Azure DevOps:** `az boards work-item relation list --id N`.
+   - **GitLab:** `glab api projects/{project_id}/issues/{N}/links`.
+3. Fetch labels/tags:
+   - **GitHub:** `issue_read` with `method: get_labels`.
+   - **Azure DevOps:** Extract from `System.Tags` field.
+   - **GitLab:** Extract from issue data.
 4. Parse `## Dependencies` sections for hard (`Blocked by #N`) and soft (`Recommended after #N`) references. Only hard dependencies affect availability categorization and block pickup; soft dependencies are advisory (note them in the presentation but do not treat as blockers).
 5. For epics, parse `## Implementation Order` sections.
 
@@ -156,8 +201,14 @@ When multiple issues are selected as a batch:
 
 ### Step 3: Collision Detection
 
-1. **In-progress issues:** `search_issues` with `label:status:in-progress state:open`.
-2. **Open PRs:** `search_pull_requests` with `state:open`.
+1. **In-progress issues:** Search using platform CLI:
+   - **GitHub:** `gh issue list -R {owner}/{repo} --label "status:in-progress" --state open` (fall back to `search_issues` MCP).
+   - **Azure DevOps:** `az boards query --wiql "SELECT ... WHERE [System.State] = 'Active' AND [System.Tags] CONTAINS 'status:in-progress'"`.
+   - **GitLab:** `glab issue list -R {namespace}/{project} --label "status::in-progress" --state opened`.
+2. **Open PRs/MRs:**
+   - **GitHub:** `gh pr list -R {owner}/{repo} --state open` (fall back to `search_pull_requests` MCP).
+   - **Azure DevOps:** `az repos pr list --org https://dev.azure.com/{namespace} --project {project} --status active`.
+   - **GitLab:** `glab mr list -R {namespace}/{project} --state opened`.
 3. **Overlap analysis:** Flag hard collisions (same problem/files), soft collisions (related work), or no collision.
 4. **Intra-batch overlap (batch mode):** Check whether any issues within the batch are likely to touch the same files. If so, move conflicting issues to sequential dependency levels rather than parallel.
 
@@ -232,14 +283,17 @@ Skip this step when:
 
 > When picking up any sub-issue, the **parent epic MUST also be marked `status:in-progress`**.
 
-1. `issue_write` with `method: update` to replace `status:triage`/`status:ready` with `status:in-progress`.
+1. Update status labels/tags to `in-progress` using platform CLI:
+   - **GitHub:** `gh issue edit N --remove-label "status:ready" --add-label "status:in-progress"` (fall back to `issue_write` MCP).
+   - **Azure DevOps:** `az boards work-item update --id N --state "Active"` and update tags.
+   - **GitLab:** `glab issue update N --unlabel "status::ready" --label "status::in-progress"`.
 2. Always mark parent epic as `status:in-progress`.
 3. When picking up an entire epic: mark ALL remaining open sub-issues as `status:in-progress`.
 4. **Batch mode:** Mark ALL issues in the batch as `status:in-progress`.
 
-#### 4a. Sync Projects v2 Status
+#### 4a. Sync Board Status
 
-Follow the **Projects v2 Sync Procedure** from `hatch3r-board-shared` (gh CLI primary) for each issue marked `status:in-progress` (including parent epic). Set status to "In progress" using `board.statusOptions.inProgress`.
+Follow the **Board Sync Procedure** from `hatch3r-board-shared` for each issue marked `status:in-progress` (including parent epic). Set status to "In Progress".
 
 ---
 
@@ -254,7 +308,7 @@ Follow the **Projects v2 Sync Procedure** from `hatch3r-board-shared` (gh CLI pr
 
 **If branch exists:** **ASK** reuse / delete+recreate / rename with `-v2`.
 
-**Normal path:** Use `{base}` = `board.defaultBranch` from `/.agents/hatch.json` (fallback: `"main"`).
+**Normal path:** Use `{base}` = `board.defaultBranch` from `.agents/hatch.json` (fallback: `"main"`).
 
 ```bash
 git checkout {base} && git pull origin {base} && git checkout -b {branch-name}
@@ -270,7 +324,7 @@ Check `executor:` label (for batch mode, check each issue):
 - `executor:hybrid` -- **ASK** for human direction first.
 - `executor:human` -- **ASK** if user wants agent assistance and which parts.
 
-Use the issue type to select the appropriate hatch3r skill: `type:bug` → the hatch3r-bug-fix skill; `type:feature` → the hatch3r-feature-implementation skill; `type:refactor` → disambiguate by area/behavior (UI → hatch3r-visual-refactor, behavior changes → hatch3r-logical-refactor, otherwise → hatch3r-code-refactor); `type:qa` → the hatch3r-qa-validation skill.
+Use the issue type to select the appropriate hatch3r skill: `type:bug` → the hatch3r-bug-fix skill; `type:feature` → the hatch3r-feature skill; `type:refactor` → disambiguate by area/behavior (UI → hatch3r-visual-refactor, behavior changes → hatch3r-logical-refactor, otherwise → hatch3r-refactor); `type:qa` → the hatch3r-qa-validation skill.
 
 **Delegation path selection:**
 
@@ -282,7 +336,7 @@ Use the issue type to select the appropriate hatch3r skill: `type:bug` → the h
 
 Before delegating implementation:
 
-1. If `/.agents/learnings/` exists, scan for learnings with matching `area` or `tags` that overlap with the issue's area labels or tech stack.
+1. If `.agents/learnings/` exists, scan for learnings with matching `area` or `tags` that overlap with the issue's area labels or tech stack.
 2. Read the `## Applies When` section of matching learnings.
 3. Include any relevant learnings (especially `pitfall` category) in the sub-agent prompt or direct implementation context.
 4. If no learnings directory exists, skip silently.
@@ -301,7 +355,9 @@ For a single standalone issue (no sub-issues, not part of a batch), follow this 
 
 ##### 6a.1. Context Gathering (Researcher Subagent)
 
-**Skip this step only** for trivially simple issues (`risk:low` AND `priority:p3`).
+**Skip this step only** for trivial single-line edits (typos, comment fixes, single-value config changes) that score Tier 1 per `hatch3r-deep-context`. The `risk:low` and `priority:p3` labels alone are not sufficient to skip research — always score complexity first.
+
+**Score the issue's complexity** per the `hatch3r-deep-context` rule to determine the analysis tier (Light / Standard / Deep). This determines which additional researcher modes to include alongside the standard task-type modes.
 
 Spawn a **hatch3r-researcher** sub-agent via the Task tool (`subagent_type: "generalPurpose"`) with:
 
@@ -313,10 +369,17 @@ Spawn a **hatch3r-researcher** sub-agent via the Task tool (`subagent_type: "gen
   - `type:qa` → `codebase-impact`
   - `type:docs` → `codebase-impact`
   - `type:infra` → `codebase-impact`, `risk-assessment`
-- **Depth:** `quick` for `risk:low`, `standard` for `risk:med`, `deep` for `risk:high`.
+- **Tier-adjusted modes** (per `hatch3r-deep-context`):
+  - Tier 2: add `requirements-elicitation` + `similar-implementation` at `quick` depth
+  - Tier 3: add `requirements-elicitation` + `similar-implementation` at `deep` depth, plus `codebase-impact` at `deep` depth with transitive tracing
+- **Depth:** `quick` for `risk:low`, `standard` for `risk:med`, `deep` for `risk:high`. The complexity tier may override depth upward.
 - **Project context:** Pre-loaded documentation references from area labels.
 
 Await the researcher result. Use its structured output to inform Steps 6a.2-6a.3.
+
+**For Tier 2:** Present the `requirements-elicitation` questions to the user inline and await answers before proceeding to 6a.2.
+
+**For Tier 3:** Present a full Pre-Implementation Summary per the `hatch3r-deep-context` rule. Do NOT proceed to 6a.2 until all unresolved questions are answered.
 
 ##### 6a.2. Core Implementation (Implementer Subagent)
 
@@ -326,20 +389,36 @@ The implementer sub-agent prompt MUST include:
 - The issue number, title, full body, and acceptance criteria.
 - The issue type (bug/feature/refactor/QA) and corresponding hatch3r skill name.
 - The researcher output from Step 6a.1 (if that step was not skipped).
+- **Reference conventions** from `similar-implementation` output (Tier 2/3) — triggers the implementer's Convention Lock step.
+- **Resolved requirements** from `requirements-elicitation` answers (Tier 2/3) — explicit decisions on ambiguities.
+- **Blast radius data** from enhanced `codebase-impact` (Tier 3) — transitive dependency trace and API consumer map.
 - Documentation references relevant to this issue.
 - Instruction to follow the **hatch3r-implementer agent protocol**.
-- All `scope: always` rule directives from `/.agents/rules/` — subagents do not inherit rules automatically.
-- Relevant learnings from `/.agents/learnings/` (from Step 6.pre).
+- All `scope: always` rule directives from `.agents/rules/` — subagents do not inherit rules automatically.
+- Relevant learnings from `.agents/learnings/` (from Step 6.pre).
 - Explicit instruction: do NOT create branches, commits, or PRs.
 
 Await the implementer sub-agent. Collect its structured result (files changed, tests written, issues encountered).
 
-##### 6a.3. Post-Implementation Specialist Delegation
+##### 6a.3. Post-Implementation Quality Pipeline
 
-After implementation completes, spawn specialist sub-agents for quality assurance. Use the Task tool with `subagent_type: "generalPurpose"`. Launch as many independent sub-agents in parallel as the platform supports.
+After implementation completes, run the two-stage quality pipeline. Use the Task tool with `subagent_type: "generalPurpose"`.
+
+**Stage 1 — Review Loop (sequential):**
+
+1. Spawn **`hatch3r-reviewer`** — code review of all changes. Include the diff and acceptance criteria in the prompt.
+2. If the reviewer reports Critical or Warning findings, spawn **`hatch3r-fixer`** with the reviewer output to apply fixes. When fixes touch shared or public interfaces, also include:
+   - **Blast radius data** from Step 6a.1 (if available) — so the fixer knows which consumers and contracts must be preserved.
+   - **Reference conventions** from Step 6a.1 (if available) — so the fixer maintains established patterns when applying fixes.
+3. Re-spawn **`hatch3r-reviewer`** to verify fixes.
+4. Repeat steps 2-3 for a maximum of **3 iterations** until the reviewer reports 0 Critical + 0 Warning findings.
+5. If still not clean after 3 iterations, **ASK** the user how to proceed.
+
+**Stage 2 — Final Quality (parallel, after review loop is clean):**
+
+Launch as many independent sub-agents in parallel as the platform supports.
 
 **Always spawn (mandatory for every code change):**
-- **hatch3r-reviewer** — code review of all changes. Include the diff and acceptance criteria in the prompt.
 - **hatch3r-test-writer** — tests for all code changes. Unit tests for new logic, regression tests for bug fixes, integration tests for cross-module changes.
 - **hatch3r-security-auditor** — security review of all code changes. Audit data flows, access control, input validation, and secret management.
 
@@ -353,7 +432,7 @@ After implementation completes, spawn specialist sub-agents for quality assuranc
 
 Each specialist sub-agent prompt MUST include:
 - The agent protocol to follow (e.g., "Follow the hatch3r-reviewer agent protocol").
-- All `scope: always` rule directives from `/.agents/rules/` (subagents do not inherit rules automatically).
+- All `scope: always` rule directives from `.agents/rules/` (subagents do not inherit rules automatically).
 - The diff or file changes to review.
 - The issue's acceptance criteria.
 
@@ -385,6 +464,31 @@ Before spawning implementer sub-agents, delegate context gathering to the **hatc
    - **Project context:** Pre-loaded documentation references from area labels.
 3. Await the researcher result. Include the structured output as shared context in all implementer sub-agent prompts in Step 6b.3.
 
+##### 6b.2b. Per-Sub-Issue Complexity Scoring and Tier-Adjusted Research
+
+After the shared epic-level research, score each sub-issue individually and run additional research for sub-issues that warrant it.
+
+1. **Score each sub-issue** per the `hatch3r-deep-context` rule to determine the analysis tier (Light / Standard / Deep).
+
+2. **For Tier 2+ sub-issues**, spawn per-sub-issue **hatch3r-researcher** sub-agents via the Task tool (`subagent_type: "generalPurpose"`). Launch as many concurrently as the platform supports.
+
+   Each per-sub-issue researcher prompt must include:
+   - The sub-issue title, body, acceptance criteria, and area labels.
+   - Research modes by issue type (same as Step 6a.1).
+   - **Tier-adjusted modes** (per `hatch3r-deep-context`):
+     - Tier 2: add `requirements-elicitation` + `similar-implementation` at `quick` depth
+     - Tier 3: add `requirements-elicitation` + `similar-implementation` at `deep` depth, plus `codebase-impact` at `deep` depth with transitive tracing
+   - Depth by risk level, with complexity tier overriding upward.
+   - The shared epic-level researcher output from Step 6b.2 (to avoid redundant analysis).
+
+3. **Await all per-sub-issue researchers.** Collect structured outputs. Each researcher's output feeds exclusively into its corresponding implementer in Step 6b.3.
+
+4. **For Tier 2 sub-issues:** Present the `requirements-elicitation` questions to the user inline and await answers before proceeding.
+
+5. **For Tier 3 sub-issues:** Present a full Pre-Implementation Summary per the `hatch3r-deep-context` rule. Do NOT proceed to 6b.3 until all unresolved questions are answered.
+
+6. **Tier 1 sub-issues** skip this step — they use only the shared epic-level context from Step 6b.2.
+
 ##### 6b.3. Execute Level-by-Level With Parallel Sub-Agents
 
 For each dependency level, starting at Level 1:
@@ -395,11 +499,15 @@ For each dependency level, starting at Level 1:
    - The sub-issue number, title, full body, and acceptance criteria.
    - The issue type (bug/feature/refactor/QA) and corresponding hatch3r skill name.
    - Parent epic context (title, goal, related sub-issues at the same level).
-   - The researcher output from Step 6b.2 (codebase impact and risk assessment as shared context).
+   - The shared researcher output from Step 6b.2 (codebase impact and risk assessment as shared context).
+   - The per-sub-issue researcher output from Step 6b.2b (if this sub-issue scored Tier 2+).
+   - **Reference conventions** from `similar-implementation` output (Tier 2/3) — triggers the implementer's Convention Lock step.
+   - **Resolved requirements** from `requirements-elicitation` answers (Tier 2/3) — explicit decisions on ambiguities.
+   - **Blast radius data** from enhanced `codebase-impact` (Tier 3) — transitive dependency trace and API consumer map.
    - Documentation references relevant to this sub-issue.
    - Instruction to follow the hatch3r-implementer agent protocol.
-   - All `scope: always` rule directives from `/.agents/rules/` — subagents do not inherit rules automatically.
-   - Relevant learnings from `/.agents/learnings/` (from Step 6.pre).
+   - All `scope: always` rule directives from `.agents/rules/` — subagents do not inherit rules automatically.
+   - Relevant learnings from `.agents/learnings/` (from Step 6.pre).
    - Instruction to use GitHub MCP for issue reads, and follow the project's tooling hierarchy for external knowledge augmentation.
    - Explicit instruction: do NOT create branches, commits, or PRs.
 
@@ -435,7 +543,7 @@ For batches of multiple standalone issues (selected via batch mode in Step 1d or
 
 ##### 6c.2. Context Gathering (Parallel Researchers)
 
-**Skip this step only** if ALL issues in the batch are trivially simple (`risk:low` AND `priority:p3`).
+**Skip this step only** if ALL issues in the batch are trivial single-line edits (typos, comment fixes, single-value config changes) that score Tier 1 per `hatch3r-deep-context`. The `risk:low` and `priority:p3` labels alone are not sufficient to skip research — always score complexity first.
 
 Unlike epics (which share a single researcher), standalone issues in a batch are unrelated and each need individual context gathering.
 
@@ -444,10 +552,11 @@ Unlike epics (which share a single researcher), standalone issues in a batch are
 2. **Each researcher prompt must include:**
    - The issue title, body, acceptance criteria, and area labels.
    - Research modes by issue type (same as Step 6a.1).
-   - Depth by risk level (`quick` / `standard` / `deep`).
+   - Tier-adjusted modes per `hatch3r-deep-context` (same as Step 6a.1).
+   - Depth by risk level (`quick` / `standard` / `deep`), with complexity tier overriding upward.
    - Project context and documentation references.
 
-3. **Await all researchers.** Collect structured outputs. Each researcher's output feeds exclusively into its corresponding implementer in Step 6c.3.
+3. **Await all researchers.** Collect structured outputs. Each researcher's output feeds exclusively into its corresponding implementer in Step 6c.3. For Tier 2/3 issues, present elicitation questions to the user and await answers before proceeding.
 
 ##### 6c.3. Execute Level-by-Level With Parallel Implementers
 
@@ -460,10 +569,13 @@ For each dependency level, starting at Level 1:
    - The issue type (bug/feature/refactor/QA) and corresponding hatch3r skill name.
    - Batch context: sibling issues in the batch at the same level (for awareness, not implementation).
    - The researcher output from Step 6c.2 for this specific issue (if that step was not skipped).
+   - **Reference conventions** from `similar-implementation` output (Tier 2/3) — triggers the implementer's Convention Lock step.
+   - **Resolved requirements** from `requirements-elicitation` answers (Tier 2/3).
+   - **Blast radius data** from enhanced `codebase-impact` (Tier 3).
    - Documentation references relevant to this issue.
    - Instruction to follow the **hatch3r-implementer agent protocol**.
-   - All `scope: always` rule directives from `/.agents/rules/` — subagents do not inherit rules automatically.
-   - Relevant learnings from `/.agents/learnings/` (from Step 6.pre).
+   - All `scope: always` rule directives from `.agents/rules/` — subagents do not inherit rules automatically.
+   - Relevant learnings from `.agents/learnings/` (from Step 6.pre).
    - Explicit instruction: do NOT create branches, commits, or PRs.
 
 3. **Await all sub-agents in the current level.** Collect their structured results (files changed, tests written, issues encountered).
@@ -482,12 +594,25 @@ After all implementer sub-agents complete across all levels:
 2. Resolve any cross-issue file conflicts or integration issues.
 3. Verify no regressions between parallel sub-agent outputs.
 
-##### 6c.5. Post-Implementation Specialist Delegation
+##### 6c.5. Post-Implementation Quality Pipeline
 
-After all implementations complete, spawn specialist sub-agents across the entire batch. Use the Task tool with `subagent_type: "generalPurpose"`. Launch as many independent sub-agents in parallel as the platform supports.
+After all implementations complete, run the two-stage quality pipeline across the entire batch. Use the Task tool with `subagent_type: "generalPurpose"`.
+
+**Stage 1 — Review Loop (sequential):**
+
+1. Spawn **`hatch3r-reviewer`** — code review of ALL changes across the batch. Include the full diff and acceptance criteria for each issue.
+2. If the reviewer reports Critical or Warning findings, spawn **`hatch3r-fixer`** with the reviewer output to apply fixes. When fixes touch shared or public interfaces, also include:
+   - **Blast radius data** from Step 6c.2 (if available) — so the fixer knows which consumers and contracts must be preserved.
+   - **Reference conventions** from Step 6c.2 (if available) — so the fixer maintains established patterns when applying fixes.
+3. Re-spawn **`hatch3r-reviewer`** to verify fixes.
+4. Repeat steps 2-3 for a maximum of **3 iterations** until the reviewer reports 0 Critical + 0 Warning findings.
+5. If still not clean after 3 iterations, **ASK** the user how to proceed.
+
+**Stage 2 — Final Quality (parallel, after review loop is clean):**
+
+Launch as many independent sub-agents in parallel as the platform supports.
 
 **Always spawn (mandatory for every code change):**
-- **hatch3r-reviewer** — code review of ALL changes across the batch. Include the full diff and acceptance criteria for each issue.
 - **hatch3r-test-writer** — tests for all code changes across the batch.
 - **hatch3r-security-auditor** — security review of all code changes across the batch.
 
@@ -540,31 +665,56 @@ git push -u origin {branch-name}
 
 ---
 
-### Step 8: Create Pull Request
+### Step 8: Create Pull Request / Merge Request
 
-Follow the project's PR creation skill or conventions:
+Follow the project's PR/MR creation skill or conventions:
 
 1. **Title:** `{type}: {short description} (#issue)` — for batch mode: `batch: {short description} (#N, #M, #K)`.
-2. **Determine epic link type:** If working on an epic's sub-issues, check whether ALL sub-issues of the parent epic are addressed by this PR (listed as `Closes #N`) or are already closed. If yes → use `Closes #<epic-number>` so the epic auto-closes on merge. If some sub-issues remain open and unaddressed → use `Relates to #<epic-number>`.
-3. **Body:** Use the repository's PR template if available (`.github/PULL_REQUEST_TEMPLATE.md`). Fill: Summary, Type, Changes, Testing, Rollout plan. Include a **Related Issues** section listing:
-   - `Closes #N` for each issue addressed by this PR (including all batch issues).
+2. **Determine epic link type:** If working on an epic's sub-issues, check whether ALL sub-issues of the parent epic are addressed by this PR/MR (listed as `Closes #N`) or are already closed. If yes → use `Closes #<epic-number>` so the epic auto-closes on merge. If some sub-issues remain open and unaddressed → use `Relates to #<epic-number>`.
+3. **Body:** Use the repository's PR/MR template if available. Fill: Summary, Type, Changes, Testing, Rollout plan. Include a **Related Issues** section listing:
+   - `Closes #N` for each issue addressed by this PR/MR (including all batch issues).
    - `Closes #<epic>` (all sub-issues addressed) OR `Relates to #<epic>` (partial) for the parent epic.
    - Always list both the epic and all sub-issues in the Related Issues section regardless of partial/full completion.
    - **Batch mode:** List `Closes #N` for every issue in the batch. Include a per-issue summary of changes in the body.
-4. **Create:** Use `gh pr create` (primary) with `--head {branch}`, `--base {base}`, `--title`, `--body`; fall back to `create_pull_request` if `gh` CLI unavailable. `{base}` = `board.defaultBranch` from `/.agents/hatch.json` (fallback: `"main"`).
-5. **Link PR to epic:** Use `gh issue comment` (primary) on the epic with PR reference; fall back to `add_issue_comment` if `gh` CLI unavailable.
+
+   **Platform-specific templates:**
+   - **GitHub:** Check `.github/PULL_REQUEST_TEMPLATE.md`.
+   - **Azure DevOps:** Check `.azuredevops/pull_request_template.md`.
+   - **GitLab:** Check `.gitlab/merge_request_templates/`.
+
+4. **Platform-specific: Create PR/MR**
+
+   **If platform is `github`:**
+   Use `gh pr create -R {owner}/{repo} --head {branch} --base {base} --title "..." --body "..."` (fall back to `create_pull_request` MCP).
+
+   **If platform is `azure-devops`:**
+   Use `az repos pr create --org https://dev.azure.com/{namespace} --project {project} --source-branch {branch} --target-branch {base} --title "..." --description "..."` (fall back to `create_pull_request` MCP).
+
+   **If platform is `gitlab`:**
+   Use `glab mr create -R {namespace}/{project} --source-branch {branch} --target-branch {base} --title "..." --description "..."`. Use `Closes #N` syntax in the description for auto-close on merge.
+
+   `{base}` = `board.defaultBranch` from `.agents/hatch.json` (fallback: `"main"`).
+
+5. **Link PR/MR to epic:**
+   - **GitHub:** `gh issue comment {epic} -R {owner}/{repo} --body "PR: #{pr_number}"` (fall back to `add_issue_comment` MCP).
+   - **Azure DevOps:** `az boards work-item relation add --id {epic_id} --relation-type "ArtifactLink" --target-id {pr_id}` or link via PR description.
+   - **GitLab:** Reference the epic issue number in the MR description. GitLab auto-links MRs to issues mentioned with `Closes #N`.
 
 ---
 
-### Step 8a: Post-PR Label Transition & Project Board Sync
+### Step 8a: Post-PR/MR Label Transition & Board Sync
 
-1. **Transition labels to `status:in-review`:** For each `Closes #N` issue (including all batch issues), remove `status:in-progress`, add `status:in-review`. If ALL sub-issues addressed, also transition the parent epic.
+1. **Transition labels to `status:in-review`:** For each `Closes #N` issue (including all batch issues), update status labels:
+   - **GitHub:** `gh issue edit N --remove-label "status:in-progress" --add-label "status:in-review"`.
+   - **Azure DevOps:** `az boards work-item update --id N --state "Resolved"` and update tags.
+   - **GitLab:** `glab issue update N --unlabel "status::in-progress" --label "status::in-review"`.
+   If ALL sub-issues addressed, also transition the parent epic.
 
-2. **Sync Projects v2:** Run the full **Projects v2 Sync Procedure** from `hatch3r-board-shared` (add + capture `item_id` + update status) for **each** of the following items individually:
-   - **a. The PR:** `item_type: pull_request`, `pull_request_number: <N>` → set to "In review" using `board.statusOptions.inReview`.
-   - **b. Each `Closes #N` issue:** `item_type: issue`, `issue_number: <N>` → set to "In review" using `board.statusOptions.inReview`. In batch mode, this includes every issue in the batch.
-   - **c. Parent epic (all sub-issues addressed):** `item_type: issue`, `issue_number: <epic>` → set to "In review" using `board.statusOptions.inReview`. The PR body uses `Closes #<epic>`, so the epic will auto-close on merge and transition to Done.
-   - **d. Parent epic (partial -- some sub-issues remain):** `item_type: issue`, `issue_number: <epic>` → verify status is "In progress" using `board.statusOptions.inProgress`; set it if not. The PR body uses `Relates to #<epic>` (epic stays open after merge).
+2. **Sync Board:** Run the full **Board Sync Procedure** from `hatch3r-board-shared` for **each** of the following items individually:
+   - **a. The PR/MR:** Set to "In Review" on the board.
+   - **b. Each `Closes #N` issue:** Set to "In Review". In batch mode, this includes every issue in the batch.
+   - **c. Parent epic (all sub-issues addressed):** Set to "In Review". The PR/MR body uses `Closes #<epic>`, so the epic will auto-close on merge and transition to Done.
+   - **d. Parent epic (partial -- some sub-issues remain):** Verify status is "In Progress"; set it if not. The PR/MR body uses `Relates to #<epic>` (epic stays open after merge).
 
 ---
 
@@ -595,7 +745,7 @@ After PR creation, capture learnings from this development session.
    - Were any pitfalls discovered that should be avoided next time?
 
 2. If learnings are identified:
-   - Create learning files in `/.agents/learnings/` following the learning file format (see `hatch3r-learn` command).
+   - Create learning files in `.agents/learnings/` following the learning file format (see `hatch3r-learn` command).
    - Include the issue number as `source-issue`.
    - Tag with relevant area labels from the issue.
    - **ASK:** "Learnings captured: {list}. Anything else to note? (add more / done)"
@@ -651,10 +801,10 @@ At the end of an auto session, generate a summary:
 
 ## Error Handling
 
-- `list_issues`/`search_issues` failure: retry once, then ask user for issue number.
-- `issue_write` failure: warn and continue (labels not blocking).
-- Quality verification failure: fix before creating PR.
-- `create_pull_request` failure: present error and manual instructions.
+- **Issue listing/search failure** (GitHub `list_issues` / Azure DevOps `az boards query` / GitLab `glab issue list`): retry once, then ask user for issue number.
+- **Issue update failure** (GitHub `issue_write` / Azure DevOps `az boards work-item update` / GitLab `glab issue update`): warn and continue (labels not blocking).
+- **Quality verification failure:** fix before creating PR/MR.
+- **PR/MR creation failure** (GitHub `create_pull_request` / Azure DevOps `az repos pr create` / GitLab `glab mr create`): present error and manual instructions.
 
 ## Guardrails
 

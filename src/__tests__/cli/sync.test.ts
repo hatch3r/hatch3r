@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } fr
 import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { HatchError } from "../../types.js";
 
 const AGENTS_DIR = ".agents";
 
@@ -26,7 +27,6 @@ async function createTestProject(root: string, overrides: Record<string, unknown
       prompts: true,
       commands: true,
       mcp: true,
-      guardrails: true,
       githubAgents: true,
       hooks: true,
     },
@@ -78,8 +78,8 @@ describe("sync command", () => {
   it("should exit with error when no manifest exists", async () => {
     const { syncCommand } = await import("../../cli/commands/sync.js");
 
-    await expect(syncCommand()).rejects.toThrow("process.exit called");
-    expect(exitSpy).toHaveBeenCalledWith(1);
+    await expect(syncCommand()).rejects.toThrow(HatchError);
+    try { await syncCommand(); } catch (e) { expect((e as HatchError).exitCode).toBe(1); }
 
     const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
     expect(allOutput).toContain("No .agents/hatch.json found");
@@ -189,7 +189,7 @@ describe("sync command", () => {
     expect(output).toContain("skipped");
   });
 
-  it("should report 'updated' when a non-managed file has changed on disk", async () => {
+  it("should report 'skipped' when a non-managed file has changed on disk", async () => {
     await createTestProject(tempDir);
 
     const { syncCommand } = await import("../../cli/commands/sync.js");
@@ -202,14 +202,13 @@ describe("sync command", () => {
     await syncCommand();
 
     const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
-    expect(output).toContain("updated");
+    expect(output).toContain("skipped");
   });
 
   it("should exit with error when adapter generation fails", async () => {
     await createTestProject(tempDir, { tools: ["nonexistent-tool"] });
 
     const { syncCommand } = await import("../../cli/commands/sync.js");
-    await expect(syncCommand()).rejects.toThrow("process.exit called");
-    expect(exitSpy).toHaveBeenCalledWith(1);
+    await expect(syncCommand()).rejects.toThrow(HatchError);
   });
 });

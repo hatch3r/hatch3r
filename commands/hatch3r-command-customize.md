@@ -3,6 +3,11 @@ id: hatch3r-command-customize
 type: command
 description: Configure per-command customization including description overrides, enable/disable control, and project-specific markdown instructions
 ---
+
+## Agent Pipeline
+
+This command runs as a single orchestrator without sub-agent delegation. Customization file management is performed inline.
+
 # Command Customization — Per-Command Configuration
 
 Customize individual command behavior for project-specific needs via `.hatch3r/commands/` configuration files. Supports structured YAML overrides and free-form markdown instruction injection, all propagated to every adapter output on sync.

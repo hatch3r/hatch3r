@@ -1,6 +1,8 @@
 ---
+id: hatch3r-observability
+type: rule
 description: Logging, metrics, and tracing conventions for the project
-alwaysApply: false
+scope: conditional
 ---
 # Observability
 

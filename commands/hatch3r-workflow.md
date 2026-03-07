@@ -9,6 +9,30 @@ Optional guided development lifecycle command that walks through structured phas
 
 ---
 
+## Agent Pipeline
+
+| Stage | Agent(s) | Parallel | Required |
+|-------|----------|----------|----------|
+| 1. Research | `hatch3r-researcher` (modes by task type) | Per focus area | Yes (skip for trivial edits) |
+| 2. Implementation | `hatch3r-implementer` (one per module) | Yes (independent modules) | Yes |
+| 3a. Review Loop | `hatch3r-reviewer` -> `hatch3r-fixer` (max 3 iterations until clean) | No (sequential loop) | Yes |
+| 3b. Final Quality — Testing | `hatch3r-test-writer` | Yes | Yes (code changes) |
+| 3c. Final Quality — Security | `hatch3r-security-auditor` | Yes | Yes (code changes) |
+| 3d. Final Quality — Docs | `hatch3r-docs-writer` | Yes | When APIs/architecture/UX affected |
+| 3e. Final Quality — Conditional | `hatch3r-lint-fixer`, `hatch3r-a11y-auditor`, `hatch3r-perf-profiler` | Yes | When triggered |
+
+## Browser Automation
+
+At the start of this command, ask the user once:
+
+> "Would you like to enable browser verification for this session? This uses Playwright to test changes in the running application."
+
+If **yes**: implementation (Phase 3) and review (Phase 4) stages include browser verification steps — navigate to affected pages, interact with changed elements, check console for errors, capture screenshots.
+
+If **no**: all browser verification steps are skipped silently throughout the entire command.
+
+---
+
 ## Shared Context
 
 **Read the `hatch3r-board-shared` command at the start of the run.** It contains Board Configuration, GitHub Context, Project Reference, Projects v2 sync procedure, and tooling directives. Cache all values for the duration of this run.
@@ -70,7 +94,18 @@ Evaluate the task against both signal sets. Count matching signals to determine 
 - **User description:** Extract requirements, scope, constraints from the provided description.
 - **Board-pickup invocation:** Use the issue context already gathered by board-pickup. Skip re-fetching.
 
-#### 1b. Load Relevant Context
+#### 1b. Complexity Scoring and Deep Context
+
+Score the task's complexity per the `hatch3r-deep-context` rule to determine the analysis tier (Light / Standard / Deep). This determines which additional researcher modes run in Step 3a alongside the standard task-type modes.
+
+For **Tier 2 and Tier 3** tasks, spawn the tier-appropriate researcher modes now (in parallel with context loading):
+
+- **Tier 2**: `requirements-elicitation` at `quick` depth + `similar-implementation` at `quick` depth
+- **Tier 3**: `requirements-elicitation` at `deep` depth + `similar-implementation` at `deep` depth + `codebase-impact` at `deep` depth (with transitive tracing)
+
+Cache the researcher outputs for use in Phase 2 and Phase 3.
+
+#### 1c. Load Relevant Context
 
 1. Read project specs from `docs/specs/` — headers first (~30 lines), expand relevant sections only.
 2. Read ADRs that might constrain the approach.
@@ -78,26 +113,34 @@ Evaluate the task against both signal sets. Count matching signals to determine 
 4. Use **Context7 MCP** (`resolve-library-id` then `query-docs`) for external library documentation referenced by the task.
 5. Use **web research** for current best practices, security advisories, or novel problems not covered by local docs or Context7.
 
-#### 1c. Consult Learnings
+#### 1d. Consult Learnings
 
-If `/.agents/learnings/` exists:
+If `.agents/learnings/` exists:
 
 1. Search for learnings tagged with relevant areas or technologies.
 2. Surface any applicable past experiences that inform this task.
 
-#### 1d. Present Analysis
+#### 1e. Present Analysis
 
 ```
 Task Analysis:
+  Complexity: Tier {1/2/3} ({Light/Standard/Deep}) — score {N}
   Scope: {what's in / what's out}
   Affected files: {list}
+  Blast radius: {N direct + M transitive files at risk} (Tier 3 only)
+  Similar implementations found: {reference names} (Tier 2/3 only)
   Constraints: {from specs, ADRs}
   Relevant learnings: {if any}
-  Open questions: {if any}
+  Open questions: {if any — including unresolved requirements-elicitation questions}
+  Cross-cutting concerns: {list with addressed/unaddressed status} (Tier 2/3 only)
   Risk: {low/med/high}
 ```
 
-**ASK:** "Analysis complete. Questions: {list}. Proceed to Plan phase? (yes / clarify questions first / adjust scope)"
+**For Tier 2:** Present the `requirements-elicitation` questions inline and await answers before proceeding.
+
+**For Tier 3:** Present a full Pre-Implementation Summary per the `hatch3r-deep-context` rule. Do NOT proceed until all unresolved questions are answered.
+
+**ASK:** "Analysis complete. {Unresolved questions list, if any}. Proceed to Plan phase? (yes / clarify questions first / adjust scope)"
 
 ---
 
@@ -112,6 +155,7 @@ Task Analysis:
 3. Identify test requirements (unit, integration, e2e).
 4. Note any dependency changes needed.
 5. Consider rollback strategy for risky changes.
+6. **Convention alignment** (Tier 2/3 only): If `similar-implementation` output is available from Phase 1, specify which reference implementation's conventions the plan follows for file structure, state management, error handling, data fetching, and testing. Note planned divergences with justification.
 
 #### 2b. Select hatch3r Agents and Skills
 
@@ -120,8 +164,8 @@ Map the task type to the appropriate skill:
 | Task Type        | Skill                          |
 | ---------------- | ------------------------------ |
 | Bug report       | hatch3r-bug-fix                |
-| Feature request  | hatch3r-feature-implementation |
-| Code refactor    | hatch3r-code-refactor          |
+| Feature request  | hatch3r-feature                |
+| Code refactor    | hatch3r-refactor               |
 | Logical refactor | hatch3r-logical-refactor       |
 | Visual refactor  | hatch3r-visual-refactor        |
 | QA validation    | hatch3r-qa-validation          |
@@ -140,10 +184,12 @@ Identify supporting agents needed: test-writer, docs-writer, reviewer, security-
 Implementation Plan:
   Approach: {description}
   Skill: {selected hatch3r skill}
+  Convention reference: {reference module name — "following patterns from X"} (Tier 2/3 only)
   Files to modify: {list with change descriptions}
   New files: {list}
   Tests: {what to test}
   Risks: {list with mitigations}
+  Resolved requirements: {N}/{M} answered (Tier 2/3 only)
   Estimated effort: {time}
 ```
 
@@ -160,7 +206,8 @@ Implementation Plan:
 You MUST spawn a `hatch3r-researcher` sub-agent via the Task tool (`subagent_type: "generalPurpose"`) before implementation. Skip only for trivial single-line edits (typos, comment fixes, single-value config changes).
 
 - Select research modes by task type (bug → symptom-trace/root-cause/codebase-impact, feature → codebase-impact/feature-design/architecture, refactor → current-state/refactoring-strategy/migration-path, QA → codebase-impact).
-- Use depth `quick` for low-risk, `standard` for medium-risk, `deep` for high-risk.
+- Add tier-appropriate modes per the `hatch3r-deep-context` rule if not already run in Phase 1 Step 1b.
+- Use depth `quick` for low-risk, `standard` for medium-risk, `deep` for high-risk. The complexity tier may override depth upward.
 - Await the researcher result. Use its structured output to inform Step 3b.
 
 #### 3b. Core Implementation (Implementer Sub-Agent)
@@ -176,9 +223,12 @@ The implementer sub-agent prompt MUST include:
 - The task description, acceptance criteria, and type.
 - The researcher output from Step 3a (if not skipped).
 - The selected hatch3r skill name and instructions.
-- All `scope: always` rule directives from `/.agents/rules/`.
-- Relevant learnings from `/.agents/learnings/`.
+- All `scope: always` rule directives from `.agents/rules/`.
+- Relevant learnings from `.agents/learnings/`.
 - Explicit instruction: do NOT create branches, commits, or PRs.
+- **Reference conventions** from `similar-implementation` output (Tier 2/3) — triggers the implementer's Convention Lock step.
+- **Resolved requirements** from `requirements-elicitation` answers (Tier 2/3) — explicit decisions on ambiguities.
+- **Blast radius data** from enhanced `codebase-impact` (Tier 3) — transitive dependency trace and API consumer map.
 
 Await the implementer sub-agent. Collect its structured result.
 
@@ -203,41 +253,56 @@ Fix any issues before proceeding. If quality checks fail, loop back and resolve 
 
 ### Phase 4: Review (Sub-Agent Quality Pipeline)
 
-**Goal:** Verify quality and completeness via specialist sub-agents before finalizing.
+**Goal:** Verify quality and completeness via a two-stage sub-agent pipeline before finalizing. The Review Loop (4a) iterates until code quality is clean, then Final Quality (4b) runs remaining specialists in parallel.
 
-#### 4a. Spawn Quality Sub-Agents
+#### 4a. Review Loop (Reviewer → Fixer)
 
-You MUST spawn specialist sub-agents for quality assurance. Use the Task tool with `subagent_type: "generalPurpose"`. Launch as many independent sub-agents in parallel as the platform supports.
+Spawn a `hatch3r-reviewer` sub-agent via the Task tool (`subagent_type: "generalPurpose"`). Include the diff and acceptance criteria in the prompt.
+
+1. **Review:** Await the reviewer result. Check for Critical and Warning findings.
+2. **If 0 Critical + 0 Warning:** Review loop is clean. Proceed to 4b.
+3. **If Critical or Warning findings exist:** Spawn a `hatch3r-fixer` sub-agent with the reviewer output. The fixer applies fixes for all Critical and Warning findings.
+4. **Re-review:** After the fixer completes, spawn `hatch3r-reviewer` again to verify fixes.
+5. **Repeat** steps 2-4 for a maximum of **3 iterations**. If still not clean after 3 iterations, **ASK** the user how to proceed (force continue / manual fix / abort).
+
+Each reviewer/fixer sub-agent prompt MUST include:
+- The agent protocol to follow.
+- All `scope: always` rule directives from `.agents/rules/`.
+- The diff or file changes to review/fix.
+- The task's acceptance criteria.
+
+#### 4b. Final Quality (Parallel Specialists)
+
+**ONLY after the review loop (4a) reports 0 Critical + 0 Warning findings**, spawn the remaining specialist sub-agents. Use the Task tool with `subagent_type: "generalPurpose"`. Launch as many independent sub-agents in parallel as the platform supports.
 
 **Always spawn (mandatory for every code change):**
 
-1. **`hatch3r-reviewer`** — code review of all changes. Include the diff and acceptance criteria in the prompt.
-2. **`hatch3r-test-writer`** — tests for all code changes. Unit tests for new logic, regression tests for bug fixes, integration tests for cross-module changes.
-3. **`hatch3r-security-auditor`** — security review of all code changes. Audit data flows, access control, input validation, and secret management.
+1. **`hatch3r-test-writer`** — tests for all code changes. Unit tests for new logic, regression tests for bug fixes, integration tests for cross-module changes.
+2. **`hatch3r-security-auditor`** — security review of all code changes. Audit data flows, access control, input validation, and secret management.
 
 **Always evaluate (spawn when applicable):**
 
-4. **`hatch3r-docs-writer`** — spawn when changes affect public APIs, architectural patterns, user-facing behavior, or when specs/ADRs need updating. Skip silently if no documentation impact.
+3. **`hatch3r-docs-writer`** — spawn when changes affect public APIs, architectural patterns, user-facing behavior, or when specs/ADRs need updating. Skip silently if no documentation impact.
 
 **Conditional specialists (spawn when triggered):**
 
-5. **`hatch3r-lint-fixer`** — when lint or type errors are present after implementation.
-6. **`hatch3r-a11y-auditor`** — when UI or accessibility changes are made.
-7. **`hatch3r-perf-profiler`** — when performance-sensitive changes are made.
+4. **`hatch3r-lint-fixer`** — when lint or type errors are present after implementation.
+5. **`hatch3r-a11y-auditor`** — when UI or accessibility changes are made.
+6. **`hatch3r-perf-profiler`** — when performance-sensitive changes are made.
 
 Each specialist sub-agent prompt MUST include:
 - The agent protocol to follow.
-- All `scope: always` rule directives from `/.agents/rules/`.
+- All `scope: always` rule directives from `.agents/rules/`.
 - The diff or file changes to review.
 - The task's acceptance criteria.
 
 Await all specialist sub-agents. Apply their feedback (fixes, additional tests, documentation updates).
 
-#### 4b. Verify Against Acceptance Criteria
+#### 4c. Verify Against Acceptance Criteria
 
 Check each acceptance criterion from the original task or issue. Mark as met or not-met with evidence.
 
-#### 4c. Present Review
+#### 4d. Present Review
 
 ```
 Review Results:
@@ -251,12 +316,12 @@ Review Results:
 
 **ASK:** "Review complete. {summary}. Ready to finalize? (yes / address review issues / request human review)"
 
-#### 4d. Capture Learnings
+#### 4e. Capture Learnings
 
-If `/.agents/learnings/` exists:
+If `.agents/learnings/` exists:
 
 1. Extract learnings from this implementation session (patterns discovered, pitfalls encountered, decisions made).
-2. Store in `/.agents/learnings/` with appropriate area tags.
+2. Store in `.agents/learnings/` with appropriate area tags.
 
 ---
 
@@ -266,11 +331,12 @@ Collapses the 4 phases into a streamlined flow for small, well-defined tasks. Su
 
 ### Quick Step 1: Rapid Analysis + Plan (Combined)
 
-1. Spawn `hatch3r-researcher` with depth `quick` for brief context gathering. Skip only for trivial single-line edits.
-2. Quick plan: list changes, identify the appropriate hatch3r skill.
-3. Skip ADR/spec review unless the task touches architecture.
+1. Score complexity per `hatch3r-deep-context`. If the score yields Tier 3, recommend switching to Full Mode.
+2. Spawn `hatch3r-researcher` with depth `quick` for brief context gathering. Skip only for trivial single-line edits. For Tier 2, include `requirements-elicitation` and `similar-implementation` at `quick` depth.
+3. Quick plan: list changes, identify the appropriate hatch3r skill. If `similar-implementation` found a reference, note the convention to follow.
+4. Skip ADR/spec review unless the task touches architecture.
 
-**ASK:** "Quick analysis: {scope}, {approach}. Proceed? (yes / switch to Full Mode)"
+**ASK:** "Quick analysis: {scope}, {approach}. {Unresolved questions from elicitation, if any.} Proceed? (yes / switch to Full Mode)"
 
 ### Quick Step 2: Implement
 
@@ -280,14 +346,20 @@ Collapses the 4 phases into a streamlined flow for small, well-defined tasks. Su
 
 ### Quick Step 3: Quick Review (Sub-Agent Quality Pipeline)
 
-Spawn specialist sub-agents in parallel — same mandatory pipeline as Full Mode:
+Same two-stage pipeline as Full Mode, with lighter prompts:
 
-1. **`hatch3r-reviewer`** — ALWAYS. Use a focused prompt covering correctness and quality.
-2. **`hatch3r-test-writer`** — ALWAYS for code changes.
-3. **`hatch3r-security-auditor`** — ALWAYS for code changes.
-4. **`hatch3r-docs-writer`** — evaluate; spawn when documentation impact exists.
-5. Verify acceptance criteria are met.
-6. Confirm lint/typecheck/test pass.
+**Stage 1 — Review Loop:**
+
+1. Spawn **`hatch3r-reviewer`** with a focused prompt covering correctness and quality.
+2. If Critical or Warning findings exist, spawn **`hatch3r-fixer`**, then re-review. Max 3 iterations.
+
+**Stage 2 — Final Quality (after review loop is clean):**
+
+3. **`hatch3r-test-writer`** — ALWAYS for code changes.
+4. **`hatch3r-security-auditor`** — ALWAYS for code changes.
+5. **`hatch3r-docs-writer`** — evaluate; spawn when documentation impact exists.
+6. Verify acceptance criteria are met.
+7. Confirm lint/typecheck/test pass.
 
 **ASK:** "Changes complete. Quality checks pass. Finalize? (yes / deeper review needed → switch to Full Mode Phase 4)"
 
@@ -300,6 +372,8 @@ Spawn specialist sub-agents in parallel — same mandatory pipeline as Full Mode
 - Phase 1 uses the issue context already gathered by board-pickup — skip re-fetching.
 - Phase 3 skips PR creation — board-pickup handles it in its own Steps 7a–8.
 - Phase 4 results feed into board-pickup's quality verification (Step 7).
+
+When operating with board context, all issue operations MUST follow the Projects v2 Enforcement rules defined in `hatch3r-board-shared`.
 
 ### Invoked Standalone
 

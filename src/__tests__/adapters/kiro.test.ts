@@ -58,11 +58,11 @@ describe("KiroAdapter", () => {
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
     const scopedRule = outputs.find(
-      (o) => o.path.startsWith(".kiro/steering/hatch3r-scoped-rule"),
+      (o) => o.path.startsWith(".kiro/steering/hatch3r-rule-scoped-rule"),
     );
     expect(scopedRule).toBeDefined();
-    expect(scopedRule!.content).toContain("inclusion: conditional");
-    expect(scopedRule!.content).toContain("globs:");
+    expect(scopedRule!.content).toContain("inclusion: fileMatch");
+    expect(scopedRule!.content).toContain("fileMatchPattern:");
     expect(scopedRule!.content).toContain("Scoped Rule");
   });
 

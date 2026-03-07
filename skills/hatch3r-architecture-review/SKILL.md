@@ -54,7 +54,10 @@ Reference:
 ## Step 4: External Research
 
 - For external library docs and current best practices, follow the project's tooling hierarchy.
-- **GitHub MCP:** Search for related issues, prior discussions, or similar decisions in the repo.
+- **Issue/PR search** (check `platform` in `.agents/hatch.json`): Search for related issues, prior discussions, or similar decisions in the repo:
+  - **GitHub:** Use **GitHub MCP** or `gh issue list --search "..."` / `gh pr list --search "..."`
+  - **Azure DevOps:** `az boards query --wiql "SELECT [System.Id] FROM WorkItems WHERE [System.Title] CONTAINS '...'"` or `az repos pr list`
+  - **GitLab:** `glab issue list --search "..."` / `glab mr list --search "..."`
 - **Context7 MCP:** Look up current API patterns for relevant libraries.
 - **Web search:** For novel problems, security advisories, or best practices.
 
@@ -82,7 +85,7 @@ Save as `docs/adr/XXXX_short-title.md` (or project convention). Use next availab
 
 - Add references to the new ADR in relevant specs (e.g., data model, event model, quality engineering).
 - Update ADR index if the project maintains one.
-- Link from related GitHub issues or PRs.
+- Link from related issues/work items or PRs/MRs on the platform.
 - If superseding an ADR, update the old ADR's Status to `SUPERSEDED by ADR-XXXX`.
 
 ## Definition of Done

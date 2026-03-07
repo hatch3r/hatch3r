@@ -1,12 +1,12 @@
 ---
 id: hatch3r-issue-workflow
-description: Guides the 8-step agentic development workflow for GitHub issues. Covers parsing issues, loading skills, reading specs, planning, implementing, testing, opening PRs, and addressing review. Use when working on any GitHub issue or when the user mentions an issue number.
+description: Guides the 8-step agentic development workflow for issues/work items. Covers parsing issues, loading skills, reading specs, planning, implementing, testing, opening PRs/MRs, and addressing review. Use when working on any issue/work item or when the user mentions an issue number.
 ---
 # Issue Workflow
 
 ## Quick Start
 
-When assigned a GitHub issue, follow these 8 steps in order:
+When assigned an issue or work item (GitHub Issue, Azure DevOps Work Item, or GitLab Issue — check `platform` in `.agents/hatch.json`), follow these 8 steps in order:
 
 ```
 Task Progress:
@@ -86,7 +86,7 @@ When working on multiple standalone issues (not part of an epic), apply the same
 
 ### Plain Chat with Multiple Tasks
 
-When working from plain chat instructions with multiple tasks (numbered lists, multiple issue references, or distinct requests), parse into discrete tasks and apply the batch delegation pattern above. For GitHub issue references, fetch issue details. For natural language tasks, derive title, acceptance criteria, and type from the instruction.
+When working from plain chat instructions with multiple tasks (numbered lists, multiple issue references, or distinct requests), parse into discrete tasks and apply the batch delegation pattern above. For issue references (GitHub Issues, ADO Work Items, or GitLab Issues), fetch issue details using the appropriate platform CLI. For natural language tasks, derive title, acceptance criteria, and type from the instruction.
 
 The implementer sub-agent protocol is defined in the hatch3r-implementer agent. Each sub-agent handles its own implementation and testing but does NOT create branches, commits, or PRs.
 
@@ -114,11 +114,15 @@ Skip this step if the issue has no user-facing UI changes.
 - Check the browser console for errors or warnings.
 - Capture screenshots as evidence for the PR.
 
-## Step 7: Open PR
+## Step 7: Open PR / MR
 
-- Use the project's PR template. Fill every section.
-- Link to the issue. Include plan, implementation summary, test evidence.
-- **Base branch:** Use `board.defaultBranch` from `/.agents/hatch.json` when creating PRs (fallback: `"main"`). Use `gh pr create --base {defaultBranch}` or equivalent.
+- Use the project's PR/MR template. Fill every section.
+- Link to the issue/work item. Include plan, implementation summary, test evidence.
+- **Base branch:** Use `board.defaultBranch` from `.agents/hatch.json` (fallback: `"main"`).
+- Open a code review using the platform CLI (check `platform` in `.agents/hatch.json`):
+  - **GitHub:** `gh pr create --base {defaultBranch} --head {branch} --title "..." --body "..."`
+  - **Azure DevOps:** `az repos pr create --source-branch {branch} --target-branch {defaultBranch} --title "..." --description "..."`
+  - **GitLab:** `glab mr create --source-branch {branch} --target-branch {defaultBranch} --title "..." --description "..."`
 - Self-review against the Definition of Done from the loaded skill.
 
 ## Step 8: Address Review

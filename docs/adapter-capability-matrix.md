@@ -1,6 +1,6 @@
 # Adapter Capability Matrix
 
-> **Last verified**: 2026-02-27 | **hatch3r version**: 1.0.0
+> **Last verified**: 2026-03-05 | **hatch3r version**: 1.0.0
 
 Living reference for framework capabilities vs. adapter implementations. This document tracks what each adapter emits, what each platform supports natively, and where gaps remain.
 
@@ -30,26 +30,27 @@ Living reference for framework capabilities vs. adapter implementations. This do
 | **guardrails** | `.agents/policy/` | Deny lists, command restrictions |
 | **githubAgents** | `.agents/github-agents/` | GitHub Copilot-specific agent definitions |
 | **hooks** | `.agents/hooks/` | Event-triggered automation (pre-commit, session-start, etc.) |
+| **agentTeams** | adapter-generated | Multi-agent team orchestration (Claude Code Agent Teams) |
 
 ---
 
 ## Implementation Matrix
 
-| Adapter | rules | agents | skills | prompts | commands | mcp | guardrails | githubAgents | hooks | model |
-|---------|:-----:|:------:|:------:|:-------:|:--------:|:---:|:----------:|:------------:|:-----:|:-----:|
-| **cursor** | Y | Y | Y | -- | Y | Y | -- | -- | Y | Y |
-| **copilot** | Y | Y | Y | Y | Y | Y | -- | Y | -- | Y |
-| **claude** | Y | Y | Y | -- | Y | Y | -- | -- | Y | Y |
-| **cline** | Y | Y | Y | -- | Y | Y | -- | -- | Y | Y |
-| **codex** | B | B | Y | -- | -- | Y | -- | -- | -- | Y |
-| **gemini** | Y | B | Y | -- | Y | Y | -- | -- | Y | Y |
-| **windsurf** | Y | B | Y | -- | Y | Y | -- | -- | -- | Y |
-| **amp** | B | B | Y | -- | ~ | Y | -- | -- | -- | Y |
-| **opencode** | Y | Y | Y | -- | Y | Y | -- | -- | -- | Y |
-| **aider** | B | B | Y | -- | -- | -- | -- | -- | -- | Y |
-| **kiro** | Y | B | Y | -- | -- | Y | -- | -- | -- | Y |
-| **goose** | B | B | B | -- | -- | -- | -- | -- | -- | Y |
-| **zed** | B | B | -- | -- | -- | -- | -- | -- | -- | Y |
+| Adapter | rules | agents | skills | prompts | commands | mcp | guardrails | githubAgents | hooks | model | agentTeams |
+|---------|:-----:|:------:|:------:|:-------:|:--------:|:---:|:----------:|:------------:|:-----:|:-----:|:----------:|
+| **cursor** | Y | Y | Y | -- | Y | Y | -- | -- | Y | Y | -- |
+| **copilot** | Y | Y | Y | Y | Y | Y | -- | Y | -- | Y | -- |
+| **claude** | Y | Y | Y | -- | Y | Y | -- | -- | Y | Y | Y |
+| **cline** | Y | Y | Y | -- | Y | Y | -- | -- | Y | Y | -- |
+| **codex** | B | B | Y | -- | -- | Y | -- | -- | -- | Y | -- |
+| **gemini** | B | B | Y | -- | Y | Y | -- | -- | Y | Y | -- |
+| **windsurf** | Y | B | Y | -- | Y | Y | -- | -- | -- | Y | -- |
+| **amp** | B | B | Y | -- | ~ | Y | -- | -- | -- | Y | -- |
+| **opencode** | Y | Y | Y | -- | Y | Y | -- | -- | -- | Y | -- |
+| **aider** | B | B | Y | -- | -- | -- | -- | -- | -- | Y | -- |
+| **kiro** | Y | B | Y | -- | -- | Y | -- | -- | -- | Y | -- |
+| **goose** | B | B | B | -- | -- | -- | -- | -- | -- | Y | -- |
+| **zed** | B | B | -- | -- | -- | -- | -- | -- | -- | Y | -- |
 
 ### Agent Model Customization
 
@@ -57,7 +58,7 @@ All adapters emit model preferences when configured via `hatch.json`, agent fron
 
 | Adapter | Emission | Notes |
 |---------|----------|-------|
-| **cursor** | Native | `model:` in agent YAML frontmatter |
+| **cursor** | Native | `model:` in agent YAML frontmatter. Also emits `readonly:` and `background:` for v2.5+ subagent control. |
 | **copilot** | Native (VS Code) | `model:` in agent YAML; ignored on github.com |
 | **opencode** | Native | `model: provider/id` in agent config |
 | **codex** | Native | `model = "id"` in TOML agent section |
@@ -78,10 +79,10 @@ All adapters emit model preferences when configured via `hatch.json`, agent fron
 All adapters that emit bridge files (Cursor, Claude, Copilot, Gemini, Windsurf, Amp) now include **inline orchestration content** from a shared constant (`BRIDGE_ORCHESTRATION` in `src/cli/shared/agentsContent.ts`). This content comprises:
 
 - **Mandatory Behaviors** — 6 directives (load skill, spawn researcher, spawn specialists, use Task tool, propagate rules, consult learnings)
-- **Agent Quick Reference** — Table of 11 agents with "When to Use"
+- **Agent Quick Reference** — Table of 16 agents with "When to Use"
 - **Canonical Structure** — Paths for rules, agents, skills, commands, MCP, policy
 
-Previously only the Cursor adapter inlined this content; others merely referenced `/.agents/AGENTS.md`. Inlining ensures every platform receives orchestration guidance directly in context, improving instruction-following reliability. Codex and OpenCode reference `.agents/AGENTS.md` via config and do not emit bridge markdown files.
+Previously only the Cursor adapter inlined this content; others merely referenced `.agents/AGENTS.md`. Inlining ensures every platform receives orchestration guidance directly in context, improving instruction-following reliability. Codex and OpenCode reference `.agents/AGENTS.md` via config and do not emit bridge markdown files.
 
 ---
 
@@ -92,12 +93,13 @@ Previously only the Cursor adapter inlined this content; others merely reference
 | Capability | Output Path | Format |
 |------------|-------------|--------|
 | rules | `.cursor/rules/hatch3r-{id}.mdc` | MDC frontmatter (`description`, `alwaysApply`, `globs`) |
-| agents | `.cursor/agents/hatch3r-{id}.md` | YAML frontmatter (`name`, `description`, `model`) |
+| agents | `.cursor/agents/hatch3r-{id}.md` | YAML frontmatter (`name`, `description`, `model`, `readonly`, `background`) |
 | skills | `.cursor/skills/hatch3r-{id}/SKILL.md` | YAML frontmatter (`name`, `description`) |
 | commands | `.cursor/commands/hatch3r-{id}.md` | Raw content |
 | mcp | `.cursor/mcp.json` | Direct copy of canonical MCP config |
 | hooks | `.cursor/rules/hatch3r-hook-{id}.mdc` | MDC rule with hook event metadata |
-| bridge | `.cursor/rules/hatch3r-bridge.mdc` | Always-apply rule with inline orchestration (mandatory behaviors, agent roster, canonical structure) + canonical reference |
+| bridge | `.cursor/rules/hatch3r-bridge.mdc` | Always-apply rule with inline orchestration (mandatory behaviors, agent roster, canonical structure) + canonical reference + Cursor v2.5+ subagent configuration guidance |
+| environment | `.cursor/environment.json` | JSON with `instructions` array pointing to AGENTS.md; emitted when `cursor` is in manifest tools |
 
 ### Copilot
 
@@ -109,10 +111,10 @@ Previously only the Cursor adapter inlined this content; others merely reference
 | agents | `.github/agents/hatch3r-{id}.md` | YAML frontmatter (`name`, `description`, `model`) |
 | skills | `.github/skills/hatch3r-{id}/SKILL.md` | YAML frontmatter (`name`, `description`) |
 | prompts | `.github/prompts/hatch3r-{id}.prompt.md` | Raw content |
-| commands | `.github/prompts/hatch3r-{id}.prompt.md` | Raw content (mapped to prompts) |
-| githubAgents | `.github/agents/hatch3r-{id}.md` | Raw content |
+| commands | `.github/copilot/commands/hatch3r-{id}.prompt.md` | Raw content |
+| githubAgents | `.github/copilot/agents/hatch3r-{id}.md` | Raw content |
 | mcp | `.vscode/mcp.json` | Canonical MCP config with `envFile: "${workspaceFolder}/.env.mcp"` injected on STDIO servers |
-| setup | `.github/copilot-setup-steps.yml` | YAML build steps |
+| setup | `.github/workflows/copilot-setup-steps.yml` | YAML build steps |
 
 ### Claude
 
@@ -122,9 +124,36 @@ Previously only the Cursor adapter inlined this content; others merely reference
 | agents | `.claude/agents/hatch3r-{id}.md` | YAML frontmatter (`description`) + model guidance in content |
 | skills | `.claude/skills/hatch3r-{id}/SKILL.md` | Raw content |
 | commands | `.claude/commands/hatch3r-{id}.md` | Raw content |
-| mcp | `.mcp.json` | Direct copy of canonical MCP config |
+| mcp | `.mcp.json` | Canonical MCP config with Claude Code compatibility transforms (see below) |
 | hooks | `.claude/settings.json` | Claude event mapping (PreToolUse, PostToolUse, etc.) |
+| permissions | `.claude/settings.json` | Configurable via `claude.permissions` and `claude.teammateMode` in `hatch.json` |
 | bridge | `CLAUDE.md` | Managed block with inline orchestration (mandatory behaviors, agent roster, canonical structure) + canonical reference |
+
+**Claude Code `.mcp.json` compatibility:** The Claude adapter applies two transforms to the canonical MCP config: (1) env var placeholders are converted from `${env:VAR}` to `${VAR}` syntax, and (2) a `type` field (`stdio` or `http`) is added to each server entry. These transforms ensure Claude Code can parse the MCP config without manual editing.
+
+#### Configurable Permissions
+
+The Claude adapter generates `.claude/settings.json` with tool permissions and teammate mode. These are configurable via the `claude` key in `hatch.json`:
+
+```json
+{
+  "claude": {
+    "permissions": {
+      "allow": ["Read", "Edit", "MultiEdit", "Write", "Grep", "Glob", "LS", "TodoRead", "TodoWrite"],
+      "deny": []
+    },
+    "teammateMode": "tool-using"
+  }
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `permissions.allow` | `string[]` | 9 common tools (Read, Edit, etc.) | Tools Claude Code is allowed to use without confirmation |
+| `permissions.deny` | `string[]` | `[]` | Tools Claude Code is never allowed to use |
+| `teammateMode` | `"tool-using" \| "full-trust" \| "manual-approval"` | `"tool-using"` | How spawned teammates operate |
+
+When omitted, the adapter falls back to sensible defaults so existing projects continue to work without changes.
 
 ### Cline / Roo Code
 
@@ -136,6 +165,7 @@ Previously only the Cursor adapter inlined this content; others merely reference
 | commands | `.clinerules/workflows/hatch3r-{id}.md` | Raw content (mapped to workflows) |
 | mcp | `.roo/mcp.json` | JSON with transport type mapping |
 | hooks | `.roo/rules/hatch3r-hook-{id}.md` | Rule with hook event/agent metadata |
+| bridge | `.roo/rules/hatch3r-bridge.md` | Managed block with inline orchestration + canonical reference |
 
 ### Codex
 
@@ -162,7 +192,7 @@ Previously only the Cursor adapter inlined this content; others merely reference
 
 | Capability | Output Path | Format |
 |------------|-------------|--------|
-| rules | `.windsurf/rules/hatch3r-{id}.md` | YAML frontmatter (`trigger`, `globs`) |
+| rules | `.windsurf/rules/hatch3r-{id}.md` | Markdown with HTML comment metadata (`trigger`, `globs`) |
 | agents | `.windsurfrules` | Inlined into managed block (bridge) |
 | skills | `.windsurf/skills/hatch3r-{id}/SKILL.md` | YAML frontmatter (`name`, `description`) |
 | commands | `.windsurf/workflows/hatch3r-{id}.md` | Raw content |
@@ -205,9 +235,9 @@ Previously only the Cursor adapter inlined this content; others merely reference
 | Capability | Output Path | Format |
 |------------|-------------|--------|
 | rules (always) | `.kiro/steering/hatch3r-agents.md` | Inlined into managed block (bridge) |
-| rules (scoped) | `.kiro/steering/hatch3r-{id}.md` | Conditional inclusion via YAML frontmatter (`globs`) |
+| rules (scoped) | `.kiro/steering/hatch3r-rule-{id}.md` | Conditional inclusion via YAML frontmatter (`globs`) |
 | agents | `.kiro/steering/hatch3r-agents.md` | Inlined into managed block (bridge) |
-| skills | `.kiro/steering/hatch3r-{id}.md` | Raw content |
+| skills | `.kiro/steering/hatch3r-skill-{id}.md` | Raw content |
 | mcp | `.kiro/settings/mcp.json` | JSON `mcpServers` object |
 | bridge | `.kiro/steering/hatch3r-agents.md` | Managed block with inline orchestration + canonical reference |
 
@@ -239,7 +269,7 @@ Some platforms natively read from `.agents/` paths, making adapter output unnece
 | **Amp** | `.agents/commands/` | Amp discovers commands in `.agents/commands/` by convention. Canonical files work without transformation. |
 | **Amp** | `.agents/skills/` | Amp discovers skills in `.agents/skills/` by convention. The adapter also writes to `.amp/skills/` for explicit registration. |
 | **Codex** | `.agents/AGENTS.md` | Codex reads `model_instructions_file` pointing to `.agents/AGENTS.md`. Rules are available through this bridge. |
-| **Windsurf** | `.agents/skills/` | Windsurf natively discovers skills in `/.agents/skills/` for skill auto-discovery. The adapter also writes to `.windsurf/skills/` for explicit registration. |
+| **Windsurf** | `.agents/skills/` | Windsurf natively discovers skills in `.agents/skills/` for skill auto-discovery. The adapter also writes to `.windsurf/skills/` for explicit registration. |
 | **All** | `AGENTS.md` (root) | hatch3r generates a root `AGENTS.md` with managed blocks. Platforms that discover AGENTS.md (Amp, Codex, Windsurf, Cline) automatically read it. |
 
 ---
@@ -303,7 +333,7 @@ set -a && source .env.mcp && set +a && <editor-command> .
 | Topic | Docs |
 |-------|------|
 | **Agent model customization** | [model-selection.md](model-selection.md) — configuration, aliases, resolution order; [hatch3r-agent-customize](../commands/hatch3r-agent-customize.md) — per-agent overrides |
-| Cursor | [Cursor Rules](https://docs.cursor.com/context/rules-for-ai) |
+| Cursor | [Cursor Rules](https://docs.cursor.com/context/rules-for-ai) / [Subagents](https://cursor.com/docs/context/subagents) / [Plugins](https://cursor.com/docs/plugins) |
 | Copilot | [Custom Instructions](https://docs.github.com/copilot/customizing-copilot/adding-custom-instructions-for-github-copilot) / [Agent Skills](https://docs.github.com/copilot/how-tos/use-copilot-agents/coding-agent/create-skills) |
 | Claude | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) |
 | Cline | [Cline Rules](https://docs.cline.bot/features/cline-rules/overview) / [Workflows](https://docs.cline.bot/customization/workflows) |

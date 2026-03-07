@@ -1,0 +1,84 @@
+{
+  "env": {
+    "NODE_EXTRA_CA_CERTS": "/Users/BlaessV/certs/BASF_Chain.pem"
+  },
+  "permissions": {
+    "allow": [
+      "Read",
+      "Edit",
+      "MultiEdit",
+      "Write",
+      "Grep",
+      "Glob",
+      "LS",
+      "TodoRead",
+      "TodoWrite"
+    ],
+    "deny": []
+  },
+  "teammateMode": "tool-using",
+  "hooks": {
+    "SubagentStart": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo \"hatch3r hook: ci-failure-ci-watcher — activate ci-watcher agent\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo \"hatch3r hook: file-save-context-rules — activate context-rules agent\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo \"hatch3r hook: post-merge-ci-watcher — activate ci-watcher agent\""
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo \"hatch3r hook: pre-commit-lint-fixer — activate lint-fixer agent\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo \"hatch3r hook: pre-push-security-auditor — activate security-auditor agent\""
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo \"hatch3r hook: session-start-learnings — activate learnings-loader agent\""
+          }
+        ]
+      }
+    ]
+  }
+}

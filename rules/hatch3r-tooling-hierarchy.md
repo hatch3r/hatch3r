@@ -6,26 +6,45 @@ scope: always
 ---
 # Tooling Hierarchy
 
-## A. GitHub CLI-First
+## A. Platform MCP-First (when available)
 
-**Prefer `gh` CLI over GitHub MCP tools** for GitHub operations. CLI tools are optimized for agent use — lower token cost, faster execution, and deterministic output parsing.
+**Prefer platform MCP tools over the platform CLI** when the MCP server provides typed tools with structured input/output. Use them as the primary interface for issue tracker and repository operations.
 
-**Prerequisites:** `gh auth login` must be completed, or `GITHUB_TOKEN` environment variable set. For Projects v2: `gh auth refresh -s project`.
+Read `platform` from `.agents/hatch.json` to determine which platform tools to use.
 
-**Primary tool for:**
-- Issue CRUD: `gh issue create`, `gh issue edit`, `gh issue view`, `gh issue list`
-- PR CRUD: `gh pr create`, `gh pr view`, `gh pr list`, `gh pr merge`
-- Search: `gh search issues`, `gh search prs`, `gh search code`
-- Labels: `gh label create`, `gh label list`
-- Releases: `gh release create`
-- CI/Actions: `gh run list`, `gh run view`, `gh run watch`
-- Projects v2: `gh project item-add`, `gh project item-edit`, `gh project item-list`, `gh project field-list`, `gh project view`
+### Prerequisites
 
-**Fallback to GitHub MCP only when:**
-- The `gh` CLI lacks the specific capability (e.g., sub-issue management via `sub_issue_write`).
-- GraphQL queries are needed that `gh api graphql` cannot express concisely.
+| Platform | Auth Setup |
+|----------|-----------|
+| **GitHub** | `gh auth login` or `GITHUB_TOKEN` env var. For Projects v2: `gh auth refresh -s project` |
+| **Azure DevOps** | `az login` and `az devops configure --defaults organization=ORG project=PROJECT` |
+| **GitLab** | `glab auth login` or `GITLAB_TOKEN` env var |
 
-**Never** use GitHub MCP for operations that `gh` CLI handles well (issue CRUD, PR CRUD, search, labels, releases).
+### Platform CLI Fallback Reference
+
+**Fallback to the platform CLI only when:**
+- The MCP tool catalog lacks the specific capability.
+- An MCP call fails repeatedly and the CLI provides a viable alternative.
+
+**Never** use the platform CLI for operations that have a direct MCP equivalent (issue CRUD, PR/MR CRUD, search, labels).
+
+| Action | GitHub | Azure DevOps | GitLab |
+|--------|--------|--------------|--------|
+| Create issue | `gh issue create` | `az boards work-item create` | `glab issue create` |
+| Edit issue | `gh issue edit` | `az boards work-item update` | `glab issue update` |
+| View issue | `gh issue view` | `az boards work-item show --id N` | `glab issue view` |
+| List issues | `gh issue list` | `az boards work-item list` | `glab issue list` |
+| Create PR/MR | `gh pr create` | `az repos pr create` | `glab mr create` |
+| View PR/MR | `gh pr view` | `az repos pr show` | `glab mr view` |
+| List PRs/MRs | `gh pr list` | `az repos pr list` | `glab mr list` |
+| Merge PR/MR | `gh pr merge` | `az repos pr complete` | `glab mr merge` |
+| Search issues | `gh search issues` | `az boards query` | `glab issue list --search` |
+| Search PRs | `gh search prs` | `az repos pr list --status all` | `glab mr list --search` |
+| Search code | `gh search code` | `az repos show` | `glab search` |
+| Labels | `gh label create/list` | `az boards work-item update --fields` | `glab label create/list` |
+| Releases | `gh release create` | `az repos release` | `glab release create` |
+| CI runs | `gh run list/view/watch` | `az pipelines run list/show` | `glab ci list/view` |
+| Projects | `gh project item-add/edit/list` | `az boards iteration/area` | GitLab Boards API |
 
 ## B. Documentation MCP for Library Documentation
 
@@ -58,6 +77,13 @@ Use web search to retrieve current, real-world information not available in proj
 - Questions answerable from project specs or codebase exploration.
 - Standard library API questions (use documentation MCP instead).
 - Internal project decisions (use project ADRs).
+
+**Fallback when web search is unavailable:**
+If no web search MCP server is configured (e.g., `brave-search` is not in `mcp.servers` in `.agents/hatch.json`), web research cannot be performed. In this case:
+- Note in your output when web research would have been valuable (e.g., "Web research recommended for CVE verification but not available").
+- Rely more heavily on Context7 documentation MCP and codebase exploration.
+- Flag security-sensitive decisions that would benefit from current advisory data.
+- Do NOT silently skip web research — surface the limitation so the user can decide whether to enable it.
 
 ## D. Browser Verification for UI Changes
 

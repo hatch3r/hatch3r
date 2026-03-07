@@ -3,6 +3,15 @@ id: hatch3r-feature-plan
 type: command
 description: Plan a single feature in depth -- spawn parallel researchers, produce feature spec, ADR(s), and structured todo.md entries for board-fill.
 ---
+
+## Agent Pipeline
+
+| Stage | Agent(s) | Parallel | Required |
+|-------|----------|----------|----------|
+| 1. Research | `hatch3r-researcher` (4 parallel: codebase-impact, feature-design, architecture, risk-assessment) | Yes | Yes |
+| 2. Document Generation | `hatch3r-docs-writer` (spec, ADRs) | Yes | Yes |
+| 3. Todo Generation | Orchestrator (inline) | No | Yes |
+
 # Feature Plan — Single Feature Specification from Idea to Board-Ready Epic
 
 Take a single feature idea and produce a complete feature specification (`docs/specs/`), architectural decision records (`docs/adr/`) when needed, and structured `todo.md` entries (epic + sub-items) ready for `hatch3r-board-fill`. Spawns parallel researcher sub-agents (codebase impact, feature design, architecture, risk & pitfalls) to analyze the feature from multiple angles before generating artifacts. AI proposes all outputs; user confirms before any files are written. Optionally chains into `hatch3r-board-fill` to create GitHub issues immediately.
@@ -48,6 +57,32 @@ Feature Brief:
 
 **ASK:** "Does this capture the feature correctly? Adjust anything before I send this to the research phase."
 
+#### Step 1b: Dimension Probing (Requirements Elicitation)
+
+After the feature brief is confirmed, probe for missing requirements across key dimensions. Scan the feature description for ambiguities and generate targeted follow-up questions.
+
+1. Analyze the confirmed feature brief for vague language, unstated assumptions, and missing dimensions.
+2. Generate 5–10 targeted questions from the most relevant dimensions for this feature type:
+   - **Data**: What data is needed? Schema shape? Source? Volume expectations? Validation rules?
+   - **Behavior**: What happens on success? On failure? On edge cases? Concurrent access?
+   - **UI/UX**: Loading states? Empty states? Error states? Responsive behavior? Accessibility?
+   - **Security**: Auth model? Data sensitivity? Input validation? Rate limiting?
+   - **Performance**: Expected data volume? Caching? Pagination? Bundle impact?
+   - **Integration**: Which existing features does this interact with? Shared state? Event chains?
+   - **Migration**: Existing data or behavior that changes? Backward compatibility?
+   - **Observability**: Logging? Metrics? Error tracking for the new behavior?
+   - **Testing**: What constitutes "working"? Acceptance test scenarios?
+   - **Rollout**: Feature flags? Phased rollout? Rollback strategy?
+3. Skip dimensions that the feature brief already addresses clearly.
+
+**ASK:** "Before research begins, I have {N} questions to ensure we don't miss anything:
+{numbered question list — each with the dimension label and why the answer matters}
+
+Answer these now, or say 'use defaults' for any where you're comfortable with a reasonable default."
+
+4. Record the user's answers as **Resolved Requirements**. These are passed to the researchers and ultimately to the implementer.
+5. For any dimension where the user chose defaults, note the assumed default explicitly.
+
 ---
 
 ### Step 2: Load Project Context
@@ -56,10 +91,10 @@ Feature Brief:
    - `docs/specs/` — project specifications (read TOC/headers first, expand relevant sections only)
    - `docs/adr/` — architectural decision records (scan for decisions relevant to the feature area)
    - `README.md` — project overview
-   - `/.agents/hatch.json` — board configuration
+   - `.agents/hatch.json` — board configuration
    - Existing `todo.md` — current backlog (check for overlap or related items)
 2. Scan GitHub issues via `search_issues` for existing work related to the feature. Note duplicates or partial overlaps.
-3. If `/.agents/learnings/` exists, scan for learnings relevant to the feature area. Match by area and tags against the feature brief.
+3. If `.agents/learnings/` exists, scan for learnings relevant to the feature area. Match by area and tags against the feature brief.
 4. Present a context summary:
 
 ```
@@ -82,18 +117,26 @@ Spawn one sub-agent per research domain below concurrently, each following the *
 
 **Each sub-agent prompt must include:**
 - The full confirmed feature brief
+- The Resolved Requirements from Step 1b (user's answers to dimension-probing questions)
 - The project context summary from Step 2
 - Instruction to follow the **hatch3r-researcher agent protocol**
 - The assigned mode (one per sub-agent) and depth level `deep`
 
 | Sub-Agent | Researcher Mode | Focus |
 |-----------|----------------|-------|
-| 1 | `codebase-impact` | Map affected files, modules, integration points, coupling, and existing patterns |
+| 1 | `codebase-impact` | Map affected files, modules, integration points, coupling, existing patterns, and transitive dependency trace |
 | 2 | `feature-design` | Break down into sub-tasks, user stories, acceptance criteria, edge cases, effort |
 | 3 | `architecture` | Data model, API contracts, component design, ADR candidates, dependencies |
 | 4 | `risk-assessment` | Technical risks, security, performance, breaking changes, common pitfalls |
+| 5 | `similar-implementation` | Find analogous existing features, extract their conventions, recommend patterns to follow |
 
 Each sub-agent produces the structured output defined by its mode in the hatch3r-researcher agent specification.
+
+The `similar-implementation` sub-agent's output is critical for convention alignment — it identifies reference implementations whose patterns the new feature should follow. This output is passed to the implementer as "Reference Conventions" and used in Step 4 for convention alignment.
+
+The `codebase-impact` sub-agent uses `deep` depth, which includes transitive dependency tracing (import chains up to 3 levels), API consumer maps, and blast radius summary.
+
+**Each sub-agent prompt must also include** the Resolved Requirements from Step 1b (user's answers to dimension-probing questions) so researchers can factor in the user's explicit decisions.
 
 Wait for all sub-agents to complete before proceeding.
 
@@ -106,14 +149,17 @@ Wait for all sub-agents to complete before proceeding.
 ```
 Research Summary:
 
-Feature:          {name}
-Affected files:   {N} files across {M} modules
-Sub-tasks:        {N} tasks ({X} parallelizable)
-Effort:           {total estimate}
-ADRs needed:      {N} architectural decisions
-Risks:            {N} risks ({X} high, {Y} med, {Z} low)
-Breaking changes: {N} ({list if any})
-Priority:         {recommended P-level}
+Feature:              {name}
+Affected files:       {N} files across {M} modules
+Blast radius:         {N} direct + {M} transitive files at risk
+Sub-tasks:            {N} tasks ({X} parallelizable)
+Effort:               {total estimate}
+ADRs needed:          {N} architectural decisions
+Risks:                {N} risks ({X} high, {Y} med, {Z} low)
+Breaking changes:     {N} ({list if any})
+Convention reference: {reference module} — follow patterns from {name}
+Convention alignment: {N}/{M} aspects aligned, {divergences if any}
+Priority:             {recommended P-level}
 ```
 
 2. **Highlight conflicts** between researchers. Common conflict types:
@@ -198,6 +244,21 @@ Determine the next sequential number by scanning existing files in `docs/specs/`
 | Risk | Severity | Mitigation |
 |------|----------|------------|
 | {risk} | {level} | {strategy} |
+
+## Convention Alignment
+
+Reference implementation: {module/feature name} ({file path})
+
+| Aspect | Convention to Follow | Reference Files |
+|--------|---------------------|----------------|
+| File structure | {pattern} | {example files from reference} |
+| State management | {pattern} | {example files from reference} |
+| Error handling | {pattern} | {example files from reference} |
+| Data fetching | {pattern} | {example files from reference} |
+| Test structure | {pattern} | {example files from reference} |
+
+Divergences from reference:
+- {aspect}: {what differs and why}
 
 ## Implementation Order
 
@@ -360,7 +421,7 @@ If yes, instruct the user to invoke the `hatch3r-board-fill` command. Note that 
 - **Sub-agent failure:** Retry the failed sub-agent once. If it fails again, present partial results from the remaining sub-agents and ask the user how to proceed (continue without that researcher's input / provide the missing information manually / abort).
 - **Conflicting researcher outputs:** Present both options side by side with trade-offs. Ask the user to decide. Do not silently pick one.
 - **File write failure:** Report the error and provide the full file content so the user can create the file manually.
-- **Missing project context:** If no `hatch3r-board-shared` or `/.agents/hatch.json` exists, proceed without board context — this command does not require board configuration.
+- **Missing project context:** If no `hatch3r-board-shared` or `.agents/hatch.json` exists, proceed without board context — this command does not require board configuration.
 - **No existing specs or docs:** Proceed without spec references. Warn that the feature spec will be less contextualized without existing project documentation. Recommend running `hatch3r-project-spec` or `hatch3r-codebase-map` first for best results.
 - **Duplicate detection:** If the feature overlaps significantly with existing todo.md items or GitHub issues found in Step 2, present the overlap and ASK whether to proceed (augment existing / replace / abort).
 

@@ -3,6 +3,11 @@ id: hatch3r-agent-customize
 type: command
 description: Configure per-agent customization including model overrides, description changes, and project-specific markdown instructions
 ---
+
+## Agent Pipeline
+
+This command runs as a single orchestrator without sub-agent delegation. Customization file management is performed inline.
+
 # Agent Customization — Per-Agent Configuration
 
 Customize individual agent behavior for project-specific needs via `.hatch3r/agents/` configuration files. Supports structured YAML overrides and free-form markdown instruction injection, all propagated to every adapter output on sync.
@@ -123,6 +128,38 @@ enabled: false
 ```
 
 The agent's canonical definition remains in `.agents/agents/` but no adapter output is generated for it.
+
+## Protected Agents
+
+Some agents have `protected: true` in their canonical frontmatter. This field marks agents whose core behavior must not be weakened or bypassed through customization, because they enforce critical quality and security invariants.
+
+### Currently Protected Agents
+
+| Agent | Why Protected |
+|-------|--------------|
+| `hatch3r-reviewer` | Enforces code quality, privacy invariants, and security review. Weakening or disabling it would allow unsafe code to merge unreviewed. |
+| `hatch3r-security-auditor` | Enforces security rules, access control auditing, and privacy invariant verification. Disabling it would leave security gaps undetected. |
+| `hatch3r-test-writer` | Enforces test coverage requirements and regression testing. Disabling it would allow untested code to ship. |
+
+### What Protection Means
+
+- **Cannot be disabled.** Setting `enabled: false` in a `.customize.yaml` file for a protected agent is ignored. The agent is always included in adapter output.
+- **Cannot have scope or description overridden.** The `description` field in a `.customize.yaml` file is ignored for protected agents. Their canonical description is always used to prevent narrowing or misrepresenting the agent's responsibilities.
+- **Model overrides ARE allowed.** You can override the `model` field for protected agents via `.customize.yaml` or `hatch.json`. Choosing a more capable model for a protected agent is a valid use case.
+- **Markdown customization IS allowed.** You can add project-specific instructions via `.customize.md` (e.g., domain-specific review checklists, compliance requirements). These are appended to the canonical content and extend the agent's scope — they cannot reduce it.
+
+### Frontmatter Format
+
+```yaml
+---
+id: hatch3r-reviewer
+description: Expert code reviewer for the project...
+protected: true
+model: standard
+---
+```
+
+The `protected` field is set in the canonical agent definition and cannot be overridden by customization files.
 
 ## Workflow
 

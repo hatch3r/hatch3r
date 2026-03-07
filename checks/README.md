@@ -39,6 +39,7 @@ Agents (particularly `hatch3r-reviewer`) reference checks during code review:
 | `code-quality` | Code standards, complexity, maintainability |
 | `security` | Vulnerability patterns, input validation, secrets |
 | `testing` | Test coverage, test quality, regression tests |
+| `performance` | Bundle size, render performance, memory usage, network optimization, database queries |
 
 ## Adding New Checks
 

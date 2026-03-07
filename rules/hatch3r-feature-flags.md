@@ -1,6 +1,8 @@
 ---
+id: hatch3r-feature-flags
+type: rule
 description: Feature flag patterns and lifecycle for the project
-alwaysApply: false
+scope: conditional
 ---
 # Feature Flags
 

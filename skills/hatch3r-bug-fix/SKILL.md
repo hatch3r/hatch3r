@@ -106,9 +106,11 @@ Use the project's PR template. Include:
 
 ## Required Agent Delegation
 
+> **Note:** When this skill is invoked via the orchestration pipeline (board-pickup or workflow commands), skip this section — the orchestrator handles agent delegation in Phases 3 and 4.
+
 You MUST spawn these agents via the Task tool (`subagent_type: "generalPurpose"`) at the appropriate points:
 
-- **`hatch3r-researcher`** — MUST spawn before implementation with modes `symptom-trace`, `root-cause`, `codebase-impact`. Skip only for trivially simple bugs (`risk:low` AND `priority:p3`).
+- **`hatch3r-researcher`** — MUST spawn before implementation with modes `symptom-trace`, `root-cause`, `codebase-impact`. For Tier 2+ tasks (per `hatch3r-deep-context`), also include `requirements-elicitation` (bugs often have underspecified reproduction steps and ambiguous expected behavior). Skip only for trivially simple bugs (`risk:low` AND `priority:p3`).
 - **`hatch3r-test-writer`** — MUST spawn after fix implementation to write regression tests covering the fixed behavior and related edge cases.
 - **`hatch3r-reviewer`** — MUST spawn after implementation for code review before PR creation.
 

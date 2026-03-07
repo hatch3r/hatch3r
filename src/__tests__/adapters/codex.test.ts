@@ -30,13 +30,16 @@ const EXTENDED_MCP = {
 describe("CodexAdapter", () => {
   const adapter = new CodexAdapter();
 
-  function makeManifest(overrides: Partial<Parameters<typeof createManifest>[0]> = {}): HatchManifest {
-    return createManifest({
+  function makeManifest(
+    overrides: Partial<Parameters<typeof createManifest>[0]> & { models?: HatchManifest["models"] } = {},
+  ): HatchManifest {
+    const { models, ...createOpts } = overrides;
+    const base = createManifest({
       tools: ["codex"],
-
       mcpServers: ["github"],
-      ...overrides,
+      ...createOpts,
     });
+    return models ? { ...base, models } : base;
   }
 
   it("has correct name", () => {
@@ -111,6 +114,47 @@ describe("CodexAdapter", () => {
 
     const skills = outputs.filter((o) => o.path.startsWith(".codex/skills/"));
     expect(skills.length).toBe(0);
+  });
+
+  it("emits model from customization file when present", async () => {
+    const manifest = makeManifest();
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const configToml = outputs.find((o) => o.path === ".codex/config.toml");
+    expect(configToml).toBeDefined();
+    expect(configToml!.content).toContain('[agents.hatch3r-test-agent]');
+    expect(configToml!.content).toContain('model = "claude-sonnet-4-6"');
+  });
+
+  it("emits model in agent TOML section when configured via manifest", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-codex-model-"));
+    try {
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "agents"), { recursive: true });
+      await writeFile(
+        join(agentsDir, "agents", "test-agent.md"),
+        `---
+id: test-agent
+type: agent
+description: A test agent
+---
+# Test Agent
+
+You are a test agent.`,
+        "utf-8",
+      );
+      const manifest = makeManifest({
+        models: { agents: { "test-agent": "gpt-4" } },
+      });
+      const outputs = await adapter.generate(agentsDir, manifest);
+
+      const configToml = outputs.find((o) => o.path === ".codex/config.toml");
+      expect(configToml).toBeDefined();
+      expect(configToml!.content).toContain('[agents.hatch3r-test-agent]');
+      expect(configToml!.content).toContain('model = "gpt-4"');
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
   });
 
   it("always generates config.toml as first output", async () => {

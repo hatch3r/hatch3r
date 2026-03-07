@@ -1,7 +1,9 @@
 ---
+id: hatch3r-theming
+type: rule
 description: Theming, dark mode, and color system conventions for the project
+scope: conditional
 globs: src/**/*.vue, src/**/*.tsx, src/**/*.jsx, src/**/*.css, src/**/*.scss
-alwaysApply: false
 ---
 # Theming & Dark Mode
 

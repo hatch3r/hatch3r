@@ -2,6 +2,13 @@ import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } fr
 import { mkdtemp, mkdir, writeFile, readFile, rm, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { execFileSync } from "node:child_process";
+import { HatchError } from "../../types.js";
+
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:child_process")>();
+  return { ...actual, execFileSync: vi.fn() };
+});
 
 const AGENTS_DIR = ".agents";
 
@@ -17,10 +24,13 @@ async function createTestProject(
   await mkdir(join(agentsDir, "commands"), { recursive: true });
 
   const manifest = {
-    version: "1.0.0",
+    version: "2.0.0",
     hatch3rVersion: "0.0.9",
+    platform: "github",
     owner: "test-org",
     repo: "test-repo",
+    namespace: "test-org",
+    project: "test-repo",
     tools: ["cursor"],
     features: {
       agents: true,
@@ -29,7 +39,6 @@ async function createTestProject(
       prompts: true,
       commands: true,
       mcp: true,
-      guardrails: true,
       githubAgents: true,
       hooks: true,
     },
@@ -63,6 +72,7 @@ describe("update command", () => {
       }) as never);
     consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(execFileSync).mockReturnValue(Buffer.from(""));
   });
 
   afterEach(async () => {
@@ -70,14 +80,14 @@ describe("update command", () => {
     exitSpy.mockRestore();
     consoleSpy.mockRestore();
     consoleErrorSpy.mockRestore();
-    await rm(tempDir, { recursive: true, force: true });
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
   });
 
   it("should exit with error when no manifest exists", async () => {
     const { updateCommand } = await import("../../cli/commands/update.js");
 
-    await expect(updateCommand()).rejects.toThrow("process.exit called");
-    expect(exitSpy).toHaveBeenCalledWith(1);
+    await expect(updateCommand()).rejects.toThrow(HatchError);
+    try { await updateCommand(); } catch (e) { expect((e as HatchError).exitCode).toBe(1); }
 
     const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
     expect(allOutput).toContain("No .agents/hatch.json found");
@@ -92,7 +102,7 @@ describe("update command", () => {
     const manifest = JSON.parse(
       await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"),
     );
-    expect(manifest.hatch3rVersion).toBe("1.0.0");
+    expect(manifest.hatch3rVersion).toBe("1.1.0");
   });
 
   it("should copy hatch3r-prefixed files from pack", async () => {
@@ -144,7 +154,7 @@ describe("update command", () => {
   });
 
   it("should note when already at latest version", async () => {
-    await createTestProject(tempDir, { hatch3rVersion: "1.0.0" });
+    await createTestProject(tempDir, { hatch3rVersion: "1.1.0" });
 
     const { updateCommand } = await import("../../cli/commands/update.js");
     await updateCommand({ backup: false });

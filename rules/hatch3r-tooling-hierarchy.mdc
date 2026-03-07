@@ -4,15 +4,31 @@ alwaysApply: true
 ---
 # Tooling Hierarchy
 
-## A. GitHub MCP-First (when available)
+## A. Platform MCP-First (when available)
 
-**Prefer GitHub MCP tools over `gh` CLI** when the MCP server provides typed tools with structured input/output. Use them as the primary interface for GitHub operations.
+**Prefer platform MCP tools over the platform CLI** when the MCP server provides typed tools with structured input/output. Use them as the primary interface for issue tracker and repository operations.
 
-**Fallback to `gh` CLI only when:**
+Read `platform` from `.agents/hatch.json` to determine which platform tools to use.
+
+**Fallback to the platform CLI only when:**
 - The MCP tool catalog lacks the specific capability.
 - An MCP call fails repeatedly and the CLI provides a viable alternative.
 
-**Never** use `gh` CLI for operations that have a direct MCP equivalent (issue CRUD, PR CRUD, search, labels).
+**Never** use the platform CLI for operations that have a direct MCP equivalent (issue CRUD, PR/MR CRUD, search, labels).
+
+### Platform CLI Fallback Reference
+
+| Action | GitHub | Azure DevOps | GitLab |
+|--------|--------|--------------|--------|
+| Create issue | `gh issue create` | `az boards work-item create` | `glab issue create` |
+| View issue | `gh issue view` | `az boards work-item show --id N` | `glab issue view` |
+| List issues | `gh issue list` | `az boards work-item list` | `glab issue list` |
+| Create PR/MR | `gh pr create` | `az repos pr create` | `glab mr create` |
+| View PR/MR | `gh pr view` | `az repos pr show` | `glab mr view` |
+| List PRs/MRs | `gh pr list` | `az repos pr list` | `glab mr list` |
+| Search code | `gh search code` | `az repos show` | `glab search` |
+| CI runs | `gh run list/view` | `az pipelines run list/show` | `glab ci list/view` |
+| Releases | `gh release create` | `az repos release` | `glab release create` |
 
 ## B. Documentation MCP for Library Documentation
 
@@ -45,6 +61,13 @@ Use web search to retrieve current, real-world information not available in proj
 - Questions answerable from project specs or codebase exploration.
 - Standard library API questions (use documentation MCP instead).
 - Internal project decisions (use project ADRs).
+
+**Fallback when web search is unavailable:**
+If no web search MCP server is configured (e.g., `brave-search` is not in `mcp.servers` in `.agents/hatch.json`), web research cannot be performed. In this case:
+- Note in your output when web research would have been valuable (e.g., "Web research recommended for CVE verification but not available").
+- Rely more heavily on Context7 documentation MCP and codebase exploration.
+- Flag security-sensitive decisions that would benefit from current advisory data.
+- Do NOT silently skip web research — surface the limitation so the user can decide whether to enable it.
 
 ## D. Browser Verification for UI Changes
 

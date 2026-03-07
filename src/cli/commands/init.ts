@@ -1,10 +1,11 @@
-import { access, cp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, cp, mkdir, readFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
 import chalk from "chalk";
 import inquirer from "inquirer";
-import { getAdapter } from "../../adapters/index.js";
+import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
 import {
   createManifest,
   writeManifest,
@@ -15,11 +16,16 @@ import {
   AGENTS_DIR,
   AVAILABLE_MCP_SERVERS,
   DEFAULT_FEATURES,
+  HatchError,
+  VALID_TOOLS,
+  TOOLS,
   type Features,
+  type Platform,
+  type RepoInfo,
   type Tool,
 } from "../../types.js";
 import { analyzeRepo } from "../../detect/repoAnalyzer.js";
-import { ensureEnvMcp, getSourceEnvMcpCommand } from "../../env/mcpEnv.js";
+import { ensureEnvMcp, ensureGitignoreEntry, getSourceEnvMcpCommand } from "../../env/mcpEnv.js";
 import { AGENTS_MD_INNER, AGENTS_MD_FULL, CANONICAL_AGENTS_MD } from "../shared/agentsContent.js";
 import {
   printBanner,
@@ -32,26 +38,33 @@ import {
   warn,
 } from "../shared/ui.js";
 import { findPackageRoot } from "../shared/paths.js";
+import { generateIntegrityManifest, writeIntegrityManifest } from "../../integrity/index.js";
+import { HATCH3R_VERSION } from "../../version.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONTENT_ROOT = findPackageRoot(__dirname);
-const CONTENT_DIRS = ["agents", "commands", "rules", "skills", "prompts", "github-agents", "mcp", "hooks"];
+const CONTENT_DIRS = ["agents", "checks", "commands", "rules", "skills", "prompts", "github-agents", "mcp", "hooks"];
 
-const TOOL_CHOICES: { name: string; value: Tool }[] = [
-  { name: "Cursor", value: "cursor" },
-  { name: "GitHub Copilot", value: "copilot" },
-  { name: "Claude Code", value: "claude" },
-  { name: "OpenCode", value: "opencode" },
-  { name: "Windsurf", value: "windsurf" },
-  { name: "Amp", value: "amp" },
-  { name: "Codex CLI", value: "codex" },
-  { name: "Gemini CLI", value: "gemini" },
-  { name: "Cline / Roo Code", value: "cline" },
-  { name: "Aider", value: "aider" },
-  { name: "Kiro", value: "kiro" },
-  { name: "Goose", value: "goose" },
-  { name: "Zed", value: "zed" },
-];
+const TOOL_DISPLAY_NAMES: Record<Tool, string> = {
+  cursor: "Cursor",
+  copilot: "GitHub Copilot",
+  claude: "Claude Code",
+  opencode: "OpenCode",
+  windsurf: "Windsurf",
+  amp: "Amp",
+  codex: "Codex CLI",
+  gemini: "Gemini CLI",
+  cline: "Cline / Roo Code",
+  aider: "Aider",
+  kiro: "Kiro",
+  goose: "Goose",
+  zed: "Zed",
+};
+
+const TOOL_PROMPT_CHOICES: { name: string; value: Tool }[] = TOOLS.map((t) => ({
+  name: TOOL_DISPLAY_NAMES[t],
+  value: t,
+}));
 
 const FEATURE_CHOICES: { name: string; value: keyof Features }[] = [
   { name: "Agents", value: "agents" },
@@ -70,12 +83,20 @@ const MCP_CHOICES = Object.entries(AVAILABLE_MCP_SERVERS).map(([id, meta]) => ({
 }));
 
 const DEFAULT_TOOLS: Tool[] = ["cursor"];
-const VALID_TOOLS: Tool[] = ["cursor", "copilot", "claude", "opencode", "windsurf", "amp", "codex", "gemini", "cline", "aider", "kiro", "goose", "zed"];
 const DEFAULT_FEATURE_KEYS = Object.keys(DEFAULT_FEATURES) as (keyof Features)[];
-const DEFAULT_MCP: string[] = ["github", "context7", "filesystem", "playwright", "brave-search"];
+const DEFAULT_MCP: string[] = ["playwright", "github", "context7"];
 
 function sanitizeInput(value: string): string {
   return value.replace(/[^a-zA-Z0-9._-]/g, "");
+}
+
+function isWSL(): boolean {
+  if (process.env.WSL_DISTRO_NAME) return true;
+  try {
+    return /microsoft|wsl/i.test(readFileSync("/proc/version", "utf-8"));
+  } catch {
+    return false;
+  }
 }
 
 function parseGitRemote(): { owner: string; repo: string } {
@@ -92,8 +113,11 @@ function parseGitRemote(): { owner: string; repo: string } {
     }
 
     return { owner: "", repo: "" };
-  } catch {
-    return { owner: "", repo: "" };
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException & { status?: number };
+    if (e.code === "ENOENT") return { owner: "", repo: "" };
+    if (e.status === 128) return { owner: "", repo: "" };
+    throw err;
   }
 }
 
@@ -108,38 +132,52 @@ function parseGitDefaultBranch(): string {
       return ref.replace(/^origin\//, "");
     }
     return "main";
-  } catch {
-    return "main";
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException & { status?: number };
+    if (e.code === "ENOENT") return "main";
+    if (e.status === 128) return "main";
+    throw err;
   }
 }
 
-function toolDisplayName(tool: Tool): string {
-  const names: Record<Tool, string> = {
-    cursor: "Cursor",
-    copilot: "GitHub Copilot",
-    claude: "Claude Code",
-    opencode: "OpenCode",
-    windsurf: "Windsurf",
-    amp: "Amp",
-    codex: "Codex CLI",
-    gemini: "Gemini CLI",
-    cline: "Cline",
-    aider: "Aider",
-    kiro: "Kiro",
-    goose: "Goose",
-    zed: "Zed",
-  };
-  return names[tool] ?? tool;
+function detectPlatformFromRemote(remoteUrl: string): Platform {
+  if (remoteUrl.includes("dev.azure.com") || remoteUrl.includes("visualstudio.com")) return "azure-devops";
+  if (remoteUrl.includes("gitlab.com") || remoteUrl.includes("gitlab.")) return "gitlab";
+  return "github";
 }
+
+function getGitRemoteUrl(): string {
+  try {
+    return execFileSync("git", ["remote", "get-url", "origin"], { stdio: "pipe" }).toString().trim();
+  } catch {
+    return "";
+  }
+}
+
+const PLATFORM_DISPLAY_NAMES: Record<Platform, string> = {
+  github: "GitHub",
+  "azure-devops": "Azure DevOps",
+  gitlab: "GitLab",
+};
+
+const PLATFORM_MCP_SERVER: Record<Platform, string> = {
+  github: "github",
+  "azure-devops": "azure-devops",
+  gitlab: "gitlab",
+};
 
 async function runInit(
   rootDir: string,
+  platform: Platform,
   owner: string,
   repo: string,
+  namespace: string,
+  project: string,
   defaultBranch: string,
   tools: Tool[],
   features: Features,
   mcpServers: string[],
+  repoInfo: RepoInfo,
 ): Promise<void> {
   const agentsDir = join(rootDir, AGENTS_DIR);
   const totalSteps = 4;
@@ -152,8 +190,8 @@ async function runInit(
     const destDir = join(agentsDir, dir);
     try {
       await cp(srcDir, destDir, { recursive: true, force: true });
-    } catch {
-      // source dir may not exist in this distribution
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
     }
   }
   await mkdir(join(agentsDir, "learnings"), { recursive: true });
@@ -171,28 +209,29 @@ async function runInit(
         delete entry._disabled;
         filtered[name] = entry;
       }
-      await writeFile(
+      await safeWriteFile(
         mcpPath,
         JSON.stringify({ mcpServers: filtered }, null, 2) + "\n",
-        "utf-8",
+        { force: true },
       );
     }
-  } catch {
-    // mcp.json may not exist or be unreadable; skip filtering
+  } catch (err) {
+    const isExpected = (err as NodeJS.ErrnoException).code === 'ENOENT' || err instanceof SyntaxError;
+    if (!isExpected) throw err;
   }
 
-  await writeFile(join(agentsDir, "AGENTS.md"), CANONICAL_AGENTS_MD, "utf-8");
+  await safeWriteFile(join(agentsDir, "AGENTS.md"), CANONICAL_AGENTS_MD, { force: true });
 
   s1.succeed(step(1, totalSteps, "Canonical files created"));
 
   const s2 = createSpinner(step(2, totalSteps, "Writing manifest..."));
   s2.start();
-  const manifest = createManifest({ owner, repo, defaultBranch, tools, features, mcpServers });
+  const manifest = createManifest({ platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers });
   await writeManifest(rootDir, manifest);
   s2.succeed(step(2, totalSteps, "Manifest written"));
 
   const s3 = createSpinner(
-    step(3, totalSteps, `Generating ${tools.map(toolDisplayName).join(", ")} output...`),
+    step(3, totalSteps, `Generating ${tools.map((t) => TOOL_DISPLAY_NAMES[t] ?? t).join(", ")} output...`),
   );
   s3.start();
   // On init, preserve existing user content: prepend managed block if file has no markers.
@@ -202,10 +241,12 @@ async function runInit(
   });
   addManagedFile(manifest, "AGENTS.md");
 
+  const adapterFailures: { tool: string; error: string }[] = [];
   for (const tool of tools) {
     const adapter = getAdapter(tool);
     try {
       const outputs = await adapter.generate(agentsDir, manifest);
+      for (const w of adapter.warnings) { warn(w); }
       for (const out of outputs) {
         await safeWriteFile(join(rootDir, out.path), out.content, {
           managedContent: out.managedContent,
@@ -214,20 +255,43 @@ async function runInit(
         addManagedFile(manifest, out.path);
       }
     } catch (err) {
-      s3.fail(step(3, totalSteps, `Failed to generate ${toolDisplayName(tool)} output`));
-      logError(err instanceof Error ? err.message : String(err));
-      process.exit(1);
+      adapterFailures.push({
+        tool: TOOL_DISPLAY_NAMES[tool] ?? tool,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
-  s3.succeed(step(3, totalSteps, "Adapter output generated"));
+  if (adapterFailures.length > 0) {
+    for (const f of adapterFailures) {
+      logError(`Failed to generate ${f.tool}: ${f.error}`);
+    }
+    if (adapterFailures.length === tools.length) {
+      s3.fail(step(3, totalSteps, "All adapters failed"));
+      throw new HatchError("All adapters failed", 1);
+    }
+  }
+  s3.succeed(step(3, totalSteps, adapterFailures.length > 0
+    ? `Adapter output generated (${adapterFailures.length} failed)`
+    : "Adapter output generated"));
+
+  for (const tool of tools) {
+    const warnings = getUnsupportedFeatureWarnings(tool, manifest);
+    for (const w of warnings) {
+      warn(w);
+    }
+  }
 
   const s4 = createSpinner(step(4, totalSteps, "Finalizing..."));
   s4.start();
   await writeManifest(rootDir, manifest);
 
+  const integrityManifest = await generateIntegrityManifest(agentsDir, HATCH3R_VERSION);
+  await writeIntegrityManifest(agentsDir, integrityManifest);
+
   let envResult: { action: string; path: string; newVars: string[] } | undefined;
   if (features.mcp && mcpServers.length > 0) {
     envResult = await ensureEnvMcp(rootDir, mcpServers);
+    await ensureGitignoreEntry(rootDir);
   }
 
   s4.succeed(step(4, totalSteps, "Done"));
@@ -238,11 +302,12 @@ async function runInit(
     .map(([k]) => k);
 
   const summaryLines = [
-    label("Tools", tools.map(toolDisplayName).join(", ")),
+    label("Tools", tools.map((t) => TOOL_DISPLAY_NAMES[t] ?? t).join(", ")),
     label("Features", enabledFeatures.join(", ")),
   ];
   if (owner || repo) {
-    summaryLines.push(label("GitHub", `${owner}/${repo}`));
+    const platformLabel = PLATFORM_DISPLAY_NAMES[platform];
+    summaryLines.push(label(platformLabel, `${namespace || owner}/${project || repo}`));
   }
   if (defaultBranch) {
     summaryLines.push(label("Default branch", defaultBranch));
@@ -256,6 +321,18 @@ async function runInit(
   summaryLines.push("");
   summaryLines.push(label("Canonical", `${AGENTS_DIR}/`));
   summaryLines.push(label("Manifest", `${AGENTS_DIR}/hatch.json`));
+
+  const isGreenfield =
+    repoInfo.languages.length === 1 &&
+    repoInfo.languages[0] === "unknown" &&
+    repoInfo.existingTools.length === 0 &&
+    !repoInfo.hasExistingAgents;
+  summaryLines.push("");
+  if (isGreenfield) {
+    summaryLines.push(`${chalk.cyan("→")} Run ${chalk.bold("/project-spec")} to define your new project`);
+  } else {
+    summaryLines.push(`${chalk.cyan("→")} Run ${chalk.bold("/codebase-map")} to map your existing codebase`);
+  }
 
   printBox("Hatch complete", summaryLines, "success");
 
@@ -282,11 +359,11 @@ async function checkExisting(rootDir: string, skipPrompt: boolean): Promise<void
       ]);
       if (!proceed) {
         console.log(chalk.dim("\n  Init cancelled.\n"));
-        process.exit(0);
+        throw new HatchError("Init cancelled.", 0);
       }
     }
-  } catch {
-    // fresh init
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
   }
 }
 
@@ -319,17 +396,21 @@ export async function initCommand(
   }
 
   if (opts.yes) {
+    const remoteUrl = getGitRemoteUrl();
+    const platform = detectPlatformFromRemote(remoteUrl);
     const owner = sanitizeInput(remote.owner);
     const repo = sanitizeInput(remote.repo);
+    const namespace = owner;
+    const project = repo;
 
     let tools: Tool[];
     if (opts.tools) {
       const rawTools = opts.tools.split(",").map((t) => t.trim());
-      const invalid = rawTools.filter((t) => !VALID_TOOLS.includes(t as Tool));
+      const invalid = rawTools.filter((t) => !VALID_TOOLS.has(t));
       if (invalid.length > 0) {
         logError(`Invalid tool(s): ${invalid.join(", ")}`);
-        console.log(chalk.dim(`  Valid tools: ${VALID_TOOLS.join(", ")}`));
-        process.exit(1);
+        console.log(chalk.dim(`  Valid tools: ${[...VALID_TOOLS].join(", ")}`));
+        throw new HatchError(`Invalid tool(s): ${invalid.join(", ")}`, 1);
       }
       tools = rawTools as Tool[];
     } else if (repoInfo.existingTools.length > 0) {
@@ -339,32 +420,71 @@ export async function initCommand(
     }
 
     const features = { ...DEFAULT_FEATURES };
-    const mcpServers = features.mcp ? DEFAULT_MCP : [];
+    const platformMcp = PLATFORM_MCP_SERVER[platform];
+    const mcpServers = features.mcp
+      ? Array.from(new Set([platformMcp, ...DEFAULT_MCP.filter((s) => s !== "github")]))
+      : [];
     const defaultBranch = parseGitDefaultBranch();
 
     await checkExisting(rootDir, true);
-    await runInit(rootDir, owner, repo, defaultBranch, tools, features, mcpServers);
+    await runInit(rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo);
     return;
   }
 
   console.log();
 
-  const repoAnswers = await inquirer.prompt<{ owner: string; repo: string }>([
+  const remoteUrl = getGitRemoteUrl();
+  const detectedPlatform = detectPlatformFromRemote(remoteUrl);
+
+  const platformAnswer = await inquirer.prompt<{ platform: Platform }>([
     {
-      type: "input",
-      name: "owner",
-      message: "GitHub owner (org or username):",
-      default: remote.owner || undefined,
-    },
-    {
-      type: "input",
-      name: "repo",
-      message: "Repository name:",
-      default: remote.repo || undefined,
+      type: "list",
+      name: "platform",
+      message: "Select your platform:",
+      choices: [
+        { name: "GitHub", value: "github" as Platform },
+        { name: "Azure DevOps", value: "azure-devops" as Platform },
+        { name: "GitLab", value: "gitlab" as Platform },
+      ],
+      default: detectedPlatform,
     },
   ]);
-  const owner = sanitizeInput(repoAnswers.owner);
-  const repo = sanitizeInput(repoAnswers.repo);
+  const platform = platformAnswer.platform;
+
+  let owner: string;
+  let repo: string;
+  let namespace: string;
+  let project: string;
+
+  if (platform === "azure-devops") {
+    const adoAnswers = await inquirer.prompt<{ org: string; project: string; repo: string }>([
+      { type: "input", name: "org", message: "Azure DevOps organization:", default: remote.owner || undefined },
+      { type: "input", name: "project", message: "Azure DevOps project:" },
+      { type: "input", name: "repo", message: "Repository name:", default: remote.repo || undefined },
+    ]);
+    owner = sanitizeInput(adoAnswers.org);
+    repo = sanitizeInput(adoAnswers.repo);
+    namespace = owner;
+    project = sanitizeInput(adoAnswers.project);
+  } else if (platform === "gitlab") {
+    const glAnswers = await inquirer.prompt<{ namespace: string; project: string }>([
+      { type: "input", name: "namespace", message: "GitLab namespace (group or username):", default: remote.owner || undefined },
+      { type: "input", name: "project", message: "Project name:", default: remote.repo || undefined },
+    ]);
+    owner = sanitizeInput(glAnswers.namespace);
+    repo = sanitizeInput(glAnswers.project);
+    namespace = owner;
+    project = repo;
+  } else {
+    const repoAnswers = await inquirer.prompt<{ owner: string; repo: string }>([
+      { type: "input", name: "owner", message: "GitHub owner (org or username):", default: remote.owner || undefined },
+      { type: "input", name: "repo", message: "Repository name:", default: remote.repo || undefined },
+    ]);
+    owner = sanitizeInput(repoAnswers.owner);
+    repo = sanitizeInput(repoAnswers.repo);
+    namespace = owner;
+    project = repo;
+  }
 
   const defaultBranchDefault = parseGitDefaultBranch();
   const defaultBranchAnswers = await inquirer.prompt<{ defaultBranch: string }>([
@@ -377,14 +497,19 @@ export async function initCommand(
   ]);
   const defaultBranch = defaultBranchAnswers.defaultBranch.trim() || defaultBranchDefault;
 
+  const wslTheme = isWSL()
+    ? { icon: { checked: chalk.green("[x]"), unchecked: "[ ]", cursor: ">" } }
+    : undefined;
+
   const toolDefaults = repoInfo.existingTools.length > 0 ? repoInfo.existingTools : DEFAULT_TOOLS;
   const toolAnswers = await inquirer.prompt<{ tools: Tool[] }>([
     {
       type: "checkbox",
       name: "tools",
       message: "Select tools to configure:",
-      choices: TOOL_CHOICES,
+      choices: TOOL_PROMPT_CHOICES,
       default: toolDefaults,
+      ...(wslTheme && { theme: wslTheme }),
     },
   ]);
   const tools = toolAnswers.tools.length > 0 ? toolAnswers.tools : DEFAULT_TOOLS;
@@ -396,6 +521,7 @@ export async function initCommand(
       message: "Select features:",
       choices: FEATURE_CHOICES,
       default: DEFAULT_FEATURE_KEYS,
+      ...(wslTheme && { theme: wslTheme }),
     },
   ]);
   const selectedFeatures = featureAnswers.features;
@@ -406,18 +532,26 @@ export async function initCommand(
 
   let mcpServers: string[] = [];
   if (features.mcp) {
+    const platformMcp = PLATFORM_MCP_SERVER[platform];
+    const defaultMcpForPlatform = Array.from(
+      new Set([platformMcp, ...DEFAULT_MCP.filter((s) => s !== "github")]),
+    );
     const mcpAnswers = await inquirer.prompt<{ mcp: string[] }>([
       {
         type: "checkbox",
         name: "mcp",
         message: "Select MCP servers:",
         choices: MCP_CHOICES,
-        default: DEFAULT_MCP,
+        default: defaultMcpForPlatform,
+        ...(wslTheme && { theme: wslTheme }),
       },
     ]);
     mcpServers = mcpAnswers.mcp ?? [];
+    if (!mcpServers.includes(platformMcp)) {
+      mcpServers.unshift(platformMcp);
+    }
   }
 
   await checkExisting(rootDir, false);
-  await runInit(rootDir, owner, repo, defaultBranch, tools, features, mcpServers);
+  await runInit(rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo);
 }

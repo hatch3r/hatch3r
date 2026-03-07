@@ -1,9 +1,10 @@
 import { access, readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { RepoInfo, Tool } from "../types.js";
+import { detectPackageManager } from "./packageManager.js";
 
 export async function analyzeRepo(rootDir: string): Promise<RepoInfo> {
-  const [languages, packageManager, isMonorepo, hasExistingAgents, existingTools] =
+  const [languages, pm, isMonorepo, hasExistingAgents, existingTools] =
     await Promise.all([
       detectLanguages(rootDir),
       detectPackageManager(rootDir),
@@ -11,6 +12,7 @@ export async function analyzeRepo(rootDir: string): Promise<RepoInfo> {
       detectExistingAgents(rootDir),
       detectExistingTools(rootDir),
     ]);
+  const packageManager = pm.name;
 
   return {
     languages,
@@ -51,24 +53,15 @@ async function detectLanguages(rootDir: string): Promise<string[]> {
     if (rootEntries.some(f => f.endsWith(".csproj") || f.endsWith(".sln"))) {
       languages.push("csharp");
     }
-  } catch { /* ignore */ }
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+  }
 
   if (languages.length === 0) {
     languages.push("unknown");
   }
 
   return languages;
-}
-
-async function detectPackageManager(
-  rootDir: string,
-): Promise<RepoInfo["packageManager"]> {
-  if (await pathExists(join(rootDir, "bun.lockb"))) return "bun";
-  if (await pathExists(join(rootDir, "pnpm-lock.yaml"))) return "pnpm";
-  if (await pathExists(join(rootDir, "yarn.lock"))) return "yarn";
-  if (await pathExists(join(rootDir, "package-lock.json"))) return "npm";
-  if (await pathExists(join(rootDir, "package.json"))) return "npm";
-  return "unknown";
 }
 
 async function detectMonorepo(rootDir: string): Promise<boolean> {
@@ -81,8 +74,9 @@ async function detectMonorepo(rootDir: string): Promise<boolean> {
     const pkgJson = await readFile(join(rootDir, "package.json"), "utf-8");
     const pkg = JSON.parse(pkgJson);
     if (pkg.workspaces) return true;
-  } catch {
-    // no package.json or invalid JSON
+  } catch (err) {
+    const isExpected = (err as NodeJS.ErrnoException).code === 'ENOENT' || err instanceof SyntaxError;
+    if (!isExpected) throw err;
   }
 
   return false;
@@ -92,42 +86,46 @@ async function detectExistingAgents(rootDir: string): Promise<boolean> {
   return pathExists(join(rootDir, ".agents"));
 }
 
+const TOOL_INDICATORS: { tool: Tool; paths: string[] }[] = [
+  { tool: "cursor", paths: [".cursor"] },
+  { tool: "copilot", paths: [join(".github", "copilot-instructions.md")] },
+  { tool: "claude", paths: ["CLAUDE.md", ".claude"] },
+  { tool: "opencode", paths: ["opencode.json", "opencode.jsonc"] },
+  { tool: "windsurf", paths: [".windsurfrules"] },
+  { tool: "amp", paths: [".amp"] },
+  { tool: "codex", paths: [".codex"] },
+  { tool: "gemini", paths: [".gemini", "GEMINI.md"] },
+  { tool: "cline", paths: [".clinerules", ".roo", ".roomodes"] },
+  { tool: "aider", paths: [".aider", ".aider.conf.yml"] },
+  { tool: "kiro", paths: [".kiro"] },
+  { tool: "goose", paths: [".goosehints", ".goose"] },
+  { tool: "zed", paths: [".rules"] },
+];
+
 async function detectExistingTools(rootDir: string): Promise<Tool[]> {
-  const tools: Tool[] = [];
+  const results = await Promise.allSettled(
+    TOOL_INDICATORS.map(async ({ tool, paths }) => {
+      for (const p of paths) {
+        if (await pathExists(join(rootDir, p))) return tool;
+      }
+      return null;
+    }),
+  );
 
-  if (await pathExists(join(rootDir, ".cursor"))) tools.push("cursor");
-  if (await pathExists(join(rootDir, ".github", "copilot-instructions.md")))
-    tools.push("copilot");
-  if (
-    (await pathExists(join(rootDir, "CLAUDE.md"))) ||
-    (await pathExists(join(rootDir, ".claude")))
-  )
-    tools.push("claude");
-  if (
-    (await pathExists(join(rootDir, "opencode.json"))) ||
-    (await pathExists(join(rootDir, "opencode.jsonc")))
-  )
-    tools.push("opencode");
-  if (await pathExists(join(rootDir, ".windsurfrules")))
-    tools.push("windsurf");
-  if (await pathExists(join(rootDir, ".amp")))
-    tools.push("amp");
-  if (await pathExists(join(rootDir, ".codex"))) tools.push("codex");
-  if ((await pathExists(join(rootDir, ".gemini"))) || (await pathExists(join(rootDir, "GEMINI.md")))) tools.push("gemini");
-  if ((await pathExists(join(rootDir, ".clinerules"))) || (await pathExists(join(rootDir, ".roo"))) || (await pathExists(join(rootDir, ".roomodes")))) tools.push("cline");
-  if (await pathExists(join(rootDir, ".aider.conf.yml"))) tools.push("aider");
-  if (await pathExists(join(rootDir, ".kiro"))) tools.push("kiro");
-  if ((await pathExists(join(rootDir, ".goosehints"))) || (await pathExists(join(rootDir, ".goose")))) tools.push("goose");
-  if (await pathExists(join(rootDir, ".rules"))) tools.push("zed");
-
-  return tools;
+  return results
+    .filter(
+      (r): r is PromiseFulfilledResult<Tool> =>
+        r.status === "fulfilled" && r.value !== null,
+    )
+    .map((r) => r.value);
 }
 
 async function pathExists(path: string): Promise<boolean> {
   try {
     await access(path);
     return true;
-  } catch {
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
     return false;
   }
 }

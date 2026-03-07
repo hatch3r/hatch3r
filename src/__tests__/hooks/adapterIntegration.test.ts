@@ -48,7 +48,7 @@ describe("ClaudeAdapter hooks integration", () => {
     expect(hookEntry.hooks[0].command).toContain("hatch3r hook");
   });
 
-  it("skips hooks when features.hooks is false", async () => {
+  it("skips user-defined hooks when features.hooks is false but keeps Agent Teams hooks", async () => {
     const manifest = createManifest({
       tools: ["claude"],
 
@@ -59,7 +59,11 @@ describe("ClaudeAdapter hooks integration", () => {
 
     const settings = outputs.find((o) => o.path === ".claude/settings.json");
     const parsed = JSON.parse(settings!.content);
-    expect(parsed.hooks).toBeUndefined();
+    expect(parsed.hooks).toBeDefined();
+    expect(parsed.hooks.PreToolUse).toBeUndefined();
+    expect(parsed.hooks.SessionStart).toBeUndefined();
+    expect(parsed.hooks.TaskCompleted).toBeDefined();
+    expect(parsed.hooks.TeammateIdle).toBeDefined();
   });
 });
 

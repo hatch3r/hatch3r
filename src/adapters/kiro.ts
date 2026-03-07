@@ -1,54 +1,25 @@
-import { readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import chalk from "chalk";
-import type { AdapterOutput, HatchManifest } from "../types.js";
-import { toPrefixedId } from "../types.js";
+import type { AdapterOutput } from "../types.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
-import { BRIDGE_ORCHESTRATION } from "../cli/shared/agentsContent.js";
-import { output } from "./base.js";
-import type { Adapter } from "./base.js";
+import { BaseAdapter, output, type AdapterContext } from "./base.js";
 import { readCanonicalFiles } from "./canonical.js";
-import { resolveAgentModel } from "../models/resolve.js";
-import { applyCustomization, applyCustomizationRaw } from "./customization.js";
-
-interface McpServerEntry {
-  command?: string;
-  args?: string[];
-  url?: string;
-  env?: Record<string, string>;
-  _disabled?: boolean;
-}
+import { applyCustomization } from "./customization.js";
 
 function steeringFrontmatter(globs?: string): string {
   if (!globs) return "";
-  return `---\ninclusion: conditional\nglobs: "${globs}"\n---\n\n`;
+  return `---\ninclusion: fileMatch\nfileMatchPattern: "${globs}"\n---\n\n`;
 }
 
-export class KiroAdapter implements Adapter {
-  name = "kiro";
+export class KiroAdapter extends BaseAdapter {
+  readonly name = "kiro";
 
-  async generate(
-    agentsDir: string,
-    manifest: HatchManifest,
-  ): Promise<AdapterOutput[]> {
+  protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
     const results: AdapterOutput[] = [];
-    const { features } = manifest;
-    const projectRoot = dirname(agentsDir);
+    const lines = [...this.bridgeHeader()];
 
-    const steeringLines: string[] = [
-      "",
-      "# Hatch3r Agent Instructions",
-      "",
-      "Full canonical agent instructions are at `/.agents/AGENTS.md`.",
-      "",
-      BRIDGE_ORCHESTRATION,
-      "",
-    ];
-
-    if (features.rules) {
-      const rules = await readCanonicalFiles(agentsDir, "rules");
+    if (ctx.features.rules) {
+      const rules = await readCanonicalFiles(ctx.agentsDir, "rules");
       for (const rule of rules) {
-        const { content, skip, overrides } = await applyCustomization(projectRoot, rule);
+        const { content, skip, overrides } = await applyCustomization(ctx.projectRoot, rule);
         if (skip) continue;
         const scope = overrides.scope ?? rule.scope;
         const desc = overrides.description ?? rule.description;
@@ -57,95 +28,26 @@ export class KiroAdapter implements Adapter {
           const globs = scope.includes("*") ? scope : `${scope}/**`;
           const fm = steeringFrontmatter(globs);
           const body = `# ${rule.id}\n\n${desc}\n\n${content}`;
-          results.push(
-            output(
-              `.kiro/steering/${toPrefixedId(rule.id)}.md`,
-              `${fm}${wrapInManagedBlock(body)}`,
-              body,
-            ),
-          );
+          results.push(output(`.kiro/steering/hatch3r-rule-${rule.id}.md`, `${fm}${wrapInManagedBlock(body)}`, body));
         } else {
-          steeringLines.push(`## ${rule.id}`);
-          steeringLines.push("");
-          steeringLines.push(desc);
-          steeringLines.push("");
-          steeringLines.push(content);
-          steeringLines.push("");
+          lines.push(`## ${rule.id}`, "", desc, "", content, "");
         }
       }
     }
 
-    if (features.agents) {
-      const agents = await readCanonicalFiles(agentsDir, "agents");
-      for (const agent of agents) {
-        const { content, skip, overrides } = await applyCustomization(projectRoot, agent);
-        if (skip) continue;
-        const model = resolveAgentModel(agent.id, agent, manifest, overrides);
-        const desc = overrides.description ?? agent.description;
-        steeringLines.push(`## Agent: ${agent.id}`);
-        if (model) steeringLines.push(`**Recommended model:** \`${model}\``);
-        steeringLines.push("");
-        steeringLines.push(desc);
-        steeringLines.push("");
-        steeringLines.push(content);
-        steeringLines.push("");
-      }
-    }
+    lines.push(...await this.inlineAgents(ctx));
+    const inner = lines.join("\n");
+    results.push(output(".kiro/steering/hatch3r-agents.md", wrapInManagedBlock(inner), inner));
 
-    const steeringInner = steeringLines.join("\n");
     results.push(
-      output(
-        ".kiro/steering/hatch3r-agents.md",
-        wrapInManagedBlock(steeringInner),
-        steeringInner,
-      ),
+      ...await this.processSkillsRaw(ctx, (id) => `.kiro/steering/hatch3r-skill-${id}.md`),
     );
 
-    if (features.skills) {
-      const skills = await readCanonicalFiles(agentsDir, "skills");
-      for (const skill of skills) {
-        const { content, skip } = await applyCustomizationRaw(projectRoot, skill);
-        if (skip) continue;
-        results.push(
-          output(
-            `.kiro/steering/${toPrefixedId(skill.id)}.md`,
-            wrapInManagedBlock(content),
-            content,
-          ),
-        );
-      }
-    }
-
-    if (features.mcp && manifest.mcp.servers.length > 0) {
-      const mcpPath = join(agentsDir, "mcp", "mcp.json");
-      try {
-        const mcpRaw = await readFile(mcpPath, "utf-8");
-        const mcpParsed = JSON.parse(mcpRaw) as { mcpServers?: Record<string, McpServerEntry> };
-        if (mcpParsed.mcpServers) {
-          const kiroMcp: Record<string, unknown> = {};
-          for (const [name, server] of Object.entries(mcpParsed.mcpServers)) {
-            if (server._disabled) continue;
-            if (server.command) {
-              kiroMcp[name] = {
-                command: server.command,
-                args: server.args || [],
-                ...(server.env && Object.keys(server.env).length > 0 ? { env: server.env } : {}),
-              };
-            } else if (server.url) {
-              kiroMcp[name] = { url: server.url };
-            }
-          }
-          if (Object.keys(kiroMcp).length > 0) {
-            results.push(
-              output(
-                ".kiro/settings/mcp.json",
-                JSON.stringify({ mcpServers: kiroMcp }, null, 2),
-              ),
-            );
-          }
-        }
-      } catch (err) {
-        console.warn(chalk.yellow(`  Warning: Could not read MCP config: ${err instanceof Error ? err.message : String(err)}`));
+    const mcp = await this.readFilteredMcp(ctx);
+    if (mcp && Object.keys(mcp).length > 0) {
+      const entries = this.buildStdMcpEntries(mcp);
+      if (Object.keys(entries).length > 0) {
+        results.push(output(".kiro/settings/mcp.json", JSON.stringify({ mcpServers: entries }, null, 2)));
       }
     }
 

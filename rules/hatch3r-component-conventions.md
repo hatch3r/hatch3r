@@ -1,7 +1,9 @@
 ---
+id: hatch3r-component-conventions
+type: rule
 description: Rules for component development in web applications
+scope: conditional
 globs: src/**/*.vue, src/**/*.tsx, src/**/*.jsx
-alwaysApply: false
 ---
 # Component Conventions
 

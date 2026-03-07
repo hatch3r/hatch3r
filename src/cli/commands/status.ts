@@ -3,7 +3,7 @@ import { join } from "node:path";
 import chalk from "chalk";
 import { readManifest } from "../../manifest/hatchJson.js";
 import { getAdapter } from "../../adapters/index.js";
-import { AGENTS_DIR } from "../../types.js";
+import { AGENTS_DIR, HatchError } from "../../types.js";
 import { extractManagedBlock } from "../../merge/managedBlocks.js";
 import {
   printBanner,
@@ -23,7 +23,7 @@ export async function statusCommand(): Promise<void> {
   if (!manifest) {
     logError("No .agents/hatch.json found.");
     console.log(chalk.dim("  Run `npx hatch3r init` to set up your project first.\n"));
-    process.exit(1);
+    throw new HatchError("No .agents/hatch.json found.", 1);
   }
 
   const spinner = createSpinner("Checking sync status...");
@@ -51,7 +51,8 @@ export async function statusCommand(): Promise<void> {
           fileLines.push(`  ${chalk.yellow("~")} ${out.path} ${chalk.dim("(drifted)")}`);
           stats.drifted++;
         }
-      } catch {
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
         fileLines.push(`  ${chalk.red("+")} ${out.path} ${chalk.dim("(missing)")}`);
         stats.missing++;
       }

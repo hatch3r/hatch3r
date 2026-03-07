@@ -21,6 +21,7 @@ const config: Config = {
   onBrokenLinks: 'throw',
 
   markdown: {
+    mermaid: true,
     hooks: {
       onBrokenMarkdownLinks: 'warn',
     },
@@ -30,6 +31,8 @@ const config: Config = {
     defaultLocale: 'en',
     locales: ['en'],
   },
+
+  themes: ['@docusaurus/theme-mermaid'],
 
   presets: [
     [
@@ -88,6 +91,8 @@ const config: Config = {
           items: [
             {label: 'Getting Started', to: '/docs/getting-started/introduction'},
             {label: 'Guides', to: '/docs/guides/workflow'},
+            {label: 'Architecture', to: '/docs/reference/architecture/content-model'},
+            {label: 'Configuration', to: '/docs/reference/configuration'},
             {label: 'Reference', to: '/docs/reference/agents'},
           ],
         },
@@ -101,6 +106,20 @@ const config: Config = {
         },
       ],
       copyright: `Copyright \u00a9 ${new Date().getFullYear()} hatch3r contributors. MIT License.`,
+    },
+    mermaid: {
+      theme: {light: 'base', dark: 'dark'},
+      options: {
+        themeVariables: {
+          primaryColor: '#1a3a4a',
+          primaryTextColor: '#e0e0e0',
+          primaryBorderColor: '#3aafa9',
+          lineColor: '#4ecdc4',
+          secondaryColor: '#16213e',
+          tertiaryColor: '#0f3460',
+          edgeLabelBackground: 'transparent',
+        },
+      },
     },
     prism: {
       theme: prismThemes.github,

@@ -3,6 +3,10 @@ id: hatch3r-cost-tracking
 type: command
 description: Track and report token usage and estimated costs across agent workflows and board operations
 ---
+## Agent Pipeline
+
+This command tracks token usage and costs. It does not spawn sub-agents directly — it monitors sub-agent usage across the session.
+
 # Cost Tracking — Token Usage and Cost Reporting
 
 Track token consumption and estimated costs across sub-agent workflows, board operations, and development sessions. Provides visibility into AI usage patterns and enforces cost guardrails.

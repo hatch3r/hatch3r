@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } fr
 import { mkdtemp, mkdir, writeFile, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { HatchError } from "../../types.js";
 
 const AGENTS_DIR = ".agents";
 
@@ -26,7 +27,6 @@ async function createTestProject(root: string, overrides: Record<string, unknown
       prompts: true,
       commands: true,
       mcp: true,
-      guardrails: true,
       githubAgents: true,
       hooks: true,
     },
@@ -78,8 +78,8 @@ describe("status command", () => {
   it("should exit with error when no manifest exists", async () => {
     const { statusCommand } = await import("../../cli/commands/status.js");
 
-    await expect(statusCommand()).rejects.toThrow("process.exit called");
-    expect(exitSpy).toHaveBeenCalledWith(1);
+    await expect(statusCommand()).rejects.toThrow(HatchError);
+    try { await statusCommand(); } catch (e) { expect((e as HatchError).exitCode).toBe(1); }
 
     const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
     expect(allOutput).toContain("No .agents/hatch.json found");
