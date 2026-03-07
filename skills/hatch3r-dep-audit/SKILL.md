@@ -30,7 +30,10 @@ Task Progress:
 For critical and high vulnerabilities:
 
 - Use **web search** to look up each CVE: exploitability, affected versions, fix version, workarounds.
-- Check npm advisories and GitHub security advisories for official guidance.
+- Check npm advisories and platform-specific security tools for official guidance (check `platform` in `.agents/hatch.json`):
+  - **GitHub:** GitHub Security Advisories (`gh api /repos/{owner}/{repo}/security-advisories`)
+  - **Azure DevOps:** Azure Artifacts security scanning and Azure Boards advisory tracking
+  - **GitLab:** GitLab Dependency Scanning (Security & Compliance → Vulnerability Report)
 - Prioritize: critical first, then high. Moderate/low can be batched.
 - Note any packages with no fix available — document mitigation or deferral rationale.
 
@@ -38,7 +41,7 @@ For critical and high vulnerabilities:
 
 Before changing anything:
 
-- **Breaking vs non-breaking:** Check each package's changelog (npm, GitHub releases). For external library docs and current best practices, follow the project's tooling hierarchy.
+- **Breaking vs non-breaking:** Check each package's changelog (npm, release notes on the package's repository). For external library docs and current best practices, follow the project's tooling hierarchy.
 - **Bundle impact:** Check bundle size budget from project rules. Run `npm run build` and measure before/after for each upgrade.
 - **Upgrade order:** Security fixes first, then non-breaking minor/patch, then breaking changes (one at a time).
 - **Risks:** List packages that may require code changes (e.g., major version bumps).

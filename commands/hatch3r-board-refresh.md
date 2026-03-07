@@ -3,9 +3,16 @@ id: hatch3r-board-refresh
 type: command
 description: Regenerate the living board overview dashboard from current board state. Scans all open issues, computes health metrics, and updates the meta:board-overview issue.
 ---
+
+## Agent Pipeline
+
+This command runs as a single orchestrator without sub-agent delegation.
+
+All board operations MUST follow the Board Sync Enforcement rules defined in `hatch3r-board-shared`.
+
 # Board Refresh -- Regenerate the Board Overview Dashboard
 
-Scan all open issues on **{owner}/{repo}** (read from `/.agents/hatch.json` board config), compute board health metrics, build implementation lanes from dependency analysis, and regenerate the `meta:board-overview` dashboard issue with current data, model recommendations, and health diagnostics. This is a lightweight, read-heavy command -- the only mutation is updating (or creating) the single board overview issue.
+Scan all open issues/work items on **{owner}/{repo}** (read from `.agents/hatch.json` board config), compute board health metrics, build implementation lanes from dependency analysis, and regenerate the `meta:board-overview` dashboard issue with current data, model recommendations, and health diagnostics. The `platform` field determines whether to interact with GitHub Issues, Azure DevOps Work Items, or GitLab Issues. This is a lightweight, read-heavy command -- the only mutation is updating (or creating) the single board overview issue.
 
 ---
 
@@ -15,8 +22,11 @@ hatch3r's board commands operate as the **implementation orchestration layer** a
 
 - **board-init** sets up the project management structure that agentic workflows operate within
 - **board-fill** creates the work items that agentic workflows can triage and label
+- **board-groom** refines existing work items as priorities, scope, and dependencies evolve over time
 - **board-pickup** orchestrates the implementation -> review -> merge pipeline that goes beyond what generic agentic workflows provide
 - **board-refresh** regenerates the living dashboard on demand without running a full board command
+
+Board health findings surfaced by board-refresh (missing metadata, stale issues, blocked chains, epic ordering discrepancies) can be acted on via `hatch3r-board-groom`, which performs the same diagnostics but adds the ability to apply fixes.
 
 GitHub Agentic Workflows and hatch3r are complementary: use agentic workflows for continuous background automation, use hatch3r board commands for structured delivery orchestration.
 
@@ -24,7 +34,7 @@ GitHub Agentic Workflows and hatch3r are complementary: use agentic workflows fo
 
 ## Shared Context
 
-**Read the `hatch3r-board-shared` command at the start of the run.** It contains Board Configuration, GitHub Context, Project Reference, Projects v2 sync procedure, and tooling directives. Cache all values for the duration of this run.
+**Read the `hatch3r-board-shared` command at the start of the run.** It contains Board Configuration, Platform Detection, Platform Context, Board Sync Procedure, and tooling directives. Cache all values for the duration of this run.
 
 ## Token-Saving Directives
 
@@ -38,10 +48,11 @@ Execute these steps in order. **Do not skip any step.**
 
 ### Step 1: Read Configuration
 
-1. Read `/.agents/hatch.json` and cache the full config (top-level `owner`/`repo` and `board` section).
-2. Resolve owner/repo per `hatch3r-board-shared`: use top-level `owner`/`repo` first, fall back to `board.owner`/`board.repo` if top-level values are empty.
-3. If both are missing, abort with: "Cannot refresh board -- owner and repo are not configured in `/.agents/hatch.json`. Run `board-init` first."
-4. Note `board.projectNumber` -- if null, Projects v2 sync will be skipped later.
+1. Read `.agents/hatch.json` and cache the full config (top-level `owner`/`repo`, `platform`, and `board` section).
+2. Read `platform` from `.agents/hatch.json`. Default to `github` if missing.
+3. Resolve owner/repo per `hatch3r-board-shared`: use top-level `owner`/`repo` first, fall back to `board.owner`/`board.repo` if top-level values are empty.
+4. If both are missing, abort with: "Cannot refresh board -- owner and repo are not configured in `.agents/hatch.json`. Run `board-init` first."
+5. Note `board.projectNumber` -- if null, board sync will be skipped later.
 
 ---
 
@@ -49,11 +60,25 @@ Execute these steps in order. **Do not skip any step.**
 
 Perform ONE comprehensive scan and cache everything for subsequent steps.
 
-#### 2a. Fetch Open Issues
+#### 2a. Fetch Open Issues / Work Items
 
+**Platform-specific: Fetch all open items**
+
+**If platform is `github`:**
 1. Fetch ALL open issues: `gh issue list -R {owner}/{repo} --state open --limit 500 --json number,title,labels,state,createdAt,updatedAt,body`. Paginate if necessary. Fall back to `list_issues` MCP if gh CLI fails.
-2. For each issue, extract labels from the JSON response.
-3. Check for sub-issues: `issue_read` with `method: get_sub_issues` for any issue that appears to be an epic (has sub-issues or is referenced as a parent). Cache parent-child relationships.
+
+**If platform is `azure-devops`:**
+1. Fetch ALL active work items: `az boards query --org https://dev.azure.com/{namespace} --project {project} --wiql "SELECT [System.Id], [System.Title], [System.State], [System.Tags], [System.CreatedDate], [System.ChangedDate], [System.Description] FROM WorkItems WHERE [System.State] <> 'Closed' AND [System.State] <> 'Removed'"`. Fall back to `list_work_items` MCP.
+
+**If platform is `gitlab`:**
+1. Fetch ALL open issues: `glab issue list -R {namespace}/{project} --state opened --per-page 100`. Paginate if necessary.
+
+2. For each issue/work item, extract labels/tags from the response.
+3. Check for sub-issues/child work items:
+   - **GitHub:** `issue_read` with `method: get_sub_issues`.
+   - **Azure DevOps:** `az boards work-item relation list --id N` for parent-child relations.
+   - **GitLab:** `glab api projects/{project_id}/issues/{N}/links` for related issues.
+   Cache parent-child relationships.
 4. Parse `## Dependencies` sections from issue bodies for dependency references. Recognize both hard (`Blocked by #N`, `Depends on #N`) and soft (`Recommended after #N`) dependency types. Track the type for each edge in the dependency graph -- only hard dependencies block pickup and exclude issues from Implementation Lanes.
 5. **Exclude** any issue labeled `meta:board-overview` from all analysis and listings.
 
@@ -147,23 +172,45 @@ Search the cached board inventory for an open issue labeled `meta:board-overview
 
 #### 5b. Update or Create
 
-**If found:** Update the issue body:
+**Platform-specific: Update or create overview issue**
 
+**If found:** Update the issue/work item body:
+
+**If platform is `github`:**
 ```bash
 gh issue edit {number} -R {owner}/{repo} --body "{generated dashboard body}"
 ```
-
 Fall back to `issue_write` MCP with `method: update` if gh CLI fails.
+
+**If platform is `azure-devops`:**
+```bash
+az boards work-item update --org https://dev.azure.com/{namespace} --id {number} --description "{generated dashboard body}"
+```
+
+**If platform is `gitlab`:**
+```bash
+glab issue update {number} -R {namespace}/{project} --description "{generated dashboard body}"
+```
 
 **If not found:** Create a new board overview issue:
 
+**If platform is `github`:**
 ```bash
 gh issue create -R {owner}/{repo} --title "[Board Overview] {repo} Project Board" --label "meta:board-overview" --body "{generated dashboard body}"
 ```
-
 Fall back to `issue_write` MCP with `method: create` if gh CLI fails.
 
-Then add the new issue to the project board and set its status to **Backlog** using the **Projects v2 Sync Procedure** from `hatch3r-board-shared`.
+**If platform is `azure-devops`:**
+```bash
+az boards work-item create --org https://dev.azure.com/{namespace} --project {project} --type "User Story" --title "[Board Overview] {project} Project Board" --description "{generated dashboard body}" --fields "System.Tags=meta:board-overview"
+```
+
+**If platform is `gitlab`:**
+```bash
+glab issue create -R {namespace}/{project} --title "[Board Overview] {project} Project Board" --label "meta:board-overview" --description "{generated dashboard body}"
+```
+
+Then sync the new issue to the board and set its status to **Backlog** using the **Board Sync Procedure** from `hatch3r-board-shared`.
 
 #### 5c. Summary
 
@@ -183,16 +230,19 @@ Board Refresh Complete:
 
 ## Error Handling
 
-- **`gh issue list` failure:** Retry once, then fall back to `list_issues` MCP. If both fail, abort with: "Cannot scan board -- check `gh auth login` status and repository access."
-- **`gh issue edit` / `gh issue create` failure:** Retry once, then fall back to `issue_write` MCP. If both fail, present the generated dashboard body to the user so they can update the issue manually.
-- **`issue_read` (sub-issues) failure:** Warn and continue. Epic/sub-issue relationships will be incomplete; note in the summary.
-- **Projects v2 sync failure (new overview issue only):** Warn and continue. The issue is created but not added to the project board.
+- **Issue listing failure:** Retry once, then fall back to MCP. If both fail, abort with platform-specific auth guidance:
+  - **GitHub:** "Cannot scan board -- check `gh auth login` status and repository access."
+  - **Azure DevOps:** "Cannot scan board -- check `az login` status and project access."
+  - **GitLab:** "Cannot scan board -- check `glab auth login` status and project access."
+- **Issue edit/create failure:** Retry once, then fall back to MCP. If both fail, present the generated dashboard body to the user so they can update the issue manually.
+- **Sub-issue/relation read failure:** Warn and continue. Epic/sub-issue relationships will be incomplete; note in the summary.
+- **Board sync failure (new overview issue only):** Warn and continue. The issue is created but not synced to the board.
 
 ## Guardrails
 
 - **Never modify any issue other than the `meta:board-overview` issue.** This command is read-only for all other issues.
 - **Exclude the board overview issue from its own listings.** It must never appear in any status table.
 - **One board overview issue at a time.** If multiple are found, update the oldest and warn about duplicates.
-- **Follow the GitHub CLI-first approach** from `hatch3r-board-shared`. Use `gh` CLI as primary; MCP as fallback.
+- **Follow the Platform CLI-first approach** from `hatch3r-board-shared`. Use platform CLI as primary; MCP as fallback.
 - **No ASK checkpoints.** This command performs a single, non-destructive mutation (updating the dashboard). It runs to completion without user prompts.
 - **Respect the Model Selection Heuristic.** Always include the `Model` column using the quality-first heuristic from `hatch3r-board-shared`.

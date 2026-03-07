@@ -1,1 +1,2 @@
-export const HATCH3R_VERSION = "1.0.0";
+declare const __VERSION__: string;
+export const HATCH3R_VERSION = __VERSION__;

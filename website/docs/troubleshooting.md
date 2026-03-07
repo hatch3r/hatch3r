@@ -31,7 +31,7 @@ If `.agents/` already exists, you should sync or update instead of running init 
 
 ### Invalid tool(s)
 
-Use only valid tools: `cursor`, `copilot`, `claude`, `opencode`, `windsurf`, `amp`, `codex`, `gemini`, `cline`.
+Use only valid tools: `cursor`, `copilot`, `claude`, `opencode`, `windsurf`, `amp`, `codex`, `gemini`, `cline`, `aider`, `kiro`, `goose`, `zed`.
 
 ```bash
 npx hatch3r init --tools cursor,claude
@@ -103,6 +103,29 @@ Edit `/.agents/hatch.json`:
   }
 }
 ```
+
+## Azure DevOps
+
+### Board commands fail with authentication errors
+
+1. Ensure `AZURE_DEVOPS_PAT` and `AZURE_DEVOPS_ORG` are set in `.env.mcp`
+2. PAT needs Work Items (Read & Write), Code (Read & Write), Build (Read), and Project and Team (Read) scopes
+3. If using `az` CLI, run `az login` first
+4. Verify org name matches `https://dev.azure.com/{org}`
+
+## GitLab
+
+### Board commands fail with 401/403
+
+1. `GITLAB_TOKEN` needs the `api` scope (not just `read_api`)
+2. For self-hosted instances, set `GITLAB_HOST=https://gitlab.example.com` in `.env.mcp`
+3. GitLab uses "merge requests" instead of "pull requests" -- hatch3r maps this automatically
+
+## Claude Code MCP
+
+### Claude Code fails to connect to MCP servers
+
+Claude Code uses `${VAR}` syntax (not `${env:VAR}`) and requires a `type` field on each server entry. Run `npx hatch3r sync` to regenerate `.mcp.json` with the correct format.
 
 ## Generated Files
 

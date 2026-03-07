@@ -1,12 +1,12 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import chalk from "chalk";
 import {
   AGENTS_DIR,
   MANIFEST_FILE,
   DEFAULT_FEATURES,
   type BoardConfig,
   type HatchManifest,
+  type Platform,
   type Tool,
 } from "../types.js";
 import { HATCH3R_VERSION } from "../version.js";
@@ -37,20 +37,29 @@ function createMinimalBoardConfig(owner: string, repo: string, defaultBranch: st
 }
 
 export function createManifest(options: {
+  platform?: Platform;
   owner?: string;
   repo?: string;
+  namespace?: string;
+  project?: string;
   defaultBranch?: string;
   tools: Tool[];
   features?: Partial<HatchManifest["features"]>;
   mcpServers?: string[];
 }): HatchManifest {
+  const platform = options.platform ?? "github";
   const owner = options.owner ?? "";
   const repo = options.repo ?? "";
+  const namespace = options.namespace ?? owner;
+  const project = options.project ?? repo;
   const manifest: HatchManifest = {
-    version: "1.0.0",
+    version: "2.0.0",
     hatch3rVersion: HATCH3R_VERSION,
+    platform,
     owner,
     repo,
+    namespace,
+    project,
     tools: options.tools,
     features: { ...DEFAULT_FEATURES, ...options.features },
     mcp: { servers: options.mcpServers ?? [] },
@@ -62,12 +71,37 @@ export function createManifest(options: {
   return manifest;
 }
 
+export function migrateManifest(raw: Record<string, unknown>): Record<string, unknown> {
+  const migrated = { ...raw };
+
+  if (!migrated.namespace && typeof migrated.owner === "string") {
+    migrated.namespace = migrated.owner;
+  }
+  if (!migrated.namespace) {
+    migrated.namespace = "";
+  }
+
+  if (!migrated.project && typeof migrated.repo === "string") {
+    migrated.project = migrated.repo;
+  }
+  if (!migrated.project) {
+    migrated.project = "";
+  }
+
+  if (migrated.version === "1.0.0") {
+    migrated.version = "2.0.0";
+  }
+
+  return migrated;
+}
+
 function validateManifest(data: unknown): data is HatchManifest {
   if (!data || typeof data !== "object") return false;
   const obj = data as Record<string, unknown>;
   return (
     typeof obj.version === "string" &&
     typeof obj.hatch3rVersion === "string" &&
+    (!obj.platform || typeof obj.platform === "string") &&
     Array.isArray(obj.tools) &&
     obj.features !== null &&
     typeof obj.features === "object" &&
@@ -101,11 +135,12 @@ export async function readManifest(
     );
   }
 
-  if (!validateManifest(parsed)) {
-    console.error(chalk.red("Invalid .agents/hatch.json: missing required fields (version, hatch3rVersion, tools, features, managedFiles)"));
+  const migrated = migrateManifest(parsed as Record<string, unknown>);
+
+  if (!validateManifest(migrated)) {
     return null;
   }
-  return parsed;
+  return migrated;
 }
 
 export async function writeManifest(
@@ -123,4 +158,11 @@ export function addManagedFile(
   if (!manifest.managedFiles.includes(filePath)) {
     manifest.managedFiles.push(filePath);
   }
+}
+
+export function removeManagedFile(
+  manifest: HatchManifest,
+  filePath: string,
+): void {
+  manifest.managedFiles = manifest.managedFiles.filter((f) => f !== filePath);
 }

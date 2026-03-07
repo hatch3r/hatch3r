@@ -3,6 +3,11 @@ id: hatch3r-rule-customize
 type: command
 description: Configure per-rule customization including scope overrides, description changes, enable/disable control, and project-specific markdown instructions
 ---
+
+## Agent Pipeline
+
+This command runs as a single orchestrator without sub-agent delegation. Customization file management is performed inline.
+
 # Rule Customization — Per-Rule Configuration
 
 Customize individual rule behavior for project-specific needs via `.hatch3r/rules/` configuration files. Supports structured YAML overrides (including scope changes) and free-form markdown instruction injection, all propagated to every adapter output on sync.

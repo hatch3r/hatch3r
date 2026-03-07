@@ -1,10 +1,12 @@
 ---
 id: hatch3r-pr-creation
-description: Create a pull request following project conventions including branch naming, PR template, checklist, and rollout plan. Use when opening or preparing a pull request, or when the user asks to create a PR.
+description: Create a pull request or merge request following project conventions including branch naming, PR/MR template, checklist, and rollout plan. Use when opening or preparing a PR/MR, or when the user asks to create a PR or MR.
 ---
 > **Note:** Commands below use `npm` as an example. Substitute with your project's package manager (`yarn`, `pnpm`, `bun`) or build tool as appropriate.
 
-# PR Creation Workflow
+# PR / MR Creation Workflow
+
+> **Platform detection:** Check `platform` in `.agents/hatch.json` to determine terminology and CLI. GitHub/Azure DevOps use "Pull Request" (PR); GitLab uses "Merge Request" (MR).
 
 ## Quick Start
 
@@ -12,8 +14,8 @@ description: Create a pull request following project conventions including branc
 Task Progress:
 - [ ] Step 1: Verify branch naming
 - [ ] Step 2: Self-review against checklist
-- [ ] Step 3: Fill PR template
-- [ ] Step 4: Create the PR
+- [ ] Step 3: Fill PR/MR template
+- [ ] Step 4: Create the PR/MR
 ```
 
 ## Step 1: Branch Naming
@@ -43,33 +45,40 @@ Before creating the PR, verify:
 
 **Accessibility (if UI):** Animations respect `prefers-reduced-motion`. Color contrast meets WCAG AA. Interactive elements keyboard accessible.
 
-## Step 3: Fill PR Template
+## Step 3: Fill PR/MR Template
 
-Use the project's PR template. Fill every section:
+Use the project's PR/MR template. Fill every section:
 
 - **Summary:** 1-3 sentences on what and why
 - **Type:** Feature / Bug fix / Refactor / QA / Docs / Infra
-- **Related Issues:** `Closes #N` or `Relates to #N`
+- **Related Issues:** `Closes #N` or `Relates to #N` (GitHub/GitLab), or link ADO Work Items via `AB#N`
 - **Changes:** Bullet list of key changes
 - **Screenshots:** Required for UI changes (before/after)
 - **Testing:** Which tests added/updated, manual test steps
 - **Rollout Plan:** Feature flag / gradual / direct
 - **Rollback Plan:** How to revert
 
-## Step 4: Create the PR
+## Step 4: Create the PR/MR
 
-PR title format: `{type}: {short description} (#issue)`
+PR/MR title format: `{type}: {short description} (#issue)`
 
 Examples:
 
 - `feat: add user preferences panel (#42)`
 - `fix: correct validation for email field (#87)`
 
+Create the PR/MR using the platform CLI (check `platform` in `.agents/hatch.json`):
+- **GitHub:** `gh pr create --base {defaultBranch} --head {branch} --title "..." --body "..."`
+- **Azure DevOps:** `az repos pr create --source-branch {branch} --target-branch {defaultBranch} --title "..." --description "..."`
+- **GitLab:** `glab mr create --source-branch {branch} --target-branch {defaultBranch} --title "..." --description "..."`
+
+Use `board.defaultBranch` from `.agents/hatch.json` as the target branch (fallback: `"main"`).
+
 ## Required Agent Delegation
 
 You MUST spawn these agents via the Task tool (`subagent_type: "generalPurpose"`) at the appropriate points:
 
-- **`hatch3r-reviewer`** — MUST spawn before PR creation for code review. Include the full diff and acceptance criteria in the prompt. Apply reviewer feedback before creating the PR.
+- **`hatch3r-reviewer`** — MUST spawn before PR/MR creation for code review. Include the full diff and acceptance criteria in the prompt. Apply reviewer feedback before creating the PR/MR.
 
 ## Related Skills
 

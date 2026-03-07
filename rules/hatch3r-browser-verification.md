@@ -1,6 +1,8 @@
 ---
+id: hatch3r-browser-verification
+type: rule
 description: Browser-based verification for UI and user-facing changes
-alwaysApply: false
+scope: conditional
 ---
 # Browser Verification
 
@@ -25,6 +27,35 @@ Skip browser verification for:
 - Data model or schema changes without corresponding UI
 - CI/CD pipeline changes
 - Code refactors that do not alter rendered output
+
+## Session Prompt Pattern
+
+Browser verification is opt-in per command session. The orchestrator follows a standardized prompt flow so the user is asked exactly once.
+
+### Prompt Rules
+
+1. **At the START of any command that supports browser verification**, the orchestrator MUST ask the user once: *"Would you like to enable browser verification for this session? This uses Playwright to test changes in the running application."*
+2. **The user's answer applies to ALL stages of that command** — implementation, review, and verification. Do not re-ask at any subsequent stage.
+3. **If yes:** all implementation, review, and verification stages include browser testing steps as defined in the Verification Protocol below. The orchestrator ensures a dev server is running and executes browser checks at each verification point.
+4. **If no:** all browser verification steps are skipped silently. Do not emit warnings, reminders, or suggestions to reconsider. The command proceeds as if the Verification Protocol section does not exist.
+
+### Command Support Matrix
+
+| Supports Browser Verification | Does NOT Support |
+| ------------------------------ | ---------------- |
+| `hatch3r-workflow` | `hatch3r-board-fill` |
+| `hatch3r-board-pickup` | `hatch3r-board-groom` |
+| `hatch3r-quick-change` | `hatch3r-board-refresh` |
+| `hatch3r-revision` | `hatch3r-roadmap` |
+| `hatch3r-debug` | `hatch3r-release` |
+| | `hatch3r-refactor-plan` |
+| | `hatch3r-security-audit` |
+| | `hatch3r-rule-customize` |
+| | `hatch3r-skill-customize` |
+
+Commands in the "Does NOT Support" column are documentation-only, planning-only, or non-implementation commands. They MUST NOT prompt for browser verification.
+
+---
 
 ## Verification Protocol
 

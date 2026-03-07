@@ -4,7 +4,7 @@
 
 | Version | Supported |
 |---------|-----------|
-| 0.1.x   | Yes       |
+| 1.x     | Yes       |
 
 ## Reporting a Vulnerability
 
@@ -40,8 +40,8 @@ We follow coordinated disclosure with a 90-day window. If a fix is not released 
 
 hatch3r includes several security layers:
 
-- **Command deny list** (`/.agents/policy/deny-commands.yml`) blocks destructive operations (rm -rf, force push, DROP DATABASE, etc.)
-- **Safe-run wrapper** (`/.agents/tools/safe-run`) validates commands against the deny list before execution
+- **Command deny list** (`.agents/policy/deny-commands.yml`) blocks destructive operations (rm -rf, force push, DROP DATABASE, etc.)
+- **Safe-run wrapper** (`.agents/tools/safe-run`) validates commands against the deny list before execution
 - **No hardcoded secrets** -- all sensitive configuration uses environment variable placeholders (`${env:GITHUB_PAT}`, `${env:BRAVE_API_KEY}`). Secrets are centralized in a single `.env.mcp` file at the project root, which is gitignored via the `.env.*` pattern
 - **MCP server warnings** -- init displays security warnings when MCP servers are enabled
 - **Path traversal protection** -- pack installation validates paths stay within the project root
@@ -52,7 +52,7 @@ hatch3r includes several security layers:
 ### In Scope
 
 - hatch3r CLI (`npx hatch3r init/sync/update/add/status/validate`)
-- Tool adapters (Cursor, Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline/Roo Code)
+- Tool adapters (Cursor, Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline/Roo Code, Aider, Kiro, Goose, Zed)
 - Pack validation and merging logic
 - Safe-run wrapper and deny-commands policy
 - MCP configuration generation

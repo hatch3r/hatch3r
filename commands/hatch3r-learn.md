@@ -3,6 +3,11 @@ id: hatch3r-learn
 type: command
 description: Capture learnings from development sessions into reusable knowledge files for future consultation.
 ---
+
+## Agent Pipeline
+
+This command runs as a single orchestrator without sub-agent delegation. Learning extraction and file management are performed inline.
+
 # Learning Capture -- Extract and Store Development Insights
 
 Capture learnings from completed development sessions. Can be invoked manually after finishing work, automatically by board-pickup after PR merge, or with a specific issue number for targeted reflection.
@@ -41,9 +46,9 @@ Execute these steps in order. **Do not skip any step.** Ask the user at every ch
 
 ### Step 3: Write Learning Files
 
-For each confirmed learning, create a file in `/.agents/learnings/`.
+For each confirmed learning, create a file in `.agents/learnings/`.
 
-If `/.agents/learnings/` does not exist, create it.
+If `.agents/learnings/` does not exist, create it.
 
 **Filename:** `{YYYY-MM-DD}_{short-slug}.md`
 
@@ -89,8 +94,8 @@ Present all saved learnings with file paths.
 
 ```
 Learnings Captured:
-  /.agents/learnings/{filename1}.md -- {category}: {one-line summary}
-  /.agents/learnings/{filename2}.md -- {category}: {one-line summary}
+  .agents/learnings/{filename1}.md -- {category}: {one-line summary}
+  .agents/learnings/{filename2}.md -- {category}: {one-line summary}
 ```
 
 Remind user that these will be auto-consulted during future board-pickup and board-fill runs.
@@ -129,7 +134,7 @@ superseded_by: {learning-id}    # reference when deprecated
 
 ### Archival
 
-Archived learnings are moved to `/.agents/learnings/archived/` with their original filename. An archival notice is prepended:
+Archived learnings are moved to `.agents/learnings/archived/` with their original filename. An archival notice is prepended:
 
 ```markdown
 > **Archived on {date}**: {reason — expired | deprecated | superseded by {id}}
@@ -155,7 +160,7 @@ Archived learnings are moved to `/.agents/learnings/archived/` with their origin
 ```
 Learnings matching "{query}":
   [{confidence}] {title} ({date}, tags: {tags})
-    /.agents/learnings/{filename}.md
+    .agents/learnings/{filename}.md
     Applies when: {trigger summary}
 ```
 
@@ -197,8 +202,8 @@ When writing learning files, validate:
 
 ## Error Handling
 
-- `/.agents/learnings/` directory doesn't exist: create it silently.
-- `/.agents/learnings/archived/` directory doesn't exist: create it when first archival occurs.
+- `.agents/learnings/` directory doesn't exist: create it silently.
+- `.agents/learnings/archived/` directory doesn't exist: create it when first archival occurs.
 - Duplicate learning detected: warn and **ASK** whether to merge or create separate.
 - No learnings identified: **ASK** user directly what they learned. If still nothing, skip silently.
 - Learning exceeds quality thresholds: warn user with specific violations and suggest fixes.
@@ -211,7 +216,7 @@ When writing learning files, validate:
 - **Never delete learnings.** Use archival (move to `archived/`) instead of deletion.
 - **Learnings must be specific and actionable.** Reject generic advice like "write better tests."
 - **Always include trigger conditions** in the "Applies When" section.
-- **Tags must match project vocabulary** -- use area labels from `/.agents/hatch.json`.
+- **Tags must match project vocabulary** -- use area labels from `.agents/hatch.json`.
 - **Max ~20 lines per learning** file body (excluding frontmatter).
 - **Learnings without evidence must be `hypothesis`.** Do not allow `proven` or `experimental` without evidence.
 - **Expired learnings are archived, not deleted.** Preserve institutional knowledge.

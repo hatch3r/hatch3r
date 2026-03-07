@@ -16,12 +16,15 @@ function makeAgent(overrides: Partial<CanonicalFile> = {}): CanonicalFile {
 
 function makeManifest(overrides: Partial<HatchManifest> = {}): HatchManifest {
   return {
-    version: "1.0.0",
+    version: "2.0.0",
     hatch3rVersion: "1.0.0",
+    platform: "github",
     owner: "test",
     repo: "test",
+    namespace: "test",
+    project: "test",
     tools: ["cursor"],
-    features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, guardrails: true, githubAgents: true, hooks: true },
+    features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
     mcp: { servers: [] },
     managedFiles: [],
     ...overrides,

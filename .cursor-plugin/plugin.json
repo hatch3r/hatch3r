@@ -1,7 +1,8 @@
 {
   "name": "hatch3r",
-  "description": "Battle-tested agentic coding setup: 10 agents, 15 skills, 13 rules, 17 commands, and MCP integrations -- in one plugin.",
-  "version": "1.0.0",
+  "displayName": "Hatch3r",
+  "description": "Battle-tested agentic coding setup: 16 agents, 25 skills, 22 rules, 33 commands, and MCP integrations -- in one plugin.",
+  "version": "1.1.0",
   "author": {
     "name": "hatch3r"
   },
@@ -24,5 +25,6 @@
   "skills": "skills/",
   "agents": "agents/",
   "commands": "commands/",
-  "mcp": "mcp.json"
+  "hooks": "hooks/",
+  "mcp": "mcp/mcp.json"
 }

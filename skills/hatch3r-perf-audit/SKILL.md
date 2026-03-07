@@ -79,7 +79,7 @@ Common strategies:
 ## Step 5: Implement Optimizations
 
 - Apply changes incrementally. Measure before and after each change.
-- Document before/after for each metric in PR or audit report.
+- Document before/after for each metric in PR/MR or audit report (check `platform` in `.agents/hatch.json` for PR vs MR terminology).
 - Respect `prefers-reduced-motion` — do not add animations that ignore it.
 - Run full test suite after each optimization to avoid functional regressions.
 

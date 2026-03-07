@@ -3,6 +3,10 @@ id: hatch3r-context-health
 type: command
 description: Monitor conversation context health, detect degradation, and auto-suggest fresh context or sub-agent delegation
 ---
+## Agent Pipeline
+
+This command monitors context health and recommends delegation. It does not spawn sub-agents directly — it recommends when the orchestrator should delegate to sub-agents due to context degradation.
+
 # Context Health — Conversation Context Monitoring
 
 Monitor and maintain healthy conversation context during long-running agent sessions. Detects context degradation before it impacts output quality and recommends corrective actions.

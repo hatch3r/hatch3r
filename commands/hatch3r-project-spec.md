@@ -7,6 +7,14 @@ description: Generate complete business and technical project documentation (spe
 
 Take a project idea or vision and produce complete project documentation across **two dimensions**: business strategy and technical architecture. Spawns parallel researcher sub-agents (stack, features, architecture, pitfalls, UX, business model & market, production & scale) to analyze the vision from every angle before generating artifacts. Outputs business specs to `docs/specs/business/` (business model, competitive analysis, GTM strategy, production blueprint), technical specs to `docs/specs/technical/` (glossary, overview, per-module specs), ADRs to `docs/adr/`, and a `todo.md` ready for `hatch3r-board-fill`. Optionally generates a root-level `AGENTS.md` as the project's "README for agents." AI proposes all outputs; user confirms before any files are written.
 
+## Agent Pipeline
+
+| Stage | Agent(s) | Parallel | Required |
+|-------|----------|----------|----------|
+| 1. Research | `hatch3r-researcher` (6 parallel: stack, features, architecture, pitfalls, UX, business model) | Yes | Yes |
+| 2. Document Generation | `hatch3r-docs-writer` (parallel: business spec, technical spec, ADRs) | Yes | Yes |
+| 3. AGENTS.md | `hatch3r-docs-writer` (AGENTS.md generation/rework) | No | Yes |
+
 ---
 
 ## Shared Context
@@ -996,7 +1004,24 @@ Confirm, or tell me what to adjust."
 
 ### Step 7: Write All Files
 
-After all content is confirmed:
+Spawn parallel `hatch3r-docs-writer` sub-agents via the Task tool (`subagent_type: "generalPurpose"`) to generate and write the documentation. Each docs-writer receives the confirmed researcher outputs from Steps 3-6 and is responsible for one document category. All docs-writers run in parallel and follow the `hatch3r-docs-writer` agent protocol.
+
+| Docs-Writer | Responsibility | Input |
+|-------------|---------------|-------|
+| Business Spec Writer | `docs/specs/business/` (glossary, overview, domain specs, competitive analysis, GTM strategy, production blueprint) | Sub-Agent 6 (Business Model & Market) and Sub-Agent 7 (Production & Scale) outputs, business context from Step 1 |
+| Technical Spec Writer | `docs/specs/technical/` (glossary, overview, module specs) | Sub-Agent 1 (Stack), Sub-Agent 2 (Feature), Sub-Agent 3 (Architecture) outputs |
+| ADR Writer | `docs/adr/` (all architectural decision records) | Architecture decisions from Step 5, business-driven decisions from Sub-Agent 6 |
+
+Each docs-writer prompt must include:
+- The full confirmed researcher output relevant to its document category
+- The confirmed project vision, company stage, and business context from Step 1
+- The directory structure and file naming conventions below
+- Instruction to follow the `hatch3r-docs-writer` agent protocol
+- Instruction to create directories as needed before writing files
+
+After all docs-writers complete, the orchestrator handles the remaining files (todo.md, .hatch3r-session.json) and presents the summary.
+
+The docs-writers follow this file structure:
 
 1. Create `docs/specs/technical/` directory and write all technical spec files:
    - `docs/specs/technical/00_glossary.md`
@@ -1054,13 +1079,27 @@ Files Created:
 
 ---
 
-### Step 8: AGENTS.md Generation
+### Step 8 — AGENTS.md (Mandatory)
 
-**ASK:** "Generate or update the root-level `AGENTS.md` with a project summary derived from the specs just created? This file serves as the 'README for agents' — consumed by OpenCode, Windsurf, and other AI coding tools so they understand your project's business context, architecture, and conventions from the first interaction.
+This step is MANDATORY, not optional.
 
-(a) Yes — generate it, (b) No — skip, (c) Let me review the content first."
+**If `AGENTS.md` exists at project root:**
 
-If yes or review-first: generate `AGENTS.md` at the project root containing:
+**ASK:** "Your existing AGENTS.md may be outdated after generating new documentation. Would you like to rework it based on the new specs?"
+
+- If **yes**: spawn a `hatch3r-docs-writer` sub-agent via the Task tool (`subagent_type: "generalPurpose"`) to regenerate AGENTS.md incorporating the newly generated specs, architecture overview, module map, and conventions. The docs-writer follows the `hatch3r-docs-writer` agent protocol.
+- If **no**: keep existing AGENTS.md unchanged. Log that the user declined the update.
+
+**If no `AGENTS.md` exists:**
+
+Generate AGENTS.md — there is no opt-out. Spawn a `hatch3r-docs-writer` sub-agent via the Task tool (`subagent_type: "generalPurpose"`) to create AGENTS.md following the `hatch3r-docs-writer` agent protocol. The docs-writer receives the confirmed researcher outputs and generates AGENTS.md with:
+- Project purpose and business context
+- Tech stack and architecture overview
+- Module map with responsibilities
+- Development conventions and patterns
+- Key specs and ADR references
+
+The generated `AGENTS.md` should follow this structure:
 
 ```markdown
 # {Project Name} — Agent Instructions
@@ -1110,10 +1149,6 @@ If yes or review-first: generate `AGENTS.md` at the project root containing:
 - Architecture decisions: `docs/adr/`
 ```
 
-If the user chose "review first," present the content and **ASK** for confirmation before writing.
-
-If `AGENTS.md` already exists, **ASK** before overwriting: "Root `AGENTS.md` already exists. (a) Replace entirely, (b) Append hatch3r section, (c) Skip."
-
 ---
 
 ### Step 9: Cross-Command Handoff
@@ -1131,7 +1166,7 @@ Which would you like to run next? (or none)"
 - **Sub-agent failure:** Retry the failed sub-agent once. If it fails again, present partial results from the remaining sub-agents and ask the user how to proceed (continue without that researcher's input / provide the missing information manually / abort).
 - **Conflicting researcher outputs:** Present both options side by side with trade-offs. Ask the user to decide. Do not silently pick one.
 - **File write failure:** Report the error and provide the full file content so the user can create the file manually.
-- **Missing project context:** If no `hatch3r-board-shared` or `/.agents/hatch.json` exists, proceed without board context — this command does not require board configuration.
+- **Missing project context:** If no `hatch3r-board-shared` or `.agents/hatch.json` exists, proceed without board context — this command does not require board configuration.
 - **Business context gaps:** If the user cannot answer business discovery questions, proceed with "TBD" markers and flag these as open items in the business specs.
 - **Stage assessment unclear:** Default to "early-revenue" if the user is unsure. This provides balanced analysis depth without over- or under-engineering recommendations.
 - **Competitor research gaps:** If web search returns insufficient data for a competitor, note it as "limited public information" and present what was found.

@@ -7,6 +7,14 @@ description: Generate a dual-lens phased roadmap (business milestones + technica
 
 Generate a dependency-aware, priority-ordered roadmap with **two parallel dimensions**: business milestones and technical milestones. Spawns parallel researcher sub-agents (business priority, technical readiness) to inform prioritization with market timing, competitive pressure, revenue impact, and production readiness gaps. Outputs to `todo.md` in the exact format that `hatch3r-board-fill` expects, with items tagged as `[BIZ]`, `[TECH]`, or `[BOTH]`. Optionally generates a root-level `AGENTS.md`. Works for both greenfield projects (from `hatch3r-project-spec` output) and brownfield projects (from `hatch3r-codebase-map` output).
 
+## Agent Pipeline
+
+| Stage | Agent(s) | Parallel | Required |
+|-------|----------|----------|----------|
+| 1. Research | `hatch3r-researcher` (2 parallel: Business Priority, Technical Readiness) | Yes | Yes |
+| 2. Document Generation | `hatch3r-docs-writer` (todo.md generation) | No | Yes |
+| 3. AGENTS.md | `hatch3r-docs-writer` (AGENTS.md generation/rework) | No | Yes |
+
 ---
 
 ## Shared Context
@@ -408,7 +416,7 @@ Write `todo.md` in the exact format that `hatch3r-board-fill` expects, with `[BI
 
 ### Step 6: Write & Summary
 
-1. Write `todo.md` to the project root.
+1. Spawn a `hatch3r-docs-writer` sub-agent via the Task tool (`subagent_type: "generalPurpose"`) to write `todo.md` to the project root. The docs-writer receives the confirmed roadmap output from Step 4 and the format specification from Step 5, and follows the `hatch3r-docs-writer` agent protocol.
 2. Update `.hatch3r-session.json` with roadmap context (if company stage and business context were gathered fresh in this run):
 
 ```json
@@ -451,7 +459,7 @@ Technical Milestones:
 
 (a) Yes — generate it, (b) No — skip, (c) Let me review the content first."
 
-If yes or review-first: generate `AGENTS.md` at the project root containing:
+If yes or review-first: spawn a `hatch3r-docs-writer` sub-agent via the Task tool (`subagent_type: "generalPurpose"`) to generate `AGENTS.md` at the project root following the `hatch3r-docs-writer` agent protocol. The docs-writer receives the roadmap context and spec references. The generated `AGENTS.md` should follow this structure:
 
 ```markdown
 # {Project Name} — Agent Instructions

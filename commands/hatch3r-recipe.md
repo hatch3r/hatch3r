@@ -3,6 +3,11 @@ id: hatch3r-recipe
 type: command
 description: Execute shareable workflow recipes that compose agents, skills, and commands into guided sequences for common development scenarios
 ---
+
+## Agent Pipeline
+
+This command orchestrates other commands and skills as recipe steps. It does not spawn sub-agents directly — the composed commands handle their own agent delegation.
+
 # Recipe System — Composable Workflow Orchestration
 
 Execute predefined or custom workflow recipes that chain hatch3r's agents, skills, and commands into repeatable guided sequences for common development scenarios.

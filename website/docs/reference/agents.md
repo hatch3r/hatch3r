@@ -12,10 +12,15 @@ Specialized agents that handle distinct responsibilities in your development wor
 | Agent | Description |
 |-------|-------------|
 | **a11y-auditor** | Accessibility specialist who audits WCAG AA compliance -- keyboard navigation, color contrast, ARIA attributes, and reduced motion support. |
+| **architect** | Architecture design and ADR production. Evaluates system structure, proposes changes, and produces architecture decision records. |
 | **ci-watcher** | CI/CD specialist who monitors GitHub Actions runs, reads failure logs to identify root causes, and suggests focused fixes with local verification commands. |
+| **context-rules** | Dynamic context rule generation agent. Analyzes project patterns and automatically creates context-aware rules for improved agent performance. |
 | **dependency-auditor** | Supply chain security analyst who scans for CVEs, evaluates upgrade paths, assesses bundle size impact, and verifies lockfile integrity. |
+| **devops** | CI/CD and deployment operations agent. Manages pipeline configuration, deployment scripts, infrastructure-as-code, and environment provisioning. |
 | **docs-writer** | Technical writer who maintains specs, ADRs, glossary, and process documentation, keeping them in sync with code changes. |
+| **fixer** | Targeted fix agent for reviewer findings. Receives specific critical or warning findings from `hatch3r-reviewer` and implements precise fixes without scope creep. |
 | **implementer** | Focused implementation agent for a single sub-issue. Receives issue context from a parent orchestrator, delivers code and tests, and reports structured results. Does not handle git or board operations. |
+| **learnings-loader** | Knowledge base consultation agent. Loads and indexes learnings from past issues, code reviews, and architectural decisions to inform current work. |
 | **lint-fixer** | Code quality enforcer who fixes ESLint, Prettier, and TypeScript strict mode violations without changing logic. Removes dead code and unused imports. |
 | **perf-profiler** | Performance engineer who profiles runtime performance, analyzes bundle size, identifies memory leaks, and benchmarks against defined performance budgets. |
 | **researcher** | Research specialist who performs deep investigation on assigned topics using parallel analysis. Used as a sub-agent by planning commands (`project-spec`, `feature-plan`, `bug-plan`, `refactor-plan`). |

@@ -1,4 +1,4 @@
-import type { Tool } from "../types.js";
+import type { HatchManifest, Tool } from "../types.js";
 import type { Adapter } from "./base.js";
 import { AiderAdapter } from "./aider.js";
 import { AmpAdapter } from "./amp.js";
@@ -36,6 +36,57 @@ export function getAdapter(tool: Tool): Adapter {
     throw new Error(`Unknown tool: ${tool}`);
   }
   return adapter;
+}
+
+interface AdapterCapability {
+  agents: boolean;
+  skills: boolean;
+  rules: boolean;
+  hooks: boolean;
+  mcp: boolean;
+  commands: boolean;
+  prompts: boolean;
+  githubAgents: boolean;
+}
+
+const ADAPTER_CAPABILITIES: Record<Tool, AdapterCapability> = {
+  cursor:   { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false },
+  claude:   { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false },
+  gemini:   { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false },
+  cline:    { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false },
+  codex:    { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false },
+  copilot:  { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: true,  prompts: true,  githubAgents: true  },
+  opencode: { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: true,  prompts: false, githubAgents: false },
+  windsurf: { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: true,  prompts: false, githubAgents: false },
+  amp:      { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: true,  prompts: false, githubAgents: false },
+  kiro:     { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false },
+  aider:    { agents: true, skills: true, rules: true, hooks: false, mcp: false, commands: false, prompts: false, githubAgents: false },
+  goose:    { agents: true, skills: true, rules: true, hooks: false, mcp: false, commands: false, prompts: false, githubAgents: false },
+  zed:      { agents: true, skills: true, rules: true, hooks: false, mcp: false, commands: false, prompts: false, githubAgents: false },
+};
+
+export function getUnsupportedFeatureWarnings(tool: string, manifest: HatchManifest): string[] {
+  const caps = ADAPTER_CAPABILITIES[tool as Tool];
+  if (!caps) return [];
+
+  const warnings: string[] = [];
+  const featureLabels: Array<{ key: keyof AdapterCapability; label: string }> = [
+    { key: "agents", label: "agents" },
+    { key: "skills", label: "skills" },
+    { key: "rules", label: "rules" },
+    { key: "hooks", label: "hooks" },
+    { key: "mcp", label: "MCP" },
+    { key: "commands", label: "commands" },
+    { key: "prompts", label: "prompts" },
+    { key: "githubAgents", label: "GitHub agents" },
+  ];
+
+  for (const { key, label } of featureLabels) {
+    if (manifest.features[key] && !caps[key]) {
+      warnings.push(`${tool}: ${label} are enabled but not supported by this adapter`);
+    }
+  }
+  return warnings;
 }
 
 export { AiderAdapter } from "./aider.js";

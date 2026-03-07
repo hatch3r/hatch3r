@@ -35,7 +35,7 @@
       "_disabled": true,
       "_description": "Error tracking and performance monitoring (enable and configure with your Sentry auth token)",
       "command": "npx",
-      "args": ["-y", "@sentry/mcp-server@latest"],
+      "args": ["-y", "@sentry/mcp-server@0.29.0"],
       "env": {
         "SENTRY_AUTH_TOKEN": "${env:SENTRY_AUTH_TOKEN}"
       }
@@ -44,7 +44,7 @@
       "_disabled": true,
       "_description": "PostgreSQL database queries and schema inspection (enable and configure with your connection string)",
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-postgres"],
+      "args": ["-y", "@modelcontextprotocol/server-postgres@0.6.2"],
       "env": {
         "POSTGRES_URL": "${env:POSTGRES_URL}"
       }
@@ -53,9 +53,28 @@
       "_disabled": true,
       "_description": "Linear issue tracking and project management (enable and configure with your Linear API key)",
       "command": "npx",
-      "args": ["-y", "@mkusaka/mcp-server-linear"],
+      "args": ["-y", "@mkusaka/mcp-server-linear@1.0.15"],
       "env": {
         "LINEAR_API_KEY": "${env:LINEAR_API_KEY}"
+      }
+    },
+    "azure-devops": {
+      "_disabled": true,
+      "_description": "Azure DevOps work items, repos, pipelines, and boards",
+      "command": "npx",
+      "args": ["-y", "@tiberriver256/mcp-server-azure-devops@0.1.45"],
+      "env": {
+        "AZURE_DEVOPS_PAT": "${env:AZURE_DEVOPS_PAT}",
+        "AZURE_DEVOPS_ORG": "${env:AZURE_DEVOPS_ORG}"
+      }
+    },
+    "gitlab": {
+      "_disabled": true,
+      "_description": "GitLab issues, merge requests, pipelines, and project management",
+      "command": "npx",
+      "args": ["-y", "glab", "mcp"],
+      "env": {
+        "GITLAB_TOKEN": "${env:GITLAB_TOKEN}"
       }
     }
   }

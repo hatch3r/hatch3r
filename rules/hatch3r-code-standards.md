@@ -81,6 +81,15 @@ scope: always
 - Log the full error (including stack trace) at the boundary. Return a safe, sanitized error response to the caller — no internal details.
 - Let errors propagate naturally within a module. Catching errors mid-flow and re-throwing obscures the stack trace. Handle at the boundary.
 
+### General Error Discipline
+
+- Never swallow errors silently. Always re-throw or log with context.
+- User-facing errors are separate from internal errors. Never expose internal details to clients.
+- API endpoints return structured error responses `{ code, message, details? }`. Never return stack traces.
+- Retry with exponential backoff for transient failures (network, rate limits). Honor `Retry-After` on 429.
+- Include `correlationId` in all error logs for tracing across client and server.
+- No secrets, tokens, or PII in error messages or logs.
+
 ## Import Ordering
 
 Enforce consistent import ordering via linter rules (e.g., `eslint-plugin-import`). The canonical order:

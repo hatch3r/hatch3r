@@ -3,6 +3,19 @@ id: hatch3r-security-audit
 type: command
 description: Create a full-product security audit epic with one sub-issue per project module
 ---
+
+## Agent Pipeline
+
+This command creates audit issues and epics. It does not spawn implementation sub-agents.
+
+| Stage | Agent(s) | Parallel | Required |
+|-------|----------|----------|----------|
+| 1. Context & Pre-flight | Orchestrator (inline) | No | Yes |
+| 2. Issue Creation | Orchestrator (GitHub MCP) | No | Yes |
+| 3. Board Sync | Orchestrator (Projects v2 sync) | No | Yes |
+
+All issue operations MUST follow the Projects v2 Enforcement rules defined in `hatch3r-board-shared`.
+
 # Security Audit — Full Product Security Audit
 
 Create a security audit epic on **{owner}/{repo}** with one sub-issue per logical project module, plus cross-module trust boundary and OWASP alignment audits. Each sub-issue is a deep static-analysis security audit task that, when picked up by the board workflow, produces a findings epic with actionable sub-issues for hardening application security. The command only creates the initial audit epic — it does NOT execute any audits.
@@ -341,6 +354,8 @@ Link to parent epic via `sub_issue_write`.
 ---
 
 ### Step 7: Board Integration
+
+All issue and epic operations in this command MUST follow the Projects v2 Enforcement rules defined in `hatch3r-board-shared`.
 
 1. **Projects v2 Sync:** Follow the **Projects v2 Sync Procedure** from `hatch3r-board-shared` (gh CLI primary) for the security audit epic and ALL sub-issues. Set status to Ready using the project's status field option ID.
 

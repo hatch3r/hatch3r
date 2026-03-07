@@ -120,6 +120,31 @@ export function parseEnvFile(content: string): Record<string, string> {
   return result;
 }
 
+/**
+ * Appends `.env.mcp` to the project's `.gitignore` if not already covered
+ * by an existing `.env.mcp` or `.env.*` entry.
+ */
+export async function ensureGitignoreEntry(rootDir: string): Promise<void> {
+  const gitignorePath = join(rootDir, ".gitignore");
+  let content = "";
+  try {
+    content = await readFile(gitignorePath, "utf-8");
+  } catch {
+    // .gitignore doesn't exist yet — will be created below
+  }
+
+  const dominated = content
+    .split("\n")
+    .some((l) => {
+      const trimmed = l.trim();
+      return trimmed === ".env.mcp" || trimmed === ".env.*";
+    });
+  if (dominated) return;
+
+  const separator = content.length > 0 && !content.endsWith("\n") ? "\n" : "";
+  await writeFile(gitignorePath, `${content}${separator}.env.mcp\n`, "utf-8");
+}
+
 export interface EnsureResult {
   action: "created" | "updated" | "skipped";
   path: string;

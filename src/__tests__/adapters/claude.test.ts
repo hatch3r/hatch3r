@@ -1,4 +1,7 @@
 import { describe, it, expect } from "vitest";
+import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { ClaudeAdapter } from "../../adapters/claude.js";
 import { createManifest } from "../../manifest/hatchJson.js";
 import type { HatchManifest } from "../../types.js";
@@ -10,13 +13,19 @@ const FIXTURES_DIR = resolveTestPath(import.meta.url, "../fixtures/agents");
 describe("ClaudeAdapter", () => {
   const adapter = new ClaudeAdapter();
 
-  function makeManifest(overrides: Partial<Parameters<typeof createManifest>[0]> = {}): HatchManifest {
-    return createManifest({
+  function makeManifest(
+    overrides: Partial<Parameters<typeof createManifest>[0]> & { models?: HatchManifest["models"]; claude?: HatchManifest["claude"] } = {},
+  ): HatchManifest {
+    const { models, claude, ...createOpts } = overrides;
+    const base = createManifest({
       tools: ["claude"],
-
       mcpServers: ["github"],
-      ...overrides,
+      ...createOpts,
     });
+    const result = { ...base };
+    if (models) result.models = models;
+    if (claude) result.claude = claude;
+    return result;
   }
 
   it("has correct name", () => {
@@ -71,10 +80,10 @@ describe("ClaudeAdapter", () => {
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
     const agents = outputs.filter((o) => o.path.startsWith(".claude/agents/"));
-    expect(agents.length).toBe(1);
+    expect(agents.length).toBe(2);
 
-    const agent = agents[0]!;
-    expect(agent.path).toBe(".claude/agents/hatch3r-test-agent.md");
+    const agent = agents.find((o) => o.path === ".claude/agents/hatch3r-test-agent.md")!;
+    expect(agent).toBeDefined();
     expect(agent.content).toContain("description: A test agent for unit testing");
     expect(agent.content).toContain("You are a test agent");
     expect(agent.managedContent).toBeDefined();
@@ -103,6 +112,42 @@ describe("ClaudeAdapter", () => {
     expect(parsed.permissions.allow).toContain("Write");
     expect(parsed.permissions.allow).toContain("Grep");
     expect(parsed.permissions.deny).toEqual([]);
+  });
+
+  it("uses custom permissions from manifest.claude config", async () => {
+    const manifest = makeManifest({
+      claude: {
+        permissions: {
+          allow: ["Read", "Grep"],
+          deny: ["Bash"],
+        },
+        teammateMode: "full-trust",
+      },
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const settings = outputs.find((o) => o.path === ".claude/settings.json");
+    expect(settings).toBeDefined();
+
+    const parsed = JSON.parse(settings!.content);
+    expect(parsed.permissions.allow).toEqual(["Read", "Grep"]);
+    expect(parsed.permissions.deny).toEqual(["Bash"]);
+    expect(parsed.teammateMode).toBe("full-trust");
+  });
+
+  it("falls back to defaults when manifest.claude is partially configured", async () => {
+    const manifest = makeManifest({
+      claude: {
+        permissions: { allow: ["Read", "Write"] },
+      },
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const settings = outputs.find((o) => o.path === ".claude/settings.json");
+    const parsed = JSON.parse(settings!.content);
+    expect(parsed.permissions.allow).toEqual(["Read", "Write"]);
+    expect(parsed.permissions.deny).toEqual([]);
+    expect(parsed.teammateMode).toBe("tool-using");
   });
 
   it("includes hooks config in settings.json when hooks are enabled", async () => {
@@ -148,6 +193,116 @@ describe("ClaudeAdapter", () => {
     expect(mcp).toBeUndefined();
   });
 
+  it("transforms ${env:VAR} to ${VAR} in .mcp.json for Claude Code", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-claude-mcp-"));
+    try {
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "mcp"), { recursive: true });
+      await writeFile(
+        join(agentsDir, "mcp", "mcp.json"),
+        JSON.stringify({
+          mcpServers: {
+            github: {
+              url: "https://api.githubcopilot.com/mcp/",
+              headers: {
+                Authorization: "Bearer ${env:GITHUB_PAT}",
+                "X-Custom": "static-value",
+              },
+            },
+            "brave-search": {
+              command: "npx",
+              args: ["-y", "@modelcontextprotocol/server-brave-search"],
+              env: {
+                BRAVE_API_KEY: "${env:BRAVE_API_KEY}",
+              },
+            },
+          },
+        }),
+        "utf-8",
+      );
+      const manifest = makeManifest({ mcpServers: ["github", "brave-search"] });
+      const outputs = await adapter.generate(agentsDir, manifest);
+
+      const mcp = outputs.find((o) => o.path === ".mcp.json");
+      expect(mcp).toBeDefined();
+      const parsed = JSON.parse(mcp!.content);
+
+      expect(parsed.mcpServers.github.headers.Authorization).toBe("Bearer ${GITHUB_PAT}");
+      expect(parsed.mcpServers.github.headers["X-Custom"]).toBe("static-value");
+      expect(parsed.mcpServers["brave-search"].env.BRAVE_API_KEY).toBe("${BRAVE_API_KEY}");
+      expect(mcp!.content).not.toContain("${env:");
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("adds type field to .mcp.json entries (stdio for command, http for url)", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-claude-mcp-type-"));
+    try {
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "mcp"), { recursive: true });
+      await writeFile(
+        join(agentsDir, "mcp", "mcp.json"),
+        JSON.stringify({
+          mcpServers: {
+            "url-server": {
+              url: "https://example.com/mcp",
+            },
+            "cmd-server": {
+              command: "npx",
+              args: ["-y", "some-mcp-server"],
+            },
+          },
+        }),
+        "utf-8",
+      );
+      const manifest = makeManifest({ mcpServers: ["url-server", "cmd-server"] });
+      const outputs = await adapter.generate(agentsDir, manifest);
+
+      const mcp = outputs.find((o) => o.path === ".mcp.json");
+      expect(mcp).toBeDefined();
+      const parsed = JSON.parse(mcp!.content);
+
+      expect(parsed.mcpServers["url-server"].type).toBe("http");
+      expect(parsed.mcpServers["cmd-server"].type).toBe("stdio");
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("strips _description from .mcp.json entries", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-claude-mcp-desc-"));
+    try {
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "mcp"), { recursive: true });
+      await writeFile(
+        join(agentsDir, "mcp", "mcp.json"),
+        JSON.stringify({
+          mcpServers: {
+            "test-server": {
+              _description: "Should be stripped",
+              command: "npx",
+              args: ["-y", "test-server"],
+            },
+          },
+        }),
+        "utf-8",
+      );
+      const manifest = makeManifest({ mcpServers: ["test-server"] });
+      const outputs = await adapter.generate(agentsDir, manifest);
+
+      const mcp = outputs.find((o) => o.path === ".mcp.json");
+      expect(mcp).toBeDefined();
+      const parsed = JSON.parse(mcp!.content);
+
+      expect(parsed.mcpServers["test-server"]._description).toBeUndefined();
+      expect(mcp!.content).not.toContain("_description");
+      expect(parsed.mcpServers["test-server"].type).toBe("stdio");
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("skips rules when features.rules is false", async () => {
     const manifest = makeManifest({ features: { rules: false } });
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
@@ -170,6 +325,49 @@ describe("ClaudeAdapter", () => {
 
     const skills = outputs.filter((o) => o.path.startsWith(".claude/skills/"));
     expect(skills.length).toBe(0);
+  });
+
+  it("emits model from customization file when present", async () => {
+    const manifest = makeManifest();
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const agentFile = outputs.find((o) => o.path === ".claude/agents/hatch3r-test-agent.md");
+    expect(agentFile).toBeDefined();
+    expect(agentFile!.content).toContain("## Recommended Model");
+    expect(agentFile!.content).toContain("Preferred: `claude-sonnet-4-6`");
+    expect(agentFile!.content).toContain("CLAUDE_CODE_SUBAGENT_MODEL=claude-sonnet-4-6");
+  });
+
+  it("emits model as recommended model guidance when configured via manifest", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-claude-model-"));
+    try {
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "agents"), { recursive: true });
+      await writeFile(
+        join(agentsDir, "agents", "test-agent.md"),
+        `---
+id: test-agent
+type: agent
+description: A test agent
+---
+# Test Agent
+
+You are a test agent.`,
+        "utf-8",
+      );
+      const manifest = makeManifest({
+        models: { agents: { "test-agent": "gpt-4" } },
+      });
+      const outputs = await adapter.generate(agentsDir, manifest);
+
+      const agentFile = outputs.find((o) => o.path === ".claude/agents/hatch3r-test-agent.md");
+      expect(agentFile).toBeDefined();
+      expect(agentFile!.content).toContain("## Recommended Model");
+      expect(agentFile!.content).toContain("Preferred: `gpt-4`");
+      expect(agentFile!.content).toContain("CLAUDE_CODE_SUBAGENT_MODEL=gpt-4");
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
   });
 
   it("all outputs have action 'create'", async () => {

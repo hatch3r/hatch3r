@@ -44,6 +44,27 @@ describe("managedBlocks", () => {
         "Corrupted managed block: start marker must appear before end marker",
       );
     });
+
+    it("throws when duplicate start markers exist", () => {
+      const content = `${START}\nFirst\n${END}\n${START}\nSecond`;
+      expect(() => insertManagedBlock(content, "New")).toThrow(
+        "Corrupted managed block: duplicate start marker found",
+      );
+    });
+
+    it("throws when duplicate end markers exist", () => {
+      const content = `${START}\nContent\n${END}\nExtra\n${END}`;
+      expect(() => insertManagedBlock(content, "New")).toThrow(
+        "Corrupted managed block: duplicate end marker found",
+      );
+    });
+
+    it("throws when both markers are duplicated", () => {
+      const content = `${START}\nA\n${END}\n${START}\nB\n${END}`;
+      expect(() => insertManagedBlock(content, "New")).toThrow(
+        "duplicate start marker found",
+      );
+    });
   });
 
   describe("extractManagedBlock", () => {

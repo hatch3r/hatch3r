@@ -6,11 +6,11 @@ scope: always
 ---
 # Learning Consultation
 
-Before implementing any task, check `/.agents/learnings/` for relevant past learnings.
+Before implementing any task, check `.agents/learnings/` for relevant past learnings.
 
 ## Consultation Process
 
-1. If `/.agents/learnings/` exists and contains files:
+1. If `.agents/learnings/` exists and contains files:
    - Scan learning file frontmatter for matching `tags` or `area` that overlap with the current task.
    - Read the `## Applies When` section of potential matches.
    - Surface relevant learnings to the developer/agent before implementation begins.
@@ -20,6 +20,7 @@ Before implementing any task, check `/.agents/learnings/` for relevant past lear
 
 - During `hatch3r-board-pickup` Step 6: consult learnings before implementation delegation.
 - During `hatch3r-board-fill` Step 4: consult learnings when scoping and estimating issues.
+- During `hatch3r-board-groom` Step 4c: consult learnings when re-scoping or reclassifying existing issues.
 - During any skill execution: check for relevant pitfalls before coding.
 
 ## Learning Priority

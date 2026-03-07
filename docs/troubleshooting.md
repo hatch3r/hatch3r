@@ -2,7 +2,7 @@
 
 This guide helps you resolve common issues with the hatch3r CLI, MCP servers, board commands, and generated tool configs. If you don't find your issue here, see [Getting Help](#getting-help) at the end.
 
-**Quick links:** [Prerequisites](#prerequisites) | [CLI Commands](#cli-commands) | [Validation](#validation-npx-hatch3r-validate) | [MCP and Secrets](#mcp-and-secrets) | [Board Commands](#board-commands) | [Generated Files](#generated-files-and-adapters) | [Development](#development-contributors)
+**Quick links:** [Prerequisites](#prerequisites) | [CLI Commands](#cli-commands) | [Validation](#validation-npx-hatch3r-validate) | [MCP and Secrets](#mcp-and-secrets) | [Board Commands](#board-commands) | [Azure DevOps](#azure-devops-board-commands) | [GitLab](#gitlab-board-commands) | [Claude Code MCP](#claude-code-mcpjson-issues) | [Generated Files](#generated-files-and-adapters) | [Development](#development-contributors) | [Security Model](#security-model)
 
 ---
 
@@ -45,7 +45,7 @@ This guide helps you resolve common issues with the hatch3r CLI, MCP servers, bo
 
 **Cause:** The tool name is not supported.
 
-**Solution:** Use only valid tools: `cursor`, `copilot`, `claude`, `opencode`, `windsurf`, `amp`, `codex`, `gemini`, `cline`. Example: `npx hatch3r init --tools cursor,claude`.
+**Solution:** Use only valid tools: `cursor`, `copilot`, `claude`, `opencode`, `windsurf`, `amp`, `codex`, `gemini`, `cline`, `aider`, `kiro`, `goose`, `zed`. Example: `npx hatch3r init --tools cursor,claude`.
 
 ### Not in a git repository
 
@@ -53,7 +53,7 @@ This guide helps you resolve common issues with the hatch3r CLI, MCP servers, bo
 
 **Cause:** hatch3r reads owner/repo from `git remote get-url origin`. Without a git repo or remote, these stay empty.
 
-**Solution:** Run init from a git repository root. If you need board config later, you can edit `/.agents/hatch.json` and add `owner`, `repo`, and `board.owner`, `board.repo` manually.
+**Solution:** Run init from a git repository root. If you need board config later, you can edit `.agents/hatch.json` and add `owner`, `repo`, and `board.owner`, `board.repo` manually.
 
 ### No .agents/hatch.json found
 
@@ -73,6 +73,22 @@ This guide helps you resolve common issues with the hatch3r CLI, MCP servers, bo
 1. Run `npx hatch3r validate` to check for structural issues
 2. Fix any validation errors (see [Validation](#validation-npx-hatch3r-validate))
 3. Re-run `npx hatch3r sync`
+
+### Corrupted managed block: duplicate start/end marker found
+
+**Symptom:** Sync or update fails with "Corrupted managed block: duplicate start marker found" (or "duplicate end marker found").
+
+**Cause:** A generated file (e.g. in `.cursor/`, `.claude/`, `.windsurf/`) was manually edited and now contains `<!-- HATCH3R:BEGIN -->` or `<!-- HATCH3R:END -->` more than once. hatch3r expects exactly one of each marker per file.
+
+**Solution:**
+1. Find files with duplicate markers (run from project root):
+   ```bash
+   grep -rl "HATCH3R:BEGIN" .cursor .claude .windsurf 2>/dev/null | while read f; do
+     [ "$(grep -c "HATCH3R:BEGIN" "$f")" -gt 1 ] && echo "$f"
+   done
+   ```
+2. Open each listed file and remove the extra `<!-- HATCH3R:BEGIN -->` / `<!-- HATCH3R:END -->` so only one pair remains. Keep the content between the first start and last end marker.
+3. Re-run `npx hatch3r sync` or `npx hatch3r update`.
 
 ---
 
@@ -166,7 +182,7 @@ See [mcp-setup.md](mcp-setup.md#github-pat-scopes) for detailed scope guidance.
 
 ## Board Commands
 
-Board commands (`board-init`, `board-fill`, `board-pickup`) use the GitHub API and Projects V2. Common issues:
+Board commands (`board-init`, `board-fill`, `board-groom`, `board-pickup`, `board-refresh`) use the GitHub API and Projects V2. Common issues:
 
 ### GraphQL or permission failures
 
@@ -184,7 +200,7 @@ Board commands (`board-init`, `board-fill`, `board-pickup`) use the GitHub API a
 
 **Cause:** `hatch.json` is missing `owner`/`repo` or `board.owner`/`board.repo`.
 
-**Solution:** Provide owner and repo when prompted. To persist: edit `/.agents/hatch.json` and add:
+**Solution:** Provide owner and repo when prompted. To persist: edit `.agents/hatch.json` and add:
 ```json
 {
   "owner": "your-org",
@@ -195,6 +211,38 @@ Board commands (`board-init`, `board-fill`, `board-pickup`) use the GitHub API a
   }
 }
 ```
+
+### Azure DevOps board commands
+
+**Symptoms:** Board commands fail with authentication errors, work item creation fails, or status updates don't work.
+
+**Solutions:**
+
+1. **Authentication:** Ensure `AZURE_DEVOPS_PAT` and `AZURE_DEVOPS_ORG` are set in `.env.mcp`. If using `az` CLI, run `az login` first
+2. **PAT permissions:** The PAT needs Work Items (Read & Write), Code (Read & Write), Build (Read), and Project and Team (Read) scopes
+3. **Work item types:** Azure DevOps uses different terminology (Epic, User Story, Task, Bug). hatch3r maps its type labels accordingly — if custom work item types are configured in your project, board commands may need the types configured in `hatch.json`
+4. **Organization URL:** Verify your org name matches the URL pattern `https://dev.azure.com/{org}`
+
+### GitLab board commands
+
+**Symptoms:** Board commands fail with 401/403 errors, merge requests aren't created, or board operations fail.
+
+**Solutions:**
+
+1. **Token scopes:** `GITLAB_TOKEN` needs the `api` scope. Tokens with only `read_api` will fail on write operations
+2. **MR vs PR terminology:** GitLab uses "merge requests" (MRs) instead of "pull requests" (PRs). hatch3r handles this mapping automatically, but error messages from the GitLab API will reference MRs
+3. **Self-hosted instances:** Set `GITLAB_HOST=https://gitlab.example.com` in `.env.mcp` if not using gitlab.com
+4. **Board configuration:** GitLab boards use labels for columns. Ensure your project has the expected labels created by `hatch3r-board-init`
+
+### Claude Code `.mcp.json` issues
+
+**Symptoms:** Claude Code fails to connect to MCP servers, reports JSON parse errors, or ignores server entries.
+
+**Cause:** Claude Code uses a different env var placeholder syntax (`${VAR}`) than other tools (`${env:VAR}`), and requires a `type` field on each server entry.
+
+**Solution:** Run `npx hatch3r sync` to regenerate `.mcp.json` with the correct format. The Claude adapter automatically applies the syntax transform. If you edited `.mcp.json` manually, ensure:
+- Env vars use `${VAR}` syntax (not `${env:VAR}`)
+- Each server has a `"type": "stdio"` or `"type": "http"` field
 
 ---
 
@@ -208,7 +256,7 @@ Board commands (`board-init`, `board-fill`, `board-pickup`) use the GitHub API a
 
 ### Drift between canonical and generated files
 
-**Symptom:** You're unsure if generated files are in sync with `/.agents/`.
+**Symptom:** You're unsure if generated files are in sync with `.agents/`.
 
 **Solution:** Run `npx hatch3r status` to see synced, drifted, or missing files. Run `npx hatch3r sync` to fix drift.
 
@@ -235,6 +283,18 @@ Board commands (`board-init`, `board-fill`, `board-pickup`) use the GitHub API a
 ### More contributor troubleshooting
 
 See [CONTRIBUTING.md](../CONTRIBUTING.md#troubleshooting) for additional development setup and troubleshooting.
+
+---
+
+## Security Model
+
+hatch3r is an instruction-generation framework. Understanding its trust boundaries helps you use it safely.
+
+**IDE Sandbox.** hatch3r generates markdown instruction files, rule files, and tool configurations. It does not execute agent actions itself — your IDE or CLI tool (Cursor, Claude Code, Copilot, etc.) provides the execution sandbox. Agent outputs such as file writes, shell commands, and API calls are governed by the host tool's own permission model, not by hatch3r. Review your IDE's security settings (e.g., Claude Code's `.claude/settings.json` permissions, Cursor's tool approval prompts) to control what agents can do at runtime.
+
+**Advisory Boundaries.** Agent capability boundaries expressed in hatch3r instructions — such as "Never: Create branches, commits, or PRs without explicit user approval" — are advisory markdown directives, not technical enforcement. This is a known characteristic of all instruction-based agentic frameworks: the LLM interprets these instructions but is not mechanically prevented from violating them. Treat these boundaries as strong guidance rather than hard security controls. For operations requiring strict enforcement, rely on your IDE's built-in permission system or external guardrails (branch protection rules, CI checks, etc.).
+
+**Trust Model for Content.** hatch3r manages content within `<!-- HATCH3R:BEGIN -->` / `<!-- HATCH3R:END -->` blocks. Content outside these blocks in managed files — and any non-prefixed files you add to tool directories — becomes part of the agent's instruction context. Since agents treat all instruction content as trusted, review any custom content added to managed files before syncing. Avoid placing secrets, credentials, or untrusted third-party content in instruction files.
 
 ---
 
