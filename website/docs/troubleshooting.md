@@ -22,10 +22,13 @@ Common issues and solutions for the hatch3r CLI, MCP servers, board commands, an
 
 ## CLI Commands
 
-### `npx hatch3r init` -- when to use sync instead
+### `npx hatch3r init` -- re-init and reconfiguration
 
-If `.agents/` already exists, you should sync or update instead of running init again.
+Running `hatch3r init` on an existing `.agents/` directory is supported. It detects the previous configuration, prompts for confirmation (showing how many content items will change), and cleans up stale content from the previous preset automatically.
 
+For lighter reconfiguration without re-initializing, use:
+
+- `npx hatch3r config` -- interactively change tools, features, content items, and MCP servers
 - `npx hatch3r sync` -- regenerate tool outputs from canonical source
 - `npx hatch3r update` -- pull latest hatch3r templates
 
@@ -39,13 +42,15 @@ npx hatch3r init --tools cursor,claude
 
 ### Not in a git repository
 
-Init reads owner/repo from `git remote get-url origin`. Without a git remote, these stay empty. Edit `/.agents/hatch.json` to add them manually.
+Init reads owner/repo from `git remote get-url origin`. Without a git remote, these stay empty. Edit `.agents/hatch.json` to add them manually.
 
 ### No .agents/hatch.json found
 
 Run `npx hatch3r init` first. If you had a working setup before, check `.agents/.backups/`.
 
-## Validation
+## Integrity and Validation
+
+Run `npx hatch3r verify` to check file integrity against stored checksums. This detects modified, missing, or tampered canonical files and provides recovery guidance (run `hatch3r update` to restore).
 
 Run `npx hatch3r validate` to check the `.agents/` structure.
 
@@ -91,7 +96,7 @@ The GitHub PAT lacks the `project` scope for Projects V2 operations.
 
 ### Board config missing
 
-Edit `/.agents/hatch.json`:
+Edit `.agents/hatch.json`:
 
 ```json
 {

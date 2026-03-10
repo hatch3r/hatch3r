@@ -25,7 +25,8 @@ export class CodexAdapter extends BaseAdapter {
       const rules = await readCanonicalFiles(ctx.agentsDir, "rules");
       const enabledRules = [];
       for (const rule of rules) {
-        const { skip, overrides } = await applyCustomization(ctx.projectRoot, rule);
+        const { skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);
+        this.warnings.push(...warnings);
         if (skip) continue;
         const desc = overrides.description ?? rule.description;
         enabledRules.push({ ...rule, description: desc });
@@ -42,7 +43,8 @@ export class CodexAdapter extends BaseAdapter {
     if (ctx.features.agents) {
       const agents = await readCanonicalFiles(ctx.agentsDir, "agents");
       for (const agent of agents) {
-        const { skip, overrides } = await applyCustomization(ctx.projectRoot, agent);
+        const { skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
+        this.warnings.push(...warnings);
         if (skip) continue;
         const agentId = toPrefixedId(agent.id);
         const model = resolveAgentModel(agent.id, agent, ctx.manifest, overrides);

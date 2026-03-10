@@ -5,7 +5,7 @@ import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.
 import { safeWriteFile } from "../../merge/safeWrite.js";
 import { AGENTS_DIR, HatchError } from "../../types.js";
 import { ensureEnvMcp, ensureGitignoreEntry, getSourceEnvMcpCommand } from "../../env/mcpEnv.js";
-import { AGENTS_MD_INNER, AGENTS_MD_FULL, CANONICAL_AGENTS_MD } from "../shared/agentsContent.js";
+import { AGENTS_MD_INNER, AGENTS_MD_FULL, generateCanonicalAgentsMd } from "../shared/agentsContent.js";
 import { verifyIntegrity } from "../../integrity/index.js";
 import {
   printBanner,
@@ -59,7 +59,8 @@ export async function syncCommand(): Promise<void> {
   });
   if (agentsMdResult.warning) warn(agentsMdResult.warning);
   results.push({ path: "AGENTS.md", action: agentsMdResult.action });
-  const canonicalResult = await safeWriteFile(join(agentsDir, "AGENTS.md"), CANONICAL_AGENTS_MD, { backup: true });
+  const canonicalAgentsMd = await generateCanonicalAgentsMd(agentsDir);
+  const canonicalResult = await safeWriteFile(join(agentsDir, "AGENTS.md"), canonicalAgentsMd, { backup: true });
   if (canonicalResult.warning) warn(canonicalResult.warning);
   results.push({ path: `${AGENTS_DIR}/AGENTS.md`, action: canonicalResult.action });
   s1.succeed(step(currentStep, totalSteps, "AGENTS.md synced"));

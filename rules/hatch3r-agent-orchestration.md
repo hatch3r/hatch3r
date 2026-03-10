@@ -3,6 +3,7 @@ id: hatch3r-agent-orchestration
 type: rule
 description: Mandatory agent delegation, skill loading, and subagent usage directives for ALL tasks in ALL contexts
 scope: always
+tags: [core]
 ---
 # Agent Orchestration
 

@@ -8,7 +8,7 @@ import { readManifest, writeManifest } from "../../manifest/hatchJson.js";
 import { getAdapter } from "../../adapters/index.js";
 import { safeWriteFile } from "../../merge/safeWrite.js";
 import { AGENTS_DIR, HATCH3R_PREFIX, HatchError, type HatchManifest, type Platform } from "../../types.js";
-import { CANONICAL_AGENTS_MD } from "../shared/agentsContent.js";
+import { generateCanonicalAgentsMd } from "../shared/agentsContent.js";
 import { HATCH3R_VERSION } from "../../version.js";
 import {
   printBanner,
@@ -23,6 +23,8 @@ import {
 import { findPackageRoot } from "../shared/paths.js";
 import { detectPackageManager } from "../../detect/packageManager.js";
 import { generateIntegrityManifest, writeIntegrityManifest } from "../../integrity/index.js";
+import { buildContentIndex, buildSelectionsFromDisk, resolveSelection } from "../../content/index.js";
+import { getPreset } from "../../content/presets.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONTENT_DIRS = ["agents", "commands", "rules", "skills", "prompts", "github-agents", "mcp", "hooks"];
@@ -32,23 +34,40 @@ async function copyHatch3rFiles(
   srcDir: string,
   destDir: string,
   insideHatch3rDir = false,
+  selectedIds?: Set<string>,
 ): Promise<string[]> {
   const copied: string[] = [];
-  const entries = await readdir(srcDir, { withFileTypes: true });
+  let entries: { name: string; isDirectory: () => boolean }[];
+  try {
+    entries = await readdir(srcDir, { withFileTypes: true });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw err;
+  }
 
   for (const entry of entries) {
     const srcPath = join(srcDir, entry.name);
     const destPath = join(destDir, entry.name);
 
     if (entry.isDirectory()) {
+      // If we have selectedIds and this is a skill dir, check if the skill is selected
+      if (selectedIds && entry.name.startsWith(HATCH3R_PREFIX)) {
+        if (!selectedIds.has(entry.name)) continue;
+      }
       await mkdir(destPath, { recursive: true });
       const subCopied = await copyHatch3rFiles(
         srcPath,
         destPath,
         entry.name.startsWith(HATCH3R_PREFIX),
+        selectedIds,
       );
       copied.push(...subCopied.map((p) => join(entry.name, p)));
     } else if (entry.name.startsWith(HATCH3R_PREFIX) || insideHatch3rDir || ALWAYS_COPY_FILES.has(entry.name)) {
+      // If we have selectedIds, check if this file's base ID is selected
+      if (selectedIds && entry.name.startsWith(HATCH3R_PREFIX)) {
+        const baseId = entry.name.replace(/\.(md|mdc)$/, "");
+        if (!selectedIds.has(baseId)) continue;
+      }
       await mkdir(dirname(destPath), { recursive: true });
       await cp(srcPath, destPath, { force: true });
       copied.push(entry.name);
@@ -83,7 +102,7 @@ export async function runUpdate(
     const cmd = process.platform === "win32" && pm.name !== "bun"
       ? `${pm.updateCmd}.cmd`
       : pm.updateCmd;
-    execFileSync(cmd, pm.updateArgs, { stdio: "pipe" });
+    execFileSync(cmd, pm.updateArgs, { stdio: "pipe", timeout: 30_000, killSignal: "SIGTERM" });
     contentRoot = findPackageRoot(__dirname);
   } catch (err) {
     s0.fail(step(offset + 1, total, "Failed to update package"));
@@ -94,17 +113,30 @@ export async function runUpdate(
 
   const s1 = createSpinner(step(offset + 2, total, "Updating canonical files..."));
   s1.start();
+
+  // Build a set of selected IDs if manifest has content selections
+  let selectedIds: Set<string> | undefined;
+  if (manifest.content) {
+    selectedIds = new Set<string>();
+    for (const ids of Object.values(manifest.content.items)) {
+      for (const id of ids) selectedIds.add(id);
+    }
+  }
+
   const copied: string[] = [];
   for (const dir of CONTENT_DIRS) {
     const srcDir = join(contentRoot, dir);
     try {
-      const dirCopied = await copyHatch3rFiles(srcDir, join(agentsDir, dir));
+      const dirCopied = await copyHatch3rFiles(srcDir, join(agentsDir, dir), false, selectedIds);
       copied.push(...dirCopied.map((p) => join(dir, p)));
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
     }
   }
-  await safeWriteFile(join(agentsDir, "AGENTS.md"), CANONICAL_AGENTS_MD);
+
+  // Generate dynamic AGENTS.md based on what's on disk
+  const canonicalAgentsMd = await generateCanonicalAgentsMd(agentsDir);
+  await safeWriteFile(join(agentsDir, "AGENTS.md"), canonicalAgentsMd);
   s1.succeed(step(offset + 2, total, `Updated ${copied.length} canonical files`));
 
   const s2 = createSpinner(step(offset + 3, total, "Re-syncing adapter output..."));
@@ -169,6 +201,47 @@ interface MigrationCheckpoint {
 }
 
 const MIGRATION_CHECKPOINTS: MigrationCheckpoint[] = [
+  {
+    id: "content-selections-init",
+    condition: async (manifest) => manifest.content === undefined,
+    execute: async (manifest, rootDir) => {
+      const agentsDir = join(rootDir, AGENTS_DIR);
+      const content = await buildSelectionsFromDisk(agentsDir);
+
+      // Ask user for context since we can't infer it from legacy installs
+      const { projectType } = await inquirer.prompt<{ projectType: "greenfield" | "brownfield" }>([
+        {
+          type: "list",
+          name: "projectType",
+          message: "For content tracking — is this a greenfield or brownfield project?",
+          choices: [
+            { name: "Greenfield — new project", value: "greenfield" as const },
+            { name: "Brownfield — existing codebase", value: "brownfield" as const },
+          ],
+          default: "brownfield",
+        },
+      ]);
+      const { teamSize } = await inquirer.prompt<{ teamSize: "solo" | "team" }>([
+        {
+          type: "list",
+          name: "teamSize",
+          message: "Solo developer or team?",
+          choices: [
+            { name: "Solo", value: "solo" as const },
+            { name: "Team", value: "team" as const },
+          ],
+          default: "team",
+        },
+      ]);
+      content.projectType = projectType;
+      content.teamSize = teamSize;
+
+      return {
+        manifest: { ...manifest, content },
+        notices: ["Migrated to explicit content tracking (all existing items preserved)"],
+      };
+    },
+  },
   {
     id: "platform-selection",
     condition: async (manifest) => !manifest.platform,

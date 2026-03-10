@@ -1,11 +1,11 @@
-import { readFile, readdir } from "node:fs/promises";
+import { readFile, readdir, lstat } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import type { CanonicalFile, CanonicalMetadata } from "../types.js";
 
 const FRONTMATTER_REGEX = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n([\s\S]*))?$/;
 
-function parseFrontmatter(rawContent: string): {
+export function parseFrontmatter(rawContent: string): {
   metadata: CanonicalMetadata;
   content: string;
 } {
@@ -39,6 +39,7 @@ function parseFrontmatter(rawContent: string): {
     if (typeof parsed.alwaysApply === "boolean") metadata.alwaysApply = parsed.alwaysApply;
     if (typeof parsed.readonly === "boolean") metadata.readonly = parsed.readonly;
     if (typeof parsed.background === "boolean") metadata.background = parsed.background;
+    if (Array.isArray(parsed.tags)) metadata.tags = parsed.tags.filter((t: unknown) => typeof t === "string");
   }
 
   if (!metadata.id && metadata.name) {
@@ -83,9 +84,13 @@ async function readGlobMd(baseDir: string, fileType: CanonicalFile["type"]): Pro
     return [];
   }
 
-  return Promise.all(
+  const results = await Promise.all(
     entries.map(async (relPath) => {
       const fullPath = join(baseDir, relPath);
+      const stats = await lstat(fullPath);
+      if (stats.isSymbolicLink()) {
+        return null;
+      }
       const rawContent = await readFile(fullPath, "utf-8");
       const { metadata, content } = parseFrontmatter(rawContent);
       const id = metadata.id || metadata.name || relPath.replace(/\.md$/, "").replace(/\//g, "-");
@@ -98,12 +103,14 @@ async function readGlobMd(baseDir: string, fileType: CanonicalFile["type"]): Pro
         protected: metadata.protected,
         readonly: metadata.readonly,
         background: metadata.background,
+        tags: metadata.tags,
         content,
         rawContent,
         sourcePath: fullPath,
       };
     }),
   );
+  return results.filter((r): r is NonNullable<typeof r> => r !== null);
 }
 
 async function readSkillSubdirs(baseDir: string): Promise<CanonicalFile[]> {
@@ -121,6 +128,10 @@ async function readSkillSubdirs(baseDir: string): Promise<CanonicalFile[]> {
       .map(async (dir) => {
         const skillPath = join(baseDir, dir.name, "SKILL.md");
         try {
+          const skillStats = await lstat(skillPath);
+          if (skillStats.isSymbolicLink()) {
+            return null;
+          }
           const rawContent = await readFile(skillPath, "utf-8");
           const { metadata, content } = parseFrontmatter(rawContent);
           const id = metadata.name ?? metadata.id ?? dir.name;
@@ -129,6 +140,7 @@ async function readSkillSubdirs(baseDir: string): Promise<CanonicalFile[]> {
             type: "skill" as const,
             description: metadata.description ?? "",
             protected: metadata.protected,
+            tags: metadata.tags,
             content,
             rawContent,
             sourcePath: skillPath,

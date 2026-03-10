@@ -10,7 +10,7 @@ hatch3r is configured through `hatch.json` (the project manifest), `.env.mcp` (s
 
 The project manifest lives at `.agents/hatch.json` and is created by `npx hatch3r init`. It controls which tools are enabled, which MCP servers are active, board configuration, and model preferences.
 
-To change your configuration after init, run `npx hatch3r config`. This interactive command walks through all settings (platform, tools, features, MCP servers) pre-populated with current values, archives removed tool outputs, migrates any manual customizations, and runs a full update. See the [Command Reference](command-reference#hatch3r-config) for details.
+To change your configuration after init, run `npx hatch3r config`. This interactive command walks through all settings (platform, tools, features, MCP servers, content items) pre-populated with current values, archives removed tool outputs, migrates any manual customizations, and runs a full update.
 
 ### Minimal example
 
@@ -58,6 +58,7 @@ To change your configuration after init, run `npx hatch3r config`. This interact
 | `board` | `object` | GitHub Projects V2 board configuration |
 | `models` | `object` | AI model preferences |
 | `claude` | `object` | Claude Code permissions and teammate mode |
+| `content` | `object` | Content selection from init (preset, project type, team size, selected item IDs) |
 | `managedFiles` | `string[]` | List of files managed by hatch3r |
 
 ### Board configuration
@@ -116,6 +117,38 @@ Resolution order (highest precedence first):
 5. Platform auto-select
 
 See the [Model Selection guide](../guides/model-selection) for full details.
+
+### Content selection
+
+The `content` field tracks which content items are installed. It is populated during `hatch3r init` and updated by `hatch3r config`.
+
+```json
+{
+  "content": {
+    "preset": "standard",
+    "projectType": "brownfield",
+    "teamSize": "solo",
+    "items": {
+      "agents": ["hatch3r-implementer", "hatch3r-reviewer", "hatch3r-researcher"],
+      "skills": ["hatch3r-feature", "hatch3r-bug-fix", "hatch3r-refactor"],
+      "rules": ["hatch3r-code-standards", "hatch3r-testing", "hatch3r-git-conventions"],
+      "commands": ["hatch3r-workflow", "hatch3r-quick-change", "hatch3r-feature-plan"],
+      "prompts": ["hatch3r-bug-triage", "hatch3r-code-review", "hatch3r-pr-description"],
+      "hooks": ["..."],
+      "githubAgents": []
+    }
+  }
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `preset` | Content profile used during init: `minimal`, `standard`, `full`, or `custom` |
+| `projectType` | `greenfield` (new project) or `brownfield` (existing codebase) |
+| `teamSize` | `solo` or `team` |
+| `items` | Explicit list of installed content IDs per type |
+
+When `content` is `undefined` (legacy projects), `hatch3r update` and `hatch3r sync` treat it as "full" and operate on all files. The first `hatch3r update` on a legacy project auto-migrates by scanning disk and populating the `content` field.
 
 ### Claude Code permissions
 

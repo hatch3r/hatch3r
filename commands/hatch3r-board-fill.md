@@ -2,6 +2,7 @@
 id: hatch3r-board-fill
 type: command
 description: Create epics and issues/work items from todo.md, reorganize the board with dependency analysis, readiness assessment, and implementation ordering. Supports GitHub, Azure DevOps, and GitLab.
+tags: [board, team]
 ---
 
 ## Agent Pipeline
@@ -530,9 +531,9 @@ Execute in dependency order (parents before children). Do not prompt between ope
 **Platform-specific: Issue creation**
 
 **If platform is `github`:**
-1. **Epics first:** `gh issue create -R {owner}/{repo} --title "..." --body "..." --label "..."` (fall back to `issue_write` MCP with `method: create`). Include `## Dependencies` section and `has-dependencies` label. Record the returned `number` and internal numeric `id` field.
-2. **Sub-issues:** Create each. Record the returned `number` and internal numeric `id` field.
-3. **Standalone issues:** Create with `## Dependencies` and `has-dependencies`.
+1. **Epics first:** `gh issue create -R {owner}/{repo} --title "..." --body "..." --label "..."` (fall back to `issue_write` MCP with `method: create`). Include `## Dependencies` section and `has-dependencies` label (per rule 7 of Board Sync Enforcement). Record the returned `number` and internal numeric `id` field.
+2. **Sub-issues:** Create each. Include `## Dependencies` section. Add `has-dependencies` label if the sub-issue has any dependency references (per rule 7 of Board Sync Enforcement). Record the returned `number` and internal numeric `id` field.
+3. **Standalone issues:** Create with `## Dependencies` and `has-dependencies` (when dependencies exist, per rule 7).
 
 **If platform is `azure-devops`:**
 1. **Epics first:** `az boards work-item create --org https://dev.azure.com/{namespace} --project {project} --type "Epic" --title "..." --description "..." --fields "System.Tags=has-dependencies"` (fall back to `create_work_item` MCP). Record the returned work item `id`.
@@ -546,14 +547,7 @@ Execute in dependency order (parents before children). Do not prompt between ope
 
 **Phase 2 — Link sub-issues** (after all issues exist):
 
-**If platform is `github`:**
-For each sub-issue, link via `sub_issue_write` with `method: add` using the parent `issue_number` and child's internal numeric `id` (NOT the issue number or node_id).
-
-**If platform is `azure-devops`:**
-For each sub-issue, create a parent-child relation: `az boards work-item relation add --org https://dev.azure.com/{namespace} --id {child_id} --relation-type "System.LinkTypes.Hierarchy-Reverse" --target-id {parent_id}`.
-
-**If platform is `gitlab`:**
-For each sub-issue, add a related issue link: `glab api projects/{project_id}/issues/{parent_iid}/links --method POST --field target_project_id={project_id} --field target_issue_iid={child_iid}`. Also reference the parent in the sub-issue body.
+For each sub-issue, follow the **Sub-Issue Linking Procedure** from `hatch3r-board-shared`. Use the three-tier fallback chain (MCP native → CLI body-reference → comment trace) and record link status per child in the run cache under `link_results`.
 
 **Phase 3 — Sync to board** (after all issues and links are created):
 
@@ -568,10 +562,7 @@ For issues needing updates (from Steps 5, 5.5, 5.6):
    - **Azure DevOps:** `az boards work-item update --id N --description "..."`.
    - **GitLab:** `glab issue update N --description "..."`.
 2. **Regenerate `## Implementation Order`** (epics only): Derive from the sub-issues' `## Dependencies` DAG (see Dependency Data Model in `hatch3r-board-shared`). Replace the existing section entirely -- do not manually edit it.
-3. **Apply epic regrouping:** Link standalones to epics.
-   - **GitHub:** `sub_issue_write` MCP. Update epic body.
-   - **Azure DevOps:** `az boards work-item relation add` with parent-child relation.
-   - **GitLab:** `glab api` issue links endpoint. Update epic body.
+3. **Apply epic regrouping:** Link standalones to epics using the **Sub-Issue Linking Procedure** from `hatch3r-board-shared`. Update epic body with the new sub-issue reference.
 4. **Mark `status:ready`:** Remove `status:triage`, add `status:ready`. Do not downgrade existing statuses.
    - **GitHub:** `gh issue edit N --remove-label "status:triage" --add-label "status:ready"`.
    - **Azure DevOps:** `az boards work-item update --id N --state "Active" --fields "System.Tags=+status:ready;-status:triage"`.
@@ -598,7 +589,7 @@ Board Summary: N created, M updated, X marked ready, Y still triage, Z parallel 
 **This step is mandatory. Do not skip.**
 
 1. Search the cached board inventory for an open issue labeled `meta:board-overview`.
-2. Compute Implementation Lanes using the **Lane Computation Algorithm** from `hatch3r-board-shared`. Use the cached dependency DAG from Step 5.5 as input.
+2. Compute Implementation Lanes using the **Lane Computation Algorithm** (steps 1-12) from `hatch3r-board-shared`. Use the cached dependency DAG from Step 5.5 as input. This includes inter-lane dependency computation, lane phasing, and the Lane Dependency Map.
 3. Assign models to all open issues using the **Model Selection Heuristic (Quality-First)** from `hatch3r-board-shared`.
 4. **If found:** Regenerate the dashboard body using the **Board Overview Issue Format** template from `hatch3r-board-shared`, populated with cached board data updated with mutations from Step 7. Update the issue body using platform CLI (fall back to MCP):
    - **GitHub:** `gh issue edit {N} --body "..."` (fall back to `issue_write` MCP).
@@ -610,6 +601,14 @@ Board Summary: N created, M updated, X marked ready, Y still triage, Z parallel 
    - **GitLab:** `glab issue create` with `meta:board-overview` label.
 
 Do NOT re-fetch all issues; use cached data.
+
+---
+
+### Step 7.8: End-of-Run Reconciliation
+
+**This step is mandatory. Do not skip.**
+
+Run the **End-of-Run Reconciliation Procedure** from `hatch3r-board-shared`. This verifies board sync, sub-issue links, label consistency, and PR linkage for all issues created or updated during this run. Output the reconciliation report before proceeding to Step 8.
 
 ---
 

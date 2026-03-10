@@ -4,6 +4,7 @@ type: hook
 event: pre-push
 agent: security-auditor
 description: Scan for secrets and security issues before push
+tags: [core]
 ---
 # Hook: pre-push → security-auditor
 

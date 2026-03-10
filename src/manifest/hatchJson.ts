@@ -1,15 +1,17 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   AGENTS_DIR,
   MANIFEST_FILE,
   DEFAULT_FEATURES,
   type BoardConfig,
+  type ContentSelection,
   type HatchManifest,
   type Platform,
   type Tool,
 } from "../types.js";
 import { HATCH3R_VERSION } from "../version.js";
+import { atomicWriteFile } from "../merge/safeWrite.js";
 
 function createMinimalBoardConfig(owner: string, repo: string, defaultBranch: string): BoardConfig {
   return {
@@ -46,6 +48,7 @@ export function createManifest(options: {
   tools: Tool[];
   features?: Partial<HatchManifest["features"]>;
   mcpServers?: string[];
+  content?: ContentSelection;
 }): HatchManifest {
   const platform = options.platform ?? "github";
   const owner = options.owner ?? "";
@@ -65,6 +68,9 @@ export function createManifest(options: {
     mcp: { servers: options.mcpServers ?? [] },
     managedFiles: [],
   };
+  if (options.content) {
+    manifest.content = options.content;
+  }
   if (options.defaultBranch) {
     manifest.board = createMinimalBoardConfig(owner, repo, options.defaultBranch);
   }
@@ -98,17 +104,36 @@ export function migrateManifest(raw: Record<string, unknown>): Record<string, un
 function validateManifest(data: unknown): data is HatchManifest {
   if (!data || typeof data !== "object") return false;
   const obj = data as Record<string, unknown>;
-  return (
-    typeof obj.version === "string" &&
-    typeof obj.hatch3rVersion === "string" &&
-    (!obj.platform || typeof obj.platform === "string") &&
-    Array.isArray(obj.tools) &&
-    obj.features !== null &&
-    typeof obj.features === "object" &&
-    obj.mcp !== null &&
-    typeof obj.mcp === "object" &&
-    Array.isArray(obj.managedFiles)
-  );
+  if (
+    typeof obj.version !== "string" ||
+    typeof obj.hatch3rVersion !== "string" ||
+    (obj.platform !== undefined && typeof obj.platform !== "string") ||
+    !Array.isArray(obj.tools) ||
+    obj.features === null ||
+    typeof obj.features !== "object" ||
+    obj.mcp === null ||
+    typeof obj.mcp !== "object" ||
+    !Array.isArray(obj.managedFiles)
+  ) {
+    return false;
+  }
+
+  if (obj.content !== undefined) {
+    if (typeof obj.content !== "object" || obj.content === null) return false;
+    const content = obj.content as Record<string, unknown>;
+    if (typeof content.preset !== "string") return false;
+    if (typeof content.projectType !== "string") return false;
+    if (typeof content.teamSize !== "string") return false;
+    if (!content.items || typeof content.items !== "object") return false;
+    const items = content.items as Record<string, unknown>;
+    const requiredKeys = ["agents", "skills", "rules", "commands", "prompts", "hooks", "githubAgents"];
+    for (const key of requiredKeys) {
+      if (!Array.isArray(items[key])) return false;
+      if (!(items[key] as unknown[]).every((v) => typeof v === "string")) return false;
+    }
+  }
+
+  return true;
 }
 
 export async function readManifest(
@@ -148,7 +173,7 @@ export async function writeManifest(
   manifest: HatchManifest,
 ): Promise<void> {
   const manifestPath = join(rootDir, AGENTS_DIR, MANIFEST_FILE);
-  await writeFile(manifestPath, JSON.stringify(manifest, null, 2) + "\n", "utf-8");
+  await atomicWriteFile(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
 }
 
 export function addManagedFile(

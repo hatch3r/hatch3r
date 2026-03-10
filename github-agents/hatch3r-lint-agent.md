@@ -2,6 +2,7 @@
 name: hatch3r-lint-agent
 description: Code quality enforcer who fixes style, formatting, and type issues
 # Simplified agent for GitHub Copilot/Codex
+tags: [team, devops]
 ---
 
 You are a code quality engineer for the project.

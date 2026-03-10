@@ -2,6 +2,7 @@
 id: hatch3r-board-refresh
 type: command
 description: Regenerate the living board overview dashboard from current board state. Scans all open issues, computes health metrics, and updates the meta:board-overview issue.
+tags: [board, team]
 ---
 
 ## Agent Pipeline
@@ -60,18 +61,21 @@ Execute these steps in order. **Do not skip any step.**
 
 Perform ONE comprehensive scan and cache everything for subsequent steps.
 
-#### 2a. Fetch Open Issues / Work Items
+#### 2a. Fetch Open Issues / Work Items & PR Association
 
 **Platform-specific: Fetch all open items**
 
 **If platform is `github`:**
 1. Fetch ALL open issues: `gh issue list -R {owner}/{repo} --state open --limit 500 --json number,title,labels,state,createdAt,updatedAt,body`. Paginate if necessary. Fall back to `list_issues` MCP if gh CLI fails.
+2. Fetch ALL open PRs: `gh pr list -R {owner}/{repo} --state open --json number,title,body`. Build a PR-to-issue association map by parsing `Closes #N`, `Fixes #N`, and `Resolves #N` references from PR bodies. Cache as `pr_association_map`.
 
 **If platform is `azure-devops`:**
 1. Fetch ALL active work items: `az boards query --org https://dev.azure.com/{namespace} --project {project} --wiql "SELECT [System.Id], [System.Title], [System.State], [System.Tags], [System.CreatedDate], [System.ChangedDate], [System.Description] FROM WorkItems WHERE [System.State] <> 'Closed' AND [System.State] <> 'Removed'"`. Fall back to `list_work_items` MCP.
+2. Fetch ALL active PRs: `az repos pr list --org https://dev.azure.com/{namespace} --project {project} --status active`. Build PR-to-work-item association map from linked work items.
 
 **If platform is `gitlab`:**
 1. Fetch ALL open issues: `glab issue list -R {namespace}/{project} --state opened --per-page 100`. Paginate if necessary.
+2. Fetch ALL open MRs: `glab mr list -R {namespace}/{project} --state opened`. Build MR-to-issue association map from `Closes #N` references in MR descriptions.
 
 2. For each issue/work item, extract labels/tags from the response.
 3. Check for sub-issues/child work items:
@@ -135,7 +139,23 @@ Flag open issues that are potentially stale:
 
 #### 3e. Lane Computation & Dependency-Waiting Partition
 
-Compute Implementation Lanes and the Waiting on Dependencies list for all `status:ready` issues using the **Lane Computation Algorithm** from `hatch3r-board-shared`. Use the dependency graph built in Step 3c as input. The algorithm partitions ready issues into available (all blockers satisfied) and dependency-waiting (unsatisfied blockers), then computes lanes only from available issues.
+Compute Implementation Lanes and the Waiting on Dependencies list for all `status:ready` issues using the **Lane Computation Algorithm** (steps 1-12) from `hatch3r-board-shared`. Use the dependency graph built in Step 3c as input. The algorithm partitions ready issues into available (all blockers satisfied) and dependency-waiting (unsatisfied blockers), computes lanes from available issues, then computes inter-lane dependency edges, lane phases, and the Lane Dependency Map (steps 10-12).
+
+#### 3f. PR Linkage Gaps
+
+Using the `pr_association_map` from Step 2a, identify `status:in-progress` and `status:in-review` issues that have no open PR referencing them. These represent active work with no visible code contribution and should be flagged in Board Health.
+
+#### 3g. Unlinked Sub-Issue Detection
+
+For each epic, compare the sub-issue references in the epic body (checklist items, `> Parent:` references) against the native sub-issue list from `issue_read` with `method: get_sub_issues`. Flag sub-issues that appear in the body but are not natively linked.
+
+#### 3h. Board Sync Drift Detection
+
+If `board.projectNumber` is configured, compare label-based status (`status:*` labels) against board column status via `gh project item-list {board.projectNumber} --owner {board.owner} --format json`. Flag issues where the label status and board column status diverge (e.g., label says `status:ready` but board shows "In Progress").
+
+#### 3i. Dependency Format Inconsistencies
+
+Scan all `## Dependencies` sections for `Depends on #N` references (legacy format). Flag these for normalization to `Blocked by #N` (canonical format per the Dependency Data Model in `hatch3r-board-shared`).
 
 ---
 
@@ -152,13 +172,14 @@ For each open issue, assign a recommended model using the **Model Selection Heur
 Assemble the dashboard using the **Board Overview Issue Format** template from `hatch3r-board-shared`. Populate it with:
 
 1. **Status Summary** from Step 3a counts.
-2. **In Progress** and **In Review** from cached issues with the corresponding status labels.
-3. **Implementation Lanes** from Step 3e lane computation results (available issues only).
+2. **In Progress** and **In Review** from cached issues with the corresponding status labels. Include the `PR` column using `pr_association_map` from Step 2a — show `#{pr_number}` if an open PR references the issue, `--` if none.
+3. **Implementation Lanes** from Step 3e lane computation results (available issues only). Include the Lane Dependency Map, phase annotations in lane headers, `> After:` prerequisite lines for Phase 2+ lanes, and Cross-Lane Dependencies table.
 4. **Cross-Epic Dependencies** from Step 3c cross-epic dependency scan (omit if none).
-5. **Waiting on Dependencies** from Step 3e partition results (dependency-waiting issues: `status:ready` with unsatisfied hard blockers).
-6. **Externally Blocked** from cached issues with `status:blocked`.
-7. **Backlog / Triage** from cached issues with `status:triage`.
-8. **Board Health** from Steps 3b (missing metadata), 3d (stale issues), 3c (blocked chains, epic ordering discrepancies).
+5. **Cross-Lane Dependencies** from Step 3e inter-lane edge computation (omit if none).
+6. **Waiting on Dependencies** from Step 3e partition results (dependency-waiting issues: `status:ready` with unsatisfied hard blockers).
+7. **Externally Blocked** from cached issues with `status:blocked`.
+8. **Backlog / Triage** from cached issues with `status:triage`.
+9. **Board Health** from Steps 3b (missing metadata), 3d (stale issues), 3c (blocked chains, epic ordering discrepancies), 3e (lane sequencing warnings), 3f (PR linkage gaps), 3g (unlinked sub-issues), 3h (board sync drift), 3i (dependency format inconsistencies).
 
 ---
 
@@ -222,8 +243,8 @@ Board Refresh Complete:
   Overview issue: #{number} (updated / created)
   Open issues:    {total} ({epics} epics, {sub} sub-issues, {standalone} standalone)
   Status:         {ready} ready ({available} available, {depWaiting} waiting on deps), {inProgress} in progress, {inReview} in review, {blocked} ext. blocked, {triage} triage
-  Lanes:          {laneCount} parallel lanes ({available} available issues)
-  Health:         {N} issues missing metadata, {M} stale, {K} blocked chains
+  Lanes:          {laneCount} lanes across {phaseCount} phases ({available} available issues)
+  Health:         {N} missing metadata, {M} stale, {K} blocked chains, {P} PR linkage gaps, {L} unlinked sub-issues, {D} sync drift, {F} dep format issues
 ```
 
 ---

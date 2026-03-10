@@ -2,6 +2,7 @@
 id: hatch3r-rule-customize
 type: command
 description: Configure per-rule customization including scope overrides, description changes, enable/disable control, and project-specific markdown instructions
+tags: [customize]
 ---
 
 ## Agent Pipeline

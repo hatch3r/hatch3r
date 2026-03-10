@@ -38,7 +38,8 @@ export class WindsurfAdapter extends BaseAdapter {
     if (ctx.features.rules) {
       const rules = await readCanonicalFiles(ctx.agentsDir, "rules");
       for (const rule of rules) {
-        const { content, skip, overrides } = await applyCustomization(ctx.projectRoot, rule);
+        const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);
+        this.warnings.push(...warnings);
         if (skip) continue;
         const scope = overrides.scope ?? rule.scope;
         const trigger = ruleTrigger(scope);

@@ -1,4 +1,4 @@
-import { access, cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { access, cp, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, sep } from "node:path";
 import type { HatchManifest, Tool } from "../types.js";
 import { HATCH3R_PREFIX, sanitizeId } from "../types.js";
@@ -167,6 +167,8 @@ export async function archiveToolOutputs(
     const archiveDest = join(archiveBase, relPath);
     await mkdir(dirname(archiveDest), { recursive: true });
     await cp(absPath, archiveDest);
+    // Verify the copy succeeded before removing the original
+    await stat(archiveDest);
     await rm(absPath);
     archivedFiles.push(relPath);
   }

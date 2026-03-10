@@ -1,0 +1,197 @@
+---
+id: hatch3r-board-pickup-delegation-multi
+type: command
+description: Multi-issue sub-agent delegation protocols for board-pickup Steps 6b (epics) and 6c (batch). Covers level-by-level parallel execution, shared context, and quality pipelines.
+tags: [board, team]
+---
+# Board Pickup — Multi-Issue Delegation (Steps 6b, 6c)
+
+Delegation details for Steps 6b and 6c of `hatch3r-board-pickup`. Referenced from the core command file.
+
+---
+
+## 6b. Epics -- Sub-Agent Delegation (One Implementer Per Sub-Issue)
+
+For epics with sub-issues, delegate each sub-issue to a dedicated implementer sub-agent. The parent orchestrator (this agent) coordinates dependency order, parallelism, and git operations.
+
+### 6b.1. Parse Sub-Issues Into Dependency Levels
+
+1. Fetch the epic's `## Implementation Order` section.
+2. Group sub-issues by dependency level:
+   - **Level 1:** Sub-issues with no unsatisfied blockers (can start immediately).
+   - **Level N:** Sub-issues whose blockers are all in levels < N.
+3. Within each level, identify parallelizable sub-issues (no mutual dependencies).
+
+### 6b.2. Prepare Shared Context
+
+Before spawning implementer sub-agents, delegate context gathering to the **hatch3r-researcher agent protocol**.
+
+1. Read the epic body (goal, scope, constraints).
+2. Spawn a researcher sub-agent following the **hatch3r-researcher agent protocol** with:
+   - **Research brief:** The epic title, goal, scope, constraints, and area labels.
+   - **Modes:** `codebase-impact`, `risk-assessment`
+   - **Depth:** `standard` for most epics. Use `quick` if the epic has fewer than 3 sub-issues or is well-specified with linked specs. Use `deep` if the epic spans multiple modules or introduces new patterns.
+   - **Project context:** Pre-loaded documentation references from area labels.
+3. Await the researcher result. Include the structured output as shared context in all implementer sub-agent prompts in Step 6b.3.
+
+### 6b.2b. Per-Sub-Issue Complexity Scoring and Tier-Adjusted Research
+
+After the shared epic-level research, score each sub-issue individually and run additional research for sub-issues that warrant it.
+
+1. **Score each sub-issue** per the `hatch3r-deep-context` rule to determine the analysis tier (Light / Standard / Deep).
+
+2. **For Tier 2+ sub-issues**, spawn per-sub-issue **hatch3r-researcher** sub-agents via the Task tool (`subagent_type: "generalPurpose"`). Launch as many concurrently as the platform supports.
+
+   Each per-sub-issue researcher prompt must include:
+   - The sub-issue title, body, acceptance criteria, and area labels.
+   - Research modes by issue type (same as Step 6a.1).
+   - **Tier-adjusted modes** (per `hatch3r-deep-context`):
+     - Tier 2: add `requirements-elicitation` + `similar-implementation` at `quick` depth
+     - Tier 3: add `requirements-elicitation` + `similar-implementation` at `deep` depth, plus `codebase-impact` at `deep` depth with transitive tracing
+   - Depth by risk level, with complexity tier overriding upward.
+   - The shared epic-level researcher output from Step 6b.2 (to avoid redundant analysis).
+
+3. **Await all per-sub-issue researchers.** Collect structured outputs. Each researcher's output feeds exclusively into its corresponding implementer in Step 6b.3.
+
+4. **For Tier 2 sub-issues:** Present the `requirements-elicitation` questions to the user inline and await answers before proceeding.
+
+5. **For Tier 3 sub-issues:** Present a full Pre-Implementation Summary per the `hatch3r-deep-context` rule. Do NOT proceed to 6b.3 until all unresolved questions are answered.
+
+6. **Tier 1 sub-issues** skip this step — they use only the shared epic-level context from Step 6b.2.
+
+### 6b.3. Execute Level-by-Level With Parallel Sub-Agents
+
+For each dependency level, starting at Level 1:
+
+1. **Spawn one implementer sub-agent per sub-issue in the current level.** Use the Task tool with `subagent_type: "generalPurpose"`. Launch as many sub-agents concurrently as the platform supports.
+
+2. **Each sub-agent prompt must include:**
+   - The sub-issue number, title, full body, and acceptance criteria.
+   - The issue type (bug/feature/refactor/QA) and corresponding hatch3r skill name.
+   - Parent epic context (title, goal, related sub-issues at the same level).
+   - The shared researcher output from Step 6b.2 (codebase impact and risk assessment as shared context).
+   - The per-sub-issue researcher output from Step 6b.2b (if this sub-issue scored Tier 2+).
+   - **Reference conventions** from `similar-implementation` output (Tier 2/3) — triggers the implementer's Convention Lock step.
+   - **Resolved requirements** from `requirements-elicitation` answers (Tier 2/3) — explicit decisions on ambiguities.
+   - **Blast radius data** from enhanced `codebase-impact` (Tier 3) — transitive dependency trace and API consumer map.
+   - Documentation references relevant to this sub-issue.
+   - Instruction to follow the hatch3r-implementer agent protocol.
+   - All `scope: always` rule directives from `.agents/rules/` — subagents do not inherit rules automatically.
+   - Relevant learnings from `.agents/learnings/` (from Step 6.pre).
+   - Instruction to use GitHub MCP for issue reads, and follow the project's tooling hierarchy for external knowledge augmentation.
+   - Explicit instruction: do NOT create branches, commits, or PRs.
+
+3. **Await all sub-agents in the current level.** Collect their structured results (files changed, tests written, issues encountered).
+
+4. **Review sub-agent results:**
+   - If any sub-agent reports BLOCKED or PARTIAL, **ASK** the user how to proceed (skip, fix manually, retry).
+   - If sub-agents modified overlapping files, review for conflicts and resolve before proceeding.
+
+5. **Advance to the next dependency level.** Repeat steps 1-4 until all levels are complete.
+
+### 6b.4. Post-Delegation Verification
+
+After all sub-agents complete:
+
+1. Run a combined quality check across all changes.
+2. Resolve any cross-sub-issue integration issues.
+3. Verify no file conflicts between parallel sub-agent outputs.
+
+---
+
+## 6c. Multi-Issue Batch -- Parallel Subagent Delegation (One Implementer Per Issue)
+
+For batches of multiple standalone issues (selected via batch mode in Step 1d or by referencing multiple issue numbers), delegate each issue to a dedicated implementer sub-agent. The parent orchestrator (this agent) coordinates dependency levels, parallelism, collision avoidance, and git operations.
+
+### 6c.1. Group Issues Into Dependency Levels
+
+1. Use the updated cross-issue dependency graph (from Step 2e, adjusted by Step 3.4).
+2. Group issues by dependency level:
+   - **Level 1:** Issues with no dependencies on other issues in the batch (can start immediately). Most standalone issues will be Level 1.
+   - **Level N:** Issues that depend on other issues in levels < N.
+3. Within each level, all issues are parallelizable (no mutual dependencies — conflicts were moved to separate levels in Step 3).
+
+### 6c.2. Context Gathering (Parallel Researchers)
+
+**Skip this step only** if ALL issues in the batch are trivial single-line edits (typos, comment fixes, single-value config changes) that score Tier 1 per `hatch3r-deep-context`. The `risk:low` and `priority:p3` labels alone are not sufficient to skip research — always score complexity first.
+
+Unlike epics (which share a single researcher), standalone issues in a batch are unrelated and each need individual context gathering.
+
+1. **Spawn one hatch3r-researcher sub-agent per issue** via the Task tool (`subagent_type: "generalPurpose"`). Launch as many concurrently as the platform supports.
+
+2. **Each researcher prompt must include:**
+   - The issue title, body, acceptance criteria, and area labels.
+   - Research modes by issue type (same as Step 6a.1).
+   - Tier-adjusted modes per `hatch3r-deep-context` (same as Step 6a.1).
+   - Depth by risk level (`quick` / `standard` / `deep`), with complexity tier overriding upward.
+   - Project context and documentation references.
+
+3. **Await all researchers.** Collect structured outputs. Each researcher's output feeds exclusively into its corresponding implementer in Step 6c.3. For Tier 2/3 issues, present elicitation questions to the user and await answers before proceeding.
+
+### 6c.3. Execute Level-by-Level With Parallel Implementers
+
+For each dependency level, starting at Level 1:
+
+1. **Spawn one hatch3r-implementer sub-agent per issue in the current level.** Use the Task tool with `subagent_type: "generalPurpose"`. Launch as many sub-agents concurrently as the platform supports.
+
+2. **Each sub-agent prompt must include:**
+   - The issue number, title, full body, and acceptance criteria.
+   - The issue type (bug/feature/refactor/QA) and corresponding hatch3r skill name.
+   - Batch context: sibling issues in the batch at the same level (for awareness, not implementation).
+   - The researcher output from Step 6c.2 for this specific issue (if that step was not skipped).
+   - **Reference conventions** from `similar-implementation` output (Tier 2/3) — triggers the implementer's Convention Lock step.
+   - **Resolved requirements** from `requirements-elicitation` answers (Tier 2/3).
+   - **Blast radius data** from enhanced `codebase-impact` (Tier 3).
+   - Documentation references relevant to this issue.
+   - Instruction to follow the **hatch3r-implementer agent protocol**.
+   - All `scope: always` rule directives from `.agents/rules/` — subagents do not inherit rules automatically.
+   - Relevant learnings from `.agents/learnings/` (from Step 6.pre).
+   - Explicit instruction: do NOT create branches, commits, or PRs.
+
+3. **Await all sub-agents in the current level.** Collect their structured results (files changed, tests written, issues encountered).
+
+4. **Review sub-agent results:**
+   - If any sub-agent reports BLOCKED or PARTIAL, **ASK** the user how to proceed (skip, fix manually, retry).
+   - If sub-agents modified overlapping files, review for conflicts and resolve before proceeding.
+
+5. **Advance to the next dependency level.** Repeat steps 1-4 until all levels are complete.
+
+### 6c.4. Post-Batch Verification
+
+After all implementer sub-agents complete across all levels:
+
+1. Run a combined quality check across all changes from all issues.
+2. Resolve any cross-issue file conflicts or integration issues.
+3. Verify no regressions between parallel sub-agent outputs.
+
+### 6c.5. Post-Implementation Quality Pipeline
+
+After all implementations complete, run the two-stage quality pipeline across the entire batch. Use the Task tool with `subagent_type: "generalPurpose"`.
+
+**Stage 1 — Review Loop (sequential):**
+
+1. Spawn **`hatch3r-reviewer`** — code review of ALL changes across the batch. Include the full diff and acceptance criteria for each issue.
+2. If the reviewer reports Critical or Warning findings, spawn **`hatch3r-fixer`** with the reviewer output to apply fixes. When fixes touch shared or public interfaces, also include:
+   - **Blast radius data** from Step 6c.2 (if available) — so the fixer knows which consumers and contracts must be preserved.
+   - **Reference conventions** from Step 6c.2 (if available) — so the fixer maintains established patterns when applying fixes.
+3. Re-spawn **`hatch3r-reviewer`** to verify fixes.
+4. Repeat steps 2-3 for a maximum of **3 iterations** until the reviewer reports 0 Critical + 0 Warning findings.
+5. If still not clean after 3 iterations, **ASK** the user how to proceed.
+
+**Stage 2 — Final Quality (parallel, after review loop is clean):**
+
+Launch as many independent sub-agents in parallel as the platform supports.
+
+**Always spawn (mandatory for every code change):**
+- **hatch3r-test-writer** — tests for all code changes across the batch.
+- **hatch3r-security-auditor** — security review of all code changes across the batch.
+
+**Always evaluate (spawn when applicable):**
+- **hatch3r-docs-writer** — spawn when any changes affect public APIs, architectural patterns, or user-facing behavior.
+
+**Conditional specialists (spawn when triggered by any issue in the batch):**
+- **hatch3r-lint-fixer** — spawn when lint errors are present after implementation.
+- **hatch3r-a11y-auditor** — spawn when any issue has `area:ui` or `area:a11y` labels.
+- **hatch3r-perf-profiler** — spawn when any issue has `area:performance` label.
+
+Await all specialist sub-agents. Apply their feedback before proceeding to Step 7.

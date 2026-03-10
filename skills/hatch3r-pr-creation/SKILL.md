@@ -1,6 +1,7 @@
 ---
 id: hatch3r-pr-creation
 description: Create a pull request or merge request following project conventions including branch naming, PR/MR template, checklist, and rollout plan. Use when opening or preparing a PR/MR, or when the user asks to create a PR or MR.
+tags: [core, implementation]
 ---
 > **Note:** Commands below use `npm` as an example. Substitute with your project's package manager (`yarn`, `pnpm`, `bun`) or build tool as appropriate.
 

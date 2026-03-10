@@ -1,6 +1,7 @@
 ---
 id: hatch3r-skill-customize
 description: Create and manage per-skill customization files for description overrides, enable/disable control, and project-specific markdown instructions. Use when tailoring skill workflows to project-specific needs.
+tags: [customize]
 ---
 # Skill Customization Management
 

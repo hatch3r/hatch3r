@@ -1,6 +1,6 @@
 {
   "name": "hatch3r",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Battle-tested agentic coding setup framework. One command to hatch your agent stack -- agents, skills, rules, commands, and MCP for every major AI coding tool.",
   "type": "module",
   "bin": {
@@ -40,7 +40,7 @@
     "type": "git",
     "url": "https://github.com/hatch3r/hatch3r.git"
   },
-  "homepage": "https://github.com/hatch3r/hatch3r#readme",
+  "homepage": "https://docs.hatch3r.com",
   "bugs": {
     "url": "https://github.com/hatch3r/hatch3r/issues"
   },

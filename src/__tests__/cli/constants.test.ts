@@ -1,0 +1,92 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import {
+  sanitizeInput,
+  isWSL,
+  TOOL_DISPLAY_NAMES,
+  TOOL_PROMPT_CHOICES,
+  FEATURE_CHOICES,
+  MCP_CHOICES,
+  PLATFORM_DISPLAY_NAMES,
+  PLATFORM_MCP_SERVER,
+} from "../../cli/shared/constants.js";
+
+describe("sanitizeInput", () => {
+  it("passes through valid alphanumeric characters unchanged", () => {
+    expect(sanitizeInput("hello123")).toBe("hello123");
+  });
+
+  it("strips special characters", () => {
+    expect(sanitizeInput("hello!@#$%^&*()world")).toBe("helloworld");
+  });
+
+  it("returns empty string for empty input", () => {
+    expect(sanitizeInput("")).toBe("");
+  });
+
+  it("allows hyphens and underscores", () => {
+    expect(sanitizeInput("my-project_name")).toBe("my-project_name");
+  });
+
+  it("allows dots", () => {
+    expect(sanitizeInput("file.name.txt")).toBe("file.name.txt");
+  });
+
+  it("only valid characters remain after sanitization", () => {
+    expect(sanitizeInput("a/b c<d>e|f")).toBe("abcdef");
+  });
+
+  it("handles strings with only invalid characters", () => {
+    expect(sanitizeInput("!@#$%^&*()")).toBe("");
+  });
+});
+
+describe("isWSL", () => {
+  const originalEnv = process.env;
+
+  beforeEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+    vi.restoreAllMocks();
+  });
+
+  it("returns true when WSL_DISTRO_NAME is set", () => {
+    process.env.WSL_DISTRO_NAME = "Ubuntu";
+    expect(isWSL()).toBe(true);
+  });
+
+  it("returns false on normal macOS/Linux without WSL env", () => {
+    delete process.env.WSL_DISTRO_NAME;
+    // On macOS/Linux (where these tests run), /proc/version either
+    // doesn't exist or doesn't contain "microsoft"/"wsl"
+    expect(isWSL()).toBe(false);
+  });
+});
+
+describe("data constants", () => {
+  it("TOOL_DISPLAY_NAMES matches snapshot", () => {
+    expect(TOOL_DISPLAY_NAMES).toMatchSnapshot();
+  });
+
+  it("TOOL_PROMPT_CHOICES matches snapshot", () => {
+    expect(TOOL_PROMPT_CHOICES).toMatchSnapshot();
+  });
+
+  it("FEATURE_CHOICES matches snapshot", () => {
+    expect(FEATURE_CHOICES).toMatchSnapshot();
+  });
+
+  it("MCP_CHOICES matches snapshot", () => {
+    expect(MCP_CHOICES).toMatchSnapshot();
+  });
+
+  it("PLATFORM_DISPLAY_NAMES matches snapshot", () => {
+    expect(PLATFORM_DISPLAY_NAMES).toMatchSnapshot();
+  });
+
+  it("PLATFORM_MCP_SERVER matches snapshot", () => {
+    expect(PLATFORM_MCP_SERVER).toMatchSnapshot();
+  });
+});

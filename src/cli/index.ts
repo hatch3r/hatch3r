@@ -27,6 +27,9 @@ program
     `Comma-separated tools (${TOOL_CHOICES})`,
   )
   .option("--yes", "Skip interactive prompts, use defaults")
+  .option("--preset <preset>", "Content preset: minimal, standard, full")
+  .option("--project-type <type>", "Project type: greenfield, brownfield")
+  .option("--team-size <size>", "Team size: solo, team")
   .action(initCommand);
 
 program
@@ -70,6 +73,15 @@ if (nodeVersion < 22) {
     `hatch3r requires Node.js >= 22.0.0 (current: ${process.version}). Please upgrade Node.js.`,
   );
   process.exit(1);
+}
+
+let shuttingDown = false;
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.on(signal, () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    process.exit(0);
+  });
 }
 
 try {

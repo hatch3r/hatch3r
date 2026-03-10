@@ -17,7 +17,6 @@ Persistent instructions (coding standards, conventions, patterns) that are alway
 | **code-standards** | TypeScript strict mode, naming conventions (`camelCase`/`PascalCase`/`SCREAMING_SNAKE`), and function/file length limits. |
 | **component-conventions** | Component structure, typed props/emits, design tokens, WCAG AA accessibility, loading/error/empty states, form UX, and 60fps render targets. |
 | **dependency-management** | Lockfile hygiene, new-dependency justification, CVE patching timelines (48h for critical), and bundle size budgets. |
-| **error-handling** | Structured error hierarchy, typed error codes, exponential backoff for retries, and correlation IDs for tracing. |
 | **feature-flags** | Flag naming (`FF_AREA_FEATURE`), storage, evaluation, gradual rollout, dependencies, kill switches, 30-day cleanup deadlines, and audit. |
 | **git-conventions** | Git workflow, branch naming, commit message conventions, and merge strategy. |
 | **i18n** | Internationalization, RTL support, locale management, and ICU message format. |

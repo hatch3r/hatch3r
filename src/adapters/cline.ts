@@ -6,6 +6,7 @@ import { BaseAdapter, output, type AdapterContext } from "./base.js";
 import { readCanonicalFiles } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
 import { applyCustomization } from "./customization.js";
+import { HATCH3R_VERSION } from "../version.js";
 
 interface ClineCustomMode {
   slug: string;
@@ -26,7 +27,8 @@ export class ClineAdapter extends BaseAdapter {
     if (ctx.features.agents) {
       const agents = await readCanonicalFiles(ctx.agentsDir, "agents");
       for (const agent of agents) {
-        const { content, skip, overrides } = await applyCustomization(ctx.projectRoot, agent);
+        const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
+        this.warnings.push(...warnings);
         if (skip) continue;
         const slug = toPrefixedId(agent.id);
         const model = resolveAgentModel(agent.id, agent, ctx.manifest, overrides);
@@ -43,7 +45,13 @@ export class ClineAdapter extends BaseAdapter {
       }
     }
     if (customModes.length > 0) {
-      results.push(output(".roomodes", JSON.stringify({ customModes }, null, 2)));
+      results.push(output(".roomodes", JSON.stringify({
+        _hatch3r: {
+          version: HATCH3R_VERSION,
+          managed: true,
+        },
+        customModes,
+      }, null, 2)));
     }
 
     results.push(
@@ -53,7 +61,8 @@ export class ClineAdapter extends BaseAdapter {
     if (ctx.features.rules) {
       const rules = await readCanonicalFiles(ctx.agentsDir, "rules");
       for (const rule of rules) {
-        const { content, skip, overrides } = await applyCustomization(ctx.projectRoot, rule);
+        const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);
+        this.warnings.push(...warnings);
         if (skip) continue;
         const desc = overrides.description ?? rule.description;
         const body = `# ${rule.id}\n\n${desc}\n\n${content}`;

@@ -1,5 +1,4 @@
 import { access, cp, mkdir, readFile } from "node:fs/promises";
-import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -8,17 +7,17 @@ import inquirer from "inquirer";
 import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
 import {
   createManifest,
+  readManifest,
   writeManifest,
   addManagedFile,
 } from "../../manifest/hatchJson.js";
 import { safeWriteFile } from "../../merge/safeWrite.js";
 import {
   AGENTS_DIR,
-  AVAILABLE_MCP_SERVERS,
   DEFAULT_FEATURES,
   HatchError,
   VALID_TOOLS,
-  TOOLS,
+  type ContentSelection,
   type Features,
   type Platform,
   type RepoInfo,
@@ -26,7 +25,7 @@ import {
 } from "../../types.js";
 import { analyzeRepo } from "../../detect/repoAnalyzer.js";
 import { ensureEnvMcp, ensureGitignoreEntry, getSourceEnvMcpCommand } from "../../env/mcpEnv.js";
-import { AGENTS_MD_INNER, AGENTS_MD_FULL, CANONICAL_AGENTS_MD } from "../shared/agentsContent.js";
+import { AGENTS_MD_INNER, AGENTS_MD_FULL, generateCanonicalAgentsMd } from "../shared/agentsContent.js";
 import {
   printBanner,
   createSpinner,
@@ -38,66 +37,18 @@ import {
   warn,
 } from "../shared/ui.js";
 import { findPackageRoot } from "../shared/paths.js";
+import { TOOL_DISPLAY_NAMES, TOOL_PROMPT_CHOICES, FEATURE_CHOICES, MCP_CHOICES, PLATFORM_DISPLAY_NAMES, PLATFORM_MCP_SERVER, sanitizeInput, isWSL } from "../shared/constants.js";
 import { generateIntegrityManifest, writeIntegrityManifest } from "../../integrity/index.js";
 import { HATCH3R_VERSION } from "../../version.js";
+import { buildContentIndex, resolveSelection, copySelectedContent, countSelectionItems, selectionSummary, getAllContentIds, removeContentItem } from "../../content/index.js";
+import { PRESETS, getPreset, type PresetId } from "../../content/presets.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONTENT_ROOT = findPackageRoot(__dirname);
-const CONTENT_DIRS = ["agents", "checks", "commands", "rules", "skills", "prompts", "github-agents", "mcp", "hooks"];
-
-const TOOL_DISPLAY_NAMES: Record<Tool, string> = {
-  cursor: "Cursor",
-  copilot: "GitHub Copilot",
-  claude: "Claude Code",
-  opencode: "OpenCode",
-  windsurf: "Windsurf",
-  amp: "Amp",
-  codex: "Codex CLI",
-  gemini: "Gemini CLI",
-  cline: "Cline / Roo Code",
-  aider: "Aider",
-  kiro: "Kiro",
-  goose: "Goose",
-  zed: "Zed",
-};
-
-const TOOL_PROMPT_CHOICES: { name: string; value: Tool }[] = TOOLS.map((t) => ({
-  name: TOOL_DISPLAY_NAMES[t],
-  value: t,
-}));
-
-const FEATURE_CHOICES: { name: string; value: keyof Features }[] = [
-  { name: "Agents", value: "agents" },
-  { name: "Skills", value: "skills" },
-  { name: "Rules", value: "rules" },
-  { name: "Prompts", value: "prompts" },
-  { name: "Commands", value: "commands" },
-  { name: "MCP", value: "mcp" },
-  { name: "Hooks", value: "hooks" },
-  { name: "GitHub agents", value: "githubAgents" },
-];
-
-const MCP_CHOICES = Object.entries(AVAILABLE_MCP_SERVERS).map(([id, meta]) => ({
-  name: `${id}: ${meta.description}`,
-  value: id,
-}));
 
 const DEFAULT_TOOLS: Tool[] = ["cursor"];
 const DEFAULT_FEATURE_KEYS = Object.keys(DEFAULT_FEATURES) as (keyof Features)[];
 const DEFAULT_MCP: string[] = ["playwright", "github", "context7"];
-
-function sanitizeInput(value: string): string {
-  return value.replace(/[^a-zA-Z0-9._-]/g, "");
-}
-
-function isWSL(): boolean {
-  if (process.env.WSL_DISTRO_NAME) return true;
-  try {
-    return /microsoft|wsl/i.test(readFileSync("/proc/version", "utf-8"));
-  } catch {
-    return false;
-  }
-}
 
 function parseGitRemote(): { owner: string; repo: string } {
   try {
@@ -154,18 +105,6 @@ function getGitRemoteUrl(): string {
   }
 }
 
-const PLATFORM_DISPLAY_NAMES: Record<Platform, string> = {
-  github: "GitHub",
-  "azure-devops": "Azure DevOps",
-  gitlab: "GitLab",
-};
-
-const PLATFORM_MCP_SERVER: Record<Platform, string> = {
-  github: "github",
-  "azure-devops": "azure-devops",
-  gitlab: "gitlab",
-};
-
 async function runInit(
   rootDir: string,
   platform: Platform,
@@ -178,6 +117,7 @@ async function runInit(
   features: Features,
   mcpServers: string[],
   repoInfo: RepoInfo,
+  contentSelection: ContentSelection,
 ): Promise<void> {
   const agentsDir = join(rootDir, AGENTS_DIR);
   const totalSteps = 4;
@@ -185,15 +125,26 @@ async function runInit(
   const s1 = createSpinner(step(1, totalSteps, "Creating canonical files..."));
   s1.start();
   await mkdir(agentsDir, { recursive: true });
-  for (const dir of CONTENT_DIRS) {
-    const srcDir = join(CONTENT_ROOT, dir);
-    const destDir = join(agentsDir, dir);
-    try {
-      await cp(srcDir, destDir, { recursive: true, force: true });
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+
+  // Detect re-init: check if manifest exists and compute content delta
+  const existingManifest = await readManifest(rootDir);
+
+  // Build content index from package and copy only selected items
+  const index = await buildContentIndex(CONTENT_ROOT);
+  await copySelectedContent(CONTENT_ROOT, agentsDir, contentSelection, index);
+
+  // Clean up stale content from previous init
+  if (existingManifest?.content) {
+    const oldIds = getAllContentIds(existingManifest.content);
+    const newIds = getAllContentIds(contentSelection);
+    for (const id of oldIds) {
+      if (!newIds.has(id)) {
+        const item = index.byId.get(id);
+        if (item) await removeContentItem(agentsDir, item, { rootDir });
+      }
     }
   }
+
   await mkdir(join(agentsDir, "learnings"), { recursive: true });
 
   const mcpPath = join(agentsDir, "mcp", "mcp.json");
@@ -220,13 +171,15 @@ async function runInit(
     if (!isExpected) throw err;
   }
 
-  await safeWriteFile(join(agentsDir, "AGENTS.md"), CANONICAL_AGENTS_MD, { force: true });
+  // Generate dynamic AGENTS.md based on what's actually installed
+  const canonicalAgentsMd = await generateCanonicalAgentsMd(agentsDir);
+  await safeWriteFile(join(agentsDir, "AGENTS.md"), canonicalAgentsMd, { force: true });
 
-  s1.succeed(step(1, totalSteps, "Canonical files created"));
+  s1.succeed(step(1, totalSteps, `Canonical files created (${countSelectionItems(contentSelection)} items)`));
 
   const s2 = createSpinner(step(2, totalSteps, "Writing manifest..."));
   s2.start();
-  const manifest = createManifest({ platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers });
+  const manifest = createManifest({ platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, content: contentSelection });
   await writeManifest(rootDir, manifest);
   s2.succeed(step(2, totalSteps, "Manifest written"));
 
@@ -301,7 +254,10 @@ async function runInit(
     .filter(([, v]) => v)
     .map(([k]) => k);
 
+  const presetLabel = contentSelection.preset.charAt(0).toUpperCase() + contentSelection.preset.slice(1);
   const summaryLines = [
+    label("Profile", `${presetLabel} (${contentSelection.projectType}, ${contentSelection.teamSize})`),
+    label("Content", `${countSelectionItems(contentSelection)} items (${selectionSummary(contentSelection)})`),
     label("Tools", tools.map((t) => TOOL_DISPLAY_NAMES[t] ?? t).join(", ")),
     label("Features", enabledFeatures.join(", ")),
   ];
@@ -344,16 +300,36 @@ async function runInit(
   }
 }
 
-async function checkExisting(rootDir: string, skipPrompt: boolean): Promise<void> {
+async function checkExisting(rootDir: string, skipPrompt: boolean, newSelection?: ContentSelection): Promise<void> {
   const hatchJsonPath = join(rootDir, AGENTS_DIR, "hatch.json");
   try {
     await access(hatchJsonPath);
     if (!skipPrompt) {
+      let message = "Existing .agents/ found. This will overwrite managed files. Continue?";
+
+      // Compute removal count if we have both old and new selections
+      if (newSelection) {
+        const existingManifest = await readManifest(rootDir);
+        if (existingManifest?.content) {
+          const oldIds = getAllContentIds(existingManifest.content);
+          const newIds = getAllContentIds(newSelection);
+          let removeCount = 0;
+          for (const id of oldIds) {
+            if (!newIds.has(id)) removeCount++;
+          }
+          if (removeCount > 0) {
+            const oldPreset = existingManifest.content.preset.charAt(0).toUpperCase() + existingManifest.content.preset.slice(1);
+            const newPreset = newSelection.preset.charAt(0).toUpperCase() + newSelection.preset.slice(1);
+            message = `Existing .agents/ found. ${removeCount} content item(s) will be removed (switching from ${oldPreset} to ${newPreset}). Continue?`;
+          }
+        }
+      }
+
       const { proceed } = await inquirer.prompt<{ proceed: boolean }>([
         {
           type: "confirm",
           name: "proceed",
-          message: "Existing .agents/ found. This will overwrite managed files. Continue?",
+          message,
           default: false,
         },
       ]);
@@ -367,10 +343,22 @@ async function checkExisting(rootDir: string, skipPrompt: boolean): Promise<void
   }
 }
 
+function validateFlag<T extends string>(value: string | undefined, valid: T[], fallback: T, name: string): T {
+  if (!value) return fallback;
+  if (!(valid as string[]).includes(value)) {
+    logError(`Invalid --${name}: "${value}". Valid: ${valid.join(", ")}`);
+    throw new HatchError(`Invalid --${name}: "${value}"`, 1);
+  }
+  return value as T;
+}
+
 export async function initCommand(
   opts: {
     tools?: string;
     yes?: boolean;
+    preset?: string;
+    projectType?: string;
+    teamSize?: string;
   } = {},
 ): Promise<void> {
   printBanner();
@@ -426,8 +414,21 @@ export async function initCommand(
       : [];
     const defaultBranch = parseGitDefaultBranch();
 
-    await checkExisting(rootDir, true);
-    await runInit(rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo);
+    // Use CLI flags with validation, falling back to auto-detect / defaults
+    const isGreenfield =
+      repoInfo.languages.length === 1 &&
+      repoInfo.languages[0] === "unknown" &&
+      repoInfo.existingTools.length === 0 &&
+      !repoInfo.hasExistingAgents;
+    const presetId = validateFlag(opts.preset, ["minimal", "standard", "full"], "standard", "preset");
+    const projectType = validateFlag(opts.projectType, ["greenfield", "brownfield"], isGreenfield ? "greenfield" : "brownfield", "project-type");
+    const teamSize = validateFlag(opts.teamSize, ["solo", "team"], "solo", "team-size");
+    const preset = getPreset(presetId);
+    const index = await buildContentIndex(CONTENT_ROOT);
+    const contentSelection = resolveSelection(preset, projectType, teamSize, index);
+
+    await checkExisting(rootDir, true, contentSelection);
+    await runInit(rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection);
     return;
   }
 
@@ -497,9 +498,86 @@ export async function initCommand(
   ]);
   const defaultBranch = defaultBranchAnswers.defaultBranch.trim() || defaultBranchDefault;
 
+  // --- Project type ---
+  const isAutoGreenfield =
+    repoInfo.languages.length === 1 &&
+    repoInfo.languages[0] === "unknown" &&
+    repoInfo.existingTools.length === 0 &&
+    !repoInfo.hasExistingAgents;
+  const projectTypeAnswer = await inquirer.prompt<{ projectType: "greenfield" | "brownfield" }>([
+    {
+      type: "list",
+      name: "projectType",
+      message: "Is this a new (greenfield) or existing (brownfield) project?",
+      choices: [
+        { name: "Greenfield — new project from scratch", value: "greenfield" as const },
+        { name: "Brownfield — existing codebase", value: "brownfield" as const },
+      ],
+      default: isAutoGreenfield ? "greenfield" : "brownfield",
+    },
+  ]);
+  const projectType = projectTypeAnswer.projectType;
+
+  // --- Team size ---
+  const teamSizeAnswer = await inquirer.prompt<{ teamSize: "solo" | "team" }>([
+    {
+      type: "list",
+      name: "teamSize",
+      message: "Solo developer or team collaboration?",
+      choices: [
+        { name: "Solo — just me", value: "solo" as const },
+        { name: "Team — multiple contributors", value: "team" as const },
+      ],
+      default: "solo",
+    },
+  ]);
+  const teamSize = teamSizeAnswer.teamSize;
+
+  // --- Content preset ---
+  const presetAnswer = await inquirer.prompt<{ preset: PresetId }>([
+    {
+      type: "list",
+      name: "preset",
+      message: "Select content profile:",
+      choices: PRESETS.map((p) => ({
+        name: `${p.name} — ${p.description}`,
+        value: p.id,
+      })),
+      default: "standard" as PresetId,
+    },
+  ]);
+  const selectedPreset = getPreset(presetAnswer.preset);
+
   const wslTheme = isWSL()
     ? { icon: { checked: chalk.green("[x]"), unchecked: "[ ]", cursor: ">" } }
     : undefined;
+
+  // --- Custom content selection ---
+  let customSelections: string[] | undefined;
+  if (selectedPreset.id === "custom") {
+    const contentIndex = await buildContentIndex(CONTENT_ROOT);
+    const tagGroups = new Map<string, typeof contentIndex.items>();
+    for (const item of contentIndex.items) {
+      const primaryTag = item.tags[0] ?? "other";
+      if (!tagGroups.has(primaryTag)) tagGroups.set(primaryTag, []);
+      tagGroups.get(primaryTag)!.push(item);
+    }
+
+    const customAnswer = await inquirer.prompt<{ items: string[] }>([
+      {
+        type: "checkbox",
+        name: "items",
+        message: "Select content items:",
+        choices: contentIndex.items.map((item) => ({
+          name: `${item.type}: ${item.id.replace(/^hatch3r-/, "")} — ${item.description.slice(0, 60)}`,
+          value: item.id,
+          checked: item.protected || item.tags.includes("core"),
+        })),
+        ...(wslTheme && { theme: wslTheme }),
+      },
+    ]);
+    customSelections = customAnswer.items;
+  }
 
   const toolDefaults = repoInfo.existingTools.length > 0 ? repoInfo.existingTools : DEFAULT_TOOLS;
   const toolAnswers = await inquirer.prompt<{ tools: Tool[] }>([
@@ -552,6 +630,10 @@ export async function initCommand(
     }
   }
 
-  await checkExisting(rootDir, false);
-  await runInit(rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo);
+  // --- Resolve content selection ---
+  const contentIndex = await buildContentIndex(CONTENT_ROOT);
+  const contentSelection = resolveSelection(selectedPreset, projectType, teamSize, contentIndex, customSelections);
+
+  await checkExisting(rootDir, false, contentSelection);
+  await runInit(rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection);
 }

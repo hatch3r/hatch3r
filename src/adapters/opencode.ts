@@ -5,6 +5,7 @@ import { wrapInManagedBlock } from "../merge/managedBlocks.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
 import { readCanonicalFiles } from "./canonical.js";
 import { applyCustomization } from "./customization.js";
+import { HATCH3R_VERSION } from "../version.js";
 
 export class OpenCodeAdapter extends BaseAdapter {
   readonly name = "opencode";
@@ -19,6 +20,10 @@ export class OpenCodeAdapter extends BaseAdapter {
     if (ctx.features.commands) instructions.push(".agents/commands/*.md");
 
     const opencodeConfig: Record<string, unknown> = {
+      _hatch3r: {
+        version: HATCH3R_VERSION,
+        managed: true,
+      },
       $schema: "https://opencode.ai/config-schema.json",
       instructions,
     };
@@ -49,7 +54,8 @@ export class OpenCodeAdapter extends BaseAdapter {
     if (ctx.features.agents) {
       const agents = await readCanonicalFiles(ctx.agentsDir, "agents");
       for (const agent of agents) {
-        const { content, skip, overrides } = await applyCustomization(ctx.projectRoot, agent);
+        const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
+        this.warnings.push(...warnings);
         if (skip) continue;
         const agentId = toPrefixedId(agent.id);
         const model = resolveAgentModel(agent.id, agent, ctx.manifest, overrides);

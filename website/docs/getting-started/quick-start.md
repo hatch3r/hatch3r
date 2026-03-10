@@ -18,11 +18,25 @@ That's it. hatch3r detects your repo, asks which tools you use, and generates ev
 ## What happens during init
 
 1. **Detects your repository** -- reads `git remote` for owner/repo info
-2. **Asks which tools** -- select from Cursor, Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline, Aider, Kiro, Goose, Zed
-3. **Asks about MCP servers** -- optionally configure GitHub, Context7, Filesystem, Playwright, Brave Search
-4. **Generates canonical source** -- creates `/.agents/` with all agents, skills, rules, and commands
-5. **Generates tool configs** -- adapts canonical source to native formats for each selected tool
-6. **Creates `.env.mcp`** -- secret placeholder file (gitignored) for MCP server credentials
+2. **Asks about your platform** -- GitHub, Azure DevOps, or GitLab (auto-detected)
+3. **Asks about your project** -- greenfield (new) or brownfield (existing), solo or team
+4. **Asks which content profile** -- Minimal, Standard (recommended), Full, or Custom
+5. **Asks which tools** -- select from Cursor, Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline, Aider, Kiro, Goose, Zed
+6. **Asks about MCP servers** -- optionally configure GitHub, Context7, Filesystem, Playwright, Brave Search
+7. **Generates canonical source** -- creates `.agents/` with only the selected agents, skills, rules, and commands
+8. **Generates tool configs** -- adapts canonical source to native formats for each selected tool
+9. **Creates `.env.mcp`** -- secret placeholder file (gitignored) for MCP server credentials
+
+### Content profiles
+
+| Profile | Description |
+|---------|-------------|
+| **Minimal** | Core agents and workflows only |
+| **Standard** (recommended) | Full development lifecycle without niche audits (board, a11y, performance, customize excluded) |
+| **Full** | Everything including board management and all audits |
+| **Custom** | Interactive picker — choose exactly what you need |
+
+The profile is combined with context filters: greenfield projects skip brownfield-only content (e.g., `codebase-map`, `onboard`), solo developers skip team-only content (e.g., board commands, `revision`). Use `hatch3r config` to add or remove items after init.
 
 ## Next steps after init
 
@@ -45,11 +59,14 @@ See the [Workflow guide](../guides/workflow) for the full lifecycle.
 ## CLI Commands
 
 ```bash
-npx hatch3r init          # Interactive setup
+npx hatch3r init          # Interactive setup (with content profile selection)
+npx hatch3r config        # Reconfigure tools, features, and content items
 npx hatch3r sync          # Re-generate from canonical state
 npx hatch3r update        # Pull latest templates (safe merge)
 npx hatch3r status        # Check sync status
 npx hatch3r validate      # Validate .agents/ structure
+npx hatch3r verify        # Verify file integrity checksums
+npx hatch3r add <pack>    # Install a community pack (coming soon)
 ```
 
 ## MCP Setup

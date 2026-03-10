@@ -3,6 +3,7 @@ id: hatch3r-testing
 type: rule
 description: Test standards and conventions for the project
 scope: always
+tags: [core]
 ---
 # Testing Standards
 

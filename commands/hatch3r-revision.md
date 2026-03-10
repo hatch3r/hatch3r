@@ -2,6 +2,7 @@
 id: hatch3r-revision
 type: command
 description: User-guided revision of agent-implemented code in a fresh context window. Reconstructs what was done, interviews the user for feedback, fixes issues, cleans up leftovers, and drives toward merge readiness.
+tags: [implementation, team]
 ---
 
 ## Agent Pipeline

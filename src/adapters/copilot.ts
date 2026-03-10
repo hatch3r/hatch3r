@@ -23,7 +23,8 @@ export class CopilotAdapter extends BaseAdapter {
     if (ctx.features.rules) {
       const rules = await readCanonicalFiles(ctx.agentsDir, "rules");
       for (const rule of rules) {
-        const { content, skip, overrides } = await applyCustomization(ctx.projectRoot, rule);
+        const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);
+        this.warnings.push(...warnings);
         if (skip) continue;
         const scope = overrides.scope ?? rule.scope;
         if (scope && scope !== "always") {
@@ -87,7 +88,8 @@ jobs:
     if (ctx.features.agents) {
       const agents = await readCanonicalFiles(ctx.agentsDir, "agents");
       for (const agent of agents) {
-        const { content, skip, overrides } = await applyCustomization(ctx.projectRoot, agent);
+        const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
+        this.warnings.push(...warnings);
         if (skip) continue;
         const model = resolveAgentModel(agent.id, agent, ctx.manifest, overrides);
         const desc = overrides.description ?? agent.description;

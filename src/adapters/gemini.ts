@@ -6,6 +6,7 @@ import { readCanonicalFiles } from "./canonical.js";
 import { applyCustomization } from "./customization.js";
 import type { HookEvent } from "../hooks/types.js";
 import { escapeTomlString } from "./toml-utils.js";
+import { HATCH3R_VERSION } from "../version.js";
 
 function mapToGeminiEvent(event: HookEvent): string {
   const mapping: Record<HookEvent, string> = {
@@ -36,6 +37,10 @@ export class GeminiAdapter extends BaseAdapter {
     results.push(output("GEMINI.md", wrapInManagedBlock(inner), inner));
 
     const settings: Record<string, unknown> = {
+      _hatch3r: {
+        version: HATCH3R_VERSION,
+        managed: true,
+      },
       context: { fileName: ["GEMINI.md", "AGENTS.md"] },
     };
 
@@ -71,7 +76,8 @@ export class GeminiAdapter extends BaseAdapter {
     if (ctx.features.commands) {
       const commands = await readCanonicalFiles(ctx.agentsDir, "commands");
       for (const cmd of commands) {
-        const { content, skip, overrides } = await applyCustomization(ctx.projectRoot, cmd);
+        const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, cmd);
+        this.warnings.push(...warnings);
         if (skip) continue;
         const desc = overrides.description ?? cmd.description;
         const toml = [

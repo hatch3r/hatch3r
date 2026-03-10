@@ -3,6 +3,7 @@ id: hatch3r-migrations
 type: rule
 description: Database migration and schema change patterns for the project
 scope: always
+tags: [implementation, brownfield]
 ---
 # Migrations
 

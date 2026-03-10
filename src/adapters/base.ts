@@ -51,12 +51,17 @@ export abstract class BaseAdapter implements Adapter {
 
   async generate(agentsDir: string, manifest: HatchManifest): Promise<AdapterOutput[]> {
     this.warnings = [];
-    return this.doGenerate({
-      agentsDir,
-      manifest,
-      features: manifest.features,
-      projectRoot: dirname(agentsDir),
-    });
+    try {
+      return await this.doGenerate({
+        agentsDir,
+        manifest,
+        features: manifest.features,
+        projectRoot: dirname(agentsDir),
+      });
+    } catch (err) {
+      this.warnings = [];
+      throw err;
+    }
   }
 
   async getOutputPaths(agentsDir: string, manifest: HatchManifest): Promise<string[]> {
@@ -172,13 +177,15 @@ export abstract class BaseAdapter implements Adapter {
     const { servers: mcpServers, warnings } = await readMcpConfig(ctx.agentsDir);
     this.warnings.push(...warnings);
     if (Object.keys(mcpServers).length === 0) return null;
+    const selectedSet = new Set(ctx.manifest.mcp.servers);
     const filtered: Record<string, CleanMcpEntry> = {};
     for (const [name, entry] of Object.entries(mcpServers)) {
       if (entry._disabled) continue;
+      if (!selectedSet.has(name)) continue;
       const { _disabled, _description, ...clean } = entry;
       filtered[name] = clean;
     }
-    return filtered;
+    return Object.keys(filtered).length > 0 ? filtered : null;
   }
 
   protected buildStdMcpEntries(

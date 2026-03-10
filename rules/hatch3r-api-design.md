@@ -3,6 +3,7 @@ id: hatch3r-api-design
 type: rule
 description: API endpoint and contract design patterns for the project
 scope: always
+tags: [planning]
 ---
 # API Design
 

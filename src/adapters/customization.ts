@@ -32,8 +32,24 @@ const ZERO_WIDTH_CHARS = /[\u200B\u200C\u200D\uFEFF\u00AD]/g;
 
 const MAX_CUSTOMIZE_MD_BYTES = 10_240;
 
+function normalizeHomoglyphs(text: string): string {
+  return text
+    .replace(/[\u0400-\u04FF]/g, (ch) => {
+      // Common Cyrillic → Latin confusables
+      const map: Record<string, string> = {
+        '\u0410': 'A', '\u0430': 'a', '\u0412': 'B', '\u0435': 'e',
+        '\u041A': 'K', '\u043A': 'k', '\u041C': 'M', '\u043C': 'm',
+        '\u041D': 'H', '\u043E': 'o', '\u0420': 'P', '\u0440': 'p',
+        '\u0421': 'C', '\u0441': 'c', '\u0422': 'T', '\u0443': 'y',
+        '\u0425': 'X', '\u0445': 'x',
+      };
+      return map[ch] ?? ch;
+    })
+    .replace(/[\u2000-\u200F\uFEFF]/g, ''); // Remove zero-width characters
+}
+
 function normalizeInput(content: string): string {
-  return content.replace(ZERO_WIDTH_CHARS, "");
+  return normalizeHomoglyphs(content.replace(ZERO_WIDTH_CHARS, ""));
 }
 
 export function scanForDeniedPatterns(content: string): string[] {

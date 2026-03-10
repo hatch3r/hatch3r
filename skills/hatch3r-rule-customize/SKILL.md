@@ -1,6 +1,7 @@
 ---
 id: hatch3r-rule-customize
 description: Create and manage per-rule customization files for scope overrides, description changes, enable/disable control, and project-specific markdown instructions. Use when tailoring rules to project-specific needs.
+tags: [customize]
 ---
 # Rule Customization Management
 

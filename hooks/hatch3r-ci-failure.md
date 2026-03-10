@@ -4,6 +4,7 @@ type: hook
 event: ci-failure
 agent: ci-watcher
 description: Diagnose CI pipeline failures
+tags: [core]
 ---
 # Hook: ci-failure → ci-watcher
 

@@ -18,7 +18,8 @@ export class GooseAdapter extends BaseAdapter {
     if (ctx.features.skills) {
       const skills = await readCanonicalFiles(ctx.agentsDir, "skills");
       for (const skill of skills) {
-        const { content, skip } = await applyCustomizationRaw(ctx.projectRoot, skill);
+        const { content, skip, warnings } = await applyCustomizationRaw(ctx.projectRoot, skill);
+        this.warnings.push(...warnings);
         if (skip) continue;
         lines.push(`## Skill: ${toPrefixedId(skill.id)}`, "", content, "");
       }

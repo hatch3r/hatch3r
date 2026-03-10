@@ -7,6 +7,7 @@ import { readCanonicalFiles } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
 import { applyCustomization } from "./customization.js";
 import type { HookDefinition, HookEvent } from "../hooks/types.js";
+import { HATCH3R_VERSION } from "../version.js";
 
 const AGENT_TEAMS_SECTION = [
   "## Agent Teams (Experimental)",
@@ -203,7 +204,8 @@ export class ClaudeAdapter extends BaseAdapter {
     if (ctx.features.rules) {
       const rules = await readCanonicalFiles(ctx.agentsDir, "rules");
       for (const rule of rules) {
-        const { content, skip, overrides } = await applyCustomization(ctx.projectRoot, rule);
+        const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);
+        this.warnings.push(...warnings);
         if (skip) continue;
         const desc = overrides.description ?? rule.description;
         const body = `# ${rule.id}\n\n${desc}\n\n${content}`;
@@ -214,7 +216,8 @@ export class ClaudeAdapter extends BaseAdapter {
     if (ctx.features.agents) {
       const agents = await readCanonicalFiles(ctx.agentsDir, "agents");
       for (const agent of agents) {
-        const { content, skip, overrides } = await applyCustomization(ctx.projectRoot, agent);
+        const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
+        this.warnings.push(...warnings);
         if (skip) continue;
         const agentId = toPrefixedId(agent.id);
         const model = resolveAgentModel(agent.id, agent, ctx.manifest, overrides);
@@ -231,6 +234,10 @@ export class ClaudeAdapter extends BaseAdapter {
     const defaultAllow = ["Read", "Edit", "MultiEdit", "Write", "Grep", "Glob", "LS", "TodoRead", "TodoWrite"];
     const claudeConfig = ctx.manifest.claude;
     const settingsObj: Record<string, unknown> = {
+      _hatch3r: {
+        version: HATCH3R_VERSION,
+        managed: true,
+      },
       permissions: {
         allow: claudeConfig?.permissions?.allow ?? defaultAllow,
         deny: claudeConfig?.permissions?.deny ?? [],

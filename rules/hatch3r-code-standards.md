@@ -3,6 +3,7 @@ id: hatch3r-code-standards
 type: rule
 description: Code quality and file naming conventions for the project
 scope: always
+tags: [core]
 ---
 # Code Standards
 

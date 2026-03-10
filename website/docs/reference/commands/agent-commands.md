@@ -77,6 +77,10 @@ Generate API specifications from project requirements and existing code. Produce
 
 Plan a database or system migration with backward-compatible schema changes, idempotent migration scripts, rollback plans, data validation, and phased execution strategy. Produces migration specs and `todo.md` entries for `board-fill`.
 
+### test-plan
+
+Plan a comprehensive test strategy for a feature, module, or codebase area. Spawns parallel researchers (coverage analysis, complexity & risk mapping, test pattern extraction, boundary analysis, risk-based prioritization). Produces a test plan spec with coverage targets, strategy matrix, prioritized test case outlines, and `todo.md` entries. Supports feature-scoped planning (often chained from `feature-plan`) and module/codebase-level coverage auditing. Optionally chains to `hatch3r-test-writer` for immediate implementation or `hatch3r-board-fill` for issue creation.
+
 ## Quality Commands
 
 ### healthcheck

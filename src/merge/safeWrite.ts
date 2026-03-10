@@ -4,8 +4,11 @@ import {
   mkdir,
   access,
   copyFile,
+  rename,
+  unlink,
 } from "node:fs/promises";
 import { join, dirname, basename } from "node:path";
+import { randomBytes } from "node:crypto";
 import { HATCH3R_PREFIX, type MergeResult } from "../types.js";
 import { insertManagedBlock, hasManagedBlock, extractCustomContent } from "./managedBlocks.js";
 import { scanForDeniedPatterns } from "../adapters/customization.js";
@@ -17,6 +20,20 @@ async function fileExists(path: string): Promise<boolean> {
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
     return false;
+  }
+}
+
+export async function atomicWriteFile(filePath: string, content: string): Promise<void> {
+  const tmpPath = filePath + ".tmp." + randomBytes(4).toString("hex");
+  try {
+    await writeFile(tmpPath, content, "utf-8");
+    await rename(tmpPath, filePath);
+  } finally {
+    try {
+      await unlink(tmpPath);
+    } catch {
+      // Temp file already renamed or doesn't exist
+    }
   }
 }
 
@@ -36,10 +53,10 @@ async function writeWithBackup(
 ): Promise<MergeResult> {
   if (shouldBackup) {
     const backup = await createBackup(filePath);
-    await writeFile(filePath, content, "utf-8");
+    await atomicWriteFile(filePath, content);
     return { path: filePath, action: "backed-up", backup };
   }
-  await writeFile(filePath, content, "utf-8");
+  await atomicWriteFile(filePath, content);
   return { path: filePath, action: "updated" };
 }
 
@@ -60,7 +77,7 @@ export async function safeWriteFile(
   const exists = await fileExists(filePath);
 
   if (!exists) {
-    await writeFile(filePath, content, "utf-8");
+    await atomicWriteFile(filePath, content);
     return { path: filePath, action: "created" };
   }
 
@@ -87,7 +104,7 @@ export async function safeWriteFile(
       // Managed block is corrupted (duplicate markers, wrong order, etc.).
       // Auto-repair by overwriting with the correct content; the file is under
       // version control so any user additions outside the block are recoverable.
-      await writeFile(filePath, content, "utf-8");
+      await atomicWriteFile(filePath, content);
       return {
         path: filePath,
         action: "updated",

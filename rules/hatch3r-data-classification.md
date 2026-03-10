@@ -3,6 +3,7 @@ id: hatch3r-data-classification
 type: rule
 description: Data classification standards covering PII handling, encryption, retention policies, and regulatory compliance
 scope: always
+tags: [security]
 ---
 # Data Classification Standards
 

@@ -3,6 +3,7 @@ id: hatch3r-dependency-management
 type: rule
 description: Rules for managing project dependencies
 scope: always
+tags: [maintenance]
 ---
 # Dependency Management
 

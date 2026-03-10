@@ -1,12 +1,13 @@
-import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import chalk from "chalk";
 import inquirer from "inquirer";
 import { readManifest, writeManifest } from "../../manifest/hatchJson.js";
 import {
-  AVAILABLE_MCP_SERVERS,
+  AGENTS_DIR,
   DEFAULT_FEATURES,
   HatchError,
-  TOOLS,
+  type ContentSelection,
   type Features,
   type HatchManifest,
   type Platform,
@@ -25,68 +26,21 @@ import {
 } from "../shared/ui.js";
 import { runUpdate } from "./update.js";
 import { archiveToolOutputs, removeManagedFilesForPaths, type MigrationNotice } from "../../archive/index.js";
+import { findPackageRoot } from "../shared/paths.js";
+import { TOOL_DISPLAY_NAMES, TOOL_PROMPT_CHOICES, FEATURE_CHOICES, MCP_CHOICES, PLATFORM_DISPLAY_NAMES, PLATFORM_MCP_SERVER, sanitizeInput, isWSL } from "../shared/constants.js";
+import {
+  buildContentIndex,
+  getAvailableItems,
+  addContentItem,
+  removeContentItem,
+  countSelectionItems,
+  selectionSummary,
+  TYPE_TO_SELECTION_KEY,
+} from "../../content/index.js";
+import { generateCanonicalAgentsMd } from "../shared/agentsContent.js";
+import { safeWriteFile } from "../../merge/safeWrite.js";
 
-const TOOL_DISPLAY_NAMES: Record<Tool, string> = {
-  cursor: "Cursor",
-  copilot: "GitHub Copilot",
-  claude: "Claude Code",
-  opencode: "OpenCode",
-  windsurf: "Windsurf",
-  amp: "Amp",
-  codex: "Codex CLI",
-  gemini: "Gemini CLI",
-  cline: "Cline / Roo Code",
-  aider: "Aider",
-  kiro: "Kiro",
-  goose: "Goose",
-  zed: "Zed",
-};
-
-const TOOL_PROMPT_CHOICES: { name: string; value: Tool }[] = TOOLS.map((t) => ({
-  name: TOOL_DISPLAY_NAMES[t],
-  value: t,
-}));
-
-const FEATURE_CHOICES: { name: string; value: keyof Features }[] = [
-  { name: "Agents", value: "agents" },
-  { name: "Skills", value: "skills" },
-  { name: "Rules", value: "rules" },
-  { name: "Prompts", value: "prompts" },
-  { name: "Commands", value: "commands" },
-  { name: "MCP", value: "mcp" },
-  { name: "Hooks", value: "hooks" },
-  { name: "GitHub agents", value: "githubAgents" },
-];
-
-const MCP_CHOICES = Object.entries(AVAILABLE_MCP_SERVERS).map(([id, meta]) => ({
-  name: `${id}: ${meta.description}`,
-  value: id,
-}));
-
-const PLATFORM_DISPLAY_NAMES: Record<Platform, string> = {
-  github: "GitHub",
-  "azure-devops": "Azure DevOps",
-  gitlab: "GitLab",
-};
-
-const PLATFORM_MCP_SERVER: Record<Platform, string> = {
-  github: "github",
-  "azure-devops": "azure-devops",
-  gitlab: "gitlab",
-};
-
-function sanitizeInput(value: string): string {
-  return value.replace(/[^a-zA-Z0-9._-]/g, "");
-}
-
-function isWSL(): boolean {
-  if (process.env.WSL_DISTRO_NAME) return true;
-  try {
-    return /microsoft|wsl/i.test(readFileSync("/proc/version", "utf-8"));
-  } catch {
-    return false;
-  }
-}
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 interface ConfigDiff {
   addedTools: Tool[];
@@ -97,6 +51,8 @@ interface ConfigDiff {
   disabledFeatures: (keyof Features)[];
   platformChanged: boolean;
   repoChanged: boolean;
+  addedContent: Array<{ type: string; id: string }>;
+  removedContent: Array<{ type: string; id: string }>;
 }
 
 function computeDiff(
@@ -135,6 +91,8 @@ function computeDiff(
       newRepo !== oldManifest.repo ||
       newNamespace !== oldManifest.namespace ||
       newProject !== oldManifest.project,
+    addedContent: [],
+    removedContent: [],
   };
 }
 
@@ -147,7 +105,9 @@ function isDiffEmpty(diff: ConfigDiff): boolean {
     diff.enabledFeatures.length === 0 &&
     diff.disabledFeatures.length === 0 &&
     !diff.platformChanged &&
-    !diff.repoChanged
+    !diff.repoChanged &&
+    diff.addedContent.length === 0 &&
+    diff.removedContent.length === 0
   );
 }
 
@@ -161,13 +121,20 @@ function printCurrentConfig(manifest: HatchManifest): void {
     .map(([k]) => k);
   const toolNames = manifest.tools.map((t) => TOOL_DISPLAY_NAMES[t] ?? t).join(", ");
 
-  printBox("Current configuration", [
+  const lines = [
     label("Platform", platformLabel),
     label("Branch", branch),
     label("Tools", toolNames),
     label("Features", enabledFeatures.join(", ")),
     label("MCP", manifest.mcp.servers.length > 0 ? manifest.mcp.servers.join(", ") : "none"),
-  ], "info");
+  ];
+
+  if (manifest.content) {
+    const total = countSelectionItems(manifest.content);
+    lines.push(label("Content", `${total} items (${selectionSummary(manifest.content)})`));
+  }
+
+  printBox("Current configuration", lines, "info");
 }
 
 export async function configCommand(): Promise<void> {
@@ -310,8 +277,91 @@ export async function configCommand(): Promise<void> {
     }
   }
 
+  // --- Content management ---
+  const contentChanges: { added: Array<{ type: string; id: string }>; removed: Array<{ type: string; id: string }> } = { added: [], removed: [] };
+  if (manifest.content) {
+    const manageContent = await inquirer.prompt<{ manage: boolean }>([
+      {
+        type: "confirm",
+        name: "manage",
+        message: "Manage content items?",
+        default: false,
+      },
+    ]);
+
+    if (manageContent.manage) {
+      const contentRoot = findPackageRoot(__dirname);
+      const agentsDir = join(rootDir, AGENTS_DIR);
+      const index = await buildContentIndex(contentRoot);
+
+      // Build current installed set from manifest
+      const currentIds = new Set<string>();
+      for (const ids of Object.values(manifest.content.items)) {
+        for (const id of ids) currentIds.add(id);
+      }
+
+      const contentAnswer = await inquirer.prompt<{ items: string[] }>([
+        {
+          type: "checkbox",
+          name: "items",
+          message: "Select content items (space to toggle):",
+          choices: index.items.map((item) => ({
+            name: `${item.type}: ${item.id.replace(/^hatch3r-/, "")} — ${item.description.slice(0, 60)}`,
+            value: item.id,
+            checked: currentIds.has(item.id),
+          })),
+          ...(wslTheme && { theme: wslTheme }),
+        },
+      ]);
+
+      const newIds = new Set(contentAnswer.items);
+
+      // Find added and removed items
+      for (const id of contentAnswer.items) {
+        if (!currentIds.has(id)) {
+          const item = index.byId.get(id);
+          if (item) {
+            contentChanges.added.push({ type: item.type, id: item.id });
+            await addContentItem(contentRoot, agentsDir, item);
+          }
+        }
+      }
+      for (const id of currentIds) {
+        if (!newIds.has(id)) {
+          const item = index.byId.get(id);
+          if (item) {
+            contentChanges.removed.push({ type: item.type, id: item.id });
+            await removeContentItem(agentsDir, item, { rootDir });
+          }
+        }
+      }
+
+      // Update manifest content items
+      const newItems: ContentSelection["items"] = {
+        agents: [], skills: [], rules: [], commands: [],
+        prompts: [], hooks: [], githubAgents: [],
+      };
+      for (const id of contentAnswer.items) {
+        const item = index.byId.get(id);
+        if (item) {
+          const key = TYPE_TO_SELECTION_KEY[item.type];
+          if (key) newItems[key].push(item.id);
+        }
+      }
+      manifest.content.items = newItems;
+
+      // Regenerate canonical AGENTS.md after content changes
+      if (contentChanges.added.length > 0 || contentChanges.removed.length > 0) {
+        const canonicalAgentsMd = await generateCanonicalAgentsMd(agentsDir);
+        await safeWriteFile(join(agentsDir, "AGENTS.md"), canonicalAgentsMd);
+      }
+    }
+  }
+
   // --- Compute diff ---
   const diff = computeDiff(manifest, tools, features, mcpServers, platform, owner, repo, namespace, project);
+  diff.addedContent = contentChanges.added;
+  diff.removedContent = contentChanges.removed;
 
   if (isDiffEmpty(diff) && defaultBranch === currentBranch) {
     console.log();
@@ -425,6 +475,12 @@ export async function configCommand(): Promise<void> {
   }
   if (diff.repoChanged) {
     summaryLines.push(`${chalk.yellow("~")} Repo: ${namespace}/${project}`);
+  }
+  if (diff.addedContent.length > 0) {
+    summaryLines.push(`${chalk.green("+")} Content added: ${diff.addedContent.length} item(s)`);
+  }
+  if (diff.removedContent.length > 0) {
+    summaryLines.push(`${chalk.red("-")} Content removed: ${diff.removedContent.length} item(s)`);
   }
   if (defaultBranch !== currentBranch) {
     summaryLines.push(`${chalk.yellow("~")} Default branch: ${defaultBranch}`);

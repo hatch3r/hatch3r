@@ -1,6 +1,7 @@
 import { createHash, createHmac } from "node:crypto";
-import { readFile, writeFile, readdir } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { join, posix } from "node:path";
+import { atomicWriteFile } from "../merge/safeWrite.js";
 
 export interface IntegrityManifest {
   version: number;
@@ -79,7 +80,7 @@ export async function writeIntegrityManifest(
   manifest: IntegrityManifest,
 ): Promise<void> {
   const filePath = join(agentsDir, INTEGRITY_FILE);
-  await writeFile(filePath, JSON.stringify(manifest, null, 2) + "\n", "utf-8");
+  await atomicWriteFile(filePath, JSON.stringify(manifest, null, 2) + "\n");
 }
 
 function validateIntegrityManifest(data: unknown): data is IntegrityManifest {

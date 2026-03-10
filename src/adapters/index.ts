@@ -58,11 +58,11 @@ const ADAPTER_CAPABILITIES: Record<Tool, AdapterCapability> = {
   copilot:  { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: true,  prompts: true,  githubAgents: true  },
   opencode: { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: true,  prompts: false, githubAgents: false },
   windsurf: { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: true,  prompts: false, githubAgents: false },
-  amp:      { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: true,  prompts: false, githubAgents: false },
+  amp:      { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false },
   kiro:     { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false },
   aider:    { agents: true, skills: true, rules: true, hooks: false, mcp: false, commands: false, prompts: false, githubAgents: false },
   goose:    { agents: true, skills: true, rules: true, hooks: false, mcp: false, commands: false, prompts: false, githubAgents: false },
-  zed:      { agents: true, skills: true, rules: true, hooks: false, mcp: false, commands: false, prompts: false, githubAgents: false },
+  zed:      { agents: true, skills: false, rules: true, hooks: false, mcp: false, commands: false, prompts: false, githubAgents: false },
 };
 
 export function getUnsupportedFeatureWarnings(tool: string, manifest: HatchManifest): string[] {

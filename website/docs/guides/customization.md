@@ -17,7 +17,7 @@ hatch3r uses a naming convention to separate managed from custom files:
 ```
 .cursor/rules/
   hatch3r-code-standards.mdc     # Managed
-  hatch3r-error-handling.mdc     # Managed
+  hatch3r-git-conventions.mdc    # Managed
   my-project-conventions.mdc     # Custom -- never touched
 ```
 
@@ -91,4 +91,4 @@ Hooks trigger agents on specific lifecycle events (e.g., post-commit, pre-push, 
 
 ## Presets
 
-hatch3r currently ships with the `default` preset which includes everything. Additional preset packs (web-app, api-service, cli-tool, monorepo, legacy, security) are planned for future releases.
+hatch3r ships with 4 content presets: **Minimal** (core only), **Standard** (recommended, full dev lifecycle), **Full** (everything), and **Custom** (pick exactly what you need). Select during `hatch3r init` or change later with `hatch3r config`.

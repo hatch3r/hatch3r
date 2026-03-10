@@ -31,6 +31,8 @@ export interface HatchManifest {
   hooks?: HooksConfig;
   models?: ModelConfig;
   claude?: ClaudeConfig;
+  /** Content selection from init. undefined = legacy "full" (backward compat). */
+  content?: ContentSelection;
   managedFiles: string[];
 }
 
@@ -104,6 +106,7 @@ export interface CanonicalFile {
   readonly?: boolean;
   /** Agent runs in background without blocking the parent (Cursor v2.5+ async subagents). */
   background?: boolean;
+  tags?: string[];
   content: string;
   rawContent: string;
   sourcePath: string;
@@ -125,6 +128,24 @@ export interface CanonicalMetadata {
   readonly?: boolean;
   /** Agent runs in background without blocking the parent (Cursor v2.5+ async subagents). */
   background?: boolean;
+  tags?: string[];
+}
+
+export interface ContentSelection {
+  preset: "minimal" | "standard" | "full" | "custom";
+  projectType: "greenfield" | "brownfield";
+  teamSize: "solo" | "team";
+  /** Explicit list of selected content IDs (without hatch3r- prefix).
+   *  Populated for all presets — the resolved result of preset + context filters. */
+  items: {
+    agents: string[];
+    skills: string[];
+    rules: string[];
+    commands: string[];
+    prompts: string[];
+    hooks: string[];
+    githubAgents: string[];
+  };
 }
 
 export interface AdapterOutput {

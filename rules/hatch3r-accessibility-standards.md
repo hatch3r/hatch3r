@@ -3,6 +3,7 @@ id: hatch3r-accessibility-standards
 type: rule
 description: Accessibility standards covering WCAG 2.2 AA compliance, keyboard navigation, screen readers, and ARIA patterns
 scope: always
+tags: [a11y]
 ---
 # Accessibility Standards
 
