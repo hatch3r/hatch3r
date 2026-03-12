@@ -27,92 +27,33 @@ Whether the user invokes a command or simply asks for a task in conversation, th
 
 ## Universal Sub-Agent Pipeline
 
-Every task MUST follow this four-phase pipeline:
-
-**Phase 1 — Research:** Spawn `hatch3r-researcher` for context gathering. Skip only for trivial single-line edits (typos, comment fixes, single-value config changes). All other tasks require researcher context. **Before spawning researchers, score the task's complexity per the `hatch3r-deep-context` rule** and add the tier-appropriate researcher modes alongside the standard task-type modes (see Deep Context Integration below). **Before handing off to Phase 2, verify research completeness** using the Research Completeness Checklist (see below).
-
-**Phase 2 — Implement:** Spawn `hatch3r-implementer` for ALL code changes. One dedicated implementer per task. Never implement inline — always delegate via the Task tool. **Include reference conventions, resolved requirements, and blast radius data** from Phase 1 in the implementer prompt when available (see Deep Context Integration below). **For multi-step implementations, require a per-task mini-review** after each sub-task before proceeding to the next (see Per-Task Mini-Review below).
-
-**Phase 3 — Review Loop:**
-
-- 3a. Spawn `hatch3r-reviewer` to review the implementation.
-- 3b. If Critical or Warning findings exist: spawn `hatch3r-fixer` with the reviewer output.
-- 3c. Re-review: spawn `hatch3r-reviewer` on the fixed code.
-- 3d. Repeat 3b–3c until the reviewer reports 0 Critical + 0 Warning, or max 3 iterations reached.
-- 3e. **Confirmation pass** — after the reviewer reports 0 Critical + 0 Warning, run one final lightweight re-review focusing ONLY on: (1) the reviewer's own fix-driven changes were not missed, (2) no accidental regressions in adjacent code, (3) acceptance criteria are fully met. If the confirmation pass surfaces new findings, route them through 3b–3d (counts toward the iteration cap).
-- 3f. If max iterations reached with remaining findings: surface to user for manual resolution.
-
-**Phase 4 — Final Quality** (runs ONLY after the review loop is clean):
-
-Spawn all applicable specialists in parallel:
-
-| Specialist | When | Mandatory? |
-|-----------|------|------------|
-| `hatch3r-test-writer` | After every code change | YES — always for code changes |
-| `hatch3r-security-auditor` | After every code change | YES — always for code changes |
-| `hatch3r-docs-writer` | After every implementation | EVALUATE — spawn when changes affect APIs, architecture, user-facing behavior, or when specs/ADRs need updating |
-| `hatch3r-lint-fixer` | When lint errors present | Conditional |
-| `hatch3r-a11y-auditor` | When UI/accessibility changes | Conditional |
-| `hatch3r-perf-profiler` | When performance-sensitive changes | Conditional |
-| `hatch3r-dependency-auditor` | When dependencies change | Conditional |
-| `hatch3r-ci-watcher` | When CI fails | Conditional |
-| `hatch3r-architect` | When architectural decisions are needed or system design review is requested | Conditional |
-| `hatch3r-devops` | When CI/CD, deployment, or infrastructure tasks are involved | Conditional |
+Every task MUST follow this four-phase pipeline: **Phase 1 — Research** (context gathering via `hatch3r-researcher`), **Phase 2 — Implement** (code changes via `hatch3r-implementer`), **Phase 3 — Review Loop** (review/fix cycle via `hatch3r-reviewer` and `hatch3r-fixer`), **Phase 4 — Final Quality** (parallel specialists after review is clean). See **Mandatory Delegation Directives** below for full phase definitions, entry/exit criteria, and specialist invocation rules.
 
 ## Agent Roster
 
 | Agent | Purpose | Invoke When |
 |-------|---------|-------------|
-| `hatch3r-researcher` | Context gathering across 15 research modes | ALWAYS before implementation. Skip only for trivial single-line edits. Select modes by task type + tier-appropriate deep context modes. |
-| `hatch3r-implementer` | Focused single-task implementation | ALWAYS. One dedicated implementer per task — standalone issues, epic sub-issues, batched issues, and plain chat tasks all get dedicated implementers. |
-| `hatch3r-reviewer` | Code review for quality, security, performance | ALWAYS in review loop (Phase 3). Reviews implementation, then re-reviews after fixes. |
-| `hatch3r-fixer` | Targeted fixes for reviewer findings | When `hatch3r-reviewer` reports Critical or Warning findings during the review loop (Phase 3). |
-| `hatch3r-test-writer` | Regression and coverage tests | ALWAYS for code changes in final quality (Phase 4). Not just bugs — every code change gets tests. |
-| `hatch3r-security-auditor` | Security rules, data flows, access control | ALWAYS for code changes in final quality (Phase 4). Not just `area:security` — every code change gets a security review. |
-| `hatch3r-docs-writer` | Specs, ADRs, documentation maintenance | ALWAYS evaluate in final quality (Phase 4). Spawn when changes affect APIs, architecture, or user-facing behavior. |
-| `hatch3r-lint-fixer` | Style, formatting, type error cleanup | After implementation when lint errors are present. |
-| `hatch3r-a11y-auditor` | WCAG AA compliance checks | When UI/accessibility changes are made. |
-| `hatch3r-perf-profiler` | Performance profiling and optimization | When performance-sensitive changes are made. |
-| `hatch3r-dependency-auditor` | Supply chain security, CVE scanning | When dependencies change or new packages are added. |
-| `hatch3r-ci-watcher` | CI/CD failure diagnosis and fix suggestions | When CI fails during or after implementation. |
-| `hatch3r-architect` | Architecture design, system design review, technical decision documentation | When architectural decisions are needed or system design review is requested. |
-| `hatch3r-devops` | CI/CD pipeline operations, deployment configuration, infrastructure setup | When CI/CD, deployment, or infrastructure tasks are involved. |
+| `hatch3r-researcher` | Context gathering (15 modes) | Always — before implementation (skip trivial edits) |
+| `hatch3r-implementer` | Single-task implementation | Always — one per task |
+| `hatch3r-reviewer` | Code review | Always — Phase 3 review loop |
+| `hatch3r-fixer` | Fix reviewer findings | Phase 3 — Critical/Warning findings |
+| `hatch3r-test-writer` | Tests | Always — Phase 4 (every code change) |
+| `hatch3r-security-auditor` | Security review | Always — Phase 4 (every code change) |
+| `hatch3r-docs-writer` | Documentation | Phase 4 — evaluate when APIs/architecture/UX affected |
+| `hatch3r-lint-fixer` | Lint/type fixes | Conditional — lint errors present |
+| `hatch3r-a11y-auditor` | WCAG AA checks | Conditional — UI/accessibility changes |
+| `hatch3r-perf-profiler` | Performance profiling | Conditional — performance-sensitive changes |
+| `hatch3r-dependency-auditor` | CVE/supply chain | Conditional — dependencies change |
+| `hatch3r-ci-watcher` | CI failure diagnosis | Conditional — CI fails |
+| `hatch3r-architect` | Architecture design | Conditional — architectural decisions needed |
+| `hatch3r-devops` | CI/CD and deployment | Conditional — infrastructure tasks |
 
 ## Deep Context Integration
 
-Before spawning researchers in Phase 1, score the task's complexity using the `hatch3r-deep-context` rule criteria. The resulting tier determines which additional researcher modes to include alongside the standard task-type modes.
+Score task complexity per the `hatch3r-deep-context` rule (always-loaded) before Phase 1. That rule defines the full tier criteria, researcher modes per tier, and implementer enrichment fields. Apply the resulting tier as follows:
 
-### Tier-Adjusted Research Modes
-
-**Tier 1 (Light — score 0–2):** Use only the standard task-type modes below. No additional modes.
-
-**Tier 2 (Standard — score 3–5):** Add these modes at `quick` depth alongside the task-type modes:
-- `requirements-elicitation` — scan for top ambiguities, ask 3–5 clarifying questions
-- `similar-implementation` — find 1 reference implementation, extract top-level patterns
-
-Present the elicitation questions to the user inline. Await answers before proceeding to Phase 2.
-
-**Tier 3 (Deep — score 6+):** Add these modes at `deep` depth alongside the task-type modes:
-- `requirements-elicitation` — full 10-dimension ambiguity scan, dependency questions, cross-cutting concern checklist
-- `similar-implementation` — find 2–3 references, full convention extraction, divergence analysis
-- `codebase-impact` at `deep` depth (with transitive tracing, API consumer map, blast radius)
-
-**Mandatory Tier 3 checkpoint:** Present a consolidated Pre-Implementation Summary to the user and ASK for confirmation. Do NOT proceed to Phase 2 until all unresolved questions are answered.
-
-### Implementer Prompt Enrichment
-
-When spawning `hatch3r-implementer` in Phase 2, include the following from Phase 1 results when available:
-- **Reference Conventions**: `similar-implementation` output — the implementer uses this in its Convention Lock step (Step 1b)
-- **Resolved Requirements**: User's answers to `requirements-elicitation` questions — explicit decisions the implementer should follow instead of guessing
-- **Blast Radius**: Enhanced `codebase-impact` output with transitive traces and API consumer maps — informs which consumers and contracts must be preserved
-
-## Failure Path Handling
-
-When a pipeline phase does not produce the expected outcome, follow these explicit recovery paths instead of stalling or guessing:
-
-- **If the researcher finds no relevant code or patterns:** Document the negative finding explicitly (e.g., "No existing implementation of X found in the codebase"). Proceed to Phase 2 with the negative finding included in the implementer prompt so the implementer knows this is greenfield work, not an oversight.
-- **If tests fail after implementation:** Capture the full failure output (test name, assertion, stack trace). Do not attempt ad-hoc fixes inline. Revert the failing change, re-examine the implementation plan against the test expectations, and re-implement with the failure context included. If the failure is in a pre-existing test unrelated to the change, document it as a separate finding and proceed.
-- **If the reviewer finds critical issues:** Block progression to Phase 4 (Final Quality) until all Critical findings are resolved through the fix-review loop. Do not allow partial progression where some Critical findings are deferred -- every Critical finding must be resolved or explicitly acknowledged by the user before the quality phase begins.
+- **Tier 2 (Standard):** Present elicitation questions to the user inline. Await answers before proceeding to Phase 2.
+- **Tier 3 (Deep):** Present a consolidated Pre-Implementation Summary and ASK for confirmation. Do NOT proceed to Phase 2 until all unresolved questions are answered.
 
 ## Mandatory Delegation Directives
 
@@ -170,9 +111,7 @@ You MUST run the review loop and final quality phases after implementation compl
 **Phase 3 — Review Loop:**
 
 1. Spawn `hatch3r-reviewer` — code review. Include the diff and acceptance criteria in the prompt. The reviewer MUST include a **blast radius summary** in its output: number of files changed, number of lines added/removed, and whether any public APIs (exported interfaces, route signatures, event schemas) were changed. This summary gives the orchestrator and the user a quick gauge of change scope and risk.
-2. If the reviewer reports Critical or Warning findings: spawn `hatch3r-fixer` with the full reviewer output (findings, file paths, line references, suggested fixes). When fixes touch shared or public interfaces, also include:
-   - **Blast radius data** from Phase 1 (if available) — so the fixer knows which consumers and contracts must be preserved.
-   - **Reference conventions** from Phase 1 (if available) — so the fixer maintains established patterns when applying fixes.
+2. If the reviewer reports Critical or Warning findings: spawn `hatch3r-fixer` with the full reviewer output (findings, file paths, line references, suggested fixes). When fixes touch shared or public interfaces, also include deep context enrichment (blast radius data, reference conventions) per the Implementation Delegation section above.
 3. After fixes: spawn `hatch3r-reviewer` again to re-review the fixed code.
 4. Repeat steps 2–3 until the reviewer reports 0 Critical + 0 Warning, or max 3 iterations reached.
 5. **Confirmation pass** — after the reviewer reports 0 Critical + 0 Warning, run one final lightweight re-review. This confirmation pass focuses ONLY on: (1) the reviewer's own fix-driven changes were not missed or introduced new issues, (2) no accidental regressions in adjacent code touched by fixes, (3) all acceptance criteria are fully met. If the confirmation pass surfaces new Critical or Warning findings, route them back through steps 2–4 (these iterations count toward the max 3 cap).
@@ -330,6 +269,8 @@ When multiple agents need the same context (e.g., project structure, test result
 5. **Final output**: The completed `PipelineContext` is included in the task summary, giving the user full traceability from research through quality.
 
 ## Resilience Directives
+
+This section covers all failure/recovery paths — researcher failure, test failure, reviewer failure, and all other subagent failures.
 
 When a subagent fails (error, timeout, or BLOCKED status), apply the following retry-and-fallback protocol:
 
