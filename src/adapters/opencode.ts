@@ -24,7 +24,7 @@ export class OpenCodeAdapter extends BaseAdapter {
         version: HATCH3R_VERSION,
         managed: true,
       },
-      $schema: "https://opencode.ai/config-schema.json",
+      $schema: "https://opencode.ai/config.json",
       instructions,
     };
 

@@ -378,4 +378,58 @@ You are a test agent.`,
       expect(o.action).toBe("create");
     }
   });
+
+  // ── Branch gap tests: empty features, no MCP, empty tools ──
+
+  it("generates minimal output when all features are false", async () => {
+    const manifest = makeManifest({
+      mcpServers: [],
+      features: {
+        agents: false,
+        skills: false,
+        rules: false,
+        commands: false,
+        mcp: false,
+        hooks: false,
+        prompts: false,
+        githubAgents: false,
+      },
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    // Should still produce CLAUDE.md bridge and settings.json at minimum
+    const claudeMd = outputs.find((o) => o.path === "CLAUDE.md");
+    expect(claudeMd).toBeDefined();
+    expect(claudeMd!.content).toContain("Hatch3r");
+
+    const settings = outputs.find((o) => o.path === ".claude/settings.json");
+    expect(settings).toBeDefined();
+
+    // No rules, agents, skills, or MCP
+    const rules = outputs.filter((o) => o.path.startsWith(".claude/rules/"));
+    const agents = outputs.filter((o) => o.path.startsWith(".claude/agents/"));
+    const skills = outputs.filter((o) => o.path.startsWith(".claude/skills/"));
+    const mcp = outputs.find((o) => o.path === ".mcp.json");
+    expect(rules.length).toBe(0);
+    expect(agents.length).toBe(0);
+    expect(skills.length).toBe(0);
+    expect(mcp).toBeUndefined();
+  });
+
+  it("does not generate MCP config when no servers are configured", async () => {
+    const manifest = makeManifest({ mcpServers: [] });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const mcp = outputs.find((o) => o.path === ".mcp.json");
+    expect(mcp).toBeUndefined();
+  });
+
+  it("produces no empty content in any output", async () => {
+    const manifest = makeManifest();
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    for (const o of outputs) {
+      expect(o.content.length).toBeGreaterThan(0);
+    }
+  });
 });

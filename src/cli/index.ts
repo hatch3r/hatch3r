@@ -1,3 +1,6 @@
+// Sync I/O (execFileSync) is used intentionally in init/update for package
+// manager operations where async would add complexity without benefit.
+
 import { Command } from "commander";
 import { addCommand } from "./commands/add.js";
 import { configCommand } from "./commands/config.js";
@@ -80,9 +83,24 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
     if (shuttingDown) return;
     shuttingDown = true;
-    process.exit(0);
+    // Allow pending writes to flush
+    process.stdout.write("", () => {
+      process.stderr.write("", () => {
+        process.exit(0);
+      });
+    });
   });
 }
+
+process.on("unhandledRejection", (reason) => {
+  console.error(
+    `\nhatch3r: unhandled promise rejection: ${reason instanceof Error ? reason.message : String(reason)}`,
+  );
+  if (process.env.DEBUG) {
+    console.error(reason);
+  }
+  process.exit(1);
+});
 
 try {
   await program.parseAsync();
@@ -90,11 +108,17 @@ try {
   if (err instanceof HatchError) {
     process.exit(err.exitCode);
   }
-  console.error(
-    `\nhatch3r encountered an unexpected error: ${err instanceof Error ? err.message : String(err)}`,
+  const isUsageError = err instanceof Error && (
+    err.message.includes("Invalid") ||
+    err.message.includes("Unknown") ||
+    err.message.includes("missing required")
   );
+  console.error(
+    `\nhatch3r encountered an ${isUsageError ? "usage" : "unexpected"} error: ${err instanceof Error ? err.message : String(err)}`,
+  );
+  console.error("  For help, see: https://hatch3r.dev/docs/troubleshooting");
   if (process.env.DEBUG) {
     console.error(err);
   }
-  process.exit(1);
+  process.exit(isUsageError ? 2 : 1);
 }

@@ -21,6 +21,10 @@ export class AiderAdapter extends BaseAdapter {
       ...await this.processSkillsRaw(ctx, (id) => `.aider/skills/${toPrefixedId(id)}/SKILL.md`),
     );
 
+    // Note: Aider config is output as YAML (.aider.conf.yml). If TOML output is
+    // ever added for Aider, all string values must be properly escaped using
+    // escapeTomlString() from toml-utils.ts to handle backslashes, quotes, and
+    // control characters correctly.
     results.push(output(".aider.conf.yml", [
       "# Managed by hatch3r — do not edit manually",
       "read:",

@@ -15,22 +15,29 @@ hatch3r is an open-source CLI and Cursor plugin that installs a battle-tested, t
 hatch3r maintains a **single canonical source** of agent configuration in `.agents/` and generates **native configuration** for 13 AI coding platforms. You define your agent setup once and hatch3r adapts it to whatever tool you use.
 
 ```
-.agents/               <- Canonical source (tool-agnostic)
-  ├── agents/
-  ├── skills/
-  ├── rules/
-  ├── commands/
-  ├── mcp/
-  ├── AGENTS.md
-  └── hatch.json       <- Manifest
+.agents/                <- Canonical source (tool-agnostic)
+  ├── agents/           # Agent definitions (16 agents)
+  ├── rules/            # Rule files (22 rules)
+  ├── skills/           # Skill directories (25 skills)
+  ├── commands/         # Slash commands (34 commands)
+  ├── mcp/              # MCP server config
+  ├── hooks/            # Event hooks (commit, merge, CI failure, etc.)
+  ├── AGENTS.md         # Canonical agent instructions
+  └── hatch.json        # Project manifest
 
-.cursor/               <- Generated (Cursor adapter)
-.github/               <- Generated (Copilot adapter)
-CLAUDE.md              <- Generated (Claude adapter)
-.windsurfrules         <- Generated (Windsurf adapter)
-AGENTS.md              <- Generated (OpenCode, Amp, Codex adapters)
-GEMINI.md              <- Generated (Gemini adapter)
-.clinerules            <- Generated (Cline adapter)
+.cursor/                <- Generated (Cursor adapter)
+.github/                <- Generated (Copilot adapter)
+CLAUDE.md               <- Generated (Claude adapter)
+.windsurfrules          <- Generated (Windsurf adapter)
+AGENTS.md               <- Generated (OpenCode, Amp, Codex adapters)
+GEMINI.md               <- Generated (Gemini adapter)
+.clinerules             <- Generated (Cline adapter)
+.roo/                   <- Generated (Roo Code adapter)
+.kiro/                  <- Generated (Kiro adapter)
+.amp/                   <- Generated (Amp adapter)
+.codex/                 <- Generated (Codex adapter)
+.gemini/                <- Generated (Gemini adapter)
+.windsurf/              <- Generated (Windsurf adapter)
 ```
 
 ## Key Features

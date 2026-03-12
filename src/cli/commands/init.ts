@@ -1,4 +1,4 @@
-import { access, cp, mkdir, readFile } from "node:fs/promises";
+import { access, mkdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -105,20 +105,23 @@ function getGitRemoteUrl(): string {
   }
 }
 
-async function runInit(
-  rootDir: string,
-  platform: Platform,
-  owner: string,
-  repo: string,
-  namespace: string,
-  project: string,
-  defaultBranch: string,
-  tools: Tool[],
-  features: Features,
-  mcpServers: string[],
-  repoInfo: RepoInfo,
-  contentSelection: ContentSelection,
-): Promise<void> {
+interface RunInitOptions {
+  rootDir: string;
+  platform: Platform;
+  owner: string;
+  repo: string;
+  namespace: string;
+  project: string;
+  defaultBranch: string;
+  tools: Tool[];
+  features: Features;
+  mcpServers: string[];
+  repoInfo: RepoInfo;
+  contentSelection: ContentSelection;
+}
+
+async function runInit(options: RunInitOptions): Promise<void> {
+  const { rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection } = options;
   const agentsDir = join(rootDir, AGENTS_DIR);
   const totalSteps = 4;
 
@@ -179,7 +182,7 @@ async function runInit(
 
   const s2 = createSpinner(step(2, totalSteps, "Writing manifest..."));
   s2.start();
-  const manifest = createManifest({ platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, content: contentSelection });
+  const manifest = createManifest({ platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, content: contentSelection, languages: repoInfo.languages });
   await writeManifest(rootDir, manifest);
   s2.succeed(step(2, totalSteps, "Manifest written"));
 
@@ -428,7 +431,7 @@ export async function initCommand(
     const contentSelection = resolveSelection(preset, projectType, teamSize, index);
 
     await checkExisting(rootDir, true, contentSelection);
-    await runInit(rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection);
+    await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection });
     return;
   }
 
@@ -635,5 +638,5 @@ export async function initCommand(
   const contentSelection = resolveSelection(selectedPreset, projectType, teamSize, contentIndex, customSelections);
 
   await checkExisting(rootDir, false, contentSelection);
-  await runInit(rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection);
+  await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection });
 }

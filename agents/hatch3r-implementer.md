@@ -28,6 +28,10 @@ The parent orchestrator provides:
 8. **Resolved requirements (optional)** — user's answers to `requirements-elicitation` questions. Provides explicit decisions on ambiguities so the implementer does not guess.
 9. **Blast radius (optional)** — enhanced `codebase-impact` output with transitive dependency trace and API consumer map. Informs which consumers and contracts must be preserved.
 
+## Reasoning Discipline
+
+Always explain your reasoning before acting. Before writing or modifying code, state what you are about to do and why. This applies to architectural decisions, implementation choices, deviation from conventions, and trade-off resolution. Visible reasoning enables better review, faster debugging, and higher-quality handoffs to downstream agents.
+
 ## Implementation Protocol
 
 ### 1. Read Inputs and Specs
@@ -157,6 +161,10 @@ Use the project's configured platform CLI (check `platform` in `.agents/hatch.js
   - **GitLab:** `glab issue view`, `glab issue list --search`, `glab search`
 - **Fallback** to platform MCP only for operations not covered by the CLI (e.g., sub-issue management, project field mutations).
 
+## Environment Variable Expansion
+
+MCP server env vars use `${env:VAR_NAME}` syntax in mcp.json. These are expanded at runtime by the tool adapter. When referencing environment variables in MCP configuration, use this syntax rather than shell-style `$VAR` or `%VAR%` notation. The adapter reads the variable from the host environment at server startup.
+
 ## Context7 MCP Usage
 
 - Use `resolve-library-id` then `query-docs` to look up current API patterns for frameworks and external dependencies.
@@ -166,6 +174,27 @@ Use the project's configured platform CLI (check `platform` in `.agents/hatch.js
 
 - Use web search for latest CVEs, security advisories, breaking changes, or novel error messages.
 - Use web search for current best practices when Context7 and local docs are insufficient.
+
+## Structured Reasoning
+
+Include structured reasoning in implementation reports when reporting decisions, trade-offs, or non-obvious choices:
+
+- **decision**: What was decided
+- **reasoning**: Why this decision was made
+- **confidence**: high / medium / low
+- **alternatives**: What other options were considered
+
+Example in an implementation result:
+
+```
+**Design Decision: Token-bucket over sliding-window rate limiter**
+- decision: Use token-bucket algorithm for rate limiting
+- reasoning: Token-bucket handles burst traffic better and is already used in src/middleware/throttle.ts, maintaining codebase consistency
+- confidence: high
+- alternatives: Sliding window (simpler but no burst support), fixed window (race conditions at boundaries)
+```
+
+Apply this format whenever the implementation involves choosing between approaches, deviating from conventions, or making trade-offs that the reviewer or orchestrator should understand.
 
 ## Boundaries
 

@@ -23,8 +23,7 @@ import {
 import { findPackageRoot } from "../shared/paths.js";
 import { detectPackageManager } from "../../detect/packageManager.js";
 import { generateIntegrityManifest, writeIntegrityManifest } from "../../integrity/index.js";
-import { buildContentIndex, buildSelectionsFromDisk, resolveSelection } from "../../content/index.js";
-import { getPreset } from "../../content/presets.js";
+import { buildSelectionsFromDisk } from "../../content/index.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONTENT_DIRS = ["agents", "commands", "rules", "skills", "prompts", "github-agents", "mcp", "hooks"];
@@ -105,9 +104,13 @@ export async function runUpdate(
     execFileSync(cmd, pm.updateArgs, { stdio: "pipe", timeout: 30_000, killSignal: "SIGTERM" });
     contentRoot = findPackageRoot(__dirname);
   } catch (err) {
+    const isTimeout = err && typeof err === "object" && ("killed" in err || "signal" in err);
+    const msg = isTimeout
+      ? "Package update timed out after 30s. Check network connectivity and retry."
+      : (err instanceof Error ? err.message : String(err));
     s0.fail(step(offset + 1, total, "Failed to update package"));
-    logError(err instanceof Error ? err.message : String(err));
-    throw new HatchError("Failed to update package", 1);
+    logError(msg);
+    throw new HatchError(msg, 1);
   }
   s0.succeed(step(offset + 1, total, "Package updated"));
 

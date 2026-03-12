@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import chalk from "chalk";
 import { readManifest } from "../../manifest/hatchJson.js";
@@ -12,6 +12,27 @@ import {
   error as logError,
   info,
 } from "../shared/ui.js";
+
+/** Recursively sum the byte size of all files under a directory. */
+async function dirCharCount(dir: string): Promise<number> {
+  let total = 0;
+  let entries: import("node:fs").Dirent[];
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+  for (const entry of entries) {
+    const fullPath = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      total += await dirCharCount(fullPath);
+    } else if (entry.isFile()) {
+      const info = await stat(fullPath);
+      total += info.size;
+    }
+  }
+  return total;
+}
 
 export async function statusCommand(): Promise<void> {
   printBanner(true);
@@ -76,6 +97,12 @@ export async function statusCommand(): Promise<void> {
   if (stats.missing > 0) {
     summaryLines.push(`${chalk.red("+")} Missing: ${stats.missing}`);
   }
+
+  // Estimate canonical token count from .agents/ directory size
+  const totalChars = await dirCharCount(agentsDir);
+  const estimatedTokens = Math.round(totalChars / 4);
+  const formattedTokens = estimatedTokens.toLocaleString("en-US");
+  summaryLines.push(`${chalk.dim("~")} Estimated canonical tokens: ~${formattedTokens}`);
 
   const style = stats.drifted > 0 || stats.missing > 0 ? "info" as const : "success" as const;
   printBox("Status", summaryLines, style);

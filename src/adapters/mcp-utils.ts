@@ -95,6 +95,21 @@ export function validateMcpEntry(
   return warnings;
 }
 
+// Server names must contain only alphanumeric characters, hyphens, and underscores.
+// Names with other special characters are rejected to prevent path traversal,
+// injection, or config key manipulation.
+const VALID_SERVER_NAME = /^[a-zA-Z0-9_-]+$/;
+
+export function validateServerName(name: string): string | null {
+  if (!VALID_SERVER_NAME.test(name)) {
+    return (
+      `MCP server name "${name}" contains invalid characters. ` +
+      `Only alphanumeric characters, hyphens, and underscores are allowed.`
+    );
+  }
+  return null;
+}
+
 function validateMcpConfig(
   parsed: unknown,
 ): parsed is { mcpServers: Record<string, McpServerEntry> } {
@@ -117,10 +132,17 @@ export async function readMcpConfig(
     const mcpRaw = await readFile(mcpPath, "utf-8");
     const parsed: unknown = JSON.parse(mcpRaw);
     if (validateMcpConfig(parsed)) {
+      const validServers: Record<string, McpServerEntry> = {};
       for (const [name, entry] of Object.entries(parsed.mcpServers)) {
+        const nameWarning = validateServerName(name);
+        if (nameWarning) {
+          warnings.push(nameWarning);
+          continue;
+        }
         warnings.push(...validateMcpEntry(name, entry));
+        validServers[name] = entry;
       }
-      return { servers: parsed.mcpServers, warnings };
+      return { servers: validServers, warnings };
     }
     return { servers: {}, warnings };
   } catch (err) {

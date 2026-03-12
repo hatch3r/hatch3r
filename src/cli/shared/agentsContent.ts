@@ -10,73 +10,49 @@ import { parseFrontmatter } from "../../adapters/canonical.js";
  * Ensures every platform receives inline orchestration guidance instead of relying solely
  * on "read /.agents/AGENTS.md" references.
  */
-export const BRIDGE_ORCHESTRATION = `## Universal Sub-Agent Pipeline
+export const BRIDGE_ORCHESTRATION = `## Sub-Agent Pipeline (mandatory, no exceptions)
 
-Every task — board-pickup, workflow command, plain chat, single-task, or multi-task — MUST use this four-phase sub-agent pipeline. There are NO exceptions. Never implement code inline; always delegate to sub-agents.
+All tasks use this four-phase pipeline. Never implement inline; always delegate.
 
-**Phase 1 — Research:** Spawn \`hatch3r-researcher\` for context gathering. Skip only for trivial single-line edits (typos, comment fixes, single-value config changes). Score task complexity per \`hatch3r-deep-context\` rule and add tier-appropriate modes (\`requirements-elicitation\`, \`similar-implementation\`) alongside standard task-type modes.
-
-**Phase 2 — Implement:** Spawn \`hatch3r-implementer\` for ALL code changes. One dedicated implementer per task. Never implement inline — always delegate. Include reference conventions, resolved requirements, and blast radius data from Phase 1 when available.
-
-**Phase 3 — Review Loop:**
-- 3a. Spawn \`hatch3r-reviewer\` to review the implementation.
-- 3b. If Critical or Warning findings: spawn \`hatch3r-fixer\` with the reviewer output.
-- 3c. Re-review: spawn \`hatch3r-reviewer\` on the fixed code.
-- 3d. Repeat 3b–3c until reviewer reports 0 Critical + 0 Warning, or max 3 iterations reached.
-- 3e. If max iterations reached with remaining findings: surface to user.
-
-**Phase 4 — Final Quality** (runs ONLY after review loop is clean):
-- \`hatch3r-test-writer\` — ALWAYS for code changes (mandatory, not just bugs)
-- \`hatch3r-security-auditor\` — ALWAYS for code changes (mandatory, not just area:security)
-- \`hatch3r-docs-writer\` — ALWAYS evaluate; spawn when changes affect APIs, architecture, or user-facing behavior
-- \`hatch3r-lint-fixer\` — when lint errors present after implementation
-- \`hatch3r-a11y-auditor\` — when UI/accessibility changes
-- \`hatch3r-perf-profiler\` — when performance-sensitive changes
-- \`hatch3r-dependency-auditor\` — when dependencies change
-
-For plain chat tasks without issue context: classify the task (bug/feature/refactor/QA), create synthetic issue context (title, acceptance criteria, type), then run the full pipeline above.
+**Phase 1 — Research:** Spawn \`hatch3r-researcher\`. Skip only for trivial edits. Score complexity per \`hatch3r-deep-context\` and add tier modes.
+**Phase 2 — Implement:** Spawn \`hatch3r-implementer\` (one per task). Pass research context.
+**Phase 3 — Review Loop:** \`hatch3r-reviewer\` → if Critical/Warning: \`hatch3r-fixer\` → re-review → repeat (max 3). After clean verdict: one confirmation pass (regressions, acceptance criteria). Remaining findings after max iterations → surface to user.
+**Phase 4 — Final Quality** (after clean review): \`hatch3r-test-writer\` + \`hatch3r-security-auditor\` (always), \`hatch3r-docs-writer\` (evaluate), then conditional: lint-fixer, a11y-auditor, perf-profiler, dependency-auditor.
 
 ## Mandatory Behaviors
 
-1. **Load the matching skill** before implementing any task. Read \`/.agents/skills/\` for the skill matching the task type (bug-fix, feature, refactor, qa-validation, etc.).
-2. **Use the Task tool** (\`subagent_type: "generalPurpose"\`) for all agent delegations. Launch as many independent subagents in parallel as the platform supports — no artificial concurrency limit.
-3. **Propagate rules to subagents**: include all \`scope: always\` rule directives in subagent prompts — subagents do not inherit the parent's rule context automatically.
-4. **Consult learnings**: check \`/.agents/learnings/\` for relevant pitfalls and patterns before implementation.
+1. **Load skill** from \`/.agents/skills/\` matching task type before implementation.
+2. **Task tool** (\`subagent_type: "generalPurpose"\`) for all delegations. Max parallelism.
+3. **Propagate rules**: include \`scope: always\` directives in subagent prompts.
+4. **Consult learnings**: check \`/.agents/learnings/\` before implementation.
 
 ## Agent Quick Reference
 
-| Agent | When to Use |
-|-------|-------------|
-| \`hatch3r-researcher\` | ALWAYS before implementation (skip only for trivial single-line edits) |
-| \`hatch3r-implementer\` | ALWAYS. One dedicated implementer per task — standalone, epic sub-issue, batch, or plain chat |
-| \`hatch3r-learnings-loader\` | When consulting project learnings or historical decisions |
-| \`hatch3r-reviewer\` | ALWAYS in review loop (Phase 3); reviews and re-reviews until clean |
-| \`hatch3r-fixer\` | When reviewer reports Critical or Warning findings (Phase 3 review loop) |
-| \`hatch3r-test-writer\` | ALWAYS for code changes (Phase 4 final quality) |
-| \`hatch3r-security-auditor\` | ALWAYS for code changes (Phase 4 final quality) |
-| \`hatch3r-docs-writer\` | ALWAYS evaluate; spawn when documentation impact exists (Phase 4 final quality) |
-| \`hatch3r-lint-fixer\` | When lint/type errors present after implementation |
-| \`hatch3r-a11y-auditor\` | When UI/accessibility changes |
-| \`hatch3r-architect\` | When making architectural decisions, designing APIs, or evaluating design trade-offs |
-| \`hatch3r-perf-profiler\` | When performance-sensitive changes |
-| \`hatch3r-dependency-auditor\` | When dependencies change |
-| \`hatch3r-ci-watcher\` | When CI fails |
-| \`hatch3r-context-rules\` | When establishing or updating project-specific coding patterns and conventions |
-| \`hatch3r-devops\` | When infrastructure, deployment, or CI/CD changes are needed |
+| Agent | When |
+|-------|------|
+| \`hatch3r-researcher\` | Always before impl (skip trivial edits) |
+| \`hatch3r-implementer\` | Always — one per task |
+| \`hatch3r-reviewer\` | Always (Phase 3 loop) |
+| \`hatch3r-fixer\` | Critical/Warning findings (Phase 3) |
+| \`hatch3r-test-writer\` | Always for code changes (Phase 4) |
+| \`hatch3r-security-auditor\` | Always for code changes (Phase 4) |
+| \`hatch3r-docs-writer\` | Evaluate; spawn if doc impact (Phase 4) |
+| \`hatch3r-lint-fixer\` | Lint/type errors after impl |
+| \`hatch3r-a11y-auditor\` | UI/accessibility changes |
+| \`hatch3r-architect\` | Architectural decisions, API design |
+| \`hatch3r-perf-profiler\` | Performance-sensitive changes |
+| \`hatch3r-dependency-auditor\` | Dependency changes |
+| \`hatch3r-ci-watcher\` | CI failures |
+| \`hatch3r-devops\` | Infra, deployment, CI/CD changes |
 
-See the \`hatch3r-agent-orchestration\` rule in \`/.agents/rules/\` for the full orchestration protocol.
+Full protocol: \`hatch3r-agent-orchestration\` rule in \`/.agents/rules/\`.
 
 ## Canonical Structure
 
-- Rules: \`/.agents/rules/\` (source of truth for all tool-specific rules)
-- Agents: \`/.agents/agents/\` (agent definitions)
-- Skills: \`/.agents/skills/\` (skill workflows)
-- Commands: \`/.agents/commands/\` (executable commands)
-- MCP: \`/.agents/mcp/mcp.json\` (MCP server configuration)
-- Policy: \`/.agents/policy/\` (guardrails and deny lists)
+- Rules: \`/.agents/rules/\` — Agents: \`/.agents/agents/\` — Skills: \`/.agents/skills/\`
+- Commands: \`/.agents/commands/\` — MCP: \`/.agents/mcp/mcp.json\` — Policy: \`/.agents/policy/\`
 
-Do not manually edit files with the \`hatch3r-\` prefix -- they are managed by hatch3r
-and will be overwritten on update. Create non-prefixed files for customizations.`;
+Do not edit \`hatch3r-\` prefixed files — managed by hatch3r, overwritten on update.`;
 
 export const AGENTS_MD_INNER = [
   "# Project Agent Instructions",

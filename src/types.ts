@@ -33,10 +33,12 @@ export interface HatchManifest {
   claude?: ClaudeConfig;
   /** Content selection from init. undefined = legacy "full" (backward compat). */
   content?: ContentSelection;
+  /** Detected project languages from repo analysis. */
+  languages?: string[];
   managedFiles: string[];
 }
 
-export const TOOLS = ["cursor", "copilot", "claude", "opencode", "windsurf", "amp", "codex", "gemini", "cline", "aider", "kiro", "goose", "zed"] as const;
+export const TOOLS = ["cursor", "copilot", "claude", "opencode", "windsurf", "amp", "codex", "gemini", "cline", "aider", "kiro", "goose", "zed", "amazon-q"] as const;
 export type Tool = (typeof TOOLS)[number];
 export const VALID_TOOLS = new Set<string>(TOOLS);
 export const TOOL_CHOICES = TOOLS.join(", ");

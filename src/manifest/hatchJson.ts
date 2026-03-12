@@ -49,6 +49,7 @@ export function createManifest(options: {
   features?: Partial<HatchManifest["features"]>;
   mcpServers?: string[];
   content?: ContentSelection;
+  languages?: string[];
 }): HatchManifest {
   const platform = options.platform ?? "github";
   const owner = options.owner ?? "";
@@ -70,6 +71,9 @@ export function createManifest(options: {
   };
   if (options.content) {
     manifest.content = options.content;
+  }
+  if (options.languages && options.languages.length > 0 && options.languages[0] !== "unknown") {
+    manifest.languages = options.languages;
   }
   if (options.defaultBranch) {
     manifest.board = createMinimalBoardConfig(owner, repo, options.defaultBranch);
@@ -163,7 +167,9 @@ export async function readManifest(
   const migrated = migrateManifest(parsed as Record<string, unknown>);
 
   if (!validateManifest(migrated)) {
-    return null;
+    throw new Error(
+      `Invalid manifest in ${manifestPath}: required fields missing or malformed. Run hatch3r init to regenerate.`,
+    );
   }
   return migrated;
 }

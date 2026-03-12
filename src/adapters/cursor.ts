@@ -10,6 +10,13 @@ import { readCanonicalFiles } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
 import { applyCustomization } from "./customization.js";
 
+/**
+ * The Cursor adapter generates .mdc files from .md canonical files by adding
+ * Cursor-specific frontmatter (description, globs/alwaysApply) and wrapping
+ * content in managed blocks. Rules get `alwaysApply: true` or `globs: [...]`
+ * based on their scope. Agents get `name`, `description`, `model`, `readonly`,
+ * and `background` frontmatter fields.
+ */
 function cursorRuleFrontmatter(rule: CanonicalFile, scopeOverride?: string): string {
   const scope = scopeOverride ?? rule.scope;
   const lines: string[] = [`description: ${rule.description}`];

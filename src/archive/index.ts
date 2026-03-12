@@ -37,6 +37,7 @@ const TOOL_PATH_PREFIXES: Record<Tool, string[]> = {
   opencode: ["opencode.json"],
   goose: [".goosehints"],
   zed: [".rules"],
+  "amazon-q": [".amazonq/"],
 };
 
 const PATH_PATTERNS: Array<{ pattern: RegExp; type: CustomizableType }> = [
@@ -168,7 +169,11 @@ export async function archiveToolOutputs(
     await mkdir(dirname(archiveDest), { recursive: true });
     await cp(absPath, archiveDest);
     // Verify the copy succeeded before removing the original
-    await stat(archiveDest);
+    const srcStat = await stat(absPath);
+    const destStat = await stat(archiveDest);
+    if (destStat.size !== srcStat.size) {
+      throw new Error(`Archive copy size mismatch for ${relPath}: source=${srcStat.size}, dest=${destStat.size}`);
+    }
     await rm(absPath);
     archivedFiles.push(relPath);
   }
@@ -214,4 +219,45 @@ export function getManagedFilesForTool(
   tool: Tool,
 ): string[] {
   return manifest.managedFiles.filter((f) => fileMatchesTool(f, tool));
+}
+
+const MAX_ARCHIVE_ENTRIES = 5;
+
+/**
+ * Prune old archive entries, keeping only the most recent MAX_ARCHIVE_ENTRIES per tool.
+ */
+export async function pruneArchives(rootDir: string): Promise<string[]> {
+  const archiveRoot = join(rootDir, ARCHIVE_DIR);
+  const pruned: string[] = [];
+
+  let toolDirs: string[];
+  try {
+    toolDirs = await readdir(archiveRoot);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw err;
+  }
+
+  for (const toolDir of toolDirs) {
+    const toolPath = join(archiveRoot, toolDir);
+    let entries: string[];
+    try {
+      const s = await stat(toolPath);
+      if (!s.isDirectory()) continue;
+      entries = await readdir(toolPath);
+    } catch {
+      continue;
+    }
+
+    // Sort descending (newest first) — timestamps are ISO-formatted
+    entries.sort((a, b) => b.localeCompare(a));
+
+    for (const entry of entries.slice(MAX_ARCHIVE_ENTRIES)) {
+      const entryPath = join(toolPath, entry);
+      await rm(entryPath, { recursive: true, force: true });
+      pruned.push(`${toolDir}/${entry}`);
+    }
+  }
+
+  return pruned;
 }

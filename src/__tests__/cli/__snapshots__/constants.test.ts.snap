@@ -101,6 +101,7 @@ exports[`data constants > PLATFORM_MCP_SERVER matches snapshot 1`] = `
 exports[`data constants > TOOL_DISPLAY_NAMES matches snapshot 1`] = `
 {
   "aider": "Aider",
+  "amazon-q": "Amazon Q",
   "amp": "Amp",
   "claude": "Claude Code",
   "cline": "Cline / Roo Code",
@@ -169,6 +170,10 @@ exports[`data constants > TOOL_PROMPT_CHOICES matches snapshot 1`] = `
   {
     "name": "Zed",
     "value": "zed",
+  },
+  {
+    "name": "Amazon Q",
+    "value": "amazon-q",
   },
 ]
 `;

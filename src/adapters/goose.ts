@@ -26,6 +26,20 @@ export class GooseAdapter extends BaseAdapter {
     }
 
     const inner = lines.join("\n");
-    return [output(".goosehints", wrapInManagedBlock(inner), inner)];
+    const results: AdapterOutput[] = [output(".goosehints", wrapInManagedBlock(inner), inner)];
+
+    const mcp = await this.readFilteredMcp(ctx);
+    if (mcp && Object.keys(mcp).length > 0) {
+      const entries = this.buildStdMcpEntries(mcp);
+      if (Object.keys(entries).length > 0) {
+        const gooseMcp: Record<string, unknown> = {};
+        for (const [name, entry] of Object.entries(entries)) {
+          gooseMcp[name] = entry;
+        }
+        results.push(output(".goose/mcp.json", JSON.stringify(gooseMcp, null, 2)));
+      }
+    }
+
+    return results;
   }
 }

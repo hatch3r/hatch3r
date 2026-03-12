@@ -242,4 +242,48 @@ You are a test agent.`,
       expect(configToml.content).not.toContain("disabled-server");
     });
   });
+
+  // ── Branch gap tests: empty features, no MCP, empty tools ──
+
+  it("generates only config.toml when all features are false and no MCP", async () => {
+    const manifest = makeManifest({
+      mcpServers: [],
+      features: {
+        agents: false,
+        skills: false,
+        rules: false,
+        commands: false,
+        mcp: false,
+        hooks: false,
+        prompts: false,
+        githubAgents: false,
+      },
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    expect(outputs.length).toBe(1);
+    expect(outputs[0]!.path).toBe(".codex/config.toml");
+    // config.toml should still reference the canonical file
+    expect(outputs[0]!.content).toContain(".agents/AGENTS.md");
+    // No MCP, no agent sections, no rule references
+    expect(outputs[0]!.content).not.toContain("[mcp_servers.");
+    expect(outputs[0]!.content).not.toContain("[agents.");
+  });
+
+  it("does not include MCP section when servers list is empty", async () => {
+    const manifest = makeManifest({ mcpServers: [] });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const configToml = outputs.find((o) => o.path === ".codex/config.toml")!;
+    expect(configToml.content).not.toContain("[mcp_servers.");
+  });
+
+  it("produces no empty content in any output", async () => {
+    const manifest = makeManifest();
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    for (const o of outputs) {
+      expect(o.content.length).toBeGreaterThan(0);
+    }
+  });
 });

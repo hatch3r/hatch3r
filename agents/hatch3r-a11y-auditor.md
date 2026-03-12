@@ -39,12 +39,14 @@ Browser verification provides ground-truth confirmation that cannot be achieved 
 
 ## Standards to Enforce
 
+Follow the full accessibility standards defined in `.agents/rules/hatch3r-accessibility-standards.md` (WCAG 2.2 AA compliance, keyboard navigation, focus management, color/contrast, screen reader support, ARIA patterns, motion, forms). Summary of key thresholds:
+
 | Requirement         | Standard | Details                                                          |
 | ------------------- | -------- | ---------------------------------------------------------------- |
-| Reduced motion      | WCAG 2.1 | All animations respect `prefers-reduced-motion` and user setting |
-| Color contrast      | WCAG AA  | Text contrast ratio ≥ 4.5:1                                      |
-| Keyboard navigation | WCAG 2.1 | All interactive elements focusable with visible focus indicator  |
-| Screen reader       | WCAG 2.1 | Dynamic state announced via `aria-live` regions                  |
+| Reduced motion      | WCAG 2.2 | All animations respect `prefers-reduced-motion` and user setting |
+| Color contrast      | WCAG AA  | Text contrast ratio >= 4.5:1, non-text >= 3:1                   |
+| Keyboard navigation | WCAG 2.2 | All interactive elements focusable with visible focus indicator  |
+| Screen reader       | WCAG 2.2 | Dynamic state announced via `aria-live` regions                  |
 | High contrast mode  | Custom   | User-configurable high contrast theme supported                  |
 
 ## Commands

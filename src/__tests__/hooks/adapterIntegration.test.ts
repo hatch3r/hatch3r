@@ -81,10 +81,12 @@ describe("CursorAdapter hooks integration", () => {
     const hookRules = outputs.filter((o) =>
       o.path.startsWith(".cursor/rules/hatch3r-hook-"),
     );
-    expect(hookRules.length).toBe(2);
+    expect(hookRules.length).toBe(4);
 
     const ids = hookRules.map((r) => r.path).sort();
     expect(ids).toEqual([
+      ".cursor/rules/hatch3r-hook-ci-failure-label-handler.mdc",
+      ".cursor/rules/hatch3r-hook-post-merge-deploy.mdc",
       ".cursor/rules/hatch3r-hook-pre-commit-lint-fixer.mdc",
       ".cursor/rules/hatch3r-hook-session-start-ci-watcher.mdc",
     ]);

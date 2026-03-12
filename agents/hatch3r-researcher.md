@@ -1001,6 +1001,38 @@ Use the project's configured platform CLI (check `platform` in `.agents/hatch.js
 - Use web search for current best practices when Context7 and local docs are insufficient.
 - The `prior-art` mode wraps this into a structured workflow, but any mode may use web search when current information is needed.
 
+## Structured Reasoning
+
+Include structured reasoning in research findings when reporting conclusions, assessments, or recommendations that involve judgment:
+
+- **decision**: What was decided or concluded
+- **reasoning**: Why this conclusion was reached
+- **confidence**: high / medium / low
+- **alternatives**: What other interpretations or options were considered
+
+Example in a research finding:
+
+```
+**Assessment: Recommend WebSocket over SSE for real-time notifications**
+- decision: Use WebSocket (ws library) for bidirectional real-time communication
+- reasoning: The notification system requires server-to-client push AND client acknowledgment — SSE is unidirectional and would require a separate POST endpoint for acks, adding complexity
+- confidence: high
+- alternatives: SSE + POST (simpler setup but two transport layers), long polling (higher latency, more server load)
+```
+
+Apply this format whenever research findings involve trade-off analysis, risk assessment, architectural recommendations, or when the evidence supports multiple valid interpretations.
+
+## Agent Size and Split Guidance
+
+This agent file is large (~1,000+ lines) because it serves as a composable mode library. The current design is intentional: all modes share a single research protocol, tooling hierarchy, and structured output contract. Splitting individual modes into separate agents would break the composability that allows a single researcher invocation to execute multiple modes.
+
+**When to split:** If this file exceeds ~1,500 lines (e.g., due to new mode additions), consider extracting mode groups into companion agents:
+- `hatch3r-codebase-mapper` -- modes `codebase-impact`, `current-state`, `boundary-analysis` (codebase structure analysis)
+- `hatch3r-test-planner` -- modes `coverage-analysis`, `complexity-risk`, `test-pattern`, `risk-prioritization` (test planning research)
+- `hatch3r-researcher` retains the core protocol, general modes (`feature-design`, `architecture`, `risk-assessment`, `library-docs`, `prior-art`, `requirements-elicitation`, `similar-implementation`), and delegates to companion agents when codebase-mapping or test-planning modes are requested.
+
+Each companion agent would share the same research protocol preamble and tooling hierarchy sections.
+
 ## Boundaries
 
 - **Always:** Follow the tooling hierarchy (project docs → codebase → Context7 → web research). Use the platform CLI (check `platform` in `.agents/hatch.json`). Stay within the research brief's scope. Produce structured output matching the mode's specification. Report BLOCKED if the brief is ambiguous or contradictory.

@@ -12,6 +12,19 @@ export function assertSafePath(relativePath: string, label: string): void {
   }
 }
 
+// ── Content Cross-References ───────────────────────────────────
+//
+// Content items may reference each other across types. For example:
+// - Agents reference rules (e.g., hatch3r-implementer references hatch3r-code-standards)
+// - Skills reference agents (e.g., hatch3r-bug-fix skill delegates to hatch3r-researcher)
+// - Commands reference agents and skills (e.g., hatch3r-roadmap spawns hatch3r-researcher)
+// - Rules reference other rules (e.g., hatch3r-agent-orchestration references hatch3r-deep-context)
+//
+// Currently these cross-references are implicit (embedded in markdown content). A future
+// improvement could add a cross-reference validation pass to buildContentIndex() that parses
+// content bodies for references to other content IDs and verifies all referenced IDs exist
+// in the index. This would catch broken references when content items are renamed or removed.
+
 // ── Types ──────────────────────────────────────────────────────
 
 export interface CatalogItem {
@@ -139,6 +152,12 @@ export async function buildContentIndex(contentRoot: string): Promise<ContentInd
   for (const item of items) {
     if (!byType[item.type]) byType[item.type] = [];
     byType[item.type].push(item);
+    const existing = byId.get(item.id);
+    if (existing && existing.type !== item.type) {
+      console.warn(
+        `[hatch3r] Content ID collision: "${item.id}" exists as both ${existing.type} and ${item.type}. The ${item.type} entry will shadow the ${existing.type} entry in ID lookups.`,
+      );
+    }
     byId.set(item.id, item);
   }
 

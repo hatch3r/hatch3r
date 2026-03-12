@@ -133,12 +133,12 @@ jobs:
         if (server.args) entry.args = server.args;
         if (server.url) entry.url = server.url;
         if (server.env) entry.env = server.env;
-        if (server.command) {
-          entry.envFile = "${workspaceFolder}/.env.mcp";
+        if (server.command && server.env && Object.keys(server.env).length > 0) {
+          entry.env = server.env;
         }
         vscodeServers[name] = entry;
       }
-      results.push(output(".vscode/mcp.json", JSON.stringify({ mcpServers: vscodeServers }, null, 2) + "\n"));
+      results.push(output(".vscode/mcp.json", JSON.stringify({ servers: vscodeServers }, null, 2) + "\n"));
     }
 
     return results;

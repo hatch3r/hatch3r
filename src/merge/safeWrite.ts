@@ -6,6 +6,7 @@ import {
   copyFile,
   rename,
   unlink,
+  open,
 } from "node:fs/promises";
 import { join, dirname, basename } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -27,7 +28,24 @@ export async function atomicWriteFile(filePath: string, content: string): Promis
   const tmpPath = filePath + ".tmp." + randomBytes(4).toString("hex");
   try {
     await writeFile(tmpPath, content, "utf-8");
-    await rename(tmpPath, filePath);
+    const fh = await open(tmpPath, "r");
+    try {
+      await fh.datasync();
+    } finally {
+      await fh.close();
+    }
+    try {
+      await rename(tmpPath, filePath);
+    } catch (err) {
+      // Retry once for Windows AV locks (EBUSY/EPERM)
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === "EBUSY" || code === "EPERM") {
+        await new Promise((r) => setTimeout(r, 100));
+        await rename(tmpPath, filePath);
+      } else {
+        throw err;
+      }
+    }
   } finally {
     try {
       await unlink(tmpPath);
@@ -102,13 +120,14 @@ export async function safeWriteFile(
       merged = insertManagedBlock(existingContent, options.managedContent);
     } catch {
       // Managed block is corrupted (duplicate markers, wrong order, etc.).
-      // Auto-repair by overwriting with the correct content; the file is under
-      // version control so any user additions outside the block are recoverable.
+      // Create a backup before overwriting so user additions are preserved locally,
+      // not just in version control.
+      const backup = await createBackup(filePath);
       await atomicWriteFile(filePath, content);
       return {
         path: filePath,
         action: "updated",
-        warning: `Auto-repaired corrupted managed block in ${filePath}`,
+        warning: `Auto-repaired corrupted managed block in ${filePath} (backup: ${backup})`,
       };
     }
     const result = await writeWithBackup(filePath, merged, !!options.backup);

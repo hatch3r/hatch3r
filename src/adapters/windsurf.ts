@@ -46,7 +46,7 @@ export class WindsurfAdapter extends BaseAdapter {
         const globScope = (trigger === "glob_pattern" && scope)
           ? (isGlobPattern(scope) ? scope : `${scope}/**`)
           : undefined;
-        const fm = `<!-- trigger: ${trigger}${globScope ? `, globs: ${globScope}` : ""} -->`;
+        const fm = `---\ntrigger: ${trigger}${globScope ? `\nglobs: "${globScope}"` : ""}\n---`;
         const desc = overrides.description ?? rule.description;
         const body = `# ${rule.id}\n\n${desc}\n\n${content}`;
         results.push(output(`.windsurf/rules/${toPrefixedId(rule.id)}.md`, `${fm}\n\n${wrapInManagedBlock(body)}`, body));

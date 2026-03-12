@@ -75,6 +75,80 @@ All notable changes to hatch3r are documented in this file.
 - Statement/line coverage: 77.54% → 90.5% (threshold: 80%)
 - Total test count: 543 → 786
 
+### Audit Execution (103/104 findings resolved — score 79→95)
+
+#### Added
+- Amazon Q adapter — 14th platform adapter (`.amazonq/rules/`, `.amazonq/settings.json`)
+- Kiro hook emission via steering file (`.kiro/steering/hatch3r-hooks.md`)
+- Goose MCP config emission in `.goosehints`
+- MCP setup guide (`website/docs/guides/mcp-setup.md`)
+- Adapter depth strategy document (`website/docs/reference/architecture/`)
+- Audit domain reports and execution templates (`audit/`)
+- Migration checkpoint tests, malformed manifest tests (+65 tests total, 786→851)
+- Hook condition fixtures (labels/branches)
+- Base adapter error path and branch coverage tests
+- Structured reasoning sections in implementer, reviewer, researcher agents
+- Provenance tracking and confidence levels for learnings consumption
+- Learnings dispute/correction workflow
+- Token budget estimation in `hatch3r status`
+- Non-JS monorepo markers (Cargo workspaces, Go workspaces, Gradle multi-project, Pants)
+- Detected languages stored in manifest for tag filtering
+- Content ID collision warnings in content index
+- Archive pruning (max 5 entries per tool)
+- MCP server name allowlist validation
+
+#### Fixed
+- `atomicWriteFile` now calls `fdatasync()` before rename for power-loss safety
+- `atomicWriteFile` retries once on `EBUSY`/`EPERM` (Windows AV lock) with 100ms delay
+- Managed block auto-repair now creates backup before overwriting
+- Deny pattern replacement uses global regex (was only replacing first match)
+- Customization input normalized: homoglyphs, boundary markers, zero-width chars, multi-line collapse
+- Copilot MCP config key changed from `mcpServers` to `servers`
+- Copilot envFile replaced with env object
+- Windsurf trigger format corrected to YAML frontmatter
+- OpenCode schema URL corrected (`config-schema.json` → `config.json`)
+- Claude `teammateMode` updated to documented values
+- Aider adapter now uses managed block support
+- `unhandledRejection` handler prevents raw stack trace crashes
+- Manifest validation now throws descriptive error (was silently returning null)
+- Update timeout now shows timeout-specific message via `err.killed`/`err.signal` check
+- Exit code 2 for usage/argument errors (POSIX convention)
+- Signal handler drains stdout/stderr before exit
+- Error messages include help URL (`https://hatch3r.dev/docs/troubleshooting`)
+- `runInit` refactored from 12 positional params to `RunInitOptions` interface
+- Warning array no longer reset on adapter `generate()` error
+- npm pinned to `npm@11.5.1` in release workflow
+- Release workflow adds `environment: npm-publish` protection
+- Lockfile version synced to match package.json
+
+#### Security
+- HMAC integrity replaced with SHA-256 content-addressed hashing
+- Greek-to-Latin homoglyph mappings added (~20 codepoints)
+- Boundary marker spoofing blocked (strips `MANAGED-BLOCK:*` and `USER-CUSTOMIZATION:*` markers)
+- MCP filesystem scope narrowed to exclude `.env.mcp`
+- `npx -y` guidance expanded in security patterns
+- Integrity manifest documents guarantees and limitations (no signing caveat)
+- Structural verification heuristic for rule propagation to sub-agents
+- Circuit breaker tracking (CLOSED/OPEN/HALF-OPEN states)
+
+#### Changed
+- Bridge orchestration minimized from ~2,500 to ~500 tokens
+- Tiered rule inclusion per agent phase role
+- PipelineContext schema with correlation IDs and phase handoffs
+- Confirmation pass after clean reviewer verdict (non-determinism mitigation)
+- Per-task review within multi-task batches
+- Research completeness check before implementer handoff
+- Canonical severity mapping across agent families
+- Stall detection for oscillating fix-break cycles
+- Blast radius summary passed from Phase 1 to specialists
+- OTel span naming updated to `invoke_agent {gen_ai.agent.name}`
+- Adapter capability matrix version updated to v1.2.0
+- Kiro removed from Intentional Omissions in capability matrix
+- Status codes standardized to SUCCESS/PARTIAL/BLOCKED
+- 5 missing rules added to reference docs page
+- Introduction file tree updated to show all adapter outputs
+- Quick Start MCP server listing expanded
+
 ## [1.1.0] - 2026-03-05
 
 ### Added

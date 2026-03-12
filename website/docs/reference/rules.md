@@ -11,11 +11,15 @@ Persistent instructions (coding standards, conventions, patterns) that are alway
 
 | Rule | Description |
 |------|-------------|
+| **accessibility-standards** | Accessibility standards covering WCAG 2.2 AA compliance, keyboard navigation, screen readers, and ARIA patterns. |
 | **agent-orchestration** | Agent delegation patterns, sub-agent spawning conventions, result aggregation, and multi-agent coordination protocols. |
 | **api-design** | Endpoint versioning, request validation, idempotency keys, structured error responses, auth, CORS, CSP, pagination, and webhook security. |
 | **browser-verification** | When and how to verify UI changes in the browser via automation MCP -- dev server lifecycle, navigation, interaction, visual regression, screenshot evidence. |
+| **ci-cd** | CI/CD pipeline standards covering stage gates, deployment strategies, and rollback procedures. |
 | **code-standards** | TypeScript strict mode, naming conventions (`camelCase`/`PascalCase`/`SCREAMING_SNAKE`), and function/file length limits. |
 | **component-conventions** | Component structure, typed props/emits, design tokens, WCAG AA accessibility, loading/error/empty states, form UX, and 60fps render targets. |
+| **data-classification** | Data classification standards covering PII handling, encryption, retention policies, and regulatory compliance. |
+| **deep-context** | Adaptive pre-implementation analysis -- complexity scoring, requirements elicitation, similar implementation discovery, and transitive dependency tracing before coding. |
 | **dependency-management** | Lockfile hygiene, new-dependency justification, CVE patching timelines (48h for critical), and bundle size budgets. |
 | **feature-flags** | Flag naming (`FF_AREA_FEATURE`), storage, evaluation, gradual rollout, dependencies, kill switches, 30-day cleanup deadlines, and audit. |
 | **git-conventions** | Git workflow, branch naming, commit message conventions, and merge strategy. |
@@ -24,6 +28,7 @@ Persistent instructions (coding standards, conventions, patterns) that are alway
 | **migrations** | Backward-compatible schema changes, idempotent scripts, rollback plans, and deploy-then-migrate ordering. |
 | **observability** | Structured JSON logging, OpenTelemetry, SLO/SLI, distributed tracing, alerting, dashboards, and no PII in logs. |
 | **performance-budgets** | Core Web Vitals, API latency, database query budgets, bundle size, and enforcement mechanisms. |
+| **secrets-management** | Secret management, rotation, and secure handling patterns for the project. |
 | **security-patterns** | Input validation, output encoding, auth enforcement, AI/agentic security, and OWASP alignment. |
 | **testing** | Deterministic, isolated, fast tests with clear naming, regression coverage, no network in unit tests, no `any`. |
 | **theming** | Dark mode, `prefers-color-scheme`, CSS custom properties, and semantic color tokens. |

@@ -30,13 +30,15 @@ async function detectLanguages(rootDir: string): Promise<string[]> {
     typescript: ["tsconfig.json", "tsconfig.base.json"],
     javascript: ["jsconfig.json"],
     python: ["pyproject.toml", "setup.py", "requirements.txt", "Pipfile"],
-    rust: ["Cargo.toml"],
-    go: ["go.mod"],
+    rust: ["Cargo.toml", "Cargo.lock"],
+    go: ["go.mod", "go.sum"],
     java: ["pom.xml", "build.gradle"],
     kotlin: ["build.gradle.kts"],
     ruby: ["Gemfile"],
     php: ["composer.json"],
     swift: ["Package.swift"],
+    dart: ["pubspec.yaml"],
+    elixir: ["mix.exs"],
   };
 
   for (const [lang, files] of Object.entries(indicators)) {
@@ -69,6 +71,7 @@ async function detectMonorepo(rootDir: string): Promise<boolean> {
   if (await pathExists(join(rootDir, "lerna.json"))) return true;
   if (await pathExists(join(rootDir, "nx.json"))) return true;
   if (await pathExists(join(rootDir, "turbo.json"))) return true;
+  if (await pathExists(join(rootDir, "pants.toml"))) return true;
 
   try {
     const pkgJson = await readFile(join(rootDir, "package.json"), "utf-8");
@@ -100,6 +103,7 @@ const TOOL_INDICATORS: { tool: Tool; paths: string[] }[] = [
   { tool: "kiro", paths: [".kiro"] },
   { tool: "goose", paths: [".goosehints", ".goose"] },
   { tool: "zed", paths: [".rules"] },
+  { tool: "amazon-q", paths: [".amazonq"] },
 ];
 
 async function detectExistingTools(rootDir: string): Promise<Tool[]> {

@@ -3,6 +3,7 @@ import { wrapInManagedBlock } from "../merge/managedBlocks.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
 import { readCanonicalFiles } from "./canonical.js";
 import { applyCustomization } from "./customization.js";
+import type { HookEvent } from "../hooks/types.js";
 
 function steeringFrontmatter(globs?: string): string {
   if (!globs) return "";
@@ -43,6 +44,23 @@ export class KiroAdapter extends BaseAdapter {
     results.push(
       ...await this.processSkillsRaw(ctx, (id) => `.kiro/steering/hatch3r-skill-${id}.md`),
     );
+
+    const hooks = await this.readHooks(ctx);
+    if (hooks.length > 0) {
+      const hookLines: string[] = ["# Hatch3r Hooks", ""];
+      for (const hook of hooks) {
+        hookLines.push(`## ${hook.id}`, "");
+        hookLines.push(`**Event:** ${hook.event}`);
+        hookLines.push(`**Agent:** ${hook.agent}`);
+        hookLines.push(`**Description:** ${hook.description}`);
+        if (hook.condition?.globs) {
+          hookLines.push(`**Globs:** ${hook.condition.globs.join(", ")}`);
+        }
+        hookLines.push("");
+      }
+      const hookContent = hookLines.join("\n");
+      results.push(output(".kiro/steering/hatch3r-hooks.md", wrapInManagedBlock(hookContent), hookContent));
+    }
 
     const mcp = await this.readFilteredMcp(ctx);
     if (mcp && Object.keys(mcp).length > 0) {

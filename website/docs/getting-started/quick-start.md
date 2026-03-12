@@ -22,7 +22,7 @@ That's it. hatch3r detects your repo, asks which tools you use, and generates ev
 3. **Asks about your project** -- greenfield (new) or brownfield (existing), solo or team
 4. **Asks which content profile** -- Minimal, Standard (recommended), Full, or Custom
 5. **Asks which tools** -- select from Cursor, Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline, Aider, Kiro, Goose, Zed
-6. **Asks about MCP servers** -- optionally configure GitHub, Context7, Filesystem, Playwright, Brave Search
+6. **Asks about MCP servers** -- choose from 10 servers: Playwright, Context7, Filesystem (default); GitHub, Azure DevOps, GitLab, Brave Search, Sentry, Postgres, Linear (opt-in)
 7. **Generates canonical source** -- creates `.agents/` with only the selected agents, skills, rules, and commands
 8. **Generates tool configs** -- adapts canonical source to native formats for each selected tool
 9. **Creates `.env.mcp`** -- secret placeholder file (gitignored) for MCP server credentials

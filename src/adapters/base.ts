@@ -49,21 +49,34 @@ export abstract class BaseAdapter implements Adapter {
   abstract readonly name: string;
   warnings: string[] = [];
 
+  /**
+   * Generate adapter output files from canonical content.
+   *
+   * Output structure contract -- each AdapterOutput returned MUST satisfy:
+   * - `path` must be a valid relative path (no absolute paths, no leading `/`)
+   * - `path` must not traverse upward (no `..` segments)
+   * - `content` must be non-empty (zero-length content indicates a generation bug)
+   * - `managedContent`, if present, must be a substring of `content` (it represents
+   *   the hatch3r-managed portion within the full file content)
+   *
+   * Adapters that violate these invariants will produce broken output files or
+   * corrupt user content during the merge phase.
+   */
   async generate(agentsDir: string, manifest: HatchManifest): Promise<AdapterOutput[]> {
     this.warnings = [];
-    try {
-      return await this.doGenerate({
-        agentsDir,
-        manifest,
-        features: manifest.features,
-        projectRoot: dirname(agentsDir),
-      });
-    } catch (err) {
-      this.warnings = [];
-      throw err;
-    }
+    return this.doGenerate({
+      agentsDir,
+      manifest,
+      features: manifest.features,
+      projectRoot: dirname(agentsDir),
+    });
   }
 
+  /**
+   * Returns the list of output file paths this adapter would produce.
+   * Override in subclasses for a lightweight implementation that avoids
+   * full content generation when only paths are needed.
+   */
   async getOutputPaths(agentsDir: string, manifest: HatchManifest): Promise<string[]> {
     const outputs = await this.generate(agentsDir, manifest);
     return outputs.map((o) => o.path);

@@ -1,6 +1,7 @@
 import type { HatchManifest, Tool } from "../types.js";
 import type { Adapter } from "./base.js";
 import { AiderAdapter } from "./aider.js";
+import { AmazonQAdapter } from "./amazonq.js";
 import { AmpAdapter } from "./amp.js";
 import { ClaudeAdapter } from "./claude.js";
 import { ClineAdapter } from "./cline.js";
@@ -28,6 +29,7 @@ const adapters: Record<Tool, Adapter> = {
   kiro: new KiroAdapter(),
   goose: new GooseAdapter(),
   zed: new ZedAdapter(),
+  "amazon-q": new AmazonQAdapter(),
 };
 
 export function getAdapter(tool: Tool): Adapter {
@@ -49,19 +51,24 @@ interface AdapterCapability {
   githubAgents: boolean;
 }
 
+// Adapter capability matrix — last updated for hatch3r v1.2.0.
+// Review this matrix when adding new adapters, removing adapters, or when
+// an existing tool gains/loses support for a feature (e.g. a tool ships
+// native hook support). Each row must match the adapter's doGenerate() output.
 const ADAPTER_CAPABILITIES: Record<Tool, AdapterCapability> = {
   cursor:   { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false },
   claude:   { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false },
   gemini:   { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false },
   cline:    { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false },
-  codex:    { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false },
+  codex:      { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false },
+  "amazon-q": { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false },
   copilot:  { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: true,  prompts: true,  githubAgents: true  },
   opencode: { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: true,  prompts: false, githubAgents: false },
   windsurf: { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: true,  prompts: false, githubAgents: false },
   amp:      { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false },
-  kiro:     { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false },
+  kiro:     { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: false, prompts: false, githubAgents: false },
   aider:    { agents: true, skills: true, rules: true, hooks: false, mcp: false, commands: false, prompts: false, githubAgents: false },
-  goose:    { agents: true, skills: true, rules: true, hooks: false, mcp: false, commands: false, prompts: false, githubAgents: false },
+  goose:    { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false },
   zed:      { agents: true, skills: false, rules: true, hooks: false, mcp: false, commands: false, prompts: false, githubAgents: false },
 };
 
@@ -90,6 +97,7 @@ export function getUnsupportedFeatureWarnings(tool: string, manifest: HatchManif
 }
 
 export { AiderAdapter } from "./aider.js";
+export { AmazonQAdapter } from "./amazonq.js";
 export { AmpAdapter } from "./amp.js";
 export { ClaudeAdapter } from "./claude.js";
 export { ClineAdapter } from "./cline.js";

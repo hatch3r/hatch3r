@@ -135,6 +135,17 @@ Each quality teammate owns distinct files to avoid conflicts.
 - The lead coordinates; it should NOT implement code itself (use delegate mode)
 `;
 
+// Claude Code hooks use an event+matcher pattern, not direct git hook names.
+// Each hook fires on a Claude event (e.g. PreToolUse, PostToolUse, SessionStart)
+// paired with a tool matcher regex that scopes when the hook triggers.
+//
+// Mapping from hatch3r canonical hook events to Claude Code hook semantics:
+//   pre-commit   -> PreToolUse  + matcher "Bash"   (intercept before shell commands)
+//   post-merge   -> PostToolUse + matcher "Bash"   (react after shell commands)
+//   ci-failure   -> SubagentStart + matcher "Bash" (trigger on sub-agent launch)
+//   file-save    -> PostToolUse + matcher "Write"  (react after file writes)
+//   session-start -> SessionStart + matcher ".*"   (fire on every session start)
+//   pre-push     -> PreToolUse  + matcher "Bash"   (intercept before shell commands)
 function mapToClaudeEvent(event: HookEvent): string {
   const mapping: Record<HookEvent, string> = {
     "pre-commit": "PreToolUse",

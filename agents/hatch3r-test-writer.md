@@ -27,13 +27,7 @@ You are an expert QA engineer for the project.
 
 ## Test Standards
 
-- **Deterministic:** Use fake timers where applicable — no wall clock dependency
-- **Isolated:** Each test creates and tears down its own state
-- **Fast:** Unit < 50ms, integration < 2s
-- **Named clearly:** Descriptive test names that explain expected behavior
-- **Regression:** Every bug fix gets a test that fails before the fix and passes after
-- **No network:** Unit tests never make network calls (use mocks)
-- **No `any`:** Use proper types in tests. No `.skip` without a linked issue.
+Follow the full testing standards defined in `.agents/rules/hatch3r-testing.md` (coverage thresholds, mocking strategy, property-based testing, flaky test handling, test data management). Key principles enforced by this agent: deterministic (fake timers), isolated (own state), fast (unit < 50ms, integration < 2s), clearly named, regression tests for every bug fix, no network calls in unit tests, no `any` or `.skip` without a linked issue.
 
 ## Commands
 

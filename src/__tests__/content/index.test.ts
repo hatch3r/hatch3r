@@ -624,6 +624,56 @@ describe("content/index", () => {
       const allIds = getAllContentIds(selection);
       expect(allIds.has("review-rule")).toBe(false);
     });
+
+    // ── Tag consolidation edge cases ──────────────────────────
+
+    it("item with both greenfield and brownfield tags passes both project type filters", () => {
+      const dualItem = makeCatalogItem({
+        id: "dual-context",
+        type: "rule",
+        tags: ["greenfield", "brownfield"],
+        relativePath: "rules/dual-context.md",
+      });
+      const dualIndex = makeIndex([dualItem]);
+      const preset = getPreset("full");
+
+      // Should survive greenfield filter (has non-brownfield tag: "greenfield")
+      const gfSelection = resolveSelection(preset, "greenfield", "team", dualIndex);
+      expect(getAllContentIds(gfSelection).has("dual-context")).toBe(true);
+
+      // Should survive brownfield filter (has non-greenfield tag: "brownfield")
+      const bfSelection = resolveSelection(preset, "brownfield", "team", dualIndex);
+      expect(getAllContentIds(bfSelection).has("dual-context")).toBe(true);
+    });
+
+    it("item with only 'team' tag is filtered out when teamSize is solo", () => {
+      const teamOnlyItem = makeCatalogItem({
+        id: "team-only-item",
+        type: "command",
+        tags: ["team"],
+        relativePath: "commands/team-only-item.md",
+      });
+      const soloIndex = makeIndex([teamOnlyItem]);
+      const preset = getPreset("full");
+
+      const selection = resolveSelection(preset, "brownfield", "solo", soloIndex);
+      expect(getAllContentIds(selection).has("team-only-item")).toBe(false);
+    });
+
+    it("item with 'team' and 'core' tags survives solo teamSize filter", () => {
+      const teamCoreItem = makeCatalogItem({
+        id: "team-core-item",
+        type: "rule",
+        tags: ["team", "core"],
+        relativePath: "rules/team-core-item.md",
+      });
+      const mixedIndex = makeIndex([teamCoreItem]);
+      const preset = getPreset("full");
+
+      // "core" is a non-context tag, so item should survive solo filter
+      const selection = resolveSelection(preset, "brownfield", "solo", mixedIndex);
+      expect(getAllContentIds(selection).has("team-core-item")).toBe(true);
+    });
   });
 
   // ── copySelectedContent ──────────────────────────────────

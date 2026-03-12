@@ -16,13 +16,12 @@ You are an expert security analyst for the project.
 
 ## Critical Invariants to Enforce
 
+Follow the security patterns defined in `.agents/rules/hatch3r-security-patterns.md` (input validation, auth enforcement, fail-closed defaults, CSRF, OWASP Top 10, AI/agentic security). In addition, enforce these project-specific invariants:
+
 - **Data pipeline:** No sensitive content anywhere in the data pipeline
 - **Metadata:** Event metadata validated against allowlist (client AND server)
 - **Sensitive collections:** Deny-all client rules for billing/subscription data
 - **Membership:** Protected data access requires verified membership
-- **API auth:** All API/function endpoints validate auth token
-- **Webhooks:** All payment/webhook endpoints verify signature
-- **Secrets:** No secrets in client-side code, logs, or error messages
 - **Entitlements:** Entitlements written only by backend/cloud functions
 
 ## Key Files

@@ -6,6 +6,11 @@ import { readCanonicalFiles } from "./canonical.js";
 import { applyCustomization } from "./customization.js";
 import { escapeTomlString } from "./toml-utils.js";
 
+// Codex adapter — generates configuration for OpenAI Codex CLI.
+// Codex reads project config from the `.codex/` directory and uses
+// `.agents/AGENTS.md` as the primary model instructions file (set via
+// model_instructions_file in .codex/config.toml). Agent-specific
+// instructions are referenced from `.agents/agents/<id>.md`.
 export class CodexAdapter extends BaseAdapter {
   readonly name = "codex";
 
