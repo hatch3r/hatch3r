@@ -11,6 +11,43 @@ How to connect hatch3r's MCP servers and manage secrets securely.
 
 hatch3r ships with 10 MCP servers: 3 enabled by default (no env vars required) and 7 opt-in servers (GitHub, Brave Search, Sentry, Postgres, Linear, Azure DevOps, GitLab). All secrets are centralized in a single `.env.mcp` file at the project root (gitignored by default). MCP configs use `${env:VAR}` placeholders so you never commit secrets.
 
+## Supported MCP Servers
+
+hatch3r supports 10 MCP servers. Three are enabled by default (no API keys required) and seven are opt-in (require environment variables).
+
+**Default servers (no configuration needed):**
+
+| Server | Description |
+|--------|-------------|
+| **Playwright** | Browser automation, web testing, and UI interaction |
+| **Context7** | Up-to-date, version-specific library documentation for LLMs |
+| **Filesystem** | File management and code editing operations |
+
+**Opt-in servers (require API keys):**
+
+| Server | Description | Required env vars |
+|--------|-------------|-------------------|
+| **GitHub** | Repository management, code review, issues, PRs, and project boards | `GITHUB_PAT` |
+| **Azure DevOps** | Work items, repos, pipelines, and boards | `AZURE_DEVOPS_PAT`, `AZURE_DEVOPS_ORG` |
+| **GitLab** | Issues, merge requests, pipelines, and project management | `GITLAB_TOKEN` |
+| **Brave Search** | Web research, fact-checking, and current information retrieval | `BRAVE_API_KEY` |
+| **Sentry** | Error tracking and performance monitoring | `SENTRY_AUTH_TOKEN` |
+| **Postgres** | PostgreSQL database queries and schema inspection | `POSTGRES_URL` |
+| **Linear** | Linear issue tracking and project management | `LINEAR_API_KEY` |
+
+The platform-specific MCP server (GitHub, Azure DevOps, or GitLab) is automatically selected based on your detected platform during init.
+
+## Selecting MCP Servers During Init
+
+When you run `npx hatch3r init`, step 6 asks which MCP servers to enable:
+
+1. hatch3r detects your platform (GitHub, Azure DevOps, or GitLab) and pre-selects the matching platform MCP server
+2. The three default servers (Playwright, Context7, Filesystem) are pre-checked
+3. You can toggle any server on or off using the interactive checkbox prompt
+4. After selection, hatch3r writes only the chosen servers to `.agents/mcp/mcp.json`
+
+To change MCP servers after init, run `npx hatch3r config`. This re-presents the MCP server selection prompt pre-populated with your current choices.
+
 ## Where MCP Config Lives
 
 All adapters that support MCP emit tool-specific configuration during `npx hatch3r init` or `npx hatch3r sync`. The canonical MCP source is `.agents/mcp/mcp.json`; each adapter transforms it into the format and path the tool expects.
@@ -143,3 +180,71 @@ Fine-grained tokens have [limitations](https://docs.github.com/en/authentication
 | **Linear** | STDIO | `LINEAR_API_KEY` | Issue tracking and project management |
 | **Azure DevOps** | STDIO | `AZURE_DEVOPS_PAT`, `AZURE_DEVOPS_ORG` | Boards, work items, repos |
 | **GitLab** | STDIO | `GITLAB_TOKEN` | Issues, merge requests, boards |
+
+## How MCP Config Is Distributed to Adapters
+
+During `hatch3r init` or `hatch3r sync`, the canonical MCP config at `.agents/mcp/mcp.json` is transformed into tool-specific formats for each selected adapter. The process works as follows:
+
+1. **Canonical source** -- `.agents/mcp/mcp.json` contains the `mcpServers` object with only the servers you selected during init
+2. **Adapter transformation** -- each adapter reads the canonical config and writes it to the tool-specific path and format
+3. **Secret injection** -- environment variable placeholders (`${env:VAR}`) are preserved in all generated configs. The actual values are read from `.env.mcp` at runtime
+
+The adapter capability matrix determines which adapters emit MCP config:
+
+| Adapter | Emits MCP | Output path | Format notes |
+|---------|-----------|-------------|--------------|
+| Cursor | Yes | `.cursor/mcp.json` | Direct JSON copy |
+| Claude Code | Yes | `.mcp.json` | Direct JSON copy |
+| Copilot / VS Code | Yes | `.vscode/mcp.json` | Adds `envFile` field for native secret loading |
+| OpenCode | Yes | `opencode.json` | Embedded under `mcp` key |
+| Windsurf | Yes | `.windsurf/mcp.json` | Standard `mcpServers` format |
+| Amp | Yes | `.amp/settings.json` | Under `amp.mcpServers` key |
+| Codex | Yes | `.codex/config.toml` | TOML `[mcp_servers.<name>]` sections |
+| Gemini | Yes | `.gemini/settings.json` | Under `mcpServers` key |
+| Cline / Roo | Yes | `.roo/mcp.json` | Standard `mcpServers` format |
+| Kiro | Yes | `.kiro/settings/mcp.json` | Standard `mcpServers` format |
+
+When you run `hatch3r sync` or `hatch3r config`, all adapter MCP configs are regenerated from the canonical source, ensuring consistency across tools.
+
+## Adding Custom MCP Servers
+
+You can add custom MCP servers by editing `.agents/mcp/mcp.json` directly. Add your server definition to the `mcpServers` object:
+
+```json
+{
+  "mcpServers": {
+    "playwright": { "..." : "..." },
+    "context7": { "..." : "..." },
+    "my-custom-server": {
+      "command": "npx",
+      "args": ["-y", "@my-org/my-mcp-server"],
+      "env": {
+        "MY_API_KEY": "${env:MY_API_KEY}"
+      }
+    }
+  }
+}
+```
+
+After adding a custom server:
+
+1. Add any required environment variables to `.env.mcp`
+2. Run `npx hatch3r sync` to propagate the config to all adapter output paths
+3. Restart your editor for changes to take effect
+
+Custom servers persist across `hatch3r sync` and `hatch3r update` operations. However, `hatch3r init` regenerates `mcp.json` from the template -- if you re-run init, your custom servers will need to be re-added.
+
+:::tip
+For remote (HTTP-based) MCP servers, use the `url` and `headers` fields instead of `command`/`args`:
+
+```json
+{
+  "my-remote-server": {
+    "url": "https://my-api.example.com/mcp/",
+    "headers": {
+      "Authorization": "Bearer ${env:MY_API_TOKEN}"
+    }
+  }
+}
+```
+:::

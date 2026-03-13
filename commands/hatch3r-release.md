@@ -2,6 +2,7 @@
 id: hatch3r-release
 type: command
 description: Cut a versioned release with changelog generation, version bumping, and GitHub release creation.
+tags: [devops]
 ---
 # Release — Cut a Versioned Release with Changelog
 
@@ -15,7 +16,7 @@ This command runs as a single orchestrator without sub-agent delegation. Quality
 
 ## Shared Context
 
-**Read the project's shared board context at the start of the run** (e.g., `.cursor/commands/board-shared.md` or equivalent). It contains GitHub Context, Project Reference, and tooling directives. Use GitHub MCP tools for issue/PR operations. Fallback to `gh` CLI for release creation (outside MCP catalog).
+**Read the project's shared board context at the start of the run** (e.g., `.agents/commands/hatch3r-board-shared.md` or equivalent). It contains GitHub Context, Project Reference, and tooling directives. Use GitHub MCP tools for issue/PR operations. Fallback to `gh` CLI for release creation (outside MCP catalog).
 
 **Default branch:** Use `board.defaultBranch` from `.agents/hatch.json` (fallback: `"main"`) for all git operations involving the base branch (e.g., `git log`, `search_pull_requests` with `base`, `git push origin`).
 

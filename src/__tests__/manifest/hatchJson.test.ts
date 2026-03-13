@@ -1,5 +1,8 @@
-import { describe, it, expect } from "vitest";
-import { createManifest, addManagedFile, removeManagedFile, migrateManifest } from "../../manifest/hatchJson.js";
+import { describe, it, expect, afterEach } from "vitest";
+import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { createManifest, addManagedFile, removeManagedFile, migrateManifest, readManifest } from "../../manifest/hatchJson.js";
 
 describe("hatchJson", () => {
   describe("createManifest", () => {
@@ -8,7 +11,7 @@ describe("hatchJson", () => {
         tools: ["cursor"],
       });
       expect(manifest.version).toBe("2.0.0");
-      expect(manifest.hatch3rVersion).toBe("1.1.0");
+      expect(manifest.hatch3rVersion).toBe("1.2.0");
       expect(manifest.platform).toBe("github");
       expect(manifest.tools).toEqual(["cursor"]);
       expect(manifest.features.agents).toBe(true);
@@ -249,6 +252,212 @@ describe("hatchJson", () => {
       const manifest = createManifest({ tools: ["cursor"] });
       removeManagedFile(manifest, "file.md");
       expect(manifest.managedFiles).toEqual([]);
+    });
+  });
+
+  describe("readManifest", () => {
+    let tempDir: string;
+
+    afterEach(async () => {
+      if (tempDir) {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    async function setup(): Promise<string> {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-manifest-"));
+      await mkdir(join(tempDir, ".agents"), { recursive: true });
+      return tempDir;
+    }
+
+    async function writeManifestJson(rootDir: string, data: unknown): Promise<void> {
+      await writeFile(
+        join(rootDir, ".agents", "hatch.json"),
+        JSON.stringify(data, null, 2),
+        "utf-8",
+      );
+    }
+
+    it("returns null when manifest file does not exist", async () => {
+      const rootDir = await setup();
+      const result = await readManifest(rootDir);
+      expect(result).toBeNull();
+    });
+
+    it("throws on malformed JSON", async () => {
+      const rootDir = await setup();
+      await writeFile(
+        join(rootDir, ".agents", "hatch.json"),
+        "{ not valid json }}}",
+        "utf-8",
+      );
+      await expect(readManifest(rootDir)).rejects.toThrow("Malformed JSON");
+    });
+
+    it("throws with descriptive message when required field 'tools' is missing", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "2.0.0",
+        hatch3rVersion: "1.2.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        // tools: missing
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+      });
+      await expect(readManifest(rootDir)).rejects.toThrow(
+        /Invalid manifest.*required fields missing or malformed/,
+      );
+    });
+
+    it("throws with descriptive message when required field 'version' is missing", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        // version: missing
+        hatch3rVersion: "1.2.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+      });
+      await expect(readManifest(rootDir)).rejects.toThrow(
+        /Invalid manifest.*required fields missing or malformed/,
+      );
+    });
+
+    it("throws when tools is a string instead of an array", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "2.0.0",
+        hatch3rVersion: "1.2.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: "cursor",
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+      });
+      await expect(readManifest(rootDir)).rejects.toThrow(
+        /Invalid manifest.*required fields missing or malformed/,
+      );
+    });
+
+    it("throws when managedFiles is missing", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "2.0.0",
+        hatch3rVersion: "1.2.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        // managedFiles: missing
+      });
+      await expect(readManifest(rootDir)).rejects.toThrow(
+        /Invalid manifest.*required fields missing or malformed/,
+      );
+    });
+
+    it("throws when features is null instead of an object", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "2.0.0",
+        hatch3rVersion: "1.2.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: null,
+        mcp: { servers: [] },
+        managedFiles: [],
+      });
+      await expect(readManifest(rootDir)).rejects.toThrow(
+        /Invalid manifest.*required fields missing or malformed/,
+      );
+    });
+
+    it("preserves extra unexpected fields in the manifest", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "2.0.0",
+        hatch3rVersion: "1.2.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        customField: "should be preserved",
+        extraNumber: 42,
+      });
+      const result = await readManifest(rootDir);
+      expect(result).not.toBeNull();
+      // Extra fields should pass through validation and be preserved on the returned object
+      const raw = result as unknown as Record<string, unknown>;
+      expect(raw.customField).toBe("should be preserved");
+      expect(raw.extraNumber).toBe(42);
+    });
+
+    it("reads a valid manifest successfully", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "2.0.0",
+        hatch3rVersion: "1.2.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+      });
+      const result = await readManifest(rootDir);
+      expect(result).not.toBeNull();
+      expect(result!.version).toBe("2.0.0");
+      expect(result!.tools).toEqual(["cursor"]);
+    });
+
+    it("migrates v1.0.0 manifest and validates successfully", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "1.0.0",
+        hatch3rVersion: "0.9.0",
+        owner: "acme",
+        repo: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+      });
+      const result = await readManifest(rootDir);
+      expect(result).not.toBeNull();
+      expect(result!.version).toBe("2.0.0");
+      expect(result!.namespace).toBe("acme");
+      expect(result!.project).toBe("app");
+    });
+
+    it("throws descriptive error suggesting hatch3r init to regenerate", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, { invalid: true });
+      await expect(readManifest(rootDir)).rejects.toThrow(
+        /Run hatch3r init to regenerate/,
+      );
     });
   });
 });

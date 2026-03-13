@@ -10,7 +10,7 @@ export class GooseAdapter extends BaseAdapter {
 
   protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
     const lines = [
-      ...this.bridgeHeader(),
+      ...await this.bridgeHeader(ctx.agentsDir),
       ...await this.inlineRules(ctx),
       ...await this.inlineAgents(ctx),
     ];
@@ -18,13 +18,28 @@ export class GooseAdapter extends BaseAdapter {
     if (ctx.features.skills) {
       const skills = await readCanonicalFiles(ctx.agentsDir, "skills");
       for (const skill of skills) {
-        const { content, skip } = await applyCustomizationRaw(ctx.projectRoot, skill);
+        const { content, skip, warnings } = await applyCustomizationRaw(ctx.projectRoot, skill);
+        this.warnings.push(...warnings);
         if (skip) continue;
         lines.push(`## Skill: ${toPrefixedId(skill.id)}`, "", content, "");
       }
     }
 
     const inner = lines.join("\n");
-    return [output(".goosehints", wrapInManagedBlock(inner), inner)];
+    const results: AdapterOutput[] = [output(".goosehints", wrapInManagedBlock(inner), inner)];
+
+    const mcp = await this.readFilteredMcp(ctx);
+    if (mcp && Object.keys(mcp).length > 0) {
+      const entries = this.buildStdMcpEntries(mcp);
+      if (Object.keys(entries).length > 0) {
+        const gooseMcp: Record<string, unknown> = {};
+        for (const [name, entry] of Object.entries(entries)) {
+          gooseMcp[name] = entry;
+        }
+        results.push(output(".goose/mcp.json", JSON.stringify(gooseMcp, null, 2)));
+      }
+    }
+
+    return results;
   }
 }

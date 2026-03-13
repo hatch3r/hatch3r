@@ -4,6 +4,7 @@ type: hook
 event: post-merge
 agent: ci-watcher
 description: Check CI pipeline status after merge
+tags: [core]
 ---
 # Hook: post-merge → ci-watcher
 

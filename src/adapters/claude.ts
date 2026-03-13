@@ -1,12 +1,13 @@
 import type { AdapterOutput } from "../types.js";
 import { toPrefixedId } from "../types.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
-import { BRIDGE_ORCHESTRATION } from "../cli/shared/agentsContent.js";
+import { generateBridgeOrchestration } from "../cli/shared/agentsContent.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
 import { readCanonicalFiles } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
 import { applyCustomization } from "./customization.js";
 import type { HookDefinition, HookEvent } from "../hooks/types.js";
+import { HATCH3R_VERSION } from "../version.js";
 
 const AGENT_TEAMS_SECTION = [
   "## Agent Teams (Experimental)",
@@ -134,6 +135,17 @@ Each quality teammate owns distinct files to avoid conflicts.
 - The lead coordinates; it should NOT implement code itself (use delegate mode)
 `;
 
+// Claude Code hooks use an event+matcher pattern, not direct git hook names.
+// Each hook fires on a Claude event (e.g. PreToolUse, PostToolUse, SessionStart)
+// paired with a tool matcher regex that scopes when the hook triggers.
+//
+// Mapping from hatch3r canonical hook events to Claude Code hook semantics:
+//   pre-commit   -> PreToolUse  + matcher "Bash"   (intercept before shell commands)
+//   post-merge   -> PostToolUse + matcher "Bash"   (react after shell commands)
+//   ci-failure   -> SubagentStart + matcher "Bash" (trigger on sub-agent launch)
+//   file-save    -> PostToolUse + matcher "Write"  (react after file writes)
+//   session-start -> SessionStart + matcher ".*"   (fire on every session start)
+//   pre-push     -> PreToolUse  + matcher "Bash"   (intercept before shell commands)
 function mapToClaudeEvent(event: HookEvent): string {
   const mapping: Record<HookEvent, string> = {
     "pre-commit": "PreToolUse",
@@ -142,6 +154,8 @@ function mapToClaudeEvent(event: HookEvent): string {
     "file-save": "PostToolUse",
     "session-start": "SessionStart",
     "pre-push": "PreToolUse",
+    "worktree-create": "PostToolUse",
+    "worktree-remove": "PreToolUse",
   };
   return mapping[event] || event;
 }
@@ -154,6 +168,8 @@ function getClaudeToolMatcher(hook: HookDefinition): string {
     "session-start": ".*",
     "pre-push": "Bash",
     "ci-failure": "Bash",
+    "worktree-create": "Bash",
+    "worktree-remove": "Bash",
   };
   return eventToolMap[hook.event] || ".*";
 }
@@ -181,6 +197,7 @@ export class ClaudeAdapter extends BaseAdapter {
   protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
     const results: AdapterOutput[] = [];
 
+    const bridgeOrchestration = await generateBridgeOrchestration(ctx.agentsDir);
     const innerContent = [
       "",
       "# Hatch3r Project Instructions",
@@ -188,7 +205,7 @@ export class ClaudeAdapter extends BaseAdapter {
       "Full canonical agent instructions are at `.agents/AGENTS.md`.",
       "Rules are managed in `.claude/rules/` and agents in `.claude/agents/`.",
       "",
-      BRIDGE_ORCHESTRATION,
+      bridgeOrchestration,
       "",
       ...AGENT_TEAMS_SECTION,
       "",
@@ -203,7 +220,8 @@ export class ClaudeAdapter extends BaseAdapter {
     if (ctx.features.rules) {
       const rules = await readCanonicalFiles(ctx.agentsDir, "rules");
       for (const rule of rules) {
-        const { content, skip, overrides } = await applyCustomization(ctx.projectRoot, rule);
+        const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);
+        this.warnings.push(...warnings);
         if (skip) continue;
         const desc = overrides.description ?? rule.description;
         const body = `# ${rule.id}\n\n${desc}\n\n${content}`;
@@ -214,7 +232,8 @@ export class ClaudeAdapter extends BaseAdapter {
     if (ctx.features.agents) {
       const agents = await readCanonicalFiles(ctx.agentsDir, "agents");
       for (const agent of agents) {
-        const { content, skip, overrides } = await applyCustomization(ctx.projectRoot, agent);
+        const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
+        this.warnings.push(...warnings);
         if (skip) continue;
         const agentId = toPrefixedId(agent.id);
         const model = resolveAgentModel(agent.id, agent, ctx.manifest, overrides);
@@ -231,6 +250,10 @@ export class ClaudeAdapter extends BaseAdapter {
     const defaultAllow = ["Read", "Edit", "MultiEdit", "Write", "Grep", "Glob", "LS", "TodoRead", "TodoWrite"];
     const claudeConfig = ctx.manifest.claude;
     const settingsObj: Record<string, unknown> = {
+      _hatch3r: {
+        version: HATCH3R_VERSION,
+        managed: true,
+      },
       permissions: {
         allow: claudeConfig?.permissions?.allow ?? defaultAllow,
         deny: claudeConfig?.permissions?.deny ?? [],
@@ -245,18 +268,31 @@ export class ClaudeAdapter extends BaseAdapter {
       if (!hooksConfig[claudeEvent]) hooksConfig[claudeEvent] = [];
       hooksConfig[claudeEvent].push({
         matcher: getClaudeToolMatcher(hook),
-        hooks: [{ type: "command", command: `echo "hatch3r hook: ${hook.id} — activate ${hook.agent} agent"` }],
+        hooks: [{ type: "command", command: `echo "HATCH3R_HOOK_ACTIVATED: Spawn the ${hook.agent} agent now. Follow the ${hook.agent} agent protocol in .claude/agents/${toPrefixedId(hook.agent)}.md. Event: ${hook.event}. Hook ID: ${hook.id}."` }],
       });
     }
 
     hooksConfig.TaskCompleted = [{
       matcher: ".*",
-      hooks: [{ type: "command", command: "echo \"hatch3r quality gate: verify task meets review criteria before marking complete\"" }],
+      hooks: [{ type: "command", command: "echo \"HATCH3R_QUALITY_GATE: Before marking this task complete, verify: (1) Phase 3 review loop passed with 0 Critical + 0 Warning, (2) Phase 4 specialists ran (hatch3r-test-writer + hatch3r-security-auditor at minimum), (3) all acceptance criteria met. If any check fails, do NOT mark complete — spawn the appropriate agent to address the gap.\"" }],
     }];
     hooksConfig.TeammateIdle = [{
       matcher: ".*",
-      hooks: [{ type: "command", command: "echo \"hatch3r pipeline: check for pending quality-phase tasks to assign to idle teammate\"" }],
+      hooks: [{ type: "command", command: "echo \"HATCH3R_PIPELINE_CHECK: Idle teammate detected. Check for pending Phase 4 quality tasks: hatch3r-test-writer, hatch3r-security-auditor, hatch3r-docs-writer, hatch3r-lint-fixer, hatch3r-a11y-auditor. If any are pending and within this teammate's scope, pick up the next task.\"" }],
     }];
+
+    // Worktree file isolation: detect `git worktree add` and sync gitignored files
+    if (ctx.manifest.worktree?.enabled) {
+      if (!hooksConfig.PostToolUse) hooksConfig.PostToolUse = [];
+      hooksConfig.PostToolUse.push({
+        matcher: "Bash",
+        hooks: [{
+          type: "command",
+          command: 'bash -c \'CMD="${TOOL_INPUT:-}"; if echo "$CMD" | grep -q "git worktree add"; then ARGS="${CMD#*git worktree add}"; WTDIR=""; SKIP=false; for w in $ARGS; do if $SKIP; then SKIP=false; continue; fi; case "$w" in -b|-B|--reason) SKIP=true;; -*) ;; *) WTDIR="$w"; break;; esac; done; [ -n "$WTDIR" ] && npx hatch3r worktree-setup "$WTDIR" || true; fi\'',
+        }],
+      });
+    }
+
     settingsObj.hooks = hooksConfig;
     if (ctx.manifest.claude?.agentTeams !== false) {
       settingsObj.env = { CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1" };

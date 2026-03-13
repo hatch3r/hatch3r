@@ -2,6 +2,7 @@
 id: hatch3r-healthcheck
 type: command
 description: Create a full-product QA and testing audit epic with one sub-issue per project module
+tags: [maintenance]
 ---
 
 ## Agent Pipeline
@@ -24,7 +25,7 @@ Create a healthcheck epic on **{owner}/{repo}** with one sub-issue per logical p
 
 ## Shared Context
 
-**Read the project's shared board context at the start of the run** (e.g., `.cursor/commands/board-shared.md` or equivalent). It contains GitHub Context, Project Reference, Projects v2 sync procedure, and Board Overview template. Cache all values for the duration of this run.
+**Read the project's shared board context at the start of the run** (e.g., `.agents/commands/hatch3r-board-shared.md` or equivalent). It contains GitHub Context, Project Reference, Projects v2 sync procedure, and Board Overview template. Cache all values for the duration of this run.
 
 ## Token-Saving Directives
 

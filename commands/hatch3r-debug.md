@@ -2,6 +2,7 @@
 id: hatch3r-debug
 type: command
 description: Standalone debug-and-fix workflow — add strategic debug logging, collect runtime logs from the user, perform root cause analysis, implement the fix, and clean up all debug artifacts.
+tags: [core, implementation]
 ---
 # Debug — Instrument, Diagnose, and Fix from Runtime Evidence
 

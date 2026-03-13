@@ -158,10 +158,10 @@ describe("CopilotAdapter", () => {
     expect(mcp).toBeDefined();
 
     const parsed = JSON.parse(mcp!.content);
-    expect(parsed.mcpServers.github).toBeDefined();
+    expect(parsed.servers.github).toBeDefined();
   });
 
-  it("injects envFile on STDIO servers in .vscode/mcp.json", async () => {
+  it("uses env object (not envFile) on STDIO servers in .vscode/mcp.json", async () => {
     const manifest = makeManifest({ mcpServers: ["github", "brave-search", "context7"] });
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
@@ -170,12 +170,9 @@ describe("CopilotAdapter", () => {
 
     const parsed = JSON.parse(mcp!.content);
 
-    for (const [, server] of Object.entries(parsed.mcpServers as Record<string, Record<string, unknown>>)) {
-      if (server.command) {
-        expect(server.envFile).toBe("${workspaceFolder}/.env.mcp");
-      } else {
-        expect(server.envFile).toBeUndefined();
-      }
+    for (const [, server] of Object.entries(parsed.servers as Record<string, Record<string, unknown>>)) {
+      // envFile is no longer used; env vars are passed via env object
+      expect(server.envFile).toBeUndefined();
     }
   });
 

@@ -2,6 +2,7 @@
 id: hatch3r-board-groom
 type: command
 description: Ongoing backlog refinement for existing board items. Re-prioritize, reclassify, re-scope, archive stale items, decompose oversized issues, merge duplicates, refresh dependencies, and remediate board health findings.
+tags: [board, team]
 ---
 
 ## Agent Pipeline
@@ -164,7 +165,15 @@ Compare existing open issues pairwise for semantic overlap:
 - Overlapping acceptance criteria.
 - Cross-reference `## Scope` sections for boundary collisions.
 
-#### 3i. Present Refinement Summary
+#### 3j. Unlinked Sub-Issue Detection
+
+For each epic, compare the sub-issue references in the epic body (checklist items, `> Parent:` references) against the native sub-issue list from `issue_read` with `method: get_sub_issues` (GitHub) or equivalent platform call. Flag sub-issues that appear in the body but are not natively linked.
+
+#### 3k. Board Sync Drift Detection
+
+If `board.projectNumber` is configured, compare label-based status (`status:*` labels) against board column status via `gh project item-list {board.projectNumber} --owner {board.owner} --format json` (GitHub) or equivalent platform call. Flag issues where the label status and board column status diverge.
+
+#### 3l. Present Refinement Summary
 
 Present findings grouped by category:
 
@@ -178,6 +187,8 @@ Board Health:
   Stale dependency refs: D issues
   Priority imbalance: {description or "None"}
   Epic ordering discrepancies: E epics
+  Unlinked sub-issues: U issues (non-native links)
+  Board sync drift: V issues (label/board status mismatch)
 
 Grooming Opportunities:
   Re-prioritize candidates: R issues (priority/risk misalignment, priority inflation)
@@ -186,11 +197,12 @@ Grooming Opportunities:
   Grouping candidates: G standalone issues → potential epics
   Duplicate/overlap candidates: O issue pairs
   Dependency cleanup: K issues (stale refs, orphaned labels)
+  Link fix candidates: L issues (advisory or comment-only links)
 
-Available actions: [reprioritize | reclassify | re-scope | demote | archive | decompose | merge | dep-refresh | health-fix | all]
+Available actions: [reprioritize | reclassify | re-scope | demote | archive | decompose | merge | dep-refresh | health-fix | link-fix | all]
 ```
 
-**ASK:** "Here is the board refinement summary. Which grooming actions do you want to perform? Select one or more: reprioritize / reclassify / re-scope / demote / archive / decompose / merge / dep-refresh / health-fix / all. You can also specify issue numbers to target specific items (e.g., 'reprioritize #5, #12')."
+**ASK:** "Here is the board refinement summary. Which grooming actions do you want to perform? Select one or more: reprioritize / reclassify / re-scope / demote / archive / decompose / merge / dep-refresh / health-fix / link-fix / all. You can also specify issue numbers to target specific items (e.g., 'reprioritize #5, #12')."
 
 ---
 
@@ -342,11 +354,9 @@ The original issue becomes the parent epic.
 
 4. For confirmed decompositions:
    - If the original is standalone, convert it to an epic by updating its body with `## Implementation Order` and adding sub-issue links.
-   - Create sub-issues and link to parent using platform CLI:
-     - **GitHub:** Create via `gh issue create` or `issue_write` MCP. Link via `sub_issue_write` MCP.
-     - **Azure DevOps:** Create via `az boards work-item create`. Link via `az boards work-item relation add --relation-type "System.LinkTypes.Hierarchy-Forward"`.
-     - **GitLab:** Create via `glab issue create`. Link via `glab api` issue links endpoint.
-   - Inherit labels/tags from the parent. Add `## Dependencies` sections.
+   - Create sub-issues using platform CLI (`gh issue create` / `az boards work-item create` / `glab issue create`). Fall back to MCP if CLI fails.
+   - Link sub-issues to the parent using the **Sub-Issue Linking Procedure** from `hatch3r-board-shared` (three-tier fallback chain).
+   - Inherit labels/tags from the parent. Add `## Dependencies` sections. Add `has-dependencies` label to sub-issues with dependency references (per rule 7 of Board Sync Enforcement).
    - Sync new sub-issues to the board via the **Board Sync Procedure** from `hatch3r-board-shared`.
 
 ---
@@ -377,7 +387,8 @@ Combine overlapping issues discovered after initial dedup.
 Re-analyze and clean up dependency data based on current board state.
 
 1. **Clean stale references:** For issues referencing closed blockers, remove the satisfied `Blocked by #N` lines from `## Dependencies` (the blocker is done, the reference is noise). Replace with `None` if no other dependencies remain.
-2. **Fix orphaned labels:** For issues with `has-dependencies` label but empty or missing `## Dependencies`, either add the section or remove the label.
+1b. **Normalize dependency format:** Replace `Depends on #N` with `Blocked by #N` in `## Dependencies` sections. This enforces the canonical format per the Dependency Data Model in `hatch3r-board-shared`.
+2. **Fix orphaned labels:** For issues with `has-dependencies` label but empty or missing `## Dependencies`, either add the section or remove the label. Also add `has-dependencies` to issues that have dependency references but are missing the label (bidirectional enforcement per rule 7 of Board Sync Enforcement).
 3. **Discover new dependencies:** Analyze the current board for producer/consumer relationships that weren't captured in the original fill. Propose new dependency edges.
 4. **Recompute epic ordering:** For epics with stale `## Implementation Order` sections (flagged in Step 3d), regenerate the section from sub-issues' `## Dependencies` DAG.
 5. **Unblock newly available items:** After cleaning stale refs, identify issues that were previously dependency-waiting but are now available (all blockers closed). Note these for the user.
@@ -411,6 +422,27 @@ Newly unblocked:
    - **Azure DevOps:** `az boards work-item update --id N --description "..."`, update tags.
    - **GitLab:** `glab issue update N --description "..."`, update labels.
    Regenerate `## Implementation Order` for affected epics.
+
+---
+
+#### 4h-link. Link Fix (Sub-Issue Re-Linking)
+
+Re-run the **Sub-Issue Linking Procedure** from `hatch3r-board-shared` for sub-issues identified in Step 3j as non-natively linked.
+
+1. Present link-fix candidates from Step 3j:
+
+```
+Link Fix Candidates:
+
+| # | Title | Parent Epic | Current Link Status |
+|---|-------|-------------|---------------------|
+| #N | {title} | #{epic} | advisory |
+| #M | {title} | #{epic} | comment-only |
+```
+
+**ASK:** "Confirm re-linking for these sub-issues. The procedure will attempt native linking via MCP. Confirm / skip."
+
+2. For each confirmed candidate, run the Sub-Issue Linking Procedure fallback chain starting from the primary tier. Record updated link status in the run cache.
 
 ---
 
@@ -486,7 +518,7 @@ For every issue/work item whose labels or status changed during Steps 4-5:
 **This step is mandatory. Do not skip.**
 
 1. Search the cached board inventory for an open issue labeled `meta:board-overview`.
-2. Compute Implementation Lanes using the **Lane Computation Algorithm** from `hatch3r-board-shared`. Use the dependency graph from Step 3d, updated with mutations from Step 4, as input.
+2. Compute Implementation Lanes using the **Lane Computation Algorithm** (steps 1-12) from `hatch3r-board-shared`. Use the dependency graph from Step 3d, updated with mutations from Step 4, as input. This includes inter-lane dependency computation, lane phasing, and the Lane Dependency Map.
 3. Assign models to all open issues using the **Model Selection Heuristic (Quality-First)** from `hatch3r-board-shared`.
 4. **If found:** Regenerate the dashboard body using the **Board Overview Issue Format** template from `hatch3r-board-shared`, populated with cached board data updated with all mutations from Steps 4-6. Update using platform CLI:
    - **GitHub:** `gh issue edit {N} --body "..."` (fall back to `issue_write` MCP).
@@ -495,6 +527,14 @@ For every issue/work item whose labels or status changed during Steps 4-5:
 5. **If not found:** Create a new board overview issue using the **Board Overview Issue Format** template, populated with current board data. Label/tag it `meta:board-overview` and sync to the board.
 
 Do NOT re-fetch all issues; use cached data updated with this run's mutations.
+
+---
+
+### Step 7.5: End-of-Run Reconciliation
+
+**This step is mandatory. Do not skip.**
+
+Run the **End-of-Run Reconciliation Procedure** from `hatch3r-board-shared`. This verifies board sync, sub-issue links, label consistency, and PR linkage for all issues created or updated during this grooming session. Output the reconciliation report before proceeding to Step 8.
 
 ---
 

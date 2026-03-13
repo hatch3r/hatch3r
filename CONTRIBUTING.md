@@ -111,7 +111,7 @@ hatch3r add <pack-name>   # coming soon
 
 ## Troubleshooting
 
-For common issues with the CLI, MCP, board commands, validation, and generated files, see **[docs/troubleshooting.md](docs/troubleshooting.md)**.
+For common issues with the CLI, MCP, board commands, validation, and generated files, see **[Troubleshooting](https://docs.hatch3r.com/docs/troubleshooting)**.
 
 **Quick fixes for contributors:**
 - **Build fails with ESM/module errors:** Ensure Node.js 22+: `node --version`

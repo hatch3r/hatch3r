@@ -16,19 +16,20 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    environment: npm-publish
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
 
       - name: Upgrade npm for trusted publishing
-        run: npm install -g npm@latest
+        run: npm install -g npm@11.5.1
 
       - name: Validate version
         run: |
@@ -43,6 +44,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # npm ci already validates that package-lock.json is in sync with
+      # package.json and will exit non-zero if they diverge. This explicit
+      # step catches any uncommitted lockfile drift that survived locally.
+      - name: Verify lockfile sync
+        run: git diff --exit-code package-lock.json
+
       - name: Build
         run: npm run build
 
@@ -56,7 +63,7 @@ jobs:
         run: npm publish --access public --provenance
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@da05d552573ad5aba039eaac05058a918a7bf631 # v2
         with:
           generate_release_notes: true
         env:

@@ -1,5 +1,9 @@
+// Sync I/O (execFileSync) is used intentionally in init/update for package
+// manager operations where async would add complexity without benefit.
+
 import { Command } from "commander";
 import { addCommand } from "./commands/add.js";
+import { worktreeSetupCommand } from "./commands/worktreeSetup.js";
 import { configCommand } from "./commands/config.js";
 import { initCommand } from "./commands/init.js";
 import { syncCommand } from "./commands/sync.js";
@@ -27,6 +31,9 @@ program
     `Comma-separated tools (${TOOL_CHOICES})`,
   )
   .option("--yes", "Skip interactive prompts, use defaults")
+  .option("--preset <preset>", "Content preset: minimal, standard, full")
+  .option("--project-type <type>", "Project type: greenfield, brownfield")
+  .option("--team-size <size>", "Team size: solo, team")
   .action(initCommand);
 
 program
@@ -64,6 +71,14 @@ program
   .description("Install a community pack (coming soon)")
   .action(addCommand);
 
+program
+  .command("worktree-setup [worktree-path]")
+  .description("Set up gitignored files in a git worktree")
+  .option("--from <path>", "Main repo path (auto-detected by default)")
+  .option("--dry-run", "Show what would be done without changes")
+  .option("--force", "Overwrite existing files in the worktree")
+  .action(worktreeSetupCommand);
+
 const nodeVersion = parseInt(process.version.slice(1), 10);
 if (nodeVersion < 22) {
   console.error(
@@ -72,17 +87,47 @@ if (nodeVersion < 22) {
   process.exit(1);
 }
 
+let shuttingDown = false;
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.on(signal, () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    // Allow pending writes to flush
+    process.stdout.write("", () => {
+      process.stderr.write("", () => {
+        process.exit(0);
+      });
+    });
+  });
+}
+
+process.on("unhandledRejection", (reason) => {
+  console.error(
+    `\nhatch3r: unhandled promise rejection: ${reason instanceof Error ? reason.message : String(reason)}`,
+  );
+  if (process.env.DEBUG) {
+    console.error(reason);
+  }
+  process.exit(1);
+});
+
 try {
   await program.parseAsync();
 } catch (err) {
   if (err instanceof HatchError) {
     process.exit(err.exitCode);
   }
-  console.error(
-    `\nhatch3r encountered an unexpected error: ${err instanceof Error ? err.message : String(err)}`,
+  const isUsageError = err instanceof Error && (
+    err.message.includes("Invalid") ||
+    err.message.includes("Unknown") ||
+    err.message.includes("missing required")
   );
+  console.error(
+    `\nhatch3r encountered an ${isUsageError ? "usage" : "unexpected"} error: ${err instanceof Error ? err.message : String(err)}`,
+  );
+  console.error("  For help, see: https://hatch3r.dev/docs/troubleshooting");
   if (process.env.DEBUG) {
     console.error(err);
   }
-  process.exit(1);
+  process.exit(isUsageError ? 2 : 1);
 }

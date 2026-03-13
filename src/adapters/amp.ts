@@ -10,7 +10,7 @@ export class AmpAdapter extends BaseAdapter {
     const results: AdapterOutput[] = [];
 
     const inner = [
-      ...this.bridgeHeader(),
+      ...await this.bridgeHeader(ctx.agentsDir),
       ...await this.inlineRules(ctx),
       ...await this.inlineAgents(ctx, (m) => ({
         text: `**Recommended model:** \`${m}\`. Use Smart mode for Opus, Rush for Haiku, Deep for Codex.`,

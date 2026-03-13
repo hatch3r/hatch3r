@@ -2,6 +2,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { AVAILABLE_MCP_SERVERS, ENV_VAR_HELP } from "../types.js";
+import { atomicWriteFile } from "../merge/safeWrite.js";
 
 export interface EnvVar {
   name: string;
@@ -80,7 +81,7 @@ export function generateEnvMcpContent(
   const lines: string[] = [
     "# hatch3r MCP secrets",
     "# Fill in your values below. This file is gitignored — never commit it.",
-    "# Docs: https://github.com/hatch3r-dev/hatch3r/blob/main/docs/mcp-setup.md",
+    "# Docs: https://docs.hatch3r.com/docs/guides/mcp-setup",
     "",
     getSourceEnvMcpDisclaimer(),
   ];
@@ -182,7 +183,7 @@ export async function ensureEnvMcp(
   }
 
   const content = generateEnvMcpContent(vars, existing);
-  await writeFile(envPath, content, "utf-8");
+  await atomicWriteFile(envPath, content);
 
   return {
     action: hadFile ? "updated" : "created",

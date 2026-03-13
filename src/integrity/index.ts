@@ -1,7 +1,22 @@
-import { createHash, createHmac } from "node:crypto";
-import { readFile, writeFile, readdir } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { readFile, readdir } from "node:fs/promises";
 import { join, posix } from "node:path";
+import { atomicWriteFile } from "../merge/safeWrite.js";
 
+/**
+ * Integrity manifest for hatch3r canonical files.
+ *
+ * **Guarantees:**
+ * - Detects unauthorized modifications to hatch3r-managed files (agents, rules, skills, commands, hooks, prompts).
+ * - Detects missing or newly added files relative to the last `hatch3r init` or `hatch3r update`.
+ * - Manifest-level checksum detects tampering with the integrity file itself.
+ *
+ * **Limitations:**
+ * - Content-addressed only: detects WHAT changed, not WHO or WHEN.
+ * - No signing: an attacker with write access can regenerate a valid manifest.
+ * - Symlinks are excluded from scanning to prevent symlink-based bypass.
+ * - Only scans `.md`, `.mdc`, and `.json` files in designated directories.
+ */
 export interface IntegrityManifest {
   version: number;
   generated: string;
@@ -61,7 +76,7 @@ export async function generateIntegrityManifest(
     }
   }
 
-  const checksum = createHmac("sha256", hatchVersion)
+  const checksum = createHash("sha256")
     .update(JSON.stringify(files))
     .digest("hex");
 
@@ -79,7 +94,7 @@ export async function writeIntegrityManifest(
   manifest: IntegrityManifest,
 ): Promise<void> {
   const filePath = join(agentsDir, INTEGRITY_FILE);
-  await writeFile(filePath, JSON.stringify(manifest, null, 2) + "\n", "utf-8");
+  await atomicWriteFile(filePath, JSON.stringify(manifest, null, 2) + "\n");
 }
 
 function validateIntegrityManifest(data: unknown): data is IntegrityManifest {
@@ -122,7 +137,7 @@ export async function verifyIntegrity(
   const results: VerifyResult[] = [];
 
   if (manifest.checksum !== undefined) {
-    const expected = createHmac("sha256", manifest.hatchVersion)
+    const expected = createHash("sha256")
       .update(JSON.stringify(manifest.files))
       .digest("hex");
     if (manifest.checksum !== expected) {

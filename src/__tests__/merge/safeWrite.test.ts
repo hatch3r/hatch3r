@@ -126,7 +126,7 @@ describe("safeWrite", () => {
       expect(content).toBe("user content");
     });
 
-    it("skips file without managed block markers even when backup requested", async () => {
+    it("skips file without managed block markers", async () => {
       const dir = await createTempDir();
       const filePath = join(dir, "AGENTS.md");
       const original = "original content";
@@ -134,11 +134,9 @@ describe("safeWrite", () => {
 
       const result = await safeWriteFile(filePath, "", {
         managedContent: "managed stuff",
-        backup: true,
       });
 
       expect(result.action).toBe("skipped");
-      expect(result.backup).toBeUndefined();
       const content = await readFile(filePath, "utf-8");
       expect(content).toBe(original);
     });
@@ -162,19 +160,16 @@ describe("safeWrite", () => {
       expect(content.indexOf("hatch3r content")).toBeLessThan(content.indexOf(userContent));
     });
 
-    it("creates backup when overwriting a managed file", async () => {
+    it("overwrites a managed file without creating backups", async () => {
       const dir = await createTempDir();
       const filePath = join(dir, "hatch3r-code-standards.md");
       await writeFile(filePath, "old rule content", "utf-8");
 
-      const result = await safeWriteFile(filePath, "new rule content", {
-        backup: true,
-      });
+      const result = await safeWriteFile(filePath, "new rule content");
 
-      expect(result.action).toBe("backed-up");
-      expect(result.backup).toBeDefined();
-      const backupContent = await readFile(result.backup!, "utf-8");
-      expect(backupContent).toBe("old rule content");
+      expect(result.action).toBe("updated");
+      const content = await readFile(filePath, "utf-8");
+      expect(content).toBe("new rule content");
     });
 
     it("uses managedContent merge for hatch3r-prefixed file when managedContent is provided", async () => {

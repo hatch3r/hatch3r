@@ -18,9 +18,11 @@ flowchart LR
     classDef output fill:#16213e,stroke:#3aafa9,color:#e0e0e0
 
     A["npx hatch3r init"]:::accent --> B["Detect repo\n(git remote)"]
-    B --> C["Select tools\n(Cursor, Copilot, Claude, ...)"]
+    B --> B2["Project context\n(greenfield/brownfield,\nsolo/team)"]
+    B2 --> B3["Content profile\n(minimal/standard/full/custom)"]
+    B3 --> C["Select tools\n(Cursor, Copilot, Claude, ...)"]
     C --> D["Select MCP servers\n(GitHub, Brave, ...)"]
-    D --> E["Copy canonical content\nto .agents/"]
+    D --> E["Copy selected content\nto .agents/"]
     E --> F["Run adapters"]:::accent
     F --> G[".cursor/\n.github/\nCLAUDE.md\n.windsurfrules\n..."]:::output
     F --> H[".env.mcp\n(secrets template)"]:::output
@@ -36,15 +38,15 @@ flowchart TB
     classDef accent fill:#0f3460,stroke:#4ecdc4,color:#fff
     classDef output fill:#16213e,stroke:#3aafa9,color:#e0e0e0
 
-    subgraph canonical[".agents/ (canonical source)"]
-        agents["agents/\n16 agent definitions"]
-        skills["skills/\n25 skill bundles"]
-        rules["rules/\n22 rule files"]
-        commands["commands/\n33 command workflows"]
+    subgraph canonical[".agents/ (canonical source, selectively installed)"]
+        agents["agents/\nAgent definitions"]
+        skills["skills/\nSkill bundles"]
+        rules["rules/\nRule files"]
+        commands["commands/\nCommand workflows"]
         mcp["mcp/\nMCP server config"]
         prompts["prompts/\nReusable templates"]
         hooks["hooks/\nEvent triggers"]
-        manifest["hatch.json\nProject manifest"]
+        manifest["hatch.json\nProject manifest\n+ content selection"]
     end
 
     subgraph adapters["Adapter Layer"]

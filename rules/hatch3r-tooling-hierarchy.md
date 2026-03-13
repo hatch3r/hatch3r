@@ -3,6 +3,7 @@ id: hatch3r-tooling-hierarchy
 type: rule
 description: Priority order for tools and knowledge sources
 scope: always
+tags: [core]
 ---
 # Tooling Hierarchy
 

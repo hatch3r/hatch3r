@@ -2,6 +2,7 @@
 id: hatch3r-code-review
 type: prompt
 description: Review code changes for quality, security, and correctness
+tags: [core]
 ---
 # Code Review
 

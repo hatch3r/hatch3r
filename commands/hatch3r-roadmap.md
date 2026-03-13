@@ -2,6 +2,7 @@
 id: hatch3r-roadmap
 type: command
 description: Generate a dual-lens phased roadmap (business milestones + technical milestones) from specs and vision using parallel researcher sub-agents, output to todo.md in the format that hatch3r-board-fill expects.
+tags: [planning, greenfield]
 ---
 # Roadmap — Generate Phased Roadmap from Specs & Vision
 
@@ -309,7 +310,7 @@ Map technically-driven milestones across the timeline:
 | Phase | Label | Business Criteria | Technical Criteria |
 | ----- | ---- | ----------------- | ------------------ |
 | P0 | Critical / Launch Blockers | Revenue-blocking features, regulatory deadlines, market timing windows | Security fixes, data integrity, core infrastructure dependencies |
-| P1 | Core Features | Primary value-delivering features, conversion-critical flows, first GTM channel enablement | Essential integrations, performance baselines, CI/CD |
+| P1 | Core Features | Primary value-delivering features, conversion-critical flows, first GTM channel enablement | Essential integrations, performance baselines, CI/CD, compound system integrity checks |
 | P2 | Important | Secondary features, retention improvements, additional GTM channels | Quality improvements, significant refactors, testing gaps, monitoring |
 | P3 | Nice to Have | Polish, upsell features, market expansion preparation | Optimizations, non-critical enhancements, developer experience |
 | P4+ | Future Ideas | Long-term market plays, new segments, platform strategy | Long-term architecture evolution, experimental technology |
@@ -531,6 +532,8 @@ If `AGENTS.md` already exists, **ASK** before overwriting: "Root `AGENTS.md` alr
 
 Which would you like to run next? (or none)"
 
+**Future command:** `hatch3r-test-plan` — generates a test plan from the current task context (issue, spec references, acceptance criteria) covering unit, integration, and E2E test scenarios. Not yet implemented; tracked for a future release.
+
 ---
 
 ## Error Handling
@@ -544,6 +547,10 @@ Which would you like to run next? (or none)"
 - **Business context gaps:** If the user cannot answer business discovery questions, proceed with "TBD" markers and flag these items as needing business input before implementation.
 - **Stage assessment unclear:** Default to "early-revenue" if the user is unsure. This provides balanced prioritization without over- or under-engineering the roadmap.
 - **No business specs found:** If only technical specs exist (legacy layout), generate a technical-only roadmap and recommend running `hatch3r-project-spec` or `hatch3r-codebase-map` to create business specs.
+
+## Adapter Breadth as Differentiation
+
+Hatch3r's breadth across 13+ adapters (Claude, Cursor, Windsurf, Cline, Copilot, Codex, Gemini, Amp, Aider, Goose, Kiro, OpenCode, Zed) is a core differentiation strategy. To maintain this moat, recommend periodic adapter parity audits as part of any roadmap that includes hatch3r-internal work. The audit should verify that no adapter has fallen behind in feature support (e.g., missing MCP, hooks, or skills support that other adapters already handle). Adapter parity gaps should be tracked as `[TECH]` items at P2 priority or higher.
 
 ## Guardrails
 

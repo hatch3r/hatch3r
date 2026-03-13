@@ -1,0 +1,179 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`data constants > FEATURE_CHOICES matches snapshot 1`] = `
+[
+  {
+    "name": "Agents",
+    "value": "agents",
+  },
+  {
+    "name": "Skills",
+    "value": "skills",
+  },
+  {
+    "name": "Rules",
+    "value": "rules",
+  },
+  {
+    "name": "Prompts",
+    "value": "prompts",
+  },
+  {
+    "name": "Commands",
+    "value": "commands",
+  },
+  {
+    "name": "MCP",
+    "value": "mcp",
+  },
+  {
+    "name": "Hooks",
+    "value": "hooks",
+  },
+  {
+    "name": "GitHub agents",
+    "value": "githubAgents",
+  },
+]
+`;
+
+exports[`data constants > MCP_CHOICES matches snapshot 1`] = `
+[
+  {
+    "name": "github: GitHub repository management, code review, issues, PRs, and project boards",
+    "value": "github",
+  },
+  {
+    "name": "azure-devops: Azure DevOps work items, repos, pipelines, and boards",
+    "value": "azure-devops",
+  },
+  {
+    "name": "gitlab: GitLab issues, merge requests, pipelines, and project management",
+    "value": "gitlab",
+  },
+  {
+    "name": "context7: Up-to-date, version-specific library documentation for LLMs",
+    "value": "context7",
+  },
+  {
+    "name": "filesystem: File management and code editing operations",
+    "value": "filesystem",
+  },
+  {
+    "name": "playwright: Browser automation, web testing, and UI interaction",
+    "value": "playwright",
+  },
+  {
+    "name": "brave-search: Web research, fact-checking, and current information retrieval",
+    "value": "brave-search",
+  },
+  {
+    "name": "sentry: Error tracking and performance monitoring (enable and configure with your Sentry auth token)",
+    "value": "sentry",
+  },
+  {
+    "name": "postgres: PostgreSQL database queries and schema inspection (enable and configure with your connection string)",
+    "value": "postgres",
+  },
+  {
+    "name": "linear: Linear issue tracking and project management (enable and configure with your Linear API key)",
+    "value": "linear",
+  },
+]
+`;
+
+exports[`data constants > PLATFORM_DISPLAY_NAMES matches snapshot 1`] = `
+{
+  "azure-devops": "Azure DevOps",
+  "github": "GitHub",
+  "gitlab": "GitLab",
+}
+`;
+
+exports[`data constants > PLATFORM_MCP_SERVER matches snapshot 1`] = `
+{
+  "azure-devops": "azure-devops",
+  "github": "github",
+  "gitlab": "gitlab",
+}
+`;
+
+exports[`data constants > TOOL_DISPLAY_NAMES matches snapshot 1`] = `
+{
+  "aider": "Aider",
+  "amazon-q": "Amazon Q",
+  "amp": "Amp",
+  "claude": "Claude Code",
+  "cline": "Cline / Roo Code",
+  "codex": "Codex CLI",
+  "copilot": "GitHub Copilot",
+  "cursor": "Cursor",
+  "gemini": "Gemini CLI",
+  "goose": "Goose",
+  "kiro": "Kiro",
+  "opencode": "OpenCode",
+  "windsurf": "Windsurf",
+  "zed": "Zed",
+}
+`;
+
+exports[`data constants > TOOL_PROMPT_CHOICES matches snapshot 1`] = `
+[
+  {
+    "name": "Cursor",
+    "value": "cursor",
+  },
+  {
+    "name": "GitHub Copilot",
+    "value": "copilot",
+  },
+  {
+    "name": "Claude Code",
+    "value": "claude",
+  },
+  {
+    "name": "OpenCode",
+    "value": "opencode",
+  },
+  {
+    "name": "Windsurf",
+    "value": "windsurf",
+  },
+  {
+    "name": "Amp",
+    "value": "amp",
+  },
+  {
+    "name": "Codex CLI",
+    "value": "codex",
+  },
+  {
+    "name": "Gemini CLI",
+    "value": "gemini",
+  },
+  {
+    "name": "Cline / Roo Code",
+    "value": "cline",
+  },
+  {
+    "name": "Aider",
+    "value": "aider",
+  },
+  {
+    "name": "Kiro",
+    "value": "kiro",
+  },
+  {
+    "name": "Goose",
+    "value": "goose",
+  },
+  {
+    "name": "Zed",
+    "value": "zed",
+  },
+  {
+    "name": "Amazon Q",
+    "value": "amazon-q",
+  },
+]
+`;

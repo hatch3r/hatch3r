@@ -1,6 +1,7 @@
 ---
 id: hatch3r-gh-agentic-workflows
 description: Set up CI/CD agentic workflows for continuous AI-powered repository automation (GitHub Actions, Azure Pipelines, GitLab CI)
+tags: [devops, team]
 ---
 # CI/CD Agentic Workflows Integration
 

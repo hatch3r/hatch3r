@@ -3,6 +3,7 @@ id: hatch3r-learning-consult
 type: rule
 description: Auto-consult project learnings before implementation
 scope: always
+tags: [core]
 ---
 # Learning Consultation
 

@@ -2,6 +2,7 @@
 id: hatch3r-api-spec
 type: command
 description: Generate or validate an OpenAPI specification from the codebase. Scans route definitions, extracts schemas, and produces a complete API spec.
+tags: [planning]
 ---
 
 ## Agent Pipeline

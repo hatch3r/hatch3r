@@ -3,6 +3,7 @@ id: hatch3r-feature-flags
 type: rule
 description: Feature flag patterns and lifecycle for the project
 scope: conditional
+tags: [implementation]
 ---
 # Feature Flags
 
