@@ -43,6 +43,7 @@ async function createTestProject(
       hooks: true,
     },
     mcp: { servers: [] },
+    worktree: { enabled: false },
     content: {
       preset: "full",
       projectType: "brownfield",
