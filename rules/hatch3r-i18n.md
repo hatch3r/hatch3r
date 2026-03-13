@@ -4,6 +4,7 @@ type: rule
 description: Internationalization, localization, and RTL support conventions for the project
 scope: conditional
 globs: src/**/*.vue, src/**/*.tsx, src/**/*.jsx, src/**/*.ts
+tags: [implementation]
 ---
 # Internationalization & RTL
 

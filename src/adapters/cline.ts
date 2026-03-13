@@ -1,11 +1,12 @@
 import type { AdapterOutput } from "../types.js";
 import { toPrefixedId } from "../types.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
-import { BRIDGE_ORCHESTRATION } from "../cli/shared/agentsContent.js";
+import { generateBridgeOrchestration } from "../cli/shared/agentsContent.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
 import { readCanonicalFiles } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
 import { applyCustomization } from "./customization.js";
+import { HATCH3R_VERSION } from "../version.js";
 
 interface ClineCustomMode {
   slug: string;
@@ -26,7 +27,8 @@ export class ClineAdapter extends BaseAdapter {
     if (ctx.features.agents) {
       const agents = await readCanonicalFiles(ctx.agentsDir, "agents");
       for (const agent of agents) {
-        const { content, skip, overrides } = await applyCustomization(ctx.projectRoot, agent);
+        const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
+        this.warnings.push(...warnings);
         if (skip) continue;
         const slug = toPrefixedId(agent.id);
         const model = resolveAgentModel(agent.id, agent, ctx.manifest, overrides);
@@ -43,7 +45,13 @@ export class ClineAdapter extends BaseAdapter {
       }
     }
     if (customModes.length > 0) {
-      results.push(output(".roomodes", JSON.stringify({ customModes }, null, 2)));
+      results.push(output(".roomodes", JSON.stringify({
+        _hatch3r: {
+          version: HATCH3R_VERSION,
+          managed: true,
+        },
+        customModes,
+      }, null, 2)));
     }
 
     results.push(
@@ -53,7 +61,8 @@ export class ClineAdapter extends BaseAdapter {
     if (ctx.features.rules) {
       const rules = await readCanonicalFiles(ctx.agentsDir, "rules");
       for (const rule of rules) {
-        const { content, skip, overrides } = await applyCustomization(ctx.projectRoot, rule);
+        const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);
+        this.warnings.push(...warnings);
         if (skip) continue;
         const desc = overrides.description ?? rule.description;
         const body = `# ${rule.id}\n\n${desc}\n\n${content}`;
@@ -72,7 +81,7 @@ export class ClineAdapter extends BaseAdapter {
         "",
         hook.description,
         "",
-        `When this hook's event (${hook.event}) is triggered${globs.length > 0 ? ` for files matching ${globs.join(", ")}` : ""}, activate the ${hook.agent} agent.`,
+        `HATCH3R_HOOK_ACTIVATED: When this hook's event (${hook.event}) is triggered${globs.length > 0 ? ` for files matching ${globs.join(", ")}` : ""}, you MUST spawn the ${hook.agent} agent now. Read and follow the ${hook.agent} agent protocol in \`.agents/agents/${toPrefixedId(hook.agent)}.md\`.`,
       ].join("\n");
       results.push(output(`.roo/rules/${toPrefixedId(`hook-${hook.id}`)}.md`, wrapInManagedBlock(body), body));
     }
@@ -100,6 +109,7 @@ export class ClineAdapter extends BaseAdapter {
       }
     }
 
+    const bridgeOrchestration = await generateBridgeOrchestration(ctx.agentsDir);
     const bridgeBody = [
       "# Hatch3r Bridge",
       "",
@@ -107,7 +117,7 @@ export class ClineAdapter extends BaseAdapter {
       "Canonical agent instructions live at `/.agents/AGENTS.md`.",
       "Rules and skills are managed in `.roo/rules/` and `.cline/skills/`.",
       "",
-      BRIDGE_ORCHESTRATION,
+      bridgeOrchestration,
     ].join("\n");
     results.push(output(".roo/rules/hatch3r-bridge.md", wrapInManagedBlock(bridgeBody), bridgeBody));
 

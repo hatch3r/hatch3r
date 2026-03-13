@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { validateMcpEntry } from "../../adapters/mcp-utils.js";
+import { validateMcpEntry, validateServerName } from "../../adapters/mcp-utils.js";
 import type { McpServerEntry } from "../../adapters/mcp-utils.js";
 
 describe("validateMcpEntry", () => {
@@ -133,5 +133,40 @@ describe("validateMcpEntry", () => {
       args: ["server.js"],
     };
     expect(validateMcpEntry("win-node", entry)).toEqual([]);
+  });
+});
+
+describe("validateServerName", () => {
+  it("accepts valid alphanumeric names", () => {
+    expect(validateServerName("myserver")).toBeNull();
+    expect(validateServerName("my-server")).toBeNull();
+    expect(validateServerName("my_server")).toBeNull();
+    expect(validateServerName("MyServer123")).toBeNull();
+    expect(validateServerName("a")).toBeNull();
+  });
+
+  it("rejects names with dots", () => {
+    const result = validateServerName("my.server");
+    expect(result).not.toBeNull();
+    expect(result).toContain("invalid characters");
+  });
+
+  it("rejects names with slashes", () => {
+    expect(validateServerName("../etc/passwd")).not.toBeNull();
+    expect(validateServerName("my/server")).not.toBeNull();
+  });
+
+  it("rejects names with spaces", () => {
+    expect(validateServerName("my server")).not.toBeNull();
+  });
+
+  it("rejects names with special characters", () => {
+    expect(validateServerName("server;rm -rf")).not.toBeNull();
+    expect(validateServerName("name$var")).not.toBeNull();
+    expect(validateServerName("name{key}")).not.toBeNull();
+  });
+
+  it("rejects empty names", () => {
+    expect(validateServerName("")).not.toBeNull();
   });
 });

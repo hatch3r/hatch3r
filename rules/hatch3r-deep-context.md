@@ -3,6 +3,7 @@ id: hatch3r-deep-context
 type: rule
 description: Adaptive pre-implementation analysis — complexity scoring, requirements elicitation, similar implementation discovery, and transitive dependency tracing before coding
 scope: always
+tags: [core]
 ---
 # Deep Context Analysis
 

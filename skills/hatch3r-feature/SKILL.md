@@ -1,6 +1,7 @@
 ---
 id: hatch3r-feature
 description: End-to-end feature implementation workflow. Covers data model, domain logic, API, and UI as a vertical slice. Use when implementing new features or working on feature request issues.
+tags: [core, implementation]
 ---
 > **Note:** Commands below use `npm` as an example. Substitute with your project's package manager (`yarn`, `pnpm`, `bun`) or build tool as appropriate.
 

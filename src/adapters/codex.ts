@@ -6,6 +6,11 @@ import { readCanonicalFiles } from "./canonical.js";
 import { applyCustomization } from "./customization.js";
 import { escapeTomlString } from "./toml-utils.js";
 
+// Codex adapter — generates configuration for OpenAI Codex CLI.
+// Codex reads project config from the `.codex/` directory and uses
+// `.agents/AGENTS.md` as the primary model instructions file (set via
+// model_instructions_file in .codex/config.toml). Agent-specific
+// instructions are referenced from `.agents/agents/<id>.md`.
 export class CodexAdapter extends BaseAdapter {
   readonly name = "codex";
 
@@ -25,7 +30,8 @@ export class CodexAdapter extends BaseAdapter {
       const rules = await readCanonicalFiles(ctx.agentsDir, "rules");
       const enabledRules = [];
       for (const rule of rules) {
-        const { skip, overrides } = await applyCustomization(ctx.projectRoot, rule);
+        const { skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);
+        this.warnings.push(...warnings);
         if (skip) continue;
         const desc = overrides.description ?? rule.description;
         enabledRules.push({ ...rule, description: desc });
@@ -42,7 +48,8 @@ export class CodexAdapter extends BaseAdapter {
     if (ctx.features.agents) {
       const agents = await readCanonicalFiles(ctx.agentsDir, "agents");
       for (const agent of agents) {
-        const { skip, overrides } = await applyCustomization(ctx.projectRoot, agent);
+        const { skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
+        this.warnings.push(...warnings);
         if (skip) continue;
         const agentId = toPrefixedId(agent.id);
         const model = resolveAgentModel(agent.id, agent, ctx.manifest, overrides);

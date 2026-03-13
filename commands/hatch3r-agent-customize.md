@@ -2,6 +2,7 @@
 id: hatch3r-agent-customize
 type: command
 description: Configure per-agent customization including model overrides, description changes, and project-specific markdown instructions
+tags: [customize]
 ---
 
 ## Agent Pipeline
@@ -179,5 +180,5 @@ The `protected` field is set in the canonical agent definition and cannot be ove
 - Skill customization: `hatch3r-skill-customize` command
 - Command customization: `hatch3r-command-customize` command
 - Rule customization: `hatch3r-rule-customize` command
-- Model selection: [docs/model-selection.md](../docs/model-selection.md) — configuration, aliases, resolution order
-- Platform support: [docs/adapter-capability-matrix.md](../docs/adapter-capability-matrix.md) — model emission per adapter (native vs guidance)
+- Model selection: [Model Selection](https://docs.hatch3r.com/docs/guides/model-selection) — configuration, aliases, resolution order
+- Platform support: [Adapter Capability Matrix](https://docs.hatch3r.com/docs/reference/adapter-capability-matrix) — model emission per adapter (native vs guidance)

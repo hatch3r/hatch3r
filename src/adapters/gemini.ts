@@ -6,6 +6,7 @@ import { readCanonicalFiles } from "./canonical.js";
 import { applyCustomization } from "./customization.js";
 import type { HookEvent } from "../hooks/types.js";
 import { escapeTomlString } from "./toml-utils.js";
+import { HATCH3R_VERSION } from "../version.js";
 
 function mapToGeminiEvent(event: HookEvent): string {
   const mapping: Record<HookEvent, string> = {
@@ -15,6 +16,8 @@ function mapToGeminiEvent(event: HookEvent): string {
     "file-save": "AfterTool",
     "session-start": "SessionStart",
     "pre-push": "BeforeTool",
+    "worktree-create": "AfterTool",
+    "worktree-remove": "BeforeTool",
   };
   return mapping[event] || event;
 }
@@ -26,7 +29,7 @@ export class GeminiAdapter extends BaseAdapter {
     const results: AdapterOutput[] = [];
 
     const inner = [
-      ...this.bridgeHeader(".agents/AGENTS.md"),
+      ...await this.bridgeHeader(ctx.agentsDir, ".agents/AGENTS.md"),
       ...await this.inlineRules(ctx),
       ...await this.inlineAgents(ctx, (m) => ({
         text: `**Recommended model:** \`${m}\`. Set via \`gemini --model ${m}\` or select in Google AI Studio.`,
@@ -36,6 +39,10 @@ export class GeminiAdapter extends BaseAdapter {
     results.push(output("GEMINI.md", wrapInManagedBlock(inner), inner));
 
     const settings: Record<string, unknown> = {
+      _hatch3r: {
+        version: HATCH3R_VERSION,
+        managed: true,
+      },
       context: { fileName: ["GEMINI.md", "AGENTS.md"] },
     };
 
@@ -56,7 +63,7 @@ export class GeminiAdapter extends BaseAdapter {
         const matcher = hook.condition?.globs?.join("|") || ".*";
         hooksObj[geminiEvent].push({
           matcher,
-          hooks: [{ type: "command", command: `echo "hatch3r hook: ${hook.id} — activate ${hook.agent} agent"` }],
+          hooks: [{ type: "command", command: `echo "HATCH3R_HOOK_ACTIVATED: Spawn the ${hook.agent} agent now. Follow the ${hook.agent} agent protocol in .gemini/agents/${toPrefixedId(hook.agent)}.md. Event: ${hook.event}. Hook ID: ${hook.id}."` }],
         });
       }
       settings.hooks = hooksObj;
@@ -71,7 +78,8 @@ export class GeminiAdapter extends BaseAdapter {
     if (ctx.features.commands) {
       const commands = await readCanonicalFiles(ctx.agentsDir, "commands");
       for (const cmd of commands) {
-        const { content, skip, overrides } = await applyCustomization(ctx.projectRoot, cmd);
+        const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, cmd);
+        this.warnings.push(...warnings);
         if (skip) continue;
         const desc = overrides.description ?? cmd.description;
         const toml = [

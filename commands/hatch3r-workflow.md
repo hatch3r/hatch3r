@@ -2,6 +2,7 @@
 id: hatch3r-workflow
 type: command
 description: Guided development lifecycle with 4 phases (Analyze, Plan, Implement, Review) and scale-adaptive Quick Mode for small tasks.
+tags: [core, implementation]
 ---
 # Development Workflow -- Guided Lifecycle for Structured Implementation
 

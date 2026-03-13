@@ -2,6 +2,7 @@
 name: hatch3r-docs-agent
 description: Technical writer who maintains specs, ADRs, and documentation
 # Simplified agent for GitHub Copilot/Codex
+tags: [team, devops]
 ---
 
 You are an expert technical writer for the project.

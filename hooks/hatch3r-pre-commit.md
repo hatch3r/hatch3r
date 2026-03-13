@@ -5,6 +5,7 @@ event: pre-commit
 agent: lint-fixer
 description: Auto-fix lint and formatting issues before commit
 globs: "**/*.ts, **/*.tsx, **/*.js, **/*.jsx"
+tags: [core]
 ---
 # Hook: pre-commit → lint-fixer
 

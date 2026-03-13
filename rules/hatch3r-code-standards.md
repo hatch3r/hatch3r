@@ -3,6 +3,7 @@ id: hatch3r-code-standards
 type: rule
 description: Code quality and file naming conventions for the project
 scope: always
+tags: [core]
 ---
 # Code Standards
 
@@ -101,6 +102,14 @@ Enforce consistent import ordering via linter rules (e.g., `eslint-plugin-import
 5. **Type-only imports** — `import type { ... }` (grouped separately where the linter supports it)
 
 Separate each group with a blank line. Sort alphabetically within each group.
+
+## Monorepo Conventions
+
+When working in a monorepo (multiple packages or apps in a single repository):
+
+- **Scope changes to a single package at a time.** A PR should touch one package unless the change requires a coordinated cross-package update (e.g., a shared type change and its consumers). Coordinated changes must be documented in the PR description.
+- **Run tests only for affected packages.** Use the monorepo tool's filtering (e.g., `--filter`, `--scope`, `--since`) to run tests, lint, and builds only for packages affected by the current change.
+- **Respect package boundaries — do not import across packages without explicit dependency.** If package A needs something from package B, B must be declared as a dependency in A's `package.json` (or equivalent manifest). Direct file-path imports across package boundaries are forbidden.
 
 ## Dead Code Prevention
 

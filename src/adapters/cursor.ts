@@ -4,12 +4,19 @@ import type {
 } from "../types.js";
 import { toPrefixedId } from "../types.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
-import { BRIDGE_ORCHESTRATION } from "../cli/shared/agentsContent.js";
+import { generateBridgeOrchestration } from "../cli/shared/agentsContent.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
 import { readCanonicalFiles } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
 import { applyCustomization } from "./customization.js";
 
+/**
+ * The Cursor adapter generates .mdc files from .md canonical files by adding
+ * Cursor-specific frontmatter (description, globs/alwaysApply) and wrapping
+ * content in managed blocks. Rules get `alwaysApply: true` or `globs: [...]`
+ * based on their scope. Agents get `name`, `description`, `model`, `readonly`,
+ * and `background` frontmatter fields.
+ */
 function cursorRuleFrontmatter(rule: CanonicalFile, scopeOverride?: string): string {
   const scope = scopeOverride ?? rule.scope;
   const lines: string[] = [`description: ${rule.description}`];
@@ -39,7 +46,8 @@ export class CursorAdapter extends BaseAdapter {
     if (ctx.features.rules) {
       const rules = await readCanonicalFiles(ctx.agentsDir, "rules");
       for (const rule of rules) {
-        const { content, skip, overrides } = await applyCustomization(ctx.projectRoot, rule);
+        const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);
+        this.warnings.push(...warnings);
         if (skip) continue;
         const desc = overrides.description ?? rule.description;
         const ruleWithDesc = { ...rule, description: desc };
@@ -51,7 +59,8 @@ export class CursorAdapter extends BaseAdapter {
     if (ctx.features.agents) {
       const agents = await readCanonicalFiles(ctx.agentsDir, "agents");
       for (const agent of agents) {
-        const { content, skip, overrides } = await applyCustomization(ctx.projectRoot, agent);
+        const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
+        this.warnings.push(...warnings);
         if (skip) continue;
         const model = resolveAgentModel(agent.id, agent, ctx.manifest, overrides);
         const desc = overrides.description ?? agent.description;
@@ -85,7 +94,7 @@ export class CursorAdapter extends BaseAdapter {
           ? `globs: [${globs.map((g: string) => `"${g}"`).join(", ")}]`
           : "alwaysApply: false";
       const fm = `---\ndescription: "Hook: ${hook.description}"\n${globLine}\n---`;
-      const body = `# Hook: ${hook.id}\n\n**Event:** ${hook.event}\n**Agent:** ${hook.agent}\n\n${hook.description}\n\nWhen this hook's event (${hook.event}) is triggered${globs.length > 0 ? ` for files matching ${globs.join(", ")}` : ""}, activate the ${hook.agent} agent.`;
+      const body = `# Hook: ${hook.id}\n\n**Event:** ${hook.event}\n**Agent:** ${hook.agent}\n\n${hook.description}\n\nHATCH3R_HOOK_ACTIVATED: When this hook's event (${hook.event}) is triggered${globs.length > 0 ? ` for files matching ${globs.join(", ")}` : ""}, you MUST spawn the ${hook.agent} agent now. Read and follow the ${hook.agent} agent protocol in \`.agents/agents/${toPrefixedId(hook.agent)}.md\`.`;
       results.push(mdcOutput(`.cursor/rules/${toPrefixedId(`hook-${hook.id}`)}.mdc`, fm, body));
     }
 
@@ -93,12 +102,13 @@ export class CursorAdapter extends BaseAdapter {
 description: Bridge to canonical agent instructions and mandatory orchestration directives
 alwaysApply: true
 ---`;
+    const bridgeOrchestration = await generateBridgeOrchestration(ctx.agentsDir);
     const bridgeBody = `# Hatch3r Bridge
 
 This project uses hatch3r for agentic coding setup.
 Canonical agent instructions live at \`/.agents/AGENTS.md\`.
 
-${BRIDGE_ORCHESTRATION}
+${bridgeOrchestration}
 
 ## Cursor Subagent Configuration (v2.5+)
 

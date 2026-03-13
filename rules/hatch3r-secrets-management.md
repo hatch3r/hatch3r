@@ -3,6 +3,7 @@ id: hatch3r-secrets-management
 type: rule
 description: Secret management, rotation, and secure handling patterns for the project
 scope: always
+tags: [security]
 ---
 # Secrets Management
 

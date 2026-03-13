@@ -5,6 +5,7 @@ event: file-save
 agent: context-rules
 description: Activate context-specific rules on file save
 globs: "**/*.ts, **/*.tsx, **/*.js, **/*.jsx"
+tags: [core]
 ---
 # Hook: file-save → context-rules
 

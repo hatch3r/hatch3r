@@ -2,6 +2,7 @@
 id: hatch3r-recipe
 type: command
 description: Execute shareable workflow recipes that compose agents, skills, and commands into guided sequences for common development scenarios
+tags: [core]
 ---
 
 ## Agent Pipeline

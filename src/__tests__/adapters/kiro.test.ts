@@ -106,7 +106,7 @@ describe("KiroAdapter", () => {
 
     const hasSkillOutput = outputs.some(
       (o) =>
-        o.path.startsWith(".kiro/steering/") &&
+        o.path.startsWith(".kiro/steering/hatch3r-skill-") &&
         o.content.includes("test-skill"),
     );
     expect(hasSkillOutput).toBe(false);

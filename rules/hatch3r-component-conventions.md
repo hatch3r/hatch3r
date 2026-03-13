@@ -4,6 +4,7 @@ type: rule
 description: Rules for component development in web applications
 scope: conditional
 globs: src/**/*.vue, src/**/*.tsx, src/**/*.jsx
+tags: [implementation]
 ---
 # Component Conventions
 

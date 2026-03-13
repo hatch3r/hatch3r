@@ -2,6 +2,7 @@
 id: hatch3r-hooks
 type: command
 description: Define and manage event-driven hooks that activate agents on project events
+tags: [core, devops]
 ---
 
 ## Agent Pipeline

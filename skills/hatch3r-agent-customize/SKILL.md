@@ -1,6 +1,7 @@
 ---
 id: hatch3r-agent-customize
 description: Create and manage per-agent customization files for model overrides, description changes, and project-specific markdown instructions. Use when tailoring agent behavior to project-specific needs.
+tags: [customize]
 ---
 # Agent Customization Management
 

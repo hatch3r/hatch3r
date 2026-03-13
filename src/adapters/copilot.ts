@@ -4,7 +4,7 @@ import type {
 } from "../types.js";
 import { toPrefixedId } from "../types.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
-import { BRIDGE_ORCHESTRATION } from "../cli/shared/agentsContent.js";
+import { generateBridgeOrchestration } from "../cli/shared/agentsContent.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
 import { readCanonicalFiles } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
@@ -23,7 +23,8 @@ export class CopilotAdapter extends BaseAdapter {
     if (ctx.features.rules) {
       const rules = await readCanonicalFiles(ctx.agentsDir, "rules");
       for (const rule of rules) {
-        const { content, skip, overrides } = await applyCustomization(ctx.projectRoot, rule);
+        const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);
+        this.warnings.push(...warnings);
         if (skip) continue;
         const scope = overrides.scope ?? rule.scope;
         if (scope && scope !== "always") {
@@ -34,13 +35,14 @@ export class CopilotAdapter extends BaseAdapter {
       }
     }
 
+    const bridgeOrchestration = await generateBridgeOrchestration(ctx.agentsDir);
     const innerContent = [
       "",
       "# Hatch3r Project Instructions",
       "",
       "Full canonical agent instructions are at `/.agents/AGENTS.md`.",
       "",
-      BRIDGE_ORCHESTRATION,
+      bridgeOrchestration,
       "",
       "## Hatch3r Rules",
       "",
@@ -87,7 +89,8 @@ jobs:
     if (ctx.features.agents) {
       const agents = await readCanonicalFiles(ctx.agentsDir, "agents");
       for (const agent of agents) {
-        const { content, skip, overrides } = await applyCustomization(ctx.projectRoot, agent);
+        const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
+        this.warnings.push(...warnings);
         if (skip) continue;
         const model = resolveAgentModel(agent.id, agent, ctx.manifest, overrides);
         const desc = overrides.description ?? agent.description;
@@ -131,12 +134,12 @@ jobs:
         if (server.args) entry.args = server.args;
         if (server.url) entry.url = server.url;
         if (server.env) entry.env = server.env;
-        if (server.command) {
-          entry.envFile = "${workspaceFolder}/.env.mcp";
+        if (server.command && server.env && Object.keys(server.env).length > 0) {
+          entry.env = server.env;
         }
         vscodeServers[name] = entry;
       }
-      results.push(output(".vscode/mcp.json", JSON.stringify({ mcpServers: vscodeServers }, null, 2) + "\n"));
+      results.push(output(".vscode/mcp.json", JSON.stringify({ servers: vscodeServers }, null, 2) + "\n"));
     }
 
     return results;

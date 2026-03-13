@@ -2,6 +2,7 @@
 id: hatch3r-quick-change
 type: command
 description: Lightweight command for small changes not worth tracking on the board. Adaptive ceremony with inline or sub-agent implementation, batch support, and soft scope guards.
+tags: [core, implementation]
 ---
 
 ## Agent Pipeline

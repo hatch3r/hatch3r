@@ -3,6 +3,7 @@ id: hatch3r-git-conventions
 type: rule
 description: Git commit message and branching conventions
 scope: always
+tags: [core]
 ---
 # Git Conventions
 

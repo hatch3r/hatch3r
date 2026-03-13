@@ -4,6 +4,7 @@ type: hook
 event: session-start
 agent: learnings-loader
 description: Load relevant learnings at session start
+tags: [core]
 ---
 # Hook: session-start → learnings-loader
 

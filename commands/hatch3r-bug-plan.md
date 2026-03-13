@@ -2,6 +2,7 @@
 id: hatch3r-bug-plan
 type: command
 description: Plan a complex bug investigation -- spawn parallel researchers, produce diagnosis report with ranked hypotheses and structured todo.md entries for board-fill.
+tags: [core, planning]
 ---
 
 ## Agent Pipeline

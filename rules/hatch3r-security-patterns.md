@@ -3,6 +3,7 @@ id: hatch3r-security-patterns
 type: rule
 description: Security patterns including input validation, auth enforcement, and AI/agentic security for the project
 scope: always
+tags: [security]
 ---
 # Security Patterns
 
@@ -63,6 +64,11 @@ scope: always
 - Enforce parameter schemas on every tool call. Reject calls with unexpected, missing, or out-of-range arguments.
 - Rate-limit tool invocations per agent per time window. Alert on anomalous tool usage patterns.
 - Sandbox tool execution: restrict file system access, network egress, and subprocess spawning.
+- **MCP server filesystem scope:** MCP servers with filesystem access must be scoped to the minimum necessary directories:
+  - Restrict filesystem access to the project directory. MCP servers should never have access to the home directory, system directories, or unrelated project directories.
+  - Document which MCP servers have filesystem access and define their intended scope (read-only vs read-write, which directories).
+  - Configure `allowedDirectories` in MCP server configs where supported. If the server does not support directory restrictions, document this as a known risk and apply compensating controls (monitoring, read-only mode).
+  - Audit MCP server filesystem access on configuration changes. Verify that added servers do not expand the filesystem attack surface beyond the project boundary.
 
 ### ASI03 — Identity & Privilege Abuse
 
@@ -77,6 +83,12 @@ scope: always
 - Verify package integrity (checksums, signatures) before loading tools or plugins.
 - Audit third-party prompt templates for injected instructions before use.
 - Maintain an allowlist of approved MCP servers and tool sources.
+- **`npx -y` safety:** The `-y` flag auto-confirms installation of unknown packages without prompts, creating a supply chain attack vector:
+  - Never use `npx -y` with untrusted, unknown, or typo-squattable package names.
+  - Always pin explicit versions when using npx: `npx package@1.2.3` instead of `npx package`.
+  - Prefer `npm exec --package=package@version -- command` for critical tooling — it provides explicit version control and avoids silent auto-install.
+  - In CI pipelines, install tools as explicit `devDependencies` with pinned versions rather than relying on `npx` at runtime.
+  - Verify the package name and publisher on the npm registry before first use. Typosquatting attacks exploit `npx -y` by registering names similar to popular packages.
 
 ### ASI05 — Unexpected Code Execution
 

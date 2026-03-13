@@ -1,6 +1,7 @@
 ---
 id: hatch3r-command-customize
 description: Create and manage per-command customization files for description overrides, enable/disable control, and project-specific markdown instructions. Use when tailoring command behavior to project-specific needs.
+tags: [customize]
 ---
 # Command Customization Management
 

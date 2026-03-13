@@ -3,6 +3,7 @@ id: hatch3r-ci-cd
 type: rule
 description: CI/CD pipeline standards covering stage gates, deployment strategies, and rollback procedures
 scope: always
+tags: [devops]
 ---
 # CI/CD Standards
 

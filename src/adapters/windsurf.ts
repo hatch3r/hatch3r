@@ -1,7 +1,7 @@
 import type { AdapterOutput } from "../types.js";
 import { toPrefixedId } from "../types.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
-import { BRIDGE_ORCHESTRATION } from "../cli/shared/agentsContent.js";
+import { generateBridgeOrchestration } from "../cli/shared/agentsContent.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
 import { readCanonicalFiles } from "./canonical.js";
 import { applyCustomization } from "./customization.js";
@@ -22,6 +22,7 @@ export class WindsurfAdapter extends BaseAdapter {
   protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
     const results: AdapterOutput[] = [];
 
+    const bridgeOrchestration = await generateBridgeOrchestration(ctx.agentsDir);
     const windsurfInner = [
       "",
       "# Hatch3r Agent Instructions",
@@ -29,7 +30,7 @@ export class WindsurfAdapter extends BaseAdapter {
       "Full canonical agent instructions are at `/.agents/AGENTS.md`.",
       "Rules and skills are managed in `.windsurf/rules/` and `.windsurf/skills/`.",
       "",
-      BRIDGE_ORCHESTRATION,
+      bridgeOrchestration,
       "",
       ...await this.inlineAgents(ctx),
     ].join("\n");
@@ -38,14 +39,15 @@ export class WindsurfAdapter extends BaseAdapter {
     if (ctx.features.rules) {
       const rules = await readCanonicalFiles(ctx.agentsDir, "rules");
       for (const rule of rules) {
-        const { content, skip, overrides } = await applyCustomization(ctx.projectRoot, rule);
+        const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);
+        this.warnings.push(...warnings);
         if (skip) continue;
         const scope = overrides.scope ?? rule.scope;
         const trigger = ruleTrigger(scope);
         const globScope = (trigger === "glob_pattern" && scope)
           ? (isGlobPattern(scope) ? scope : `${scope}/**`)
           : undefined;
-        const fm = `<!-- trigger: ${trigger}${globScope ? `, globs: ${globScope}` : ""} -->`;
+        const fm = `---\ntrigger: ${trigger}${globScope ? `\nglobs: "${globScope}"` : ""}\n---`;
         const desc = overrides.description ?? rule.description;
         const body = `# ${rule.id}\n\n${desc}\n\n${content}`;
         results.push(output(`.windsurf/rules/${toPrefixedId(rule.id)}.md`, `${fm}\n\n${wrapInManagedBlock(body)}`, body));

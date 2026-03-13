@@ -2,6 +2,7 @@
 id: hatch3r-migration-plan
 type: command
 description: Create a phased migration plan for a major dependency or framework upgrade. Analyzes breaking changes and produces an actionable plan with rollback procedures.
+tags: [planning, brownfield]
 ---
 
 ## Agent Pipeline

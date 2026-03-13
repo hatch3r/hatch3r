@@ -168,4 +168,55 @@ describe("WindsurfAdapter", () => {
       expect(o.action).toBe("create");
     }
   });
+
+  // ── Branch gap tests: empty features, no MCP, empty tools ──
+
+  it("generates only .windsurfrules bridge when all features are false and no MCP", async () => {
+    const manifest = makeManifest({
+      mcpServers: [],
+      features: {
+        agents: false,
+        skills: false,
+        rules: false,
+        commands: false,
+        mcp: false,
+        hooks: false,
+        prompts: false,
+        githubAgents: false,
+      },
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    // Should still produce the bridge file
+    const bridge = outputs.find((o) => o.path === ".windsurfrules");
+    expect(bridge).toBeDefined();
+    expect(bridge!.content).toContain("Hatch3r");
+
+    // No rules, skills, workflows, or MCP
+    const rules = outputs.filter((o) => o.path.startsWith(".windsurf/rules/"));
+    const skills = outputs.filter((o) => o.path.startsWith(".windsurf/skills/"));
+    const workflows = outputs.filter((o) => o.path.startsWith(".windsurf/workflows/"));
+    const mcp = outputs.find((o) => o.path === ".windsurf/mcp.json");
+    expect(rules.length).toBe(0);
+    expect(skills.length).toBe(0);
+    expect(workflows.length).toBe(0);
+    expect(mcp).toBeUndefined();
+  });
+
+  it("does not generate MCP config when no servers are configured", async () => {
+    const manifest = makeManifest({ mcpServers: [] });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const mcp = outputs.find((o) => o.path === ".windsurf/mcp.json");
+    expect(mcp).toBeUndefined();
+  });
+
+  it("produces no empty content in any output", async () => {
+    const manifest = makeManifest();
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    for (const o of outputs) {
+      expect(o.content.length).toBeGreaterThan(0);
+    }
+  });
 });

@@ -1,4 +1,7 @@
+import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { wrapInManagedBlock } from "../../merge/managedBlocks.js";
+import { parseFrontmatter } from "../../adapters/canonical.js";
 
 /**
  * Shared orchestration content inlined into adapter bridge files (CLAUDE.md, GEMINI.md,
@@ -7,73 +10,82 @@ import { wrapInManagedBlock } from "../../merge/managedBlocks.js";
  * Ensures every platform receives inline orchestration guidance instead of relying solely
  * on "read /.agents/AGENTS.md" references.
  */
-export const BRIDGE_ORCHESTRATION = `## Universal Sub-Agent Pipeline
+/** Static bridge orchestration (no skill index). Used as fallback. */
+export const BRIDGE_ORCHESTRATION = `## Sub-Agent Pipeline (mandatory, no exceptions)
 
-Every task — board-pickup, workflow command, plain chat, single-task, or multi-task — MUST use this four-phase sub-agent pipeline. There are NO exceptions. Never implement code inline; always delegate to sub-agents.
+All tasks use this four-phase pipeline. Never implement inline; always delegate.
 
-**Phase 1 — Research:** Spawn \`hatch3r-researcher\` for context gathering. Skip only for trivial single-line edits (typos, comment fixes, single-value config changes). Score task complexity per \`hatch3r-deep-context\` rule and add tier-appropriate modes (\`requirements-elicitation\`, \`similar-implementation\`) alongside standard task-type modes.
-
-**Phase 2 — Implement:** Spawn \`hatch3r-implementer\` for ALL code changes. One dedicated implementer per task. Never implement inline — always delegate. Include reference conventions, resolved requirements, and blast radius data from Phase 1 when available.
-
-**Phase 3 — Review Loop:**
-- 3a. Spawn \`hatch3r-reviewer\` to review the implementation.
-- 3b. If Critical or Warning findings: spawn \`hatch3r-fixer\` with the reviewer output.
-- 3c. Re-review: spawn \`hatch3r-reviewer\` on the fixed code.
-- 3d. Repeat 3b–3c until reviewer reports 0 Critical + 0 Warning, or max 3 iterations reached.
-- 3e. If max iterations reached with remaining findings: surface to user.
-
-**Phase 4 — Final Quality** (runs ONLY after review loop is clean):
-- \`hatch3r-test-writer\` — ALWAYS for code changes (mandatory, not just bugs)
-- \`hatch3r-security-auditor\` — ALWAYS for code changes (mandatory, not just area:security)
-- \`hatch3r-docs-writer\` — ALWAYS evaluate; spawn when changes affect APIs, architecture, or user-facing behavior
-- \`hatch3r-lint-fixer\` — when lint errors present after implementation
-- \`hatch3r-a11y-auditor\` — when UI/accessibility changes
-- \`hatch3r-perf-profiler\` — when performance-sensitive changes
-- \`hatch3r-dependency-auditor\` — when dependencies change
-
-For plain chat tasks without issue context: classify the task (bug/feature/refactor/QA), create synthetic issue context (title, acceptance criteria, type), then run the full pipeline above.
+**Phase 1 — Research:** Spawn \`hatch3r-researcher\`. Skip only for trivial edits. Score complexity per \`hatch3r-deep-context\` and add tier modes.
+**Phase 2 — Implement:** Spawn \`hatch3r-implementer\` (one per task). Pass research context.
+**Phase 3 — Review Loop:** \`hatch3r-reviewer\` → if Critical/Warning: \`hatch3r-fixer\` → re-review → repeat (max 3). After clean verdict: one confirmation pass (regressions, acceptance criteria). Remaining findings after max iterations → surface to user.
+**Phase 4 — Final Quality** (after clean review): \`hatch3r-test-writer\` + \`hatch3r-security-auditor\` (always), \`hatch3r-docs-writer\` (evaluate), then conditional: lint-fixer, a11y-auditor, perf-profiler, dependency-auditor.
 
 ## Mandatory Behaviors
 
-1. **Load the matching skill** before implementing any task. Read \`/.agents/skills/\` for the skill matching the task type (bug-fix, feature, refactor, qa-validation, etc.).
-2. **Use the Task tool** (\`subagent_type: "generalPurpose"\`) for all agent delegations. Launch as many independent subagents in parallel as the platform supports — no artificial concurrency limit.
-3. **Propagate rules to subagents**: include all \`scope: always\` rule directives in subagent prompts — subagents do not inherit the parent's rule context automatically.
-4. **Consult learnings**: check \`/.agents/learnings/\` for relevant pitfalls and patterns before implementation.
+1. **Load skill** from \`/.agents/skills/\` matching task type before implementation.
+2. **Task tool** (\`subagent_type: "generalPurpose"\`) for all delegations. Max parallelism.
+3. **Propagate rules**: include \`scope: always\` directives in subagent prompts.
+4. **Consult learnings**: check \`/.agents/learnings/\` before implementation.
+5. **Consult specs**: if \`docs/specs/\` exists, read relevant specifications before implementation and cross-reference during review.
 
 ## Agent Quick Reference
 
-| Agent | When to Use |
-|-------|-------------|
-| \`hatch3r-researcher\` | ALWAYS before implementation (skip only for trivial single-line edits) |
-| \`hatch3r-implementer\` | ALWAYS. One dedicated implementer per task — standalone, epic sub-issue, batch, or plain chat |
-| \`hatch3r-learnings-loader\` | When consulting project learnings or historical decisions |
-| \`hatch3r-reviewer\` | ALWAYS in review loop (Phase 3); reviews and re-reviews until clean |
-| \`hatch3r-fixer\` | When reviewer reports Critical or Warning findings (Phase 3 review loop) |
-| \`hatch3r-test-writer\` | ALWAYS for code changes (Phase 4 final quality) |
-| \`hatch3r-security-auditor\` | ALWAYS for code changes (Phase 4 final quality) |
-| \`hatch3r-docs-writer\` | ALWAYS evaluate; spawn when documentation impact exists (Phase 4 final quality) |
-| \`hatch3r-lint-fixer\` | When lint/type errors present after implementation |
-| \`hatch3r-a11y-auditor\` | When UI/accessibility changes |
-| \`hatch3r-architect\` | When making architectural decisions, designing APIs, or evaluating design trade-offs |
-| \`hatch3r-perf-profiler\` | When performance-sensitive changes |
-| \`hatch3r-dependency-auditor\` | When dependencies change |
-| \`hatch3r-ci-watcher\` | When CI fails |
-| \`hatch3r-context-rules\` | When establishing or updating project-specific coding patterns and conventions |
-| \`hatch3r-devops\` | When infrastructure, deployment, or CI/CD changes are needed |
+| Agent | When |
+|-------|------|
+| \`hatch3r-researcher\` | Always before impl (skip trivial edits) |
+| \`hatch3r-implementer\` | Always — one per task |
+| \`hatch3r-reviewer\` | Always (Phase 3 loop) |
+| \`hatch3r-fixer\` | Critical/Warning findings (Phase 3) |
+| \`hatch3r-test-writer\` | Always for code changes (Phase 4) |
+| \`hatch3r-security-auditor\` | Always for code changes (Phase 4) |
+| \`hatch3r-docs-writer\` | Evaluate; spawn if doc impact (Phase 4) |
+| \`hatch3r-lint-fixer\` | Lint/type errors after impl |
+| \`hatch3r-a11y-auditor\` | UI/accessibility changes |
+| \`hatch3r-architect\` | Architectural decisions, API design |
+| \`hatch3r-perf-profiler\` | Performance-sensitive changes |
+| \`hatch3r-dependency-auditor\` | Dependency changes |
+| \`hatch3r-ci-watcher\` | CI failures |
+| \`hatch3r-devops\` | Infra, deployment, CI/CD changes |
 
-See the \`hatch3r-agent-orchestration\` rule in \`/.agents/rules/\` for the full orchestration protocol.
+Full protocol: \`hatch3r-agent-orchestration\` rule in \`/.agents/rules/\`.
 
 ## Canonical Structure
 
-- Rules: \`/.agents/rules/\` (source of truth for all tool-specific rules)
-- Agents: \`/.agents/agents/\` (agent definitions)
-- Skills: \`/.agents/skills/\` (skill workflows)
-- Commands: \`/.agents/commands/\` (executable commands)
-- MCP: \`/.agents/mcp/mcp.json\` (MCP server configuration)
-- Policy: \`/.agents/policy/\` (guardrails and deny lists)
+- Rules: \`/.agents/rules/\` — Agents: \`/.agents/agents/\` — Skills: \`/.agents/skills/\`
+- Commands: \`/.agents/commands/\` — MCP: \`/.agents/mcp/mcp.json\` — Policy: \`/.agents/policy/\`
 
-Do not manually edit files with the \`hatch3r-\` prefix -- they are managed by hatch3r
-and will be overwritten on update. Create non-prefixed files for customizations.`;
+Do not edit \`hatch3r-\` prefixed files — managed by hatch3r, overwritten on update.`;
+
+/**
+ * Generate bridge orchestration with an inline skill dispatch table.
+ * Falls back to the static BRIDGE_ORCHESTRATION if agentsDir is unavailable.
+ */
+export async function generateBridgeOrchestration(agentsDir: string): Promise<string> {
+  const skills = await readSkillDirs(join(agentsDir, "skills"));
+  if (skills.length === 0) return BRIDGE_ORCHESTRATION;
+
+  const skillTable = [
+    "\n## Skill Dispatch Table\n",
+    "Load the matching skill before implementation. Full content in `/.agents/skills/{id}/SKILL.md`.\n",
+    "| Task Type | Skill | Description |",
+    "|-----------|-------|-------------|",
+  ];
+  for (const skill of skills) {
+    skillTable.push(`| — | \`${skill.id}\` | ${skill.description.slice(0, 80)} |`);
+  }
+
+  // Insert skill table after the Agent Quick Reference table
+  const insertPoint = "Do not edit `hatch3r-` prefixed files";
+  const idx = BRIDGE_ORCHESTRATION.indexOf(insertPoint);
+  if (idx === -1) return BRIDGE_ORCHESTRATION;
+
+  return (
+    BRIDGE_ORCHESTRATION.slice(0, idx) +
+    skillTable.join("\n") +
+    "\n\n" +
+    BRIDGE_ORCHESTRATION.slice(idx)
+  );
+}
 
 export const AGENTS_MD_INNER = [
   "# Project Agent Instructions",
@@ -91,7 +103,16 @@ export const AGENTS_MD_INNER = [
 
 export const AGENTS_MD_FULL = `${wrapInManagedBlock(AGENTS_MD_INNER)}\n`;
 
-export const CANONICAL_AGENTS_MD = `# hatch3r — Canonical Agent Instructions
+// ── Dynamic AGENTS.md generation ──────────────────────────────
+
+/**
+ * Generate canonical AGENTS.md content based on what's actually installed on disk.
+ * Reads agent, skill, and command files from the .agents/ directory.
+ */
+export async function generateCanonicalAgentsMd(agentsDir: string): Promise<string> {
+  const sections: string[] = [];
+
+  sections.push(`# hatch3r — Canonical Agent Instructions
 
 This file is the canonical reference for all agent orchestration in this project. It is auto-generated by hatch3r and should not be manually edited.
 
@@ -99,120 +120,77 @@ This file is the canonical reference for all agent orchestration in this project
 
 Every task — board-pickup, workflow command, plain chat, single-task, or multi-task — MUST use this four-phase sub-agent pipeline. There are NO exceptions. Never implement code inline; always delegate to sub-agents.
 
-**Phase 1 — Research:** Spawn \`hatch3r-researcher\` for context gathering before implementation. Skip only for trivial single-line edits (typos, comment fixes, single-value config changes). Select research modes by task type. Score task complexity per \`hatch3r-deep-context\` rule and add tier-appropriate modes (\`requirements-elicitation\`, \`similar-implementation\`) alongside standard modes.
+**Phase 1 — Research:** Spawn \`hatch3r-researcher\` for context gathering before implementation. Skip only for trivial single-line edits.
 
-**Phase 2 — Implement:** Spawn \`hatch3r-implementer\` for ALL code changes. One dedicated implementer per task. Never implement inline — always delegate via the Task tool. Include reference conventions, resolved requirements, and blast radius data from Phase 1 when available.
+**Phase 2 — Implement:** Spawn \`hatch3r-implementer\` for ALL code changes. One dedicated implementer per task.
 
-**Phase 3 — Review Loop:**
-- 3a. Spawn \`hatch3r-reviewer\` to review the implementation.
-- 3b. If Critical or Warning findings: spawn \`hatch3r-fixer\` with the reviewer output.
-- 3c. Re-review: spawn \`hatch3r-reviewer\` on the fixed code.
-- 3d. Repeat 3b–3c until reviewer reports 0 Critical + 0 Warning, or max 3 iterations reached.
-- 3e. If max iterations reached with remaining findings: surface to user for manual resolution.
+**Phase 3 — Review Loop:** Spawn \`hatch3r-reviewer\`, then \`hatch3r-fixer\` for Critical/Warning findings, re-review, repeat until clean (max 3 iterations).
 
-**Phase 4 — Final Quality** (runs ONLY after the review loop is clean):
-
-Spawn all applicable specialists in parallel:
-- \`hatch3r-test-writer\` — ALWAYS for code changes (mandatory, not just bugs)
-- \`hatch3r-security-auditor\` — ALWAYS for code changes (mandatory, not just area:security)
-- \`hatch3r-docs-writer\` — ALWAYS evaluate; spawn when changes affect APIs, architecture, or user-facing behavior
-- \`hatch3r-lint-fixer\` — when lint errors present after implementation
-- \`hatch3r-a11y-auditor\` — when UI/accessibility changes
-- \`hatch3r-perf-profiler\` — when performance-sensitive changes
-- \`hatch3r-dependency-auditor\` — when dependencies change
-- \`hatch3r-ci-watcher\` — when CI fails
-
-This pipeline applies regardless of how the task was initiated. For plain chat tasks without issue context: classify the task (bug/feature/refactor/QA), create synthetic issue context (title, acceptance criteria, type), then run the full pipeline.
+**Phase 4 — Final Quality** (runs ONLY after review loop is clean): Spawn applicable specialists in parallel.
 
 ## Orchestration Protocol
 
-Every task MUST follow this protocol:
-
 1. **Load the matching skill** from \`/.agents/skills/\` based on task type before implementation.
-2. **Score task complexity** per the \`hatch3r-deep-context\` rule. Add tier-appropriate researcher modes (\`requirements-elicitation\`, \`similar-implementation\`) alongside standard task-type modes.
-3. **Spawn a researcher subagent** (\`hatch3r-researcher\`) for context gathering before implementation.
-4. **Spawn an implementer subagent** (\`hatch3r-implementer\`) for code changes. Never implement inline. Include reference conventions and resolved requirements from Phase 1.
-5. **Run the review loop** (Phase 3): spawn \`hatch3r-reviewer\`, then \`hatch3r-fixer\` for Critical/Warning findings, re-review, repeat until clean (max 3 iterations).
-6. **Spawn final quality subagents** (Phase 4, after review loop is clean): test-writer and security-auditor (always for code changes), plus docs-writer, a11y-auditor, perf-profiler, lint-fixer as applicable.
-7. **Propagate rules** to all subagent prompts — subagents do not inherit rules automatically.
-8. **Consult learnings** from \`/.agents/learnings/\` before implementation.
+2. **Score task complexity** per the \`hatch3r-deep-context\` rule.
+3. **Spawn a researcher subagent** (\`hatch3r-researcher\`) for context gathering.
+4. **Spawn an implementer subagent** (\`hatch3r-implementer\`) for code changes.
+5. **Run the review loop** (Phase 3).
+6. **Spawn final quality subagents** (Phase 4).
+7. **Propagate rules** to all subagent prompts.
+8. **Consult learnings** from \`/.agents/learnings/\`.`);
 
-See the \`hatch3r-agent-orchestration\` rule in \`/.agents/rules/\` for the full mandatory protocol.
+  // Build agent roster from what's on disk
+  const agents = await readDirFiles(join(agentsDir, "agents"));
+  if (agents.length > 0) {
+    sections.push("\n## Agent Roster\n");
+    sections.push("| Agent | Purpose |");
+    sections.push("|-------|---------|");
+    for (const agent of agents) {
+      const { metadata } = parseFrontmatter(agent.content);
+      const id = metadata.id || metadata.name || agent.name.replace(/\.md$/, "");
+      const desc = metadata.description ?? "";
+      sections.push(`| \`${id}\` | ${desc.slice(0, 100)} |`);
+    }
+  }
 
-## Agent Roster
+  // Build skill dispatch table with inline checklists from what's on disk
+  const skills = await readSkillDirs(join(agentsDir, "skills"));
+  if (skills.length > 0) {
+    sections.push("\n## Available Skills\n");
+    sections.push("| Skill | Description |");
+    sections.push("|-------|-------------|");
+    for (const skill of skills) {
+      sections.push(`| \`${skill.id}\` | ${skill.description.slice(0, 100)} |`);
+    }
 
-| Agent | Purpose | Invoke When |
-|-------|---------|-------------|
-| \`hatch3r-researcher\` | Context gathering across 15 research modes | ALWAYS before implementation (skip only for trivial single-line edits). Select modes by task type + tier-appropriate deep context modes. |
-| \`hatch3r-implementer\` | Focused single-task implementation | ALWAYS. One dedicated implementer per task — standalone, epic sub-issue, batch, or plain chat. Convention Lock step aligns with reference implementations. |
-| \`hatch3r-learnings-loader\` | Project learning curation and consultation | When consulting historical decisions, past mistakes, or established project patterns |
-| \`hatch3r-reviewer\` | Code review | ALWAYS in review loop (Phase 3); reviews and re-reviews until clean |
-| \`hatch3r-fixer\` | Targeted fixes for reviewer findings | When reviewer reports Critical or Warning findings (Phase 3 review loop) |
-| \`hatch3r-test-writer\` | Regression and coverage tests | ALWAYS for code changes in final quality (Phase 4) |
-| \`hatch3r-security-auditor\` | Security audit | ALWAYS for code changes in final quality (Phase 4) |
-| \`hatch3r-docs-writer\` | Documentation maintenance | ALWAYS evaluate in final quality (Phase 4); spawn when documentation impact exists |
-| \`hatch3r-lint-fixer\` | Style, formatting, type cleanup | When lint errors present after implementation |
-| \`hatch3r-a11y-auditor\` | WCAG AA compliance | When UI/accessibility changes |
-| \`hatch3r-architect\` | System architecture, ADRs, API design, trade-off analysis | When making architectural decisions, designing new systems, or evaluating design trade-offs |
-| \`hatch3r-perf-profiler\` | Performance profiling | When performance-sensitive changes |
-| \`hatch3r-dependency-auditor\` | Supply chain security | When dependencies change |
-| \`hatch3r-ci-watcher\` | CI/CD failure diagnosis | When CI fails |
-| \`hatch3r-context-rules\` | Context-aware rule generation from project patterns | When establishing project conventions or adapting rules to discovered patterns |
-| \`hatch3r-devops\` | Infrastructure, deployment, CI/CD configuration | When infrastructure, deployment, or CI/CD pipeline changes are needed |
+    // Inline condensed skill checklists so agents don't need a separate file read
+    const skillsWithChecklists = skills.filter((s) => s.checklist);
+    if (skillsWithChecklists.length > 0) {
+      sections.push("\n## Skill Quick Reference\n");
+      sections.push("When loading a skill, follow its checklist steps below. Full skill content is in `/.agents/skills/{id}/SKILL.md`.\n");
+      for (const skill of skillsWithChecklists) {
+        sections.push(`### \`${skill.id}\`\n`);
+        sections.push(skill.checklist!);
+        sections.push("");
+      }
+    }
+  }
 
-## Skill Dispatch Table
+  // Build command list from what's on disk
+  const commands = await readDirFiles(join(agentsDir, "commands"));
+  if (commands.length > 0) {
+    sections.push("\n## Available Commands\n");
+    sections.push("| Command | Description |");
+    sections.push("|---------|-------------|");
+    for (const cmd of commands) {
+      const { metadata } = parseFrontmatter(cmd.content);
+      const id = metadata.id || metadata.name || cmd.name.replace(/\.md$/, "");
+      const desc = metadata.description ?? "";
+      sections.push(`| \`${id}\` | ${desc.slice(0, 100)} |`);
+    }
+  }
 
-| Task Type | Skill |
-|-----------|-------|
-| \`type:bug\` | \`hatch3r-bug-fix\` |
-| \`type:feature\` | \`hatch3r-feature\` |
-| \`type:refactor\` + \`area:ui\` | \`hatch3r-visual-refactor\` |
-| \`type:refactor\` + behavior change | \`hatch3r-logical-refactor\` |
-| \`type:refactor\` (other) | \`hatch3r-refactor\` |
-| \`type:qa\` | \`hatch3r-qa-validation\` |
-
-## Researcher Mode Selection
-
-| Task Type | Standard Modes | Tier 2+ Modes (per \`hatch3r-deep-context\`) |
-|-----------|---------------|----------------------------------------------|
-| \`type:bug\` | \`symptom-trace\`, \`root-cause\`, \`codebase-impact\` | + \`requirements-elicitation\` |
-| \`type:feature\` | \`codebase-impact\`, \`feature-design\`, \`architecture\` | + \`requirements-elicitation\`, \`similar-implementation\` |
-| \`type:refactor\` | \`current-state\`, \`refactoring-strategy\`, \`migration-path\` | + \`similar-implementation\`, \`requirements-elicitation\` |
-| \`type:qa\` | \`codebase-impact\` | + \`requirements-elicitation\` |
-
-## Subagent Spawning
-
-Use the Task tool with \`subagent_type: "generalPurpose"\` for all agent delegations. Launch as many independent subagents in parallel as the platform supports — no artificial concurrency limit. Every subagent prompt MUST include:
-
-- The agent protocol to follow
-- All \`scope: always\` rules from \`/.agents/rules/\`
-- The project's tooling hierarchy
-- Relevant learnings from \`/.agents/learnings/\`
-
-## Multi-Issue Parallelism
-
-When multiple issues or tasks are identified (board pickup batch, multiple issue references, or multi-task chat instructions), the framework MUST parallelize them:
-
-1. **Parse** into individual discrete tasks.
-2. **Build dependency graph**, group into parallel levels (independent = same level).
-3. **Phase 1 — Researchers:** Spawn one \`hatch3r-researcher\` per task in parallel. Skip for trivial single-line edits only.
-4. **Phase 2 — Implementers:** Spawn one \`hatch3r-implementer\` per task per dependency level. Each implementer receives its researcher output.
-5. **Phase 3 — Review Loop:** Spawn \`hatch3r-reviewer\`, then \`hatch3r-fixer\` for Critical/Warning findings, re-review, repeat until clean (max 3 iterations).
-6. **Phase 4 — Final Quality:** Spawn \`hatch3r-test-writer\` and \`hatch3r-security-auditor\` (always for code changes), plus \`hatch3r-docs-writer\`, auditors, etc. as applicable across the batch.
-7. **Shared branch, combined PR** closing all issues.
-
-This pattern applies to ALL contexts: board-pickup, workflow command, and plain chat. Every task gets its own implementer subagent — never implement multiple tasks inline.
-
-## Single-Task and Plain Chat Protocol
-
-When the user provides a single task in plain chat (no command invoked, no issue reference), the full sub-agent pipeline still applies:
-
-1. **Classify** the task by type (bug/feature/refactor/QA/other) based on context.
-2. **Create synthetic issue context** (title, acceptance criteria, type) from the instruction.
-3. **Run the Universal Sub-Agent Pipeline**: Research → Implement → Review Loop → Final Quality (all four phases, all mandatory specialists).
-
-This ensures consistent quality regardless of how the task was initiated.
-
+  sections.push(`
 ## Directory Structure
 
 - \`/.agents/rules/\` — Rules (source of truth for all tool-specific rules)
@@ -222,5 +200,81 @@ This ensures consistent quality regardless of how the task was initiated.
 - \`/.agents/mcp/\` — MCP server configuration
 - \`/.agents/policy/\` — Guardrails and deny lists
 - \`/.agents/learnings/\` — Project learnings (pitfalls, patterns, decisions)
-`;
+`);
 
+  return sections.join("\n");
+}
+
+// ── Helpers ──────────────────────────────────────────────────
+
+interface DirFile {
+  name: string;
+  content: string;
+}
+
+async function readDirFiles(dir: string): Promise<DirFile[]> {
+  try {
+    const entries = await readdir(dir);
+    const mdFiles = entries.filter((f) => f.endsWith(".md")).sort();
+    return Promise.all(
+      mdFiles.map(async (name) => ({
+        name,
+        content: await readFile(join(dir, name), "utf-8"),
+      })),
+    );
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Extract a condensed checklist from skill content by pulling numbered lists
+ * and heading structure (max ~20 lines per skill to keep token count manageable).
+ */
+function extractSkillChecklist(content: string): string | undefined {
+  const lines = content.split("\n");
+  const checklist: string[] = [];
+  let inSteps = false;
+
+  for (const line of lines) {
+    // Start capturing at headings containing "steps", "protocol", "workflow", "checklist", or numbered procedure
+    if (/^#{1,3}\s+.*(step|protocol|workflow|checklist|procedure|implementation)/i.test(line)) {
+      inSteps = true;
+      continue;
+    }
+    // Stop at the next major heading that isn't a sub-step
+    if (inSteps && /^#{1,2}\s+/.test(line) && !/step|phase/i.test(line)) {
+      break;
+    }
+    if (inSteps && (line.match(/^\d+\.\s/) || line.match(/^-\s/) || line.match(/^\s+\d+\.\s/) || line.match(/^\s+-\s/))) {
+      checklist.push(line);
+      if (checklist.length >= 20) break;
+    }
+  }
+
+  return checklist.length > 0 ? checklist.join("\n") : undefined;
+}
+
+async function readSkillDirs(dir: string): Promise<{ id: string; description: string; checklist?: string }[]> {
+  try {
+    const entries = await readdir(dir, { withFileTypes: true });
+    const skills: { id: string; description: string; checklist?: string }[] = [];
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      try {
+        const raw = await readFile(join(dir, entry.name, "SKILL.md"), "utf-8");
+        const { metadata, content } = parseFrontmatter(raw);
+        skills.push({
+          id: metadata.id || metadata.name || entry.name,
+          description: metadata.description ?? "",
+          checklist: extractSkillChecklist(content),
+        });
+      } catch {
+        // skip
+      }
+    }
+    return skills.sort((a, b) => a.id.localeCompare(b.id));
+  } catch {
+    return [];
+  }
+}

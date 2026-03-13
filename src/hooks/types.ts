@@ -4,7 +4,9 @@ export type HookEvent =
   | "ci-failure"
   | "file-save"
   | "session-start"
-  | "pre-push";
+  | "pre-push"
+  | "worktree-create"
+  | "worktree-remove";
 
 export const VALID_HOOK_EVENTS = new Set<HookEvent>([
   "pre-commit",
@@ -13,6 +15,8 @@ export const VALID_HOOK_EVENTS = new Set<HookEvent>([
   "file-save",
   "session-start",
   "pre-push",
+  "worktree-create",
+  "worktree-remove",
 ]);
 
 export function isValidHookEvent(event: string): event is HookEvent {

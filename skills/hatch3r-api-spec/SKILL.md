@@ -2,6 +2,7 @@
 id: hatch3r-api-spec
 type: skill
 description: Generate and validate OpenAPI specifications from codebase. Covers endpoint design, schema validation, and documentation generation.
+tags: [planning]
 ---
 
 # API Specification Workflow

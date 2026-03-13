@@ -13,7 +13,7 @@ hatch3r provides a full project lifecycle, from setup to release. This guide wal
 npx hatch3r init
 ```
 
-Interactive setup detects your repository, asks which coding tools you use, and generates all agents, skills, rules, commands, and MCP configuration.
+Interactive setup detects your repository, asks about your project context (greenfield/brownfield, solo/team), lets you choose a content profile (Minimal/Standard/Full/Custom), asks which coding tools you use, and generates the selected agents, skills, rules, commands, and MCP configuration.
 
 **Next steps after init:**
 

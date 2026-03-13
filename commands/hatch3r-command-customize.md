@@ -2,6 +2,7 @@
 id: hatch3r-command-customize
 type: command
 description: Configure per-command customization including description overrides, enable/disable control, and project-specific markdown instructions
+tags: [customize]
 ---
 
 ## Agent Pipeline
