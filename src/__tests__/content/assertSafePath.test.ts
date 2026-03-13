@@ -83,11 +83,14 @@ describe("assertSafePath", () => {
       expect(() => assertSafePath("..\\secret", LABEL)).toThrow("Unsafe path");
     });
 
-    it("does not reject foo\\..\\..\\bar on POSIX (backslash is literal)", () => {
-      // On Windows this would normalize to "..\\bar" and be caught.
-      // On POSIX the backslashes are literal, so the normalized form does not start with "..".
-      expect(() => assertSafePath("foo\\..\\..\\bar", LABEL)).not.toThrow();
-    });
+    it.skipIf(process.platform === "win32")(
+      "does not reject foo\\..\\..\\bar on POSIX (backslash is literal)",
+      () => {
+        // On Windows this would normalize to "..\\bar" and be caught.
+        // On POSIX the backslashes are literal, so the normalized form does not start with "..".
+        expect(() => assertSafePath("foo\\..\\..\\bar", LABEL)).not.toThrow();
+      },
+    );
   });
 
   // ── Edge cases ──────────────────────────────────────────────────

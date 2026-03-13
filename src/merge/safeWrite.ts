@@ -30,6 +30,10 @@ export async function atomicWriteFile(filePath: string, content: string): Promis
     const fh = await open(tmpPath, "r");
     try {
       await fh.datasync();
+    } catch (err) {
+      // Windows rejects fdatasync on read-only handles (EPERM).
+      // The atomic rename provides the safety guarantee; datasync is best-effort.
+      if ((err as NodeJS.ErrnoException).code !== "EPERM") throw err;
     } finally {
       await fh.close();
     }
