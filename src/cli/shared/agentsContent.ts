@@ -10,6 +10,7 @@ import { parseFrontmatter } from "../../adapters/canonical.js";
  * Ensures every platform receives inline orchestration guidance instead of relying solely
  * on "read /.agents/AGENTS.md" references.
  */
+/** Static bridge orchestration (no skill index). Used as fallback. */
 export const BRIDGE_ORCHESTRATION = `## Sub-Agent Pipeline (mandatory, no exceptions)
 
 All tasks use this four-phase pipeline. Never implement inline; always delegate.
@@ -25,6 +26,7 @@ All tasks use this four-phase pipeline. Never implement inline; always delegate.
 2. **Task tool** (\`subagent_type: "generalPurpose"\`) for all delegations. Max parallelism.
 3. **Propagate rules**: include \`scope: always\` directives in subagent prompts.
 4. **Consult learnings**: check \`/.agents/learnings/\` before implementation.
+5. **Consult specs**: if \`docs/specs/\` exists, read relevant specifications before implementation and cross-reference during review.
 
 ## Agent Quick Reference
 
@@ -53,6 +55,37 @@ Full protocol: \`hatch3r-agent-orchestration\` rule in \`/.agents/rules/\`.
 - Commands: \`/.agents/commands/\` — MCP: \`/.agents/mcp/mcp.json\` — Policy: \`/.agents/policy/\`
 
 Do not edit \`hatch3r-\` prefixed files — managed by hatch3r, overwritten on update.`;
+
+/**
+ * Generate bridge orchestration with an inline skill dispatch table.
+ * Falls back to the static BRIDGE_ORCHESTRATION if agentsDir is unavailable.
+ */
+export async function generateBridgeOrchestration(agentsDir: string): Promise<string> {
+  const skills = await readSkillDirs(join(agentsDir, "skills"));
+  if (skills.length === 0) return BRIDGE_ORCHESTRATION;
+
+  const skillTable = [
+    "\n## Skill Dispatch Table\n",
+    "Load the matching skill before implementation. Full content in `/.agents/skills/{id}/SKILL.md`.\n",
+    "| Task Type | Skill | Description |",
+    "|-----------|-------|-------------|",
+  ];
+  for (const skill of skills) {
+    skillTable.push(`| — | \`${skill.id}\` | ${skill.description.slice(0, 80)} |`);
+  }
+
+  // Insert skill table after the Agent Quick Reference table
+  const insertPoint = "Do not edit `hatch3r-` prefixed files";
+  const idx = BRIDGE_ORCHESTRATION.indexOf(insertPoint);
+  if (idx === -1) return BRIDGE_ORCHESTRATION;
+
+  return (
+    BRIDGE_ORCHESTRATION.slice(0, idx) +
+    skillTable.join("\n") +
+    "\n\n" +
+    BRIDGE_ORCHESTRATION.slice(idx)
+  );
+}
 
 export const AGENTS_MD_INNER = [
   "# Project Agent Instructions",
@@ -120,7 +153,7 @@ Every task — board-pickup, workflow command, plain chat, single-task, or multi
     }
   }
 
-  // Build skill dispatch table from what's on disk
+  // Build skill dispatch table with inline checklists from what's on disk
   const skills = await readSkillDirs(join(agentsDir, "skills"));
   if (skills.length > 0) {
     sections.push("\n## Available Skills\n");
@@ -128,6 +161,18 @@ Every task — board-pickup, workflow command, plain chat, single-task, or multi
     sections.push("|-------|-------------|");
     for (const skill of skills) {
       sections.push(`| \`${skill.id}\` | ${skill.description.slice(0, 100)} |`);
+    }
+
+    // Inline condensed skill checklists so agents don't need a separate file read
+    const skillsWithChecklists = skills.filter((s) => s.checklist);
+    if (skillsWithChecklists.length > 0) {
+      sections.push("\n## Skill Quick Reference\n");
+      sections.push("When loading a skill, follow its checklist steps below. Full skill content is in `/.agents/skills/{id}/SKILL.md`.\n");
+      for (const skill of skillsWithChecklists) {
+        sections.push(`### \`${skill.id}\`\n`);
+        sections.push(skill.checklist!);
+        sections.push("");
+      }
     }
   }
 
@@ -182,18 +227,47 @@ async function readDirFiles(dir: string): Promise<DirFile[]> {
   }
 }
 
-async function readSkillDirs(dir: string): Promise<{ id: string; description: string }[]> {
+/**
+ * Extract a condensed checklist from skill content by pulling numbered lists
+ * and heading structure (max ~20 lines per skill to keep token count manageable).
+ */
+function extractSkillChecklist(content: string): string | undefined {
+  const lines = content.split("\n");
+  const checklist: string[] = [];
+  let inSteps = false;
+
+  for (const line of lines) {
+    // Start capturing at headings containing "steps", "protocol", "workflow", "checklist", or numbered procedure
+    if (/^#{1,3}\s+.*(step|protocol|workflow|checklist|procedure|implementation)/i.test(line)) {
+      inSteps = true;
+      continue;
+    }
+    // Stop at the next major heading that isn't a sub-step
+    if (inSteps && /^#{1,2}\s+/.test(line) && !/step|phase/i.test(line)) {
+      break;
+    }
+    if (inSteps && (line.match(/^\d+\.\s/) || line.match(/^-\s/) || line.match(/^\s+\d+\.\s/) || line.match(/^\s+-\s/))) {
+      checklist.push(line);
+      if (checklist.length >= 20) break;
+    }
+  }
+
+  return checklist.length > 0 ? checklist.join("\n") : undefined;
+}
+
+async function readSkillDirs(dir: string): Promise<{ id: string; description: string; checklist?: string }[]> {
   try {
     const entries = await readdir(dir, { withFileTypes: true });
-    const skills: { id: string; description: string }[] = [];
+    const skills: { id: string; description: string; checklist?: string }[] = [];
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       try {
         const raw = await readFile(join(dir, entry.name, "SKILL.md"), "utf-8");
-        const { metadata } = parseFrontmatter(raw);
+        const { metadata, content } = parseFrontmatter(raw);
         skills.push({
           id: metadata.id || metadata.name || entry.name,
           description: metadata.description ?? "",
+          checklist: extractSkillChecklist(content),
         });
       } catch {
         // skip

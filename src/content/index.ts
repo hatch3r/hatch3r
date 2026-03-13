@@ -13,17 +13,97 @@ export function assertSafePath(relativePath: string, label: string): void {
 }
 
 // ── Content Cross-References ───────────────────────────────────
-//
-// Content items may reference each other across types. For example:
-// - Agents reference rules (e.g., hatch3r-implementer references hatch3r-code-standards)
-// - Skills reference agents (e.g., hatch3r-bug-fix skill delegates to hatch3r-researcher)
-// - Commands reference agents and skills (e.g., hatch3r-roadmap spawns hatch3r-researcher)
-// - Rules reference other rules (e.g., hatch3r-agent-orchestration references hatch3r-deep-context)
-//
-// Currently these cross-references are implicit (embedded in markdown content). A future
-// improvement could add a cross-reference validation pass to buildContentIndex() that parses
-// content bodies for references to other content IDs and verifies all referenced IDs exist
-// in the index. This would catch broken references when content items are renamed or removed.
+
+/**
+ * Extract hatch3r content IDs referenced in markdown content.
+ * Looks for backtick-quoted `hatch3r-{name}` patterns.
+ */
+export function extractContentReferences(content: string): string[] {
+  const refs = new Set<string>();
+  const pattern = /`(hatch3r-[a-z0-9-]+)`/g;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(content)) !== null) {
+    refs.add(match[1]);
+  }
+  return [...refs];
+}
+
+export interface CrossReferenceResult {
+  warnings: string[];
+}
+
+/**
+ * Validate cross-references between content items.
+ * Parses markdown bodies for references to other content IDs and verifies
+ * all referenced IDs exist in the index.
+ */
+export async function validateCrossReferences(
+  contentRoot: string,
+  index: ContentIndex,
+): Promise<CrossReferenceResult> {
+  const warnings: string[] = [];
+  const allIds = new Set(index.items.map((item) => item.id));
+
+  for (const item of index.items) {
+    let content: string;
+    try {
+      const filePath =
+        item.type === "skill"
+          ? join(contentRoot, item.relativePath, "SKILL.md")
+          : join(contentRoot, `${item.relativePath}`);
+      content = await readFile(filePath, "utf-8");
+    } catch {
+      continue;
+    }
+
+    const refs = extractContentReferences(content);
+    for (const ref of refs) {
+      if (ref === item.id) continue; // self-reference is fine
+      if (!allIds.has(ref)) {
+        warnings.push(
+          `${item.type} "${item.id}" references "${ref}" which does not exist in the content index`,
+        );
+      }
+    }
+  }
+
+  return { warnings };
+}
+
+// Agents required by the orchestration pipeline ("Always" in Agent Roster)
+const ORCHESTRATION_REQUIRED_AGENTS = [
+  "hatch3r-researcher",
+  "hatch3r-implementer",
+  "hatch3r-reviewer",
+  "hatch3r-test-writer",
+  "hatch3r-security-auditor",
+];
+
+/**
+ * Validate that a content selection includes all agents required by the
+ * orchestration pipeline. Returns warnings for missing agents.
+ */
+export function validateOrchestrationDependencies(
+  selection: ContentSelection,
+): string[] {
+  const warnings: string[] = [];
+  const selectedAgents = new Set(selection.items.agents);
+
+  // Check if orchestration rule is selected
+  const hasOrchestration = selection.items.rules.includes("hatch3r-agent-orchestration");
+  if (!hasOrchestration) return warnings;
+
+  for (const agentId of ORCHESTRATION_REQUIRED_AGENTS) {
+    if (!selectedAgents.has(agentId)) {
+      warnings.push(
+        `Orchestration pipeline requires agent "${agentId}" but it is not in the content selection. ` +
+        `The 4-phase pipeline (Research → Implement → Review → Quality) will be incomplete.`,
+      );
+    }
+  }
+
+  return warnings;
+}
 
 // ── Types ──────────────────────────────────────────────────────
 

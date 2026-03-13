@@ -16,6 +16,8 @@ function mapToGeminiEvent(event: HookEvent): string {
     "file-save": "AfterTool",
     "session-start": "SessionStart",
     "pre-push": "BeforeTool",
+    "worktree-create": "AfterTool",
+    "worktree-remove": "BeforeTool",
   };
   return mapping[event] || event;
 }
@@ -27,7 +29,7 @@ export class GeminiAdapter extends BaseAdapter {
     const results: AdapterOutput[] = [];
 
     const inner = [
-      ...this.bridgeHeader(".agents/AGENTS.md"),
+      ...await this.bridgeHeader(ctx.agentsDir, ".agents/AGENTS.md"),
       ...await this.inlineRules(ctx),
       ...await this.inlineAgents(ctx, (m) => ({
         text: `**Recommended model:** \`${m}\`. Set via \`gemini --model ${m}\` or select in Google AI Studio.`,
@@ -61,7 +63,7 @@ export class GeminiAdapter extends BaseAdapter {
         const matcher = hook.condition?.globs?.join("|") || ".*";
         hooksObj[geminiEvent].push({
           matcher,
-          hooks: [{ type: "command", command: `echo "hatch3r hook: ${hook.id} — activate ${hook.agent} agent"` }],
+          hooks: [{ type: "command", command: `echo "HATCH3R_HOOK_ACTIVATED: Spawn the ${hook.agent} agent now. Follow the ${hook.agent} agent protocol in .gemini/agents/${toPrefixedId(hook.agent)}.md. Event: ${hook.event}. Hook ID: ${hook.id}."` }],
         });
       }
       settings.hooks = hooksObj;

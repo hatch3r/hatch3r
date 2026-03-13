@@ -6,6 +6,17 @@ All notable changes to hatch3r are documented in this file.
 
 ### Added
 
+- **Worktree file isolation**: Git worktree support for parallel agent sessions — `.worktreeinclude` generation, `hatch3r worktree-setup` CLI command, `WorktreeConfig` in manifest, auto-enabled for worktree-capable tools (claude), migration checkpoint for existing projects, Claude PostToolUse hook for automatic `git worktree add` detection
+- **Dynamic bridge orchestration**: `generateBridgeOrchestration()` reads skills from disk and injects a Skill Dispatch Table into every adapter's bridge output (all 12 adapters migrated from static constant to dynamic generation)
+- **Inline skill checklists in AGENTS.md**: `extractSkillChecklist()` pulls condensed steps from skill content (max 20 lines per skill), displayed as "Skill Quick Reference" in canonical AGENTS.md so agents don't need a separate file read
+- **Cross-reference validation**: `validateCrossReferences()` scans installed content for broken `hatch3r-*` references between agents, skills, rules, and commands — integrated into `hatch3r validate`
+- **Orchestration dependency guard**: `validateOrchestrationDependencies()` warns when content selection is missing pipeline-critical agents (researcher, implementer, reviewer, test-writer, security-auditor) — checks during both `init` and `validate`
+- **Spec staleness detection**: `hatch3r sync` compares `docs/specs/` file modification times against latest git commit, warns if oldest spec is >7 days old
+- **Spec awareness in agents**: Implementer agent reads `docs/specs/` headers for relevant specifications; reviewer agent cross-references specs against changed files for compliance checks
+- **Mandatory behavior #5**: Bridge orchestration adds "Consult specs" directive for all adapters
+- **`worktree-create` and `worktree-remove` hook events**: New lifecycle hooks for worktree operations
+- **`specs` manifest field**: Tracks project spec paths and generation timestamps in `hatch.json`
+- **Worktree configuration in `hatch3r config`**: Interactive prompt for enabling/disabling worktree isolation
 - **`test-plan` command**: Plan comprehensive test strategies with parallel researchers (coverage analysis, complexity risk, test pattern extraction, boundary analysis, risk-based prioritization). Produces test plan specs, todo.md entries, and optional ADRs. Supports feature-scoped and module/codebase-level planning. Chains to `hatch3r-test-writer` or `hatch3r-board-fill`.
 - 5 new researcher modes for test planning: `coverage-analysis`, `complexity-risk`, `test-pattern`, `boundary-analysis`, `risk-prioritization`
 - **Selective init with content presets**: `hatch3r init` now asks project type (greenfield/brownfield), team size (solo/team), and content profile (minimal/standard/full/custom) to install only the content files you need
@@ -30,6 +41,9 @@ All notable changes to hatch3r are documented in this file.
 
 ### Fixed
 
+- **Structured hook activation**: All 5 hook-enabled adapters (claude, gemini, cursor, cline, kiro) now emit `HATCH3R_HOOK_ACTIVATED` directives with explicit agent protocol paths instead of generic echo placeholders — 100% of hook-based automation was previously non-functional
+- **Claude TaskCompleted hook**: Replaced generic quality gate message with `HATCH3R_QUALITY_GATE` directive listing Phase 3/4 verification checks
+- **Claude TeammateIdle hook**: Replaced generic pipeline message with `HATCH3R_PIPELINE_CHECK` directive listing pending Phase 4 specialist tasks
 - **Adapter capabilities**: Amp `commands` and Zed `skills` flags corrected in capability matrix
 - **MCP filtering**: `readFilteredMcp` now respects `manifest.mcp.servers` selection instead of emitting all servers
 - **Website documentation**: stale reference counts, ghost `error-handling` rule reference, `/.agents/` path inconsistencies across 6 docs pages
@@ -54,6 +68,9 @@ All notable changes to hatch3r are documented in this file.
 
 ### Changed
 
+- **Bridge orchestration is now dynamic**: `BaseAdapter.bridgeHeader()` changed from synchronous (static constant) to async (reads skills from disk), ensuring every adapter's bridge output includes the current skill inventory
+- **safeWrite simplified**: Removed `backup` option, `createBackup()`/`writeWithBackup()` functions, and `.backups/` directory. Corrupted managed blocks now rely on git for recovery. `MergeResult.action` no longer includes `"backed-up"`.
+- **`docs/specs/` in worktree isolation**: Spec files are now included in worktree copy patterns so parallel agent sessions see project specifications
 - **DRY extraction**: 8 shared constants/functions extracted from init.ts and config.ts to `src/cli/shared/constants.ts`
 - **`TYPE_TO_SELECTION_KEY`**: content type mapping exported as single constant (was duplicated 3x)
 - **Validate command**: refactored from monolithic 362-line function into 9 focused sub-validators

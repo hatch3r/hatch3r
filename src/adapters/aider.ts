@@ -8,7 +8,7 @@ export class AiderAdapter extends BaseAdapter {
 
   protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
     const inner = [
-      ...this.bridgeHeader(),
+      ...await this.bridgeHeader(ctx.agentsDir),
       ...await this.inlineRules(ctx),
       ...await this.inlineAgents(ctx),
     ].join("\n");

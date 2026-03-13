@@ -4,7 +4,7 @@ import type {
 } from "../types.js";
 import { toPrefixedId } from "../types.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
-import { BRIDGE_ORCHESTRATION } from "../cli/shared/agentsContent.js";
+import { generateBridgeOrchestration } from "../cli/shared/agentsContent.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
 import { readCanonicalFiles } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
@@ -35,13 +35,14 @@ export class CopilotAdapter extends BaseAdapter {
       }
     }
 
+    const bridgeOrchestration = await generateBridgeOrchestration(ctx.agentsDir);
     const innerContent = [
       "",
       "# Hatch3r Project Instructions",
       "",
       "Full canonical agent instructions are at `/.agents/AGENTS.md`.",
       "",
-      BRIDGE_ORCHESTRATION,
+      bridgeOrchestration,
       "",
       "## Hatch3r Rules",
       "",

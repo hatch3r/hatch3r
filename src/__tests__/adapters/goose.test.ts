@@ -45,7 +45,7 @@ describe("GooseAdapter", () => {
     expect(hints!.content).toContain("Mandatory Behaviors");
     expect(hints!.content).not.toContain("Agent: test-agent");
     expect(hints!.content).not.toContain("test-rule");
-    expect(hints!.content).not.toContain("test-skill");
+    expect(hints!.content).not.toContain("Skill: hatch3r-test-skill");
   });
 
   it("includes skills inline in .goosehints", async () => {

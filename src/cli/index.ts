@@ -3,6 +3,7 @@
 
 import { Command } from "commander";
 import { addCommand } from "./commands/add.js";
+import { worktreeSetupCommand } from "./commands/worktreeSetup.js";
 import { configCommand } from "./commands/config.js";
 import { initCommand } from "./commands/init.js";
 import { syncCommand } from "./commands/sync.js";
@@ -69,6 +70,14 @@ program
   .command("add [pack]")
   .description("Install a community pack (coming soon)")
   .action(addCommand);
+
+program
+  .command("worktree-setup [worktree-path]")
+  .description("Set up gitignored files in a git worktree")
+  .option("--from <path>", "Main repo path (auto-detected by default)")
+  .option("--dry-run", "Show what would be done without changes")
+  .option("--force", "Overwrite existing files in the worktree")
+  .action(worktreeSetupCommand);
 
 const nodeVersion = parseInt(process.version.slice(1), 10);
 if (nodeVersion < 22) {

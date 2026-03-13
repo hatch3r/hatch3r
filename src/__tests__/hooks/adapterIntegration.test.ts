@@ -45,7 +45,7 @@ describe("ClaudeAdapter hooks integration", () => {
     expect(hookEntry.matcher).toBeDefined();
     expect(hookEntry.hooks).toBeDefined();
     expect(hookEntry.hooks[0].type).toBe("command");
-    expect(hookEntry.hooks[0].command).toContain("hatch3r hook");
+    expect(hookEntry.hooks[0].command).toContain("HATCH3R_HOOK_ACTIVATED");
   });
 
   it("skips user-defined hooks when features.hooks is false but keeps Agent Teams hooks", async () => {

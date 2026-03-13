@@ -1,7 +1,7 @@
 import type { AdapterOutput } from "../types.js";
 import { toPrefixedId } from "../types.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
-import { BRIDGE_ORCHESTRATION } from "../cli/shared/agentsContent.js";
+import { generateBridgeOrchestration } from "../cli/shared/agentsContent.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
 import { readCanonicalFiles } from "./canonical.js";
 import { applyCustomization } from "./customization.js";
@@ -22,6 +22,7 @@ export class WindsurfAdapter extends BaseAdapter {
   protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
     const results: AdapterOutput[] = [];
 
+    const bridgeOrchestration = await generateBridgeOrchestration(ctx.agentsDir);
     const windsurfInner = [
       "",
       "# Hatch3r Agent Instructions",
@@ -29,7 +30,7 @@ export class WindsurfAdapter extends BaseAdapter {
       "Full canonical agent instructions are at `/.agents/AGENTS.md`.",
       "Rules and skills are managed in `.windsurf/rules/` and `.windsurf/skills/`.",
       "",
-      BRIDGE_ORCHESTRATION,
+      bridgeOrchestration,
       "",
       ...await this.inlineAgents(ctx),
     ].join("\n");

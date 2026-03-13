@@ -31,9 +31,10 @@ Living reference for framework capabilities vs. adapter implementations. Tracks 
 | **amp** | B | B | Y | -- | ~ | Y | -- | -- | Y | -- | -- |
 | **opencode** | Y | Y | Y | -- | Y | Y | -- | -- | Y | -- | -- |
 | **aider** | B | B | Y | -- | -- | -- | -- | -- | Y | -- | -- |
-| **kiro** | Y | B | Y | -- | -- | Y | -- | -- | Y | -- | -- |
-| **goose** | B | B | B | -- | -- | -- | -- | -- | Y | -- | -- |
+| **kiro** | Y | B | Y | -- | -- | Y | -- | Y | Y | -- | -- |
+| **goose** | B | B | B | -- | -- | Y | -- | -- | Y | -- | -- |
 | **zed** | B | B | -- | -- | -- | -- | -- | -- | Y | -- | -- |
+| **amazon-q** | B | B | Y | -- | -- | Y | -- | -- | Y | -- | -- |
 
 ## Agent Model Customization
 
@@ -54,6 +55,7 @@ All adapters emit model preferences when configured. See [Model Selection](../gu
 | **kiro** | Guidance | Text in .kiro/steering/hatch3r-agents.md |
 | **goose** | Guidance | Text in .goosehints |
 | **zed** | Guidance | Text in .rules |
+| **amazon-q** | Guidance | Text in .amazonq/rules/hatch3r-agents.md |
 
 ## Secret Management {#secret-management}
 
@@ -72,8 +74,9 @@ All MCP secrets are centralized in `.env.mcp` at the project root.
 | **windsurf** | `${env:VAR}` from process env | No |
 | **aider** | N/A | No |
 | **kiro** | `${env:VAR}` from process env | No |
-| **goose** | N/A (global MCP only) | No |
+| **goose** | `${env:VAR}` from process env | No |
 | **zed** | N/A (global MCP only) | No |
+| **amazon-q** | `${env:VAR}` from process env | No |
 
 For editors that don't auto-load, source before launching:
 
@@ -91,9 +94,9 @@ set -a && source .env.mcp && set +a && <editor-command> .
 | codex | hooks | No documented hook/event system |
 | aider | mcp | No project-level MCP config format |
 | aider | hooks | No documented hook/event system |
-| goose | mcp | Global-only MCP config |
 | goose | hooks | No documented hook/event system |
-| kiro | hooks | No documented hook/event system |
+| amazon-q | hooks | No documented hook/event system |
+| amazon-q | commands | No documented commands format |
 | zed | mcp | Global-only MCP config |
 | zed | hooks | No documented hook/event system |
 | zed | skills | No skills concept; rules cover all guidance |

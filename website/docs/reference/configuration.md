@@ -59,6 +59,8 @@ To change your configuration after init, run `npx hatch3r config`. This interact
 | `models` | `object` | AI model preferences |
 | `claude` | `object` | Claude Code permissions and teammate mode |
 | `content` | `object` | Content selection from init (preset, project type, team size, selected item IDs) |
+| `worktree` | `object` | Git worktree file-isolation settings (see below) |
+| `specs` | `object` | Project spec tracking (`paths`, `lastGenerated`) |
 | `managedFiles` | `string[]` | List of files managed by hatch3r |
 
 ### Board configuration
@@ -149,6 +151,26 @@ The `content` field tracks which content items are installed. It is populated du
 | `items` | Explicit list of installed content IDs per type |
 
 When `content` is `undefined` (legacy projects), `hatch3r update` and `hatch3r sync` treat it as "full" and operate on all files. The first `hatch3r update` on a legacy project auto-migrates by scanning disk and populating the `content` field.
+
+### Worktree isolation
+
+```json
+{
+  "worktree": {
+    "enabled": true,
+    "extraPatterns": [],
+    "nodeModules": "symlink"
+  }
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | `boolean` | `true` (auto-enabled for Claude) | Enable worktree file isolation |
+| `extraPatterns` | `string[]` | `[]` | Additional gitignore patterns to include in worktrees |
+| `nodeModules` | `string` | `"symlink"` | Strategy for node_modules: `"symlink"` or `"skip"` |
+
+When enabled, `hatch3r init` and `hatch3r sync` generate a `.worktreeinclude` file listing gitignored files that should be copied or symlinked into new worktrees. The Claude adapter automatically triggers `hatch3r worktree-setup` when it detects `git worktree add`.
 
 ### Claude Code permissions
 

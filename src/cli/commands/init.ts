@@ -12,11 +12,13 @@ import {
   addManagedFile,
 } from "../../manifest/hatchJson.js";
 import { safeWriteFile } from "../../merge/safeWrite.js";
+import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
 import {
   AGENTS_DIR,
   DEFAULT_FEATURES,
   HatchError,
   VALID_TOOLS,
+  WORKTREE_INCLUDE_FILE,
   type ContentSelection,
   type Features,
   type Platform,
@@ -40,7 +42,7 @@ import { findPackageRoot } from "../shared/paths.js";
 import { TOOL_DISPLAY_NAMES, TOOL_PROMPT_CHOICES, FEATURE_CHOICES, MCP_CHOICES, PLATFORM_DISPLAY_NAMES, PLATFORM_MCP_SERVER, sanitizeInput, isWSL } from "../shared/constants.js";
 import { generateIntegrityManifest, writeIntegrityManifest } from "../../integrity/index.js";
 import { HATCH3R_VERSION } from "../../version.js";
-import { buildContentIndex, resolveSelection, copySelectedContent, countSelectionItems, selectionSummary, getAllContentIds, removeContentItem } from "../../content/index.js";
+import { buildContentIndex, resolveSelection, copySelectedContent, countSelectionItems, selectionSummary, getAllContentIds, removeContentItem, validateOrchestrationDependencies } from "../../content/index.js";
 import { PRESETS, getPreset, type PresetId } from "../../content/presets.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -237,6 +239,22 @@ async function runInit(options: RunInitOptions): Promise<void> {
     }
   }
 
+  // Generate .worktreeinclude for worktree-capable tools
+  const worktreeCapableTools = new Set(["claude"]);
+  const hasWorktreeTool = tools.some(t => worktreeCapableTools.has(t));
+  if (hasWorktreeTool) {
+    manifest.worktree = manifest.worktree ?? { enabled: true };
+  }
+  if (manifest.worktree?.enabled) {
+    const wtContent = await generateWorktreeInclude(manifest, rootDir);
+    const wtManaged = extractManagedContent(wtContent);
+    await safeWriteFile(join(rootDir, WORKTREE_INCLUDE_FILE), wtContent, {
+      managedContent: wtManaged,
+      appendIfNoBlock: true,
+    });
+    addManagedFile(manifest, WORKTREE_INCLUDE_FILE);
+  }
+
   const s4 = createSpinner(step(4, totalSteps, "Finalizing..."));
   s4.start();
   await writeManifest(rootDir, manifest);
@@ -273,6 +291,9 @@ async function runInit(options: RunInitOptions): Promise<void> {
   }
   if (mcpServers.length > 0) {
     summaryLines.push(label("MCP", mcpServers.join(", ")));
+  }
+  if (manifest.worktree?.enabled) {
+    summaryLines.push(label("Worktree", "isolation enabled"));
   }
   if (envResult && envResult.action !== "skipped") {
     summaryLines.push(label("Secrets", `.env.mcp (fill in your API keys)`));
@@ -429,6 +450,10 @@ export async function initCommand(
     const preset = getPreset(presetId);
     const index = await buildContentIndex(CONTENT_ROOT);
     const contentSelection = resolveSelection(preset, projectType, teamSize, index);
+
+    // Warn if orchestration-critical agents are missing from selection
+    const orchWarnings = validateOrchestrationDependencies(contentSelection);
+    for (const w of orchWarnings) { warn(w); }
 
     await checkExisting(rootDir, true, contentSelection);
     await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection });
@@ -636,6 +661,10 @@ export async function initCommand(
   // --- Resolve content selection ---
   const contentIndex = await buildContentIndex(CONTENT_ROOT);
   const contentSelection = resolveSelection(selectedPreset, projectType, teamSize, contentIndex, customSelections);
+
+  // Warn if orchestration-critical agents are missing from selection
+  const orchWarnings = validateOrchestrationDependencies(contentSelection);
+  for (const w of orchWarnings) { warn(w); }
 
   await checkExisting(rootDir, false, contentSelection);
   await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection });

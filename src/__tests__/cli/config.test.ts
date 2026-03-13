@@ -203,6 +203,14 @@ function setupStandardPrompts(
     });
   }
 
+  // 6b. Worktree prompt (only if tools include a worktree-capable tool)
+  const selectedTools = overrides.tools ?? manifest.tools;
+  if (selectedTools.some((t: string) => t === "claude")) {
+    inquirerMock.prompt.mockResolvedValueOnce({
+      enabled: manifest.worktree?.enabled ?? true,
+    });
+  }
+
   // 7. Content management prompt (only if manifest has content)
   if (manifest.content) {
     inquirerMock.prompt.mockResolvedValueOnce({

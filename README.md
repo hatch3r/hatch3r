@@ -27,7 +27,7 @@ That's it. hatch3r detects your repo, asks about your project context (greenfiel
 | **MCP Servers** | 10 (3 default + 7 opt-in) | Playwright, Context7, Filesystem (default); GitHub, Brave Search, Sentry, Postgres, Linear, Azure DevOps, GitLab (opt-in) |
 | **Platforms** | 3 | GitHub, Azure DevOps, GitLab -- auto-detected from git remote |
 
-## Supported Tools (13 Adapters)
+## Supported Tools (14 Adapters)
 
 | Tool | Output |
 |------|--------|
@@ -41,9 +41,10 @@ That's it. hatch3r detects your repo, asks about your project context (greenfiel
 | **Gemini CLI** | `GEMINI.md` |
 | **Cline / Roo Code** | `.clinerules` |
 | **Aider** | `CONVENTIONS.md` |
-| **Kiro** | `kiro.md`, specs |
+| **Kiro** | `.kiro/steering/`, `.kiro/settings/mcp.json` |
 | **Goose** | `.goosehints` |
 | **Zed** | `.rules` |
+| **Amazon Q** | `.amazonq/rules/`, `.amazonq/settings.json` |
 
 Platform is auto-detected from your git remote during `hatch3r init`. All board commands, agents, rules, and skills adapt to your selected platform.
 
@@ -67,9 +68,11 @@ AGENTS.md              <- Generated (OpenCode, Amp, Codex adapters)
 GEMINI.md              <- Generated (Gemini adapter)
 .clinerules            <- Generated (Cline adapter)
 CONVENTIONS.md         <- Generated (Aider adapter)
-kiro.md                <- Generated (Kiro adapter)
+.kiro/                 <- Generated (Kiro adapter)
 .goosehints            <- Generated (Goose adapter)
 .rules                 <- Generated (Zed adapter)
+.amazonq/              <- Generated (Amazon Q adapter)
+.worktreeinclude       <- Generated (worktree isolation)
 ```
 
 hatch3r keeps one source of truth in `.agents/` and generates native configuration for each tool.
@@ -101,6 +104,7 @@ npx hatch3r update        # Pull latest templates (safe merge)
 npx hatch3r status        # Check sync status between canonical and generated files
 npx hatch3r validate      # Validate canonical .agents/ structure
 npx hatch3r verify        # Verify file integrity checksums
+npx hatch3r worktree-setup <path>  # Set up gitignored files in a worktree
 npx hatch3r add <pack>    # Install a community pack (coming soon)
 ```
 
@@ -175,7 +179,7 @@ hatch3r separates managed from custom files:
 
 - `hatch3r-*` files are managed by hatch3r and fully replaced on update
 - Files without the prefix are your customizations and are never touched
-- All hatch3r-generated markdown files use managed blocks (`<!-- HATCH3R:BEGIN -->` / `<!-- HATCH3R:END -->`). Content outside these markers is preserved. Bridge files are emitted by 13 adapters: Cursor, Claude, Copilot, Cline, Codex, Gemini, Windsurf, Amp, OpenCode, Aider, Kiro, Goose, Zed.
+- All hatch3r-generated markdown files use managed blocks (`<!-- HATCH3R:BEGIN -->` / `<!-- HATCH3R:END -->`). Content outside these markers is preserved. Bridge files are emitted by 14 adapters: Cursor, Claude, Copilot, Cline, Codex, Gemini, Windsurf, Amp, OpenCode, Aider, Kiro, Goose, Zed, Amazon Q.
 
 ## Model Selection
 

@@ -37,6 +37,7 @@ Always explain your reasoning before acting. Before writing or modifying code, s
 ### 1. Read Inputs and Specs
 
 - Parse the issue body: acceptance criteria, scope (in/out), edge cases.
+- Read `docs/specs/` headers (TOC first, ~30 lines per file) to identify specifications relevant to the task. Expand and read in full only the sections that apply to the current issue's domain or affected modules.
 - Read relevant specs from project documentation based on the provided references.
 - Use Context7 MCP (`resolve-library-id` then `query-docs`) for any external library/framework APIs involved.
 - Use web research for novel problems, security advisories, or current best practices not covered by local docs or Context7.

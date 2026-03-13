@@ -7,8 +7,9 @@ import inquirer from "inquirer";
 import { readManifest, writeManifest } from "../../manifest/hatchJson.js";
 import { getAdapter } from "../../adapters/index.js";
 import { safeWriteFile } from "../../merge/safeWrite.js";
-import { AGENTS_DIR, HATCH3R_PREFIX, HatchError, type HatchManifest, type Platform } from "../../types.js";
+import { AGENTS_DIR, HATCH3R_PREFIX, HatchError, WORKTREE_INCLUDE_FILE, type HatchManifest, type Platform } from "../../types.js";
 import { generateCanonicalAgentsMd } from "../shared/agentsContent.js";
+import { generateWorktreeInclude } from "../../worktree/index.js";
 import { HATCH3R_VERSION } from "../../version.js";
 import {
   printBanner,
@@ -324,6 +325,37 @@ const MIGRATION_CHECKPOINTS: MigrationCheckpoint[] = [
         if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
       }
       return { manifest, notices };
+    },
+  },
+  {
+    id: "worktree-config-init",
+    condition: async (manifest) => {
+      if (manifest.worktree !== undefined) return false;
+      const worktreeCapableTools = new Set(["claude"]);
+      return manifest.tools.some(t => worktreeCapableTools.has(t));
+    },
+    execute: async (manifest, rootDir) => {
+      const { enabled } = await inquirer.prompt<{ enabled: boolean }>([{
+        type: "confirm",
+        name: "enabled",
+        message: "hatch3r now supports worktree file isolation for parallel agent sessions. Enable it?",
+        default: true,
+      }]);
+
+      const updated = { ...manifest, worktree: { enabled } };
+      const notices: string[] = [];
+
+      if (enabled) {
+        const wtContent = await generateWorktreeInclude(updated, rootDir);
+        await safeWriteFile(join(rootDir, WORKTREE_INCLUDE_FILE), wtContent, {
+          appendIfNoBlock: true,
+        });
+        notices.push("Worktree isolation enabled — .worktreeinclude generated");
+      } else {
+        notices.push("Worktree isolation skipped (enable later with `hatch3r config`)");
+      }
+
+      return { manifest: updated, notices };
     },
   },
 ];

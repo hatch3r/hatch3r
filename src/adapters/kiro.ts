@@ -1,4 +1,5 @@
 import type { AdapterOutput } from "../types.js";
+import { toPrefixedId } from "../types.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
 import { readCanonicalFiles } from "./canonical.js";
@@ -15,7 +16,7 @@ export class KiroAdapter extends BaseAdapter {
 
   protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
     const results: AdapterOutput[] = [];
-    const lines = [...this.bridgeHeader()];
+    const lines = [...await this.bridgeHeader(ctx.agentsDir)];
 
     if (ctx.features.rules) {
       const rules = await readCanonicalFiles(ctx.agentsDir, "rules");
@@ -56,6 +57,8 @@ export class KiroAdapter extends BaseAdapter {
         if (hook.condition?.globs) {
           hookLines.push(`**Globs:** ${hook.condition.globs.join(", ")}`);
         }
+        hookLines.push("");
+        hookLines.push(`HATCH3R_HOOK_ACTIVATED: When this hook's event (${hook.event}) is triggered, you MUST spawn the ${hook.agent} agent now. Read and follow the ${hook.agent} agent protocol in \`.agents/agents/${toPrefixedId(hook.agent)}.md\`.`);
         hookLines.push("");
       }
       const hookContent = hookLines.join("\n");

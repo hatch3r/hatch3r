@@ -3,12 +3,11 @@ import {
   writeFile,
   mkdir,
   access,
-  copyFile,
   rename,
   unlink,
   open,
 } from "node:fs/promises";
-import { join, dirname, basename } from "node:path";
+import { dirname, basename } from "node:path";
 import { randomBytes } from "node:crypto";
 import { HATCH3R_PREFIX, type MergeResult } from "../types.js";
 import { insertManagedBlock, hasManagedBlock, extractCustomContent } from "./managedBlocks.js";
@@ -55,38 +54,14 @@ export async function atomicWriteFile(filePath: string, content: string): Promis
   }
 }
 
-async function createBackup(filePath: string): Promise<string> {
-  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const backupDir = join(dirname(filePath), ".backups");
-  await mkdir(backupDir, { recursive: true });
-  const backupPath = join(backupDir, `${timestamp}_${basename(filePath)}`);
-  await copyFile(filePath, backupPath);
-  return backupPath;
-}
-
-async function writeWithBackup(
-  filePath: string,
-  content: string,
-  shouldBackup: boolean,
-): Promise<MergeResult> {
-  if (shouldBackup) {
-    const backup = await createBackup(filePath);
-    await atomicWriteFile(filePath, content);
-    return { path: filePath, action: "backed-up", backup };
-  }
-  await atomicWriteFile(filePath, content);
-  return { path: filePath, action: "updated" };
-}
-
 export async function safeWriteFile(
   filePath: string,
   content: string,
   options: {
     managedContent?: string;
-    backup?: boolean;
     /** When true, prepend managed block to existing content if file has no markers (init flow). */
     appendIfNoBlock?: boolean;
-    /** When true, always write through (with backup if enabled) regardless of filename prefix. */
+    /** When true, always write through regardless of filename prefix. */
     force?: boolean;
   } = {},
 ): Promise<MergeResult> {
@@ -105,7 +80,8 @@ export async function safeWriteFile(
     if (!hasManagedBlock(existingContent)) {
       if (options.appendIfNoBlock) {
         const prepended = [content.trim(), "", existingContent.trimStart()].join("\n");
-        return writeWithBackup(filePath, prepended, !!options.backup);
+        await atomicWriteFile(filePath, prepended);
+        return { path: filePath, action: "updated" };
       }
       return {
         path: filePath,
@@ -120,17 +96,16 @@ export async function safeWriteFile(
       merged = insertManagedBlock(existingContent, options.managedContent);
     } catch {
       // Managed block is corrupted (duplicate markers, wrong order, etc.).
-      // Create a backup before overwriting so user additions are preserved locally,
-      // not just in version control.
-      const backup = await createBackup(filePath);
+      // Overwrite with fresh content; previous version is recoverable via git.
       await atomicWriteFile(filePath, content);
       return {
         path: filePath,
         action: "updated",
-        warning: `Auto-repaired corrupted managed block in ${filePath} (backup: ${backup})`,
+        warning: `Auto-repaired corrupted managed block in ${filePath}`,
       };
     }
-    const result = await writeWithBackup(filePath, merged, !!options.backup);
+    await atomicWriteFile(filePath, merged);
+    const result: MergeResult = { path: filePath, action: "updated" };
     if (deniedFindings.length > 0) {
       result.warning = `Content outside managed block in ${filePath} contains suspicious patterns: ${deniedFindings.join("; ")}`;
     }
@@ -141,7 +116,8 @@ export async function safeWriteFile(
   const isManagedFile = fileName.startsWith(HATCH3R_PREFIX);
 
   if (isManagedFile || options.force) {
-    return writeWithBackup(filePath, content, !!options.backup);
+    await atomicWriteFile(filePath, content);
+    return { path: filePath, action: "updated" };
   }
 
   return {

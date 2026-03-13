@@ -7,6 +7,7 @@ import {
   AGENTS_DIR,
   DEFAULT_FEATURES,
   HatchError,
+  WORKTREE_INCLUDE_FILE,
   type ContentSelection,
   type Features,
   type HatchManifest,
@@ -39,6 +40,7 @@ import {
 } from "../../content/index.js";
 import { generateCanonicalAgentsMd } from "../shared/agentsContent.js";
 import { safeWriteFile } from "../../merge/safeWrite.js";
+import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -277,6 +279,22 @@ export async function configCommand(): Promise<void> {
     }
   }
 
+  // --- Worktree isolation ---
+  const worktreeCapableTools = new Set(["claude"]);
+  const hasWorktreeTool = tools.some(t => worktreeCapableTools.has(t));
+  if (hasWorktreeTool) {
+    const wtAnswer = await inquirer.prompt<{ enabled: boolean }>([{
+      type: "confirm",
+      name: "enabled",
+      message: "Enable worktree file isolation (for parallel agent sessions)?",
+      default: manifest.worktree?.enabled ?? true,
+    }]);
+    manifest.worktree = {
+      ...manifest.worktree,
+      enabled: wtAnswer.enabled,
+    };
+  }
+
   // --- Content management ---
   const contentChanges: { added: Array<{ type: string; id: string }>; removed: Array<{ type: string; id: string }> } = { added: [], removed: [] };
   if (manifest.content) {
@@ -429,6 +447,14 @@ export async function configCommand(): Promise<void> {
   }
 
   await writeManifest(rootDir, manifest);
+
+  if (manifest.worktree?.enabled) {
+    const wtContent = await generateWorktreeInclude(manifest, rootDir);
+    const wtManaged = extractManagedContent(wtContent);
+    await safeWriteFile(join(rootDir, WORKTREE_INCLUDE_FILE), wtContent, {
+      managedContent: wtManaged,
+    });
+  }
 
   // --- Run full update (pull latest + copy templates + sync adapters) ---
   console.log();

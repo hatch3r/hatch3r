@@ -46,7 +46,7 @@ Init reads owner/repo from `git remote get-url origin`. Without a git remote, th
 
 ### No .agents/hatch.json found
 
-Run `npx hatch3r init` first. If you had a working setup before, check `.agents/.backups/`.
+Run `npx hatch3r init` first. If you had a working setup before, check your git history (`git log --all -- .agents/hatch.json`).
 
 ## Integrity and Validation
 
@@ -57,8 +57,8 @@ Run `npx hatch3r validate` to check the `.agents/` structure.
 | Error | Solution |
 |-------|----------|
 | `.agents/` directory not found | Run `npx hatch3r init` |
-| Missing manifest | Re-run init or restore from `.agents/.backups/` |
-| Required directory missing | Restore from backups or re-run init |
+| Missing manifest | Re-run `npx hatch3r init` or restore from git history |
+| Required directory missing | Re-run `npx hatch3r init` or `npx hatch3r update` |
 | Invalid frontmatter | Ensure both opening and closing `---` delimiters exist |
 | Missing `id` or `type` | Add required fields to YAML frontmatter |
 | Invalid JSON in mcp.json | Fix syntax (trailing commas, unquoted keys) |

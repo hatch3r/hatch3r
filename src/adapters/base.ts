@@ -6,7 +6,7 @@ import type {
 } from "../types.js";
 import { resolveAgentModel } from "../models/resolve.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
-import { BRIDGE_ORCHESTRATION } from "../cli/shared/agentsContent.js";
+import { generateBridgeOrchestration } from "../cli/shared/agentsContent.js";
 import { readCanonicalFiles } from "./canonical.js";
 import { applyCustomization, applyCustomizationRaw } from "./customization.js";
 import { readMcpConfig, type McpServerEntry } from "./mcp-utils.js";
@@ -84,14 +84,15 @@ export abstract class BaseAdapter implements Adapter {
 
   protected abstract doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]>;
 
-  protected bridgeHeader(agentsPath = "/.agents/AGENTS.md"): string[] {
+  protected async bridgeHeader(agentsDir: string, agentsPath = "/.agents/AGENTS.md"): Promise<string[]> {
+    const orchestration = await generateBridgeOrchestration(agentsDir);
     return [
       "",
       "# Hatch3r Agent Instructions",
       "",
       `Full canonical agent instructions are at \`${agentsPath}\`.`,
       "",
-      BRIDGE_ORCHESTRATION,
+      orchestration,
       "",
     ];
   }

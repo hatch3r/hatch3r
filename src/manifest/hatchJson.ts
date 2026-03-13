@@ -78,6 +78,10 @@ export function createManifest(options: {
   if (options.defaultBranch) {
     manifest.board = createMinimalBoardConfig(owner, repo, options.defaultBranch);
   }
+  const worktreeCapableTools = new Set(["claude"]);
+  if (options.tools.some(t => worktreeCapableTools.has(t))) {
+    manifest.worktree = { enabled: true };
+  }
   return manifest;
 }
 
@@ -135,6 +139,20 @@ function validateManifest(data: unknown): data is HatchManifest {
       if (!Array.isArray(items[key])) return false;
       if (!(items[key] as unknown[]).every((v) => typeof v === "string")) return false;
     }
+  }
+
+  if (obj.worktree !== undefined) {
+    if (typeof obj.worktree !== "object" || obj.worktree === null) return false;
+    const wt = obj.worktree as Record<string, unknown>;
+    if (typeof wt.enabled !== "boolean") return false;
+  }
+
+  if (obj.specs !== undefined) {
+    if (typeof obj.specs !== "object" || obj.specs === null) return false;
+    const specs = obj.specs as Record<string, unknown>;
+    if (!Array.isArray(specs.paths)) return false;
+    if (!(specs.paths as unknown[]).every((v) => typeof v === "string")) return false;
+    if (specs.lastGenerated !== undefined && typeof specs.lastGenerated !== "string") return false;
   }
 
   return true;

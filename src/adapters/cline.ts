@@ -1,7 +1,7 @@
 import type { AdapterOutput } from "../types.js";
 import { toPrefixedId } from "../types.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
-import { BRIDGE_ORCHESTRATION } from "../cli/shared/agentsContent.js";
+import { generateBridgeOrchestration } from "../cli/shared/agentsContent.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
 import { readCanonicalFiles } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
@@ -81,7 +81,7 @@ export class ClineAdapter extends BaseAdapter {
         "",
         hook.description,
         "",
-        `When this hook's event (${hook.event}) is triggered${globs.length > 0 ? ` for files matching ${globs.join(", ")}` : ""}, activate the ${hook.agent} agent.`,
+        `HATCH3R_HOOK_ACTIVATED: When this hook's event (${hook.event}) is triggered${globs.length > 0 ? ` for files matching ${globs.join(", ")}` : ""}, you MUST spawn the ${hook.agent} agent now. Read and follow the ${hook.agent} agent protocol in \`.agents/agents/${toPrefixedId(hook.agent)}.md\`.`,
       ].join("\n");
       results.push(output(`.roo/rules/${toPrefixedId(`hook-${hook.id}`)}.md`, wrapInManagedBlock(body), body));
     }
@@ -109,6 +109,7 @@ export class ClineAdapter extends BaseAdapter {
       }
     }
 
+    const bridgeOrchestration = await generateBridgeOrchestration(ctx.agentsDir);
     const bridgeBody = [
       "# Hatch3r Bridge",
       "",
@@ -116,7 +117,7 @@ export class ClineAdapter extends BaseAdapter {
       "Canonical agent instructions live at `/.agents/AGENTS.md`.",
       "Rules and skills are managed in `.roo/rules/` and `.cline/skills/`.",
       "",
-      BRIDGE_ORCHESTRATION,
+      bridgeOrchestration,
     ].join("\n");
     results.push(output(".roo/rules/hatch3r-bridge.md", wrapInManagedBlock(bridgeBody), bridgeBody));
 

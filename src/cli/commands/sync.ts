@@ -1,9 +1,12 @@
+import { stat, readdir } from "node:fs/promises";
 import { join } from "node:path";
+import { execFileSync } from "node:child_process";
 import chalk from "chalk";
 import { readManifest } from "../../manifest/hatchJson.js";
 import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
 import { safeWriteFile } from "../../merge/safeWrite.js";
-import { AGENTS_DIR, HatchError } from "../../types.js";
+import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
+import { AGENTS_DIR, HatchError, WORKTREE_INCLUDE_FILE } from "../../types.js";
 import { ensureEnvMcp, ensureGitignoreEntry, getSourceEnvMcpCommand } from "../../env/mcpEnv.js";
 import { AGENTS_MD_INNER, AGENTS_MD_FULL, generateCanonicalAgentsMd } from "../shared/agentsContent.js";
 import { verifyIntegrity } from "../../integrity/index.js";
@@ -16,6 +19,55 @@ import {
   step,
   warn,
 } from "../shared/ui.js";
+
+/**
+ * Check if docs/specs/ exists and whether spec files are older than
+ * the most recent git commit, indicating they may be stale.
+ */
+async function checkSpecFreshness(rootDir: string): Promise<void> {
+  const specsDir = join(rootDir, "docs", "specs");
+  try {
+    await stat(specsDir);
+  } catch {
+    return; // No specs directory — nothing to check
+  }
+
+  // Find the oldest spec file mtime
+  let oldestSpecMtime = Date.now();
+  try {
+    const entries = await readdir(specsDir, { withFileTypes: true, recursive: true });
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
+      const parentPath = entry.parentPath ?? (entry as unknown as { path?: string }).path ?? specsDir;
+      const fileStat = await stat(join(parentPath, entry.name));
+      if (fileStat.mtimeMs < oldestSpecMtime) {
+        oldestSpecMtime = fileStat.mtimeMs;
+      }
+    }
+  } catch {
+    return;
+  }
+
+  // Get the latest commit timestamp
+  try {
+    const commitDate = execFileSync("git", ["log", "-1", "--format=%ct"], { stdio: "pipe" })
+      .toString()
+      .trim();
+    const latestCommitMs = parseInt(commitDate, 10) * 1000;
+
+    if (latestCommitMs > oldestSpecMtime) {
+      const daysSinceSpecUpdate = Math.floor((Date.now() - oldestSpecMtime) / (1000 * 60 * 60 * 24));
+      if (daysSinceSpecUpdate > 7) {
+        warn(
+          `Project specs in docs/specs/ may be stale (oldest spec last modified ${daysSinceSpecUpdate} days ago). ` +
+          `Consider running /project-spec to refresh.`,
+        );
+      }
+    }
+  } catch {
+    // git not available or no commits — skip
+  }
+}
 
 export async function syncCommand(): Promise<void> {
   printBanner(true);
@@ -55,12 +107,11 @@ export async function syncCommand(): Promise<void> {
   s1.start();
   const agentsMdResult = await safeWriteFile(join(rootDir, "AGENTS.md"), AGENTS_MD_FULL, {
     managedContent: AGENTS_MD_INNER,
-    backup: true,
   });
   if (agentsMdResult.warning) warn(agentsMdResult.warning);
   results.push({ path: "AGENTS.md", action: agentsMdResult.action });
   const canonicalAgentsMd = await generateCanonicalAgentsMd(agentsDir);
-  const canonicalResult = await safeWriteFile(join(agentsDir, "AGENTS.md"), canonicalAgentsMd, { backup: true });
+  const canonicalResult = await safeWriteFile(join(agentsDir, "AGENTS.md"), canonicalAgentsMd);
   if (canonicalResult.warning) warn(canonicalResult.warning);
   results.push({ path: `${AGENTS_DIR}/AGENTS.md`, action: canonicalResult.action });
   s1.succeed(step(currentStep, totalSteps, "AGENTS.md synced"));
@@ -78,12 +129,11 @@ export async function syncCommand(): Promise<void> {
         if (out.managedContent) {
           const result = await safeWriteFile(fullPath, out.content, {
             managedContent: out.managedContent,
-            backup: true,
           });
           if (result.warning) warn(result.warning);
           results.push({ path: out.path, action: result.action });
         } else {
-          const result = await safeWriteFile(fullPath, out.content, { backup: true });
+          const result = await safeWriteFile(fullPath, out.content);
           if (result.warning) warn(result.warning);
           results.push({ path: out.path, action: result.action });
         }
@@ -113,6 +163,19 @@ export async function syncCommand(): Promise<void> {
     }
   }
 
+  // Regenerate .worktreeinclude
+  if (m.worktree?.enabled) {
+    const wtContent = await generateWorktreeInclude(m, rootDir);
+    const wtManaged = extractManagedContent(wtContent);
+    const wtResult = await safeWriteFile(
+      join(rootDir, WORKTREE_INCLUDE_FILE),
+      wtContent,
+      { managedContent: wtManaged },
+    );
+    if (wtResult.warning) warn(wtResult.warning);
+    results.push({ path: WORKTREE_INCLUDE_FILE, action: wtResult.action });
+  }
+
   if (m.features.mcp && m.mcp.servers.length > 0) {
     const envResult = await ensureEnvMcp(rootDir, m.mcp.servers);
     await ensureGitignoreEntry(rootDir);
@@ -126,6 +189,9 @@ export async function syncCommand(): Promise<void> {
       info(`Run this, then start or restart your editor: ${getSourceEnvMcpCommand()}`);
     }
   }
+
+  // Check spec freshness
+  await checkSpecFreshness(rootDir);
 
   console.log();
 

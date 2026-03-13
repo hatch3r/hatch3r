@@ -7,6 +7,7 @@ import { isValidHookEvent } from "../../hooks/types.js";
 import { AGENTS_DIR, HATCH3R_PREFIX, HatchError } from "../../types.js";
 import type { HatchManifest } from "../../types.js";
 import { scanForDeniedPatterns } from "../../adapters/customization.js";
+import { buildContentIndex, validateCrossReferences, validateOrchestrationDependencies } from "../../content/index.js";
 import {
   printBanner,
   createSpinner,
@@ -388,6 +389,27 @@ export async function validateCommand(): Promise<void> {
     await validateModels(manifest, result);
     await validateCustomizations(rootDir, agentsDir, manifest, result);
     await validateContentConsistency(rootDir, agentsDir, manifest, result);
+
+    // Cross-reference validation: check that installed content doesn't have broken references
+    try {
+      const index = await buildContentIndex(agentsDir);
+      if (index.items.length > 0) {
+        const crossRefResult = await validateCrossReferences(agentsDir, index);
+        for (const w of crossRefResult.warnings) {
+          result.warnings.push(w);
+        }
+      }
+    } catch {
+      // Content scanning failed — skip cross-ref validation
+    }
+
+    // Orchestration dependency validation: check required agents are selected
+    if (manifest.content) {
+      const orchWarnings = validateOrchestrationDependencies(manifest.content);
+      for (const w of orchWarnings) {
+        result.warnings.push(w);
+      }
+    }
   }
 
   spinner.stop();

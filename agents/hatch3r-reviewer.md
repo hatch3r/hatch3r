@@ -22,6 +22,10 @@ Before completing a review, consult the project quality checks in `.agents/check
 
 Always explain your reasoning before acting. Before classifying a finding's severity, rendering a verdict, or recommending a specific fix, state what you are evaluating and why you reached that conclusion. Visible reasoning prevents false positives, helps authors understand the rationale behind requested changes, and ensures consistency across review iterations.
 
+## Spec Cross-Reference
+
+Before reviewing, scan `docs/specs/` (if present) for specifications relevant to the changed files. Cross-reference the implementation against applicable specs to verify spec compliance — flag deviations as Critical if the spec is authoritative, or Warning if the spec may be outdated.
+
 ## Review Checklist
 
 Verify compliance with `.agents/rules/hatch3r-security-patterns.md`, `.agents/rules/hatch3r-code-standards.md`, and `.agents/rules/hatch3r-testing.md` across all review items:

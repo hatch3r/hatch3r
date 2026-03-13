@@ -12,7 +12,7 @@ hatch3r is an open-source CLI and Cursor plugin that installs a battle-tested, t
 
 ## What is hatch3r?
 
-hatch3r maintains a **single canonical source** of agent configuration in `.agents/` and generates **native configuration** for 13 AI coding platforms. You define your agent setup once and hatch3r adapts it to whatever tool you use.
+hatch3r maintains a **single canonical source** of agent configuration in `.agents/` and generates **native configuration** for 14 AI coding platforms. You define your agent setup once and hatch3r adapts it to whatever tool you use.
 
 ```
 .agents/                <- Canonical source (tool-agnostic)
@@ -38,13 +38,15 @@ GEMINI.md               <- Generated (Gemini adapter)
 .codex/                 <- Generated (Codex adapter)
 .gemini/                <- Generated (Gemini adapter)
 .windsurf/              <- Generated (Windsurf adapter)
+.amazonq/               <- Generated (Amazon Q adapter)
+.worktreeinclude        <- Generated (worktree isolation)
 ```
 
 ## Key Features
 
 - **One command setup** -- `npx hatch3r init` detects your repo, asks about your project context, lets you choose a content profile, and generates everything
 - **Selective init** -- choose what you need: Minimal (core only), Standard (recommended), Full, or Custom content profiles with greenfield/brownfield and solo/team filtering
-- **Tool-agnostic** -- single source of truth with adapters for 13 platforms
+- **Tool-agnostic** -- single source of truth with adapters for 14 platforms
 - **Board management** -- full GitHub Projects V2 lifecycle from `todo.md` to merged PRs
 - **Sub-agentic delegation** -- implementer agents, dependency-aware orchestration, collision detection
 - **Safe merge system** -- managed blocks preserve your customizations across syncs
