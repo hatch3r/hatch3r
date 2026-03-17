@@ -42,6 +42,21 @@ export interface HatchManifest {
     paths: string[];
     lastGenerated?: string;
   };
+  /** Present when this repo is managed by a workspace. */
+  workspace?: {
+    /** Relative path from this repo back to workspace root. */
+    rootPath: string;
+    /** ISO timestamp of last workspace sync. */
+    lastSync: string;
+    /** hatch3r version used for last sync. */
+    syncVersion: string;
+    /** SHA-256 of workspace.json at time of sync. */
+    workspaceChecksum: string;
+    /** Content IDs explicitly excluded by this repo. */
+    excludedContent?: string[];
+    /** Content IDs added locally (not from workspace). */
+    localContent?: string[];
+  };
   managedFiles: string[];
 }
 

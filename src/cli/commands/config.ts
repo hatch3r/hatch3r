@@ -28,6 +28,10 @@ import {
 import { runUpdate } from "./update.js";
 import { archiveToolOutputs, removeManagedFilesForPaths, type MigrationNotice } from "../../archive/index.js";
 import { findPackageRoot } from "../shared/paths.js";
+import { readWorkspaceManifest, writeWorkspaceManifest } from "../../workspace/manifest.js";
+import { detectSubRepos } from "../../workspace/detect.js";
+import { syncWorkspaceRepos } from "../../workspace/sync.js";
+import { detectRepoGitIdentity } from "../../workspace/git.js";
 import { TOOL_DISPLAY_NAMES, TOOL_PROMPT_CHOICES, FEATURE_CHOICES, MCP_CHOICES, PLATFORM_DISPLAY_NAMES, PLATFORM_MCP_SERVER, sanitizeInput, isWSL } from "../shared/constants.js";
 import {
   buildContentIndex,
@@ -149,6 +153,15 @@ export async function configCommand(): Promise<void> {
     logError("No .agents/hatch.json found.");
     console.log(chalk.dim("  Run `npx hatch3r init` to set up your project first.\n"));
     throw new HatchError("No .agents/hatch.json found.", 1);
+  }
+
+  // Warn early if this repo is managed by a workspace
+  if (manifest.workspace) {
+    warn(
+      `This repo is managed by workspace at ${manifest.workspace.rootPath}. ` +
+      `Changes here may be overwritten on next workspace sync.`,
+    );
+    console.log();
   }
 
   printCurrentConfig(manifest);
@@ -532,4 +545,148 @@ export async function configCommand(): Promise<void> {
     }
     console.log();
   }
+
+  // ── Workspace management ──────────────────────────────────────
+  const wsManifest = await readWorkspaceManifest(rootDir);
+  if (wsManifest) {
+    console.log();
+    info(chalk.bold("Workspace configuration"));
+    const currentRepos = wsManifest.repos.map((r) => r.path);
+    console.log(chalk.dim(`  Repos: ${currentRepos.join(", ") || "(none)"}`));
+    console.log(chalk.dim(`  Sync strategy: ${wsManifest.syncStrategy}`));
+
+    const { manageWorkspace } = await inquirer.prompt<{ manageWorkspace: boolean }>([
+      {
+        type: "confirm",
+        name: "manageWorkspace",
+        message: "Configure workspace settings?",
+        default: false,
+      },
+    ]);
+
+    if (manageWorkspace) {
+      // Scan for new repos
+      const detectedRepos = await detectSubRepos(rootDir);
+      const existingPaths = new Set(wsManifest.repos.map((r) => r.path));
+      const newRepos = detectedRepos.filter((r) => !existingPaths.has(r.path));
+
+      if (newRepos.length > 0) {
+        const { addRepos } = await inquirer.prompt<{ addRepos: string[] }>([
+          {
+            type: "checkbox",
+            name: "addRepos",
+            message: "New repos detected. Add to workspace?",
+            choices: newRepos.map((r) => ({
+              name: r.name,
+              value: r.path,
+              checked: false,
+            })),
+            ...(wslTheme && { theme: wslTheme }),
+          },
+        ]);
+        for (const path of addRepos) {
+          wsManifest.repos.push({ path, name: path, sync: false });
+        }
+      }
+
+      // Toggle sync per repo
+      if (wsManifest.repos.length > 0) {
+        const { syncRepos } = await inquirer.prompt<{ syncRepos: string[] }>([
+          {
+            type: "checkbox",
+            name: "syncRepos",
+            message: "Select repos to sync:",
+            choices: wsManifest.repos.map((r) => ({
+              name: r.name ?? r.path,
+              value: r.path,
+              checked: r.sync,
+            })),
+            ...(wslTheme && { theme: wslTheme }),
+          },
+        ]);
+        const syncSet = new Set(syncRepos);
+        for (const repo of wsManifest.repos) {
+          repo.sync = syncSet.has(repo.path);
+        }
+      }
+
+      // Per-repo git identity
+      if (wsManifest.repos.length > 0) {
+        const { editIdentity } = await inquirer.prompt<{ editIdentity: string }>([
+          {
+            type: "list",
+            name: "editIdentity",
+            message: "Repo git identities:",
+            choices: [
+              { name: "Keep current", value: "keep" },
+              { name: "Re-detect all from git remotes", value: "detect" },
+              { name: "Edit manually", value: "edit" },
+            ],
+            default: "keep",
+          },
+        ]);
+
+        if (editIdentity === "detect") {
+          for (const repo of wsManifest.repos) {
+            const identity = detectRepoGitIdentity(join(rootDir, repo.path));
+            repo.owner = identity.owner || undefined;
+            repo.repo = identity.repo || undefined;
+            repo.defaultBranch = identity.defaultBranch || undefined;
+            repo.platform = identity.platform || undefined;
+          }
+          info("Re-detected git identities for all repos.");
+        } else if (editIdentity === "edit") {
+          for (const repo of wsManifest.repos) {
+            console.log(chalk.bold(`\n  ${repo.name ?? repo.path}:`));
+            const identity = await inquirer.prompt<{ owner: string; repo: string; defaultBranch: string }>([
+              { type: "input", name: "owner", message: "  Owner:", default: repo.owner || undefined },
+              { type: "input", name: "repo", message: "  Repo:", default: repo.repo || undefined },
+              { type: "input", name: "defaultBranch", message: "  Default branch:", default: repo.defaultBranch || "main" },
+            ]);
+            repo.owner = sanitizeInput(identity.owner) || undefined;
+            repo.repo = sanitizeInput(identity.repo) || undefined;
+            repo.defaultBranch = identity.defaultBranch.trim() || undefined;
+          }
+        }
+      }
+
+      // Sync strategy
+      const { strategy } = await inquirer.prompt<{ strategy: "manual" | "on-sync" }>([
+        {
+          type: "list",
+          name: "strategy",
+          message: "Sync strategy:",
+          choices: [
+            { name: "Manual — sync sub-repos only with --repos flag", value: "manual" as const },
+            { name: "On sync — auto-sync sub-repos when running hatch3r sync", value: "on-sync" as const },
+          ],
+          default: wsManifest.syncStrategy,
+        },
+      ]);
+      wsManifest.syncStrategy = strategy;
+
+      await writeWorkspaceManifest(rootDir, wsManifest);
+
+      // Offer to sync now
+      const syncCount = wsManifest.repos.filter((r) => r.sync).length;
+      if (syncCount > 0) {
+        const { syncNow } = await inquirer.prompt<{ syncNow: boolean }>([
+          {
+            type: "confirm",
+            name: "syncNow",
+            message: `Sync ${syncCount} repo(s) now?`,
+            default: false,
+          },
+        ]);
+        if (syncNow) {
+          const wsSpinner = createSpinner(`Syncing ${syncCount} repo(s)...`);
+          wsSpinner.start();
+          const result = await syncWorkspaceRepos(rootDir, { onWarn: (msg) => warn(msg) });
+          const succeeded = result.repos.filter((r) => r.action === "synced").length;
+          wsSpinner.succeed(`Workspace sync: ${succeeded} repo(s) synced`);
+        }
+      }
+    }
+  }
+
 }

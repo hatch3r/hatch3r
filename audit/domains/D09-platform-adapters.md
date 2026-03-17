@@ -1,9 +1,9 @@
 # Domain 9: Platform Adapters
 
-**Scope:** All 13 adapters and the capability matrix. One sub-agent per adapter for maximum depth.
-**Sub-agents:** 15
+**Scope:** All 14 adapters and the capability matrix. One sub-agent per adapter for maximum depth.
+**Sub-agents:** 16
 
-Sub-agents 9.14 and 9.15 are **sequential** — they run only after 9.1–9.13 complete.
+Sub-agents 9.15 and 9.16 are **sequential** — they run only after 9.1–9.14 complete.
 
 **Reference:** `docs/adapter-capability-matrix.md`
 
@@ -22,12 +22,13 @@ Sub-agents 9.14 and 9.15 are **sequential** — they run only after 9.1–9.13 c
 | 9.11 | Kiro | `src/adapters/kiro.ts` | `.kiro/steering/`, `.kiro/settings/` |
 | 9.12 | Goose | `src/adapters/goose.ts` | `.goosehints` |
 | 9.13 | Zed | `src/adapters/zed.ts` | `.rules` |
-| 9.14 | **Capability Matrix Verification (SEQUENTIAL)** | `docs/adapter-capability-matrix.md` | Cross-adapter synthesis |
-| 9.15 | **Emerging Platforms (SEQUENTIAL)** | Web research only | New adapter candidates |
+| 9.14 | Amazon Q | `src/adapters/amazonq.ts` | `.amazonq/` |
+| 9.15 | **Capability Matrix Verification (SEQUENTIAL)** | `docs/adapter-capability-matrix.md` | Cross-adapter synthesis |
+| 9.16 | **Emerging Platforms (SEQUENTIAL)** | Web research only | New adapter candidates |
 
 ## Audit Checklists
 
-### 9.1–9.13 Per-Adapter Checklist
+### 9.1–9.14 Per-Adapter Checklist
 
 Each adapter sub-agent MUST:
 1. Read the adapter source code (`src/adapters/{name}.ts`)
@@ -46,16 +47,20 @@ Each adapter sub-agent MUST:
 - [ ] New platform features: has the platform added capabilities not yet supported by the adapter?
 - [ ] Test coverage: does the test file adequately cover the adapter's output paths?
 
-### 9.14 Capability Matrix Verification (SEQUENTIAL)
+### 9.14 Amazon Q — Additional Notes
 
-This sub-agent runs after all 13 adapter sub-agents complete:
+**Critical:** No test file exists (`src/__tests__/adapters/amazonq.test.ts` is missing). Sub-agent MUST flag this as a finding. Verify the adapter is registered in `src/adapters/index.ts` and produces correct output format.
+
+### 9.15 Capability Matrix Verification (SEQUENTIAL)
+
+This sub-agent runs after all 14 adapter sub-agents complete:
 - [ ] Cross-reference the Implementation Matrix table against all adapter audit findings
 - [ ] Verify all "Intentional Omissions" are still valid (platform may have added support)
 - [ ] Check for new platform capabilities not yet reflected in the matrix
 - [ ] Verify "Canonical Path Matches" are still accurate
 - [ ] Ensure maintenance guide is complete and accurate
 
-### 9.15 Emerging Platforms (SEQUENTIAL)
+### 9.16 Emerging Platforms (SEQUENTIAL)
 - [ ] Search for new AI coding tools with significant traction
 - [ ] Identify VC-funded tools gaining market share
 - [ ] Monitor rising GitHub stars in the AI/coding category

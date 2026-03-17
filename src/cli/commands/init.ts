@@ -1,7 +1,6 @@
 import { access, mkdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
-import { execFileSync } from "node:child_process";
+import { basename, dirname, join } from "node:path";
 import chalk from "chalk";
 import inquirer from "inquirer";
 import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
@@ -44,6 +43,11 @@ import { generateIntegrityManifest, writeIntegrityManifest } from "../../integri
 import { HATCH3R_VERSION } from "../../version.js";
 import { buildContentIndex, resolveSelection, copySelectedContent, countSelectionItems, selectionSummary, getAllContentIds, removeContentItem, validateOrchestrationDependencies } from "../../content/index.js";
 import { PRESETS, getPreset, type PresetId } from "../../content/presets.js";
+import { detectSubRepos, shouldSuggestWorkspace } from "../../workspace/detect.js";
+import { createWorkspaceManifest, writeWorkspaceManifest } from "../../workspace/manifest.js";
+import { syncWorkspaceRepos } from "../../workspace/sync.js";
+import type { WorkspaceRepoEntry } from "../../workspace/types.js";
+import { parseGitRemote, parseGitDefaultBranch, getGitRemoteUrl, detectPlatformFromRemote, detectRepoGitIdentity } from "../../workspace/git.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONTENT_ROOT = findPackageRoot(__dirname);
@@ -52,59 +56,17 @@ const DEFAULT_TOOLS: Tool[] = ["cursor"];
 const DEFAULT_FEATURE_KEYS = Object.keys(DEFAULT_FEATURES) as (keyof Features)[];
 const DEFAULT_MCP: string[] = ["playwright", "github", "context7"];
 
-function parseGitRemote(): { owner: string; repo: string } {
-  try {
-    const url = execFileSync("git", ["remote", "get-url", "origin"], {
-      stdio: "pipe",
-    })
-      .toString()
-      .trim();
+// Git detection functions imported from ../../workspace/git.js
 
-    const sshMatch = url.match(/[:\/]([^/]+)\/([^/]+?)(?:\.git)?$/);
-    if (sshMatch) {
-      return { owner: sshMatch[1], repo: sshMatch[2] };
-    }
-
-    return { owner: "", repo: "" };
-  } catch (err) {
-    const e = err as NodeJS.ErrnoException & { status?: number };
-    if (e.code === "ENOENT") return { owner: "", repo: "" };
-    if (e.status === 128) return { owner: "", repo: "" };
-    throw err;
+function deriveWorkspacePlatform(identities: Array<{ platform: Platform }>): Platform {
+  const counts = new Map<Platform, number>();
+  for (const id of identities) {
+    counts.set(id.platform, (counts.get(id.platform) ?? 0) + 1);
   }
-}
-
-function parseGitDefaultBranch(): string {
-  try {
-    const ref = execFileSync("git", ["rev-parse", "--abbrev-ref", "origin/HEAD"], {
-      stdio: "pipe",
-    })
-      .toString()
-      .trim();
-    if (ref && ref.startsWith("origin/")) {
-      return ref.replace(/^origin\//, "");
-    }
-    return "main";
-  } catch (err) {
-    const e = err as NodeJS.ErrnoException & { status?: number };
-    if (e.code === "ENOENT") return "main";
-    if (e.status === 128) return "main";
-    throw err;
-  }
-}
-
-function detectPlatformFromRemote(remoteUrl: string): Platform {
-  if (remoteUrl.includes("dev.azure.com") || remoteUrl.includes("visualstudio.com")) return "azure-devops";
-  if (remoteUrl.includes("gitlab.com") || remoteUrl.includes("gitlab.")) return "gitlab";
-  return "github";
-}
-
-function getGitRemoteUrl(): string {
-  try {
-    return execFileSync("git", ["remote", "get-url", "origin"], { stdio: "pipe" }).toString().trim();
-  } catch {
-    return "";
-  }
+  let best: Platform = "github";
+  let max = 0;
+  for (const [p, c] of counts) { if (c > max) { best = p; max = c; } }
+  return best;
 }
 
 interface RunInitOptions {
@@ -383,11 +345,43 @@ export async function initCommand(
     preset?: string;
     projectType?: string;
     teamSize?: string;
+    workspace?: boolean;
   } = {},
 ): Promise<void> {
   printBanner();
 
   const rootDir = process.cwd();
+
+  // Workspace auto-detection: if no .git but has git subdirectories, suggest workspace mode
+  if (!opts.workspace) {
+    const suggestWs = await shouldSuggestWorkspace(rootDir);
+    if (suggestWs) {
+      const detectedRepos = await detectSubRepos(rootDir);
+      if (opts.yes) {
+        opts.workspace = true;
+        info(chalk.dim(`No git repo found. ${detectedRepos.length} git repo(s) detected in subdirectories — initializing as workspace.`));
+      } else {
+        info(`No git repo found, but ${detectedRepos.length} git repo(s) detected in subdirectories.`);
+        const { useWorkspace } = await inquirer.prompt<{ useWorkspace: boolean }>([
+          {
+            type: "confirm",
+            name: "useWorkspace",
+            message: "Initialize as a multi-repo workspace?",
+            default: true,
+          },
+        ]);
+        opts.workspace = useWorkspace;
+      }
+    }
+  }
+
+  // Workspace: branch into dedicated flow that skips single-repo identity prompts
+  if (opts.workspace) {
+    const detectedRepos = await detectSubRepos(rootDir);
+    const repoInfo = await analyzeRepo(rootDir);
+    await runWorkspaceInit(rootDir, detectedRepos, repoInfo, opts);
+    return;
+  }
 
   const detectSpinner = createSpinner("Detecting repository...");
   detectSpinner.start();
@@ -668,4 +662,365 @@ export async function initCommand(
 
   await checkExisting(rootDir, false, contentSelection);
   await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection });
+}
+
+// ── Workspace initialization ──────────────────────────────────────
+
+async function runWorkspaceInit(
+  rootDir: string,
+  detectedRepos: Awaited<ReturnType<typeof detectSubRepos>>,
+  repoInfo: RepoInfo,
+  opts: { tools?: string; yes?: boolean; preset?: string; projectType?: string; teamSize?: string },
+): Promise<void> {
+  const headless = !!opts.yes;
+
+  // Step 1: Detect sub-repo git identities
+  console.log();
+  const wsSpinner = createSpinner("Detecting workspace repos...");
+  wsSpinner.start();
+
+  if (detectedRepos.length === 0) {
+    wsSpinner.succeed("Workspace created (no sub-repos found)");
+    // Create empty workspace manifest with defaults
+    const platform: Platform = "github";
+    const tools: Tool[] = resolveToolsFromOpts(opts.tools, repoInfo);
+    const features = { ...DEFAULT_FEATURES };
+    const platformMcp = PLATFORM_MCP_SERVER[platform];
+    const mcpServers = features.mcp
+      ? Array.from(new Set([platformMcp, ...DEFAULT_MCP.filter((s) => s !== "github")]))
+      : [];
+    const index = await buildContentIndex(CONTENT_ROOT);
+    const contentSelection = resolveSelection(getPreset("standard"), "brownfield", "solo", index);
+    const wsManifest = createWorkspaceManifest(
+      basename(rootDir) || "workspace",
+      { platform, tools, features, mcp: { servers: mcpServers }, content: contentSelection },
+      [],
+      "manual",
+    );
+    await writeWorkspaceManifest(rootDir, wsManifest);
+    return;
+  }
+
+  const enriched = detectedRepos.map((r) => ({
+    ...r,
+    ...detectRepoGitIdentity(join(rootDir, r.path)),
+  }));
+
+  wsSpinner.succeed(`Workspace: ${detectedRepos.length} repo(s) detected`);
+
+  // Step 2: Display detected repos with git identity
+  console.log();
+  console.log(chalk.dim("  Repo            Platform      Owner/Repo                      Branch"));
+  for (const r of enriched) {
+    const name = (r.name ?? r.path).padEnd(16);
+    if (r.owner && r.repo) {
+      const platLabel = PLATFORM_DISPLAY_NAMES[r.platform].padEnd(14);
+      const identity = `${r.owner}/${r.repo}`.padEnd(32);
+      console.log(`  ${name}${chalk.dim(platLabel)}${chalk.dim(identity)}${chalk.dim(r.defaultBranch)}`);
+    } else {
+      console.log(`  ${name}${chalk.dim("(no remote detected)")}`);
+    }
+  }
+  console.log();
+
+  // Step 3: Interactive — confirm/edit repo identities
+  if (!headless) {
+    const { acceptIdentity } = await inquirer.prompt<{ acceptIdentity: boolean }>([
+      {
+        type: "confirm",
+        name: "acceptIdentity",
+        message: "Accept detected repo identities?",
+        default: true,
+      },
+    ]);
+
+    if (!acceptIdentity) {
+      for (const r of enriched) {
+        console.log(chalk.bold(`\n  ${r.name ?? r.path}:`));
+        const identity = await inquirer.prompt<{ owner: string; repo: string; defaultBranch: string }>([
+          { type: "input", name: "owner", message: "  Owner:", default: r.owner || undefined },
+          { type: "input", name: "repo", message: "  Repo:", default: r.repo || undefined },
+          { type: "input", name: "defaultBranch", message: "  Default branch:", default: r.defaultBranch || "main" },
+        ]);
+        r.owner = sanitizeInput(identity.owner);
+        r.repo = sanitizeInput(identity.repo);
+        r.defaultBranch = identity.defaultBranch.trim() || "main";
+      }
+    }
+  }
+
+  // Step 4: Derive workspace-root platform from sub-repos (workspace root has no git remote)
+  const platform = deriveWorkspacePlatform(enriched);
+
+  // Step 5: Resolve workspace-wide config (tools, features, content, MCP)
+  let tools: Tool[];
+  let features: Features;
+  let mcpServers: string[];
+  let contentSelection: ContentSelection;
+
+  if (headless) {
+    tools = resolveToolsFromOpts(opts.tools, repoInfo);
+    features = { ...DEFAULT_FEATURES };
+    const platformMcp = PLATFORM_MCP_SERVER[platform];
+    mcpServers = features.mcp
+      ? Array.from(new Set([platformMcp, ...DEFAULT_MCP.filter((s) => s !== "github")]))
+      : [];
+    const isGreenfield =
+      repoInfo.languages.length === 1 &&
+      repoInfo.languages[0] === "unknown" &&
+      repoInfo.existingTools.length === 0 &&
+      !repoInfo.hasExistingAgents;
+    const presetId = validateFlag(opts.preset, ["minimal", "standard", "full"], "standard", "preset");
+    const projectType = validateFlag(opts.projectType, ["greenfield", "brownfield"], isGreenfield ? "greenfield" : "brownfield", "project-type");
+    const teamSize = validateFlag(opts.teamSize, ["solo", "team"], "solo", "team-size");
+    const preset = getPreset(presetId);
+    const index = await buildContentIndex(CONTENT_ROOT);
+    contentSelection = resolveSelection(preset, projectType, teamSize, index);
+  } else {
+    // Interactive workspace-wide config prompts
+    const wslTheme = isWSL()
+      ? { icon: { checked: chalk.green("[x]"), unchecked: "[ ]", cursor: ">" } }
+      : undefined;
+
+    const isAutoGreenfield =
+      repoInfo.languages.length === 1 &&
+      repoInfo.languages[0] === "unknown" &&
+      repoInfo.existingTools.length === 0 &&
+      !repoInfo.hasExistingAgents;
+    const projectTypeAnswer = await inquirer.prompt<{ projectType: "greenfield" | "brownfield" }>([
+      {
+        type: "list",
+        name: "projectType",
+        message: "Is this a new (greenfield) or existing (brownfield) project?",
+        choices: [
+          { name: "Greenfield — new project from scratch", value: "greenfield" as const },
+          { name: "Brownfield — existing codebase", value: "brownfield" as const },
+        ],
+        default: isAutoGreenfield ? "greenfield" : "brownfield",
+      },
+    ]);
+    const projectType = projectTypeAnswer.projectType;
+
+    const teamSizeAnswer = await inquirer.prompt<{ teamSize: "solo" | "team" }>([
+      {
+        type: "list",
+        name: "teamSize",
+        message: "Solo developer or team collaboration?",
+        choices: [
+          { name: "Solo — just me", value: "solo" as const },
+          { name: "Team — multiple contributors", value: "team" as const },
+        ],
+        default: "solo",
+      },
+    ]);
+    const teamSize = teamSizeAnswer.teamSize;
+
+    const presetAnswer = await inquirer.prompt<{ preset: PresetId }>([
+      {
+        type: "list",
+        name: "preset",
+        message: "Select content profile:",
+        choices: PRESETS.map((p) => ({
+          name: `${p.name} — ${p.description}`,
+          value: p.id,
+        })),
+        default: "standard" as PresetId,
+      },
+    ]);
+    const selectedPreset = getPreset(presetAnswer.preset);
+
+    let customSelections: string[] | undefined;
+    if (selectedPreset.id === "custom") {
+      const contentIndex = await buildContentIndex(CONTENT_ROOT);
+      const customAnswer = await inquirer.prompt<{ items: string[] }>([
+        {
+          type: "checkbox",
+          name: "items",
+          message: "Select content items:",
+          choices: contentIndex.items.map((item) => ({
+            name: `${item.type}: ${item.id.replace(/^hatch3r-/, "")} — ${item.description.slice(0, 60)}`,
+            value: item.id,
+            checked: item.protected || item.tags.includes("core"),
+          })),
+          ...(wslTheme && { theme: wslTheme }),
+        },
+      ]);
+      customSelections = customAnswer.items;
+    }
+
+    const toolDefaults = repoInfo.existingTools.length > 0 ? repoInfo.existingTools : DEFAULT_TOOLS;
+    const toolAnswers = await inquirer.prompt<{ tools: Tool[] }>([
+      {
+        type: "checkbox",
+        name: "tools",
+        message: "Select tools to configure:",
+        choices: TOOL_PROMPT_CHOICES,
+        default: toolDefaults,
+        ...(wslTheme && { theme: wslTheme }),
+      },
+    ]);
+    tools = toolAnswers.tools.length > 0 ? toolAnswers.tools : DEFAULT_TOOLS;
+
+    const featureAnswers = await inquirer.prompt<{ features: (keyof Features)[] }>([
+      {
+        type: "checkbox",
+        name: "features",
+        message: "Select features:",
+        choices: FEATURE_CHOICES,
+        default: DEFAULT_FEATURE_KEYS,
+        ...(wslTheme && { theme: wslTheme }),
+      },
+    ]);
+    const selectedFeatures = featureAnswers.features;
+    features = { ...DEFAULT_FEATURES };
+    for (const k of Object.keys(features) as (keyof Features)[]) {
+      features[k] = selectedFeatures.includes(k);
+    }
+
+    mcpServers = [];
+    if (features.mcp) {
+      const platformMcp = PLATFORM_MCP_SERVER[platform];
+      const defaultMcpForPlatform = Array.from(
+        new Set([platformMcp, ...DEFAULT_MCP.filter((s) => s !== "github")]),
+      );
+      const mcpAnswers = await inquirer.prompt<{ mcp: string[] }>([
+        {
+          type: "checkbox",
+          name: "mcp",
+          message: "Select MCP servers:",
+          choices: MCP_CHOICES,
+          default: defaultMcpForPlatform,
+          ...(wslTheme && { theme: wslTheme }),
+        },
+      ]);
+      mcpServers = mcpAnswers.mcp ?? [];
+      if (!mcpServers.includes(platformMcp)) {
+        mcpServers.unshift(platformMcp);
+      }
+    }
+
+    const contentIndex = await buildContentIndex(CONTENT_ROOT);
+    contentSelection = resolveSelection(selectedPreset, projectType, teamSize, contentIndex, customSelections);
+  }
+
+  // Warn if orchestration-critical agents are missing from selection
+  const orchWarnings = validateOrchestrationDependencies(contentSelection);
+  for (const w of orchWarnings) { warn(w); }
+
+  // Step 6: Create canonical .agents/ at workspace root (empty identity — workspace root is not a repo)
+  await checkExisting(rootDir, headless, contentSelection);
+  await runInit({
+    rootDir,
+    platform,
+    owner: "",
+    repo: "",
+    namespace: "",
+    project: "",
+    defaultBranch: "",
+    tools,
+    features,
+    mcpServers,
+    repoInfo,
+    contentSelection,
+  });
+
+  // Step 7: Build repo entries and select which to sync
+  let repoEntries: WorkspaceRepoEntry[];
+
+  if (headless) {
+    repoEntries = enriched.map((r) => ({
+      path: r.path,
+      name: r.name,
+      sync: false,
+      owner: r.owner || undefined,
+      repo: r.repo || undefined,
+      defaultBranch: r.defaultBranch || undefined,
+      platform: r.platform || undefined,
+    }));
+  } else {
+    const wslTheme = isWSL()
+      ? { icon: { checked: chalk.green("[x]"), unchecked: "[ ]", cursor: ">" } }
+      : undefined;
+
+    const { syncRepos } = await inquirer.prompt<{ syncRepos: string[] }>([
+      {
+        type: "checkbox",
+        name: "syncRepos",
+        message: "Select repos to sync workspace content to:",
+        choices: enriched.map((r) => ({
+          name: `${r.name}${r.hasHatch3r ? chalk.dim(" (has existing hatch3r)") : ""}`,
+          value: r.path,
+          checked: false,
+        })),
+        ...(wslTheme && { theme: wslTheme }),
+      },
+    ]);
+
+    const syncSet = new Set(syncRepos);
+    repoEntries = enriched.map((r) => ({
+      path: r.path,
+      name: r.name,
+      sync: syncSet.has(r.path),
+      owner: r.owner || undefined,
+      repo: r.repo || undefined,
+      defaultBranch: r.defaultBranch || undefined,
+      platform: r.platform || undefined,
+    }));
+  }
+
+  // Step 8: Create workspace manifest and sync
+  const dirName = basename(rootDir) || "workspace";
+  const wsManifest = createWorkspaceManifest(
+    dirName,
+    { platform, tools, features, mcp: { servers: mcpServers }, content: contentSelection },
+    repoEntries,
+    "manual",
+  );
+  await writeWorkspaceManifest(rootDir, wsManifest);
+
+  const syncCount = repoEntries.filter((r) => r.sync).length;
+  if (syncCount > 0) {
+    const syncSpinner = createSpinner(`Syncing ${syncCount} repo(s)...`);
+    syncSpinner.start();
+
+    const result = await syncWorkspaceRepos(rootDir, {
+      onWarn: (msg) => warn(msg),
+    });
+
+    const succeeded = result.repos.filter((r) => r.action === "synced").length;
+    const failed = result.repos.filter((r) => r.action === "error").length;
+
+    if (failed > 0) {
+      syncSpinner.warn(`Workspace sync: ${succeeded} synced, ${failed} failed`);
+      for (const r of result.repos.filter((r) => r.action === "error")) {
+        logError(`  ${r.path}: ${r.error}`);
+      }
+    } else {
+      syncSpinner.succeed(`Workspace sync: ${succeeded} repo(s) synced`);
+    }
+  }
+
+  console.log();
+  const wsLines = [
+    label("Mode", "workspace"),
+    label("Repos", `${repoEntries.length} registered, ${syncCount} synced`),
+    label("Strategy", "manual (use hatch3r sync --repos to propagate)"),
+    label("Manifest", `${AGENTS_DIR}/workspace.json`),
+  ];
+  printBox("Workspace ready", wsLines, "success");
+}
+
+function resolveToolsFromOpts(toolsFlag: string | undefined, repoInfo: RepoInfo): Tool[] {
+  if (toolsFlag) {
+    const rawTools = toolsFlag.split(",").map((t) => t.trim());
+    const invalid = rawTools.filter((t) => !VALID_TOOLS.has(t));
+    if (invalid.length > 0) {
+      logError(`Invalid tool(s): ${invalid.join(", ")}`);
+      console.log(chalk.dim(`  Valid tools: ${[...VALID_TOOLS].join(", ")}`));
+      throw new HatchError(`Invalid tool(s): ${invalid.join(", ")}`, 1);
+    }
+    return rawTools as Tool[];
+  }
+  if (repoInfo.existingTools.length > 0) return repoInfo.existingTools;
+  return DEFAULT_TOOLS;
 }

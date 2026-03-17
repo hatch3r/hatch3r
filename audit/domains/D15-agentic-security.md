@@ -57,6 +57,8 @@ Apply every category from the official OWASP Top 10 for Agentic Applications (AS
 - [ ] Malicious MCP server scenarios — what happens if a registered MCP server is compromised?
 - [ ] MCP transport security — are connections encrypted and authenticated?
 - [ ] MCP tool permission model — can individual MCP tools be allowed/denied?
+- [ ] **MCP server version pinning** — are MCP server versions pinned in mcp.json to prevent supply chain attacks via auto-updated servers?
+- [ ] **Tool poisoning via MCP** — can a compromised MCP server inject malicious tool descriptions that manipulate agent behavior? (MCP vulnerabilities surged 270% in Q3 2025)
 
 ### 15.6 Agentic Trust Framework Compliance
 - [ ] Agentic Trust Framework compliance assessment — does hatch3r's trust model align with the emerging framework?

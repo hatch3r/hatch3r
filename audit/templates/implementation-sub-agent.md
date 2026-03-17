@@ -65,6 +65,11 @@ For each finding, provide:
    report: registry_id, status (done/partial/failed), and any notes. This enables
    the orchestrator to update the Finding Registry accurately.
 
+10. **Root cause fixes.** Changes must address the root cause identified in
+    the finding, not just the symptom. Adding a comment, suppressing a warning,
+    wrapping in a try-catch without actual handling, or adding a `// validated`
+    annotation is not a fix.
+
 ## Constraints
 
 - Do not modify files outside the scope of your assigned findings

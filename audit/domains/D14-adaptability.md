@@ -33,5 +33,5 @@
 ### 14.4 Convention Self-Discovery
 - [ ] Automatic detection of existing conventions (linting config, test framework, CI provider)
 - [ ] Graduated customization — progressive disclosure of advanced features
-- [ ] Migration path from other tools — can users switch from competitors?
+- [ ] Migration path from other tools — can users switch from competitors? Explicitly enumerate which competitor formats should be detectable/importable (awesome-cursorrules, manual `.cursor/rules/`, `.github/copilot-instructions.md`, existing `.windsurfrules`, etc.)
 - [ ] Convention conflict resolution — what happens when detected conventions conflict with hatch3r defaults?

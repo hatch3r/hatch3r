@@ -34,11 +34,15 @@ program
   .option("--preset <preset>", "Content preset: minimal, standard, full")
   .option("--project-type <type>", "Project type: greenfield, brownfield")
   .option("--team-size <size>", "Team size: solo, team")
+  .option("--workspace", "Initialize as a multi-repo workspace")
   .action(initCommand);
 
 program
   .command("sync")
   .description("Re-generate tool outputs from canonical .agents/ state")
+  .option("--repos [paths...]", "Sync workspace content to sub-repos (all opted-in if no paths given)")
+  .option("--dry-run", "Show what would change without modifying files")
+  .option("--force", "Overwrite locally modified files in sub-repos")
   .action(syncCommand);
 
 program

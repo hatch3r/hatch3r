@@ -52,7 +52,7 @@ describe("init command", () => {
     const manifest = JSON.parse(raw);
 
     expect(manifest.version).toBe("2.0.0");
-    expect(manifest.hatch3rVersion).toBe("1.2.0");
+    expect(manifest.hatch3rVersion).toBe("1.3.0");
     expect(manifest.platform).toBe("github");
     expect(Array.isArray(manifest.tools)).toBe(true);
     expect(manifest.tools.length).toBeGreaterThan(0);
@@ -191,7 +191,7 @@ describe("init command", () => {
     await initCommand({ yes: true });
 
     const manifest = JSON.parse(await readFile(join(agentsDir, "hatch.json"), "utf-8"));
-    expect(manifest.hatch3rVersion).toBe("1.2.0");
+    expect(manifest.hatch3rVersion).toBe("1.3.0");
   });
 
   it("should include AGENTS.md in managedFiles", async () => {
@@ -282,5 +282,108 @@ describe("init command", () => {
     const manifest = JSON.parse(await readFile(manifestPath, "utf-8"));
 
     expect(manifest.tools).toEqual(["amp"]);
+  });
+});
+
+describe("workspace init", () => {
+  let initCommand: (opts?: { tools?: string; yes?: boolean; workspace?: boolean }) => Promise<void>;
+  let tempDir: string;
+  let cwdSpy: MockInstance;
+  let exitSpy: MockInstance;
+  let consoleSpy: MockInstance;
+  let consoleErrorSpy: MockInstance;
+
+  beforeAll(async () => {
+    ({ initCommand } = await import("../../cli/commands/init.js"));
+  });
+
+  /**
+   * Create a workspace layout: no .git at root, but subdirectories with .git dirs.
+   */
+  async function createWorkspaceLayout(root: string, repos: string[]): Promise<void> {
+    for (const name of repos) {
+      const repoDir = join(root, name);
+      await mkdir(join(repoDir, ".git"), { recursive: true });
+    }
+  }
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-ws-init-"));
+    cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+    exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation((() => {
+        throw new Error("process.exit called");
+      }) as never);
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(async () => {
+    cwdSpy.mockRestore();
+    exitSpy.mockRestore();
+    consoleSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("should skip identity prompts and create workspace.json with --yes", async () => {
+    await createWorkspaceLayout(tempDir, ["repo-a", "repo-b"]);
+
+    await initCommand({ yes: true });
+
+    // Workspace manifest should exist
+    const wsManifestPath = join(tempDir, AGENTS_DIR, "workspace.json");
+    const wsRaw = await readFile(wsManifestPath, "utf-8");
+    const wsManifest = JSON.parse(wsRaw);
+    expect(wsManifest.repos).toHaveLength(2);
+    expect(wsManifest.repos.map((r: { path: string }) => r.path).sort()).toEqual(["repo-a", "repo-b"]);
+
+    // Root hatch.json should have empty identity (not prompted for single repo)
+    const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf-8"));
+    expect(manifest.owner).toBe("");
+    expect(manifest.repo).toBe("");
+    // No board config because defaultBranch is empty
+    expect(manifest.board).toBeUndefined();
+  });
+
+  it("should create canonical content at workspace root", async () => {
+    await createWorkspaceLayout(tempDir, ["repo-a"]);
+
+    await initCommand({ yes: true });
+
+    // .agents/ directory should exist with canonical content
+    await expect(access(join(tempDir, AGENTS_DIR))).resolves.toBeUndefined();
+    await expect(access(join(tempDir, AGENTS_DIR, "hatch.json"))).resolves.toBeUndefined();
+    await expect(access(join(tempDir, AGENTS_DIR, "AGENTS.md"))).resolves.toBeUndefined();
+  });
+
+  it("should respect --tools flag in workspace mode", async () => {
+    await createWorkspaceLayout(tempDir, ["repo-a"]);
+
+    await initCommand({ yes: true, tools: "cursor,claude" });
+
+    const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf-8"));
+    expect(manifest.tools).toEqual(["cursor", "claude"]);
+
+    // Workspace manifest should also have the tools
+    const wsManifestPath = join(tempDir, AGENTS_DIR, "workspace.json");
+    const wsManifest = JSON.parse(await readFile(wsManifestPath, "utf-8"));
+    expect(wsManifest.defaults.tools).toEqual(["cursor", "claude"]);
+  });
+
+  it("should auto-detect workspace when no root .git exists", async () => {
+    // No .git at root, but subdirectories have .git
+    await createWorkspaceLayout(tempDir, ["service-api", "service-web"]);
+
+    await initCommand({ yes: true });
+
+    // Should have created workspace.json (auto-detected)
+    const wsManifestPath = join(tempDir, AGENTS_DIR, "workspace.json");
+    const wsRaw = await readFile(wsManifestPath, "utf-8");
+    const wsManifest = JSON.parse(wsRaw);
+    expect(wsManifest.repos).toHaveLength(2);
   });
 });

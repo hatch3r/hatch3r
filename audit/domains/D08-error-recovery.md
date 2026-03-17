@@ -17,6 +17,12 @@
 - [ ] Error message quality — are error messages actionable with clear next steps?
 - [ ] Exit codes — correct exit codes for different failure modes
 - [ ] Recovery guidance — does the CLI tell the user how to fix the problem?
+- [ ] Systematic external dependency failure enumeration:
+  - npm registry unreachable during `hatch3r update`
+  - Each MCP server unreachable (10 servers x failure modes)
+  - GitHub API rate-limited during board commands
+  - Model provider outage mid-agent-pipeline
+  - For each: is there a fallback, timeout, or clear error message?
 
 ### 8.2 Filesystem Resilience
 - [ ] File write failures — disk full, permissions, read-only filesystem
