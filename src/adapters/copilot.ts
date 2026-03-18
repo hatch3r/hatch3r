@@ -50,6 +50,15 @@ export class CopilotAdapter extends BaseAdapter {
         (r) => `### ${r.rule.id}\n\n${r.rule.description}\n\n${r.content}`,
       ),
       "",
+      "## Getting Started with Copilot",
+      "",
+      "New to this project's agent setup? Progress through these stages:",
+      "",
+      "**Start here:** Instructions in `.github/instructions/` scope rules to specific file patterns. The orchestration bridge above guides your workflow.",
+      "**Next:** Use prompts in `.github/prompts/` and commands in `.github/copilot/commands/` for guided workflows.",
+      "**Then:** Delegate to agents in `.github/agents/` for specialized tasks.",
+      "**Later:** Customize agent behavior via `.hatch3r/{type}/{id}.customize.yaml` without editing managed files.",
+      "",
     ].join("\n");
     results.push(output(".github/copilot-instructions.md", wrapInManagedBlock(innerContent), innerContent));
 

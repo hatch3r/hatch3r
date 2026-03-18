@@ -33,6 +33,16 @@ export class WindsurfAdapter extends BaseAdapter {
       bridgeOrchestration,
       "",
       ...await this.inlineAgents(ctx),
+      "",
+      "## Getting Started with Windsurf",
+      "",
+      "New to this project's agent setup? Progress through these stages:",
+      "",
+      "**Start here:** Rules in `.windsurf/rules/` are loaded automatically. The orchestration bridge above guides your workflow.",
+      "**Next:** Use commands in `.windsurf/workflows/` for guided workflows (e.g., feature development, bug fixes).",
+      "**Then:** Use parallel Cascade sessions for independent tasks to maximize throughput.",
+      "**Later:** Customize agent behavior via `.hatch3r/{type}/{id}.customize.yaml` without editing managed files.",
+      "",
     ].join("\n");
     results.push(output(".windsurfrules", wrapInManagedBlock(windsurfInner), windsurfInner));
 

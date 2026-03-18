@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url";
+import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import chalk from "chalk";
 import inquirer from "inquirer";
@@ -40,6 +41,8 @@ import {
   removeContentItem,
   countSelectionItems,
   selectionSummary,
+  extractContentReferences,
+  validateOrchestrationDependencies,
   TYPE_TO_SELECTION_KEY,
 } from "../../content/index.js";
 import { generateCanonicalAgentsMd } from "../shared/agentsContent.js";
@@ -346,6 +349,67 @@ export async function configCommand(): Promise<void> {
       ]);
 
       const newIds = new Set(contentAnswer.items);
+
+      // Identify removed items and warn about dependents (D19-6)
+      const pendingRemovals: string[] = [];
+      for (const id of currentIds) {
+        if (!newIds.has(id)) pendingRemovals.push(id);
+      }
+
+      if (pendingRemovals.length > 0) {
+        const dependencyWarnings: string[] = [];
+        for (const removedId of pendingRemovals) {
+          const dependents: string[] = [];
+          for (const keepId of contentAnswer.items) {
+            const keepItem = index.byId.get(keepId);
+            if (!keepItem) continue;
+            try {
+              const filePath = keepItem.type === "skill"
+                ? join(agentsDir, keepItem.relativePath, "SKILL.md")
+                : join(agentsDir, keepItem.relativePath);
+              const content = await readFile(filePath, "utf-8");
+              const refs = extractContentReferences(content);
+              if (refs.includes(removedId)) {
+                dependents.push(keepId);
+              }
+            } catch {
+              // File not readable, skip
+            }
+          }
+          if (dependents.length > 0) {
+            dependencyWarnings.push(
+              `Removing "${removedId}" — referenced by: ${dependents.join(", ")}`,
+            );
+          }
+        }
+
+        // Check orchestration dependencies with the proposed new selection
+        const proposedSelection: ContentSelection = {
+          ...manifest.content!,
+          items: {
+            agents: [], skills: [], rules: [], commands: [],
+            prompts: [], hooks: [], githubAgents: [],
+          },
+        };
+        for (const id of contentAnswer.items) {
+          const proposedItem = index.byId.get(id);
+          if (proposedItem) {
+            const key = TYPE_TO_SELECTION_KEY[proposedItem.type];
+            if (key) proposedSelection.items[key].push(proposedItem.id);
+          }
+        }
+        const orchWarnings = validateOrchestrationDependencies(proposedSelection);
+        dependencyWarnings.push(...orchWarnings);
+
+        if (dependencyWarnings.length > 0) {
+          console.log();
+          warn("Dependency warnings for removed content:");
+          for (const w of dependencyWarnings) {
+            console.log(chalk.dim(`  ${w}`));
+          }
+          console.log();
+        }
+      }
 
       // Find added and removed items
       for (const id of contentAnswer.items) {

@@ -367,6 +367,81 @@ export function resolveSelection(
   };
 }
 
+// ── Exclusion counting ─────────────────────────────────────────
+
+/**
+ * Count how many items a preset would exclude relative to the full item set.
+ */
+export function countPresetExclusions(
+  preset: ContentPreset,
+  index: ContentIndex,
+): number {
+  if (preset.id === "custom") return 0;
+  if (preset.id === "full") return 0;
+
+  let count = 0;
+  for (const item of index.items) {
+    if (item.protected) continue;
+    // includeTags filter
+    if (preset.includeTags.length > 0) {
+      const includeSet = new Set<string>(preset.includeTags);
+      if (item.tags.length > 0 && !item.tags.some((t) => includeSet.has(t))) {
+        count++;
+        continue;
+      }
+    }
+    // excludeTags filter
+    if (preset.excludeTags.length > 0) {
+      const excludeSet = new Set<string>(preset.excludeTags);
+      if (item.tags.every((t) => excludeSet.has(t))) {
+        count++;
+      }
+    }
+  }
+  return count;
+}
+
+/**
+ * Count how many items the project type filter would remove from a pre-filtered set.
+ */
+export function countProjectTypeExclusions(
+  projectType: "greenfield" | "brownfield",
+  items: CatalogItem[],
+): number {
+  const opposite = projectType === "greenfield" ? "brownfield" : "greenfield";
+  let count = 0;
+  for (const item of items) {
+    if (item.protected) continue;
+    if (
+      item.tags.includes(opposite) &&
+      !item.tags.some((t) => t !== opposite && t !== "team" && t !== "solo")
+    ) {
+      count++;
+    }
+  }
+  return count;
+}
+
+/**
+ * Count how many items the team size filter would remove from a pre-filtered set.
+ */
+export function countTeamSizeExclusions(
+  teamSize: "solo" | "team",
+  items: CatalogItem[],
+): number {
+  if (teamSize !== "solo") return 0;
+  let count = 0;
+  for (const item of items) {
+    if (item.protected) continue;
+    if (!item.tags.includes("team") && !item.tags.includes("board")) continue;
+    const hasOther = item.tags.some(
+      (t) => t !== "team" && t !== "board" && t !== "solo" && t !== "greenfield" && t !== "brownfield",
+    );
+    if (!hasOther) count++;
+  }
+  return count;
+}
+
 // ── Copy selected content ──────────────────────────────────────
 
 /**

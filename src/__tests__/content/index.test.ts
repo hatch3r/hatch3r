@@ -16,6 +16,9 @@ import {
   getAllContentIds,
   countSelectionItems,
   selectionSummary,
+  countPresetExclusions,
+  countProjectTypeExclusions,
+  countTeamSizeExclusions,
 } from "../../content/index.js";
 import type { CatalogItem, ContentIndex } from "../../content/index.js";
 import { getPreset } from "../../content/presets.js";
@@ -1342,6 +1345,100 @@ describe("content/index", () => {
     it("returns empty string for completely empty selection", () => {
       const summary = selectionSummary(emptySelection());
       expect(summary).toBe("");
+    });
+  });
+
+  // ── Exclusion counting ───────────────────────────────────────
+
+  describe("countPresetExclusions", () => {
+    const exclIndex = makeIndex([
+      makeCatalogItem({ id: "core-item", tags: ["core"], relativePath: "agents/core.md" }),
+      makeCatalogItem({ id: "planning-item", type: "command", tags: ["planning"], relativePath: "commands/plan.md" }),
+      makeCatalogItem({ id: "board-item", type: "command", tags: ["board"], relativePath: "commands/board.md" }),
+      makeCatalogItem({ id: "review-item", type: "rule", tags: ["review"], relativePath: "rules/review.md" }),
+    ]);
+
+    it("returns 0 for full preset", () => {
+      const preset = getPreset("full");
+      expect(countPresetExclusions(preset, exclIndex)).toBe(0);
+    });
+
+    it("returns 0 for custom preset", () => {
+      const preset = getPreset("custom");
+      expect(countPresetExclusions(preset, exclIndex)).toBe(0);
+    });
+
+    it("counts excluded items for minimal preset", () => {
+      const preset = getPreset("minimal");
+      const count = countPresetExclusions(preset, exclIndex);
+      // Minimal only includes "core" tag; planning, board, review get excluded
+      expect(count).toBe(3);
+    });
+
+    it("does not count protected items as excluded", () => {
+      const protectedOnly = makeIndex([
+        makeCatalogItem({
+          id: "prot",
+          type: "agent",
+          tags: ["obscure-tag"],
+          relativePath: "agents/prot.md",
+          protected: true,
+        }),
+      ]);
+      const preset = getPreset("minimal");
+      expect(countPresetExclusions(preset, protectedOnly)).toBe(0);
+    });
+  });
+
+  describe("countProjectTypeExclusions", () => {
+    it("counts brownfield-only items excluded by greenfield filter", () => {
+      const items = [
+        makeCatalogItem({ id: "bf-only", type: "agent", tags: ["brownfield"], relativePath: "agents/bf.md" }),
+        makeCatalogItem({ id: "both", type: "agent", tags: ["brownfield", "core"], relativePath: "agents/both.md" }),
+        makeCatalogItem({ id: "gf", type: "agent", tags: ["core"], relativePath: "agents/gf.md" }),
+      ];
+      expect(countProjectTypeExclusions("greenfield", items)).toBe(1); // only bf-only
+    });
+
+    it("counts greenfield-only items excluded by brownfield filter", () => {
+      const items = [
+        makeCatalogItem({ id: "gf-only", type: "agent", tags: ["greenfield"], relativePath: "agents/gf.md" }),
+        makeCatalogItem({ id: "mixed", type: "agent", tags: ["greenfield", "core"], relativePath: "agents/mixed.md" }),
+      ];
+      expect(countProjectTypeExclusions("brownfield", items)).toBe(1); // only gf-only
+    });
+
+    it("does not count protected items", () => {
+      const items = [
+        makeCatalogItem({ id: "prot-bf", type: "agent", tags: ["brownfield"], relativePath: "agents/prot.md", protected: true }),
+      ];
+      expect(countProjectTypeExclusions("greenfield", items)).toBe(0);
+    });
+  });
+
+  describe("countTeamSizeExclusions", () => {
+    it("counts team-only items excluded by solo filter", () => {
+      const items = [
+        makeCatalogItem({ id: "team-only", type: "command", tags: ["team"], relativePath: "commands/team.md" }),
+        makeCatalogItem({ id: "board-only", type: "command", tags: ["board"], relativePath: "commands/board.md" }),
+        makeCatalogItem({ id: "team-core", type: "command", tags: ["team", "core"], relativePath: "commands/team-core.md" }),
+        makeCatalogItem({ id: "normal", type: "command", tags: ["core"], relativePath: "commands/normal.md" }),
+      ];
+      expect(countTeamSizeExclusions("solo", items)).toBe(2); // team-only and board-only
+    });
+
+    it("returns 0 for team filter", () => {
+      const items = [
+        makeCatalogItem({ id: "team-only", type: "command", tags: ["team"], relativePath: "commands/team.md" }),
+      ];
+      expect(countTeamSizeExclusions("team", items)).toBe(0);
+    });
+
+    it("does not count protected items", () => {
+      const items = [
+        makeCatalogItem({ id: "prot-team", type: "command", tags: ["team"], relativePath: "commands/pt.md", protected: true }),
+      ];
+      expect(countTeamSizeExclusions("solo", items)).toBe(0);
     });
   });
 });

@@ -38,10 +38,10 @@ import {
   warn,
 } from "../shared/ui.js";
 import { findPackageRoot } from "../shared/paths.js";
-import { TOOL_DISPLAY_NAMES, TOOL_PROMPT_CHOICES, FEATURE_CHOICES, MCP_CHOICES, PLATFORM_DISPLAY_NAMES, PLATFORM_MCP_SERVER, sanitizeInput, isWSL } from "../shared/constants.js";
+import { TOOL_DISPLAY_NAMES, TOOL_PROMPT_CHOICES, FEATURE_CHOICES, MCP_CHOICES, PLATFORM_DISPLAY_NAMES, PLATFORM_MCP_SERVER, sanitizeInput, isWSL, formatCommandHint, TOOL_SECRET_NOTES } from "../shared/constants.js";
 import { generateIntegrityManifest, writeIntegrityManifest } from "../../integrity/index.js";
 import { HATCH3R_VERSION } from "../../version.js";
-import { buildContentIndex, resolveSelection, copySelectedContent, countSelectionItems, selectionSummary, getAllContentIds, removeContentItem, validateOrchestrationDependencies } from "../../content/index.js";
+import { buildContentIndex, resolveSelection, copySelectedContent, countSelectionItems, selectionSummary, getAllContentIds, removeContentItem, validateOrchestrationDependencies, countPresetExclusions, countProjectTypeExclusions, countTeamSizeExclusions } from "../../content/index.js";
 import { PRESETS, getPreset, type PresetId } from "../../content/presets.js";
 import { detectSubRepos, shouldSuggestWorkspace } from "../../workspace/detect.js";
 import { createWorkspaceManifest, writeWorkspaceManifest } from "../../workspace/manifest.js";
@@ -292,9 +292,9 @@ async function runInit(options: RunInitOptions): Promise<void> {
     !repoInfo.hasExistingAgents;
   summaryLines.push("");
   if (isGreenfield) {
-    summaryLines.push(`${chalk.cyan("→")} Run ${chalk.bold("/project-spec")} to define your new project`);
+    summaryLines.push(`${chalk.cyan("→")} Run ${chalk.bold(formatCommandHint(tools, "project-spec"))} to define your new project`);
   } else {
-    summaryLines.push(`${chalk.cyan("→")} Run ${chalk.bold("/codebase-map")} to map your existing codebase`);
+    summaryLines.push(`${chalk.cyan("→")} Run ${chalk.bold(formatCommandHint(tools, "codebase-map"))} to map your existing codebase`);
   }
 
   printBox("Hatch complete", summaryLines, "success");
@@ -543,34 +543,38 @@ export async function initCommand(
   ]);
   const defaultBranch = defaultBranchAnswers.defaultBranch.trim() || defaultBranchDefault;
 
-  // --- Project type ---
+  // --- Project type (with filter exclusion counts) ---
+  const filterIndex = await buildContentIndex(CONTENT_ROOT);
   const isAutoGreenfield =
     repoInfo.languages.length === 1 &&
     repoInfo.languages[0] === "unknown" &&
     repoInfo.existingTools.length === 0 &&
     !repoInfo.hasExistingAgents;
+  const greenfieldExcl = countProjectTypeExclusions("greenfield", filterIndex.items);
+  const brownfieldExcl = countProjectTypeExclusions("brownfield", filterIndex.items);
   const projectTypeAnswer = await inquirer.prompt<{ projectType: "greenfield" | "brownfield" }>([
     {
       type: "list",
       name: "projectType",
       message: "Is this a new (greenfield) or existing (brownfield) project?",
       choices: [
-        { name: "Greenfield — new project from scratch", value: "greenfield" as const },
-        { name: "Brownfield — existing codebase", value: "brownfield" as const },
+        { name: `Greenfield — new project from scratch${greenfieldExcl > 0 ? ` (filters out ${greenfieldExcl} brownfield-only item${greenfieldExcl === 1 ? "" : "s"})` : ""}`, value: "greenfield" as const },
+        { name: `Brownfield — existing codebase${brownfieldExcl > 0 ? ` (filters out ${brownfieldExcl} greenfield-only item${brownfieldExcl === 1 ? "" : "s"})` : ""}`, value: "brownfield" as const },
       ],
       default: isAutoGreenfield ? "greenfield" : "brownfield",
     },
   ]);
   const projectType = projectTypeAnswer.projectType;
 
-  // --- Team size ---
+  // --- Team size (with filter exclusion counts) ---
+  const soloExcl = countTeamSizeExclusions("solo", filterIndex.items);
   const teamSizeAnswer = await inquirer.prompt<{ teamSize: "solo" | "team" }>([
     {
       type: "list",
       name: "teamSize",
       message: "Solo developer or team collaboration?",
       choices: [
-        { name: "Solo — just me", value: "solo" as const },
+        { name: `Solo — just me${soloExcl > 0 ? ` (filters out ${soloExcl} team-only item${soloExcl === 1 ? "" : "s"})` : ""}`, value: "solo" as const },
         { name: "Team — multiple contributors", value: "team" as const },
       ],
       default: "solo",
@@ -578,16 +582,21 @@ export async function initCommand(
   ]);
   const teamSize = teamSizeAnswer.teamSize;
 
-  // --- Content preset ---
+  // --- Content preset (with exclusion counts) ---
+  const totalItems = filterIndex.items.length;
   const presetAnswer = await inquirer.prompt<{ preset: PresetId }>([
     {
       type: "list",
       name: "preset",
       message: "Select content profile:",
-      choices: PRESETS.map((p) => ({
-        name: `${p.name} — ${p.description}`,
-        value: p.id,
-      })),
+      choices: PRESETS.map((p) => {
+        const excluded = countPresetExclusions(p, filterIndex);
+        const suffix = excluded > 0 ? ` (excludes ${excluded} of ${totalItems})` : "";
+        return {
+          name: `${p.name} — ${p.description}${suffix}`,
+          value: p.id,
+        };
+      }),
       default: "standard" as PresetId,
     },
   ]);
@@ -600,7 +609,7 @@ export async function initCommand(
   // --- Custom content selection ---
   let customSelections: string[] | undefined;
   if (selectedPreset.id === "custom") {
-    const contentIndex = await buildContentIndex(CONTENT_ROOT);
+    const contentIndex = filterIndex;
     const tagGroups = new Map<string, typeof contentIndex.items>();
     for (const item of contentIndex.items) {
       const primaryTag = item.tags[0] ?? "other";
@@ -636,6 +645,15 @@ export async function initCommand(
     },
   ]);
   const tools = toolAnswers.tools.length > 0 ? toolAnswers.tools : DEFAULT_TOOLS;
+
+  // Surface per-editor secret loading notes
+  const secretNotes = tools.map((t) => TOOL_SECRET_NOTES[t]).filter(Boolean);
+  if (secretNotes.length > 0) {
+    info(chalk.dim("MCP secret loading by tool:"));
+    for (const note of secretNotes) {
+      info(chalk.dim(`  ${note}`));
+    }
+  }
 
   const featureAnswers = await inquirer.prompt<{ features: (keyof Features)[] }>([
     {
@@ -676,8 +694,7 @@ export async function initCommand(
   }
 
   // --- Resolve content selection ---
-  const contentIndex = await buildContentIndex(CONTENT_ROOT);
-  const contentSelection = resolveSelection(selectedPreset, projectType, teamSize, contentIndex, customSelections);
+  const contentSelection = resolveSelection(selectedPreset, projectType, teamSize, filterIndex, customSelections);
 
   // Warn if orchestration-critical agents are missing from selection
   const orchWarnings = validateOrchestrationDependencies(contentSelection);
@@ -807,32 +824,36 @@ async function runWorkspaceInit(
       ? { icon: { checked: chalk.green("[x]"), unchecked: "[ ]", cursor: ">" } }
       : undefined;
 
+    const wsFilterIndex = await buildContentIndex(CONTENT_ROOT);
     const isAutoGreenfield =
       repoInfo.languages.length === 1 &&
       repoInfo.languages[0] === "unknown" &&
       repoInfo.existingTools.length === 0 &&
       !repoInfo.hasExistingAgents;
+    const wsGreenfieldExcl = countProjectTypeExclusions("greenfield", wsFilterIndex.items);
+    const wsBrownfieldExcl = countProjectTypeExclusions("brownfield", wsFilterIndex.items);
     const projectTypeAnswer = await inquirer.prompt<{ projectType: "greenfield" | "brownfield" }>([
       {
         type: "list",
         name: "projectType",
         message: "Is this a new (greenfield) or existing (brownfield) project?",
         choices: [
-          { name: "Greenfield — new project from scratch", value: "greenfield" as const },
-          { name: "Brownfield — existing codebase", value: "brownfield" as const },
+          { name: `Greenfield — new project from scratch${wsGreenfieldExcl > 0 ? ` (filters out ${wsGreenfieldExcl} brownfield-only item${wsGreenfieldExcl === 1 ? "" : "s"})` : ""}`, value: "greenfield" as const },
+          { name: `Brownfield — existing codebase${wsBrownfieldExcl > 0 ? ` (filters out ${wsBrownfieldExcl} greenfield-only item${wsBrownfieldExcl === 1 ? "" : "s"})` : ""}`, value: "brownfield" as const },
         ],
         default: isAutoGreenfield ? "greenfield" : "brownfield",
       },
     ]);
     const projectType = projectTypeAnswer.projectType;
 
+    const wsSoloExcl = countTeamSizeExclusions("solo", wsFilterIndex.items);
     const teamSizeAnswer = await inquirer.prompt<{ teamSize: "solo" | "team" }>([
       {
         type: "list",
         name: "teamSize",
         message: "Solo developer or team collaboration?",
         choices: [
-          { name: "Solo — just me", value: "solo" as const },
+          { name: `Solo — just me${wsSoloExcl > 0 ? ` (filters out ${wsSoloExcl} team-only item${wsSoloExcl === 1 ? "" : "s"})` : ""}`, value: "solo" as const },
           { name: "Team — multiple contributors", value: "team" as const },
         ],
         default: "solo",
@@ -840,15 +861,20 @@ async function runWorkspaceInit(
     ]);
     const teamSize = teamSizeAnswer.teamSize;
 
+    const wsTotalItems = wsFilterIndex.items.length;
     const presetAnswer = await inquirer.prompt<{ preset: PresetId }>([
       {
         type: "list",
         name: "preset",
         message: "Select content profile:",
-        choices: PRESETS.map((p) => ({
-          name: `${p.name} — ${p.description}`,
-          value: p.id,
-        })),
+        choices: PRESETS.map((p) => {
+          const excluded = countPresetExclusions(p, wsFilterIndex);
+          const suffix = excluded > 0 ? ` (excludes ${excluded} of ${wsTotalItems})` : "";
+          return {
+            name: `${p.name} — ${p.description}${suffix}`,
+            value: p.id,
+          };
+        }),
         default: "standard" as PresetId,
       },
     ]);
@@ -856,7 +882,7 @@ async function runWorkspaceInit(
 
     let customSelections: string[] | undefined;
     if (selectedPreset.id === "custom") {
-      const contentIndex = await buildContentIndex(CONTENT_ROOT);
+      const contentIndex = wsFilterIndex;
       const customAnswer = await inquirer.prompt<{ items: string[] }>([
         {
           type: "checkbox",
@@ -885,6 +911,15 @@ async function runWorkspaceInit(
       },
     ]);
     tools = toolAnswers.tools.length > 0 ? toolAnswers.tools : DEFAULT_TOOLS;
+
+    // Surface per-editor secret loading notes
+    const wsSecretNotes = tools.map((t) => TOOL_SECRET_NOTES[t]).filter(Boolean);
+    if (wsSecretNotes.length > 0) {
+      info(chalk.dim("MCP secret loading by tool:"));
+      for (const note of wsSecretNotes) {
+        info(chalk.dim(`  ${note}`));
+      }
+    }
 
     const featureAnswers = await inquirer.prompt<{ features: (keyof Features)[] }>([
       {
@@ -924,8 +959,7 @@ async function runWorkspaceInit(
       }
     }
 
-    const contentIndex = await buildContentIndex(CONTENT_ROOT);
-    contentSelection = resolveSelection(selectedPreset, projectType, teamSize, contentIndex, customSelections);
+    contentSelection = resolveSelection(selectedPreset, projectType, teamSize, wsFilterIndex, customSelections);
   }
 
   // Warn if orchestration-critical agents are missing from selection

@@ -253,6 +253,15 @@ export class ClaudeAdapter extends BaseAdapter {
           "Create `CLAUDE.local.md` for personal settings (not committed to git).",
           "Claude Code reads this file for user-specific preferences.",
           "",
+          "## Getting Started with Claude Code",
+          "",
+          "New to this project's agent setup? Progress through these stages:",
+          "",
+          "**Start here:** Rules in `.claude/rules/` are loaded automatically. The orchestration bridge above guides your workflow.",
+          "**Next:** Use `/hatch3r-feature` or `/hatch3r-bug-fix` commands for guided workflows.",
+          "**Then:** Delegate to agents in `.claude/agents/` — use Agent Teams for parallel execution.",
+          "**Later:** Customize agent behavior via `.hatch3r/{type}/{id}.customize.yaml` without editing managed files.",
+          "",
         ];
     const innerContent = innerParts.join("\n");
     results.push(output("CLAUDE.md", wrapInManagedBlock(innerContent), innerContent));

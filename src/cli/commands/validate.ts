@@ -8,12 +8,15 @@ import { AGENTS_DIR, HATCH3R_PREFIX, HatchError } from "../../types.js";
 import type { HatchManifest } from "../../types.js";
 import { scanForDeniedPatterns } from "../../adapters/customization.js";
 import { buildContentIndex, validateCrossReferences, validateOrchestrationDependencies } from "../../content/index.js";
+import { readCustomizationWithWarnings } from "../../models/customize.js";
+import type { CustomizableType } from "../../models/customize.js";
 import {
   printBanner,
   createSpinner,
   printBox,
   error as logError,
   warn,
+  info,
 } from "../shared/ui.js";
 
 // Default fallback set; overridden by manifest.content when available
@@ -255,6 +258,115 @@ async function validateModels(
   }
 }
 
+/**
+ * Validate .customize.yaml files for syntax and known field usage.
+ * Checks that YAML parses correctly, uses only recognized fields,
+ * and that field values have the expected types.
+ */
+async function validateCustomizeYaml(
+  rootDir: string,
+  result: ValidationResult,
+): Promise<void> {
+  const VALID_FIELDS = new Set(["model", "scope", "description", "enabled"]);
+  const FIELD_TYPES: Record<string, string> = {
+    model: "string",
+    scope: "string",
+    description: "string",
+    enabled: "boolean",
+  };
+
+  for (const { dir } of CUSTOMIZATION_TYPES) {
+    const customDir = join(rootDir, ".hatch3r", dir);
+    let files: string[];
+    try {
+      files = await readdir(customDir);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw err;
+    }
+
+    const yamlFiles = files.filter(f => f.endsWith(".customize.yaml"));
+    for (const file of yamlFiles) {
+      const filePath = join(customDir, file);
+      const itemId = file.replace(".customize.yaml", "");
+
+      let raw: string;
+      try {
+        raw = await readFile(filePath, "utf-8");
+      } catch {
+        continue;
+      }
+
+      // Check size limit (same as customize.ts: 10KB)
+      if (Buffer.byteLength(raw, "utf-8") > 10_240) {
+        result.warnings.push(
+          `.customize.yaml for "${itemId}" exceeds 10KB limit and will be skipped during generation`,
+        );
+        continue;
+      }
+
+      // Check YAML syntax
+      let parsed: Record<string, unknown> | null;
+      try {
+        parsed = parseYaml(raw) as Record<string, unknown> | null;
+      } catch {
+        result.errors.push(
+          `Invalid YAML syntax in .hatch3r/${dir}/${file}`,
+        );
+        continue;
+      }
+
+      if (!parsed || typeof parsed !== "object") {
+        result.warnings.push(
+          `.customize.yaml for "${itemId}" is empty or not an object`,
+        );
+        continue;
+      }
+
+      // Check for unknown fields
+      for (const key of Object.keys(parsed)) {
+        if (!VALID_FIELDS.has(key)) {
+          result.warnings.push(
+            `.hatch3r/${dir}/${file}: unknown field "${key}" (valid: ${[...VALID_FIELDS].join(", ")})`,
+          );
+        }
+      }
+
+      // Check field types
+      for (const [key, expectedType] of Object.entries(FIELD_TYPES)) {
+        if (key in parsed && parsed[key] !== undefined && parsed[key] !== null) {
+          const actualType = typeof parsed[key];
+          if (actualType !== expectedType) {
+            result.warnings.push(
+              `.hatch3r/${dir}/${file}: field "${key}" should be ${expectedType} but is ${actualType}`,
+            );
+          }
+        }
+      }
+
+      // Run denied-pattern scan on string fields
+      for (const field of ["description", "scope"] as const) {
+        const value = parsed[field];
+        if (typeof value === "string") {
+          const violations = scanForDeniedPatterns(value);
+          for (const v of violations) {
+            result.warnings.push(
+              `.hatch3r/${dir}/${file}: field "${field}" contains denied pattern: ${v}`,
+            );
+          }
+        }
+      }
+
+      // Validate the customization through the canonical reader for deeper checks
+      const type = dir as CustomizableType;
+      const readResult = await readCustomizationWithWarnings(rootDir, type, itemId);
+      for (const w of readResult.warnings) {
+        result.warnings.push(w);
+      }
+    }
+  }
+}
+
 async function validateCustomizations(
   rootDir: string,
   agentsDir: string,
@@ -388,6 +500,7 @@ export async function validateCommand(): Promise<void> {
     await validateMcp(agentsDir, manifest, result);
     await validateModels(manifest, result);
     await validateCustomizations(rootDir, agentsDir, manifest, result);
+    await validateCustomizeYaml(rootDir, result);
     await validateContentConsistency(rootDir, agentsDir, manifest, result);
 
     // Cross-reference validation: check that installed content doesn't have broken references
@@ -414,8 +527,25 @@ export async function validateCommand(): Promise<void> {
 
   spinner.stop();
 
+  // Detect if customization files exist for contextual help (#56 D19-4)
+  let hasCustomizations = false;
+  for (const { dir } of CUSTOMIZATION_TYPES) {
+    try {
+      const files = await readdir(join(rootDir, ".hatch3r", dir));
+      if (files.some(f => f.endsWith(".customize.yaml") || f.endsWith(".customize.md"))) {
+        hasCustomizations = true;
+        break;
+      }
+    } catch {
+      // directory doesn't exist
+    }
+  }
+
   if (result.errors.length === 0 && result.warnings.length === 0) {
     printBox("Validation", [chalk.green("All checks passed")], "success");
+    if (hasCustomizations) {
+      printCustomizationHint();
+    }
     return;
   }
 
@@ -449,4 +579,24 @@ export async function validateCommand(): Promise<void> {
     ];
     printBox("Validation passed", summaryLines, "success");
   }
+
+  if (hasCustomizations) {
+    printCustomizationHint();
+  }
+}
+
+/**
+ * Print a contextual explanation of the three customization mechanisms
+ * when customization files are detected (D19-4).
+ */
+function printCustomizationHint(): void {
+  console.log();
+  info(chalk.bold("Customization mechanisms detected. Quick reference:"));
+  console.log(chalk.dim("  1. hatch3r- prefix: Files prefixed with hatch3r- are managed by hatch3r and"));
+  console.log(chalk.dim("     overwritten on update. Do not edit these directly."));
+  console.log(chalk.dim("  2. Managed blocks: Sections between <!-- MANAGED-BLOCK:BEGIN --> and"));
+  console.log(chalk.dim("     <!-- MANAGED-BLOCK:END --> are auto-updated. Add content outside these markers."));
+  console.log(chalk.dim("  3. .customize.yaml/.md: Place in .hatch3r/{type}/ to override model, scope,"));
+  console.log(chalk.dim("     description, or disable items. Use .customize.md for content additions."));
+  console.log(chalk.dim("  See: https://docs.hatch3r.com/docs/guides/customization"));
 }
