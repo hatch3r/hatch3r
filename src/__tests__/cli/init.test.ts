@@ -172,12 +172,13 @@ describe("init command", () => {
     expect(output).toContain("Features");
   });
 
-  it("should display sourcing hint after add secrets message", async () => {
+  it("should display sourcing hint in success box", async () => {
     await initCommand({ yes: true });
 
     const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
-    expect(output).toContain("Add your secrets to .env.mcp");
-    expect(output).toContain("Run this, then start or restart your editor");
+    expect(output).toContain("Add your secrets to");
+    expect(output).toContain(".env.mcp");
+    expect(output).toContain("Then run:");
   });
 
   it("should overwrite existing .agents/ without prompting in --yes mode", async () => {

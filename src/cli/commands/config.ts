@@ -324,6 +324,13 @@ export async function configCommand(): Promise<void> {
     ]);
 
     if (manageContent.manage) {
+      // #145 (D19-16): Explain config vs .customize.yaml distinction
+      info(
+        chalk.dim("Config adds/removes content items. To customize an item's behavior without ") +
+        chalk.dim("removing it, use .hatch3r/<type>/<id>.customize.yaml instead."),
+      );
+      console.log();
+
       const contentRoot = findPackageRoot(__dirname);
       const agentsDir = join(rootDir, AGENTS_DIR);
       const index = await buildContentIndex(contentRoot);
@@ -606,6 +613,21 @@ export async function configCommand(): Promise<void> {
     info("Customizations migrated to .hatch3r/ (tool-agnostic):");
     for (const m of allMigrations) {
       console.log(`  ${chalk.dim(m.from)} ${chalk.cyan("→")} ${m.to}`);
+    }
+    console.log();
+  }
+
+  // #146 (D19-17): Show migration guide when switching tools
+  if (diff.addedTools.length > 0 || diff.removedTools.length > 0) {
+    console.log();
+    info("Tool migration notes:");
+    if (diff.removedTools.length > 0) {
+      info(chalk.dim(`  Removed tool output archived to .hatch3r-archive/ (recoverable).`));
+      info(chalk.dim(`  Customizations in .hatch3r/ are tool-agnostic and carry forward.`));
+    }
+    if (diff.addedTools.length > 0) {
+      info(chalk.dim(`  New tool output generated. Restart your editor to pick up changes.`));
+      info(chalk.dim(`  MCP secrets (.env.mcp) are shared across tools — no re-entry needed.`));
     }
     console.log();
   }

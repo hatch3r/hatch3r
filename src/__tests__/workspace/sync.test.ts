@@ -248,6 +248,10 @@ describe("workspace sync", () => {
     expect(result.repos).toHaveLength(1);
     expect(result.repos[0].action).toBe("dry-run");
 
+    // dry-run should include estimated token count
+    expect(typeof result.repos[0].estimatedTokens).toBe("number");
+    expect(result.repos[0].estimatedTokens).toBeGreaterThan(0);
+
     // api should NOT have .agents/ because it was dry-run
     try {
       await access(join(tempDir, "api", AGENTS_DIR, "hatch.json"));

@@ -80,6 +80,8 @@ export interface WorkspaceRepoSyncResult {
   toolsSynced: string[];
   action: "synced" | "dry-run" | "skipped" | "error";
   error?: string;
+  /** Estimated token count for content being synced (populated in dry-run mode). */
+  estimatedTokens?: number;
 }
 
 // ── Constants ───────────────────────────────────────────────────

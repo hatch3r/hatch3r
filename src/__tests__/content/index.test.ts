@@ -151,7 +151,7 @@ function makeIndex(items: CatalogItem[]): ContentIndex {
     byType[item.type].push(item);
     byId.set(item.id, item);
   }
-  return { items, byType, byId };
+  return { items, byType, byId, collisions: [] };
 }
 
 function emptySelection(overrides: Partial<ContentSelection> = {}): ContentSelection {

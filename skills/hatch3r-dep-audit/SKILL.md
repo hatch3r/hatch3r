@@ -35,7 +35,7 @@ For critical and high vulnerabilities:
   - **GitHub:** GitHub Security Advisories (`gh api /repos/{owner}/{repo}/security-advisories`)
   - **Azure DevOps:** Azure Artifacts security scanning and Azure Boards advisory tracking
   - **GitLab:** GitLab Dependency Scanning (Security & Compliance → Vulnerability Report)
-- Prioritize: critical first, then high. Moderate/low can be batched.
+- Prioritize: critical first, then high. Medium/low can be batched.
 - Note any packages with no fix available — document mitigation or deferral rationale.
 
 ## Step 3: Plan Upgrades

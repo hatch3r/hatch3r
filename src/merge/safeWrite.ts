@@ -23,6 +23,14 @@ async function fileExists(path: string): Promise<boolean> {
   }
 }
 
+/**
+ * Write a file atomically via tmp+rename with fsync.
+ *
+ * **Concurrency note:** This function does not use file locking. Running
+ * multiple hatch3r processes against the same directory concurrently is
+ * unsupported and may produce corrupted output. If you need to sync from
+ * multiple terminals, run them sequentially.
+ */
 export async function atomicWriteFile(filePath: string, content: string): Promise<void> {
   const tmpPath = filePath + ".tmp." + randomBytes(4).toString("hex");
   try {
@@ -49,6 +57,14 @@ export async function atomicWriteFile(filePath: string, content: string): Promis
         throw err;
       }
     }
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOSPC") {
+      throw new Error(
+        `Not enough disk space to write ${filePath}. Free up space and re-run the command.`,
+      );
+    }
+    throw err;
   } finally {
     try {
       await unlink(tmpPath);
@@ -58,6 +74,16 @@ export async function atomicWriteFile(filePath: string, content: string): Promis
   }
 }
 
+/**
+ * Safely write or merge a file, preserving user content outside managed blocks.
+ *
+ * **Concurrency note:** This function relies on {@link atomicWriteFile} which
+ * does not acquire file locks. Running multiple hatch3r processes (e.g. two
+ * terminal tabs running `hatch3r sync`) against the same target directory at
+ * the same time is unsupported. To avoid conflicts, run sync operations
+ * sequentially. Workspace sync already processes repos one at a time
+ * internally, so a single `hatch3r sync --repos` invocation is safe.
+ */
 export async function safeWriteFile(
   filePath: string,
   content: string,
@@ -87,10 +113,11 @@ export async function safeWriteFile(
         await atomicWriteFile(filePath, prepended);
         return { path: filePath, action: "updated" };
       }
+      // #144 (D19-15): Improved recovery guidance — avoid suggesting init --force
       return {
         path: filePath,
         action: "skipped",
-        warning: `Skipped ${filePath}: existing file without managed block. Run hatch3r init --force to overwrite.`,
+        warning: `Skipped ${filePath}: managed block markers (HATCH3R:BEGIN/END) missing. To fix: restore the markers around hatch3r content, or move your custom content and re-run hatch3r update.`,
       };
     }
     const customContent = extractCustomContent(existingContent);
@@ -124,10 +151,11 @@ export async function safeWriteFile(
     return { path: filePath, action: "updated" };
   }
 
+  // #144 (D19-15): Improved recovery guidance — avoid suggesting init --force
   return {
     path: filePath,
     action: "skipped",
-    warning: `Skipped ${filePath}: existing file without managed block. Run hatch3r init --force to overwrite.`,
+    warning: `Skipped ${filePath}: managed block markers (HATCH3R:BEGIN/END) missing. To fix: restore the markers around hatch3r content, or move your custom content and re-run hatch3r update.`,
   };
 }
 

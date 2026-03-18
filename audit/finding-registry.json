@@ -1686,7 +1686,7 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "context-caching-budgets",
     "batch": 4
   },
@@ -1705,7 +1705,7 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "context-caching-budgets",
     "batch": 4
   },
@@ -1762,7 +1762,7 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "context-caching-budgets",
     "batch": 4
   },
@@ -1781,7 +1781,7 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "context-caching-budgets",
     "batch": 4
   },

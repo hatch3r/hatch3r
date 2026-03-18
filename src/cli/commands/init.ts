@@ -41,7 +41,7 @@ import { findPackageRoot } from "../shared/paths.js";
 import { TOOL_DISPLAY_NAMES, TOOL_PROMPT_CHOICES, FEATURE_CHOICES, MCP_CHOICES, PLATFORM_DISPLAY_NAMES, PLATFORM_MCP_SERVER, sanitizeInput, isWSL, formatCommandHint, TOOL_SECRET_NOTES } from "../shared/constants.js";
 import { generateIntegrityManifest, writeIntegrityManifest } from "../../integrity/index.js";
 import { HATCH3R_VERSION } from "../../version.js";
-import { buildContentIndex, resolveSelection, copySelectedContent, countSelectionItems, selectionSummary, getAllContentIds, removeContentItem, validateOrchestrationDependencies, countPresetExclusions, countProjectTypeExclusions, countTeamSizeExclusions } from "../../content/index.js";
+import { buildContentIndex, resolveSelection, copySelectedContent, countSelectionItems, selectionSummary, getAllContentIds, removeContentItem, validateOrchestrationDependencies, countPresetExclusions, countProjectTypeExclusions, countTeamSizeExclusions, estimatePresetItemCount } from "../../content/index.js";
 import { PRESETS, getPreset, type PresetId } from "../../content/presets.js";
 import { detectSubRepos, shouldSuggestWorkspace } from "../../workspace/detect.js";
 import { createWorkspaceManifest, writeWorkspaceManifest } from "../../workspace/manifest.js";
@@ -297,14 +297,13 @@ async function runInit(options: RunInitOptions): Promise<void> {
     summaryLines.push(`${chalk.cyan("→")} Run ${chalk.bold(formatCommandHint(tools, "codebase-map"))} to map your existing codebase`);
   }
 
-  printBox("Hatch complete", summaryLines, "success");
-
   if (envResult && envResult.newVars.length > 0) {
-    warn(
-      `Add your secrets to .env.mcp: ${envResult.newVars.join(", ")}`,
-    );
-    info(`Run this, then start or restart your editor: ${getSourceEnvMcpCommand()}`);
+    summaryLines.push("");
+    summaryLines.push(`${chalk.yellow("!")} Add your secrets to ${chalk.bold(".env.mcp")}: ${envResult.newVars.join(", ")}`);
+    summaryLines.push(`  Then run: ${chalk.dim(getSourceEnvMcpCommand())}`);
   }
+
+  printBox("Hatch complete", summaryLines, "success");
 }
 
 async function checkExisting(rootDir: string, skipPrompt: boolean, newSelection?: ContentSelection): Promise<void> {
@@ -591,9 +590,11 @@ export async function initCommand(
       message: "Select content profile:",
       choices: PRESETS.map((p) => {
         const excluded = countPresetExclusions(p, filterIndex);
+        const estimated = p.id !== "custom" ? estimatePresetItemCount(p, projectType, teamSize, filterIndex) : 0;
+        const countHint = estimated > 0 ? ` (~${estimated} items)` : "";
         const suffix = excluded > 0 ? ` (excludes ${excluded} of ${totalItems})` : "";
         return {
-          name: `${p.name} — ${p.description}${suffix}`,
+          name: `${p.name} — ${p.description}${countHint}${suffix}`,
           value: p.id,
         };
       }),
@@ -607,6 +608,7 @@ export async function initCommand(
     : undefined;
 
   // --- Custom content selection ---
+  // #148 (D19-19): Group content by tags in custom profile display
   let customSelections: string[] | undefined;
   if (selectedPreset.id === "custom") {
     const contentIndex = filterIndex;
@@ -617,16 +619,32 @@ export async function initCommand(
       tagGroups.get(primaryTag)!.push(item);
     }
 
+    // Build grouped choices with separators
+    const TAG_LABELS: Record<string, string> = {
+      core: "Core", planning: "Planning", implementation: "Implementation",
+      review: "Review", devops: "DevOps", maintenance: "Maintenance",
+      greenfield: "Greenfield", brownfield: "Brownfield", board: "Board",
+      security: "Security", a11y: "Accessibility", performance: "Performance",
+      customize: "Customization", other: "Other",
+    };
+    const groupedChoices: Array<InstanceType<typeof inquirer.Separator> | { name: string; value: string; checked: boolean }> = [];
+    for (const [tag, items] of tagGroups) {
+      groupedChoices.push(new inquirer.Separator(`── ${TAG_LABELS[tag] ?? tag} (${items.length}) ──`));
+      for (const item of items) {
+        groupedChoices.push({
+          name: `${item.type}: ${item.id.replace(/^hatch3r-/, "")} — ${item.description.slice(0, 60)}`,
+          value: item.id,
+          checked: item.protected || item.tags.includes("core"),
+        });
+      }
+    }
+
     const customAnswer = await inquirer.prompt<{ items: string[] }>([
       {
         type: "checkbox",
         name: "items",
         message: "Select content items:",
-        choices: contentIndex.items.map((item) => ({
-          name: `${item.type}: ${item.id.replace(/^hatch3r-/, "")} — ${item.description.slice(0, 60)}`,
-          value: item.id,
-          checked: item.protected || item.tags.includes("core"),
-        })),
+        choices: groupedChoices,
         ...(wslTheme && { theme: wslTheme }),
       },
     ]);
@@ -646,7 +664,7 @@ export async function initCommand(
   ]);
   const tools = toolAnswers.tools.length > 0 ? toolAnswers.tools : DEFAULT_TOOLS;
 
-  // Surface per-editor secret loading notes
+  // #143 (D19-14): Streamline MCP onboarding — surface secret notes inline
   const secretNotes = tools.map((t) => TOOL_SECRET_NOTES[t]).filter(Boolean);
   if (secretNotes.length > 0) {
     info(chalk.dim("MCP secret loading by tool:"));
@@ -659,7 +677,7 @@ export async function initCommand(
     {
       type: "checkbox",
       name: "features",
-      message: "Select features:",
+      message: "Select features (MCP provides tool-server integration):",
       choices: FEATURE_CHOICES,
       default: DEFAULT_FEATURE_KEYS,
       ...(wslTheme && { theme: wslTheme }),
@@ -869,9 +887,11 @@ async function runWorkspaceInit(
         message: "Select content profile:",
         choices: PRESETS.map((p) => {
           const excluded = countPresetExclusions(p, wsFilterIndex);
+          const wsEstimated = p.id !== "custom" ? estimatePresetItemCount(p, projectType, teamSize, wsFilterIndex) : 0;
+          const wsCountHint = wsEstimated > 0 ? ` (~${wsEstimated} items)` : "";
           const suffix = excluded > 0 ? ` (excludes ${excluded} of ${wsTotalItems})` : "";
           return {
-            name: `${p.name} — ${p.description}${suffix}`,
+            name: `${p.name} — ${p.description}${wsCountHint}${suffix}`,
             value: p.id,
           };
         }),
@@ -880,19 +900,42 @@ async function runWorkspaceInit(
     ]);
     const selectedPreset = getPreset(presetAnswer.preset);
 
+    // #148 (D19-19): Group content by tags in workspace custom profile display
     let customSelections: string[] | undefined;
     if (selectedPreset.id === "custom") {
       const contentIndex = wsFilterIndex;
+      const wsTagGroups = new Map<string, typeof contentIndex.items>();
+      for (const item of contentIndex.items) {
+        const primaryTag = item.tags[0] ?? "other";
+        if (!wsTagGroups.has(primaryTag)) wsTagGroups.set(primaryTag, []);
+        wsTagGroups.get(primaryTag)!.push(item);
+      }
+
+      const WS_TAG_LABELS: Record<string, string> = {
+        core: "Core", planning: "Planning", implementation: "Implementation",
+        review: "Review", devops: "DevOps", maintenance: "Maintenance",
+        greenfield: "Greenfield", brownfield: "Brownfield", board: "Board",
+        security: "Security", a11y: "Accessibility", performance: "Performance",
+        customize: "Customization", other: "Other",
+      };
+      const wsGroupedChoices: Array<InstanceType<typeof inquirer.Separator> | { name: string; value: string; checked: boolean }> = [];
+      for (const [tag, items] of wsTagGroups) {
+        wsGroupedChoices.push(new inquirer.Separator(`── ${WS_TAG_LABELS[tag] ?? tag} (${items.length}) ──`));
+        for (const item of items) {
+          wsGroupedChoices.push({
+            name: `${item.type}: ${item.id.replace(/^hatch3r-/, "")} — ${item.description.slice(0, 60)}`,
+            value: item.id,
+            checked: item.protected || item.tags.includes("core"),
+          });
+        }
+      }
+
       const customAnswer = await inquirer.prompt<{ items: string[] }>([
         {
           type: "checkbox",
           name: "items",
           message: "Select content items:",
-          choices: contentIndex.items.map((item) => ({
-            name: `${item.type}: ${item.id.replace(/^hatch3r-/, "")} — ${item.description.slice(0, 60)}`,
-            value: item.id,
-            checked: item.protected || item.tags.includes("core"),
-          })),
+          choices: wsGroupedChoices,
           ...(wslTheme && { theme: wslTheme }),
         },
       ]);

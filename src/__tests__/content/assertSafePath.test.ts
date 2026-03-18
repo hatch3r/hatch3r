@@ -33,18 +33,16 @@ describe("assertSafePath", () => {
   });
 
   // ── Null byte handling ───────────────────────────────────────────
-  // Note: The current implementation relies on normalize + startsWith("..") / isAbsolute
-  // checks. Null bytes are not explicitly rejected — Node's normalize passes them through.
-  // These tests document current behavior; a future hardening pass could add explicit
-  // null-byte rejection.
+  // Null bytes are stripped before validation and the path is rejected if any were found.
+  // This prevents null byte injection bypasses.
 
   describe("null byte handling", () => {
-    it("does not reject null bytes (not currently guarded)", () => {
-      expect(() => assertSafePath("foo\x00bar", LABEL)).not.toThrow();
+    it("rejects paths containing null bytes", () => {
+      expect(() => assertSafePath("foo\x00bar", LABEL)).toThrow("Unsafe path");
     });
 
-    it("does not reject null bytes in extension (not currently guarded)", () => {
-      expect(() => assertSafePath("test\0.md", LABEL)).not.toThrow();
+    it("rejects null bytes in extension", () => {
+      expect(() => assertSafePath("test\0.md", LABEL)).toThrow("Unsafe path");
     });
   });
 

@@ -146,6 +146,29 @@ Remind user that these will be auto-consulted during future board-pickup and boa
 - During `hatch3r sync`, expired/deprecated learnings are moved to an `archived/` subdirectory (not deleted).
 - Quarterly review: agents prompt for learning review when > 50 active learnings exist.
 
+### Learnings Count Cap
+
+To prevent unbounded context growth, the learnings system enforces a configurable maximum count of active learnings:
+
+- **Default cap:** 100 active learnings (not counting archived or deprecated entries).
+- **Configurable:** Set `learnings.maxActive` in `.agents/hatch.json` to override the default (e.g., `"learnings": { "maxActive": 150 }`).
+- **Enforcement:** When the active count reaches the cap, the `hatch3r learn` command refuses to write new learnings until existing ones are archived or pruned. Display the message: "Active learnings limit reached ({count}/{max}). Archive or prune existing learnings before adding new ones."
+- **Per-session cap:** A single `hatch3r learn` invocation may capture at most 10 learnings. If more than 10 are identified in Step 2, present the top 10 by relevance and inform the user that the remainder can be captured in a follow-up session.
+
+### Pruning Guidance
+
+When the active learnings count exceeds 80% of the cap (default: 80 of 100), display a pruning prompt after Step 4:
+
+```
+Learnings nearing capacity ({count}/{max}). Consider pruning:
+  1. Archive expired learnings: `hatch3r learn list --status=expired`
+  2. Archive deprecated learnings: `hatch3r learn list --status=deprecated`
+  3. Review low-confidence learnings: `hatch3r learn list --confidence=hypothesis`
+  4. Review oldest learnings: `hatch3r learn list --recent` (inverse — sort by oldest first)
+```
+
+Pruning is always manual (via archival, never deletion). The system surfaces candidates but never auto-archives without user confirmation.
+
 ### Confidence Levels
 - `proven` — validated across multiple implementations
 - `experimental` — worked once, needs more validation

@@ -6,8 +6,13 @@ import type { ContentSelection } from "../types.js";
 import type { ContentPreset } from "./presets.js";
 
 export function assertSafePath(relativePath: string, label: string): void {
-  const normalized = normalize(relativePath);
+  // Strip null bytes before validation — prevents null byte injection bypasses
+  const sanitized = relativePath.replace(/\0/g, '');
+  const normalized = normalize(sanitized);
   if (normalized.startsWith('..') || isAbsolute(normalized)) {
+    throw new HatchError(`Unsafe path detected in ${label}: ${relativePath}`, 1);
+  }
+  if (sanitized !== relativePath) {
     throw new HatchError(`Unsafe path detected in ${label}: ${relativePath}`, 1);
   }
 }
@@ -119,10 +124,21 @@ export interface CatalogItem {
   companionPath?: string;
 }
 
+export interface ContentCollision {
+  id: string;
+  kind: "cross-type" | "same-type";
+  existingType: CatalogItem["type"];
+  existingPath: string;
+  duplicateType: CatalogItem["type"];
+  duplicatePath: string;
+}
+
 export interface ContentIndex {
   items: CatalogItem[];
   byType: Record<string, CatalogItem[]>;
   byId: Map<string, CatalogItem>;
+  /** Structured records of ID collisions detected during indexing. */
+  collisions: ContentCollision[];
 }
 
 // ── Content type configs ───────────────────────────────────────
@@ -228,20 +244,36 @@ export async function buildContentIndex(contentRoot: string): Promise<ContentInd
   // Build indexes
   const byType: Record<string, CatalogItem[]> = {};
   const byId = new Map<string, CatalogItem>();
+  const collisions: ContentCollision[] = [];
 
   for (const item of items) {
     if (!byType[item.type]) byType[item.type] = [];
     byType[item.type].push(item);
     const existing = byId.get(item.id);
-    if (existing && existing.type !== item.type) {
-      console.warn(
-        `[hatch3r] Content ID collision: "${item.id}" exists as both ${existing.type} and ${item.type}. The ${item.type} entry will shadow the ${existing.type} entry in ID lookups.`,
-      );
+    if (existing) {
+      const kind: ContentCollision["kind"] = existing.type !== item.type ? "cross-type" : "same-type";
+      collisions.push({
+        id: item.id,
+        kind,
+        existingType: existing.type,
+        existingPath: existing.relativePath,
+        duplicateType: item.type,
+        duplicatePath: item.relativePath,
+      });
+      if (kind === "cross-type") {
+        console.warn(
+          `[hatch3r] Content ID collision: "${item.id}" exists as both ${existing.type} (${existing.relativePath}) and ${item.type} (${item.relativePath}). The ${item.type} entry will shadow the ${existing.type} entry in ID lookups.`,
+        );
+      } else {
+        console.warn(
+          `[hatch3r] Duplicate content ID: "${item.id}" found in ${existing.relativePath} and ${item.relativePath}. The later entry will shadow the earlier one in ID lookups.`,
+        );
+      }
     }
     byId.set(item.id, item);
   }
 
-  return { items, byType, byId };
+  return { items, byType, byId, collisions };
 }
 
 // ── Shared type-to-key mapping ──────────────────────────────────
@@ -735,6 +767,20 @@ export function getAllContentIds(selection: ContentSelection): Set<string> {
     for (const id of arr) ids.add(id);
   }
   return ids;
+}
+
+/**
+ * Estimate the item count a preset would yield for a given project type and team size.
+ * Used to show expected item counts in the profile selector prompt (#147 D19-18).
+ */
+export function estimatePresetItemCount(
+  preset: ContentPreset,
+  projectType: "greenfield" | "brownfield",
+  teamSize: "solo" | "team",
+  index: ContentIndex,
+): number {
+  const selection = resolveSelection(preset, projectType, teamSize, index);
+  return Object.values(selection.items).reduce((sum, arr) => sum + arr.length, 0);
 }
 
 /**

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, access } from "node:fs/promises";
+import { mkdir, access, readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { getAdapter } from "../adapters/index.js";
 import {
@@ -31,6 +31,39 @@ import type { WorkspaceManifest, WorkspaceRepoEntry, WorkspaceSyncResult, Worksp
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONTENT_ROOT = findPackageRoot(__dirname);
+
+/** Estimate token count from character count (~4 chars per token). */
+const CHARS_PER_TOKEN = 4;
+
+/**
+ * Estimate total tokens for a set of content IDs by summing the character
+ * length of their source files and dividing by the chars-per-token ratio.
+ */
+async function estimateTokensForContent(
+  contentIds: Set<string>,
+  index: Awaited<ReturnType<typeof buildContentIndex>>,
+): Promise<number> {
+  let totalChars = 0;
+  for (const id of contentIds) {
+    const item = index.byId.get(id);
+    if (!item) continue;
+    try {
+      if (item.type === "skill") {
+        // For skills, read the SKILL.md file
+        const skillPath = join(CONTENT_ROOT, item.relativePath, "SKILL.md");
+        const content = await readFile(skillPath, "utf-8");
+        totalChars += content.length;
+      } else {
+        const filePath = join(CONTENT_ROOT, item.relativePath);
+        const content = await readFile(filePath, "utf-8");
+        totalChars += content.length;
+      }
+    } catch {
+      // File not readable; skip
+    }
+  }
+  return Math.ceil(totalChars / CHARS_PER_TOKEN);
+}
 
 export interface WorkspaceSyncOptions {
   /** Only sync these repo paths (sync all opted-in repos if empty/undefined). */
@@ -164,12 +197,14 @@ async function syncSingleRepo(
   );
 
   if (options.dryRun) {
+    const estimatedTokens = await estimateTokensForContent(resolved.contentIds, index);
     return {
       path: repoEntry.path,
       added: toAdd,
       removed: toRemove,
       toolsSynced: resolved.tools,
       action: "dry-run",
+      estimatedTokens,
     };
   }
 
