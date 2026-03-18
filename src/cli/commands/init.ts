@@ -56,6 +56,27 @@ const DEFAULT_TOOLS: Tool[] = ["cursor"];
 const DEFAULT_FEATURE_KEYS = Object.keys(DEFAULT_FEATURES) as (keyof Features)[];
 const DEFAULT_MCP: string[] = ["playwright", "github", "context7"];
 
+/**
+ * Check if a content selection includes any board-related content.
+ * Board content IDs follow the pattern "hatch3r-board-*".
+ */
+function selectionHasBoardContent(selection: ContentSelection): boolean {
+  return selection.items.commands.some((id) => id.startsWith("hatch3r-board"));
+}
+
+/**
+ * Surface board command prerequisites when board content is included in the selection.
+ * Board commands require GitHub Projects V2 and a PAT with the `project` scope.
+ */
+function warnBoardPrerequisites(selection: ContentSelection): void {
+  if (!selectionHasBoardContent(selection)) return;
+  info(
+    `Board commands selected. Prerequisites: ${chalk.bold("GitHub Projects V2")} must be enabled ` +
+    `and your PAT needs the ${chalk.bold("project")} scope. ` +
+    `See ${chalk.dim("https://docs.github.com/en/issues/planning-and-tracking-with-projects")}`,
+  );
+}
+
 // Git detection functions imported from ../../workspace/git.js
 
 function deriveWorkspacePlatform(identities: Array<{ platform: Platform }>): Platform {
@@ -449,6 +470,8 @@ export async function initCommand(
     const orchWarnings = validateOrchestrationDependencies(contentSelection);
     for (const w of orchWarnings) { warn(w); }
 
+    warnBoardPrerequisites(contentSelection);
+
     await checkExisting(rootDir, true, contentSelection);
     await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection });
     return;
@@ -659,6 +682,8 @@ export async function initCommand(
   // Warn if orchestration-critical agents are missing from selection
   const orchWarnings = validateOrchestrationDependencies(contentSelection);
   for (const w of orchWarnings) { warn(w); }
+
+  warnBoardPrerequisites(contentSelection);
 
   await checkExisting(rootDir, false, contentSelection);
   await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection });
@@ -906,6 +931,8 @@ async function runWorkspaceInit(
   // Warn if orchestration-critical agents are missing from selection
   const orchWarnings = validateOrchestrationDependencies(contentSelection);
   for (const w of orchWarnings) { warn(w); }
+
+  warnBoardPrerequisites(contentSelection);
 
   // Step 6: Create canonical .agents/ at workspace root (empty identity — workspace root is not a repo)
   await checkExisting(rootDir, headless, contentSelection);

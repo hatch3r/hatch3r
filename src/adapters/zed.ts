@@ -7,7 +7,7 @@ export class ZedAdapter extends BaseAdapter {
 
   protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
     const inner = [
-      ...await this.bridgeHeader(ctx.agentsDir),
+      ...await this.bridgeHeader(ctx),
       ...await this.inlineRules(ctx),
       ...await this.inlineAgents(ctx),
     ].join("\n");

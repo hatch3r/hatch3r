@@ -22,6 +22,7 @@ export const TOOL_DISPLAY_NAMES: Record<Tool, string> = {
   goose: "Goose",
   zed: "Zed",
   "amazon-q": "Amazon Q",
+  antigravity: "Antigravity",
 };
 
 export const TOOL_PROMPT_CHOICES: { name: string; value: Tool }[] = TOOLS.map((t) => ({

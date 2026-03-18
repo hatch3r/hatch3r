@@ -94,7 +94,7 @@ describe("ClaudeAdapter", () => {
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
     const claudeMd = outputs.find((o) => o.path === "CLAUDE.md");
-    expect(claudeMd!.content).toContain("Agent Teams (Experimental)");
+    expect(claudeMd!.content).toContain("## Agent Teams");
     expect(claudeMd!.content).toContain("CLAUDE.local.md");
   });
 
@@ -147,7 +147,7 @@ describe("ClaudeAdapter", () => {
     const parsed = JSON.parse(settings!.content);
     expect(parsed.permissions.allow).toEqual(["Read", "Write"]);
     expect(parsed.permissions.deny).toEqual([]);
-    expect(parsed.teammateMode).toBe("tool-using");
+    expect(parsed.teammateMode).toBe("auto");
   });
 
   it("includes hooks config in settings.json when hooks are enabled", async () => {

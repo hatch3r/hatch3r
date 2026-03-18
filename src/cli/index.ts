@@ -43,6 +43,7 @@ program
   .option("--repos [paths...]", "Sync workspace content to sub-repos (all opted-in if no paths given)")
   .option("--dry-run", "Show what would change without modifying files")
   .option("--force", "Overwrite locally modified files in sub-repos")
+  .option("--minimal", "Generate stripped-down output (no comments, minimal formatting) to reduce token usage")
   .action(syncCommand);
 
 program

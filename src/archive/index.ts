@@ -38,6 +38,7 @@ const TOOL_PATH_PREFIXES: Record<Tool, string[]> = {
   goose: [".goosehints"],
   zed: [".rules"],
   "amazon-q": [".amazonq/"],
+  antigravity: [".antigravity/"],
 };
 
 const PATH_PATTERNS: Array<{ pattern: RegExp; type: CustomizableType }> = [

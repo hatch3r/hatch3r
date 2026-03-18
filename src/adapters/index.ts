@@ -3,6 +3,7 @@ import type { Adapter } from "./base.js";
 import { AiderAdapter } from "./aider.js";
 import { AmazonQAdapter } from "./amazonq.js";
 import { AmpAdapter } from "./amp.js";
+import { AntigravityAdapter } from "./antigravity.js";
 import { ClaudeAdapter } from "./claude.js";
 import { ClineAdapter } from "./cline.js";
 import { CodexAdapter } from "./codex.js";
@@ -30,6 +31,7 @@ const adapters: Record<Tool, Adapter> = {
   goose: new GooseAdapter(),
   zed: new ZedAdapter(),
   "amazon-q": new AmazonQAdapter(),
+  antigravity: new AntigravityAdapter(),
 };
 
 export function getAdapter(tool: Tool): Adapter {
@@ -70,6 +72,7 @@ const ADAPTER_CAPABILITIES: Record<Tool, AdapterCapability> = {
   aider:    { agents: true, skills: true, rules: true, hooks: false, mcp: false, commands: false, prompts: false, githubAgents: false },
   goose:    { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false },
   zed:      { agents: true, skills: false, rules: true, hooks: false, mcp: false, commands: false, prompts: false, githubAgents: false },
+  antigravity: { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false },
 };
 
 export function getUnsupportedFeatureWarnings(tool: string, manifest: HatchManifest): string[] {
@@ -99,6 +102,7 @@ export function getUnsupportedFeatureWarnings(tool: string, manifest: HatchManif
 export { AiderAdapter } from "./aider.js";
 export { AmazonQAdapter } from "./amazonq.js";
 export { AmpAdapter } from "./amp.js";
+export { AntigravityAdapter } from "./antigravity.js";
 export { ClaudeAdapter } from "./claude.js";
 export { ClineAdapter } from "./cline.js";
 export { CodexAdapter } from "./codex.js";

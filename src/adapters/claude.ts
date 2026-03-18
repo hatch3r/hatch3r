@@ -10,19 +10,27 @@ import type { HookDefinition, HookEvent } from "../hooks/types.js";
 import { HATCH3R_VERSION } from "../version.js";
 
 const AGENT_TEAMS_SECTION = [
-  "## Agent Teams (Experimental)",
+  "## Agent Teams",
   "",
-  "This project uses hatch3r's 4-phase sub-agent pipeline (Research → Implement → Review → Quality)",
+  "This project uses hatch3r's 4-phase sub-agent pipeline (Research -> Implement -> Review -> Quality)",
   "which maps directly to Claude Code Agent Teams. Each phase becomes a teammate role.",
   "",
   "### Enabling Agent Teams",
   "",
-  "Agent Teams is experimental. Enable by setting `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in your",
-  "environment or in `.claude/settings.json` under `env`. Once enabled, request a team in the prompt:",
+  "Agent Teams is enabled via `.claude/settings.json`. The env var `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`",
+  "is set automatically by hatch3r. Once enabled, request a team in the prompt:",
   "",
   "```",
   'Create an agent team for this task. Use the hatch3r 4-phase pipeline.',
   "```",
+  "",
+  "### Teammate Display Modes",
+  "",
+  "Agent Teams supports two display modes configured via `teammateMode` in `.claude/settings.json`:",
+  "",
+  '- `"auto"` (default): uses split panes if inside tmux, in-process otherwise.',
+  '- `"in-process"`: all teammates run inside your main terminal. Use Shift+Down to cycle.',
+  '- `"tmux"`: each teammate gets its own pane. Requires tmux or iTerm2.',
   "",
   "### Pipeline-to-Team Mapping",
   "",
@@ -73,6 +81,22 @@ const AGENT_TEAMS_SECTION = [
   "- Teammates do **not** inherit conversation history; include full task context in spawn prompts.",
   "- Assign explicit file boundaries to avoid edit conflicts between teammates.",
   "- Use the `hatch3r-agent-team` command (`/hatch3r-agent-team`) for guided team creation.",
+];
+
+/** Minimal version of Agent Teams section -- essential mapping only, no prose. */
+const AGENT_TEAMS_SECTION_MINIMAL = [
+  "## Agent Teams",
+  "",
+  "Pipeline maps to Claude Code Agent Teams. Enable via `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`.",
+  "",
+  "| Phase | Role | Agents |",
+  "|-------|------|--------|",
+  "| Research | `researcher` | `hatch3r-researcher` |",
+  "| Implement | `implementer` | `hatch3r-implementer` |",
+  "| Review | `reviewer` | `hatch3r-reviewer`, `hatch3r-fixer` |",
+  "| Quality | `quality-*` | `hatch3r-test-writer`, `hatch3r-security-auditor`, + conditional |",
+  "",
+  "Use `/hatch3r-agent-team` for guided team creation.",
 ];
 
 const AGENT_TEAM_COMMAND = `# hatch3r Agent Team
@@ -129,7 +153,8 @@ Each quality teammate owns distinct files to avoid conflicts.
 
 ## Important
 
-- Use \`--teammate-mode tmux\` or \`--teammate-mode in-process\` based on your terminal
+- Teammate display mode is configured in \`.claude/settings.json\` via \`teammateMode\` (\`auto\`, \`in-process\`, or \`tmux\`)
+- Override for a single session: \`claude --teammate-mode in-process\`
 - Each teammate reads CLAUDE.md and inherits project rules automatically
 - Assign explicit file/directory boundaries to each teammate
 - The lead coordinates; it should NOT implement code itself (use delegate mode)
@@ -196,25 +221,40 @@ export class ClaudeAdapter extends BaseAdapter {
 
   protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
     const results: AdapterOutput[] = [];
+    const minimal = this.isMinimal(ctx);
 
     const bridgeOrchestration = await generateBridgeOrchestration(ctx.agentsDir);
-    const innerContent = [
-      "",
-      "# Hatch3r Project Instructions",
-      "",
-      "Full canonical agent instructions are at `.agents/AGENTS.md`.",
-      "Rules are managed in `.claude/rules/` and agents in `.claude/agents/`.",
-      "",
-      bridgeOrchestration,
-      "",
-      ...AGENT_TEAMS_SECTION,
-      "",
-      "## Personal Settings",
-      "",
-      "Create `CLAUDE.local.md` for personal settings (not committed to git).",
-      "Claude Code reads this file for user-specific preferences.",
-      "",
-    ].join("\n");
+    const teamsSection = minimal ? AGENT_TEAMS_SECTION_MINIMAL : AGENT_TEAMS_SECTION;
+    const innerParts = minimal
+      ? [
+          "",
+          "# Hatch3r Project Instructions",
+          "",
+          "Instructions: `.agents/AGENTS.md`. Rules: `.claude/rules/`. Agents: `.claude/agents/`.",
+          "",
+          this.stripMinimal(bridgeOrchestration),
+          "",
+          ...teamsSection,
+          "",
+        ]
+      : [
+          "",
+          "# Hatch3r Project Instructions",
+          "",
+          "Full canonical agent instructions are at `.agents/AGENTS.md`.",
+          "Rules are managed in `.claude/rules/` and agents in `.claude/agents/`.",
+          "",
+          bridgeOrchestration,
+          "",
+          ...teamsSection,
+          "",
+          "## Personal Settings",
+          "",
+          "Create `CLAUDE.local.md` for personal settings (not committed to git).",
+          "Claude Code reads this file for user-specific preferences.",
+          "",
+        ];
+    const innerContent = innerParts.join("\n");
     results.push(output("CLAUDE.md", wrapInManagedBlock(innerContent), innerContent));
 
     if (ctx.features.rules) {
@@ -224,7 +264,9 @@ export class ClaudeAdapter extends BaseAdapter {
         this.warnings.push(...warnings);
         if (skip) continue;
         const desc = overrides.description ?? rule.description;
-        const body = `# ${rule.id}\n\n${desc}\n\n${content}`;
+        const body = minimal
+          ? `# ${rule.id}\n\n${this.stripMinimal(content)}`
+          : `# ${rule.id}\n\n${desc}\n\n${content}`;
         results.push(output(`.claude/rules/${toPrefixedId(rule.id)}.md`, wrapInManagedBlock(body), body));
       }
     }
@@ -237,18 +279,30 @@ export class ClaudeAdapter extends BaseAdapter {
         if (skip) continue;
         const agentId = toPrefixedId(agent.id);
         const model = resolveAgentModel(agent.id, agent, ctx.manifest, overrides);
-        const modelGuidance = model
-          ? `\n\n## Recommended Model\n\nPreferred: \`${model}\`. Set via \`/model ${model}\` or env \`CLAUDE_CODE_SUBAGENT_MODEL=${model}\`.`
-          : "";
         const desc = overrides.description ?? agent.description;
         const fm = `---\ndescription: ${desc}\n---`;
-        const body = `${content}${modelGuidance}`;
-        results.push(output(`.claude/agents/${agentId}.md`, `${fm}\n\n${wrapInManagedBlock(body)}`, body));
+        if (minimal) {
+          const modelNote = model ? `\nModel: \`${model}\`` : "";
+          const body = `${this.stripMinimal(content)}${modelNote}`;
+          results.push(output(`.claude/agents/${agentId}.md`, `${fm}\n\n${wrapInManagedBlock(body)}`, body));
+        } else {
+          const modelGuidance = model
+            ? `\n\n## Recommended Model\n\nPreferred: \`${model}\`. Set via \`/model ${model}\` or env \`CLAUDE_CODE_SUBAGENT_MODEL=${model}\`.`
+            : "";
+          const body = `${content}${modelGuidance}`;
+          results.push(output(`.claude/agents/${agentId}.md`, `${fm}\n\n${wrapInManagedBlock(body)}`, body));
+        }
       }
     }
 
     const defaultAllow = ["Read", "Edit", "MultiEdit", "Write", "Grep", "Glob", "LS", "TodoRead", "TodoWrite"];
     const claudeConfig = ctx.manifest.claude;
+
+    // Agent Teams GA compatibility: use "auto" as default teammateMode.
+    // Legacy values ("tool-using", "full-trust", "manual-approval") are still
+    // accepted for backward compatibility but "auto" is the GA default.
+    const teammateMode = claudeConfig?.teammateMode ?? "auto";
+
     const settingsObj: Record<string, unknown> = {
       _hatch3r: {
         version: HATCH3R_VERSION,
@@ -258,7 +312,7 @@ export class ClaudeAdapter extends BaseAdapter {
         allow: claudeConfig?.permissions?.allow ?? defaultAllow,
         deny: claudeConfig?.permissions?.deny ?? [],
       },
-      teammateMode: claudeConfig?.teammateMode ?? "tool-using",
+      teammateMode,
     };
 
     const hooksConfig: Record<string, Array<{ matcher: string; hooks: Array<{ type: string; command: string }> }>> = {};
@@ -294,7 +348,15 @@ export class ClaudeAdapter extends BaseAdapter {
     }
 
     settingsObj.hooks = hooksConfig;
-    if (ctx.manifest.claude?.agentTeams !== false) {
+
+    // Agent Teams: when agentTeams is "ga", omit the experimental env var
+    // (the feature is natively available). Otherwise, set the experimental flag
+    // to enable Agent Teams unless explicitly disabled (agentTeams === false).
+    const agentTeamsSetting = ctx.manifest.claude?.agentTeams;
+    if (agentTeamsSetting === "ga") {
+      // GA mode: no experimental flag needed, Agent Teams is natively available.
+      // Only set env if there are other env vars to include.
+    } else if (agentTeamsSetting !== false) {
       settingsObj.env = { CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1" };
     }
     results.push(output(".claude/settings.json", JSON.stringify(settingsObj, null, 2)));

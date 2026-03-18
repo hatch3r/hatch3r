@@ -9,7 +9,7 @@ export class AmazonQAdapter extends BaseAdapter {
     const results: AdapterOutput[] = [];
 
     const inner = [
-      ...await this.bridgeHeader(ctx.agentsDir),
+      ...await this.bridgeHeader(ctx),
       ...await this.inlineRules(ctx),
       ...await this.inlineAgents(ctx),
     ].join("\n");

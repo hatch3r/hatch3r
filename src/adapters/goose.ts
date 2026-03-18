@@ -10,7 +10,7 @@ export class GooseAdapter extends BaseAdapter {
 
   protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
     const lines = [
-      ...await this.bridgeHeader(ctx.agentsDir),
+      ...await this.bridgeHeader(ctx),
       ...await this.inlineRules(ctx),
       ...await this.inlineAgents(ctx),
     ];

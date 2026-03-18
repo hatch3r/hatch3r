@@ -6,7 +6,7 @@ import { readManifest } from "../../manifest/hatchJson.js";
 import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
 import { safeWriteFile } from "../../merge/safeWrite.js";
 import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
-import { AGENTS_DIR, HatchError, WORKTREE_INCLUDE_FILE } from "../../types.js";
+import { AGENTS_DIR, HatchError, WORKTREE_INCLUDE_FILE, type GenerationMode } from "../../types.js";
 import { ensureEnvMcp, ensureGitignoreEntry, getSourceEnvMcpCommand } from "../../env/mcpEnv.js";
 import { readWorkspaceManifest } from "../../workspace/manifest.js";
 import { syncWorkspaceRepos } from "../../workspace/sync.js";
@@ -76,6 +76,7 @@ export async function syncCommand(
     repos?: string[] | true;
     dryRun?: boolean;
     force?: boolean;
+    minimal?: boolean;
   } = {},
 ): Promise<void> {
   printBanner(true);
@@ -124,13 +125,18 @@ export async function syncCommand(
   results.push({ path: `${AGENTS_DIR}/AGENTS.md`, action: canonicalResult.action });
   s1.succeed(step(currentStep, totalSteps, "AGENTS.md synced"));
 
+  const generationMode: GenerationMode = opts.minimal ? "minimal" : "standard";
+  if (opts.minimal) {
+    info("Minimal generation mode: output will be stripped-down to reduce token usage.");
+  }
+
   const adapterFailures: { tool: string; error: string }[] = [];
   for (const tool of m.tools) {
     const s = createSpinner(step(++currentStep, totalSteps, `Generating ${tool} output...`));
     s.start();
     try {
       const adapter = getAdapter(tool);
-      const outputs = await adapter.generate(agentsDir, m);
+      const outputs = await adapter.generate(agentsDir, m, generationMode);
       for (const w of adapter.warnings) { warn(w); }
       for (const out of outputs) {
         const fullPath = join(rootDir, out.path);
