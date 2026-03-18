@@ -530,6 +530,24 @@ export async function copySelectedContent(
     }
   }
 
+  // Always copy support subdirectories (non-hatch3r-prefixed dirs inside glob-strategy content types)
+  // These are shared/companion files referenced by agents and commands (e.g. agents/shared/, agents/modes/, commands/board/)
+  for (const config of CONTENT_TYPE_CONFIGS) {
+    if (config.strategy !== "glob") continue;
+    try {
+      const dirEntries = await readdir(join(contentRoot, config.dir), { withFileTypes: true });
+      for (const entry of dirEntries) {
+        if (!entry.isDirectory() || entry.name.startsWith("hatch3r-")) continue;
+        const subSrc = join(contentRoot, config.dir, entry.name);
+        const subDest = join(agentsDir, config.dir, entry.name);
+        await mkdir(subDest, { recursive: true });
+        await cp(subSrc, subDest, { recursive: true, force: true });
+      }
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    }
+  }
+
   // Always copy checks/ (referenced by agents, small)
   try {
     const checksSrc = join(contentRoot, "checks");
