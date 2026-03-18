@@ -14,9 +14,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 2,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "security-learnings-asi06",
-    "batch": 1
+    "batch": 1,
+    "commit_sha": "f2bfb6b"
   },
   {
     "finding_id": 2,
@@ -33,9 +34,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 2,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "adapter-antigravity-and-amazonq",
-    "batch": 1
+    "batch": 1,
+    "commit_sha": "f2bfb6b"
   },
   {
     "finding_id": 3,
@@ -52,9 +54,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 2,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "adapter-antigravity-and-amazonq",
-    "batch": 1
+    "batch": 1,
+    "commit_sha": "f2bfb6b"
   },
   {
     "finding_id": 4,
@@ -105,9 +108,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 2,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "docs-roadmap-and-competitive",
-    "batch": 1
+    "batch": 1,
+    "commit_sha": "f2bfb6b"
   },
   {
     "finding_id": 7,
@@ -141,9 +145,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 2,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "adapter-claude-teams-and-minimal-mode",
-    "batch": 2
+    "batch": 2,
+    "commit_sha": "f2bfb6b"
   },
   {
     "finding_id": 9,
@@ -160,9 +165,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 2,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "adapter-claude-teams-and-minimal-mode",
-    "batch": 2
+    "batch": 2,
+    "commit_sha": "f2bfb6b"
   },
   {
     "finding_id": 10,
@@ -196,9 +202,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 2,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "docs-roadmap-and-competitive",
-    "batch": 1
+    "batch": 1,
+    "commit_sha": "f2bfb6b"
   },
   {
     "finding_id": 12,
@@ -208,7 +215,10 @@
     "description": "Execute three-channel distribution strategy (npm + Cursor + Claude Code)",
     "effort": "M",
     "risk_score": 40,
-    "depends_on": [4, 5],
+    "depends_on": [
+      4,
+      5
+    ],
     "dedup_action": "keep",
     "dedup_tier": null,
     "dedup_rationale": null,
@@ -235,7 +245,8 @@
     "execution_status": "done",
     "work_unit": "cli-init-board-prerequisites",
     "batch": 1,
-    "notes": "Added selectionHasBoardContent check and warnBoardPrerequisites info message in init.ts. Fires in all three init paths (headless, interactive, workspace) after content selection resolution. Informational only — does not block init."
+    "notes": "Added selectionHasBoardContent check and warnBoardPrerequisites info message in init.ts. Fires in all three init paths (headless, interactive, workspace) after content selection resolution. Informational only — does not block init.",
+    "commit_sha": "f2bfb6b"
   },
   {
     "finding_id": 14,
@@ -252,9 +263,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "core-source-fixes",
-    "batch": 1
+    "batch": 1,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 15,
@@ -271,9 +283,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "core-source-fixes",
-    "batch": 1
+    "batch": 1,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 16,
@@ -290,9 +303,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "core-source-fixes",
-    "batch": 1
+    "batch": 1,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 17,
@@ -309,9 +323,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "worktree-testing",
-    "batch": 2
+    "batch": 2,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 18,
@@ -328,9 +343,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "supply-chain-hardening",
-    "batch": 1
+    "batch": 1,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 19,
@@ -347,9 +363,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "supply-chain-hardening",
-    "batch": 1
+    "batch": 1,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 20,
@@ -366,9 +383,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "code-standards-rules",
-    "batch": 1
+    "batch": 1,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 21,
@@ -385,9 +403,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "context-engineering-agents",
-    "batch": 1
+    "batch": 1,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 22,
@@ -404,9 +423,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "context-engineering-agents",
-    "batch": 1
+    "batch": 1,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 23,
@@ -423,9 +443,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "context-engineering-agents",
-    "batch": 1
+    "batch": 1,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 24,
@@ -442,9 +463,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "orchestration-rules",
-    "batch": 1
+    "batch": 1,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 25,
@@ -461,9 +483,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "orchestration-rules",
-    "batch": 1
+    "batch": 1,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 26,
@@ -480,9 +503,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "platform-adapter-docs",
-    "batch": 2
+    "batch": 2,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 27,
@@ -499,9 +523,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "platform-adapter-docs",
-    "batch": 2
+    "batch": 2,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 28,
@@ -518,9 +543,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "docs-release-prep",
-    "batch": 1
+    "batch": 1,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 29,
@@ -537,9 +563,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "docs-release-prep",
-    "batch": 1
+    "batch": 1,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 30,
@@ -556,9 +583,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "docs-release-prep",
-    "batch": 1
+    "batch": 1,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 31,
@@ -575,9 +603,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "docs-release-prep",
-    "batch": 1
+    "batch": 1,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 32,
@@ -594,9 +623,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "code-standards-rules",
-    "batch": 1
+    "batch": 1,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 33,
@@ -613,9 +643,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "security-documentation",
-    "batch": 2
+    "batch": 2,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 34,
@@ -632,9 +663,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "security-documentation",
-    "batch": 2
+    "batch": 2,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 35,
@@ -651,9 +683,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "security-documentation",
-    "batch": 2
+    "batch": 2,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 36,
@@ -670,9 +703,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "compound-system-content",
-    "batch": 2
+    "batch": 2,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 37,
@@ -682,16 +716,19 @@
     "description": "Add workspace/worktree content artifacts to guide agent behavior in workspace environments",
     "effort": "S",
     "risk_score": 36,
-    "depends_on": [24],
+    "depends_on": [
+      24
+    ],
     "dedup_action": "keep",
     "dedup_tier": null,
     "dedup_rationale": null,
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "compound-system-content",
-    "batch": 2
+    "batch": 2,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 38,
@@ -708,9 +745,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "competitive-market-docs",
-    "batch": 3
+    "batch": 3,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 39,
@@ -761,9 +799,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "competitive-market-docs",
-    "batch": 3
+    "batch": 3,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 42,
@@ -780,9 +819,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "competitive-adapter-cursor-windsurf",
-    "batch": 2
+    "batch": 2,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 43,
@@ -799,9 +839,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "competitive-adapter-cursor-windsurf",
-    "batch": 2
+    "batch": 2,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 44,
@@ -835,9 +876,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "competitive-adapter-verification",
-    "batch": 2
+    "batch": 2,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 46,
@@ -854,9 +896,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "competitive-adapter-verification",
-    "batch": 2
+    "batch": 2,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 47,
@@ -873,9 +916,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "prd-roadmap-updates",
-    "batch": 3
+    "batch": 3,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 48,
@@ -892,9 +936,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "prd-roadmap-updates",
-    "batch": 3
+    "batch": 3,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 49,
@@ -911,9 +956,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "prd-roadmap-updates",
-    "batch": 3
+    "batch": 3,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 50,
@@ -930,9 +976,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "prd-roadmap-updates",
-    "batch": 3
+    "batch": 3,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 51,
@@ -949,9 +996,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "prd-roadmap-updates",
-    "batch": 3
+    "batch": 3,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 52,
@@ -1002,9 +1050,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "user-journey-init-profile",
-    "batch": 3
+    "batch": 3,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 55,
@@ -1021,9 +1070,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "user-journey-init-profile",
-    "batch": 3
+    "batch": 3,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 56,
@@ -1040,9 +1090,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "user-journey-validation",
-    "batch": 3
+    "batch": 3,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 57,
@@ -1059,9 +1110,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "user-journey-validation",
-    "batch": 3
+    "batch": 3,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 58,
@@ -1078,9 +1130,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "user-journey-validation",
-    "batch": 3
+    "batch": 3,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 59,
@@ -1097,9 +1150,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "user-journey-init-profile",
-    "batch": 3
+    "batch": 3,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 60,
@@ -1116,9 +1170,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "user-journey-init-profile",
-    "batch": 3
+    "batch": 3,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 61,
@@ -1135,9 +1190,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "user-journey-init-profile",
-    "batch": 3
+    "batch": 3,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 62,
@@ -1154,9 +1210,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "user-journey-validation",
-    "batch": 3
+    "batch": 3,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 63,
@@ -1173,9 +1230,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "user-journey-validation",
-    "batch": 3
+    "batch": 3,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 64,
@@ -1192,9 +1250,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 3,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "user-journey-validation",
-    "batch": 3
+    "batch": 3,
+    "commit_sha": "6ba7e94"
   },
   {
     "finding_id": 65,
@@ -1211,9 +1270,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "core-source-cli-fixes",
-    "batch": 1
+    "batch": 1,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 66,
@@ -1230,9 +1290,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "core-source-cli-fixes",
-    "batch": 1
+    "batch": 1,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 67,
@@ -1249,9 +1310,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "core-source-cli-fixes",
-    "batch": 1
+    "batch": 1,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 68,
@@ -1268,9 +1330,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "core-source-cli-fixes",
-    "batch": 1
+    "batch": 1,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 69,
@@ -1287,9 +1350,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "core-source-cli-fixes",
-    "batch": 1
+    "batch": 1,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 70,
@@ -1306,9 +1370,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "adapter-base-output",
-    "batch": 2
+    "batch": 2,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 71,
@@ -1325,9 +1390,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "adapter-base-output",
-    "batch": 2
+    "batch": 2,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 72,
@@ -1344,9 +1410,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "customization-security",
-    "batch": 1
+    "batch": 1,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 73,
@@ -1363,9 +1430,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "customization-security",
-    "batch": 1
+    "batch": 1,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 74,
@@ -1382,9 +1450,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "customization-security",
-    "batch": 1
+    "batch": 1,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 75,
@@ -1401,9 +1470,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "content-system-integrity",
-    "batch": 1
+    "batch": 1,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 76,
@@ -1420,9 +1490,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "content-system-integrity",
-    "batch": 1
+    "batch": 1,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 77,
@@ -1439,9 +1510,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "content-system-integrity",
-    "batch": 1
+    "batch": 1,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 78,
@@ -1458,9 +1530,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "content-system-integrity",
-    "batch": 1
+    "batch": 1,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 79,
@@ -1477,9 +1550,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "content-system-integrity",
-    "batch": 1
+    "batch": 1,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 80,
@@ -1496,9 +1570,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "test-infrastructure",
-    "batch": 2
+    "batch": 2,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 81,
@@ -1515,9 +1590,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "test-infrastructure",
-    "batch": 2
+    "batch": 2,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 82,
@@ -1534,9 +1610,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "content-security-null-bytes",
-    "batch": 1
+    "batch": 1,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 83,
@@ -1553,9 +1630,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "test-infrastructure",
-    "batch": 2
+    "batch": 2,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 84,
@@ -1572,9 +1650,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "test-infrastructure",
-    "batch": 2
+    "batch": 2,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 85,
@@ -1591,9 +1670,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "build-cicd-hardening",
-    "batch": 1
+    "batch": 1,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 86,
@@ -1610,9 +1690,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "build-cicd-hardening",
-    "batch": 1
+    "batch": 1,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 87,
@@ -1629,9 +1710,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "build-cicd-hardening",
-    "batch": 1
+    "batch": 1,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 88,
@@ -1648,9 +1730,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "build-cicd-hardening",
-    "batch": 1
+    "batch": 1,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 89,
@@ -1667,9 +1750,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "agent-content-polish",
-    "batch": 2
+    "batch": 2,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 90,
@@ -1688,7 +1772,8 @@
     "wave": 4,
     "execution_status": "done",
     "work_unit": "context-caching-budgets",
-    "batch": 4
+    "batch": 4,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 91,
@@ -1707,7 +1792,8 @@
     "wave": 4,
     "execution_status": "done",
     "work_unit": "context-caching-budgets",
-    "batch": 4
+    "batch": 4,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 92,
@@ -1724,9 +1810,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "context-learnings-cleanup",
-    "batch": 4
+    "batch": 4,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 93,
@@ -1743,9 +1830,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "context-learnings-cleanup",
-    "batch": 4
+    "batch": 4,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 94,
@@ -1764,7 +1852,8 @@
     "wave": 4,
     "execution_status": "done",
     "work_unit": "context-caching-budgets",
-    "batch": 4
+    "batch": 4,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 95,
@@ -1783,7 +1872,8 @@
     "wave": 4,
     "execution_status": "done",
     "work_unit": "context-caching-budgets",
-    "batch": 4
+    "batch": 4,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 96,
@@ -1800,9 +1890,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "context-learnings-cleanup",
-    "batch": 4
+    "batch": 4,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 97,
@@ -1819,9 +1910,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "context-learnings-cleanup",
-    "batch": 4
+    "batch": 4,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 98,
@@ -1838,9 +1930,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "context-learnings-cleanup",
-    "batch": 4
+    "batch": 4,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 99,
@@ -1857,9 +1950,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "orchestration-enhancements",
-    "batch": 3
+    "batch": 3,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 100,
@@ -1876,9 +1970,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "orchestration-enhancements",
-    "batch": 3
+    "batch": 3,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 101,
@@ -1895,9 +1990,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "orchestration-enhancements",
-    "batch": 3
+    "batch": 3,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 102,
@@ -1914,9 +2010,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "orchestration-enhancements",
-    "batch": 3
+    "batch": 3,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 103,
@@ -1933,9 +2030,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "error-recovery-docs",
-    "batch": 2
+    "batch": 2,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 104,
@@ -1952,9 +2050,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "error-recovery-docs",
-    "batch": 2
+    "batch": 2,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 105,
@@ -1971,9 +2070,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "platform-adapter-version-docs",
-    "batch": 2
+    "batch": 2,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 106,
@@ -1990,9 +2090,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "platform-adapter-version-docs",
-    "batch": 2
+    "batch": 2,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 107,
@@ -2009,9 +2110,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "platform-adapter-version-docs",
-    "batch": 2
+    "batch": 2,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 108,
@@ -2028,9 +2130,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "platform-adapter-version-docs",
-    "batch": 2
+    "batch": 2,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 109,
@@ -2047,9 +2150,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "platform-adapter-version-docs",
-    "batch": 2
+    "batch": 2,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 110,
@@ -2066,9 +2170,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "platform-adapter-version-docs",
-    "batch": 2
+    "batch": 2,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 111,
@@ -2085,9 +2190,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "adapter-base-output",
-    "batch": 2
+    "batch": 2,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 112,
@@ -2104,9 +2210,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "error-recovery-docs",
-    "batch": 2
+    "batch": 2,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 113,
@@ -2123,9 +2230,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "data-flow-fixes",
-    "batch": 2
+    "batch": 2,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 114,
@@ -2142,9 +2250,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "data-flow-fixes",
-    "batch": 2
+    "batch": 2,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 115,
@@ -2161,9 +2270,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "error-recovery-docs",
-    "batch": 2
+    "batch": 2,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 116,
@@ -2180,9 +2290,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "data-flow-fixes",
-    "batch": 2
+    "batch": 2,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 117,
@@ -2199,9 +2310,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "agent-content-polish",
-    "batch": 2
+    "batch": 2,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 118,
@@ -2218,9 +2330,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "observability-collab-docs",
-    "batch": 3
+    "batch": 3,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 119,
@@ -2237,9 +2350,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "observability-collab-docs",
-    "batch": 3
+    "batch": 3,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 120,
@@ -2256,9 +2370,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "agent-content-polish",
-    "batch": 2
+    "batch": 2,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 121,
@@ -2275,9 +2390,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "adaptability-docs",
-    "batch": 3
+    "batch": 3,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 122,
@@ -2294,9 +2410,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "adaptability-docs",
-    "batch": 3
+    "batch": 3,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 123,
@@ -2313,9 +2430,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "content-security-null-bytes",
-    "batch": 1
+    "batch": 1,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 124,
@@ -2332,9 +2450,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "customization-security",
-    "batch": 1
+    "batch": 1,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 125,
@@ -2351,9 +2470,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "context-learnings-cleanup",
-    "batch": 4
+    "batch": 4,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 126,
@@ -2370,9 +2490,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "observability-collab-docs",
-    "batch": 3
+    "batch": 3,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 127,
@@ -2389,9 +2510,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "agent-content-polish",
-    "batch": 2
+    "batch": 2,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 128,
@@ -2401,16 +2523,19 @@
     "description": "Map reviewer output to PipelineContext Finding schema (severity translation)",
     "effort": "S",
     "risk_score": 16,
-    "depends_on": [36],
+    "depends_on": [
+      36
+    ],
     "dedup_action": "keep",
     "dedup_tier": null,
     "dedup_rationale": null,
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "observability-collab-docs",
-    "batch": 3
+    "batch": 3,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 129,
@@ -2427,9 +2552,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "compound-system-tests",
-    "batch": 3
+    "batch": 3,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 130,
@@ -2446,9 +2572,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "competitive-analysis-refresh",
-    "batch": 4
+    "batch": 4,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 131,
@@ -2465,9 +2592,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "competitive-analysis-refresh",
-    "batch": 4
+    "batch": 4,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 132,
@@ -2484,9 +2612,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "competitive-analysis-refresh",
-    "batch": 4
+    "batch": 4,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 133,
@@ -2503,9 +2632,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "competitive-analysis-refresh",
-    "batch": 4
+    "batch": 4,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 134,
@@ -2522,9 +2652,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "competitive-analysis-refresh",
-    "batch": 4
+    "batch": 4,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 135,
@@ -2541,9 +2672,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "prd-roadmap-cleanup",
-    "batch": 3
+    "batch": 3,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 136,
@@ -2560,9 +2692,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "prd-roadmap-cleanup",
-    "batch": 3
+    "batch": 3,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 137,
@@ -2579,9 +2712,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "prd-roadmap-cleanup",
-    "batch": 3
+    "batch": 3,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 138,
@@ -2598,9 +2732,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "prd-roadmap-cleanup",
-    "batch": 3
+    "batch": 3,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 139,
@@ -2617,9 +2752,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "prd-roadmap-cleanup",
-    "batch": 3
+    "batch": 3,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 140,
@@ -2629,7 +2765,9 @@
     "description": "Execute community building strategy (weeks 5-8 of timeline)",
     "effort": "M",
     "risk_score": 8,
-    "depends_on": [12],
+    "depends_on": [
+      12
+    ],
     "dedup_action": "keep",
     "dedup_tier": null,
     "dedup_rationale": null,
@@ -2646,16 +2784,20 @@
     "description": "Execute pre-distribution D16 compound fixes (week 1 of timeline)",
     "effort": "S",
     "risk_score": 24,
-    "depends_on": [36, 37],
+    "depends_on": [
+      36,
+      37
+    ],
     "dedup_action": "keep",
     "dedup_tier": null,
     "dedup_rationale": null,
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "compound-system-tests",
-    "batch": 3
+    "batch": 3,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 142,
@@ -2672,9 +2814,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "user-journey-init-flow",
-    "batch": 4
+    "batch": 4,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 143,
@@ -2691,9 +2834,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "user-journey-init-flow",
-    "batch": 4
+    "batch": 4,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 144,
@@ -2710,9 +2854,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "user-journey-init-flow",
-    "batch": 4
+    "batch": 4,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 145,
@@ -2729,9 +2874,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "user-journey-init-flow",
-    "batch": 4
+    "batch": 4,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 146,
@@ -2748,9 +2894,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "user-journey-profile-display",
-    "batch": 4
+    "batch": 4,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 147,
@@ -2767,9 +2914,10 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "user-journey-profile-display",
-    "batch": 4
+    "batch": 4,
+    "commit_sha": "4068352"
   },
   {
     "finding_id": 148,
@@ -2786,8 +2934,9 @@
     "mixed_decomposition": null,
     "disposition": "targeted",
     "wave": 4,
-    "execution_status": "pending",
+    "execution_status": "done",
     "work_unit": "user-journey-profile-display",
-    "batch": 4
+    "batch": 4,
+    "commit_sha": "4068352"
   }
 ]
