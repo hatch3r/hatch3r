@@ -77,6 +77,42 @@ CONVENTIONS.md         <- Generated (Aider adapter)
 
 hatch3r keeps one source of truth in `.agents/` and generates native configuration for each tool.
 
+## Multi-Repo Workspaces
+
+hatch3r can manage multiple git repos from a single workspace root. Run `hatch3r init` in a non-git directory containing git subdirectories and it auto-detects the workspace layout.
+
+```
+my-platform/                   <- Workspace root (not a git repo)
+  .agents/                     <- Shared canonical source
+    workspace.json             <- Workspace manifest
+    hatch.json
+    agents/
+    rules/
+    ...
+  frontend/                    <- Git repo (gets its own generated files)
+    .cursor/
+    CLAUDE.md
+    ...
+  backend/                     <- Git repo
+    .cursor/
+    CLAUDE.md
+    ...
+  infra/                       <- Git repo
+    .cursor/
+    CLAUDE.md
+    ...
+```
+
+```bash
+npx hatch3r init --workspace              # force workspace mode
+npx hatch3r sync                          # cascade to all repos
+npx hatch3r sync --repos frontend backend # sync specific repos
+npx hatch3r sync --dry-run                # preview changes
+npx hatch3r config                        # manage repos and sync strategy
+```
+
+Content flows from workspace defaults into each sub-repo with optional per-repo overrides (tools, features, include/exclude content). Sub-repos receive independent copies, not symlinks. See the [Workspace guide](https://docs.hatch3r.com/docs/guides/workspace) for full details.
+
 ## Workflow
 
 hatch3r provides a full project lifecycle, from setup to release:

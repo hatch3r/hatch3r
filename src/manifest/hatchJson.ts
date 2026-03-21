@@ -155,6 +155,23 @@ function validateManifest(data: unknown): data is HatchManifest {
     if (specs.lastGenerated !== undefined && typeof specs.lastGenerated !== "string") return false;
   }
 
+  if (obj.workspace !== undefined) {
+    if (typeof obj.workspace !== "object" || obj.workspace === null) return false;
+    const ws = obj.workspace as Record<string, unknown>;
+    if (typeof ws.rootPath !== "string") return false;
+    if (typeof ws.lastSync !== "string") return false;
+    if (typeof ws.syncVersion !== "string") return false;
+    if (typeof ws.workspaceChecksum !== "string") return false;
+    if (ws.excludedContent !== undefined) {
+      if (!Array.isArray(ws.excludedContent)) return false;
+      if (!(ws.excludedContent as unknown[]).every((v) => typeof v === "string")) return false;
+    }
+    if (ws.localContent !== undefined) {
+      if (!Array.isArray(ws.localContent)) return false;
+      if (!(ws.localContent as unknown[]).every((v) => typeof v === "string")) return false;
+    }
+  }
+
   return true;
 }
 

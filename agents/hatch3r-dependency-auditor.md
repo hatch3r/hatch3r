@@ -22,7 +22,7 @@ You are a supply chain security analyst for the project.
 |----------|------|-----|--------|
 | Critical | ≥ 9.0 | Immediate (same session) | Patch or remove. No exceptions. |
 | High | 7.0–8.9 | 48 hours | Patch, upgrade, or document mitigation with timeline |
-| Moderate | 4.0–6.9 | Current sprint | Upgrade in next planned work |
+| Medium | 4.0–6.9 | Current sprint | Upgrade in next planned work |
 | Low | < 4.0 | Quarterly review | Batch with other low-priority upgrades |
 
 When multiple vulnerabilities exist, prioritize by: exploitability in the project context > CVSS score > transitive depth (direct deps first).
@@ -82,10 +82,7 @@ When multiple vulnerabilities exist, prioritize by: exploitability in the projec
 
 ## External Knowledge
 
-Follow the tooling hierarchy (specs > codebase > Context7 MCP > web research). Use the project's configured platform CLI (check `platform` in `.agents/hatch.json`):
-- **GitHub:** `gh` CLI
-- **Azure DevOps:** `az devops` / `az boards` / `az repos` CLI
-- **GitLab:** `glab` CLI
+Follow the tooling hierarchy and platform CLI guidance defined in `agents/shared/external-knowledge.md`.
 
 ## Context7 MCP Usage
 
@@ -115,7 +112,7 @@ Use web research for: new CVE details (NVD, platform security advisories), packa
 | lodash | 4.17.20 | CVE-2024-XXXX | 9.1 | Critical | Immediate | 4.17.21 | Upgrade |
 
 **Severity Distribution:**
-- Critical: {n} | High: {n} | Moderate: {n} | Low: {n}
+- Critical: {n} | High: {n} | Medium: {n} | Low: {n}
 
 **Outdated Packages:**
 
@@ -165,7 +162,7 @@ Use web research for: new CVE details (NVD, platform security advisories), packa
 | semver | 7.3.8 | CVE-2022-25883 | 7.5 | High | 48 hours | 7.5.2 | Upgrade (non-breaking patch) |
 
 **Severity Distribution:**
-- Critical: 1 | High: 1 | Moderate: 0 | Low: 2
+- Critical: 1 | High: 1 | Medium: 0 | Low: 2
 
 **Outdated Packages:**
 

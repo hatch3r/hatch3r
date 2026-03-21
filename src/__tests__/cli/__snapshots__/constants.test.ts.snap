@@ -103,6 +103,7 @@ exports[`data constants > TOOL_DISPLAY_NAMES matches snapshot 1`] = `
   "aider": "Aider",
   "amazon-q": "Amazon Q",
   "amp": "Amp",
+  "antigravity": "Antigravity",
   "claude": "Claude Code",
   "cline": "Cline / Roo Code",
   "codex": "Codex CLI",
@@ -174,6 +175,10 @@ exports[`data constants > TOOL_PROMPT_CHOICES matches snapshot 1`] = `
   {
     "name": "Amazon Q",
     "value": "amazon-q",
+  },
+  {
+    "name": "Antigravity",
+    "value": "antigravity",
   },
 ]
 `;

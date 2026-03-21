@@ -29,7 +29,7 @@ export class GeminiAdapter extends BaseAdapter {
     const results: AdapterOutput[] = [];
 
     const inner = [
-      ...await this.bridgeHeader(ctx.agentsDir, ".agents/AGENTS.md"),
+      ...await this.bridgeHeader(ctx, ".agents/AGENTS.md"),
       ...await this.inlineRules(ctx),
       ...await this.inlineAgents(ctx, (m) => ({
         text: `**Recommended model:** \`${m}\`. Set via \`gemini --model ${m}\` or select in Google AI Studio.`,

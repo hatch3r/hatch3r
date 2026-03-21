@@ -50,6 +50,7 @@ GEMINI.md               <- Generated (Gemini adapter)
 - **Board management** -- full GitHub Projects V2 lifecycle from `todo.md` to merged PRs
 - **Sub-agentic delegation** -- implementer agents, dependency-aware orchestration, collision detection
 - **Safe merge system** -- managed blocks preserve your customizations across syncs
+- **Multi-repo workspaces** -- manage multiple git repos from a shared workspace root with content inheritance and per-repo overrides
 - **Extensible** -- per-agent model selection, `.customize.yaml` overrides, composable recipes, event-driven hooks
 
 ## Requirements

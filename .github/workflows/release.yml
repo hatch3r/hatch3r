@@ -57,7 +57,7 @@ jobs:
         run: npm test
 
       - name: Security audit
-        run: npm audit --audit-level=moderate
+        run: npm audit --audit-level=moderate --omit=dev
 
       - name: Publish to npm
         run: npm publish --access public --provenance

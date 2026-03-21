@@ -12,6 +12,7 @@ import {
   error as logError,
   info,
 } from "../shared/ui.js";
+import { readWorkspaceManifest } from "../../workspace/manifest.js";
 
 /** Recursively sum the byte size of all files under a directory. */
 async function dirCharCount(dir: string): Promise<number> {
@@ -110,5 +111,43 @@ export async function statusCommand(): Promise<void> {
   if (stats.drifted > 0 || stats.missing > 0) {
     info(`Run ${chalk.bold("hatch3r sync")} to regenerate drifted/missing files.`);
     console.log();
+  }
+
+  // ── Workspace topology ──────────────────────────────────────
+  const wsManifest = await readWorkspaceManifest(rootDir);
+  if (wsManifest && wsManifest.repos.length > 0) {
+    const wsLines: string[] = [];
+    for (const repo of wsManifest.repos) {
+      const icon = repo.sync ? chalk.green("\u2713") : chalk.dim("\u25CB");
+      let detail: string;
+      if (!repo.sync) {
+        detail = chalk.dim("sync disabled");
+      } else if (repo.lastSync) {
+        const elapsed = Math.max(0, Date.now() - new Date(repo.lastSync).getTime());
+        const hours = Math.floor(elapsed / (1000 * 60 * 60));
+        const timeAgo = hours < 1 ? "just now" : hours < 24 ? `${hours}h ago` : `${Math.floor(hours / 24)}d ago`;
+        detail = `synced ${timeAgo}`;
+      } else {
+        detail = chalk.yellow("never synced");
+      }
+      const identity = repo.owner && repo.repo
+        ? chalk.dim(`${repo.owner}/${repo.repo}`)
+        : "";
+      const branch = repo.defaultBranch
+        ? chalk.dim(`[${repo.defaultBranch}]`)
+        : "";
+      const identityPart = identity || branch ? `  ${identity} ${branch}` : "";
+      wsLines.push(`${icon} ${repo.name ?? repo.path}${identityPart}  ${chalk.dim(`(${detail})`)}`);
+    }
+    printBox(`Workspace: ${wsManifest.name} (${wsManifest.repos.length} repos)`, wsLines, "info");
+  }
+
+  // Show workspace membership info if this repo is managed by a workspace
+  if (manifest.workspace) {
+    const wsInfo = [
+      `Managed by workspace at ${chalk.bold(manifest.workspace.rootPath)}`,
+      `Last synced: ${manifest.workspace.lastSync ? new Date(manifest.workspace.lastSync).toLocaleString() : "never"}`,
+    ];
+    printBox("Workspace member", wsInfo, "info");
   }
 }

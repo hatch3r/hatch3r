@@ -9,7 +9,7 @@
 |----|-------|-----------|
 | 4.1 | Build Configuration | `tsup.config.ts`, `tsconfig.json`, `package.json` (build scripts) |
 | 4.2 | Dependency Health | `package.json`, `package-lock.json`, `npm audit` |
-| 4.3 | CI Workflows | `.github/workflows/` (5 workflows: `ci.yml`, `pr-checks.yml`, `release.yml`, `deploy-docs.yml`, `docs-pr-preview.yml`) |
+| 4.3 | CI Workflows | `.github/workflows/` (4 workflows: `ci.yml`, `pr-checks.yml`, `release.yml`, `deploy-docs.yml`). Note: `generate-docusaurus-docs.lock.yml` is a lock file, not an active workflow. |
 | 4.4 | Release Pipeline & OIDC | `.github/workflows/release.yml`, npm provenance, OIDC signing |
 | 4.5 | Community & OSS Readiness | `CONTRIBUTING.md`, issue templates, PR template, CoC, dependabot, license |
 
@@ -30,9 +30,12 @@
 - [ ] Minimal dependency surface — no unnecessary dependencies
 - [ ] Lockfile integrity — `package-lock.json` is consistent and committed
 - [ ] Unnecessary dependencies — identify and recommend removal
+- [ ] **Post-PackageGate defenses** — lockfile-lint or equivalent configured (lockfiles are attack surface, not just defense since Jan 2026 PackageGate disclosure)
+- [ ] **Socket.dev or equivalent** — malicious dependency detection beyond `npm audit` (which only catches known CVEs)
+- [ ] **Lifecycle script policy** — verify `ignore-scripts=true` in `.npmrc` for CI (postinstall scripts are primary attack vector)
 
 ### 4.3 CI Workflows
-- [ ] All 5 workflows: completeness, correctness, trigger configuration
+- [ ] All 4 workflows: completeness, correctness, trigger configuration
 - [ ] Security — no secret leaks, pinned action versions (SHA, not tags)
 - [ ] Matrix testing — Node versions (18, 20, 22), OS (ubuntu, macos, windows)
 - [ ] Caching — dependency caching configured for performance

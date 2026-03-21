@@ -31,6 +31,8 @@ vi.mock("../../content/index.js", () => ({
   removeContentItem: vi.fn(),
   countSelectionItems: vi.fn().mockReturnValue(0),
   selectionSummary: vi.fn().mockReturnValue(""),
+  extractContentReferences: vi.fn().mockReturnValue([]),
+  validateOrchestrationDependencies: vi.fn().mockReturnValue([]),
   TYPE_TO_SELECTION_KEY: {
     agent: "agents",
     skill: "skills",
@@ -83,6 +85,8 @@ import {
   removeContentItem,
   countSelectionItems,
   selectionSummary,
+  extractContentReferences,
+  validateOrchestrationDependencies,
 } from "../../content/index.js";
 import { generateCanonicalAgentsMd } from "../../cli/shared/agentsContent.js";
 import { safeWriteFile } from "../../merge/safeWrite.js";
@@ -243,6 +247,8 @@ describe("config command", () => {
     // Re-apply default mock implementations after clearAllMocks
     vi.mocked(countSelectionItems).mockReturnValue(0);
     vi.mocked(selectionSummary).mockReturnValue("");
+    vi.mocked(extractContentReferences).mockReturnValue([]);
+    vi.mocked(validateOrchestrationDependencies).mockReturnValue([]);
     vi.mocked(generateCanonicalAgentsMd).mockResolvedValue("# AGENTS.md content");
     vi.mocked(ensureEnvMcp).mockResolvedValue({ action: "skipped", path: ".env.mcp", newVars: [] });
     vi.mocked(getSourceEnvMcpCommand).mockReturnValue("source .env.mcp");

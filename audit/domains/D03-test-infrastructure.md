@@ -1,35 +1,36 @@
 # Domain 3: Test Infrastructure
 
-**Scope:** All 39 test files across the test suite. Coverage analysis, test quality assessment, and testing infrastructure evaluation.
+**Scope:** All 47 test files across the test suite. Coverage analysis, test quality assessment, and testing infrastructure evaluation.
 **Sub-agents:** 5
 
 ### Test File Distribution
 
 | Category | Files | Count |
 |----------|-------|-------|
-| Adapters | `src/__tests__/adapters/` | 17 |
-| CLI | `src/__tests__/cli/` | 8 |
-| Content | `src/__tests__/content/` | 2 |
+| Adapters | `src/__tests__/adapters/` | 19 |
+| CLI | `src/__tests__/cli/` | 10 |
+| Content | `src/__tests__/content/` | 3 |
+| Workspace | `src/__tests__/workspace/` | 3 |
 | Models | `src/__tests__/models/` | 2 |
 | Merge | `src/__tests__/merge/` | 2 |
 | Hooks | `src/__tests__/hooks/` | 2 |
+| Worktree | `src/__tests__/worktree/` | 1 |
 | Detect | `src/__tests__/detect/` | 1 |
 | Env | `src/__tests__/env/` | 1 |
 | Integrity | `src/__tests__/integrity/` | 1 |
 | Manifest | `src/__tests__/manifest/` | 1 |
 | Archive | `src/__tests__/archive/` | 1 |
-| Fixtures | `src/__tests__/fixtures/` | 1 |
-| **Total** | | **39** |
+| **Total** | | **47** |
 
 ## Sub-Agent Decomposition
 
 | SA | Focus | Files |
 |----|-------|-------|
-| 3.1 | Adapter Tests | 17 test files in `src/__tests__/adapters/` |
-| 3.2 | CLI Tests | 8 test files in `src/__tests__/cli/` |
-| 3.3 | Content & Manifest Tests | `src/__tests__/content/{index,tags}.test.ts`, `src/__tests__/manifest/hatchJson.test.ts` |
-| 3.4 | Integration Tests | `src/__tests__/{hooks,models,detect,env,integrity,archive,merge}/` (10 files) |
-| 3.5 | Coverage Meta-Analysis | All 39 test files, coverage report, test infrastructure |
+| 3.1 | Adapter Tests | 19 test files in `src/__tests__/adapters/` (note: no `amazonq.test.ts` exists) |
+| 3.2 | CLI Tests | 10 test files in `src/__tests__/cli/` |
+| 3.3 | Content & Manifest Tests | `src/__tests__/content/{index,tags,assertSafePath}.test.ts`, `src/__tests__/manifest/hatchJson.test.ts` |
+| 3.4 | Integration Tests | `src/__tests__/{hooks,models,detect,env,integrity,archive,merge,workspace,worktree}/` (14 files) |
+| 3.5 | Coverage Meta-Analysis | All 47 test files, coverage report, test infrastructure |
 
 ## Audit Checklists
 
@@ -58,10 +59,12 @@
 - [ ] Integrity verification tests — tamper detection accuracy
 - [ ] Archive tests — backup creation, restoration, cleanup
 - [ ] Safe write/managed block tests — merge integrity, concurrent access
+- [ ] Workspace integration tests — manifest lifecycle, multi-repo sync, detection accuracy
+- [ ] Worktree integration tests — setup flow, pattern resolution, cross-worktree isolation
 
 ### 3.5 Coverage Meta-Analysis
 - [ ] Run `npm test` and analyze overall coverage percentage
-- [ ] Identify untested modules — source files with zero coverage
+- [ ] Identify untested modules — source files with zero coverage (note: `src/adapters/amazonq.ts` has no test file)
 - [ ] Identify untested branches — conditional paths not exercised
 - [ ] Test quality assessment — assertions per test, meaningful vs trivial tests
 - [ ] Test determinism — no flaky tests, no order dependencies

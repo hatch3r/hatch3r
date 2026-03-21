@@ -8,6 +8,9 @@ import {
   MCP_CHOICES,
   PLATFORM_DISPLAY_NAMES,
   PLATFORM_MCP_SERVER,
+  formatCommandHint,
+  TOOL_SECRET_NOTES,
+  TOOL_COMMAND_SYNTAX,
 } from "../../cli/shared/constants.js";
 
 describe("sanitizeInput", () => {
@@ -88,5 +91,45 @@ describe("data constants", () => {
 
   it("PLATFORM_MCP_SERVER matches snapshot", () => {
     expect(PLATFORM_MCP_SERVER).toMatchSnapshot();
+  });
+});
+
+describe("formatCommandHint", () => {
+  it("returns slash syntax when all tools use slash commands", () => {
+    expect(formatCommandHint(["cursor", "claude"], "project-spec")).toBe("/project-spec");
+  });
+
+  it("returns generic phrasing when any tool uses non-slash syntax", () => {
+    expect(formatCommandHint(["cursor", "windsurf"], "codebase-map")).toBe("the codebase-map command");
+  });
+
+  it("returns slash syntax for single slash-command tool", () => {
+    expect(formatCommandHint(["claude"], "review")).toBe("/review");
+  });
+
+  it("returns generic phrasing for single non-slash tool", () => {
+    expect(formatCommandHint(["aider"], "review")).toBe("the review command");
+  });
+});
+
+describe("TOOL_COMMAND_SYNTAX", () => {
+  it("has an entry for every tool in TOOL_DISPLAY_NAMES", () => {
+    for (const tool of Object.keys(TOOL_DISPLAY_NAMES)) {
+      expect(TOOL_COMMAND_SYNTAX).toHaveProperty(tool);
+    }
+  });
+});
+
+describe("TOOL_SECRET_NOTES", () => {
+  it("provides notes for common tools", () => {
+    expect(TOOL_SECRET_NOTES.cursor).toBeDefined();
+    expect(TOOL_SECRET_NOTES.claude).toBeDefined();
+    expect(TOOL_SECRET_NOTES.copilot).toBeDefined();
+  });
+
+  it("most notes mention .env.mcp or sourcing", () => {
+    for (const note of Object.values(TOOL_SECRET_NOTES)) {
+      if (note) expect(note).toMatch(/\.env\.mcp|sourcing|settings/);
+    }
   });
 });

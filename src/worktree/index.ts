@@ -83,6 +83,9 @@ export const ADAPTER_WORKTREE_PATTERNS: Record<
   "amazon-q": [
     { pattern: ".amazonq/", strategy: "copy", reason: "Amazon Q adapter output (rules, settings)" },
   ],
+  antigravity: [
+    { pattern: ".antigravity/", strategy: "copy", reason: "Antigravity adapter output (rules, skills, settings)" },
+  ],
 };
 
 // ─── Generate ────────────────────────────────────────────────────────────────

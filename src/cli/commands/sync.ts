@@ -6,8 +6,10 @@ import { readManifest } from "../../manifest/hatchJson.js";
 import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
 import { safeWriteFile } from "../../merge/safeWrite.js";
 import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
-import { AGENTS_DIR, HatchError, WORKTREE_INCLUDE_FILE } from "../../types.js";
+import { AGENTS_DIR, HatchError, WORKTREE_INCLUDE_FILE, type GenerationMode } from "../../types.js";
 import { ensureEnvMcp, ensureGitignoreEntry, getSourceEnvMcpCommand } from "../../env/mcpEnv.js";
+import { readWorkspaceManifest } from "../../workspace/manifest.js";
+import { syncWorkspaceRepos } from "../../workspace/sync.js";
 import { AGENTS_MD_INNER, AGENTS_MD_FULL, generateCanonicalAgentsMd } from "../shared/agentsContent.js";
 import { verifyIntegrity } from "../../integrity/index.js";
 import {
@@ -69,7 +71,14 @@ async function checkSpecFreshness(rootDir: string): Promise<void> {
   }
 }
 
-export async function syncCommand(): Promise<void> {
+export async function syncCommand(
+  opts: {
+    repos?: string[] | true;
+    dryRun?: boolean;
+    force?: boolean;
+    minimal?: boolean;
+  } = {},
+): Promise<void> {
   printBanner(true);
 
   const rootDir = process.cwd();
@@ -116,13 +125,18 @@ export async function syncCommand(): Promise<void> {
   results.push({ path: `${AGENTS_DIR}/AGENTS.md`, action: canonicalResult.action });
   s1.succeed(step(currentStep, totalSteps, "AGENTS.md synced"));
 
+  const generationMode: GenerationMode = opts.minimal ? "minimal" : "standard";
+  if (opts.minimal) {
+    info("Minimal generation mode: output will be stripped-down to reduce token usage.");
+  }
+
   const adapterFailures: { tool: string; error: string }[] = [];
   for (const tool of m.tools) {
     const s = createSpinner(step(++currentStep, totalSteps, `Generating ${tool} output...`));
     s.start();
     try {
       const adapter = getAdapter(tool);
-      const outputs = await adapter.generate(agentsDir, m);
+      const outputs = await adapter.generate(agentsDir, m, generationMode);
       for (const w of adapter.warnings) { warn(w); }
       for (const out of outputs) {
         const fullPath = join(rootDir, out.path);
@@ -207,4 +221,61 @@ export async function syncCommand(): Promise<void> {
   });
 
   printBox("Sync complete", summaryLines, "success");
+
+  // ── Workspace sync cascade ────────────────────────────────────
+  const wsManifest = await readWorkspaceManifest(rootDir);
+  if (!wsManifest) return;
+
+  const syncReposRequested = opts.repos !== undefined;
+  const syncOnSync = wsManifest.syncStrategy === "on-sync";
+  const syncableCount = wsManifest.repos.filter((r) => r.sync).length;
+
+  if (!syncReposRequested && !syncOnSync) {
+    if (syncableCount > 0) {
+      info(`Workspace: ${syncableCount} repo(s) available for sync. Run ${chalk.bold("hatch3r sync --repos")} to propagate.`);
+    }
+    return;
+  }
+
+  // Determine which repos to sync
+  const repoPaths = Array.isArray(opts.repos) ? opts.repos : undefined;
+
+  console.log();
+  const wsSpinner = createSpinner(
+    opts.dryRun
+      ? "Workspace sync (dry run)..."
+      : `Syncing workspace to ${repoPaths ? repoPaths.length : syncableCount} repo(s)...`,
+  );
+  wsSpinner.start();
+
+  const wsResult = await syncWorkspaceRepos(rootDir, {
+    repos: repoPaths,
+    dryRun: opts.dryRun,
+    force: opts.force,
+    onWarn: (msg) => warn(msg),
+  });
+
+  if (opts.dryRun) {
+    wsSpinner.succeed("Workspace sync (dry run)");
+    for (const r of wsResult.repos) {
+      const changes = [];
+      if (r.added.length > 0) changes.push(`+${r.added.length} content`);
+      if (r.removed.length > 0) changes.push(`-${r.removed.length} content`);
+      if (r.toolsSynced.length > 0) changes.push(`${r.toolsSynced.length} tools`);
+      info(`  ${r.path}: ${changes.length > 0 ? changes.join(", ") : "up to date"}`);
+    }
+    return;
+  }
+
+  const succeeded = wsResult.repos.filter((r) => r.action === "synced").length;
+  const failed = wsResult.repos.filter((r) => r.action === "error").length;
+
+  if (failed > 0) {
+    wsSpinner.warn(`Workspace sync: ${succeeded} synced, ${failed} failed`);
+    for (const r of wsResult.repos.filter((r) => r.action === "error")) {
+      logError(`  ${r.path}: ${r.error}`);
+    }
+  } else {
+    wsSpinner.succeed(`Workspace sync: ${succeeded} repo(s) synced`);
+  }
 }

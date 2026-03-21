@@ -12,8 +12,8 @@
 | 2.3 | Customization Pipeline | `src/adapters/customization.ts` |
 | 2.4 | MCP & TOML Utilities | `src/adapters/mcp-utils.ts`, `src/adapters/toml-utils.ts` |
 | 2.5 | Adapter Index & Registry | `src/adapters/index.ts` |
-| 2.6 | Content System | `src/content/index.ts` (587 LOC), `src/content/tags.ts` (91 LOC), `src/content/presets.ts` (48 LOC) |
-| 2.7 | Integrity & Archive Systems | `src/integrity/index.ts`, `src/archive/index.ts` (217 LOC) |
+| 2.6 | Content System | `src/content/index.ts` (686 LOC), `src/content/tags.ts` (91 LOC), `src/content/presets.ts` (48 LOC) |
+| 2.7 | Integrity & Archive Systems | `src/integrity/index.ts`, `src/archive/index.ts` (263 LOC) |
 
 ## Audit Checklists
 
@@ -42,7 +42,7 @@
 - [ ] Utility robustness — edge cases, malformed input, missing fields
 
 ### 2.5 Adapter Index & Registry
-- [ ] Registry completeness — all 13 adapters registered and discoverable
+- [ ] Registry completeness — all 14 adapters registered and discoverable
 - [ ] Adapter discovery — dynamic lookup works correctly
 - [ ] Enable/disable logic — toggling adapters in config takes effect
 - [ ] Capability querying — callers can query adapter capabilities accurately

@@ -2,6 +2,67 @@
 
 All notable changes to hatch3r are documented in this file.
 
+## [1.3.0] - 2026-03-18
+
+### Added
+
+- **Multi-repo workspace support**: Detect sub-repos in non-git parent directories, `workspace.json` manifest for repo registry and sync strategy, workspace-aware `hatch3r init --workspace` with auto-detection, `hatch3r config` workspace management (add/remove repos, per-repo overrides, sync strategy)
+- **Sync cascade**: `hatch3r sync` propagates content from workspace root to sub-repos with `--repos`, `--dry-run`, `--force`, and `--minimal` flags; copy-based distribution so sub-repos work in isolation
+- **Per-repo overrides**: Workspace repos can override tools, features, and content selection (include/exclude lists) relative to workspace defaults
+- **`hatch3r status` command**: Check sync status between canonical `.agents/` and generated files, show drifted/missing files, estimated token count, workspace topology with repo sync timestamps
+- **`hatch3r validate` command**: Validate `.agents/` structure including cross-references, orchestration dependencies, customizations, hooks, and deny-pattern scanning
+- **`hatch3r config` workspace management**: Add/remove sub-repos, toggle sync, change per-repo overrides, switch sync strategy
+- **AntiGravity adapter**: 15th platform adapter (`.antigravity/rules.md`, `.antigravity/skills/`, `.antigravity/settings.json`)
+- **Enhanced Goose adapter**: Extended configuration generation with MCP server support and structured output
+- **20 new agent analysis modes**: architecture, boundary-analysis, codebase-impact, complexity-risk, coverage-analysis, current-state, feature-design, impact-analysis, library-docs, migration-path, prior-art, refactoring-strategy, regression, requirements-elicitation, risk-assessment, risk-prioritization, root-cause, similar-implementation, symptom-trace, test-pattern
+- **Shared external knowledge**: `agents/shared/external-knowledge.md` for cross-agent reference material
+- **Board shared content supplement**: Additional board command shared content files
+- **`.npmrc` with `ignore-scripts=true`**: Prevent lifecycle script execution during install
+
+### Fixed
+
+- **Compound content copy**: Non-prefixed support subdirectories (e.g. `commands/board/`) now correctly copied during `init` and `update` via `copyCompoundContentFiles()`
+- **Adapter workspace awareness**: Claude, Cline, Copilot, Cursor, and Windsurf adapters updated to include workspace membership metadata in generated configs
+
+### Changed
+
+- **Init workspace detection**: `hatch3r init` auto-detects multi-repo workspace layout when run in a non-git directory with git subdirectories
+- **Sync command signature**: `syncCommand()` now accepts options object (`repos`, `dryRun`, `force`, `minimal`) instead of zero-arg
+- **Config command extended**: Workspace repo management integrated into existing `hatch3r config` flow
+- **Content index**: `copyCompoundContentFiles()` added for compound content types with nested subdirectories
+- **Agent orchestration rule**: Extended with workspace-aware directives
+- **Learnings loader agent**: Enhanced with structured knowledge sections and provenance tracking
+
+### Security
+
+- **Audit completion**: 137/137 findings resolved across 4 audit waves (high, medium, low, finalization)
+- **Safe path assertions**: Extended `assertSafePath` coverage for compound content paths
+- **Content validation**: Strengthened cross-reference and orchestration dependency validation in `validate` command
+
+### Tests
+
+- 10 new/modified test files with ~3,300 lines of new test code:
+  - `workspace/sync.test.ts` (451 lines) — workspace sync cascade
+  - `content/compound.test.ts` (518 lines) — compound content copy
+  - `worktree/resolve.test.ts` (373 lines) — worktree resolution
+  - `adapters/snapshots.test.ts` (204 lines) — adapter snapshot tests
+  - `workspace/manifest.test.ts` (179 lines) — workspace manifest I/O
+  - `workspace/git.test.ts` (157 lines) — git remote parsing
+  - `workspace/resolve.test.ts` (157 lines) — repo config resolution
+  - `adapters/antigravity.test.ts` (149 lines) — AntiGravity adapter
+  - `adapters/amazonq.test.ts` (127 lines) — Amazon Q adapter
+  - `workspace/exports.test.ts` (117 lines) — workspace module exports
+- Adapter snapshot suite: 574 lines of snapshot coverage
+- Total test count: 851 → 1060
+
+### Documentation
+
+- **Workspace guide**: `website/docs/guides/workspace.md` — full setup, manifest reference, sync strategies, per-repo overrides
+- **README**: Multi-repo workspace section with directory layout diagram and CLI examples
+- **Quick start**: Updated with workspace init instructions
+- **CLI commands reference**: Added `status`, `validate` commands; expanded `sync` and `init` flags
+- **Configuration reference**: Workspace configuration documentation (+90 lines)
+
 ## [1.2.0] - 2026-03-10
 
 ### Added

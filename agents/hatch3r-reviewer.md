@@ -58,10 +58,7 @@ Include specific file paths and line references. Propose fixes where possible.
 
 ## External Knowledge
 
-Follow the tooling hierarchy (specs > codebase > Context7 MCP > web research). Use the project's configured platform CLI (check `platform` in `.agents/hatch.json`):
-- **GitHub:** `gh` CLI
-- **Azure DevOps:** `az devops` / `az boards` / `az repos` CLI
-- **GitLab:** `glab` CLI
+Follow the tooling hierarchy and platform CLI guidance defined in `agents/shared/external-knowledge.md`.
 
 ## Context7 MCP Usage
 
