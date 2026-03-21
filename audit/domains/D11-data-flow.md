@@ -17,6 +17,7 @@
 - [ ] Verify no content is lost or corrupted in transformation
 - [ ] Multi-issue parallelism correctness — dependency graph construction and parallel dispatch
 - [ ] Adapter-specific content transformation — each adapter's unique formatting applied correctly
+- [ ] Split-brain prevention — after partial sync/update failure, is the integrity manifest accurate for which adapters actually succeeded vs. failed? Does the system leave a consistent state?
 
 ### 11.2 Managed Blocks & Safe Write
 - [ ] Managed blocks (`HATCH3R:BEGIN`/`HATCH3R:END`) merge integrity

@@ -76,15 +76,16 @@ Before any modifications, capture the immutable baseline. This is the comparison
 
 1. **Run validation commands:**
    ```
-   npm test           -> Record: total, passed, failed, skipped
-   npx tsc --noEmit   -> Record: error count
-   npm run lint        -> Record: warning count, error count
-   npm run build       -> Record: success or failure
+   npm test              -> Record: total, passed, failed, skipped
+   npx tsc --noEmit      -> Record: error count
+   npm run lint           -> Record: warning count, error count
+   npm run build          -> Record: success or failure
+   npx hatch3r validate  -> Record: error count
    ```
 
 2. **Record rollback target:** `git rev-parse HEAD` → store as `BASELINE_COMMIT`
 
-3. **Record domain health scores:** Extract from Tier 2 — Domain Summaries (D1–D18).
+3. **Record domain health scores:** Extract from Tier 2 — Domain Summaries (D1–D19).
 
 4. **Store structured baseline:**
    ```json
@@ -95,7 +96,8 @@ Before any modifications, capture the immutable baseline. This is the comparison
      "typecheck": { "errors": 0 },
      "lint": { "errors": 0, "warnings": 0 },
      "build": "pass",
-     "domainScores": { "D1": 0, "D2": 0, "...": "...", "D18": 0 }
+     "content": { "errors": 0 },
+     "domainScores": { "D1": 0, "D2": 0, "...": "...", "D19": 0 }
    }
    ```
 
@@ -124,7 +126,16 @@ Parse every action item from the Enhanced Action Items table.
 
 Build three lists: Agent-implementable, Mixed, Human-only. Cross-reference Tier 3 for detailed descriptions, files, acceptance criteria, and `Depends On` references.
 
+### New Code Classification
+
+When the audit report references code not present in the previous audit baseline (e.g., new workspace module in v1.3.0), classify findings as:
+- **New Coverage:** Gap in newly written code. Normal priority.
+- **Legacy Fix:** Bug in existing code. Normal priority.
+- **Integration Gap:** Missing integration between new and existing code. Elevated priority — represents incomplete feature work.
+
 ### 4-Tier Deduplication
+
+**Relationship to AUDIT.md dedup:** The audit already deduplicates (2-of-3 signal match). This phase performs second-pass dedup for near-duplicates that only become visible when grouping for execution. Focus on Tier 3-4 signals (semantic similarity, cross-domain near-duplicates). Do not re-apply the audit's dedup rules.
 
 | Tier | Signal | Confidence | Default Action |
 |------|--------|-----------|----------------|
@@ -276,6 +287,8 @@ Execute findings in severity-based waves. Each wave is atomic: passes its gate a
 | 3 | Medium | 30–50 | 8–15 | 6–8 | Benefit > optimization > consistency | `audit-wave-3-medium` |
 | 4 | Low | 15–25 | 5–10 | 4–6 | Polish > docs > cosmetic | `audit-wave-4-low` |
 
+**Empty Wave Protocol:** If a wave has 0 targeted findings after triage (e.g., 0 Critical findings), skip the wave entirely. Log: "Wave N ([Severity]): 0 targeted findings — skipped." Proceed to next wave. Do not run a regression gate for empty waves.
+
 ### Sub-Wave Batching
 
 When work units exceed concurrency limit: sort by priority, divide into batches ≤ concurrency limit, execute batches sequentially (within-batch concurrent), regression gate runs once after ALL batches. Record `sub_wave_batch` in registry.
@@ -302,7 +315,7 @@ Prioritize within wave: dependency-first, then impact-to-effort ratio, then secu
 
 ## Regression Gates
 
-After each wave commit, run 5-check gate comparing against Phase 0 baseline (NOT a shifted baseline).
+After each wave commit, run 6-check gate comparing against Phase 0 baseline (NOT a shifted baseline).
 
 ### Gate Checks
 
@@ -312,6 +325,7 @@ After each wave commit, run 5-check gate comparing against Phase 0 baseline (NOT
 | Typecheck | `npx tsc --noEmit` | errors ≤ baseline errors | Any NEW type error |
 | Lint | `npm run lint` | errors ≤ baseline errors | Any NEW lint error |
 | Build | `npm run build` | Build succeeds | Build fails AND baseline succeeded |
+| Content | `npx hatch3r validate` | No validation errors | Content structure/reference errors introduced |
 | Diff | `git diff --stat BASELINE..HEAD` | No unintended mods, no binaries, no credentials | Anomalies detected |
 
 ### Gate Result Format
@@ -325,6 +339,7 @@ After each wave commit, run 5-check gate comparing against Phase 0 baseline (NOT
 | Typecheck | PASS/FAIL | X errors (baseline: Y, delta: +Z) |
 | Lint | PASS/FAIL | X errors (baseline: Y, delta: +Z) |
 | Build | PASS/FAIL | — |
+| Content | PASS/FAIL | X validation errors (baseline: Y, delta: +Z) |
 | Diff | PASS/FAIL | [issues, if any] |
 
 Gate Verdict: PASS / FAIL
@@ -354,10 +369,14 @@ When execution halts early, before Final Review:
 After each wave gate passes:
 
 ```
-new_score = baseline_score + (resolved / total) * (100 - baseline_score) * 0.8
+weighted_resolved = SUM(severity_weight[f] for f in resolved_findings_in_domain)
+weighted_total = SUM(severity_weight[f] for f in all_findings_in_domain)
+new_score = baseline_score + (weighted_resolved / weighted_total) * (100 - baseline_score) * 0.8
+
+Where severity_weight: Critical=25, High=10, Medium=3, Low=1 (matching AUDIT.md quality score formula)
 ```
 
-Where `resolved` = findings resolved across all completed waves, `total` = total findings in domain, `0.8` = diminishing returns factor.
+Where `resolved_findings_in_domain` = findings resolved across all completed waves for this domain, `all_findings_in_domain` = total findings in domain, `0.8` = diminishing returns factor. This ensures resolving a Critical finding improves the score more than resolving a Low finding.
 
 Flag any domain whose score decreased — indicates cross-domain side effects.
 
@@ -369,7 +388,7 @@ Flag any domain whose score decreased — indicates cross-domain side effects.
 |-------|-------|---------|------|-------------|
 | 1 | Work unit files | `git checkout <PRE_WAVE> -- <files>` | One unit fails | Re-run gate, recommit rest |
 | 2 | Full wave | `git reset --soft <PRE_WAVE>` | Multiple fail / L1 failed | Inspect, unstage, discard |
-| 3 | All changes | `git reset --hard <BASELINE>` | Cascading, no salvage. **USER CONFIRM** | — |
+| 3 | All changes | `git reset --hard <BASELINE>` | Cascading, no salvage. **USER CONFIRM required within 5 minutes.** If no response: keep successful waves, halt remaining. Log timeout and default action. | — |
 
 ### Decision Matrix
 
@@ -420,9 +439,7 @@ Self-check: count status markers in updated report and verify they match registr
 
 2. **Update Tier 3 — Domain Detail:** Add `Status` column. Mark: `**Done**`, `PARTIAL`, `ROLLED-BACK`. Unresolved remains unmarked. Must be consistent with Enhanced Action Items.
 
-3. **Update Enhanced Action Items:** Mark: `DONE`, `PARTIAL`, `OPEN` (with failure reason), `ROLLED-BACK` (with wave and reason).
-
-4. **Update Enhanced Release Plan:** Move resolved items to "Resolved" subsection. Recalculate remaining effort and confidence score.
+3. **Update Enhanced Action Items:** Mark: `DONE`, `PARTIAL`, `OPEN` (with failure reason), `ROLLED-BACK` (with wave and reason). Recalculate remaining effort in Blockers/Should-Have/Deferred sections.
 
 5. **Update Delta Since Previous Audit:** Resolution statistics, wave-level breakdown, updated open count.
 

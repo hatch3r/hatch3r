@@ -2,6 +2,7 @@ import { dirname } from "node:path";
 import type {
   AdapterOutput,
   Features,
+  GenerationMode,
   HatchManifest,
 } from "../types.js";
 import { resolveAgentModel } from "../models/resolve.js";
@@ -15,7 +16,7 @@ import { readHookDefinitions } from "../hooks/index.js";
 export interface Adapter {
   name: string;
   warnings: string[];
-  generate(agentsDir: string, manifest: HatchManifest): Promise<AdapterOutput[]>;
+  generate(agentsDir: string, manifest: HatchManifest, generationMode?: GenerationMode): Promise<AdapterOutput[]>;
   getOutputPaths(agentsDir: string, manifest: HatchManifest): Promise<string[]>;
 }
 
@@ -32,6 +33,8 @@ export interface AdapterContext {
   manifest: HatchManifest;
   features: Features;
   projectRoot: string;
+  /** Generation verbosity mode. "minimal" strips comments, descriptions, and reduces formatting. */
+  generationMode: GenerationMode;
 }
 
 export interface ModelFormat {
@@ -62,13 +65,14 @@ export abstract class BaseAdapter implements Adapter {
    * Adapters that violate these invariants will produce broken output files or
    * corrupt user content during the merge phase.
    */
-  async generate(agentsDir: string, manifest: HatchManifest): Promise<AdapterOutput[]> {
+  async generate(agentsDir: string, manifest: HatchManifest, generationMode: GenerationMode = "standard"): Promise<AdapterOutput[]> {
     this.warnings = [];
     return this.doGenerate({
       agentsDir,
       manifest,
       features: manifest.features,
       projectRoot: dirname(agentsDir),
+      generationMode,
     });
   }
 
@@ -84,8 +88,19 @@ export abstract class BaseAdapter implements Adapter {
 
   protected abstract doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]>;
 
-  protected async bridgeHeader(agentsDir: string, agentsPath = "/.agents/AGENTS.md"): Promise<string[]> {
-    const orchestration = await generateBridgeOrchestration(agentsDir);
+  protected async bridgeHeader(ctx: AdapterContext, agentsPath = "/.agents/AGENTS.md"): Promise<string[]> {
+    const orchestration = await generateBridgeOrchestration(ctx.agentsDir);
+    if (this.isMinimal(ctx)) {
+      return [
+        "",
+        "# Hatch3r Agent Instructions",
+        "",
+        `Instructions: \`${agentsPath}\``,
+        "",
+        this.stripMinimal(orchestration),
+        "",
+      ];
+    }
     return [
       "",
       "# Hatch3r Agent Instructions",
@@ -101,12 +116,17 @@ export abstract class BaseAdapter implements Adapter {
     if (!ctx.features.rules) return [];
     const lines: string[] = [];
     const rules = await readCanonicalFiles(ctx.agentsDir, "rules");
+    const minimal = this.isMinimal(ctx);
     for (const rule of rules) {
       const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);
       this.warnings.push(...warnings);
       if (skip) continue;
       const desc = overrides.description ?? rule.description;
-      lines.push(`## ${rule.id}`, "", desc, "", content, "");
+      if (minimal) {
+        lines.push(`## ${rule.id}`, "", this.stripMinimal(content), "");
+      } else {
+        lines.push(`## ${rule.id}`, "", desc, "", content, "");
+      }
     }
     return lines;
   }
@@ -118,6 +138,7 @@ export abstract class BaseAdapter implements Adapter {
     if (!ctx.features.agents) return [];
     const lines: string[] = [];
     const agents = await readCanonicalFiles(ctx.agentsDir, "agents");
+    const minimal = this.isMinimal(ctx);
     for (const agent of agents) {
       const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
       this.warnings.push(...warnings);
@@ -127,7 +148,11 @@ export abstract class BaseAdapter implements Adapter {
       const fmt = model ? (formatModel ?? defaultModelFormat)(model) : undefined;
       lines.push(`## Agent: ${agent.id}`);
       if (fmt && !fmt.after) lines.push(fmt.text);
-      lines.push("", desc, "", content);
+      if (minimal) {
+        lines.push("", this.stripMinimal(content));
+      } else {
+        lines.push("", desc, "", content);
+      }
       if (fmt?.after) lines.push("", fmt.text);
       lines.push("");
     }
@@ -223,5 +248,28 @@ export abstract class BaseAdapter implements Adapter {
   protected async readHooks(ctx: AdapterContext) {
     if (!ctx.features.hooks) return [];
     return readHookDefinitions(ctx.agentsDir);
+  }
+
+  /** Returns true when the adapter is running in minimal generation mode. */
+  protected isMinimal(ctx: AdapterContext): boolean {
+    return ctx.generationMode === "minimal";
+  }
+
+  /**
+   * Strip verbose content for minimal generation mode.
+   * Removes markdown comments, collapses excessive blank lines,
+   * strips decorative formatting, and trims descriptions.
+   */
+  protected stripMinimal(content: string): string {
+    let result = content;
+    // Remove HTML comments
+    result = result.replace(/<!--[\s\S]*?-->/g, "");
+    // Remove lines that are only horizontal rules
+    result = result.replace(/^[-*_]{3,}\s*$/gm, "");
+    // Collapse 3+ consecutive blank lines to a single blank line
+    result = result.replace(/\n{3,}/g, "\n\n");
+    // Trim leading/trailing whitespace
+    result = result.trim();
+    return result;
   }
 }

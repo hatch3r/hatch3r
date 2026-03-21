@@ -16,7 +16,7 @@ export class KiroAdapter extends BaseAdapter {
 
   protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
     const results: AdapterOutput[] = [];
-    const lines = [...await this.bridgeHeader(ctx.agentsDir)];
+    const lines = [...await this.bridgeHeader(ctx)];
 
     if (ctx.features.rules) {
       const rules = await readCanonicalFiles(ctx.agentsDir, "rules");

@@ -70,14 +70,16 @@ describe("GooseAdapter", () => {
     expect(hints.content).not.toContain("Skill:");
   });
 
-  it("produces exactly one output file", async () => {
+  it("produces .goosehints and profile output files", async () => {
     const manifest = createManifest({
       tools: ["goose"],
     });
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
-    expect(outputs.length).toBe(1);
-    expect(outputs[0]!.path).toBe(".goosehints");
+    const paths = outputs.map((o) => o.path);
+    expect(paths).toContain(".goosehints");
+    expect(paths).toContain(".goose/profiles/hatch3r.yaml");
+    expect(outputs.length).toBe(2);
   });
 
   it("all outputs have action 'create'", async () => {
@@ -89,5 +91,74 @@ describe("GooseAdapter", () => {
     for (const o of outputs) {
       expect(o.action).toBe("create");
     }
+  });
+
+  it("generates profile with recipe and ACP configuration", async () => {
+    const manifest = createManifest({
+      tools: ["goose"],
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const profile = outputs.find((o) => o.path === ".goose/profiles/hatch3r.yaml");
+    expect(profile).toBeDefined();
+    expect(profile!.content).toContain("name: hatch3r");
+    expect(profile!.content).toContain("hatch3r-pipeline");
+    expect(profile!.content).toContain("Research");
+    expect(profile!.content).toContain("Implement");
+    expect(profile!.content).toContain("Review");
+    expect(profile!.content).toContain("Quality");
+  });
+
+  it("profile includes ACP configuration", async () => {
+    const manifest = createManifest({
+      tools: ["goose"],
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const profile = outputs.find((o) => o.path === ".goose/profiles/hatch3r.yaml");
+    expect(profile).toBeDefined();
+    expect(profile!.content).toContain("acp:");
+    expect(profile!.content).toContain("enabled: true");
+    expect(profile!.content).toContain("version: \"0.2\"");
+    expect(profile!.content).toContain("code-generation");
+    expect(profile!.content).toContain("code-review");
+  });
+
+  it("profile recipe references agents from fixtures", async () => {
+    const manifest = createManifest({
+      tools: ["goose"],
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const profile = outputs.find((o) => o.path === ".goose/profiles/hatch3r.yaml");
+    expect(profile).toBeDefined();
+    // The fixture has test-agent which does not match pipeline patterns,
+    // so recipe steps should use fallback instructions.
+    expect(profile!.content).toContain("Gather context from the codebase");
+    expect(profile!.content).toContain("Implement the requested changes");
+  });
+
+  it("profile omits extensions when no MCP servers configured", async () => {
+    const manifest = createManifest({
+      tools: ["goose"],
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const profile = outputs.find((o) => o.path === ".goose/profiles/hatch3r.yaml");
+    expect(profile).toBeDefined();
+    // Default manifest has no MCP servers selected, so extensions should not appear.
+    expect(profile!.content).not.toContain("extensions:");
+  });
+
+  it("ACP capabilities include tool-use when MCP is enabled", async () => {
+    const manifest = createManifest({
+      tools: ["goose"],
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const profile = outputs.find((o) => o.path === ".goose/profiles/hatch3r.yaml");
+    expect(profile).toBeDefined();
+    // MCP feature is enabled by default, so tool-use capability should be present.
+    expect(profile!.content).toContain("tool-use");
   });
 });

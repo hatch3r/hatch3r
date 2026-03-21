@@ -77,6 +77,20 @@ Configure in `hatch.json`:
 }
 ```
 
+### Default Budgets
+
+When `hatch.json` has no `costTracking` section, the following defaults are applied automatically. These defaults provide baseline guardrails without requiring explicit configuration.
+
+| Budget Type | Default Value | Rationale |
+|------------|--------------|-----------|
+| `sessionBudget` | $10.00 | Covers a typical multi-issue development session (~3-4 issues at ~$3 each, with headroom) |
+| `issueBudget` | $5.00 | Accommodates the full 4-phase pipeline (Research + Implement + Review + Quality) for a standard task |
+| `epicBudget` | $25.00 | Covers ~5 sub-issues with shared overhead for batch coherence assessment |
+| `warningThresholds` | [0.5, 0.75, 0.9] | Progressive alerts at 50%, 75%, and 90% of budget |
+| `hardStop` | false | Defaults to soft warnings (log + alert) rather than blocking. Teams can opt into hard stops explicitly. |
+
+These defaults activate reporting mode: budget warnings are surfaced to the user at each threshold, but work is not halted unless `hardStop` is explicitly set to `true`. To override any default, add the corresponding key to `costTracking` in `hatch.json`.
+
 ### Enforcement
 
 | Threshold | Action |

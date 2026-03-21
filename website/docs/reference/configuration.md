@@ -59,6 +59,7 @@ To change your configuration after init, run `npx hatch3r config`. This interact
 | `models` | `object` | AI model preferences |
 | `claude` | `object` | Claude Code permissions and teammate mode |
 | `content` | `object` | Content selection from init (preset, project type, team size, selected item IDs) |
+| `workspace` | `object` | Workspace settings for workspace-managed repos (optional) |
 | `worktree` | `object` | Git worktree file-isolation settings (see below) |
 | `specs` | `object` | Project spec tracking (`paths`, `lastGenerated`) |
 | `managedFiles` | `string[]` | List of files managed by hatch3r |
@@ -151,6 +152,95 @@ The `content` field tracks which content items are installed. It is populated du
 | `items` | Explicit list of installed content IDs per type |
 
 When `content` is `undefined` (legacy projects), `hatch3r update` and `hatch3r sync` treat it as "full" and operate on all files. The first `hatch3r update` on a legacy project auto-migrates by scanning disk and populating the `content` field.
+
+### Workspace configuration
+
+When `hatch3r init --workspace` is run in a directory containing multiple git repos, hatch3r creates a `workspace.json` manifest in `.agents/`. This file tracks workspace-level configuration and per-repo overrides.
+
+```json
+{
+  "version": "1.0.0",
+  "hatch3rVersion": "1.3.0",
+  "name": "my-project",
+  "syncStrategy": "on-sync",
+  "defaults": {
+    "platform": "github",
+    "tools": ["cursor", "claude"],
+    "features": { "agents": true, "skills": true, "rules": true, "...": true },
+    "mcp": { "servers": ["github", "playwright"] },
+    "content": { "preset": "standard", "projectType": "brownfield", "teamSize": "team", "items": { "...": [] } }
+  },
+  "repos": [
+    {
+      "path": "frontend",
+      "name": "frontend",
+      "sync": true,
+      "overrides": {
+        "contentOverrides": {
+          "include": ["hatch3r-a11y-audit"],
+          "exclude": ["hatch3r-board-fill"]
+        }
+      }
+    },
+    {
+      "path": "backend",
+      "name": "backend",
+      "sync": true,
+      "overrides": {
+        "tools": ["claude"]
+      }
+    },
+    {
+      "path": "infra",
+      "name": "infra",
+      "sync": false
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `version` | `string` | Workspace manifest schema version (1.0.0) |
+| `hatch3rVersion` | `string` | hatch3r version that created/last updated this workspace |
+| `name` | `string` | Workspace display name (defaults to directory name) |
+| `syncStrategy` | `string` | `"manual"` (explicit `--repos` flag only) or `"on-sync"` (cascade on every sync) |
+| `defaults` | `object` | Workspace-level defaults inherited by all sub-repos (tools, features, MCP, content) |
+| `defaults.platform` | `string` | Default platform: `github`, `azure-devops`, or `gitlab` |
+| `defaults.tools` | `string[]` | Default tools for all repos |
+| `defaults.features` | `object` | Default feature flags |
+| `defaults.mcp` | `object` | Default MCP server config |
+| `defaults.content` | `object` | Default content selection (same format as hatch.json `content`) |
+| `repos` | `array` | Registered sub-repo entries |
+| `repos[].path` | `string` | Relative path from workspace root to the sub-repo |
+| `repos[].name` | `string` | Display name (defaults to directory name) |
+| `repos[].sync` | `boolean` | Whether to include this repo in sync cascades |
+| `repos[].lastSync` | `string` | ISO timestamp of last successful sync |
+| `repos[].overrides` | `object` | Per-repo overrides (all optional) |
+| `repos[].overrides.tools` | `string[]` | Replaces workspace tools entirely |
+| `repos[].overrides.features` | `object` | Partial merge on top of workspace features |
+| `repos[].overrides.mcp` | `object` | Replaces workspace MCP config entirely |
+| `repos[].overrides.contentOverrides.include` | `string[]` | Content IDs to add beyond workspace selection |
+| `repos[].overrides.contentOverrides.exclude` | `string[]` | Content IDs to remove from workspace selection |
+
+Content inheritance follows three layers: workspace defaults, then per-repo `include` additions, then per-repo `exclude` removals. Protected items (core agents) cannot be excluded.
+
+When a sub-repo is synced, its `hatch.json` receives a `workspace` field with provenance metadata:
+
+```json
+{
+  "workspace": {
+    "rootPath": "..",
+    "lastSync": "2026-03-16T10:00:00.000Z",
+    "syncVersion": "1.3.0",
+    "workspaceChecksum": "a1b2c3...",
+    "excludedContent": ["hatch3r-board-fill"],
+    "localContent": []
+  }
+}
+```
+
+Manage repos and sync settings interactively with `hatch3r config` or edit `workspace.json` directly.
 
 ### Worktree isolation
 

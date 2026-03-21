@@ -124,7 +124,16 @@ Background subagents write output to \`~/.cursor/subagents/\` for later inspecti
 
 Cursor v2.6 added MCP Apps (interactive UIs in agent chats) and Team Marketplaces for plugins.
 If this project includes MCP servers that expose UI components, they will render inline as MCP Apps.
-Plugin configurations in \`.cursor/mcp.json\` are compatible with Team Marketplace distribution.`;
+Plugin configurations in \`.cursor/mcp.json\` are compatible with Team Marketplace distribution.
+
+## Getting Started with Cursor
+
+New to this project's agent setup? Progress through these stages:
+
+**Start here:** Rules in \`.cursor/rules/\` are loaded automatically. The orchestration bridge above guides your workflow.
+**Next:** Use \`/hatch3r-feature\` or \`/hatch3r-bug-fix\` commands in Cursor chat for guided workflows.
+**Then:** Delegate to agents in \`.cursor/agents/\` — Cursor supports up to 4 subagents in parallel.
+**Later:** Customize agent behavior via \`.hatch3r/{type}/{id}.customize.yaml\` without editing managed files.`;
     results.push(mdcOutput(".cursor/rules/hatch3r-bridge.mdc", bridgeFm, bridgeBody));
 
     if (ctx.manifest.tools.includes("cursor")) {

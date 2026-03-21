@@ -34,11 +34,16 @@ program
   .option("--preset <preset>", "Content preset: minimal, standard, full")
   .option("--project-type <type>", "Project type: greenfield, brownfield")
   .option("--team-size <size>", "Team size: solo, team")
+  .option("--workspace", "Initialize as a multi-repo workspace")
   .action(initCommand);
 
 program
   .command("sync")
   .description("Re-generate tool outputs from canonical .agents/ state")
+  .option("--repos [paths...]", "Sync workspace content to sub-repos (all opted-in if no paths given)")
+  .option("--dry-run", "Show what would change without modifying files")
+  .option("--force", "Overwrite locally modified files in sub-repos")
+  .option("--minimal", "Generate stripped-down output (no comments, minimal formatting) to reduce token usage")
   .action(syncCommand);
 
 program
@@ -78,6 +83,36 @@ program
   .option("--dry-run", "Show what would be done without changes")
   .option("--force", "Overwrite existing files in the worktree")
   .action(worktreeSetupCommand);
+
+// Agent command names that users might try to run directly in the terminal.
+// These are slash commands meant to be invoked inside an AI-powered editor, not from the CLI.
+const AGENT_COMMAND_NAMES = new Set([
+  "review", "workflow", "project-spec", "codebase-map", "debug", "release",
+  "refactor-plan", "test-plan", "bug-plan", "roadmap", "onboard", "recipe",
+  "board-init", "board-pickup", "board-groom", "board-refresh",
+  "security-audit", "dep-audit", "benchmark", "healthcheck", "context-health",
+  "learn", "revision", "cost-tracking", "api-spec", "hooks", "quick-change",
+  "command-customize",
+]);
+
+// Catch-all for unknown commands -- redirect agent commands to the editor
+program.on("command:*", (operands: string[]) => {
+  const cmd = operands[0];
+  if (cmd && AGENT_COMMAND_NAMES.has(cmd)) {
+    console.error(
+      `\n  "${cmd}" is a hatch3r agent command meant to be run inside your AI editor (e.g. /${cmd}).` +
+      `\n  It cannot be invoked from the terminal CLI.` +
+      `\n\n  To use agent commands, open your project in Cursor, Claude Code, or another supported tool` +
+      `\n  and type /${cmd} in the AI chat.\n`,
+    );
+  } else {
+    console.error(
+      `\n  Unknown command: ${cmd}` +
+      `\n  Run "hatch3r --help" for available commands.\n`,
+    );
+  }
+  process.exit(1);
+});
 
 const nodeVersion = parseInt(process.version.slice(1), 10);
 if (nodeVersion < 22) {

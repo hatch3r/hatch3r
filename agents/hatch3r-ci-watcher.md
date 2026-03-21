@@ -61,10 +61,7 @@ Use the platform CLI to interact with CI runs (check `platform` in `.agents/hatc
 
 ## External Knowledge
 
-Follow the tooling hierarchy (specs > codebase > Context7 MCP > web research). Use the project's configured platform CLI (check `platform` in `.agents/hatch.json`):
-- **GitHub:** `gh` CLI
-- **Azure DevOps:** `az devops` / `az pipelines` CLI
-- **GitLab:** `glab` CLI
+Follow the tooling hierarchy and platform CLI guidance defined in `agents/shared/external-knowledge.md`.
 
 ## Context7 MCP Usage
 

@@ -1026,12 +1026,7 @@ Apply this format whenever research findings involve trade-off analysis, risk as
 
 This agent file is large (~1,000+ lines) because it serves as a composable mode library. The current design is intentional: all modes share a single research protocol, tooling hierarchy, and structured output contract. Splitting individual modes into separate agents would break the composability that allows a single researcher invocation to execute multiple modes.
 
-**When to split:** If this file exceeds ~1,500 lines (e.g., due to new mode additions), consider extracting mode groups into companion agents:
-- `hatch3r-codebase-mapper` -- modes `codebase-impact`, `current-state`, `boundary-analysis` (codebase structure analysis)
-- `hatch3r-test-planner` -- modes `coverage-analysis`, `complexity-risk`, `test-pattern`, `risk-prioritization` (test planning research)
-- `hatch3r-researcher` retains the core protocol, general modes (`feature-design`, `architecture`, `risk-assessment`, `library-docs`, `prior-art`, `requirements-elicitation`, `similar-implementation`), and delegates to companion agents when codebase-mapping or test-planning modes are requested.
-
-Each companion agent would share the same research protocol preamble and tooling hierarchy sections.
+**When to split:** If this file exceeds ~1,500 lines (e.g., due to new mode additions), consider extracting mode groups into companion agents (e.g., a codebase-mapping agent for `codebase-impact`, `current-state`, `boundary-analysis` modes, and a test-planning agent for `coverage-analysis`, `complexity-risk`, `test-pattern`, `risk-prioritization` modes). The researcher would retain the core protocol and general modes, delegating to companions when specialized modes are requested. Each companion agent would share the same research protocol preamble and tooling hierarchy sections.
 
 ## Boundaries
 

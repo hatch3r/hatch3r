@@ -260,6 +260,18 @@ When multiple agents need the same context (e.g., project structure, test result
 - Test suite results captured during implementation verification should be cached and forwarded to the reviewer and test-writer rather than re-running the full suite in each phase.
 - This reduces redundant file reads, avoids inconsistencies from reading files at different points in time, and conserves token budget across subagent prompts.
 
+### Cache Enforcement
+
+The orchestrator MUST enforce caching at each phase transition. Caching is not optional guidance -- it is a pipeline invariant.
+
+1. **Pre-handoff cache check**: Before spawning any downstream subagent, the orchestrator MUST verify that all cacheable outputs from prior phases are stored in `PipelineContext`. If a cacheable output is missing, the orchestrator MUST populate it before proceeding. Cacheable outputs include:
+   - Phase 1: file lists, dependency maps, convention extractions, blast radius data
+   - Phase 2: test suite results, modified file list, build output
+   - Phase 3: reviewer findings, fixer diffs, resolved/unresolved finding status
+2. **No redundant reads**: If a subagent prompt would include context that exists in the cache, the orchestrator MUST pass the cached version. Subagents MUST NOT re-read files or re-run commands whose results are already cached and fresh (per Cache Verification above).
+3. **Cache population logging**: Log every cache write with the key and size: `"Cache WRITE <cache_key>: <token_estimate> tokens"`. This provides visibility into which data is being cached and its cost.
+4. **Enforcement violation**: If a subagent re-reads or re-computes data that was available in the cache, log a warning: `"Cache BYPASS detected: <agent> re-computed <cache_key> instead of using cached value"`. This warning is informational (severity INFO) and does not block the pipeline, but it flags an optimization gap for future runs.
+
 ### PipelineContext Usage
 
 1. **Initialization**: The orchestrator creates a `PipelineContext` at the start of Phase 1 with the `correlationId` and `phase` set to `"research"`. All other fields are initialized as empty arrays.

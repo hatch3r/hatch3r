@@ -13,7 +13,7 @@ function manifest(
 ): HatchManifest {
   return {
     version: "1",
-    hatch3rVersion: "1.2.0",
+    hatch3rVersion: "1.3.0",
     owner: "test",
     repo: "test",
     namespace: "test",

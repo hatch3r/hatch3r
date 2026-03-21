@@ -58,7 +58,7 @@ async function copyHatch3rFiles(
       const subCopied = await copyHatch3rFiles(
         srcPath,
         destPath,
-        entry.name.startsWith(HATCH3R_PREFIX),
+        insideHatch3rDir || !entry.name.startsWith(HATCH3R_PREFIX),
         selectedIds,
       );
       copied.push(...subCopied.map((p) => join(entry.name, p)));

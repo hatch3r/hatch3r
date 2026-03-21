@@ -1,7 +1,7 @@
 # Domain 1: Core Source Implementation
 
-**Scope:** All `src/` TypeScript except adapters and content system. Covers all 8 CLI commands, merge infrastructure, manifest/model/detect modules, environment/hooks/shared utilities, and the CLI entry point.
-**Sub-agents:** 8
+**Scope:** All `src/` TypeScript except adapters and content system. Covers all 9 CLI commands, merge infrastructure, manifest/model/detect modules, workspace/worktree modules, environment/hooks/shared utilities, and the CLI entry point.
+**Sub-agents:** 10
 
 ## Sub-Agent Decomposition
 
@@ -15,6 +15,8 @@
 | 1.6 | Manifest, Models & Detect | `src/manifest/`, `src/models/`, `src/detect/` |
 | 1.7 | Env, Hooks & Shared | `src/env/`, `src/hooks/`, `src/cli/shared/` |
 | 1.8 | CLI Entry & Types | `src/cli/index.ts`, `src/types.ts`, `src/version.ts` |
+| 1.9 | Workspace Module | `src/workspace/{index,types,manifest,detect,resolve,sync}.ts` |
+| 1.10 | Worktree Module | `src/worktree/{index,resolve,types}.ts`, `src/cli/commands/worktreeSetup.ts` |
 
 ## Audit Checklists
 
@@ -34,6 +36,8 @@
 - [ ] Update flow — npm version check, content delta computation, safe merge execution
 - [ ] Sync correctness — regenerates adapter output from current canonical source without data loss
 - [ ] Add command — pack installation flow, content injection, dependency resolution
+- [ ] Clean removal path — can a user fully remove hatch3r output? Is there an `hatch3r remove` command or documented manual steps?
+- [ ] Cross-adapter state coherence — after a partial adapter failure during update (e.g., 3/5 succeed, 2/5 fail), are the generated configs in a consistent state? Is the integrity manifest accurate?
 
 ### 1.4 CLI Commands: validate, verify, status
 - [ ] Validate — schema validation, reference integrity checking, adapter output verification
@@ -66,3 +70,18 @@
 - [ ] Global error handling — uncaught exceptions, unhandled rejections, SIGINT
 - [ ] Type definitions completeness — `src/types.ts` covers all domain types accurately
 - [ ] Version management — `src/version.ts` reports correct version
+
+### 1.9 Workspace Module
+- [ ] Workspace detection — `detectSubRepos()`, `shouldSuggestWorkspace()`, `isWorkspaceRoot()` against varied directory structures (monorepo, multi-repo, nested, flat)
+- [ ] Manifest CRUD — `readWorkspaceManifest()`, `writeWorkspaceManifest()`, `createWorkspaceManifest()` handle missing, corrupt, and valid manifests
+- [ ] Config resolution — `resolveRepoConfig()` correctly merges workspace defaults with per-repo overrides, precedence is well-defined
+- [ ] Multi-repo sync — `syncWorkspaceRepos()` orchestrates init/sync across sub-repos without cross-contamination
+- [ ] Error isolation — failure in one sub-repo does not corrupt others or halt the entire workspace operation
+- [ ] Integration with existing CLI — workspace features integrated into init/sync/config/status (not a separate command group)
+
+### 1.10 Worktree Module
+- [ ] Worktree detection — `findMainWorktree()` correctly identifies main worktree across git configurations
+- [ ] Pattern resolution — `resolvePatterns()` resolves adapter-specific file patterns correctly
+- [ ] Copy/symlink strategy — per-adapter worktree patterns applied correctly, files land in expected locations
+- [ ] Cross-worktree isolation — changes in one worktree do not contaminate others
+- [ ] worktreeSetup CLI command — end-to-end flow from invocation to completion, including error handling

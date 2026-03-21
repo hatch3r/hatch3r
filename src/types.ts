@@ -10,9 +10,12 @@ export interface ClaudeConfig {
     allow?: string[];
     deny?: string[];
   };
-  teammateMode?: "tool-using" | "full-trust" | "manual-approval";
-  agentTeams?: boolean;
+  teammateMode?: "auto" | "in-process" | "tmux" | "tool-using" | "full-trust" | "manual-approval";
+  agentTeams?: boolean | "ga";
 }
+
+/** Controls how adapter output is generated (verbosity), not what content is selected. */
+export type GenerationMode = "standard" | "minimal";
 
 export interface HatchManifest {
   version: string;
@@ -42,6 +45,21 @@ export interface HatchManifest {
     paths: string[];
     lastGenerated?: string;
   };
+  /** Present when this repo is managed by a workspace. */
+  workspace?: {
+    /** Relative path from this repo back to workspace root. */
+    rootPath: string;
+    /** ISO timestamp of last workspace sync. */
+    lastSync: string;
+    /** hatch3r version used for last sync. */
+    syncVersion: string;
+    /** SHA-256 of workspace.json at time of sync. */
+    workspaceChecksum: string;
+    /** Content IDs explicitly excluded by this repo. */
+    excludedContent?: string[];
+    /** Content IDs added locally (not from workspace). */
+    localContent?: string[];
+  };
   managedFiles: string[];
 }
 
@@ -53,7 +71,7 @@ export interface WorktreeConfig {
   nodeModules?: "symlink" | "skip";
 }
 
-export const TOOLS = ["cursor", "copilot", "claude", "opencode", "windsurf", "amp", "codex", "gemini", "cline", "aider", "kiro", "goose", "zed", "amazon-q"] as const;
+export const TOOLS = ["cursor", "copilot", "claude", "opencode", "windsurf", "amp", "codex", "gemini", "cline", "aider", "kiro", "goose", "zed", "amazon-q", "antigravity"] as const;
 export type Tool = (typeof TOOLS)[number];
 export const VALID_TOOLS = new Set<string>(TOOLS);
 export const TOOL_CHOICES = TOOLS.join(", ");

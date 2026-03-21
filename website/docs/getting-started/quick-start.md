@@ -69,6 +69,27 @@ npx hatch3r verify        # Verify file integrity checksums
 npx hatch3r add <pack>    # Install a community pack (coming soon)
 ```
 
+## Multi-Repo Workspace
+
+If you have multiple git repos in a single directory, hatch3r can manage them as a workspace.
+
+```bash
+cd ~/projects/my-platform     # contains frontend/, backend/, infra/
+npx hatch3r init              # auto-detects workspace layout
+# or force it:
+npx hatch3r init --workspace
+```
+
+Init creates a shared `.agents/` at the workspace root. Sync cascades content into each sub-repo:
+
+```bash
+npx hatch3r sync                         # sync all repos
+npx hatch3r sync --repos frontend        # sync one repo
+npx hatch3r config                       # add/remove repos, change sync strategy
+```
+
+Each sub-repo gets independent copies of the generated files, with optional per-repo overrides for tools, features, and content. See the [Workspace guide](../guides/workspace) for details.
+
 ## MCP Setup
 
 If you selected MCP servers during init, fill in your API keys:

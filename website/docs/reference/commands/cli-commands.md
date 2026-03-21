@@ -27,6 +27,9 @@ npx hatch3r init --preset full --project-type brownfield --team-size team --yes
 | `--preset` | `minimal`, `standard`, `full` | `standard` | Content profile preset |
 | `--project-type` | `greenfield`, `brownfield` | auto-detected | Project type context |
 | `--team-size` | `solo`, `team` | `solo` | Team size context |
+| `--workspace` | — | off | Force workspace mode for multi-repo directories |
+
+When CWD is a non-git directory containing git subdirectories, init auto-detects a workspace layout and suggests workspace mode. Use `--workspace` to force workspace mode without the prompt.
 
 The init flow asks:
 
@@ -55,6 +58,7 @@ npx hatch3r config
 - Change platform, tools, features, and MCP servers
 - Add or remove individual content items (agents, skills, rules, commands)
 - Enable/disable worktree file isolation for parallel agent sessions
+- Manage workspace repos (add/remove sub-repos, toggle sync, change sync strategy)
 - Archives removed tool outputs to `.hatch3r-archive/`
 - Re-syncs all adapters after changes
 
@@ -64,9 +68,22 @@ Re-generates tool-specific files from the canonical `.agents/` source.
 
 ```bash
 npx hatch3r sync
+npx hatch3r sync --repos frontend backend   # sync specific sub-repos only
+npx hatch3r sync --dry-run                   # preview without writing
+npx hatch3r sync --force                     # overwrite even if unchanged
 ```
 
+**Flags:**
+
+| Flag | Values | Default | Description |
+|------|--------|---------|-------------|
+| `--repos` | space-separated paths | all repos | Sync only the listed sub-repos |
+| `--dry-run` | — | off | Show what would be synced without writing files |
+| `--force` | — | off | Overwrite target files even if unchanged |
+
 Run after manually editing canonical files or when generated files get out of sync. Preserves content outside managed blocks in markdown files. Warns if project specs in `docs/specs/` are stale (>7 days without update).
+
+In a workspace, sync cascades content from the workspace `.agents/` into each sub-repo, applying per-repo overrides from `workspace.json`. Sub-repos receive independent copies (not symlinks).
 
 ## hatch3r update
 
@@ -86,7 +103,7 @@ Checks sync status between canonical `.agents/` and generated tool files.
 npx hatch3r status
 ```
 
-Reports synced, drifted, and missing files for each configured tool.
+Reports synced, drifted, and missing files for each configured tool. When a `workspace.json` manifest exists, also displays workspace topology -- listing each sub-repo, its sync status, and any per-repo overrides.
 
 ## hatch3r validate
 

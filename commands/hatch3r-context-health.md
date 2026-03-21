@@ -18,14 +18,34 @@ Monitor and maintain healthy conversation context during long-running agent sess
 
 ### Degradation Signals
 
-| Signal | Detection Method | Threshold |
-|--------|-----------------|-----------|
+| Signal | Detection Method | Default Threshold |
+|--------|-----------------|-------------------|
 | Conversation depth | Count user/assistant turns | > 30 turns |
 | Token accumulation | Estimate total context tokens | > 80% of model context window |
 | Topic drift | Compare current task to original issue scope | Cosine similarity < 0.6 |
 | Repeated errors | Track consecutive failed attempts | > 2 failures on same task |
 | File staleness | Track time since last file re-read | > 20 turns since last read |
 | Tool failure rate | Track tool call success/failure ratio | > 30% failure rate |
+
+### Model-Aware Threshold Profiles
+
+Different models have different context window sizes and degradation characteristics. The default thresholds above assume a large-context model. When the active model is known, apply the matching profile to adjust thresholds dynamically.
+
+| Model Tier | Context Window | Token Warning | Turn Limit | File Staleness |
+|-----------|---------------|---------------|------------|----------------|
+| Small (< 32K) | ~32K tokens | > 60% of window | > 15 turns | > 10 turns |
+| Medium (32K--128K) | ~128K tokens | > 70% of window | > 25 turns | > 15 turns |
+| Large (128K--200K) | ~200K tokens | > 80% of window | > 30 turns | > 20 turns |
+| Extended (> 200K) | 200K+ tokens | > 85% of window | > 40 turns | > 25 turns |
+
+**Profile resolution:**
+
+1. Check `models` in `hatch.json` for the configured model. If a model name or tier is specified, use the matching profile.
+2. If no model is configured, default to the **Large** profile (backward-compatible with existing thresholds).
+3. When the runtime reports the model name (e.g., via API response headers or tool metadata), map it to the appropriate tier using known model context sizes.
+4. Log the active profile at the start of each health check: `"Context health using <tier> profile (<window_size> tokens)"`.
+
+**Custom thresholds:** If `hatch.json` includes a `contextHealth` section with explicit thresholds, those values override the model-aware profile. This allows teams to tune thresholds for their specific workflow patterns.
 
 ### Health Levels
 

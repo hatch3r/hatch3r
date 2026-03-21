@@ -118,6 +118,15 @@ export class ClineAdapter extends BaseAdapter {
       "Rules and skills are managed in `.roo/rules/` and `.cline/skills/`.",
       "",
       bridgeOrchestration,
+      "",
+      "## Getting Started with Roo Code",
+      "",
+      "New to this project's agent setup? Progress through these stages:",
+      "",
+      "**Start here:** Rules in `.roo/rules/` are loaded automatically. The orchestration bridge above guides your workflow.",
+      "**Next:** Use workflow commands in `.clinerules/workflows/` for guided task execution.",
+      "**Then:** Switch to custom modes (defined in `.roomodes`) for specialized agent behaviors.",
+      "**Later:** Customize agent behavior via `.hatch3r/{type}/{id}.customize.yaml` without editing managed files.",
     ].join("\n");
     results.push(output(".roo/rules/hatch3r-bridge.md", wrapInManagedBlock(bridgeBody), bridgeBody));
 
