@@ -183,13 +183,18 @@ describe("findMainWorktree", () => {
   });
 
   it("resolves absolute gitdir path to main repo root", () => {
-    // Simulate .git file pointing to /repos/main/.git/worktrees/feat-x
-    const mainRoot = "/repos/main";
-    const gitdirPath = `${mainRoot}/.git/worktrees/feat-x`;
+    // Use a real temp directory so the path is platform-native (Windows drives, etc.)
+    const mainRepoDir = mkdtempSync(join(tmpdir(), "hatch3r-main-abs-"));
+    mkdirSync(join(mainRepoDir, ".git", "worktrees", "feat-x"), {
+      recursive: true,
+    });
+    const gitdirPath = join(mainRepoDir, ".git", "worktrees", "feat-x");
     writeFileSync(join(tempDir, ".git"), `gitdir: ${gitdirPath}\n`, "utf-8");
 
     const result = findMainWorktree(tempDir);
-    expect(result).toBe(mainRoot);
+    expect(result).toBe(mainRepoDir);
+
+    rmSync(mainRepoDir, { recursive: true, force: true });
   });
 
   it("resolves relative gitdir path against worktree directory", () => {
