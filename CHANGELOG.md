@@ -213,7 +213,7 @@ All notable changes to hatch3r are documented in this file.
 ### Audit Execution (103/104 findings resolved — score 79→95)
 
 #### Added
-- Amazon Q adapter — 14th platform adapter (`.amazonq/rules/`, `.amazonq/settings.json`)
+- Amazon Q adapter — 14th platform adapter (`.amazonq/rules/`, `.amazonq/mcp.json`)
 - Kiro hook emission via steering file (`.kiro/steering/hatch3r-hooks.md`)
 - Goose MCP config emission in `.goosehints`
 - MCP setup guide (`website/docs/guides/mcp-setup.md`)

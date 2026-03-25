@@ -10,10 +10,10 @@ export function assertSafePath(relativePath: string, label: string): void {
   const sanitized = relativePath.replace(/\0/g, '');
   const normalized = normalize(sanitized);
   if (normalized.startsWith('..') || isAbsolute(normalized)) {
-    throw new HatchError(`Unsafe path detected in ${label}: ${relativePath}`, 1);
+    throw new HatchError(`Unsafe path detected in ${label}: ${relativePath}`, 1, "FS_ERROR");
   }
   if (sanitized !== relativePath) {
-    throw new HatchError(`Unsafe path detected in ${label}: ${relativePath}`, 1);
+    throw new HatchError(`Unsafe path detected in ${label}: ${relativePath}`, 1, "FS_ERROR");
   }
 }
 
@@ -197,7 +197,7 @@ export async function buildContentIndex(contentRoot: string): Promise<ContentInd
       // Skills: each subdirectory has a SKILL.md
       let dirents: { name: string; isDirectory: () => boolean }[];
       try {
-        dirents = await readdir(dirPath, { withFileTypes: true });
+        dirents = (await readdir(dirPath, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name));
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
         throw err;
@@ -227,7 +227,7 @@ export async function buildContentIndex(contentRoot: string): Promise<ContentInd
       let entries: string[];
       try {
         const all = await readdir(dirPath);
-        entries = all.filter((f) => f.endsWith(".md"));
+        entries = all.filter((f) => f.endsWith(".md")).sort();
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
         throw err;
@@ -755,6 +755,7 @@ export async function addContentItem(
         `Content "${item.id}" (${item.type}) not found in package at ${item.relativePath}. ` +
         `It may have been renamed or removed in this hatch3r version.`,
         1,
+        "FS_ERROR",
       );
     }
     throw err;

@@ -86,17 +86,34 @@ describe("integrity", () => {
 
   describe("writeIntegrityManifest / readIntegrityManifest", () => {
     it("should round-trip manifest to disk", async () => {
+      const files = { "agents/reviewer.md": "sha256:abc123" };
+      const checksum = createHash("sha256")
+        .update(JSON.stringify(files))
+        .digest("hex");
       const manifest = {
         version: 1,
         generated: "2026-03-04T12:00:00.000Z",
         hatchVersion: "1.1.0",
-        files: { "agents/reviewer.md": "sha256:abc123" },
+        files,
+        checksum,
       };
 
       await writeIntegrityManifest(agentsDir, manifest);
       const loaded = await readIntegrityManifest(agentsDir);
 
       expect(loaded).toEqual(manifest);
+    });
+
+    it("should return null for manifest missing checksum", async () => {
+      const raw = JSON.stringify({
+        version: 1,
+        generated: "2026-03-04T12:00:00.000Z",
+        hatchVersion: "1.1.0",
+        files: { "agents/reviewer.md": "sha256:abc123" },
+      });
+      await writeFile(join(agentsDir, ".integrity.json"), raw);
+      const result = await readIntegrityManifest(agentsDir);
+      expect(result).toBeNull();
     });
 
     it("should return null when manifest does not exist", async () => {

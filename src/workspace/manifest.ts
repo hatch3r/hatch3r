@@ -1,10 +1,22 @@
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, normalize, isAbsolute } from "node:path";
 import { AGENTS_DIR, HatchError } from "../types.js";
 import { HATCH3R_VERSION } from "../version.js";
 import { atomicWriteFile } from "../merge/safeWrite.js";
 import type { WorkspaceManifest } from "./types.js";
 import { WORKSPACE_MANIFEST_FILE, WORKSPACE_MANIFEST_VERSION } from "./types.js";
+
+/**
+ * Validate that a workspace repo path is safe (no traversal or absolute paths).
+ * Rejects paths containing "..", absolute paths, and null bytes.
+ */
+export function isUnsafeRepoPath(repoPath: string): boolean {
+  if (repoPath.includes('\0')) return true;
+  if (isAbsolute(repoPath)) return true;
+  const normalized = normalize(repoPath);
+  if (normalized.startsWith('..')) return true;
+  return false;
+}
 
 function validateWorkspaceManifest(data: unknown): data is WorkspaceManifest {
   if (!data || typeof data !== "object") return false;
@@ -41,6 +53,7 @@ function validateWorkspaceManifest(data: unknown): data is WorkspaceManifest {
     if (!repo || typeof repo !== "object") return false;
     const r = repo as Record<string, unknown>;
     if (typeof r.path !== "string") return false;
+    if (isUnsafeRepoPath(r.path)) return false;
     if (typeof r.sync !== "boolean") return false;
     if (r.owner !== undefined && typeof r.owner !== "string") return false;
     if (r.repo !== undefined && typeof r.repo !== "string") return false;
@@ -73,6 +86,7 @@ export async function readWorkspaceManifest(
     throw new HatchError(
       `Malformed JSON in ${manifestPath}: ${err instanceof Error ? err.message : String(err)}`,
       1,
+      "CONFIG_ERROR",
     );
   }
 
@@ -80,6 +94,7 @@ export async function readWorkspaceManifest(
     throw new HatchError(
       `Invalid workspace manifest in ${manifestPath}: required fields missing or malformed.`,
       1,
+      "VALIDATION_ERROR",
     );
   }
 

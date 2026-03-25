@@ -226,10 +226,21 @@ export const MANAGED_BLOCK_END = "<!-- HATCH3R:END -->";
 export const HATCH3R_PREFIX = "hatch3r-";
 export const AGENTS_DIR = ".agents";
 
+/** Structured error codes for programmatic error handling (e.g., CI scripts). */
+export type HatchErrorCode =
+  | "VALIDATION_ERROR"
+  | "CONFIG_ERROR"
+  | "FS_ERROR"
+  | "INTEGRITY_ERROR"
+  | "ADAPTER_ERROR"
+  | "NETWORK_ERROR"
+  | "UNKNOWN_ERROR";
+
 export class HatchError extends Error {
   constructor(
     message: string,
     public readonly exitCode: number = 1,
+    public readonly errorCode: HatchErrorCode = "UNKNOWN_ERROR",
   ) {
     super(message);
     this.name = "HatchError";

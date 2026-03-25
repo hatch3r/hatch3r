@@ -44,7 +44,7 @@ That's it. hatch3r detects your repo, asks about your project context (greenfiel
 | **Kiro** | `.kiro/steering/`, `.kiro/settings/mcp.json` |
 | **Goose** | `.goosehints` |
 | **Zed** | `.rules` |
-| **Amazon Q** | `.amazonq/rules/`, `.amazonq/settings.json` |
+| **Amazon Q** | `.amazonq/rules/`, `.amazonq/mcp.json` |
 
 Platform is auto-detected from your git remote during `hatch3r init`. All board commands, agents, rules, and skills adapt to your selected platform.
 

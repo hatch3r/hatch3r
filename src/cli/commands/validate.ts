@@ -485,7 +485,7 @@ export async function validateCommand(): Promise<void> {
     spinner.fail("Validation failed");
     logError(".agents/ directory not found. Run `hatch3r init` first.");
     console.log();
-    throw new HatchError(".agents/ directory not found.", 1);
+    throw new HatchError(".agents/ directory not found.", 1, "CONFIG_ERROR");
   }
 
   const manifest = await readManifest(rootDir);
@@ -588,7 +588,7 @@ export async function validateCommand(): Promise<void> {
       `${chalk.yellow("⚠")} ${result.warnings.length} warning(s)`,
     ];
     printBox("Validation failed", summaryLines, "error");
-    throw new HatchError("Validation failed", 1);
+    throw new HatchError("Validation failed", 1, "VALIDATION_ERROR");
   } else {
     const summaryLines = [
       `${chalk.green("✔")} 0 errors`,
