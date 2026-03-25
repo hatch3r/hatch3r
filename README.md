@@ -231,6 +231,7 @@ hatch3r is also available as a [Cursor plugin](https://cursor.com/marketplace). 
 
 Full documentation is available at [docs.hatch3r.com](https://docs.hatch3r.com).
 
+- [Vision](governance/VISION.md) -- Framework north-star vision and principles
 - [MCP Setup](https://docs.hatch3r.com/docs/guides/mcp-setup) -- Connecting MCP servers and managing secrets
 - [Adapter Capability Matrix](https://docs.hatch3r.com/docs/reference/adapter-capability-matrix) -- Per-tool support and output paths
 - [Agent Teams](https://docs.hatch3r.com/docs/guides/agent-teams) -- Multi-agent team coordination and delegation patterns

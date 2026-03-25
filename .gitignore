@@ -26,8 +26,8 @@ coverage/
 Thumbs.db
 
 # Internal files (not for public repo)
-hatch3r-prd.md
-COMPETITIVE-ANALYSIS.md
+governance/hatch3r-prd.md
+governance/COMPETITIVE-ANALYSIS.md
 todo.md
 social_preview.png
 
@@ -35,6 +35,6 @@ docs-site/build/
 docs-site/.docusaurus/
 
 # Audit scratch files
-AUDIT-REPORT.md
+governance/AUDIT-REPORT.md
 .agents/
 skills-lock.json

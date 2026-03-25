@@ -34,10 +34,11 @@ Coverage of interaction types — does the framework support all 11 common inter
 - [ ] Over-trust risks — does the framework create false confidence in agent output?
 
 ### 13.3 Confidence Indication
-- [ ] Do agents indicate their confidence level in recommendations?
+- [ ] Do agents indicate graduated confidence levels (high/medium/low) in recommendations, with clear definitions for each level? High = verified against code. Medium = based on patterns. Low = best judgment, recommend human review.
 - [ ] Are there graduated confidence signals (high confidence on formatting, low confidence on architecture)?
 - [ ] Can users calibrate agent assertiveness?
 - [ ] Are confidence levels backed by verifiable signals (test results, lint output)?
+- [ ] Assumption challenging — do agents challenge user assumptions when warranted, rather than blindly implementing potentially misguided requirements? Is there a graceful mechanism for agents to say "before I proceed, I want to flag a concern about this approach"?
 
 ### 13.4 Feedback Loops & Educational Value
 - [ ] Can users provide feedback that improves future agent performance?

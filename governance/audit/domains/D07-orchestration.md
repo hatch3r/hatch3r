@@ -18,6 +18,8 @@
 - [ ] Pipeline linearity vs DAG assessment — are there phases that could run in parallel?
 - [ ] Phase skipping heuristics — should the pipeline skip research for trivial tasks?
 - [ ] Phase handoff contracts — are data formats between phases well-defined?
+- [ ] Premise-challenging support — can the pipeline support an agent recommending to abort or fundamentally rethink a task it believes is misconceived? Is there a mechanism for an agent to escalate "I don't think we should build this" to the user, rather than being forced to implement regardless?
+- [ ] Superficial fix detection — does the review loop catch fixes that address symptoms rather than root causes? If the fixer adds a try-catch without addressing the underlying error strategy, does the reviewer flag this and send it back?
 
 ### 7.2 Review Loop Calibration
 - [ ] Review loop convergence analysis — does the reviewer-fixer loop converge in practice?
