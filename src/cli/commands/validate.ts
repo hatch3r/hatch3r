@@ -512,8 +512,25 @@ export async function validateCommand(): Promise<void> {
           result.warnings.push(w);
         }
       }
+
+      // Content ID collision validation
+      // Expected: command/skill cross-type pairs (by design, commands and skills share IDs)
+      // Unexpected: same-type duplicates, or cross-type pairs that aren't command↔skill
+      const EXPECTED_CROSS_TYPE_PAIRS = new Set(["command", "skill"]);
+      for (const collision of index.collisions) {
+        if (collision.kind === "cross-type") {
+          const types = new Set([collision.existingType, collision.duplicateType]);
+          if (types.size === 2 && [...types].every(t => EXPECTED_CROSS_TYPE_PAIRS.has(t))) {
+            // Expected command/skill collision — skip
+            continue;
+          }
+        }
+        result.warnings.push(
+          `Content ID collision: "${collision.id}" exists as ${collision.existingType} (${collision.existingPath}) and ${collision.duplicateType} (${collision.duplicatePath})`,
+        );
+      }
     } catch {
-      // Content scanning failed — skip cross-ref validation
+      // Content scanning failed — skip cross-ref and collision validation
     }
 
     // Orchestration dependency validation: check required agents are selected

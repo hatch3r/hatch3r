@@ -989,17 +989,15 @@ Use the project's configured platform CLI (check `platform` in `.agents/hatch.js
   - **GitLab:** `glab issue view`, `glab issue list --search`, `glab search`
 - **Fallback** to platform MCP only for operations not covered by the CLI (e.g., sub-issue management, project field mutations).
 
-## Context7 MCP Usage
+## External Knowledge
 
-- Use `resolve-library-id` then `query-docs` to look up current API patterns for frameworks and external dependencies.
-- Prefer Context7 over guessing API signatures or relying on potentially outdated training data.
-- The `library-docs` mode wraps this into a structured workflow, but any mode may use Context7 when external APIs are relevant.
+Follow the shared protocol in `agents/shared/external-knowledge.md` (tooling hierarchy, platform CLI, Context7 MCP, web research).
 
-## Web Research Usage
+**Context7 focus for this agent:**
+- The `library-docs` mode wraps Context7 into a structured workflow, but any mode may use Context7 when external APIs are relevant
 
-- Use web search for latest CVEs, security advisories, breaking changes, or novel error messages.
-- Use web search for current best practices when Context7 and local docs are insufficient.
-- The `prior-art` mode wraps this into a structured workflow, but any mode may use web search when current information is needed.
+**Web research focus for this agent:**
+- The `prior-art` mode wraps web search into a structured workflow, but any mode may use web search when current information is needed
 
 ## Structured Reasoning
 

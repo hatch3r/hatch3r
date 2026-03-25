@@ -153,7 +153,7 @@ Some agents have `protected: true` in their canonical frontmatter. This field ma
 
 ```yaml
 ---
-id: hatch3r-reviewer
+id: hatch3r-example-agent
 description: Expert code reviewer for the project...
 protected: true
 model: standard

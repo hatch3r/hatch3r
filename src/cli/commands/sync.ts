@@ -11,7 +11,8 @@ import { ensureEnvMcp, ensureGitignoreEntry, getSourceEnvMcpCommand } from "../.
 import { readWorkspaceManifest } from "../../workspace/manifest.js";
 import { syncWorkspaceRepos } from "../../workspace/sync.js";
 import { AGENTS_MD_INNER, AGENTS_MD_FULL, generateCanonicalAgentsMd } from "../shared/agentsContent.js";
-import { verifyIntegrity } from "../../integrity/index.js";
+import { verifyIntegrity, generateIntegrityManifest, writeIntegrityManifest } from "../../integrity/index.js";
+import { HATCH3R_VERSION } from "../../version.js";
 import {
   printBanner,
   createSpinner,
@@ -203,6 +204,10 @@ export async function syncCommand(
       info(`Run this, then start or restart your editor: ${getSourceEnvMcpCommand()}`);
     }
   }
+
+  // Regenerate integrity manifest so checksums match newly generated files
+  const integrityManifest = await generateIntegrityManifest(agentsDir, HATCH3R_VERSION);
+  await writeIntegrityManifest(agentsDir, integrityManifest);
 
   // Check spec freshness
   await checkSpecFreshness(rootDir);

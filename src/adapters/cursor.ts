@@ -15,7 +15,7 @@ import { applyCustomization } from "./customization.js";
  * Cursor-specific frontmatter (description, globs/alwaysApply) and wrapping
  * content in managed blocks. Rules get `alwaysApply: true` or `globs: [...]`
  * based on their scope. Agents get `name`, `description`, `model`, `readonly`,
- * and `background` frontmatter fields.
+ * and `is_background` frontmatter fields.
  */
 function cursorRuleFrontmatter(rule: CanonicalFile, scopeOverride?: string): string {
   const scope = scopeOverride ?? rule.scope;
@@ -67,7 +67,7 @@ export class CursorAdapter extends BaseAdapter {
         const lines = [`name: ${agent.id}`, `description: ${desc}`];
         if (model) lines.push(`model: ${model}`);
         if (agent.readonly) lines.push("readonly: true");
-        if (agent.background) lines.push("background: true");
+        if (agent.background) lines.push("is_background: true");
         const fm = `---\n${lines.join("\n")}\n---`;
         results.push(mdcOutput(`.cursor/agents/${toPrefixedId(agent.id)}.md`, fm, content));
       }

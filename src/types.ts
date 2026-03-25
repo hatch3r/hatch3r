@@ -197,9 +197,24 @@ export interface MergeResult {
   warning?: string;
 }
 
+export type Framework =
+  | "next"
+  | "angular"
+  | "vue"
+  | "svelte"
+  | "sveltekit"
+  | "remix"
+  | "astro"
+  | "nuxt"
+  | "react"
+  | "express"
+  | "fastify"
+  | "hono";
+
 export interface RepoInfo {
   languages: string[];
   packageManager: "npm" | "yarn" | "pnpm" | "bun" | "unknown";
+  frameworks: Framework[];
   isMonorepo: boolean;
   hasExistingAgents: boolean;
   existingTools: Tool[];
