@@ -6,6 +6,8 @@ Perform a deep, end-to-end audit of every area, aspect, and line of code or cont
 
 This audit covers **19 domains** organized across **4 tiers**, deploying **107 sub-agents** for maximum depth. Every domain requires web research for current market context. The final deliverable is a structured audit report with severity-tagged findings, weighted domain scores, and prioritized action items using 3-tier progressive disclosure.
 
+> **Path Convention:** All file paths in this document are relative to the **repository root**. Governance files live under `governance/`. The ephemeral `.audit-workspace/` directory is created at repository root.
+
 ---
 
 ## Framework Context
@@ -116,8 +118,10 @@ The following sub-agents have sequential dependencies and MUST NOT launch until 
 | 17.3 (Market Positioning & Strategy) | 17.1, 17.2 | Requires competitor and ecosystem data |
 | 18.1 (PRD Alignment) | D16, D17 | Requires compound system and competitive findings |
 | 18.2 (Roadmap Reprioritization) | D16, D17 | Requires compound system and competitive findings |
-| 16.5 (Closed-Loop Effectiveness) | D18 (prev cycle) | Requires previous audit cycle's PRD/content/evolution outputs |
+| 16.5 (Closed-Loop Effectiveness) | D18 (prev cycle)* | Requires previous audit cycle's PRD/content/evolution outputs |
 | 18.3 (Distribution Verdict) | 18.1, 18.2 | Requires PRD and roadmap analysis |
+
+> \* **External data dependency:** 16.5 depends on the *previous* cycle's D18 output, not the current cycle's D18 execution. This is a data prerequisite (load previous cycle's report), not a current-cycle execution dependency. 16.5 launches in Tier C after 16.4 completes — it does not wait for current-cycle Tier D.
 
 ### Concurrency Model
 
@@ -146,7 +150,7 @@ Sub-agent results MUST be file-based to prevent context overflow:
 1. Each sub-agent writes findings to: `.audit-workspace/D{N}-SA{M}.findings.md`
 2. After each domain completes, orchestrator reads domain results, produces synthesis (`.audit-workspace/D{N}-synthesis.md`), then releases individual results from context.
 3. Report assembled from synthesis files, not accumulated context.
-4. Create `.audit-workspace/` at execution start. Ephemeral — delete after report assembly.
+4. Create `.audit-workspace/` at repository root at execution start. Clean per-run artifacts (findings, synthesis files) at the start of each new audit cycle, but preserve cross-cycle files (`execution-insights.json`).
 5. Each synthesis file must include a **"Key Findings for Downstream Domains"** section listing findings that later tiers might need, with domain tags (e.g., "Relevant to D7, D9"). This prevents information loss across tier boundaries.
 6. Later-tier sub-agents may request specific earlier findings by referencing "D{N}-SA{M}". The orchestrator retrieves the relevant finding from the appropriate synthesis file and provides it as additional context.
 
@@ -158,7 +162,7 @@ Execute by tier with synthesis between tiers:
 |------|---------|--------|--------|
 | A | D1–D4 | 27 | Launch → synthesize → release from context |
 | B | D5–D10 | 42 | Launch → synthesize → release from context |
-| C | D11–D16, D19 | 31 | Launch → synthesize → release from context |
+| C | D11–D16, D19 | 32 | Launch → synthesize → release from context |
 | D | D17–D18 | 6 | Launch → synthesize → final assembly |
 
 Peak context: 42 sub-agent results (Tier B), not 107.
@@ -170,7 +174,7 @@ Before beginning, ask the user:
 2. Are there specific areas of concern or priority for this audit cycle?
 
 The following have sensible defaults. Ask only if context suggests the default is wrong:
-3. Include gitignored PRD (`hatch3r-prd.md`) and competitive analysis (`COMPETITIVE-ANALYSIS.md`) if available locally? **Default: Yes**
+3. Include gitignored PRD (`governance/hatch3r-prd.md`) and competitive analysis (`governance/COMPETITIVE-ANALYSIS.md`) if available locally? **Default: Yes**
 4. Distribution model to evaluate? **Default: All (open-source npm, marketplace plugins, private npm)**
 5. New tools/platforms to add to adapter coverage? **Default: None — sub-agent 9.16 will discover via web research**
 6. Run closed-loop phases after audit assembly (PRD evolution, self-evolution, content gap identification)? **Default: Yes**
@@ -312,10 +316,10 @@ Flag any finding matching these patterns and require the sub-agent to deepen:
 
 ## Audit Domains
 
-19 domains across 4 tiers. Each domain's full scope, sub-agent decomposition, and audit checklists are in the corresponding file under `audit/domains/`.
+19 domains across 4 tiers. Each domain's full scope, sub-agent decomposition, and audit checklists are in the corresponding file under `governance/audit/domains/`.
 
 The orchestrator spawns sub-agents per domain file. Each sub-agent:
-1. Reads its domain file (`audit/domains/D{NN}-{name}.md`)
+1. Reads its domain file (`governance/audit/domains/D{NN}-{name}.md`)
 2. Applies the universal checklist below
 3. Conducts web research per the global directive
 4. Writes results to `.audit-workspace/D{N}-SA{M}.findings.md`
@@ -359,7 +363,7 @@ Every audit sub-agent must internalize these behavioral directives. These govern
 
 ### Domain File Quality Standard
 
-Each domain file (`audit/domains/D{NN}-{name}.md`) must meet these minimum quality standards. CL-3 may propose domain file improvements when standards are not met.
+Each domain file (`governance/audit/domains/D{NN}-{name}.md`) must meet these minimum quality standards. CL-3 may propose domain file improvements when standards are not met.
 
 - **Minimum depth:** At least 4 checklist items per sub-agent. Domains with fewer items likely have insufficient audit coverage.
 - **Scenario-based items:** Checklist items should be scenario-based where possible ("What happens when the MCP server is unreachable?") rather than only question-based ("Is MCP handling good?"). Scenario-based items produce more specific, actionable findings.
@@ -573,8 +577,8 @@ These phases run after report assembly, gated by Pre-Audit Question 6. They prod
 
 ### Phase CL-1: PRD Evolution Identification
 
-**Trigger:** Pre-Audit Question 6 = Yes AND `hatch3r-prd.md` is available.
-**Input:** Assembled audit report (all tiers), `hatch3r-prd.md`, `VISION.md` (if available).
+**Trigger:** Pre-Audit Question 6 = Yes AND `governance/hatch3r-prd.md` is available.
+**Input:** Assembled audit report (all tiers), `governance/hatch3r-prd.md`, `governance/VISION.md` (if available).
 **Agent:** Single synthesis agent (not a sub-agent pool — this requires cross-domain reasoning).
 
 #### Process
@@ -603,7 +607,7 @@ These phases run after report assembly, gated by Pre-Audit Question 6. They prod
 ```
 
 #### Constraints
-- Do NOT modify `hatch3r-prd.md` — only identify changes.
+- Do NOT modify `governance/hatch3r-prd.md` — only identify changes.
 - Competitive features are candidates, not mandates. The user decides priority.
 - Changes that contradict VISION.md must be flagged with "Requires Vision Review."
 

@@ -7,12 +7,12 @@ Templates for AUDIT-EXECUTE.md Phases 5-7. Replace placeholders with registry va
 ## PRD Update Agent (Phase 5)
 
 ### Task
-Apply approved PRD Evolution Candidates from the audit report to `hatch3r-prd.md`.
+Apply approved PRD Evolution Candidates from the audit report to `governance/hatch3r-prd.md`.
 
 ### Inputs
 - `[PRD_EVOLUTION_TABLE]` — PRD Evolution Candidates table from audit report
-- `[PRD_PATH]` — Path to `hatch3r-prd.md`
-- `[VISION_PATH]` — Path to `VISION.md` (if available)
+- `[PRD_PATH]` — Path to `governance/hatch3r-prd.md`
+- `[VISION_PATH]` — Path to `governance/VISION.md` (if available)
 - `[REVIEWER_VERDICT]` — Final reviewer verdict
 - `[DOMAIN_RESCORES]` — Domain re-scores from execution
 
@@ -87,8 +87,8 @@ Apply accepted Audit Self-Evolution Proposals to AUDIT.md and domain files.
 
 ### Inputs
 - `[EVOLUTION_TABLE]` — Audit Self-Evolution Proposals table from audit report
-- `[AUDIT_PATH]` — Path to `AUDIT.md`
-- `[DOMAINS_DIR]` — Path to `audit/domains/`
+- `[AUDIT_PATH]` — Path to `governance/AUDIT.md`
+- `[DOMAINS_DIR]` — Path to `governance/audit/domains/`
 
 ### Process
 1. Read the Audit Self-Evolution Proposals table.
@@ -104,15 +104,15 @@ Apply accepted Audit Self-Evolution Proposals to AUDIT.md and domain files.
    ```
 3. If "modify": capture user's modification before proceeding.
 4. Apply accepted proposals:
-   - AUDIT.md changes: modify the specific section.
-   - Domain file changes: modify the specific domain file.
-   - New domain: create `audit/domains/D{NN}-{name}.md` with scope, sub-agent table, and checklists.
+   - AUDIT.md changes: modify the specific section in `governance/AUDIT.md`.
+   - Domain file changes: modify the specific file in `governance/audit/domains/`.
+   - New domain: create `governance/audit/domains/D{NN}-{name}.md` with scope, sub-agent table, and checklists.
    - Weight adjustments: recalculate all weights in the affected tier. Tier totals must sum to 1.00.
    - Sub-agent count changes: update Summary Table totals (parallel, sequential, total).
 5. Run invariant checks:
    - All tier weight subtotals sum to 1.00
    - Total sub-agent count = sum of all domain sub-agent counts
-   - Every domain in Summary Table has a corresponding file in audit/domains/
+   - Every domain in Summary Table has a corresponding file in `governance/audit/domains/`
    - No orphaned domain files
 6. Update Component Inventory if count discrepancies were found.
 7. Update Audit History table.

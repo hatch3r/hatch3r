@@ -4,6 +4,8 @@
 
 Implement all agent-actionable findings from an audit report using a wave-based progressive execution model with regression gates between waves. This is the execution companion to `AUDIT.md` (audit prompt) and `AUDIT-REPORT.md` (audit report).
 
+> **Path Convention:** All file paths in this document are relative to the **repository root**. Governance files live under `governance/`. The ephemeral `.audit-workspace/` directory is created at repository root.
+
 ```
 Execution Flow:
   Baseline → Wave 1 (Critical) → Gate 1 → Wave 2 (High) → Gate 2 →
@@ -18,9 +20,9 @@ Do NOT read `AUDIT-REPORT.md` in full. Read sections on-demand:
 - **Phase 0:** Tier 1 + Tier 2 only (for baseline domain scores)
 - **Phase 1:** Enhanced Action Items table only (for triage)
 - **Phase 4:** Tier 3 sections relevant to current wave only (for sub-agents)
-- **Phase 5:** PRD Evolution Candidates table + `hatch3r-prd.md` + `VISION.md` (if available)
+- **Phase 5:** PRD Evolution Candidates table + `governance/hatch3r-prd.md` + `governance/VISION.md` (if available)
 - **Phase 6:** Content Gap Artifacts table + verified component inventory
-- **Phase 7:** Audit Self-Evolution Proposals table + current `AUDIT.md` + relevant domain files
+- **Phase 7:** Audit Self-Evolution Proposals table + current `governance/AUDIT.md` + relevant domain files (`governance/audit/domains/`)
 - **Report Update:** Only sections being modified
 
 ---
@@ -115,6 +117,15 @@ Pre-existing failures are NOT regressions.
 
 Parse every action item from the Enhanced Action Items table.
 
+### Previous Cycle Insights
+
+If `governance/audit/execution-insights.json` exists from a previous execution cycle, read it and apply adjustments:
+- Use fix success rates to adjust work unit concurrency — unreliable finding types (high rolled-back rate) get serialized work units rather than parallel.
+- Use sizing accuracy data to calibrate effort estimates — if a category consistently under-estimates, adjust upward.
+- Flag recurring failure files as "high-risk" work units requiring extra review attention.
+
+If the file does not exist (first cycle), skip this step.
+
 ### Table Completeness Validation
 
 1. Read post-dedup finding count from Executive Dashboard
@@ -181,7 +192,7 @@ Record in registry under `mixed_decomposition`. Trivial agent portion → implem
 
 ## Finding Registry
 
-Central manifest tracking every finding through its lifecycle. Store as `finding-registry.json`. Update in-place per phase. Read full registry only at checkpoints. For wave execution, load only the current wave's entries. The file is the source of truth.
+Central manifest tracking every finding through its lifecycle. Store as `governance/audit/finding-registry.json`. Update in-place per phase. Read full registry only at checkpoints. For wave execution, load only the current wave's entries. The file is the source of truth.
 
 ### Registry Fields
 
@@ -420,13 +431,13 @@ Flag any domain whose score decreased — indicates cross-domain side effects.
 
 ### Implementation Sub-Agents
 
-Read and adapt `audit/templates/implementation-sub-agent.md` for each work unit. Replace placeholders (`[Wave]`, `[Work Unit]`, `[findings]`) with registry values.
+Read and adapt `governance/audit/templates/implementation-sub-agent.md` for each work unit. Replace placeholders (`[Wave]`, `[Work Unit]`, `[findings]`) with registry values.
 
 ### Final Reviewer
 
 Spawn after all waves complete (or after halt). **Mandatory — must not be skipped.**
 
-Read `audit/templates/reviewer-sub-agent.md`. Pass: Finding Registry, wave re-scores, Never-Attempted Manifest.
+Read `governance/audit/templates/reviewer-sub-agent.md`. Pass: Finding Registry, wave re-scores, Never-Attempted Manifest.
 
 ### SHIP Gate
 
@@ -455,8 +466,8 @@ Track false positive rate per domain: `false_positives_in_domain / total_finding
 
 1. **Read inputs:**
    - PRD Evolution Candidates table from audit report
-   - Current `hatch3r-prd.md`
-   - `VISION.md` (if available)
+   - Current `governance/hatch3r-prd.md`
+   - `governance/VISION.md` (if available)
    - Reviewer verdict and domain re-scores
 
 2. **Filter candidates:**
@@ -485,7 +496,7 @@ Track false positive rate per domain: `false_positives_in_domain / total_finding
 
 5. **Commit:**
    ```
-   git add hatch3r-prd.md
+   git add governance/hatch3r-prd.md
    git commit -m "audit: phase 5 -- PRD update from audit cycle [date]"
    ```
 
@@ -580,8 +591,8 @@ Track false positive rate per domain: `false_positives_in_domain / total_finding
 
 1. **Read inputs:**
    - Audit Self-Evolution Proposals table from audit report
-   - Current `AUDIT.md`
-   - Relevant domain files (`audit/domains/D{NN}-{name}.md`)
+   - Current `governance/AUDIT.md`
+   - Relevant domain files (`governance/audit/domains/D{NN}-{name}.md`)
 
 2. **Present each proposal individually for user decision:**
    ```
@@ -598,9 +609,9 @@ Track false positive rate per domain: `false_positives_in_domain / total_finding
    If user selects "modify", capture the modification before proceeding.
 
 3. **Apply accepted proposals:**
-   - For AUDIT.md changes: modify the specific section
-   - For domain file changes: modify the specific domain file
-   - For new domain additions: create `audit/domains/D{NN}-{name}.md` following existing template
+   - For AUDIT.md changes: modify the specific section in `governance/AUDIT.md`
+   - For domain file changes: modify the specific domain file in `governance/audit/domains/`
+   - For new domain additions: create `governance/audit/domains/D{NN}-{name}.md` following existing template
    - For weight adjustments: recalculate all weights in the affected tier to preserve tier totals
    - For sub-agent count changes: update Summary Table totals
 
@@ -614,7 +625,7 @@ Track false positive rate per domain: `false_positives_in_domain / total_finding
 
 6. **Commit:**
    ```
-   git add AUDIT.md audit/domains/
+   git add governance/AUDIT.md governance/audit/domains/
    git commit -m "audit: phase 7 -- audit prompt evolution from [date] cycle"
    ```
 
@@ -645,6 +656,8 @@ Self-check: count status markers in updated report and verify they match registr
 2. **Update Tier 3 — Domain Detail:** Add `Status` column. Mark: `**Done**`, `PARTIAL`, `ROLLED-BACK`. Unresolved remains unmarked. Must be consistent with Enhanced Action Items.
 
 3. **Update Enhanced Action Items:** Mark: `DONE`, `PARTIAL`, `OPEN` (with failure reason), `ROLLED-BACK` (with wave and reason). Recalculate remaining effort in Blockers/Should-Have/Deferred sections.
+
+4. **Update Executive Dashboard:** Update overall score, score band, domain heatmap, top-3 strengths/issues, and holistic assessment to reflect post-execution state.
 
 5. **Update Delta Since Previous Audit:** Resolution statistics, wave-level breakdown, updated open count.
 
@@ -749,7 +762,7 @@ After each complete execution cycle, produce an Execution Insights summary to in
 
 ### Output
 
-Write to `.audit-workspace/execution-insights.json`:
+Write to `governance/audit/execution-insights.json` (persistent — survives across audit cycles):
 
 ```json
 {
@@ -775,7 +788,7 @@ Write to `.audit-workspace/execution-insights.json`:
 
 The next cycle's Phase 1 (Enhanced Triage) should:
 
-1. Read `.audit-workspace/execution-insights.json` if available from the previous cycle.
+1. Read `governance/audit/execution-insights.json` if available from the previous cycle.
 2. Use fix success rates to adjust work unit concurrency — unreliable finding types get serialized work units rather than parallel.
 3. Use sizing accuracy data to calibrate effort estimates — if Medium findings consistently take L effort, adjust upward.
 4. Flag recurring failure files as "high-risk" work units requiring extra review attention.

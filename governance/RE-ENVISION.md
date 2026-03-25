@@ -30,7 +30,7 @@ If no VISION.md exists, state: "No existing VISION.md found. Starting fresh."
 
 ### Step 1.2: Read PRD
 
-If `hatch3r-prd.md` exists at the project root:
+If `governance/hatch3r-prd.md` exists:
 - Read **Section 2 (Vision)** — summarize in 2-3 bullets
 - Read **Section 6 (Principles)** — list current principles
 - Note any gaps or tensions between PRD vision and VISION.md (if both exist)
@@ -211,7 +211,7 @@ After VISION.md is written, check alignment with downstream documents.
 
 ### Step 4.1: Compare Against PRD
 
-If `hatch3r-prd.md` exists:
+If `governance/hatch3r-prd.md` exists:
 - Compare VISION.md against **Section 2 (Vision)** — flag divergences
 - Compare VISION.md principles against **Section 6 (Principles)** — flag missing or conflicting principles
 - Present a gap analysis with specific proposed changes
@@ -250,7 +250,7 @@ If PRD changes are proposed:
 > **PRD changes proposed:**
 > *(list specific changes)*
 >
-> Apply these changes to `hatch3r-prd.md`? **(y/n)**
+> Apply these changes to `governance/hatch3r-prd.md`? **(y/n)**
 
 Only update PRD Section 2 (Vision) and Section 6 (Principles). Do not modify other PRD sections — those are the PRD's domain.
 

@@ -108,9 +108,9 @@ These phases run after all execution waves complete and the final reviewer issue
 
 ---
 
-## 4. The 16 Audit Quality Gaps
+## 4. Audit Quality Architecture (3 Layers, 29 Concepts)
 
-These gaps were identified through systematic analysis of the audit system's ability to produce senior-expert-quality results. Each gap represents a failure mode that could cause the audit to miss real issues or produce superficial findings.
+These concepts were identified through systematic analysis of the audit system's ability to produce senior-expert-quality results. Layer 1 covers audit system mechanics (16 gaps), Layer 2 addresses senior human parity (5 traits), and Layer 3 ensures content quality mirroring (8 standards). Each represents a failure mode that could cause the audit to miss real issues or produce superficial findings.
 
 ### Layer 1: Audit System Mechanics
 

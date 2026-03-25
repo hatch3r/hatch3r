@@ -12,11 +12,11 @@ ALL sub-agents are **sequential** — they run only after D16 and D17 complete.
 | 18.3 | Distribution Verdict | D16, D17, 18.1, 18.2 |
 
 **Files to check:**
-- `hatch3r-prd.md` (gitignored — ask user if available)
-- `COMPETITIVE-ANALYSIS.md` (gitignored — ask user if available)
+- `governance/hatch3r-prd.md` (gitignored — ask user if available)
+- `governance/COMPETITIVE-ANALYSIS.md` (gitignored — ask user if available)
 - `todo.md` (gitignored — current roadmap)
-- `VISION.md` (committed — stable north-star vision document)
-- `RE-ENVISION.md` (committed — framework-owner vision capture prompt)
+- `governance/VISION.md` (committed — stable north-star vision document)
+- `governance/RE-ENVISION.md` (committed — framework-owner vision capture prompt)
 
 ## Audit Checklists
 

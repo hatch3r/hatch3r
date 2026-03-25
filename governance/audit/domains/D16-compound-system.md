@@ -43,7 +43,7 @@ ALL sub-agents are **sequential** — they run only after their cross-domain dep
 - [ ] Content freshness — are artifacts up-to-date with current platform capabilities?
 
 ### 16.5 Closed-Loop Effectiveness
-- [ ] PRD evolution tracking — were previous audit cycle's PRD Evolution Candidates incorporated into the PRD? Compare `hatch3r-prd.md` version history against previous audit report's closed-loop sections.
+- [ ] PRD evolution tracking — were previous audit cycle's PRD Evolution Candidates incorporated into the PRD? Compare `governance/hatch3r-prd.md` version history against previous audit report's closed-loop sections.
 - [ ] Content gap closure rate — were content artifacts identified in previous cycles' Content Gap Artifacts actually created? Count artifacts that match previous proposals.
 - [ ] Audit evolution adoption rate — were previous cycle's accepted Audit Self-Evolution Proposals reflected in current AUDIT.md and domain files?
 - [ ] Feedback loop latency — how many audit cycles does it take for a finding to reach the PRD? For content to be created? For audit prompts to evolve?
