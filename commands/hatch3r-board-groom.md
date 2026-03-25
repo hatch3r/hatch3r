@@ -173,6 +173,22 @@ For each epic, compare the sub-issue references in the epic body (checklist item
 
 If `board.projectNumber` is configured, compare label-based status (`status:*` labels) against board column status via `gh project item-list {board.projectNumber} --owner {board.owner} --format json` (GitHub) or equivalent platform call. Flag issues where the label status and board column status diverge.
 
+#### 3m. Orphaned In-Review Detection
+
+For each open issue with `status:in-review`:
+
+1. **GitHub:** Check if any open PR body references `Closes #N` for this issue: `gh pr list -R {owner}/{repo} --state open --json number,body` — parse for `Closes #{N}`.
+2. **Azure DevOps:** Check if any active PR is linked to this work item: `az repos pr list --org https://dev.azure.com/{namespace} --project {project} --status active` — check work item relations.
+3. **GitLab:** Check if any open MR description references `Closes #N` for this issue: `glab mr list -R {namespace}/{project} --state opened` — parse descriptions for `Closes #{N}`.
+
+Also check for closed issues with `status:in-review` (or any non-`status:done` status label) — these are issues that were auto-closed on PR merge but whose labels and board status were not updated to "Done" (see Post-Merge Terminal State in `hatch3r-board-shared`).
+
+Flag two categories:
+- **Orphaned in-review (open):** Open issues with `status:in-review` but no associated open PR/MR — likely caused by PR closure without merge.
+- **Stale in-review (closed):** Closed issues still labeled `status:in-review` — should be `status:done` with board status "Done".
+
+---
+
 #### 3l. Present Refinement Summary
 
 Present findings grouped by category:
@@ -189,6 +205,7 @@ Board Health:
   Epic ordering discrepancies: E epics
   Unlinked sub-issues: U issues (non-native links)
   Board sync drift: V issues (label/board status mismatch)
+  Orphaned in-review: O issues (open with no PR/MR), S issues (closed but not status:done)
 
 Grooming Opportunities:
   Re-prioritize candidates: R issues (priority/risk misalignment, priority inflation)
@@ -448,7 +465,7 @@ Link Fix Candidates:
 
 #### 4i. Health Fix (Board Health Remediation)
 
-Fix structural gaps detected in Step 3b (missing metadata).
+Fix structural gaps detected in Step 3b (missing metadata), board sync drift detected in Step 3k, and orphaned in-review issues detected in Step 3m.
 
 1. For each issue with missing required labels, infer the missing labels from issue content using the same classification tables as `board-fill` Step 3:
    - Missing `type:*` → infer from title/body keywords.
@@ -474,6 +491,42 @@ Health Fix — Missing Metadata:
    - **GitHub:** `gh issue edit N --add-label "..."` (fall back to `issue_write` MCP).
    - **Azure DevOps:** `az boards work-item update --id N --fields "System.Tags=..."`.
    - **GitLab:** `glab issue update N --label "..."`.
+
+4. **Board sync drift remediation:** For each issue flagged in Step 3k where label status and board column status diverge:
+
+   - **Labels are source of truth.** Update the board to match the label.
+   - Use the platform-specific Board Sync Procedure to set the board status to the value corresponding to the issue's current status label.
+   - **Special case — closed issue with `status:in-review`:** If the issue is closed (state = closed) but the label is `status:in-review` and the board shows "In Review":
+     1. Replace `status:in-review` with `status:done` on the issue.
+     2. Sync board status to "Done" using `board.statusOptions.done`.
+   - Present drift fixes in the batch:
+
+```
+Board Sync Drift Remediation:
+
+| # | Title | Label Status | Board Status | Action |
+|---|-------|-------------|--------------|--------|
+| #N | {title} | status:ready | In Progress | Sync board -> Ready |
+| #M | {title} | status:in-review (closed) | In Review | Label -> status:done, board -> Done |
+```
+
+No separate ASK — drift fixes are presented alongside the metadata fixes in the same Health Fix confirmation prompt.
+
+5. **Orphaned in-review remediation:** For each issue flagged in Step 3m:
+
+   a. **Closed issue with `status:in-review`** (stale in-review): Suggest replacing `status:in-review` with `status:done` and syncing board to "Done". This is the post-merge terminal state that was not reached (see Post-Merge Terminal State in `hatch3r-board-shared`).
+   b. **Open issue with `status:in-review` but no open PR/MR** (orphaned in-review): Present the issue with context (last PR if any, time since last update). Suggest `status:ready` (if work appears abandoned) or `status:in-progress` (if rework is likely).
+
+```
+Orphaned In-Review Remediation:
+
+| # | Title | State | Last PR | Suggested Status | Reason |
+|---|-------|-------|---------|------------------|--------|
+| #N | {title} | closed | PR #M (merged) | status:done | Closed issue still labeled in-review |
+| #K | {title} | open | PR #J (closed, not merged) | status:ready | PR closed 14 days ago, no replacement |
+```
+
+**ASK:** "Confirm or adjust status changes for in-review issues. Enter per-issue decisions (e.g., '#N -> done, #K -> in-progress'), or 'confirm all' / 'skip'."
 
 ---
 

@@ -31,6 +31,10 @@ Platform-specific procedures for GitHub. Referenced from `hatch3r-board-pickup`.
 **Open PRs:**
 - `gh pr list -R {owner}/{repo} --state open` (fall back to `search_pull_requests` MCP).
 
+**Closed PRs for selected issue (abandoned work detection):**
+- `gh pr list -R {owner}/{repo} --state closed --search "closes #{N}"` — check if any recently closed (not merged) PRs reference this issue.
+- If found: Surface to the user: "Note: PR #{M} was closed without merge for issue #{N}. The previous work may be partially relevant. Options: (a) review the closed PR branch, (b) start fresh, (c) pick a different issue."
+
 ---
 
 ## Step 4: Update Issue Status — GitHub

@@ -2,6 +2,30 @@
 
 All notable changes to hatch3r are documented in this file.
 
+## [1.4.0] - 2026-03-25
+
+### Added
+
+- **`status:done` label**: Added to the board label taxonomy, closing the gap between the existing `BoardConfig.statusOptions.done` TypeScript type and the agent command instructions. All platform status mapping tables now include the `status:done` row.
+- **Post-Merge Terminal State handling**: New section in `hatch3r-board-shared` documenting platform-specific behavior after PR merge — GitHub Projects V2 built-in workflow verification, Azure DevOps opt-in checkbox, GitLab label drift advisory.
+- **PR Closed Without Merge handling**: New section in `hatch3r-board-shared` defining revert behavior for abandoned PRs. Board-groom Step 3m detects orphaned `status:in-review` issues with no associated open PR/MR.
+- **Abandoned work detection in collision check**: All three platform pickup files (GitHub, Azure DevOps, GitLab) now check for closed/abandoned PRs during Step 3 collision detection and surface context to the user.
+- **Orphaned in-review remediation in board-groom**: Health Fix (Step 4i) expanded to remediate board sync drift (label vs. board status mismatch) and orphaned in-review issues (both open with no PR and closed but not status:done).
+- **End-of-Run Reconciliation step 5**: Orphaned in-review detection for all cached `status:in-review` issues, not just those transitioned during the current run. Reconciliation report now includes orphaned in-review line.
+- **Board-init automation guidance**: GitHub section recommends verifying the Projects V2 "Item closed" built-in workflow after board creation. GitLab section notes labels are not auto-updated on close. ADO section documents column split recommendations.
+
+### Changed
+
+- **Sub-issue linking fallback chain parity**: Azure DevOps and GitLab sub-issue linking upgraded from 2-tier to 3-tier fallback chains, matching GitHub's structure (Native -> Advisory body-reference -> Comment-only). The "Three-Tier" section headers now match their content.
+- **Board Sync Enforcement rule 2**: Updated from "four canonical statuses" to "five canonical statuses" (Ready, In Progress, In Review, Done, Blocked).
+- **GitLab required board lists**: Added "Done" (`status::done`) to the required board lists created during `board-init`.
+- **Board-groom health-fix scope**: Expanded from missing metadata only to also include board sync drift remediation and orphaned in-review resolution.
+
+### Documentation
+
+- **ADO status granularity**: Documented the known limitation where `status:ready` and `status:in-progress` both map to ADO state "Active". Added recommendations for custom process templates and board column splits.
+- **GitLab scoped labels caveat**: Noted that scoped labels (`status::done`) require GitLab Premium or Ultimate tier.
+
 ## [1.3.0] - 2026-03-18
 
 ### Added
