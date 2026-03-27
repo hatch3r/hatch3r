@@ -35,6 +35,10 @@ ALL sub-agents are **sequential** — they run only after their cross-domain dep
 - [ ] Consistent severity levels — are "Critical", "High", "Medium", "Low" used uniformly?
 - [ ] Consistent output formats — do all artifacts produce structurally compatible output?
 - [ ] Cross-artifact contradiction detection — do any artifacts give conflicting instructions?
+- [ ] Cross-command review loop consistency — do all commands implementing the reviewer-fixer loop (workflow, board-pickup delegation, revision, quick-change) use identical termination conditions (max 3 iterations, 0 Critical + 0 Warning threshold), identical ASK behavior on exhaustion, and identical fixer dispatch logic?
+- [ ] Cross-command quality gate consistency — do all commands running quality checks (lint, typecheck, test) use the same retry limits (max 2), the same failure escalation behavior (ASK user), and the same pass criteria?
+- [ ] Cross-command sub-agent prompt consistency — do all commands specifying sub-agent "prompt MUST include" lists include the same mandatory items (agent protocol, scope:always rules, diff/changes, acceptance criteria, confidence expression requirement)? Flag any command that omits an item present in the others.
+- [ ] Cross-command confidence expression consistency — do all commands express confidence at the same structural points (delegation, review results, quality gates, acceptance criteria verification, overall summary) using the same three-level scale (high/medium/low) with the same definitions?
 
 ### 16.4 Regression & Maintenance Quality
 - [ ] Zero-regression rate — how well does the framework maintain quality across updates?

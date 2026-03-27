@@ -336,7 +336,7 @@ Prioritize within wave: dependency-first, then impact-to-effort ratio, then secu
 
 ## Regression Gates
 
-After each wave commit, run 6-check gate comparing against Phase 0 baseline (NOT a shifted baseline).
+After each wave commit, run 8-check gate comparing against Phase 0 baseline (NOT a shifted baseline).
 
 ### Gate Checks
 
@@ -349,6 +349,7 @@ After each wave commit, run 6-check gate comparing against Phase 0 baseline (NOT
 | Content | `npx hatch3r validate` | No validation errors | Content structure/reference errors introduced |
 | Diff | `git diff --stat BASELINE..HEAD` | No unintended mods, no binaries, no credentials | Anomalies detected |
 | Fix-Finding | Review diff against finding recommendations | Each "done" finding's change addresses its specific recommendation | Change addresses a related area but not the specific recommendation |
+| Governance | Scan modified `.md` files in `commands/`, `agents/`, `skills/` against pre-wave versions | Modified governance files retain ASK checkpoints, quality gate references, and sub-agent delegation patterns present in the pre-wave version | A governance file lost an ASK checkpoint, quality gate reference, or sub-agent delegation pattern that existed before the wave |
 
 ### Gate Result Format
 
@@ -364,6 +365,7 @@ After each wave commit, run 6-check gate comparing against Phase 0 baseline (NOT
 | Content | PASS/FAIL | X validation errors (baseline: Y, delta: +Z) |
 | Diff | PASS/FAIL | [issues, if any] |
 | Fix-Finding | PASS/FAIL | X of Y findings aligned (Z divergent) |
+| Governance | PASS/FAIL | X of Y governance files retain expected patterns |
 
 Gate Verdict: PASS / FAIL
 ```

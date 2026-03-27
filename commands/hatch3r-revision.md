@@ -242,7 +242,31 @@ Cosmetic ({n}):
 
 (accept / fix all / adjust / add more)"
 
-If the user attempts to defer a Critical finding: **warn** that critical issues risk merge safety, then ask for explicit confirmation before allowing the override. Do not block -- the user knows their context.
+If the user attempts to defer a Critical finding, execute the Critical Deferral Protocol:
+
+1. **Structured warning.** Present the specific risk:
+
+   ```
+   Critical Deferral Warning:
+     Finding: {description}
+     Risk: {specific consequence of deferral — e.g., "unvalidated auth tokens may allow unauthorized access"}
+     Policy: Critical findings should resolve before merge (CONSTITUTION.md, quality philosophy).
+   ```
+
+2. **Require rationale.** Do not accept a bare "yes" or "defer" — the user must provide a written reason explaining why deferral is acceptable in this context.
+
+   **ASK:** "To defer this Critical finding, please provide a written rationale explaining why it is safe to merge without resolving it. This will be recorded in todo.md for board-fill triage."
+
+3. **Record rationale.** When recording the deferred Critical finding in todo.md (Step 5c), include the user's rationale and a `Critical-deferred` tag:
+
+   ```markdown
+   - {finding description} (severity: Critical, file: {file:line}) [Critical-deferred]
+     Deferral rationale: {user's stated rationale}
+   ```
+
+4. **Flag for triage.** The `Critical-deferred` tag ensures board-fill surfaces this item with elevated visibility during the next triage cycle. Board-fill should treat `Critical-deferred` items as priority:p0 candidates regardless of other signals.
+
+The user is never blocked — this protocol adds accountability, not a veto.
 
 "fix all" preserves backward compatibility -- zero additional friction for simple revisions where everything should just be fixed.
 
@@ -307,6 +331,7 @@ Each sub-agent prompt MUST include:
 - Acceptance criteria from linked issues (if available from Step 1b).
 - Relevant learnings from `.agents/learnings/` (if found in Step 1d).
 - Explicit instruction: do NOT create branches, commits, or PRs.
+- Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
 
 #### 6c. Await and Integrate Results
 
@@ -331,6 +356,8 @@ Run the project's quality checks. Refer to `package.json` scripts, `README.md`, 
 
 Walk through each critical and important finding from Step 5. Verify it is addressed by the changes made in Step 6. If acceptance criteria exist from linked issues, verify each criterion.
 
+For each verified finding and acceptance criterion, rate verification confidence: high (fix confirmed via tests or direct observation), medium (code change addresses the issue but edge cases not independently tested), low (fix applied but uncertain of completeness).
+
 #### 7c. Review Loop
 
 Run an iterative review loop (max 3 iterations) until 0 Critical + 0 Warning findings remain:
@@ -341,12 +368,15 @@ The reviewer prompt MUST include:
 - The diff of all changes made (use `git diff` on the working tree).
 - All `scope: always` rule directives from `.agents/rules/`.
 - Iteration number and previous findings (if not the first iteration).
+- Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
 
 2. Process reviewer output:
    - If **0 Critical and 0 Warning** findings: review loop is clean. Proceed to Step 7d.
    - If Critical or Warning findings remain: spawn `hatch3r-fixer` sub-agent to address them, then re-run the reviewer (next iteration).
 
 3. If 3 iterations complete and findings remain, **ASK** the user whether to proceed or fix manually.
+
+After each reviewer iteration, assess the reviewer's findings confidence: if the reviewer rates any finding as low-confidence, flag it separately in the ASK prompt so the user can prioritize human review of uncertain findings.
 
 4. After any fixes, re-run quality gates (Step 7a) to verify nothing broke.
 
@@ -360,13 +390,14 @@ After the review loop is clean, spawn both agents in parallel via the Task tool:
 Both prompts MUST include:
 - The diff of all changes made.
 - All `scope: always` rule directives from `.agents/rules/`.
+- Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
 
 Apply any resulting changes (new tests, security fixes). Re-run quality gates (Step 7a) if changes were made.
 
 #### 7e. Handle Failures
 
 - If quality checks fail: identify the specific failures, fix them directly (for simple issues) or loop back to Step 6 with specific failures.
-- Max 2 retry loops on quality check failures. After 2 retries, **ASK** the user for guidance.
+- Max 2 retry loops on quality check failures. After 2 retries, **ASK** the user for guidance: "Quality checks still failing. Fix confidence: {high/medium/low — based on whether root cause is identified}."
 - If a user-reported issue was not fully addressed: **ASK** the user whether to attempt another fix or defer.
 
 ---
@@ -419,6 +450,9 @@ Merge Readiness:
 Deferred to Board ({M} items — in todo.md, pending board-fill):
   - {description} (severity: {severity})
   - ...
+
+  Overall Revision Confidence: {high/medium/low}
+    Highest-risk remaining area: {description or "none"}
 
 Verdict: READY / NOT READY ({remaining items})
 ```
@@ -476,6 +510,6 @@ Capture revision-specific learnings. Focus on patterns that inform future implem
 - **One sub-agent per concern.** Delegate to specialist sub-agents based on finding type. Do not ask the implementer to also fix lint issues or write tests.
 - **Git safety.** Never force-push. Never rewrite history. Always create new commits for revision changes.
 - **This command composes existing hatch3r agents** -- it does not replace them. The reviewer, implementer, lint-fixer, and test-writer agents handle the actual work.
-- **Critical findings default to FIX NOW.** If the user overrides this, warn that critical issues risk merge safety and ask for explicit confirmation. Allow the override -- the user knows their context.
+- **Critical findings default to FIX NOW.** If the user overrides this, execute the Critical Deferral Protocol (Step 5b): structured warning with specific risk, require written rationale, record in todo.md with `Critical-deferred` tag, and flag for elevated triage in board-fill. The user is never blocked — rationale adds accountability, not a veto.
 - **Deferred findings go to `todo.md`, not directly to GitHub issues.** The board-fill pipeline handles triage, epic creation, dependency analysis, and readiness assessment. Revision does not shortcut this process.
 - **Always format deferred items as a single epic block** in `todo.md`, regardless of count. This ensures board-fill groups them together during the next run.

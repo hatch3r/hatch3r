@@ -230,6 +230,7 @@ The implementer sub-agent prompt MUST include:
 - **Reference conventions** from `similar-implementation` output (Tier 2/3) — triggers the implementer's Convention Lock step.
 - **Resolved requirements** from `requirements-elicitation` answers (Tier 2/3) — explicit decisions on ambiguities.
 - **Blast radius data** from enhanced `codebase-impact` (Tier 3) — transitive dependency trace and API consumer map.
+- Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
 
 Await the implementer sub-agent. Collect its structured result.
 
@@ -248,7 +249,7 @@ npm run lint && npm run typecheck && npm run test
 
 Fix any issues before proceeding. If quality checks fail, loop back and resolve before advancing to Phase 4.
 
-**ASK:** "Implementation complete. All quality checks pass. Proceed to Review? (yes / fix issues first)"
+**ASK:** "Implementation complete. All quality checks pass. Confidence in implementation quality: {high/medium/low — based on test coverage depth, edge case handling, and researcher coverage}. Proceed to Review? (yes / fix issues first)"
 
 ---
 
@@ -266,11 +267,14 @@ Spawn a `hatch3r-reviewer` sub-agent via the Task tool (`subagent_type: "general
 4. **Re-review:** After the fixer completes, spawn `hatch3r-reviewer` again to verify fixes.
 5. **Repeat** steps 2-4 for a maximum of **3 iterations**. If still not clean after 3 iterations, **ASK** the user how to proceed (force continue / manual fix / abort).
 
+After each reviewer iteration, assess the reviewer's findings confidence: if the reviewer rates any finding as low-confidence, flag it separately in the ASK prompt so the user can prioritize human review of uncertain findings.
+
 Each reviewer/fixer sub-agent prompt MUST include:
 - The agent protocol to follow.
 - All `scope: always` rule directives from `.agents/rules/`.
 - The diff or file changes to review/fix.
 - The task's acceptance criteria.
+- Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
 
 #### 4b. Final Quality (Parallel Specialists)
 
@@ -296,12 +300,15 @@ Each specialist sub-agent prompt MUST include:
 - All `scope: always` rule directives from `.agents/rules/`.
 - The diff or file changes to review.
 - The task's acceptance criteria.
+- Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
 
 Await all specialist sub-agents. Apply their feedback (fixes, additional tests, documentation updates).
 
 #### 4c. Verify Against Acceptance Criteria
 
 Check each acceptance criterion from the original task or issue. Mark as met or not-met with evidence.
+
+For each criterion, rate verification confidence: high (tested and confirmed via code, tests, or browser), medium (logically satisfied but not independently verified), low (uncertain, recommend human testing).
 
 #### 4d. Present Review
 
@@ -313,6 +320,8 @@ Review Results:
   Test Coverage: {test-writer results}
   Documentation: {docs-writer results / not applicable}
   Performance: {pass/issues}
+  Overall Confidence: {high/medium/low}
+    Lowest-confidence area: {description or "none"}
 ```
 
 **ASK:** "Review complete. {summary}. Ready to finalize? (yes / address review issues / request human review)"

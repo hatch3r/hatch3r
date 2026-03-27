@@ -175,6 +175,10 @@ The `protected` field is set in the canonical agent definition and cannot be ove
 - Invalid YAML produces warnings but does not prevent agent execution (graceful degradation)
 - Customization files should be committed to the repository
 
+## Unified Skill
+
+This command's workflow is handled by the `hatch3r-customize` skill with `type: agent`. The skill provides root-cause analysis, multi-stakeholder review, and quality gate steps that extend the workflow above. Invoke the skill directly or use this command for the agent-specific reference documentation (model resolution, protected agents, per-agent examples).
+
 ## Related
 
 - Skill customization: `hatch3r-skill-customize` command

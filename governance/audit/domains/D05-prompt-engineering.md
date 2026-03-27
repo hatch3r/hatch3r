@@ -59,7 +59,25 @@
 - [ ] Workflow completeness — edge cases, error paths, alternative flows handled
 - [ ] Platform feature integration — commands leverage platform capabilities (GitHub API, git, etc.)
 - [ ] UX quality — intuitive naming, helpful output, clear error messages
-- [ ] Simulated LLM execution — for 3 representative commands (one planning, one board, one workflow), mentally simulate step-by-step LLM execution. Predict the output at each step. Compare predicted output against the command's stated purpose. Flag steps where the LLM is likely to deviate, hallucinate, or produce unusable output.
+- [ ] Simulated LLM execution — for ALL core and orchestration-heavy commands (minimum: `hatch3r-workflow`, `hatch3r-board-pickup`, `hatch3r-revision`, `hatch3r-quick-change`, `hatch3r-learn`, `hatch3r-security-audit`), mentally simulate step-by-step LLM execution. Predict output at each step. Compare against stated purpose. Flag deviation/hallucination risks. For commands with sub-files (e.g., board-pickup's delegation files), simulate the full delegation chain.
+- [ ] Governance compliance — for each command, verify adherence to governance standards:
+
+  **VISION.md Principles:**
+  - [ ] ASK checkpoints present at every user-facing decision point (Principle 13: quality through measurable standards)
+  - [ ] Quality gates mandatory and not skippable (Principle 9: one-shot success)
+  - [ ] Sub-agent delegation follows four-phase pipeline (Principle 12: sub-agentic by design)
+  - [ ] Learnings consulted when `.agents/learnings/` exists (Principle 5: compound knowledge)
+  - [ ] `scope: always` rules included in every sub-agent prompt (Principle 4: proven patterns)
+  - [ ] Up-to-date information sources referenced — Context7 MCP, web research (Principle 8: up-to-date information always)
+  - [ ] Measurable acceptance criteria in quality verification (Principle 13)
+  - [ ] Context degradation guards present (Principle 9)
+
+  **CONSTITUTION.md Behavioral Standards:**
+  - [ ] Severity routing respects defined levels — Critical never silently deferred without rationale
+  - [ ] Confidence expression present in gates, delegation prompts, and result summaries
+  - [ ] Review loop termination follows max-3-iteration pattern with user ASK on exhaustion
+  - [ ] Sub-agent prompts include agent protocol reference
+  - [ ] Error handling explicit with recovery guidance
 
 ### 5.6 Skills
 - [ ] Step-by-step correctness — each step is executable and produces expected results
