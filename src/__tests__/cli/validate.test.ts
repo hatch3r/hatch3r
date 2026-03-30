@@ -85,7 +85,7 @@ describe("validate command", () => {
     try { await validateCommand(); } catch (e) { expect((e as HatchError).exitCode).toBe(1); }
 
     const allOutput = consoleSpy.mock.calls
-      .map((c) => String(c[0]))
+      .map((c: unknown[]) => String(c[0]))
       .join(" ");
     expect(allOutput).toContain(".agents/ directory not found");
   });
@@ -110,7 +110,7 @@ describe("validate command", () => {
     await expect(validateCommand()).rejects.toThrow(HatchError);
     try { await validateCommand(); } catch (e) { expect((e as HatchError).exitCode).toBe(1); }
 
-    const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
     expect(allOutput).toContain("Missing .agents/hatch.json manifest");
   });
 
@@ -125,7 +125,7 @@ describe("validate command", () => {
     const { validateCommand } = await import("../../cli/commands/validate.js");
     await validateCommand();
 
-    const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
     expect(allOutput).toContain("Missing frontmatter");
   });
 
@@ -139,7 +139,7 @@ describe("validate command", () => {
     const { validateCommand } = await import("../../cli/commands/validate.js");
     await validateCommand();
 
-    const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
     expect(allOutput).toContain("Optional directory missing");
   });
 
@@ -154,7 +154,7 @@ describe("validate command", () => {
     const { validateCommand } = await import("../../cli/commands/validate.js");
     await expect(validateCommand()).rejects.toThrow(HatchError);
 
-    const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
     expect(allOutput).toContain("Invalid frontmatter (no closing ---)");
   });
 
@@ -169,7 +169,7 @@ describe("validate command", () => {
     const { validateCommand } = await import("../../cli/commands/validate.js");
     await validateCommand();
 
-    const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
     expect(allOutput).toContain("Missing 'id' in frontmatter");
   });
 
@@ -184,7 +184,7 @@ describe("validate command", () => {
     const { validateCommand } = await import("../../cli/commands/validate.js");
     await validateCommand();
 
-    const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
     expect(allOutput).toContain("Missing 'type' in frontmatter");
   });
 
@@ -198,7 +198,7 @@ describe("validate command", () => {
     const { validateCommand } = await import("../../cli/commands/validate.js");
     await validateCommand();
 
-    const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
     expect(allOutput).toContain("Skill directory missing SKILL.md");
   });
 
@@ -215,7 +215,7 @@ describe("validate command", () => {
     const { validateCommand } = await import("../../cli/commands/validate.js");
     await validateCommand();
 
-    const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
     expect(allOutput).toContain("Managed file without hatch3r- prefix");
   });
 
@@ -236,7 +236,7 @@ describe("validate command", () => {
     const { validateCommand } = await import("../../cli/commands/validate.js");
     await expect(validateCommand()).rejects.toThrow(HatchError);
 
-    const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
     expect(allOutput).toContain("Invalid JSON in .agents/mcp/mcp.json");
   });
 
@@ -253,7 +253,7 @@ describe("validate command", () => {
     const { validateCommand } = await import("../../cli/commands/validate.js");
     await validateCommand();
 
-    const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
     expect(allOutput).toContain('Learning file "bad-learning.md" contains suspicious content');
   });
 
@@ -270,7 +270,7 @@ describe("validate command", () => {
     const { validateCommand } = await import("../../cli/commands/validate.js");
     await validateCommand();
 
-    const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
     expect(allOutput).not.toContain("suspicious content");
   });
 
@@ -284,7 +284,7 @@ describe("validate command", () => {
     const { validateCommand } = await import("../../cli/commands/validate.js");
     await validateCommand();
 
-    const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
     expect(allOutput).toContain("Validation passed");
     expect(allOutput).toContain("warning(s)");
   });
@@ -305,7 +305,7 @@ describe("validate command", () => {
     const { validateCommand } = await import("../../cli/commands/validate.js");
     await validateCommand();
 
-    const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
     expect(allOutput).toContain("All checks passed");
   });
 
@@ -317,7 +317,7 @@ describe("validate command", () => {
     const { validateCommand } = await import("../../cli/commands/validate.js");
     await validateCommand();
 
-    const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
     expect(allOutput).toContain("Hooks feature enabled but no hook definitions found");
   });
 
@@ -327,7 +327,7 @@ describe("validate command", () => {
     const { validateCommand } = await import("../../cli/commands/validate.js");
     await validateCommand();
 
-    const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
     expect(allOutput).toContain("Hooks feature enabled but .agents/hooks/ directory not found");
   });
 
@@ -343,7 +343,7 @@ describe("validate command", () => {
     const { validateCommand } = await import("../../cli/commands/validate.js");
     await validateCommand();
 
-    const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
     expect(allOutput).toContain("Hook missing frontmatter");
   });
 
@@ -359,7 +359,7 @@ describe("validate command", () => {
     const { validateCommand } = await import("../../cli/commands/validate.js");
     await expect(validateCommand()).rejects.toThrow(HatchError);
 
-    const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
     expect(allOutput).toContain('references agent "ghost-agent"');
   });
 
@@ -373,7 +373,7 @@ describe("validate command", () => {
     const { validateCommand } = await import("../../cli/commands/validate.js");
     await expect(validateCommand()).rejects.toThrow(HatchError);
 
-    const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
     expect(allOutput).toContain("models.default must be a string");
   });
 
@@ -387,7 +387,7 @@ describe("validate command", () => {
     const { validateCommand } = await import("../../cli/commands/validate.js");
     await expect(validateCommand()).rejects.toThrow(HatchError);
 
-    const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
     expect(allOutput).toContain("models.agents.coder must be a string");
   });
 
@@ -403,7 +403,7 @@ describe("validate command", () => {
     const { validateCommand } = await import("../../cli/commands/validate.js");
     await validateCommand();
 
-    const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
     expect(allOutput).toContain("Customization file for non-existent agent");
   });
 
@@ -422,7 +422,7 @@ describe("validate command", () => {
     const { validateCommand } = await import("../../cli/commands/validate.js");
     await expect(validateCommand()).rejects.toThrow(HatchError);
 
-    const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
     expect(allOutput).toContain("MCP config missing 'mcpServers' key");
   });
 
@@ -437,7 +437,7 @@ describe("validate command", () => {
     const { validateCommand } = await import("../../cli/commands/validate.js");
     await validateCommand();
 
-    const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
     expect(allOutput).toContain("MCP servers configured but .agents/mcp/mcp.json not found");
   });
 
@@ -451,7 +451,7 @@ describe("validate command", () => {
     const { validateCommand } = await import("../../cli/commands/validate.js");
     await validateCommand();
 
-    const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
     expect(allOutput).toContain("Managed file missing from disk: missing-file.md");
   });
 });
