@@ -22,7 +22,7 @@ export interface IntegrityManifest {
   generated: string;
   hatchVersion: string;
   files: Record<string, string>;
-  checksum?: string;
+  checksum: string;
 }
 
 export interface VerifyResult {
@@ -107,7 +107,7 @@ function validateIntegrityManifest(data: unknown): data is IntegrityManifest {
   for (const val of Object.values(obj.files as Record<string, unknown>)) {
     if (typeof val !== "string") return false;
   }
-  if ("checksum" in obj && typeof obj.checksum !== "string") return false;
+  if (typeof obj.checksum !== "string") return false;
   return true;
 }
 
@@ -136,14 +136,12 @@ export async function verifyIntegrity(
 
   const results: VerifyResult[] = [];
 
-  if (manifest.checksum !== undefined) {
-    const expected = createHash("sha256")
-      .update(JSON.stringify(manifest.files))
-      .digest("hex");
-    if (manifest.checksum !== expected) {
-      results.push({ file: INTEGRITY_FILE, status: "tampered" });
-      return results;
-    }
+  const expected = createHash("sha256")
+    .update(JSON.stringify(manifest.files))
+    .digest("hex");
+  if (manifest.checksum !== expected) {
+    results.push({ file: INTEGRITY_FILE, status: "tampered" });
+    return results;
   }
   const manifestFiles = new Set(Object.keys(manifest.files));
 

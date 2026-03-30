@@ -86,7 +86,11 @@ Azure Boards syncs via Work Item State changes. There is no separate "add to boa
 | `status:in-progress` | `Active`        |
 | `status:in-review`   | `Resolved`      |
 | `status:blocked`     | `New`           |
-| (done)               | `Closed`        |
+| `status:done`        | `Closed`        |
+
+**Known limitation — Ready vs. In Progress granularity:** Both `status:ready` and `status:in-progress` map to the `Active` Work Item State because Azure DevOps built-in process templates (Agile, Scrum, CMMI) do not include a "Ready" state. The distinction is preserved in Work Item Tags (e.g., tag `status:ready` vs. `status:in-progress`), which hatch3r board commands always set alongside the State update. For projects that need board-level distinction:
+- **Custom process template:** Add a "Ready" state to the work item type in your Azure DevOps process template. Update the mapping above accordingly.
+- **Board column mapping:** Configure Azure Boards to use tag-based swim lanes or column splits to distinguish "Ready" from "In Progress" within the "Active" column.
 
 **Steps for each work item to sync:**
 
@@ -110,8 +114,14 @@ Azure Boards syncs via Work Item State changes. There is no separate "add to boa
    `az boards work-item relation add --id {child_id} --relation-type "System.LinkTypes.Hierarchy-Reverse" --target-id {parent_id}`.
    Record link status as `native`.
 
-2. **Fallback 1 — Comment trace:**
-   If relation add fails:
+2. **Fallback 1 — Advisory body-reference:**
+   If relation add fails, establish an advisory link via work item descriptions:
+   - Read the parent work item description. Append a sub-issue checklist entry: `- [ ] #{child} {title}` to the parent's description via `az boards work-item update --id {epic} --description "..."`.
+   - Read the child work item description. Prepend `> Parent: #{epic}` to the child's description via `az boards work-item update --id {child} --description "..."`.
+   - Record link status as `advisory`.
+
+3. **Fallback 2 — Comment trace:**
+   If both primary and Fallback 1 fail:
    `az boards work-item update --id {epic} --discussion "Sub-issue: #{child} — {title} (linking failed)"`.
    Record link status as `comment-only`.
 

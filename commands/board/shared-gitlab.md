@@ -83,6 +83,7 @@ GitLab board lists are label-based. Each status corresponds to a scoped label:
 | `status:ready`       | `status::ready`     |
 | `status:in-progress` | `status::in-progress` |
 | `status:in-review`   | `status::in-review` |
+| `status:done`        | `status::done`      |
 | `status:blocked`     | `status::blocked`   |
 
 **Steps for each issue to sync:**
@@ -104,8 +105,14 @@ GitLab board lists are label-based. Each status corresponds to a scoped label:
    `glab api projects/{project_id}/issues/{parent_iid}/links --method POST --field target_project_id={project_id} --field target_issue_iid={child_iid}`.
    Record link status as `native`.
 
-2. **Fallback 1 — Comment trace:**
-   If API linking fails:
+2. **Fallback 1 — Advisory body-reference:**
+   If API linking fails, establish an advisory link via issue descriptions:
+   - Read the parent epic body. Add a sub-issue checklist entry: `- [ ] #{child} {title}` to the epic's body via `glab issue update {epic} -R {namespace}/{project} --description "..."`.
+   - Read the child issue body. Prepend `> Parent: #{epic}` to the child's body via `glab issue update {child} -R {namespace}/{project} --description "..."`.
+   - Record link status as `advisory`.
+
+3. **Fallback 2 — Comment trace:**
+   If both primary and Fallback 1 fail:
    `glab issue note {epic} -R {namespace}/{project} --message "Sub-issue: #{child} — {title} (linking failed)"`.
    Record link status as `comment-only`.
 

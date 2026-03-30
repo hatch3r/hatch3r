@@ -27,6 +27,7 @@
 - [ ] **Token efficiency** — Is the artifact optimally sized? Could it be shorter without losing effectiveness? (Reference: AGENTS.md best practices: 6-10 rules, <150 lines)
 - [ ] **Hallucination prevention** — Does the artifact include grounding mechanisms (file references, schema constraints, verification steps)?
 - [ ] **State-of-the-art alignment** — Compare against latest research on effective LLM instruction formats
+- [ ] **Negative scenario testing** — For each content type examined: what happens when prerequisites are missing? When inputs are malformed? When referenced artifacts (agents, skills, MCP servers) don't exist? Content must fail gracefully with clear guidance or warn clearly — not fail silently or produce confusing output.
 
 ## Audit Checklists
 
@@ -58,6 +59,25 @@
 - [ ] Workflow completeness — edge cases, error paths, alternative flows handled
 - [ ] Platform feature integration — commands leverage platform capabilities (GitHub API, git, etc.)
 - [ ] UX quality — intuitive naming, helpful output, clear error messages
+- [ ] Simulated LLM execution — for ALL core and orchestration-heavy commands (minimum: `hatch3r-workflow`, `hatch3r-board-pickup`, `hatch3r-revision`, `hatch3r-quick-change`, `hatch3r-learn`, `hatch3r-security-audit`), mentally simulate step-by-step LLM execution. Predict output at each step. Compare against stated purpose. Flag deviation/hallucination risks. For commands with sub-files (e.g., board-pickup's delegation files), simulate the full delegation chain.
+- [ ] Governance compliance — for each command, verify adherence to governance standards:
+
+  **VISION.md Principles:**
+  - [ ] ASK checkpoints present at every user-facing decision point (Principle 13: quality through measurable standards)
+  - [ ] Quality gates mandatory and not skippable (Principle 9: one-shot success)
+  - [ ] Sub-agent delegation follows four-phase pipeline (Principle 12: sub-agentic by design)
+  - [ ] Learnings consulted when `.agents/learnings/` exists (Principle 5: compound knowledge)
+  - [ ] `scope: always` rules included in every sub-agent prompt (Principle 4: proven patterns)
+  - [ ] Up-to-date information sources referenced — Context7 MCP, web research (Principle 8: up-to-date information always)
+  - [ ] Measurable acceptance criteria in quality verification (Principle 13)
+  - [ ] Context degradation guards present (Principle 9)
+
+  **CONSTITUTION.md Behavioral Standards:**
+  - [ ] Severity routing respects defined levels — Critical never silently deferred without rationale
+  - [ ] Confidence expression present in gates, delegation prompts, and result summaries
+  - [ ] Review loop termination follows max-3-iteration pattern with user ASK on exhaustion
+  - [ ] Sub-agent prompts include agent protocol reference
+  - [ ] Error handling explicit with recovery guidance
 
 ### 5.6 Skills
 - [ ] Step-by-step correctness — each step is executable and produces expected results
@@ -71,3 +91,16 @@
 - [ ] Hook trigger accuracy — all 6 hooks fire on correct events
 - [ ] Prompt output quality — all 3 prompts produce useful, structured output
 - [ ] GitHub Actions integration quality — all 4 github-agents work correctly in CI
+
+### Content Quality Principles
+
+Verify that all content artifacts embody the shared quality charter (`agents/shared/quality-charter.md`). These checks apply across all content types and complement the per-type checklists above.
+
+- [ ] **Charter inheritance** — Do agents reference or inherit the shared quality charter? Is the charter accessible in the agent's context when loaded?
+- [ ] **Confidence expression** — Do agents express confidence levels (high/medium/low) in their output? Or do they present all recommendations with equal false certainty?
+- [ ] **Measurable acceptance criteria** — Do commands include measurable, verifiable acceptance criteria (not just "verify it works" or "ensure quality")?
+- [ ] **Failure mode documentation** — Do skills define what happens when prerequisites are missing, when edge cases arise, or when the skill cannot complete its task?
+- [ ] **Approach challenging** — Does the reviewer agent challenge the approach and design, not just the implementation details? Does it ask "is this the right solution?" in addition to "is this solution correct?"
+- [ ] **Requirement questioning** — Does the implementer agent question unclear or potentially misguided requirements before building, or does it blindly implement whatever is specified?
+- [ ] **Information currency** — Do agents use Context7 MCP and web search as instructed by the tooling hierarchy rule? Or do they rely on potentially stale training data for technical decisions?
+- [ ] **Stakeholder awareness** — Do agents consider impact on multiple stakeholders (end user, maintaining developer, team lead, ops team) in their recommendations?

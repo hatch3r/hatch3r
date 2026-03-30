@@ -72,7 +72,7 @@ describe("WindsurfAdapter", () => {
       o.path.includes("hatch3r-scoped-rule.md") && o.path.startsWith(".windsurf/rules/"),
     );
     expect(scopedRule).toBeDefined();
-    expect(scopedRule!.content).toContain("trigger: glob_pattern");
+    expect(scopedRule!.content).toContain("trigger: glob");
     expect(scopedRule!.content).toContain("**/*.ts");
   });
 

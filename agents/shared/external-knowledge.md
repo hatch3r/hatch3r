@@ -9,3 +9,24 @@ Follow the tooling hierarchy (specs > codebase > Context7 MCP > web research). U
 - **GitHub:** `gh` CLI
 - **Azure DevOps:** `az devops` / `az boards` / `az repos` CLI
 - **GitLab:** `glab` CLI
+- **Fallback** to platform MCP only for operations not covered by the CLI (e.g., sub-issue management, project field mutations).
+
+## Context7 MCP Protocol
+
+Use `resolve-library-id` to find the library, then `query-docs` to retrieve current documentation. Apply this for any framework, library, or tool whose API surface may have changed since training data.
+
+- Prefer Context7 over guessing API signatures, configuration options, or behavioral details from potentially outdated training data.
+- Always verify: method names, parameter signatures, return types, and configuration keys before using them in code.
+- If Context7 returns no results, fall back to web research (below).
+
+## Web Research Protocol
+
+Use web search when Context7 does not cover the topic, or for information that changes frequently:
+
+- **Security:** Current CVE details (NVD), security advisories, supply chain attack patterns.
+- **Standards:** Current best practice guidance, specification updates, compliance requirements.
+- **Ecosystem:** Package maintenance status, alternative evaluations, community adoption signals.
+- **Platform-specific advisories** by platform:
+  - **GitHub:** GitHub Security Advisories, Dependabot alerts
+  - **Azure DevOps:** Microsoft Defender for DevOps, WhiteSource/Mend
+  - **GitLab:** GitLab Dependency Scanning, Advisory Database

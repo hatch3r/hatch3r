@@ -90,7 +90,7 @@ describe("CursorAdapter", () => {
     const roAgent = outputs.find((o) => o.path === ".cursor/agents/hatch3r-readonly-agent.md");
     expect(roAgent).toBeDefined();
     expect(roAgent!.content).toContain("readonly: true");
-    expect(roAgent!.content).toContain("background: true");
+    expect(roAgent!.content).toContain("is_background: true");
     expect(roAgent!.content).toContain("name: readonly-agent");
   });
 

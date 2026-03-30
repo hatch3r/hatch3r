@@ -38,6 +38,7 @@ Verify compliance with `.agents/rules/hatch3r-security-patterns.md`, `.agents/ru
 6. **Performance:** No hot-path regressions. Bundle size impact. No per-keystroke cloud writes.
 7. **Accessibility:** Reduced motion respected. WCAG AA contrast. Keyboard accessible. ARIA attributes.
 8. **Dead code:** No unused imports, obsolete comments, or abandoned logic.
+9. **Root-cause verification:** Do the changes address the underlying cause of the issue, not just the symptom? Identify what the original issue was (from the issue body, acceptance criteria, or diff context), then verify the change fixes the root cause. Flag superficial fixes — e.g., adding a try-catch that swallows errors, adding a comment saying "fixed", disabling a test, or suppressing a warning without resolving the underlying condition. If the change treats only the symptom, classify as Critical and specify what root-cause fix is needed.
 
 ## Output Format
 
@@ -58,18 +59,14 @@ Include specific file paths and line references. Propose fixes where possible.
 
 ## External Knowledge
 
-Follow the tooling hierarchy and platform CLI guidance defined in `agents/shared/external-knowledge.md`.
+Follow the shared protocol in `agents/shared/external-knowledge.md` (tooling hierarchy, platform CLI, Context7 MCP, web research).
 
-## Context7 MCP Usage
+**Context7 focus for this agent:**
+- Verify that reviewed code uses library APIs correctly (correct method signatures, proper error handling, non-deprecated usage)
 
-- Use `resolve-library-id` then `query-docs` to verify that reviewed code uses library APIs correctly (correct method signatures, proper error handling, non-deprecated usage).
-- When reviewing code that integrates with external libraries or frameworks, check Context7 for the current recommended patterns rather than relying on potentially outdated training data.
-
-## Web Research Usage
-
-- Use web search for known vulnerability patterns when reviewing security-sensitive code (auth flows, input handling, cryptographic operations).
-- Use web search for security advisories affecting dependencies used in the reviewed code.
-- Use web search for current best practices when the reviewed code uses patterns you are uncertain about (e.g., new framework features, evolving security standards).
+**Web research focus for this agent:**
+- Known vulnerability patterns and security advisories when reviewing security-sensitive code (auth flows, cryptographic operations)
+- Current best practices when reviewed code uses uncertain patterns (new framework features, evolving security standards)
 
 ## External Verification Signals
 

@@ -146,12 +146,14 @@ function makeCatalogItem(overrides: Partial<CatalogItem> = {}): CatalogItem {
 function makeIndex(items: CatalogItem[]): ContentIndex {
   const byType: Record<string, CatalogItem[]> = {};
   const byId = new Map<string, CatalogItem>();
+  const byTypeAndId = new Map<string, CatalogItem>();
   for (const item of items) {
     if (!byType[item.type]) byType[item.type] = [];
     byType[item.type].push(item);
     byId.set(item.id, item);
+    byTypeAndId.set(`${item.type}:${item.id}`, item);
   }
-  return { items, byType, byId, collisions: [] };
+  return { items, byType, byId, byTypeAndId, collisions: [] };
 }
 
 function emptySelection(overrides: Partial<ContentSelection> = {}): ContentSelection {

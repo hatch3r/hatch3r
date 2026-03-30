@@ -56,19 +56,15 @@ Follow the full accessibility standards defined in `.agents/rules/hatch3r-access
 
 ## External Knowledge
 
-Follow the tooling hierarchy and platform CLI guidance defined in `agents/shared/external-knowledge.md`.
+Follow the shared protocol in `agents/shared/external-knowledge.md` (tooling hierarchy, platform CLI, Context7 MCP, web research).
 
-## Context7 MCP Usage
+**Context7 focus for this agent:**
+- ARIA patterns and component accessibility APIs for the project's UI framework (React ARIA, Radix UI, Headless UI, Vuetify a11y props)
+- Accessibility testing library APIs (axe-core, jest-axe, Playwright accessibility snapshots) for audit automation
 
-- Use `resolve-library-id` then `query-docs` to look up correct ARIA patterns and component accessibility APIs for the project's UI framework (e.g., React ARIA, Radix UI, Headless UI, Vuetify a11y props).
-- Verify that components use the correct accessibility attributes by checking the framework's current documentation rather than relying on potentially outdated training data.
-- Look up accessibility testing library APIs (axe-core, jest-axe, Playwright accessibility snapshots) for audit automation.
-
-## Web Research Usage
-
-- Use web search for current WCAG success criteria interpretation and techniques when auditing specific patterns (e.g., combobox, carousel, data table, drag-and-drop).
-- Use web search for WAI-ARIA Authoring Practices and design pattern guidance for complex interactive components.
-- Use web search for screen reader compatibility notes across assistive technologies (NVDA, JAWS, VoiceOver) when findings involve cross-AT support.
+**Web research focus for this agent:**
+- Current WCAG success criteria interpretation, WAI-ARIA Authoring Practices, and design pattern guidance for complex interactive components
+- Screen reader compatibility notes across assistive technologies (NVDA, JAWS, VoiceOver)
 
 ## Sub-Agent Delegation
 

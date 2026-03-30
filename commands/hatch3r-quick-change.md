@@ -40,7 +40,7 @@ This command intentionally skips:
 - GitHub issues and PRs
 - Researcher sub-agent
 - Full review pipeline (security-auditor, test-writer, docs-writer)
-- Learnings capture
+- Learnings capture (consultation of existing learnings retained — see Step 2c)
 
 It retains:
 - Quality checks (lint, typecheck, test) -- always mandatory
@@ -48,6 +48,7 @@ It retains:
 - Light code review (reviewer for nontrivial items only)
 - `scope: always` rules from `.agents/rules/`
 - Soft scope guards to prevent misuse
+- Lightweight learnings consultation (file-path scan, 150-token budget)
 
 ---
 
@@ -60,7 +61,7 @@ It retains:
 1. **No shared context loading.** Do NOT read `hatch3r-board-shared`. Do NOT fetch GitHub issues or PRs.
 2. **Minimal researcher usage.** No researcher for Tier 1 items. For Tier 2 items that proceed through quick-change, only `similar-implementation` at `quick` depth. Tier 3 items must be routed to `hatch3r-workflow`.
 3. **Targeted file reads only.** Read only files directly relevant to the described change(s).
-4. **No learnings capture.** Quick changes are too small to produce meaningful learnings.
+4. **No learnings capture.** Quick changes are too small to produce meaningful learnings. Existing learnings are consulted via a lightweight file-path scan (Step 2c) with a 150-token budget — no new learnings are written.
 5. **Minimal rule loading.** Load `scope: always` rules only when spawning sub-agents in Steps 4b or 6.
 
 ---
@@ -123,6 +124,26 @@ Quick Change Scope:
   2. ...
   Estimated scope: {N} files, ~{N} lines
 ```
+
+#### 2c. Lightweight Learnings Scan (Optional)
+
+If `.agents/learnings/` exists:
+
+1. Collect the file paths from the affected areas identified in Step 1.
+2. Scan learning file frontmatter for `area` or `tags` that match the affected file paths or directories.
+3. If matches found (max 3 learnings, highest confidence first), surface them as a brief heads-up:
+
+   ```
+   Heads up — relevant learnings:
+     - [{category}] {one-line learning summary} (from: {learning filename})
+     - ...
+   ```
+
+4. If no matches found: continue silently. Do not mention learnings.
+
+**Token budget:** Max 150 tokens for this entire step. Read frontmatter only — do not read learning bodies unless the frontmatter matches. Limit to 3 surfaced learnings. If more than 3 match, show the 3 with highest confidence.
+
+If `.agents/learnings/` does not exist, skip this step silently.
 
 **ASK:** "Proceed with these changes? (yes / adjust)"
 
@@ -189,6 +210,7 @@ The implementer prompt MUST include:
 - Explicit instruction: do NOT create branches, commits, or PRs.
 - **Reference conventions** from `similar-implementation` output (if step 2 ran) — triggers the implementer's Convention Lock step.
 - If no researcher ran: explicit instruction that no researcher context is available; work from the change description and codebase alone.
+- Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
 
 If multiple nontrivial items affect **independent areas** (no shared files), spawn one implementer per area and run them in parallel.
 
@@ -216,7 +238,7 @@ Run the project's quality gates. Refer to `package.json` scripts, `README.md`, o
 
 Max 2 retry loops on quality check failures. After 2 retries:
 
-**ASK:** "Quality checks still failing after 2 fix attempts: {specific failures}. Options: (a) I'll fix manually, commit what we have, (b) keep trying, (c) abort changes."
+**ASK:** "Quality checks still failing after 2 fix attempts: {specific failures}. Fix confidence: {high/medium/low — based on whether root cause is identified}. Options: (a) I'll fix manually, commit what we have, (b) keep trying, (c) abort changes."
 
 ---
 
@@ -235,6 +257,7 @@ The reviewer prompt MUST include:
 - Focus areas: **correctness and code quality only**. Skip security deep-dive, performance profiling, and documentation review.
 - All `scope: always` rule directives from `.agents/rules/`.
 - Iteration number and previous findings (if not the first iteration).
+- Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
 
 2. Process reviewer output:
    - If **0 Critical and 0 Warning** findings: review loop is clean. Proceed to Step 6b.
@@ -242,6 +265,7 @@ The reviewer prompt MUST include:
    - **Suggestions**: skip. The point of quick-change is speed.
 
 3. If 3 iterations complete and findings remain, **ASK** the user whether to proceed or fix manually.
+   After each reviewer iteration, assess the reviewer's findings confidence: if the reviewer rates any finding as low-confidence, flag it separately in the ASK prompt so the user can prioritize human review of uncertain findings.
 
 4. After any fixes, re-run quality checks (Step 5a) to verify nothing broke.
 
@@ -255,6 +279,7 @@ After the review loop is clean, spawn both agents in parallel via the Task tool:
 Both prompts MUST include:
 - The diff of all changes made.
 - All `scope: always` rule directives from `.agents/rules/`.
+- Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
 
 Apply any resulting changes (new tests, security fixes). Re-run quality checks (Step 5a) if changes were made.
 
@@ -310,6 +335,7 @@ Quick Change Complete:
   Quality: lint {pass/fail}, types {pass/fail}, tests {pass/fail}
   Review: {skipped / N findings applied}
   Git: {committed on {branch} / committed and pushed / skipped}
+  Confidence: {high/medium/low — overall assessment of change correctness}
 ```
 
 ---

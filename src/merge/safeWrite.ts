@@ -6,6 +6,7 @@ import {
   rename,
   unlink,
   open,
+  copyFile,
 } from "node:fs/promises";
 import { dirname, basename } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -127,12 +128,14 @@ export async function safeWriteFile(
       merged = insertManagedBlock(existingContent, options.managedContent);
     } catch {
       // Managed block is corrupted (duplicate markers, wrong order, etc.).
-      // Overwrite with fresh content; previous version is recoverable via git.
+      // Create a .bak backup before overwriting so user content is not lost.
+      const bakPath = filePath + ".bak";
+      await copyFile(filePath, bakPath);
       await atomicWriteFile(filePath, content);
       return {
         path: filePath,
         action: "updated",
-        warning: `Auto-repaired corrupted managed block in ${filePath}`,
+        warning: `Auto-repaired corrupted managed block in ${filePath} (backup saved to ${bakPath})`,
       };
     }
     await atomicWriteFile(filePath, merged);
