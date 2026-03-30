@@ -31,6 +31,10 @@ Platform-specific procedures for GitLab. Referenced from `hatch3r-board-pickup`.
 **Open MRs:**
 - `glab mr list -R {namespace}/{project} --state opened`.
 
+**Closed MRs for selected issue (abandoned work detection):**
+- `glab mr list -R {namespace}/{project} --state closed` — check if any recently closed (not merged) MRs reference `Closes #{N}`.
+- If found: Surface to the user: "Note: MR !{M} was closed without merge for issue #{N}. The previous work may be partially relevant. Options: (a) review the closed MR branch, (b) start fresh, (c) pick a different issue."
+
 ---
 
 ## Step 4: Update Issue Status — GitLab

@@ -11,7 +11,9 @@ import { ensureEnvMcp, ensureGitignoreEntry, getSourceEnvMcpCommand } from "../.
 import { readWorkspaceManifest } from "../../workspace/manifest.js";
 import { syncWorkspaceRepos } from "../../workspace/sync.js";
 import { AGENTS_MD_INNER, AGENTS_MD_FULL, generateCanonicalAgentsMd } from "../shared/agentsContent.js";
-import { verifyIntegrity } from "../../integrity/index.js";
+import { verifyIntegrity, generateIntegrityManifest, writeIntegrityManifest } from "../../integrity/index.js";
+import { pruneArchives } from "../../archive/index.js";
+import { HATCH3R_VERSION } from "../../version.js";
 import {
   printBanner,
   createSpinner,
@@ -88,7 +90,7 @@ export async function syncCommand(
   if (!manifest) {
     logError("No .agents/hatch.json found.");
     console.log(chalk.dim("  Run `npx hatch3r init` to set up your project first.\n"));
-    throw new HatchError("No .agents/hatch.json found.", 1);
+    throw new HatchError("No .agents/hatch.json found.", 1, "CONFIG_ERROR");
   }
 
   const m = manifest;
@@ -166,7 +168,7 @@ export async function syncCommand(
       logError(`Failed to generate ${f.tool}: ${f.error}`);
     }
     if (adapterFailures.length === m.tools.length) {
-      throw new HatchError("All adapters failed", 1);
+      throw new HatchError("All adapters failed", 1, "ADAPTER_ERROR");
     }
   }
 
@@ -203,6 +205,13 @@ export async function syncCommand(
       info(`Run this, then start or restart your editor: ${getSourceEnvMcpCommand()}`);
     }
   }
+
+  // Regenerate integrity manifest so checksums match newly generated files
+  const integrityManifest = await generateIntegrityManifest(agentsDir, HATCH3R_VERSION);
+  await writeIntegrityManifest(agentsDir, integrityManifest);
+
+  // Prune stale archive entries
+  await pruneArchives(rootDir);
 
   // Check spec freshness
   await checkSpecFreshness(rootDir);

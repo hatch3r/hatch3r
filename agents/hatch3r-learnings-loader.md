@@ -192,15 +192,13 @@ The learnings integrity mechanism uses SHA-256 hashing for tamper detection, not
 
 ## External Knowledge
 
-Follow the tooling hierarchy and platform CLI guidance defined in `agents/shared/external-knowledge.md`.
+Follow the shared protocol in `agents/shared/external-knowledge.md` (tooling hierarchy, platform CLI, Context7 MCP, web research).
 
-## Context7 MCP Usage
+**Context7 focus for this agent:**
+- Verify that learnings referencing specific library patterns or APIs are still current; flag potentially outdated learnings where library APIs have changed
 
-- Use `resolve-library-id` then `query-docs` to verify that learnings referencing specific library patterns or APIs are still current — flag potentially outdated learnings where library APIs have changed.
-
-## Web Research Usage
-
-- Use web search to check whether learnings referencing external tools, services, or standards are still current (e.g., deprecated APIs, changed best practices, sunset services).
+**Web research focus for this agent:**
+- Check whether learnings referencing external tools, services, or standards are still current (deprecated APIs, changed best practices, sunset services)
 
 ## Output Format
 

@@ -84,19 +84,15 @@ For decisions that warrant long-term documentation:
 
 ## External Knowledge
 
-Follow the tooling hierarchy and platform CLI guidance defined in `agents/shared/external-knowledge.md`.
+Follow the shared protocol in `agents/shared/external-knowledge.md` (tooling hierarchy, platform CLI, Context7 MCP, web research).
 
-## Context7 MCP Usage
+**Context7 focus for this agent:**
+- API surfaces for frameworks, ORMs, message brokers, and infrastructure libraries involved in architectural decisions
+- API contract assumptions (connection pooling, TTL semantics, acknowledgement modes) before recommending architecture
 
-- Use `resolve-library-id` then `query-docs` to look up current API surfaces for frameworks, ORMs, message brokers, and infrastructure libraries involved in architectural decisions.
-- Verify API contract assumptions (e.g., database driver connection pooling, cache client TTL semantics, queue library acknowledgement modes) before recommending architecture.
-- Prefer Context7 over guessing API capabilities or relying on potentially outdated training data when evaluating technology trade-offs.
-
-## Web Research Usage
-
-- Use web search for architecture pattern references, scalability case studies, and performance benchmarks when evaluating trade-offs between alternatives.
-- Use web search for current best practices and known pitfalls for specific technology choices (e.g., Redis vs Memcached for session storage, WebSocket vs SSE for real-time).
-- Use web search for cloud service limits, pricing models, and SLA guarantees when infrastructure decisions affect the architecture.
+**Web research focus for this agent:**
+- Architecture pattern references, scalability case studies, and performance benchmarks for trade-off evaluation
+- Cloud service limits, pricing models, and SLA guarantees when infrastructure decisions affect the architecture
 
 ## Output Format
 

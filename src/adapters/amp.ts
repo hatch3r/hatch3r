@@ -16,10 +16,10 @@ export class AmpAdapter extends BaseAdapter {
         text: `**Recommended model:** \`${m}\`. Use Smart mode for Opus, Rush for Haiku, Deep for Codex.`,
       })),
     ].join("\n");
-    results.push(output(".amp/AGENTS.md", wrapInManagedBlock(inner), inner));
+    results.push(output("AGENTS.md", wrapInManagedBlock(inner), inner));
 
     results.push(
-      ...await this.processSkillsRaw(ctx, (id) => `.amp/skills/${toPrefixedId(id)}/SKILL.md`),
+      ...await this.processSkillsRaw(ctx, (id) => `.agents/skills/${toPrefixedId(id)}/SKILL.md`),
     );
 
     const mcp = await this.readFilteredMcp(ctx);

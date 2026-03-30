@@ -4,222 +4,200 @@ alwaysApply: true
 ---
 # Agent Orchestration
 
-This rule governs when and how to delegate work to hatch3r agents, load skills, and spawn subagents. These directives are mandatory — not suggestions.
+This rule governs when and how to delegate work to hatch3r agents, load skills, and spawn subagents. These directives are mandatory — not suggestions. For extended reference on pipeline context schemas, resilience/failure handling, and observability, see `hatch3r-agent-orchestration-detail`.
+
+## Orchestration Differentiation
+
+Hatch3r's orchestration uses a **phase-gated pipeline** (Research, Implement, Review, Quality) with **structured handoffs** via `PipelineContext` and a **mandatory review gate** before the quality phase. This is not free-form agent chat.
 
 ## Universal Applicability
 
-This rule applies to EVERY context without exception:
-
-- **Board-pickup** (epic, sub-issue, standalone, batch)
-- **Workflow command** (full mode and quick mode)
-- **Plain chat** (single task or multiple tasks)
-- **Issue references** (e.g., "implement #5")
-- **Natural language requests** (e.g., "add a dark mode toggle")
-
-Whether the user invokes a command or simply asks for a task in conversation, the full sub-agent pipeline defined below is mandatory. There is no context where implementing code inline (without sub-agents) is acceptable.
+This rule applies to EVERY context without exception: board-pickup (epic, sub-issue, standalone, batch), workflow command (full/quick), plain chat, issue references, and natural language requests. The full sub-agent pipeline is mandatory — never implement code inline without sub-agents.
 
 ## Universal Sub-Agent Pipeline
 
-Every task MUST follow this four-phase pipeline:
-
-**Phase 1 — Research:** Spawn `hatch3r-researcher` for context gathering. Skip only for trivial single-line edits (typos, comment fixes, single-value config changes). All other tasks require researcher context. **Before spawning researchers, score the task's complexity per the `hatch3r-deep-context` rule** and add the tier-appropriate researcher modes alongside the standard task-type modes (see Deep Context Integration below).
-
-**Phase 2 — Implement:** Spawn `hatch3r-implementer` for ALL code changes. One dedicated implementer per task. Never implement inline — always delegate via the Task tool. **Include reference conventions, resolved requirements, and blast radius data** from Phase 1 in the implementer prompt when available (see Deep Context Integration below).
-
-**Phase 3 — Review Loop:**
-
-- 3a. Spawn `hatch3r-reviewer` to review the implementation.
-- 3b. If Critical or Warning findings exist: spawn `hatch3r-fixer` with the reviewer output. When fixes touch shared or public interfaces, also include blast radius data and reference conventions from Phase 1 (if available).
-- 3c. Re-review: spawn `hatch3r-reviewer` on the fixed code.
-- 3d. Repeat 3b–3c until the reviewer reports 0 Critical + 0 Warning, or max 3 iterations reached.
-- 3e. If max iterations reached with remaining findings: surface to user for manual resolution.
-
-**Phase 4 — Final Quality** (runs ONLY after the review loop is clean):
-
-Spawn all applicable specialists in parallel:
-
-| Specialist | When | Mandatory? |
-|-----------|------|------------|
-| `hatch3r-test-writer` | After every code change | YES — always for code changes |
-| `hatch3r-security-auditor` | After every code change | YES — always for code changes |
-| `hatch3r-docs-writer` | After every implementation | EVALUATE — spawn when changes affect APIs, architecture, user-facing behavior, or when specs/ADRs need updating |
-| `hatch3r-lint-fixer` | When lint errors present | Conditional |
-| `hatch3r-a11y-auditor` | When UI/accessibility changes | Conditional |
-| `hatch3r-perf-profiler` | When performance-sensitive changes | Conditional |
-| `hatch3r-dependency-auditor` | When dependencies change | Conditional |
-| `hatch3r-ci-watcher` | When CI fails | Conditional |
-| `hatch3r-architect` | When architectural decisions are needed or system design review is requested | Conditional |
-| `hatch3r-devops` | When CI/CD, deployment, or infrastructure tasks are involved | Conditional |
+Every task MUST follow this four-phase pipeline: **Phase 1 — Research** (`hatch3r-researcher`), **Phase 2 — Implement** (`hatch3r-implementer`), **Phase 3 — Review Loop** (`hatch3r-reviewer` + `hatch3r-fixer`), **Phase 4 — Final Quality** (parallel specialists). See Mandatory Delegation Directives below.
 
 ## Agent Roster
 
 | Agent | Purpose | Invoke When |
 |-------|---------|-------------|
-| `hatch3r-researcher` | Context gathering across 15 research modes | ALWAYS before implementation. Skip only for trivial single-line edits. Select modes by task type + tier-appropriate deep context modes. |
-| `hatch3r-implementer` | Focused single-task implementation | ALWAYS. One dedicated implementer per task — standalone issues, epic sub-issues, batched issues, and plain chat tasks all get dedicated implementers. |
-| `hatch3r-reviewer` | Code review for quality, security, performance | ALWAYS in review loop (Phase 3). Reviews implementation, then re-reviews after fixes. |
-| `hatch3r-fixer` | Targeted fixes for reviewer findings | When `hatch3r-reviewer` reports Critical or Warning findings during the review loop (Phase 3). |
-| `hatch3r-test-writer` | Regression and coverage tests | ALWAYS for code changes in final quality (Phase 4). Not just bugs — every code change gets tests. |
-| `hatch3r-security-auditor` | Security rules, data flows, access control | ALWAYS for code changes in final quality (Phase 4). Not just `area:security` — every code change gets a security review. |
-| `hatch3r-docs-writer` | Specs, ADRs, documentation maintenance | ALWAYS evaluate in final quality (Phase 4). Spawn when changes affect APIs, architecture, or user-facing behavior. |
-| `hatch3r-lint-fixer` | Style, formatting, type error cleanup | After implementation when lint errors are present. |
-| `hatch3r-a11y-auditor` | WCAG AA compliance checks | When UI/accessibility changes are made. |
-| `hatch3r-perf-profiler` | Performance profiling and optimization | When performance-sensitive changes are made. |
-| `hatch3r-dependency-auditor` | Supply chain security, CVE scanning | When dependencies change or new packages are added. |
-| `hatch3r-ci-watcher` | CI/CD failure diagnosis and fix suggestions | When CI fails during or after implementation. |
-| `hatch3r-architect` | Architecture design, system design review, technical decision documentation | When architectural decisions are needed or system design review is requested. |
-| `hatch3r-devops` | CI/CD pipeline operations, deployment configuration, infrastructure setup | When CI/CD, deployment, or infrastructure tasks are involved. |
+| `hatch3r-researcher` | Context gathering (15 modes) | Always — before implementation (skip trivial edits) |
+| `hatch3r-implementer` | Single-task implementation | Always — one per task |
+| `hatch3r-reviewer` | Code review | Always — Phase 3 review loop |
+| `hatch3r-fixer` | Fix reviewer findings | Phase 3 — Critical/Warning findings |
+| `hatch3r-test-writer` | Tests | Always — Phase 4 (every code change) |
+| `hatch3r-security-auditor` | Security review | Always — Phase 4 (every code change) |
+| `hatch3r-docs-writer` | Documentation | Phase 4 — evaluate when APIs/architecture/UX affected |
+| `hatch3r-lint-fixer` | Lint/type fixes | Conditional — lint errors present |
+| `hatch3r-a11y-auditor` | WCAG AA checks | Conditional — UI/accessibility changes |
+| `hatch3r-perf-profiler` | Performance profiling | Conditional — performance-sensitive changes |
+| `hatch3r-dependency-auditor` | CVE/supply chain | Conditional — dependencies change |
+| `hatch3r-ci-watcher` | CI failure diagnosis | Conditional — CI fails |
+| `hatch3r-architect` | Architecture design | Conditional — architectural decisions needed |
+| `hatch3r-devops` | CI/CD and deployment | Conditional — infrastructure tasks |
 
 ## Deep Context Integration
 
-Before spawning researchers in Phase 1, score the task's complexity using the `hatch3r-deep-context` rule criteria. The resulting tier determines which additional researcher modes to include alongside the standard task-type modes.
+Score task complexity per the `hatch3r-deep-context` rule before Phase 1. Apply the resulting tier:
 
-### Tier-Adjusted Research Modes
-
-**Tier 1 (Light — score 0–2):** Use only the standard task-type modes below. No additional modes.
-
-**Tier 2 (Standard — score 3–5):** Add these modes at `quick` depth alongside the task-type modes:
-- `requirements-elicitation` — scan for top ambiguities, ask 3–5 clarifying questions
-- `similar-implementation` — find 1 reference implementation, extract top-level patterns
-
-Present the elicitation questions to the user inline. Await answers before proceeding to Phase 2.
-
-**Tier 3 (Deep — score 6+):** Add these modes at `deep` depth alongside the task-type modes:
-- `requirements-elicitation` — full 10-dimension ambiguity scan, dependency questions, cross-cutting concern checklist
-- `similar-implementation` — find 2–3 references, full convention extraction, divergence analysis
-- `codebase-impact` at `deep` depth (with transitive tracing, API consumer map, blast radius)
-
-**Mandatory Tier 3 checkpoint:** Present a consolidated Pre-Implementation Summary to the user and ASK for confirmation. Do NOT proceed to Phase 2 until all unresolved questions are answered.
-
-### Implementer Prompt Enrichment
-
-When spawning `hatch3r-implementer` in Phase 2, include the following from Phase 1 results when available:
-- **Reference Conventions**: `similar-implementation` output — the implementer uses this in its Convention Lock step (Step 1b)
-- **Resolved Requirements**: User's answers to `requirements-elicitation` questions — explicit decisions the implementer should follow instead of guessing
-- **Blast Radius**: Enhanced `codebase-impact` output with transitive traces and API consumer maps — informs which consumers and contracts must be preserved
+- **Tier 2 (Standard):** Present elicitation questions inline. Await answers before Phase 2.
+- **Tier 3 (Deep):** Present Pre-Implementation Summary and ASK for confirmation. Do NOT proceed until all unresolved questions are answered.
 
 ## Mandatory Delegation Directives
 
 ### Context Gathering (Before Implementation)
 
-You MUST spawn a `hatch3r-researcher` subagent before implementing any task. Skip only for trivial single-line edits (typos, comment fixes, single-value config changes). Select research modes by task type, then add tier-appropriate modes per the Deep Context Integration section above:
+Spawn `hatch3r-researcher` before implementing any task. Skip only for trivial single-line edits. Select modes by task type, then add tier-appropriate modes per Deep Context Integration:
 
-- **`type:bug`**: modes `symptom-trace`, `root-cause`, `codebase-impact` + tier modes
-- **`type:feature`**: modes `codebase-impact`, `feature-design`, `architecture` + tier modes
-- **`type:refactor`**: modes `current-state`, `refactoring-strategy`, `migration-path` + tier modes
-- **`type:qa`**: modes `codebase-impact` + tier modes
+- **`type:bug`**: `symptom-trace`, `root-cause`, `codebase-impact` + tier modes
+- **`type:feature`**: `codebase-impact`, `feature-design`, `architecture` + tier modes
+- **`type:refactor`**: `current-state`, `refactoring-strategy`, `migration-path` + tier modes
+- **`type:qa`**: `codebase-impact` + tier modes
 
-Use depth `quick` for low-risk tasks, `standard` for medium-risk, `deep` for high-risk. The `hatch3r-deep-context` tier may override depth upward (e.g., a Tier 3 task always uses `deep` depth for the additional modes, even if the task-type modes use `standard`).
+Use depth `quick` for low-risk, `standard` for medium-risk, `deep` for high-risk. Tier 3 always uses `deep` depth.
+
+### Research Completeness Checklist
+
+Before Phase 1 to Phase 2 handoff, verify:
+
+- [ ] **All affected files identified** — files to be created, modified, or deleted are listed.
+- [ ] **Blast radius assessed** — downstream consumers and integration points documented.
+- [ ] **Existing tests located** — test files covering affected code identified (or absence noted).
+- [ ] **Dependencies mapped** — internal and external dependencies enumerated.
+
+If any item is unconfirmed, re-run researcher with additional modes or surface to user.
 
 ### Implementation Delegation
 
-You MUST spawn a `hatch3r-implementer` subagent via the Task tool for ALL code changes. Never implement inline.
+Spawn `hatch3r-implementer` via Task tool for ALL code changes. Never implement inline.
 
-- **Single standalone issue**: Spawn one `hatch3r-implementer`. The orchestrator coordinates git, PR, and board operations.
-- **Plain chat single task**: Spawn one `hatch3r-implementer`. Create synthetic issue context first (title, acceptance criteria, type).
-- **Epics with sub-issues**: Spawn one `hatch3r-implementer` per sub-issue. Execute level-by-level respecting dependency order.
-- **Multiple standalone issues (batch)**: Treat as a batch. Group by dependency level, spawn one `hatch3r-implementer` per issue, execute level-by-level. Shared branch, combined PR.
+- **Single issue**: One implementer. Orchestrator owns git/PR/board.
+- **Plain chat task**: One implementer. Create synthetic issue context first.
+- **Epics**: One implementer per sub-issue, level-by-level respecting dependency order.
+- **Batch**: Group by dependency level, one implementer per issue, shared branch + combined PR.
 
-**Implementer prompt enrichment:** For Tier 2 and Tier 3 tasks, include the deep context outputs in the implementer prompt:
-- `similar-implementation` findings as "Reference Conventions" (triggers the implementer's Convention Lock step)
-- Resolved `requirements-elicitation` answers as "Resolved Requirements"
-- Enhanced `codebase-impact` blast radius data (Tier 3 only)
+**Implementer prompt enrichment (Tier 2+):** Include `similar-implementation` findings as "Reference Conventions", resolved `requirements-elicitation` answers as "Resolved Requirements", and blast radius data (Tier 3 only).
+
+### Per-Task Mini-Review
+
+For multi-sub-task implementations, the implementer performs a lightweight mini-review after each sub-task: verify correctness, check interface contracts, validate no regressions, gate progression. Mini-reviews are internal (no separate reviewer agent).
 
 ### Post-Implementation Quality Pipeline
 
-You MUST run the review loop and final quality phases after implementation completes.
-
 **Phase 3 — Review Loop:**
 
-1. Spawn `hatch3r-reviewer` — code review. Include the diff and acceptance criteria in the prompt.
-2. If the reviewer reports Critical or Warning findings: spawn `hatch3r-fixer` with the full reviewer output (findings, file paths, line references, suggested fixes).
-3. After fixes: spawn `hatch3r-reviewer` again to re-review the fixed code.
-4. Repeat steps 2–3 until the reviewer reports 0 Critical + 0 Warning, or max 3 iterations reached.
-5. If max iterations reached with remaining findings: surface to user for manual resolution. Do not proceed to Phase 4 until the user acknowledges.
+1. Spawn `hatch3r-reviewer` with diff and acceptance criteria. Reviewer includes blast radius summary.
+2. Critical/Warning findings: spawn `hatch3r-fixer` with full reviewer output.
+3. Re-review after fixes. Repeat until 0 Critical + 0 Warning, or max 3 iterations.
+4. **Confirmation pass** after clean review: lightweight re-review for fix-driven regressions and acceptance criteria completeness.
+5. Max iterations reached: surface to user for manual resolution.
 
-**Phase 4 — Final Quality** (runs ONLY after the review loop is clean):
+**Phase 4 — Final Quality** (after review loop is clean):
 
-Launch as many independent subagents in parallel as the platform supports — no artificial concurrency limit.
+Launch parallel subagents — no artificial concurrency limit.
 
-**Always spawn (mandatory for every code change):**
+- **Always:** `hatch3r-test-writer`, `hatch3r-security-auditor`
+- **Evaluate:** `hatch3r-docs-writer` (when APIs/architecture/UX affected)
+- **Conditional:** `hatch3r-lint-fixer`, `hatch3r-a11y-auditor`, `hatch3r-perf-profiler`, `hatch3r-dependency-auditor`, `hatch3r-architect`, `hatch3r-devops`
 
-1. `hatch3r-test-writer` — tests for all code changes. Unit tests for new logic, regression tests for bug fixes, integration tests for cross-module changes.
-2. `hatch3r-security-auditor` — security review of all code changes. Audit data flows, access control, input validation, and secret management.
+### Phase 4 Validation Pass
 
-**Always evaluate (spawn when applicable):**
+After all Phase 4 specialists complete, run a validation pass to catch regressions:
 
-3. `hatch3r-docs-writer` — spawn when changes affect public APIs, architectural patterns, user-facing behavior, or when specs/ADRs need updating. If no documentation impact exists, skip silently.
+1. Run test suite and type checker. Compare against Phase 3 baseline cached in `PipelineContext`.
+2. No new failures: proceed to completion.
+3. New failures: identify causing specialist, spawn `hatch3r-fixer`, re-validate (max 2 iterations).
+4. Persistent regressions: surface to user. Do not silently accept.
 
-**Conditional specialists (spawn when triggered):**
+### Specialist Success Criteria
 
-4. `hatch3r-lint-fixer` — when lint or type errors are present after implementation.
-5. `hatch3r-a11y-auditor` — when UI or accessibility changes are made.
-6. `hatch3r-perf-profiler` — when performance-sensitive changes are made.
-7. `hatch3r-dependency-auditor` — when dependencies change or new packages are added.
-8. `hatch3r-architect` — when architectural decisions are needed or system design review is requested.
-9. `hatch3r-devops` — when CI/CD, deployment, or infrastructure tasks are involved.
+| Specialist | Success Criterion |
+|-----------|-------------------|
+| `hatch3r-test-writer` | All new/modified code paths have tests; no untested branches in changed files. |
+| `hatch3r-security-auditor` | No HIGH/CRITICAL findings unresolved; MEDIUM findings documented with plan. |
+| `hatch3r-docs-writer` | Affected APIs, architecture, and UX changes reflected in docs. |
+| `hatch3r-lint-fixer` | Zero lint/type errors in changed files. |
+| `hatch3r-a11y-auditor` | WCAG AA compliance; no new a11y violations. |
+| `hatch3r-perf-profiler` | No performance regressions; new hot paths benchmarked. |
+| `hatch3r-dependency-auditor` | No known CVEs; license compatibility verified. |
+| `hatch3r-architect` | ADRs documented; design aligns with patterns or divergence justified. |
+| `hatch3r-devops` | CI/CD passes end-to-end; deployment config validated. |
 
 ## Skill Loading Directives
 
-Before implementing any task, you MUST read and follow the matching hatch3r skill:
+Load the matching skill before implementation:
 
 | Task Type | Skill |
 |-----------|-------|
 | `type:bug` | `hatch3r-bug-fix` |
-| `type:feature` | `hatch3r-feature` (aka `hatch3r-feature-implementation`) |
+| `type:feature` | `hatch3r-feature` |
 | `type:refactor` + `area:ui` | `hatch3r-visual-refactor` |
 | `type:refactor` + behavior change | `hatch3r-logical-refactor` |
-| `type:refactor` (other) | `hatch3r-refactor` (aka `hatch3r-code-refactor`) |
+| `type:refactor` (other) | `hatch3r-refactor` |
 | `type:qa` | `hatch3r-qa-validation` |
 
-When a skill references agents under "Required Agent Delegation", those delegations are mandatory — you MUST spawn the listed agents via the Task tool.
+Skill-referenced agent delegations are mandatory.
 
 ## Subagent Spawning Protocol
 
-When spawning any subagent via the Task tool:
+1. Use `subagent_type: "generalPurpose"` for all delegations.
+2. Include: agent protocol, applicable `scope: always` rules, tooling hierarchy, relevant learnings.
+3. Launch independent subagents in parallel — maximum parallelism.
+4. Await and review results. Surface BLOCKED or PARTIAL to user.
 
-1. **Use `subagent_type: "generalPurpose"`** for all hatch3r agent delegations.
-2. **Include in every subagent prompt**:
-   - The agent protocol to follow (e.g., "Follow the hatch3r-implementer agent protocol").
-   - All `scope: always` rules from `.agents/rules/` that apply.
-   - The project's tooling hierarchy (Context7 MCP for library docs, web research for current context).
-   - Relevant learnings from `.agents/learnings/` if the directory exists.
-3. **Launch as many independent subagents in parallel as the platform supports.** Do not impose an artificial concurrency limit. Use maximum parallelism for independent work.
-4. **Await and review results** before proceeding. If a subagent reports BLOCKED or PARTIAL, surface to the user.
+## Correlation ID
 
-## Single-Task Plain Chat Protocol
+Generate a UUID v4 per top-level task before Phase 1. Include in every subagent prompt as `correlation_id`. All subagents include it in logs, outputs, and status reports. Epic sub-issues get individual IDs; batch tasks share one ID with a sub-task index.
 
-When the user provides a single task in plain chat (no command invoked, no issue reference), the full sub-agent pipeline still applies:
+## Severity Scale
 
-1. **Classify** the task by type (bug/feature/refactor/QA/other) based on context.
-2. **Create synthetic issue context** — title, acceptance criteria, and type — from the user's instruction.
-3. **Run the Universal Sub-Agent Pipeline**: Phase 1 (Research) → Phase 2 (Implement) → Phase 3 (Review Loop) → Phase 4 (Final Quality).
-4. For issue references in chat (e.g., "fix #5"), fetch issue details using the platform CLI (check `platform` in `.agents/hatch.json`) and use them as the task context instead of creating synthetic context:
-   - **GitHub:** `gh issue view`
-   - **Azure DevOps:** `az boards work-item show --id`
-   - **GitLab:** `glab issue view`
+| Severity | Definition | Pipeline Action |
+|----------|-----------|-----------------|
+| **CRITICAL** | Blocks merge. Security vulnerabilities, data loss, broken core functionality. | Must resolve before Phase 3 exit. |
+| **HIGH** | Should fix before merge. Significant bugs, performance regressions. | Fix or escalate to user. |
+| **MEDIUM** | Fix in same sprint. Code quality, minor bugs. | Document with remediation plan. |
+| **LOW** | Track for future. Style nits, minor improvements. | Log only. No merge gate. |
+| **INFO** | Informational. Observations, suggestions. | Awareness only. |
 
-This ensures consistent quality regardless of how the task was initiated.
+All subagents MUST map findings to this scale.
 
-## Multi-Task Detection (Plain Chat)
+## Status Codes
 
-When the user provides multiple tasks in a single message — numbered lists, comma-separated instructions, multiple issue references (e.g., "implement #1, #3, #7"), or multiple distinct requests — you MUST parallelize them:
+| Status | Meaning |
+|--------|---------|
+| **SUCCESS** | Fully completed, all criteria met. |
+| **PARTIAL** | Partially completed; include `reason` field. |
+| **FAILED** | No usable output; include `reason` field. |
+| **SKIPPED** | Intentionally not executed. |
+| **TIMEOUT** | Time budget exceeded; forward partial output. |
 
-1. **Parse** the message into individual discrete tasks. Each distinct implementation request is one task.
-2. **Classify** each task by type (bug/feature/refactor/QA/other) based on context or explicit labels.
-3. **Build a dependency graph** among the tasks. Independent tasks share the same level and run in parallel.
-4. **Spawn one `hatch3r-researcher` subagent per task** (skip for trivial single-line edits only). Launch in parallel.
-5. **Spawn one `hatch3r-implementer` subagent per task** per dependency level.
-6. **For issue references**: fetch issue details using the platform CLI (check `platform` in `.agents/hatch.json`):
-   - **GitHub:** `gh issue view`
-   - **Azure DevOps:** `az boards work-item show --id`
-   - **GitLab:** `glab issue view`
-7. **For natural language tasks**: create synthetic issue context (title, acceptance criteria, type) from the instruction. Pass this context to the implementer subagent.
-8. **Run the review loop** (Phase 3) after all implementations complete: spawn reviewer, then fixer for Critical/Warning findings, re-review, repeat until clean (max 3 iterations).
-9. **Spawn final quality subagents** (Phase 4, after review loop is clean): test-writer + security-auditor (always), plus docs-writer, auditors as applicable.
+## Task Context Protocols
 
-This directive applies regardless of whether board-pickup was invoked. Any context where implementation tasks are identified MUST use one subagent per task with maximum parallelism.
+**Single-task plain chat:** Classify task type, create synthetic issue context, run full pipeline. For issue references, fetch details via platform CLI.
+
+**Multi-task plain chat:** Parse into discrete tasks, classify each, build dependency graph, parallelize researchers and implementers per dependency level, run review loop after all implementations, then Phase 4 specialists.
+
+**Auto-mode guardrails:** In unattended execution, verify scope containment, no unapproved destructive operations, and output schema compliance after each phase. Halt on violation. See `hatch3r-agent-orchestration-detail` for full guardrail specifications.
 
 ## Rule Application
 
-All hatch3r rules with `scope: always` apply to every implementation task, including work delegated to subagents. When constructing subagent prompts, include the rule directives — subagents do not automatically inherit the parent's rule context.
+All `scope: always` rules apply to every task including subagent work. Include rule directives in subagent prompts.
+
+### Tiered Rule Inclusion
+
+**Tier 1 -- Always include (every subagent):**
+- `hatch3r-security-patterns` -- security invariants
+- `hatch3r-code-standards` -- code quality
+
+**Tier 2 -- Include by phase:**
+- `hatch3r-testing` -- test-writer, implementer, reviewer
+- `hatch3r-accessibility-standards` -- a11y-auditor, reviewer (UI)
+- `hatch3r-git-conventions` -- orchestrator git ops
+- `hatch3r-ci-cd` -- ci-watcher, devops
+- `hatch3r-dependency-management` -- dependency-auditor
+
+**Tier 3 -- On-demand:**
+- `hatch3r-api-design`, `hatch3r-secrets-management`, `hatch3r-data-classification`, `hatch3r-performance-budgets`, `hatch3r-browser-verification`, `hatch3r-component-conventions`, `hatch3r-i18n`, `hatch3r-theming`, `hatch3r-migrations`, `hatch3r-feature-flags`, `hatch3r-observability`
+
+For limited context windows, Tier 1 is mandatory. Tier 2/3 included selectively by agent role and task scope.

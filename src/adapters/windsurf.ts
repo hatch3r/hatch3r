@@ -10,10 +10,10 @@ function isGlobPattern(scope: string): boolean {
   return scope.includes("*") || scope.includes("?") || scope.includes("[");
 }
 
-function ruleTrigger(scope: string | undefined): "always_on" | "glob_pattern" | "model_decision" {
+function ruleTrigger(scope: string | undefined): "always_on" | "glob" | "model_decision" {
   if (!scope) return "model_decision";
   if (scope === "always") return "always_on";
-  return "glob_pattern";
+  return "glob";
 }
 
 export class WindsurfAdapter extends BaseAdapter {
@@ -54,7 +54,7 @@ export class WindsurfAdapter extends BaseAdapter {
         if (skip) continue;
         const scope = overrides.scope ?? rule.scope;
         const trigger = ruleTrigger(scope);
-        const globScope = (trigger === "glob_pattern" && scope)
+        const globScope = (trigger === "glob" && scope)
           ? (isGlobPattern(scope) ? scope : `${scope}/**`)
           : undefined;
         const fm = `---\ntrigger: ${trigger}${globScope ? `\nglobs: "${globScope}"` : ""}\n---`;
