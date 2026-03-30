@@ -1,6 +1,5 @@
 ---
 description: Rules for component development in web applications
-globs: src/**/*.vue, src/**/*.tsx, src/**/*.jsx
 alwaysApply: false
 ---
 # Component Conventions

@@ -70,6 +70,26 @@ For each finding, provide:
     wrapping in a try-catch without actual handling, or adding a `// validated`
     annotation is not a fix.
 
+11. **Understand the "why" before implementing.** Read the finding's full
+    justification and the referenced code path before writing any changes.
+    Understand what the finding is trying to achieve — the intent behind
+    the recommendation — not just what it literally says to change. If the
+    intent is unclear, implement the conservative interpretation.
+
+12. **Consider side effects.** If your change modifies a shared module,
+    trace all callers to verify no downstream breakage. If your change
+    modifies an adapter base class or utility function, verify all 14
+    adapters or all consumers still work correctly. Use grep to find
+    all references before editing.
+
+13. **Verify fix addresses root cause.** After implementing, re-read the
+    original finding and confirm your change addresses the root cause
+    identified in the finding, not just the surface symptom. A finding
+    about "inconsistent error handling" should not be fixed by adding
+    one try-catch — it should address the systemic pattern. If you can
+    only address the symptom within your scope, mark as PARTIAL with
+    an explanation of what remains.
+
 ## Constraints
 
 - Do not modify files outside the scope of your assigned findings

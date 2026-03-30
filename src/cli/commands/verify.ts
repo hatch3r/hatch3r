@@ -24,7 +24,7 @@ export async function verifyCommand(): Promise<void> {
     spinner.fail("No integrity manifest found");
     logError("Missing .agents/.integrity.json — run `hatch3r init` or `hatch3r update` to generate it.");
     console.log();
-    throw new HatchError("Missing .agents/.integrity.json", 1);
+    throw new HatchError("Missing .agents/.integrity.json", 1, "INTEGRITY_ERROR");
   }
 
   const results = await verifyIntegrity(agentsDir);
@@ -82,7 +82,7 @@ export async function verifyCommand(): Promise<void> {
       info(`Modified files may have been tampered with. Run ${chalk.bold("hatch3r update")} to restore originals.`);
     }
     console.log();
-    throw new HatchError("Integrity check failed", 1);
+    throw new HatchError("Integrity check failed", 1, "INTEGRITY_ERROR");
   } else {
     printBox("Integrity check passed", summaryLines, "success");
   }

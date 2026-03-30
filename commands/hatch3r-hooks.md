@@ -251,7 +251,7 @@ Add `priority` and `timeout` to hook frontmatter:
 
 ```markdown
 ---
-id: pre-commit-lint-fixer
+id: my-pre-commit-lint-fixer
 type: hook
 event: pre-commit
 agent: lint-fixer

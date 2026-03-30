@@ -37,15 +37,13 @@ Adapt to the project's actual directory structure and rule definitions.
 
 ## External Knowledge
 
-Follow the tooling hierarchy and platform CLI guidance defined in `agents/shared/external-knowledge.md`.
+Follow the shared protocol in `agents/shared/external-knowledge.md` (tooling hierarchy, platform CLI, Context7 MCP, web research).
 
-## Context7 MCP Usage
+**Context7 focus for this agent:**
+- Framework convention accuracy when rules reference specific library patterns (React hook rules, Vue composition API patterns, Angular module conventions)
 
-- Use `resolve-library-id` then `query-docs` to verify framework convention accuracy when rules reference specific library patterns (e.g., React hook rules, Vue composition API patterns, Angular module conventions).
-
-## Web Research Usage
-
-- Use web search for current coding standard updates when rules reference evolving standards (e.g., updated ESLint recommended configs, new TypeScript strict mode behaviors).
+**Web research focus for this agent:**
+- Current coding standard updates when rules reference evolving standards (updated ESLint recommended configs, new TypeScript strict mode behaviors)
 
 ## Output Format
 

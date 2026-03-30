@@ -24,6 +24,7 @@ import {
 import { findPackageRoot } from "../shared/paths.js";
 import { detectPackageManager } from "../../detect/packageManager.js";
 import { generateIntegrityManifest, writeIntegrityManifest } from "../../integrity/index.js";
+import { pruneArchives } from "../../archive/index.js";
 import { buildSelectionsFromDisk } from "../../content/index.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -111,7 +112,7 @@ export async function runUpdate(
       : (err instanceof Error ? err.message : String(err));
     s0.fail(step(offset + 1, total, "Failed to update package"));
     logError(msg);
-    throw new HatchError(msg, 1);
+    throw new HatchError(msg, 1, isTimeout ? "NETWORK_ERROR" : "UNKNOWN_ERROR");
   }
   s0.succeed(step(offset + 1, total, "Package updated"));
 
@@ -174,7 +175,7 @@ export async function runUpdate(
     }
     if (adapterFailures.length === manifest.tools.length) {
       s2.fail(step(offset + 3, total, "All adapters failed"));
-      throw new HatchError("All adapters failed", 1);
+      throw new HatchError("All adapters failed", 1, "ADAPTER_ERROR");
     }
   }
   s2.succeed(step(offset + 3, total, adapterFailures.length > 0
@@ -188,6 +189,10 @@ export async function runUpdate(
 
   const integrityManifest = await generateIntegrityManifest(agentsDir, HATCH3R_VERSION);
   await writeIntegrityManifest(agentsDir, integrityManifest);
+
+  // Prune stale archive entries
+  await pruneArchives(rootDir);
+
   s3.succeed(step(offset + 4, total, "Manifest updated"));
 
   return {
@@ -201,44 +206,50 @@ export async function runUpdate(
 interface MigrationCheckpoint {
   id: string;
   condition: (manifest: HatchManifest, rootDir: string) => Promise<boolean>;
-  execute: (manifest: HatchManifest, rootDir: string) => Promise<{ manifest: HatchManifest; notices: string[] }>;
+  execute: (manifest: HatchManifest, rootDir: string, headless: boolean) => Promise<{ manifest: HatchManifest; notices: string[] }>;
 }
 
 const MIGRATION_CHECKPOINTS: MigrationCheckpoint[] = [
   {
     id: "content-selections-init",
     condition: async (manifest) => manifest.content === undefined,
-    execute: async (manifest, rootDir) => {
+    execute: async (manifest, rootDir, headless) => {
       const agentsDir = join(rootDir, AGENTS_DIR);
       const content = await buildSelectionsFromDisk(agentsDir);
 
-      // Ask user for context since we can't infer it from legacy installs
-      const { projectType } = await inquirer.prompt<{ projectType: "greenfield" | "brownfield" }>([
-        {
-          type: "list",
-          name: "projectType",
-          message: "For content tracking — is this a greenfield or brownfield project?",
-          choices: [
-            { name: "Greenfield — new project", value: "greenfield" as const },
-            { name: "Brownfield — existing codebase", value: "brownfield" as const },
-          ],
-          default: "brownfield",
-        },
-      ]);
-      const { teamSize } = await inquirer.prompt<{ teamSize: "solo" | "team" }>([
-        {
-          type: "list",
-          name: "teamSize",
-          message: "Solo developer or team?",
-          choices: [
-            { name: "Solo", value: "solo" as const },
-            { name: "Team", value: "team" as const },
-          ],
-          default: "team",
-        },
-      ]);
-      content.projectType = projectType;
-      content.teamSize = teamSize;
+      if (headless) {
+        // Use safe defaults in headless/CI mode
+        content.projectType = "brownfield";
+        content.teamSize = "team";
+      } else {
+        // Ask user for context since we can't infer it from legacy installs
+        const { projectType } = await inquirer.prompt<{ projectType: "greenfield" | "brownfield" }>([
+          {
+            type: "list",
+            name: "projectType",
+            message: "For content tracking — is this a greenfield or brownfield project?",
+            choices: [
+              { name: "Greenfield — new project", value: "greenfield" as const },
+              { name: "Brownfield — existing codebase", value: "brownfield" as const },
+            ],
+            default: "brownfield",
+          },
+        ]);
+        const { teamSize } = await inquirer.prompt<{ teamSize: "solo" | "team" }>([
+          {
+            type: "list",
+            name: "teamSize",
+            message: "Solo developer or team?",
+            choices: [
+              { name: "Solo", value: "solo" as const },
+              { name: "Team", value: "team" as const },
+            ],
+            default: "team",
+          },
+        ]);
+        content.projectType = projectType;
+        content.teamSize = teamSize;
+      }
 
       return {
         manifest: { ...manifest, content },
@@ -249,20 +260,28 @@ const MIGRATION_CHECKPOINTS: MigrationCheckpoint[] = [
   {
     id: "platform-selection",
     condition: async (manifest) => !manifest.platform,
-    execute: async (manifest) => {
-      const { platform } = await inquirer.prompt<{ platform: Platform }>([
-        {
-          type: "list",
-          name: "platform",
-          message: "hatch3r now supports multiple platforms. Select your platform:",
-          choices: [
-            { name: "GitHub", value: "github" as Platform },
-            { name: "Azure DevOps", value: "azure-devops" as Platform },
-            { name: "GitLab", value: "gitlab" as Platform },
-          ],
-          default: "github",
-        },
-      ]);
+    execute: async (manifest, _rootDir, headless) => {
+      let platform: Platform;
+
+      if (headless) {
+        // Default to github in headless/CI mode
+        platform = "github";
+      } else {
+        const answer = await inquirer.prompt<{ platform: Platform }>([
+          {
+            type: "list",
+            name: "platform",
+            message: "hatch3r now supports multiple platforms. Select your platform:",
+            choices: [
+              { name: "GitHub", value: "github" as Platform },
+              { name: "Azure DevOps", value: "azure-devops" as Platform },
+              { name: "GitLab", value: "gitlab" as Platform },
+            ],
+            default: "github",
+          },
+        ]);
+        platform = answer.platform;
+      }
 
       const updated = { ...manifest, platform };
       const notices: string[] = [];
@@ -308,7 +327,7 @@ const MIGRATION_CHECKPOINTS: MigrationCheckpoint[] = [
       }
       return false;
     },
-    execute: async (manifest, rootDir) => {
+    execute: async (manifest, rootDir, _headless) => {
       const notices: string[] = [];
       const agentsDir = join(rootDir, AGENTS_DIR);
       try {
@@ -334,13 +353,21 @@ const MIGRATION_CHECKPOINTS: MigrationCheckpoint[] = [
       const worktreeCapableTools = new Set(["claude"]);
       return manifest.tools.some(t => worktreeCapableTools.has(t));
     },
-    execute: async (manifest, rootDir) => {
-      const { enabled } = await inquirer.prompt<{ enabled: boolean }>([{
-        type: "confirm",
-        name: "enabled",
-        message: "hatch3r now supports worktree file isolation for parallel agent sessions. Enable it?",
-        default: true,
-      }]);
+    execute: async (manifest, rootDir, headless) => {
+      let enabled: boolean;
+
+      if (headless) {
+        // Default to enabled in headless/CI mode
+        enabled = true;
+      } else {
+        const answer = await inquirer.prompt<{ enabled: boolean }>([{
+          type: "confirm",
+          name: "enabled",
+          message: "hatch3r now supports worktree file isolation for parallel agent sessions. Enable it?",
+          default: true,
+        }]);
+        enabled = answer.enabled;
+      }
 
       const updated = { ...manifest, worktree: { enabled } };
       const notices: string[] = [];
@@ -360,13 +387,13 @@ const MIGRATION_CHECKPOINTS: MigrationCheckpoint[] = [
   },
 ];
 
-async function runMigrationCheckpoints(manifest: HatchManifest, rootDir: string): Promise<{ manifest: HatchManifest; allNotices: string[] }> {
+async function runMigrationCheckpoints(manifest: HatchManifest, rootDir: string, headless = false): Promise<{ manifest: HatchManifest; allNotices: string[] }> {
   let current = manifest;
   const allNotices: string[] = [];
 
   for (const checkpoint of MIGRATION_CHECKPOINTS) {
     if (await checkpoint.condition(current, rootDir)) {
-      const { manifest: updated, notices } = await checkpoint.execute(current, rootDir);
+      const { manifest: updated, notices } = await checkpoint.execute(current, rootDir, headless);
       current = updated;
       allNotices.push(...notices);
     }
@@ -375,7 +402,7 @@ async function runMigrationCheckpoints(manifest: HatchManifest, rootDir: string)
   return { manifest: current, allNotices };
 }
 
-export async function updateCommand(_opts?: Record<string, unknown>): Promise<void> {
+export async function updateCommand(_opts?: Record<string, unknown> & { yes?: boolean }): Promise<void> {
   printBanner(true);
 
   const rootDir = process.cwd();
@@ -384,10 +411,11 @@ export async function updateCommand(_opts?: Record<string, unknown>): Promise<vo
   if (!manifest) {
     logError("No .agents/hatch.json found.");
     console.log(chalk.dim("  Run `npx hatch3r init` to set up your project first.\n"));
-    throw new HatchError("No .agents/hatch.json found.", 1);
+    throw new HatchError("No .agents/hatch.json found.", 1, "CONFIG_ERROR");
   }
 
-  const { manifest: migrated, allNotices } = await runMigrationCheckpoints(manifest, rootDir);
+  const headless = !!(_opts?.yes);
+  const { manifest: migrated, allNotices } = await runMigrationCheckpoints(manifest, rootDir, headless);
   const m = migrated;
 
   for (const notice of allNotices) {

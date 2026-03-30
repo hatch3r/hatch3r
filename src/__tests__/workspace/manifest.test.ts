@@ -1,11 +1,12 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { mkdtemp, mkdir, rm, readFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   readWorkspaceManifest,
   writeWorkspaceManifest,
   createWorkspaceManifest,
+  isUnsafeRepoPath,
 } from "../../workspace/manifest.js";
 import { AGENTS_DIR, DEFAULT_FEATURES } from "../../types.js";
 
@@ -174,6 +175,57 @@ describe("workspace manifest", () => {
       expect(read!.repos[0].repo).toBeUndefined();
       expect(read!.repos[0].defaultBranch).toBeUndefined();
       expect(read!.repos[0].platform).toBeUndefined();
+    });
+
+    it("rejects manifest with path traversal in repo path", async () => {
+      const dir = await setup();
+      const raw = JSON.stringify({
+        version: "1.0.0",
+        hatch3rVersion: "1.4.0",
+        name: "evil-workspace",
+        repos: [{ path: "../../etc/passwd", sync: true }],
+        defaults: minimalDefaults,
+        syncStrategy: "manual",
+      });
+      await writeFile(join(dir, AGENTS_DIR, "workspace.json"), raw);
+      await expect(readWorkspaceManifest(dir)).rejects.toThrow("Invalid workspace manifest");
+    });
+
+    it("rejects manifest with absolute repo path", async () => {
+      const dir = await setup();
+      const raw = JSON.stringify({
+        version: "1.0.0",
+        hatch3rVersion: "1.4.0",
+        name: "evil-workspace",
+        repos: [{ path: "/etc/passwd", sync: true }],
+        defaults: minimalDefaults,
+        syncStrategy: "manual",
+      });
+      await writeFile(join(dir, AGENTS_DIR, "workspace.json"), raw);
+      await expect(readWorkspaceManifest(dir)).rejects.toThrow("Invalid workspace manifest");
+    });
+  });
+
+  describe("isUnsafeRepoPath", () => {
+    it("rejects path traversal with ..", () => {
+      expect(isUnsafeRepoPath("../secret")).toBe(true);
+      expect(isUnsafeRepoPath("../../etc/passwd")).toBe(true);
+      expect(isUnsafeRepoPath("foo/../../../bar")).toBe(true);
+    });
+
+    it("rejects absolute paths", () => {
+      expect(isUnsafeRepoPath("/etc/passwd")).toBe(true);
+      expect(isUnsafeRepoPath("/root/.ssh/id_rsa")).toBe(true);
+    });
+
+    it("rejects paths with null bytes", () => {
+      expect(isUnsafeRepoPath("foo\0bar")).toBe(true);
+    });
+
+    it("allows safe relative paths", () => {
+      expect(isUnsafeRepoPath("api")).toBe(false);
+      expect(isUnsafeRepoPath("services/api")).toBe(false);
+      expect(isUnsafeRepoPath("web-app")).toBe(false);
     });
   });
 });

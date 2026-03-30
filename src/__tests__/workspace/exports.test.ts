@@ -92,12 +92,18 @@ describe("workspace index.ts public exports", () => {
     expect(typeof workspaceExports.detectRepoGitIdentity).toBe("function");
   });
 
+  // ── Path validation ──
+
+  it("exports isUnsafeRepoPath as a function", () => {
+    expect(typeof workspaceExports.isUnsafeRepoPath).toBe("function");
+  });
+
   // ── Completeness check ──
 
   it("has the expected number of public exports", () => {
     const exportNames = Object.keys(workspaceExports);
-    // 2 constants + 3 manifest + 4 detect + 2 resolve + 1 sync + 5 git = 17
-    expect(exportNames.length).toBe(17);
+    // 2 constants + 4 manifest + 4 detect + 2 resolve + 1 sync + 5 git = 18
+    expect(exportNames.length).toBe(18);
   });
 });
 

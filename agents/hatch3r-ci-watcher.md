@@ -61,18 +61,15 @@ Use the platform CLI to interact with CI runs (check `platform` in `.agents/hatc
 
 ## External Knowledge
 
-Follow the tooling hierarchy and platform CLI guidance defined in `agents/shared/external-knowledge.md`.
+Follow the shared protocol in `agents/shared/external-knowledge.md` (tooling hierarchy, platform CLI, Context7 MCP, web research).
 
-## Context7 MCP Usage
+**Context7 focus for this agent:**
+- CI action/task documentation when failures involve misconfigured actions or outdated action APIs
+- Testing framework and build tool docs to understand failure messages from tool configuration issues
 
-- Use `resolve-library-id` then `query-docs` to look up CI action/task documentation when failures involve misconfigured actions or outdated action APIs.
-- Look up testing framework and build tool docs via Context7 to understand failure messages originating from tool configuration issues (e.g., Vitest config options, TypeScript compiler flags, bundler settings).
-
-## Web Research Usage
-
-- Use web search for error messages that are unfamiliar or not found in local logs — CI-specific errors often have known solutions in issue trackers and forums.
-- Use web search for changelogs and breaking changes when a CI failure coincides with a dependency or action version update.
-- Use web search for known CI platform issues (e.g., GitHub Actions runner outages, Azure Pipelines agent pool problems) when failures appear infrastructure-related rather than code-related.
+**Web research focus for this agent:**
+- Unfamiliar CI-specific error messages, changelogs, and breaking changes coinciding with dependency or action version updates
+- Known CI platform issues (runner outages, agent pool problems) when failures appear infrastructure-related
 
 ## Output Format
 

@@ -155,7 +155,7 @@ export async function configCommand(): Promise<void> {
   if (!manifest) {
     logError("No .agents/hatch.json found.");
     console.log(chalk.dim("  Run `npx hatch3r init` to set up your project first.\n"));
-    throw new HatchError("No .agents/hatch.json found.", 1);
+    throw new HatchError("No .agents/hatch.json found.", 1, "CONFIG_ERROR");
   }
 
   // Warn early if this repo is managed by a workspace
@@ -252,7 +252,7 @@ export async function configCommand(): Promise<void> {
 
   if (tools.length === 0) {
     logError("At least one tool must be selected.");
-    throw new HatchError("At least one tool must be selected.", 1);
+    throw new HatchError("At least one tool must be selected.", 1, "VALIDATION_ERROR");
   }
 
   // --- Features ---

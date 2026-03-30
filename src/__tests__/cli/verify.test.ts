@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from "vitest";
+import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -60,6 +61,7 @@ describe("verify command", () => {
     generated: "2025-01-01T00:00:00.000Z",
     hatchVersion: "1.0.0",
     files: {},
+    checksum: createHash("sha256").update(JSON.stringify({})).digest("hex"),
   };
 
   it("throws HatchError when no integrity manifest found", async () => {
