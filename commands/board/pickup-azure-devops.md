@@ -31,6 +31,10 @@ Platform-specific procedures for Azure DevOps. Referenced from `hatch3r-board-pi
 **Open PRs:**
 - `az repos pr list --org https://dev.azure.com/{namespace} --project {project} --status active`.
 
+**Abandoned PRs for selected work item (abandoned work detection):**
+- `az repos pr list --org https://dev.azure.com/{namespace} --project {project} --status abandoned` — check if any abandoned PRs are linked to this work item.
+- If found: Surface to the user: "Note: PR #{M} was abandoned for work item #{N}. The previous work may be partially relevant. Options: (a) review the abandoned PR branch, (b) start fresh, (c) pick a different work item."
+
 ---
 
 ## Step 4: Update Issue Status — Azure DevOps

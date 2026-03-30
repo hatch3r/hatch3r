@@ -44,7 +44,7 @@ export async function worktreeSetupCommand(
       logError("Worktree path is required when running from the main repo.");
       console.log(chalk.dim("  Usage: hatch3r worktree-setup <worktree-path>"));
       console.log(chalk.dim("  Or run this command from inside a worktree.\n"));
-      throw new HatchError("Missing worktree path", 1);
+      throw new HatchError("Missing worktree path", 1, "VALIDATION_ERROR");
     }
     targetRoot = join(cwd, worktreePath);
   }
@@ -57,7 +57,7 @@ export async function worktreeSetupCommand(
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
       logError(`No ${WORKTREE_INCLUDE_FILE} found in ${mainRoot}`);
       console.log(chalk.dim("  Run `hatch3r init` or `hatch3r sync` to generate it.\n"));
-      throw new HatchError(`Missing ${WORKTREE_INCLUDE_FILE}`, 1);
+      throw new HatchError(`Missing ${WORKTREE_INCLUDE_FILE}`, 1, "FS_ERROR");
     }
     throw err;
   }

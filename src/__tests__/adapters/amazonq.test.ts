@@ -73,14 +73,14 @@ describe("AmazonQAdapter", () => {
     expect(skills.length).toBe(0);
   });
 
-  it("generates .amazonq/settings.json with MCP config when servers configured", async () => {
+  it("generates .amazonq/mcp.json with MCP config when servers configured", async () => {
     const manifest = createManifest({
       tools: ["amazon-q"],
       mcpServers: ["github"],
     });
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
-    const settings = outputs.find((o) => o.path === ".amazonq/settings.json");
+    const settings = outputs.find((o) => o.path === ".amazonq/mcp.json");
     expect(settings).toBeDefined();
 
     const parsed = JSON.parse(settings!.content);
@@ -96,7 +96,7 @@ describe("AmazonQAdapter", () => {
     });
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
-    const settings = outputs.find((o) => o.path === ".amazonq/settings.json");
+    const settings = outputs.find((o) => o.path === ".amazonq/mcp.json");
     expect(settings).toBeUndefined();
   });
 

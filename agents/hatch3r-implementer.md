@@ -166,15 +166,9 @@ Use the project's configured platform CLI (check `platform` in `.agents/hatch.js
 
 MCP server env vars use `${env:VAR_NAME}` syntax in mcp.json. These are expanded at runtime by the tool adapter. When referencing environment variables in MCP configuration, use this syntax rather than shell-style `$VAR` or `%VAR%` notation. The adapter reads the variable from the host environment at server startup.
 
-## Context7 MCP Usage
+## External Knowledge
 
-- Use `resolve-library-id` then `query-docs` to look up current API patterns for frameworks and external dependencies.
-- Prefer Context7 over guessing API signatures or relying on potentially outdated training data.
-
-## Web Research Usage
-
-- Use web search for latest CVEs, security advisories, breaking changes, or novel error messages.
-- Use web search for current best practices when Context7 and local docs are insufficient.
+Follow the shared protocol in `agents/shared/external-knowledge.md` (tooling hierarchy, platform CLI, Context7 MCP, web research).
 
 ## Structured Reasoning
 

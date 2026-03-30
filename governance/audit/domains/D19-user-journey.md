@@ -23,6 +23,7 @@ Audit the critical 30 minutes after `hatch3r init` completes.
 - [ ] Error messages for common missteps — running `/project-spec` in the terminal (not in agent tool), missing env vars, wrong editor launched without sourcing `.env.mcp`
 - [ ] Time-to-first-value — how many steps (decisions, file edits, tool launches) between init and first useful agent output?
 - [ ] Greenfield vs brownfield guidance — does post-init messaging adapt based on the project type selected during init?
+- [ ] Simulated end-to-end walkthrough — trace the actual init --> first-value path on two representative sample repos (one greenfield, one brownfield). Execute each step mentally as a new user would: read the post-init message, decide what to do next, invoke the first command, interpret the output. Record every friction point, unclear message, missing prerequisite, and moment of confusion. This is not a code review — it is a user experience trace.
 
 **Key files:** `src/cli/commands/init.ts` (post-init messaging), `website/docs/getting-started/quick-start.md`, generated `CLAUDE.md`/`.cursor/rules/` (do they explain available commands?)
 

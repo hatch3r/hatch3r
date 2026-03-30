@@ -46,20 +46,15 @@ Follow the security patterns defined in `.agents/rules/hatch3r-security-patterns
 
 ## External Knowledge
 
-Follow the tooling hierarchy and platform CLI guidance defined in `agents/shared/external-knowledge.md`.
+Follow the shared protocol in `agents/shared/external-knowledge.md` (tooling hierarchy, platform CLI, Context7 MCP, web research).
 
-## Context7 MCP Usage
+**Context7 focus for this agent:**
+- Security library APIs (JWT verification, bcrypt, helmet, CSRF middleware, OAuth libraries) and correct auth/crypto usage
+- Framework-specific security middleware docs (Express helmet options, Next.js CSP config, Django security middleware)
 
-- Use `resolve-library-id` then `query-docs` to look up current API patterns for security libraries (JWT verification, bcrypt, helmet, CSRF middleware, OAuth libraries).
-- Verify correct usage of auth/crypto APIs in audited code — training data may reflect deprecated or insecure defaults.
-- Look up framework-specific security middleware docs (e.g., Express helmet options, Next.js CSP config, Django security middleware).
-
-## Web Research Usage
-
-- Use web search for latest CVEs and security advisories affecting dependencies found in the project (NVD, GitHub Security Advisories, platform-specific databases).
-- Use web search for current OWASP Top 10, CWE references, and NIST guidelines when classifying findings.
-- Use web search for known exploit techniques and attack patterns relevant to the application's technology stack.
-- Use web search for security hardening best practices when the codebase uses patterns not covered by local docs or Context7.
+**Web research focus for this agent:**
+- Latest CVEs, security advisories, OWASP Top 10, CWE references, and NIST guidelines for classifying findings
+- Known exploit techniques, attack patterns, and security hardening best practices for the application's technology stack
 
 ## Sub-Agent Delegation
 

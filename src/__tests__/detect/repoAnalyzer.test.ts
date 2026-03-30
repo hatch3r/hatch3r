@@ -458,6 +458,226 @@ describe("analyzeRepo", () => {
     });
   });
 
+  describe("framework detection", () => {
+    it("detects Next.js from next.config.js", async () => {
+      const root = await createTempRepo();
+      await writeFile(join(root, "next.config.js"), "module.exports = {}");
+
+      const info = await analyzeRepo(root);
+      expect(info.frameworks).toContain("next");
+    });
+
+    it("detects Next.js from next in package.json dependencies", async () => {
+      const root = await createTempRepo();
+      await writeFile(
+        join(root, "package.json"),
+        JSON.stringify({ dependencies: { next: "14.0.0", react: "18.0.0" } }),
+      );
+
+      const info = await analyzeRepo(root);
+      expect(info.frameworks).toContain("next");
+    });
+
+    it("suppresses react when next is detected", async () => {
+      const root = await createTempRepo();
+      await writeFile(
+        join(root, "package.json"),
+        JSON.stringify({ dependencies: { next: "14.0.0", react: "18.0.0" } }),
+      );
+
+      const info = await analyzeRepo(root);
+      expect(info.frameworks).toContain("next");
+      expect(info.frameworks).not.toContain("react");
+    });
+
+    it("detects Angular from angular.json", async () => {
+      const root = await createTempRepo();
+      await writeFile(join(root, "angular.json"), "{}");
+
+      const info = await analyzeRepo(root);
+      expect(info.frameworks).toContain("angular");
+    });
+
+    it("detects Angular from @angular/core in package.json", async () => {
+      const root = await createTempRepo();
+      await writeFile(
+        join(root, "package.json"),
+        JSON.stringify({ dependencies: { "@angular/core": "17.0.0" } }),
+      );
+
+      const info = await analyzeRepo(root);
+      expect(info.frameworks).toContain("angular");
+    });
+
+    it("detects Vue from vue in package.json", async () => {
+      const root = await createTempRepo();
+      await writeFile(
+        join(root, "package.json"),
+        JSON.stringify({ dependencies: { vue: "3.0.0" } }),
+      );
+
+      const info = await analyzeRepo(root);
+      expect(info.frameworks).toContain("vue");
+    });
+
+    it("suppresses vue when nuxt is detected", async () => {
+      const root = await createTempRepo();
+      await writeFile(
+        join(root, "package.json"),
+        JSON.stringify({ dependencies: { nuxt: "3.0.0", vue: "3.0.0" } }),
+      );
+
+      const info = await analyzeRepo(root);
+      expect(info.frameworks).toContain("nuxt");
+      expect(info.frameworks).not.toContain("vue");
+    });
+
+    it("detects Svelte from svelte.config.js", async () => {
+      const root = await createTempRepo();
+      await writeFile(join(root, "svelte.config.js"), "export default {}");
+
+      const info = await analyzeRepo(root);
+      expect(info.frameworks).toContain("svelte");
+    });
+
+    it("detects SvelteKit from @sveltejs/kit in package.json", async () => {
+      const root = await createTempRepo();
+      await writeFile(
+        join(root, "package.json"),
+        JSON.stringify({ devDependencies: { "@sveltejs/kit": "2.0.0", svelte: "4.0.0" } }),
+      );
+
+      const info = await analyzeRepo(root);
+      expect(info.frameworks).toContain("sveltekit");
+    });
+
+    it("suppresses svelte when sveltekit is detected", async () => {
+      const root = await createTempRepo();
+      await writeFile(
+        join(root, "package.json"),
+        JSON.stringify({ devDependencies: { "@sveltejs/kit": "2.0.0", svelte: "4.0.0" } }),
+      );
+
+      const info = await analyzeRepo(root);
+      expect(info.frameworks).toContain("sveltekit");
+      expect(info.frameworks).not.toContain("svelte");
+    });
+
+    it("detects Remix from @remix-run/react in package.json", async () => {
+      const root = await createTempRepo();
+      await writeFile(
+        join(root, "package.json"),
+        JSON.stringify({ dependencies: { "@remix-run/react": "2.0.0", react: "18.0.0" } }),
+      );
+
+      const info = await analyzeRepo(root);
+      expect(info.frameworks).toContain("remix");
+    });
+
+    it("suppresses react when remix is detected", async () => {
+      const root = await createTempRepo();
+      await writeFile(
+        join(root, "package.json"),
+        JSON.stringify({ dependencies: { "@remix-run/react": "2.0.0", react: "18.0.0" } }),
+      );
+
+      const info = await analyzeRepo(root);
+      expect(info.frameworks).toContain("remix");
+      expect(info.frameworks).not.toContain("react");
+    });
+
+    it("detects Astro from astro.config.mjs", async () => {
+      const root = await createTempRepo();
+      await writeFile(join(root, "astro.config.mjs"), "export default {}");
+
+      const info = await analyzeRepo(root);
+      expect(info.frameworks).toContain("astro");
+    });
+
+    it("detects Nuxt from nuxt.config.ts", async () => {
+      const root = await createTempRepo();
+      await writeFile(join(root, "nuxt.config.ts"), "export default {}");
+
+      const info = await analyzeRepo(root);
+      expect(info.frameworks).toContain("nuxt");
+    });
+
+    it("detects plain React when no meta-framework present", async () => {
+      const root = await createTempRepo();
+      await writeFile(
+        join(root, "package.json"),
+        JSON.stringify({ dependencies: { react: "18.0.0" } }),
+      );
+
+      const info = await analyzeRepo(root);
+      expect(info.frameworks).toContain("react");
+    });
+
+    it("detects Express from express in package.json", async () => {
+      const root = await createTempRepo();
+      await writeFile(
+        join(root, "package.json"),
+        JSON.stringify({ dependencies: { express: "4.18.0" } }),
+      );
+
+      const info = await analyzeRepo(root);
+      expect(info.frameworks).toContain("express");
+    });
+
+    it("detects Fastify from fastify in package.json", async () => {
+      const root = await createTempRepo();
+      await writeFile(
+        join(root, "package.json"),
+        JSON.stringify({ dependencies: { fastify: "4.0.0" } }),
+      );
+
+      const info = await analyzeRepo(root);
+      expect(info.frameworks).toContain("fastify");
+    });
+
+    it("detects Hono from hono in package.json", async () => {
+      const root = await createTempRepo();
+      await writeFile(
+        join(root, "package.json"),
+        JSON.stringify({ dependencies: { hono: "3.0.0" } }),
+      );
+
+      const info = await analyzeRepo(root);
+      expect(info.frameworks).toContain("hono");
+    });
+
+    it("detects frameworks from devDependencies", async () => {
+      const root = await createTempRepo();
+      await writeFile(
+        join(root, "package.json"),
+        JSON.stringify({ devDependencies: { astro: "4.0.0" } }),
+      );
+
+      const info = await analyzeRepo(root);
+      expect(info.frameworks).toContain("astro");
+    });
+
+    it("detects multiple frameworks simultaneously", async () => {
+      const root = await createTempRepo();
+      await writeFile(
+        join(root, "package.json"),
+        JSON.stringify({ dependencies: { react: "18.0.0", express: "4.18.0" } }),
+      );
+
+      const info = await analyzeRepo(root);
+      expect(info.frameworks).toContain("react");
+      expect(info.frameworks).toContain("express");
+    });
+
+    it("returns empty array when no frameworks detected", async () => {
+      const root = await createTempRepo();
+      await writeFile(join(root, "README.md"), "# Hello");
+
+      const info = await analyzeRepo(root);
+      expect(info.frameworks).toEqual([]);
+    });
+  });
+
   describe("rootDir", () => {
     it("returns the analyzed directory as rootDir", async () => {
       const root = await createTempRepo();
@@ -473,6 +693,7 @@ describe("formatRepoSummary", () => {
     const summary = formatRepoSummary({
       languages: ["typescript", "python"],
       packageManager: "npm",
+      frameworks: ["next"],
       isMonorepo: true,
       hasExistingAgents: false,
       existingTools: ["cursor"],
@@ -481,6 +702,7 @@ describe("formatRepoSummary", () => {
 
     expect(summary).toContain("typescript, python");
     expect(summary).toContain("npm");
+    expect(summary).toContain("Frameworks: next");
     expect(summary).toContain("Monorepo: yes");
     expect(summary).toContain("Existing .agents/: no");
     expect(summary).toContain("cursor");
@@ -490,12 +712,14 @@ describe("formatRepoSummary", () => {
     const summary = formatRepoSummary({
       languages: ["unknown"],
       packageManager: "unknown",
+      frameworks: [],
       isMonorepo: false,
       hasExistingAgents: false,
       existingTools: [],
       rootDir: "/test",
     });
 
+    expect(summary).not.toContain("Frameworks");
     expect(summary).not.toContain("Existing tool configs");
     expect(summary).toContain("Monorepo: no");
   });

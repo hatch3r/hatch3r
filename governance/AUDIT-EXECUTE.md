@@ -4,10 +4,14 @@
 
 Implement all agent-actionable findings from an audit report using a wave-based progressive execution model with regression gates between waves. This is the execution companion to `AUDIT.md` (audit prompt) and `AUDIT-REPORT.md` (audit report).
 
+> **Path Convention:** All file paths in this document are relative to the **repository root**. Governance files live under `governance/`. The ephemeral `.audit-workspace/` directory is created at repository root.
+
 ```
 Execution Flow:
   Baseline → Wave 1 (Critical) → Gate 1 → Wave 2 (High) → Gate 2 →
-  Wave 3 (Medium) → Gate 3 → Wave 4 (Low) → Gate 4 → Final Review
+  Wave 3 (Medium) → Gate 3 → Wave 4 (Low) → Gate 4 → Final Review →
+  Phase 5: PRD Update → Phase 6: Content Generation Planning →
+  Phase 7: Audit Prompt Evolution (user consent required)
 ```
 
 ### Report Ingestion Strategy
@@ -16,6 +20,9 @@ Do NOT read `AUDIT-REPORT.md` in full. Read sections on-demand:
 - **Phase 0:** Tier 1 + Tier 2 only (for baseline domain scores)
 - **Phase 1:** Enhanced Action Items table only (for triage)
 - **Phase 4:** Tier 3 sections relevant to current wave only (for sub-agents)
+- **Phase 5:** PRD Evolution Candidates table + `governance/hatch3r-prd.md` + `governance/VISION.md` (if available)
+- **Phase 6:** Content Gap Artifacts table + verified component inventory
+- **Phase 7:** Audit Self-Evolution Proposals table + current `governance/AUDIT.md` + relevant domain files (`governance/audit/domains/`)
 - **Report Update:** Only sections being modified
 
 ---
@@ -32,6 +39,7 @@ Before spawning any sub-agents, ask the user:
 6. **Wave granularity** — Full 4-wave or compressed 2-wave (Critical+High, Medium+Low)?
 7. **Git strategy** — Wave-tagged commits or branch-per-wave?
 8. **Abort threshold** — Consecutive gate failures before halt? Default: 2.
+9. **Closed-loop phases** — Run PRD Update (Phase 5), Content Generation Planning (Phase 6), and Audit Prompt Evolution (Phase 7) after Final Review? Default: Yes if audit report contains closed-loop sections (PRD Evolution Candidates, Content Gap Artifacts, Audit Self-Evolution Proposals).
 
 Apply exclusions immediately with rationale notes.
 
@@ -109,6 +117,15 @@ Pre-existing failures are NOT regressions.
 
 Parse every action item from the Enhanced Action Items table.
 
+### Previous Cycle Insights
+
+If `governance/audit/execution-insights.json` exists from a previous execution cycle, read it and apply adjustments:
+- Use fix success rates to adjust work unit concurrency — unreliable finding types (high rolled-back rate) get serialized work units rather than parallel.
+- Use sizing accuracy data to calibrate effort estimates — if a category consistently under-estimates, adjust upward.
+- Flag recurring failure files as "high-risk" work units requiring extra review attention.
+
+If the file does not exist (first cycle), skip this step.
+
 ### Table Completeness Validation
 
 1. Read post-dedup finding count from Executive Dashboard
@@ -175,7 +192,7 @@ Record in registry under `mixed_decomposition`. Trivial agent portion → implem
 
 ## Finding Registry
 
-Central manifest tracking every finding through its lifecycle. Store as `finding-registry.json`. Update in-place per phase. Read full registry only at checkpoints. For wave execution, load only the current wave's entries. The file is the source of truth.
+Central manifest tracking every finding through its lifecycle. Store as `governance/audit/finding-registry.json`. Update in-place per phase. Read full registry only at checkpoints. For wave execution, load only the current wave's entries. The file is the source of truth.
 
 ### Registry Fields
 
@@ -201,6 +218,10 @@ Central manifest tracking every finding through its lifecycle. Store as `finding
 | `rollback_level` | Phase 4 | 1 / 2 / 3 |
 | `reviewer_verdict` | Final Review | PASS / PARTIAL / FAIL / REGRESSION / ROLLED-BACK |
 | `reviewer_notes` | Final Review | Per-finding notes |
+| `prd_impact` | Phase 5 | PRD section(s) updated because of this finding (if any) |
+| `content_generated` | Phase 6 | Content artifact spec produced from this finding (if any) |
+| `audit_evolution` | Phase 7 | Audit prompt change proposed from this finding (if any) |
+| `false_positive` | Final Review | Boolean — reviewer flags findings that were incorrectly identified (fix revealed it was not an issue) |
 
 ### Invariants
 
@@ -315,7 +336,7 @@ Prioritize within wave: dependency-first, then impact-to-effort ratio, then secu
 
 ## Regression Gates
 
-After each wave commit, run 6-check gate comparing against Phase 0 baseline (NOT a shifted baseline).
+After each wave commit, run 8-check gate comparing against Phase 0 baseline (NOT a shifted baseline).
 
 ### Gate Checks
 
@@ -327,6 +348,8 @@ After each wave commit, run 6-check gate comparing against Phase 0 baseline (NOT
 | Build | `npm run build` | Build succeeds | Build fails AND baseline succeeded |
 | Content | `npx hatch3r validate` | No validation errors | Content structure/reference errors introduced |
 | Diff | `git diff --stat BASELINE..HEAD` | No unintended mods, no binaries, no credentials | Anomalies detected |
+| Fix-Finding | Review diff against finding recommendations | Each "done" finding's change addresses its specific recommendation | Change addresses a related area but not the specific recommendation |
+| Governance | Scan modified `.md` files in `commands/`, `agents/`, `skills/` against pre-wave versions | Modified governance files retain ASK checkpoints, quality gate references, and sub-agent delegation patterns present in the pre-wave version | A governance file lost an ASK checkpoint, quality gate reference, or sub-agent delegation pattern that existed before the wave |
 
 ### Gate Result Format
 
@@ -341,6 +364,8 @@ After each wave commit, run 6-check gate comparing against Phase 0 baseline (NOT
 | Build | PASS/FAIL | — |
 | Content | PASS/FAIL | X validation errors (baseline: Y, delta: +Z) |
 | Diff | PASS/FAIL | [issues, if any] |
+| Fix-Finding | PASS/FAIL | X of Y findings aligned (Z divergent) |
+| Governance | PASS/FAIL | X of Y governance files retain expected patterns |
 
 Gate Verdict: PASS / FAIL
 ```
@@ -408,13 +433,13 @@ Flag any domain whose score decreased — indicates cross-domain side effects.
 
 ### Implementation Sub-Agents
 
-Read and adapt `audit/templates/implementation-sub-agent.md` for each work unit. Replace placeholders (`[Wave]`, `[Work Unit]`, `[findings]`) with registry values.
+Read and adapt `governance/audit/templates/implementation-sub-agent.md` for each work unit. Replace placeholders (`[Wave]`, `[Work Unit]`, `[findings]`) with registry values.
 
 ### Final Reviewer
 
 Spawn after all waves complete (or after halt). **Mandatory — must not be skipped.**
 
-Read `audit/templates/reviewer-sub-agent.md`. Pass: Finding Registry, wave re-scores, Never-Attempted Manifest.
+Read `governance/audit/templates/reviewer-sub-agent.md`. Pass: Finding Registry, wave re-scores, Never-Attempted Manifest.
 
 ### SHIP Gate
 
@@ -424,6 +449,199 @@ The SHIP verdict requires:
 3. All `failed` and `rolled_back` findings have documented reasons
 
 If Pass 0 = FAIL, maximum verdict is BLOCK. If reviewer reports FAIL/REGRESSION, spawn targeted fix sub-agents. Max 2 fix-review cycles.
+
+### False Positive Detection
+
+The final reviewer should flag findings where the implementation revealed that the finding was incorrectly identified — the reported issue did not actually exist, or the recommended fix was inapplicable. Set the `false_positive` field to `true` in the registry for these findings.
+
+Track false positive rate per domain: `false_positives_in_domain / total_findings_in_domain`. Domains with false positive rates exceeding 15% should receive CL-3 evolution proposals targeting their checklist precision. Include per-domain false positive rates in the Execution Telemetry.
+
+---
+
+## Phase 5: PRD Update
+
+**Trigger:** Pre-Execution Question 9 = Yes AND audit report contains "PRD Evolution Candidates" section.
+**Prerequisite:** Final Review complete (reviewer verdict issued).
+**Agent:** PRD Update Agent (single agent, not a sub-agent pool).
+
+### Process
+
+1. **Read inputs:**
+   - PRD Evolution Candidates table from audit report
+   - Current `governance/hatch3r-prd.md`
+   - `governance/VISION.md` (if available)
+   - Reviewer verdict and domain re-scores
+
+2. **Filter candidates:**
+   - Remove candidates tied to findings that were `failed` or `rolled_back`
+   - Keep candidates tied to `done`, `partial`, or `human_only` findings
+   - Keep candidates from competitive analysis (D17) regardless of execution status
+
+3. **Present filtered list to user for approval:**
+   ```
+   ## PRD Update Proposals
+
+   The following PRD changes are recommended based on audit findings:
+
+   | # | PRD Section | Change | Justification | Status |
+   |---|-------------|--------|---------------|--------|
+
+   Approve all? Or select individually? (all / comma-separated numbers / none)
+   ```
+
+4. **Apply approved changes:**
+   - Modify the relevant PRD sections
+   - Preserve PRD structure and formatting
+   - Increment PRD version (e.g., v4.0 → v4.1)
+   - Update "Date" and "Supersedes" fields
+   - Add a "Changes in vX.Y" subsection listing each change with audit finding reference
+
+5. **Commit:**
+   ```
+   git add governance/hatch3r-prd.md
+   git commit -m "audit: phase 5 -- PRD update from audit cycle [date]"
+   ```
+
+6. **Record:** Update `prd_impact` field in registry for all findings that drove approved changes.
+
+### Constraints
+
+- Do not restructure the PRD — only add, modify, or reprioritize within existing sections.
+- If a proposed change contradicts VISION.md and was flagged "Requires Vision Review", present it individually (not batch-approved).
+- PRD changes are a separate commit from wave commits.
+
+---
+
+## Phase 6: Content Generation Planning
+
+**Trigger:** Pre-Execution Question 9 = Yes AND audit report contains "Content Gap Artifacts" section.
+**Prerequisite:** Phase 5 complete (or skipped).
+**Agent:** Content Spec Agent (single agent).
+
+### Process
+
+1. **Read inputs:**
+   - Content Gap Artifacts table from audit report
+   - Verified component inventory
+   - Existing content artifacts in source directories for naming conventions and format patterns
+
+2. **Filter by priority:**
+   - P1 items: Generate full specification
+   - P2 items: Generate outline specification
+   - P3 items: List only (no spec generation)
+
+3. **For each P1/P2 artifact, produce a structured spec:**
+
+   ```markdown
+   ## Content Spec: [proposed-name]
+
+   **Type:** [Agent / Skill / Rule / Command / Prompt / Hook / Check]
+   **Priority:** [P1 / P2]
+   **Source Finding:** [Finding ID from audit]
+
+   ### Purpose
+   [1-3 sentences]
+
+   ### Scope
+   [What this artifact covers and does NOT cover]
+
+   ### File Structure
+   [Expected file path(s) following existing conventions]
+
+   ### Key Sections / Checklist Items
+   [For agents: sections. For skills: steps. For rules: conventions. For commands: workflow.]
+
+   ### Dependencies
+   [Other artifacts this interacts with]
+
+   ### Acceptance Criteria
+   [How to verify this artifact is complete and correct]
+   ```
+
+4. **Write specs to:** `.audit-workspace/content-specs/` (one file per artifact)
+
+5. **Present summary to user:**
+   ```
+   ## Content Generation Plan
+
+   P1 Specifications (full): N artifacts
+   P2 Specifications (outline): N artifacts
+   P3 Listed (no spec): N artifacts
+
+   Specs written to .audit-workspace/content-specs/
+   ```
+
+6. **Record:** Update `content_generated` field in registry for relevant findings.
+
+### Constraints
+
+- Do NOT implement the content artifacts — only produce specifications.
+- Specs must follow existing naming and structure conventions.
+- Content specs are ephemeral (in `.audit-workspace/`) — input for a future implementation cycle.
+
+---
+
+## Phase 7: Audit Prompt Evolution
+
+**Trigger:** Pre-Execution Question 9 = Yes AND audit report contains "Audit Self-Evolution Proposals" section.
+**Prerequisite:** Phase 6 complete (or skipped).
+**Agent:** Audit Evolution Agent (single agent).
+
+**This phase modifies AUDIT.md and domain files. It is the ONLY context in which Guardrail 3 is suspended, and ONLY with explicit user consent per proposal.**
+
+### Process
+
+1. **Read inputs:**
+   - Audit Self-Evolution Proposals table from audit report
+   - Current `governance/AUDIT.md`
+   - Relevant domain files (`governance/audit/domains/D{NN}-{name}.md`)
+
+2. **Present each proposal individually for user decision:**
+   ```
+   ## Audit Evolution Proposal [N of M]
+
+   Target: [AUDIT.md section or domain file]
+   Change: [specific description]
+   Evidence: [what triggered this]
+   Risk: [what could go wrong]
+
+   Accept? (yes / no / modify)
+   ```
+
+   If user selects "modify", capture the modification before proceeding.
+
+3. **Apply accepted proposals:**
+   - For AUDIT.md changes: modify the specific section in `governance/AUDIT.md`
+   - For domain file changes: modify the specific domain file in `governance/audit/domains/`
+   - For new domain additions: create `governance/audit/domains/D{NN}-{name}.md` following existing template
+   - For weight adjustments: recalculate all weights in the affected tier to preserve tier totals
+   - For sub-agent count changes: update Summary Table totals
+
+4. **Invariant checks after all changes:**
+   - Tier weight totals sum to 1.00
+   - Total sub-agent count matches sum of all domain counts
+   - All domain files referenced in Summary Table exist
+   - No domain file exists without a corresponding Summary Table entry
+
+5. **Update Component Inventory** if the audit discovered count discrepancies.
+
+6. **Commit:**
+   ```
+   git add governance/AUDIT.md governance/audit/domains/
+   git commit -m "audit: phase 7 -- audit prompt evolution from [date] cycle"
+   ```
+
+7. **Record:** Update `audit_evolution` field in registry for relevant findings.
+
+8. **Update Audit History table** in AUDIT.md.
+
+### Constraints
+
+- Maximum 10 proposals per cycle (enforced by AUDIT.md Phase CL-3).
+- Each proposal requires individual user consent — no batch approval.
+- Rejected proposals logged in telemetry but not applied.
+- Weight changes must preserve tier totals exactly.
+- This phase runs LAST because it modifies the audit infrastructure itself.
 
 ---
 
@@ -441,11 +659,19 @@ Self-check: count status markers in updated report and verify they match registr
 
 3. **Update Enhanced Action Items:** Mark: `DONE`, `PARTIAL`, `OPEN` (with failure reason), `ROLLED-BACK` (with wave and reason). Recalculate remaining effort in Blockers/Should-Have/Deferred sections.
 
+4. **Update Executive Dashboard:** Update overall score, score band, domain heatmap, top-3 strengths/issues, and holistic assessment to reflect post-execution state.
+
 5. **Update Delta Since Previous Audit:** Resolution statistics, wave-level breakdown, updated open count.
 
 6. **Add Execution Log:** Append to Audit History table.
 
-7. **Present Summary:**
+7. **Add PRD Update Summary** (if Phase 5 ran): List approved PRD changes with section references and audit finding traceability.
+
+8. **Add Content Generation Plan Summary** (if Phase 6 ran): Count of P1/P2/P3 specs produced, location of spec files.
+
+9. **Add Audit Evolution Summary** (if Phase 7 ran): List of accepted/rejected proposals with rationale.
+
+10. **Present Summary:**
 
 ```
 ## Audit Execution Summary
@@ -471,6 +697,11 @@ Report: AUDIT-REPORT.md
 ### Remaining Human Actions
 | # | Domain | Action Item | Severity | Effort |
 |---|--------|-------------|----------|--------|
+
+### Closed-Loop Results (if applicable)
+- PRD updates applied: N (PRD version: vX.Y → vX.Z)
+- Content specs produced: P1: N, P2: N, P3: N
+- Audit evolution proposals: Accepted: N, Rejected: N, Modified: N
 
 ### Reviewer Verdict: [SHIP / FIX-AND-SHIP / PARTIAL-SHIP / BLOCK]
 
@@ -498,6 +729,11 @@ Rollbacks: Level 1: N, Level 2: N, Level 3: N
 
 Domain Score Delta: Improved: N (avg +X), Unchanged: N, Regressed: N
 Finding Resolution Rate: N/N (X%)
+
+Closed-Loop Phases:
+  Phase 5 (PRD Update): [Ran/Skipped] — N changes proposed, N approved, N applied
+  Phase 6 (Content Planning): [Ran/Skipped] — P1: N, P2: N, P3: N specs
+  Phase 7 (Audit Evolution): [Ran/Skipped] — N proposals, N accepted, N rejected, N modified
 ```
 
 ### Per-Finding Resolution Log
@@ -510,11 +746,62 @@ Columns: `Event`, `Wave`, `Level`, `Trigger`, `Work Unit`, `Findings Affected`, 
 
 ---
 
+## Execution Learning
+
+After each complete execution cycle, produce an Execution Insights summary to inform the next cycle's triage and planning. This creates a compounding knowledge loop where each cycle improves the next.
+
+### Tracked Patterns
+
+1. **Fix success rate by finding type:** Categorize findings as code, content, config, or documentation. Track which categories succeed on first attempt vs. require retries vs. get rolled back. Over time, this reveals which finding types need different execution strategies.
+
+2. **Work unit sizing accuracy:** Compare estimated effort (S/M/L/XL from the audit report) against actual execution duration. Flag systematic over-estimates (wasting parallelism by creating too-large work units) and under-estimates (causing cascading delays).
+
+3. **Recurring failure patterns:** If the same file, module, or code area causes rollbacks across multiple cycles, flag as a structural issue that may require architectural intervention rather than incremental fixes.
+
+4. **Fix-type effectiveness:** Track which fix approaches (refactor, add validation, update content, restructure architecture, add tests) have the highest first-attempt success rates. Use this to guide fix strategy selection in future cycles.
+
+5. **False positive patterns:** Aggregate false positive data from the reviewer across cycles. Identify domain-level patterns (e.g., "D9 adapter findings frequently turn out to be intentional platform differences").
+
+### Output
+
+Write to `governance/audit/execution-insights.json` (persistent — survives across audit cycles):
+
+```json
+{
+  "cycle_date": "YYYY-MM-DD",
+  "fix_success_rate": {
+    "code": { "first_attempt": 0, "retry": 0, "rolled_back": 0 },
+    "content": { "first_attempt": 0, "retry": 0, "rolled_back": 0 },
+    "config": { "first_attempt": 0, "retry": 0, "rolled_back": 0 },
+    "docs": { "first_attempt": 0, "retry": 0, "rolled_back": 0 }
+  },
+  "sizing_accuracy": {
+    "over_estimated": 0,
+    "under_estimated": 0,
+    "accurate": 0
+  },
+  "recurring_failures": [],
+  "false_positive_rate_by_domain": {},
+  "top_insights": []
+}
+```
+
+### Consumption
+
+The next cycle's Phase 1 (Enhanced Triage) should:
+
+1. Read `governance/audit/execution-insights.json` if available from the previous cycle.
+2. Use fix success rates to adjust work unit concurrency — unreliable finding types get serialized work units rather than parallel.
+3. Use sizing accuracy data to calibrate effort estimates — if Medium findings consistently take L effort, adjust upward.
+4. Flag recurring failure files as "high-risk" work units requiring extra review attention.
+
+---
+
 ## Guardrails
 
 1. **Do not fabricate findings.** Only implement items from the audit report.
 2. **Do not skip the reviewer.** Final reviewer sub-agent is mandatory.
-3. **Do not modify the audit prompt.** `AUDIT.md` is read-only during execution.
+3. **Do not modify the audit prompt during waves.** `AUDIT.md` is read-only during Phases 0-4 and Final Review. Phase 7 (Audit Prompt Evolution) is the sole exception, and requires per-proposal user consent.
 4. **Do not mark human-only items as done.**
 5. **Preserve report structure.** Maintain existing markdown format and section numbering.
 6. **Be honest about failures.** Report unresolvable findings as unresolved.
@@ -528,12 +815,16 @@ Columns: `Event`, `Wave`, `Level`, `Trigger`, `Work Unit`, `Findings Affected`, 
 14. **No silent drops.** Every targeted finding must reach a terminal status.
 15. **Registry checkpoints are mandatory.** Checkpoint failure is a HALT condition.
 16. **Completeness Gate is blocking.** Phase 2 gate must pass (orphaned = 0) before execution.
+17. **PRD changes require user approval.** Phase 5 must present all PRD change candidates for user selection before applying.
+18. **Content specs are specifications, not implementations.** Phase 6 produces specs only. Actual content creation is a separate task.
+19. **Audit evolution requires per-proposal consent.** Phase 7 must present each proposal individually. No batch approval for audit infrastructure changes.
+20. **Closed-loop phases are optional.** If the audit report does not contain closed-loop sections, Phases 5-7 are skipped entirely.
 
 ---
 
 ## Execution History
 
-| Date | Report Version | Model | Waves | Findings Targeted | Resolved | Partial | Failed | Rolled Back | Never Attempted | Duration | Resolution Rate | Remaining Human |
-|------|---------------|-------|-------|-------------------|----------|---------|--------|-------------|-----------------|----------|-----------------|-----------------|
-| 2026-03-05 | v3 (80/100) | -- | 4/4 | 36 | 36 | 0 | 0 | 0 | 0 | -- | 100% | 4 (#3, #4, #5, #6) |
-| 2026-03-05 | v4 (82/100) | -- | 4/4 | 31 | 30 | 1 | 0 | 0 | 0 | -- | 97% | 4 (#1, #2, #3, #4) |
+| Date | Report Version | Model | Waves | Findings Targeted | Resolved | Partial | Failed | Rolled Back | Never Attempted | Duration | Resolution Rate | Remaining Human | PRD Updates | Content Specs | Audit Evolution |
+|------|---------------|-------|-------|-------------------|----------|---------|--------|-------------|-----------------|----------|-----------------|-----------------|-------------|---------------|-----------------|
+| 2026-03-05 | v3 (80/100) | -- | 4/4 | 36 | 36 | 0 | 0 | 0 | 0 | -- | 100% | 4 (#3, #4, #5, #6) | -- | -- | -- |
+| 2026-03-05 | v4 (82/100) | -- | 4/4 | 31 | 30 | 1 | 0 | 0 | 0 | -- | 97% | 4 (#1, #2, #3, #4) | -- | -- | -- |

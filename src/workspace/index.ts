@@ -12,6 +12,7 @@ export {
   readWorkspaceManifest,
   writeWorkspaceManifest,
   createWorkspaceManifest,
+  isUnsafeRepoPath,
 } from "./manifest.js";
 
 export {
