@@ -54,6 +54,7 @@ program
 program
   .command("update")
   .description("Pull latest hatch3r templates with safe merge")
+  .option("--yes", "Skip interactive prompts, use defaults")
   .action(updateCommand);
 
 program

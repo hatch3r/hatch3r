@@ -6,6 +6,7 @@ import {
   buildContentIndex,
   copySelectedContent,
   getAllContentIds,
+  getAllItemsById,
   removeContentItem,
 } from "../content/index.js";
 import { generateIntegrityManifest, writeIntegrityManifest } from "../integrity/index.js";
@@ -45,21 +46,23 @@ async function estimateTokensForContent(
 ): Promise<number> {
   let totalChars = 0;
   for (const id of contentIds) {
-    const item = index.byId.get(id);
-    if (!item) continue;
-    try {
-      if (item.type === "skill") {
-        // For skills, read the SKILL.md file
-        const skillPath = join(CONTENT_ROOT, item.relativePath, "SKILL.md");
-        const content = await readFile(skillPath, "utf-8");
-        totalChars += content.length;
-      } else {
-        const filePath = join(CONTENT_ROOT, item.relativePath);
-        const content = await readFile(filePath, "utf-8");
-        totalChars += content.length;
+    // Use getAllItemsById to handle cross-type collisions (e.g., command + skill with same ID)
+    const items = getAllItemsById(index, id);
+    for (const item of items) {
+      try {
+        if (item.type === "skill") {
+          // For skills, read the SKILL.md file
+          const skillPath = join(CONTENT_ROOT, item.relativePath, "SKILL.md");
+          const content = await readFile(skillPath, "utf-8");
+          totalChars += content.length;
+        } else {
+          const filePath = join(CONTENT_ROOT, item.relativePath);
+          const content = await readFile(filePath, "utf-8");
+          totalChars += content.length;
+        }
+      } catch {
+        // File not readable; skip
       }
-    } catch {
-      // File not readable; skip
     }
   }
   return Math.ceil(totalChars / CHARS_PER_TOKEN);
@@ -216,10 +219,10 @@ async function syncSingleRepo(
   // Copy selected content to sub-repo
   await copySelectedContent(CONTENT_ROOT, repoAgentsDir, effectiveSelection, index);
 
-  // Remove stale content
+  // Remove stale content (handle cross-type collisions)
   for (const id of toRemove) {
-    const item = index.byId.get(id);
-    if (item) {
+    const items = getAllItemsById(index, id);
+    for (const item of items) {
       await removeContentItem(repoAgentsDir, item, { rootDir: repoDir });
     }
   }

@@ -34,10 +34,15 @@ Coverage of interaction types — does the framework support all 11 common inter
 - [ ] Over-trust risks — does the framework create false confidence in agent output?
 
 ### 13.3 Confidence Indication
-- [ ] Do agents indicate their confidence level in recommendations?
+- [ ] Do agents indicate graduated confidence levels (high/medium/low) in recommendations, with clear definitions for each level? High = verified against code. Medium = based on patterns. Low = best judgment, recommend human review.
 - [ ] Are there graduated confidence signals (high confidence on formatting, low confidence on architecture)?
 - [ ] Can users calibrate agent assertiveness?
 - [ ] Are confidence levels backed by verifiable signals (test results, lint output)?
+- [ ] Assumption challenging — do agents challenge user assumptions when warranted, rather than blindly implementing potentially misguided requirements? Is there a graceful mechanism for agents to say "before I proceed, I want to flag a concern about this approach"?
+- [ ] Command-level confidence propagation — do command orchestrators (workflow, board-pickup, revision, quick-change) include confidence expression requirements in every sub-agent delegation prompt? Verify that the quality charter's confidence definitions (high = verified against code, medium = pattern-based, low = best judgment) are explicitly stated in sub-agent prompts, not assumed to be inherited.
+- [ ] Confidence at quality gates — do commands express confidence levels at quality gate checkpoints (after quality checks pass, after review loop completion, after acceptance criteria verification)? The confidence should reflect verification depth, not just pass/fail status.
+- [ ] Confidence in result summaries — do commands include an overall confidence assessment in their final output (Review Results, Merge Readiness, Quick Change Complete)? This gives the user a single signal about how much human verification is recommended.
+- [ ] Confidence consistency across commands — do all four core orchestration commands use the same confidence scale (high/medium/low), the same definitions, and express confidence at the same structural points? Or do some commands express confidence while others present results with false certainty?
 
 ### 13.4 Feedback Loops & Educational Value
 - [ ] Can users provide feedback that improves future agent performance?

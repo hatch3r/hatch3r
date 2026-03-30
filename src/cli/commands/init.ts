@@ -208,7 +208,7 @@ async function runInit(options: RunInitOptions): Promise<void> {
     }
     if (adapterFailures.length === tools.length) {
       s3.fail(step(3, totalSteps, "All adapters failed"));
-      throw new HatchError("All adapters failed", 1);
+      throw new HatchError("All adapters failed", 1, "ADAPTER_ERROR");
     }
   }
   s3.succeed(step(3, totalSteps, adapterFailures.length > 0
@@ -353,7 +353,7 @@ function validateFlag<T extends string>(value: string | undefined, valid: T[], f
   if (!value) return fallback;
   if (!(valid as string[]).includes(value)) {
     logError(`Invalid --${name}: "${value}". Valid: ${valid.join(", ")}`);
-    throw new HatchError(`Invalid --${name}: "${value}"`, 1);
+    throw new HatchError(`Invalid --${name}: "${value}"`, 1, "VALIDATION_ERROR");
   }
   return value as T;
 }
@@ -436,7 +436,7 @@ export async function initCommand(
       if (invalid.length > 0) {
         logError(`Invalid tool(s): ${invalid.join(", ")}`);
         console.log(chalk.dim(`  Valid tools: ${[...VALID_TOOLS].join(", ")}`));
-        throw new HatchError(`Invalid tool(s): ${invalid.join(", ")}`, 1);
+        throw new HatchError(`Invalid tool(s): ${invalid.join(", ")}`, 1, "VALIDATION_ERROR");
       }
       tools = rawTools as Tool[];
     } else if (repoInfo.existingTools.length > 0) {

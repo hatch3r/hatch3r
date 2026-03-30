@@ -80,6 +80,7 @@ For each dependency level, starting at Level 1:
    - Relevant learnings from `.agents/learnings/` (from Step 6.pre).
    - Instruction to use GitHub MCP for issue reads, and follow the project's tooling hierarchy for external knowledge augmentation.
    - Explicit instruction: do NOT create branches, commits, or PRs.
+   - Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
 
 3. **Await all sub-agents in the current level.** Collect their structured results (files changed, tests written, issues encountered).
 
@@ -147,6 +148,7 @@ For each dependency level, starting at Level 1:
    - All `scope: always` rule directives from `.agents/rules/` — subagents do not inherit rules automatically.
    - Relevant learnings from `.agents/learnings/` (from Step 6.pre).
    - Explicit instruction: do NOT create branches, commits, or PRs.
+   - Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
 
 3. **Await all sub-agents in the current level.** Collect their structured results (files changed, tests written, issues encountered).
 
@@ -176,6 +178,7 @@ After all implementations complete, run the two-stage quality pipeline across th
    - **Reference conventions** from Step 6c.2 (if available) — so the fixer maintains established patterns when applying fixes.
 3. Re-spawn **`hatch3r-reviewer`** to verify fixes.
 4. Repeat steps 2-3 for a maximum of **3 iterations** until the reviewer reports 0 Critical + 0 Warning findings.
+   After each reviewer iteration, assess the reviewer's findings confidence: if the reviewer rates any finding as low-confidence, flag it separately in the ASK prompt so the user can prioritize human review of uncertain findings.
 5. If still not clean after 3 iterations, **ASK** the user how to proceed.
 
 **Stage 2 — Final Quality (parallel, after review loop is clean):**

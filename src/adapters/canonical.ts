@@ -78,7 +78,7 @@ async function readGlobMd(baseDir: string, fileType: CanonicalFile["type"]): Pro
   let entries: string[];
   try {
     const all = await readdir(baseDir, { recursive: true });
-    entries = all.filter((f) => f.endsWith(".md"));
+    entries = all.filter((f) => f.endsWith(".md")).sort();
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
     return [];
@@ -116,7 +116,7 @@ async function readGlobMd(baseDir: string, fileType: CanonicalFile["type"]): Pro
 async function readSkillSubdirs(baseDir: string): Promise<CanonicalFile[]> {
   let dirents: { name: string; isDirectory: () => boolean }[];
   try {
-    dirents = await readdir(baseDir, { withFileTypes: true });
+    dirents = (await readdir(baseDir, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name));
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
     return [];

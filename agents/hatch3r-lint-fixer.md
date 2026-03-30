@@ -26,17 +26,15 @@ Follow the naming, sizing, and type-safety conventions defined in `.agents/rules
 
 ## External Knowledge
 
-Follow the tooling hierarchy and platform CLI guidance defined in `agents/shared/external-knowledge.md`.
+Follow the shared protocol in `agents/shared/external-knowledge.md` (tooling hierarchy, platform CLI, Context7 MCP, web research).
 
-## Context7 MCP Usage
+**Context7 focus for this agent:**
+- ESLint rule documentation when a lint error's correct fix is unclear (e.g., `@typescript-eslint/no-floating-promises`, `react-hooks/exhaustive-deps`)
+- TypeScript compiler option docs when fixing strict mode violations (e.g., `strictNullChecks`, `noUncheckedIndexedAccess`)
 
-- Use `resolve-library-id` then `query-docs` to look up ESLint rule documentation when a lint error's correct fix is unclear (e.g., `@typescript-eslint/no-floating-promises`, `react-hooks/exhaustive-deps`).
-- Look up TypeScript compiler option docs via Context7 when fixing strict mode violations that require understanding compiler behavior (e.g., `strictNullChecks`, `noUncheckedIndexedAccess`).
-
-## Web Research Usage
-
-- Use web search for correct fix patterns when encountering unfamiliar or project-specific lint rules (custom ESLint plugins, framework-specific linter rules).
-- Use web search for type-safe alternatives when replacing deprecated API patterns flagged by linters.
+**Web research focus for this agent:**
+- Correct fix patterns for unfamiliar or project-specific lint rules (custom ESLint plugins, framework-specific linter rules)
+- Type-safe alternatives when replacing deprecated API patterns flagged by linters
 
 ## Output Format
 

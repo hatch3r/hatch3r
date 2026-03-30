@@ -45,7 +45,7 @@ export async function statusCommand(): Promise<void> {
   if (!manifest) {
     logError("No .agents/hatch.json found.");
     console.log(chalk.dim("  Run `npx hatch3r init` to set up your project first.\n"));
-    throw new HatchError("No .agents/hatch.json found.", 1);
+    throw new HatchError("No .agents/hatch.json found.", 1, "CONFIG_ERROR");
   }
 
   const spinner = createSpinner("Checking sync status...");

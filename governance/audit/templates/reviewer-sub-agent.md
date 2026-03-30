@@ -52,6 +52,21 @@ Pass 0 Result: PASS if orphaned = 0 and all non-terminal findings have reasons.
    - No dead code, debug logging, or TODO comments left behind
    - Changes follow project conventions
 
+## Pass 1.5: Fix-to-Finding Alignment
+
+Verify that each implementation actually addresses its specific finding, not just a related area.
+
+For each finding with execution_status = "done":
+
+1. Read the finding's specific recommendation from the Enhanced Action Items table.
+2. Read the actual change in the git diff for this finding's commit.
+3. Verify the change addresses the **specific** recommendation — not just a related area of the same file or module.
+4. Check that the **root cause** identified in the finding is addressed, not just the surface symptom. A finding about "missing error strategy" should not be resolved by adding a single try-catch.
+5. If the change diverges from the recommendation but achieves the same goal through a demonstrably better approach, mark as **PASS** with a note explaining the alternative approach.
+6. If the change addresses a related but different issue than what the finding specified, reclassify as **PARTIAL**.
+
+Add a `fix_alignment` column to the Per-Finding Verdict table: ALIGNED / DIVERGENT / BETTER-ALTERNATIVE.
+
 ## Pass 2: Security Verification
 
 1. Review all changes for security implications:
@@ -64,6 +79,25 @@ Pass 0 Result: PASS if orphaned = 0 and all non-terminal findings have reasons.
 2. Cross-reference against Domain 15 findings:
    - Were all security findings properly addressed?
    - Did any implementation introduce new security concerns?
+
+## Pass 2.5: Adversarial Verification
+
+Actively attempt to break each implementation. Do not just verify that changes compile and pass tests — verify they handle real-world failure conditions.
+
+For each substantive code change (skip documentation-only and comment-only changes):
+
+1. **Null/empty inputs** — What happens with empty strings, null values, undefined parameters, or zero-length arrays passed to modified functions?
+2. **Boundary conditions** — Maximum length strings, deeply nested structures, very large or very small numeric values at the boundaries of modified logic.
+3. **Missing prerequisites** — What if files, MCP servers, environment variables, network endpoints, or API keys referenced by the modified code are unavailable?
+4. **Concurrent access** — Could two agents, processes, or users trigger this code path simultaneously? Are there race conditions in file writes or state mutations?
+5. **Malformed data** — Invalid JSON, corrupt YAML frontmatter, missing required fields, unexpected data types in inputs to modified functions.
+
+For content changes (agents, rules, skills, commands):
+
+6. **Instruction conflict** — Does the modified content contradict other content artifacts that may be loaded simultaneously?
+7. **Missing context** — Does the modified content assume information that may not be available in all execution contexts?
+
+Flag any implementation that handles only the happy path as **PARTIAL** with specific failure scenarios documented.
 
 ## Pass 3: Cross-Wave Consistency
 

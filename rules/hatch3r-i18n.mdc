@@ -1,6 +1,5 @@
 ---
 description: Internationalization, localization, and RTL support conventions for the project
-globs: src/**/*.vue, src/**/*.tsx, src/**/*.jsx, src/**/*.ts
 alwaysApply: false
 ---
 # Internationalization & RTL
