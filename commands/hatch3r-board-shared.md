@@ -160,7 +160,7 @@ When a PR/MR is closed without merging, the referenced issues remain open with `
    - `status:in-progress` — if the developer intends to continue work on a different branch or rework the changes.
    - `status:ready` — if the work is abandoned and the issue should return to the backlog for future pickup.
 2. **Board sync:** The board status should be updated to match the new label ("In Progress" or "Ready").
-3. **Detection:** `board-groom` Step 3m detects orphaned `status:in-review` issues (those with no open PR/MR referencing them). The user decides the target state during grooming.
+3. **Detection:** `board-groom` Step 3l detects orphaned `status:in-review` issues (those with no open PR/MR referencing them). The user decides the target state during grooming.
 4. **Collision detection:** During `board-pickup` Step 3, if collision detection finds a closed-without-merge PR for the selected issue, surface this context to the user so they can decide whether to reuse the branch, start fresh, or pick a different issue.
 
 This situation is NOT automatically remediated because the correct target state depends on developer intent. Board commands surface it as a diagnostic for user decision.

@@ -15,7 +15,7 @@ All notable changes to hatch3r are documented in this file.
 - Dynamic inventory verification protocol in AUDIT.md
 - **`status:done` label**: Added to the board label taxonomy, closing the gap between the existing `BoardConfig.statusOptions.done` TypeScript type and the agent command instructions. All platform status mapping tables now include the `status:done` row.
 - **Post-Merge Terminal State handling**: New section in `hatch3r-board-shared` documenting platform-specific behavior after PR merge — GitHub Projects V2 built-in workflow verification, Azure DevOps opt-in checkbox, GitLab label drift advisory.
-- **PR Closed Without Merge handling**: New section in `hatch3r-board-shared` defining revert behavior for abandoned PRs. Board-groom Step 3m detects orphaned `status:in-review` issues with no associated open PR/MR.
+- **PR Closed Without Merge handling**: New section in `hatch3r-board-shared` defining revert behavior for abandoned PRs. Board-groom Step 3l detects orphaned `status:in-review` issues with no associated open PR/MR.
 - **Abandoned work detection in collision check**: All three platform pickup files (GitHub, Azure DevOps, GitLab) now check for closed/abandoned PRs during Step 3 collision detection and surface context to the user.
 - **Orphaned in-review remediation in board-groom**: Health Fix (Step 4i) expanded to remediate board sync drift (label vs. board status mismatch) and orphaned in-review issues (both open with no PR and closed but not status:done).
 - **End-of-Run Reconciliation step 5**: Orphaned in-review detection for all cached `status:in-review` issues, not just those transitioned during the current run. Reconciliation report now includes orphaned in-review line.

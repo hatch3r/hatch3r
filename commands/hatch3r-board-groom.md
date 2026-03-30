@@ -173,7 +173,7 @@ For each epic, compare the sub-issue references in the epic body (checklist item
 
 If `board.projectNumber` is configured, compare label-based status (`status:*` labels) against board column status via `gh project item-list {board.projectNumber} --owner {board.owner} --format json` (GitHub) or equivalent platform call. Flag issues where the label status and board column status diverge.
 
-#### 3m. Orphaned In-Review Detection
+#### 3l. Orphaned In-Review Detection
 
 For each open issue with `status:in-review`:
 
@@ -189,7 +189,7 @@ Flag two categories:
 
 ---
 
-#### 3l. Present Refinement Summary
+#### 3m. Present Refinement Summary
 
 Present findings grouped by category:
 
@@ -465,7 +465,7 @@ Link Fix Candidates:
 
 #### 4i. Health Fix (Board Health Remediation)
 
-Fix structural gaps detected in Step 3b (missing metadata), board sync drift detected in Step 3k, and orphaned in-review issues detected in Step 3m.
+Fix structural gaps detected in Step 3b (missing metadata), board sync drift detected in Step 3k, and orphaned in-review issues detected in Step 3l.
 
 1. For each issue with missing required labels, infer the missing labels from issue content using the same classification tables as `board-fill` Step 3:
    - Missing `type:*` → infer from title/body keywords.
@@ -512,7 +512,7 @@ Board Sync Drift Remediation:
 
 No separate ASK — drift fixes are presented alongside the metadata fixes in the same Health Fix confirmation prompt.
 
-5. **Orphaned in-review remediation:** For each issue flagged in Step 3m:
+5. **Orphaned in-review remediation:** For each issue flagged in Step 3l:
 
    a. **Closed issue with `status:in-review`** (stale in-review): Suggest replacing `status:in-review` with `status:done` and syncing board to "Done". This is the post-merge terminal state that was not reached (see Post-Merge Terminal State in `hatch3r-board-shared`).
    b. **Open issue with `status:in-review` but no open PR/MR** (orphaned in-review): Present the issue with context (last PR if any, time since last update). Suggest `status:ready` (if work appears abandoned) or `status:in-progress` (if rework is likely).
