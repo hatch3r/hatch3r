@@ -33,7 +33,9 @@ Score every task against these signals before implementation. Each signal adds w
 
 ### Tier 1 — Light
 
-Single-file changes, config tweaks, typo fixes, comment edits, constant value changes. No additional analysis required beyond existing researcher modes. Skip deep context analysis entirely.
+Single-file changes, config tweaks, typo fixes, comment edits, constant value changes. No additional analysis required beyond existing researcher modes.
+
+Skip deep context analysis entirely. Proceed with the standard pipeline.
 
 ### Tier 2 — Standard
 
@@ -42,7 +44,7 @@ Multi-file changes with clear scope. Run these researcher modes at `quick` depth
 1. **`requirements-elicitation`** at `quick` — scan for top ambiguities and ask 3–5 clarifying questions.
 2. **`similar-implementation`** at `quick` — find 1 reference implementation and extract top-level patterns.
 
-Present findings to the user inline. Proceed after answers are received.
+Present findings to the user inline. Proceed after answers are received — no separate confirmation checkpoint required.
 
 ### Tier 3 — Deep
 
@@ -52,18 +54,38 @@ Cross-module features, architectural changes, multi-layer implementations, or ta
 2. **`similar-implementation`** at `deep` — find 2–3 reference implementations, full convention extraction, divergence analysis.
 3. **`codebase-impact`** at `deep` — full transitive dependency tracing, API consumer map, blast radius summary.
 
-**Mandatory checkpoint:** Present a consolidated "Pre-Implementation Summary" to the user and ASK for confirmation before proceeding. Do NOT proceed until all unresolved questions are answered.
+**Mandatory checkpoint:** Present a consolidated "Pre-Implementation Summary" to the user and ASK for confirmation before proceeding to implementation:
+
+```
+Pre-Implementation Summary:
+  Complexity: Tier 3 (Deep) — score {N}
+  Resolved requirements: {N}/{M} dimensions addressed
+  Unresolved questions: {list — these MUST be answered before proceeding}
+  Reference implementation: {name} — conventions locked
+  Blast radius: {N} files directly affected, {M} transitively at risk
+  Cross-cutting concerns: {list with status}
+```
+
+Do NOT proceed to implementation until all unresolved questions are answered by the user.
 
 ## Passing Context to Implementer
 
-When the `similar-implementation` mode produces reference implementations, include them in the implementer sub-agent prompt as **"Reference Conventions"**. When the `requirements-elicitation` mode produces resolved requirements, include the user's answers as **"Resolved Requirements"**. When `codebase-impact` produces a blast radius summary, include it so the implementer knows which consumers and contracts must be preserved.
+When the `similar-implementation` mode produces reference implementations, include them in the implementer sub-agent prompt as **"Reference Conventions"**. The implementer's Convention Lock step (Step 1b) uses these to align its architectural decisions with established codebase patterns.
+
+When the `requirements-elicitation` mode produces resolved requirements, include the user's answers in the implementer sub-agent prompt as **"Resolved Requirements"** so the implementer has explicit answers to all ambiguities rather than guessing.
+
+When the enhanced `codebase-impact` mode produces a blast radius summary, include it in the implementer sub-agent prompt so the implementer knows which consumers and contracts must be preserved.
 
 ## Integration with Existing Pipeline
 
-This rule augments the existing Universal Sub-Agent Pipeline from `hatch3r-agent-orchestration`. The complexity scoring happens at the start of Phase 1 (Research), and the additional researcher modes run alongside the existing task-type modes.
+This rule augments — not replaces — the existing Universal Sub-Agent Pipeline from `hatch3r-agent-orchestration`. The complexity scoring happens at the start of Phase 1 (Research), and the additional researcher modes run alongside the existing task-type modes:
+
+- **`type:feature`**: existing modes `codebase-impact`, `feature-design`, `architecture` + new modes per tier
+- **`type:bug`**: existing modes `symptom-trace`, `root-cause`, `codebase-impact` + `requirements-elicitation` per tier (bugs often have underspecified reproduction steps)
+- **`type:refactor`**: existing modes `current-state`, `refactoring-strategy`, `migration-path` + `similar-implementation` per tier (refactors benefit most from convention alignment)
 
 ## Exceptions
 
-- **`hatch3r-quick-change`**: Tier 1 items proceed without research. Tier 2 items get lightweight `similar-implementation` at `quick` depth. Tier 3 items must be routed to `hatch3r-workflow` (hard block).
-- **Trivial single-line edits**: Always Tier 1 regardless of scoring. This is the only valid basis for skipping research — label-based shortcuts (e.g., `risk:low AND priority:p3`) are not sufficient alone.
-- **`hatch3r-revision`**: Operates on already-implemented code; deep context analysis applies to the original implementation.
+- **`hatch3r-quick-change` command**: Tier 1 items proceed without research. Tier 2 items get lightweight `similar-implementation` at `quick` depth. Tier 3 items must be routed to `hatch3r-workflow` (hard block).
+- **Trivial single-line edits**: Always Tier 1 regardless of scoring signals. This is the only valid basis for skipping research — label-based shortcuts (e.g., `risk:low AND priority:p3`) are not sufficient alone.
+- **`hatch3r-revision` command**: Operates on already-implemented code. Deep context analysis applies to the original implementation, not the revision pass.

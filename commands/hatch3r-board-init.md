@@ -252,6 +252,7 @@ Execute all planned mutations in sequence. No further questions unless a mutatio
 4. Ensure these status options exist on the field: **Backlog**, **Ready**, **In Progress**, **In Review**, **Done**.
    - For missing options, use the `updateProjectV2Field` mutation (or the appropriate mutation for adding options to a single-select field) to add them.
 5. Capture the field ID and each option's ID.
+6. **Verify built-in "Done on close" automation:** After board creation, check the Projects V2 built-in workflows. Navigate to Project settings > Workflows > "Item closed" and verify it is enabled with Status mapped to "Done". Also verify "Pull request merged" maps Status to "Done". These workflows are on by default for UI-created projects but may not be enabled for API-created projects. Without these workflows, the board status will remain "In Review" after PR merge until `board-groom` detects the drift.
 
 **If platform is `azure-devops`:**
 
@@ -262,6 +263,7 @@ Execute all planned mutations in sequence. No further questions unless a mutatio
 2. Map hatch3r statuses to Work Item States: **Backlog** → `New`, **Ready** → `Active`, **In Progress** → `Active`, **In Review** → `Resolved`, **Done** → `Closed`.
 3. If using a custom process, verify these states exist. Azure DevOps built-in processes (Agile, Scrum, CMMI) include these states by default.
 4. Store the state mapping in `board.statusOptions` for use by other board commands.
+5. **Note — Ready vs. In Progress:** Azure DevOps built-in processes map both "Ready" and "In Progress" to the `Active` state. The distinction is maintained via hatch3r tags on work items. For board-level visibility, consider configuring Azure Boards column splits: in the Board Settings, split the "Active" column into "Active - Ready" and "Active - In Progress" using tag-based rules. Projects with custom Azure DevOps process templates can alternatively add a "Ready" state to the work item type.
 
 **If platform is `gitlab`:**
 
@@ -270,8 +272,9 @@ Execute all planned mutations in sequence. No further questions unless a mutatio
    glab api projects/{project_id}/boards/{board_id}/lists --method POST --field label_id={label_id}
    ```
 2. Create scoped labels for each status first (see Step 2.3), then create board lists referencing those labels.
-3. Required board lists: **Backlog** (`status::triage`), **Ready** (`status::ready`), **In Progress** (`status::in-progress`), **In Review** (`status::in-review`).
+3. Required board lists: **Backlog** (`status::triage`), **Ready** (`status::ready`), **In Progress** (`status::in-progress`), **In Review** (`status::in-review`), **Done** (`status::done`).
 4. Store the board list IDs in `board.statusOptions`.
+5. **Note — Labels not auto-updated on close:** GitLab does not update labels when an issue is auto-closed via `Closes #N`. The `status::in-review` scoped label will remain on closed issues. This drift is detected and fixed by `board-groom` during the `health-fix` action. For automated cleanup, consider setting up a GitLab CI pipeline trigger on issue close events to apply `status::done`. Note: scoped labels require GitLab **Premium or Ultimate** tier.
 
 #### 2.3: Create Label Taxonomy
 
@@ -282,7 +285,7 @@ Execute all planned mutations in sequence. No further questions unless a mutatio
 |-----------|--------|
 | Type      | `type:bug`, `type:feature`, `type:refactor`, `type:qa`, `type:docs`, `type:infra` |
 | Executor  | `executor:agent`, `executor:human`, `executor:hybrid` |
-| Status    | `status:triage`, `status:ready`, `status:in-progress`, `status:in-review`, `status:blocked` |
+| Status    | `status:triage`, `status:ready`, `status:in-progress`, `status:in-review`, `status:done`, `status:blocked` |
 | Priority  | `priority:p0`, `priority:p1`, `priority:p2`, `priority:p3` |
 | Risk      | `risk:low`, `risk:med`, `risk:high` |
 | Meta      | `meta:board-overview`, `has-dependencies` |

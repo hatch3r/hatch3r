@@ -95,6 +95,7 @@ Read the mapping from `board.statusOptions` in `.agents/hatch.json`:
 | `status:ready`       | `board.statusOptions.ready`        |
 | `status:in-progress` | `board.statusOptions.inProgress`   |
 | `status:in-review`   | `board.statusOptions.inReview`     |
+| `status:done`        | `board.statusOptions.done`         |
 | `status:blocked`     | `board.statusOptions.backlog`      |
 
 **Steps for each issue to sync (gh CLI primary):**

@@ -113,6 +113,10 @@ The rule's canonical definition remains in `.agents/rules/` but no adapter outpu
 - Invalid YAML produces warnings but does not prevent rule application (graceful degradation)
 - Customization files should be committed to the repository
 
+## Unified Skill
+
+This command's workflow is handled by the `hatch3r-customize` skill with `type: rule`. The skill provides root-cause analysis, multi-stakeholder review, and quality gate steps that extend the workflow above.
+
 ## Related
 
 - Agent customization: `hatch3r-agent-customize` command

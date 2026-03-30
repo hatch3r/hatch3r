@@ -19,7 +19,7 @@ describe("AmpAdapter", () => {
     });
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
-    const bridge = outputs.find((o) => o.path === ".amp/AGENTS.md");
+    const bridge = outputs.find((o) => o.path === "AGENTS.md");
     expect(bridge).toBeDefined();
     expect(bridge!.content).toContain(MANAGED_BLOCK_START);
     expect(bridge!.content).toContain(MANAGED_BLOCK_END);
@@ -40,7 +40,7 @@ describe("AmpAdapter", () => {
     });
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
-    const bridge = outputs.find((o) => o.path === ".amp/AGENTS.md");
+    const bridge = outputs.find((o) => o.path === "AGENTS.md");
     expect(bridge).toBeDefined();
     expect(bridge!.content).toContain("Mandatory Behaviors");
     expect(bridge!.content).not.toContain("Agent: test-agent");
@@ -54,7 +54,7 @@ describe("AmpAdapter", () => {
     });
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
-    const skills = outputs.filter((o) => o.path.startsWith(".amp/skills/"));
+    const skills = outputs.filter((o) => o.path.startsWith(".agents/skills/"));
     expect(skills.length).toBe(1);
 
     const skill = skills[0]!;
@@ -101,7 +101,7 @@ describe("AmpAdapter", () => {
     });
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
-    const skills = outputs.filter((o) => o.path.startsWith(".amp/skills/"));
+    const skills = outputs.filter((o) => o.path.startsWith(".agents/skills/"));
     expect(skills.length).toBe(0);
   });
 
@@ -115,7 +115,7 @@ describe("AmpAdapter", () => {
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
     expect(outputs.length).toBe(1);
-    expect(outputs[0]!.path).toBe(".amp/AGENTS.md");
+    expect(outputs[0]!.path).toBe("AGENTS.md");
     expect(outputs[0]!.content).toContain("Mandatory Behaviors");
   });
 

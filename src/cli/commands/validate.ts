@@ -485,7 +485,7 @@ export async function validateCommand(): Promise<void> {
     spinner.fail("Validation failed");
     logError(".agents/ directory not found. Run `hatch3r init` first.");
     console.log();
-    throw new HatchError(".agents/ directory not found.", 1);
+    throw new HatchError(".agents/ directory not found.", 1, "CONFIG_ERROR");
   }
 
   const manifest = await readManifest(rootDir);
@@ -512,8 +512,25 @@ export async function validateCommand(): Promise<void> {
           result.warnings.push(w);
         }
       }
+
+      // Content ID collision validation
+      // Expected: command/skill cross-type pairs (by design, commands and skills share IDs)
+      // Unexpected: same-type duplicates, or cross-type pairs that aren't command↔skill
+      const EXPECTED_CROSS_TYPE_PAIRS = new Set(["command", "skill"]);
+      for (const collision of index.collisions) {
+        if (collision.kind === "cross-type") {
+          const types = new Set([collision.existingType, collision.duplicateType]);
+          if (types.size === 2 && [...types].every(t => EXPECTED_CROSS_TYPE_PAIRS.has(t))) {
+            // Expected command/skill collision — skip
+            continue;
+          }
+        }
+        result.warnings.push(
+          `Content ID collision: "${collision.id}" exists as ${collision.existingType} (${collision.existingPath}) and ${collision.duplicateType} (${collision.duplicatePath})`,
+        );
+      }
     } catch {
-      // Content scanning failed — skip cross-ref validation
+      // Content scanning failed — skip cross-ref and collision validation
     }
 
     // Orchestration dependency validation: check required agents are selected
@@ -571,7 +588,7 @@ export async function validateCommand(): Promise<void> {
       `${chalk.yellow("⚠")} ${result.warnings.length} warning(s)`,
     ];
     printBox("Validation failed", summaryLines, "error");
-    throw new HatchError("Validation failed", 1);
+    throw new HatchError("Validation failed", 1, "VALIDATION_ERROR");
   } else {
     const summaryLines = [
       `${chalk.green("✔")} 0 errors`,

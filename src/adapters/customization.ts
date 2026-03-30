@@ -26,6 +26,15 @@ const DENY_PATTERNS: RegExp[] = [
   /(?:atob|Buffer\.from)\s*\([^)]*(?:eval|exec|require)/i,
   /(?:chmod|chown)\s+[0-7]{3,4}/i,
   /(?:api[_-]?key|password|token|secret)\s*[:=]\s*.{8,}/i,
+  // Prompt injection indicators
+  /ignore\s+(all\s+)?previous\s+instructions/i,
+  /disregard\s+(all\s+)?(previous|prior|above)/i,
+  /you\s+are\s+now\s+(?:a|an|the)\s/i,
+  /new\s+instructions\s*:/i,
+  /system\s+prompt\s*:/i,
+  /forget\s+(all\s+)?(previous|prior|above)\s+(instructions|rules|context)/i,
+  /act\s+as\s+(?:a|an)\s+(?:unrestricted|unfiltered|jailbroken)/i,
+  /do\s+not\s+follow\s+(?:any|the|your)\s+(?:previous|prior|above|original)\s/i,
 ];
 
 const ZERO_WIDTH_CHARS = /[\u200B\u200C\u200D\uFEFF\u00AD]/g;

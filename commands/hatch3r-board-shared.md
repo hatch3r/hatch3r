@@ -65,7 +65,7 @@ All board commands read project-specific configuration from `.agents/hatch.json`
     "labels": {
       "types": ["type:bug", "type:feature", "type:refactor", "type:qa", "type:docs", "type:infra"],
       "executors": ["executor:agent", "executor:human", "executor:hybrid"],
-      "statuses": ["status:triage", "status:ready", "status:in-progress", "status:in-review", "status:blocked"],
+      "statuses": ["status:triage", "status:ready", "status:in-progress", "status:in-review", "status:done", "status:blocked"],
       "meta": ["meta:board-overview"]
     },
     "branchConvention": "{type}/{short-description}",
@@ -129,12 +129,41 @@ Cache link status per child (`native` / `advisory` / `comment-only`) in the run 
 Board sync is **MANDATORY**, not optional. The following rules override any "skip if null" or "skip silently" language elsewhere when the board is configured (GitHub: `board.projectNumber` set; Azure DevOps: project configured; GitLab: board configured).
 
 1. **Every issue/work item created or updated by a board command MUST be synced to the board — no exceptions.** This includes newly created issues, status changes, label updates, and any mutation that affects board state. Skipping sync for any item is a violation of this policy.
-2. **Status MUST be updated after every status-changing operation.** The four canonical statuses — Ready, In Progress, In Review, Done — must be reflected on the board immediately after the corresponding label change. Do not batch status updates to "later" or defer them. See the platform sub-files for platform-specific status update commands.
+2. **Status MUST be updated after every status-changing operation.** The five canonical statuses — Ready, In Progress, In Review, Done, Blocked — must be reflected on the board immediately after the corresponding label change. Do not batch status updates to "later" or defer them. See the platform sub-files for platform-specific status update commands.
 3. **All available board fields (priority, sprint, area, iteration) MUST be populated when the data is available.** Never leave a board field empty if the information exists in the issue's labels, body, or metadata.
 4. **Board overview dashboard MUST be regenerated after any batch of issue operations.** This is in addition to the per-run regeneration rule — if a board command performs multiple batches of mutations, the dashboard must reflect the final state.
 5. **Fallback: never silently skip sync.** See platform sub-files for escalation paths. Silent skipping is prohibited.
 6. **Cross-reference: every epic/work item and sub-issue must have its board item ID tracked for subsequent updates.** After adding an item to the board, store the returned item ID in the run cache keyed by issue number.
 7. **`has-dependencies` label consistency:** Every issue with a non-empty `## Dependencies` section (containing at least one `Blocked by` or `Recommended after` reference) MUST have the `has-dependencies` label. Issues whose `## Dependencies` section contains only `None` MUST NOT have the label. Board commands enforce this during creation and update.
+
+---
+
+## Post-Merge Terminal State
+
+When a PR/MR merges and `Closes #N` auto-closes the referenced issues, the board item lifecycle must reach its terminal state. The `status:in-review` label should be replaced with `status:done`, and the board status should be set to "Done" using `board.statusOptions.done`.
+
+**Platform-specific behavior and recommendations:**
+
+- **GitHub:** The built-in Projects V2 "Item closed" workflow sets the Status field to "Done" when an issue is closed. This workflow is enabled by default for projects created via the GitHub UI, but projects created via API (as `board-init` does) may not have it enabled. **Verify** the workflow is active: Project settings > Workflows > "Item closed" > confirm Status maps to "Done". If disabled, enable it. Without this workflow, the board status will remain "In Review" until `board-groom` detects and fixes the drift. GitHub does NOT auto-update labels on close — the `status:in-review` label remains on the closed issue.
+- **Azure DevOps:** Work item auto-transition to "Closed" requires the **"Complete linked work items after merging"** checkbox during PR completion. This is opt-in per PR (not automatic by default). ADO also supports `Fixes #N` / `Resolves #N` syntax in PR descriptions for state transitions. **Recommend** checking this option consistently, or configuring it as the user's default.
+- **GitLab:** Labels are NOT updated on auto-close. The `status::in-review` scoped label remains on the closed issue. GitLab does not have a built-in "set label on close" automation. The `status::done` label must be applied manually, via a CI pipeline trigger on issue close events, or will be caught and fixed during `board-groom` drift remediation. Note: scoped labels (`status::done`) require GitLab **Premium or Ultimate** tier.
+
+Board commands that detect closed issues with `status:in-review` (or any non-`status:done` status label) should treat this as drift and remediate per the platform-specific sync procedure.
+
+---
+
+## PR Closed Without Merge
+
+When a PR/MR is closed without merging, the referenced issues remain open with `status:in-review`. This is drift that must be resolved:
+
+1. **Expected behavior:** Issues should revert to:
+   - `status:in-progress` — if the developer intends to continue work on a different branch or rework the changes.
+   - `status:ready` — if the work is abandoned and the issue should return to the backlog for future pickup.
+2. **Board sync:** The board status should be updated to match the new label ("In Progress" or "Ready").
+3. **Detection:** `board-groom` Step 3l detects orphaned `status:in-review` issues (those with no open PR/MR referencing them). The user decides the target state during grooming.
+4. **Collision detection:** During `board-pickup` Step 3, if collision detection finds a closed-without-merge PR for the selected issue, surface this context to the user so they can decide whether to reuse the branch, start fresh, or pick a different issue.
+
+This situation is NOT automatically remediated because the correct target state depends on developer intent. Board commands surface it as a diagnostic for user decision.
 
 ---
 
@@ -146,6 +175,11 @@ Every mutating board command (`board-fill`, `board-groom`, `board-pickup`) runs 
 2. **Sub-issue link verification:** Review `link_results` in the run cache. For links recorded as `advisory`, retry the platform-specific primary link method once to upgrade to `native`. Report all non-native links (`advisory` / `comment-only`) in the reconciliation output.
 3. **Label consistency:** Verify all created/updated issues have required labels (`type:*`, `priority:*`, `executor:*`) and correct `has-dependencies` state per rule 7 of Board Sync Enforcement. Fix any gaps.
 4. **PR linkage:** For issues transitioned to `status:in-progress` or `status:in-review`, verify any associated open PR body contains `Closes #N` for the addressed issues. Auto-fix if missing by updating the PR body.
+5. **Orphaned in-review detection:** For all cached issues with `status:in-review` (not just those transitioned during this run), verify an open PR/MR exists that references `Closes #N`:
+   - **GitHub:** `gh pr list -R {owner}/{repo} --state open --json number,body` — parse for `Closes #{N}`.
+   - **Azure DevOps:** `az repos pr list --status active` — check work item links.
+   - **GitLab:** `glab mr list -R {namespace}/{project} --state opened` — parse descriptions for `Closes #{N}`.
+   Flag orphaned in-review issues (those with no associated open PR/MR) in the reconciliation report. This catches issues that drifted to `status:in-review` in previous runs but lost their PR (closed without merge, PR deleted, etc.). Also flag closed issues still labeled `status:in-review` that should be `status:done`.
 
 ### Reconciliation Report
 
@@ -157,6 +191,7 @@ Reconciliation:
   Sub-issue links: {N} native, {M} advisory, {K} comment-only
   Label gaps:   {N} fixed, {M} remaining (list)
   PR linkage:   {N} verified, {M} missing `Closes` (list)
+  Orphaned in-review: {N} open issues with no PR/MR, {M} closed issues not status:done (list)
   Errors:       {list or "None"}
 ```
 

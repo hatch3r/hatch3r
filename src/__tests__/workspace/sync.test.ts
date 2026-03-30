@@ -118,7 +118,7 @@ describe("workspace detect", () => {
         join(dir, AGENTS_DIR, "workspace.json"),
         JSON.stringify({
           version: "1.0.0",
-          hatch3rVersion: "1.3.0",
+          hatch3rVersion: "1.4.0",
           name: "test",
           repos: [],
           defaults: { tools: [], features: DEFAULT_FEATURES, mcp: { servers: [] }, content: { preset: "standard", projectType: "brownfield", teamSize: "solo", items: { agents: [], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] } } },
@@ -139,7 +139,7 @@ describe("workspace detect", () => {
         join(dir, AGENTS_DIR, "workspace.json"),
         JSON.stringify({
           version: "1.0.0",
-          hatch3rVersion: "1.3.0",
+          hatch3rVersion: "1.4.0",
           name: "test",
           repos: [],
           defaults: { tools: [], features: DEFAULT_FEATURES, mcp: { servers: [] }, content: { preset: "standard", projectType: "brownfield", teamSize: "solo", items: { agents: [], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] } } },

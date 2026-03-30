@@ -74,21 +74,15 @@ Common infrastructure files:
 
 ## External Knowledge
 
-Follow the tooling hierarchy and platform CLI guidance defined in `agents/shared/external-knowledge.md`.
+Follow the shared protocol in `agents/shared/external-knowledge.md` (tooling hierarchy, platform CLI, Context7 MCP, web research).
 
-## Context7 MCP Usage
+**Context7 focus for this agent:**
+- IaC tool APIs (Terraform providers, Pulumi resources, CloudFormation resource types) for correct resource configuration
+- CI action/task APIs (GitHub Actions, Azure Pipelines tasks, GitLab CI components) and container tool docs (Docker, Kubernetes)
 
-- Use `resolve-library-id` then `query-docs` to look up IaC tool APIs (Terraform providers, Pulumi resources, CloudFormation resource types) for correct resource configuration.
-- Look up CI action/task APIs (GitHub Actions, Azure Pipelines tasks, GitLab CI components) via Context7 to use current input/output schemas.
-- Check container tool docs (Docker, Docker Compose, Kubernetes) for correct configuration syntax and available options.
-- Prefer Context7 over guessing IaC resource properties or CI action inputs — incorrect infrastructure config can cause outages.
-
-## Web Research Usage
-
-- Use web search for cloud service limits, quotas, pricing, and SLA guarantees when infrastructure decisions affect cost or availability.
-- Use web search for security hardening guides specific to the target cloud provider and deployment environment.
-- Use web search for known issues and migration guides when upgrading CI actions, IaC providers, or container base images.
-- Use web search for deployment strategy best practices and failure mode analysis for the project's hosting platform.
+**Web research focus for this agent:**
+- Cloud service limits, quotas, pricing, and SLA guarantees when infrastructure decisions affect cost or availability
+- Security hardening guides, deployment strategy best practices, and known issues when upgrading CI actions, IaC providers, or container base images
 
 ## Output Format
 
