@@ -10,25 +10,39 @@ alwaysApply: true
 
 Read `platform` from `.agents/hatch.json` to determine which platform tools to use.
 
+### Prerequisites
+
+| Platform | Auth Setup |
+|----------|-----------|
+| **GitHub** | `gh auth login` or `GITHUB_TOKEN` env var. For Projects v2: `gh auth refresh -s project` |
+| **Azure DevOps** | `az login` and `az devops configure --defaults organization=ORG project=PROJECT` |
+| **GitLab** | `glab auth login` or `GITLAB_TOKEN` env var |
+
+### Platform CLI Fallback Reference
+
 **Fallback to the platform CLI only when:**
 - The MCP tool catalog lacks the specific capability.
 - An MCP call fails repeatedly and the CLI provides a viable alternative.
 
 **Never** use the platform CLI for operations that have a direct MCP equivalent (issue CRUD, PR/MR CRUD, search, labels).
 
-### Platform CLI Fallback Reference
-
 | Action | GitHub | Azure DevOps | GitLab |
 |--------|--------|--------------|--------|
 | Create issue | `gh issue create` | `az boards work-item create` | `glab issue create` |
+| Edit issue | `gh issue edit` | `az boards work-item update` | `glab issue update` |
 | View issue | `gh issue view` | `az boards work-item show --id N` | `glab issue view` |
 | List issues | `gh issue list` | `az boards work-item list` | `glab issue list` |
 | Create PR/MR | `gh pr create` | `az repos pr create` | `glab mr create` |
 | View PR/MR | `gh pr view` | `az repos pr show` | `glab mr view` |
 | List PRs/MRs | `gh pr list` | `az repos pr list` | `glab mr list` |
+| Merge PR/MR | `gh pr merge` | `az repos pr complete` | `glab mr merge` |
+| Search issues | `gh search issues` | `az boards query` | `glab issue list --search` |
+| Search PRs | `gh search prs` | `az repos pr list --status all` | `glab mr list --search` |
 | Search code | `gh search code` | `az repos show` | `glab search` |
-| CI runs | `gh run list/view` | `az pipelines run list/show` | `glab ci list/view` |
+| Labels | `gh label create/list` | `az boards work-item update --fields` | `glab label create/list` |
 | Releases | `gh release create` | `az repos release` | `glab release create` |
+| CI runs | `gh run list/view/watch` | `az pipelines run list/show` | `glab ci list/view` |
+| Projects | `gh project item-add/edit/list` | `az boards iteration/area` | GitLab Boards API |
 
 ## B. Documentation MCP for Library Documentation
 
@@ -94,7 +108,7 @@ Use browser automation MCP tools to visually verify UI changes after automated t
 When seeking information, follow this priority order:
 
 1. **Project specs and ADRs** — authoritative for project-specific behavior, constraints, and decisions.
-2. **Codebase exploration** (Grep, SemanticSearch) — ground truth for current implementation.
+2. **Codebase exploration** (code search tools, semantic code search) — ground truth for current implementation.
 3. **Documentation MCP** — authoritative for external library/framework APIs and patterns.
 4. **Web research** — current events, best practices, security advisories, novel problems.
 5. **Browser verification** — visual confirmation of UI changes after automated tests pass.

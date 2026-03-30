@@ -2,6 +2,63 @@
 
 All notable changes to hatch3r are documented in this file.
 
+## [1.4.0] - 2026-03-25
+
+### Added
+
+- VISION.md -- stable north-star vision document for the framework
+- RE-ENVISION.md -- framework-owner prompt for structured vision capture and refinement
+- Closed-loop audit phases: CL-1 (PRD Evolution), CL-2 (Content Gap Identification), CL-3 (Audit Self-Evolution) in AUDIT.md
+- Post-execution phases: Phase 5 (PRD Update), Phase 6 (Content Generation Planning), Phase 7 (Audit Prompt Evolution) in AUDIT-EXECUTE.md
+- Sub-agent 16.5 (Closed-Loop Effectiveness) in D16 compound system evaluation
+- Audit templates for closed-loop agents (PRD Update, Content Spec, Audit Evolution)
+- Dynamic inventory verification protocol in AUDIT.md
+- **`status:done` label**: Added to the board label taxonomy, closing the gap between the existing `BoardConfig.statusOptions.done` TypeScript type and the agent command instructions. All platform status mapping tables now include the `status:done` row.
+- **Post-Merge Terminal State handling**: New section in `hatch3r-board-shared` documenting platform-specific behavior after PR merge — GitHub Projects V2 built-in workflow verification, Azure DevOps opt-in checkbox, GitLab label drift advisory.
+- **PR Closed Without Merge handling**: New section in `hatch3r-board-shared` defining revert behavior for abandoned PRs. Board-groom Step 3l detects orphaned `status:in-review` issues with no associated open PR/MR.
+- **Abandoned work detection in collision check**: All three platform pickup files (GitHub, Azure DevOps, GitLab) now check for closed/abandoned PRs during Step 3 collision detection and surface context to the user.
+- **Orphaned in-review remediation in board-groom**: Health Fix (Step 4i) expanded to remediate board sync drift (label vs. board status mismatch) and orphaned in-review issues (both open with no PR and closed but not status:done).
+- **End-of-Run Reconciliation step 5**: Orphaned in-review detection for all cached `status:in-review` issues, not just those transitioned during the current run. Reconciliation report now includes orphaned in-review line.
+- **Board-init automation guidance**: GitHub section recommends verifying the Projects V2 "Item closed" built-in workflow after board creation. GitLab section notes labels are not auto-updated on close. ADO section documents column split recommendations.
+- Sub-Agent Behavioral Charter in AUDIT.md -- 10 directives governing audit sub-agent mindset and conduct
+- Orchestrator Quality Guidance in AUDIT.md -- synthesis standards, cross-domain discovery, sub-agent failure handling, report assembly
+- Shared agent quality charter (`agents/shared/quality-charter.md`) -- 7 behavioral standards for end-user agents
+- Fix-to-Finding verification gate check in AUDIT-EXECUTE.md regression gates
+- Adversarial verification pass (Pass 2.5) and fix-to-finding alignment pass (Pass 1.5) in reviewer template
+- Execution Learning section in AUDIT-EXECUTE.md with cross-cycle pattern tracking and insights JSON
+- Content Quality Principles checklist in D05 audit domain for verifying content against quality charter
+- Holistic Assessment section in audit report Executive Dashboard output format
+- False positive detection and tracking in AUDIT-EXECUTE.md final review
+- governance/CONSTITUTION.md -- foundational decisions, quality principles, and design rationale for the governance system
+
+### Changed
+
+- PRD Section 2 references VISION.md as the north-star vision document
+- PRD Section 6 adds 4 new principles: weekly audit cadence, closed-loop evolution, automatic learning, up-to-date information
+- PRD Section 6 adds "Audit Cycle as Product Feature" subsection
+- AUDIT.md sub-agent count updated from 106 to 107
+- AUDIT.md adds pre-audit question for closed-loop phases
+- AUDIT-EXECUTE.md adds 4 new guardrails (#17-20) for closed-loop phase governance
+- AUDIT-EXECUTE.md finding registry gains 3 new fields (prd_impact, content_generated, audit_evolution)
+- D18 (PRD, Roadmap & Distribution) now audits VISION.md alignment
+- **Sub-issue linking fallback chain parity**: Azure DevOps and GitLab sub-issue linking upgraded from 2-tier to 3-tier fallback chains, matching GitHub's structure (Native -> Advisory body-reference -> Comment-only). The "Three-Tier" section headers now match their content.
+- **Board Sync Enforcement rule 2**: Updated from "four canonical statuses" to "five canonical statuses" (Ready, In Progress, In Review, Done, Blocked).
+- **GitLab required board lists**: Added "Done" (`status::done`) to the required board lists created during `board-init`.
+- **Board-groom health-fix scope**: Expanded from missing metadata only to also include board sync drift remediation and orphaned in-review resolution.
+- AUDIT.md Universal Audit Checklist expanded with git history context, measurable criteria, and multi-stakeholder impact directives
+- AUDIT.md adds reproducibility/non-determinism note, scoring calibration check, adaptive resource allocation for mature domains, domain file quality standard, and enhanced context propagation mechanism
+- AUDIT-EXECUTE.md finding registry gains `false_positive` field for tracking incorrectly identified findings
+- Implementation sub-agent template expanded with 3 new requirements: understand the why, consider side effects, verify root cause
+- D05, D07, D13, D16, D19 audit domain checklists expanded with content interaction testing, negative scenario testing, simulated execution, content quality principles, and assumption challenging
+- VISION.md adds principles 13-14: quality through measurable standards and behavioral charter governance
+- hatch3r-prd.md adds principle 17: behavioral quality standards referencing shared quality charter
+- Consolidated all governance files into `governance/` directory: AUDIT.md, AUDIT-EXECUTE.md, RE-ENVISION.md, VISION.md, hatch3r-prd.md, COMPETITIVE-ANALYSIS.md, AUDIT-REPORT.md, and audit/ subdirectory
+
+### Documentation
+
+- **ADO status granularity**: Documented the known limitation where `status:ready` and `status:in-progress` both map to ADO state "Active". Added recommendations for custom process templates and board column splits.
+- **GitLab scoped labels caveat**: Noted that scoped labels (`status::done`) require GitLab Premium or Ultimate tier.
+
 ## [1.3.0] - 2026-03-18
 
 ### Added
@@ -156,7 +213,7 @@ All notable changes to hatch3r are documented in this file.
 ### Audit Execution (103/104 findings resolved — score 79→95)
 
 #### Added
-- Amazon Q adapter — 14th platform adapter (`.amazonq/rules/`, `.amazonq/settings.json`)
+- Amazon Q adapter — 14th platform adapter (`.amazonq/rules/`, `.amazonq/mcp.json`)
 - Kiro hook emission via steering file (`.kiro/steering/hatch3r-hooks.md`)
 - Goose MCP config emission in `.goosehints`
 - MCP setup guide (`website/docs/guides/mcp-setup.md`)

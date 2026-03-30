@@ -23,7 +23,7 @@ export class AmazonQAdapter extends BaseAdapter {
     if (mcp && Object.keys(mcp).length > 0) {
       const entries = this.buildStdMcpEntries(mcp);
       if (Object.keys(entries).length > 0) {
-        results.push(output(".amazonq/settings.json", JSON.stringify({ mcpServers: entries }, null, 2)));
+        results.push(output(".amazonq/mcp.json", JSON.stringify({ mcpServers: entries }, null, 2)));
       }
     }
 

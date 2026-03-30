@@ -1,4 +1,4 @@
-import { readFile, readdir, cp, mkdir, rm } from "node:fs/promises";
+import { readFile, readdir, writeFile, cp, mkdir, rm } from "node:fs/promises";
 import { join, dirname, normalize, isAbsolute } from "node:path";
 import { parseFrontmatter } from "../adapters/canonical.js";
 import { HatchError } from "../types.js";
@@ -10,10 +10,10 @@ export function assertSafePath(relativePath: string, label: string): void {
   const sanitized = relativePath.replace(/\0/g, '');
   const normalized = normalize(sanitized);
   if (normalized.startsWith('..') || isAbsolute(normalized)) {
-    throw new HatchError(`Unsafe path detected in ${label}: ${relativePath}`, 1);
+    throw new HatchError(`Unsafe path detected in ${label}: ${relativePath}`, 1, "FS_ERROR");
   }
   if (sanitized !== relativePath) {
-    throw new HatchError(`Unsafe path detected in ${label}: ${relativePath}`, 1);
+    throw new HatchError(`Unsafe path detected in ${label}: ${relativePath}`, 1, "FS_ERROR");
   }
 }
 
@@ -137,8 +137,31 @@ export interface ContentIndex {
   items: CatalogItem[];
   byType: Record<string, CatalogItem[]>;
   byId: Map<string, CatalogItem>;
+  /**
+   * Collision-safe lookup: `"type:id"` → CatalogItem.
+   * Use this when the content type is known to avoid cross-type ID shadows.
+   * Key format: `"agent:hatch3r-implementer"`, `"skill:hatch3r-recipe"`, etc.
+   */
+  byTypeAndId: Map<string, CatalogItem>;
   /** Structured records of ID collisions detected during indexing. */
   collisions: ContentCollision[];
+}
+
+/**
+ * Build a composite key for the `byTypeAndId` map.
+ */
+export function typeIdKey(type: CatalogItem["type"], id: string): string {
+  return `${type}:${id}`;
+}
+
+/**
+ * Get all items matching an ID, across all content types.
+ * Unlike `byId.get()` which returns only the last-indexed item for a colliding ID,
+ * this returns every item that shares the given ID (typically 1, but 2+ when
+ * a command and skill share the same name).
+ */
+export function getAllItemsById(index: ContentIndex, id: string): CatalogItem[] {
+  return index.items.filter((item) => item.id === id);
 }
 
 // ── Content type configs ───────────────────────────────────────
@@ -174,7 +197,7 @@ export async function buildContentIndex(contentRoot: string): Promise<ContentInd
       // Skills: each subdirectory has a SKILL.md
       let dirents: { name: string; isDirectory: () => boolean }[];
       try {
-        dirents = await readdir(dirPath, { withFileTypes: true });
+        dirents = (await readdir(dirPath, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name));
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
         throw err;
@@ -204,7 +227,7 @@ export async function buildContentIndex(contentRoot: string): Promise<ContentInd
       let entries: string[];
       try {
         const all = await readdir(dirPath);
-        entries = all.filter((f) => f.endsWith(".md"));
+        entries = all.filter((f) => f.endsWith(".md")).sort();
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
         throw err;
@@ -244,11 +267,16 @@ export async function buildContentIndex(contentRoot: string): Promise<ContentInd
   // Build indexes
   const byType: Record<string, CatalogItem[]> = {};
   const byId = new Map<string, CatalogItem>();
+  const byTypeAndId = new Map<string, CatalogItem>();
   const collisions: ContentCollision[] = [];
 
   for (const item of items) {
     if (!byType[item.type]) byType[item.type] = [];
     byType[item.type].push(item);
+
+    // Collision-safe type-qualified lookup (never shadows)
+    byTypeAndId.set(typeIdKey(item.type, item.id), item);
+
     const existing = byId.get(item.id);
     if (existing) {
       const kind: ContentCollision["kind"] = existing.type !== item.type ? "cross-type" : "same-type";
@@ -262,7 +290,7 @@ export async function buildContentIndex(contentRoot: string): Promise<ContentInd
       });
       if (kind === "cross-type") {
         console.warn(
-          `[hatch3r] Content ID collision: "${item.id}" exists as both ${existing.type} (${existing.relativePath}) and ${item.type} (${item.relativePath}). The ${item.type} entry will shadow the ${existing.type} entry in ID lookups.`,
+          `[hatch3r] Content ID collision: "${item.id}" exists as both ${existing.type} (${existing.relativePath}) and ${item.type} (${item.relativePath}). Use index.byTypeAndId for collision-safe lookup.`,
         );
       } else {
         console.warn(
@@ -273,7 +301,7 @@ export async function buildContentIndex(contentRoot: string): Promise<ContentInd
     byId.set(item.id, item);
   }
 
-  return { items, byType, byId, collisions };
+  return { items, byType, byId, byTypeAndId, collisions };
 }
 
 // ── Shared type-to-key mapping ──────────────────────────────────
@@ -727,6 +755,7 @@ export async function addContentItem(
         `Content "${item.id}" (${item.type}) not found in package at ${item.relativePath}. ` +
         `It may have been renamed or removed in this hatch3r version.`,
         1,
+        "FS_ERROR",
       );
     }
     throw err;
@@ -822,4 +851,59 @@ export function selectionSummary(selection: ContentSelection): string {
   if (items.hooks.length > 0) parts.push(`${items.hooks.length} hooks`);
   if (items.githubAgents.length > 0) parts.push(`${items.githubAgents.length} github-agents`);
   return parts.join(", ");
+}
+
+// ── MDC companion generation ───────────────────────────────────
+
+/**
+ * Generate Cursor-native frontmatter from canonical rule metadata.
+ * Maps `scope` to `alwaysApply` / `globs` as the Cursor adapter does.
+ */
+function cursorCompanionFrontmatter(description: string, scope?: string): string {
+  const lines: string[] = [`description: ${description}`];
+  if (scope === "always") {
+    lines.push("alwaysApply: true");
+  } else if (scope && scope !== "conditional") {
+    // Treat non-"always", non-"conditional" scope values as glob patterns
+    const globs = scope.includes(",")
+      ? scope.split(",").map((g) => g.trim())
+      : [scope];
+    lines.push(`globs: [${globs.map((g) => `"${g}"`).join(", ")}]`);
+  } else {
+    lines.push("alwaysApply: false");
+  }
+  return `---\n${lines.join("\n")}\n---`;
+}
+
+/**
+ * Generate .mdc companion files for all .md rule files in a directory.
+ * Each .mdc file contains Cursor-native frontmatter (description, alwaysApply/globs)
+ * and the full body content from the source .md file.
+ *
+ * Returns the list of .mdc file paths that were written.
+ */
+export async function generateMdcCompanions(rulesDir: string): Promise<string[]> {
+  let entries: string[];
+  try {
+    entries = (await readdir(rulesDir)).filter((f) => f.endsWith(".md"));
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw err;
+  }
+
+  const written: string[] = [];
+  for (const mdFile of entries) {
+    const mdPath = join(rulesDir, mdFile);
+    const raw = await readFile(mdPath, "utf-8");
+    const { metadata, content } = parseFrontmatter(raw);
+    const description = metadata.description || "";
+    const scope = metadata.scope;
+    const frontmatter = cursorCompanionFrontmatter(description, scope);
+    const mdcContent = `${frontmatter}\n${content}`;
+    const mdcFile = mdFile.replace(/\.md$/, ".mdc");
+    const mdcPath = join(rulesDir, mdcFile);
+    await writeFile(mdcPath, mdcContent, "utf-8");
+    written.push(mdcPath);
+  }
+  return written;
 }

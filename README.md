@@ -44,7 +44,7 @@ That's it. hatch3r detects your repo, asks about your project context (greenfiel
 | **Kiro** | `.kiro/steering/`, `.kiro/settings/mcp.json` |
 | **Goose** | `.goosehints` |
 | **Zed** | `.rules` |
-| **Amazon Q** | `.amazonq/rules/`, `.amazonq/settings.json` |
+| **Amazon Q** | `.amazonq/rules/`, `.amazonq/mcp.json` |
 
 Platform is auto-detected from your git remote during `hatch3r init`. All board commands, agents, rules, and skills adapt to your selected platform.
 
@@ -231,6 +231,7 @@ hatch3r is also available as a [Cursor plugin](https://cursor.com/marketplace). 
 
 Full documentation is available at [docs.hatch3r.com](https://docs.hatch3r.com).
 
+- [Vision](governance/VISION.md) -- Framework north-star vision and principles
 - [MCP Setup](https://docs.hatch3r.com/docs/guides/mcp-setup) -- Connecting MCP servers and managing secrets
 - [Adapter Capability Matrix](https://docs.hatch3r.com/docs/reference/adapter-capability-matrix) -- Per-tool support and output paths
 - [Agent Teams](https://docs.hatch3r.com/docs/guides/agent-teams) -- Multi-agent team coordination and delegation patterns

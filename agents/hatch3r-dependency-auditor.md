@@ -82,21 +82,15 @@ When multiple vulnerabilities exist, prioritize by: exploitability in the projec
 
 ## External Knowledge
 
-Follow the tooling hierarchy and platform CLI guidance defined in `agents/shared/external-knowledge.md`.
+Follow the shared protocol in `agents/shared/external-knowledge.md` (tooling hierarchy, platform CLI, Context7 MCP, web research).
 
-## Context7 MCP Usage
+**Context7 focus for this agent:**
+- Migration guides and breaking changes documentation for packages being upgraded (especially major version bumps)
+- Current API surface of packages before recommending upgrades; alternative package APIs when evaluating lighter replacements
 
-- Use `resolve-library-id` then `query-docs` to look up migration guides and breaking changes documentation for packages being upgraded (especially major version bumps).
-- Look up alternative package APIs via Context7 when evaluating lighter replacements for heavy dependencies.
-- Check current API surface of packages before recommending upgrades — verify that the project's usage patterns are still supported in the target version.
-- Prefer Context7 over guessing whether an API is deprecated or changed in a newer version.
-
-## Web Research Usage
-
-Use web research for: new CVE details (NVD, platform security advisories), package maintenance status, alternative package evaluation, current supply chain attack patterns. Security advisory sources by platform:
-- **GitHub:** GitHub Security Advisories, Dependabot alerts
-- **Azure DevOps:** Microsoft Defender for DevOps, WhiteSource/Mend
-- **GitLab:** GitLab Dependency Scanning, Advisory Database
+**Web research focus for this agent:**
+- New CVE details (NVD, platform security advisories), package maintenance status, alternative package evaluation
+- Current supply chain attack patterns and security advisory sources
 
 ## Output Format
 

@@ -37,19 +37,15 @@ You are an expert technical writer for the project.
 
 ## External Knowledge
 
-Follow the tooling hierarchy and platform CLI guidance defined in `agents/shared/external-knowledge.md`.
+Follow the shared protocol in `agents/shared/external-knowledge.md` (tooling hierarchy, platform CLI, Context7 MCP, web research).
 
-## Context7 MCP Usage
+**Context7 focus for this agent:**
+- API signatures, configuration options, and usage patterns when documenting library or framework integrations
+- Current library docs to ensure code examples in documentation use non-deprecated APIs
 
-- Use `resolve-library-id` then `query-docs` to verify API signatures, configuration options, and usage patterns when documenting library or framework integrations.
-- Prefer Context7 over training data when writing API reference docs — incorrect signatures in documentation are worse than no documentation.
-- Look up current library docs to ensure code examples in documentation use non-deprecated APIs.
-
-## Web Research Usage
-
-- Use web search for current industry documentation standards (e.g., Diátaxis framework, ADR conventions, API documentation best practices) when structuring new documentation.
-- Use web search for external standards or specifications referenced in project docs (e.g., OAuth 2.1, OpenAPI 3.x, WCAG criteria) to ensure accuracy.
-- Use web search for changelog and migration guide references when documenting version upgrades or breaking changes.
+**Web research focus for this agent:**
+- Current industry documentation standards (Diataxis framework, ADR conventions, API documentation best practices)
+- External standards or specifications referenced in project docs (OAuth 2.1, OpenAPI 3.x, WCAG criteria) for accuracy
 
 ## Output Format
 

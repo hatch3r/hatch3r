@@ -13,7 +13,7 @@ alwaysApply: true
 - **Named clearly.** Describe behavior: `"should award 15 XP for 25-min focus block"`.
 - **Regression.** Every bug fix includes a test that fails before the fix and passes after.
 - **No network.** Unit tests must not make network calls. Use mocks.
-- No `any` types in tests. No `.skip` without a linked issue.
+- No type escape hatches in tests. No `.skip` without a linked issue.
 - Write tests to `tests/unit/`, `tests/integration/`, `tests/e2e/`, or equivalent.
 - Use test fixtures from `tests/fixtures/` or equivalent.
 - **Browser verification.** For UI changes, verify visually in the browser via browser automation MCP after automated tests pass. Capture screenshots as evidence.
