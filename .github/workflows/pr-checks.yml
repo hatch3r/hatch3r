@@ -54,7 +54,7 @@ jobs:
             SHA=$(echo "$line" | cut -d' ' -f1)
             BODY=$(git log -1 --format="%B" "$SHA")
             if ! echo "$BODY" | grep -qiE "^Signed-off-by: .+ <.+>"; then
-              MISSING="$MISSING\n  $line"
+              MISSING+=$'\n  '"$line"
             fi
           done <<< "$COMMITS"
           if [ -n "$MISSING" ]; then
