@@ -58,8 +58,9 @@ jobs:
             fi
           done <<< "$COMMITS"
           if [ -n "$MISSING" ]; then
-            echo "::warning::The following commits are missing DCO sign-off (Signed-off-by):$MISSING"
+            echo "::error::The following commits are missing DCO sign-off (Signed-off-by):$MISSING"
             echo "Consider using 'git commit -s' for future commits."
+            exit 1
           fi
 
   # Lint, typecheck, test, and audit are handled by ci.yml (which also triggers
