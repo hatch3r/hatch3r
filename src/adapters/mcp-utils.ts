@@ -6,8 +6,49 @@ export interface McpServerEntry {
   args?: string[];
   url?: string;
   env?: Record<string, string>;
+  headers?: Record<string, string>;
   _description?: string;
   _disabled?: boolean;
+}
+
+/**
+ * Transforms `${env:VAR}` references to the native format for a given adapter.
+ *
+ * The canonical MCP config uses `${env:VAR}` syntax (matching the MCP spec).
+ * Different adapters have different native env var reference syntaxes:
+ * - "claude": `${VAR}` (Claude Code native)
+ * - "process": `process.env.VAR` replaced at generation time (not used yet)
+ * - "passthrough": keep `${env:VAR}` as-is (for adapters that support MCP spec natively)
+ * - "shell": `$VAR` (for shell-based expansion)
+ *
+ * For adapters that don't understand `${env:VAR}`, this prevents silent failures
+ * by converting to a syntax the adapter can process.
+ */
+export function transformEnvVarSyntax(
+  value: unknown,
+  format: "claude" | "shell" | "passthrough" = "passthrough",
+): unknown {
+  if (typeof value === "string") {
+    switch (format) {
+      case "claude":
+        return value.replace(/\$\{env:([^}]+)\}/g, "${$1}");
+      case "shell":
+        return value.replace(/\$\{env:([^}]+)\}/g, "$$$1");
+      case "passthrough":
+        return value;
+    }
+  }
+  if (Array.isArray(value)) {
+    return value.map((v) => transformEnvVarSyntax(v, format));
+  }
+  if (typeof value === "object" && value !== null) {
+    const result: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) {
+      result[k] = transformEnvVarSyntax(v, format);
+    }
+    return result;
+  }
+  return value;
 }
 
 const ALLOWED_COMMANDS = new Set([

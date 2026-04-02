@@ -1,4 +1,5 @@
 import { readdir, readFile, access } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { join, posix } from "node:path";
 import chalk from "chalk";
 import { parse as parseYaml } from "yaml";
@@ -8,8 +9,12 @@ import { AGENTS_DIR, HATCH3R_PREFIX, HatchError } from "../../types.js";
 import type { HatchManifest } from "../../types.js";
 import { scanForDeniedPatterns } from "../../adapters/customization.js";
 import { buildContentIndex, validateCrossReferences, validateOrchestrationDependencies } from "../../content/index.js";
+import { validateLearningsDirectory } from "../../content/learningsValidation.js";
 import { readCustomizationWithWarnings } from "../../models/customize.js";
 import type { CustomizableType } from "../../models/customize.js";
+import { parseEnvFile } from "../../env/mcpEnv.js";
+import { detectSecrets } from "../../env/secretDetection.js";
+import { runComplianceChecks, formatComplianceReport } from "../../pipeline/complianceVerification.js";
 import {
   printBanner,
   createSpinner,
@@ -258,6 +263,31 @@ async function validateModels(
   }
 }
 
+async function validateCostTracking(
+  manifest: HatchManifest,
+  result: ValidationResult,
+): Promise<void> {
+  if (!manifest.costTracking) return;
+
+  const ct = manifest.costTracking;
+  if (ct.sessionBudget !== undefined && ct.sessionBudget <= 0) {
+    result.warnings.push("hatch.json: costTracking.sessionBudget should be a positive number");
+  }
+  if (ct.issueBudget !== undefined && ct.issueBudget <= 0) {
+    result.warnings.push("hatch.json: costTracking.issueBudget should be a positive number");
+  }
+  if (ct.epicBudget !== undefined && ct.epicBudget <= 0) {
+    result.warnings.push("hatch.json: costTracking.epicBudget should be a positive number");
+  }
+  if (ct.warningThresholds) {
+    for (const t of ct.warningThresholds) {
+      if (t < 0 || t > 1) {
+        result.warnings.push(`hatch.json: costTracking.warningThresholds values should be between 0 and 1, got ${t}`);
+      }
+    }
+  }
+}
+
 /**
  * Validate .customize.yaml files for syntax and known field usage.
  * Checks that YAML parses correctly, uses only recognized fields,
@@ -344,8 +374,8 @@ async function validateCustomizeYaml(
         }
       }
 
-      // Run denied-pattern scan on string fields
-      for (const field of ["description", "scope"] as const) {
+      // Run denied-pattern scan on all free-text string fields
+      for (const field of ["description", "scope", "model"] as const) {
         const value = parsed[field];
         if (typeof value === "string") {
           const violations = scanForDeniedPatterns(value);
@@ -449,22 +479,14 @@ async function validateContentConsistency(
     }
   }
 
-  // Validate learnings for denied patterns
+  // Validate learnings: schema, size, encoding, and denied patterns (#19 D15/D6)
   const learningsDir = join(agentsDir, "learnings");
-  try {
-    const learningFiles = await readdir(learningsDir);
-    const mdFiles = learningFiles.filter(f => f.endsWith(".md"));
-    for (const file of mdFiles) {
-      const content = await readFile(join(learningsDir, file), "utf-8");
-      const violations = scanForDeniedPatterns(content);
-      if (violations.length > 0) {
-        for (const v of violations) {
-          result.warnings.push(`Learning file "${file}" contains suspicious content: ${v}`);
-        }
-      }
-    }
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  const learningsResult = await validateLearningsDirectory(learningsDir);
+  for (const e of learningsResult.errors) {
+    result.errors.push(e);
+  }
+  for (const w of learningsResult.warnings) {
+    result.warnings.push(w);
   }
 }
 
@@ -499,6 +521,7 @@ export async function validateCommand(): Promise<void> {
     await validateHooks(agentsDir, manifest, result);
     await validateMcp(agentsDir, manifest, result);
     await validateModels(manifest, result);
+    await validateCostTracking(manifest, result);
     await validateCustomizations(rootDir, agentsDir, manifest, result);
     await validateCustomizeYaml(rootDir, result);
     await validateContentConsistency(rootDir, agentsDir, manifest, result);
@@ -540,7 +563,13 @@ export async function validateCommand(): Promise<void> {
         result.warnings.push(w);
       }
     }
+
+    // Secret detection in .env.mcp (#82 D15)
+    await validateEnvMcpSecrets(rootDir, result);
   }
+
+  // Security compliance verification (#86 D15)
+  validateSecurityCompliance(result);
 
   spinner.stop();
 
@@ -603,6 +632,57 @@ export async function validateCommand(): Promise<void> {
 }
 
 /**
+ * Scan .env.mcp for accidentally committed secrets (#82 D15).
+ */
+async function validateEnvMcpSecrets(
+  rootDir: string,
+  result: ValidationResult,
+): Promise<void> {
+  const envMcpPath = join(rootDir, ".env.mcp");
+  if (!existsSync(envMcpPath)) return;
+
+  try {
+    const raw = await readFile(envMcpPath, "utf-8");
+    const vars = parseEnvFile(raw);
+    const detection = detectSecrets(vars);
+
+    for (const finding of detection.findings) {
+      const msg =
+        `Secret detected in .env.mcp: ${finding.variableName} contains a ${finding.secretType} ` +
+        `(${finding.maskedValue}). ${finding.guidance}`;
+      if (finding.severity === "critical") {
+        result.errors.push(msg);
+      } else {
+        result.warnings.push(msg);
+      }
+    }
+  } catch {
+    // File unreadable — skip silently
+  }
+}
+
+/**
+ * Run security compliance checks and fold results into validation (#86 D15).
+ */
+function validateSecurityCompliance(result: ValidationResult): void {
+  const report = runComplianceChecks();
+
+  for (const check of report.checks) {
+    if (check.status === "fail") {
+      result.errors.push(
+        `Security compliance [${check.controlRef}]: ${check.description}` +
+        (check.detail ? ` — ${check.detail}` : ""),
+      );
+    } else if (check.status === "warn") {
+      result.warnings.push(
+        `Security compliance [${check.controlRef}]: ${check.description}` +
+        (check.detail ? ` — ${check.detail}` : ""),
+      );
+    }
+  }
+}
+
+/**
  * Print a contextual explanation of the three customization mechanisms
  * when customization files are detected (D19-4).
  */
@@ -611,8 +691,8 @@ function printCustomizationHint(): void {
   info(chalk.bold("Customization mechanisms detected. Quick reference:"));
   console.log(chalk.dim("  1. hatch3r- prefix: Files prefixed with hatch3r- are managed by hatch3r and"));
   console.log(chalk.dim("     overwritten on update. Do not edit these directly."));
-  console.log(chalk.dim("  2. Managed blocks: Sections between <!-- MANAGED-BLOCK:BEGIN --> and"));
-  console.log(chalk.dim("     <!-- MANAGED-BLOCK:END --> are auto-updated. Add content outside these markers."));
+  console.log(chalk.dim("  2. Managed blocks: Sections between <!-- HATCH3R:BEGIN --> and"));
+  console.log(chalk.dim("     <!-- HATCH3R:END --> are auto-updated. Add content outside these markers."));
   console.log(chalk.dim("  3. .customize.yaml/.md: Place in .hatch3r/{type}/ to override model, scope,"));
   console.log(chalk.dim("     description, or disable items. Use .customize.md for content additions."));
   console.log(chalk.dim("  See: https://docs.hatch3r.com/docs/guides/customization"));

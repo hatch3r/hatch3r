@@ -4,6 +4,7 @@ description: Expert code reviewer for the project. Proactively reviews code for 
 protected: true
 model: standard
 tags: [core, review]
+quality_charter: agents/shared/quality-charter.md
 ---
 You are a senior code reviewer for the project.
 
@@ -128,6 +129,16 @@ Example in a review finding:
 ```
 
 Apply this format whenever the review verdict is non-obvious, when downgrading or upgrading severity, or when recommending a specific fix over alternatives.
+
+## Review Loop Termination Conditions
+
+This agent participates in the Phase 3 review loop (see `hatch3r-agent-orchestration`). The loop terminates when any of these conditions is met:
+
+1. **Clean verdict** -- 0 Critical + 0 Warning findings. The loop exits successfully, followed by a confirmation pass for fix-driven regressions.
+2. **Max iterations reached** -- After 3 review-fix cycles (default, configurable up to 10), the loop exits with status UNRESOLVED. Remaining findings are surfaced to the user.
+3. **Manual termination** -- The orchestrator or user explicitly halts the loop.
+
+Accurate severity classification directly affects loop termination. Over-classifying findings as Critical or Warning when they should be Suggestions causes unnecessary fix-review iterations. Under-classifying causes real issues to slip through. Use structured reasoning (above) when severity is non-obvious.
 
 ## Boundaries
 

@@ -57,7 +57,7 @@ The ecosystem is converging on repo-native agent guidance, sub-agentic delegatio
 - **Claude Code** reads `CLAUDE.md` and supports project-scoped skills, MCP, and 12+ lifecycle hook events.
 - **Windsurf** supports both `.windsurfrules` and `AGENTS.md`.
 - **Cursor** now has a plugin marketplace with support for rules, skills, agents, commands, and MCP.
-- **Competing frameworks** (Superpowers ~71k stars, BMAD ~41k stars, GSD ~23k stars, Ruflo ~19k stars, Compound Engineering ~10k stars) have validated that structured methodology, sub-agentic delegation, multi-agent orchestration, and learning loops are table-stakes features for production agentic setups.
+- **Competing frameworks** (Superpowers ~130k stars, GitHub Spec Kit ~84k stars, BMAD ~41k stars, GSD ~32k stars, Ruflo ~29k stars, Compound Engineering ~10k stars) have validated that structured methodology, sub-agentic delegation, multi-agent orchestration, multi-tool support, and learning loops are table-stakes features for production agentic setups.
 
 ---
 
@@ -101,21 +101,23 @@ hatch3r packages these into a portable "agent pack" and compiles tool-specific a
 
 The agentic coding framework space has segmented into four tiers: full-lifecycle methodology frameworks, multi-agent orchestration runtimes (new in early 2026), autonomous coding agents, and IDE-native platforms. hatch3r uniquely straddles the first and fourth tiers — it is a methodology framework that generates native configurations for multiple IDE platforms.
 
-### Key Competitors (March 2026)
+### Key Competitors (April 2026)
+
+> **Updated April 2, 2026 (Cycle 4 audit findings #92 applied).** The competitive landscape has shifted dramatically since v4.0. Two seismic changes: GitHub Spec Kit emerged as a GitHub-backed direct competitor (~84k stars), and Superpowers v5.0 expanded to 6-tool support (~130k stars), eliminating its single-tool weakness. Multi-tool count alone is no longer a defensible differentiator.
 
 | Framework | Stars | Focus | Key Strength | hatch3r Differentiation |
 |-----------|-------|-------|-------------|------------------------|
-| Superpowers | ~71k | Disciplined TDD workflow | Largest community (118k+ marketplace installs), plugin marketplace | Tool-agnostic adapters vs. Claude Code-primary |
-| BMAD Method | ~41k | Full SDLC coverage | 28-tool claim (template-based), 110+ contributors | Deepest native integration (15 tools) + board management + learning loop |
-| GSD | ~23k | Context rot prevention | 27 commands, cost tracking, auto-advance, +34% growth | Multi-tool native generation vs. Claude Code-primary |
-| Ruflo | ~19k | Multi-agent orchestration | 60+ agents, 215 MCP tools, enterprise-grade | Multi-tool adapter breadth vs. Claude Code-only runtime |
-| Compound Engineering | ~10k | Learning loops | Compounding knowledge, learnings researcher | Broader tool support + board management |
-| OpenCode | ~114k | Agent rules via AGENTS.md | Open-source, direct AGENTS.md consumption | Full multi-tool adapter architecture vs. single-tool |
-| SkillKit | 382 | Skill distribution | 15k+ skill marketplace, 44 agent formats | Complete setup vs. skill-only distribution |
+| Superpowers | **~130k** | Disciplined TDD workflow | Largest community, v5.0 with **6-tool support**, plugin marketplace | **Deeper native integration** (15 tools with tool-specific features) + board management + learning loop |
+| GitHub Spec Kit | **~84k** | Multi-tool config generation | **GitHub-backed**, 20+ tool configurations, native GitHub integration | Multi-platform board management (not just GitHub) + learning loop + platform independence (Azure DevOps, GitLab) |
+| BMAD Method | ~41k | Full SDLC coverage | 28-tool claim (template-based), 110+ contributors | Deepest native integration (15 tools with native configs) + board management + learning loop |
+| GSD | ~32k | Context rot prevention | 8 tools + CLI, 27 commands, cost tracking, auto-advance | Native config depth + board management + multi-platform support |
+| Ruflo | **~29k** | Multi-agent orchestration | 100+ agents, 215 MCP tools, enterprise-grade | Multi-tool adapter breadth + board management vs. Claude Code-only runtime |
+| Compound Engineering | ~10k | Learning loops | 12 tools, compounding knowledge, learnings researcher | Broader native tool support + board management |
+| OpenCode | ~114k | Agent rules via AGENTS.md | Open-source, direct AGENTS.md consumption | Full multi-tool adapter architecture (complementary, not competitive) |
 
 ### hatch3r Positioning
 
-hatch3r occupies a unique position: **tool-agnostic adapter architecture** (native config generation for 15 tools from a single canonical source), **multi-platform board management** (GitHub Projects V2, Azure DevOps, and GitLab), and a **learning loop** (compounding project knowledge). No competitor combines all three.
+hatch3r occupies a unique position as the only framework combining: **deeply native adapter architecture** (tool-specific config generation for 15 tools from a single canonical source — not template-based), **multi-platform board management** (GitHub Projects V2, Azure DevOps, and GitLab), and a **compounding learning loop**. No competitor combines all three. The key repositioning from v4.0: the differentiator is no longer "most tools" (Spec Kit has 20+, BMAD has 28 templates) but **"deepest native integration across the most tools"** — hatch3r generates configs that leverage each tool's specific features (Cursor `.mdc` frontmatter, Claude Code hooks, Kiro steering, Copilot instruction priorities) rather than applying one-size-fits-all templates.
 
 ### Adopted Patterns
 
@@ -128,6 +130,8 @@ hatch3r occupies a unique position: **tool-agnostic adapter architecture** (nati
 | Lifecycle hooks and event-driven automation | Claude Code hooks, Kiro Agent Hooks |
 | Structured development methodology | BMAD (4-phase), Superpowers (brainstorm-plan-execute-verify) |
 | Plugin marketplace distribution | Superpowers, Compound Engineering (Claude Code marketplace) |
+| Multi-tool configuration generation | GitHub Spec Kit (20+ tools), Superpowers v5 (6 tools) |
+| MCP Server Cards (upcoming) | MCP June 2026 specification |
 
 **See [COMPETITIVE-ANALYSIS.md](COMPETITIVE-ANALYSIS.md) for detailed per-framework analysis, gap analysis, and strategic recommendations.**
 
@@ -1297,15 +1301,20 @@ Must track:
 
 ## 21. Success Metrics
 
-| Metric | Target | Measurement |
-|--------|--------|-------------|
-| **Activation** | >90% | % of installs that generate at least one tool adapter |
-| **Tool breadth** | >1.5 | Average number of tools configured per repo |
-| **Retention** | >30% | % of repos that run `sync` or `update` within 30 days |
-| **Drift reduction** | Decreasing | Manual edits inside `hatch3r-*` files (should trend to zero) |
-| **Plugin adoption** | Tracked | Cursor plugin installs (marketplace) |
-| **Pack ecosystem** | >5 | Community packs published within 6 months |
-| **Time-to-first-value** | <60s | Time from `npx hatch3r init` to agent producing a correct change |
+> **Calibration note (v4.1, April 2, 2026):** Targets below have been calibrated against D16 Compound System actual measurements from the Cycle 4 audit. Previous targets were aspirational without empirical basis; updated targets reflect realistic baselines with growth trajectories. The one-shot success metric was previously unmeasured (D10 finding 10.19) — measurement infrastructure is a prerequisite before setting a validated target.
+
+| Metric | Target | Measurement | Calibration Note |
+|--------|--------|-------------|------------------|
+| **Activation** | >85% | % of installs that generate at least one tool adapter | Reduced from >90%; no empirical data yet; 85% accounts for aborted installs, CI-only runs, and evaluation usage |
+| **Tool breadth** | >1.5 | Average number of tools configured per repo | Unchanged; 15 adapters make multi-tool selection likely |
+| **Retention** | >20% | % of repos that run `sync` or `update` within 30 days | Reduced from >30%; OSS retention benchmarks suggest 15-25% is realistic for CLI tools |
+| **Drift reduction** | Decreasing | Manual edits inside `hatch3r-*` files (should trend to zero) | Unchanged; directional metric |
+| **Plugin adoption** | Tracked | Cursor plugin installs + Claude Code marketplace installs | Expanded to include Claude Code marketplace (distribution prerequisite) |
+| **Pack ecosystem** | >3 | Community packs published within 6 months | Reduced from >5; community must exist before pack ecosystem can grow |
+| **Time-to-first-value** | <90s | Time from `npx hatch3r init` to agent producing a correct change | Relaxed from <60s; includes init interactive flow (~30s) + first agent invocation (~60s) |
+| **One-shot success rate** | Baseline TBD | % of agent tasks completed correctly on first attempt without human intervention | NEW: Measurement infrastructure needed (D10-M19). Target to be set after 30 days of baseline data collection |
+| **Coverage accuracy** | >95% true coverage | Vitest coverage.all enabled, all source files instrumented | NEW: Addresses D3/D16 Critical finding — reported 90.66% was inflated to ~70-75% true coverage due to 24% invisible files. Fixed in v1.5.0; target reflects actual instrumented coverage |
+| **Adapter quality score** | >= 4.0/5.0 | Tool-specific feature utilization score from benchmark suite | NEW: Pending benchmark execution (see COMPETITIVE-ANALYSIS.md section 5.4). Target based on planned benchmark methodology |
 
 ---
 
@@ -1339,22 +1348,58 @@ All core functionality is implemented and functional:
 - ~~**Additional tool adapters:**~~ Aider, Kiro, Goose, Zed shipped in v4.0; Amazon Q and Antigravity shipped in v1.3.0. **Remaining:** Continue adapter.
 - **Preset packs:** `web-app`, `api-service`, `cli-tool`, `monorepo`, `legacy`, `security`
 - **Preset composability:** `--preset web-app,security` layering
-- **Distribution:** Claude Code plugin marketplace, Cursor marketplace formalization. **Quality gate:** marketplace distribution requires passing quality infrastructure prerequisites — accurate coverage metrics (resolved in v1.5.0), AGENTS.md generation from canonical source (resolved in v1.5.0), and all adapter parity checks passing.
+- **Distribution:** Claude Code plugin marketplace, Cursor marketplace formalization. **Quality gate:** marketplace distribution requires passing quality infrastructure prerequisites — accurate coverage metrics (resolved in v1.5.0), AGENTS.md generation from canonical source (resolved in v1.5.0), and all adapter parity checks passing. **Agent Teams implementation is a prerequisite for Claude Code marketplace** (see below).
+- **Claude Code Agent Teams integration** (D18-H15, finding #94): Implement Agent Teams support as a prerequisite for Claude Code marketplace distribution. Claude Code 2.0 shipped Agent Teams (research preview) — hatch3r must package its agent architecture as an Agent Teams-compatible configuration to be distributable through the Claude Code plugin marketplace. This involves:
+  1. Mapping hatch3r's 16 agents to Agent Teams roles and capabilities
+  2. Generating Agent Teams configuration from canonical `/.agents/` source
+  3. Implementing Team mode ($40/user/mo) compatibility in the Claude Code adapter
+  4. Enabling Claude Code's native multi-agent orchestration to work with hatch3r's agent definitions
+  5. Testing that hatch3r-generated Agent Teams configs work correctly in Claude Code's research preview
+  - **Effort:** Medium (3-4 weeks). **Priority:** P1 — blocks Claude Code marketplace distribution.
+  - **Dependencies:** Claude Code adapter must be updated for 2.0 features (persistent memory, multi-agent orchestration). Agent Teams API must be stable enough for production use.
 - **Documentation site** (hatch3r.dev/docs): getting-started, architecture, reference, tutorials — *in progress*
 - **Landing page** (hatch3r.dev): value proposition, quick start, comparison, social proof
 - ~~**Pack ecosystem: authoring guide**~~ — completed (documented in CONTRIBUTING.md). **Remaining:** validation improvements, community sourcing.
 - ~~**Selective init with content presets**~~ — shipped in v1.2.0 (4 presets: Minimal, Standard, Full, Custom)
 - ~~**`hatch3r config` command**~~ — shipped in v1.2.0
 
+#### Cycle 4 Roadmap Additions (12 items from audit findings #93)
+
+> Added April 2, 2026. These items were identified during the Cycle 4 audit (D16, D17, D18 findings) and represent gaps that must be addressed for competitive positioning and framework quality.
+
+**P1 — Content Gap Artifacts (address within 30 days):**
+
+1. **Accessibility check definition** (hatch3r-accessibility-check) — 5th check currently missing; only 4 of expected 5 checks exist. Blocks accurate content inventory claims. (D16-C2, Effort S)
+2. **AGENTS.md generation from canonical source** — ~~Fixed in v1.5.0.~~ Platform integration blocker resolved. (D5-H3, D16-C3)
+3. **Junie adapter** (JetBrains Junie) — Emerging IDE-native agent platform with growing market share. Native adapter needed for competitive coverage. (D9-M32, Effort M)
+4. **Augment Code adapter** — Emerging AI coding tool. Native adapter needed for competitive coverage. (D9-M33, Effort M)
+
+**P2 — Content Quality Improvements (address within 60 days):**
+
+5. **hatch3r-docs-writing skill** — Technical documentation writing workflow with audience awareness. No docs-writing skill currently exists despite docs-writer agent. (D16-H12, Effort M)
+6. **hatch3r-containerize skill** — Containerization workflow (Dockerfile, docker-compose, K8s manifests). Missing from skill inventory despite devops agent. (D16-H13, Effort M)
+7. **Error recovery addition to 20+ skills** — Error recovery sections absent from majority of skills. Degrades agent resilience. (D16-H10, Effort M)
+8. **Shared prompt templates** (hatch3r-browser-automation, hatch3r-external-knowledge, hatch3r-error-recovery) — Currently duplicated across 5+ commands each. Extract to shared prompts. (D5-M48, D16-H15, Effort S each)
+
+**P2 — Framework Quality (address within 60 days):**
+
+9. **Multi-language support requirements** — Content is JS/TS-centric (npm run hardcoded, TS-specific rules always-loaded). Add Python, Go, Rust, Java support with language-aware content filtering. (D14-H1-H4, Effort M)
+10. **Context budget requirements** — Define <8K always-scope target, overflow detection, tiered inclusion. 32K context windows overflow before any agent spawns. (D6-C1, Effort M)
+11. **MCP Server Cards support** — June 2026 MCP spec introduces Server Cards. Early adoption is a competitive differentiator. See COMPETITIVE-ANALYSIS.md section 3.2a. (D17-H10, Effort M)
+12. **Benchmark suite for native output quality** — Prove "deepest native integration" claim quantitatively. See COMPETITIVE-ANALYSIS.md section 5.4 for full specification. (D17-H13, Effort High)
+
 ### Milestone 3 — Ecosystem & Enterprise
 
 - Pack registry/discovery (optional hosted directory)
-- Benchmark suite (SWE-bench or custom evaluation)
+- Benchmark suite (SWE-bench or custom evaluation) — **specification developed in Cycle 4** (see COMPETITIVE-ANALYSIS.md section 5.4)
 - Enterprise features: team rules, shared configurations, usage analytics, compliance controls
 - ~~Monorepo and multi-repo board management~~ — shipped in v1.3.0 (workspace support, sync cascade)
 - SkillKit / Skill Creator AI marketplace integration
 - CI integration patterns (husky hooks, GitHub Actions)
 - Migration guides from existing setups
+- **GitHub Spec Kit competitive response strategy** — Define differentiation approach against GitHub-backed competitor (D17-M16)
+- **Show HN launch execution** — Plan and execute Show HN for maximum community impact (D18-H16)
+- **hatch3r-diagnose command** — Diagnostic command for troubleshooting framework issues (CL-2 #10)
 
 ---
 
@@ -1371,7 +1416,7 @@ All core functionality is implemented and functional:
 | **Naming conflicts** | `hatch3r-` prefix is distinctive. Community packs use their own prefix. |
 | **Learning data quality** | Learnings may accumulate noise over time. Mitigation: structured frontmatter format with tags, periodic curation, and deduplication. |
 | **Hook security** | Event-driven agents could execute unintended actions. Mitigation: hooks are explicitly opt-in, condition guards (globs/labels/branches) scope activation, and guardrails policy applies to hook-triggered agents. |
-| **Competitive traction gap** | No published star count vs. competitors with 10k-71k stars. Mitigation: aggressive distribution (plugin marketplaces, documentation site, landing page) and focus on unique differentiators (board management, tool-agnosticism). |
+| **Competitive traction gap (EXISTENTIAL)** | No published star count vs. 332k+ combined competitor stars (Superpowers ~130k, GitHub Spec Kit ~84k, BMAD ~41k, GSD ~32k, Ruflo ~29k). Mitigation: immediate open-sourcing and npm publish, aggressive distribution (plugin marketplaces, documentation site, landing page), and focus on unique differentiators (native adapter depth, board management, learning loop, platform independence). Multi-tool count alone is no longer a differentiator. |
 | **Context bloat** | Full content installations (110+ files) may degrade agent performance in tools with limited context windows. Research (Gloaguen et al. 2026) shows verbose context files harm agent effectiveness. Mitigation: tiered preset system (Minimal/Standard/Full/Custom) lets users control installed content volume; planned `--minimal` generation mode will produce compact configs; orchestration rule uses tiered rule inclusion to manage token budgets for subagent prompts. |
 
 ---

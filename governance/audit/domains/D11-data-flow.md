@@ -31,7 +31,7 @@
 ### 11.3 MCP Propagation & Secrets
 - [ ] MCP config propagation per adapter format — each adapter receives correctly formatted MCP config
 - [ ] `.env.mcp` generation — all MCP server environment variables included
-- [ ] `envFile` injection for Copilot — correct path and format
+- [ ] `env` object for Copilot MCP servers — correct format in `.vscode/mcp.json`
 - [ ] `${env:VAR}` patterns — variable substitution works across adapters
 - [ ] Secret leakage prevention — no secrets in generated config files or managed blocks
 

@@ -27,7 +27,7 @@ export class AntigravityAdapter extends BaseAdapter {
 
     const mcp = await this.readFilteredMcp(ctx);
     if (mcp && Object.keys(mcp).length > 0) {
-      const entries = this.buildStdMcpEntries(mcp);
+      const entries = this.buildStdMcpEntries(mcp, "shell");
       if (Object.keys(entries).length > 0) {
         results.push(output(".antigravity/settings.json", JSON.stringify({ mcpServers: entries }, null, 2)));
       }

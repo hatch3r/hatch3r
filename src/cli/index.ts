@@ -4,6 +4,7 @@
 import { Command } from "commander";
 import { addCommand } from "./commands/add.js";
 import { worktreeSetupCommand } from "./commands/worktreeSetup.js";
+import { worktreeCleanupCommand } from "./commands/worktreeCleanup.js";
 import { configCommand } from "./commands/config.js";
 import { initCommand } from "./commands/init.js";
 import { syncCommand } from "./commands/sync.js";
@@ -84,6 +85,12 @@ program
   .option("--dry-run", "Show what would be done without changes")
   .option("--force", "Overwrite existing files in the worktree")
   .action(worktreeSetupCommand);
+
+program
+  .command("worktree-cleanup")
+  .description("Remove symlinks and copied files created by worktree-setup")
+  .option("--dry-run", "Show what would be done without changes")
+  .action(worktreeCleanupCommand);
 
 // Agent command names that users might try to run directly in the terminal.
 // These are slash commands meant to be invoked inside an AI-powered editor, not from the CLI.

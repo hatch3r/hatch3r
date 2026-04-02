@@ -2,6 +2,7 @@
 id: hatch3r-a11y-audit
 description: Comprehensive WCAG AA accessibility audit with findings and fixes. Use when auditing accessibility, verifying WCAG compliance, or improving a11y across the application.
 tags: [review, a11y]
+quality_charter: agents/shared/quality-charter.md
 ---
 # Accessibility Audit Workflow
 

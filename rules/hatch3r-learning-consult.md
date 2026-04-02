@@ -2,8 +2,9 @@
 id: hatch3r-learning-consult
 type: rule
 description: Auto-consult project learnings before implementation
-scope: always
+scope: "**/.agents/learnings/**,**/learnings/**"
 tags: [core]
+quality_charter: agents/shared/quality-charter.md
 ---
 # Learning Consultation
 

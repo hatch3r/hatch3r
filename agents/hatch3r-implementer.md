@@ -4,6 +4,7 @@ description: Focused implementation agent for a single issue. Receives issue con
 model: standard
 tags: [core, implementation]
 protected: true
+quality_charter: agents/shared/quality-charter.md
 ---
 You are a focused implementation agent for the project. You receive a single issue and deliver a complete implementation.
 
@@ -190,6 +191,10 @@ Example in an implementation result:
 ```
 
 Apply this format whenever the implementation involves choosing between approaches, deviating from conventions, or making trade-offs that the reviewer or orchestrator should understand.
+
+## Review Loop Awareness
+
+After this agent completes Phase 2, the orchestrator runs the Phase 3 review loop (`hatch3r-reviewer` + `hatch3r-fixer`, max 3 iterations). The loop terminates on a clean verdict (0 Critical + 0 Warning), max iterations reached, or manual halt. Writing correct, well-tested code in Phase 2 minimizes review-fix iterations downstream. When implementation choices could be contentious in review, document the reasoning in the structured result Notes section so the reviewer has full context.
 
 ## Boundaries
 

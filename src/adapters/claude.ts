@@ -1,11 +1,11 @@
 import type { AdapterOutput } from "../types.js";
 import { toPrefixedId } from "../types.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
-import { generateBridgeOrchestration } from "../cli/shared/agentsContent.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
 import { readCanonicalFiles } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
 import { applyCustomization } from "./customization.js";
+import { transformEnvVarSyntax } from "./mcp-utils.js";
 import type { HookDefinition, HookEvent } from "../hooks/types.js";
 import { HATCH3R_VERSION } from "../version.js";
 
@@ -199,23 +199,6 @@ function getClaudeToolMatcher(hook: HookDefinition): string {
   return eventToolMap[hook.event] || ".*";
 }
 
-function transformEnvVarsForClaude(value: unknown): unknown {
-  if (typeof value === "string") {
-    return value.replace(/\$\{env:([^}]+)\}/g, "${$1}");
-  }
-  if (Array.isArray(value)) {
-    return value.map(transformEnvVarsForClaude);
-  }
-  if (typeof value === "object" && value !== null) {
-    const result: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value)) {
-      result[k] = transformEnvVarsForClaude(v);
-    }
-    return result;
-  }
-  return value;
-}
-
 export class ClaudeAdapter extends BaseAdapter {
   readonly name = "claude";
 
@@ -223,7 +206,7 @@ export class ClaudeAdapter extends BaseAdapter {
     const results: AdapterOutput[] = [];
     const minimal = this.isMinimal(ctx);
 
-    const bridgeOrchestration = await generateBridgeOrchestration(ctx.agentsDir);
+    const bridgeOrchestration = await this.bridgeOrchestration(ctx);
     const teamsSection = minimal ? AGENT_TEAMS_SECTION_MINIMAL : AGENT_TEAMS_SECTION;
     const innerParts = minimal
       ? [
@@ -232,7 +215,7 @@ export class ClaudeAdapter extends BaseAdapter {
           "",
           "Instructions: `.agents/AGENTS.md`. Rules: `.claude/rules/`. Agents: `.claude/agents/`.",
           "",
-          this.stripMinimal(bridgeOrchestration),
+          bridgeOrchestration,
           "",
           ...teamsSection,
           "",
@@ -384,7 +367,7 @@ export class ClaudeAdapter extends BaseAdapter {
       for (const [name, entry] of Object.entries(mcp)) {
         const type = entry.command ? "stdio" : entry.url ? "http" : undefined;
         const withType = type ? { type, ...entry } : { ...entry };
-        claudeMcp[name] = transformEnvVarsForClaude(withType);
+        claudeMcp[name] = transformEnvVarSyntax(withType, "claude");
       }
       results.push(output(".mcp.json", JSON.stringify({ mcpServers: claudeMcp }, null, 2)));
     }

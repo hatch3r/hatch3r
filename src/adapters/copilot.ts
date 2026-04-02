@@ -4,11 +4,11 @@ import type {
 } from "../types.js";
 import { toPrefixedId } from "../types.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
-import { generateBridgeOrchestration } from "../cli/shared/agentsContent.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
 import { readCanonicalFiles } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
 import { applyCustomization } from "./customization.js";
+import { transformEnvVarSyntax } from "./mcp-utils.js";
 import { detectPackageManager } from "../detect/packageManager.js";
 
 export class CopilotAdapter extends BaseAdapter {
@@ -35,7 +35,7 @@ export class CopilotAdapter extends BaseAdapter {
       }
     }
 
-    const bridgeOrchestration = await generateBridgeOrchestration(ctx.agentsDir);
+    const bridgeOrchestration = await this.bridgeOrchestration(ctx);
     const innerContent = [
       "",
       "# Hatch3r Project Instructions",
@@ -66,7 +66,7 @@ export class CopilotAdapter extends BaseAdapter {
     const install = [pm.installCmd, ...pm.installArgs].join(" ");
     const build = `${pm.installCmd} run build`;
     const copilotSetupSteps = `name: "Copilot Setup Steps"
-on: [push]
+on: push
 jobs:
   copilot-setup-steps:
     runs-on: ubuntu-latest
@@ -142,9 +142,11 @@ jobs:
         if (server.command) entry.command = server.command;
         if (server.args) entry.args = server.args;
         if (server.url) entry.url = server.url;
-        if (server.env) entry.env = server.env;
-        if (server.command && server.env && Object.keys(server.env).length > 0) {
-          entry.env = server.env;
+        if (server.env && Object.keys(server.env).length > 0) {
+          entry.env = transformEnvVarSyntax(server.env, "shell");
+        }
+        if (server.headers && Object.keys(server.headers).length > 0) {
+          entry.headers = transformEnvVarSyntax(server.headers, "shell");
         }
         vscodeServers[name] = entry;
       }

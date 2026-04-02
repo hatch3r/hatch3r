@@ -56,7 +56,7 @@ All adapters that support MCP emit tool-specific configuration during `npx hatch
 |------|-------------|--------|-------|
 | Cursor | `.cursor/mcp.json` | JSON (direct copy) | Also reads `mcp.json` at project root if using the Cursor plugin |
 | Claude Code | `.mcp.json` | JSON (direct copy) | Also generates `.claude/settings.json` with opinionated permissions |
-| Copilot / VS Code | `.vscode/mcp.json` | JSON with `envFile` | Adds `envFile: "${workspaceFolder}/.env.mcp"` per STDIO server for native secret loading |
+| Copilot / VS Code | `.vscode/mcp.json` | JSON with `env` object | Env vars passed via `env` object per server |
 | OpenCode | `opencode.json` | JSON (inline) | MCP servers embedded in the top-level config under `mcp` key |
 | Windsurf | `.windsurf/mcp.json` | JSON | Standard `mcpServers` format |
 | Amp | `.amp/settings.json` | JSON | MCP servers under `amp.mcpServers` key |
@@ -101,7 +101,7 @@ When you add new MCP servers and run `hatch3r init` or `hatch3r sync`, any new v
 
 ### How secrets are loaded per editor
 
-**VS Code / Copilot** -- Secrets load automatically. The generated `.vscode/mcp.json` includes `envFile: "${workspaceFolder}/.env.mcp"` on every STDIO server, so VS Code reads the file natively.
+**VS Code / Copilot** -- Env vars are passed via the `env` object in `.vscode/mcp.json`. Source `.env.mcp` before launching or configure vars in VS Code settings.
 
 **Cursor** -- Source `.env.mcp` before launching:
 
@@ -195,7 +195,7 @@ The adapter capability matrix determines which adapters emit MCP config:
 |---------|-----------|-------------|--------------|
 | Cursor | Yes | `.cursor/mcp.json` | Direct JSON copy |
 | Claude Code | Yes | `.mcp.json` | Direct JSON copy |
-| Copilot / VS Code | Yes | `.vscode/mcp.json` | Adds `envFile` field for native secret loading |
+| Copilot / VS Code | Yes | `.vscode/mcp.json` | Env vars via `env` object per server |
 | OpenCode | Yes | `opencode.json` | Embedded under `mcp` key |
 | Windsurf | Yes | `.windsurf/mcp.json` | Standard `mcpServers` format |
 | Amp | Yes | `.amp/settings.json` | Under `amp.mcpServers` key |

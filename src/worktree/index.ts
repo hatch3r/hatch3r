@@ -234,6 +234,7 @@ export function parseWorktreeInclude(content: string): WorktreeEntry[] {
 export async function setupWorktree(
   mainRoot: string,
   worktreeRoot: string,
+  options: { force?: boolean } = {},
 ): Promise<WorktreeSetupResult> {
   const result: WorktreeSetupResult = {
     copied: [],
@@ -277,7 +278,7 @@ export async function setupWorktree(
     }
 
     try {
-      // Skip if destination already exists (idempotent re-run)
+      // Skip if destination already exists (idempotent re-run), unless --force
       let destExists = false;
       try {
         await lstat(destPath);
@@ -285,9 +286,13 @@ export async function setupWorktree(
       } catch {
         // Doesn't exist — proceed
       }
-      if (destExists) {
+      if (destExists && !options.force) {
         result.skipped.push(relPath);
         continue;
+      }
+      if (destExists && options.force) {
+        // Remove existing file/symlink before overwriting
+        await unlink(destPath);
       }
 
       await mkdir(dirname(destPath), { recursive: true });

@@ -40,6 +40,7 @@ const DENY_PATTERNS: RegExp[] = [
 const ZERO_WIDTH_CHARS = /[\u200B\u200C\u200D\uFEFF\u00AD]/g;
 
 const MAX_CUSTOMIZE_MD_BYTES = 10_240;
+const MAX_PROTECTED_CUSTOMIZE_MD_BYTES = 2_048;
 
 const HOMOGLYPH_MAP: Record<string, string> = {
   // Cyrillic → Latin
@@ -56,11 +57,33 @@ const HOMOGLYPH_MAP: Record<string, string> = {
   '\u03A1': 'P', '\u03C1': 'p', '\u03A4': 'T', '\u03C4': 't',
   '\u03A5': 'Y', '\u03C5': 'y', '\u03A7': 'X', '\u03C7': 'x',
   '\u0396': 'Z', '\u03B6': 'z',
+  // Armenian → Latin
+  '\u0531': 'A', '\u0561': 'a', '\u0532': 'B', '\u0562': 'b',
+  '\u0533': 'G', '\u0563': 'g', '\u0534': 'D', '\u0564': 'd',
+  '\u0535': 'E', '\u0565': 'e', '\u0540': 'H', '\u0570': 'h',
+  '\u054B': 'J', '\u057B': 'j', '\u053D': 'X', '\u056D': 'x',
+  '\u054D': 'S', '\u057D': 's', '\u054F': 'T', '\u057F': 't',
+  '\u0555': 'O', '\u0585': 'o', '\u054C': 'L', '\u057C': 'l',
+  // Cherokee → Latin
+  '\u13A0': 'D', '\u13A1': 'R', '\u13A2': 'T', '\u13A9': 'A',
+  '\u13AB': 'H', '\u13AC': 'S', '\u13B3': 'W', '\u13B7': 'M',
+  '\u13BB': 'G', '\u13BE': 'P', '\u13C0': 'V', '\u13C2': 'B',
+  '\u13C3': 'Y', '\u13CF': 'E', '\u13D2': 'J', '\u13DA': 'K',
+  '\u13DE': 'C', '\u13DF': 'Z', '\u13A4': 'O', '\u13B1': 'I',
+  // Georgian → Latin
+  '\u10D0': 'a', '\u10D1': 'b', '\u10D2': 'g', '\u10D3': 'd',
+  '\u10D4': 'e', '\u10D8': 'i', '\u10DA': 'l', '\u10DB': 'm',
+  '\u10DC': 'n', '\u10DD': 'o', '\u10DE': 'p', '\u10E0': 'r',
+  '\u10E1': 's', '\u10E2': 't', '\u10E3': 'u', '\u10E5': 'k',
+  '\u10E8': 'x', '\u10EE': 'h',
 };
 
 function normalizeHomoglyphs(text: string): string {
-  return text
-    .replace(/[\u0370-\u03FF\u0400-\u04FF]/g, (ch) => HOMOGLYPH_MAP[ch] ?? ch)
+  // Apply NFKC normalization first to collapse fullwidth and mathematical forms
+  const nfkc = text.normalize("NFKC");
+  return nfkc
+    // Cyrillic, Greek, Armenian, Cherokee, Georgian ranges
+    .replace(/[\u0370-\u03FF\u0400-\u04FF\u0530-\u058F\u10D0-\u10FF\u13A0-\u13FF]/g, (ch) => HOMOGLYPH_MAP[ch] ?? ch)
     .replace(/[\u2000-\u200F\uFEFF]/g, ''); // Remove zero-width characters
 }
 
@@ -132,7 +155,7 @@ async function applyCustomizationImpl(
     }
   }
 
-  for (const field of ["description", "scope"] as const) {
+  for (const field of ["description", "scope", "model"] as const) {
     const value = overrides[field];
     if (value !== undefined) {
       const violations = scanForDeniedPatterns(value);
@@ -153,10 +176,11 @@ async function applyCustomizationImpl(
   if (md) {
     let sanitizedMd = md;
 
-    if (Buffer.byteLength(sanitizedMd, "utf-8") > MAX_CUSTOMIZE_MD_BYTES) {
-      warnings.push(`Customization markdown for ${file.id} exceeds ${MAX_CUSTOMIZE_MD_BYTES} bytes. Truncating to limit.`);
+    const maxBytes = file.protected ? MAX_PROTECTED_CUSTOMIZE_MD_BYTES : MAX_CUSTOMIZE_MD_BYTES;
+    if (Buffer.byteLength(sanitizedMd, "utf-8") > maxBytes) {
+      warnings.push(`Customization markdown for ${file.id} exceeds ${maxBytes} bytes. Truncating to limit.`);
       const buf = Buffer.from(sanitizedMd, "utf-8");
-      sanitizedMd = buf.subarray(0, MAX_CUSTOMIZE_MD_BYTES).toString("utf-8");
+      sanitizedMd = buf.subarray(0, maxBytes).toString("utf-8");
     }
 
     const violations = scanForDeniedPatterns(sanitizedMd);

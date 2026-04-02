@@ -5,6 +5,7 @@ description: Theming, dark mode, and color system conventions for the project
 scope: conditional
 globs: src/**/*.vue, src/**/*.tsx, src/**/*.jsx, src/**/*.css, src/**/*.scss
 tags: [implementation]
+quality_charter: agents/shared/quality-charter.md
 ---
 # Theming & Dark Mode
 

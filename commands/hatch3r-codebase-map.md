@@ -3,6 +3,7 @@ id: hatch3r-codebase-map
 type: command
 description: Reverse-engineer business and technical project specs from an existing codebase using parallel analyzer sub-agents with dual business/technical scoping
 tags: [planning, brownfield]
+quality_charter: agents/shared/quality-charter.md
 ---
 # Codebase Map — Brownfield Codebase Analysis & Spec Generation
 

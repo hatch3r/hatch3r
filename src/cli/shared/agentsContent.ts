@@ -61,17 +61,38 @@ Do not edit \`hatch3r-\` prefixed files — managed by hatch3r, overwritten on u
 New to hatch3r? Start here and expand as you go:
 
 **Day 1 — Core workflow:** Use the 4-phase pipeline above for any task. Start by invoking \`hatch3r-researcher\` for context, then \`hatch3r-implementer\` for changes.
-**Week 1 — Skills & commands:** Load skills from \`/.agents/skills/\` matching your task type. Try \`/hatch3r-feature\` or \`/hatch3r-bug-fix\` commands.
+**Week 1 — Skills & commands:** Load skills from \`/.agents/skills/\` matching your task type. Try \`/hatch3r-feature-plan\` or \`/hatch3r-bug-plan\` commands.
 **Week 2 — Board & team:** If using project management, run \`/hatch3r-board-init\` to set up your board. Use \`/hatch3r-board-pickup\` for structured delivery.
 **Ongoing — Customization:** Override agent behavior via \`.hatch3r/{type}/{id}.customize.yaml\`. Add project learnings to \`/.agents/learnings/\`.`;
+
+const GETTING_STARTED_MINIMAL = `## Getting Started (minimal preset)
+
+You are running the **minimal** content preset — only core agents and workflows are installed. This keeps token usage low and focuses on essentials.
+
+**Day 1 — Core workflow:** Use the 4-phase pipeline above for any task. Start by invoking \`hatch3r-researcher\` for context, then \`hatch3r-implementer\` for changes.
+**Expanding later:** Run \`npx hatch3r config\` to switch to the Standard or Full preset and unlock additional skills, commands, and audits.`;
 
 /**
  * Generate bridge orchestration with an inline skill dispatch table.
  * Falls back to the static BRIDGE_ORCHESTRATION if agentsDir is unavailable.
+ *
+ * @param preset - Content preset from the manifest. When "minimal", the Getting
+ *   Started section is replaced with minimal-specific messaging that sets
+ *   expectations about reduced content and explains how to expand later.
  */
-export async function generateBridgeOrchestration(agentsDir: string): Promise<string> {
+export async function generateBridgeOrchestration(agentsDir: string, preset?: string): Promise<string> {
+  let base = BRIDGE_ORCHESTRATION;
+
+  // Swap Getting Started section for minimal preset users (#99 D19)
+  if (preset === "minimal") {
+    const gsStart = base.indexOf("## Getting Started");
+    if (gsStart !== -1) {
+      base = base.slice(0, gsStart) + GETTING_STARTED_MINIMAL;
+    }
+  }
+
   const skills = await readSkillDirs(join(agentsDir, "skills"));
-  if (skills.length === 0) return BRIDGE_ORCHESTRATION;
+  if (skills.length === 0) return base;
 
   const skillTable = [
     "\n## Skill Dispatch Table\n",
@@ -85,14 +106,14 @@ export async function generateBridgeOrchestration(agentsDir: string): Promise<st
 
   // Insert skill table after the Agent Quick Reference table
   const insertPoint = "Do not edit `hatch3r-` prefixed files";
-  const idx = BRIDGE_ORCHESTRATION.indexOf(insertPoint);
-  if (idx === -1) return BRIDGE_ORCHESTRATION;
+  const idx = base.indexOf(insertPoint);
+  if (idx === -1) return base;
 
   return (
-    BRIDGE_ORCHESTRATION.slice(0, idx) +
+    base.slice(0, idx) +
     skillTable.join("\n") +
     "\n\n" +
-    BRIDGE_ORCHESTRATION.slice(idx)
+    base.slice(idx)
   );
 }
 

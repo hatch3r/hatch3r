@@ -2,6 +2,7 @@
 id: hatch3r-logical-refactor
 description: Workflow for changing behavior or logic flow without adding new features or overhauling UI. Use when modifying business logic, data flows, behavioral rules, or working on logical refactor issues.
 tags: [implementation]
+quality_charter: agents/shared/quality-charter.md
 ---
 > **Note:** Commands below use `npm` as an example. Substitute with your project's package manager (`yarn`, `pnpm`, `bun`) or build tool as appropriate.
 

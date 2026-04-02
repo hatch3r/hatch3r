@@ -4,6 +4,7 @@ type: rule
 description: Rules for managing project dependencies
 scope: "**/package.json,**/package-lock.json,**/yarn.lock,**/pnpm-lock.yaml,**/Cargo.toml,**/Cargo.lock,**/requirements*.txt,**/pyproject.toml,**/go.mod,**/go.sum,**/Gemfile*"
 tags: [maintenance]
+quality_charter: agents/shared/quality-charter.md
 ---
 # Dependency Management
 

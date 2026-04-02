@@ -65,7 +65,7 @@ All MCP secrets are centralized in `.env.mcp` at the project root.
 
 | Adapter | Secret loading method | Auto-loads `.env.mcp`? |
 |---------|----------------------|:----------------------:|
-| **copilot** | `envFile` field per STDIO server | Yes |
+| **copilot** | `env` object per server | No |
 | **cursor** | `${env:VAR}` from process env | No |
 | **claude** | `${env:VAR}` from process env | No |
 | **cline** | `${env:VAR}` from process env | No |

@@ -4,6 +4,7 @@ type: rule
 description: Adaptive pre-implementation analysis — complexity scoring, requirements elicitation, similar implementation discovery, and transitive dependency tracing before coding
 scope: always
 tags: [core]
+quality_charter: agents/shared/quality-charter.md
 ---
 # Deep Context Analysis
 

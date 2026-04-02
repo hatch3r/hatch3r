@@ -4,6 +4,7 @@ type: rule
 description: Extended orchestration reference — PipelineContext schemas, resilience protocols, observability integration, and auto-mode guardrails
 scope: conditional
 tags: [core]
+quality_charter: agents/shared/quality-charter.md
 ---
 # Agent Orchestration — Extended Reference
 
@@ -20,6 +21,14 @@ PipelineContext {
   issueRef: string | null        // Issue number or null for plain chat
   deepContextTier: 1 | 2 | 3    // From hatch3r-deep-context scoring
 
+  // Detected project type for specialist selection (Finding #56)
+  projectType?: {
+    languages: string[]          // From repo analysis (e.g., "typescript", "python", "go")
+    frameworks: string[]         // Detected frameworks (e.g., "next", "express")
+    isMonorepo: boolean
+    packageManager: string       // "npm" | "yarn" | "pnpm" | "bun" | "unknown"
+  }
+
   // Phase 1 outputs (Research)
   researchFindings: {
     modes: string[]              // Researcher modes used
@@ -31,11 +40,14 @@ PipelineContext {
     resolvedRequirements: object | null  // From requirements-elicitation
   }
 
+  // Research gap flags from mid-implementation checkpoint (Finding #52)
+  researchGaps?: string[]        // Gaps identified during Phase 2
+
   // Phase 2 outputs (Implementation)
   implementationResult: {
     filesChanged: string[]
     testsWritten: string[]
-    status: "SUCCESS" | "PARTIAL" | "FAILED"
+    status: "SUCCESS" | "PARTIAL" | "FAILED" | "SKIPPED" | "TIMEOUT"
     reason: string | null
   }
 
@@ -64,6 +76,8 @@ PipelineContext {
   totalDuration: number | null   // milliseconds
 }
 ```
+
+The TypeScript implementation of this schema with runtime validation is in `src/pipeline/pipelineContext.ts`. Use `validatePhaseTransition()` to verify context completeness before advancing between phases.
 
 ## Resilience and Failure Handling
 

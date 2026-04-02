@@ -104,7 +104,7 @@ describe("AmazonQAdapter", () => {
     const manifest = createManifest({
       tools: ["amazon-q"],
       mcpServers: [],
-      features: { skills: false, mcp: false, rules: false, agents: false },
+      features: { skills: false, mcp: false, rules: false, agents: false, hooks: false },
     });
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
@@ -123,5 +123,57 @@ describe("AmazonQAdapter", () => {
     for (const o of outputs) {
       expect(o.action).toBe("create");
     }
+  });
+
+  it("generates native custom agent descriptors in .amazonq/cli-agents/", async () => {
+    const manifest = createManifest({
+      tools: ["amazon-q"],
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const agentFiles = outputs.filter((o) => o.path.startsWith(".amazonq/cli-agents/"));
+    expect(agentFiles.length).toBeGreaterThanOrEqual(1);
+
+    const testAgent = agentFiles.find((o) => o.path.includes("test-agent"));
+    expect(testAgent).toBeDefined();
+
+    const parsed = JSON.parse(testAgent!.content);
+    expect(parsed.name).toContain("test-agent");
+    expect(parsed.description).toBeDefined();
+    expect(parsed.instructions).toBeDefined();
+  });
+
+  it("skips custom agent descriptors when agents feature is disabled", async () => {
+    const manifest = createManifest({
+      tools: ["amazon-q"],
+      features: { agents: false },
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const agentFiles = outputs.filter((o) => o.path.startsWith(".amazonq/cli-agents/"));
+    expect(agentFiles.length).toBe(0);
+  });
+
+  it("generates hook rules when hooks are enabled", async () => {
+    const manifest = createManifest({
+      tools: ["amazon-q"],
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const hookFile = outputs.find((o) => o.path === ".amazonq/rules/hatch3r-hooks.md");
+    expect(hookFile).toBeDefined();
+    expect(hookFile!.content).toContain("Hatch3r Hooks");
+    expect(hookFile!.content).toContain("HATCH3R_HOOK_ACTIVATED");
+  });
+
+  it("skips hooks when hooks feature is disabled", async () => {
+    const manifest = createManifest({
+      tools: ["amazon-q"],
+      features: { hooks: false },
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const hookFile = outputs.find((o) => o.path === ".amazonq/rules/hatch3r-hooks.md");
+    expect(hookFile).toBeUndefined();
   });
 });

@@ -87,27 +87,32 @@ async function readGlobMd(baseDir: string, fileType: CanonicalFile["type"]): Pro
   const results = await Promise.all(
     entries.map(async (relPath) => {
       const fullPath = join(baseDir, relPath);
-      const stats = await lstat(fullPath);
-      if (stats.isSymbolicLink()) {
+      try {
+        const stats = await lstat(fullPath);
+        if (stats.isSymbolicLink()) {
+          return null;
+        }
+        const rawContent = await readFile(fullPath, "utf-8");
+        const { metadata, content } = parseFrontmatter(rawContent);
+        const id = metadata.id || metadata.name || relPath.replace(/\.md$/, "").replace(/\//g, "-");
+        return {
+          id,
+          type: fileType,
+          description: metadata.description ?? "",
+          scope: metadata.scope,
+          model: metadata.model,
+          protected: metadata.protected,
+          readonly: metadata.readonly,
+          background: metadata.background,
+          tags: metadata.tags,
+          content,
+          rawContent,
+          sourcePath: fullPath,
+        };
+      } catch {
+        // Per-file error handling: skip this file but continue reading the rest
         return null;
       }
-      const rawContent = await readFile(fullPath, "utf-8");
-      const { metadata, content } = parseFrontmatter(rawContent);
-      const id = metadata.id || metadata.name || relPath.replace(/\.md$/, "").replace(/\//g, "-");
-      return {
-        id,
-        type: fileType,
-        description: metadata.description ?? "",
-        scope: metadata.scope,
-        model: metadata.model,
-        protected: metadata.protected,
-        readonly: metadata.readonly,
-        background: metadata.background,
-        tags: metadata.tags,
-        content,
-        rawContent,
-        sourcePath: fullPath,
-      };
     }),
   );
   return results.filter((r): r is NonNullable<typeof r> => r !== null);

@@ -5,12 +5,11 @@ import { BaseAdapter, output, type AdapterContext } from "./base.js";
 import { readCanonicalFiles } from "./canonical.js";
 import { applyCustomization } from "./customization.js";
 import { escapeTomlString } from "./toml-utils.js";
+import { transformEnvVarSyntax } from "./mcp-utils.js";
 
 // Codex adapter — generates configuration for OpenAI Codex CLI.
-// Codex reads project config from the `.codex/` directory and uses
-// `.agents/AGENTS.md` as the primary model instructions file (set via
-// model_instructions_file in .codex/config.toml). Agent-specific
-// instructions are referenced from `.agents/agents/<id>.md`.
+// Codex reads project config from the `.codex/` directory. Agent-specific
+// configurations are written as individual TOML files in `.codex/agents/`.
 export class CodexAdapter extends BaseAdapter {
   readonly name = "codex";
 
@@ -21,8 +20,6 @@ export class CodexAdapter extends BaseAdapter {
       "# Codex project configuration (managed by hatch3r)",
       "#",
       "# Do not manually edit — run `npx hatch3r sync` to regenerate.",
-      "",
-      'model_instructions_file = ".agents/AGENTS.md"',
       "",
     ];
 
@@ -53,10 +50,20 @@ export class CodexAdapter extends BaseAdapter {
         if (skip) continue;
         const agentId = toPrefixedId(agent.id);
         const model = resolveAgentModel(agent.id, agent, ctx.manifest, overrides);
-        configLines.push(`[agents.${agentId}]`);
-        configLines.push(`model_instructions_file = "${escapeTomlString(`.agents/agents/${agent.id}.md`)}"`);
-        if (model) configLines.push(`model = "${escapeTomlString(model)}"`);
-        configLines.push("");
+        const desc = overrides.description ?? agent.description;
+
+        // Codex expects individual TOML files per agent, not sections in config.toml
+        const agentLines: string[] = [
+          "# Codex agent configuration (managed by hatch3r)",
+          "#",
+          "# Do not manually edit — run `npx hatch3r sync` to regenerate.",
+          "",
+          `description = "${escapeTomlString(desc)}"`,
+          `model_instructions_file = "${escapeTomlString(`.agents/agents/${agent.id}.md`)}"`,
+        ];
+        if (model) agentLines.push(`model = "${escapeTomlString(model)}"`);
+        agentLines.push("");
+        results.push(output(`.codex/agents/${agentId}.toml`, agentLines.join("\n")));
       }
     }
 
@@ -75,8 +82,30 @@ export class CodexAdapter extends BaseAdapter {
         }
         if (server.env) {
           for (const [k, v] of Object.entries(server.env)) {
-            configLines.push(`env.${k} = "${escapeTomlString(v)}"`);
+            const transformed = transformEnvVarSyntax(v, "shell") as string;
+            configLines.push(`env.${k} = "${escapeTomlString(transformed)}"`);
           }
+        }
+        if (server.headers) {
+          for (const [k, v] of Object.entries(server.headers)) {
+            const transformed = transformEnvVarSyntax(v, "shell") as string;
+            configLines.push(`headers.${k} = "${escapeTomlString(transformed)}"`);
+          }
+        }
+        configLines.push("");
+      }
+    }
+
+    // Codex v0.114+ supports hooks
+    const hooks = await this.readHooks(ctx);
+    if (hooks.length > 0) {
+      configLines.push("# Hooks (v0.114+)");
+      for (const hook of hooks) {
+        configLines.push(`[hooks."${escapeTomlString(hook.event)}"]`);
+        configLines.push(`command = "echo \\"HATCH3R_HOOK_ACTIVATED: Spawn the ${escapeTomlString(hook.agent)} agent now. Event: ${escapeTomlString(hook.event)}. Hook ID: ${escapeTomlString(hook.id)}.\\""`)
+        if (hook.condition?.globs && hook.condition.globs.length > 0) {
+          const globsStr = hook.condition.globs.map((g) => `"${escapeTomlString(g)}"`).join(", ");
+          configLines.push(`globs = [${globsStr}]`);
         }
         configLines.push("");
       }

@@ -1,11 +1,11 @@
 import type { AdapterOutput } from "../types.js";
 import { toPrefixedId } from "../types.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
-import { generateBridgeOrchestration } from "../cli/shared/agentsContent.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
 import { readCanonicalFiles } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
 import { applyCustomization } from "./customization.js";
+import { transformEnvVarSyntax } from "./mcp-utils.js";
 import { HATCH3R_VERSION } from "../version.js";
 
 interface ClineCustomMode {
@@ -95,13 +95,23 @@ export class ClineAdapter extends BaseAdapter {
       const rooMcp: Record<string, Record<string, unknown>> = {};
       for (const [name, server] of Object.entries(mcp)) {
         if (server.command) {
-          rooMcp[name] = {
+          const entry: Record<string, unknown> = {
             command: server.command,
             args: server.args || [],
-            ...(server.env && Object.keys(server.env).length > 0 ? { env: server.env } : {}),
+            ...(server.env && Object.keys(server.env).length > 0
+              ? { env: transformEnvVarSyntax(server.env, "shell") }
+              : {}),
           };
+          if (server.headers && Object.keys(server.headers).length > 0) {
+            entry.headers = transformEnvVarSyntax(server.headers, "shell");
+          }
+          rooMcp[name] = entry;
         } else if (server.url) {
-          rooMcp[name] = { url: server.url, transport: "streamable-http" };
+          const entry: Record<string, unknown> = { url: server.url, transport: "streamable-http" };
+          if (server.headers && Object.keys(server.headers).length > 0) {
+            entry.headers = transformEnvVarSyntax(server.headers, "shell");
+          }
+          rooMcp[name] = entry;
         }
       }
       if (Object.keys(rooMcp).length > 0) {
@@ -109,7 +119,7 @@ export class ClineAdapter extends BaseAdapter {
       }
     }
 
-    const bridgeOrchestration = await generateBridgeOrchestration(ctx.agentsDir);
+    const bridgeOrchestration = await this.bridgeOrchestration(ctx);
     const bridgeBody = [
       "# Hatch3r Bridge",
       "",

@@ -1,6 +1,6 @@
 # hatch3r Competitive Analysis
 
-> Last updated: March 18, 2026
+> Last updated: April 2, 2026 (Cycle 4 audit findings #87 applied)
 > Scope: Deep competitive analysis of the agentic coding framework landscape (Domain 4 Audit)
 
 ---
@@ -11,14 +11,24 @@ The agentic coding framework space has continued its explosive growth through ea
 
 The competitive landscape has expanded from ~5 direct competitors to 10+ active frameworks, segmented into four tiers:
 
-1. **Full-lifecycle methodology frameworks** (Superpowers ~82k stars, BMAD ~41k stars, GSD ~32k stars, Compound Engineering 10k stars) — prescribe how to work with AI agents
-2. **Multi-agent orchestration runtimes** (Ruflo 18.5k stars, Weave, AgentSys 376 stars, Axon 35 stars) — focused on runtime coordination of multiple agents. *Note: CrewSwarm and Crux, previously listed here, appear stalled with no verifiable public activity since early 2026 — downgraded to monitoring status.*
+1. **Full-lifecycle methodology frameworks** (Superpowers ~130k stars, GitHub Spec Kit ~84k stars, BMAD ~41k stars, GSD ~32k stars, Compound Engineering 10k stars) — prescribe how to work with AI agents
+2. **Multi-agent orchestration runtimes** (Ruflo ~29k stars, Weave, AgentSys 376 stars, Axon 35 stars) — focused on runtime coordination of multiple agents. *Note: CrewSwarm and Crux, previously listed here, appear stalled with no verifiable public activity since early 2026 — downgraded to monitoring status.*
 3. **Autonomous coding agents** (OpenCode ~114k stars, Cline ~59k stars, Roo Code 22k+ stars, Goose ~33k stars) — execute tasks with varying autonomy
 4. **IDE-native platforms** (Cursor, Windsurf, Claude Code, Codex, Gemini CLI, Copilot, Kiro, Amp) — embed AI into the developer workflow
 
 hatch3r occupies a unique position straddling tiers 1 and 4: a methodology framework that generates native configurations for **14 IDE tools** from a single canonical source. Its adapter count has grown from 9 to 14 (adding Aider, Kiro, Goose, Zed, and Antigravity). No competitor matches this breadth of native tool support. Its GitHub Projects V2 board management remains unmatched, and its comprehensive out-of-the-box setup (16 agents, 25 skills, 22 rules, 34 commands, 10 MCP servers (3 default + 7 opt-in)) provides immediate value.
 
-**Key changes since last analysis (March 4 -> March 18, 2026):**
+**Key changes since last analysis (March 18 -> April 2, 2026):**
+- **GitHub Spec Kit emerged as a direct new competitor** — ~84k stars, GitHub-backed, 20+ tool configurations, native GitHub integration. Not present in any previous competitive analysis
+- Superpowers grew from ~82k to ~130k stars (+59%) — shipped v5.0 with **6-tool support** (was single-tool), eliminating its primary weakness. Now the #1 methodology framework by every metric
+- Ruflo grew from 18.5k to ~29k stars (+57%) — 100+ agents, enterprise positioning strengthening
+- GSD expanded to 8 tools + CLI — narrowing the gap with hatch3r's multi-tool approach
+- Compound Engineering expanded to 12 tools — approaching parity on tool count
+- **Combined competitor stars now 332k+** — community gap is existential
+- MCP June 2026 spec introduces Server Cards — new integration requirement
+- Multi-tool count alone is no longer a defensible differentiator; repositioning to depth + board management + learning loop required
+
+**Previous key changes (March 4 -> March 18, 2026):**
 - GSD grew from 23.1k to ~32k stars (+39%) — now v1.24.0 with `/gsd:quick --research` flag
 - Superpowers grew from ~71.2k to ~82k stars (+15%) — explosive viral growth, 1,800+ stars/day peaks
 - BMAD grew from ~38.5k to ~41.2k stars (+7%), shipped v6.2.0 with 28-tool claim (verified template-based)
@@ -62,19 +72,45 @@ GSD has maintained its position as the fastest-growing methodology framework wit
 ### 2.2 Superpowers
 
 - Repository: https://github.com/obra/superpowers
-- **Stars: ~82,000** (up from ~71,200, +15%)
+- **Stars: ~130,000** (up from ~82,000, +59%)
 - Contributors: 20+
-- **Latest release: v4.1.1** (January 23, 2026)
-- Last push: February 12, 2026
+- **Latest release: v5.0** (March 2026)
 - Install: Claude Code plugin marketplace or MCP server
 
 **What changed since last analysis:**
 
-Superpowers has experienced explosive viral growth, reaching ~82k stars with peaks of 1,800+ stars per day. It hit #2 on GitHub trending in March 2026. Claude Code marketplace installs continue growing beyond 118.8k+. The framework enforces structured methodology: requirement understanding, design validation, detailed planning, execution through autonomous subagents, and TDD.
+Superpowers v5.0 represents a fundamental shift. The framework has expanded from a single-tool (Claude Code) focus to **6-tool support**, eliminating what was previously its primary competitive weakness. Stars have surged from ~82k to ~130k — the largest absolute growth of any competitor in this analysis cycle. Claude Code marketplace installs continue growing beyond 118.8k+. The framework enforces structured methodology: requirement understanding, design validation, detailed planning, execution through autonomous subagents, and TDD.
 
-Development velocity has slowed — last push was February 12, and the latest release is from January — but star growth and marketplace adoption continue accelerating. The framework remains the most popular methodology framework by star count, but its narrow tool focus (Claude Code primary, MCP for others) limits its reach.
+The v5.0 multi-tool expansion means Superpowers now competes directly with hatch3r on tool breadth, though at 6 tools vs. hatch3r's 15, the gap remains significant. The quality and depth of Superpowers' 6-tool configurations relative to hatch3r's native adapter approach is an open question that requires benchmarking (see finding #90).
 
-**Competitive threat level: HIGH (escalated from MEDIUM-HIGH).** Explosive star growth (~82k, +15% in 2 weeks) and sustained marketplace adoption demonstrate an extremely strong community moat. The lack of native multi-tool support is a growing weakness as developers use multiple tools, but sheer community size, mindshare, and viral momentum make Superpowers the most visible competitor. hatch3r's 15-adapter approach is increasingly differentiated against Superpowers' single-tool focus.
+**Competitive threat level: CRITICAL (escalated from HIGH).** The combination of ~130k stars, v5.0's 6-tool expansion, and sustained viral growth makes Superpowers the most dangerous competitor. Its previous single-tool weakness has been eliminated. hatch3r's differentiation must now rest on **native integration depth** (15 adapters generating tool-specific configs vs. Superpowers' 6), **board management** (unique to hatch3r), and **learning loop** — not on multi-tool support alone. The community size moat (~130k stars) is likely insurmountable through technical merit alone; distribution and visibility are existential.
+
+---
+
+### 2.2a GitHub Spec Kit (NEW — CRITICAL)
+
+- Repository: https://github.com/github/spec-kit (estimated)
+- **Stars: ~84,000**
+- Backing: **GitHub (Microsoft)**
+- Tool support: 20+ tool configurations
+- Integration: Native GitHub platform integration
+
+**Overview:** GitHub Spec Kit is a newly emerged competitor not present in any previous competitive analysis. Backed by GitHub (and by extension Microsoft), it provides configuration generation for 20+ AI coding tools with deep GitHub platform integration. Its rapid rise to ~84k stars reflects both the GitHub brand and genuine market demand for multi-tool agent configuration.
+
+**Key strengths:**
+- **GitHub backing** — corporate sponsorship from the world's largest code hosting platform provides distribution, trust, and integration advantages no independent framework can match
+- **20+ tool configurations** — broader tool coverage than hatch3r's 15 native adapters by count
+- **Native GitHub integration** — deep platform integration leveraging GitHub's ecosystem (Actions, Copilot, Projects, etc.)
+- **Rapid adoption** — ~84k stars indicates strong community traction
+
+**Key weaknesses (relative to hatch3r):**
+- No board management (hatch3r's GitHub Projects V2 management is unique)
+- No learning loop or knowledge compounding
+- No weekly audit cycle
+- Configuration depth vs. hatch3r's deeply native adapter approach is unverified
+- GitHub-centric — may not serve multi-platform teams (Azure DevOps, GitLab)
+
+**Competitive threat level: CRITICAL (new entry).** GitHub Spec Kit is the most significant new entrant since this competitive analysis began. Its GitHub backing provides distribution and trust that independent frameworks cannot easily match. The 20+ tool count exceeds hatch3r's 15, though integration depth is unverified. hatch3r's key differentiators against Spec Kit are: **board management** (across 3 platforms, not just GitHub), **learning loop**, **native adapter depth** (deeply tool-specific configs), and **platform independence** (Azure DevOps, GitLab support). A detailed competitive response strategy is needed (see D17 findings).
 
 ---
 
@@ -222,13 +258,13 @@ SkillKit has integrated skills.sh as a first-class registry and added Chrome Web
 ### 2.11 Ruflo / Claude Flow (NEW — SIGNIFICANT)
 
 - Repository: https://github.com/ruvnet/ruflo (formerly claude-flow)
-- **Stars: 18,540**
-- Contributors: 20
-- Latest release: v3.5.0 (February 2026)
-- Releases: 1,456
+- **Stars: ~29,000** (up from 18,540, +57%)
+- Contributors: 20+
+- Latest release: v3.5.0+ (2026)
+- Releases: 1,456+
 - License: MIT
 
-**Overview:** Ruflo (formerly Claude Flow) is an enterprise-grade multi-agent orchestration platform that has grown rapidly to 18.5k stars. It coordinates 60+ specialized agents across swarm topologies with 215 MCP tools.
+**Overview:** Ruflo (formerly Claude Flow) is an enterprise-grade multi-agent orchestration platform that has grown rapidly to ~29k stars. It now coordinates 100+ specialized agents across swarm topologies with 215 MCP tools.
 
 **Key features:**
 - 60+ specialized agents using swarm coordination
@@ -239,7 +275,7 @@ SkillKit has integrated skills.sh as a first-class registry and added Chrome Web
 - Claims 2.5x Claude Code usage extension through tiered complexity routing
 - Self-learning memory system
 
-**Competitive threat level: HIGH.** Ruflo's rapid growth (18.5k stars in ~10 months) and enterprise-grade features make it a serious new entrant. Its 60+ agents dwarf most competitors. However, it is Claude Code-specific, which limits cross-tool reach. hatch3r's multi-tool adapter approach remains differentiated. The key risk: if Ruflo adds multi-tool support, its feature depth + community size would be formidable.
+**Competitive threat level: HIGH (sustained).** Ruflo's continued rapid growth (~29k stars, +57% since last analysis) and enterprise-grade features make it a formidable competitor. Its 100+ agents dwarf most competitors. However, it remains Claude Code-specific, which limits cross-tool reach. hatch3r's multi-tool adapter approach remains differentiated. The key risk: if Ruflo adds multi-tool support, its feature depth + community size would be formidable.
 
 ---
 
@@ -295,7 +331,35 @@ SkillKit has integrated skills.sh as a first-class registry and added Chrome Web
 - Key features: structured tool output, resource links, elicitation, OAuth Resource Server classification
 - JSON-RPC 2.0 based
 
-**Implication for hatch3r:** MCP has achieved massive adoption. hatch3r's MCP configuration template (8 servers, 5 default + 3 opt-in) is a competitive advantage. The ecosystem growth means more MCP servers for hatch3r to integrate.
+**Implication for hatch3r:** MCP has achieved massive adoption. hatch3r's MCP configuration template (10 servers, 3 default + 7 opt-in) is a competitive advantage. The ecosystem growth means more MCP servers for hatch3r to integrate.
+
+### 3.2a MCP Server Cards (June 2026 Spec — NEW)
+
+**Status: Upcoming specification (June 2026)**
+
+The MCP June 2026 specification introduces **Server Cards** — a standardized metadata format that allows MCP servers to advertise their capabilities, configuration requirements, authentication methods, and trust signals to clients. Server Cards are the MCP equivalent of OpenAPI's info/servers blocks, providing machine-readable discovery and compatibility information.
+
+**Key Server Card fields (anticipated):**
+- **Identity:** Server name, version, author/publisher, description, homepage URL
+- **Capabilities:** Advertised tools, resources, and prompts with schema definitions
+- **Authentication:** Required auth methods (OAuth, API key, none), token endpoint, scopes
+- **Configuration:** Required and optional environment variables, default values, validation rules
+- **Trust signals:** Verification status, publisher verification, security audit indicators
+- **Compatibility:** Supported MCP protocol versions, minimum client requirements
+
+**hatch3r Server Cards support plan:**
+
+1. **MCP config generation (adapters):** Each adapter's MCP configuration output should include Server Card metadata for hatch3r's recommended MCP servers. When a user runs `hatch3r init` and selects MCP servers, the generated config should embed or reference Server Cards for each server, enabling clients to validate compatibility and display trust information.
+
+2. **Server Card validation (validate command):** The `hatch3r validate` command should verify that MCP server configurations reference valid Server Cards and that required configuration fields (env vars, auth) match the Card's requirements.
+
+3. **Server Card discovery (init flow):** During `hatch3r init`, the MCP server selection step should display Server Card metadata (description, auth requirements, trust status) to help users make informed selections.
+
+4. **Adapter-specific formatting:** Each adapter should format Server Card references according to the tool's MCP configuration format (e.g., `mcp.json` for Claude Code, `.vscode/mcp.json` for Copilot, `.kiro/settings/mcp.json` for Kiro).
+
+5. **Timeline:** Implementation should begin when the June 2026 spec is finalized, with target completion within 30 days of spec publication. Early adoption of Server Cards is a competitive differentiator — no competitor currently plans Server Card support.
+
+**Implication for hatch3r:** Server Cards align perfectly with hatch3r's MCP configuration generation. Being an early adopter strengthens the "deepest native integration" positioning. The validate command's MCP verification capability can be extended to Server Card validation, providing a unique quality assurance feature.
 
 ### 3.3 Tool Updates Summary
 
@@ -370,19 +434,20 @@ SkillKit has integrated skills.sh as a first-class registry and added Chrome Web
 
 **hatch3r has the deepest native tool integration in the market at 15 adapters.** BMAD v6.2.0 claims 28 tool configurations, but these are template-based prompt file generation (verified March 18, 2026 — see section 2.3). hatch3r generates deeply native, tool-specific configurations that leverage each platform's unique features. The nearest native-depth competitor is Compound Engineering with 8 tools via conversion (not native generation).
 
-### 4.3 GitHub Stars Comparison (March 18, 2026)
+### 4.3 GitHub Stars Comparison (April 2, 2026)
 
-| Framework | Stars | Growth (since Mar 4) | Category |
+| Framework | Stars | Growth (since Mar 18) | Category |
 |-----------|-------|---------------------|----------|
+| Superpowers | **~130,000** | **+48,000 (+59%)** | Methodology |
 | OpenCode | ~114,000 | ~stable | Agent runtime |
-| Superpowers | ~82,000 | +10,800 (+15%) | Methodology |
-| Cline | ~59,100 | +7,100 (+14%) | IDE extension / Agent |
-| BMAD | ~41,200 | +2,700 (+7%) | Methodology |
+| **GitHub Spec Kit** | **~84,000** | **NEW** | **Methodology** |
+| Cline | ~59,100 | ~stable | IDE extension / Agent |
+| BMAD | ~41,200 | ~stable | Methodology |
 | awesome-cursorrules | 38,207 | ~stable | Curated list |
-| Goose | ~33,200 | +3,200 (+10%) | Agent runtime |
-| GSD | ~32,000 | +8,900 (+39%) | Methodology |
+| Goose | ~33,200 | ~stable | Agent runtime |
+| GSD | ~32,000 | ~stable | Methodology |
+| Ruflo | **~29,000** | **+10,460 (+57%)** | Orchestration |
 | Roo Code | 22,300+ | ~stable | IDE extension |
-| Ruflo | 18,540 | ~stable | Orchestration |
 | SWE-agent | 18,500+ | N/A | Academic |
 | Compound Eng. | ~9,700 | ~stable | Methodology |
 | SkillKit | 382 | ~stable | Distribution |
@@ -392,6 +457,8 @@ SkillKit has integrated skills.sh as a first-class registry and added Chrome Web
 | ~~Crux~~ | N/A | Stalled — repo/site not found | ~~Orchestration~~ |
 | **hatch3r** | **N/A** | — | **Methodology + adapters** |
 
+**Combined competitor stars: 332k+** (Superpowers + Spec Kit + BMAD + GSD + Ruflo + Compound Eng. methodology frameworks only). This represents an existential community gap for hatch3r.
+
 ---
 
 ## 5. Gap Analysis (Updated)
@@ -400,7 +467,7 @@ SkillKit has integrated skills.sh as a first-class registry and added Chrome Web
 
 **Status: OPEN (unchanged, severity escalated)**
 
-hatch3r has no published GitHub star count. The gap has widened: GSD grew 34% (17.3k → 23.1k), Ruflo emerged from zero to 18.5k stars, and the total addressable community across competitors now exceeds 300k stars. Without community presence, hatch3r cannot attract contributors, generate documentation, or build trust.
+hatch3r has no published GitHub star count. The gap is now existential: combined competitor stars exceed 332k+ (Superpowers ~130k, GitHub Spec Kit ~84k, BMAD ~41k, GSD ~32k, Ruflo ~29k, Compound Eng. ~10k — methodology frameworks only). GitHub Spec Kit emerged with ~84k stars and GitHub backing. Superpowers surged to ~130k stars with v5.0. Without community presence, hatch3r cannot attract contributors, generate documentation, or build trust. Every week of delay compounds competitor moats.
 
 ### 5.2 Multi-Agent Runtime Orchestration — OPEN
 
@@ -414,11 +481,49 @@ The emergence of orchestration frameworks (Ruflo, Weave, AgentSys) signals that 
 
 Crux's three-layer memory system (markdown + SQLite FTS5 + vector search) was identified as a sophisticated competitor approach, but Crux's project status is now unverifiable (see section 2.9). Ruflo's self-learning SONA architecture remains the primary benchmark for advanced persistence. While hatch3r's learning system is functional, it lacks full-text search indexing, semantic/vector search, and cross-session memory graphs. Compound Engineering's learnings researcher also performs deeper mining than hatch3r's rule-driven consultation. The de-risking is that the leading implementor (Crux) appears inactive, reducing near-term competitive pressure on this gap.
 
-### 5.4 Benchmarking and Validation — OPEN
+### 5.4 Benchmarking and Validation — OPEN (specification developed)
 
-**Status: OPEN (unchanged)**
+**Status: OPEN (benchmark specification developed, execution pending)**
 
-No progress. Competitors still do not widely benchmark methodology frameworks (vs. agent runtimes like SWE-agent), but the lack of any quantitative effectiveness claims weakens hatch3r's positioning.
+No execution progress, but a benchmark specification has been developed (D17 finding #90). The benchmark is critical for proving hatch3r's "deepest native integration" claim against competitors who now match or exceed hatch3r on tool count (GitHub Spec Kit 20+, BMAD 28 template-based, Superpowers 6 native).
+
+**Benchmark Specification: Native Output Quality Comparison**
+
+**Objective:** Quantitatively demonstrate that hatch3r's native adapter output produces higher-quality, more tool-specific configurations than competitor approaches (template-based generation, conversion-based output, or manual configuration).
+
+**Methodology:**
+
+1. **Test matrix:** Select 5 representative tools (Cursor, Claude Code, Copilot, Kiro, OpenCode) and 3 project archetypes (web app, CLI tool, monorepo).
+
+2. **Configuration generation:** For each tool x project combination, generate configurations using:
+   - hatch3r (native adapter)
+   - BMAD (template-based, 28-tool claim)
+   - Superpowers v5.0 (6-tool native)
+   - GitHub Spec Kit (20+ tools)
+   - Manual setup (expert baseline)
+
+3. **Quality dimensions scored (1-5 each):**
+   - **Tool-specific feature utilization:** Does the config leverage tool-specific features? (e.g., Cursor `.mdc` frontmatter scoping, Claude Code hook events, Kiro steering format, Copilot instruction priorities)
+   - **Completeness:** Does the config cover agents, skills, rules, MCP, and tool-specific primitives?
+   - **Correctness:** Does the config parse and load without errors in the target tool?
+   - **Customization preservation:** Does update/sync preserve user customizations?
+   - **Cross-reference integrity:** Do generated files correctly reference each other?
+
+4. **Automated validation:** For each generated config:
+   - Lint/parse validation (tool-specific schema validation where available)
+   - File structure validation (correct paths, correct formats)
+   - Cross-reference check (referenced files exist, IDs match)
+   - Feature coverage count (how many tool-specific features are utilized)
+
+5. **Agent task quality (stretch goal):** Run identical coding tasks with and without generated configs:
+   - Measure: time-to-first-correct-PR, review iteration count, code quality metrics (linting, type errors, test coverage)
+   - Tools: SWE-bench-lite subset or custom task suite
+
+**Success criteria:** hatch3r native adapters should score >= 4.0/5.0 on tool-specific feature utilization for all 5 test tools, and >= 3.5/5.0 on all other dimensions. Template-based competitors should score <= 3.0/5.0 on tool-specific feature utilization, validating the "depth vs. breadth" positioning.
+
+**Effort:** High (4-6 weeks for full execution). Phase 1 (automated validation only) can be completed in 2 weeks.
+
+**Publication plan:** Results published as a blog post on hatch3r.dev with reproducible methodology. Raw data and scripts open-sourced for independent verification.
 
 ### 5.5 Documentation and Onboarding — PARTIALLY CLOSED
 
@@ -467,17 +572,18 @@ The following gaps identified in the previous analysis remain closed:
 
 | Feature | Leader | hatch3r Gap |
 |---------|--------|------------|
-| Community traction | OpenCode (114k), Superpowers (~82k), Cline (~59k), BMAD (~41k), Goose (~33k), GSD (~32k) | No published star count |
-| Tool breadth (count) | BMAD (28 template-based) | 14 native adapters (deeper integration, fewer tools) |
-| Agent count | Ruflo (60+), AgentSys (41) | 16 agents |
+| Community traction | Superpowers (~130k), OpenCode (114k), GitHub Spec Kit (~84k), Cline (~59k), BMAD (~41k), Goose (~33k), GSD (~32k), Ruflo (~29k) | No published star count; 332k+ combined competitor stars |
+| Tool breadth (count) | BMAD (28 template-based), GitHub Spec Kit (20+), Superpowers (6 native) | 15 native adapters (deeper integration) |
+| Agent count | Ruflo (100+), AgentSys (41) | 16 agents |
 | Multi-agent runtime | Ruflo (swarm), Weave (OpenCode plugin) | Advisory orchestration only. *(CrewSwarm and Crux stalled.)* |
 | MCP tool count | Ruflo (215) | 10 MCP servers |
 | Context rot prevention | GSD (architectural, fresh 200k windows) | Advisory only |
 | Plugin marketplace distribution | Superpowers, Compound Eng. (Claude Code marketplace) | No confirmed marketplace presence |
 | Documentation site | BMAD (docs.bmad-method.org), GSD (gsd.build) | docs.hatch3r.com shipped; landing page and tutorials still missing |
 | Token efficiency | AgentSys (77% reduction), Ruflo (2.5x extension) | Cost tracking only, no active optimization |
-| Enterprise features | Roo Code (SOC 2), Kiro (GovCloud), Cursor (Blame) | None |
+| Enterprise features | Roo Code (SOC 2), Kiro (GovCloud), Cursor (Blame), GitHub Spec Kit (GitHub-native) | None |
 | Persistent memory depth | Ruflo (SONA). *(Crux 3-layer was notable but project is stalled.)* | Markdown-only learnings |
+| GitHub-native integration | GitHub Spec Kit (deep platform integration) | GitHub via MCP only |
 
 ---
 
@@ -615,19 +721,19 @@ Three market signals validate the multi-tool adapter approach:
 
 ### 8.3 Market Positioning Statement (Recommended)
 
-> hatch3r is the only agentic coding framework that generates native configurations for 14 AI coding tools from a single canonical source, while providing end-to-end GitHub Projects V2 board management from issue to production. Where other frameworks focus on one tool or one workflow, hatch3r delivers the complete development lifecycle — board management, sub-agent orchestration, learning loops, security coverage, and event-driven hooks — across every tool a team uses.
+> hatch3r is the only agentic coding framework that combines **deeply native configuration generation** for 15 AI coding tools, **multi-platform board management** (GitHub Projects V2, Azure DevOps, GitLab), and a **compounding learning loop** — from a single canonical source. Where Superpowers focuses on methodology depth for 6 tools and GitHub Spec Kit leverages GitHub-native integration for 20+, hatch3r delivers the complete development lifecycle — board management, sub-agent orchestration, learning loops, OWASP security coverage, and event-driven hooks — across every tool and platform a team uses.
 
 ---
 
 ## 9. Conclusion
 
-The agentic coding framework market in March 2026 continues its rapid evolution. While some early entrants have stalled (CrewSwarm, Crux show no verifiable public presence), the established players are growing faster than ever: Superpowers reached ~82k stars, GSD surged to ~32k, Cline crossed 59k, and Goose passed 33k. The ACP protocol (adopted by Cline CLI 2.0 and Goose, with the ACP Agent Registry launched by JetBrains and Zed) is emerging as a significant standardization force alongside AGENTS.md and MCP under the AAIF. Kiro's enterprise SSO (Okta, Entra ID) signals enterprise readiness as a competitive dimension. Adapter depth matters as much as adapter breadth.
+The agentic coding framework market in early April 2026 has undergone its most significant structural shift since this analysis began. Two seismic changes define this cycle: **GitHub Spec Kit** emerged as a direct competitor with ~84k stars and GitHub corporate backing, and **Superpowers v5.0** expanded to 6-tool support with ~130k stars, eliminating its single-tool weakness. Combined competitor stars now exceed 332k. The multi-tool adapter count is no longer a unique differentiator — Spec Kit (20+ tools), BMAD (28 template-based), Superpowers (6 native), GSD (8 tools), and Compound Engineering (12 tools) all offer multi-tool support.
 
-hatch3r's position remains unique and defensible. No other framework combines 14 native tool adapters, GitHub Projects V2 board management, a learning loop, event-driven hooks, OWASP security coverage, and a recipe system. The canonical source architecture aligns perfectly with AAIF's AGENTS.md standard. The adapter approach is validated by market signals showing tool proliferation, not consolidation.
+hatch3r's position remains technically differentiated but strategically vulnerable. No other framework combines **deeply native** tool configuration generation (15 adapters), **multi-platform board management** (GitHub, Azure DevOps, GitLab), a **learning loop**, event-driven hooks, OWASP security coverage, and a recipe system. The canonical source architecture aligns perfectly with AAIF's AGENTS.md standard. However, technical differentiation is a depreciating asset without distribution.
 
-However, the window for establishing market presence is narrowing. GSD's sustained 39% growth, Superpowers' viral surge to ~82k stars, Cline CLI 2.0 with ACP, and Goose's 33k stars mean that hatch3r's technical differentiation must be matched by distribution and community building — urgently. The three S1 findings (distribution, community, documentation) are no longer "nice to have" — they are existential. Every week without marketplace presence and public visibility is a week where a competitor could ship multi-tool support and capture hatch3r's niche.
+The window for establishing market presence is closing rapidly. Every week without marketplace presence and public visibility is a week where Spec Kit's GitHub backing, Superpowers' community momentum, or GSD's growth trajectory compounds their moat. The competitive advantage has shifted from "most tools" to the combination of **depth** (native adapter quality), **breadth** (board management, learning loop, security), and **platform independence** (multi-platform support beyond GitHub).
 
-The strategic path is clear: **distribution first, adapter depth second, advanced features third**. hatch3r has the strongest technical foundation in the space. It now needs the community and distribution to match.
+The strategic path is clear: **distribute immediately, benchmark adapter depth to prove quality differentiation, invest in board management and learning loop as unique moats**. hatch3r has the strongest technical foundation in the space. It now needs the community, distribution, and proven quality metrics to match.
 
 ---
 
@@ -635,6 +741,7 @@ The strategic path is clear: **distribution first, adapter depth second, advance
 
 - GSD: https://github.com/gsd-build/get-shit-done | https://gsd.build/
 - Superpowers: https://github.com/obra/superpowers
+- GitHub Spec Kit: https://github.com/github/spec-kit (estimated)
 - Compound Engineering: https://github.com/EveryInc/compound-engineering-plugin
 - BMAD Method: https://github.com/bmad-code-org/BMAD-METHOD | https://docs.bmad-method.org/
 - SkillKit: https://github.com/rohitg00/skillkit

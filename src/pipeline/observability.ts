@@ -1,0 +1,407 @@
+/**
+ * D12 Observability improvements for pipeline output.
+ *
+ * Three capabilities:
+ * 1. Reasoning block persistence -- capture and store phase reasoning
+ *    in a structured format so it can be reviewed after execution.
+ *    (Finding #63)
+ *
+ * 2. Per-phase token estimation -- estimate token usage for each phase
+ *    so cost tracking and context window management are visible.
+ *    (Finding #64)
+ *
+ * 3. Replay guidance -- when debugging, provide structured guidance
+ *    for reproducing/replaying pipeline executions.
+ *    (Finding #65)
+ */
+
+import type { PhaseName } from "./phaseTimeout.js";
+
+// ── Reasoning Block Persistence (Finding #63) ────────────────────
+
+/**
+ * A single reasoning block captured during a pipeline phase.
+ *
+ * Pipeline phases often produce intermediate analysis (thinking,
+ * chain-of-thought, decision rationale). This structure persists
+ * those blocks so they can be inspected post-execution.
+ */
+export interface ReasoningBlock {
+  /** Sequential index within the phase (0-based). */
+  index: number;
+  /** Category of reasoning (e.g. "analysis", "decision", "risk-assessment"). */
+  category: string;
+  /** The reasoning text. */
+  content: string;
+  /** ISO-8601 timestamp when this block was captured. */
+  timestamp: string;
+}
+
+/**
+ * Phase reasoning output -- the collection of reasoning blocks
+ * produced by a single pipeline phase.
+ */
+export interface PhaseReasoning {
+  /** Which pipeline phase produced this reasoning. */
+  phase: PhaseName;
+  /** Ordered list of reasoning blocks. */
+  blocks: ReasoningBlock[];
+  /** Total character count across all blocks. */
+  totalChars: number;
+}
+
+/**
+ * Create an empty PhaseReasoning container for a given phase.
+ */
+export function createPhaseReasoning(phase: PhaseName): PhaseReasoning {
+  return {
+    phase,
+    blocks: [],
+    totalChars: 0,
+  };
+}
+
+/**
+ * Append a reasoning block to the phase reasoning container.
+ *
+ * Returns a new PhaseReasoning with the block appended (immutable).
+ */
+export function appendReasoningBlock(
+  reasoning: PhaseReasoning,
+  category: string,
+  content: string,
+): PhaseReasoning {
+  const block: ReasoningBlock = {
+    index: reasoning.blocks.length,
+    category,
+    content,
+    timestamp: new Date().toISOString(),
+  };
+
+  return {
+    ...reasoning,
+    blocks: [...reasoning.blocks, block],
+    totalChars: reasoning.totalChars + content.length,
+  };
+}
+
+/**
+ * Produce a plain-text summary of the reasoning blocks for a phase.
+ *
+ * Useful for logging or inclusion in pipeline reports.
+ */
+export function summarizeReasoning(reasoning: PhaseReasoning): string {
+  if (reasoning.blocks.length === 0) {
+    return `Phase "${reasoning.phase}": no reasoning blocks captured.`;
+  }
+
+  const lines: string[] = [
+    `Phase "${reasoning.phase}": ${reasoning.blocks.length} reasoning block(s), ${reasoning.totalChars} chars total.`,
+  ];
+
+  for (const block of reasoning.blocks) {
+    const preview =
+      block.content.length > 120
+        ? block.content.substring(0, 120) + "..."
+        : block.content;
+    lines.push(`  [${block.index}] (${block.category}) ${preview}`);
+  }
+
+  return lines.join("\n");
+}
+
+// ── Per-Phase Token Estimation (Finding #64) ─────────────────────
+
+/**
+ * Token estimate for a single pipeline phase.
+ *
+ * Token counts are estimates based on character-level heuristics
+ * (not exact BPE tokenisation), suitable for cost tracking and
+ * context-window budgeting.
+ */
+export interface PhaseTokenEstimate {
+  /** Which pipeline phase. */
+  phase: PhaseName;
+  /** Estimated input tokens consumed by the phase. */
+  inputTokens: number;
+  /** Estimated output tokens produced by the phase. */
+  outputTokens: number;
+  /** Estimated total tokens (input + output). */
+  totalTokens: number;
+}
+
+/**
+ * Aggregate token estimates across all pipeline phases.
+ */
+export interface PipelineTokenSummary {
+  /** Per-phase breakdowns. */
+  phases: PhaseTokenEstimate[];
+  /** Sum of all input tokens. */
+  totalInputTokens: number;
+  /** Sum of all output tokens. */
+  totalOutputTokens: number;
+  /** Grand total of all tokens. */
+  grandTotal: number;
+}
+
+/**
+ * Average characters per token for estimation purposes.
+ *
+ * English prose averages ~4 chars/token; code averages ~3.5.
+ * We use 4 as a conservative default.
+ */
+export const CHARS_PER_TOKEN = 4;
+
+/**
+ * Estimate token count from a character count.
+ *
+ * Uses a simple chars / CHARS_PER_TOKEN heuristic. The divisor can be
+ * overridden for language-specific tuning (e.g. 3.5 for code-heavy input).
+ */
+export function estimateTokens(
+  charCount: number,
+  charsPerToken: number = CHARS_PER_TOKEN,
+): number {
+  if (charCount <= 0) return 0;
+  return Math.ceil(charCount / charsPerToken);
+}
+
+/**
+ * Create a token estimate for a single pipeline phase.
+ */
+export function createPhaseTokenEstimate(
+  phase: PhaseName,
+  inputChars: number,
+  outputChars: number,
+  charsPerToken: number = CHARS_PER_TOKEN,
+): PhaseTokenEstimate {
+  const inputTokens = estimateTokens(inputChars, charsPerToken);
+  const outputTokens = estimateTokens(outputChars, charsPerToken);
+
+  return {
+    phase,
+    inputTokens,
+    outputTokens,
+    totalTokens: inputTokens + outputTokens,
+  };
+}
+
+/**
+ * Aggregate multiple phase estimates into a pipeline summary.
+ */
+export function createTokenSummary(
+  phases: PhaseTokenEstimate[],
+): PipelineTokenSummary {
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+
+  for (const p of phases) {
+    totalInputTokens += p.inputTokens;
+    totalOutputTokens += p.outputTokens;
+  }
+
+  return {
+    phases: [...phases],
+    totalInputTokens,
+    totalOutputTokens,
+    grandTotal: totalInputTokens + totalOutputTokens,
+  };
+}
+
+/**
+ * Format a token summary as a human-readable string.
+ */
+export function formatTokenSummary(summary: PipelineTokenSummary): string {
+  const lines: string[] = [
+    `Token usage: ${summary.grandTotal} total (${summary.totalInputTokens} in, ${summary.totalOutputTokens} out)`,
+  ];
+
+  for (const p of summary.phases) {
+    lines.push(
+      `  ${p.phase}: ${p.totalTokens} (${p.inputTokens} in, ${p.outputTokens} out)`,
+    );
+  }
+
+  return lines.join("\n");
+}
+
+// ── Replay Guidance (Finding #65) ────────────────────────────────
+
+/**
+ * Structured replay guidance for reproducing a pipeline execution.
+ *
+ * When debugging pipeline issues, this provides the information
+ * needed to reproduce the exact execution context.
+ */
+export interface ReplayGuidance {
+  /** The correlation ID of the original pipeline run. */
+  correlationId: string;
+  /** ISO-8601 timestamp of the original run. */
+  originalRunTimestamp: string;
+  /** Phase where the issue was observed. */
+  failedPhase: PhaseName;
+  /** Human-readable description of the failure. */
+  failureDescription: string;
+  /** Ordered steps to reproduce the issue. */
+  replaySteps: ReplayStep[];
+  /** Key-value pairs of environment/config needed for replay. */
+  environmentSnapshot: Record<string, string>;
+  /** Files that should be checked out / restored for replay. */
+  relevantFiles: string[];
+  /** Git ref (branch, commit SHA) at the time of the run. */
+  gitRef?: string;
+}
+
+/**
+ * A single step in the replay sequence.
+ */
+export interface ReplayStep {
+  /** 1-based step number. */
+  stepNumber: number;
+  /** What to do in this step. */
+  instruction: string;
+  /** Expected outcome of this step. */
+  expectedOutcome?: string;
+}
+
+/**
+ * Create replay guidance for a failed pipeline execution.
+ */
+export function createReplayGuidance(
+  correlationId: string,
+  failedPhase: PhaseName,
+  failureDescription: string,
+  options?: {
+    gitRef?: string;
+    relevantFiles?: string[];
+    environmentSnapshot?: Record<string, string>;
+  },
+): ReplayGuidance {
+  const guidance: ReplayGuidance = {
+    correlationId,
+    originalRunTimestamp: new Date().toISOString(),
+    failedPhase,
+    failureDescription,
+    replaySteps: buildDefaultReplaySteps(failedPhase, options?.gitRef),
+    environmentSnapshot: options?.environmentSnapshot ?? {},
+    relevantFiles: options?.relevantFiles ?? [],
+    gitRef: options?.gitRef,
+  };
+
+  return guidance;
+}
+
+/**
+ * Build default replay steps for a given failed phase.
+ *
+ * These are generic steps that apply to any phase failure.
+ * Callers can customise them after creation.
+ */
+function buildDefaultReplaySteps(
+  failedPhase: PhaseName,
+  gitRef?: string,
+): ReplayStep[] {
+  const steps: ReplayStep[] = [];
+  let n = 1;
+
+  if (gitRef) {
+    steps.push({
+      stepNumber: n++,
+      instruction: `Checkout the exact git ref: git checkout ${gitRef}`,
+      expectedOutcome: "Working tree matches the state at time of failure.",
+    });
+  }
+
+  steps.push({
+    stepNumber: n++,
+    instruction:
+      "Ensure the environment matches the original run (see environmentSnapshot).",
+    expectedOutcome: "All environment variables and config files are in place.",
+  });
+
+  steps.push({
+    stepNumber: n++,
+    instruction: "Install dependencies (npm install / equivalent).",
+    expectedOutcome: "node_modules (or equivalent) is populated.",
+  });
+
+  steps.push({
+    stepNumber: n++,
+    instruction: `Re-run the pipeline up to and including the "${failedPhase}" phase.`,
+    expectedOutcome: "The same failure should be reproducible.",
+  });
+
+  steps.push({
+    stepNumber: n++,
+    instruction:
+      "Inspect the phase output and reasoning blocks for diagnostic clues.",
+    expectedOutcome: "Root cause is identified or narrowed down.",
+  });
+
+  return steps;
+}
+
+/**
+ * Add a custom replay step to existing guidance.
+ *
+ * Returns a new ReplayGuidance with the step appended (immutable).
+ */
+export function addReplayStep(
+  guidance: ReplayGuidance,
+  instruction: string,
+  expectedOutcome?: string,
+): ReplayGuidance {
+  const nextStepNumber =
+    guidance.replaySteps.length > 0
+      ? guidance.replaySteps[guidance.replaySteps.length - 1].stepNumber + 1
+      : 1;
+
+  return {
+    ...guidance,
+    replaySteps: [
+      ...guidance.replaySteps,
+      {
+        stepNumber: nextStepNumber,
+        instruction,
+        expectedOutcome,
+      },
+    ],
+  };
+}
+
+/**
+ * Format replay guidance as a human-readable string.
+ *
+ * Suitable for inclusion in error reports, logs, or developer output.
+ */
+export function formatReplayGuidance(guidance: ReplayGuidance): string {
+  const lines: string[] = [
+    `Replay Guidance for correlation ${guidance.correlationId}`,
+    `  Failed phase: ${guidance.failedPhase}`,
+    `  Failure: ${guidance.failureDescription}`,
+    `  Original run: ${guidance.originalRunTimestamp}`,
+  ];
+
+  if (guidance.gitRef) {
+    lines.push(`  Git ref: ${guidance.gitRef}`);
+  }
+
+  if (guidance.relevantFiles.length > 0) {
+    lines.push(`  Relevant files: ${guidance.relevantFiles.join(", ")}`);
+  }
+
+  const envKeys = Object.keys(guidance.environmentSnapshot);
+  if (envKeys.length > 0) {
+    lines.push(`  Environment keys: ${envKeys.join(", ")}`);
+  }
+
+  lines.push("  Steps:");
+  for (const step of guidance.replaySteps) {
+    lines.push(`    ${step.stepNumber}. ${step.instruction}`);
+    if (step.expectedOutcome) {
+      lines.push(`       -> ${step.expectedOutcome}`);
+    }
+  }
+
+  return lines.join("\n");
+}

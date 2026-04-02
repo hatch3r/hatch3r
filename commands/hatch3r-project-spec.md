@@ -3,6 +3,7 @@ id: hatch3r-project-spec
 type: command
 description: Generate complete business and technical project documentation (specs, ADRs, todo.md) from a project vision using parallel researcher sub-agents with dual business/technical scoping.
 tags: [planning, greenfield]
+quality_charter: agents/shared/quality-charter.md
 ---
 # Project Spec — Greenfield Project Specification from Vision to Docs
 

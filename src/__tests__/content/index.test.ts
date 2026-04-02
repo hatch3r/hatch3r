@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { mkdtemp, mkdir, writeFile, readFile, rm, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -19,6 +19,11 @@ import {
   countPresetExclusions,
   countProjectTypeExclusions,
   countTeamSizeExclusions,
+  extractContentReferences,
+  validateCrossReferences,
+  validateOrchestrationDependencies,
+  typeIdKey,
+  getAllItemsById,
 } from "../../content/index.js";
 import type { CatalogItem, ContentIndex } from "../../content/index.js";
 import { getPreset } from "../../content/presets.js";
@@ -678,6 +683,136 @@ describe("content/index", () => {
       // "core" is a non-context tag, so item should survive solo filter
       const selection = resolveSelection(preset, "brownfield", "solo", mixedIndex);
       expect(getAllContentIds(selection).has("team-core-item")).toBe(true);
+    });
+
+    // ── Language filtering (Finding #71) ────────────────────
+
+    it("items without language tags are included regardless of project languages", () => {
+      const genericRule = makeCatalogItem({
+        id: "generic-rule",
+        type: "rule",
+        tags: ["core"],
+        relativePath: "rules/generic-rule.md",
+      });
+      const langIndex = makeIndex([genericRule]);
+      const preset = getPreset("full");
+
+      const selection = resolveSelection(preset, "brownfield", "team", langIndex, undefined, ["python"]);
+      expect(getAllContentIds(selection).has("generic-rule")).toBe(true);
+    });
+
+    it("items with matching language tag are included for that language", () => {
+      const tsRule = makeCatalogItem({
+        id: "ts-rule",
+        type: "rule",
+        tags: ["core", "lang:typescript"],
+        relativePath: "rules/ts-rule.md",
+      });
+      const langIndex = makeIndex([tsRule]);
+      const preset = getPreset("full");
+
+      const selection = resolveSelection(preset, "brownfield", "team", langIndex, undefined, ["typescript"]);
+      expect(getAllContentIds(selection).has("ts-rule")).toBe(true);
+    });
+
+    it("items with non-matching language tag are excluded for other languages", () => {
+      const tsRule = makeCatalogItem({
+        id: "ts-only-rule",
+        type: "rule",
+        tags: ["core", "lang:typescript"],
+        relativePath: "rules/ts-only-rule.md",
+      });
+      const langIndex = makeIndex([tsRule]);
+      const preset = getPreset("full");
+
+      const selection = resolveSelection(preset, "brownfield", "team", langIndex, undefined, ["python"]);
+      expect(getAllContentIds(selection).has("ts-only-rule")).toBe(false);
+    });
+
+    it("javascript projects match lang:typescript tagged items", () => {
+      const tsRule = makeCatalogItem({
+        id: "ts-js-rule",
+        type: "rule",
+        tags: ["core", "lang:typescript"],
+        relativePath: "rules/ts-js-rule.md",
+      });
+      const langIndex = makeIndex([tsRule]);
+      const preset = getPreset("full");
+
+      const selection = resolveSelection(preset, "brownfield", "team", langIndex, undefined, ["javascript"]);
+      expect(getAllContentIds(selection).has("ts-js-rule")).toBe(true);
+    });
+
+    it("multi-language projects include items matching any detected language", () => {
+      const pyRule = makeCatalogItem({
+        id: "py-rule",
+        type: "rule",
+        tags: ["core", "lang:python"],
+        relativePath: "rules/py-rule.md",
+      });
+      const goRule = makeCatalogItem({
+        id: "go-rule",
+        type: "rule",
+        tags: ["core", "lang:go"],
+        relativePath: "rules/go-rule.md",
+      });
+      const rubyRule = makeCatalogItem({
+        id: "ruby-rule",
+        type: "rule",
+        tags: ["core", "lang:ruby"],
+        relativePath: "rules/ruby-rule.md",
+      });
+      const langIndex = makeIndex([pyRule, goRule, rubyRule]);
+      const preset = getPreset("full");
+
+      const selection = resolveSelection(preset, "brownfield", "team", langIndex, undefined, ["python", "go"]);
+      const allIds = getAllContentIds(selection);
+      expect(allIds.has("py-rule")).toBe(true);
+      expect(allIds.has("go-rule")).toBe(true);
+      expect(allIds.has("ruby-rule")).toBe(false);
+    });
+
+    it("protected items with non-matching language tags are still included", () => {
+      const protectedLangItem = makeCatalogItem({
+        id: "protected-lang",
+        type: "agent",
+        tags: ["core", "lang:typescript"],
+        protected: true,
+        relativePath: "agents/protected-lang.md",
+      });
+      const langIndex = makeIndex([protectedLangItem]);
+      const preset = getPreset("full");
+
+      const selection = resolveSelection(preset, "brownfield", "team", langIndex, undefined, ["python"]);
+      expect(getAllContentIds(selection).has("protected-lang")).toBe(true);
+    });
+
+    it("no language filtering when projectLanguages is undefined", () => {
+      const tsRule = makeCatalogItem({
+        id: "ts-rule-no-filter",
+        type: "rule",
+        tags: ["core", "lang:typescript"],
+        relativePath: "rules/ts-rule-no-filter.md",
+      });
+      const langIndex = makeIndex([tsRule]);
+      const preset = getPreset("full");
+
+      const selection = resolveSelection(preset, "brownfield", "team", langIndex);
+      expect(getAllContentIds(selection).has("ts-rule-no-filter")).toBe(true);
+    });
+
+    it("no language filtering when projectLanguages is empty array", () => {
+      const tsRule = makeCatalogItem({
+        id: "ts-rule-empty",
+        type: "rule",
+        tags: ["core", "lang:typescript"],
+        relativePath: "rules/ts-rule-empty.md",
+      });
+      const langIndex = makeIndex([tsRule]);
+      const preset = getPreset("full");
+
+      const selection = resolveSelection(preset, "brownfield", "team", langIndex, undefined, []);
+      expect(getAllContentIds(selection).has("ts-rule-empty")).toBe(true);
     });
   });
 
@@ -1441,6 +1576,283 @@ describe("content/index", () => {
         makeCatalogItem({ id: "prot-team", type: "command", tags: ["team"], relativePath: "commands/pt.md", protected: true }),
       ];
       expect(countTeamSizeExclusions("solo", items)).toBe(0);
+    });
+  });
+
+  // ── Integration tests for complex validation paths (#100) ──
+
+  describe("buildContentIndex — collision detection", () => {
+    it("detects cross-type ID collisions", async () => {
+      const dir = await makeTempDir();
+      // Create an agent and a command with the same ID
+      await mkdir(join(dir, "agents"), { recursive: true });
+      await writeFile(
+        join(dir, "agents", "hatch3r-dupe.md"),
+        mdFile({ id: "hatch3r-dupe", type: "agent", description: "Agent dupe" }),
+      );
+      await mkdir(join(dir, "commands"), { recursive: true });
+      await writeFile(
+        join(dir, "commands", "hatch3r-dupe.md"),
+        mdFile({ id: "hatch3r-dupe", type: "command", description: "Command dupe" }),
+      );
+
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const index = await buildContentIndex(dir);
+      warnSpy.mockRestore();
+
+      expect(index.collisions.length).toBe(1);
+      expect(index.collisions[0]!.kind).toBe("cross-type");
+      expect(index.collisions[0]!.id).toBe("hatch3r-dupe");
+    });
+
+    it("detects same-type ID collisions (duplicate files with same frontmatter id)", async () => {
+      const dir = await makeTempDir();
+      await mkdir(join(dir, "agents"), { recursive: true });
+      // Two files mapping to the same ID via frontmatter
+      await writeFile(
+        join(dir, "agents", "alpha.md"),
+        mdFile({ id: "shared-id", type: "agent", description: "Alpha" }),
+      );
+      await writeFile(
+        join(dir, "agents", "beta.md"),
+        mdFile({ id: "shared-id", type: "agent", description: "Beta" }),
+      );
+
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const index = await buildContentIndex(dir);
+      warnSpy.mockRestore();
+
+      expect(index.collisions.length).toBe(1);
+      expect(index.collisions[0]!.kind).toBe("same-type");
+    });
+
+    it("byTypeAndId provides collision-safe lookup", async () => {
+      const dir = await makeTempDir();
+      await mkdir(join(dir, "agents"), { recursive: true });
+      await writeFile(
+        join(dir, "agents", "hatch3r-shared.md"),
+        mdFile({ id: "hatch3r-shared", type: "agent", description: "Agent" }),
+      );
+      await mkdir(join(dir, "commands"), { recursive: true });
+      await writeFile(
+        join(dir, "commands", "hatch3r-shared.md"),
+        mdFile({ id: "hatch3r-shared", type: "command", description: "Command" }),
+      );
+
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const index = await buildContentIndex(dir);
+      warnSpy.mockRestore();
+
+      // byId returns last-indexed (shadowed), but byTypeAndId is safe
+      const agent = index.byTypeAndId.get(typeIdKey("agent", "hatch3r-shared"));
+      expect(agent).toBeDefined();
+      expect(agent!.type).toBe("agent");
+
+      const command = index.byTypeAndId.get(typeIdKey("command", "hatch3r-shared"));
+      expect(command).toBeDefined();
+      expect(command!.type).toBe("command");
+    });
+
+    it("getAllItemsById returns all items sharing an ID across types", async () => {
+      const dir = await makeTempDir();
+      await mkdir(join(dir, "agents"), { recursive: true });
+      await writeFile(
+        join(dir, "agents", "hatch3r-multi.md"),
+        mdFile({ id: "hatch3r-multi", type: "agent", description: "Agent" }),
+      );
+      await mkdir(join(dir, "commands"), { recursive: true });
+      await writeFile(
+        join(dir, "commands", "hatch3r-multi.md"),
+        mdFile({ id: "hatch3r-multi", type: "command", description: "Command" }),
+      );
+
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const index = await buildContentIndex(dir);
+      warnSpy.mockRestore();
+
+      const allItems = getAllItemsById(index, "hatch3r-multi");
+      expect(allItems.length).toBe(2);
+      const types = allItems.map((i) => i.type).sort();
+      expect(types).toEqual(["agent", "command"]);
+    });
+  });
+
+  describe("extractContentReferences", () => {
+    it("extracts backtick-quoted hatch3r references", () => {
+      const content = "Use `hatch3r-implementer` and `hatch3r-reviewer` for this.";
+      const refs = extractContentReferences(content);
+      expect(refs).toContain("hatch3r-implementer");
+      expect(refs).toContain("hatch3r-reviewer");
+    });
+
+    it("returns empty array when no references present", () => {
+      const content = "No hatch3r references here. Just plain text.";
+      const refs = extractContentReferences(content);
+      expect(refs).toEqual([]);
+    });
+
+    it("deduplicates references", () => {
+      const content = "Use `hatch3r-test` and then `hatch3r-test` again.";
+      const refs = extractContentReferences(content);
+      expect(refs.length).toBe(1);
+      expect(refs[0]).toBe("hatch3r-test");
+    });
+
+    it("does not match non-backtick-quoted references", () => {
+      const content = "Use hatch3r-implementer without backticks.";
+      const refs = extractContentReferences(content);
+      expect(refs).toEqual([]);
+    });
+
+    it("handles multiple references on same line", () => {
+      const content = "Both `hatch3r-alpha` and `hatch3r-beta` are needed.";
+      const refs = extractContentReferences(content);
+      expect(refs).toContain("hatch3r-alpha");
+      expect(refs).toContain("hatch3r-beta");
+    });
+  });
+
+  describe("validateCrossReferences", () => {
+    it("returns no warnings when all references exist in index", async () => {
+      const dir = await makeTempDir();
+      await mkdir(join(dir, "agents"), { recursive: true });
+      await writeFile(
+        join(dir, "agents", "hatch3r-caller.md"),
+        mdFile({ id: "hatch3r-caller", type: "agent", description: "Calls others" }) +
+        "\nUse `hatch3r-callee` for details.\n",
+      );
+      await writeFile(
+        join(dir, "agents", "hatch3r-callee.md"),
+        mdFile({ id: "hatch3r-callee", type: "agent", description: "Called by others" }),
+      );
+
+      const index = await buildContentIndex(dir);
+      const result = await validateCrossReferences(dir, index);
+      expect(result.warnings).toEqual([]);
+    });
+
+    it("returns warnings for missing cross-referenced IDs", async () => {
+      const dir = await makeTempDir();
+      await mkdir(join(dir, "agents"), { recursive: true });
+      await writeFile(
+        join(dir, "agents", "hatch3r-orphan-ref.md"),
+        mdFile({ id: "hatch3r-orphan-ref", type: "agent", description: "Refs missing ID" }) +
+        "\nSee `hatch3r-nonexistent` for details.\n",
+      );
+
+      const index = await buildContentIndex(dir);
+      const result = await validateCrossReferences(dir, index);
+      expect(result.warnings.length).toBe(1);
+      expect(result.warnings[0]).toContain("hatch3r-nonexistent");
+      expect(result.warnings[0]).toContain("does not exist");
+    });
+
+    it("self-references do not trigger warnings", async () => {
+      const dir = await makeTempDir();
+      await mkdir(join(dir, "agents"), { recursive: true });
+      await writeFile(
+        join(dir, "agents", "hatch3r-self.md"),
+        mdFile({ id: "hatch3r-self", type: "agent", description: "Self-referencing" }) +
+        "\nThis is `hatch3r-self`.\n",
+      );
+
+      const index = await buildContentIndex(dir);
+      const result = await validateCrossReferences(dir, index);
+      expect(result.warnings).toEqual([]);
+    });
+
+    it("handles skill subdirectory cross-references", async () => {
+      const dir = await makeTempDir();
+      await mkdir(join(dir, "skills", "hatch3r-skillref"), { recursive: true });
+      await writeFile(
+        join(dir, "skills", "hatch3r-skillref", "SKILL.md"),
+        mdFile({ id: "hatch3r-skillref", type: "skill", description: "Skill that refs" }) +
+        "\nUse `hatch3r-missing-agent` to assist.\n",
+      );
+
+      const index = await buildContentIndex(dir);
+      const result = await validateCrossReferences(dir, index);
+      expect(result.warnings.length).toBe(1);
+      expect(result.warnings[0]).toContain("hatch3r-missing-agent");
+    });
+  });
+
+  describe("validateOrchestrationDependencies", () => {
+    it("returns no warnings when orchestration rule is absent", () => {
+      const selection = emptySelection({
+        items: {
+          agents: [],
+          skills: [],
+          rules: [],
+          commands: [],
+          prompts: [],
+          hooks: [],
+          githubAgents: [],
+        },
+      });
+      const warnings = validateOrchestrationDependencies(selection);
+      expect(warnings).toEqual([]);
+    });
+
+    it("returns no warnings when all required agents are present", () => {
+      const selection = emptySelection({
+        items: {
+          agents: [
+            "hatch3r-researcher",
+            "hatch3r-implementer",
+            "hatch3r-reviewer",
+            "hatch3r-test-writer",
+            "hatch3r-security-auditor",
+          ],
+          skills: [],
+          rules: ["hatch3r-agent-orchestration"],
+          commands: [],
+          prompts: [],
+          hooks: [],
+          githubAgents: [],
+        },
+      });
+      const warnings = validateOrchestrationDependencies(selection);
+      expect(warnings).toEqual([]);
+    });
+
+    it("returns warnings for each missing orchestration agent", () => {
+      const selection = emptySelection({
+        items: {
+          agents: ["hatch3r-researcher"],
+          skills: [],
+          rules: ["hatch3r-agent-orchestration"],
+          commands: [],
+          prompts: [],
+          hooks: [],
+          githubAgents: [],
+        },
+      });
+      const warnings = validateOrchestrationDependencies(selection);
+      // Missing: implementer, reviewer, test-writer, security-auditor
+      expect(warnings.length).toBe(4);
+      expect(warnings.some((w) => w.includes("hatch3r-implementer"))).toBe(true);
+      expect(warnings.some((w) => w.includes("hatch3r-reviewer"))).toBe(true);
+      expect(warnings.some((w) => w.includes("hatch3r-test-writer"))).toBe(true);
+      expect(warnings.some((w) => w.includes("hatch3r-security-auditor"))).toBe(true);
+    });
+
+    it("warning messages mention the 4-phase pipeline", () => {
+      const selection = emptySelection({
+        items: {
+          agents: [],
+          skills: [],
+          rules: ["hatch3r-agent-orchestration"],
+          commands: [],
+          prompts: [],
+          hooks: [],
+          githubAgents: [],
+        },
+      });
+      const warnings = validateOrchestrationDependencies(selection);
+      for (const w of warnings) {
+        expect(w).toContain("4-phase pipeline");
+      }
     });
   });
 });

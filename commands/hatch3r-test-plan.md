@@ -3,6 +3,7 @@ id: hatch3r-test-plan
 type: command
 description: Plan a comprehensive test strategy -- spawn parallel researchers, produce test plan spec with coverage targets, priority ordering, test case outlines, and structured todo.md entries for board-fill.
 tags: [core, planning]
+quality_charter: agents/shared/quality-charter.md
 ---
 
 ## Agent Pipeline

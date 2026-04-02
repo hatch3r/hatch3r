@@ -3,6 +3,7 @@ id: hatch3r-board-refresh
 type: command
 description: Regenerate the living board overview dashboard from current board state. Scans all open issues, computes health metrics, and updates the meta:board-overview issue.
 tags: [board, team]
+quality_charter: agents/shared/quality-charter.md
 ---
 
 ## Agent Pipeline

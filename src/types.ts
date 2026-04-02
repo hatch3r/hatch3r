@@ -17,6 +17,21 @@ export interface ClaudeConfig {
 /** Controls how adapter output is generated (verbosity), not what content is selected. */
 export type GenerationMode = "standard" | "minimal";
 
+export interface CostTrackingConfig {
+  /** Maximum estimated cost per session in configured currency. */
+  sessionBudget?: number;
+  /** Maximum estimated cost per issue in configured currency. */
+  issueBudget?: number;
+  /** Maximum estimated cost per epic in configured currency. */
+  epicBudget?: number;
+  /** Currency code for cost display (default: "USD"). */
+  currency?: string;
+  /** Budget percentage thresholds that trigger warnings (default: [0.5, 0.75, 0.9]). */
+  warningThresholds?: number[];
+  /** When true, halt work when budget is exhausted. When false, warn only (default: false). */
+  hardStop?: boolean;
+}
+
 export interface HatchManifest {
   version: string;
   hatch3rVersion: string;
@@ -34,6 +49,8 @@ export interface HatchManifest {
   hooks?: HooksConfig;
   models?: ModelConfig;
   claude?: ClaudeConfig;
+  /** Token usage and cost tracking configuration. */
+  costTracking?: CostTrackingConfig;
   /** Content selection from init. undefined = legacy "full" (backward compat). */
   content?: ContentSelection;
   /** Detected project languages from repo analysis. */

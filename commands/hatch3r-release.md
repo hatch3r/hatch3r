@@ -3,6 +3,7 @@ id: hatch3r-release
 type: command
 description: Cut a versioned release with changelog generation, version bumping, and GitHub release creation.
 tags: [devops]
+quality_charter: agents/shared/quality-charter.md
 ---
 # Release — Cut a Versioned Release with Changelog
 

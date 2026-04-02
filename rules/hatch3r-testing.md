@@ -4,6 +4,7 @@ type: rule
 description: Test standards and conventions for the project
 scope: "**/*.test.*,**/*.spec.*,**/__tests__/**,**/tests/**,**/test/**,**/*.cy.*,**/playwright/**,**/vitest.config.*,**/jest.config.*,**/cypress.config.*"
 tags: [core]
+quality_charter: agents/shared/quality-charter.md
 ---
 # Testing Standards
 

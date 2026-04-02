@@ -1,6 +1,7 @@
 ---
 description: Auto-consult project learnings before implementation
-alwaysApply: true
+globs: "**/.agents/learnings/**,**/learnings/**"
+alwaysApply: false
 ---
 # Learning Consultation
 

@@ -10,7 +10,7 @@ import { wrapInManagedBlock } from "../merge/managedBlocks.js";
 import { generateBridgeOrchestration } from "../cli/shared/agentsContent.js";
 import { readCanonicalFiles } from "./canonical.js";
 import { applyCustomization, applyCustomizationRaw } from "./customization.js";
-import { readMcpConfig, type McpServerEntry } from "./mcp-utils.js";
+import { readMcpConfig, transformEnvVarSyntax, type McpServerEntry } from "./mcp-utils.js";
 import { readHookDefinitions } from "../hooks/index.js";
 
 export interface Adapter {
@@ -88,8 +88,17 @@ export abstract class BaseAdapter implements Adapter {
 
   protected abstract doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]>;
 
+  /**
+   * Returns the raw bridge orchestration content (no surrounding headers).
+   * Use this when the adapter needs custom formatting around the bridge content.
+   */
+  protected async bridgeOrchestration(ctx: AdapterContext): Promise<string> {
+    const orchestration = await generateBridgeOrchestration(ctx.agentsDir, ctx.manifest.content?.preset);
+    return this.isMinimal(ctx) ? this.stripMinimal(orchestration) : orchestration;
+  }
+
   protected async bridgeHeader(ctx: AdapterContext, agentsPath = "/.agents/AGENTS.md"): Promise<string[]> {
-    const orchestration = await generateBridgeOrchestration(ctx.agentsDir);
+    const orchestration = await this.bridgeOrchestration(ctx);
     if (this.isMinimal(ctx)) {
       return [
         "",
@@ -97,7 +106,7 @@ export abstract class BaseAdapter implements Adapter {
         "",
         `Instructions: \`${agentsPath}\``,
         "",
-        this.stripMinimal(orchestration),
+        orchestration,
         "",
       ];
     }
@@ -229,17 +238,28 @@ export abstract class BaseAdapter implements Adapter {
 
   protected buildStdMcpEntries(
     filtered: Record<string, CleanMcpEntry>,
+    envVarFormat: "claude" | "shell" | "passthrough" = "passthrough",
   ): Record<string, Record<string, unknown>> {
     const result: Record<string, Record<string, unknown>> = {};
     for (const [name, server] of Object.entries(filtered)) {
       if (server.command) {
-        result[name] = {
+        const entry: Record<string, unknown> = {
           command: server.command,
           args: server.args || [],
-          ...(server.env && Object.keys(server.env).length > 0 ? { env: server.env } : {}),
+          ...(server.env && Object.keys(server.env).length > 0
+            ? { env: transformEnvVarSyntax(server.env, envVarFormat) }
+            : {}),
         };
+        if (server.headers && Object.keys(server.headers).length > 0) {
+          entry.headers = transformEnvVarSyntax(server.headers, envVarFormat);
+        }
+        result[name] = entry;
       } else if (server.url) {
-        result[name] = { url: server.url };
+        const entry: Record<string, unknown> = { url: server.url };
+        if (server.headers && Object.keys(server.headers).length > 0) {
+          entry.headers = transformEnvVarSyntax(server.headers, envVarFormat);
+        }
+        result[name] = entry;
       }
     }
     return result;

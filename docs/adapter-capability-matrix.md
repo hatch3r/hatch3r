@@ -117,7 +117,7 @@ Previously only the Cursor adapter inlined this content; others merely reference
 | prompts | `.github/prompts/hatch3r-{id}.prompt.md` | Raw content |
 | commands | `.github/copilot/commands/hatch3r-{id}.prompt.md` | Raw content |
 | githubAgents | `.github/copilot/agents/hatch3r-{id}.md` | Raw content |
-| mcp | `.vscode/mcp.json` | Canonical MCP config with `envFile: "${workspaceFolder}/.env.mcp"` injected on STDIO servers |
+| mcp | `.vscode/mcp.json` | Canonical MCP config with `env` object for secret passing |
 | setup | `.github/workflows/copilot-setup-steps.yml` | YAML build steps |
 
 ### Claude
@@ -304,7 +304,7 @@ All MCP secrets are centralized in a single `.env.mcp` file at the project root 
 
 | Adapter | Secret loading method | Auto-loads `.env.mcp`? | Notes |
 |---------|----------------------|:----------------------:|-------|
-| **copilot** | `envFile` field per STDIO server | **Yes** | VS Code natively reads `envFile: "${workspaceFolder}/.env.mcp"` |
+| **copilot** | `env` object per server | No | Env vars are passed directly via the `env` object in `.vscode/mcp.json`; user must source `.env.mcp` or set vars manually |
 | **cursor** | `${env:VAR}` from process env | No | User must source `.env.mcp` before launching, or set vars in shell profile / Cursor UI |
 | **claude** | `${env:VAR}` from process env | No | User must source `.env.mcp` before launching |
 | **cline** | `${env:VAR}` from process env | No | Same sourcing pattern |

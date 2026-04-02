@@ -82,7 +82,7 @@ export async function worktreeSetupCommand(
   const s = createSpinner("Setting up worktree files...");
   s.start();
 
-  const result = await setupWorktree(mainRoot, targetRoot);
+  const result = await setupWorktree(mainRoot, targetRoot, { force: opts.force });
 
   s.succeed("Worktree files set up");
 

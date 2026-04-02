@@ -3,6 +3,7 @@ id: hatch3r-ci-pipeline
 type: skill
 description: Design and optimize CI/CD pipelines. Covers stage design, test parallelization, artifact management, and pipeline performance.
 tags: [devops]
+quality_charter: agents/shared/quality-charter.md
 ---
 
 # CI Pipeline Workflow

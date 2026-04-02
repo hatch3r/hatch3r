@@ -51,8 +51,10 @@ The profile is combined with context filters: greenfield projects skip brownfiel
 After planning, the typical flow is:
 
 ```
-board-init → todo.md → board-fill → board-pickup → review → release
+board-init → todo.md → board-fill → board-pickup → release
 ```
+
+Review is handled automatically: the `board-pickup` workflow spawns the `hatch3r-reviewer` agent as part of its review loop, so there is no separate `review` CLI command.
 
 See the [Workflow guide](../guides/workflow) for the full lifecycle.
 
@@ -102,7 +104,7 @@ BRAVE_API_KEY=xxxxxxxx
 
 How secrets are loaded depends on your editor:
 
-- **VS Code / Copilot** -- Loads automatically from `.env.mcp` via the native `envFile` field
+- **VS Code / Copilot** -- Env vars passed via `env` object in `.vscode/mcp.json`; source `.env.mcp` or set vars manually
 - **Cursor / Claude Code / others** -- Source before launching:
 
 ```bash

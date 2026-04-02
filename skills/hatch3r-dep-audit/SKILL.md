@@ -2,6 +2,7 @@
 id: hatch3r-dep-audit
 description: Audit and update npm dependencies for security, freshness, and bundle impact. Use when auditing dependencies, responding to CVEs, or upgrading packages.
 tags: [maintenance, security]
+quality_charter: agents/shared/quality-charter.md
 ---
 > **Note:** Commands below use `npm` as an example. Substitute with your project's package manager (`yarn`, `pnpm`, `bun`) or build tool as appropriate.
 

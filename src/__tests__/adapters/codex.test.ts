@@ -46,14 +46,14 @@ describe("CodexAdapter", () => {
     expect(adapter.name).toBe("codex");
   });
 
-  it("generates .codex/config.toml with model_instructions_file", async () => {
+  it("generates .codex/config.toml without legacy model_instructions_file", async () => {
     const manifest = makeManifest();
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
     const configToml = outputs.find((o) => o.path === ".codex/config.toml");
     expect(configToml).toBeDefined();
     expect(configToml!.content).toContain("hatch3r");
-    expect(configToml!.content).toContain('model_instructions_file = ".agents/AGENTS.md"');
+    expect(configToml!.content).not.toContain('model_instructions_file = ".agents/AGENTS.md"');
   });
 
   it("includes rule references in config.toml when rules are enabled", async () => {
@@ -75,23 +75,30 @@ describe("CodexAdapter", () => {
     expect(configToml!.content).not.toContain("rule: test-rule");
   });
 
-  it("includes agent sections in config.toml when agents are enabled", async () => {
+  it("generates per-agent TOML files when agents are enabled", async () => {
     const manifest = makeManifest();
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
-    const configToml = outputs.find((o) => o.path === ".codex/config.toml");
-    expect(configToml).toBeDefined();
-    expect(configToml!.content).toContain("[agents.hatch3r-test-agent]");
-    expect(configToml!.content).toContain('.agents/agents/test-agent.md');
-  });
+    const agentFiles = outputs.filter((o) => o.path.startsWith(".codex/agents/"));
+    expect(agentFiles.length).toBe(2);
 
-  it("skips agent sections when features.agents is false", async () => {
-    const manifest = makeManifest({ features: { agents: false } });
-    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+    const agent = agentFiles.find((o) => o.path === ".codex/agents/hatch3r-test-agent.toml");
+    expect(agent).toBeDefined();
+    expect(agent!.content).toContain('.agents/agents/test-agent.md');
+    expect(agent!.content).toContain('description =');
 
+    // config.toml should NOT contain agent sections
     const configToml = outputs.find((o) => o.path === ".codex/config.toml");
     expect(configToml).toBeDefined();
     expect(configToml!.content).not.toContain("[agents.");
+  });
+
+  it("skips per-agent TOML files when features.agents is false", async () => {
+    const manifest = makeManifest({ features: { agents: false } });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const agentFiles = outputs.filter((o) => o.path.startsWith(".codex/agents/"));
+    expect(agentFiles.length).toBe(0);
   });
 
   it("generates skill files in .codex/skills/", async () => {
@@ -116,17 +123,16 @@ describe("CodexAdapter", () => {
     expect(skills.length).toBe(0);
   });
 
-  it("emits model from customization file when present", async () => {
+  it("emits model from customization file in per-agent TOML", async () => {
     const manifest = makeManifest();
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
-    const configToml = outputs.find((o) => o.path === ".codex/config.toml");
-    expect(configToml).toBeDefined();
-    expect(configToml!.content).toContain('[agents.hatch3r-test-agent]');
-    expect(configToml!.content).toContain('model = "claude-sonnet-4-6"');
+    const agentToml = outputs.find((o) => o.path === ".codex/agents/hatch3r-test-agent.toml");
+    expect(agentToml).toBeDefined();
+    expect(agentToml!.content).toContain('model = "claude-sonnet-4-6"');
   });
 
-  it("emits model in agent TOML section when configured via manifest", async () => {
+  it("emits model in per-agent TOML file when configured via manifest", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-codex-model-"));
     try {
       const agentsDir = join(tempDir, "agents");
@@ -148,20 +154,20 @@ You are a test agent.`,
       });
       const outputs = await adapter.generate(agentsDir, manifest);
 
-      const configToml = outputs.find((o) => o.path === ".codex/config.toml");
-      expect(configToml).toBeDefined();
-      expect(configToml!.content).toContain('[agents.hatch3r-test-agent]');
-      expect(configToml!.content).toContain('model = "gpt-4"');
+      const agentToml = outputs.find((o) => o.path === ".codex/agents/hatch3r-test-agent.toml");
+      expect(agentToml).toBeDefined();
+      expect(agentToml!.content).toContain('model = "gpt-4"');
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
   });
 
-  it("always generates config.toml as first output", async () => {
+  it("always generates config.toml", async () => {
     const manifest = makeManifest();
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
-    expect(outputs[0]!.path).toBe(".codex/config.toml");
+    const configToml = outputs.find((o) => o.path === ".codex/config.toml");
+    expect(configToml).toBeDefined();
   });
 
   it("all outputs have action 'create'", async () => {
@@ -263,9 +269,7 @@ You are a test agent.`,
 
     expect(outputs.length).toBe(1);
     expect(outputs[0]!.path).toBe(".codex/config.toml");
-    // config.toml should still reference the canonical file
-    expect(outputs[0]!.content).toContain(".agents/AGENTS.md");
-    // No MCP, no agent sections, no rule references
+    // No MCP, no agent files, no rule references
     expect(outputs[0]!.content).not.toContain("[mcp_servers.");
     expect(outputs[0]!.content).not.toContain("[agents.");
   });
@@ -285,5 +289,23 @@ You are a test agent.`,
     for (const o of outputs) {
       expect(o.content.length).toBeGreaterThan(0);
     }
+  });
+
+  it("includes hooks in config.toml when hooks are enabled", async () => {
+    const manifest = makeManifest({ features: { hooks: true } });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const configToml = outputs.find((o) => o.path === ".codex/config.toml")!;
+    expect(configToml.content).toContain("# Hooks (v0.114+)");
+    expect(configToml.content).toContain('[hooks."pre-commit"]');
+    expect(configToml.content).toContain("HATCH3R_HOOK_ACTIVATED");
+  });
+
+  it("does not include hooks when features.hooks is false", async () => {
+    const manifest = makeManifest({ features: { hooks: false } });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const configToml = outputs.find((o) => o.path === ".codex/config.toml")!;
+    expect(configToml.content).not.toContain("[hooks.");
   });
 });

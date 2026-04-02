@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { validateMcpEntry, validateServerName } from "../../adapters/mcp-utils.js";
+import { validateMcpEntry, validateServerName, transformEnvVarSyntax } from "../../adapters/mcp-utils.js";
 import type { McpServerEntry } from "../../adapters/mcp-utils.js";
 
 describe("validateMcpEntry", () => {
@@ -168,5 +168,118 @@ describe("validateServerName", () => {
 
   it("rejects empty names", () => {
     expect(validateServerName("")).not.toBeNull();
+  });
+});
+
+describe("transformEnvVarSyntax", () => {
+  describe("claude format", () => {
+    it("transforms ${env:VAR} to ${VAR} in strings", () => {
+      expect(transformEnvVarSyntax("Bearer ${env:GITHUB_PAT}", "claude"))
+        .toBe("Bearer ${GITHUB_PAT}");
+    });
+
+    it("transforms multiple references in one string", () => {
+      expect(transformEnvVarSyntax("${env:A} and ${env:B}", "claude"))
+        .toBe("${A} and ${B}");
+    });
+
+    it("leaves strings without env refs unchanged", () => {
+      expect(transformEnvVarSyntax("static-value", "claude"))
+        .toBe("static-value");
+    });
+
+    it("recurses into objects", () => {
+      const input = {
+        Authorization: "Bearer ${env:TOKEN}",
+        "X-Static": "plain",
+      };
+      const result = transformEnvVarSyntax(input, "claude") as Record<string, string>;
+      expect(result.Authorization).toBe("Bearer ${TOKEN}");
+      expect(result["X-Static"]).toBe("plain");
+    });
+
+    it("recurses into arrays", () => {
+      const input = ["${env:A}", "static", "${env:B}"];
+      const result = transformEnvVarSyntax(input, "claude") as string[];
+      expect(result).toEqual(["${A}", "static", "${B}"]);
+    });
+
+    it("handles nested objects", () => {
+      const input = {
+        env: { KEY: "${env:SECRET}" },
+        headers: { Auth: "Bearer ${env:TOKEN}" },
+      };
+      const result = transformEnvVarSyntax(input, "claude") as Record<string, Record<string, string>>;
+      expect(result.env.KEY).toBe("${SECRET}");
+      expect(result.headers.Auth).toBe("Bearer ${TOKEN}");
+    });
+  });
+
+  describe("shell format", () => {
+    it("transforms ${env:VAR} to $VAR in strings", () => {
+      expect(transformEnvVarSyntax("Bearer ${env:GITHUB_PAT}", "shell"))
+        .toBe("Bearer $GITHUB_PAT");
+    });
+
+    it("transforms multiple references in one string", () => {
+      expect(transformEnvVarSyntax("${env:A} and ${env:B}", "shell"))
+        .toBe("$A and $B");
+    });
+
+    it("recurses into objects", () => {
+      const input = { Authorization: "Bearer ${env:TOKEN}" };
+      const result = transformEnvVarSyntax(input, "shell") as Record<string, string>;
+      expect(result.Authorization).toBe("Bearer $TOKEN");
+    });
+  });
+
+  describe("passthrough format", () => {
+    it("keeps ${env:VAR} syntax as-is", () => {
+      expect(transformEnvVarSyntax("Bearer ${env:GITHUB_PAT}", "passthrough"))
+        .toBe("Bearer ${env:GITHUB_PAT}");
+    });
+
+    it("is the default when no format is specified", () => {
+      expect(transformEnvVarSyntax("Bearer ${env:TOKEN}"))
+        .toBe("Bearer ${env:TOKEN}");
+    });
+  });
+
+  describe("non-string values", () => {
+    it("returns numbers unchanged", () => {
+      expect(transformEnvVarSyntax(42, "claude")).toBe(42);
+    });
+
+    it("returns booleans unchanged", () => {
+      expect(transformEnvVarSyntax(true, "claude")).toBe(true);
+    });
+
+    it("returns null unchanged", () => {
+      expect(transformEnvVarSyntax(null, "claude")).toBe(null);
+    });
+  });
+});
+
+describe("McpServerEntry headers field", () => {
+  it("accepts entries with headers", () => {
+    const entry: McpServerEntry = {
+      url: "https://api.example.com/mcp/",
+      headers: {
+        Authorization: "Bearer ${env:API_TOKEN}",
+        "X-Custom": "static-value",
+      },
+    };
+    const warnings = validateMcpEntry("example", entry);
+    expect(warnings).toEqual([]);
+  });
+
+  it("accepts command entries with headers", () => {
+    const entry: McpServerEntry = {
+      command: "npx",
+      args: ["-y", "@org/mcp-server"],
+      headers: { "X-Auth": "token-value" },
+    };
+    const warnings = validateMcpEntry("cmd-with-headers", entry);
+    expect(warnings).toEqual([]);
   });
 });

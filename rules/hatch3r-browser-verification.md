@@ -4,6 +4,7 @@ type: rule
 description: Browser-based verification for UI and user-facing changes
 scope: conditional
 tags: [review]
+quality_charter: agents/shared/quality-charter.md
 ---
 # Browser Verification
 

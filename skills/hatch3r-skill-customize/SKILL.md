@@ -2,6 +2,7 @@
 id: hatch3r-skill-customize
 description: Skill customization — redirects to the unified hatch3r-customize skill.
 tags: [customize]
+quality_charter: agents/shared/quality-charter.md
 ---
 # Skill Customization
 

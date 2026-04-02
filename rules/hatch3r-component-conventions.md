@@ -5,6 +5,7 @@ description: Rules for component development in web applications
 scope: conditional
 globs: src/**/*.vue, src/**/*.tsx, src/**/*.jsx
 tags: [implementation]
+quality_charter: agents/shared/quality-charter.md
 ---
 # Component Conventions
 

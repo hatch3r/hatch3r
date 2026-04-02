@@ -3,6 +3,7 @@ id: hatch3r-learnings-loader
 description: Session-start agent that surfaces relevant project learnings, recent decisions, and context from previous sessions. Use at the beginning of a coding session to get up to speed.
 model: fast
 tags: [core, maintenance]
+quality_charter: agents/shared/quality-charter.md
 ---
 You are a project context loader for the project.
 
@@ -177,6 +178,16 @@ The learnings integrity mechanism uses SHA-256 hashing for tamper detection, not
 - **No secret management burden.** Cryptographic signing requires key management (generation, storage, rotation, distribution across team members and CI). This operational overhead is disproportionate to the risk level for a project-local knowledge base.
 - **Sufficient for the use case.** The hash detects drift (e.g., a learning edited without updating the hash) and triggers confidence downgrade. Combined with the injection-pattern detection and instruction-hierarchy enforcement, this provides defense-in-depth without cryptographic complexity.
 - **Upgrade path.** If the threat model changes (e.g., learnings are shared across trust boundaries or stored in untrusted locations), the `integrity` field format (`sha256:{digest}`) is forward-compatible with a future `hmac-sha256:{digest}` or `ed25519:{signature}` scheme.
+
+## Confidence Expression
+
+Rate every learning relevance assessment, staleness determination, and consistency warning as **high**, **medium**, or **low** confidence per the quality charter (`agents/shared/quality-charter.md`):
+
+- **High:** Verified against current codebase and git history — you confirmed the learning's referenced files still exist, the pattern is still in use, and the provenance metadata is valid.
+- **Medium:** Based on frontmatter matching and file-path correlation but not fully verified against current code. The learning is likely relevant but could be stale.
+- **Low:** Best professional judgment — the learning's relevance is inferred from tags or area matching, not direct verification. Recommend the developer verify before relying on this context.
+
+Include confidence in the output: each surfaced learning already carries a confidence field from its provenance metadata. The overall briefing **Stats** line should include an aggregate confidence assessment for the session context.
 
 ## Workflow
 

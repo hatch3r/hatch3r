@@ -9,7 +9,8 @@ import { getAdapter } from "../../adapters/index.js";
 import { safeWriteFile } from "../../merge/safeWrite.js";
 import { AGENTS_DIR, HATCH3R_PREFIX, HatchError, WORKTREE_INCLUDE_FILE, type HatchManifest, type Platform } from "../../types.js";
 import { generateCanonicalAgentsMd, generateRootAgentsMd } from "../shared/agentsContent.js";
-import { generateWorktreeInclude } from "../../worktree/index.js";
+import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
+import { ensureEnvMcp, ensureGitignoreEntry, getSourceEnvMcpCommand } from "../../env/mcpEnv.js";
 import { HATCH3R_VERSION } from "../../version.js";
 import {
   printBanner,
@@ -186,6 +187,28 @@ export async function runUpdate(
   s2.succeed(step(offset + 3, total, adapterFailures.length > 0
     ? `Re-synced ${manifest.tools.length - adapterFailures.length}/${manifest.tools.length} tool(s)`
     : `Re-synced ${manifest.tools.length} tool(s)`));
+
+  // ── Reconciliation: .worktreeinclude & .env.mcp (parity with sync) ──
+  if (manifest.worktree?.enabled) {
+    const wtContent = await generateWorktreeInclude(manifest, rootDir);
+    const wtManaged = extractManagedContent(wtContent);
+    await safeWriteFile(
+      join(rootDir, WORKTREE_INCLUDE_FILE),
+      wtContent,
+      { managedContent: wtManaged },
+    );
+  }
+
+  if (manifest.features.mcp && manifest.mcp.servers.length > 0) {
+    const envResult = await ensureEnvMcp(rootDir, manifest.mcp.servers);
+    await ensureGitignoreEntry(rootDir);
+    if (envResult.newVars.length > 0) {
+      warn(
+        `New secrets needed in .env.mcp: ${envResult.newVars.join(", ")}`,
+      );
+      info(`Run this, then start or restart your editor: ${getSourceEnvMcpCommand()}`);
+    }
+  }
 
   const s3 = createSpinner(step(offset + 4, total, "Writing manifest..."));
   s3.start();

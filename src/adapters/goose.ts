@@ -3,46 +3,33 @@ import { toPrefixedId } from "../types.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
 import { BaseAdapter, output, type AdapterContext, type CleanMcpEntry } from "./base.js";
 import { readCanonicalFiles } from "./canonical.js";
-import { applyCustomization, applyCustomizationRaw } from "./customization.js";
+import { applyCustomizationRaw } from "./customization.js";
+import { transformEnvVarSyntax } from "./mcp-utils.js";
 import { stringify as yamlStringify } from "yaml";
 
-// Goose profile structure — represents a `.goose/profiles/{name}.yaml` file.
-// Goose reads profiles to configure agent behavior, extensions, and recipes.
+// Goose profile structure — matches the actual Goose platform schema.
+// Goose profiles live at `.goose/profiles/{name}.yaml` and configure
+// instructions and extensions. MCP servers are configured as extensions
+// within the profile (there is no separate mcp.json in Goose).
+// Reference: https://block.github.io/goose/docs/getting-started/profiles
 interface GooseProfile {
-  name: string;
-  description: string;
-  instructions: string;
+  instructions: string[];
   extensions?: GooseExtension[];
-  recipes?: GooseRecipeRef[];
-  /** ACP (Agent Communication Protocol) compatibility metadata. */
-  acp?: GooseAcpConfig;
 }
 
+// Goose extension entry — configures an MCP server or builtin extension.
+// `type` is "stdio" for command-based servers, "sse" for SSE-based servers,
+// or "builtin" for Goose's built-in extensions.
+// Reference: https://block.github.io/goose/docs/getting-started/using-extensions
 interface GooseExtension {
   name: string;
-  type: "builtin" | "mcp";
-  config?: Record<string, unknown>;
-}
-
-interface GooseRecipeRef {
-  name: string;
-  description: string;
-  /** Steps map to hatch3r agent phases. */
-  steps: GooseRecipeStep[];
-}
-
-interface GooseRecipeStep {
-  instruction: string;
-  /** Optional agent reference — maps to a hatch3r canonical agent. */
-  agent?: string;
-}
-
-interface GooseAcpConfig {
-  enabled: boolean;
-  /** ACP protocol version supported by this configuration. */
-  version: string;
-  /** Agent capabilities advertised via ACP discovery. */
-  capabilities: string[];
+  type: "stdio" | "sse" | "builtin";
+  cmd?: string;
+  args?: string[];
+  env_keys?: string[];
+  uri?: string;
+  headers?: Record<string, string>;
+  description?: string;
 }
 
 export class GooseAdapter extends BaseAdapter {
@@ -68,90 +55,44 @@ export class GooseAdapter extends BaseAdapter {
     const inner = lines.join("\n");
     const results: AdapterOutput[] = [output(".goosehints", wrapInManagedBlock(inner), inner)];
 
+    // MCP servers are configured as extensions within the Goose profile.
+    // Goose does not use a separate mcp.json file — all MCP configuration
+    // belongs in the profile's extensions array.
     const mcp = await this.readFilteredMcp(ctx);
-    if (mcp && Object.keys(mcp).length > 0) {
-      const entries = this.buildStdMcpEntries(mcp);
-      if (Object.keys(entries).length > 0) {
-        const gooseMcp: Record<string, unknown> = {};
-        for (const [name, entry] of Object.entries(entries)) {
-          gooseMcp[name] = entry;
-        }
-        results.push(output(".goose/mcp.json", JSON.stringify(gooseMcp, null, 2)));
-      }
-    }
 
-    // Generate Goose profile with recipe interoperability and ACP compatibility.
+    // Generate Goose profile matching the actual platform schema.
     const agents = ctx.features.agents
       ? await readCanonicalFiles(ctx.agentsDir, "agents")
       : [];
-    const profile = await this.buildProfile(ctx, agents, mcp);
+    const profile = this.buildProfile(ctx, agents, mcp);
     const profileYaml = yamlStringify(profile);
     results.push(output(".goose/profiles/hatch3r.yaml", profileYaml));
 
     return results;
   }
 
-  /** Build a Goose profile that maps hatch3r content to Goose's recipe system. */
-  private async buildProfile(
+  /**
+   * Build a Goose profile matching the actual Goose platform schema.
+   *
+   * Goose profiles use:
+   * - `instructions`: array of instruction strings (not a single string)
+   * - `extensions`: array of extension configs for MCP servers
+   *
+   * Goose does NOT support `recipes`, `acp`, `name`, or `description`
+   * as top-level profile fields.
+   */
+  private buildProfile(
     ctx: AdapterContext,
     agents: CanonicalFile[],
     mcp: Record<string, CleanMcpEntry> | null,
-  ): Promise<GooseProfile> {
+  ): GooseProfile {
     const extensions = this.buildExtensions(mcp);
-    const recipe = await this.buildRecipe(ctx, agents);
-    const capabilities = this.deriveAcpCapabilities(ctx, agents);
 
-    return {
-      name: "hatch3r",
-      description: `hatch3r-managed Goose profile for ${ctx.manifest.project || ctx.manifest.repo}. Provides agent pipeline, recipe interoperability, and ACP compatibility.`,
-      instructions: `Follow the canonical agent instructions at .agents/AGENTS.md. Use the hatch3r 4-phase pipeline: Research, Implement, Review, Quality.`,
-      ...(extensions.length > 0 ? { extensions } : {}),
-      recipes: [recipe],
-      acp: {
-        enabled: true,
-        version: "0.2",
-        capabilities,
-      },
-    };
-  }
+    const instructions: string[] = [
+      `Follow the canonical agent instructions at .agents/AGENTS.md.`,
+    ];
 
-  /** Map MCP servers to Goose extensions. */
-  private buildExtensions(
-    mcp: Record<string, CleanMcpEntry> | null,
-  ): GooseExtension[] {
-    if (!mcp) return [];
-    const extensions: GooseExtension[] = [];
-    for (const [name, entry] of Object.entries(mcp)) {
-      if (entry.command) {
-        extensions.push({
-          name,
-          type: "mcp",
-          config: {
-            command: entry.command,
-            args: entry.args || [],
-            ...(entry.env && Object.keys(entry.env).length > 0 ? { env: entry.env } : {}),
-          },
-        });
-      } else if (entry.url) {
-        extensions.push({
-          name,
-          type: "mcp",
-          config: { url: entry.url },
-        });
-      }
-    }
-    return extensions;
-  }
-
-  /** Build a Goose recipe from hatch3r's agent pipeline. */
-  private async buildRecipe(
-    ctx: AdapterContext,
-    agents: CanonicalFile[],
-  ): Promise<GooseRecipeRef> {
-    const steps: GooseRecipeStep[] = [];
-
-    // Map hatch3r's 4-phase pipeline to Goose recipe steps.
-    // Each step references a canonical agent when available.
+    // Add agent pipeline instructions directly.
     const phaseMap: Array<{ phase: string; agentPattern: string; fallback: string }> = [
       { phase: "Research", agentPattern: "researcher", fallback: "Gather context from the codebase. Identify affected files, patterns, and conventions. Do not modify any files." },
       { phase: "Implement", agentPattern: "implementer", fallback: "Implement the requested changes following project conventions. Require plan approval before making changes." },
@@ -160,56 +101,57 @@ export class GooseAdapter extends BaseAdapter {
     ];
 
     for (const { phase, agentPattern, fallback } of phaseMap) {
-      const matchingAgent = agents.find((a) =>
-        a.id.includes(agentPattern),
-      );
-      if (matchingAgent) {
-        const { skip, warnings } = await applyCustomization(ctx.projectRoot, matchingAgent);
-        this.warnings.push(...warnings);
-        if (!skip) {
-          // Use the agent description as the step instruction,
-          // or fall back to the default, truncated for recipe brevity.
-          const instruction = matchingAgent.description || fallback;
-          steps.push({
-            instruction: `[${phase}] ${instruction}`,
-            agent: toPrefixedId(matchingAgent.id),
-          });
-          continue;
-        }
-      }
-      steps.push({ instruction: `[${phase}] ${fallback}` });
+      const matchingAgent = agents.find((a) => a.id.includes(agentPattern));
+      const instruction = matchingAgent?.description || fallback;
+      instructions.push(`[${phase}] ${instruction}`);
     }
 
     return {
-      name: "hatch3r-pipeline",
-      description: "hatch3r 4-phase development pipeline: Research, Implement, Review, Quality.",
-      steps,
+      instructions,
+      ...(extensions.length > 0 ? { extensions } : {}),
     };
   }
 
-  /** Derive ACP capability advertisements from project configuration. */
-  private deriveAcpCapabilities(
-    ctx: AdapterContext,
-    agents: CanonicalFile[],
-  ): string[] {
-    const capabilities: string[] = [
-      "code-generation",
-      "code-review",
-    ];
-
-    if (agents.some((a) => a.id.includes("test"))) {
-      capabilities.push("test-generation");
+  /**
+   * Map MCP servers to Goose extensions using the actual Goose schema.
+   *
+   * Goose uses:
+   * - `type: "stdio"` with `cmd` and `args` for command-based servers
+   * - `type: "sse"` with `uri` for URL-based servers
+   * - `env_keys` for environment variable names (not values)
+   */
+  private buildExtensions(
+    mcp: Record<string, CleanMcpEntry> | null,
+  ): GooseExtension[] {
+    if (!mcp) return [];
+    const extensions: GooseExtension[] = [];
+    for (const [name, entry] of Object.entries(mcp)) {
+      if (entry.command) {
+        const ext: GooseExtension = {
+          name,
+          type: "stdio",
+          cmd: entry.command,
+          args: entry.args || [],
+        };
+        if (entry.env && Object.keys(entry.env).length > 0) {
+          ext.env_keys = Object.keys(entry.env);
+        }
+        if (entry.headers && Object.keys(entry.headers).length > 0) {
+          ext.headers = transformEnvVarSyntax(entry.headers, "shell") as Record<string, string>;
+        }
+        extensions.push(ext);
+      } else if (entry.url) {
+        const ext: GooseExtension = {
+          name,
+          type: "sse",
+          uri: entry.url,
+        };
+        if (entry.headers && Object.keys(entry.headers).length > 0) {
+          ext.headers = transformEnvVarSyntax(entry.headers, "shell") as Record<string, string>;
+        }
+        extensions.push(ext);
+      }
     }
-    if (agents.some((a) => a.id.includes("security"))) {
-      capabilities.push("security-audit");
-    }
-    if (agents.some((a) => a.id.includes("docs"))) {
-      capabilities.push("documentation");
-    }
-    if (ctx.features.mcp) {
-      capabilities.push("tool-use");
-    }
-
-    return capabilities;
+    return extensions;
   }
 }

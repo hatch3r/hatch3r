@@ -5,6 +5,7 @@ description: Internationalization, localization, and RTL support conventions for
 scope: conditional
 globs: src/**/*.vue, src/**/*.tsx, src/**/*.jsx, src/**/*.ts
 tags: [implementation]
+quality_charter: agents/shared/quality-charter.md
 ---
 # Internationalization & RTL
 

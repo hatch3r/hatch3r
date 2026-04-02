@@ -223,6 +223,8 @@ exports[`adapter output snapshots > ClineAdapter > output structure matches snap
 
 exports[`adapter output snapshots > CodexAdapter > file paths match snapshot 1`] = `
 [
+  ".codex/agents/hatch3r-readonly-agent.toml",
+  ".codex/agents/hatch3r-test-agent.toml",
   ".codex/config.toml",
   ".codex/skills/hatch3r-test-skill/SKILL.md",
 ]
@@ -230,6 +232,18 @@ exports[`adapter output snapshots > CodexAdapter > file paths match snapshot 1`]
 
 exports[`adapter output snapshots > CodexAdapter > output structure matches snapshot 1`] = `
 [
+  {
+    "action": "create",
+    "contentMarkers": [],
+    "hasManagedContent": false,
+    "path": ".codex/agents/hatch3r-readonly-agent.toml",
+  },
+  {
+    "action": "create",
+    "contentMarkers": [],
+    "hasManagedContent": false,
+    "path": ".codex/agents/hatch3r-test-agent.toml",
+  },
   {
     "action": "create",
     "contentMarkers": [],

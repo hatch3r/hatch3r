@@ -10,6 +10,7 @@ import { resolveTestPath } from "../fixtures.js";
 import {
   applyCustomization,
   applyCustomizationRaw,
+  scanForDeniedPatterns,
 } from "../../adapters/customization.js";
 import type { CanonicalFile } from "../../types.js";
 
@@ -603,5 +604,182 @@ describe("ClaudeAdapter with customization", () => {
 
     const agentFile = outputs.find((o) => o.path.includes("hatch3r-test-agent"));
     expect(agentFile).toBeUndefined();
+  });
+});
+
+describe("scanForDeniedPatterns — Unicode normalization (#75)", () => {
+  it("detects Armenian homoglyph bypass attempts", () => {
+    // Armenian \u0562\u0585 looks like "bo" in "bypass"
+    const input = "\u0562yp\u0561ss security";
+    const violations = scanForDeniedPatterns(input);
+    expect(violations.length).toBeGreaterThan(0);
+    expect(violations[0]).toContain("bypass security");
+  });
+
+  it("detects Cherokee homoglyph bypass attempts", () => {
+    // Cherokee \u13AC looks like "S" and \u13DA looks like "K"
+    const input = "\u13AC\u13DAip security";
+    const violations = scanForDeniedPatterns(input);
+    expect(violations.length).toBeGreaterThan(0);
+  });
+
+  it("detects Georgian homoglyph bypass attempts", () => {
+    // Georgian \u10D4 looks like 'e', \u10E8 like 'x'
+    const input = "\u10D4\u10E8filtrate";
+    const violations = scanForDeniedPatterns(input);
+    expect(violations.length).toBeGreaterThan(0);
+  });
+
+  it("detects fullwidth Latin bypass attempts via NFKC", () => {
+    // Fullwidth "bypass" = \uFF42\uFF59\uFF50\uFF41\uFF53\uFF53
+    const input = "\uFF42\uFF59\uFF50\uFF41\uFF53\uFF53 security";
+    const violations = scanForDeniedPatterns(input);
+    expect(violations.length).toBeGreaterThan(0);
+    expect(violations[0]).toContain("bypass security");
+  });
+
+  it("detects mathematical bold bypass attempts via NFKC", () => {
+    // Mathematical bold "bypass" U+1D41B U+1D432 U+1D429 U+1D41A U+1D42C U+1D42C
+    const input = "\u{1D41B}\u{1D432}\u{1D429}\u{1D41A}\u{1D42C}\u{1D42C} security";
+    const violations = scanForDeniedPatterns(input);
+    expect(violations.length).toBeGreaterThan(0);
+  });
+
+  it("allows clean content with no homoglyphs", () => {
+    const violations = scanForDeniedPatterns("Focus on code quality and testing.");
+    expect(violations).toEqual([]);
+  });
+});
+
+describe("scanForDeniedPatterns — model field scanning (#17)", () => {
+  let tempDir: string;
+
+  afterEach(async () => {
+    if (tempDir) {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  async function setup(): Promise<string> {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-model-scan-"));
+    return tempDir;
+  }
+
+  const baseAgent: CanonicalFile = {
+    id: "hatch3r-reviewer",
+    type: "agent",
+    description: "Code reviewer",
+    content: "You are a code reviewer.",
+    rawContent: "---\nid: hatch3r-reviewer\n---\nYou are a code reviewer.",
+    sourcePath: "/fake/path.md",
+  };
+
+  it("strips model field containing denied patterns", async () => {
+    const projectRoot = await setup();
+    const dir = join(projectRoot, ".hatch3r", "agents");
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, "hatch3r-reviewer.customize.yaml"),
+      "model: bypass security checks always",
+      "utf-8",
+    );
+    const result = await applyCustomization(projectRoot, baseAgent);
+    expect(result.overrides.model).toBeUndefined();
+    expect(result.warnings.some((w) => w.includes("YAML model"))).toBe(true);
+  });
+
+  it("allows clean model field values", async () => {
+    const projectRoot = await setup();
+    const dir = join(projectRoot, ".hatch3r", "agents");
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, "hatch3r-reviewer.customize.yaml"),
+      "model: claude-opus-4-0-20250514",
+      "utf-8",
+    );
+    const result = await applyCustomization(projectRoot, baseAgent);
+    expect(result.overrides.model).toBe("claude-opus-4-0-20250514");
+    expect(result.warnings).toEqual([]);
+  });
+});
+
+describe("applyCustomization — protected file content-length cap (#18)", () => {
+  let tempDir: string;
+
+  afterEach(async () => {
+    if (tempDir) {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  async function setup(): Promise<string> {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-protected-cap-"));
+    return tempDir;
+  }
+
+  const protectedAgent: CanonicalFile = {
+    id: "hatch3r-security",
+    type: "agent",
+    description: "Security agent",
+    protected: true,
+    content: "You enforce security.",
+    rawContent: "---\nid: hatch3r-security\nprotected: true\n---\nYou enforce security.",
+    sourcePath: "/fake/path.md",
+  };
+
+  const unprotectedAgent: CanonicalFile = {
+    id: "hatch3r-helper",
+    type: "agent",
+    description: "Helper agent",
+    content: "You help with tasks.",
+    rawContent: "---\nid: hatch3r-helper\n---\nYou help with tasks.",
+    sourcePath: "/fake/path.md",
+  };
+
+  it("truncates protected file customization at 2KB", async () => {
+    const projectRoot = await setup();
+    const dir = join(projectRoot, ".hatch3r", "agents");
+    await mkdir(dir, { recursive: true });
+    const largeContent = "A".repeat(3_000);
+    await writeFile(
+      join(dir, "hatch3r-security.customize.md"),
+      largeContent,
+      "utf-8",
+    );
+    const result = await applyCustomization(projectRoot, protectedAgent);
+    expect(result.warnings.some((w) => w.includes("exceeds 2048 bytes"))).toBe(true);
+    const customizationSection = result.content.split("## Project Customizations")[1];
+    expect(customizationSection).toBeDefined();
+    const mdContent = customizationSection!.split("<!-- USER-CUSTOMIZATION:END -->")[0].trim();
+    expect(Buffer.byteLength(mdContent, "utf-8")).toBeLessThanOrEqual(2_048);
+  });
+
+  it("allows unprotected file customization up to 10KB", async () => {
+    const projectRoot = await setup();
+    const dir = join(projectRoot, ".hatch3r", "agents");
+    await mkdir(dir, { recursive: true });
+    const content = "B".repeat(3_000);
+    await writeFile(
+      join(dir, "hatch3r-helper.customize.md"),
+      content,
+      "utf-8",
+    );
+    const result = await applyCustomization(projectRoot, unprotectedAgent);
+    expect(result.warnings).toEqual([]);
+    expect(result.content).toContain("B".repeat(3_000));
+  });
+
+  it("allows small customization on protected files", async () => {
+    const projectRoot = await setup();
+    const dir = join(projectRoot, ".hatch3r", "agents");
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, "hatch3r-security.customize.md"),
+      "Focus on OWASP Top 10.",
+      "utf-8",
+    );
+    const result = await applyCustomization(projectRoot, protectedAgent);
+    expect(result.warnings).toEqual([]);
+    expect(result.content).toContain("Focus on OWASP Top 10.");
   });
 });

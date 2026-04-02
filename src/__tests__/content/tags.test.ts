@@ -15,10 +15,19 @@ import {
   TAG_A11Y,
   TAG_PERFORMANCE,
   TAG_CUSTOMIZE,
+  TAG_LANG_TYPESCRIPT,
+  TAG_LANG_PYTHON,
+  TAG_LANG_GO,
+  TAG_LANG_RUST,
+  TAG_LANG_JAVA,
+  TAG_LANG_RUBY,
   ALL_TAGS,
   WORKFLOW_TAGS,
   CONTEXT_TAGS,
   DOMAIN_TAGS,
+  LANGUAGE_TAGS,
+  LANGUAGE_TO_TAG,
+  isLanguageTag,
 } from "../../content/tags.js";
 
 describe("tag constants", () => {
@@ -84,8 +93,8 @@ describe("tag constants", () => {
 });
 
 describe("ALL_TAGS", () => {
-  it("contains exactly 15 elements", () => {
-    expect(ALL_TAGS).toHaveLength(15);
+  it("contains exactly 21 elements", () => {
+    expect(ALL_TAGS).toHaveLength(21);
   });
 
   it("contains every individual tag constant", () => {
@@ -105,6 +114,12 @@ describe("ALL_TAGS", () => {
       TAG_A11Y,
       TAG_PERFORMANCE,
       TAG_CUSTOMIZE,
+      TAG_LANG_TYPESCRIPT,
+      TAG_LANG_PYTHON,
+      TAG_LANG_GO,
+      TAG_LANG_RUST,
+      TAG_LANG_JAVA,
+      TAG_LANG_RUBY,
     ];
     for (const tag of allIndividualTags) {
       expect(ALL_TAGS).toContain(tag);
@@ -159,9 +174,82 @@ describe("DOMAIN_TAGS", () => {
   });
 });
 
+describe("LANGUAGE_TAGS", () => {
+  it("has exactly 6 elements", () => {
+    expect(LANGUAGE_TAGS).toHaveLength(6);
+  });
+
+  it("contains the correct language tags", () => {
+    expect(LANGUAGE_TAGS).toContain(TAG_LANG_TYPESCRIPT);
+    expect(LANGUAGE_TAGS).toContain(TAG_LANG_PYTHON);
+    expect(LANGUAGE_TAGS).toContain(TAG_LANG_GO);
+    expect(LANGUAGE_TAGS).toContain(TAG_LANG_RUST);
+    expect(LANGUAGE_TAGS).toContain(TAG_LANG_JAVA);
+    expect(LANGUAGE_TAGS).toContain(TAG_LANG_RUBY);
+  });
+
+  it("all language tags start with 'lang:' prefix", () => {
+    for (const tag of LANGUAGE_TAGS) {
+      expect(tag).toMatch(/^lang:/);
+    }
+  });
+});
+
+describe("LANGUAGE_TO_TAG", () => {
+  it("maps typescript to lang:typescript", () => {
+    expect(LANGUAGE_TO_TAG["typescript"]).toBe(TAG_LANG_TYPESCRIPT);
+  });
+
+  it("maps javascript to lang:typescript (JS benefits from TS rules)", () => {
+    expect(LANGUAGE_TO_TAG["javascript"]).toBe(TAG_LANG_TYPESCRIPT);
+  });
+
+  it("maps python to lang:python", () => {
+    expect(LANGUAGE_TO_TAG["python"]).toBe(TAG_LANG_PYTHON);
+  });
+
+  it("maps go to lang:go", () => {
+    expect(LANGUAGE_TO_TAG["go"]).toBe(TAG_LANG_GO);
+  });
+
+  it("maps rust to lang:rust", () => {
+    expect(LANGUAGE_TO_TAG["rust"]).toBe(TAG_LANG_RUST);
+  });
+
+  it("maps java to lang:java", () => {
+    expect(LANGUAGE_TO_TAG["java"]).toBe(TAG_LANG_JAVA);
+  });
+
+  it("maps kotlin to lang:java (shared ecosystem)", () => {
+    expect(LANGUAGE_TO_TAG["kotlin"]).toBe(TAG_LANG_JAVA);
+  });
+
+  it("maps ruby to lang:ruby", () => {
+    expect(LANGUAGE_TO_TAG["ruby"]).toBe(TAG_LANG_RUBY);
+  });
+});
+
+describe("isLanguageTag", () => {
+  it("returns true for language tags", () => {
+    expect(isLanguageTag("lang:typescript")).toBe(true);
+    expect(isLanguageTag("lang:python")).toBe(true);
+    expect(isLanguageTag("lang:go")).toBe(true);
+  });
+
+  it("returns false for non-language tags", () => {
+    expect(isLanguageTag("core")).toBe(false);
+    expect(isLanguageTag("planning")).toBe(false);
+    expect(isLanguageTag("security")).toBe(false);
+  });
+
+  it("returns false for empty string", () => {
+    expect(isLanguageTag("")).toBe(false);
+  });
+});
+
 describe("tag group completeness", () => {
-  it("ALL_TAGS equals the union of WORKFLOW_TAGS, CONTEXT_TAGS, and DOMAIN_TAGS", () => {
-    const combined = [...WORKFLOW_TAGS, ...CONTEXT_TAGS, ...DOMAIN_TAGS];
+  it("ALL_TAGS equals the union of WORKFLOW_TAGS, CONTEXT_TAGS, DOMAIN_TAGS, and LANGUAGE_TAGS", () => {
+    const combined = [...WORKFLOW_TAGS, ...CONTEXT_TAGS, ...DOMAIN_TAGS, ...LANGUAGE_TAGS];
     expect(ALL_TAGS).toEqual(combined);
   });
 });

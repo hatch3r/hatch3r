@@ -141,6 +141,20 @@ function validateManifest(data: unknown): data is HatchManifest {
     }
   }
 
+  if (obj.costTracking !== undefined) {
+    if (typeof obj.costTracking !== "object" || obj.costTracking === null) return false;
+    const ct = obj.costTracking as Record<string, unknown>;
+    if (ct.sessionBudget !== undefined && typeof ct.sessionBudget !== "number") return false;
+    if (ct.issueBudget !== undefined && typeof ct.issueBudget !== "number") return false;
+    if (ct.epicBudget !== undefined && typeof ct.epicBudget !== "number") return false;
+    if (ct.currency !== undefined && typeof ct.currency !== "string") return false;
+    if (ct.warningThresholds !== undefined) {
+      if (!Array.isArray(ct.warningThresholds)) return false;
+      if (!(ct.warningThresholds as unknown[]).every((v) => typeof v === "number")) return false;
+    }
+    if (ct.hardStop !== undefined && typeof ct.hardStop !== "boolean") return false;
+  }
+
   if (obj.worktree !== undefined) {
     if (typeof obj.worktree !== "object" || obj.worktree === null) return false;
     const wt = obj.worktree as Record<string, unknown>;

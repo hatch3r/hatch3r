@@ -3,6 +3,7 @@ id: hatch3r-dep-audit
 type: command
 description: Scan, assess, and upgrade npm dependencies. Categorizes findings by severity (CVEs, major/minor/patch outdated), researches migration paths, upgrades packages one at a time with testing, and creates tracking issues for unaddressed items.
 tags: [maintenance, security]
+quality_charter: agents/shared/quality-charter.md
 ---
 
 ## Agent Pipeline

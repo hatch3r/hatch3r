@@ -16,7 +16,7 @@ All adapters that support MCP emit tool-specific configuration during `npx hatch
 |------|-------------|--------|-------|
 | Cursor | `.cursor/mcp.json` | JSON (direct copy) | Also reads `mcp.json` at project root if using the Cursor plugin |
 | Claude Code | `.mcp.json` | JSON (direct copy) | Also generates `.claude/settings.json` with opinionated permissions (see [Claude Code Permissions](#claude-code-permissions)) |
-| Copilot / VS Code | `.vscode/mcp.json` | JSON with `envFile` | Adds `envFile: "${workspaceFolder}/.env.mcp"` per STDIO server for native secret loading |
+| Copilot / VS Code | `.vscode/mcp.json` | JSON with `env` object | Env vars passed via `env` object per server |
 | OpenCode | `opencode.json` | JSON (inline) | MCP servers embedded in the top-level config under `mcp` key |
 | Windsurf | `.windsurf/mcp.json` | JSON | Standard `mcpServers` format |
 | Amp | `.amp/settings.json` | JSON | MCP servers under `amp.mcpServers` key |
@@ -43,7 +43,7 @@ Config goes to `.mcp.json`. Claude Code reads it from the project root. Fill in 
 
 ### Copilot / VS Code
 
-Config goes to `.vscode/mcp.json`. Unlike other tools, the Copilot adapter adds `envFile: "${workspaceFolder}/.env.mcp"` to each STDIO server entry, so VS Code loads secrets natively without sourcing `.env.mcp` in the shell.
+Config goes to `.vscode/mcp.json`. Env vars are passed via the `env` object per server entry. Source `.env.mcp` before launching or set vars in VS Code settings.
 
 ### OpenCode
 
@@ -117,7 +117,7 @@ When you add new MCP servers and run `hatch3r init` or `hatch3r sync`, any new v
 
 ### How secrets are loaded per editor
 
-**VS Code / Copilot** — Secrets load automatically. The generated `.vscode/mcp.json` includes `envFile: "${workspaceFolder}/.env.mcp"` on every STDIO server, so VS Code reads the file natively. No sourcing needed.
+**VS Code / Copilot** — Env vars are passed via the `env` object in `.vscode/mcp.json`. Source `.env.mcp` before launching or configure vars in VS Code settings.
 
 **Cursor** — Source `.env.mcp` before launching:
 

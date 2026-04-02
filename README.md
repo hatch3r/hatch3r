@@ -164,7 +164,7 @@ All commands are prefixed with `hatch3r-` (e.g., `hatch3r-board-fill`). See the 
 
 `hatch3r init` creates a `.env.mcp` file with required environment variables for your selected MCP servers (gitignored by default). MCP config is written to the tool-appropriate location (`.cursor/mcp.json`, `.mcp.json`, `.vscode/mcp.json`, etc.).
 
-- **VS Code / Copilot**: Secrets load automatically via the native `envFile` field.
+- **VS Code / Copilot**: Secrets are passed via the `env` object in `.vscode/mcp.json`.
 - **Cursor / Claude Code / others**: Source the file first: `set -a && source .env.mcp && set +a && cursor .`
 
 See [MCP Setup](https://docs.hatch3r.com/docs/guides/mcp-setup) for full setup, per-server details, and PAT scope guidance.

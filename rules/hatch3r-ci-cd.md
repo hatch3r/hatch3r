@@ -4,6 +4,7 @@ type: rule
 description: CI/CD pipeline standards covering stage gates, deployment strategies, and rollback procedures
 scope: "**/.github/workflows/**,**/Dockerfile*,**/docker-compose*,**/.gitlab-ci*,**/Jenkinsfile,**/azure-pipelines*,**/.circleci/**,**/deploy/**,**/*pipeline*"
 tags: [devops]
+quality_charter: agents/shared/quality-charter.md
 ---
 # CI/CD Standards
 

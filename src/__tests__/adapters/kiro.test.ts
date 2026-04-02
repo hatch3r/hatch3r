@@ -151,6 +151,73 @@ describe("KiroAdapter", () => {
     }
   });
 
+  it("generates native hook files in .kiro/hooks/", async () => {
+    const manifest = createManifest({
+      tools: ["kiro"],
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const hookFiles = outputs.filter((o) => o.path.startsWith(".kiro/hooks/"));
+    expect(hookFiles.length).toBeGreaterThanOrEqual(1);
+
+    // Check that hooks use native format with YAML frontmatter
+    const preCommitHook = hookFiles.find((o) => o.path.includes("pre-commit"));
+    expect(preCommitHook).toBeDefined();
+    expect(preCommitHook!.content).toContain("trigger: beforeCommit");
+    expect(preCommitHook!.content).toContain("HATCH3R_HOOK_ACTIVATED");
+  });
+
+  it("hook files include condition frontmatter when globs present", async () => {
+    const manifest = createManifest({
+      tools: ["kiro"],
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const preCommitHook = outputs.find((o) =>
+      o.path.startsWith(".kiro/hooks/") && o.path.includes("pre-commit"),
+    );
+    expect(preCommitHook).toBeDefined();
+    // pre-commit-lint-fixer fixture has globs
+    expect(preCommitHook!.content).toContain("filePattern:");
+  });
+
+  it("hook files include branch conditions when present", async () => {
+    const manifest = createManifest({
+      tools: ["kiro"],
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const postMergeHook = outputs.find((o) =>
+      o.path.startsWith(".kiro/hooks/") && o.path.includes("post-merge"),
+    );
+    expect(postMergeHook).toBeDefined();
+    // post-merge-deploy fixture has branches
+    expect(postMergeHook!.content).toContain("branches:");
+  });
+
+  it("does not generate hooks when hooks feature is disabled", async () => {
+    const manifest = createManifest({
+      tools: ["kiro"],
+      features: { hooks: false },
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const hookFiles = outputs.filter((o) => o.path.startsWith(".kiro/hooks/"));
+    expect(hookFiles.length).toBe(0);
+  });
+
+  it("no longer emits generic bridge hooks markdown", async () => {
+    const manifest = createManifest({
+      tools: ["kiro"],
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    // The old generic format wrote a single .kiro/steering/hatch3r-hooks.md file.
+    // Native hooks use .kiro/hooks/ directory instead.
+    const oldHooksFile = outputs.find((o) => o.path === ".kiro/steering/hatch3r-hooks.md");
+    expect(oldHooksFile).toBeUndefined();
+  });
+
   describe("extended MCP scenarios", () => {
     let extendedDir: string;
 

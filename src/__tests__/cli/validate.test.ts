@@ -254,7 +254,7 @@ describe("validate command", () => {
     await validateCommand();
 
     const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
-    expect(allOutput).toContain('Learning file "bad-learning.md" contains suspicious content');
+    expect(allOutput).toContain('Learning "bad-learning.md" contains suspicious content');
   });
 
   it("should not warn for clean learning files", async () => {

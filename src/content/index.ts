@@ -4,6 +4,7 @@ import { parseFrontmatter } from "../adapters/canonical.js";
 import { HatchError } from "../types.js";
 import type { ContentSelection } from "../types.js";
 import type { ContentPreset } from "./presets.js";
+import { isLanguageTag, LANGUAGE_TO_TAG } from "./tags.js";
 
 export function assertSafePath(relativePath: string, label: string): void {
   // Strip null bytes before validation — prevents null byte injection bypasses
@@ -330,6 +331,9 @@ export const TYPE_TO_SELECTION_KEY: Record<string, keyof ContentSelection["items
  * 6. If teamSize is "solo", remove items whose ONLY tags are "team" / "board"
  * 7. Items with protected: true are always included
  * 8. For "custom" preset, use customSelections as explicit ID list
+ * 9. Language filtering (Finding #71): items with language tags (lang:*) are only
+ *    included when the project's detected languages match. Items without language
+ *    tags are always included.
  */
 export function resolveSelection(
   preset: ContentPreset,
@@ -337,8 +341,18 @@ export function resolveSelection(
   teamSize: "solo" | "team",
   index: ContentIndex,
   customSelections?: string[],
+  projectLanguages?: string[],
 ): ContentSelection {
   let selected: CatalogItem[];
+
+  // Build the set of relevant language tags from detected project languages
+  const relevantLangTags = new Set<string>();
+  if (projectLanguages) {
+    for (const lang of projectLanguages) {
+      const tag = LANGUAGE_TO_TAG[lang];
+      if (tag) relevantLangTags.add(tag);
+    }
+  }
 
   if (preset.id === "custom" && customSelections) {
     // For custom, use explicit ID list
@@ -401,6 +415,20 @@ export function resolveSelection(
         );
       });
     }
+  }
+
+  // Language filtering (Finding #71): remove items whose language tags
+  // don't match the detected project languages. Items without any language
+  // tags pass through (language-agnostic content).
+  if (projectLanguages && projectLanguages.length > 0) {
+    selected = selected.filter((item) => {
+      if (item.protected) return true;
+      const itemLangTags = item.tags.filter(isLanguageTag);
+      // Items with no language tags are language-agnostic — always included
+      if (itemLangTags.length === 0) return true;
+      // Items with language tags must match at least one project language
+      return itemLangTags.some((t) => relevantLangTags.has(t));
+    });
   }
 
   // Build the selection items grouped by type
@@ -825,8 +853,9 @@ export function estimatePresetItemCount(
   projectType: "greenfield" | "brownfield",
   teamSize: "solo" | "team",
   index: ContentIndex,
+  projectLanguages?: string[],
 ): number {
-  const selection = resolveSelection(preset, projectType, teamSize, index);
+  const selection = resolveSelection(preset, projectType, teamSize, index, undefined, projectLanguages);
   return Object.values(selection.items).reduce((sum, arr) => sum + arr.length, 0);
 }
 

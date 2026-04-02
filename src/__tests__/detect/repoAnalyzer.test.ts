@@ -99,6 +99,62 @@ describe("analyzeRepo", () => {
       expect(info.languages).toContain("java");
     });
 
+    it("detects Ruby from Gemfile", async () => {
+      const root = await createTempRepo();
+      await writeFile(join(root, "Gemfile"), "source 'https://rubygems.org'\ngem 'rails'");
+
+      const info = await analyzeRepo(root);
+      expect(info.languages).toContain("ruby");
+    });
+
+    it("detects Kotlin from build.gradle.kts", async () => {
+      const root = await createTempRepo();
+      await writeFile(join(root, "build.gradle.kts"), "plugins { kotlin(\"jvm\") }");
+
+      const info = await analyzeRepo(root);
+      expect(info.languages).toContain("kotlin");
+    });
+
+    it("detects Python from Pipfile", async () => {
+      const root = await createTempRepo();
+      await writeFile(join(root, "Pipfile"), "[packages]\nflask = \"*\"");
+
+      const info = await analyzeRepo(root);
+      expect(info.languages).toContain("python");
+    });
+
+    it("detects Dart from pubspec.yaml", async () => {
+      const root = await createTempRepo();
+      await writeFile(join(root, "pubspec.yaml"), "name: my_app");
+
+      const info = await analyzeRepo(root);
+      expect(info.languages).toContain("dart");
+    });
+
+    it("detects Elixir from mix.exs", async () => {
+      const root = await createTempRepo();
+      await writeFile(join(root, "mix.exs"), "defmodule MyApp do");
+
+      const info = await analyzeRepo(root);
+      expect(info.languages).toContain("elixir");
+    });
+
+    it("detects Swift from Package.swift", async () => {
+      const root = await createTempRepo();
+      await writeFile(join(root, "Package.swift"), "// swift-tools-version:5.5");
+
+      const info = await analyzeRepo(root);
+      expect(info.languages).toContain("swift");
+    });
+
+    it("detects PHP from composer.json", async () => {
+      const root = await createTempRepo();
+      await writeFile(join(root, "composer.json"), "{}");
+
+      const info = await analyzeRepo(root);
+      expect(info.languages).toContain("php");
+    });
+
     it("detects C# from .csproj files", async () => {
       const root = await createTempRepo();
       await writeFile(join(root, "App.csproj"), "<Project></Project>");

@@ -2,6 +2,7 @@
 id: hatch3r-incident-response
 description: Handle production incidents with structured triage, mitigation, and post-mortem. Use when responding to production issues, outages, or security incidents.
 tags: [devops]
+quality_charter: agents/shared/quality-charter.md
 ---
 # Incident Response Workflow
 

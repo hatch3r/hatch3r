@@ -4,6 +4,7 @@ type: rule
 description: Security patterns including input validation, auth enforcement, and AI/agentic security for the project
 scope: "**/auth/**,**/security/**,**/middleware/**,**/*auth*,**/*guard*,**/*policy*,**/*permission*,**/*sanitiz*,**/*validat*"
 tags: [security]
+quality_charter: agents/shared/quality-charter.md
 ---
 # Security Patterns
 

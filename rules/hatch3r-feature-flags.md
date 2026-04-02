@@ -4,6 +4,7 @@ type: rule
 description: Feature flag patterns and lifecycle for the project
 scope: conditional
 tags: [implementation]
+quality_charter: agents/shared/quality-charter.md
 ---
 # Feature Flags
 

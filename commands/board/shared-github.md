@@ -3,6 +3,7 @@ id: hatch3r-board-shared-github
 type: shared-context
 description: GitHub-specific platform details for board shared context. Covers GitHub Issues, Projects V2, gh CLI, and MCP tools.
 tags: [board, team, github]
+quality_charter: agents/shared/quality-charter.md
 ---
 # Board Shared Reference — GitHub Platform Details
 
