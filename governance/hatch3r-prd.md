@@ -23,7 +23,7 @@ The product solves the "great agent setups don't travel well" problem by making 
 - **Updatable** — `npx hatch3r update` pulls latest without overwriting customizations
 - **Learnable** — captures insights from issues, reviews, and decisions; compounds project knowledge over time
 - **Event-driven** — lifecycle hooks activate agents automatically on commits, merges, CI failures, and more
-- **Proven** — patterns extracted from a production agentic setup (16 agents, 25 skills, 22 rules, 34 commands, 4 GitHub agents, 10 MCP servers)
+- **Proven** — patterns extracted from a production agentic setup (16 agents, 26 skills, 23 rules, 34 commands, 5 checks, 4 GitHub agents, 10 MCP servers)
 - **Multi-platform** — supports GitHub, Azure DevOps, and GitLab for board management and MCP integration
 
 hatch3r works equally well for greenfield products, existing codebases, and legacy systems. It includes dedicated commands for greenfield project specification, brownfield codebase analysis, and roadmap generation — providing a complete path from idea to board-managed delivery.
@@ -156,6 +156,7 @@ hatch3r occupies a unique position as the only framework combining: **deeply nat
 15. **Automatic learning** (every completed issue, review, and decision is a learning opportunity captured on the fly; agents get smarter with each iteration without manual intervention)
 16. **Up-to-date information** (agents use web research and live documentation via Context7 MCP, not stale training data; this is a general principle baked into all content)
 17. **Behavioral quality standards** (all content artifacts inherit from a shared quality charter (`agents/shared/quality-charter.md`) that defines measurable behavioral standards: confidence expression, root-cause orientation, stakeholder awareness, graceful failure, and measurable acceptance criteria — verified by the weekly audit)
+18. **Coverage infrastructure must reflect actual quality** (test coverage metrics must accurately measure real codebase coverage — no inflated percentages from misconfigured exclusions; coverage is a quality signal, not a vanity metric. Added from Cycle 4 finding D3-C1)
 
 ### Audit Cycle as Product Feature
 
@@ -186,7 +187,7 @@ The audit produces a structured report (AUDIT-REPORT.md) with 19-domain coverage
 - Tool adapters: Cursor, GitHub Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline/Roo Code, Aider, Kiro, Goose, Zed, Amazon Q, Antigravity (15 adapters)
 - Cursor plugin distribution via Marketplace
 - Canonical pack format under `/.agents/` including: agents, skills, rules, prompts, commands, hooks, learnings, MCP configuration, guardrails, GitHub agents
-- `default` preset with full content (16 agents, 25 skills, 22 rules, 34 commands, 3 prompts, 4 GitHub agents)
+- `default` preset with full content (16 agents, 26 skills, 23 rules, 34 commands, 5 checks, 3 prompts, 4 GitHub agents)
 - 34 commands including: board management (init, fill, pickup, shared, refresh, groom), project analysis (project-spec, codebase-map, roadmap, feature-plan, bug-plan, refactor-plan, migration-plan, test-plan, api-spec), workflow (workflow, hooks, learn, onboard, quick-change, revision, debug), operations (healthcheck, security-audit, dep-audit, release, benchmark), monitoring (context-health, cost-tracking), automation (recipe, agent-customize, skill-customize, rule-customize, command-customize)
 - Community pack sourcing (`--pack git:<url>#<tag>` or `--pack ./local`)
 - Enhanced MCP config template with 10 servers (3 default + 7 opt-in)
@@ -222,6 +223,12 @@ The audit produces a structured report (AUDIT-REPORT.md) with 19-domain coverage
 ### 8.1 Primary Flow: `npx hatch3r init`
 
 Goal: install a complete "agent setup" into an existing or new repo.
+
+**Environment detection (added from Cycle 4 finding D10-M7, D19-H4):**
+
+- **TTY detection:** When `process.stdout.isTTY` is false (piped output, CI environment), skip interactive prompts and use `--yes`/`--preset` defaults. Display a clear message: "Non-interactive mode detected. Use `--preset default` or provide flags."
+- **CI-mode detection:** When `CI=true` or common CI environment variables are present (`GITHUB_ACTIONS`, `GITLAB_CI`, `JENKINS_URL`, `CIRCLECI`), auto-select non-interactive defaults and suppress color output.
+- **Preset-aware messaging:** When a preset is selected, show a summary of what the preset includes before proceeding, so users understand what they are getting without stepping through each choice.
 
 **Interactive steps:**
 
@@ -833,6 +840,14 @@ During `init`, the user selects which MCPs to enable. The generator writes only 
 
 **Warning (always shown when MCP is enabled):** "Third-party MCP servers can execute actions and access data. Review server sources before enabling."
 
+#### MCP Propagation Requirements (added from Cycle 4 findings D11-H1, D11-H2)
+
+When adapters transform the canonical MCP config to tool-specific formats, the following must be preserved:
+
+1. **Header forwarding:** Any `headers` object in the canonical config (e.g., GitHub MCP's `Authorization` and `X-MCP-Toolsets`) must be propagated to the tool-specific output format. Tools that support HTTP-based MCP connections (Cursor, Claude Code, Copilot) must include headers verbatim. Tools that do not support headers must emit a warning comment in the generated config.
+2. **`env:VAR` transformation:** The `${env:VAR_NAME}` placeholder syntax in the canonical config must be transformed to each tool's native environment variable resolution syntax. For tools that support `envFile` (e.g., Copilot/VS Code), generate the appropriate `envFile` reference. For tools that use inline `env` objects, preserve the variable names. For tools that lack native env var support, emit a setup instruction comment.
+3. **No silent drops:** If a canonical MCP field cannot be expressed in a target tool's format, the adapter must log a warning during `sync`/`init` — never silently omit configuration.
+
 ---
 
 ## 14. Distribution Channels
@@ -1326,7 +1341,7 @@ All core functionality is implemented and functional:
 
 - 8 CLI commands: `init`, `config`, `sync`, `update`, `status`, `validate`, `verify`, `add` (stub — CLI entry point exists, full pack resolution planned)
 - 15 tool adapters: Cursor, Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline/Roo Code, Aider, Kiro, Goose, Zed, Amazon Q, Antigravity
-- `default` preset: 16 agents, 25 skills, 22 rules, 34 commands, 3 prompts, 4 GitHub agents
+- `default` preset: 16 agents, 26 skills, 23 rules, 34 commands, 5 checks, 3 prompts, 4 GitHub agents
 - 10 MCP servers (3 default: Filesystem, Context7, Playwright + 7 opt-in: GitHub, Brave Search, Sentry, Postgres, Linear, Azure DevOps, GitLab)
 - Hook system with 6 event types and adapter integration
 - Learning system with capture command and auto-consultation rule
@@ -1336,6 +1351,7 @@ All core functionality is implemented and functional:
 - Guardrails denylist + safe-run wrapper
 - Safe merge with naming convention + managed blocks + backups
 - Cursor plugin manifest
+- **Release quality gate (added from Cycle 4 findings D3-C1, D16-C1):** Every release must pass: (1) typecheck with zero errors, (2) all tests pass, (3) coverage metrics accurately reflect real codebase coverage (no inflated percentages from misconfigured exclusions), (4) no regressions from previous release. Coverage accuracy is a prerequisite for all other quality gates.
 - **v4.0 changes:** hatch3r-error-handling rule merged into hatch3r-code-standards; 5 new agents (architect, context-rules, devops, fixer, learnings-loader); 3 new skills (api-spec, ci-pipeline, migration); 5 new rules (accessibility-standards, ci-cd, data-classification, deep-context, secrets-management); 8 new commands; 4 new adapters (Aider, Kiro, Goose, Zed)
 
 #### Resolved Blockers
