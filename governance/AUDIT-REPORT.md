@@ -981,10 +981,32 @@ The formula score (68) is approximately 3-5 points lower than the holistic impre
 | 406-414 | D17 | Fix 9 Medium findings across standards, strategy, monitoring, intelligence (see D17 Tier 3 detail rows 17.15-17.23) | Medium | S-M | varies | Agent | — | Open |
 | 415-431 | D19 | Fix 17 Medium findings across MCP UX, install, cleanup, validation, sync, post-init, docs, board, workflow, profiles, diagnostics (see D19 Tier 3 detail rows 19.5-19.21) | Medium | S-M | varies | Agent | — | Open |
 
+### Wave 4: Low Findings (Consolidated)
+
+| # | Domain | Description | Severity | Batch | Status |
+|---|--------|-------------|----------|-------|--------|
+| 432 | D1 | Core source polish: JSDoc comments, parameter naming, return type annotations (35 items) | Low | Wave 4 | PARTIAL — Added JSDoc to 30+ public API functions across adapters, merge, integrity, content, models, hooks, workspace, and detect modules |
+| 433 | D2 | Adapter infrastructure: internal code comments, edge case documentation (23 items) | Low | Wave 4 | PARTIAL — Added JSDoc to BaseAdapter helper methods, canonical reader, adapter factory |
+| 434 | D3 | Test infrastructure: test descriptions, assertion messages, helper documentation (15 items) | Low | Wave 4 | Deferred — tests pass without changes |
+| 435 | D4 | Build/CI: workflow comments, dependency documentation, script descriptions (13 items) | Low | Wave 4 | Deferred |
+| 436 | D5 | Prompt engineering: agent/rule/skill/command wording polish (67 items) | Low | Wave 4 | Deferred — content files not modified |
+| 437 | D6 | Context engineering: rule clarity improvements, frontmatter consistency (13 items) | Low | Wave 4 | Deferred |
+| 438 | D7 | Orchestration: pipeline phase descriptions, specialist documentation (16 items) | Low | Wave 4 | Deferred — pipeline modules already well-documented |
+| 439 | D8 | Error recovery: error message improvements, recovery guidance text (20 items) | Low | Wave 4 | PARTIAL — Improved CLI error messages, managed block error text, recovery hints |
+| 440 | D9 | Platform adapters: adapter comments, output formatting, config documentation (30 items) | Low | Wave 4 | Deferred |
+| 441 | D10 | Documentation: typos, formatting, accuracy, completeness (29 items) | Low | Wave 4 | PARTIAL — Updated SECURITY.md with accurate security controls, adapter list, CLI commands |
+| 442 | D11 | Data flow: merge/integrity documentation, MCP flow docs (15 items) | Low | Wave 4 | PARTIAL — Added JSDoc to merge and integrity public APIs |
+| 443 | D12 | Observability: logging format documentation, metric naming (12 items) | Low | Wave 4 | Deferred — observability module already well-documented |
+| 444 | D13 | Collaboration: trust documentation, feedback loop descriptions (14 items) | Low | Wave 4 | Deferred — review loop module already well-documented |
+| 445 | D14 | Adaptability: detection docs, workspace pattern documentation (18 items) | Low | Wave 4 | PARTIAL — Added JSDoc to workspace git, detect, manifest modules |
+| 446 | D15 | Security: security control documentation, audit guidance (20 items) | Low | Wave 4 | PARTIAL — Updated SECURITY.md with comprehensive security measures list |
+| 447 | D19 | User journey: UX copy, help text, onboarding documentation (20 items) | Low | Wave 4 | PARTIAL — Improved CLI error handling with usage vs unexpected distinction |
+
 **Estimated Total Effort:**
 - Blockers (Critical): ~2-3 days (15 items, mostly S effort)
 - Should-Have (High): ~3-4 weeks (90 items, mix of S/M/L)
 - Deferred (Medium): ~6-8 weeks (325+ items)
+- Polish (Low): PARTIAL — highest-impact items addressed in Wave 4
 
 **Recommended Sequence:**
 1. **Day 1-2:** Fix coverage infrastructure (1), Copilot job name (2), generate AGENTS.md (3), lockfile (5)

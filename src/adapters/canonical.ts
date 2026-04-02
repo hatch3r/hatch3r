@@ -5,6 +5,13 @@ import type { CanonicalFile, CanonicalMetadata } from "../types.js";
 
 const FRONTMATTER_REGEX = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n([\s\S]*))?$/;
 
+/**
+ * Parse YAML frontmatter from a markdown file's raw content.
+ *
+ * Returns the parsed metadata and the body content after the frontmatter block.
+ * If the file has no frontmatter delimiters (`---`), returns empty metadata
+ * and the full content as the body.
+ */
 export function parseFrontmatter(rawContent: string): {
   metadata: CanonicalMetadata;
   content: string;
@@ -160,6 +167,13 @@ async function readSkillSubdirs(baseDir: string): Promise<CanonicalFile[]> {
   return entries.filter((e): e is NonNullable<typeof e> => e !== null);
 }
 
+/**
+ * Read all canonical files of a given type from the `.agents/` directory.
+ *
+ * Returns parsed `CanonicalFile` objects with frontmatter metadata and body content.
+ * Skills use subdirectory strategy (`skills/{name}/SKILL.md`); all others use glob
+ * strategy (flat `.md` files in the type directory).
+ */
 export async function readCanonicalFiles(
   agentsDir: string,
   type: CanonicalType,

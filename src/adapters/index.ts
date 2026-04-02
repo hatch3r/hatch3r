@@ -38,6 +38,12 @@ const adapterFactories: Record<Tool, () => Adapter> = {
 
 const adapterCache = new Map<Tool, Adapter>();
 
+/**
+ * Retrieve or lazily instantiate the adapter for a given tool.
+ *
+ * Adapters are cached after first creation so repeated calls return the
+ * same instance. Throws if the tool name is not in the factory map.
+ */
 export function getAdapter(tool: Tool): Adapter {
   let adapter = adapterCache.get(tool);
   if (adapter) return adapter;
@@ -92,6 +98,10 @@ const ADAPTER_CAPABILITIES: Record<Tool, AdapterCapability> = {
   antigravity: { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true  },
 };
 
+/**
+ * Return warnings for features enabled in the manifest but not supported
+ * by the given tool's adapter. Used during sync to surface capability gaps.
+ */
 export function getUnsupportedFeatureWarnings(tool: string, manifest: HatchManifest): string[] {
   const caps = ADAPTER_CAPABILITIES[tool as Tool];
   if (!caps) return [];

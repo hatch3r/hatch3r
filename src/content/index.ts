@@ -6,6 +6,13 @@ import type { ContentSelection } from "../types.js";
 import type { ContentPreset } from "./presets.js";
 import { isLanguageTag, LANGUAGE_TO_TAG } from "./tags.js";
 
+/**
+ * Validate that a relative path does not escape its base directory.
+ *
+ * Throws a HatchError if the path contains directory traversal (`..`),
+ * is absolute, or contains null bytes. Used to prevent path injection
+ * during content copy and install operations.
+ */
 export function assertSafePath(relativePath: string, label: string): void {
   // Strip null bytes before validation — prevents null byte injection bypasses
   const sanitized = relativePath.replace(/\0/g, '');

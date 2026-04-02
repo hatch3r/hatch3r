@@ -281,6 +281,7 @@ export class HatchError extends Error {
   }
 }
 
+/** Remove characters that are not alphanumeric, dot, hyphen, or underscore from an ID. */
 export function sanitizeId(id: string): string {
   return id.replace(/[^a-zA-Z0-9._-]/g, "");
 }

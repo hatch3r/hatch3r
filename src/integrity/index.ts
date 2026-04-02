@@ -61,6 +61,13 @@ async function collectFiles(dir: string, base: string): Promise<string[]> {
   return files;
 }
 
+/**
+ * Generate an integrity manifest by hashing all canonical files in the .agents directory.
+ *
+ * Scans `.md`, `.mdc`, and `.json` files in designated subdirectories
+ * and produces a SHA-256 hash for each. The manifest-level checksum
+ * covers the entire file hash map to detect tampering.
+ */
 export async function generateIntegrityManifest(
   agentsDir: string,
   hatchVersion: string,
@@ -89,6 +96,7 @@ export async function generateIntegrityManifest(
   };
 }
 
+/** Atomically write the integrity manifest to `.agents/.integrity.json`. */
 export async function writeIntegrityManifest(
   agentsDir: string,
   manifest: IntegrityManifest,
@@ -111,6 +119,7 @@ function validateIntegrityManifest(data: unknown): data is IntegrityManifest {
   return true;
 }
 
+/** Read and validate the integrity manifest, returning null if absent or malformed. */
 export async function readIntegrityManifest(
   agentsDir: string,
 ): Promise<IntegrityManifest | null> {
@@ -126,6 +135,13 @@ export async function readIntegrityManifest(
   }
 }
 
+/**
+ * Verify integrity of all canonical files against the stored manifest.
+ *
+ * Returns an array of per-file results: `pass`, `modified`, `missing`,
+ * `new` (file on disk but not in manifest), or `tampered` (manifest
+ * checksum mismatch). Returns an empty array if no manifest exists.
+ */
 export async function verifyIntegrity(
   agentsDir: string,
 ): Promise<VerifyResult[]> {

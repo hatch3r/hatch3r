@@ -4,6 +4,12 @@ import { parse as parseYaml } from "yaml";
 import type { HookDefinition } from "./types.js";
 import { isValidHookEvent } from "./types.js";
 
+/**
+ * Read all hook definitions from `.agents/hooks/` by parsing YAML frontmatter.
+ *
+ * Each hook must have `id`, `event`, and `agent` in its frontmatter.
+ * Duplicate IDs across files are silently deduplicated (first wins).
+ */
 export async function readHookDefinitions(
   agentsDir: string,
 ): Promise<HookDefinition[]> {

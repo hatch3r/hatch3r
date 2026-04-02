@@ -21,6 +21,12 @@ export interface CustomizationReadResult {
 
 export type AgentCustomization = Customization;
 
+/**
+ * Read a `.customize.yaml` override for a content item.
+ *
+ * Looks for `.hatch3r/{type}/{id}.customize.yaml` relative to the project root.
+ * Returns undefined if no customization file exists or the file is empty.
+ */
 export async function readCustomization(
   projectRoot: string,
   type: CustomizableType,
@@ -81,6 +87,12 @@ export async function readCustomizationWithWarnings(
   }
 }
 
+/**
+ * Read a `.customize.md` content append for a content item.
+ *
+ * Looks for `.hatch3r/{type}/{id}.customize.md` relative to the project root.
+ * Returns undefined if no file exists or the file is empty.
+ */
 export async function readCustomizationMarkdown(
   projectRoot: string,
   type: CustomizableType,

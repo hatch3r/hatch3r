@@ -20,6 +20,7 @@ export interface Adapter {
   getOutputPaths(agentsDir: string, manifest: HatchManifest): Promise<string[]>;
 }
 
+/** Convenience factory for creating an AdapterOutput with `action: "create"`. */
 export function output(
   path: string,
   content: string,
@@ -136,6 +137,7 @@ export abstract class BaseAdapter implements Adapter {
     ];
   }
 
+  /** Read canonical rules and format them as inline markdown sections. */
   protected async inlineRules(ctx: AdapterContext): Promise<string[]> {
     if (!ctx.features.rules) return [];
     const lines: string[] = [];
@@ -155,6 +157,7 @@ export abstract class BaseAdapter implements Adapter {
     return lines;
   }
 
+  /** Read canonical agents and format them as inline markdown sections with optional model annotations. */
   protected async inlineAgents(
     ctx: AdapterContext,
     formatModel?: (model: string) => ModelFormat,
@@ -183,6 +186,7 @@ export abstract class BaseAdapter implements Adapter {
     return lines;
   }
 
+  /** Process skills and output each as a raw managed-block file at the path returned by `pathFn`. */
   protected async processSkillsRaw(
     ctx: AdapterContext,
     pathFn: (id: string) => string,
@@ -199,6 +203,7 @@ export abstract class BaseAdapter implements Adapter {
     return results;
   }
 
+  /** Process skills and output each with YAML frontmatter (name, description) at the path returned by `pathFn`. */
   protected async processSkillsWithFm(
     ctx: AdapterContext,
     pathFn: (id: string) => string,
@@ -217,6 +222,7 @@ export abstract class BaseAdapter implements Adapter {
     return results;
   }
 
+  /** Process commands and output each as a raw managed-block file at the path returned by `pathFn`. */
   protected async processCommandsRaw(
     ctx: AdapterContext,
     pathFn: (id: string) => string,
@@ -233,6 +239,7 @@ export abstract class BaseAdapter implements Adapter {
     return results;
   }
 
+  /** Read MCP server config and filter to only the servers selected in the manifest. */
   protected async readFilteredMcp(
     ctx: AdapterContext,
   ): Promise<Record<string, CleanMcpEntry> | null> {
@@ -251,6 +258,7 @@ export abstract class BaseAdapter implements Adapter {
     return Object.keys(filtered).length > 0 ? filtered : null;
   }
 
+  /** Build a standard MCP server configuration object from filtered entries, with env var syntax transformation. */
   protected buildStdMcpEntries(
     filtered: Record<string, CleanMcpEntry>,
     envVarFormat: "claude" | "shell" | "passthrough" = "passthrough",

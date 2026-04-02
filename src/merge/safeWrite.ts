@@ -172,6 +172,7 @@ export async function safeWriteFile(
   };
 }
 
+/** Check whether a file path's basename starts with the hatch3r- prefix. */
 export function isManagedPath(filePath: string): boolean {
   const fileName = basename(filePath) ?? "";
   return fileName.startsWith(HATCH3R_PREFIX);

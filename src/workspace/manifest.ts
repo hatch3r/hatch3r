@@ -64,6 +64,7 @@ function validateWorkspaceManifest(data: unknown): data is WorkspaceManifest {
   return true;
 }
 
+/** Read and validate the workspace manifest, returning null if not found. */
 export async function readWorkspaceManifest(
   rootDir: string,
 ): Promise<WorkspaceManifest | null> {
@@ -101,6 +102,7 @@ export async function readWorkspaceManifest(
   return parsed;
 }
 
+/** Atomically write the workspace manifest to `.agents/workspace.json`. */
 export async function writeWorkspaceManifest(
   rootDir: string,
   manifest: WorkspaceManifest,
@@ -109,6 +111,7 @@ export async function writeWorkspaceManifest(
   await atomicWriteFile(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
 }
 
+/** Create a new workspace manifest with the given configuration. */
 export function createWorkspaceManifest(
   name: string,
   defaults: WorkspaceManifest["defaults"],

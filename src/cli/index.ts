@@ -175,7 +175,12 @@ try {
   console.error(
     `\nhatch3r encountered an ${isUsageError ? "usage" : "unexpected"} error: ${err instanceof Error ? err.message : String(err)}`,
   );
-  console.error("  For help, see: https://github.com/hatch3r/hatch3r#troubleshooting");
+  if (isUsageError) {
+    console.error(`  Run "hatch3r --help" for usage information.`);
+  } else {
+    console.error("  For help, see: https://github.com/hatch3r/hatch3r#troubleshooting");
+    console.error("  Set DEBUG=1 for a full stack trace.");
+  }
   if (process.env.DEBUG) {
     console.error(err);
   }
