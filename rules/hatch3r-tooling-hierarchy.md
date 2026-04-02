@@ -2,7 +2,7 @@
 id: hatch3r-tooling-hierarchy
 type: rule
 description: Priority order for tools and knowledge sources
-scope: always
+scope: "**/.agents/**,**/mcp/**,**/mcp.json,**/.cursor/**,**/.github/copilot*,**/.windsurf/**,**/hatch.json,**/.claude/**"
 tags: [core]
 ---
 # Tooling Hierarchy

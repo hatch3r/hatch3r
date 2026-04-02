@@ -26,7 +26,7 @@ import {
 } from "../../types.js";
 import { analyzeRepo } from "../../detect/repoAnalyzer.js";
 import { ensureEnvMcp, ensureGitignoreEntry, getSourceEnvMcpCommand } from "../../env/mcpEnv.js";
-import { AGENTS_MD_INNER, AGENTS_MD_FULL, generateCanonicalAgentsMd } from "../shared/agentsContent.js";
+import { generateCanonicalAgentsMd, generateRootAgentsMd } from "../shared/agentsContent.js";
 import {
   printBanner,
   createSpinner,
@@ -176,8 +176,10 @@ async function runInit(options: RunInitOptions): Promise<void> {
   );
   s3.start();
   // On init, preserve existing user content: prepend managed block if file has no markers.
-  await safeWriteFile(join(rootDir, "AGENTS.md"), AGENTS_MD_FULL, {
-    managedContent: AGENTS_MD_INNER,
+  // Generate rich root AGENTS.md with agent/skill/command rosters for platform discovery.
+  const rootAgentsMd = await generateRootAgentsMd(agentsDir);
+  await safeWriteFile(join(rootDir, "AGENTS.md"), rootAgentsMd.full, {
+    managedContent: rootAgentsMd.inner,
     appendIfNoBlock: true,
   });
   addManagedFile(manifest, "AGENTS.md");

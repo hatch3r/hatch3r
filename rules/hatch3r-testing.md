@@ -2,7 +2,7 @@
 id: hatch3r-testing
 type: rule
 description: Test standards and conventions for the project
-scope: always
+scope: "**/*.test.*,**/*.spec.*,**/__tests__/**,**/tests/**,**/test/**,**/*.cy.*,**/playwright/**,**/vitest.config.*,**/jest.config.*,**/cypress.config.*"
 tags: [core]
 ---
 # Testing Standards

@@ -1,6 +1,6 @@
 ---
 description: API endpoint and contract design patterns for the project
-alwaysApply: true
+globs: ["**/api/**", "**/routes/**", "**/controllers/**", "**/endpoints/**", "**/*route*", "**/*controller*", "**/*endpoint*", "**/*handler*", "**/graphql/**", "**/trpc/**"]
 ---
 # API Design
 

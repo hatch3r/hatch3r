@@ -54,7 +54,7 @@ Adapters generate tool-specific output:
 | Checks | `checks/` | 5 |
 | GitHub Agents | `github-agents/` | 4 |
 | **Total Content Artifacts** | | **137** |
-| Adapters | `src/adapters/` | 14 tool adapters (20 files total) |
+| Adapters | `src/adapters/` | 15 tool adapters (21 files total) |
 | CLI Commands | `src/cli/commands/` | 9 (add, config, init, status, sync, update, validate, verify, worktreeSetup) |
 | Content System | `src/content/` | 3 files (index.ts 686 LOC, tags.ts 91 LOC, presets.ts 48 LOC) = 825 LOC |
 | Workspace | `src/workspace/` | 6 files (763 LOC) |
@@ -109,8 +109,8 @@ The following sub-agents have sequential dependencies and MUST NOT launch until 
 
 | Sub-Agent | Depends On | Reason |
 |-----------|-----------|--------|
-| 9.15 (Capability Matrix Verification) | 9.1–9.14 | Requires all per-adapter audit findings |
-| 9.16 (Emerging Platforms) | 9.1–9.14 | Requires understanding of current adapter landscape |
+| 9.16 (Capability Matrix Verification) | 9.1–9.15 | Requires all per-adapter audit findings |
+| 9.17 (Emerging Platforms) | 9.1–9.15 | Requires understanding of current adapter landscape |
 | 16.1 (One-Shot Success Analysis) | D5, D7 | Requires prompt quality and orchestration findings |
 | 16.2 (Content Coverage Gap Analysis) | D5, D9 | Requires content and adapter findings |
 | 16.3 (Prompt Consistency) | D5, D7 | Requires cross-artifact analysis |

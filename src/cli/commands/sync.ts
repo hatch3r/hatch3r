@@ -10,7 +10,7 @@ import { AGENTS_DIR, HatchError, WORKTREE_INCLUDE_FILE, type GenerationMode } fr
 import { ensureEnvMcp, ensureGitignoreEntry, getSourceEnvMcpCommand } from "../../env/mcpEnv.js";
 import { readWorkspaceManifest } from "../../workspace/manifest.js";
 import { syncWorkspaceRepos } from "../../workspace/sync.js";
-import { AGENTS_MD_INNER, AGENTS_MD_FULL, generateCanonicalAgentsMd } from "../shared/agentsContent.js";
+import { generateCanonicalAgentsMd, generateRootAgentsMd } from "../shared/agentsContent.js";
 import { verifyIntegrity, generateIntegrityManifest, writeIntegrityManifest } from "../../integrity/index.js";
 import { pruneArchives } from "../../archive/index.js";
 import { HATCH3R_VERSION } from "../../version.js";
@@ -116,8 +116,9 @@ export async function syncCommand(
 
   const s1 = createSpinner(step(++currentStep, totalSteps, "Syncing AGENTS.md..."));
   s1.start();
-  const agentsMdResult = await safeWriteFile(join(rootDir, "AGENTS.md"), AGENTS_MD_FULL, {
-    managedContent: AGENTS_MD_INNER,
+  const rootAgentsMd = await generateRootAgentsMd(agentsDir);
+  const agentsMdResult = await safeWriteFile(join(rootDir, "AGENTS.md"), rootAgentsMd.full, {
+    managedContent: rootAgentsMd.inner,
   });
   if (agentsMdResult.warning) warn(agentsMdResult.warning);
   results.push({ path: "AGENTS.md", action: agentsMdResult.action });

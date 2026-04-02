@@ -78,7 +78,7 @@ For each finding, provide:
 
 12. **Consider side effects.** If your change modifies a shared module,
     trace all callers to verify no downstream breakage. If your change
-    modifies an adapter base class or utility function, verify all 14
+    modifies an adapter base class or utility function, verify all 15
     adapters or all consumers still work correctly. Use grep to find
     all references before editing.
 

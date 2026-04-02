@@ -46,6 +46,7 @@ vi.mock("../../content/index.js", () => ({
 
 vi.mock("../../cli/shared/agentsContent.js", () => ({
   generateCanonicalAgentsMd: vi.fn().mockResolvedValue("# AGENTS.md content"),
+  generateRootAgentsMd: vi.fn().mockResolvedValue({ full: "<!-- HATCH3R:BEGIN -->\n# Root AGENTS.md\n<!-- HATCH3R:END -->\n", inner: "# Root AGENTS.md" }),
 }));
 
 vi.mock("../../merge/safeWrite.js", () => ({
@@ -88,7 +89,7 @@ import {
   extractContentReferences,
   validateOrchestrationDependencies,
 } from "../../content/index.js";
-import { generateCanonicalAgentsMd } from "../../cli/shared/agentsContent.js";
+import { generateCanonicalAgentsMd, generateRootAgentsMd } from "../../cli/shared/agentsContent.js";
 import { safeWriteFile } from "../../merge/safeWrite.js";
 import { ensureEnvMcp, ensureGitignoreEntry, getSourceEnvMcpCommand } from "../../env/mcpEnv.js";
 import { printBox, info, error as logError, warn } from "../../cli/shared/ui.js";
@@ -250,6 +251,7 @@ describe("config command", () => {
     vi.mocked(extractContentReferences).mockReturnValue([]);
     vi.mocked(validateOrchestrationDependencies).mockReturnValue([]);
     vi.mocked(generateCanonicalAgentsMd).mockResolvedValue("# AGENTS.md content");
+    vi.mocked(generateRootAgentsMd).mockResolvedValue({ full: "<!-- HATCH3R:BEGIN -->\n# Root AGENTS.md\n<!-- HATCH3R:END -->\n", inner: "# Root AGENTS.md" });
     vi.mocked(ensureEnvMcp).mockResolvedValue({ action: "skipped", path: ".env.mcp", newVars: [] });
     vi.mocked(getSourceEnvMcpCommand).mockReturnValue("source .env.mcp");
     vi.mocked(runUpdate).mockResolvedValue({ copiedFiles: 10, syncedTools: 1, failedTools: 0, version: "1.1.0" });

@@ -2,7 +2,7 @@
 id: hatch3r-dependency-management
 type: rule
 description: Rules for managing project dependencies
-scope: always
+scope: "**/package.json,**/package-lock.json,**/yarn.lock,**/pnpm-lock.yaml,**/Cargo.toml,**/Cargo.lock,**/requirements*.txt,**/pyproject.toml,**/go.mod,**/go.sum,**/Gemfile*"
 tags: [maintenance]
 ---
 # Dependency Management

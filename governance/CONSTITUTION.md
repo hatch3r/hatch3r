@@ -9,7 +9,7 @@
 
 hatch3r is an open-source CLI and Cursor plugin that installs a battle-tested, tool-agnostic agentic coding setup into any repository. It solves the "great agent setups don't travel well" problem — agentic coding configurations are hard to extract, hard to reuse across tools, prone to drift, unsafe by default, not updatable, not delegatable, and not learnable.
 
-The solution: a canonical source model (`/.agents/`) that generates native configuration for 14 AI coding platforms via adapters. One source of truth, many outputs. Weekly-audited and continuously improved through a closed-loop governance system.
+The solution: a canonical source model (`/.agents/`) that generates native configuration for 15 AI coding platforms via adapters. One source of truth, many outputs. Weekly-audited and continuously improved through a closed-loop governance system.
 
 The framework is for everyone: solo developers to enterprise teams, any software type (web, API, CLI, mobile, infra), any maturity level (MVP to enterprise-grade). Generic content with customization for specifics.
 
@@ -211,11 +211,11 @@ Maximum end quality is the only metric that matters. There are 7 content types: 
 
 ## 7. Platform Strategy
 
-All 14 adapters are equally supported — no first-class vs second-class platforms. Platform changes (new features, API changes, deprecations) are adapted within the weekly audit cycle.
+All 15 adapters are equally supported — no first-class vs second-class platforms. Platform changes (new features, API changes, deprecations) are adapted within the weekly audit cycle.
 
-**Supported platforms:** Cursor, GitHub Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline/Roo Code, Aider, Kiro, Goose, Zed, Amazon Q.
+**Supported platforms:** Cursor, GitHub Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline/Roo Code, Aider, Kiro, Goose, Zed, Amazon Q, Antigravity.
 
-**Why equal parity:** The framework's core value proposition is tool-agnostic agent setup. If adapter quality varies, users of "lesser" tools get worse results, undermining the premise. D9 (Platform Adapters) audits all 14 with dedicated sub-agents per adapter — 14 per-adapter sub-agents plus a capability matrix verification sub-agent and an emerging platforms sub-agent (16 total).
+**Why equal parity:** The framework's core value proposition is tool-agnostic agent setup. If adapter quality varies, users of "lesser" tools get worse results, undermining the premise. D9 (Platform Adapters) audits all 15 with dedicated sub-agents per adapter — 15 per-adapter sub-agents plus a capability matrix verification sub-agent and an emerging platforms sub-agent (17 total).
 
 **Capability gap transparency:** Platforms have different native capabilities. Not every platform can express every feature in the canonical source. The framework tracks and documents these capability gaps rather than hiding them. Users of any platform know exactly what they get and what their platform cannot express.
 

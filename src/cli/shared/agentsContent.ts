@@ -112,6 +112,93 @@ export const AGENTS_MD_INNER = [
 
 export const AGENTS_MD_FULL = `${wrapInManagedBlock(AGENTS_MD_INNER)}\n`;
 
+/**
+ * Generate a rich root-level AGENTS.md from what's on disk.
+ *
+ * Platforms like GitHub Copilot, Cursor, and others scan for AGENTS.md at the
+ * project root. This function produces inline agent/skill/command rosters so
+ * those platforms discover available agents without following a pointer to
+ * `/.agents/AGENTS.md`.
+ *
+ * The content is wrapped in a managed block so user-added content outside the
+ * block is preserved across syncs.
+ *
+ * Falls back to the static AGENTS_MD_FULL when the agents directory is empty
+ * or unreadable.
+ */
+export async function generateRootAgentsMd(agentsDir: string): Promise<{ full: string; inner: string }> {
+  const sections: string[] = [];
+
+  sections.push("# Project Agent Instructions");
+  sections.push("");
+  sections.push("This project uses [hatch3r](https://github.com/hatch3r-ai/hatch3r) for agentic coding orchestration.");
+  sections.push("Full canonical instructions are at `/.agents/AGENTS.md`.");
+
+  // Build agent roster from what's on disk
+  const agents = await readDirFiles(join(agentsDir, "agents"));
+  if (agents.length > 0) {
+    sections.push("");
+    sections.push("## Agents");
+    sections.push("");
+    sections.push("| Agent | Purpose |");
+    sections.push("|-------|---------|");
+    for (const agent of agents) {
+      const { metadata } = parseFrontmatter(agent.content);
+      const id = metadata.id || metadata.name || agent.name.replace(/\.md$/, "");
+      const desc = metadata.description ?? "";
+      sections.push(`| \`${id}\` | ${desc.slice(0, 100)} |`);
+    }
+  }
+
+  // Build skill table from what's on disk
+  const skills = await readSkillDirs(join(agentsDir, "skills"));
+  if (skills.length > 0) {
+    sections.push("");
+    sections.push("## Skills");
+    sections.push("");
+    sections.push("| Skill | Description |");
+    sections.push("|-------|-------------|");
+    for (const skill of skills) {
+      sections.push(`| \`${skill.id}\` | ${skill.description.slice(0, 100)} |`);
+    }
+  }
+
+  // Build command list from what's on disk
+  const commands = await readDirFiles(join(agentsDir, "commands"));
+  if (commands.length > 0) {
+    sections.push("");
+    sections.push("## Commands");
+    sections.push("");
+    sections.push("| Command | Description |");
+    sections.push("|---------|-------------|");
+    for (const cmd of commands) {
+      const { metadata } = parseFrontmatter(cmd.content);
+      const id = metadata.id || metadata.name || cmd.name.replace(/\.md$/, "");
+      const desc = metadata.description ?? "";
+      sections.push(`| \`${id}\` | ${desc.slice(0, 100)} |`);
+    }
+  }
+
+  sections.push("");
+  sections.push("## Directory Structure");
+  sections.push("");
+  sections.push("- Rules: `/.agents/rules/`");
+  sections.push("- Agents: `/.agents/agents/`");
+  sections.push("- Skills: `/.agents/skills/`");
+  sections.push("- Commands: `/.agents/commands/`");
+  sections.push("- MCP: `/.agents/mcp/mcp.json`");
+  sections.push("- Learnings: `/.agents/learnings/`");
+
+  // If nothing dynamic was found, fall back to the static stub
+  if (agents.length === 0 && skills.length === 0 && commands.length === 0) {
+    return { full: AGENTS_MD_FULL, inner: AGENTS_MD_INNER };
+  }
+
+  const inner = sections.join("\n");
+  const full = `${wrapInManagedBlock(inner)}\n`;
+  return { full, inner };
+}
+
 // ── Dynamic AGENTS.md generation ──────────────────────────────
 
 /**

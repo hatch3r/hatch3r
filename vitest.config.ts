@@ -14,7 +14,8 @@ export default defineConfig({
     hookTimeout: 30000,
     coverage: {
       provider: "v8",
-      include: ["src/**"],
+      all: true,
+      include: ["src/**/*.ts"],
       exclude: [
         "src/cli/index.ts",
         "src/hooks/types.ts",

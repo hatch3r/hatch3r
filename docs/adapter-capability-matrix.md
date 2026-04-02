@@ -51,6 +51,8 @@ Living reference for framework capabilities vs. adapter implementations. This do
 | **kiro** | Y | B | Y | -- | -- | Y | -- | -- | -- | Y | -- |
 | **goose** | B | B | B | -- | -- | -- | -- | -- | -- | Y | -- |
 | **zed** | B | B | -- | -- | -- | -- | -- | -- | -- | Y | -- |
+| **amazon-q** | B | B | Y | -- | -- | Y | -- | -- | -- | Y | -- |
+| **antigravity** | B | B | Y | -- | -- | Y | -- | -- | -- | Y | -- |
 
 ### Agent Model Customization
 
@@ -71,6 +73,8 @@ All adapters emit model preferences when configured via `hatch.json`, agent fron
 | **kiro** | Guidance | Text in .kiro/steering/hatch3r-agents.md |
 | **goose** | Guidance | Text in .goosehints |
 | **zed** | Guidance | Text in .rules |
+| **amazon-q** | Guidance | Text in .amazonq/rules/hatch3r-agents.md |
+| **antigravity** | Guidance | Text in .antigravity/rules.md |
 
 ---
 
@@ -258,6 +262,26 @@ When omitted, the adapter falls back to sensible defaults so existing projects c
 | agents | `.rules` | Inlined into managed block (bridge) |
 | bridge | `.rules` | Managed block with inline orchestration + canonical reference |
 
+### Amazon Q
+
+| Capability | Output Path | Format |
+|------------|-------------|--------|
+| rules | `.amazonq/rules/hatch3r-agents.md` | Inlined into managed block (bridge) |
+| agents | `.amazonq/rules/hatch3r-agents.md` | Inlined into managed block (bridge) |
+| skills | `.amazonq/rules/hatch3r-skill-{id}.md` | Raw content |
+| mcp | `.amazonq/mcp.json` | JSON `mcpServers` object |
+| bridge | `.amazonq/rules/hatch3r-agents.md` | Managed block with inline orchestration + canonical reference |
+
+### Antigravity
+
+| Capability | Output Path | Format |
+|------------|-------------|--------|
+| rules | `.antigravity/rules.md` | Inlined into managed block (bridge) |
+| agents | `.antigravity/rules.md` | Inlined into managed block (bridge) |
+| skills | `.antigravity/skills/hatch3r-{id}/SKILL.md` | Raw content |
+| mcp | `.antigravity/settings.json` | JSON `mcpServers` object |
+| bridge | `.antigravity/rules.md` | Managed block with inline orchestration + canonical reference |
+
 ---
 
 ## Canonical Path Matches
@@ -293,6 +317,8 @@ All MCP secrets are centralized in a single `.env.mcp` file at the project root 
 | **kiro** | `${env:VAR}` from process env | No | Same sourcing pattern |
 | **goose** | N/A (global MCP only) | No | Goose MCP is global; secrets set via global config |
 | **zed** | N/A (global MCP only) | No | Zed MCP is global; secrets set via Zed settings |
+| **amazon-q** | `${env:VAR}` from process env | No | Same sourcing pattern |
+| **antigravity** | `${env:VAR}` from process env | No | Same sourcing pattern |
 
 ### Sourcing `.env.mcp`
 
@@ -322,6 +348,10 @@ set -a && source .env.mcp && set +a && <editor-command> .
 | **zed** | mcp | Zed MCP config is global-only (Zed settings). No project-level MCP path. |
 | **zed** | hooks | No documented Zed hook/event system. |
 | **zed** | skills | Zed has no skills concept; rules cover all guidance. |
+| **amazon-q** | hooks | No documented Amazon Q hook/event system. |
+| **amazon-q** | commands | No documented Amazon Q commands format. |
+| **antigravity** | hooks | No documented Antigravity hook/event system. |
+| **antigravity** | commands | No documented Antigravity commands format. |
 | **all** | guardrails | No adapter emits policy files. Canonical location `.agents/policy/` exists for future use. |
 | **all** | prompts (except copilot) | Only Copilot has a dedicated prompts format (`.github/prompts/`). Other platforms map prompts to commands or skills. |
 | **all** | githubAgents (except copilot) | Copilot-specific capability; only the Copilot adapter emits. |

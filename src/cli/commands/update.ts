@@ -8,7 +8,7 @@ import { readManifest, writeManifest } from "../../manifest/hatchJson.js";
 import { getAdapter } from "../../adapters/index.js";
 import { safeWriteFile } from "../../merge/safeWrite.js";
 import { AGENTS_DIR, HATCH3R_PREFIX, HatchError, WORKTREE_INCLUDE_FILE, type HatchManifest, type Platform } from "../../types.js";
-import { generateCanonicalAgentsMd } from "../shared/agentsContent.js";
+import { generateCanonicalAgentsMd, generateRootAgentsMd } from "../shared/agentsContent.js";
 import { generateWorktreeInclude } from "../../worktree/index.js";
 import { HATCH3R_VERSION } from "../../version.js";
 import {
@@ -142,6 +142,11 @@ export async function runUpdate(
   // Generate dynamic AGENTS.md based on what's on disk
   const canonicalAgentsMd = await generateCanonicalAgentsMd(agentsDir);
   await safeWriteFile(join(agentsDir, "AGENTS.md"), canonicalAgentsMd);
+  // Regenerate root AGENTS.md with inline agent/skill/command rosters for platform discovery
+  const rootAgentsMd = await generateRootAgentsMd(agentsDir);
+  await safeWriteFile(join(rootDir, "AGENTS.md"), rootAgentsMd.full, {
+    managedContent: rootAgentsMd.inner,
+  });
   s1.succeed(step(offset + 2, total, `Updated ${copied.length} canonical files`));
 
   const s2 = createSpinner(step(offset + 3, total, "Re-syncing adapter output..."));

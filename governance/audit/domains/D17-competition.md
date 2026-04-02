@@ -29,7 +29,7 @@ Per competitor, assess: scope comparison, quality comparison, community size (st
 - [ ] **AAIF (Agentic AI Foundation)** — AGENTS.md, MCP, goose under Linux Foundation. Impact on hatch3r's adapter model?
 - [ ] **AGENTS.md spec** — Current version, adoption, changes since last audit
 - [ ] **MCP protocol** — Current spec version, new capabilities, breaking changes
-- [ ] **All 14 platform updates** — New features, deprecations, API changes for every supported platform (including Amazon Q)
+- [ ] **All 15 platform updates** — New features, deprecations, API changes for every supported platform (including Amazon Q and Antigravity)
 
 ### 17.3 Market Positioning & Strategy (SEQUENTIAL)
 

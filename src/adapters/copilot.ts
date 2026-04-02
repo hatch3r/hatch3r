@@ -68,7 +68,7 @@ export class CopilotAdapter extends BaseAdapter {
     const copilotSetupSteps = `name: "Copilot Setup Steps"
 on: [push]
 jobs:
-  setup:
+  copilot-setup-steps:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

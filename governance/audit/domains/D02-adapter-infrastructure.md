@@ -42,7 +42,7 @@
 - [ ] Utility robustness — edge cases, malformed input, missing fields
 
 ### 2.5 Adapter Index & Registry
-- [ ] Registry completeness — all 14 adapters registered and discoverable
+- [ ] Registry completeness — all 15 adapters registered and discoverable
 - [ ] Adapter discovery — dynamic lookup works correctly
 - [ ] Enable/disable logic — toggling adapters in config takes effect
 - [ ] Capability querying — callers can query adapter capabilities accurately

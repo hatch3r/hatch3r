@@ -1,15 +1,15 @@
 {
-  "commit": "7257a8fa916bed048912960c51137d5460813d29",
-  "timestamp": "2026-03-25T15:37:00Z",
-  "tests": { "total": 1060, "passed": 1060, "failed": 0, "skipped": 0, "files": 54 },
+  "commit": "a7dc99d6d127e7a3d0d270458db28f3dced3ce40",
+  "timestamp": "2026-04-02T10:12:00Z",
+  "tests": { "total": 1089, "passed": 1089, "failed": 0, "skipped": 0, "files": 54 },
   "typecheck": { "errors": 0 },
   "lint": { "errors": 0, "warnings": 36 },
   "build": "pass",
   "content": { "errors": 1, "note": "pre-existing: .agents/ directory not found (expected — generated at install time)" },
   "domainScores": {
-    "D1": 87, "D2": 85, "D3": 90, "D4": 89, "D5": 73,
-    "D6": 65, "D7": 72, "D8": 80, "D9": 68, "D10": 76,
-    "D11": 77, "D12": 55, "D13": 90, "D14": 80, "D15": 82,
-    "D16": 65, "D17": 45, "D18": 52, "D19": 78
+    "D1": 61, "D2": 44, "D3": 50, "D4": 50, "D5": 46,
+    "D6": 50, "D7": 22, "D8": 30, "D9": 50, "D10": 40,
+    "D11": 35, "D12": 22, "D13": 54, "D14": 38, "D15": 50,
+    "D16": 50, "D17": 50, "D18": 50, "D19": 43
   }
 }

@@ -45,7 +45,7 @@ import {
   validateOrchestrationDependencies,
   TYPE_TO_SELECTION_KEY,
 } from "../../content/index.js";
-import { generateCanonicalAgentsMd } from "../shared/agentsContent.js";
+import { generateCanonicalAgentsMd, generateRootAgentsMd } from "../shared/agentsContent.js";
 import { safeWriteFile } from "../../merge/safeWrite.js";
 import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
 
@@ -452,10 +452,14 @@ export async function configCommand(): Promise<void> {
       }
       manifest.content.items = newItems;
 
-      // Regenerate canonical AGENTS.md after content changes
+      // Regenerate canonical and root AGENTS.md after content changes
       if (contentChanges.added.length > 0 || contentChanges.removed.length > 0) {
         const canonicalAgentsMd = await generateCanonicalAgentsMd(agentsDir);
         await safeWriteFile(join(agentsDir, "AGENTS.md"), canonicalAgentsMd);
+        const rootAgentsMd = await generateRootAgentsMd(agentsDir);
+        await safeWriteFile(join(rootDir, "AGENTS.md"), rootAgentsMd.full, {
+          managedContent: rootAgentsMd.inner,
+        });
       }
     }
   }

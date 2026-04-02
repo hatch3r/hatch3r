@@ -19,7 +19,7 @@ import {
 import { safeWriteFile } from "../merge/safeWrite.js";
 import { AGENTS_DIR } from "../types.js";
 import { HATCH3R_VERSION } from "../version.js";
-import { AGENTS_MD_INNER, AGENTS_MD_FULL, generateCanonicalAgentsMd } from "../cli/shared/agentsContent.js";
+import { generateCanonicalAgentsMd, generateRootAgentsMd } from "../cli/shared/agentsContent.js";
 import { findPackageRoot } from "../cli/shared/paths.js";
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
@@ -287,9 +287,10 @@ async function syncSingleRepo(
 
   await writeManifest(repoDir, manifest);
 
-  // Generate root AGENTS.md for sub-repo
-  await safeWriteFile(join(repoDir, "AGENTS.md"), AGENTS_MD_FULL, {
-    managedContent: AGENTS_MD_INNER,
+  // Generate root AGENTS.md for sub-repo with inline agent/skill/command rosters
+  const rootAgentsMd = await generateRootAgentsMd(repoAgentsDir);
+  await safeWriteFile(join(repoDir, "AGENTS.md"), rootAgentsMd.full, {
+    managedContent: rootAgentsMd.inner,
     appendIfNoBlock: true,
   });
   addManagedFile(manifest, "AGENTS.md");
