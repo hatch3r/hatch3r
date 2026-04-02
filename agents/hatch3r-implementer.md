@@ -196,6 +196,19 @@ Apply this format whenever the implementation involves choosing between approach
 
 After this agent completes Phase 2, the orchestrator runs the Phase 3 review loop (`hatch3r-reviewer` + `hatch3r-fixer`, max 3 iterations). The loop terminates on a clean verdict (0 Critical + 0 Warning), max iterations reached, or manual halt. Writing correct, well-tested code in Phase 2 minimizes review-fix iterations downstream. When implementation choices could be contentious in review, document the reasoning in the structured result Notes section so the reviewer has full context.
 
+## Error Handling During Implementation
+
+When encountering errors during implementation, follow these protocols:
+
+| Error Type | Action |
+|-----------|--------|
+| Build failure in changed file | Fix the error. Do not proceed with other changes until the build is clean. |
+| Test failure in existing test | Determine if the test is correctly catching a regression (fix your code) or if the test needs updating (update with justification in Notes). Never delete or skip existing tests. |
+| Missing dependency or module | Check if it should be created as part of this issue or if it is out of scope. If out of scope, report BLOCKED with details. |
+| Conflicting acceptance criteria | Do not guess which criterion takes precedence. Report BLOCKED with the specific conflict and both criteria quoted. |
+| File not in research `affectedFiles` list | Log as a research gap per the Mid-Implementation Research Gap Checkpoint. Proceed if non-blocking; pause and escalate if blocking. |
+| External API or library error | Verify the API usage via Context7 MCP before assuming a bug. If the API has changed, note it in the structured result. |
+
 ## Boundaries
 
 - **Always:** Stay within acceptance criteria, write tests, verify quality gates, use stable IDs, follow the tooling hierarchy (platform CLI > platform MCP, Context7 for libraries, web research for current info)

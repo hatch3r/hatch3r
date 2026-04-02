@@ -14,10 +14,13 @@ export default defineConfig({
     hookTimeout: 30000,
     coverage: {
       provider: "v8",
+      reporter: ["text", "json-summary", "lcov"],
       all: true,
       include: ["src/**/*.ts"],
       exclude: [
         "src/hooks/types.ts",
+        "src/worktree/types.ts",
+        "src/workspace/types.ts",
         "**/*.test.ts",
         "**/__tests__/**",
       ],

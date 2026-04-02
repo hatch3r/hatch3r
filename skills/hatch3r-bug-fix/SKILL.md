@@ -34,10 +34,12 @@ Task Progress:
 
 Before fixing, output:
 
-- **Root cause hypothesis:** what is wrong and why
-- **Files to investigate:** list of files
-- **Reproduction strategy:** how to confirm the bug via tests
-- **Risks:** what could go wrong with the fix
+- **Root cause hypothesis:** what is wrong and why (distinguish between the symptom the user reported and the underlying cause)
+- **Files to investigate:** list of files with reason each file is relevant
+- **Reproduction strategy:** how to confirm the bug via tests (specific test scenario, expected vs. actual result)
+- **Error handling check:** does the affected code have proper error handling? If the bug is caused by a missing or incorrect error path, note this explicitly
+- **Risks:** what could go wrong with the fix (regression risk, related code paths that could be affected)
+- **Confidence:** high/medium/low for the hypothesis. If low, describe what additional investigation is needed before proceeding
 
 ## Step 2b: Browser Reproduction (if UI Bug)
 

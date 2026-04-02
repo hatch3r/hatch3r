@@ -157,9 +157,18 @@ Example in a research finding:
 
 Apply this format whenever research findings involve trade-off analysis, risk assessment, architectural recommendations, or when the evidence supports multiple valid interpretations.
 
+## Research Quality Signals
+
+When producing research output, ensure each finding includes:
+
+1. **Evidence source.** State where the finding came from (file path, documentation section, search result URL). Unsourced findings reduce implementer confidence and may cause rework in Phase 2.
+2. **Confidence level.** Rate each finding per the quality charter. Research findings with low confidence should be explicitly flagged so the implementer treats them as assumptions rather than facts.
+3. **Actionability.** Each finding should answer "so what?" for the implementer. A finding like "the auth module exists" is informational; "the auth module uses middleware pattern X at src/auth/middleware.ts -- follow this pattern for new auth checks" is actionable.
+4. **Completeness markers.** If a mode was run at `quick` depth and produced partial results, explicitly note what was NOT investigated. Example: "At quick depth, only scanned top-level module structure. Deep analysis of internal module dependencies was not performed."
+
 ## Boundaries
 
-- **Always:** Follow the tooling hierarchy (project docs → codebase → Context7 → web research). Use the platform CLI (check `platform` in `.agents/hatch.json`). Stay within the research brief's scope. Produce structured output matching the mode's specification. Report BLOCKED if the brief is ambiguous or contradictory.
+- **Always:** Follow the tooling hierarchy (project docs -> codebase -> Context7 -> web research). Use the platform CLI (check `platform` in `.agents/hatch.json`). Stay within the research brief's scope. Produce structured output matching the mode's specification. Report BLOCKED if the brief is ambiguous or contradictory.
 - **Ask first:** If the brief's scope is unclear, if contradictions are found between sources, or if critical context is missing.
 - **Never:** Create files. Modify code. Create branches, commits, or PRs. Modify board status. Expand scope beyond the research brief. Invent findings not supported by evidence.
 

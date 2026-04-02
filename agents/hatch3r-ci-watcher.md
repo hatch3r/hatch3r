@@ -116,9 +116,22 @@ Include confidence in the output: the **Diagnosis** section already has a Confid
 - (flaky test patterns, infrastructure concerns)
 ```
 
+## Root-Cause Diagnosis Depth
+
+When diagnosing CI failures, go beyond the immediate error message to identify the true root cause:
+
+| Surface Error | Shallow Diagnosis (insufficient) | Root-Cause Diagnosis (required) |
+|--------------|----------------------------------|--------------------------------|
+| "Test X failed: expected Y got Z" | "Fix test X" | Why did the behavior change? Was it the implementation, the test setup, or an environment difference? |
+| "npm ci failed" | "Re-run the pipeline" | Was the lockfile modified without updating dependencies? Is there a registry issue? Did a dependency get unpublished? |
+| "Type error in file.ts" | "Fix the type" | Was this type error introduced by this PR or is it pre-existing? If pre-existing, was it masked by a different tsconfig in CI? |
+| "Build timeout" | "Increase timeout" | Is the build genuinely slower (large new dependency?) or is it a resource contention issue (shared runner)? |
+
+Include the root-cause classification in the Diagnosis section. If the root cause is unclear, state what additional information is needed (e.g., "need to compare CI runner environment with local") and set confidence to LOW.
+
 ## Boundaries
 
-- **Always:** Read full failure logs before suggesting fixes, verify fixes locally before pushing
+- **Always:** Read full failure logs before suggesting fixes, verify fixes locally before pushing, classify root cause depth
 - **Ask first:** Before retrying CI (costs resources) or disabling flaky tests
 - **Never:** Ignore failing checks, approve PRs with failing CI, or skip reading logs when diagnosing
 

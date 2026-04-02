@@ -10,6 +10,14 @@ export interface ClaudeConfig {
     allow?: string[];
     deny?: string[];
   };
+  /**
+   * Claude Code Agent Teams teammate display mode.
+   *
+   * GA values: "auto" (default), "in-process", "tmux".
+   * Deprecated values (pre-GA): "tool-using", "full-trust", "manual-approval".
+   * #264 (D9-9.35): Legacy values are still accepted for backward compatibility
+   * but map to "auto" at runtime. Use GA values in new configurations.
+   */
   teammateMode?: "auto" | "in-process" | "tmux" | "tool-using" | "full-trust" | "manual-approval";
   agentTeams?: boolean | "ga";
 }
@@ -92,6 +100,9 @@ export const TOOLS = ["cursor", "copilot", "claude", "opencode", "windsurf", "am
 export type Tool = (typeof TOOLS)[number];
 export const VALID_TOOLS = new Set<string>(TOOLS);
 export const TOOL_CHOICES = TOOLS.join(", ");
+
+/** Tools that support git worktree file isolation. Shared across init, update, and config. */
+export const WORKTREE_CAPABLE_TOOLS = new Set<string>(["claude"]);
 
 export interface BoardConfig {
   owner: string;
@@ -226,7 +237,13 @@ export type Framework =
   | "react"
   | "express"
   | "fastify"
-  | "hono";
+  | "hono"
+  | "nestjs"
+  | "django"
+  | "flask"
+  | "rails"
+  | "spring"
+  | "laravel";
 
 export interface RepoInfo {
   languages: string[];

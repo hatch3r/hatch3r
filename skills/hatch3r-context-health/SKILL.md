@@ -65,14 +65,28 @@ After corrective action:
 - Confirm health is at Green or Yellow
 - Resume work on the original task
 
+## Context Poisoning Detection
+
+During context health checks, also scan for signs of context poisoning -- stale or incorrect information that has accumulated in the conversation:
+
+| Signal | Detection | Action |
+|--------|-----------|--------|
+| Outdated file content | You reference a file's content but the file has been modified since you last read it | Re-read the file before continuing |
+| Stale assumptions | A decision was made based on information that has since changed (e.g., a function was refactored) | Re-verify assumptions against current state |
+| Contradictory context | Two pieces of context in the conversation disagree (e.g., "the API uses REST" vs. code showing GraphQL) | Resolve by reading the actual source of truth |
+| Accumulated errors | Multiple tool calls have failed, suggesting the mental model of the codebase is wrong | Reset context by re-reading key files from scratch |
+
+Context poisoning is more dangerous than missing context because it leads to confident-but-wrong decisions.
+
 ## Definition of Done
 
 - [ ] Context health assessed with all 5 checks
+- [ ] Context poisoning scan completed (no stale assumptions)
 - [ ] Degradation level determined (Green/Yellow/Orange/Red)
 - [ ] Appropriate corrective action taken
 - [ ] Health verified at Green or Yellow after correction
 
 ## Related Skills & Agents
 
-- **Command**: `hatch3r-context-health` — full monitoring protocol with integration points
-- **Command**: `hatch3r-board-pickup` — auto-advance mode uses context health for session management
+- **Command**: `hatch3r-context-health` -- full monitoring protocol with integration points
+- **Command**: `hatch3r-board-pickup` -- auto-advance mode uses context health for session management

@@ -207,6 +207,56 @@ export function terminateReviewLoop(
   return newState;
 }
 
+// ── Oscillation Detection (#244, D8-8.11) ───────────────────────
+
+/**
+ * Detect oscillation patterns in the review loop history.
+ *
+ * #244 (D8-8.11): Oscillation occurs when findings count alternates between
+ * high and low values across iterations, indicating the fixer is introducing
+ * new issues while resolving old ones (fix-break cycle).
+ *
+ * Detection criteria:
+ * - At least 3 iterations of history
+ * - Findings count increases after a decrease (or vice versa) for 2+ consecutive direction changes
+ */
+export function detectOscillation(state: ReviewLoopState): {
+  oscillating: boolean;
+  description: string;
+} {
+  if (state.history.length < 3) {
+    return { oscillating: false, description: "Insufficient history for oscillation detection" };
+  }
+
+  let directionChanges = 0;
+  let lastDirection: "up" | "down" | null = null;
+
+  for (let i = 1; i < state.history.length; i++) {
+    const prev = state.history[i - 1].findingsCount;
+    const curr = state.history[i].findingsCount;
+    const direction: "up" | "down" | null =
+      curr > prev ? "up" : curr < prev ? "down" : null;
+
+    if (direction && lastDirection && direction !== lastDirection) {
+      directionChanges++;
+    }
+    if (direction) lastDirection = direction;
+  }
+
+  if (directionChanges >= 2) {
+    const counts = state.history.map((h) => h.findingsCount).join(" -> ");
+    return {
+      oscillating: true,
+      description:
+        `Review loop oscillation detected: findings count pattern [${counts}] ` +
+        `shows ${directionChanges} direction changes. ` +
+        `The fixer may be introducing new issues while resolving old ones.`,
+    };
+  }
+
+  return { oscillating: false, description: "No oscillation detected" };
+}
+
 /**
  * Get a summary string for the review loop state.
  *
@@ -240,4 +290,42 @@ export function reviewLoopSummary(state: ReviewLoopState): string {
   }
 
   return parts.join(" | ");
+}
+
+// ── D13 Medium: Trust-building and feedback loop helpers (#331-#343) ──
+
+/**
+ * User-friendly explanation of the confidence signal.
+ *
+ * D13 Medium (#331-#343): Help users understand what the confidence
+ * level means and what action they should take based on it.
+ */
+export function confidenceExplanation(confidence: ReviewConfidenceLevel): string {
+  switch (confidence) {
+    case "high":
+      return "The fix was correct on the first attempt. Human review is optional but recommended for critical code paths.";
+    case "medium":
+      return "The fix required one round of corrections, which is normal for moderately complex changes. A brief human review is recommended.";
+    case "low":
+      return "The fix required multiple attempts or was interrupted. A thorough human review is strongly recommended before merging.";
+  }
+}
+
+/**
+ * Calculate a findings trend from review loop history.
+ *
+ * D13 Medium (#331-#343): Provides feedback on whether the fix
+ * process is converging (findings decreasing) or diverging.
+ */
+export type FindingsTrend = "converging" | "stable" | "diverging" | "insufficient_data";
+
+export function calculateFindingsTrend(state: ReviewLoopState): FindingsTrend {
+  if (state.history.length < 2) return "insufficient_data";
+
+  const counts = state.history.map(h => h.findingsCount);
+  const lastTwo = counts.slice(-2);
+
+  if (lastTwo[1] < lastTwo[0]) return "converging";
+  if (lastTwo[1] === lastTwo[0]) return "stable";
+  return "diverging";
 }

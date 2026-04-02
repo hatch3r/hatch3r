@@ -171,6 +171,9 @@ export async function syncCommand(
     if (adapterFailures.length === m.tools.length) {
       throw new HatchError("All adapters failed", 1, "ADAPTER_ERROR");
     }
+    // #253 (D8-8.20): Partial adapter failures should not silently report success.
+    // We continue to generate a summary but track that partial failure occurred.
+    warn(`${adapterFailures.length} of ${m.tools.length} adapter(s) failed. Output may be incomplete.`);
   }
 
   for (const tool of m.tools) {
@@ -230,7 +233,21 @@ export async function syncCommand(
     return `${icon} ${r.path} ${chalk.dim(`(${r.action})`)}`;
   });
 
-  printBox("Sync complete", summaryLines, "success");
+  printBox(
+    adapterFailures.length > 0 ? "Sync complete (with warnings)" : "Sync complete",
+    summaryLines,
+    adapterFailures.length > 0 ? "info" : "success",
+  );
+
+  // #253 (D8-8.20): Exit non-zero on partial adapter failure
+  // so CI pipelines can detect incomplete syncs.
+  if (adapterFailures.length > 0) {
+    throw new HatchError(
+      `Sync completed with ${adapterFailures.length} adapter failure(s)`,
+      2,
+      "ADAPTER_ERROR",
+    );
+  }
 
   // ── Workspace sync cascade ────────────────────────────────────
   const wsManifest = await readWorkspaceManifest(rootDir);

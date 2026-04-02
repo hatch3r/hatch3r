@@ -8,6 +8,7 @@ import {
   AGENTS_DIR,
   DEFAULT_FEATURES,
   HatchError,
+  WORKTREE_CAPABLE_TOOLS,
   WORKTREE_INCLUDE_FILE,
   type ContentSelection,
   type Features,
@@ -296,8 +297,7 @@ export async function configCommand(): Promise<void> {
   }
 
   // --- Worktree isolation ---
-  const worktreeCapableTools = new Set(["claude"]);
-  const hasWorktreeTool = tools.some(t => worktreeCapableTools.has(t));
+  const hasWorktreeTool = tools.some(t => WORKTREE_CAPABLE_TOOLS.has(t));
   if (hasWorktreeTool) {
     const wtAnswer = await inquirer.prompt<{ enabled: boolean }>([{
       type: "confirm",

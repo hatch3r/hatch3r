@@ -75,6 +75,14 @@ counter_evidence: "<brief explanation of why the learning is incorrect or outdat
 
 Disputed learnings are excluded from session briefings until a human or agent reviews the dispute and either resolves it (removes the `disputed` status and updates the learning) or retires the learning entirely. When presenting stats, report disputed learnings separately (e.g., "Disputed: 2").
 
+### Context Poisoning Indicators
+
+Beyond explicit dispute flags, watch for these indicators that a learning may be poisoning rather than informing context:
+
+- **Overly prescriptive learnings.** A learning that says "always use pattern X" without specifying when or why is likely a premature generalization. Downgrade to `confidence: low` and surface with a note.
+- **Learnings that conflict with rules.** If a learning contradicts an active rule in `.agents/rules/`, the rule takes precedence. Flag the conflict in the briefing but do not apply the learning.
+- **Learnings referencing deleted code.** If the files or functions referenced in a learning no longer exist, the learning is stale and may cause incorrect assumptions. Flag as potentially stale.
+
 ### Automated Consistency Checks
 
 In addition to manual dispute flagging, apply the following automated checks when loading learnings to detect inconsistencies without human intervention:

@@ -31,10 +31,11 @@ Adapt to the project's actual directory structure and rule definitions.
 ## Workflow
 
 1. Identify the saved file's path, extension, and parent directories.
-2. Scan `.agents/rules/` for rules whose globs or descriptions match the file context.
-3. Evaluate the file against each matching rule.
-4. Report violations with file path, line reference, rule ID, and a suggested fix.
+2. Scan `.agents/rules/` for rules whose globs or descriptions match the file context. Use the `scope` field in rule frontmatter for glob matching. Rules with `scope: always` apply to all files.
+3. Evaluate the file against each matching rule. For rules with many sub-sections, focus on the sections most relevant to the file type (e.g., for a test file, focus on the testing rule's coverage and isolation sections, not the mocking strategy section).
+4. Report violations with file path, line reference, rule ID, and a suggested fix. Include the specific rule section that was violated so the developer can look it up.
 5. If no rules match or no violations found, report clean status.
+6. **Conflict resolution.** If two rules give conflicting guidance for the same file (e.g., a security rule says "fail-closed" but a performance rule says "skip validation on hot path"), report both rules and the conflict. Do not pick one silently.
 
 ## External Knowledge
 

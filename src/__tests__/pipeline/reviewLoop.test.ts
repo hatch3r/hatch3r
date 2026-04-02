@@ -6,6 +6,7 @@ import {
   terminateReviewLoop,
   reviewLoopSummary,
   reviewLoopConfidence,
+  detectOscillation,
   DEFAULT_MAX_REVIEW_ITERATIONS,
   HARD_MAX_REVIEW_ITERATIONS,
 } from "../../pipeline/reviewLoop.js";
@@ -269,6 +270,71 @@ describe("reviewLoop", () => {
       state = recordReviewIteration(state, "warning", 2);
       const summary = reviewLoopSummary(state);
       expect(summary).not.toContain("confidence:");
+    });
+  });
+
+  describe("detectOscillation (#244, D8-8.11)", () => {
+    it("should report insufficient data for fewer than 3 iterations", () => {
+      let state = createReviewLoop(5);
+      state = recordReviewIteration(state, "warning", 5);
+      state = recordReviewIteration(state, "warning", 3);
+      const result = detectOscillation(state);
+      expect(result.oscillating).toBe(false);
+      expect(result.description).toContain("Insufficient history");
+    });
+
+    it("should detect oscillation pattern: up-down-up", () => {
+      let state = createReviewLoop(10);
+      // Findings: 5 -> 2 -> 6 -> 1 (down, up, down = 2 direction changes)
+      state = recordReviewIteration(state, "warning", 5);
+      state = recordReviewIteration(state, "warning", 2);
+      state = recordReviewIteration(state, "warning", 6);
+      state = recordReviewIteration(state, "warning", 1);
+      const result = detectOscillation(state);
+      expect(result.oscillating).toBe(true);
+      expect(result.description).toContain("oscillation detected");
+      expect(result.description).toContain("direction changes");
+    });
+
+    it("should not detect oscillation for monotonically decreasing findings", () => {
+      let state = createReviewLoop(5);
+      // Findings: 10 -> 7 -> 4 -> 1 (consistently decreasing)
+      state = recordReviewIteration(state, "critical", 10);
+      state = recordReviewIteration(state, "warning", 7);
+      state = recordReviewIteration(state, "warning", 4);
+      state = recordReviewIteration(state, "clean", 0);
+      const result = detectOscillation(state);
+      expect(result.oscillating).toBe(false);
+    });
+
+    it("should not detect oscillation for monotonically increasing findings", () => {
+      let state = createReviewLoop(5);
+      // Findings: 1 -> 3 -> 5 (consistently increasing -- bad but not oscillating)
+      state = recordReviewIteration(state, "warning", 1);
+      state = recordReviewIteration(state, "warning", 3);
+      state = recordReviewIteration(state, "warning", 5);
+      const result = detectOscillation(state);
+      expect(result.oscillating).toBe(false);
+    });
+
+    it("should not detect oscillation for flat findings counts", () => {
+      let state = createReviewLoop(5);
+      // Findings: 3 -> 3 -> 3 (no direction at all)
+      state = recordReviewIteration(state, "warning", 3);
+      state = recordReviewIteration(state, "warning", 3);
+      state = recordReviewIteration(state, "warning", 3);
+      const result = detectOscillation(state);
+      expect(result.oscillating).toBe(false);
+    });
+
+    it("should report no oscillation for a single direction change", () => {
+      let state = createReviewLoop(5);
+      // Findings: 5 -> 2 -> 4 (down, up = 1 direction change, threshold is 2)
+      state = recordReviewIteration(state, "warning", 5);
+      state = recordReviewIteration(state, "warning", 2);
+      state = recordReviewIteration(state, "warning", 4);
+      const result = detectOscillation(state);
+      expect(result.oscillating).toBe(false);
     });
   });
 });

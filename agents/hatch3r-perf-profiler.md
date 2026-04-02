@@ -109,9 +109,18 @@ When profiling a large application with multiple modules or surfaces:
 - (deferred optimizations, architecture constraints)
 ```
 
+## Optimization Decision Framework
+
+When recommending optimizations, structure the recommendation to prevent premature optimization:
+
+1. **Measure first.** Every optimization recommendation must include a measurement that demonstrates the problem exists. "This loop looks slow" is insufficient. "This loop processes 10,000 items in 450ms, exceeding the 200ms budget" is actionable.
+2. **Quantify the improvement.** Estimate the expected improvement before implementing. If the expected improvement is less than 10% of the budget gap, the optimization may not be worth the complexity cost.
+3. **Assess complexity cost.** Rate the optimization's impact on code readability and maintainability. A 20% speedup that makes the code 3x harder to understand is often not worth it.
+4. **Consider alternatives.** Before optimizing code, check whether the performance issue can be addressed at a higher level: caching, pagination, lazy loading, or architectural changes that eliminate the hot path entirely.
+
 ## Boundaries
 
-- **Always:** Measure before and after changes, verify budgets are met, use automated benchmarks where available
+- **Always:** Measure before and after changes, verify budgets are met, use automated benchmarks where available, include measurement data in recommendations
 - **Ask first:** Before architectural changes proposed solely for performance
 - **Never:** Sacrifice correctness for speed, skip tests after optimization, introduce premature optimization without profiling evidence
 

@@ -5,9 +5,9 @@ import { dirname, join } from "node:path";
 import chalk from "chalk";
 import inquirer from "inquirer";
 import { readManifest, writeManifest } from "../../manifest/hatchJson.js";
-import { getAdapter } from "../../adapters/index.js";
+import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
 import { safeWriteFile } from "../../merge/safeWrite.js";
-import { AGENTS_DIR, HATCH3R_PREFIX, HatchError, WORKTREE_INCLUDE_FILE, type HatchManifest, type Platform } from "../../types.js";
+import { AGENTS_DIR, HATCH3R_PREFIX, HatchError, WORKTREE_CAPABLE_TOOLS, WORKTREE_INCLUDE_FILE, type HatchManifest, type Platform } from "../../types.js";
 import { generateCanonicalAgentsMd, generateRootAgentsMd } from "../shared/agentsContent.js";
 import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
 import { ensureEnvMcp, ensureGitignoreEntry, getSourceEnvMcpCommand } from "../../env/mcpEnv.js";
@@ -24,7 +24,7 @@ import {
 } from "../shared/ui.js";
 import { findPackageRoot } from "../shared/paths.js";
 import { detectPackageManager } from "../../detect/packageManager.js";
-import { generateIntegrityManifest, writeIntegrityManifest } from "../../integrity/index.js";
+import { generateIntegrityManifest, writeIntegrityManifest, verifyIntegrity } from "../../integrity/index.js";
 import { pruneArchives } from "../../archive/index.js";
 import { buildSelectionsFromDisk } from "../../content/index.js";
 
@@ -187,6 +187,12 @@ export async function runUpdate(
   s2.succeed(step(offset + 3, total, adapterFailures.length > 0
     ? `Re-synced ${manifest.tools.length - adapterFailures.length}/${manifest.tools.length} tool(s)`
     : `Re-synced ${manifest.tools.length} tool(s)`));
+
+  // #107: Show unsupported feature warnings (parity with sync command)
+  for (const tool of manifest.tools) {
+    const warnings = getUnsupportedFeatureWarnings(tool, manifest);
+    for (const w of warnings) { warn(w); }
+  }
 
   // ── Reconciliation: .worktreeinclude & .env.mcp (parity with sync) ──
   if (manifest.worktree?.enabled) {
@@ -378,8 +384,7 @@ const MIGRATION_CHECKPOINTS: MigrationCheckpoint[] = [
     id: "worktree-config-init",
     condition: async (manifest) => {
       if (manifest.worktree !== undefined) return false;
-      const worktreeCapableTools = new Set(["claude"]);
-      return manifest.tools.some(t => worktreeCapableTools.has(t));
+      return manifest.tools.some(t => WORKTREE_CAPABLE_TOOLS.has(t));
     },
     execute: async (manifest, rootDir, headless) => {
       let enabled: boolean;
@@ -448,6 +453,19 @@ export async function updateCommand(_opts?: Record<string, unknown> & { yes?: bo
 
   for (const notice of allNotices) {
     warn(notice);
+  }
+
+  // #118: Run integrity pre-check before update to detect tampered files
+  const agentsDir = join(rootDir, AGENTS_DIR);
+  const integrityResults = await verifyIntegrity(agentsDir);
+  const modified = integrityResults.filter((r) => r.status === "modified");
+  const missing = integrityResults.filter((r) => r.status === "missing");
+  if (modified.length > 0 || missing.length > 0) {
+    warn("Integrity issues detected before update:");
+    for (const r of modified) { warn(`  MODIFIED: ${r.file}`); }
+    for (const r of missing) { warn(`  MISSING:  ${r.file}`); }
+    warn("These files will be overwritten during update.");
+    console.log();
   }
 
   const isUpToDate = m.hatch3rVersion === HATCH3R_VERSION;

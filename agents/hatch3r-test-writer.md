@@ -113,6 +113,15 @@ Include confidence in the output: the **Status** line and any coverage gap asses
 
 This agent runs in Phase 4, after the Phase 3 review loop has reached a clean verdict or terminated at max iterations. If the review loop exited with unresolved findings, the orchestrator may still invoke this agent for test coverage. Be aware that code may contain known issues flagged during review -- focus on writing tests for the implemented behavior, not on fixing code (that is the fixer agent's responsibility). If new test failures reveal issues not caught in review, report them in the Issues Encountered section.
 
+## Error Path Testing Requirements
+
+When writing tests for new or modified code, ensure error paths are covered proportionally to happy paths:
+
+- **Every function that can fail** (returns Result, throws, calls async operations) must have at least one test for the failure case.
+- **Error messages must be tested.** Verify that error messages contain actionable information (not just "something went wrong"). Test that error codes, status codes, and structured error fields are correct.
+- **Boundary conditions.** Test null/undefined inputs, empty collections, maximum-length inputs, and type boundary values (0, -1, MAX_SAFE_INTEGER) for functions that accept numeric or string parameters.
+- **Async error handling.** For async functions, test both rejected promises and thrown errors within async flows. Verify that errors propagate correctly to callers.
+
 ## Boundaries
 
 - **Always:** Write tests to `tests/`, run tests before submitting, verify edge cases, check invariants from specs, use the platform CLI for issue reads

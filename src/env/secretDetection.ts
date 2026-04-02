@@ -127,6 +127,25 @@ export const SECRET_PATTERNS: readonly SecretPattern[] = [
     severity: "high",
     guidance: "Connection strings with embedded credentials should use secrets manager references.",
   },
+  // D15 Medium: additional MCP and provider-specific patterns (#358-#385)
+  {
+    name: "Azure DevOps PAT",
+    pattern: /[a-z2-7]{52}$/,
+    severity: "high",
+    guidance: "Azure DevOps PATs should be stored in a secrets manager, not in env files.",
+  },
+  {
+    name: "Linear API Key",
+    pattern: /lin_api_[A-Za-z0-9]{40,}/,
+    severity: "high",
+    guidance: "Linear API keys should be stored in a secrets manager.",
+  },
+  {
+    name: "Sentry Auth Token",
+    pattern: /sntrys_[A-Za-z0-9]{40,}/,
+    severity: "high",
+    guidance: "Sentry auth tokens should be stored in a secrets manager.",
+  },
 ] as const;
 
 // ── Implementation ───────────────────────────────────────────────

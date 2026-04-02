@@ -105,16 +105,21 @@ For multi-sub-task implementations, the implementer performs a lightweight mini-
 1. Spawn `hatch3r-reviewer` with diff and acceptance criteria. Reviewer includes blast radius summary.
 2. Critical/Warning findings: spawn `hatch3r-fixer` with full reviewer output.
 3. Re-review after fixes. Repeat until 0 Critical + 0 Warning, or max 3 iterations.
-4. **Confirmation pass** after clean review: lightweight re-review for fix-driven regressions and acceptance criteria completeness.
-5. Max iterations reached: surface to user for manual resolution.
+4. **Confirmation pass** after clean review: lightweight re-review for fix-driven regressions and acceptance criteria completeness. The confirmation pass checks only: (a) no new test failures compared to Phase 2 baseline, (b) no type errors introduced, (c) acceptance criteria from the issue are still met. It does not re-run the full review checklist.
+5. Max iterations reached: surface to user with a structured summary: iteration count, remaining Critical findings (with file:line), remaining Warning findings, and a recommendation (fix manually vs. accept risk). Never present raw reviewer output without summarization.
 
 **Phase 4 — Final Quality** (after review loop is clean):
 
-Launch parallel subagents — no artificial concurrency limit.
+Launch parallel subagents -- no artificial concurrency limit.
 
 - **Always:** `hatch3r-test-writer`, `hatch3r-security-auditor`
 - **Evaluate:** `hatch3r-docs-writer` (when APIs/architecture/UX affected)
 - **Conditional:** `hatch3r-lint-fixer`, `hatch3r-a11y-auditor`, `hatch3r-perf-profiler`, `hatch3r-dependency-auditor`, `hatch3r-architect`, `hatch3r-devops`
+
+**Specialist Prompt Enrichment:** When spawning Phase 4 specialists, include:
+- The `filesChanged` list from Phase 2 so specialists focus on affected code.
+- The review verdict summary from Phase 3 so specialists do not re-flag already-reviewed issues.
+- The `researchFindings.blastRadius` so specialists can assess downstream impact of their changes.
 
 **Phase 4 Specialist Trigger Table:**
 
@@ -185,6 +190,15 @@ Skill-referenced agent delegations are mandatory.
 3. Launch independent subagents in parallel — maximum parallelism.
 4. Await and review results. Surface BLOCKED or PARTIAL to user.
 
+## Cross-Phase Error Propagation
+
+When a phase produces a non-SUCCESS status, the orchestrator must propagate error context to downstream phases rather than silently dropping it:
+
+1. **Phase 1 PARTIAL** (incomplete research): Include the `researchGaps` list in the implementer prompt so the implementer knows which areas lack verified context. Set implementer confidence expectations accordingly.
+2. **Phase 2 PARTIAL** (incomplete implementation): Include the `reason` field and list of unimplemented acceptance criteria in the reviewer prompt. The reviewer must distinguish between "not done yet" and "done incorrectly."
+3. **Phase 3 UNRESOLVED** (review loop exhausted): Include the unresolved findings list in the Phase 4 specialist prompts. Specialists must not introduce changes that conflict with known unresolved issues.
+4. **Phase 4 specialist FAILED**: Include the failure reason when surfacing to the user. Never report "Phase 4 failed" without specifying which specialist failed and why.
+
 ## Correlation ID
 
 Generate a UUID v4 per top-level task before Phase 1. Include in every subagent prompt as `correlation_id`. All subagents include it in logs, outputs, and status reports. Epic sub-issues get individual IDs; batch tasks share one ID with a sub-task index.
@@ -223,6 +237,19 @@ Consistent criteria for when each pipeline phase can be safely skipped. All comm
 | **Phase 4 (Quality)** | Review loop unresolved AND user chose manual resolution; documentation-only; all trivial + quality checks pass (quick-change only) | test-writer + security-auditor always required for code changes; quality checks must pass |
 
 See `src/pipeline/pipelineContext.ts` for the programmatic `PHASE_SKIP_CRITERIA` constant.
+
+## Root-Cause Depth Requirements
+
+When a pipeline phase reports a failure or unexpected result, the orchestrator must perform root-cause classification before deciding the next action:
+
+| Symptom | Shallow Fix (avoid) | Root-Cause Fix (required) |
+|---------|---------------------|---------------------------|
+| Test failure after Phase 2 | Disable or skip the failing test | Identify why the implementation breaks the test -- fix the code or update the test with justification |
+| Lint errors after Phase 4 | Add `eslint-disable` comments | Fix the underlying code pattern that triggers the lint rule |
+| Type errors after fixer changes | Cast with `as any` | Trace the type mismatch to its source and fix the type definition or usage |
+| Review loop not converging | Surface to user after 3 iterations without analysis | Classify whether findings are oscillating (fixer A breaks what fixer B fixed) and surface the conflict pattern |
+
+The orchestrator must reject superficial fixes from any subagent. If a fixer's output contains suppression patterns (disable comments, `any` casts, test skips without linked issues), classify as PARTIAL and re-run with an adjusted prompt that requests a root-cause fix.
 
 ## Task Context Protocols
 

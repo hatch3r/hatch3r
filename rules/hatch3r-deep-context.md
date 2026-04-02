@@ -88,8 +88,32 @@ This rule augments — not replaces — the existing Universal Sub-Agent Pipelin
 - **`type:bug`**: existing modes `symptom-trace`, `root-cause`, `codebase-impact` + `requirements-elicitation` per tier (bugs often have underspecified reproduction steps)
 - **`type:refactor`**: existing modes `current-state`, `refactoring-strategy`, `migration-path` + `similar-implementation` per tier (refactors benefit most from convention alignment)
 
+## Scoring Examples
+
+To reduce ambiguity in tier assignment, here are worked examples:
+
+**Example 1: "Fix typo in error message" -- Tier 1 (score 0)**
+No signals triggered. Single file, no cross-module impact, no ambiguity.
+
+**Example 2: "Add email validation to signup form" -- Tier 2 (score 4)**
+- Multiple layers touched (API + UI): +3
+- Estimated 2-3 files: +0
+- Input validation is security-adjacent but not in a security-sensitive area: +0
+- Clear requirements ("validate email format"): +0
+- May trigger cross-cutting i18n for error messages: +1 (partial cross-cutting)
+
+**Example 3: "Migrate auth from session-based to JWT" -- Tier 3 (score 12)**
+- Multiple layers (auth middleware + API + UI + storage): +3
+- Vague term "migrate" (scope unclear): +2
+- Cross-cutting auth concern: +2
+- Security-sensitive area: +2
+- Behavioral contract change (session API to JWT API): +2
+- Estimated >5 files: +1 (partial -- easily >5)
+
+When a signal partially applies (e.g., "maybe 5 files, maybe 4"), round down. Tier upgrades from adaptation (see `hatch3r-agent-orchestration-detail`) compensate for underestimates.
+
 ## Exceptions
 
 - **`hatch3r-quick-change` command**: Tier 1 items proceed without research. Tier 2 items get lightweight `similar-implementation` at `quick` depth. Tier 3 items must be routed to `hatch3r-workflow` (hard block).
-- **Trivial single-line edits**: Always Tier 1 regardless of scoring signals. This is the only valid basis for skipping research — label-based shortcuts (e.g., `risk:low AND priority:p3`) are not sufficient alone.
+- **Trivial single-line edits**: Always Tier 1 regardless of scoring signals. This is the only valid basis for skipping research -- label-based shortcuts (e.g., `risk:low AND priority:p3`) are not sufficient alone.
 - **`hatch3r-revision` command**: Operates on already-implemented code. Deep context analysis applies to the original implementation, not the revision pass.

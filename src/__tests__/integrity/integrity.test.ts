@@ -206,6 +206,22 @@ describe("integrity", () => {
       expect(newResult!.actual).toBe(expectedSha256(newContent));
     });
 
+    it("should detect TAMPERED manifest (self-check)", async () => {
+      await mkdir(join(agentsDir, "agents"), { recursive: true });
+      const content = "# Agent\n";
+      await writeFile(join(agentsDir, "agents", "hatch3r-reviewer.md"), content);
+
+      const manifest = await generateIntegrityManifest(agentsDir, "1.0.0");
+      // Tamper with the checksum
+      manifest.checksum = "tampered-checksum-value";
+      await writeIntegrityManifest(agentsDir, manifest);
+
+      const results = await verifyIntegrity(agentsDir);
+      expect(results).toHaveLength(1);
+      expect(results[0].file).toBe(".integrity.json");
+      expect(results[0].status).toBe("tampered");
+    });
+
     it("should handle mixed statuses across multiple files", async () => {
       await mkdir(join(agentsDir, "agents"), { recursive: true });
       await mkdir(join(agentsDir, "rules"), { recursive: true });

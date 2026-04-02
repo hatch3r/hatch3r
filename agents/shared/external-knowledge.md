@@ -30,3 +30,13 @@ Use web search when Context7 does not cover the topic, or for information that c
   - **GitHub:** GitHub Security Advisories, Dependabot alerts
   - **Azure DevOps:** Microsoft Defender for DevOps, WhiteSource/Mend
   - **GitLab:** GitLab Dependency Scanning, Advisory Database
+
+## When NOT to Use External Knowledge
+
+Skip external knowledge lookups when:
+
+- The answer is available in project documentation or codebase (tiers 1-2 of the hierarchy). Re-reading a local spec is faster and more accurate than a web search.
+- The question is about project-specific conventions (naming, file structure, state management). These are defined in local rules and learnings, not external sources.
+- The information is not time-sensitive and the agent's training data is sufficient (basic language features, well-established patterns like REST, SQL, HTTP status codes).
+
+Unnecessary external lookups waste tokens and introduce latency. Follow the hierarchy strictly: only escalate to the next tier when the current tier cannot answer the question.

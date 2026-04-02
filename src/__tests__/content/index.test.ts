@@ -488,6 +488,16 @@ describe("content/index", () => {
       expect(allIds.has("no-tags-rule")).toBe(true);
     });
 
+    it("#122: items without tags pass through excludeTags filter (vacuous truth fix)", () => {
+      // Standard preset has excludeTags. Items with empty tags should NOT be excluded.
+      const preset = getPreset("standard");
+      const selection = resolveSelection(preset, "brownfield", "team", index);
+
+      const allIds = getAllContentIds(selection);
+      // no-tags-rule has no tags, should survive excludeTags filter
+      expect(allIds.has("no-tags-rule")).toBe(true);
+    });
+
     it("greenfield projectType removes brownfield-only items", () => {
       const preset = getPreset("full");
       const selection = resolveSelection(preset, "greenfield", "team", index);
@@ -1853,6 +1863,89 @@ describe("content/index", () => {
       for (const w of warnings) {
         expect(w).toContain("4-phase pipeline");
       }
+    });
+  });
+
+  // ── estimatePresetItemCount (#127) ─────────────────────────────
+  describe("estimatePresetItemCount", () => {
+    let tempDir: string;
+
+    afterEach(async () => {
+      if (tempDir) await rm(tempDir, { recursive: true, force: true });
+    });
+
+    it("returns item count for full preset", async () => {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-estimate-"));
+      const root = await createContentRoot(tempDir);
+      const index = await buildContentIndex(root);
+      const { estimatePresetItemCount } = await import("../../content/index.js");
+      const preset = getPreset("full");
+      const count = estimatePresetItemCount(preset, "brownfield", "team", index);
+      expect(count).toBe(index.items.length);
+    });
+
+    it("returns fewer items for minimal preset", async () => {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-estimate-"));
+      const root = await createContentRoot(tempDir);
+      const index = await buildContentIndex(root);
+      const { estimatePresetItemCount } = await import("../../content/index.js");
+      const fullPreset = getPreset("full");
+      const minPreset = getPreset("minimal");
+      const fullCount = estimatePresetItemCount(fullPreset, "brownfield", "team", index);
+      const minCount = estimatePresetItemCount(minPreset, "brownfield", "team", index);
+      expect(minCount).toBeLessThanOrEqual(fullCount);
+    });
+  });
+
+  // ── generateMdcCompanions (#127) ──────────────────────────────
+  describe("generateMdcCompanions", () => {
+    let tempDir: string;
+
+    afterEach(async () => {
+      if (tempDir) await rm(tempDir, { recursive: true, force: true });
+    });
+
+    it("generates .mdc files for each .md file in the rules directory", async () => {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-mdc-"));
+      const rulesDir = join(tempDir, "rules");
+      await mkdir(rulesDir, { recursive: true });
+      await writeFile(
+        join(rulesDir, "hatch3r-test-rule.md"),
+        "---\nid: hatch3r-test-rule\ntype: rule\ndescription: A test rule\nscope: always\n---\n# Test Rule\n\nContent.\n",
+      );
+
+      const { generateMdcCompanions } = await import("../../content/index.js");
+      const written = await generateMdcCompanions(rulesDir);
+      expect(written.length).toBe(1);
+
+      const mdcContent = await readFile(join(rulesDir, "hatch3r-test-rule.mdc"), "utf-8");
+      expect(mdcContent).toContain("alwaysApply: true");
+      expect(mdcContent).toContain("A test rule");
+      expect(mdcContent).toContain("# Test Rule");
+    });
+
+    it("generates correct globs for scoped rules", async () => {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-mdc-scope-"));
+      const rulesDir = join(tempDir, "rules");
+      await mkdir(rulesDir, { recursive: true });
+      await writeFile(
+        join(rulesDir, "hatch3r-ts-rule.md"),
+        "---\nid: hatch3r-ts-rule\ntype: rule\ndescription: TypeScript rule\nscope: \"**/*.ts, **/*.tsx\"\n---\n# TS Rule\n",
+      );
+
+      const { generateMdcCompanions } = await import("../../content/index.js");
+      await generateMdcCompanions(rulesDir);
+
+      const mdcContent = await readFile(join(rulesDir, "hatch3r-ts-rule.mdc"), "utf-8");
+      expect(mdcContent).toContain("globs:");
+      expect(mdcContent).toContain("**/*.ts");
+      expect(mdcContent).toContain("**/*.tsx");
+    });
+
+    it("returns empty array for nonexistent directory", async () => {
+      const { generateMdcCompanions } = await import("../../content/index.js");
+      const result = await generateMdcCompanions("/nonexistent/path");
+      expect(result).toEqual([]);
     });
   });
 });

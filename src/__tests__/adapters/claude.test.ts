@@ -121,7 +121,7 @@ describe("ClaudeAdapter", () => {
           allow: ["Read", "Grep"],
           deny: ["Bash"],
         },
-        teammateMode: "full-trust",
+        teammateMode: "in-process",
       },
     });
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
@@ -132,7 +132,23 @@ describe("ClaudeAdapter", () => {
     const parsed = JSON.parse(settings!.content);
     expect(parsed.permissions.allow).toEqual(["Read", "Grep"]);
     expect(parsed.permissions.deny).toEqual(["Bash"]);
-    expect(parsed.teammateMode).toBe("full-trust");
+    expect(parsed.teammateMode).toBe("in-process");
+  });
+
+  it("maps deprecated teammateMode values to 'auto'", async () => {
+    const manifest = makeManifest({
+      claude: {
+        teammateMode: "full-trust",
+      },
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const settings = outputs.find((o) => o.path === ".claude/settings.json");
+    expect(settings).toBeDefined();
+
+    const parsed = JSON.parse(settings!.content);
+    // "full-trust" is deprecated and should be mapped to "auto"
+    expect(parsed.teammateMode).toBe("auto");
   });
 
   it("falls back to defaults when manifest.claude is partially configured", async () => {
@@ -431,5 +447,39 @@ You are a test agent.`,
     for (const o of outputs) {
       expect(o.content.length).toBeGreaterThan(0);
     }
+  });
+
+  it("warns about deprecated teammateMode values (#264, D9-9.35)", async () => {
+    const deprecatedAdapter = new ClaudeAdapter();
+    const manifest = makeManifest({
+      claude: { teammateMode: "tool-using" },
+    });
+    const outputs = await deprecatedAdapter.generate(FIXTURES_DIR, manifest);
+
+    expect(deprecatedAdapter.warnings).toContainEqual(
+      expect.stringContaining("deprecated"),
+    );
+    expect(deprecatedAdapter.warnings).toContainEqual(
+      expect.stringContaining("tool-using"),
+    );
+
+    // Should default to "auto" in settings.json output
+    const settings = outputs.find((o) => o.path === ".claude/settings.json");
+    expect(settings).toBeDefined();
+    const parsed = JSON.parse(settings!.content);
+    expect(parsed.teammateMode).toBe("auto");
+  });
+
+  it("does not warn for GA teammateMode values (#264, D9-9.35)", async () => {
+    const gaAdapter = new ClaudeAdapter();
+    const manifest = makeManifest({
+      claude: { teammateMode: "tmux" },
+    });
+    await gaAdapter.generate(FIXTURES_DIR, manifest);
+
+    const deprecationWarnings = gaAdapter.warnings.filter((w) =>
+      w.includes("deprecated"),
+    );
+    expect(deprecationWarnings).toHaveLength(0);
   });
 });

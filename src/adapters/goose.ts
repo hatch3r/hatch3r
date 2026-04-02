@@ -36,6 +36,12 @@ export class GooseAdapter extends BaseAdapter {
   readonly name = "goose";
 
   protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
+    // #123: Read agents once and reuse for both inline content and profile generation
+    // to avoid double readCanonicalFiles + double applyCustomization.
+    const agents = ctx.features.agents
+      ? await readCanonicalFiles(ctx.agentsDir, "agents")
+      : [];
+
     const lines = [
       ...await this.bridgeHeader(ctx),
       ...await this.inlineRules(ctx),
@@ -60,10 +66,7 @@ export class GooseAdapter extends BaseAdapter {
     // belongs in the profile's extensions array.
     const mcp = await this.readFilteredMcp(ctx);
 
-    // Generate Goose profile matching the actual platform schema.
-    const agents = ctx.features.agents
-      ? await readCanonicalFiles(ctx.agentsDir, "agents")
-      : [];
+    // Reuse agents already read above for profile generation
     const profile = this.buildProfile(ctx, agents, mcp);
     const profileYaml = yamlStringify(profile);
     results.push(output(".goose/profiles/hatch3r.yaml", profileYaml));

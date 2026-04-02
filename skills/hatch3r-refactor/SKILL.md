@@ -47,7 +47,8 @@ Before changing code, output:
 - Preserve all public interfaces and external behavior.
 - Remove dead code created by the refactor.
 - Do not introduce new dependencies.
-- If a bug is found, document it — fix in a separate PR.
+- If a bug is found, document it -- fix in a separate PR.
+- **Error handling preservation.** When moving or restructuring error handling code, verify that the error behavior is preserved. A common refactoring mistake is accidentally changing error types, removing error context, or altering error propagation paths. Run error-path tests after each structural change.
 
 ## Step 4: Verify
 

@@ -16,32 +16,42 @@ import { OpenCodeAdapter } from "./opencode.js";
 import { WindsurfAdapter } from "./windsurf.js";
 import { ZedAdapter } from "./zed.js";
 
-const adapters: Record<Tool, Adapter> = {
-  cursor: new CursorAdapter(),
-  copilot: new CopilotAdapter(),
-  claude: new ClaudeAdapter(),
-  opencode: new OpenCodeAdapter(),
-  windsurf: new WindsurfAdapter(),
-  amp: new AmpAdapter(),
-  codex: new CodexAdapter(),
-  gemini: new GeminiAdapter(),
-  cline: new ClineAdapter(),
-  aider: new AiderAdapter(),
-  kiro: new KiroAdapter(),
-  goose: new GooseAdapter(),
-  zed: new ZedAdapter(),
-  "amazon-q": new AmazonQAdapter(),
-  antigravity: new AntigravityAdapter(),
+// Adapter factory map — instantiates adapters lazily on first access to avoid
+// allocating all adapters at module load time (#117).
+const adapterFactories: Record<Tool, () => Adapter> = {
+  cursor: () => new CursorAdapter(),
+  copilot: () => new CopilotAdapter(),
+  claude: () => new ClaudeAdapter(),
+  opencode: () => new OpenCodeAdapter(),
+  windsurf: () => new WindsurfAdapter(),
+  amp: () => new AmpAdapter(),
+  codex: () => new CodexAdapter(),
+  gemini: () => new GeminiAdapter(),
+  cline: () => new ClineAdapter(),
+  aider: () => new AiderAdapter(),
+  kiro: () => new KiroAdapter(),
+  goose: () => new GooseAdapter(),
+  zed: () => new ZedAdapter(),
+  "amazon-q": () => new AmazonQAdapter(),
+  antigravity: () => new AntigravityAdapter(),
 };
 
+const adapterCache = new Map<Tool, Adapter>();
+
 export function getAdapter(tool: Tool): Adapter {
-  const adapter = adapters[tool];
-  if (!adapter) {
+  let adapter = adapterCache.get(tool);
+  if (adapter) return adapter;
+  const factory = adapterFactories[tool];
+  if (!factory) {
     throw new Error(`Unknown tool: ${tool}`);
   }
+  adapter = factory();
+  adapterCache.set(tool, adapter);
   return adapter;
 }
 
+// #258 (D9-9.29): Extended AdapterCapability to include worktree, customization, and modelOverride
+// columns that were tracked in the external audit matrix but missing from the type.
 interface AdapterCapability {
   agents: boolean;
   skills: boolean;
@@ -51,28 +61,35 @@ interface AdapterCapability {
   commands: boolean;
   prompts: boolean;
   githubAgents: boolean;
+  /** Whether the adapter supports git worktree file-isolation. */
+  worktree: boolean;
+  /** Whether the adapter supports per-item customization (.customize.md). */
+  customization: boolean;
+  /** Whether the adapter supports model override configuration. */
+  modelOverride: boolean;
 }
 
-// Adapter capability matrix — last updated for hatch3r v1.2.0.
+// Adapter capability matrix — last updated for hatch3r v1.4.0.
+// #260 (D9-9.31): Updated "last verified" version from v1.2.0 to v1.4.0.
 // Review this matrix when adding new adapters, removing adapters, or when
 // an existing tool gains/loses support for a feature (e.g. a tool ships
 // native hook support). Each row must match the adapter's doGenerate() output.
 const ADAPTER_CAPABILITIES: Record<Tool, AdapterCapability> = {
-  cursor:   { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false },
-  claude:   { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false },
-  gemini:   { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false },
-  cline:    { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false },
-  codex:      { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: false, prompts: false, githubAgents: false },
-  "amazon-q": { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: false, prompts: false, githubAgents: false },
-  copilot:  { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: true,  prompts: true,  githubAgents: true  },
-  opencode: { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: true,  prompts: false, githubAgents: false },
-  windsurf: { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: true,  prompts: false, githubAgents: false },
-  amp:      { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false },
-  kiro:     { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: false, prompts: false, githubAgents: false },
-  aider:    { agents: true, skills: true, rules: true, hooks: false, mcp: false, commands: false, prompts: false, githubAgents: false },
-  goose:    { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false },
-  zed:      { agents: true, skills: false, rules: true, hooks: false, mcp: false, commands: false, prompts: false, githubAgents: false },
-  antigravity: { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false },
+  cursor:   { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false, worktree: true,  customization: true,  modelOverride: true  },
+  claude:   { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false, worktree: true,  customization: true,  modelOverride: true  },
+  gemini:   { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false, worktree: true,  customization: true,  modelOverride: true  },
+  cline:    { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false, worktree: true,  customization: true,  modelOverride: true  },
+  codex:      { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true  },
+  "amazon-q": { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true  },
+  copilot:  { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: true,  prompts: true,  githubAgents: true,  worktree: true,  customization: true,  modelOverride: true  },
+  opencode: { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: true,  prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true  },
+  windsurf: { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: true,  prompts: false, githubAgents: false, worktree: true,  customization: true,  modelOverride: true  },
+  amp:      { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true  },
+  kiro:     { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true  },
+  aider:    { agents: true, skills: true, rules: true, hooks: false, mcp: false, commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true  },
+  goose:    { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true  },
+  zed:      { agents: true, skills: false, rules: true, hooks: false, mcp: false, commands: false, prompts: false, githubAgents: false, worktree: false, customization: false, modelOverride: false },
+  antigravity: { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true  },
 };
 
 export function getUnsupportedFeatureWarnings(tool: string, manifest: HatchManifest): string[] {
@@ -92,7 +109,7 @@ export function getUnsupportedFeatureWarnings(tool: string, manifest: HatchManif
   ];
 
   for (const { key, label } of featureLabels) {
-    if (manifest.features[key] && !caps[key]) {
+    if (manifest.features[key as keyof typeof manifest.features] && !caps[key]) {
       warnings.push(`${tool}: ${label} are enabled but not supported by this adapter`);
     }
   }

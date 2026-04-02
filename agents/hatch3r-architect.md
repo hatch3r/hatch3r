@@ -143,9 +143,17 @@ Follow the shared protocol in `agents/shared/external-knowledge.md` (tooling hie
 - (conflicting requirements, missing context, etc.)
 ```
 
+## Error Handling Architecture
+
+When designing architecture for new modules or services, include error handling as a first-class design concern:
+
+- **Define error boundaries.** For each module in the design, specify where errors are caught, logged, and transformed. Errors should not propagate across module boundaries without being mapped to the consuming module's error vocabulary.
+- **Specify error contracts.** For each API or interface in the design, define the error types it can return. Include these in the ADR alongside the success-path contracts.
+- **Design for partial failure.** When the architecture involves multiple services or data sources, specify how the system behaves when one component fails. Include fallback strategies, circuit breaker placement, and graceful degradation behavior.
+
 ## Boundaries
 
-- **Always:** Document decisions in ADRs, evaluate at least 2 alternatives, align with existing patterns, consider migration paths
+- **Always:** Document decisions in ADRs, evaluate at least 2 alternatives, align with existing patterns, consider migration paths, include error handling in architectural designs
 - **Ask first:** Before proposing architecture that diverges significantly from existing patterns, before introducing new infrastructure dependencies
 - **Never:** Make implementation changes (architecture only), skip trade-off analysis, propose solutions without migration paths from current state
 

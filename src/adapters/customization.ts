@@ -35,6 +35,15 @@ const DENY_PATTERNS: RegExp[] = [
   /forget\s+(all\s+)?(previous|prior|above)\s+(instructions|rules|context)/i,
   /act\s+as\s+(?:a|an)\s+(?:unrestricted|unfiltered|jailbroken)/i,
   /do\s+not\s+follow\s+(?:any|the|your)\s+(?:previous|prior|above|original)\s/i,
+  // D15 Medium: additional deny patterns (#358-#385)
+  /(?:curl|wget|fetch)\s+.*\|\s*(?:bash|sh|eval)/i,
+  /remove\s+(?:all\s+)?(?:security|safety)\s+(?:checks|guards|measures)/i,
+  /(?:execute|run)\s+(?:arbitrary|untrusted|remote)\s+(?:code|commands?)/i,
+  /(?:connect|phone)\s+home/i,
+  /(?:reverse|bind)\s+shell/i,
+  /(?:upload|exfil)\s+(?:to|data|credentials|keys)/i,
+  /(?:disable|turn\s+off|remove)\s+(?:logging|monitoring|audit)/i,
+  /(?:hardcoded|embedded)\s+(?:credentials?|secrets?|passwords?)/i,
 ];
 
 const ZERO_WIDTH_CHARS = /[\u200B\u200C\u200D\uFEFF\u00AD]/g;
@@ -90,7 +99,8 @@ function normalizeHomoglyphs(text: string): string {
 function stripBoundaryMarkers(content: string): string {
   return content
     .replace(/<!-- MANAGED-BLOCK:(BEGIN|END) -->/g, '')
-    .replace(/<!-- USER-CUSTOMIZATION:(BEGIN|END) -->/g, '');
+    .replace(/<!-- USER-CUSTOMIZATION:(BEGIN|END) -->/g, '')
+    .replace(/<!-- HATCH3R:(BEGIN|END) -->/g, '');
 }
 
 function collapseNewlines(content: string): string {
@@ -153,6 +163,13 @@ async function applyCustomizationImpl(
       delete overrides.scope;
       delete overrides.description;
     }
+  }
+
+  // #116: Warn when scope is overridden on types that don't use scope (skills, prompts, hooks)
+  const TYPES_WITHOUT_SCOPE = new Set(["skill", "prompt", "hook"]);
+  if (overrides.scope !== undefined && TYPES_WITHOUT_SCOPE.has(file.type)) {
+    warnings.push(`Scope override on ${file.type} "${file.id}" has no effect — ${file.type}s do not use scope. Ignoring.`);
+    delete overrides.scope;
   }
 
   for (const field of ["description", "scope", "model"] as const) {

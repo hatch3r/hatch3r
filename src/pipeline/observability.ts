@@ -225,6 +225,74 @@ export function formatTokenSummary(summary: PipelineTokenSummary): string {
   return lines.join("\n");
 }
 
+// ── Budget Tracking (D12 Medium: #315-#330) ──────────────────────
+
+/**
+ * Cost estimation for a pipeline run based on token counts.
+ *
+ * Uses configurable per-token rates to estimate costs.
+ * Default rates are conservative estimates for typical LLM pricing.
+ */
+export interface CostEstimate {
+  /** Estimated input cost. */
+  inputCost: number;
+  /** Estimated output cost. */
+  outputCost: number;
+  /** Total estimated cost. */
+  totalCost: number;
+  /** Currency code. */
+  currency: string;
+  /** Whether any budget threshold was exceeded. */
+  budgetWarning: boolean;
+  /** Warning message if budget threshold exceeded. */
+  warningMessage?: string;
+}
+
+/** Default cost per 1M input tokens in USD. */
+export const DEFAULT_INPUT_COST_PER_1M = 3.0;
+
+/** Default cost per 1M output tokens in USD. */
+export const DEFAULT_OUTPUT_COST_PER_1M = 15.0;
+
+/**
+ * Estimate cost from a token summary.
+ */
+export function estimateCost(
+  summary: PipelineTokenSummary,
+  options?: {
+    inputCostPer1M?: number;
+    outputCostPer1M?: number;
+    currency?: string;
+    budgetLimit?: number;
+    warningThresholds?: number[];
+  },
+): CostEstimate {
+  const inputRate = (options?.inputCostPer1M ?? DEFAULT_INPUT_COST_PER_1M) / 1_000_000;
+  const outputRate = (options?.outputCostPer1M ?? DEFAULT_OUTPUT_COST_PER_1M) / 1_000_000;
+  const currency = options?.currency ?? "USD";
+
+  const inputCost = summary.totalInputTokens * inputRate;
+  const outputCost = summary.totalOutputTokens * outputRate;
+  const totalCost = inputCost + outputCost;
+
+  let budgetWarning = false;
+  let warningMessage: string | undefined;
+
+  if (options?.budgetLimit) {
+    const thresholds = options.warningThresholds ?? [0.5, 0.75, 0.9];
+    const ratio = totalCost / options.budgetLimit;
+    for (const t of thresholds.sort((a, b) => b - a)) {
+      if (ratio >= t) {
+        budgetWarning = true;
+        warningMessage = `Estimated cost (${totalCost.toFixed(4)} ${currency}) has reached ${(ratio * 100).toFixed(0)}% of budget (${options.budgetLimit} ${currency}).`;
+        break;
+      }
+    }
+  }
+
+  return { inputCost, outputCost, totalCost, currency, budgetWarning, warningMessage };
+}
+
 // ── Replay Guidance (Finding #65) ────────────────────────────────
 
 /**

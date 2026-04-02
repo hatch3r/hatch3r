@@ -282,4 +282,34 @@ describe("McpServerEntry headers field", () => {
     const warnings = validateMcpEntry("cmd-with-headers", entry);
     expect(warnings).toEqual([]);
   });
+
+  it("#120: warns on invalid env key names", () => {
+    const entry: McpServerEntry = {
+      command: "npx",
+      args: ["server"],
+      env: {
+        "VALID_KEY": "ok",
+        "123-INVALID": "bad",
+        "ALSO INVALID": "bad",
+      },
+    };
+    const warnings = validateMcpEntry("test-server", entry);
+    expect(warnings.length).toBe(2);
+    expect(warnings.some((w) => w.includes("123-INVALID"))).toBe(true);
+    expect(warnings.some((w) => w.includes("ALSO INVALID"))).toBe(true);
+  });
+
+  it("#120: accepts valid POSIX env key names", () => {
+    const entry: McpServerEntry = {
+      command: "npx",
+      args: ["server"],
+      env: {
+        "GITHUB_PAT": "token",
+        "_PRIVATE": "val",
+        "my_var_2": "val",
+      },
+    };
+    const warnings = validateMcpEntry("test-server", entry);
+    expect(warnings).toEqual([]);
+  });
 });

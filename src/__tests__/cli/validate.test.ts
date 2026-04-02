@@ -52,15 +52,14 @@ async function createMinimalAgentsDir(root: string): Promise<void> {
 
 describe("validate command", () => {
   let tempDir: string;
-  let originalCwd: string;
+  let cwdSpy: MockInstance;
   let exitSpy: MockInstance;
   let consoleSpy: ReturnType<typeof vi.spyOn>;
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), "hatch3r-validate-"));
-    originalCwd = process.cwd();
-    process.chdir(tempDir);
+    cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempDir);
     exitSpy = vi
       .spyOn(process, "exit")
       .mockImplementation((() => {
@@ -71,7 +70,7 @@ describe("validate command", () => {
   });
 
   afterEach(async () => {
-    process.chdir(originalCwd);
+    cwdSpy.mockRestore();
     exitSpy.mockRestore();
     consoleSpy.mockRestore();
     consoleErrorSpy.mockRestore();

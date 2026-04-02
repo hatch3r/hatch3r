@@ -284,6 +284,28 @@ describe("init command", () => {
 
     expect(manifest.tools).toEqual(["amp"]);
   });
+
+  it("should use standard preset by default with --yes flag", async () => {
+    await initCommand({ yes: true });
+
+    const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf-8"));
+
+    // In --yes mode, content.preset should default to standard
+    if (manifest.content) {
+      expect(manifest.content.preset).toBe("standard");
+    }
+  });
+
+  it("should create hooks directory when hooks feature is enabled", async () => {
+    await initCommand({ yes: true });
+
+    const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf-8"));
+
+    // hooks feature should be enabled by default
+    expect(manifest.features.hooks).toBe(true);
+  });
 });
 
 describe("workspace init", () => {

@@ -7,6 +7,7 @@ import {
   unlink,
   open,
   copyFile,
+  stat,
 } from "node:fs/promises";
 import { dirname, basename } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -129,8 +130,17 @@ export async function safeWriteFile(
     } catch {
       // Managed block is corrupted (duplicate markers, wrong order, etc.).
       // Create a .bak backup before overwriting so user content is not lost.
+      // #242 (D8-8.9): Verify backup integrity before proceeding with overwrite.
       const bakPath = filePath + ".bak";
       await copyFile(filePath, bakPath);
+      const srcStat = await stat(filePath);
+      const bakStat = await stat(bakPath);
+      if (bakStat.size !== srcStat.size) {
+        throw new Error(
+          `Backup verification failed for ${filePath}: source=${srcStat.size} bytes, backup=${bakStat.size} bytes. ` +
+          `Aborting auto-repair to prevent data loss.`,
+        );
+      }
       await atomicWriteFile(filePath, content);
       return {
         path: filePath,

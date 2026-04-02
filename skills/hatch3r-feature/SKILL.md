@@ -67,11 +67,12 @@ Use standard flow (implement → test) when:
 ## Step 3: Implement
 
 - Deliver a complete vertical slice (data -> logic -> UI).
-- Follow the convention lock from Step 1 / the implementer's Step 1b — match the reference implementation's patterns for file structure, state management, error handling, data fetching, and testing. Do not invent new patterns when established ones exist in the codebase.
+- Follow the convention lock from Step 1 / the implementer's Step 1b -- match the reference implementation's patterns for file structure, state management, error handling, data fetching, and testing. Do not invent new patterns when established ones exist in the codebase.
 - Use stable IDs from the project glossary.
 - If database/backend data is needed, include security rules updates.
 - If feature is gated, enforce entitlements client-side AND server-side.
 - If new events, follow the project's event schema.
+- **Error handling for new code paths.** Every new function that can fail must use the project's error handling patterns (Result types for expected failures, custom error classes for domain errors, error boundaries at architectural boundaries). Do not defer error handling to "a future PR" -- incomplete error handling is a Critical review finding.
 
 ## Step 4: Tests
 

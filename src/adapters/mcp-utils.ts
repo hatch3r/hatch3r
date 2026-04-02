@@ -108,6 +108,18 @@ export function validateMcpEntry(
     );
   }
 
+  // #120: Validate env key names follow POSIX convention
+  if (entry.env) {
+    for (const key of Object.keys(entry.env)) {
+      if (!VALID_ENV_KEY.test(key)) {
+        warnings.push(
+          `MCP server "${name}" has invalid env key "${key}". ` +
+            `Environment variable names must match [A-Za-z_][A-Za-z0-9_]*.`,
+        );
+      }
+    }
+  }
+
   if (entry.args) {
     const SHELL_METACHAR = /[|;&`$()]/;
     for (const arg of entry.args) {
@@ -135,6 +147,10 @@ export function validateMcpEntry(
 
   return warnings;
 }
+
+// Env var keys must follow POSIX convention: letters, digits, and underscores.
+// Keys with other characters are rejected to prevent injection.
+const VALID_ENV_KEY = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 // Server names must contain only alphanumeric characters, hyphens, and underscores.
 // Names with other special characters are rejected to prevent path traversal,

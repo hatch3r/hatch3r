@@ -67,13 +67,28 @@ export abstract class BaseAdapter implements Adapter {
    */
   async generate(agentsDir: string, manifest: HatchManifest, generationMode: GenerationMode = "standard"): Promise<AdapterOutput[]> {
     this.warnings = [];
-    return this.doGenerate({
+    const outputs = await this.doGenerate({
       agentsDir,
       manifest,
       features: manifest.features,
       projectRoot: dirname(agentsDir),
       generationMode,
     });
+
+    // #119: Validate output invariants to catch generation bugs early
+    for (const out of outputs) {
+      if (out.path.startsWith("/") || out.path.includes("..")) {
+        this.warnings.push(`[${this.name}] Invalid output path "${out.path}" — must be relative with no traversal`);
+      }
+      if (!out.content) {
+        this.warnings.push(`[${this.name}] Empty content for output "${out.path}" — possible generation bug`);
+      }
+      if (out.managedContent && !out.content.includes(out.managedContent)) {
+        this.warnings.push(`[${this.name}] managedContent is not a substring of content for "${out.path}"`);
+      }
+    }
+
+    return outputs;
   }
 
   /**

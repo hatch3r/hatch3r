@@ -291,9 +291,16 @@ export class ClaudeAdapter extends BaseAdapter {
     const claudeConfig = ctx.manifest.claude;
 
     // Agent Teams GA compatibility: use "auto" as default teammateMode.
-    // Legacy values ("tool-using", "full-trust", "manual-approval") are still
-    // accepted for backward compatibility but "auto" is the GA default.
-    const teammateMode = claudeConfig?.teammateMode ?? "auto";
+    // #264 (D9-9.35): Legacy values are deprecated; warn and map to "auto".
+    const DEPRECATED_TEAMMATE_MODES = new Set(["tool-using", "full-trust", "manual-approval"]);
+    const rawTeammateMode = claudeConfig?.teammateMode ?? "auto";
+    if (DEPRECATED_TEAMMATE_MODES.has(rawTeammateMode)) {
+      this.warnings.push(
+        `claude: teammateMode "${rawTeammateMode}" is deprecated. ` +
+        `Use "auto", "in-process", or "tmux" instead. Defaulting to "auto".`,
+      );
+    }
+    const teammateMode = DEPRECATED_TEAMMATE_MODES.has(rawTeammateMode) ? "auto" : rawTeammateMode;
 
     const settingsObj: Record<string, unknown> = {
       _hatch3r: {

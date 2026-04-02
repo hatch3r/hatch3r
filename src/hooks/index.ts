@@ -9,21 +9,28 @@ export async function readHookDefinitions(
 ): Promise<HookDefinition[]> {
   const hooksDir = join(agentsDir, "hooks");
 
+  // #121: Use recursive readdir to match canonical reader's pattern
   let entries: string[];
   try {
-    const dirEntries = await readdir(hooksDir);
-    entries = dirEntries.filter((f) => f.endsWith(".md"));
+    const allEntries = await readdir(hooksDir, { recursive: true });
+    entries = allEntries
+      .filter((f) => typeof f === "string" && f.endsWith(".md"))
+      .sort();
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
     return [];
   }
 
   const hooks: HookDefinition[] = [];
+  const seenIds = new Set<string>();
 
   for (const entry of entries) {
     const content = await readFile(join(hooksDir, entry), "utf-8");
     const hook = parseHookFrontmatter(content);
     if (hook) {
+      // #119: Prevent hook ID duplication across files
+      if (seenIds.has(hook.id)) continue;
+      seenIds.add(hook.id);
       hooks.push(hook);
     }
   }

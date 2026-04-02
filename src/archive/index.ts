@@ -1,8 +1,9 @@
-import { access, cp, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { access, cp, mkdir, readFile, readdir, rm, stat } from "node:fs/promises";
 import { dirname, join, sep } from "node:path";
 import type { HatchManifest, Tool } from "../types.js";
 import { HATCH3R_PREFIX, sanitizeId } from "../types.js";
 import { extractCustomContent, hasManagedBlock } from "../merge/managedBlocks.js";
+import { atomicWriteFile } from "../merge/safeWrite.js";
 import type { CustomizableType } from "../models/customize.js";
 
 function toPosixPath(p: string): string {
@@ -23,16 +24,18 @@ interface ParsedOutputPath {
   id: string;
 }
 
+// #255 (D9-9.26): Added "AGENTS.md" to amp prefixes so archive cleanup catches amp's root-level output.
+// #256 (D9-9.27): Added ".aider/" to aider prefixes so archive cleanup catches aider's skills subdirectory.
 const TOOL_PATH_PREFIXES: Record<Tool, string[]> = {
   cursor: [".cursor/"],
   claude: [".claude/", "CLAUDE.md", ".mcp.json"],
   copilot: [".github/copilot-instructions.md", ".github/workflows/copilot-setup-steps.yml", ".vscode/mcp.json"],
   windsurf: [".windsurf/", ".windsurfrules"],
-  amp: [".amp/"],
+  amp: [".amp/", "AGENTS.md"],
   codex: [".codex/"],
   gemini: [".gemini/", "GEMINI.md"],
   cline: [".roo/", ".roomodes"],
-  aider: ["CONVENTIONS.md", ".aider.conf.yml"],
+  aider: ["CONVENTIONS.md", ".aider.conf.yml", ".aider/"],
   kiro: [".kiro/"],
   opencode: ["opencode.json"],
   goose: [".goosehints"],
@@ -154,7 +157,8 @@ export async function archiveToolOutputs(
           const customizePath = join(rootDir, ".hatch3r", parsed.type, `${parsed.id}.customize.md`);
           if (!(await fileExists(customizePath))) {
             await mkdir(dirname(customizePath), { recursive: true });
-            await writeFile(customizePath, customContent + "\n", "utf-8");
+            // #241 (D8-8.8): Route through atomicWriteFile for crash-safe migration writes
+            await atomicWriteFile(customizePath, customContent + "\n");
             migrations.push({
               from: relPath,
               to: `.hatch3r/${parsed.type}/${parsed.id}.customize.md`,

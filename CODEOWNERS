@@ -1,2 +1,7 @@
 * @denismasatovic
 * @vicdotdevelop
+
+# Critical paths require explicit review
+src/integrity/** @denismasatovic
+src/merge/** @denismasatovic
+.github/workflows/** @denismasatovic

@@ -240,5 +240,37 @@ Always check for SQL injection`;
 
       expect(result).toEqual([]);
     });
+
+    it("returns amp managed files including root AGENTS.md (#255, D9-9.26)", () => {
+      const manifest = makeManifest(["amp"]);
+      manifest.managedFiles = [
+        ".amp/settings.json",
+        "AGENTS.md",
+        ".cursor/rules/test.mdc",
+      ];
+
+      const result = getManagedFilesForTool(manifest, "amp");
+
+      expect(result).toContain("AGENTS.md");
+      expect(result).toContain(".amp/settings.json");
+      expect(result).not.toContain(".cursor/rules/test.mdc");
+    });
+
+    it("returns aider managed files including .aider/ directory (#256, D9-9.27)", () => {
+      const manifest = makeManifest(["aider"]);
+      manifest.managedFiles = [
+        "CONVENTIONS.md",
+        ".aider.conf.yml",
+        ".aider/skills/hatch3r-test/SKILL.md",
+        ".cursor/rules/test.mdc",
+      ];
+
+      const result = getManagedFilesForTool(manifest, "aider");
+
+      expect(result).toContain("CONVENTIONS.md");
+      expect(result).toContain(".aider.conf.yml");
+      expect(result).toContain(".aider/skills/hatch3r-test/SKILL.md");
+      expect(result).not.toContain(".cursor/rules/test.mdc");
+    });
   });
 });

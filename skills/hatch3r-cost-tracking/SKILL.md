@@ -27,12 +27,15 @@ Task Progress:
 
 Estimate tokens for the current session using these rules:
 
-| Content Type | Rule |
-|-------------|------|
-| Messages | ~4 characters per token |
-| Tool calls | JSON length / 4 (input), response length / 4 (output) |
-| File reads | Character count / 4 |
-| Web searches | ~500 tokens per search |
+| Content Type | Rule | Accuracy |
+|-------------|------|----------|
+| Messages | ~4 characters per token | High -- stable ratio for English text |
+| Tool calls | JSON length / 4 (input), response length / 4 (output) | Medium -- JSON has more overhead characters |
+| File reads | Character count / 4 | High -- but large files may be truncated by the tool |
+| Web searches | ~500 tokens per search | Low -- varies widely by result length |
+| Subagent spawns | Estimate full context re-sent per spawn (~2000-5000 tokens base) | Medium -- depends on included rules/context |
+
+**Subagent cost multiplier.** Each subagent spawn carries a base cost for the agent protocol, included rules, and context. A pipeline with 8 subagents (researcher + implementer + reviewer + fixer + 4 Phase 4 specialists) has significant overhead from context re-transmission. Factor this into budget estimates.
 
 Calculate estimated cost using the model tier rates from the `hatch3r-cost-tracking` command reference.
 

@@ -110,6 +110,15 @@ When auditing a large application with multiple modules:
 - (deferred audits, areas needing deeper investigation)
 ```
 
+## Error Handling Security Audit
+
+In addition to the 8 security domains above, audit error handling for security implications:
+
+- **Information leakage in errors.** Verify that error responses do not include stack traces, internal file paths, database query fragments, or dependency version numbers. Reference `hatch3r-code-standards` error boundary patterns.
+- **Error-based authentication bypass.** Check that authentication/authorization failures return generic error messages. Distinct error messages for "user not found" vs. "wrong password" enable account enumeration.
+- **Fail-open conditions.** Verify that exception handlers in authorization paths default to deny (fail-closed). A catch block that returns `true` or allows access on error is a Critical finding.
+- **Rate limiting on error paths.** Verify that repeated failed authentication attempts, validation errors, and resource-not-found responses are rate-limited to prevent brute-force and enumeration attacks.
+
 ## Boundaries
 
 - **Always:** Test both allow and deny cases, verify invariants, check for secret leakage, validate input sanitization, use the platform CLI for issue/code reads

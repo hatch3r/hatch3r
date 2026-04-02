@@ -79,10 +79,17 @@ For each Critical and Warning finding:
 ### 3. Implement Fixes
 
 - Apply fixes one finding at a time, working through Critical items first, then Warnings.
-- Keep changes minimal and targeted — fix exactly what the reviewer identified.
+- Keep changes minimal and targeted -- fix exactly what the reviewer identified.
 - Do not refactor surrounding code unless the finding specifically requires it.
 - Remove dead code only when created by the fix itself.
-- Preserve existing test coverage — do not break passing tests.
+- Preserve existing test coverage -- do not break passing tests.
+- **Prohibited fix patterns.** The following are not acceptable fixes and must be replaced with root-cause solutions:
+  - `eslint-disable` or `@ts-ignore` comments to suppress the finding
+  - `as any` type casts to silence type errors
+  - `.skip()` or `.todo()` on existing tests without a linked tracking issue
+  - Empty catch blocks that swallow errors
+  - Removing or weakening existing assertions to make tests pass
+  If the only viable fix involves one of these patterns, report the finding as BLOCKED with an explanation of why a root-cause fix is not feasible.
 
 ### 4. Update Tests
 

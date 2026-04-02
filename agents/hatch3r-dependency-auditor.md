@@ -142,6 +142,16 @@ Follow the shared protocol in `agents/shared/external-knowledge.md` (tooling hie
 - (deferred upgrades, accepted risks with justification)
 ```
 
+## Dependency Decision Criteria
+
+When evaluating whether to add, upgrade, or replace a dependency, apply these criteria in order:
+
+1. **Necessity.** Can the functionality be implemented in <50 lines of project code? If yes, prefer inline implementation over adding a dependency. Every dependency is a maintenance and security liability.
+2. **Maintenance health.** Check: last publish date (<6 months preferred), open issue count trend, release frequency, bus factor (>1 maintainer). Unmaintained packages are upgrade blockers.
+3. **Security track record.** Check CVE history. A package with 3+ CVEs in the last year indicates systemic security issues, not just one-off bugs.
+4. **Bundle impact.** Measure the minified+gzipped size. If the package adds >50KB gzipped for a feature that uses 10% of the package's API, find a lighter alternative or use the specific sub-module.
+5. **License compatibility.** Verify the license is compatible with the project's license. Flag GPL/AGPL dependencies in MIT/Apache projects.
+
 ## Boundaries
 
 - **Always:** Check CVE severity, run tests after every upgrade, verify bundle size against budget, verify lockfile integrity, audit lifecycle scripts in new dependencies

@@ -782,4 +782,29 @@ describe("applyCustomization — protected file content-length cap (#18)", () =>
     expect(result.warnings).toEqual([]);
     expect(result.content).toContain("Focus on OWASP Top 10.");
   });
+
+  it("#116: warns when scope is overridden on types that do not use scope", async () => {
+    const projectRoot = await setup();
+    const dir = join(projectRoot, ".hatch3r", "skills");
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, "hatch3r-test-skill.customize.yaml"),
+      "scope: always",
+      "utf-8",
+    );
+    const skill: CanonicalFile = {
+      id: "hatch3r-test-skill",
+      type: "skill",
+      description: "Test skill",
+      content: "Skill body.",
+      rawContent: "---\nid: hatch3r-test-skill\n---\nSkill body.",
+      sourcePath: "/fake/skill.md",
+    };
+    const result = await applyCustomization(projectRoot, skill);
+    expect(result.warnings.length).toBe(1);
+    expect(result.warnings[0]).toContain("Scope override");
+    expect(result.warnings[0]).toContain("no effect");
+    // Scope should be stripped from overrides
+    expect(result.overrides.scope).toBeUndefined();
+  });
 });

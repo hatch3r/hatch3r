@@ -124,3 +124,26 @@ export function step(n: number, total: number, msg: string): string {
 export function label(name: string, value: string): string {
   return `${chalk.dim(name.padEnd(12))} ${value}`;
 }
+
+/**
+ * D19 Medium (#415-#431): Display a success message with next-steps guidance.
+ * Used after init/update to reduce first-run friction.
+ */
+export function printNextSteps(steps: string[]): void {
+  if (steps.length === 0) return;
+  console.log(chalk.dim("\n  Next steps:"));
+  for (const s of steps) {
+    console.log(chalk.dim(`    ${s}`));
+  }
+  console.log();
+}
+
+/**
+ * D19 Medium (#415-#431): Print a compact timing summary.
+ * Used at the end of sync/validate to show elapsed time.
+ */
+export function printTimingSummary(startMs: number): void {
+  const elapsed = Date.now() - startMs;
+  const seconds = (elapsed / 1000).toFixed(1);
+  console.log(chalk.dim(`  Completed in ${seconds}s\n`));
+}

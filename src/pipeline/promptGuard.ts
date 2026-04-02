@@ -112,6 +112,15 @@ const INJECTION_PATTERNS: { pattern: RegExp; description: string }[] = [
     pattern: /\x00|\x1b\[/,
     description: "null byte or ANSI escape sequence injection",
   },
+  // D15 Medium: MCP-specific injection patterns (#358-#385)
+  {
+    pattern: /(?:tool_call|function_call)\s*\(/i,
+    description: "tool/function call injection attempt",
+  },
+  {
+    pattern: /<\|(?:tool|function|plugin)\|>/i,
+    description: "tool delimiter injection token",
+  },
 ];
 
 export interface SanitizationResult {
@@ -230,6 +239,10 @@ export interface PhaseHandoff {
   inputViolations: string[];
   /** Whether the input was truncated. */
   truncated: boolean;
+  /** D12 Medium: ISO-8601 timestamp of the handoff for timing diagnostics (#315-#330). */
+  timestamp: string;
+  /** D12 Medium: Correlation ID for tracing handoffs across phases (#315-#330). */
+  correlationId?: string;
 }
 
 /**
@@ -244,6 +257,7 @@ export function createPhaseHandoff(
   to: string,
   content: string,
   maxLength?: number,
+  correlationId?: string,
 ): PhaseHandoff {
   const { sanitized, violations, truncated } = sanitizePipelineInput(
     content,
@@ -258,5 +272,7 @@ export function createPhaseHandoff(
     markers,
     inputViolations: violations,
     truncated,
+    timestamp: new Date().toISOString(),
+    correlationId,
   };
 }

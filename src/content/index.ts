@@ -375,11 +375,14 @@ export function resolveSelection(
     }
 
     // Apply excludeTags filter
+    // #122: Guard against vacuous truth — items with no tags should pass through,
+    // not be excluded (Array.every on empty array returns true).
     if (preset.excludeTags.length > 0) {
       const excludeSet = new Set<string>(preset.excludeTags);
       selected = selected.filter(
         (item) =>
           item.protected ||
+          item.tags.length === 0 ||
           !item.tags.every((t) => excludeSet.has(t)),
       );
     }
@@ -478,10 +481,10 @@ export function countPresetExclusions(
         continue;
       }
     }
-    // excludeTags filter
+    // excludeTags filter (#122: guard against vacuous truth for empty tags)
     if (preset.excludeTags.length > 0) {
       const excludeSet = new Set<string>(preset.excludeTags);
-      if (item.tags.every((t) => excludeSet.has(t))) {
+      if (item.tags.length > 0 && item.tags.every((t) => excludeSet.has(t))) {
         count++;
       }
     }

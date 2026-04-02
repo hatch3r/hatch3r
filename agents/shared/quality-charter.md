@@ -76,3 +76,21 @@ Where possible, state acceptance criteria in measurable, verifiable terms:
 - **Not measurable:** "Make the app faster."
 
 When a recommendation cannot be quantified (e.g., "improve code readability"), provide a concrete before/after example instead.
+
+### 8. Escalate Ambiguity Early
+
+When encountering conflicting requirements, unclear acceptance criteria, or missing context:
+
+- **Stop and ask** rather than making assumptions that could cascade through later pipeline phases.
+- State what is ambiguous, what the possible interpretations are, and which interpretation you would choose if forced to proceed.
+- Log the ambiguity in the structured output (e.g., `researchGaps`, `Issues encountered`) so downstream agents inherit awareness.
+
+Ambiguity detected in Phase 1 costs minutes to resolve; ambiguity discovered in Phase 3 costs an entire review-fix cycle.
+
+### 9. Preserve Contracts
+
+When modifying code that is consumed by other modules, agents, or external systems:
+
+- Verify existing consumers before changing function signatures, type shapes, event schemas, or API responses.
+- If a contract change is necessary, document it explicitly in the structured output and flag for reviewer attention.
+- Prefer additive changes (new optional fields, overloaded signatures) over breaking changes.

@@ -28,19 +28,26 @@ export async function analyzeRepo(rootDir: string): Promise<RepoInfo> {
 
 async function detectLanguages(rootDir: string): Promise<string[]> {
   const languages: string[] = [];
+  // D14 Medium (#344-#357): Improved language detection with broader indicators
   const indicators: Record<string, string[]> = {
-    typescript: ["tsconfig.json", "tsconfig.base.json"],
-    javascript: ["jsconfig.json"],
-    python: ["pyproject.toml", "setup.py", "requirements.txt", "Pipfile"],
+    typescript: ["tsconfig.json", "tsconfig.base.json", "tsconfig.app.json"],
+    javascript: ["jsconfig.json", ".babelrc", "babel.config.js", "babel.config.json"],
+    python: ["pyproject.toml", "setup.py", "requirements.txt", "Pipfile", "setup.cfg", "tox.ini"],
     rust: ["Cargo.toml", "Cargo.lock"],
     go: ["go.mod", "go.sum"],
     java: ["pom.xml", "build.gradle"],
     kotlin: ["build.gradle.kts"],
-    ruby: ["Gemfile"],
-    php: ["composer.json"],
+    ruby: ["Gemfile", ".ruby-version"],
+    php: ["composer.json", "artisan"],
     swift: ["Package.swift"],
     dart: ["pubspec.yaml"],
     elixir: ["mix.exs"],
+    scala: ["build.sbt"],
+    zig: ["build.zig"],
+    ocaml: ["dune-project"],
+    haskell: ["stack.yaml", "cabal.project"],
+    clojure: ["deps.edn", "project.clj"],
+    lua: [".luacheckrc", "rockspec"],
   };
 
   for (const [lang, files] of Object.entries(indicators)) {
@@ -155,6 +162,20 @@ const FRAMEWORK_DEP_INDICATORS: { framework: Framework; deps: string[] }[] = [
   { framework: "express", deps: ["express"] },
   { framework: "fastify", deps: ["fastify"] },
   { framework: "hono", deps: ["hono"] },
+  // D14 Medium (#344-#357): Non-JS framework detection
+  { framework: "nestjs", deps: ["@nestjs/core"] },
+];
+
+/**
+ * Config-file-based indicators for non-JS frameworks.
+ * D14 Medium (#344-#357): Broader framework detection across language ecosystems.
+ */
+const NON_JS_FRAMEWORK_INDICATORS: { framework: Framework; configs: string[] }[] = [
+  { framework: "django", configs: ["manage.py"] },
+  { framework: "flask", configs: ["wsgi.py"] },
+  { framework: "rails", configs: ["Rakefile", "config/routes.rb"] },
+  { framework: "spring", configs: ["src/main/resources/application.properties", "src/main/resources/application.yml"] },
+  { framework: "laravel", configs: ["artisan"] },
 ];
 
 /**
@@ -207,7 +228,22 @@ async function detectFrameworks(rootDir: string): Promise<Framework[]> {
     if (!isExpected) throw err;
   }
 
-  // 3. Suppress base frameworks when a meta-framework is present.
+  // 3. Non-JS framework detection via config file presence (D14 Medium)
+  const nonJsResults = await Promise.allSettled(
+    NON_JS_FRAMEWORK_INDICATORS.map(async ({ framework, configs }) => {
+      for (const cfg of configs) {
+        if (await pathExists(join(rootDir, cfg))) return framework;
+      }
+      return null;
+    }),
+  );
+  for (const r of nonJsResults) {
+    if (r.status === "fulfilled" && r.value !== null) {
+      detected.add(r.value);
+    }
+  }
+
+  // 4. Suppress base frameworks when a meta-framework is present.
   for (const [meta, base] of Object.entries(FRAMEWORK_SUPPRESSION)) {
     if (detected.has(meta as Framework)) {
       detected.delete(base as Framework);

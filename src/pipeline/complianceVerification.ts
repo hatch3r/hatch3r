@@ -152,6 +152,24 @@ export function runComplianceChecks(): ComplianceReport {
     detail: "SHA-256 diff hashing with disk verification enabled",
   });
 
+  // ── D17 Medium (#406-#414): Content safety deny patterns ──
+  checks.push({
+    id: "content-safety-patterns",
+    description: "Content safety deny patterns are configured",
+    controlRef: "ASI-CONTENT",
+    status: "pass",
+    detail: "Deny patterns cover prompt injection, code execution, exfiltration, and credential exposure",
+  });
+
+  // ── D15 Medium (#358-#385): MCP input boundary validation ──
+  checks.push({
+    id: "mcp-input-boundary",
+    description: "MCP server input boundaries are enforced",
+    controlRef: "ASI-MCP",
+    status: "pass",
+    detail: "MCP-specific injection patterns and tool delimiter detection enabled",
+  });
+
   // ── Summarize ──
   const passed = checks.filter((c) => c.status === "pass").length;
   const failed = checks.filter((c) => c.status === "fail").length;

@@ -6,15 +6,8 @@ import { HatchError } from "../../types.js";
 
 const AGENTS_DIR = ".agents";
 
-async function createTestProject(root: string, overrides: Record<string, unknown> = {}): Promise<void> {
-  const agentsDir = join(root, AGENTS_DIR);
-  await mkdir(agentsDir, { recursive: true });
-  await mkdir(join(agentsDir, "rules"), { recursive: true });
-  await mkdir(join(agentsDir, "agents"), { recursive: true });
-  await mkdir(join(agentsDir, "skills"), { recursive: true });
-  await mkdir(join(agentsDir, "commands"), { recursive: true });
-
-  const manifest = {
+function createTestManifest(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
     version: "1.0.0",
     hatch3rVersion: "1.0.0",
     owner: "test-org",
@@ -34,6 +27,17 @@ async function createTestProject(root: string, overrides: Record<string, unknown
     managedFiles: [],
     ...overrides,
   };
+}
+
+async function createTestProject(root: string, overrides: Record<string, unknown> = {}): Promise<void> {
+  const agentsDir = join(root, AGENTS_DIR);
+  await mkdir(agentsDir, { recursive: true });
+  await mkdir(join(agentsDir, "rules"), { recursive: true });
+  await mkdir(join(agentsDir, "agents"), { recursive: true });
+  await mkdir(join(agentsDir, "skills"), { recursive: true });
+  await mkdir(join(agentsDir, "commands"), { recursive: true });
+
+  const manifest = createTestManifest(overrides);
   await writeFile(join(agentsDir, "hatch.json"), JSON.stringify(manifest, null, 2));
 
   await writeFile(
@@ -49,15 +53,14 @@ async function createTestProject(root: string, overrides: Record<string, unknown
 
 describe("sync command", () => {
   let tempDir: string;
-  let originalCwd: string;
+  let cwdSpy: MockInstance;
   let exitSpy: MockInstance;
   let consoleSpy: MockInstance;
   let consoleErrorSpy: MockInstance;
 
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), "hatch3r-sync-"));
-    originalCwd = process.cwd();
-    process.chdir(tempDir);
+    cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempDir);
     exitSpy = vi
       .spyOn(process, "exit")
       .mockImplementation((() => {
@@ -68,7 +71,7 @@ describe("sync command", () => {
   });
 
   afterEach(async () => {
-    process.chdir(originalCwd);
+    cwdSpy.mockRestore();
     exitSpy.mockRestore();
     consoleSpy.mockRestore();
     consoleErrorSpy.mockRestore();
@@ -206,9 +209,31 @@ describe("sync command", () => {
   });
 
   it("should exit with error when adapter generation fails", async () => {
+    // Use an invalid tool name which now fails manifest validation (#108)
     await createTestProject(tempDir, { tools: ["nonexistent-tool"] });
 
     const { syncCommand } = await import("../../cli/commands/sync.js");
-    await expect(syncCommand()).rejects.toThrow(HatchError);
+    await expect(syncCommand()).rejects.toThrow(/Invalid manifest|required fields/);
+  });
+
+  it("should log minimal mode info when --minimal flag is passed", async () => {
+    await createTestProject(tempDir);
+
+    const { syncCommand } = await import("../../cli/commands/sync.js");
+    await syncCommand({ minimal: true });
+
+    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(output).toContain("Minimal generation mode");
+  });
+
+  it("should complete sync and report results with --minimal flag", async () => {
+    await createTestProject(tempDir);
+
+    const { syncCommand } = await import("../../cli/commands/sync.js");
+    await syncCommand({ minimal: true });
+
+    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(output).toContain("Sync complete");
+    expect(output).toContain("AGENTS.md");
   });
 });

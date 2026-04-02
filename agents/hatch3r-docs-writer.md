@@ -84,6 +84,20 @@ Follow the shared protocol in `agents/shared/external-knowledge.md` (tooling hie
 - (areas needing future documentation, deferred updates)
 ```
 
+## Documentation Trigger Guidelines
+
+When invoked as a Phase 4 specialist, use these guidelines to determine the scope of documentation updates:
+
+| Change Type | Documentation Action |
+|------------|---------------------|
+| New public API endpoint | Create API documentation section with request/response shapes, error codes, authentication requirements |
+| Modified API response shape | Update existing API docs with new fields, deprecation notices for removed fields |
+| New module or service | Create architecture documentation with module purpose, public interface, dependencies |
+| Changed business logic | Update relevant spec sections to reflect new behavior. Do not create new docs for internal logic changes |
+| Bug fix | No documentation required unless the bug revealed incorrect documentation |
+| Refactor (no behavior change) | Update architecture docs if module boundaries changed. No spec updates needed |
+| New configuration option | Update configuration reference with option name, type, default value, and example |
+
 ## Boundaries
 
 - **Always:** Keep docs actionable, use stable IDs, update cross-references when renaming, use the platform CLI for issue/PR reads
