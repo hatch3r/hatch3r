@@ -143,12 +143,18 @@ Analyze the distribution of priority labels across the board:
 - Flag if all issues share the same priority (undifferentiated backlog).
 - Flag issues where priority does not align with risk (e.g., `priority:p3` + `risk:high`).
 
-#### 3f. Grouping Opportunities
+#### 3f. Grouping Opportunities & Standalone Audit
 
-Scan existing standalone issues for potential epic grouping:
+Scan existing standalone issues for epic grouping. Apply the **Epic Grouping Policy** from `hatch3r-board-shared`:
 
 - 2+ standalone issues sharing the same `area:*` labels.
 - 2+ standalone issues with semantically similar titles or overlapping scope.
+- 2+ standalone issues sharing the same `type:*` label (e.g., all `type:refactor` items).
+- 2+ standalone issues in the same broader domain (e.g., `area:api` + `area:middleware` = "backend").
+- **Single standalone issues** that could be absorbed into an existing epic (shared area, subsystem, or theme).
+- **Single standalone issues** that could become a themed 1-item epic (singleton promotion).
+
+Compute standalone ratio: `standalone_count / (epic_count + standalone_count)`. Flag if ratio exceeds 10%.
 
 #### 3g. Decomposition Candidates
 
@@ -199,6 +205,7 @@ Board Groom — Refinement Summary:
 
 Board Health:
   Total open issues: N (X epics, Y sub-issues, Z standalone)
+  Standalone ratio: Z/{X+Z} ({percentage}%) — target <=10%
   Missing metadata: M issues (details below)
   Stale issues: S issues
   Stale dependency refs: D issues
@@ -217,10 +224,10 @@ Grooming Opportunities:
   Dependency cleanup: K issues (stale refs, orphaned labels)
   Link fix candidates: L issues (advisory or comment-only links)
 
-Available actions: [reprioritize | reclassify | re-scope | demote | archive | decompose | merge | dep-refresh | health-fix | link-fix | all]
+Available actions: [reprioritize | reclassify | re-scope | demote | archive | decompose | merge | regroup | dep-refresh | health-fix | link-fix | all]
 ```
 
-**ASK:** "Here is the board refinement summary. Which grooming actions do you want to perform? Select one or more: reprioritize / reclassify / re-scope / demote / archive / decompose / merge / dep-refresh / health-fix / link-fix / all. You can also specify issue numbers to target specific items (e.g., 'reprioritize #5, #12')."
+**ASK:** "Here is the board refinement summary. Which grooming actions do you want to perform? Select one or more: reprioritize / reclassify / re-scope / demote / archive / decompose / merge / regroup / dep-refresh / health-fix / link-fix / all. You can also specify issue numbers to target specific items (e.g., 'reprioritize #5, #12')."
 
 ---
 
@@ -464,7 +471,61 @@ Link Fix Candidates:
 
 ---
 
-#### 4i. Health Fix (Board Health Remediation)
+#### 4i. Regroup Standalones
+
+Group standalone issues into existing or new epics. This action executes the grouping opportunities detected in Step 3f, following the **Epic Grouping Policy** from `hatch3r-board-shared`.
+
+1. Present regrouping proposals from Step 3f, organized by target epic:
+
+```
+Regroup Proposals:
+
+Absorb into existing epics:
+  #{N} "{title}" → Epic #{E} "{epic title}" (shared area:api)
+  #{M} "{title}" → Epic #{F} "{epic title}" (semantic overlap)
+
+Form new epics:
+  New epic: "Code Quality & Refactoring"
+    #{P} "{title}" (type:refactor)
+    #{Q} "{title}" (type:refactor)
+
+Singleton promotions:
+  #{R} "{title}" → New 1-item epic: "Performance Optimization" (no existing epic match, but themed for future absorption)
+
+Catch-all:
+  #{S} "{title}" → "General Improvements" epic (no thematic match)
+
+Standalone ratio: before={before}%, after={projected}% (target <=10%)
+```
+
+**ASK:** "Confirm regrouping proposals. For each: accept / reject / move to different epic. Items you reject will remain standalone. Confirm / adjust / skip."
+
+2. For confirmed regroupings:
+
+   **Absorb into existing epic:**
+   - Link the standalone as a sub-issue using the **Sub-Issue Linking Procedure** from `hatch3r-board-shared`.
+   - Update the epic body to include the new sub-issue in its checklist and `## Implementation Order`.
+
+   **Form new epic:**
+   - Create a new epic issue with Overview, Sub-issues checklist, and `## Implementation Order`.
+   - Link all grouped items as sub-issues using the Sub-Issue Linking Procedure.
+   - Apply labels: inherit the common labels from the grouped items, add `status:triage` (or `status:ready` if all sub-issues are ready).
+   - Sync the new epic to the board via the **Board Sync Procedure** from `hatch3r-board-shared`.
+
+   **Singleton promotion:**
+   - Create a new 1-item epic with the themed title.
+   - Link the standalone as its only sub-issue.
+   - The epic body notes: "This epic groups related work for {theme}. Future items in this area should be added as sub-issues."
+
+   **Catch-all:**
+   - If a "General Improvements" epic exists, absorb into it.
+   - If not, create one with all catch-all items as sub-issues.
+
+3. After execution, recalculate and report the standalone ratio.
+
+---
+
+#### 4j. Health Fix (Board Health Remediation)
 
 Fix structural gaps detected in Step 3b (missing metadata), board sync drift detected in Step 3k, and orphaned in-review issues detected in Step 3l.
 
@@ -609,12 +670,14 @@ Board Groom Complete:
     Archived (closed):  {count} issues
     Decomposed:         {count} issues → {count} new sub-issues
     Merged:             {count} duplicate pairs
+    Regrouped:          {count} standalones → {count} epics ({count} new epics created)
     Dependencies:       {count} refs cleaned, {count} new deps added, {count} epics reordered
     Health fixed:       {count} issues (missing metadata resolved)
     Readiness promoted: {count} issues (triage → ready)
 
   Board State:
     Total open:   {count} ({epics} epics, {sub} sub-issues, {standalone} standalone)
+    Standalone ratio: {percentage}% (target <=10%)
     Ready:        {count} ({available} available, {depWaiting} waiting on deps)
     In Progress:  {count}
     In Review:    {count}

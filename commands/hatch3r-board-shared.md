@@ -139,6 +139,36 @@ Board sync is **MANDATORY**, not optional. The following rules override any "ski
 
 ---
 
+## Epic Grouping Policy
+
+All board commands that create or reorganize issues MUST follow this grouping policy. Epic grouping maximizes parallelization during pickup — agents can tackle multiple sub-issues of an epic concurrently, whereas standalone issues require serial pickup.
+
+### Standalone Threshold
+
+**Target: zero standalone issues. Hard limit: no more than 10% of non-sub-issue items on the board should be standalone.**
+
+Calculate: `standalone_count / (epic_count + standalone_count)`. Sub-issues are excluded from both numerator and denominator.
+
+When the threshold is exceeded, board commands must apply progressively looser grouping strategies (area match → domain match → type match → catch-all epic) until the ratio is at or below 10%.
+
+### Grouping Priority Order
+
+Apply these rules in strict priority order. Each rule reduces the remaining ungrouped pool before the next rule fires:
+
+1. **Absorb into existing epics** — item shares area, subsystem, or theme with an existing epic.
+2. **Form new epics** — 2+ ungrouped items share any connection (area, subsystem, type, domain, semantic similarity).
+3. **Singleton promotion** — a single item becomes a 1-item epic with a thematic name (e.g., "Performance Optimization", "Security Hardening"), positioned to absorb future related work. Prefer existing theme names from epics already on the board.
+4. **Catch-all epic** — truly isolated items go into a "General Improvements" epic (create one if it doesn't exist, absorb into it if it does).
+5. **Standalone (exception only)** — requires explicit user rejection of ALL grouping proposals AND a stated justification. The AI should never propose standalone status on its own.
+
+### When to Apply
+
+- **board-fill Step 5:** Full grouping pass on new items + regrouping pass on existing standalones + post-grouping standalone audit.
+- **board-groom Step 3f + Step 4j:** Detection of grouping opportunities + `regroup` action for execution.
+- Both commands surface the standalone ratio in their health summaries and final reports.
+
+---
+
 ## Post-Merge Terminal State
 
 When a PR/MR merges and `Closes #N` auto-closes the referenced issues, the board item lifecycle must reach its terminal state. The `status:in-review` label should be replaced with `status:done`, and the board status should be set to "Done" using `board.statusOptions.done`.

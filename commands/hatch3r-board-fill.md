@@ -100,6 +100,7 @@ Scan the entire board to build an inventory of all existing work. This scan feed
 ```
 Board Health:
   Total open issues: N (X epics, Y sub-issues, Z standalone)
+  Standalone ratio: Z/{X+Z} ({percentage}%) — target <=10%
   Missing dependency metadata: #N, #M ...
   Missing required labels: #N — no priority, no area ...
   Potential epic grouping candidates: #N + #M (shared theme) ...
@@ -305,18 +306,35 @@ Present a brief **Context Summary**: key constraints from documentation, current
 
 ### Step 5: Propose Grouping (Epics vs. Standalone)
 
-**Grouping philosophy:** Minimize standalone issues to near-zero. Group aggressively into epics. Standalone only if topically isolated from every other issue AND substantial enough to stand alone.
+**Grouping philosophy:** Target zero standalone issues. Every issue should belong to an epic. Standalone status is an exception that requires explicit justification, not a default. This maximizes parallelization during pickup — agents can tackle multiple sub-issues of an epic concurrently, whereas standalone issues require serial pickup. Follow the **Epic Grouping Policy** in `hatch3r-board-shared`.
+
+**Standalone threshold:** After grouping, no more than 10% of total non-sub-issue items on the board should be standalone (minimum 0, round down). If this threshold is exceeded, the post-grouping audit (Step 5d) forces additional grouping before proceeding.
 
 #### 5a. Group New Items
 
-1. **Absorb into existing epics first.**
-2. **Form new epics** from 2+ items sharing any connection (area, subsystem, category).
-3. **Adopt orphans** into broad thematic epics (e.g., "Security & Auth Hardening", "Infrastructure & Tooling").
-4. **Standalone only as last resort.**
+Apply these rules in strict order. Each rule reduces the remaining ungrouped pool before the next rule fires.
+
+1. **Absorb into existing epics first.** For each new item, check all existing epics on the board. If the item shares any `area:*` label, touches the same subsystem, or addresses the same feature domain as an existing epic, absorb it as a sub-issue of that epic. When multiple epics match, prefer the one with the strongest thematic overlap.
+
+2. **Form new epics from 2+ related items.** Group remaining ungrouped items that share any connection: same `area:*` label, same subsystem, same `type:*` category, related feature domain, or semantic similarity in title/description. Two items sharing any single connection is sufficient to form an epic. Name the epic after the shared theme.
+
+3. **Singleton promotion.** Any single remaining item that could plausibly belong to a broader theme (even a loose one like "Developer Experience", "Code Quality", "Performance", "Security Hardening", "Infrastructure & Tooling", "Documentation & Onboarding") becomes a 1-item epic with that theme as the epic title. The rationale: a themed epic can absorb future related work, whereas a standalone cannot. Prefer existing theme names from epics already on the board.
+
+4. **Catch-all epic.** If any items still remain after steps 1-3 (truly topically isolated from everything), group them into a single catch-all epic named "General Improvements" (or absorb into an existing "General Improvements" epic if one exists on the board). Do NOT leave them standalone.
+
+5. **Standalone as true last resort.** An item may remain standalone ONLY if the user explicitly rejects grouping for it during the ASK checkpoint AND provides a justification. The AI should never propose standalone status on its own — always propose a grouping first.
 
 #### 5b. Regroup Existing Standalone Issues
 
-Evaluate existing standalones for grouping into existing or new epics. Same aggressive philosophy.
+Scan ALL existing standalone issues on the board (from the Step 1.5 board scan). For each standalone:
+
+1. **Check against existing epics.** If the standalone shares an `area:*` label, subsystem, or semantic theme with any existing epic, propose absorbing it as a sub-issue.
+2. **Check against other standalones.** If 2+ existing standalones share a connection (area, subsystem, title similarity), propose forming a new epic from them.
+3. **Check against new epics.** If the standalone fits a new epic being formed in Step 5a, include it.
+4. **Singleton promotion.** Apply the same singleton promotion rule as 5a.3 — propose a thematic epic for isolated standalones.
+5. **Catch-all.** Remaining standalones go into the "General Improvements" epic per 5a.4.
+
+Present regrouping proposals clearly separated from new-item grouping, so the user can confirm or reject existing issue regrouping independently.
 
 #### 5c. Decomposition Check
 
@@ -329,9 +347,32 @@ After grouping, evaluate whether any individual item is too large to be a single
 
 For each item flagged for decomposition, propose specific sub-issues with one-line descriptions. Items already grouped into an epic become sub-issues of that epic; standalone items that decompose become a new epic with sub-issues.
 
-Present grouping proposals (from 5a + 5b) and decomposition proposals (from 5c) together.
+#### 5d. Post-Grouping Standalone Audit
 
-**ASK:** "Confirm grouping and decomposition, or: move items between groups / merge-split epics / convert epic↔standalone / reject decomposition / reject existing regrouping. Are there items here that still feel too large for a single issue?"
+After Steps 5a-5c, perform a standalone audit before presenting proposals to the user.
+
+1. **Count remaining standalones.** Calculate the standalone ratio: `standalone_count / (epic_count + standalone_count)`. Sub-issues are excluded from this ratio.
+
+2. **Threshold check.** If the standalone ratio exceeds 10%, the audit fails:
+   - Re-examine each proposed standalone against ALL epics (existing and newly proposed) using progressively looser matching:
+     a. Same `area:*` label (exact match).
+     b. Same broader domain (e.g., `area:api` and `area:middleware` are both "backend").
+     c. Same `type:*` category (e.g., all `type:refactor` items form a "Code Quality" epic).
+     d. Catch-all "General Improvements" epic.
+   - Repeat until the ratio is at or below 10%, or every standalone has been re-examined and the AI has exhausted all grouping options.
+
+3. **Justify survivors.** For each item that remains standalone after the audit, include a one-line justification in the grouping proposal explaining why it could not be grouped (e.g., "Truly unique topic with no thematic overlap to any existing or proposed epic").
+
+4. **Surface the metric.** Include the standalone ratio in the grouping proposal output:
+   ```
+   Grouping Audit: {standalone_count}/{total} items standalone ({percentage}%)
+   Threshold: <=10% — {PASS/FAIL}
+   {if FAIL: "N standalones could not be grouped. Justifications below."}
+   ```
+
+Present grouping proposals (from 5a + 5b), decomposition proposals (from 5c), and audit results (from 5d) together.
+
+**ASK:** "Confirm grouping, decomposition, and standalone audit results. Options: move items between groups / merge-split epics / convert epic<->standalone (requires justification) / reject decomposition / reject existing regrouping. Standalone ratio: {percentage}% ({PASS/FAIL}). Are there items here that still feel too large for a single issue?"
 
 ---
 
@@ -581,6 +622,7 @@ Existing Issues Updated:
 | Issue # | Title | Updates Applied |
 
 Board Summary: N created, M updated, X marked ready, Y still triage, Z parallel lanes
+Standalone ratio: {count}/{total} ({percentage}%) — target <=10%
 ```
 
 ---
