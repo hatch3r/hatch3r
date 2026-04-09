@@ -115,8 +115,8 @@ Previously only the Cursor adapter inlined this content; others merely reference
 | agents | `.github/agents/hatch3r-{id}.md` | YAML frontmatter (`name`, `description`, `model`) |
 | skills | `.github/skills/hatch3r-{id}/SKILL.md` | YAML frontmatter (`name`, `description`) |
 | prompts | `.github/prompts/hatch3r-{id}.prompt.md` | Raw content |
-| commands | `.github/copilot/commands/hatch3r-{id}.prompt.md` | Raw content |
-| githubAgents | `.github/copilot/agents/hatch3r-{id}.md` | Raw content |
+| commands | `.github/prompts/hatch3r-{id}.prompt.md` | Raw content |
+| githubAgents | `.github/agents/hatch3r-{id}.agent.md` | Raw content |
 | mcp | `.vscode/mcp.json` | Canonical MCP config with `env` object for secret passing |
 | setup | `.github/workflows/copilot-setup-steps.yml` | YAML build steps |
 

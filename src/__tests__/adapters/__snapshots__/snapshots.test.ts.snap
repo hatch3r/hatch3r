@@ -265,10 +265,10 @@ exports[`adapter output snapshots > CopilotAdapter > file paths match snapshot 1
 [
   ".github/agents/hatch3r-readonly-agent.agent.md",
   ".github/agents/hatch3r-test-agent.agent.md",
+  ".github/agents/hatch3r-test-gh-agent.agent.md",
   ".github/copilot-instructions.md",
-  ".github/copilot/agents/hatch3r-test-gh-agent.md",
-  ".github/copilot/commands/hatch3r-test-command.prompt.md",
   ".github/instructions/hatch3r-scoped-rule.instructions.md",
+  ".github/prompts/hatch3r-test-command.prompt.md",
   ".github/prompts/hatch3r-test-prompt.prompt.md",
   ".github/skills/hatch3r-test-skill/SKILL.md",
   ".github/workflows/copilot-setup-steps.yml",
@@ -299,6 +299,14 @@ exports[`adapter output snapshots > CopilotAdapter > output structure matches sn
   {
     "action": "create",
     "contentMarkers": [
+      "MANAGED_BLOCK",
+    ],
+    "hasManagedContent": true,
+    "path": ".github/agents/hatch3r-test-gh-agent.agent.md",
+  },
+  {
+    "action": "create",
+    "contentMarkers": [
       "AGENT_QUICK_REFERENCE",
       "BRIDGE_SECTION",
       "MANAGED_BLOCK",
@@ -310,27 +318,19 @@ exports[`adapter output snapshots > CopilotAdapter > output structure matches sn
   {
     "action": "create",
     "contentMarkers": [
-      "MANAGED_BLOCK",
-    ],
-    "hasManagedContent": true,
-    "path": ".github/copilot/agents/hatch3r-test-gh-agent.md",
-  },
-  {
-    "action": "create",
-    "contentMarkers": [
-      "MANAGED_BLOCK",
-    ],
-    "hasManagedContent": true,
-    "path": ".github/copilot/commands/hatch3r-test-command.prompt.md",
-  },
-  {
-    "action": "create",
-    "contentMarkers": [
       "FRONTMATTER",
       "MANAGED_BLOCK",
     ],
     "hasManagedContent": true,
     "path": ".github/instructions/hatch3r-scoped-rule.instructions.md",
+  },
+  {
+    "action": "create",
+    "contentMarkers": [
+      "MANAGED_BLOCK",
+    ],
+    "hasManagedContent": true,
+    "path": ".github/prompts/hatch3r-test-command.prompt.md",
   },
   {
     "action": "create",

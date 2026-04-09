@@ -55,7 +55,7 @@ export class CopilotAdapter extends BaseAdapter {
       "New to this project's agent setup? Progress through these stages:",
       "",
       "**Start here:** Instructions in `.github/instructions/` scope rules to specific file patterns. The orchestration bridge above guides your workflow.",
-      "**Next:** Use prompts in `.github/prompts/` and commands in `.github/copilot/commands/` for guided workflows.",
+      "**Next:** Use prompts and commands in `.github/prompts/` for guided workflows.",
       "**Then:** Delegate to agents in `.github/agents/` for specialized tasks.",
       "**Later:** Customize agent behavior via `.hatch3r/{type}/{id}.customize.yaml` without editing managed files.",
       "",
@@ -119,14 +119,14 @@ jobs:
     }
 
     results.push(
-      ...await this.processCommandsRaw(ctx, (id) => `.github/copilot/commands/${toPrefixedId(id)}.prompt.md`),
+      ...await this.processCommandsRaw(ctx, (id) => `.github/prompts/${toPrefixedId(id)}.prompt.md`),
     );
 
     if (ctx.features.githubAgents) {
       const ghAgents = await readCanonicalFiles(ctx.agentsDir, "github-agents");
       for (const agent of ghAgents) {
         const body = agent.rawContent;
-        results.push(output(`.github/copilot/agents/${toPrefixedId(agent.id)}.md`, wrapInManagedBlock(body), body));
+        results.push(output(`.github/agents/${toPrefixedId(agent.id)}.agent.md`, wrapInManagedBlock(body), body));
       }
     }
 

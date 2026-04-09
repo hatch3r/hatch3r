@@ -58,10 +58,10 @@ const DEFAULT_MCP: string[] = ["playwright", "github", "context7"];
 
 /**
  * Check if a content selection includes any board-related content.
- * Board content IDs follow the pattern "hatch3r-board-*".
+ * Board content IDs follow the pattern "cmd-hatch3r-board-*" (prefixed during indexing).
  */
 function selectionHasBoardContent(selection: ContentSelection): boolean {
-  return selection.items.commands.some((id) => id.startsWith("hatch3r-board"));
+  return selection.items.commands.some((id) => id.startsWith("cmd-hatch3r-board"));
 }
 
 /**
@@ -485,7 +485,7 @@ export async function initCommand(
 
   const platformAnswer = await inquirer.prompt<{ platform: Platform }>([
     {
-      type: "list",
+      type: "select",
       name: "platform",
       message: "Select your platform:",
       choices: [
@@ -555,7 +555,7 @@ export async function initCommand(
   const brownfieldExcl = countProjectTypeExclusions("brownfield", filterIndex.items);
   const projectTypeAnswer = await inquirer.prompt<{ projectType: "greenfield" | "brownfield" }>([
     {
-      type: "list",
+      type: "select",
       name: "projectType",
       message: "Is this a new (greenfield) or existing (brownfield) project?",
       choices: [
@@ -571,7 +571,7 @@ export async function initCommand(
   const soloExcl = countTeamSizeExclusions("solo", filterIndex.items);
   const teamSizeAnswer = await inquirer.prompt<{ teamSize: "solo" | "team" }>([
     {
-      type: "list",
+      type: "select",
       name: "teamSize",
       message: "Solo developer or team collaboration?",
       choices: [
@@ -587,7 +587,7 @@ export async function initCommand(
   const totalItems = filterIndex.items.length;
   const presetAnswer = await inquirer.prompt<{ preset: PresetId }>([
     {
-      type: "list",
+      type: "select",
       name: "preset",
       message: "Select content profile:",
       choices: PRESETS.map((p) => {
@@ -634,7 +634,7 @@ export async function initCommand(
       groupedChoices.push(new inquirer.Separator(`── ${TAG_LABELS[tag] ?? tag} (${items.length}) ──`));
       for (const item of items) {
         groupedChoices.push({
-          name: `${item.type}: ${item.id.replace(/^hatch3r-/, "")} — ${item.description.slice(0, 60)}`,
+          name: `${item.type}: ${item.id.replace(/^(cmd-)?hatch3r-/, "")} — ${item.description.slice(0, 60)}`,
           value: item.id,
           checked: item.protected || item.tags.includes("core"),
         });
@@ -854,7 +854,7 @@ async function runWorkspaceInit(
     const wsBrownfieldExcl = countProjectTypeExclusions("brownfield", wsFilterIndex.items);
     const projectTypeAnswer = await inquirer.prompt<{ projectType: "greenfield" | "brownfield" }>([
       {
-        type: "list",
+        type: "select",
         name: "projectType",
         message: "Is this a new (greenfield) or existing (brownfield) project?",
         choices: [
@@ -869,7 +869,7 @@ async function runWorkspaceInit(
     const wsSoloExcl = countTeamSizeExclusions("solo", wsFilterIndex.items);
     const teamSizeAnswer = await inquirer.prompt<{ teamSize: "solo" | "team" }>([
       {
-        type: "list",
+        type: "select",
         name: "teamSize",
         message: "Solo developer or team collaboration?",
         choices: [
@@ -884,7 +884,7 @@ async function runWorkspaceInit(
     const wsTotalItems = wsFilterIndex.items.length;
     const presetAnswer = await inquirer.prompt<{ preset: PresetId }>([
       {
-        type: "list",
+        type: "select",
         name: "preset",
         message: "Select content profile:",
         choices: PRESETS.map((p) => {
@@ -925,7 +925,7 @@ async function runWorkspaceInit(
         wsGroupedChoices.push(new inquirer.Separator(`── ${WS_TAG_LABELS[tag] ?? tag} (${items.length}) ──`));
         for (const item of items) {
           wsGroupedChoices.push({
-            name: `${item.type}: ${item.id.replace(/^hatch3r-/, "")} — ${item.description.slice(0, 60)}`,
+            name: `${item.type}: ${item.id.replace(/^(cmd-)?hatch3r-/, "")} — ${item.description.slice(0, 60)}`,
             value: item.id,
             checked: item.protected || item.tags.includes("core"),
           });

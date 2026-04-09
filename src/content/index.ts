@@ -33,7 +33,7 @@ export function assertSafePath(relativePath: string, label: string): void {
  */
 export function extractContentReferences(content: string): string[] {
   const refs = new Set<string>();
-  const pattern = /`(hatch3r-[a-z0-9-]+)`/g;
+  const pattern = /`((?:cmd-)?hatch3r-[a-z0-9-]+)`/g;
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(content)) !== null) {
     refs.add(match[1]);
@@ -72,7 +72,8 @@ export async function validateCrossReferences(
     const refs = extractContentReferences(content);
     for (const ref of refs) {
       if (ref === item.id) continue; // self-reference is fine
-      if (!allIds.has(ref)) {
+      // Check both the raw ref and the cmd-prefixed form (command IDs are prefixed during indexing)
+      if (!allIds.has(ref) && !allIds.has(`${COMMAND_ID_PREFIX}${ref}`)) {
         warnings.push(
           `${item.type} "${item.id}" references "${ref}" which does not exist in the content index`,
         );
@@ -172,6 +173,22 @@ export function getAllItemsById(index: ContentIndex, id: string): CatalogItem[] 
   return index.items.filter((item) => item.id === id);
 }
 
+// ── Command ID prefix ─────────────────────────────────────────
+
+/**
+ * Prefix applied to command-type content IDs to prevent cross-type
+ * collisions (e.g. a command and skill sharing the same base name).
+ */
+export const COMMAND_ID_PREFIX = "cmd-";
+
+/**
+ * Apply the command ID prefix if the content type is "command".
+ * Other content types are returned unchanged.
+ */
+export function applyCommandPrefix(id: string, type: string): string {
+  return type === "command" ? `${COMMAND_ID_PREFIX}${id}` : id;
+}
+
 // ── Content type configs ───────────────────────────────────────
 
 interface ContentTypeConfig {
@@ -217,7 +234,8 @@ export async function buildContentIndex(contentRoot: string): Promise<ContentInd
         try {
           const raw = await readFile(skillPath, "utf-8");
           const { metadata } = parseFrontmatter(raw);
-          const id = metadata.id || metadata.name || dirent.name;
+          const rawId = metadata.id || metadata.name || dirent.name;
+          const id = applyCommandPrefix(rawId, config.type);
           items.push({
             id,
             type: config.type,
@@ -245,7 +263,8 @@ export async function buildContentIndex(contentRoot: string): Promise<ContentInd
         const filePath = join(dirPath, file);
         const raw = await readFile(filePath, "utf-8");
         const { metadata } = parseFrontmatter(raw);
-        const id = metadata.id || metadata.name || file.replace(/\.md$/, "");
+        const rawId = metadata.id || metadata.name || file.replace(/\.md$/, "");
+        const id = applyCommandPrefix(rawId, config.type);
 
         const item: CatalogItem = {
           id,
@@ -661,7 +680,8 @@ export async function getAvailableItems(
             try {
               const raw = await readFile(join(dirPath, d.name, "SKILL.md"), "utf-8");
               const { metadata } = parseFrontmatter(raw);
-              installed.add(metadata.id || metadata.name || d.name);
+              const rawId = metadata.id || metadata.name || d.name;
+              installed.add(applyCommandPrefix(rawId, config.type));
             } catch {
               // skip
             }
@@ -676,7 +696,8 @@ export async function getAvailableItems(
         for (const f of files.filter((f) => f.endsWith(".md"))) {
           const raw = await readFile(join(dirPath, f), "utf-8");
           const { metadata } = parseFrontmatter(raw);
-          installed.add(metadata.id || metadata.name || f.replace(/\.md$/, ""));
+          const rawId = metadata.id || metadata.name || f.replace(/\.md$/, "");
+          installed.add(applyCommandPrefix(rawId, config.type));
         }
       } catch {
         // directory doesn't exist
@@ -719,7 +740,8 @@ export async function buildSelectionsFromDisk(
           try {
             const raw = await readFile(join(dirPath, d.name, "SKILL.md"), "utf-8");
             const { metadata } = parseFrontmatter(raw);
-            items[key].push(metadata.id || metadata.name || d.name);
+            const rawId = metadata.id || metadata.name || d.name;
+            items[key].push(applyCommandPrefix(rawId, config.type));
           } catch {
             // skip
           }
@@ -733,7 +755,8 @@ export async function buildSelectionsFromDisk(
         for (const f of files.filter((f) => f.endsWith(".md"))) {
           const raw = await readFile(join(dirPath, f), "utf-8");
           const { metadata } = parseFrontmatter(raw);
-          items[key].push(metadata.id || metadata.name || f.replace(/\.md$/, ""));
+          const rawId = metadata.id || metadata.name || f.replace(/\.md$/, "");
+          items[key].push(applyCommandPrefix(rawId, config.type));
         }
       } catch {
         // directory doesn't exist
@@ -835,8 +858,9 @@ export async function removeContentItem(
     };
     const customDir = typeToDir[item.type];
     if (customDir) {
-      const yamlPath = join(options.rootDir, ".hatch3r", customDir, `${item.id}.customize.yaml`);
-      const mdPath = join(options.rootDir, ".hatch3r", customDir, `${item.id}.customize.md`);
+      const cleanId = item.id.replace(/^cmd-/, "").replace(/^hatch3r-/, "");
+      const yamlPath = join(options.rootDir, ".hatch3r", customDir, `${cleanId}.customize.yaml`);
+      const mdPath = join(options.rootDir, ".hatch3r", customDir, `${cleanId}.customize.md`);
       await rm(yamlPath, { force: true });
       await rm(mdPath, { force: true });
     }

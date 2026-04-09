@@ -41,8 +41,7 @@ export const ADAPTER_WORKTREE_PATTERNS: Record<
     { pattern: ".github/instructions/", strategy: "copy", reason: "Copilot scoped instructions" },
     { pattern: ".github/agents/", strategy: "copy", reason: "Copilot agents" },
     { pattern: ".github/prompts/", strategy: "copy", reason: "Copilot prompts" },
-    { pattern: ".github/copilot/", strategy: "copy", reason: "Copilot commands and agents" },
-    { pattern: ".github/skills/", strategy: "copy", reason: "Copilot skills" },
+{ pattern: ".github/skills/", strategy: "copy", reason: "Copilot skills" },
     { pattern: ".vscode/mcp.json", strategy: "copy", reason: "VS Code MCP config" },
   ],
   windsurf: [

@@ -469,7 +469,7 @@ async function validateContentConsistency(
         const files = await readdir(customDir);
         for (const f of files.filter(f => f.endsWith(".customize.yaml") || f.endsWith(".customize.md"))) {
           const itemId = f.replace(/\.customize\.(yaml|md)$/, "");
-          if (!allContentIds.has(itemId) && !allContentIds.has(`${HATCH3R_PREFIX}${itemId}`)) {
+          if (!allContentIds.has(itemId) && !allContentIds.has(`${HATCH3R_PREFIX}${itemId}`) && !allContentIds.has(`cmd-${itemId}`) && !allContentIds.has(`cmd-${HATCH3R_PREFIX}${itemId}`)) {
             result.warnings.push(`Orphaned customization: .hatch3r/${dir}/${f} (content not in manifest)`);
           }
         }

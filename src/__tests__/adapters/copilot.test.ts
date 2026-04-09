@@ -93,7 +93,7 @@ describe("CopilotAdapter", () => {
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
     const prompts = outputs.filter((o) => o.path.startsWith(".github/prompts/"));
-    expect(prompts.length).toBe(1);
+    expect(prompts.length).toBe(2);
 
     const promptFromPrompts = prompts.find((p) => p.path.includes("test-prompt"));
     expect(promptFromPrompts).toBeDefined();
@@ -101,9 +101,9 @@ describe("CopilotAdapter", () => {
     expect(promptFromPrompts!.content).toContain("test-prompt");
     expect(promptFromPrompts!.managedContent).toBeDefined();
 
-    const commands = outputs.filter((o) => o.path.startsWith(".github/copilot/commands/"));
+    const commands = outputs.filter((o) => o.path.startsWith(".github/prompts/") && o.path.includes("test-command"));
     expect(commands.length).toBe(1);
-    const promptFromCommands = commands.find((p) => p.path.includes("test-command"));
+    const promptFromCommands = commands[0];
     expect(promptFromCommands).toBeDefined();
     expect(promptFromCommands!.managedContent).toBeDefined();
   });
@@ -113,16 +113,16 @@ describe("CopilotAdapter", () => {
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
     const agentFiles = outputs.filter((o) => o.path.startsWith(".github/agents/"));
-    expect(agentFiles.length).toBe(2);
+    expect(agentFiles.length).toBe(3);
 
     const regularAgent = agentFiles.find((a) => a.path.includes("test-agent"));
     expect(regularAgent).toBeDefined();
     expect(regularAgent!.content).toContain("name: test-agent");
     expect(regularAgent!.managedContent).toBeDefined();
 
-    const ghAgentFiles = outputs.filter((o) => o.path.startsWith(".github/copilot/agents/"));
+    const ghAgentFiles = outputs.filter((o) => o.path.startsWith(".github/agents/") && o.path.includes("test-gh-agent"));
     expect(ghAgentFiles.length).toBe(1);
-    const ghAgent = ghAgentFiles.find((a) => a.path.includes("test-gh-agent"));
+    const ghAgent = ghAgentFiles[0];
     expect(ghAgent).toBeDefined();
     expect(ghAgent!.content).toContain("test-gh-agent");
     expect(ghAgent!.managedContent).toBeDefined();

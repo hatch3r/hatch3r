@@ -177,7 +177,7 @@ describe("migration checkpoints", () => {
 
     it("should not trigger when manifest already has content field", async () => {
       await createTestProject(tempDir, {
-        hatch3rVersion: "1.4.0",
+        hatch3rVersion: "1.5.0",
         content: makeContentSelection(),
       });
 
@@ -213,7 +213,7 @@ describe("migration checkpoints", () => {
 
     it("should not trigger when manifest has platform field", async () => {
       await createTestProject(tempDir, {
-        hatch3rVersion: "1.4.0",
+        hatch3rVersion: "1.5.0",
         platform: "github",
         content: makeContentSelection(),
       });
@@ -228,7 +228,7 @@ describe("migration checkpoints", () => {
   describe("customize-yaml-size checkpoint", () => {
     it("should trigger when .customize.yaml file exceeds 10KB", async () => {
       await createTestProject(tempDir, {
-        hatch3rVersion: "1.4.0",
+        hatch3rVersion: "1.5.0",
         content: makeContentSelection(),
       });
 
@@ -247,7 +247,7 @@ describe("migration checkpoints", () => {
 
     it("should not trigger when .customize.yaml files are small", async () => {
       await createTestProject(tempDir, {
-        hatch3rVersion: "1.4.0",
+        hatch3rVersion: "1.5.0",
         content: makeContentSelection(),
       });
 
@@ -267,7 +267,7 @@ describe("migration checkpoints", () => {
   describe("fully migrated manifest", () => {
     it("should trigger no checkpoints when manifest is complete", async () => {
       await createTestProject(tempDir, {
-        hatch3rVersion: "1.4.0",
+        hatch3rVersion: "1.5.0",
         platform: "github",
         content: makeContentSelection(),
       });
@@ -436,7 +436,7 @@ describe("migration checkpoints", () => {
 
       const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
       const updated = JSON.parse(await readFile(manifestPath, "utf-8"));
-      expect(updated.hatch3rVersion).toBe("1.4.0");
+      expect(updated.hatch3rVersion).toBe("1.5.0");
 
       const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
       expect(allOutput).toContain("Update complete");
@@ -447,7 +447,7 @@ describe("migration checkpoints", () => {
   describe("update flow when manifest is already up-to-date", () => {
     it("should note already at latest version and still complete update", async () => {
       await createTestProject(tempDir, {
-        hatch3rVersion: "1.4.0",
+        hatch3rVersion: "1.5.0",
         platform: "github",
         content: makeContentSelection(),
       });

@@ -1171,7 +1171,7 @@ describe("content/index", () => {
 
       const selection = await buildSelectionsFromDisk(agentsDir);
       expect(selection.items.agents).toContain("a");
-      expect(selection.items.commands).toContain("c");
+      expect(selection.items.commands).toContain("cmd-c");
       expect(selection.items.rules).toContain("r");
       expect(selection.items.prompts).toContain("p");
       expect(selection.items.hooks).toContain("h");
@@ -1358,6 +1358,33 @@ describe("content/index", () => {
 
       await expect(readFile(join(rootDir, ".hatch3r", "agents", "my-agent.customize.yaml"), "utf-8")).rejects.toThrow();
       await expect(readFile(join(rootDir, ".hatch3r", "agents", "my-agent.customize.md"), "utf-8")).rejects.toThrow();
+    });
+
+    it("strips cmd- and hatch3r- prefixes when cleaning up command customize files", async () => {
+      const dir = await makeTempDir();
+      const agentsDir = join(dir, "agents");
+      const rootDir = join(dir, "project");
+
+      // Create the command file to remove
+      await mkdir(join(agentsDir, "commands"), { recursive: true });
+      await writeFile(join(agentsDir, "commands", "hatch3r-board-init.md"), "# command");
+
+      // Customize files are stored WITHOUT the cmd- and hatch3r- prefixes
+      await mkdir(join(rootDir, ".hatch3r", "commands"), { recursive: true });
+      await writeFile(join(rootDir, ".hatch3r", "commands", "board-init.customize.yaml"), "overrides: true");
+
+      const item: CatalogItem = {
+        id: "cmd-hatch3r-board-init",
+        type: "command",
+        description: "Command with prefixed id",
+        tags: [],
+        relativePath: "commands/hatch3r-board-init.md",
+      };
+
+      await removeContentItem(agentsDir, item, { rootDir });
+
+      // The customize file (named without prefixes) should be deleted
+      await expect(readFile(join(rootDir, ".hatch3r", "commands", "board-init.customize.yaml"), "utf-8")).rejects.toThrow();
     });
 
     it("throws HatchError for path traversal in relativePath", async () => {
@@ -1592,9 +1619,31 @@ describe("content/index", () => {
   // ── Integration tests for complex validation paths (#100) ──
 
   describe("buildContentIndex — collision detection", () => {
-    it("detects cross-type ID collisions", async () => {
+    it("detects cross-type ID collisions (agent vs rule with same ID)", async () => {
       const dir = await makeTempDir();
-      // Create an agent and a command with the same ID
+      // Create an agent and a rule with the same ID (neither is prefixed)
+      await mkdir(join(dir, "agents"), { recursive: true });
+      await writeFile(
+        join(dir, "agents", "hatch3r-dupe.md"),
+        mdFile({ id: "hatch3r-dupe", type: "agent", description: "Agent dupe" }),
+      );
+      await mkdir(join(dir, "rules"), { recursive: true });
+      await writeFile(
+        join(dir, "rules", "hatch3r-dupe.md"),
+        mdFile({ id: "hatch3r-dupe", type: "rule", description: "Rule dupe" }),
+      );
+
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const index = await buildContentIndex(dir);
+      warnSpy.mockRestore();
+
+      expect(index.collisions.length).toBe(1);
+      expect(index.collisions[0]!.kind).toBe("cross-type");
+      expect(index.collisions[0]!.id).toBe("hatch3r-dupe");
+    });
+
+    it("does not collide when agent and command share the same base ID (cmd- prefix)", async () => {
+      const dir = await makeTempDir();
       await mkdir(join(dir, "agents"), { recursive: true });
       await writeFile(
         join(dir, "agents", "hatch3r-dupe.md"),
@@ -1610,9 +1659,12 @@ describe("content/index", () => {
       const index = await buildContentIndex(dir);
       warnSpy.mockRestore();
 
-      expect(index.collisions.length).toBe(1);
-      expect(index.collisions[0]!.kind).toBe("cross-type");
-      expect(index.collisions[0]!.id).toBe("hatch3r-dupe");
+      // Command gets prefixed to "cmd-hatch3r-dupe", so no collision
+      expect(index.collisions.length).toBe(0);
+      expect(index.byId.get("hatch3r-dupe")).toBeDefined();
+      expect(index.byId.get("hatch3r-dupe")!.type).toBe("agent");
+      expect(index.byId.get("cmd-hatch3r-dupe")).toBeDefined();
+      expect(index.byId.get("cmd-hatch3r-dupe")!.type).toBe("command");
     });
 
     it("detects same-type ID collisions (duplicate files with same frontmatter id)", async () => {
@@ -1649,21 +1701,20 @@ describe("content/index", () => {
         mdFile({ id: "hatch3r-shared", type: "command", description: "Command" }),
       );
 
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       const index = await buildContentIndex(dir);
-      warnSpy.mockRestore();
 
-      // byId returns last-indexed (shadowed), but byTypeAndId is safe
+      // Agent retains original ID, command gets cmd- prefix
       const agent = index.byTypeAndId.get(typeIdKey("agent", "hatch3r-shared"));
       expect(agent).toBeDefined();
       expect(agent!.type).toBe("agent");
 
-      const command = index.byTypeAndId.get(typeIdKey("command", "hatch3r-shared"));
+      // Command ID is prefixed: cmd-hatch3r-shared
+      const command = index.byTypeAndId.get(typeIdKey("command", "cmd-hatch3r-shared"));
       expect(command).toBeDefined();
       expect(command!.type).toBe("command");
     });
 
-    it("getAllItemsById returns all items sharing an ID across types", async () => {
+    it("getAllItemsById returns single item when agent and command have distinct IDs (cmd- prefix)", async () => {
       const dir = await makeTempDir();
       await mkdir(join(dir, "agents"), { recursive: true });
       await writeFile(
@@ -1676,14 +1727,16 @@ describe("content/index", () => {
         mdFile({ id: "hatch3r-multi", type: "command", description: "Command" }),
       );
 
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       const index = await buildContentIndex(dir);
-      warnSpy.mockRestore();
 
-      const allItems = getAllItemsById(index, "hatch3r-multi");
-      expect(allItems.length).toBe(2);
-      const types = allItems.map((i) => i.type).sort();
-      expect(types).toEqual(["agent", "command"]);
+      // Agent keeps "hatch3r-multi", command becomes "cmd-hatch3r-multi"
+      const agentItems = getAllItemsById(index, "hatch3r-multi");
+      expect(agentItems.length).toBe(1);
+      expect(agentItems[0]!.type).toBe("agent");
+
+      const commandItems = getAllItemsById(index, "cmd-hatch3r-multi");
+      expect(commandItems.length).toBe(1);
+      expect(commandItems[0]!.type).toBe("command");
     });
   });
 

@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import chalk from "chalk";
 import inquirer from "inquirer";
-import { readManifest, writeManifest } from "../../manifest/hatchJson.js";
+import { readManifest, writeManifest, addManagedFile } from "../../manifest/hatchJson.js";
 import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
 import { safeWriteFile } from "../../merge/safeWrite.js";
 import { AGENTS_DIR, HATCH3R_PREFIX, HatchError, WORKTREE_CAPABLE_TOOLS, WORKTREE_INCLUDE_FILE, type HatchManifest, type Platform } from "../../types.js";
@@ -167,6 +167,7 @@ export async function runUpdate(
         } else {
           await safeWriteFile(fullPath, out.content);
         }
+        addManagedFile(manifest, out.path);
       }
     } catch (err) {
       adapterFailures.push({
@@ -259,7 +260,7 @@ const MIGRATION_CHECKPOINTS: MigrationCheckpoint[] = [
         // Ask user for context since we can't infer it from legacy installs
         const { projectType } = await inquirer.prompt<{ projectType: "greenfield" | "brownfield" }>([
           {
-            type: "list",
+            type: "select",
             name: "projectType",
             message: "For content tracking — is this a greenfield or brownfield project?",
             choices: [
@@ -271,7 +272,7 @@ const MIGRATION_CHECKPOINTS: MigrationCheckpoint[] = [
         ]);
         const { teamSize } = await inquirer.prompt<{ teamSize: "solo" | "team" }>([
           {
-            type: "list",
+            type: "select",
             name: "teamSize",
             message: "Solo developer or team?",
             choices: [
@@ -303,7 +304,7 @@ const MIGRATION_CHECKPOINTS: MigrationCheckpoint[] = [
       } else {
         const answer = await inquirer.prompt<{ platform: Platform }>([
           {
-            type: "list",
+            type: "select",
             name: "platform",
             message: "hatch3r now supports multiple platforms. Select your platform:",
             choices: [

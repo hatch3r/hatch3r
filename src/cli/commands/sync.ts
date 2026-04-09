@@ -9,6 +9,7 @@ import { generateWorktreeInclude, extractManagedContent } from "../../worktree/i
 import { AGENTS_DIR, HatchError, WORKTREE_INCLUDE_FILE, type GenerationMode } from "../../types.js";
 import { ensureEnvMcp, ensureGitignoreEntry, getSourceEnvMcpCommand } from "../../env/mcpEnv.js";
 import { readWorkspaceManifest } from "../../workspace/manifest.js";
+import { detectWorkspaceContext } from "../../workspace/detect.js";
 import { syncWorkspaceRepos } from "../../workspace/sync.js";
 import { generateCanonicalAgentsMd, generateRootAgentsMd } from "../shared/agentsContent.js";
 import { verifyIntegrity, generateIntegrityManifest, writeIntegrityManifest } from "../../integrity/index.js";
@@ -84,6 +85,15 @@ export async function syncCommand(
   printBanner(true);
 
   const rootDir = process.cwd();
+
+  const wsContext = await detectWorkspaceContext(rootDir);
+  if (wsContext.type === "workspace-member") {
+    warn(
+      `This repository appears to be managed by a workspace at ${wsContext.workspaceRoot ?? ".."}. ` +
+      `Run ${chalk.cyan("hatch3r sync")} from the workspace root to sync all repos.`,
+    );
+  }
+
   const agentsDir = join(rootDir, AGENTS_DIR);
   const manifest = await readManifest(rootDir);
 

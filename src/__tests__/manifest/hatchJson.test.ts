@@ -11,7 +11,7 @@ describe("hatchJson", () => {
         tools: ["cursor"],
       });
       expect(manifest.version).toBe("2.0.0");
-      expect(manifest.hatch3rVersion).toBe("1.4.0");
+      expect(manifest.hatch3rVersion).toBe("1.5.0");
       expect(manifest.platform).toBe("github");
       expect(manifest.tools).toEqual(["cursor"]);
       expect(manifest.features.agents).toBe(true);
@@ -298,7 +298,7 @@ describe("hatchJson", () => {
       const rootDir = await setup();
       await writeManifestJson(rootDir, {
         version: "2.0.0",
-        hatch3rVersion: "1.4.0",
+        hatch3rVersion: "1.5.0",
         owner: "acme",
         repo: "app",
         namespace: "acme",
@@ -317,7 +317,7 @@ describe("hatchJson", () => {
       const rootDir = await setup();
       await writeManifestJson(rootDir, {
         // version: missing
-        hatch3rVersion: "1.4.0",
+        hatch3rVersion: "1.5.0",
         owner: "acme",
         repo: "app",
         namespace: "acme",
@@ -336,7 +336,7 @@ describe("hatchJson", () => {
       const rootDir = await setup();
       await writeManifestJson(rootDir, {
         version: "2.0.0",
-        hatch3rVersion: "1.4.0",
+        hatch3rVersion: "1.5.0",
         owner: "acme",
         repo: "app",
         namespace: "acme",
@@ -355,7 +355,7 @@ describe("hatchJson", () => {
       const rootDir = await setup();
       await writeManifestJson(rootDir, {
         version: "2.0.0",
-        hatch3rVersion: "1.4.0",
+        hatch3rVersion: "1.5.0",
         owner: "acme",
         repo: "app",
         namespace: "acme",
@@ -374,7 +374,7 @@ describe("hatchJson", () => {
       const rootDir = await setup();
       await writeManifestJson(rootDir, {
         version: "2.0.0",
-        hatch3rVersion: "1.4.0",
+        hatch3rVersion: "1.5.0",
         owner: "acme",
         repo: "app",
         namespace: "acme",
@@ -393,7 +393,7 @@ describe("hatchJson", () => {
       const rootDir = await setup();
       await writeManifestJson(rootDir, {
         version: "2.0.0",
-        hatch3rVersion: "1.4.0",
+        hatch3rVersion: "1.5.0",
         owner: "acme",
         repo: "app",
         namespace: "acme",
@@ -417,7 +417,7 @@ describe("hatchJson", () => {
       const rootDir = await setup();
       await writeManifestJson(rootDir, {
         version: "2.0.0",
-        hatch3rVersion: "1.4.0",
+        hatch3rVersion: "1.5.0",
         owner: "acme",
         repo: "app",
         namespace: "acme",
@@ -464,7 +464,7 @@ describe("hatchJson", () => {
       const rootDir = await setup();
       await writeManifestJson(rootDir, {
         version: "2.0.0",
-        hatch3rVersion: "1.4.0",
+        hatch3rVersion: "1.5.0",
         owner: "acme",
         repo: "app",
         namespace: "acme",
@@ -489,7 +489,7 @@ describe("hatchJson", () => {
       const rootDir = await setup();
       await writeManifestJson(rootDir, {
         version: "2.0.0",
-        hatch3rVersion: "1.4.0",
+        hatch3rVersion: "1.5.0",
         owner: "acme",
         repo: "app",
         namespace: "acme",
@@ -514,7 +514,7 @@ describe("hatchJson", () => {
       const rootDir = await setup();
       await writeManifestJson(rootDir, {
         version: "2.0.0",
-        hatch3rVersion: "1.4.0",
+        hatch3rVersion: "1.5.0",
         owner: "acme",
         repo: "app",
         namespace: "acme",
@@ -613,7 +613,7 @@ describe("hatchJson", () => {
       const rootDir = await setup();
       await writeManifestJson(rootDir, {
         version: "2.0.0",
-        hatch3rVersion: "1.4.0",
+        hatch3rVersion: "1.5.0",
         owner: "acme",
         repo: "app",
         namespace: "acme",
@@ -630,7 +630,7 @@ describe("hatchJson", () => {
       const rootDir = await setup();
       await writeManifestJson(rootDir, {
         version: "2.0.0",
-        hatch3rVersion: "1.4.0",
+        hatch3rVersion: "1.5.0",
         owner: "acme",
         repo: "app",
         namespace: "acme",
@@ -647,7 +647,7 @@ describe("hatchJson", () => {
       const rootDir = await setup();
       await writeManifestJson(rootDir, {
         version: "2.0.0",
-        hatch3rVersion: "1.4.0",
+        hatch3rVersion: "1.5.0",
         owner: "acme",
         repo: "app",
         namespace: "acme",
@@ -666,7 +666,7 @@ describe("hatchJson", () => {
       const rootDir = await setup();
       await writeManifestJson(rootDir, {
         version: "2.0.0",
-        hatch3rVersion: "1.4.0",
+        hatch3rVersion: "1.5.0",
         owner: "acme",
         repo: "app",
         namespace: "acme",
@@ -684,7 +684,7 @@ describe("hatchJson", () => {
       const rootDir = await setup();
       await writeManifestJson(rootDir, {
         version: "2.0.0",
-        hatch3rVersion: "1.4.0",
+        hatch3rVersion: "1.5.0",
         owner: "acme",
         repo: "app",
         namespace: "acme",
@@ -702,7 +702,7 @@ describe("hatchJson", () => {
       const rootDir = await setup();
       await writeManifestJson(rootDir, {
         version: "2.0.0",
-        hatch3rVersion: "1.4.0",
+        hatch3rVersion: "1.5.0",
         owner: "acme",
         repo: "app",
         namespace: "acme",
