@@ -1781,7 +1781,7 @@
   },
   {
     "finding_id": "#62",
-    "domain": "D12: Agent Observability",
+    "domain": "D12: CLI Diagnostics & Traceability",
     "severity": "High",
     "owner": "Deferred",
     "description": "Implement structured CLI logging with command-level spans",
@@ -1806,11 +1806,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D12: Agent Observability",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#63",
-    "domain": "D12: Agent Observability",
+    "domain": "D12: CLI Diagnostics & Traceability",
     "severity": "High",
     "owner": "Agent",
     "description": "Add reasoning block persistence to pipeline output",
@@ -1835,11 +1837,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D12: Agent Observability",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#64",
-    "domain": "D12: Agent Observability",
+    "domain": "D12: CLI Diagnostics & Traceability",
     "severity": "High",
     "owner": "Agent",
     "description": "Add per-phase token estimation to pipeline output",
@@ -1864,11 +1868,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D12: Agent Observability",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#65",
-    "domain": "D12: Agent Observability",
+    "domain": "D12: CLI Diagnostics & Traceability",
     "severity": "High",
     "owner": "Agent",
     "description": "Add replay guidance to debugging workflow",
@@ -1893,11 +1899,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D12: Agent Observability",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#66",
-    "domain": "D12: Agent Observability",
+    "domain": "D12: CLI Diagnostics & Traceability",
     "severity": "High",
     "owner": "Deferred",
     "description": "Add EU AI Act traceability metadata to pipeline outputs",
@@ -1922,11 +1930,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D12: Agent Observability",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#67",
-    "domain": "D12: Agent Observability",
+    "domain": "D12: CLI Diagnostics & Traceability",
     "severity": "High",
     "owner": "Deferred",
     "description": "Add tool call logging with replay support",
@@ -1951,7 +1961,9 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D12: Agent Observability",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#68",
@@ -2770,7 +2782,7 @@
   },
   {
     "finding_id": "#96",
-    "domain": "D19: User Journey & Adoption",
+    "domain": "D10: User Experience & Documentation",
     "severity": "High",
     "owner": "Agent",
     "description": "Fix bridge content command name mismatches (hatch3r-feature -> hatch3r-feature-plan)",
@@ -2795,11 +2807,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D19: User Journey & Adoption",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#97",
-    "domain": "D19: User Journey & Adoption",
+    "domain": "D10: User Experience & Documentation",
     "severity": "High",
     "owner": "Agent",
     "description": "Fix validate.ts marker names in error messages (MANAGED-BLOCK -> HATCH3R)",
@@ -2824,11 +2838,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D19: User Journey & Adoption",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#98",
-    "domain": "D19: User Journey & Adoption",
+    "domain": "D10: User Experience & Documentation",
     "severity": "High",
     "owner": "Agent",
     "description": "Fix quick-start docs referencing non-existent review command",
@@ -2853,11 +2869,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D19: User Journey & Adoption",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#99",
-    "domain": "D19: User Journey & Adoption",
+    "domain": "D10: User Experience & Documentation",
     "severity": "High",
     "owner": "Agent",
     "description": "Add preset-aware messaging for minimal preset users",
@@ -2882,7 +2900,9 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D19: User Journey & Adoption",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#100",
@@ -5092,7 +5112,7 @@
   },
   {
     "finding_id": "#315",
-    "domain": "D12: Agent Observability",
+    "domain": "D12: CLI Diagnostics & Traceability",
     "severity": "Medium",
     "owner": "Agent",
     "description": "Fix 2 gap/logging items (aspirational markers, input/output capture)",
@@ -5117,11 +5137,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D12: Agent Observability",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#316",
-    "domain": "D12: Agent Observability",
+    "domain": "D12: CLI Diagnostics & Traceability",
     "severity": "Medium",
     "owner": "Agent",
     "description": "Fix 3 budget/correlation/timing items (budget enforcement, correlation IDs, phase timing)",
@@ -5146,11 +5168,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D12: Agent Observability",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#317",
-    "domain": "D12: Agent Observability",
+    "domain": "D12: CLI Diagnostics & Traceability",
     "severity": "Medium",
     "owner": "Agent",
     "description": "Fix 3 status/summary/naming items (status codes, execution summary, span naming)",
@@ -5175,11 +5199,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D12: Agent Observability",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#318",
-    "domain": "D12: Agent Observability",
+    "domain": "D12: CLI Diagnostics & Traceability",
     "severity": "Medium",
     "owner": "Agent",
     "description": "Fix 2 bridge/metrics items (reasoning-telemetry bridge, health metrics)",
@@ -5204,11 +5230,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D12: Agent Observability",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#319",
-    "domain": "D12: Agent Observability",
+    "domain": "D12: CLI Diagnostics & Traceability",
     "severity": "Medium",
     "owner": "Agent",
     "description": "Fix 3 metrics/diagnostics items (error rate tracking, context utilization, diagnostic dump)",
@@ -5233,11 +5261,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D12: Agent Observability",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#320",
-    "domain": "D12: Agent Observability",
+    "domain": "D12: CLI Diagnostics & Traceability",
     "severity": "Medium",
     "owner": "Agent",
     "description": "Fix 3 remaining items (environment capture, threshold alerting, degradation detection)",
@@ -5262,7 +5292,9 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D12: Agent Observability",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#331",
@@ -5759,7 +5791,7 @@
   },
   {
     "finding_id": "#386",
-    "domain": "D16: Compound System",
+    "domain": "D16: Cross-Domain Synthesis",
     "severity": "Medium",
     "owner": "Agent",
     "description": "Adapter snapshots cover only 6/15 (dedup with D3 #125)",
@@ -5784,11 +5816,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D16: Compound System",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#387",
-    "domain": "D16: Compound System",
+    "domain": "D16: Cross-Domain Synthesis",
     "severity": "Medium",
     "owner": "Agent",
     "description": "No per-file coverage thresholds (dedup with D3 #41)",
@@ -5813,11 +5847,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D16: Compound System",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#388",
-    "domain": "D16: Compound System",
+    "domain": "D16: Cross-Domain Synthesis",
     "severity": "Medium",
     "owner": "Agent",
     "description": "worktreeSetup zero coverage (dedup with D3 #37)",
@@ -5842,11 +5878,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D16: Compound System",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#389",
-    "domain": "D16: Compound System",
+    "domain": "D16: Cross-Domain Synthesis",
     "severity": "Medium",
     "owner": "Agent",
     "description": "Static specialist dispatch (dedup with D7 #104)",
@@ -5871,11 +5909,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D16: Compound System",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#390",
-    "domain": "D16: Compound System",
+    "domain": "D16: Cross-Domain Synthesis",
     "severity": "Medium",
     "owner": "Agent",
     "description": "PipelineContext unvalidated (dedup with D7 #54)",
@@ -5900,11 +5940,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D16: Compound System",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#391",
-    "domain": "D16: Compound System",
+    "domain": "D16: Cross-Domain Synthesis",
     "severity": "Medium",
     "owner": "Agent",
     "description": "Inconsistent phase skipping (dedup with D7 #53)",
@@ -5929,11 +5971,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D16: Compound System",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#392",
-    "domain": "D16: Compound System",
+    "domain": "D16: Cross-Domain Synthesis",
     "severity": "Medium",
     "owner": "Agent",
     "description": "No per-agent timeouts (dedup with D8 #57)",
@@ -5958,11 +6002,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D16: Compound System",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#393",
-    "domain": "D16: Compound System",
+    "domain": "D16: Cross-Domain Synthesis",
     "severity": "Medium",
     "owner": "Agent",
     "description": "JS-centric content limits portability (dedup with D14 #71)",
@@ -5987,11 +6033,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D16: Compound System",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#394",
-    "domain": "D16: Compound System",
+    "domain": "D16: Cross-Domain Synthesis",
     "severity": "Medium",
     "owner": "Agent",
     "description": "No emerging platform adapters (dedup with D9 #259)",
@@ -6016,11 +6064,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D16: Compound System",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#395",
-    "domain": "D16: Compound System",
+    "domain": "D16: Cross-Domain Synthesis",
     "severity": "Medium",
     "owner": "Agent",
     "description": "Reviewer enrichment inconsistent (dedup with D7 #218)",
@@ -6045,11 +6095,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D16: Compound System",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#396",
-    "domain": "D16: Compound System",
+    "domain": "D16: Cross-Domain Synthesis",
     "severity": "Medium",
     "owner": "Agent",
     "description": "Cycle 3 CL phases never executed (0/3) — strategic evolution stalled",
@@ -6074,11 +6126,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D16: Compound System",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#397",
-    "domain": "D16: Compound System",
+    "domain": "D16: Cross-Domain Synthesis",
     "severity": "Medium",
     "owner": "Agent",
     "description": "Two-speed system: tactical fixes fast, strategic evolution stalled — prioritize strategic items",
@@ -6103,11 +6157,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D16: Compound System",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#398",
-    "domain": "D16: Compound System",
+    "domain": "D16: Cross-Domain Synthesis",
     "severity": "Medium",
     "owner": "Agent",
     "description": "D16 compound: coverage gap compounds D3/D4 quality signal (dedup with D3 #126)",
@@ -6132,11 +6188,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D16: Compound System",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#399",
-    "domain": "D16: Compound System",
+    "domain": "D16: Cross-Domain Synthesis",
     "severity": "Medium",
     "owner": "Agent",
     "description": "D16 compound: update/sync divergence compounds D1/D11 data flow (dedup with D1 #107)",
@@ -6161,11 +6219,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D16: Compound System",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#400",
-    "domain": "D16: Compound System",
+    "domain": "D16: Cross-Domain Synthesis",
     "severity": "Medium",
     "owner": "Agent",
     "description": "D16 compound: deny scanning gap compounds D2/D15 security (dedup with D15 #358)",
@@ -6190,11 +6250,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D16: Compound System",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#401",
-    "domain": "D16: Compound System",
+    "domain": "D16: Cross-Domain Synthesis",
     "severity": "Medium",
     "owner": "Agent",
     "description": "D16 compound: MCP propagation gap compounds D9/D11 flow (dedup with D11 #301)",
@@ -6219,11 +6281,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D16: Compound System",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#402",
-    "domain": "D16: Compound System",
+    "domain": "D16: Cross-Domain Synthesis",
     "severity": "Medium",
     "owner": "Agent",
     "description": "D16 compound: trust boundary weakness compounds D6/D15 security (dedup with D15 #361)",
@@ -6248,11 +6312,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D16: Compound System",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#403",
-    "domain": "D16: Compound System",
+    "domain": "D16: Cross-Domain Synthesis",
     "severity": "Medium",
     "owner": "Agent",
     "description": "D16 compound: observability gap compounds D7/D12 pipeline (dedup with D12 #316)",
@@ -6277,11 +6343,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D16: Compound System",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#404",
-    "domain": "D16: Compound System",
+    "domain": "D16: Cross-Domain Synthesis",
     "severity": "Medium",
     "owner": "Agent",
     "description": "D16 compound: error recovery gap compounds D8 resilience (dedup with D8 #242)",
@@ -6306,11 +6374,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D16: Compound System",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#405",
-    "domain": "D16: Compound System",
+    "domain": "D16: Cross-Domain Synthesis",
     "severity": "Medium",
     "owner": "Agent",
     "description": "D16 compound: documentation drift compounds D10/D19 UX (dedup with D10 #280)",
@@ -6335,7 +6405,9 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D16: Compound System",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#406",
@@ -6600,7 +6672,7 @@
   },
   {
     "finding_id": "#415",
-    "domain": "D19: User Journey & Adoption",
+    "domain": "D10: User Experience & Documentation",
     "severity": "Medium",
     "owner": "Agent",
     "description": "Fix 2 MCP UX items (secret loading differences, .vscode/mcp.json format divergence)",
@@ -6625,11 +6697,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D19: User Journey & Adoption",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#416",
-    "domain": "D19: User Journey & Adoption",
+    "domain": "D10: User Experience & Documentation",
     "severity": "Medium",
     "owner": "Agent",
     "description": "Add disk footprint estimate during init (install UX)",
@@ -6654,11 +6728,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D19: User Journey & Adoption",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#417",
-    "domain": "D19: User Journey & Adoption",
+    "domain": "D10: User Experience & Documentation",
     "severity": "Medium",
     "owner": "Agent",
     "description": "Fix archive not called after config removal",
@@ -6683,11 +6759,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D19: User Journey & Adoption",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#418",
-    "domain": "D19: User Journey & Adoption",
+    "domain": "D10: User Experience & Documentation",
     "severity": "Medium",
     "owner": "Agent",
     "description": "Fix 2 validation items (Cline missing from TOOL_PATH_PREFIXES, cross-adapter collision detection)",
@@ -6712,11 +6790,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D19: User Journey & Adoption",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#419",
-    "domain": "D19: User Journey & Adoption",
+    "domain": "D10: User Experience & Documentation",
     "severity": "Medium",
     "owner": "Agent",
     "description": "Add sync reassurance about custom content preservation",
@@ -6741,11 +6821,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D19: User Journey & Adoption",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#420",
-    "domain": "D19: User Journey & Adoption",
+    "domain": "D10: User Experience & Documentation",
     "severity": "Medium",
     "owner": "Agent",
     "description": "Add post-init customization guidance",
@@ -6770,11 +6852,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D19: User Journey & Adoption",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#421",
-    "domain": "D19: User Journey & Adoption",
+    "domain": "D10: User Experience & Documentation",
     "severity": "Medium",
     "owner": "Agent",
     "description": "Fix silent YAML parse failure in customization — add error reporting",
@@ -6799,11 +6883,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D19: User Journey & Adoption",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#422",
-    "domain": "D19: User Journey & Adoption",
+    "domain": "D10: User Experience & Documentation",
     "severity": "Medium",
     "owner": "Agent",
     "description": "Fix 2 docs items (stale examples, roadmap navigation tags)",
@@ -6828,11 +6914,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D19: User Journey & Adoption",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#423",
-    "domain": "D19: User Journey & Adoption",
+    "domain": "D10: User Experience & Documentation",
     "severity": "Medium",
     "owner": "Agent",
     "description": "Fix 3 board items (prerequisite validation, board-free lifecycle, todo.md format)",
@@ -6857,11 +6945,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D19: User Journey & Adoption",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#424",
-    "domain": "D19: User Journey & Adoption",
+    "domain": "D10: User Experience & Documentation",
     "severity": "Medium",
     "owner": "Agent",
     "description": "Add workflow checkpoint/resume for interruption recovery",
@@ -6886,11 +6976,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D19: User Journey & Adoption",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#425",
-    "domain": "D19: User Journey & Adoption",
+    "domain": "D10: User Experience & Documentation",
     "severity": "Medium",
     "owner": "Agent",
     "description": "Add profile switching support to config command",
@@ -6915,11 +7007,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D19: User Journey & Adoption",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#426",
-    "domain": "D19: User Journey & Adoption",
+    "domain": "D10: User Experience & Documentation",
     "severity": "Medium",
     "owner": "Agent",
     "description": "Add hatch3r doctor/check diagnostic command",
@@ -6944,11 +7038,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D19: User Journey & Adoption",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#427",
-    "domain": "D19: User Journey & Adoption",
+    "domain": "D10: User Experience & Documentation",
     "severity": "Medium",
     "owner": "Agent",
     "description": "Fix stale doc examples referencing old command syntax",
@@ -6973,11 +7069,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D19: User Journey & Adoption",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#428",
-    "domain": "D19: User Journey & Adoption",
+    "domain": "D10: User Experience & Documentation",
     "severity": "Medium",
     "owner": "Agent",
     "description": "Add board prerequisites validation before board commands",
@@ -7002,11 +7100,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D19: User Journey & Adoption",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#429",
-    "domain": "D19: User Journey & Adoption",
+    "domain": "D10: User Experience & Documentation",
     "severity": "Medium",
     "owner": "Agent",
     "description": "Document board-free workflow and lifecycle path",
@@ -7031,11 +7131,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D19: User Journey & Adoption",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#430",
-    "domain": "D19: User Journey & Adoption",
+    "domain": "D10: User Experience & Documentation",
     "severity": "Medium",
     "owner": "Agent",
     "description": "Define and document todo.md format contract",
@@ -7060,11 +7162,13 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D19: User Journey & Adoption",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#431",
-    "domain": "D19: User Journey & Adoption",
+    "domain": "D10: User Experience & Documentation",
     "severity": "Medium",
     "owner": "Agent",
     "description": "Add preset-aware post-init messaging for all presets",
@@ -7089,7 +7193,9 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D19: User Journey & Adoption",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#432",
@@ -7412,7 +7518,7 @@
   },
   {
     "finding_id": "#443",
-    "domain": "D12: Agent Observability",
+    "domain": "D12: CLI Diagnostics & Traceability",
     "severity": "Low",
     "owner": "Agent",
     "description": "D12 Low: 12 polish/docs/cosmetic findings",
@@ -7437,7 +7543,9 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D12: Agent Observability",
+    "migration_cycle": 5
   },
   {
     "finding_id": "#444",
@@ -7528,7 +7636,7 @@
   },
   {
     "finding_id": "#447",
-    "domain": "D19: User Journey & Adoption",
+    "domain": "D10: User Experience & Documentation",
     "severity": "Low",
     "owner": "Agent",
     "description": "D19 Low: 20 polish/docs/cosmetic findings",
@@ -7553,6 +7661,8 @@
     "prd_impact": null,
     "content_generated": null,
     "audit_evolution": null,
-    "false_positive": false
+    "false_positive": false,
+    "migrated_from": "D19: User Journey & Adoption",
+    "migration_cycle": 5
   }
 ]

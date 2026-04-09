@@ -70,3 +70,4 @@
 - [ ] Test determinism — no flaky tests, no order dependencies
 - [ ] Fixture management — test data is organized and maintainable
 - [ ] Missing test scenarios — identify gaps based on source code analysis
+- [ ] Regression quality assessment: zero-regression rate across framework updates, content freshness verification, maintenance burden analysis (effort to keep framework current)

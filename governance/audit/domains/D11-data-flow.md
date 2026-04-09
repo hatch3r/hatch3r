@@ -31,7 +31,7 @@
 ### 11.3 MCP Propagation & Secrets
 - [ ] MCP config propagation per adapter format — each adapter receives correctly formatted MCP config
 - [ ] `.env.mcp` generation — all MCP server environment variables included
-- [ ] `env` object for Copilot MCP servers — correct format in `.vscode/mcp.json`
+- [ ] `envFile` injection for Copilot — correct path and format
 - [ ] `${env:VAR}` patterns — variable substitution works across adapters
 - [ ] Secret leakage prevention — no secrets in generated config files or managed blocks
 
@@ -41,3 +41,7 @@
 - [ ] Deny pattern enforcement — safety-critical content protected
 - [ ] Idempotency — repeated operations produce consistent results
 - [ ] Hook mapping — 6 hooks correctly mapped to adapter-specific formats
+
+## Domain Boundary
+
+> D02 audits adapter contracts and abstractions (base.ts, canonical.ts, customization.ts, content system, integrity system): "Are the abstractions correct?" D09 audits per-adapter implementations: "Does each adapter correctly implement the contract for its target platform?" D11 audits end-to-end integration by tracing specific content types through the full pipeline: "When content flows from canonical source through adapter transformation to disk output, does it arrive correctly?" D11 findings must demonstrate cross-component failures that neither D02 nor D09 would catch independently.

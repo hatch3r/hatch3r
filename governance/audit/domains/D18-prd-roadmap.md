@@ -46,3 +46,12 @@ Requires 18.1 and 18.2 results:
 - [ ] Licensing considerations — MIT suitability, dual licensing options
 - [ ] Community building strategy — how to grow adoption and contributions
 - [ ] Vision alignment of distribution strategy — does the distribution approach serve the north-star vision or diverge from it?
+
+## Strategic Decision Register
+
+Items classified as human-decision (open-source, branding, investment, distribution strategy) are tracked here, not as findings. They:
+- Do not generate findings or affect domain score
+- Are listed in the Executive Dashboard under "Stalled Strategic Decisions" if unresolved for 3+ cycles
+- Require `Owner: Human` classification and `disposition: "strategic_register"` in the finding registry if they do generate findings
+
+Agent-verifiable items (competitor feature comparison, documentation currency, community metrics, platform update tracking) remain as standard checklist items and generate findings normally.

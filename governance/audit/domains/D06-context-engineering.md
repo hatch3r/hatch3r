@@ -10,7 +10,7 @@
 | 6.1 | Context Window Utilization |
 | 6.2 | Instruction Density & Redundancy |
 | 6.3 | Cost Modeling |
-| 6.4 | Memory Safety & Context Poisoning |
+| 6.4 | Context Integrity & Isolation |
 
 ## Audit Checklists
 
@@ -33,8 +33,12 @@
 - [ ] Cost comparison with competitors — how does hatch3r's token overhead compare?
 - [ ] Optimization opportunities — identify the highest-cost areas with room for reduction
 
-### 6.4 Memory Safety & Context Poisoning
+### 6.4 Context Integrity & Isolation
 - [ ] Learnings poisoning prevention — can `/.agents/learnings/` be weaponized to manipulate future agent behavior?
 - [ ] Context injection via user-controlled files — can project files inject instructions into agent context?
 - [ ] Session isolation — does corrupted context from one session persist and affect subsequent sessions?
 - [ ] Memory safety boundaries — are there limits on what learnings can contain?
+
+## Domain Boundary
+
+> D06 audits context engineering quality under normal operation: context window overflow handling, session state isolation, format validation, and token economics. D15 audits context security under adversarial conditions: poisoning attacks, injection via learnings, weaponization of user-controlled files. If a finding involves intentional malicious input, it belongs in D15.

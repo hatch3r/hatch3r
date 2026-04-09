@@ -29,7 +29,7 @@ Per competitor, assess: scope comparison, quality comparison, community size (st
 - [ ] **AAIF (Agentic AI Foundation)** — AGENTS.md, MCP, goose under Linux Foundation. Impact on hatch3r's adapter model?
 - [ ] **AGENTS.md spec** — Current version, adoption, changes since last audit
 - [ ] **MCP protocol** — Current spec version, new capabilities, breaking changes
-- [ ] **All 15 platform updates** — New features, deprecations, API changes for every supported platform (including Amazon Q and Antigravity)
+- [ ] **All 14 platform updates** — New features, deprecations, API changes for every supported platform (including Amazon Q)
 
 ### 17.3 Market Positioning & Strategy (SEQUENTIAL)
 
@@ -41,3 +41,12 @@ Synthesizes findings from 17.1 and 17.2:
 - [ ] Multi-tool bet assessment — is the multi-adapter approach still the right strategy, or is the market converging on AGENTS.md natively?
 - [ ] Investment recommendations — where should hatch3r invest next based on market gaps?
 - [ ] Open-source vs private recommendation with rationale
+
+## Strategic Decision Register
+
+Items classified as human-decision (open-source, branding, investment, distribution strategy) are tracked here, not as findings. They:
+- Do not generate findings or affect domain score
+- Are listed in the Executive Dashboard under "Stalled Strategic Decisions" if unresolved for 3+ cycles
+- Require `Owner: Human` classification and `disposition: "strategic_register"` in the finding registry if they do generate findings
+
+Agent-verifiable items (competitor feature comparison, documentation currency, community metrics, platform update tracking) remain as standard checklist items and generate findings normally.
