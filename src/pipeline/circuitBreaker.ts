@@ -156,9 +156,13 @@ export function shouldAllowRequest(
     }
 
     case "HALF_OPEN":
-      // In HALF_OPEN, exactly one request is allowed (the probe).
-      // If we're already in HALF_OPEN, a probe is already in flight -- block.
-      return { allowed: true, state };
+      // The single probe was granted when transitioning OPEN → HALF_OPEN.
+      // Block concurrent callers until recordSuccess / recordFailure resolves it.
+      return {
+        allowed: false,
+        state,
+        reason: `Circuit half-open for ${state.config.serviceId}: probe already in flight`,
+      };
 
     default:
       return { allowed: true, state };

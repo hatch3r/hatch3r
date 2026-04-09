@@ -58,6 +58,18 @@ describe("circuitBreaker", () => {
       expect(result.allowed).toBe(true);
       expect(result.state.state).toBe("HALF_OPEN");
     });
+
+    it("should block additional requests while HALF_OPEN probe is in flight", () => {
+      let cb = createCircuitBreaker({ serviceId: "test", failureThreshold: 1, cooldownMs: 0 });
+      cb = recordFailure(cb, "transient");
+      const first = shouldAllowRequest(cb);
+      expect(first.allowed).toBe(true);
+      expect(first.state.state).toBe("HALF_OPEN");
+      const second = shouldAllowRequest(first.state);
+      expect(second.allowed).toBe(false);
+      expect(second.state.state).toBe("HALF_OPEN");
+      expect(second.reason).toContain("probe already in flight");
+    });
   });
 
   describe("recordSuccess", () => {
