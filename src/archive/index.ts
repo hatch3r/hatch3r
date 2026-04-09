@@ -1,7 +1,7 @@
 import { access, cp, mkdir, readFile, readdir, rm, stat } from "node:fs/promises";
 import { dirname, join, sep } from "node:path";
 import type { HatchManifest, Tool } from "../types.js";
-import { HATCH3R_PREFIX, sanitizeId } from "../types.js";
+import { ARCHIVE_DIR, HATCH3R_PREFIX, sanitizeId } from "../types.js";
 import { extractCustomContent, hasManagedBlock } from "../merge/managedBlocks.js";
 import { atomicWriteFile } from "../merge/safeWrite.js";
 import type { CustomizableType } from "../models/customize.js";
@@ -10,7 +10,7 @@ function toPosixPath(p: string): string {
   return sep === "\\" ? p.replaceAll("\\", "/") : p;
 }
 
-const ARCHIVE_DIR = ".hatch3r-archive";
+// ARCHIVE_DIR imported from types.ts
 
 export interface MigrationNotice {
   from: string;
@@ -26,7 +26,7 @@ interface ParsedOutputPath {
 
 // #255 (D9-9.26): Added "AGENTS.md" to amp prefixes so archive cleanup catches amp's root-level output.
 // #256 (D9-9.27): Added ".aider/" to aider prefixes so archive cleanup catches aider's skills subdirectory.
-const TOOL_PATH_PREFIXES: Record<Tool, string[]> = {
+export const TOOL_PATH_PREFIXES: Record<Tool, string[]> = {
   cursor: [".cursor/"],
   claude: [".claude/", "CLAUDE.md", ".mcp.json"],
   copilot: [".github/copilot-instructions.md", ".github/workflows/copilot-setup-steps.yml", ".vscode/mcp.json", ".github/instructions/", ".github/agents/", ".github/prompts/", ".github/skills/"],
@@ -94,7 +94,7 @@ async function fileExists(path: string): Promise<boolean> {
   }
 }
 
-async function collectToolFiles(rootDir: string, tool: Tool): Promise<string[]> {
+export async function collectToolFiles(rootDir: string, tool: Tool): Promise<string[]> {
   const prefixes = TOOL_PATH_PREFIXES[tool];
   if (!prefixes) return [];
 
@@ -188,7 +188,7 @@ export async function archiveToolOutputs(
   return { archivedFiles, migrations };
 }
 
-async function cleanEmptyDirs(rootDir: string, paths: string[]): Promise<void> {
+export async function cleanEmptyDirs(rootDir: string, paths: string[]): Promise<void> {
   const dirs = new Set<string>();
   for (const p of paths) {
     let dir = dirname(join(rootDir, p));

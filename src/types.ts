@@ -259,6 +259,8 @@ export const MANAGED_BLOCK_START = "<!-- HATCH3R:BEGIN -->";
 export const MANAGED_BLOCK_END = "<!-- HATCH3R:END -->";
 export const HATCH3R_PREFIX = "hatch3r-";
 export const AGENTS_DIR = ".agents";
+export const ARCHIVE_DIR = ".hatch3r-archive";
+export const CUSTOMIZE_DIR = ".hatch3r";
 
 /** Structured error codes for programmatic error handling (e.g., CI scripts). */
 export type HatchErrorCode =
@@ -268,6 +270,7 @@ export type HatchErrorCode =
   | "INTEGRITY_ERROR"
   | "ADAPTER_ERROR"
   | "NETWORK_ERROR"
+  | "CLEAN_ERROR"
   | "UNKNOWN_ERROR";
 
 export class HatchError extends Error {

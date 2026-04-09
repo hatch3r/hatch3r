@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import chalk from "chalk";
 import inquirer from "inquirer";
 import { readManifest, writeManifest, addManagedFile } from "../../manifest/hatchJson.js";
+import { getApplicableCheckpoints } from "../../version/checkpoints.js";
 import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
 import { safeWriteFile } from "../../merge/safeWrite.js";
 import { AGENTS_DIR, HATCH3R_PREFIX, HatchError, WORKTREE_CAPABLE_TOOLS, WORKTREE_INCLUDE_FILE, type HatchManifest, type Platform } from "../../types.js";
@@ -478,6 +479,24 @@ export async function updateCommand(_opts?: Record<string, unknown> & { yes?: bo
   console.log();
 
   const result = await runUpdate(rootDir, m);
+
+  // Version checkpoint advisory: detect if a clean reinit is recommended
+  const versionCheckpoints = getApplicableCheckpoints(m.hatch3rVersion, HATCH3R_VERSION);
+  const reinitAdvisories = versionCheckpoints.filter(cp => cp.action === "reinit-advisory");
+
+  if (reinitAdvisories.length > 0) {
+    console.log();
+    warn("A clean reinit is recommended for this version update:");
+    for (const advisory of reinitAdvisories) {
+      console.log(chalk.dim(`  - ${advisory.reason}`));
+      for (const change of advisory.changes ?? []) {
+        console.log(chalk.dim(`    • ${change}`));
+      }
+    }
+    console.log();
+    info(`Run ${chalk.bold("hatch3r clean")} and choose to reinitialize when prompted.`);
+    console.log(chalk.dim("  Your customizations and learnings will be preserved.\n"));
+  }
 
   console.log();
   printBox("Update complete", [

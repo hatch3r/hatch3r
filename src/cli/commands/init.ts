@@ -90,7 +90,7 @@ function deriveWorkspacePlatform(identities: Array<{ platform: Platform }>): Pla
   return best;
 }
 
-interface RunInitOptions {
+export interface RunInitOptions {
   rootDir: string;
   platform: Platform;
   owner: string;
@@ -105,7 +105,7 @@ interface RunInitOptions {
   contentSelection: ContentSelection;
 }
 
-async function runInit(options: RunInitOptions): Promise<void> {
+export async function runInit(options: RunInitOptions): Promise<void> {
   const { rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection } = options;
   const agentsDir = join(rootDir, AGENTS_DIR);
   const totalSteps = 4;

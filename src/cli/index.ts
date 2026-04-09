@@ -5,6 +5,7 @@ import { Command } from "commander";
 import { addCommand } from "./commands/add.js";
 import { worktreeSetupCommand } from "./commands/worktreeSetup.js";
 import { worktreeCleanupCommand } from "./commands/worktreeCleanup.js";
+import { cleanCommand } from "./commands/clean.js";
 import { configCommand } from "./commands/config.js";
 import { initCommand } from "./commands/init.js";
 import { syncCommand } from "./commands/sync.js";
@@ -74,6 +75,13 @@ program
   .action(configCommand);
 
 program
+  .command("clean")
+  .description("Remove all hatch3r artifacts from the current repo (optionally reinitialize after)")
+  .option("--yes", "Skip confirmation prompts (cleans without reinit)")
+  .option("--dry-run", "Show what would be removed without modifying files")
+  .action(cleanCommand);
+
+program
   .command("add [pack]")
   .description("Install a community pack (coming soon)")
   .action(addCommand);
@@ -121,6 +129,7 @@ program.on("command:*", (operands: string[]) => {
       `\n\n  Common commands:` +
       `\n    hatch3r init      Set up agent configuration in current repo` +
       `\n    hatch3r sync      Regenerate tool outputs from .agents/` +
+      `\n    hatch3r clean     Remove hatch3r artifacts (optionally reinit)` +
       `\n    hatch3r status    Check sync status` +
       `\n    hatch3r validate  Validate .agents/ structure\n`,
     );
