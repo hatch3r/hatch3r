@@ -39,7 +39,7 @@ Execute the full hatch3r audit cycle defined in `governance/AUDIT.md`.
 
 ## Tier B — Quality (7 domains, 49 sub-agents)
 
-11. Read domain files: `governance/audit/domains/D05-prompt-engineering.md` through `D10-documentation-devex.md`
+11. Read domain files: `governance/audit/domains/D05-prompt-engineering.md` through `D10-documentation-devex.md`, and `D19-agentic-dev-setup.md`
 12. Launch sub-agents in parallel, except:
     - D09.15 (Capability Matrix Verification) — wait for D09.1-D09.14
     - D09.16 (Emerging Platforms) — wait for D09.1-D09.14
