@@ -53,6 +53,7 @@ function sanitizeHookField(value: string): string {
   return value.replace(/[`$;|&\n\r\0\\'"]/g, "");
 }
 
+/** Parse hook frontmatter from a markdown file. Returns null if required fields are missing or the event is invalid. */
 function parseHookFrontmatter(content: string): HookDefinition | null {
   const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!match) return null;

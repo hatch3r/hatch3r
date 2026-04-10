@@ -3,6 +3,13 @@ import { toPrefixedId } from "../types.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
 
+/**
+ * Amp adapter.
+ *
+ * Generates `AGENTS.md` (root-level bridge with inline rules/agents),
+ * skills in `.agents/skills/`, and `.amp/settings.json` for MCP.
+ * Amp reads commands natively from `.agents/commands/`.
+ */
 export class AmpAdapter extends BaseAdapter {
   readonly name = "amp";
 

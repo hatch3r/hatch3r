@@ -65,13 +65,13 @@ program
 
 program
   .command("validate")
-  .description("Validate the canonical .agents/ structure (checks frontmatter, content, security)")
+  .description("Check .agents/ structure: frontmatter, cross-references, content safety, compliance")
   .option("--verbose", "Show detailed validation output for each check")
   .action(validateCommand);
 
 program
   .command("verify")
-  .description("Verify integrity of canonical agent files (detect tampering)")
+  .description("Check file integrity: SHA-256 hashes vs manifest (detect unauthorized modifications)")
   .action(verifyCommand);
 
 program
@@ -135,9 +135,11 @@ program.on("command:*", (operands: string[]) => {
       `\n\n  Common commands:` +
       `\n    hatch3r init      Set up agent configuration in current repo` +
       `\n    hatch3r sync      Regenerate tool outputs from .agents/` +
-      `\n    hatch3r clean     Remove hatch3r artifacts (optionally reinit)` +
       `\n    hatch3r status    Check sync status` +
-      `\n    hatch3r validate  Validate .agents/ structure\n`,
+      `\n    hatch3r validate  Check .agents/ structure and content` +
+      `\n    hatch3r verify    Check file integrity (SHA-256)` +
+      `\n    hatch3r config    Reconfigure tools, features, MCP` +
+      `\n    hatch3r clean     Remove hatch3r artifacts\n`,
     );
   }
   process.exit(1);

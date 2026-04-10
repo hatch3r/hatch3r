@@ -96,6 +96,8 @@ This guide helps you resolve common issues with the hatch3r CLI, MCP servers, bo
 
 Run `npx hatch3r validate` to check the `.agents/` structure. Below are common errors and how to fix them.
 
+> **validate vs verify:** `validate` checks structural correctness (frontmatter, directories, cross-references). `verify` checks file integrity (SHA-256 hashes against the manifest). Use `validate` for content issues, `verify` for tampering detection.
+
 ### .agents/ directory not found
 
 **Solution:** Run `npx hatch3r init` to create the canonical structure.
@@ -262,7 +264,7 @@ Board commands (`board-init`, `board-fill`, `board-groom`, `board-pickup`, `boar
 
 ### Tool-specific behavior
 
-**Solution:** See [adapter-capability-matrix.md](adapter-capability-matrix.md) for per-tool output paths, capabilities, and limitations (e.g. Windsurf MCP is global-only; some tools don't support hooks).
+**Solution:** See [adapter-capability-matrix.md](adapter-capability-matrix.md) for per-tool output paths, capabilities, and limitations (e.g. Zed MCP is global-only; some tools don't support hooks). See [model-selection.md](model-selection.md) for per-agent model configuration.
 
 ---
 

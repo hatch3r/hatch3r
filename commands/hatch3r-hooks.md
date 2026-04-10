@@ -10,6 +10,10 @@ quality_charter: agents/shared/quality-charter.md
 
 This command runs as a single orchestrator without sub-agent delegation. Hook definition and management are performed inline.
 
+## Learnings Consultation
+
+If `.agents/learnings/` exists, scan for learnings related to hook configurations, event trigger patterns, or prior hook issues before starting.
+
 # Hooks — Event-Driven Agent Activation
 
 Define, edit, and manage event-driven hooks that automatically activate hatch3r agents when specific project events occur. Hook definitions are tool-agnostic — the adapter pipeline translates them into tool-native configurations during `npx hatch3r sync`.

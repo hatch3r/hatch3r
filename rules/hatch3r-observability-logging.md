@@ -3,6 +3,7 @@ id: hatch3r-observability-logging
 type: rule
 description: Structured logging and error reporting conventions for the project
 scope: conditional
+globs: "**/*log*,**/*logger*,**/*logging*,**/*error*,**/observability/**"
 tags: [devops]
 quality_charter: agents/shared/quality-charter.md
 ---

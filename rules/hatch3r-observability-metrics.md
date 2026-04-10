@@ -3,6 +3,7 @@ id: hatch3r-observability-metrics
 type: rule
 description: Metrics, SLO/SLI definitions, alerting, and dashboard conventions for the project
 scope: conditional
+globs: "**/*metric*,**/*slo*,**/*sli*,**/*alert*,**/*dashboard*,**/observability/**"
 tags: [devops]
 quality_charter: agents/shared/quality-charter.md
 ---

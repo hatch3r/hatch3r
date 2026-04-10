@@ -2,6 +2,13 @@ import type { AdapterOutput } from "../types.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
 
+/**
+ * Zed adapter.
+ *
+ * Generates `.rules` with inline bridge/rules/agents and optional
+ * `.zed/mcp.json` for project-level MCP configuration.
+ * Zed has no skills, commands, or hooks concepts.
+ */
 export class ZedAdapter extends BaseAdapter {
   readonly name = "zed";
 

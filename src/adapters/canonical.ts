@@ -81,6 +81,11 @@ const READER_CONFIGS: Record<CanonicalType, ReaderConfig> = {
   "github-agents": { type: "github-agent", dir: "github-agents", strategy: "glob" },
 };
 
+/**
+ * Read all `.md` files in a directory (recursively) and parse frontmatter.
+ * Per-file errors are caught and the file is skipped, so a single corrupt
+ * file does not prevent reading the rest of the directory.
+ */
 async function readGlobMd(baseDir: string, fileType: CanonicalFile["type"]): Promise<CanonicalFile[]> {
   let entries: string[];
   try {
@@ -125,6 +130,11 @@ async function readGlobMd(baseDir: string, fileType: CanonicalFile["type"]): Pro
   return results.filter((r): r is NonNullable<typeof r> => r !== null);
 }
 
+/**
+ * Read skill content from subdirectories (`{baseDir}/{skillName}/SKILL.md`).
+ * Each skill is a directory containing a `SKILL.md` file with frontmatter.
+ * Symlinks are skipped; missing `SKILL.md` files cause the directory to be skipped.
+ */
 async function readSkillSubdirs(baseDir: string): Promise<CanonicalFile[]> {
   let dirents: { name: string; isDirectory: () => boolean }[];
   try {

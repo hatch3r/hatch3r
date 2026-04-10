@@ -77,7 +77,7 @@ interface AdapterCapability {
   modelOverride: boolean;
 }
 
-// Adapter capability matrix — last updated for hatch3r v1.4.0.
+// Adapter capability matrix — last updated for hatch3r v1.5.0.
 // #260 (D9-9.31): Updated "last verified" version from v1.2.0 to v1.4.0.
 // Review this matrix when adding new adapters, removing adapters, or when
 // an existing tool gains/loses support for a feature (e.g. a tool ships

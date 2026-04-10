@@ -3,6 +3,7 @@ id: hatch3r-observability-tracing-detail
 type: rule
 description: Extended tracing reference -- AI agent instrumentation, tool call audit trails, LLM request tracing, and correlation ID patterns
 scope: conditional
+globs: "**/*trac*,**/*span*,**/*telemetry*,**/*otel*,**/*agent*,**/observability/**"
 tags: [devops]
 quality_charter: agents/shared/quality-charter.md
 ---

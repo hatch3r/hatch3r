@@ -76,6 +76,12 @@ const ALLOWED_COMMANDS = new Set([
 
 const ALLOWED_URL_SCHEMES = new Set(["http:", "https:"]);
 
+/**
+ * Validate a single MCP server entry and return any warnings.
+ *
+ * Checks: command allowlist, URL scheme, env key naming (POSIX),
+ * arg shell metacharacters, unscoped npx packages, and timeout bounds.
+ */
 export function validateMcpEntry(
   name: string,
   entry: McpServerEntry,
@@ -179,6 +185,10 @@ const VALID_ENV_KEY = /^[A-Za-z_][A-Za-z0-9_]*$/;
 // injection, or config key manipulation.
 const VALID_SERVER_NAME = /^[a-zA-Z0-9_-]+$/;
 
+/**
+ * Validate an MCP server name. Returns a warning string if invalid, or null if valid.
+ * Server names must contain only alphanumeric characters, hyphens, and underscores.
+ */
 export function validateServerName(name: string): string | null {
   if (!VALID_SERVER_NAME.test(name)) {
     return (
@@ -189,6 +199,7 @@ export function validateServerName(name: string): string | null {
   return null;
 }
 
+/** Runtime type guard for the top-level MCP config shape (`{ mcpServers: {...} }`). */
 function validateMcpConfig(
   parsed: unknown,
 ): parsed is { mcpServers: Record<string, McpServerEntry> } {
@@ -202,6 +213,13 @@ export interface McpConfigResult {
   warnings: string[];
 }
 
+/**
+ * Read and validate the MCP server configuration from `.agents/mcp/mcp.json`.
+ *
+ * Parses the JSON, validates each server name and entry, and returns
+ * the validated servers with any accumulated warnings. Servers with
+ * invalid names are skipped entirely.
+ */
 export async function readMcpConfig(
   agentsDir: string,
 ): Promise<McpConfigResult> {

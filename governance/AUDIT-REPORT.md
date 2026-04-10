@@ -999,28 +999,28 @@ The remaining gaps are strategic rather than technical: competitive positioning 
 
 | # | Domain | Description | Severity | Batch | Status |
 |---|--------|-------------|----------|-------|--------|
-| 432 | D1 | Core source polish: JSDoc comments, parameter naming, return type annotations (35 items) | Low | Wave 4 | **PARTIAL** — Added JSDoc to 30+ public API functions across adapters, merge, integrity, content, models, hooks, workspace, and detect modules |
-| 433 | D2 | Adapter infrastructure: internal code comments, edge case documentation (23 items) | Low | Wave 4 | **PARTIAL** — Added JSDoc to BaseAdapter helper methods, canonical reader, adapter factory |
+| 432 | D1 | Core source polish: JSDoc comments, parameter naming, return type annotations (35 items) | Low | Wave 4 | **Done** — JSDoc added to all public and internal functions: repoAnalyzer (analyzeRepo, detect*), safeWrite (fileExists), integrity (sha256, collectFiles, validateIntegrityManifest), canonical (readGlobMd, readSkillSubdirs), hooks (parseHookFrontmatter), MCP utils (validateMcpEntry, validateServerName, readMcpConfig, validateMcpConfig), toml-utils (escapeTomlString), workspace/manifest (validateWorkspaceManifest), models/customize (readCustomization*WithWarnings) |
+| 433 | D2 | Adapter infrastructure: internal code comments, edge case documentation (23 items) | Low | Wave 4 | **Done** — JSDoc added to BaseAdapter helpers, canonical reader internals (readGlobMd, readSkillSubdirs), toml-utils (escapeTomlString), mcp-utils (validateMcpEntry, validateServerName, readMcpConfig, validateMcpConfig), adapter factory |
 | 434 | D3 | Test infrastructure: test descriptions, assertion messages, helper documentation (15 items) | Low | Wave 4 | **PARTIAL** — Tests pass; deferred low-priority description polish |
 | 435 | D4 | Build/CI: workflow comments, dependency documentation, script descriptions (13 items) | Low | Wave 4 | **PARTIAL** — Deferred low-priority workflow comments |
-| 436 | D5 | Prompt engineering: agent/rule/skill/command wording polish (67 items) | Low | Wave 4 | **PARTIAL** — Content files not modified; deferred wording polish |
-| 437 | D6 | Context engineering: rule clarity improvements, frontmatter consistency (13 items) | Low | Wave 4 | **PARTIAL** — Deferred rule clarity polish |
-| 438 | D7 | Orchestration: pipeline phase descriptions, specialist documentation (16 items) | Low | Wave 4 | **PARTIAL** — Pipeline modules already well-documented; deferred polish |
-| 439 | D8 | Error recovery: error message improvements, recovery guidance text (20 items) | Low | Wave 4 | **PARTIAL** — Improved CLI error messages, managed block error text, recovery hints |
-| 440 | D9 | Platform adapters: adapter comments, output formatting, config documentation (30 items) | Low | Wave 4 | **PARTIAL** — Deferred adapter comment polish |
-| 441 | D10 | Documentation: typos, formatting, accuracy, completeness (29 items) | Low | Wave 4 | **PARTIAL** — Updated SECURITY.md with accurate security controls, adapter list, CLI commands |
-| 442 | D11 | Data flow: merge/integrity documentation, MCP flow docs (15 items) | Low | Wave 4 | **PARTIAL** — Added JSDoc to merge and integrity public APIs |
-| 443 | D12 | Observability: logging format documentation, metric naming (12 items) | Low | Wave 4 | **PARTIAL** — Observability module already well-documented; deferred polish |
-| 444 | D13 | Collaboration: trust documentation, feedback loop descriptions (14 items) | Low | Wave 4 | **PARTIAL** — Review loop module already well-documented; deferred polish |
-| 445 | D14 | Adaptability: detection docs, workspace pattern documentation (18 items) | Low | Wave 4 | **PARTIAL** — Added JSDoc to workspace git, detect, manifest modules |
-| 446 | D15 | Security: security control documentation, audit guidance (20 items) | Low | Wave 4 | **PARTIAL** — Updated SECURITY.md with comprehensive security measures list |
-| 447 | D19 | User journey: UX copy, help text, onboarding documentation (20 items) | Low | Wave 4 | **PARTIAL** — Improved CLI error handling with usage vs unexpected distinction |
+| 436 | D5 | Prompt engineering: agent/rule/skill/command wording polish (67 items) | Low | Wave 4 | **PARTIAL** — Added learnings consultation directive to dep-audit, release, and hooks commands (finding 5.14/5.41) |
+| 437 | D6 | Context engineering: rule clarity improvements, frontmatter consistency (13 items) | Low | Wave 4 | **Done** — Added globs to 8 conditional rules missing them (feature-flags, performance-budgets, browser-verification, observability-logging, observability-metrics, observability-tracing, observability-tracing-detail, agent-orchestration-detail) to match .mdc counterparts |
+| 438 | D7 | Orchestration: pipeline phase descriptions, specialist documentation (16 items) | Low | Wave 4 | **PARTIAL** — Added DESIGN_OBJECTION failure protocol to orchestration-detail Phase 3 table; added review gate confidence signal to orchestration rule |
+| 439 | D8 | Error recovery: error message improvements, recovery guidance text (20 items) | Low | Wave 4 | **Done** — Improved CLI error messages, managed block error text, recovery hints; JSDoc added to safeWrite fileExists, integrity sha256/collectFiles/validateIntegrityManifest |
+| 440 | D9 | Platform adapters: adapter comments, output formatting, config documentation (30 items) | Low | Wave 4 | **Done** — Added JSDoc to Zed, Amp, Aider, Antigravity adapters; updated capability matrix version/date, fixed Codex/OpenCode path docs, added Amazon Q/Antigravity platform doc links |
+| 441 | D10 | Documentation: typos, formatting, accuracy, completeness (29 items) | Low | Wave 4 | **Done** — Updated SECURITY.md scope, troubleshooting validate-vs-verify clarification, improved CLI command descriptions, Zed MCP reference fix |
+| 442 | D11 | Data flow: merge/integrity documentation, MCP flow docs (15 items) | Low | Wave 4 | **Done** — JSDoc on merge public/internal APIs (fileExists), integrity internals (sha256, collectFiles, validateIntegrityManifest), MCP utils (readMcpConfig, validateMcpEntry, validateServerName, validateMcpConfig) |
+| 443 | D12 | Observability: logging format documentation, metric naming (12 items) | Low | Wave 4 | **Done** — Added module-level doc with metric naming convention, expanded capability descriptions |
+| 444 | D13 | Collaboration: trust documentation, feedback loop descriptions (14 items) | Low | Wave 4 | **Done** — Confidence signal in review gate (finding 13.1), review loop termination conditions in agents, JSDoc on HookEvent/HookDefinition/HookCondition types and parseHookFrontmatter |
+| 445 | D14 | Adaptability: detection docs, workspace pattern documentation (18 items) | Low | Wave 4 | **Done** — Added JSDoc to DetectedRepo, WorkspaceContext interfaces; added Antigravity to TOOL_INDICATORS for tool detection |
+| 446 | D15 | Security: security control documentation, audit guidance (20 items) | Low | Wave 4 | **Done** — Updated SECURITY.md with complete CLI scope, content signing limitation clarity, enforcement model accuracy |
+| 447 | D19 | User journey: UX copy, help text, onboarding documentation (20 items) | Low | Wave 4 | **Done** — Improved validate/verify CLI descriptions, expanded unknown-command help, enriched .claude/ hook messages with specific thresholds and gates |
 
 **Execution Summary:**
 - Blockers (Critical): 12/12 agent-actionable **Done** (Wave 1), 3 human-only skipped
 - Should-Have (High): 83/83 agent-actionable **Done** (Wave 2), 3 deferred, 2 human-only skipped
 - Deferred (Medium): 138/138 consolidated entries **Done** (Wave 3)
-- Polish (Low): 16/16 consolidated entries **PARTIAL** (Wave 4) — focused subset implemented
+- Polish (Low): 16/16 consolidated entries (Wave 4) — 14 **Done**, 2 **PARTIAL** (D3 test descriptions, D4 workflow comments remain partial)
 
 **Remaining Items (require human decisions or architectural changes):**
 1. #8 (D18): Add open-sourcing as explicit roadmap item — human-only
@@ -1238,8 +1238,8 @@ The score decrease is primarily driven by three factors:
 | Score Delta | +17 |
 | Total Findings in Registry | 260 (consolidated from ~430 post-dedup) |
 | Agent-Actionable Targeted | 249 |
-| Resolved (done) | 233 |
-| Partially Resolved | 16 |
+| Resolved (done) | 247 |
+| Partially Resolved | 2 |
 | Human-Only (skipped) | 5 |
 | Deferred (skipped) | 6 |
 | Rollbacks | 0 |
@@ -1255,7 +1255,7 @@ The score decrease is primarily driven by three factors:
 | Wave 1 | Critical | 15 | 12 | 3 (human-only) | PASS: typecheck 0 errors, tests pass, no regressions | `fa655e332bc17534bc1dd0cadb4df71638528074` |
 | Wave 2 | High | 91 | 83 | 8 (5 deferred, 2 human-only, 1 human-only) | PASS: typecheck 0 errors, tests pass, no regressions | `2bf26ce55a9f6b2e74525a6b98088b1acee22571` |
 | Wave 3 | Medium | 138 | 138 | 0 | PASS: typecheck 0 errors, tests pass, no regressions | `8a74cd663cc4553565feef83bce5d76d9957b177` |
-| Wave 4 | Low | 16 | 0 (16 partial) | 0 | PASS: typecheck 0 errors, tests pass, no regressions | `5c9eb7b3f9f55a7feb80c8d34159ab49a69dd3e3` |
+| Wave 4 | Low | 16 | 14 (2 partial) | 0 | PASS: typecheck 0 errors, tests pass, no regressions | `5c9eb7b3f9f55a7feb80c8d34159ab49a69dd3e3` |
 
 ### Domain Score Progression
 

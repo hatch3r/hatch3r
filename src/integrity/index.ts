@@ -37,10 +37,12 @@ export interface VerifyResult {
 const INTEGRITY_FILE = ".integrity.json";
 const SCANNED_DIRS = ["agents", "commands", "rules", "skills", "hooks", "prompts", "github-agents", "mcp"];
 
+/** Compute a SHA-256 hash of a UTF-8 string, prefixed with `sha256:`. */
 function sha256(content: string): string {
   return `sha256:${createHash("sha256").update(content, "utf-8").digest("hex")}`;
 }
 
+/** Recursively collect `.md`, `.mdc`, and `.json` file paths from a directory, skipping symlinks. */
 async function collectFiles(dir: string, base: string): Promise<string[]> {
   const files: string[] = [];
   let entries: { name: string; isDirectory: () => boolean; isFile: () => boolean; isSymbolicLink: () => boolean }[];
@@ -108,6 +110,7 @@ export async function writeIntegrityManifest(
   await atomicWriteFile(filePath, JSON.stringify(manifest, null, 2) + "\n");
 }
 
+/** Runtime type guard that validates an unknown value conforms to the IntegrityManifest shape. */
 function validateIntegrityManifest(data: unknown): data is IntegrityManifest {
   if (typeof data !== "object" || data === null) return false;
   const obj = data as Record<string, unknown>;

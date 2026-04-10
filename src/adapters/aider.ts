@@ -3,6 +3,13 @@ import { toPrefixedId } from "../types.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
 
+/**
+ * Aider adapter.
+ *
+ * Generates `CONVENTIONS.md` (bridge with inline rules/agents),
+ * skills in `.aider/skills/`, and `.aider.conf.yml` pointing to
+ * CONVENTIONS.md and AGENTS.md. Aider has no MCP or hooks support.
+ */
 export class AiderAdapter extends BaseAdapter {
   readonly name = "aider";
 

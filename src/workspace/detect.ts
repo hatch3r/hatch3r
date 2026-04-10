@@ -3,12 +3,18 @@ import { join, dirname, relative } from "node:path";
 import { AGENTS_DIR } from "../types.js";
 import { WORKSPACE_MANIFEST_FILE } from "./types.js";
 
+/**
+ * A git repository discovered during workspace scanning.
+ *
+ * Returned by `detectSubRepos()` when scanning a directory for
+ * potential workspace members.
+ */
 export interface DetectedRepo {
-  /** Relative path from workspace root. */
+  /** Relative path from workspace root (same as directory name for top-level repos). */
   path: string;
   /** Directory name (default display name). */
   name: string;
-  /** Whether this repo already has a hatch3r setup. */
+  /** Whether this repo already has a `.agents/hatch.json` setup. */
   hasHatch3r: boolean;
 }
 
@@ -63,9 +69,19 @@ export async function detectSubRepos(rootDir: string): Promise<DetectedRepo[]> {
   return repos.sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/**
+ * Classification of a directory's relationship to a workspace.
+ *
+ * - `workspace-root`: directory contains `.agents/workspace.json`
+ * - `workspace-member`: directory is inside a workspace root (up to 3 levels up)
+ * - `standalone`: no workspace relationship detected
+ */
 export interface WorkspaceContext {
+  /** How this directory relates to a workspace. */
   type: "workspace-root" | "workspace-member" | "standalone";
+  /** Absolute path to the workspace root (if applicable). */
   workspaceRoot?: string;
+  /** Relative path from the member directory to the workspace root (if applicable). */
   rootPath?: string;
 }
 

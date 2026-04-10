@@ -1,6 +1,6 @@
 # Adapter Capability Matrix
 
-> **Last verified**: 2026-03-05 | **hatch3r version**: 1.0.0
+> **Last verified**: 2026-04-10 | **hatch3r version**: 1.5.0
 
 Living reference for framework capabilities vs. adapter implementations. This document tracks what each adapter emits, what each platform supports natively, and where gaps remain.
 
@@ -175,8 +175,8 @@ When omitted, the adapter falls back to sensible defaults so existing projects c
 
 | Capability | Output Path | Format |
 |------------|-------------|--------|
-| rules | `.codex/config.toml` | `model_instructions_file` reference to AGENTS.md (bridge) |
-| agents | `.codex/config.toml` | `[agents.{id}]` sections with `model_instructions_file`, optional `model` |
+| rules | `.codex/config.toml` | Rule comments referencing AGENTS.md (bridge) |
+| agents | `.codex/agents/hatch3r-{id}.toml` | Per-agent TOML files with optional `model` |
 | skills | `.codex/skills/hatch3r-{id}/SKILL.md` | Raw content |
 | mcp | `.codex/config.toml` | `[mcp_servers.{name}]` TOML sections |
 | hooks | `.codex/config.toml` | `[hooks."{event}"]` TOML sections with command trigger |
@@ -220,9 +220,9 @@ When omitted, the adapter falls back to sensible defaults so existing projects c
 | Capability | Output Path | Format |
 |------------|-------------|--------|
 | rules | `opencode.json` | `instructions` array with glob references |
-| agents | `.opencode/agents/hatch3r-{id}.md` | YAML frontmatter (`description`, `model`) |
+| agents | `.opencode/agent/hatch3r-{id}.md` | YAML frontmatter (`description`, `model`) |
 | skills | `.opencode/skills/hatch3r-{id}/SKILL.md` | Raw content |
-| commands | `.opencode/commands/hatch3r-{id}.md` | Raw content |
+| commands | `.opencode/command/hatch3r-{id}.md` | Raw content |
 | mcp | `opencode.json` | JSON `mcp` object with type/command/url |
 
 ### Aider
@@ -376,6 +376,8 @@ set -a && source .env.mcp && set +a && <editor-command> .
 | Kiro | [Kiro Steering](https://kiro.dev/docs/steering/) |
 | Goose | [Goosehints](https://block.github.io/goose/docs/guides/using-goosehints) |
 | Zed | [Zed AI Rules](https://zed.dev/docs/ai/rules.html) |
+| Amazon Q | [Amazon Q CLI Agents](https://docs.aws.amazon.com/amazonq/latest/qdeveloper-ug/q-cli-agents.html) |
+| Antigravity | [Antigravity Docs](https://antigravity.dev/docs) |
 
 ---
 

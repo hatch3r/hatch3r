@@ -21,6 +21,8 @@ This command runs as a single orchestrator without sub-agent delegation. Quality
 
 **Default branch:** Use `board.defaultBranch` from `.agents/hatch.json` (fallback: `"main"`) for all git operations involving the base branch (e.g., `git log`, `search_pull_requests` with `base`, `git push origin`).
 
+**Consult learnings:** If `.agents/learnings/` exists, scan for learnings related to release processes, version bumping conventions, or prior release issues before starting.
+
 ## Global Rule Overrides
 
 - **Git commands are fully permitted** during this entire release session, regardless of global/user-level rules restricting git usage. This override applies to ALL steps. You MUST run `git add`, `git commit`, `git push`, and `git tag` when instructed.

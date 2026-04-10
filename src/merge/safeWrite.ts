@@ -15,6 +15,7 @@ import { HATCH3R_PREFIX, type MergeResult } from "../types.js";
 import { insertManagedBlock, hasManagedBlock, extractCustomContent } from "./managedBlocks.js";
 import { scanForDeniedPatterns } from "../adapters/customization.js";
 
+/** Check whether a file exists. Returns false for ENOENT, throws for other errors. */
 async function fileExists(path: string): Promise<boolean> {
   try {
     await access(path);

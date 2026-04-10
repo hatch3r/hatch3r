@@ -1,3 +1,12 @@
+/**
+ * Escape a string value for use in a TOML quoted string.
+ *
+ * Handles backslash, double-quote, backspace (`\b`), form-feed (`\f`),
+ * tab, newline, and carriage-return per the TOML v1.0 spec.
+ *
+ * @param s - The raw string value to escape.
+ * @returns The escaped string (without surrounding quotes).
+ */
 export function escapeTomlString(s: string): string {
   return s
     .replace(/\\/g, "\\\\")

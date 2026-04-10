@@ -36,6 +36,12 @@ export async function readCustomization(
   return value;
 }
 
+/**
+ * Read a `.customize.yaml` override with structured warnings.
+ *
+ * Same as {@link readCustomization} but also returns any warnings
+ * generated during parsing (e.g. oversized file, YAML errors).
+ */
 export async function readCustomizationWithWarnings(
   projectRoot: string,
   type: CustomizableType,
@@ -113,6 +119,12 @@ export async function readCustomizationMarkdown(
   return value;
 }
 
+/**
+ * Read a `.customize.md` content append with structured warnings.
+ *
+ * Same as {@link readCustomizationMarkdown} but also returns warnings
+ * (e.g. when the file exceeds the byte-length limit).
+ */
 export async function readCustomizationMarkdownWithWarnings(
   projectRoot: string,
   type: CustomizableType,

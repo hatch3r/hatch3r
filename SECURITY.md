@@ -101,16 +101,16 @@ OWASP ASI controls are implemented through a combination of code enforcement and
 
 The integrity verification system (`src/integrity/index.ts`) is **content-addressed** (SHA-256 per-file hashing with a manifest-level checksum) but **not cryptographically signed**:
 
-- **What it detects:** unauthorized modifications, missing files, new files not in the manifest, and manifest tampering (via the checksum field).
-- **What it does not prevent:** an attacker with write access to `.agents/` can regenerate a valid manifest that certifies tampered content. The manifest has no HMAC or digital signature.
-- **Trust model:** the integrity system detects accidental changes and flags intentional modifications during `hatch3r verify`. It does not provide a tamper-proof guarantee. Users who need stronger assurance should verify content against the published npm package hashes.
-- **Future consideration:** HMAC signing with a project-specific key would close this gap, but introduces key management complexity that exceeds the current threat model for a developer-local CLI tool.
+- **What it detects:** unauthorized modifications, missing files, new files not in the manifest, and manifest tampering (via the checksum field)
+- **What it does not prevent:** an attacker with write access to `.agents/` can regenerate a valid manifest that certifies tampered content. The manifest has no HMAC or digital signature
+- **Trust model:** the integrity system detects accidental changes and flags intentional modifications during `hatch3r verify`. It does not provide a tamper-proof guarantee. Users who need stronger assurance should verify content against the published npm package hashes
+- **Limitation scope:** this is a detection-only mechanism appropriate for a developer-local CLI tool. Signing would require key management infrastructure that exceeds the current threat model
 
 ## Scope
 
 ### In Scope
 
-- hatch3r CLI (`npx hatch3r init/sync/update/add/status/validate/verify/config`)
+- hatch3r CLI (`npx hatch3r init/sync/update/add/status/validate/verify/config/clean/worktree-setup`)
 - Tool adapters (Cursor, Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline/Roo Code, Aider, Kiro, Goose, Zed, Amazon Q, Antigravity)
 - Content validation and safe merging logic
 - Content safety deny patterns and secret detection

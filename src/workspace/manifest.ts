@@ -18,6 +18,7 @@ export function isUnsafeRepoPath(repoPath: string): boolean {
   return false;
 }
 
+/** Runtime type guard that validates an unknown value conforms to the WorkspaceManifest shape. */
 function validateWorkspaceManifest(data: unknown): data is WorkspaceManifest {
   if (!data || typeof data !== "object") return false;
   const obj = data as Record<string, unknown>;

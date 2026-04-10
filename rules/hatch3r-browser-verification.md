@@ -3,6 +3,7 @@ id: hatch3r-browser-verification
 type: rule
 description: Browser-based verification for UI and user-facing changes
 scope: conditional
+globs: "**/*.vue,**/*.jsx,**/*.tsx,**/*.svelte,**/components/**,**/*.html,**/*.css,**/*.scss"
 tags: [review]
 quality_charter: agents/shared/quality-charter.md
 ---

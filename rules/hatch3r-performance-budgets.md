@@ -3,6 +3,7 @@ id: hatch3r-performance-budgets
 type: rule
 description: Performance budgets and targets for the project
 scope: conditional
+globs: "**/*perf*,**/*benchmark*,**/*budget*,**/lighthouse*,**/*.perf.*"
 tags: [performance]
 quality_charter: agents/shared/quality-charter.md
 ---

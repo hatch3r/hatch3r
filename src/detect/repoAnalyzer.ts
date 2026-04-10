@@ -3,6 +3,16 @@ import { join } from "node:path";
 import type { Framework, RepoInfo, Tool } from "../types.js";
 import { detectPackageManager } from "./packageManager.js";
 
+/**
+ * Analyze a repository directory to detect languages, frameworks, package
+ * manager, linters, test frameworks, CI providers, and existing AI tool
+ * configurations.
+ *
+ * Runs all detection probes in parallel for performance. Returns a
+ * `RepoInfo` object used by `hatch3r init` to make smart defaults.
+ *
+ * @param rootDir - Absolute path to the repository root directory.
+ */
 export async function analyzeRepo(rootDir: string): Promise<RepoInfo> {
   const [languages, pm, isMonorepo, hasExistingAgents, existingTools, frameworks, linters, testFrameworks, ciProviders] =
     await Promise.all([
@@ -32,6 +42,7 @@ export async function analyzeRepo(rootDir: string): Promise<RepoInfo> {
   };
 }
 
+/** Detect programming languages by probing for language-specific config files. */
 async function detectLanguages(rootDir: string): Promise<string[]> {
   const languages: string[] = [];
   // D14 Medium (#344-#357): Improved language detection with broader indicators
@@ -81,6 +92,7 @@ async function detectLanguages(rootDir: string): Promise<string[]> {
   return languages;
 }
 
+/** Detect whether the project is a monorepo by checking for workspace config files (pnpm-workspace, lerna, nx, turbo, or package.json workspaces). */
 async function detectMonorepo(rootDir: string): Promise<boolean> {
   if (await pathExists(join(rootDir, "pnpm-workspace.yaml"))) return true;
   if (await pathExists(join(rootDir, "lerna.json"))) return true;
@@ -100,6 +112,7 @@ async function detectMonorepo(rootDir: string): Promise<boolean> {
   return false;
 }
 
+/** Check whether a `.agents/` directory already exists in the repo root. */
 async function detectExistingAgents(rootDir: string): Promise<boolean> {
   return pathExists(join(rootDir, ".agents"));
 }
@@ -119,8 +132,10 @@ const TOOL_INDICATORS: { tool: Tool; paths: string[] }[] = [
   { tool: "goose", paths: [".goosehints", ".goose"] },
   { tool: "zed", paths: [".rules"] },
   { tool: "amazon-q", paths: [".amazonq"] },
+  { tool: "antigravity", paths: [".antigravity"] },
 ];
 
+/** Detect which AI coding tools already have configuration in the repo. */
 async function detectExistingTools(rootDir: string): Promise<Tool[]> {
   const results = await Promise.allSettled(
     TOOL_INDICATORS.map(async ({ tool, paths }) => {
@@ -196,6 +211,7 @@ const FRAMEWORK_SUPPRESSION: Partial<Record<Framework, Framework>> = {
   sveltekit: "svelte",
 };
 
+/** Detect web/backend frameworks via config files, package.json deps, and language-specific indicators. Suppresses base frameworks when a meta-framework is present (e.g. Next.js suppresses React). */
 async function detectFrameworks(rootDir: string): Promise<Framework[]> {
   const detected = new Set<Framework>();
 
@@ -276,6 +292,7 @@ const LINTER_INDICATORS: { name: string; configs: string[] }[] = [
   { name: "deno-lint", configs: ["deno.json", "deno.jsonc"] },
 ];
 
+/** Detect linters and formatters by probing for their config files. */
 export async function detectLinters(rootDir: string): Promise<string[]> {
   const detected: string[] = [];
   const results = await Promise.allSettled(
@@ -311,6 +328,7 @@ const TEST_FRAMEWORK_INDICATORS: { name: string; configs: string[] }[] = [
   { name: "cypress", configs: ["cypress.config.ts", "cypress.config.js", "cypress.json"] },
 ];
 
+/** Detect test frameworks by probing for their config files. */
 export async function detectTestFrameworks(rootDir: string): Promise<string[]> {
   const detected: string[] = [];
   const results = await Promise.allSettled(
@@ -345,6 +363,7 @@ const CI_PROVIDER_INDICATORS: { name: string; configs: string[] }[] = [
   { name: "woodpecker", configs: [".woodpecker.yml", ".woodpecker"] },
 ];
 
+/** Detect CI/CD providers by probing for their config files or directories. */
 export async function detectCIProviders(rootDir: string): Promise<string[]> {
   const detected: string[] = [];
   const results = await Promise.allSettled(
@@ -365,6 +384,7 @@ export async function detectCIProviders(rootDir: string): Promise<string[]> {
 
 // ── Utilities ─────────────────────────────────────────────────────
 
+/** Check whether a filesystem path exists. Returns false for ENOENT, throws for other errors. */
 async function pathExists(path: string): Promise<boolean> {
   try {
     await access(path);
@@ -375,6 +395,7 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
+/** Format a `RepoInfo` as a multi-line human-readable summary for CLI output. */
 export function formatRepoSummary(info: RepoInfo): string {
   const lines = [
     `Languages: ${info.languages.join(", ")}`,

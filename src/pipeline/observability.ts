@@ -1,18 +1,25 @@
 /**
- * D12 Observability improvements for pipeline output.
+ * Pipeline observability module.
  *
- * Three capabilities:
- * 1. Reasoning block persistence -- capture and store phase reasoning
- *    in a structured format so it can be reviewed after execution.
- *    (Finding #63)
+ * Provides four capabilities for pipeline instrumentation:
  *
- * 2. Per-phase token estimation -- estimate token usage for each phase
- *    so cost tracking and context window management are visible.
- *    (Finding #64)
+ * 1. **Reasoning block persistence** -- captures and stores phase reasoning
+ *    in a structured format for post-execution review. Each block includes
+ *    category, content, and ISO-8601 timestamp.
  *
- * 3. Replay guidance -- when debugging, provide structured guidance
- *    for reproducing/replaying pipeline executions.
- *    (Finding #65)
+ * 2. **Per-phase token estimation** -- estimates token usage per phase using
+ *    a character-based heuristic (default: 4 chars/token). Feeds cost tracking
+ *    and context-window budgeting.
+ *
+ * 3. **Cost estimation** -- converts token estimates to USD cost using
+ *    configurable per-1M-token rates, with threshold-based budget warnings.
+ *
+ * 4. **Replay guidance** -- produces structured reproduction steps for
+ *    debugging failed pipeline executions, including environment snapshot
+ *    and git ref capture.
+ *
+ * Metric naming convention: all exported interfaces use `{Scope}{Metric}`
+ * format (e.g. `PhaseTokenEstimate`, `PipelineTokenSummary`, `CostEstimate`).
  */
 
 import type { PhaseName } from "./phaseTimeout.js";

@@ -32,7 +32,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo 'hatch3r-dev: Changes to governance/ must serve a Binding Pillar (P1-P6). Changes to src/adapters/ require D09 checklist.'"
+            "command": "echo 'hatch3r-dev: governance/ changes require Binding Pillar (P1-P6) alignment. src/adapters/ changes require D09 checklist. Run: npm test && npx tsc --noEmit'"
           }
         ]
       }
@@ -43,7 +43,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo 'hatch3r-dev: Content artifacts require frontmatter + Pillar alignment + duplication check. Governance files must respect lean thresholds.'"
+            "command": "echo 'hatch3r-dev: Content artifacts require YAML frontmatter (id, type, description, tags) + Pillar alignment + duplication check. Governance files must respect lean thresholds (CONSTITUTION <=200, AUDIT <=600, domains 30-80 lines).'"
           }
         ]
       }
