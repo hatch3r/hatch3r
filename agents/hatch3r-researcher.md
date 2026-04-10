@@ -52,7 +52,7 @@ For each requested mode, read its definition from `agents/modes/{mode-name}.md` 
 
 - **quick** — scan file headers, grep for patterns, produce concise assessment. Tables have 3-5 rows max. Summaries only, no deep code reading. Target ~2k tokens output per mode.
 - **standard** — read relevant files, explore multiple sources, produce structured tables. Tables have 5-10 rows. Follow all 4 tiers of the tooling hierarchy. Target ~5k tokens output per mode.
-- **deep** — full structured analysis. Produce the complete output structure defined in the mode. No row limits. Follow all 4 tiers exhaustively. Target ~15k tokens output per mode.
+- **deep** — full structured analysis. Produce the complete output structure defined in the mode. No row limits. Follow all 4 tiers without omission. Target ~15k tokens output per mode.
 
 ### 4. Return Structured Result
 

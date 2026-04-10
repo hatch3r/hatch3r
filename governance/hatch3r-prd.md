@@ -1,17 +1,17 @@
-# hatch3r — Product Requirements Document v4.0
+# hatch3r — Product Requirements Document v4.1
 
 **Product name:** hatch3r
 **Mascot:** a tiny T-rex hatchling peeking out of an egg
 **Primary slogan:** Crack the egg. Hatch better agents.
-**Doc version:** v4.0
-**Date:** 2026-03-04 (Europe/Berlin)
-**Supersedes:** hatch3r PRD v3.0 (2026-02-23)
+**Doc version:** v4.1
+**Date:** 2026-04-10 (Europe/Berlin)
+**Supersedes:** hatch3r PRD v4.0 (2026-03-04)
 
 ---
 
 ## 1. Executive Summary
 
-hatch3r is an open-source CLI and Cursor plugin that installs a battle-tested, tool-agnostic agentic coding setup into any repository under `/.agents/`, then generates optimal native configuration for the developer's selected coding tool(s): Cursor, GitHub Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline/Roo Code, Aider, Kiro, Goose, Zed, Amazon Q, and Antigravity.
+hatch3r is an open-source CLI and Cursor plugin that installs a battle-tested, tool-agnostic agentic coding setup into any repository under `/.agents/`, then generates optimal native configuration for the developer's selected coding tool(s): Cursor, GitHub Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline/Roo Code, Aider, Kiro, Goose, Zed, Amazon Q, Antigravity, and a standalone AGENTS.md output.
 
 The product solves the "great agent setups don't travel well" problem by making agentic coding infrastructure:
 
@@ -107,9 +107,9 @@ The agentic coding framework space has segmented into four tiers: full-lifecycle
 
 | Framework | Stars | Focus | Key Strength | hatch3r Differentiation |
 |-----------|-------|-------|-------------|------------------------|
-| Superpowers | **~130k** | Disciplined TDD workflow | Largest community, v5.0 with **6-tool support**, plugin marketplace | **Deeper native integration** (15 tools with tool-specific features) + board management + learning loop |
+| Superpowers | **~130k** | Disciplined TDD workflow | Largest community, v5.0 with **6-tool support**, plugin marketplace | **Deeper native integration** (16 adapters with tool-specific features) + board management + learning loop |
 | GitHub Spec Kit | **~84k** | Multi-tool config generation | **GitHub-backed**, 20+ tool configurations, native GitHub integration | Multi-platform board management (not just GitHub) + learning loop + platform independence (Azure DevOps, GitLab) |
-| BMAD Method | ~41k | Full SDLC coverage | 28-tool claim (template-based), 110+ contributors | Deepest native integration (15 tools with native configs) + board management + learning loop |
+| BMAD Method | ~41k | Full SDLC coverage | 28-tool claim (template-based), 110+ contributors | Deepest native integration (16 adapters with native configs) + board management + learning loop |
 | GSD | ~32k | Context rot prevention | 8 tools + CLI, 27 commands, cost tracking, auto-advance | Native config depth + board management + multi-platform support |
 | Ruflo | **~29k** | Multi-agent orchestration | 100+ agents, 215 MCP tools, enterprise-grade | Multi-tool adapter breadth + board management vs. Claude Code-only runtime |
 | Compound Engineering | ~10k | Learning loops | 12 tools, compounding knowledge, learnings researcher | Broader native tool support + board management |
@@ -117,7 +117,7 @@ The agentic coding framework space has segmented into four tiers: full-lifecycle
 
 ### hatch3r Positioning
 
-hatch3r occupies a unique position as the only framework combining: **deeply native adapter architecture** (tool-specific config generation for 15 tools from a single canonical source — not template-based), **multi-platform board management** (GitHub Projects V2, Azure DevOps, and GitLab), and a **compounding learning loop**. No competitor combines all three. The key repositioning from v4.0: the differentiator is no longer "most tools" (Spec Kit has 20+, BMAD has 28 templates) but **"deepest native integration across the most tools"** — hatch3r generates configs that leverage each tool's specific features (Cursor `.mdc` frontmatter, Claude Code hooks, Kiro steering, Copilot instruction priorities) rather than applying one-size-fits-all templates.
+hatch3r occupies a unique position as the only framework combining: **deeply native adapter architecture** (tool-specific config generation via 16 adapters from a single canonical source — not template-based), **multi-platform board management** (GitHub Projects V2, Azure DevOps, and GitLab), and a **compounding learning loop**. No competitor combines all three. The key repositioning from v4.0: the differentiator is no longer "most tools" (Spec Kit has 20+, BMAD has 28 templates) but **"deepest native integration across the most tools"** — hatch3r generates configs that leverage each tool's specific features (Cursor `.mdc` frontmatter, Claude Code hooks, Kiro steering, Copilot instruction priorities) rather than applying one-size-fits-all templates.
 
 ### Adopted Patterns
 
@@ -157,6 +157,7 @@ hatch3r occupies a unique position as the only framework combining: **deeply nat
 16. **Up-to-date information** (agents use web research and live documentation via Context7 MCP, not stale training data; this is a general principle baked into all content)
 17. **Behavioral quality standards** (all content artifacts inherit from a shared quality charter (`agents/shared/quality-charter.md`) that defines measurable behavioral standards: confidence expression, root-cause orientation, stakeholder awareness, graceful failure, and measurable acceptance criteria — verified by the weekly audit)
 18. **Coverage infrastructure must reflect actual quality** (test coverage metrics must accurately measure real codebase coverage — no inflated percentages from misconfigured exclusions; coverage is a quality signal, not a vanity metric. Added from Cycle 4 finding D3-C1)
+19. **Architecture decisions are documented** (significant architectural choices are recorded as ADRs in `docs/decisions/`. ADR-001 documents the pipeline library-without-orchestrator pattern — hatch3r provides composable pipeline building blocks rather than a runtime orchestration engine. Added from Cycle 5 CL1-7)
 
 ### Audit Cycle as Product Feature
 
@@ -184,7 +185,7 @@ The audit produces a structured report (AUDIT-REPORT.md) with 19-domain coverage
 - `npx hatch3r status` — check sync state between canonical and generated files
 - `npx hatch3r validate` — validate `/.agents/` structure, frontmatter, and naming conventions
 - `npx hatch3r verify` — verify integrity of canonical files via SHA-256 hashing and HMAC-signed manifest
-- Tool adapters: Cursor, GitHub Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline/Roo Code, Aider, Kiro, Goose, Zed, Amazon Q, Antigravity (15 adapters)
+- Tool adapters: Cursor, GitHub Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline/Roo Code, Aider, Kiro, Goose, Zed, Amazon Q, Antigravity, AGENTS.md (16 adapters)
 - Cursor plugin distribution via Marketplace
 - Canonical pack format under `/.agents/` including: agents, skills, rules, prompts, commands, hooks, learnings, MCP configuration, guardrails, GitHub agents
 - `default` preset with full content (16 agents, 26 skills, 26 rules, 34 commands, 6 hooks, 3 prompts, 4 GitHub agents)
@@ -234,7 +235,7 @@ Goal: install a complete "agent setup" into an existing or new repo.
 
 1. **Detect repo basics** — language hints, package managers, monorepo structure, existing agent configs
 2. **Choose platform** — GitHub, Azure DevOps, or GitLab (for board management and platform MCP server)
-3. **Choose tool(s)** — multi-select: Cursor, Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline/Roo Code, Aider, Kiro, Goose, Zed, Amazon Q, Antigravity
+3. **Choose tool(s)** — multi-select: Cursor, Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline/Roo Code, Aider, Kiro, Goose, Zed, Amazon Q, Antigravity, AGENTS.md
 4. **Choose preset(s)** — composable: `default` (recommended), `web-app`, `api-service`, `cli-tool`, `monorepo`, `legacy`, `security`
 5. **Choose features** — agents, skills, rules, prompts/commands, MCP, guardrails, GitHub agents, hooks
 6. **Choose MCP servers** — from the enhanced template (3 default: Context7, Filesystem, Playwright; opt-in: GitHub, Azure DevOps, GitLab, Brave Search, Sentry, Postgres, Linear)
@@ -297,6 +298,8 @@ Goal: validate the `/.agents/` directory structure and contents.
 3. Check naming conventions (`hatch3r-*` prefix for managed files)
 4. Validate MCP config JSON structure
 5. Report errors and warnings with file locations
+
+**`--docs` flag:** `npx hatch3r validate --docs` verifies that documented artifact counts in README.md match actual counts on disk (agents, skills, rules, commands, hooks). This flag is suitable for CI gating to prevent documentation drift. Content count automation is performed by this flag — no manual counting is required.
 
 ### 8.7 Verify Flow: `npx hatch3r verify`
 
@@ -521,12 +524,14 @@ Adapters transform this to tool-native formats:
 - `.github/prompts/hatch3r-*.prompt.md` — custom prompts/commands
 - `.github/agents/hatch3r-*.md` — GitHub agent files
 - `.github/copilot-setup-steps.yml` — Copilot setup steps configuration
+- `.github/hooks/hatch3r-*.md` — hook definitions (v1.5.0)
 
 **Behavior:**
 
 - Keep Copilot instruction files concise; link to `/.agents/AGENTS.md` for the full canonical guide
 - Use `<!-- HATCH3R:BEGIN -->` / `<!-- HATCH3R:END -->` managed blocks in `copilot-instructions.md`
 - Prompts generated from `/.agents/prompts/*` with compatible headers
+- Hook definitions from `/.agents/hooks/*.md` generate Copilot-compatible hook files (v1.5.0)
 
 ### 10.3 Claude Code Adapter
 
@@ -563,11 +568,13 @@ Adapters transform this to tool-native formats:
 - `.windsurf/rules/hatch3r-*.md` — individual rules with trigger frontmatter
 - `.windsurf/skills/hatch3r-*/SKILL.md` — skills
 - `.windsurf/agents/hatch3r-*.md` — agent definitions
+- `.windsurf/hooks/hatch3r-*.md` — hook definitions (v1.5.0)
 
 **Behavior:**
 
 - Windsurf also supports `AGENTS.md` — if the content exceeds `.windsurfrules` limit, use `AGENTS.md` as fallback
 - Use `<!-- HATCH3R:BEGIN -->` / `<!-- HATCH3R:END -->` managed blocks
+- Hook definitions from `/.agents/hooks/*.md` generate Windsurf-compatible hook files (v1.5.0)
 
 ### 10.6 Amp Adapter
 
@@ -658,11 +665,13 @@ Adapters transform this to tool-native formats:
 **Generate:**
 
 - `.rules` — shared instructions (managed blocks)
+- `.zed/mcp.json` — project-level MCP configuration (v1.5.0)
 
 **Behavior:**
 
 - Zed reads `.rules` for project context
 - Use `<!-- HATCH3R:BEGIN -->` / `<!-- HATCH3R:END -->` managed blocks in `.rules`
+- MCP servers from canonical config are transformed to Zed's `.zed/mcp.json` format using shell transport (v1.5.0)
 
 ### 10.14 Amazon Q Adapter
 
@@ -690,6 +699,24 @@ Adapters transform this to tool-native formats:
 - Antigravity reads `.antigravity/rules.md` for project context
 - Use `<!-- HATCH3R:BEGIN -->` / `<!-- HATCH3R:END -->` managed blocks
 - Bridge file references canonical `.agents/AGENTS.md`
+
+### 10.16 AGENTS.md Adapter (v1.5.0)
+
+**Generate:**
+
+- `AGENTS.md` — standalone agent instructions file compiled from canonical `/.agents/` sources
+
+**Behavior:**
+
+- Generates a single `AGENTS.md` from all canonical agents, rules, and skills in `/.agents/`
+- Consumed by OpenCode, Windsurf, Amp, Codex, and any tool that reads `AGENTS.md`
+- Supports customization via `applyCustomization()`
+- Does not generate hooks, MCP, commands, prompts, or GitHub agent outputs
+- Resolves the AGENTS.md generation blocker identified in Cycle 4 (D5-H3, D16-C3)
+
+### 10.17 Per-Adapter Context Budgets (v1.5.0)
+
+`src/adapters/contextBudget.ts` defines per-adapter token limits to prevent context window overflow at sync time. Each adapter has a configured budget reflecting the target tool's context capacity. During `sync` and `init`, the adapter pipeline checks generated output size against the budget and emits warnings when output approaches or exceeds the limit. This addresses the context bloat risk (D6-C1) identified in Cycle 4.
 
 ---
 
@@ -834,7 +861,7 @@ During `init`, the user selects which MCPs to enable. The generator writes only 
 | Kiro | `.kiro/settings/mcp.json` |
 | Aider | N/A (Aider manages MCP separately) |
 | Goose | N/A (Goose manages MCP separately) |
-| Zed | N/A (Zed manages MCP separately) |
+| Zed | `.zed/mcp.json` (shell transport) |
 | Amazon Q | `.amazonq/mcp.json` |
 | Antigravity | `.antigravity/settings.json` (under `mcpServers` key) |
 
@@ -860,8 +887,11 @@ npx hatch3r sync          # Re-generate from canonical state
 npx hatch3r update        # Pull latest, safe merge
 npx hatch3r add <pack>    # Add a community pack (stub — planned for full implementation)
 npx hatch3r status        # Check sync state
-npx hatch3r validate      # Validate .agents/ structure
+npx hatch3r validate      # Validate .agents/ structure (--docs for count verification)
 npx hatch3r verify        # Verify file integrity
+npx hatch3r clean         # Remove generated files (optional --reinit)
+npx hatch3r worktree-setup   # Set up git worktree isolation
+npx hatch3r worktree-cleanup # Clean up worktree artifacts
 ```
 
 Published as `hatch3r` on npm. Cross-platform (macOS, Linux, Windows).
@@ -1031,6 +1061,8 @@ Hooks support optional conditions for targeted activation:
 |------|-------------|
 | Cursor | `.cursor/rules/hatch3r-hook-*.mdc` with glob-based activation |
 | Claude Code | Hook event mappings appended to `CLAUDE.md` managed block |
+| Copilot | `.github/hooks/hatch3r-*.md` hook definitions (v1.5.0) |
+| Windsurf | `.windsurf/hooks/hatch3r-*.md` hook definitions (v1.5.0) |
 | Other adapters | Hooks included in canonical `AGENTS.md` instructions |
 
 ---
@@ -1133,7 +1165,7 @@ hatch3r codifies a knowledge augmentation priority:
 - `update` pulls latest templates with safe merge
 - `add` merges community packs (stub — CLI entry point exists but full pack resolution is not yet implemented)
 - `status` checks sync state between canonical and generated files (reports synced/drifted/missing)
-- `validate` validates `/.agents/` structure, frontmatter, naming conventions, and MCP config
+- `validate` validates `/.agents/` structure, frontmatter, naming conventions, and MCP config. The `--docs` flag verifies documented artifact counts match actual on-disk counts, suitable for CI gating
 - `verify` verifies integrity of canonical files via SHA-256 hashing and HMAC-signed manifest
 - All commands must be cross-platform (Windows/macOS/Linux)
 
@@ -1148,7 +1180,7 @@ Must track:
   "platform": "github",
   "owner": "my-org",
   "repo": "my-repo",
-  "tools": ["cursor", "copilot", "claude", "opencode", "windsurf", "amp", "codex", "gemini", "cline", "aider", "kiro", "goose", "zed", "amazon-q", "antigravity"],
+  "tools": ["cursor", "copilot", "claude", "opencode", "windsurf", "amp", "codex", "gemini", "cline", "aider", "kiro", "goose", "zed", "amazon-q", "antigravity", "agents-md"],
   "presets": ["default"],
   "features": {
     "agents": true,
@@ -1316,12 +1348,12 @@ Must track:
 
 ## 21. Success Metrics
 
-> **Calibration note (v4.1, April 2, 2026):** Targets below have been calibrated against D16 Compound System actual measurements from the Cycle 4 audit. Previous targets were aspirational without empirical basis; updated targets reflect realistic baselines with growth trajectories. The one-shot success metric was previously unmeasured (D10 finding 10.19) — measurement infrastructure is a prerequisite before setting a validated target.
+> **Calibration note (v4.0, April 2, 2026):** Targets below have been calibrated against D16 Compound System actual measurements from the Cycle 4 audit. Previous targets were aspirational without empirical basis; updated targets reflect realistic baselines with growth trajectories. The one-shot success metric was previously unmeasured (D10 finding 10.19) — measurement infrastructure is a prerequisite before setting a validated target.
 
 | Metric | Target | Measurement | Calibration Note |
 |--------|--------|-------------|------------------|
 | **Activation** | >85% | % of installs that generate at least one tool adapter | Reduced from >90%; no empirical data yet; 85% accounts for aborted installs, CI-only runs, and evaluation usage |
-| **Tool breadth** | >1.5 | Average number of tools configured per repo | Unchanged; 15 adapters make multi-tool selection likely |
+| **Tool breadth** | >1.5 | Average number of tools configured per repo | Unchanged; 16 adapters make multi-tool selection likely |
 | **Retention** | >20% | % of repos that run `sync` or `update` within 30 days | Reduced from >30%; OSS retention benchmarks suggest 15-25% is realistic for CLI tools |
 | **Drift reduction** | Decreasing | Manual edits inside `hatch3r-*` files (should trend to zero) | Unchanged; directional metric |
 | **Plugin adoption** | Tracked | Cursor plugin installs + Claude Code marketplace installs | Expanded to include Claude Code marketplace (distribution prerequisite) |
@@ -1339,8 +1371,8 @@ Must track:
 
 All core functionality is implemented and functional:
 
-- 8 CLI commands: `init`, `config`, `sync`, `update`, `status`, `validate`, `verify`, `add` (stub — CLI entry point exists, full pack resolution planned)
-- 15 tool adapters: Cursor, Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline/Roo Code, Aider, Kiro, Goose, Zed, Amazon Q, Antigravity
+- 11 CLI commands: `init`, `config`, `sync`, `update`, `status`, `validate` (with `--docs` CI gate), `verify`, `add` (stub), `clean`, `worktree-setup`, `worktree-cleanup`
+- 16 tool adapters: Cursor, Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline/Roo Code, Aider, Kiro, Goose, Zed, Amazon Q, Antigravity, AGENTS.md
 - `default` preset: 16 agents, 26 skills, 26 rules, 34 commands, 6 hooks, 3 prompts, 4 GitHub agents
 - 10 MCP servers (3 default: Filesystem, Context7, Playwright + 7 opt-in: GitHub, Brave Search, Sentry, Postgres, Linear, Azure DevOps, GitLab)
 - Hook system with 6 event types and adapter integration
@@ -1400,7 +1432,7 @@ All core functionality is implemented and functional:
 **P2 — Framework Quality (address within 60 days):**
 
 9. **Multi-language support requirements** — Content is JS/TS-centric (npm run hardcoded, TS-specific rules always-loaded). Add Python, Go, Rust, Java support with language-aware content filtering. (D14-H1-H4, Effort M)
-10. **Context budget requirements** — Define <8K always-scope target, overflow detection, tiered inclusion. 32K context windows overflow before any agent spawns. (D6-C1, Effort M)
+10. ~~**Context budget requirements**~~ — Per-adapter context budgets implemented in `src/adapters/contextBudget.ts` with sync-time overflow warnings. (D6-C1, resolved in v1.5.0)
 11. **MCP Server Cards support** — June 2026 MCP spec introduces Server Cards. Early adoption is a competitive differentiator. See COMPETITIVE-ANALYSIS.md section 3.2a. (D17-H10, Effort M)
 12. **Benchmark suite for native output quality** — Prove "deepest native integration" claim quantitatively. See COMPETITIVE-ANALYSIS.md section 5.4 for full specification. (D17-H13, Effort High)
 
@@ -1509,3 +1541,22 @@ A cute but capable "ops assistant" vibe:
 | Parallel researcher sub-agents for project analysis | GSD `/new-project` |
 | Guided development methodology | BMAD (4-phase), Superpowers (brainstorm-plan-execute-verify) |
 | Plugin marketplace distribution | Superpowers, Compound Engineering |
+
+---
+
+## 27. Changelog
+
+### v4.1 (2026-04-10) — Cycle 5 CL-1 PRD Evolution
+
+Incorporates 6 approved CL-1 candidates from the Cycle 5 audit. All changes reflect already-implemented code.
+
+| ID | Change | Sections Updated |
+|----|--------|-----------------|
+| CL1-1 | AGENTS.md standalone adapter (`src/adapters/agentsmd.ts`) added as 16th adapter | 1, 5, 7, 8.1, 10.16, 14, 19 (FR-1, FR-2), 22 |
+| CL1-2 | `validate --docs` CI gate for artifact count verification | 8.6, 14, 19 (FR-1), 22 |
+| CL1-3 | Per-adapter context budgets (`src/adapters/contextBudget.ts`) with sync-time warnings | 10.17, 22 (Cycle 4 item 10 resolved) |
+| CL1-7 | Pipeline architecture ADR-001 (library-without-orchestrator pattern) documented | 6 (principle 19) |
+| CL1-8 | Copilot/Windsurf hook generation, Zed MCP support | 10.2, 10.5, 10.13, 13 (MCP table), 16 (hook adapter table) |
+| CL1-9 | Content count automation via `validate --docs` | 8.6 |
+
+**Deferred/noted:** CL1-4 (distribution timeline) depends on SDR-1/SDR-2. CL1-5 (Kiro rename) excluded per SDR-5. CL1-6 (diagnose command) partially addressed via failure log. CL1-10 (community model) deferred to next cycle.

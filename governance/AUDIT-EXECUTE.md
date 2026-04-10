@@ -186,6 +186,8 @@ Central manifest tracking every finding through its lifecycle. Store as `governa
 | `reviewer_verdict` | Final Review | PASS / PARTIAL / FAIL / REGRESSION / ROLLED-BACK. Tracked per-wave in execution telemetry, not per-finding. |
 | `reviewer_notes` | Final Review | Per-finding notes |
 | `false_positive` | Final Review | Boolean — reviewer flags findings that were incorrectly identified (fix revealed it was not an issue) |
+| `cl1_status` | Phase 5 | `none` / `candidate` / `approved` / `applied` / `rejected` — tracks PRD evolution candidate lifecycle per finding |
+| `sdr_status` | Phase 7 | `none` / `proposed` / `accepted` / `rejected` / `deferred` — tracks Strategic Decision Register entries linked to this finding |
 
 ### Invariants
 
@@ -303,7 +305,7 @@ Prioritize within wave: dependency-first, then impact-to-effort ratio, then secu
 
 ## Regression Gates
 
-After each wave commit, run 10-check gate comparing against Phase 0 baseline (NOT a shifted baseline).
+After each wave commit, run 12-check gate comparing against Phase 0 baseline (NOT a shifted baseline).
 
 ### Gate Checks
 
@@ -319,6 +321,8 @@ After each wave commit, run 10-check gate comparing against Phase 0 baseline (NO
 | Governance | Scan modified `.md` files in `commands/`, `agents/`, `skills/` against pre-wave versions | Modified governance files retain ASK checkpoints, quality gate references, and sub-agent delegation patterns present in the pre-wave version | A governance file lost an ASK checkpoint, quality gate reference, or sub-agent delegation pattern that existed before the wave |
 | Governance weight | `wc -l` on modified governance `.md` files. FAIL if any file exceeds its lean threshold (see CONSTITUTION.md §2 P5). |
 | Anti-slop | `grep -c` against anti-slop wordlist on modified governance `.md` files. FAIL if count > 0. Wordlist: "best possible", "best-in-class", "world-class", "comprehensive and thorough", "exhaustive", "robust and resilient", "high-quality" (without measure), "ensure" (without method), "properly"/"correctly" (without criterion), "as needed"/"as appropriate" (without trigger), "scalable" (without dimension), "carefully", "thoroughly", "it is important to note", "this section describes". |
+| Doc accuracy | Compare documented counts (adapter count, agent count, rule count, command count, skill count, hook count, sub-agent count) in modified `.md` files against filesystem actuals. FAIL if any stated count diverges from `ls` / `find` result. |
+| Cross-domain dedup | Scan findings resolved in current wave against findings in remaining waves. FAIL if two findings share the same root cause and file reference but were not merged during Phase 1 dedup. Log missed merges for next-cycle triage calibration. |
 
 ### Gate Result Format
 

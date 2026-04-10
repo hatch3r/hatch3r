@@ -396,6 +396,12 @@ For each domain: Health Score (X/100), Finding Count by severity, Top 3 Findings
 
 ---
 
+### Strengths Inventory
+
+Each domain summary must include a **Strengths** subsection listing 1-3 specific implementation strengths observed during the audit. Strengths must cite specific files, patterns, or metrics -- not general praise. Example: "Atomic write pattern in `src/merge/safeWrite.ts` prevents partial-write corruption across all 15 adapters." Strengths that persist across 3+ audit cycles are candidates for the project's public documentation.
+
+---
+
 ### Tier 3: Domain Detail
 
 **Tier 3 is mandatory. Do not skip.**
