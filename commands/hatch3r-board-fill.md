@@ -489,7 +489,7 @@ Acceptance criteria must be grounded in the user's stated requirements, not AI i
 3. **Codebase context (Step 4)** -- existing tests, interfaces, contracts, and architectural patterns that constrain the implementation inform technical criteria.
 4. **AI inference** -- only as a supplement for criteria the above sources don't cover. Flag AI-inferred criteria distinctly so the user can validate them.
 
-Each acceptance criterion must be **specific and testable**: an implementer reading it can determine pass/fail without ambiguity. Prefer "API returns 400 with validation error for missing required fields" over "API validates input properly."
+Each acceptance criterion must be **specific and testable**: an implementer reading it can determine pass/fail without ambiguity. Prefer "API returns 400 with validation error for missing required fields" over "API validates input."
 
 #### Scope Section
 

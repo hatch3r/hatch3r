@@ -44,11 +44,11 @@ quality_charter: agents/shared/quality-charter.md
 - Provide a `high-contrast` token set with ≥ 7:1 contrast ratios for all text and ≥ 3:1 for non-text UI.
 - Detect user preference with `@media (prefers-contrast: more)` and apply high-contrast tokens.
 - Support `forced-colors` mode: use system color keywords (`Canvas`, `CanvasText`, `LinkText`, `ButtonFace`, `ButtonText`) and test that information is not conveyed by color alone.
-- Ensure focus indicators and borders remain visible under forced-colors by using `Highlight` / `SelectedItem` keywords.
+- Verify focus indicators and borders remain visible under forced-colors by testing in Windows High Contrast Mode — use `Highlight` / `SelectedItem` keywords.
 
 ## Testing
 
-- Verify theme toggle switches all tokens correctly — no unstyled or hard-coded colors leak through.
+- Verify theme toggle switches all tokens — no unstyled or hard-coded colors leak through. Inspect computed styles to confirm all color values come from design tokens.
 - Validate contrast ratios per theme using automated tools (axe-core, Lighthouse) against WCAG AA (4.5:1 text, 3:1 non-text).
 - Capture screenshots across light, dark, and high-contrast themes at key viewport sizes for visual regression comparison.
 - Test `prefers-color-scheme` and `prefers-contrast` media query overrides using browser DevTools emulation or Playwright `emulateMedia`.

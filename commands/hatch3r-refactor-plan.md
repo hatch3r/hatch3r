@@ -79,7 +79,7 @@ Refactoring Brief:
   Dimension(s):   {Structural / Logical / Visual / Migration — one or more}
 ```
 
-**ASK:** "Does this capture the refactoring goal correctly? Adjust anything before I send this to the research phase."
+**ASK:** "Does this capture the refactoring goal? Adjust anything before I send this to the research phase."
 
 ---
 

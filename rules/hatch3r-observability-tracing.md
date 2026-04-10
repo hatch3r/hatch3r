@@ -32,7 +32,7 @@ Distributed tracing, OpenTelemetry semantic conventions, AI agent instrumentatio
 
 ## OpenTelemetry Semantic Conventions
 
-Follow the [OpenTelemetry Semantic Conventions](https://opentelemetry.io/docs/specs/semconv/) (v1.29+) for consistent attribute naming across all telemetry signals. Semantic conventions ensure interoperability between instrumentation libraries, collectors, and observability backends.
+Follow the [OpenTelemetry Semantic Conventions](https://opentelemetry.io/docs/specs/semconv/) (v1.29+) for consistent attribute naming across all telemetry signals. Semantic conventions provide interoperability between instrumentation libraries, collectors, and observability backends by standardizing attribute names and types.
 
 ### Standard Attribute Namespaces
 

@@ -4,7 +4,7 @@ description: End-to-end feature implementation workflow. Covers data model, doma
 tags: [core, implementation]
 quality_charter: agents/shared/quality-charter.md
 ---
-> **Note:** Commands below use `npm` as an example. Substitute with your project's package manager (`yarn`, `pnpm`, `bun`) or build tool as appropriate.
+> **Note:** Commands below use `npm` as an example. Substitute with your project's package manager (`yarn`, `pnpm`, `bun`) or build tool when your project uses a different package manager.
 
 # Feature Implementation Workflow
 
@@ -92,9 +92,9 @@ npm run lint && npm run typecheck && npm run test
 
 Skip this step if the feature has no user-facing UI changes.
 
-- Ensure the dev server is running. If not, start it in the background.
+- Confirm the dev server is running by checking the expected port. If not running, start it in the background.
 - Navigate to the page or surface affected by the new feature.
-- Walk through the acceptance criteria visually — confirm the feature renders and behaves correctly.
+- Walk through the acceptance criteria visually — confirm the feature renders and behaves as specified in the issue.
 - Interact with new UI elements: click, type, trigger state transitions.
 - Check the browser console for errors or warnings.
 - If the feature is responsive, test at different viewport sizes.

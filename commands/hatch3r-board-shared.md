@@ -26,9 +26,9 @@ Before reading configuration, validate that prerequisites are met. If any check 
    > "Board commands require owner and repo. Run `npx hatch3r config` to set your repository identity, or provide them in `.agents/hatch.json` under the top-level `owner` and `repo` fields."
 
 3. **Platform authentication:** Verify CLI authentication for the configured platform:
-   - **GitHub:** Run `gh auth status`. If it fails, stop with: "GitHub CLI not authenticated. Run `gh auth login` and ensure your PAT has the `project` scope for Projects V2 access. See: https://docs.github.com/en/issues/planning-and-tracking-with-projects"
-   - **Azure DevOps:** Run `az account show`. If it fails, stop with: "Azure CLI not authenticated. Run `az login` or set AZURE_DEVOPS_PAT. Ensure access to organization `{namespace}`."
-   - **GitLab:** Run `glab auth status`. If it fails, stop with: "GitLab CLI not authenticated. Run `glab auth login` or set GITLAB_TOKEN. Ensure access to project `{namespace}/{project}`."
+   - **GitHub:** Run `gh auth status`. If it fails, stop with: "GitHub CLI not authenticated. Run `gh auth login` and confirm your PAT has the `project` scope for Projects V2 access. See: https://docs.github.com/en/issues/planning-and-tracking-with-projects"
+   - **Azure DevOps:** Run `az account show`. If it fails, stop with: "Azure CLI not authenticated. Run `az login` or set AZURE_DEVOPS_PAT. Confirm access to organization `{namespace}`."
+   - **GitLab:** Run `glab auth status`. If it fails, stop with: "GitLab CLI not authenticated. Run `glab auth login` or set GITLAB_TOKEN. Confirm access to project `{namespace}/{project}`."
 
 4. **projectNumber set (for commands other than board-init):** For `board-fill`, `board-groom`, `board-pickup`, and `board-refresh`, if `board.projectNumber` is null, stop with:
    > "No project board configured. Run the `board-init` command first to create or connect a project board. This sets up the board.projectNumber in `.agents/hatch.json`."

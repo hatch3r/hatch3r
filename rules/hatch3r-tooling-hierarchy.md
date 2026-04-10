@@ -92,7 +92,7 @@ If no web search MCP server is configured (e.g., `brave-search` is not in `mcp.s
 Use browser automation MCP tools to visually verify UI changes after automated tests pass.
 
 **When to use:**
-- Verifying UI component changes render correctly.
+- Verifying UI component changes render as specified in the design or acceptance criteria.
 - Reproducing and confirming fixes for visually observable bugs.
 - Accessibility auditing (keyboard nav, contrast, focus indicators).
 - Frontend performance profiling (CPU, frame rate, memory).

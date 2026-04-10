@@ -66,7 +66,7 @@ Bug Brief:
   Prior attempts:   {what has been tried, or "none"}
 ```
 
-**ASK:** "Does this capture the bug correctly? Adjust anything before I send this to the research phase."
+**ASK:** "Does this capture the bug? Adjust anything before I send this to the research phase."
 
 ---
 

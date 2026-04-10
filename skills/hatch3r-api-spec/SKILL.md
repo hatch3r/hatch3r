@@ -38,7 +38,7 @@ Task Progress:
 
 ## Step 3: Validate Schemas
 
-- Ensure all request bodies have JSON Schema validation constraints (`required`, `minLength`, `maxLength`, `pattern`, `enum`).
+- Verify all request bodies have JSON Schema validation constraints (`required`, `minLength`, `maxLength`, `pattern`, `enum`).
 - Verify response schemas match actual serialized output (check serializers, DTOs, or response builders).
 - Validate enum values match database constraints or application constants.
 - Check for nullable fields — mark explicitly with `nullable: true` or type union.
@@ -56,7 +56,7 @@ Task Progress:
 
 - Cross-reference the generated spec against integration tests to confirm endpoint behavior.
 - Verify content types (`application/json`, `multipart/form-data`, etc.) match actual handlers.
-- Check that path parameters, query parameters, and headers are correctly documented.
+- Check that path parameters, query parameters, and headers are documented with accurate types, required flags, and example values.
 - Validate against any existing API consumers (SDKs, frontend clients) for breaking changes.
 
 ## Definition of Done

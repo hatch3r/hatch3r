@@ -4,7 +4,7 @@ description: Profile and optimize application performance against defined budget
 tags: [review, performance]
 quality_charter: agents/shared/quality-charter.md
 ---
-> **Note:** Commands below use `npm` as an example. Substitute with your project's package manager (`yarn`, `pnpm`, `bun`) or build tool as appropriate.
+> **Note:** Commands below use `npm` as an example. Substitute with your project's package manager (`yarn`, `pnpm`, `bun`) or build tool when your project uses a different package manager.
 
 # Performance Audit Workflow
 
@@ -75,7 +75,7 @@ Common strategies:
 - **Database:** Reduce reads (batch, cache, denormalize).
 - **Cloud/API:** Warm-up strategies, reduce cold starts.
 
-- Check project ADRs for constraints. Ensure optimizations don't violate privacy/security invariants.
+- Check project ADRs for constraints. Verify optimizations do not violate privacy/security invariants documented in the ADRs.
 - For external library docs and current best practices, follow the project's tooling hierarchy.
 
 ## Step 5: Implement Optimizations

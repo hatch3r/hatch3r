@@ -28,6 +28,7 @@ ALL sub-agents are **sequential** — they run only after D16 and D17 complete.
 - [ ] VISION.md alignment — does the current implementation serve the north-star vision? Are there features that have drifted from the vision?
 - [ ] Vision-PRD consistency — does the PRD's Section 2 (Vision) align with VISION.md? Flag any divergence.
 - [ ] Audit-driven PRD currency — have previous audit cycles' PRD Evolution Candidates been incorporated? Check PRD version history.
+- [ ] CL-1 lifecycle tracking — verify that CL-1 PRD evolution candidates from the previous audit cycle have a tracked disposition (accepted, deferred with rationale, or rejected with rationale). Untracked CL-1 items indicate a broken closed-loop.
 
 ### 18.2 Roadmap Reprioritization
 - [ ] Reprioritization based on compound system evaluation (D16)

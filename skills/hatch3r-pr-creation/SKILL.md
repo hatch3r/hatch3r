@@ -4,7 +4,7 @@ description: Create a pull request or merge request following project convention
 tags: [core, implementation]
 quality_charter: agents/shared/quality-charter.md
 ---
-> **Note:** Commands below use `npm` as an example. Substitute with your project's package manager (`yarn`, `pnpm`, `bun`) or build tool as appropriate.
+> **Note:** Commands below use `npm` as an example. Substitute with your project's package manager (`yarn`, `pnpm`, `bun`) or build tool when your project uses a different package manager.
 
 # PR / MR Creation Workflow
 

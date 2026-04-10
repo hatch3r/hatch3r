@@ -24,7 +24,7 @@ Rate every fix applied and remaining issue assessment as **high**, **medium**, o
 
 - **High:** Verified against lint/typecheck output and test results — the fix resolves the specific error without changing behavior, confirmed by passing quality checks.
 - **Medium:** Based on established fix patterns for the error type but not fully verified against all consumers of the changed code. Likely correct but could affect re-exports or downstream types.
-- **Low:** Best professional judgment — the fix involves renaming exported symbols or resolving ambiguous lint rules. Recommend human review to ensure no unintended side effects.
+- **Low:** Best professional judgment — the fix involves renaming exported symbols or resolving ambiguous lint rules. Recommend human review to verify no unintended side effects on downstream consumers.
 
 Include confidence in the output: the overall **Status** and any remaining issues should state their confidence level.
 

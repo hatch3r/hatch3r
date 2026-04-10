@@ -159,7 +159,7 @@ Apply this format whenever research findings involve trade-off analysis, risk as
 
 ## Research Quality Signals
 
-When producing research output, ensure each finding includes:
+When producing research output, every finding must include:
 
 1. **Evidence source.** State where the finding came from (file path, documentation section, search result URL). Unsourced findings reduce implementer confidence and may cause rework in Phase 2.
 2. **Confidence level.** Rate each finding per the quality charter. Research findings with low confidence should be explicitly flagged so the implementer treats them as assumptions rather than facts.

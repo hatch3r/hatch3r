@@ -65,7 +65,7 @@ Include specific file paths and line references. Propose fixes where possible.
 Follow the shared protocol in `agents/shared/external-knowledge.md` (tooling hierarchy, platform CLI, Context7 MCP, web research).
 
 **Context7 focus for this agent:**
-- Verify that reviewed code uses library APIs correctly (correct method signatures, proper error handling, non-deprecated usage)
+- Verify that reviewed code uses library APIs with valid method signatures, structured error handling, and non-deprecated usage
 
 **Web research focus for this agent:**
 - Known vulnerability patterns and security advisories when reviewing security-sensitive code (auth flows, cryptographic operations)

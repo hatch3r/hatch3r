@@ -30,7 +30,7 @@ quality_charter: agents/shared/quality-charter.md
 ### Discriminated Unions
 
 - Model domain variants with discriminated unions over polymorphic classes or `type` string checks. Every variant must share a common literal discriminant field (e.g., `kind`, `type`, `status`).
-- Use exhaustive `switch` with a `never` default case to ensure all variants are handled. The compiler will error when a new variant is added but not handled.
+- Use exhaustive `switch` with a `never` default case so the compiler errors when a new variant is added but not handled.
 
 ### Branded Types
 

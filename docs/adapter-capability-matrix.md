@@ -42,16 +42,16 @@ Living reference for framework capabilities vs. adapter implementations. This do
 | **copilot** | Y | Y | Y | Y | Y | Y | -- | Y | -- | Y | -- |
 | **claude** | Y | Y | Y | -- | Y | Y | -- | -- | Y | Y | Y |
 | **cline** | Y | Y | Y | -- | Y | Y | -- | -- | Y | Y | -- |
-| **codex** | B | B | Y | -- | -- | Y | -- | -- | -- | Y | -- |
+| **codex** | B | B | Y | -- | -- | Y | -- | -- | Y | Y | -- |
 | **gemini** | B | B | Y | -- | Y | Y | -- | -- | Y | Y | -- |
 | **windsurf** | Y | B | Y | -- | Y | Y | -- | -- | -- | Y | -- |
 | **amp** | B | B | Y | -- | ~ | Y | -- | -- | -- | Y | -- |
 | **opencode** | Y | Y | Y | -- | Y | Y | -- | -- | -- | Y | -- |
 | **aider** | B | B | Y | -- | -- | -- | -- | -- | -- | Y | -- |
 | **kiro** | Y | B | Y | -- | -- | Y | -- | -- | -- | Y | -- |
-| **goose** | B | B | B | -- | -- | -- | -- | -- | -- | Y | -- |
+| **goose** | B | B | B | -- | -- | Y | -- | -- | -- | Y | -- |
 | **zed** | B | B | -- | -- | -- | -- | -- | -- | -- | Y | -- |
-| **amazon-q** | B | B | Y | -- | -- | Y | -- | -- | -- | Y | -- |
+| **amazon-q** | B | B | Y | -- | -- | Y | -- | -- | Y | Y | -- |
 | **antigravity** | B | B | Y | -- | -- | Y | -- | -- | -- | Y | -- |
 
 ### Agent Model Customization
@@ -179,6 +179,7 @@ When omitted, the adapter falls back to sensible defaults so existing projects c
 | agents | `.codex/config.toml` | `[agents.{id}]` sections with `model_instructions_file`, optional `model` |
 | skills | `.codex/skills/hatch3r-{id}/SKILL.md` | Raw content |
 | mcp | `.codex/config.toml` | `[mcp_servers.{name}]` TOML sections |
+| hooks | `.codex/config.toml` | `[hooks."{event}"]` TOML sections with command trigger |
 
 ### Gemini
 
@@ -252,6 +253,7 @@ When omitted, the adapter falls back to sensible defaults so existing projects c
 | rules | `.goosehints` | Inlined into managed block (bridge) |
 | agents | `.goosehints` | Inlined into managed block (bridge) |
 | skills | `.goosehints` | Inlined into managed block (bridge) |
+| mcp | `.goose/profile.yaml` | Extensions array within Goose profile config |
 | bridge | `.goosehints` | Managed block with inline orchestration + canonical reference |
 
 ### Zed
@@ -270,6 +272,7 @@ When omitted, the adapter falls back to sensible defaults so existing projects c
 | agents | `.amazonq/rules/hatch3r-agents.md` | Inlined into managed block (bridge) |
 | skills | `.amazonq/rules/hatch3r-skill-{id}.md` | Raw content |
 | mcp | `.amazonq/mcp.json` | JSON `mcpServers` object |
+| hooks | `.amazonq/rules/hatch3r-hooks.md` | Lifecycle event bindings with agent spawn directives |
 | bridge | `.amazonq/rules/hatch3r-agents.md` | Managed block with inline orchestration + canonical reference |
 
 ### Antigravity
@@ -315,7 +318,7 @@ All MCP secrets are centralized in a single `.env.mcp` file at the project root 
 | **windsurf** | `${env:VAR}` from process env | No | Same sourcing pattern |
 | **aider** | N/A | No | No project-level MCP support |
 | **kiro** | `${env:VAR}` from process env | No | Same sourcing pattern |
-| **goose** | N/A (global MCP only) | No | Goose MCP is global; secrets set via global config |
+| **goose** | `${env:VAR}` from process env | No | MCP configured as extensions in `.goose/profile.yaml` |
 | **zed** | N/A (global MCP only) | No | Zed MCP is global; secrets set via Zed settings |
 | **amazon-q** | `${env:VAR}` from process env | No | Same sourcing pattern |
 | **antigravity** | `${env:VAR}` from process env | No | Same sourcing pattern |
@@ -339,16 +342,13 @@ set -a && source .env.mcp && set +a && <editor-command> .
 | **windsurf** | hooks | No documented Windsurf hook/event system. |
 | **opencode** | hooks | No documented OpenCode hook/event system. |
 | **amp** | hooks | No documented Amp hook/event system. |
-| **codex** | hooks | No documented Codex hook/event system. |
 | **aider** | mcp | Aider has no project-level MCP config file format. |
 | **aider** | hooks | No documented Aider hook/event system. |
-| **goose** | mcp | Goose MCP is global-only (`~/.config/goose/config.yaml`). No project-level MCP path. |
 | **goose** | hooks | No documented Goose hook/event system. |
 | **kiro** | hooks | No documented Kiro hook/event system for project-level config. |
 | **zed** | mcp | Zed MCP config is global-only (Zed settings). No project-level MCP path. |
 | **zed** | hooks | No documented Zed hook/event system. |
 | **zed** | skills | Zed has no skills concept; rules cover all guidance. |
-| **amazon-q** | hooks | No documented Amazon Q hook/event system. |
 | **amazon-q** | commands | No documented Amazon Q commands format. |
 | **antigravity** | hooks | No documented Antigravity hook/event system. |
 | **antigravity** | commands | No documented Antigravity commands format. |

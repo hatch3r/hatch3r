@@ -123,7 +123,7 @@ Based on the user's initial response and the diff scope, ask targeted follow-up 
 
 **If UI changes detected** (components, styles, templates in diff):
 - "Any visual mismatches -- spacing, alignment, colors, typography?"
-- "Does it behave correctly at different viewport sizes?"
+- "Does it render and respond as expected at different viewport sizes?"
 - "Any interaction issues -- hover states, focus, transitions, animations?"
 
 **If API/backend changes detected** (routes, services, middleware in diff):

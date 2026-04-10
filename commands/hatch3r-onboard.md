@@ -57,7 +57,7 @@ Onboarding Brief:
   Depth:          {derived — junior=detailed, mid=standard, senior=concise, staff=architecture-focused}
 ```
 
-**ASK:** "Does this capture the onboarding needs correctly? Adjust anything before I continue."
+**ASK:** "Does this capture the onboarding needs? Adjust anything before I continue."
 
 #### Step 1b: Dimension Probing (Team Context)
 

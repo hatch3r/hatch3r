@@ -12,11 +12,12 @@ hatch3r is an open-source CLI (TypeScript, Commander.js) that generates tool-agn
 |-----------|----------|
 | `src/cli/commands/` | 11 CLI commands: init, sync, status, update, validate, verify, config, clean, add, worktree-setup, worktree-cleanup |
 | `src/adapters/` | 15 platform adapters: cursor, claude, copilot, cline, windsurf, gemini, codex, opencode, amp, aider, kiro, goose, zed, amazonq, antigravity |
-| `src/pipeline/` | Agent pipeline: circuitBreaker, promptGuard, agentToolAllowlist, phaseOutputSchema, reviewLoop, observability, failureLog |
+| `src/pipeline/` | 14 pipeline modules: adapterTimeout, agentIdentity, agentToolAllowlist, circuitBreaker, complianceVerification, diffHash, failureLog, observability, phaseOutputSchema, phaseTimeout, pipelineContext, pipelineTimeout, promptGuard, reviewLoop |
 | `src/content/` | Content indexing, presets (minimal/standard/full), tag system |
 | `src/merge/` | Safe write (temp+rename atomic), managed block tracking |
 | `src/integrity/` | SHA-256 file integrity, manifest-level checksum |
-| `agents/` `skills/` `rules/` `commands/` `hooks/` | Canonical content artifacts (16 agents, 26 skills, 52 rules, 34 commands, 6 hooks) |
+| `agents/` `skills/` `rules/` `commands/` `hooks/` | Canonical content artifacts (16 agents, 26 skills, 26 rules, 34 commands, 6 hooks) |
+| `checks/` `prompts/` `github-agents/` | Additional content: 6 checks, 3 prompts, 4 github-agents |
 | `governance/` | 6 Binding Pillars, 19 audit domains, audit cycle, closed-loop phases |
 | `.claude/` | Rules, skills, hooks for framework development |
 
@@ -69,7 +70,7 @@ Every change must serve at least one pillar. Full definitions: `governance/CONST
 | `governance/AUDIT.md` | Audit prompt: 19 domains, 106 sub-agents, behavioral charter |
 | `governance/AUDIT-EXECUTE.md` | Execution: 4-wave model, regression gates, closed-loop phases |
 | `governance/RE-ENVISION.md` | Vision capture/refinement prompt |
-| `governance/audit/domains/D01-D18` | Domain definitions with sub-agent checklists |
+| `governance/audit/domains/D01-D19` | Domain definitions with sub-agent checklists |
 
 Content fixes flow through the audit cycle (AUDIT.md then AUDIT-EXECUTE.md). No ad-hoc governance edits.
 

@@ -490,10 +490,71 @@ async function validateContentConsistency(
   }
 }
 
-export async function validateCommand(): Promise<void> {
+export async function validateDocsCounts(rootDir: string): Promise<{ mismatches: string[]; checked: number }> {
+  const mismatches: string[] = [];
+  let checked = 0;
+
+  const actual: Record<string, number> = {};
+  const dirs: [string, string, (e: string) => boolean][] = [
+    ["adapters", join(rootDir, "src/adapters"), (e) => e.endsWith(".ts") && !["base.ts", "index.ts", "canonical.ts", "customization.ts", "types.ts", "mcp-utils.ts", "toml-utils.ts", "contextBudget.ts", "agentsmd.ts"].includes(e)],
+    ["commands", join(rootDir, "src/cli/commands"), (e) => e.endsWith(".ts")],
+    ["agents", join(rootDir, "agents"), (e) => e.endsWith(".md")],
+    ["skills", join(rootDir, "skills"), (e) => true],
+    ["rules", join(rootDir, "rules"), (e) => e.endsWith(".md")],
+    ["hooks", join(rootDir, "hooks"), (e) => e.endsWith(".md")],
+  ];
+
+  for (const [name, dir, filter] of dirs) {
+    try {
+      const entries = await readdir(dir, { withFileTypes: true });
+      if (name === "skills") {
+        actual[name] = entries.filter(e => e.isDirectory()).length;
+      } else {
+        actual[name] = entries.filter(e => e.isFile() && filter(e.name)).length;
+      }
+    } catch { actual[name] = 0; }
+  }
+
+  const readmePath = join(rootDir, "README.md");
+  try {
+    const readme = await readFile(readmePath, "utf-8");
+    const countPatterns: [string, RegExp][] = [
+      ["adapters", /(\d+)\s+Adapters/i],
+      ["skills", /(\d+)\s+skills/i],
+      ["rules", /(\d+)\s+rules/i],
+    ];
+    for (const [name, pattern] of countPatterns) {
+      const match = readme.match(pattern);
+      if (match) {
+        checked++;
+        const documented = parseInt(match[1], 10);
+        if (documented !== actual[name]) {
+          mismatches.push(`${name}: README says ${documented}, actual is ${actual[name]}`);
+        }
+      }
+    }
+  } catch { /* README not found */ }
+
+  return { mismatches, checked };
+}
+
+export async function validateCommand(opts?: { docs?: boolean }): Promise<void> {
   printBanner(true);
 
   const rootDir = process.cwd();
+
+  if (opts?.docs) {
+    const spinner = createSpinner("Verifying documentation counts...");
+    spinner.start();
+    const { mismatches, checked } = await validateDocsCounts(rootDir);
+    if (mismatches.length > 0) {
+      spinner.fail("Documentation count mismatches found");
+      for (const m of mismatches) logError(m);
+      throw new HatchError("Documentation counts do not match", 1, "VALIDATION_ERROR");
+    }
+    spinner.succeed(`Documentation counts verified (${checked} checks, 0 mismatches)`);
+    return;
+  }
   const agentsDir = join(rootDir, AGENTS_DIR);
   const result: ValidationResult = { errors: [], warnings: [] };
 

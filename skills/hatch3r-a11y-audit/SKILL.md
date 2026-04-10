@@ -51,7 +51,7 @@ Task Progress:
 
 **Keyboard navigation:**
 
-- Tab through all interactive elements. Ensure logical order, no focus traps.
+- Tab through all interactive elements. Verify logical order and confirm no focus traps exist.
 - All buttons, links, inputs, custom controls focusable.
 - Visible focus indicator (outline or ring) — no `outline: none` without replacement.
 - Escape closes modals/dropdowns. Enter/Space activates buttons.
@@ -59,7 +59,7 @@ Task Progress:
 **Color contrast:**
 
 - Check text vs background: ≥ 4.5:1 for normal text, ≥ 3:1 for large text.
-- Use DevTools or contrast checker. Test with design tokens — ensure no ad-hoc colors fail.
+- Use DevTools or contrast checker. Test with design tokens — flag any ad-hoc colors that fall below the 4.5:1 ratio.
 
 **ARIA attributes:**
 
@@ -100,7 +100,7 @@ Task Progress:
 - Implement fixes following project component and quality requirements.
 - Use semantic HTML where possible (`<button>`, `<a>`, `<nav>`, `<main>`).
 - Add `aria-*` attributes for custom components.
-- Ensure `prefers-reduced-motion` respected in CSS and JS.
+- Verify `prefers-reduced-motion` is respected by enabling the media query in DevTools and confirming animations are disabled or simplified.
 - Add or fix focus styles. Use design tokens for focus ring.
 - Verify reduced-motion behavior in tests.
 
@@ -108,7 +108,7 @@ Task Progress:
 
 - Re-run automated scan. No critical or major violations.
 - Manual keyboard and screen reader check on fixed areas.
-- Run full test suite to ensure no regressions.
+- Run full test suite and confirm 0 failures to verify no regressions.
 - Document remaining minor findings for future backlog.
 
 ## Required Agent Delegation

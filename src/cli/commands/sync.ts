@@ -1,9 +1,10 @@
-import { stat, readdir } from "node:fs/promises";
+import { appendFile, readFile, stat, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import chalk from "chalk";
 import { readManifest } from "../../manifest/hatchJson.js";
 import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
+import { checkContextBudget, formatBudgetWarning } from "../../adapters/contextBudget.js";
 import { safeWriteFile } from "../../merge/safeWrite.js";
 import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
 import { AGENTS_DIR, HatchError, WORKTREE_INCLUDE_FILE, type GenerationMode } from "../../types.js";
@@ -15,6 +16,13 @@ import { generateCanonicalAgentsMd, generateRootAgentsMd } from "../shared/agent
 import { verifyIntegrity, generateIntegrityManifest, writeIntegrityManifest } from "../../integrity/index.js";
 import { pruneArchives } from "../../archive/index.js";
 import { HATCH3R_VERSION } from "../../version.js";
+import {
+  createFailureLogEntry,
+  formatLogEntry,
+  shouldRotateLog,
+  rotateLog,
+  FAILURE_LOG_FILE,
+} from "../../pipeline/failureLog.js";
 import {
   printBanner,
   createSpinner,
@@ -74,10 +82,54 @@ async function checkSpecFreshness(rootDir: string): Promise<void> {
   }
 }
 
+/**
+ * Append a failure entry to the persistent failure log in .agents/.
+ * Performs log rotation when the log exceeds 500KB.
+ * Silently skips if the write fails (failure logging must not break sync).
+ */
+async function appendFailure(agentsDir: string, phase: string, error: unknown, tool?: string): Promise<void> {
+  try {
+    const logPath = join(agentsDir, FAILURE_LOG_FILE);
+    const entry = createFailureLogEntry(phase, error, {
+      tool,
+      version: HATCH3R_VERSION,
+    });
+    const line = formatLogEntry(entry) + "\n";
+
+    // Check if rotation is needed before appending
+    try {
+      const existing = await readFile(logPath, "utf-8");
+      if (shouldRotateLog(existing + line)) {
+        const rotated = rotateLog(existing);
+        await safeWriteFile(logPath, rotated + line);
+        return;
+      }
+    } catch {
+      // File does not exist yet — that is fine, appendFile will create it
+    }
+
+    await appendFile(logPath, line);
+  } catch {
+    // Failure logging must not break the sync command
+  }
+}
+
+/**
+ * Read a file's content, returning null if the file does not exist.
+ */
+async function readFileOrNull(filePath: string): Promise<string | null> {
+  try {
+    return await readFile(filePath, "utf-8");
+  } catch {
+    return null;
+  }
+}
+
 export async function syncCommand(
   opts: {
     repos?: string[] | true;
     dryRun?: boolean;
+    diff?: boolean;
     force?: boolean;
     minimal?: boolean;
   } = {},
@@ -124,19 +176,43 @@ export async function syncCommand(
   const totalSteps = m.tools.length + 1;
   let currentStep = 0;
 
+  // --diff: track file snapshots before and after generation
+  const diffBefore = new Map<string, string | null>();
+  const diffAfter = new Map<string, string | null>();
+
+  if (opts.diff) {
+    diffBefore.set("AGENTS.md", await readFileOrNull(join(rootDir, "AGENTS.md")));
+    diffBefore.set(`${AGENTS_DIR}/AGENTS.md`, await readFileOrNull(join(agentsDir, "AGENTS.md")));
+  }
+
   const s1 = createSpinner(step(++currentStep, totalSteps, "Syncing AGENTS.md..."));
   s1.start();
   const rootAgentsMd = await generateRootAgentsMd(agentsDir);
-  const agentsMdResult = await safeWriteFile(join(rootDir, "AGENTS.md"), rootAgentsMd.full, {
-    managedContent: rootAgentsMd.inner,
-  });
-  if (agentsMdResult.warning) warn(agentsMdResult.warning);
-  results.push({ path: "AGENTS.md", action: agentsMdResult.action });
-  const canonicalAgentsMd = await generateCanonicalAgentsMd(agentsDir);
-  const canonicalResult = await safeWriteFile(join(agentsDir, "AGENTS.md"), canonicalAgentsMd);
-  if (canonicalResult.warning) warn(canonicalResult.warning);
-  results.push({ path: `${AGENTS_DIR}/AGENTS.md`, action: canonicalResult.action });
-  s1.succeed(step(currentStep, totalSteps, "AGENTS.md synced"));
+
+  if (opts.dryRun) {
+    results.push({ path: "AGENTS.md", action: "dry-run" });
+    const canonicalAgentsMd = await generateCanonicalAgentsMd(agentsDir);
+    results.push({ path: `${AGENTS_DIR}/AGENTS.md`, action: "dry-run" });
+    if (opts.diff) {
+      diffAfter.set("AGENTS.md", rootAgentsMd.full);
+      diffAfter.set(`${AGENTS_DIR}/AGENTS.md`, canonicalAgentsMd);
+    }
+  } else {
+    const agentsMdResult = await safeWriteFile(join(rootDir, "AGENTS.md"), rootAgentsMd.full, {
+      managedContent: rootAgentsMd.inner,
+    });
+    if (agentsMdResult.warning) warn(agentsMdResult.warning);
+    results.push({ path: "AGENTS.md", action: agentsMdResult.action });
+    const canonicalAgentsMd = await generateCanonicalAgentsMd(agentsDir);
+    const canonicalResult = await safeWriteFile(join(agentsDir, "AGENTS.md"), canonicalAgentsMd);
+    if (canonicalResult.warning) warn(canonicalResult.warning);
+    results.push({ path: `${AGENTS_DIR}/AGENTS.md`, action: canonicalResult.action });
+    if (opts.diff) {
+      diffAfter.set("AGENTS.md", await readFileOrNull(join(rootDir, "AGENTS.md")));
+      diffAfter.set(`${AGENTS_DIR}/AGENTS.md`, await readFileOrNull(join(agentsDir, "AGENTS.md")));
+    }
+  }
+  s1.succeed(step(currentStep, totalSteps, opts.dryRun ? "AGENTS.md (dry run)" : "AGENTS.md synced"));
 
   const generationMode: GenerationMode = opts.minimal ? "minimal" : "standard";
   if (opts.minimal) {
@@ -151,27 +227,54 @@ export async function syncCommand(
       const adapter = getAdapter(tool);
       const outputs = await adapter.generate(agentsDir, m, generationMode);
       for (const w of adapter.warnings) { warn(w); }
-      for (const out of outputs) {
-        const fullPath = join(rootDir, out.path);
-        if (out.managedContent) {
-          const result = await safeWriteFile(fullPath, out.content, {
-            managedContent: out.managedContent,
-          });
-          if (result.warning) warn(result.warning);
-          results.push({ path: out.path, action: result.action });
-        } else {
-          const result = await safeWriteFile(fullPath, out.content);
-          if (result.warning) warn(result.warning);
-          results.push({ path: out.path, action: result.action });
+
+      if (opts.dryRun) {
+        // --dry-run: show what adapter would generate without writing files
+        for (const out of outputs) {
+          results.push({ path: out.path, action: "dry-run" });
+          if (opts.diff) {
+            diffBefore.set(out.path, await readFileOrNull(join(rootDir, out.path)));
+            diffAfter.set(out.path, out.content);
+          }
+        }
+      } else {
+        for (const out of outputs) {
+          if (opts.diff) {
+            diffBefore.set(out.path, await readFileOrNull(join(rootDir, out.path)));
+          }
+          const fullPath = join(rootDir, out.path);
+          if (out.managedContent) {
+            const result = await safeWriteFile(fullPath, out.content, {
+              managedContent: out.managedContent,
+            });
+            if (result.warning) warn(result.warning);
+            results.push({ path: out.path, action: result.action });
+          } else {
+            const result = await safeWriteFile(fullPath, out.content);
+            if (result.warning) warn(result.warning);
+            results.push({ path: out.path, action: result.action });
+          }
+          if (opts.diff) {
+            diffAfter.set(out.path, await readFileOrNull(join(rootDir, out.path)));
+          }
         }
       }
-      s.succeed(step(currentStep, totalSteps, `${tool} output generated`));
+      // Check context budget utilization for this adapter
+      const budgetResult = checkContextBudget(tool, outputs);
+      const budgetWarning = formatBudgetWarning(budgetResult);
+      if (budgetWarning) { warn(budgetWarning); }
+
+      s.succeed(step(currentStep, totalSteps, opts.dryRun
+        ? `${tool} output (dry run: ${outputs.length} file(s))`
+        : `${tool} output generated`));
     } catch (err) {
       s.fail(step(currentStep, totalSteps, `Failed to generate ${tool} output`));
       adapterFailures.push({
         tool,
         error: err instanceof Error ? err.message : String(err),
       });
+      // Record to persistent failure log for post-hoc debugging
+      await appendFailure(agentsDir, "sync:adapter-generate", err, tool);
     }
   }
   if (adapterFailures.length > 0) {
@@ -193,42 +296,44 @@ export async function syncCommand(
     }
   }
 
-  // Regenerate .worktreeinclude
-  if (m.worktree?.enabled) {
-    const wtContent = await generateWorktreeInclude(m, rootDir);
-    const wtManaged = extractManagedContent(wtContent);
-    const wtResult = await safeWriteFile(
-      join(rootDir, WORKTREE_INCLUDE_FILE),
-      wtContent,
-      { managedContent: wtManaged },
-    );
-    if (wtResult.warning) warn(wtResult.warning);
-    results.push({ path: WORKTREE_INCLUDE_FILE, action: wtResult.action });
-  }
-
-  if (m.features.mcp && m.mcp.servers.length > 0) {
-    const envResult = await ensureEnvMcp(rootDir, m.mcp.servers);
-    await ensureGitignoreEntry(rootDir);
-    if (envResult.action !== "skipped") {
-      results.push({ path: envResult.path, action: envResult.action });
-    }
-    if (envResult.newVars.length > 0) {
-      warn(
-        `New secrets needed in .env.mcp: ${envResult.newVars.join(", ")}`,
+  if (!opts.dryRun) {
+    // Regenerate .worktreeinclude
+    if (m.worktree?.enabled) {
+      const wtContent = await generateWorktreeInclude(m, rootDir);
+      const wtManaged = extractManagedContent(wtContent);
+      const wtResult = await safeWriteFile(
+        join(rootDir, WORKTREE_INCLUDE_FILE),
+        wtContent,
+        { managedContent: wtManaged },
       );
-      info(`Run this, then start or restart your editor: ${getSourceEnvMcpCommand()}`);
+      if (wtResult.warning) warn(wtResult.warning);
+      results.push({ path: WORKTREE_INCLUDE_FILE, action: wtResult.action });
     }
+
+    if (m.features.mcp && m.mcp.servers.length > 0) {
+      const envResult = await ensureEnvMcp(rootDir, m.mcp.servers);
+      await ensureGitignoreEntry(rootDir);
+      if (envResult.action !== "skipped") {
+        results.push({ path: envResult.path, action: envResult.action });
+      }
+      if (envResult.newVars.length > 0) {
+        warn(
+          `New secrets needed in .env.mcp: ${envResult.newVars.join(", ")}`,
+        );
+        info(`Run this, then start or restart your editor: ${getSourceEnvMcpCommand()}`);
+      }
+    }
+
+    // Regenerate integrity manifest so checksums match newly generated files
+    const integrityManifest = await generateIntegrityManifest(agentsDir, HATCH3R_VERSION);
+    await writeIntegrityManifest(agentsDir, integrityManifest);
+
+    // Prune stale archive entries
+    await pruneArchives(rootDir);
+
+    // Check spec freshness
+    await checkSpecFreshness(rootDir);
   }
-
-  // Regenerate integrity manifest so checksums match newly generated files
-  const integrityManifest = await generateIntegrityManifest(agentsDir, HATCH3R_VERSION);
-  await writeIntegrityManifest(agentsDir, integrityManifest);
-
-  // Prune stale archive entries
-  await pruneArchives(rootDir);
-
-  // Check spec freshness
-  await checkSpecFreshness(rootDir);
 
   console.log();
 
@@ -236,6 +341,7 @@ export async function syncCommand(
     created: chalk.green("+"),
     updated: chalk.yellow("~"),
     skipped: chalk.dim("="),
+    "dry-run": chalk.cyan("?"),
   };
 
   const summaryLines = results.map((r) => {
@@ -243,11 +349,39 @@ export async function syncCommand(
     return `${icon} ${r.path} ${chalk.dim(`(${r.action})`)}`;
   });
 
+  // --diff: show file change summary
+  if (opts.diff && diffBefore.size > 0) {
+    const diffLines: string[] = [];
+    for (const [filePath] of diffBefore) {
+      const before = diffBefore.get(filePath) ?? null;
+      const after = diffAfter.get(filePath) ?? null;
+      if (before === null && after !== null) {
+        diffLines.push(`${chalk.green("+ added")}    ${filePath}`);
+      } else if (before !== null && after !== null && before !== after) {
+        diffLines.push(`${chalk.yellow("~ modified")} ${filePath}`);
+      } else if (before !== null && after !== null && before === after) {
+        diffLines.push(`${chalk.dim("= unchanged")} ${filePath}`);
+      }
+    }
+    if (diffLines.length > 0) {
+      printBox("Diff summary", diffLines, "info");
+      console.log();
+    }
+  }
+
+  const boxTitle = opts.dryRun
+    ? "Sync dry run complete"
+    : adapterFailures.length > 0 ? "Sync complete (with warnings)" : "Sync complete";
+
   printBox(
-    adapterFailures.length > 0 ? "Sync complete (with warnings)" : "Sync complete",
+    boxTitle,
     summaryLines,
-    adapterFailures.length > 0 ? "info" : "success",
+    opts.dryRun ? "info" : adapterFailures.length > 0 ? "info" : "success",
   );
+
+  // Dry-run: skip error throwing and return before workspace cascade
+  // (workspace sync has its own dry-run handling below)
+  if (opts.dryRun) return;
 
   // #253 (D8-8.20): Exit non-zero on partial adapter failure
   // so CI pipelines can detect incomplete syncs.
@@ -279,9 +413,7 @@ export async function syncCommand(
 
   console.log();
   const wsSpinner = createSpinner(
-    opts.dryRun
-      ? "Workspace sync (dry run)..."
-      : `Syncing workspace to ${repoPaths ? repoPaths.length : syncableCount} repo(s)...`,
+    `Syncing workspace to ${repoPaths ? repoPaths.length : syncableCount} repo(s)...`,
   );
   wsSpinner.start();
 
@@ -291,18 +423,6 @@ export async function syncCommand(
     force: opts.force,
     onWarn: (msg) => warn(msg),
   });
-
-  if (opts.dryRun) {
-    wsSpinner.succeed("Workspace sync (dry run)");
-    for (const r of wsResult.repos) {
-      const changes = [];
-      if (r.added.length > 0) changes.push(`+${r.added.length} content`);
-      if (r.removed.length > 0) changes.push(`-${r.removed.length} content`);
-      if (r.toolsSynced.length > 0) changes.push(`${r.toolsSynced.length} tools`);
-      info(`  ${r.path}: ${changes.length > 0 ? changes.join(", ") : "up to date"}`);
-    }
-    return;
-  }
 
   const succeeded = wsResult.repos.filter((r) => r.action === "synced").length;
   const failed = wsResult.repos.filter((r) => r.action === "error").length;

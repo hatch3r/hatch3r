@@ -61,7 +61,7 @@ Commands in the "Does NOT Support" column are documentation-only, planning-only,
 
 ## Verification Protocol
 
-### 1. Ensure Dev Server is Running
+### 1. Confirm Dev Server is Running
 
 - Check if the project's dev server is already running (check terminal output or process list).
 - If not running, start it in the background using the project's dev command (e.g., `npm run dev`).
@@ -78,7 +78,7 @@ Commands in the "Does NOT Support" column are documentation-only, planning-only,
 
 ### 3. Capture Evidence
 
-- Take screenshots of the affected surfaces showing the change works correctly.
+- Take screenshots of the affected surfaces showing the change produces the expected visual and interactive result.
 - For before/after changes (visual refactors, bug fixes), capture both states when possible.
 - Note any browser console errors or warnings in the verification summary.
 - Include screenshots in the PR description or attach to the issue.

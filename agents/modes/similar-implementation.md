@@ -6,7 +6,7 @@ parent: hatch3r-researcher
 ---
 ### Mode: `similar-implementation`
 
-Search the codebase for analogous features, components, or modules and extract their implementation conventions as a reference for the implementer. The goal is to ensure new code follows established patterns rather than inventing new approaches.
+Search the codebase for analogous features, components, or modules and extract their implementation conventions as a reference for the implementer. The goal is that new code follows established patterns rather than inventing new approaches.
 
 **Protocol:**
 

@@ -94,7 +94,7 @@ Error handling code is often under-tested because developers focus on happy path
 
 - **Use sparingly.** Snapshots are appropriate for serialized output (JSON API responses, CLI output, rendered HTML structure) where the exact output matters and is stable.
 - **Not appropriate for:** UI component visual appearance (use visual regression tests), objects with timestamps or random IDs (unstable), large objects (unreadable diffs).
-- **Review discipline.** Snapshot updates (`--update-snapshots`) must be reviewed as carefully as code changes. Reviewers must verify the new snapshot is intentionally correct, not just "different."
+- **Review discipline.** Snapshot updates (`--update-snapshots`) must be reviewed with the same rigor as code changes. Reviewers must verify the new snapshot is intentionally correct, not just "different."
 - **Keep snapshots small.** Snapshot files > 100 lines suggest the test is asserting too broadly. Narrow the assertion to the relevant subset.
 - **Inline snapshots** (where supported) are preferred over external `.snap` files for short outputs (< 20 lines) because they keep the assertion co-located with the test.
 - **Name snapshot files** to match their test file: `auth.test.ts` → `auth.test.ts.snap`.

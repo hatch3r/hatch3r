@@ -105,7 +105,7 @@ npm run lint && npm run typecheck && npm run test
 
 1. Update `version` in `package.json` to the confirmed version.
 2. If `functions/package.json` exists and tracks version, update it to the same version.
-3. If other workspace packages track version, update them as needed.
+3. If other workspace packages track version, update them when their `package.json` references the root version.
 
 **ASK:** "Version bump applied. Proceed to commit and tag? (yes / abort)"
 

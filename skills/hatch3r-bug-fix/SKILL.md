@@ -4,7 +4,7 @@ description: Step-by-step bug fix workflow. Diagnose root cause, implement minim
 tags: [core, implementation]
 quality_charter: agents/shared/quality-charter.md
 ---
-> **Note:** Commands below use `npm` as an example. Substitute with your project's package manager (`yarn`, `pnpm`, `bun`) or build tool as appropriate.
+> **Note:** Commands below use `npm` as an example. Substitute with your project's package manager (`yarn`, `pnpm`, `bun`) or build tool when your project uses a different package manager.
 
 # Bug Fix Workflow
 
@@ -45,7 +45,7 @@ Before fixing, output:
 
 Skip this step if the bug has no visual or interactive symptoms.
 
-- Ensure the dev server is running. If not, start it in the background.
+- Confirm the dev server is running by checking the expected port. If not running, start it in the background.
 - Navigate to the page where the bug manifests.
 - Follow the reproduction steps from the issue to confirm the bug is observable.
 - Take a screenshot of the broken state as baseline evidence.
@@ -81,7 +81,7 @@ Skip TDD and use the standard flow (Steps 3→4) when:
 
 - Write a test that **fails before** the fix and **passes after**.
 - Add edge case tests if the bug reveals coverage gaps.
-- Ensure all existing tests still pass.
+- Run the full test suite and confirm 0 failures — all existing tests still pass.
 
 ## Step 5: Verify
 

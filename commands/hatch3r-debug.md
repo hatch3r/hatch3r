@@ -124,7 +124,7 @@ Bug Context:
   Context loaded:   {specs, learnings, rules found}
 ```
 
-**ASK:** "Does this capture the bug correctly? Adjust anything before I proceed to add debug logging."
+**ASK:** "Does this capture the bug? Adjust anything before I proceed to add debug logging."
 
 ---
 
@@ -178,7 +178,7 @@ Await the implementer result.
 
 1. Collect the list of all files modified and the exact log statements added.
 2. Verify no application logic was altered — only log statements were added.
-3. Run quality checks (lint, typecheck) to ensure the debug logging does not break the build. Fix any issues.
+3. Run quality checks (`npm run lint && npx tsc --noEmit`) and confirm the debug logging does not break the build. Fix any issues.
 
 If browser verification is enabled: launch the application in the browser, reproduce the issue, and verify that `[HATCH3R-DEBUG]` log lines appear in the console or application output.
 
@@ -290,7 +290,7 @@ Diagnosis Report:
 
 ### Stage 5: Implement Fix
 
-**Goal:** Fix the root cause, remove all debug logging, verify quality, and ensure no debug artifacts remain.
+**Goal:** Fix the root cause, remove all debug logging, verify quality, and confirm no debug artifacts remain (grep for `[HATCH3R-DEBUG]`).
 
 #### 5a. Core Fix (Implementer)
 

@@ -1,5 +1,6 @@
 import type { HatchManifest, Tool } from "../types.js";
 import type { Adapter } from "./base.js";
+import { AgentsMdAdapter } from "./agentsmd.js";
 import { AiderAdapter } from "./aider.js";
 import { AmazonQAdapter } from "./amazonq.js";
 import { AmpAdapter } from "./amp.js";
@@ -34,6 +35,7 @@ const adapterFactories: Record<Tool, () => Adapter> = {
   zed: () => new ZedAdapter(),
   "amazon-q": () => new AmazonQAdapter(),
   antigravity: () => new AntigravityAdapter(),
+  "agents-md": () => new AgentsMdAdapter(),
 };
 
 const adapterCache = new Map<Tool, Adapter>();
@@ -96,6 +98,7 @@ const ADAPTER_CAPABILITIES: Record<Tool, AdapterCapability> = {
   goose:    { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true  },
   zed:      { agents: true, skills: false, rules: true, hooks: false, mcp: false, commands: false, prompts: false, githubAgents: false, worktree: false, customization: false, modelOverride: false },
   antigravity: { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true  },
+  "agents-md": { agents: true, skills: true, rules: true, hooks: false, mcp: false, commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true  },
 };
 
 /**
@@ -126,6 +129,7 @@ export function getUnsupportedFeatureWarnings(tool: string, manifest: HatchManif
   return warnings;
 }
 
+export { AgentsMdAdapter } from "./agentsmd.js";
 export { AiderAdapter } from "./aider.js";
 export { AmazonQAdapter } from "./amazonq.js";
 export { AmpAdapter } from "./amp.js";

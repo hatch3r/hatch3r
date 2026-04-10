@@ -4,7 +4,7 @@ description: Audit and update npm dependencies for security, freshness, and bund
 tags: [maintenance, security]
 quality_charter: agents/shared/quality-charter.md
 ---
-> **Note:** Commands below use `npm` as an example. Substitute with your project's package manager (`yarn`, `pnpm`, `bun`) or build tool as appropriate.
+> **Note:** Commands below use `npm` as an example. Substitute with your project's package manager (`yarn`, `pnpm`, `bun`) or build tool when your project uses a different package manager.
 
 # Dependency Audit Workflow
 
@@ -65,7 +65,7 @@ npm run build
 
 - Confirm bundle size within budget (if defined).
 - Run `npm audit` — no critical or high vulnerabilities remaining.
-- Ensure `package-lock.json` is committed.
+- Verify `package-lock.json` is committed by checking `git status` for untracked or modified lockfile.
 
 ## Step 6: Open PR
 

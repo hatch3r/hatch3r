@@ -24,7 +24,7 @@ Look up current API documentation for specific libraries or frameworks using Con
 | {API} | {signature or usage pattern} | {relevant constraints, deprecations, or gotchas} |
 
 ### Key Patterns
-- {pattern}: {how to use it correctly}
+- {pattern}: {usage example with required parameters and expected output}
 
 ### Breaking Changes / Deprecations
 - {item}: {migration path}

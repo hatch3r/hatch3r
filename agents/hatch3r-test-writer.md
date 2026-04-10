@@ -115,12 +115,12 @@ This agent runs in Phase 4, after the Phase 3 review loop has reached a clean ve
 
 ## Error Path Testing Requirements
 
-When writing tests for new or modified code, ensure error paths are covered proportionally to happy paths:
+When writing tests for new or modified code, cover error paths proportionally to happy paths:
 
 - **Every function that can fail** (returns Result, throws, calls async operations) must have at least one test for the failure case.
 - **Error messages must be tested.** Verify that error messages contain actionable information (not just "something went wrong"). Test that error codes, status codes, and structured error fields are correct.
 - **Boundary conditions.** Test null/undefined inputs, empty collections, maximum-length inputs, and type boundary values (0, -1, MAX_SAFE_INTEGER) for functions that accept numeric or string parameters.
-- **Async error handling.** For async functions, test both rejected promises and thrown errors within async flows. Verify that errors propagate correctly to callers.
+- **Async error handling.** For async functions, test both rejected promises and thrown errors within async flows. Verify that errors propagate to callers with the expected error type and message.
 
 ## Boundaries
 

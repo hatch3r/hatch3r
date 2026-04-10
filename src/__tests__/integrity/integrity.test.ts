@@ -63,6 +63,14 @@ describe("integrity", () => {
       expect(Object.keys(manifest.files)).toHaveLength(0);
     });
 
+    it("should populate generatedBy with tool name and version", async () => {
+      const manifest = await generateIntegrityManifest(agentsDir, "1.5.0");
+
+      expect(manifest.generatedBy).toBeDefined();
+      expect(manifest.generatedBy!.tool).toBe("hatch3r");
+      expect(manifest.generatedBy!.version).toBe("1.5.0");
+    });
+
     it("should scan github-agents directory", async () => {
       await mkdir(join(agentsDir, "github-agents"), { recursive: true });
       const ghAgentContent = "---\nid: hatch3r-reviewer\n---\n# GitHub Reviewer Agent\n";
@@ -102,6 +110,73 @@ describe("integrity", () => {
       const loaded = await readIntegrityManifest(agentsDir);
 
       expect(loaded).toEqual(manifest);
+    });
+
+    it("should round-trip manifest with generatedBy field", async () => {
+      const files = { "agents/reviewer.md": "sha256:abc123" };
+      const checksum = createHash("sha256")
+        .update(JSON.stringify(files))
+        .digest("hex");
+      const manifest = {
+        version: 1,
+        generated: "2026-03-04T12:00:00.000Z",
+        hatchVersion: "1.5.0",
+        generatedBy: { tool: "hatch3r", version: "1.5.0" },
+        files,
+        checksum,
+      };
+
+      await writeIntegrityManifest(agentsDir, manifest);
+      const loaded = await readIntegrityManifest(agentsDir);
+
+      expect(loaded).toEqual(manifest);
+      expect(loaded!.generatedBy).toEqual({ tool: "hatch3r", version: "1.5.0" });
+    });
+
+    it("should accept manifests without generatedBy for backward compat", async () => {
+      const files = { "agents/reviewer.md": "sha256:abc123" };
+      const checksum = createHash("sha256")
+        .update(JSON.stringify(files))
+        .digest("hex");
+      const raw = JSON.stringify({
+        version: 1,
+        generated: "2026-03-04T12:00:00.000Z",
+        hatchVersion: "1.0.0",
+        files,
+        checksum,
+      });
+      await writeFile(join(agentsDir, ".integrity.json"), raw);
+      const result = await readIntegrityManifest(agentsDir);
+      expect(result).not.toBeNull();
+      expect(result!.generatedBy).toBeUndefined();
+    });
+
+    it("should reject manifests with invalid generatedBy shape", async () => {
+      const raw = JSON.stringify({
+        version: 1,
+        generated: "2026-03-04T12:00:00.000Z",
+        hatchVersion: "1.0.0",
+        generatedBy: "not-an-object",
+        files: {},
+        checksum: createHash("sha256").update(JSON.stringify({})).digest("hex"),
+      });
+      await writeFile(join(agentsDir, ".integrity.json"), raw);
+      const result = await readIntegrityManifest(agentsDir);
+      expect(result).toBeNull();
+    });
+
+    it("should reject manifests with generatedBy missing required fields", async () => {
+      const raw = JSON.stringify({
+        version: 1,
+        generated: "2026-03-04T12:00:00.000Z",
+        hatchVersion: "1.0.0",
+        generatedBy: { tool: "hatch3r" },
+        files: {},
+        checksum: createHash("sha256").update(JSON.stringify({})).digest("hex"),
+      });
+      await writeFile(join(agentsDir, ".integrity.json"), raw);
+      const result = await readIntegrityManifest(agentsDir);
+      expect(result).toBeNull();
     });
 
     it("should return null for manifest missing checksum", async () => {

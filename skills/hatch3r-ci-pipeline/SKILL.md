@@ -54,7 +54,7 @@ Task Progress:
 ## Step 5: Implement and Validate
 
 - Implement pipeline changes incrementally — test each stage change in a feature branch.
-- Verify caching works correctly: first run populates cache, second run uses it.
+- Verify caching works: first run populates cache, second run uses it (confirmed by cache hit log output).
 - Confirm parallel stages don't have hidden dependencies causing race conditions.
 - Measure pipeline duration improvement against the baseline from Step 1.
 - Document the pipeline architecture for the team.

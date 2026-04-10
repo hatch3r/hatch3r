@@ -97,7 +97,7 @@ Confirm customizations appear in adapter output files:
 - Check YAML fields are reflected in adapter-specific frontmatter
 - Check markdown instructions appear inside the managed block
 - Verify disabled artifacts are absent from adapter outputs
-- **For rules:** verify scope is applied correctly in adapter-specific frontmatter
+- **For rules:** verify scope field in adapter-specific frontmatter matches the configured scope value
 
 ### Quality Gate
 

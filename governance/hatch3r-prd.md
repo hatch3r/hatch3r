@@ -23,7 +23,7 @@ The product solves the "great agent setups don't travel well" problem by making 
 - **Updatable** — `npx hatch3r update` pulls latest without overwriting customizations
 - **Learnable** — captures insights from issues, reviews, and decisions; compounds project knowledge over time
 - **Event-driven** — lifecycle hooks activate agents automatically on commits, merges, CI failures, and more
-- **Proven** — patterns extracted from a production agentic setup (16 agents, 26 skills, 23 rules, 34 commands, 5 checks, 4 GitHub agents, 10 MCP servers)
+- **Proven** — patterns extracted from a production agentic setup (16 agents, 26 skills, 26 rules, 34 commands, 6 hooks, 4 GitHub agents, 10 MCP servers)
 - **Multi-platform** — supports GitHub, Azure DevOps, and GitLab for board management and MCP integration
 
 hatch3r works equally well for greenfield products, existing codebases, and legacy systems. It includes dedicated commands for greenfield project specification, brownfield codebase analysis, and roadmap generation — providing a complete path from idea to board-managed delivery.
@@ -187,7 +187,7 @@ The audit produces a structured report (AUDIT-REPORT.md) with 19-domain coverage
 - Tool adapters: Cursor, GitHub Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline/Roo Code, Aider, Kiro, Goose, Zed, Amazon Q, Antigravity (15 adapters)
 - Cursor plugin distribution via Marketplace
 - Canonical pack format under `/.agents/` including: agents, skills, rules, prompts, commands, hooks, learnings, MCP configuration, guardrails, GitHub agents
-- `default` preset with full content (16 agents, 26 skills, 23 rules, 34 commands, 5 checks, 3 prompts, 4 GitHub agents)
+- `default` preset with full content (16 agents, 26 skills, 26 rules, 34 commands, 6 hooks, 3 prompts, 4 GitHub agents)
 - 34 commands including: board management (init, fill, pickup, shared, refresh, groom), project analysis (project-spec, codebase-map, roadmap, feature-plan, bug-plan, refactor-plan, migration-plan, test-plan, api-spec), workflow (workflow, hooks, learn, onboard, quick-change, revision, debug), operations (healthcheck, security-audit, dep-audit, release, benchmark), monitoring (context-health, cost-tracking), automation (recipe, agent-customize, skill-customize, rule-customize, command-customize)
 - Community pack sourcing (`--pack git:<url>#<tag>` or `--pack ./local`)
 - Enhanced MCP config template with 10 servers (3 default + 7 opt-in)
@@ -1341,7 +1341,7 @@ All core functionality is implemented and functional:
 
 - 8 CLI commands: `init`, `config`, `sync`, `update`, `status`, `validate`, `verify`, `add` (stub — CLI entry point exists, full pack resolution planned)
 - 15 tool adapters: Cursor, Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline/Roo Code, Aider, Kiro, Goose, Zed, Amazon Q, Antigravity
-- `default` preset: 16 agents, 26 skills, 23 rules, 34 commands, 5 checks, 3 prompts, 4 GitHub agents
+- `default` preset: 16 agents, 26 skills, 26 rules, 34 commands, 6 hooks, 3 prompts, 4 GitHub agents
 - 10 MCP servers (3 default: Filesystem, Context7, Playwright + 7 opt-in: GitHub, Brave Search, Sentry, Postgres, Linear, Azure DevOps, GitLab)
 - Hook system with 6 event types and adapter integration
 - Learning system with capture command and auto-consultation rule

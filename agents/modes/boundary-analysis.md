@@ -6,7 +6,7 @@ parent: hatch3r-researcher
 ---
 ### Mode: `boundary-analysis`
 
-Map integration boundaries, external dependencies, data flow boundaries, and event chains to identify where integration and contract tests are most needed. Used by `hatch3r-test-plan` to ensure test coverage at system seams.
+Map integration boundaries, external dependencies, data flow boundaries, and event chains to identify where integration and contract tests are most needed. Used by `hatch3r-test-plan` to target test coverage at system seams.
 
 **Output structure:**
 

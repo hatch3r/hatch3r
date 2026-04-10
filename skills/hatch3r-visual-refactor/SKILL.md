@@ -4,7 +4,7 @@ description: UI/UX change workflow matching design, accessibility, and responsiv
 tags: [implementation]
 quality_charter: agents/shared/quality-charter.md
 ---
-> **Note:** Commands below use `npm` as an example. Substitute with your project's package manager (`yarn`, `pnpm`, `bun`) or build tool as appropriate.
+> **Note:** Commands below use `npm` as an example. Substitute with your project's package manager (`yarn`, `pnpm`, `bun`) or build tool when your project uses a different package manager.
 
 # Visual Refactor Workflow
 
@@ -41,9 +41,9 @@ Before modifying code, output:
 
 - Match the mockup/screenshot exactly. Do not improvise design.
 - Use existing design system tokens and components.
-- Ensure animations respect `prefers-reduced-motion`.
-- Ensure color contrast meets WCAG AA (4.5:1 for text).
-- Ensure interactive elements are keyboard accessible with focus indicators.
+- Verify animations respect `prefers-reduced-motion` by enabling the media query in DevTools and confirming animations are disabled or simplified.
+- Verify color contrast meets WCAG AA (4.5:1 for text) using a contrast checker tool.
+- Verify interactive elements are keyboard accessible by tabbing through them and confirming visible focus indicators.
 - Add ARIA attributes for screen reader support.
 
 ## Step 4: Verify
@@ -59,7 +59,7 @@ npm run lint && npm run typecheck && npm run test
 
 ### 4b. Browser Verification
 
-- Ensure the dev server is running. If not, start it in the background.
+- Confirm the dev server is running by checking the expected port. If not running, start it in the background.
 - Navigate to every surface affected by the visual change.
 - Compare the rendered result against the mockup or design from the issue.
 - Test at multiple viewport sizes if the change affects responsive behavior.

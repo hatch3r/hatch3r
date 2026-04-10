@@ -49,7 +49,7 @@ When multiple vulnerabilities exist, prioritize by: exploitability in the projec
 - Identify the top 5 largest dependencies by contribution to total bundle.
 - Flag packages that are not tree-shakeable (CJS-only, side-effect-heavy).
 - Evaluate lighter alternatives when a dependency exceeds 50 KB gzipped or duplicates existing functionality.
-- Verify that `sideEffects: false` is correctly declared in dependency `package.json` files.
+- Verify that `sideEffects: false` is declared in dependency `package.json` files and matches actual module behavior (no global side effects on import).
 
 ## Upgrade Risk Assessment
 
@@ -64,7 +64,7 @@ When multiple vulnerabilities exist, prioritize by: exploitability in the projec
 - Verify lockfile exists and is committed to version control.
 - Confirm lockfile matches `package.json` — no drift between declared and resolved versions.
 - Detect phantom dependencies (packages used in code but not declared in `package.json`).
-- Ensure reproducible installs: `npm ci` / `pnpm install --frozen-lockfile` must succeed without modification.
+- Verify reproducible installs by running `npm ci` / `pnpm install --frozen-lockfile` — both must succeed without modification.
 - Review lockfile diffs in PRs — treat dependency changes as high-risk modifications.
 - Flag lifecycle scripts (`preinstall`, `postinstall`) in new or updated dependencies as potential supply chain vectors.
 

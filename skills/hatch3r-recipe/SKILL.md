@@ -48,7 +48,7 @@ Execute `--dry-run` to validate:
 - YAML schema is valid
 - All referenced commands/skills exist
 - Dependency graph has no cycles
-- Variables are properly referenced
+- Variables are referenced with valid names that resolve to defined values
 - Prerequisites are checkable
 
 ## Step 5: Validate with Real Execution

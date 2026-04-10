@@ -109,7 +109,7 @@ The implementer sub-agent protocol is defined in the hatch3r-implementer agent. 
 
 Skip this step if the issue has no user-facing UI changes.
 
-- Ensure the dev server is running. If not, start it in the background.
+- Confirm the dev server is running by checking the expected port. If not running, start it in the background.
 - Navigate to the page or surface affected by the change.
 - Visually confirm the implementation matches acceptance criteria from the issue.
 - Interact with changed elements to verify functional correctness.

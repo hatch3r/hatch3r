@@ -17,6 +17,7 @@ import {
   DEFAULT_FEATURES,
   HatchError,
   VALID_TOOLS,
+  WORKTREE_CAPABLE_TOOLS,
   WORKTREE_INCLUDE_FILE,
   type ContentSelection,
   type Features,
@@ -225,8 +226,7 @@ export async function runInit(options: RunInitOptions): Promise<void> {
   }
 
   // Generate .worktreeinclude for worktree-capable tools
-  const worktreeCapableTools = new Set(["claude"]);
-  const hasWorktreeTool = tools.some(t => worktreeCapableTools.has(t));
+  const hasWorktreeTool = tools.some(t => WORKTREE_CAPABLE_TOOLS.has(t));
   if (hasWorktreeTool) {
     manifest.worktree = manifest.worktree ?? { enabled: true };
   }

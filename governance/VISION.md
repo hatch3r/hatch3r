@@ -8,7 +8,7 @@
 
 ## What hatch3r Is
 
-hatch3r is an open-source CLI and Cursor plugin that installs a battle-tested, tool-agnostic agentic coding setup into any repository. One canonical source in `/.agents/`, adapters generate native configuration for 14 AI coding platforms. Weekly-audited and continuously improved through a closed-loop system.
+hatch3r is an open-source CLI and Cursor plugin that installs a battle-tested, tool-agnostic agentic coding setup into any repository. One canonical source in `/.agents/`, adapters generate native configuration for 15 AI coding platforms. Weekly-audited and continuously improved through a closed-loop system.
 
 Run `npx hatch3r init`. Get a production-grade agentic setup. Start building.
 
@@ -104,11 +104,11 @@ Every content artifact must be auditable, versionable, and improvable through th
 
 ## Platform Strategy
 
-All 14 adapters are equally supported. No first-class vs second-class platforms. If hatch3r supports a platform, that platform gets the full capability set that the platform's native format can express.
+All 15 adapters are equally supported. No first-class vs second-class platforms. If hatch3r supports a platform, that platform gets the full capability set that the platform's native format can express.
 
 ### Supported Platforms
 
-Cursor, GitHub Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline/Roo Code, Aider, Kiro, Goose, Zed, Amazon Q.
+Cursor, GitHub Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline/Roo Code, Aider, Kiro (rebranded from Amazon Q CLI), Goose, Zed, Amazon Q, AntiGravity.
 
 ### Parity and Adaptation
 

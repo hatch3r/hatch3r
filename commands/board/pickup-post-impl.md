@@ -88,7 +88,7 @@ Follow the project's PR/MR creation skill or conventions:
 2. Remind user `Closes #N` auto-closes on merge.
 3. **Post-merge board state advisory:** After merge, `Closes #N` will auto-close the issue, but label and board status updates to `status:done` / "Done" depend on platform automation:
    - **GitHub:** Automatic IF the Projects V2 "Item closed" workflow is enabled (verify in Project > Workflows). Labels are NOT auto-updated — `status:in-review` remains on the closed issue.
-   - **Azure DevOps:** Ensure the "Complete linked work items after merging" checkbox is checked during PR completion. State transitions to "Closed" only when this option is selected.
+   - **Azure DevOps:** Verify the "Complete linked work items after merging" checkbox is checked during PR completion. State transitions to "Closed" only when this option is selected.
    - **GitLab:** Labels are NOT updated on auto-close. `status::in-review` remains. Consider setting up a CI pipeline trigger on issue close events for automated cleanup.
    - If automation is not configured, `board-groom` with the `health-fix` action will detect and fix the drift during the next grooming session.
 4. If partial:

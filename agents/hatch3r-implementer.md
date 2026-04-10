@@ -120,7 +120,7 @@ npm run lint && npm run typecheck && npm run test
 
 Skip this step if the issue has no user-facing UI changes.
 
-- Ensure the dev server is running. If not, start it in the background.
+- Confirm the dev server is running by checking the expected port. If not running, start it in the background.
 - Navigate to the page affected by the change using browser automation MCP.
 - Visually confirm the implementation matches acceptance criteria.
 - Interact with changed elements to verify correctness.
@@ -203,7 +203,7 @@ When encountering errors during implementation, follow these protocols:
 | Error Type | Action |
 |-----------|--------|
 | Build failure in changed file | Fix the error. Do not proceed with other changes until the build is clean. |
-| Test failure in existing test | Determine if the test is correctly catching a regression (fix your code) or if the test needs updating (update with justification in Notes). Never delete or skip existing tests. |
+| Test failure in existing test | Determine if the test is catching a genuine regression (fix your code) or if the test assertion needs updating to match new behavior (update with justification in Notes). Never delete or skip existing tests. |
 | Missing dependency or module | Check if it should be created as part of this issue or if it is out of scope. If out of scope, report BLOCKED with details. |
 | Conflicting acceptance criteria | Do not guess which criterion takes precedence. Report BLOCKED with the specific conflict and both criteria quoted. |
 | File not in research `affectedFiles` list | Log as a research gap per the Mid-Implementation Research Gap Checkpoint. Proceed if non-blocking; pause and escalate if blocking. |

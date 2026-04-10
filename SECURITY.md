@@ -51,6 +51,32 @@ hatch3r includes several security layers:
 - **Agent tool allowlists** -- ASI02-aligned per-agent capability restrictions enforcing least-privilege access
 - **Atomic file writes** -- all file operations use temp+rename to prevent corruption from interrupted writes
 
+## Enforcement Model
+
+Each security control is either **code-enforced** (validated at runtime by TypeScript modules) or **instruction-delegated** (declared in content files and enforced by AI agent compliance with those instructions). Code-enforced controls fail hard; instruction-delegated controls depend on agent adherence.
+
+| Control | Enforcement | Source Location | Status |
+|---------|-------------|-----------------|--------|
+| Prompt injection guard (input sanitization, output validation, boundary markers) | Code | `src/pipeline/promptGuard.ts` | Active |
+| Agent tool allowlists (per-agent least-privilege) | Code | `src/pipeline/agentToolAllowlist.ts` | Active |
+| Circuit breaker (transient vs substantive failure classification) | Code | `src/pipeline/circuitBreaker.ts` | Active |
+| Failure logging (structured failure capture) | Code | `src/pipeline/failureLog.ts` | Active |
+| Phase output schema validation | Code | `src/pipeline/phaseOutputSchema.ts` | Active |
+| Phase/pipeline/adapter timeouts | Code | `src/pipeline/phaseTimeout.ts`, `pipelineTimeout.ts`, `adapterTimeout.ts` | Active |
+| Compliance verification | Code | `src/pipeline/complianceVerification.ts` | Active |
+| Agent identity validation | Code | `src/pipeline/agentIdentity.ts` | Active |
+| Observability (telemetry, tracing) | Code | `src/pipeline/observability.ts` | Active |
+| Atomic file writes (temp+rename) | Code | `src/merge/safeWrite.ts` | Active |
+| Managed block boundary markers | Code | `src/merge/managedBlocks.ts` | Active |
+| SHA-256 integrity verification | Code | `src/integrity/index.ts` | Active |
+| Path traversal protection | Code | `src/cli/` (init/sync path validation) | Active |
+| Secret pattern detection | Code | `src/cli/commands/validate.ts` | Active |
+| Content safety deny patterns | Instruction | `agents/shared/quality-charter.md`, `rules/hatch3r-security-patterns.md` | Active |
+| Agent behavioral constraints | Instruction | `agents/hatch3r-*.md` (per-agent role definitions) | Active |
+| Guardrails policy | Instruction | `rules/hatch3r-code-standards.md`, `rules/hatch3r-security-patterns.md` | Active |
+| Hook condition guards | Instruction | `hooks/hatch3r-*.md` (glob/label/branch scoping) | Active |
+| MCP server security warnings | Instruction | `agents/shared/quality-charter.md` | Active |
+
 ## Scope
 
 ### In Scope

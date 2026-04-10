@@ -395,3 +395,87 @@ export function formatSchemaViolations(result: SchemaValidationResult): string {
 
   return lines.join("\n");
 }
+
+// ── Compact ─────────────────────────────────────────────────────
+
+export interface CompactOptions {
+  /** Byte-length threshold below which output is returned unchanged. */
+  threshold: number;
+  /** Maximum characters kept per string value. */
+  maxStringLength: number;
+  /** Number of items kept from the head of an array. */
+  headItems: number;
+  /** Number of items kept from the tail of an array. */
+  tailItems: number;
+}
+
+const COMPACT_DEFAULTS: CompactOptions = {
+  threshold: 50_000,
+  maxStringLength: 500,
+  headItems: 3,
+  tailItems: 2,
+};
+
+/**
+ * Compact a phase output value so it stays within prompt-guard size limits.
+ *
+ * When `JSON.stringify(output).length <= threshold` the value is returned
+ * unchanged. Otherwise strings are truncated, arrays are head/tail-sliced
+ * with a compacted-placeholder in the middle, and objects are recursed into.
+ * Primitives (number, boolean, null) are always preserved.
+ */
+export function compactPhaseOutput<T>(
+  output: T,
+  options?: Partial<CompactOptions>,
+): T {
+  const opts: CompactOptions = { ...COMPACT_DEFAULTS, ...options };
+
+  if (JSON.stringify(output).length <= opts.threshold) {
+    return output;
+  }
+
+  return compactValue(output, opts) as T;
+}
+
+function compactValue(value: unknown, opts: CompactOptions): unknown {
+  if (value === null || value === undefined) {
+    return value;
+  }
+
+  switch (typeof value) {
+    case "number":
+    case "boolean":
+      return value;
+
+    case "string": {
+      if (value.length <= opts.maxStringLength) {
+        return value;
+      }
+      return value.slice(0, opts.maxStringLength) + " [compacted]";
+    }
+
+    default:
+      break;
+  }
+
+  if (Array.isArray(value)) {
+    const kept = opts.headItems + opts.tailItems;
+    if (value.length <= kept) {
+      return value.map((item) => compactValue(item, opts));
+    }
+    const head = value.slice(0, opts.headItems).map((item) => compactValue(item, opts));
+    const tail = value.slice(-opts.tailItems).map((item) => compactValue(item, opts));
+    const omitted = value.length - kept;
+    return [...head, `[compacted: ${omitted} items omitted]`, ...tail];
+  }
+
+  if (typeof value === "object") {
+    const result: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+      result[key] = compactValue(val, opts);
+    }
+    return result;
+  }
+
+  return value;
+}

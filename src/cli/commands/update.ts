@@ -1,4 +1,4 @@
-import { cp, mkdir, readdir, stat } from "node:fs/promises";
+import { appendFile, cp, mkdir, readFile, readdir, stat } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -13,6 +13,13 @@ import { generateCanonicalAgentsMd, generateRootAgentsMd } from "../shared/agent
 import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
 import { ensureEnvMcp, ensureGitignoreEntry, getSourceEnvMcpCommand } from "../../env/mcpEnv.js";
 import { HATCH3R_VERSION } from "../../version.js";
+import {
+  createFailureLogEntry,
+  formatLogEntry,
+  shouldRotateLog,
+  rotateLog,
+  FAILURE_LOG_FILE,
+} from "../../pipeline/failureLog.js";
 import {
   printBanner,
   createSpinner,
@@ -32,6 +39,49 @@ import { buildSelectionsFromDisk } from "../../content/index.js";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONTENT_DIRS = ["agents", "commands", "rules", "skills", "prompts", "github-agents", "mcp", "hooks"];
 const ALWAYS_COPY_FILES = new Set(["mcp.json"]);
+
+/**
+ * Read a file's content, returning null if the file does not exist.
+ */
+async function readFileOrNull(filePath: string): Promise<string | null> {
+  try {
+    return await readFile(filePath, "utf-8");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Append a failure entry to the persistent failure log in .agents/.
+ * Performs log rotation when the log exceeds 500KB.
+ * Silently skips if the write fails (failure logging must not break update).
+ */
+async function appendFailure(agentsDir: string, phase: string, error: unknown, tool?: string): Promise<void> {
+  try {
+    const logPath = join(agentsDir, FAILURE_LOG_FILE);
+    const entry = createFailureLogEntry(phase, error, {
+      tool,
+      version: HATCH3R_VERSION,
+    });
+    const line = formatLogEntry(entry) + "\n";
+
+    // Check if rotation is needed before appending
+    try {
+      const existing = await readFile(logPath, "utf-8");
+      if (shouldRotateLog(existing + line)) {
+        const rotated = rotateLog(existing);
+        await safeWriteFile(logPath, rotated + line);
+        return;
+      }
+    } catch {
+      // File does not exist yet -- appendFile will create it
+    }
+
+    await appendFile(logPath, line);
+  } catch {
+    // Failure logging must not break the update command
+  }
+}
 
 async function copyHatch3rFiles(
   srcDir: string,
@@ -85,12 +135,15 @@ export interface UpdateResult {
   syncedTools: number;
   failedTools: number;
   version: string;
+  /** Diff data: before/after snapshots for each generated file (only populated when --diff is used). */
+  diffBefore?: Map<string, string | null>;
+  diffAfter?: Map<string, string | null>;
 }
 
 export async function runUpdate(
   rootDir: string,
   manifest: HatchManifest,
-  options: { stepOffset?: number; totalSteps?: number } = {},
+  options: { stepOffset?: number; totalSteps?: number; diff?: boolean } = {},
 ): Promise<UpdateResult> {
   const offset = options.stepOffset ?? 0;
   const total = options.totalSteps ?? 4;
@@ -151,6 +204,10 @@ export async function runUpdate(
   });
   s1.succeed(step(offset + 2, total, `Updated ${copied.length} canonical files`));
 
+  // --diff: track file snapshots before and after generation
+  const diffBefore = new Map<string, string | null>();
+  const diffAfter = new Map<string, string | null>();
+
   const s2 = createSpinner(step(offset + 3, total, "Re-syncing adapter output..."));
   s2.start();
   const adapterFailures: { tool: string; error: string }[] = [];
@@ -160,6 +217,9 @@ export async function runUpdate(
       const outputs = await adapter.generate(agentsDir, manifest);
       for (const w of adapter.warnings) { warn(w); }
       for (const out of outputs) {
+        if (options.diff) {
+          diffBefore.set(out.path, await readFileOrNull(join(rootDir, out.path)));
+        }
         const fullPath = join(rootDir, out.path);
         if (out.managedContent) {
           await safeWriteFile(fullPath, out.content, {
@@ -169,12 +229,17 @@ export async function runUpdate(
           await safeWriteFile(fullPath, out.content);
         }
         addManagedFile(manifest, out.path);
+        if (options.diff) {
+          diffAfter.set(out.path, await readFileOrNull(join(rootDir, out.path)));
+        }
       }
     } catch (err) {
       adapterFailures.push({
         tool,
         error: err instanceof Error ? err.message : String(err),
       });
+      // Record to persistent failure log for post-hoc debugging
+      await appendFailure(agentsDir, "update:adapter-generate", err, tool);
     }
   }
   if (adapterFailures.length > 0) {
@@ -236,6 +301,7 @@ export async function runUpdate(
     syncedTools: manifest.tools.length - adapterFailures.length,
     failedTools: adapterFailures.length,
     version: HATCH3R_VERSION,
+    ...(options.diff ? { diffBefore, diffAfter } : {}),
   };
 }
 
@@ -437,7 +503,7 @@ async function runMigrationCheckpoints(manifest: HatchManifest, rootDir: string,
   return { manifest: current, allNotices };
 }
 
-export async function updateCommand(_opts?: Record<string, unknown> & { yes?: boolean }): Promise<void> {
+export async function updateCommand(_opts?: Record<string, unknown> & { yes?: boolean; diff?: boolean }): Promise<void> {
   printBanner(true);
 
   const rootDir = process.cwd();
@@ -478,7 +544,7 @@ export async function updateCommand(_opts?: Record<string, unknown> & { yes?: bo
   }
   console.log();
 
-  const result = await runUpdate(rootDir, m);
+  const result = await runUpdate(rootDir, m, { diff: !!_opts?.diff });
 
   // Version checkpoint advisory: detect if a clean reinit is recommended
   const versionCheckpoints = getApplicableCheckpoints(m.hatch3rVersion, HATCH3R_VERSION);
@@ -496,6 +562,26 @@ export async function updateCommand(_opts?: Record<string, unknown> & { yes?: bo
     console.log();
     info(`Run ${chalk.bold("hatch3r clean")} and choose to reinitialize when prompted.`);
     console.log(chalk.dim("  Your customizations and learnings will be preserved.\n"));
+  }
+
+  // --diff: show file change summary
+  if (_opts?.diff && result.diffBefore && result.diffAfter) {
+    const diffLines: string[] = [];
+    for (const [filePath] of result.diffBefore) {
+      const before = result.diffBefore.get(filePath) ?? null;
+      const after = result.diffAfter.get(filePath) ?? null;
+      if (before === null && after !== null) {
+        diffLines.push(`${chalk.green("+ added")}    ${filePath}`);
+      } else if (before !== null && after !== null && before !== after) {
+        diffLines.push(`${chalk.yellow("~ modified")} ${filePath}`);
+      } else if (before !== null && after !== null && before === after) {
+        diffLines.push(`${chalk.dim("= unchanged")} ${filePath}`);
+      }
+    }
+    if (diffLines.length > 0) {
+      console.log();
+      printBox("Diff summary", diffLines, "info");
+    }
   }
 
   console.log();

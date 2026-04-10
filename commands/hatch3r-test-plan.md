@@ -59,7 +59,7 @@ Test Planning Brief:
   Constraints: {list}
 ```
 
-**ASK:** "Does this capture the test planning scope correctly? Adjust anything before I send this to the research phase."
+**ASK:** "Does this capture the test planning scope? Adjust anything before I send this to the research phase."
 
 #### Step 1b: Dimension Probing (Test Strategy Elicitation)
 
@@ -77,7 +77,7 @@ After the test planning brief is confirmed, probe for missing requirements acros
    - **Flaky test tolerance**: Existing flaky tests? Quarantine process in place? Retry budget in CI?
 3. Skip dimensions that the brief already addresses clearly.
 
-**ASK:** "Before research begins, I have {N} questions to ensure the test plan covers everything:
+**ASK:** "Before research begins, I have {N} questions to confirm the test plan covers all relevant dimensions:
 {numbered question list -- each with the dimension label and why the answer matters}
 
 Answer these now, or say 'use defaults' for any where you're comfortable with a reasonable default."

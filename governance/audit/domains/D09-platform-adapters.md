@@ -1,6 +1,6 @@
 # Domain 9: Platform Adapters
 
-**Scope:** All 14 adapters and the capability matrix. One sub-agent per adapter for maximum depth.
+**Scope:** All 15 adapters and the capability matrix. One sub-agent per adapter for maximum depth.
 **Sub-agents:** 16
 
 Sub-agents 9.15 and 9.16 are **sequential** — they run only after 9.1–9.14 complete.

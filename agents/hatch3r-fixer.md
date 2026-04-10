@@ -68,7 +68,7 @@ For each Critical and Warning finding:
 - Understand the root cause of the issue.
 - Determine the minimal fix that addresses the finding without introducing new issues.
 - If blast radius data is available, check whether the fix touches shared interfaces or APIs with downstream consumers — preserve those contracts.
-- If reference conventions are available, ensure the fix follows established patterns rather than introducing divergent approaches.
+- If reference conventions are available, verify the fix follows established patterns rather than introducing divergent approaches.
 - Use Context7 MCP (`resolve-library-id` then `query-docs`) for API patterns relevant to the fix.
 - Use web research for security advisories, CVE details, or best practices when the finding involves security or novel patterns.
 - Use the platform CLI to fetch additional context if needed (check `platform` in `.agents/hatch.json`):

@@ -47,7 +47,7 @@ Run the project's automated test suites (unit, integration, E2E) and record resu
 
 For each user-facing test case in the matrix:
 
-1. Ensure the dev server is running. If not, start it in the background.
+1. Confirm the dev server is running by checking the expected port. If not running, start it in the background.
 2. Navigate to the page or surface under test using browser automation MCP.
 3. Execute the test steps exactly as described — click, type, navigate, trigger state changes.
 4. Observe the actual result and compare to the expected result.

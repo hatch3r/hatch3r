@@ -45,7 +45,7 @@ This guide helps you resolve common issues with the hatch3r CLI, MCP servers, bo
 
 **Cause:** The tool name is not supported.
 
-**Solution:** Use only valid tools: `cursor`, `copilot`, `claude`, `opencode`, `windsurf`, `amp`, `codex`, `gemini`, `cline`, `aider`, `kiro`, `goose`, `zed`. Example: `npx hatch3r init --tools cursor,claude`.
+**Solution:** Use only valid tools: `cursor`, `copilot`, `claude`, `opencode`, `windsurf`, `amp`, `codex`, `gemini`, `cline`, `aider`, `kiro`, `goose`, `zed`, `amazon-q`, `antigravity`. Example: `npx hatch3r init --tools cursor,claude`.
 
 ### Not in a git repository
 
@@ -61,7 +61,7 @@ This guide helps you resolve common issues with the hatch3r CLI, MCP servers, bo
 
 **Cause:** The project has not been initialized, or the manifest was removed.
 
-**Solution:** Run `npx hatch3r init` first. If you had a working setup before, check `.agents/.backups/` for a backup of `hatch.json`.
+**Solution:** Run `npx hatch3r init` first. If you had a working setup before, recover `hatch.json` from git history: `git show HEAD:.agents/hatch.json > .agents/hatch.json`.
 
 ### Failed to generate {tool} output
 
@@ -102,11 +102,11 @@ Run `npx hatch3r validate` to check the `.agents/` structure. Below are common e
 
 ### Missing .agents/hatch.json manifest
 
-**Solution:** Init may have been interrupted. Re-run `npx hatch3r init`, or restore `hatch.json` from `.agents/.backups/` if available.
+**Solution:** Init may have been interrupted. Re-run `npx hatch3r init`, or restore `hatch.json` from git history: `git show HEAD:.agents/hatch.json > .agents/hatch.json`.
 
 ### Required directory missing: .agents/agents/, .agents/skills/, or .agents/rules/
 
-**Solution:** Restore from `.agents/.backups/` or re-run `npx hatch3r init` to recreate the structure.
+**Solution:** Restore from git history (e.g., `git checkout HEAD -- .agents/agents/ .agents/skills/ .agents/rules/`) or re-run `npx hatch3r init` to recreate the structure.
 
 ### Invalid frontmatter (no closing ---)
 
@@ -129,7 +129,7 @@ description: My rule
 
 ### Invalid JSON in .agents/mcp/mcp.json
 
-**Solution:** Validate JSON syntax (e.g. with `jq . .agents/mcp/mcp.json` or an online validator). Fix trailing commas, unquoted keys, or malformed strings. Restore from `.agents/.backups/` if needed.
+**Solution:** Validate JSON syntax (e.g. with `jq . .agents/mcp/mcp.json` or an online validator). Fix trailing commas, unquoted keys, or malformed strings. Restore from git history if needed: `git checkout HEAD -- .agents/mcp/mcp.json`.
 
 ### Managed file missing from disk
 

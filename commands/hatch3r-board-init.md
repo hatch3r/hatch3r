@@ -250,7 +250,7 @@ Execute all planned mutations in sequence. No further questions unless a mutatio
    ```
 2. Look for a field named "Status" (case-insensitive match).
 3. If no Status field exists, create one via the `createProjectV2Field` mutation with type `SINGLE_SELECT`.
-4. Ensure these status options exist on the field: **Backlog**, **Ready**, **In Progress**, **In Review**, **Done**.
+4. Verify these status options exist on the field: **Backlog**, **Ready**, **In Progress**, **In Review**, **Done**.
    - For missing options, use the `updateProjectV2Field` mutation (or the appropriate mutation for adding options to a single-select field) to add them.
 5. Capture the field ID and each option's ID.
 6. **Verify built-in "Done on close" automation:** After board creation, check the Projects V2 built-in workflows. Navigate to Project settings > Workflows > "Item closed" and verify it is enabled with Status mapped to "Done". Also verify "Pull request merged" maps Status to "Done". These workflows are on by default for UI-created projects but may not be enabled for API-created projects. Without these workflows, the board status will remain "In Review" after PR merge until `board-groom` detects the drift.
