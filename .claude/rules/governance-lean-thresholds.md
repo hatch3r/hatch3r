@@ -1,5 +1,7 @@
 # Governance Lean Thresholds
 
+**Pillars:** P5 (Governance Self-Quality), P4 (Lean Coverage)
+
 Before modifying any governance file, check `wc -l` against these limits from `governance/CONSTITUTION.md` §2 P5:
 
 | File | Limit |

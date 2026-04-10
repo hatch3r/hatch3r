@@ -124,6 +124,12 @@ You MUST spawn these agents via the Task tool (`subagent_type: "generalPurpose"`
 
 - **Skill**: `hatch3r-qa-validation` — use this skill for end-to-end verification of the implemented feature
 
+## Error Handling
+
+- **Acceptance criteria are ambiguous or incomplete**: Stop implementation, document the specific ambiguities, and ask the user for clarification before proceeding. Do not guess at requirements.
+- **Feature touches a module with no existing tests**: Write foundational tests for the existing behavior first, then implement the feature. This prevents regressions in untested code.
+- **Database migration fails or is irreversible**: Test the migration against a local database or emulator before applying. If rollback is needed, verify the down-migration restores the original schema.
+
 ## Definition of Done
 
 - [ ] All acceptance criteria met

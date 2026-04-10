@@ -1,4 +1,4 @@
-import { access, cp, mkdir, readFile, readdir, rm, stat } from "node:fs/promises";
+import { access, cp, mkdir, open, readFile, readdir, rm, stat } from "node:fs/promises";
 import { dirname, join, sep } from "node:path";
 import type { HatchManifest, Tool } from "../types.js";
 import { ARCHIVE_DIR, HATCH3R_PREFIX, sanitizeId } from "../types.js";
@@ -39,7 +39,7 @@ export const TOOL_PATH_PREFIXES: Record<Tool, string[]> = {
   kiro: [".kiro/"],
   opencode: ["opencode.json", ".opencode/"],
   goose: [".goosehints", ".goose/"],
-  zed: [".rules"],
+  zed: [".rules", ".zed/"],
   "amazon-q": [".amazonq/"],
   antigravity: [".antigravity/"],
   "agents-md": ["AGENTS.md"],
@@ -174,11 +174,23 @@ export async function archiveToolOutputs(
     const archiveDest = join(archiveBase, relPath);
     await mkdir(dirname(archiveDest), { recursive: true });
     await cp(absPath, archiveDest);
-    // Verify the copy succeeded before removing the original
-    const srcStat = await stat(absPath);
-    const destStat = await stat(archiveDest);
-    if (destStat.size !== srcStat.size) {
-      throw new Error(`Archive copy size mismatch for ${relPath}: source=${srcStat.size}, dest=${destStat.size}`);
+    // #243 (D8-8.10): Use fd-based stat to avoid TOCTOU race between stat
+    // calls. Opening both files and using fh.stat() ensures we read sizes
+    // atomically from the same inodes we just wrote/read.
+    const srcFh = await open(absPath, "r");
+    try {
+      const destFh = await open(archiveDest, "r");
+      try {
+        const srcStat = await srcFh.stat();
+        const destStat = await destFh.stat();
+        if (destStat.size !== srcStat.size) {
+          throw new Error(`Archive copy size mismatch for ${relPath}: source=${srcStat.size}, dest=${destStat.size}`);
+        }
+      } finally {
+        await destFh.close();
+      }
+    } finally {
+      await srcFh.close();
     }
     await rm(absPath);
     archivedFiles.push(relPath);

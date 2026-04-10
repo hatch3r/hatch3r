@@ -69,6 +69,12 @@ Task Progress:
 | Full pipeline (push to artifact) | < 15 minutes |
 | Cache hit ratio | > 80% |
 
+## Error Handling
+
+- **Pipeline config syntax errors**: Validate workflow YAML locally (e.g., `actionlint` for GitHub Actions) before pushing. Report the exact line and field causing the parse failure.
+- **Flaky tests block pipeline**: Identify the flaky test(s) by re-running the failing job. If confirmed flaky, quarantine the test with a tracking issue reference and unblock the pipeline.
+- **Cache invalidation causes slow builds**: Verify cache key patterns match the lockfile hash. If caches are stale, clear them and document the corrected key strategy.
+
 ## Definition of Done
 
 - [ ] Pipeline stages optimized with maximum parallelism

@@ -16,10 +16,11 @@ import { TOOL_CHOICES } from "../types.js";
 // Agent command names that users might try to run directly in the terminal.
 // These are slash commands meant to be invoked inside an AI-powered editor, not from the CLI.
 const AGENT_COMMAND_NAMES = new Set([
-  "workflow", "project-spec", "codebase-map", "debug", "release", "review",
+  "workflow", "project-spec", "codebase-map", "debug", "release",
   "refactor-plan", "test-plan", "bug-plan", "feature-plan", "migration-plan",
   "roadmap", "onboard", "recipe",
   "board-init", "board-pickup", "board-groom", "board-refresh", "board-fill",
+  "board-shared",
   "security-audit", "dep-audit", "benchmark", "healthcheck", "context-health",
   "learn", "revision", "cost-tracking", "api-spec", "hooks", "quick-change",
   "command-customize", "agent-customize", "rule-customize", "skill-customize",

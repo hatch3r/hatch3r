@@ -3,6 +3,7 @@ id: researcher-mode-prior-art
 type: mode
 description: Research best practices, known issues, and ecosystem trends via web search.
 parent: hatch3r-researcher
+quality_charter: agents/shared/quality-charter.md
 ---
 ### Mode: `prior-art`
 

@@ -3,6 +3,7 @@ id: researcher-mode-similar-implementation
 type: mode
 description: Search the codebase for analogous features and extract implementation conventions.
 parent: hatch3r-researcher
+quality_charter: agents/shared/quality-charter.md
 ---
 ### Mode: `similar-implementation`
 

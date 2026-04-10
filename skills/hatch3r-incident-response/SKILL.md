@@ -78,6 +78,12 @@ Store in project incident docs or as an issue/wiki page on the platform. Follow 
 - Link issues/work items to the post-mortem and to each other.
 - Assign owners and due dates for critical fixes.
 
+## Error Handling
+
+- **Cannot reproduce the incident locally**: Use production logs and traces to build the timeline. If local reproduction is blocked by environment differences, document the gap and recommend a staging environment test.
+- **Mitigation introduces new issues**: Roll back the mitigation immediately, reassess the approach, and apply a more targeted fix. Document both the original incident and the mitigation regression in the post-mortem.
+- **Root cause spans multiple services or teams**: Document the cross-service dependency chain, assign follow-up items to the responsible teams, and coordinate a joint post-mortem.
+
 ## Definition of Done
 
 - [ ] Incident mitigated and verified

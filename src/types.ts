@@ -253,6 +253,12 @@ export interface RepoInfo {
   hasExistingAgents: boolean;
   existingTools: Tool[];
   rootDir: string;
+  /** D14 Medium (#14.5): Detected linter/formatter tools. */
+  linters?: string[];
+  /** D14 Medium (#14.6): Detected test framework(s). */
+  testFrameworks?: string[];
+  /** D14 Medium (#14.7): Detected CI provider(s). */
+  ciProviders?: string[];
 }
 
 export const MANAGED_BLOCK_START = "<!-- HATCH3R:BEGIN -->";

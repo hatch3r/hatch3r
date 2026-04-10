@@ -5,6 +5,7 @@ event: session-start
 agent: learnings-loader
 description: Load relevant learnings at session start
 tags: [core]
+quality_charter: agents/shared/quality-charter.md
 ---
 # Hook: session-start → learnings-loader
 

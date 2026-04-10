@@ -1,5 +1,6 @@
 ---
 description: Theming, dark mode, and color system conventions for the project
+globs: ["src/**/*.vue", "src/**/*.tsx", "src/**/*.jsx", "src/**/*.css", "src/**/*.scss", "**/*theme*", "**/*color*"]
 alwaysApply: false
 ---
 # Theming & Dark Mode

@@ -56,8 +56,11 @@ export class WindsurfAdapter extends BaseAdapter {
         const globScope = (trigger === "glob" && scope)
           ? (isGlobPattern(scope) ? scope : `${scope}/**`)
           : undefined;
-        const fm = `---\ntrigger: ${trigger}${globScope ? `\nglobs: "${globScope}"` : ""}\n---`;
         const desc = overrides.description ?? rule.description;
+        // Windsurf requires a description field for model_decision triggers
+        // so the AI model knows when to activate the rule.
+        const descField = trigger === "model_decision" ? `\ndescription: "${desc.replace(/"/g, '\\"')}"` : "";
+        const fm = `---\ntrigger: ${trigger}${descField}${globScope ? `\nglobs: "${globScope}"` : ""}\n---`;
         const body = `# ${rule.id}\n\n${desc}\n\n${content}`;
         results.push(output(`.windsurf/rules/${toPrefixedId(rule.id)}.md`, `${fm}\n\n${wrapInManagedBlock(body)}`, body));
       }

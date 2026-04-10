@@ -179,6 +179,16 @@ You are a test agent.`,
     }
   });
 
+  // ── Finding 3.16: no empty content assertion ──
+  it("produces no empty content in any output", async () => {
+    const manifest = makeManifest();
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    for (const o of outputs) {
+      expect(o.content.length).toBeGreaterThan(0);
+    }
+  });
+
   it("does not include MCP when features.mcp is false", async () => {
     const manifest = makeManifest({ mcpServers: ["github"], features: { mcp: false } });
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);

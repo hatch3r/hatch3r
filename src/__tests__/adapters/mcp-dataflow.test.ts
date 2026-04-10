@@ -151,16 +151,17 @@ describe("MCP header forwarding (#21)", () => {
     expect(parsed.servers["auth-server"].headers["X-Custom"]).toBe("static-value");
   });
 
-  it("Codex adapter includes headers in TOML output", async () => {
+  it("Codex adapter includes headers in TOML table format", async () => {
     const codex = new CodexAdapter();
     const manifest = makeManifest("codex");
     const outputs = await codex.generate(agentsDir, manifest);
 
     const config = outputs.find((o) => o.path === ".codex/config.toml");
     expect(config).toBeDefined();
-    expect(config!.content).toContain("headers.X-Custom");
+    // Codex v0.114+: headers use TOML table sections
+    expect(config!.content).toContain("[mcp_servers.auth-server.headers]");
     expect(config!.content).toContain("static-value");
-    expect(config!.content).toContain("headers.Authorization");
+    expect(config!.content).toContain("Authorization");
   });
 
   it("Goose adapter includes headers in extensions", async () => {

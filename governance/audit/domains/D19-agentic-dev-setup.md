@@ -28,14 +28,16 @@
 - [ ] No contradictions — no rule contradicts any governance document (rule says X, governance says not-X)
 - [ ] File references current — all file paths, function names, and module references in rules exist in the codebase
 - [ ] Behavioral charter alignment — rules reflect the 13 behavioral charter directives from AUDIT.md
-- [ ] Anti-slop — rules themselves pass the anti-slop wordlist check (zero hits)
+- [ ] Anti-slop — rules themselves pass the anti-slop wordlist check (zero hits). Wordlist matches AUDIT-EXECUTE.md regression gate 10 exactly
+- [ ] Pillar attribution — each rule documents which pillar(s) it serves (P1-P6)
 
 ### 19.3 Skill & Command Completeness
 - [ ] Lifecycle coverage — skill set covers the key development workflows (audit, execution, adapter authoring, content authoring, governance checking, release)
 - [ ] SKILL.md executable — mentally trace each skill's steps. Every file reference exists, every command runs, every output path is valid
 - [ ] No dangling references — skills reference agents, governance files, and templates that exist
 - [ ] No duplication — skills do not replicate functionality already in hatch3r CLI commands (`hatch3r validate`, `hatch3r verify`)
-- [ ] Frontmatter valid — each SKILL.md has valid YAML frontmatter with name, description, effort, allowed-tools
+- [ ] Frontmatter valid — each SKILL.md has YAML frontmatter with required fields: name, description, effort, allowed-tools
+- [ ] Audit metrics documented — skills that produce metrics (audit-cycle, governance-check) document their output format
 
 ### 19.4 Hook Reliability & Self-Coherence
 - [ ] Correct event binding — each hook in `.claude/settings.json` fires on the correct Claude Code event (SessionStart, PreToolUse, PostToolUse, SubagentStart) with appropriate matcher

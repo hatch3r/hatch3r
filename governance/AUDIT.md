@@ -267,6 +267,8 @@ The orchestrator spawns sub-agents per domain file. Each sub-agent:
 
 ### Sub-Agent Behavioral Charter
 
+> **Canonical definition:** [CONSTITUTION.md](CONSTITUTION.md) §2 P2 defines the charter's governance role. The 13 directives below are the authoritative behavioral specification for audit sub-agents.
+
 Every audit sub-agent must internalize these behavioral directives. These govern HOW you think, not just WHAT you check. The checklists define scope; the charter defines mindset.
 
 1. **Neutrality** — Do not favor findings that inflate your domain's importance. Do not confirm previous audit conclusions without re-verifying independently. Approach each artifact as if seeing it for the first time.

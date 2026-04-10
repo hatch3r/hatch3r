@@ -37,13 +37,18 @@ export async function atomicWriteFile(filePath: string, content: string): Promis
   const tmpPath = filePath + ".tmp." + randomBytes(4).toString("hex");
   try {
     await writeFile(tmpPath, content, "utf-8");
-    const fh = await open(tmpPath, "r");
+    // #239 (D8-8.6): Open with "r+" instead of "r" so fdatasync operates on a
+    // writable file descriptor. Read-only descriptors cause EPERM/EBADF on some
+    // platforms (Windows, certain Linux configurations).
+    const fh = await open(tmpPath, "r+");
     try {
       await fh.datasync();
     } catch (err) {
-      // Windows rejects fdatasync on read-only handles (EPERM).
-      // The atomic rename provides the safety guarantee; datasync is best-effort.
-      if ((err as NodeJS.ErrnoException).code !== "EPERM") throw err;
+      // Some filesystems or OS configurations still reject fdatasync (e.g. FAT32,
+      // network mounts). The atomic rename provides the safety guarantee; datasync
+      // is best-effort durability.
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== "EPERM" && code !== "ENOTSUP" && code !== "EINVAL") throw err;
     } finally {
       await fh.close();
     }
@@ -64,6 +69,12 @@ export async function atomicWriteFile(filePath: string, content: string): Promis
     if (code === "ENOSPC") {
       throw new Error(
         `Not enough disk space to write ${filePath}. Free up space and re-run the command.`,
+      );
+    }
+    // #239 (D8-8.6): Actionable error for EACCES/permission-denied failures.
+    if (code === "EACCES") {
+      throw new Error(
+        `Permission denied writing ${filePath}. Check file/directory permissions and ensure the current user has write access.`,
       );
     }
     throw err;

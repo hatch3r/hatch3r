@@ -133,6 +133,12 @@ Skip this step if the issue has no user-facing UI changes.
 - Push fixes as new commits (don't force-push during review).
 - Re-request review after addressing all comments.
 
+## Error Handling
+
+- **Issue description is too vague to implement**: Do not guess. Ask the user for clarification on acceptance criteria, scope boundaries, and expected behavior before starting Step 3 (planning).
+- **Tests fail after implementation and the cause is unclear**: Run tests in isolation to identify whether the failure is in new code or existing code. If existing tests broke, check whether they relied on behavior that was intentionally changed.
+- **PR/MR creation fails due to branch conflicts**: Rebase onto the target branch, resolve conflicts, re-run all tests, and verify the merge result before re-creating the PR/MR.
+
 ## Escalation
 
 Stop and ask when:

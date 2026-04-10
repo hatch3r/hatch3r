@@ -13,6 +13,7 @@ Persistent instructions (coding standards, conventions, patterns) that are alway
 |------|-------------|
 | **accessibility-standards** | Accessibility standards covering WCAG 2.2 AA compliance, keyboard navigation, screen readers, and ARIA patterns. |
 | **agent-orchestration** | Agent delegation patterns, sub-agent spawning conventions, result aggregation, and multi-agent coordination protocols. |
+| **agent-orchestration-detail** | Extended orchestration reference -- PipelineContext schemas, resilience protocols, observability integration, and auto-mode guardrails. |
 | **api-design** | Endpoint versioning, request validation, idempotency keys, structured error responses, auth, CORS, CSP, pagination, and webhook security. |
 | **browser-verification** | When and how to verify UI changes in the browser via automation MCP -- dev server lifecycle, navigation, interaction, visual regression, screenshot evidence. |
 | **ci-cd** | CI/CD pipeline standards covering stage gates, deployment strategies, and rollback procedures. |
@@ -27,6 +28,9 @@ Persistent instructions (coding standards, conventions, patterns) that are alway
 | **learning-consult** | When and how to consult project learnings during development. |
 | **migrations** | Backward-compatible schema changes, idempotent scripts, rollback plans, and deploy-then-migrate ordering. |
 | **observability** | Structured JSON logging, OpenTelemetry, SLO/SLI, distributed tracing, alerting, dashboards, and no PII in logs. |
+| **observability-logging** | Structured logging and error reporting conventions for the project. |
+| **observability-metrics** | Metrics, SLO/SLI definitions, alerting, and dashboard conventions for the project. |
+| **observability-tracing** | Distributed tracing, OpenTelemetry semantic conventions, AI agent instrumentation, and correlation ID conventions. |
 | **performance-budgets** | Core Web Vitals, API latency, database query budgets, bundle size, and enforcement mechanisms. |
 | **secrets-management** | Secret management, rotation, and secure handling patterns for the project. |
 | **security-patterns** | Input validation, output encoding, auth enforcement, AI/agentic security, and OWASP alignment. |

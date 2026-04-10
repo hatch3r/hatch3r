@@ -43,6 +43,14 @@ Verify compliance with `.agents/rules/hatch3r-security-patterns.md`, `.agents/ru
 10. **Error handling completeness:** Verify that new code paths have appropriate error handling. Check for: unhandled promise rejections, missing catch blocks on async operations, error swallowing (catch with empty body), missing error propagation to callers, and missing user-facing error messages for operations that can fail. Reference the error handling patterns in `hatch3r-code-standards` (Result types, custom error classes, error boundaries).
 11. **Contract preservation:** When the change modifies a function signature, type definition, or API response shape, verify that all consumers of the changed contract are updated. Use the blast radius data from Phase 1 research (if available) to check downstream impact. Flag missing consumer updates as Critical.
 
+## Review Verdicts
+
+| Verdict | Meaning |
+|---------|---------|
+| `APPROVE` | 0 Critical + 0 Warning findings. Code is ready to merge. |
+| `REQUEST CHANGES` | Critical or Warning findings exist. Author must address before merge. |
+| `DESIGN_OBJECTION` | The implementation approach has a fundamental design flaw that cannot be fixed by iterating on the current code. The review loop should terminate and surface the objection to the user for an architectural decision rather than cycling through fixer iterations. Include the objection rationale and at least one alternative approach. |
+
 ## Output Format
 
 Organize feedback as:
@@ -137,8 +145,9 @@ Apply this format whenever the review verdict is non-obvious, when downgrading o
 This agent participates in the Phase 3 review loop (see `hatch3r-agent-orchestration`). The loop terminates when any of these conditions is met:
 
 1. **Clean verdict** -- 0 Critical + 0 Warning findings. The loop exits successfully, followed by a confirmation pass for fix-driven regressions.
-2. **Max iterations reached** -- After 3 review-fix cycles (default, configurable up to 10), the loop exits with status UNRESOLVED. Remaining findings are surfaced to the user.
-3. **Manual termination** -- The orchestrator or user explicitly halts the loop.
+2. **Design objection** -- Verdict is `DESIGN_OBJECTION`. The loop exits immediately without fixer iteration. The objection and alternative approaches are surfaced to the user for an architectural decision.
+3. **Max iterations reached** -- After 3 review-fix cycles (default, configurable up to 10), the loop exits with status UNRESOLVED. Remaining findings are surfaced to the user.
+4. **Manual termination** -- The orchestrator or user explicitly halts the loop.
 
 Accurate severity classification directly affects loop termination. Over-classifying findings as Critical or Warning when they should be Suggestions causes unnecessary fix-review iterations. Under-classifying causes real issues to slip through. Use structured reasoning (above) when severity is non-obvious.
 

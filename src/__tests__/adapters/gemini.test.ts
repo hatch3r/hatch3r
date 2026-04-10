@@ -95,6 +95,16 @@ describe("GeminiAdapter", () => {
     expect(parsed.hooks).toBeDefined();
   });
 
+  // ── Finding 3.18: hooks feature disabled assertion ──
+  it("does not include hooks config when hooks feature is disabled", async () => {
+    const manifest = makeManifest({ features: { hooks: false } });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const settings = outputs.find((o) => o.path === ".gemini/settings.json");
+    const parsed = JSON.parse(settings!.content);
+    expect(parsed.hooks).toBeUndefined();
+  });
+
   it("inlines agents into GEMINI.md when features.agents is enabled", async () => {
     const manifest = makeManifest();
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
@@ -169,6 +179,28 @@ describe("GeminiAdapter", () => {
     for (const o of outputs) {
       expect(o.action).toBe("create");
     }
+  });
+
+  // ── Finding 3.16: no empty content assertion ──
+  it("produces no empty content in any output", async () => {
+    const manifest = makeManifest();
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    for (const o of outputs) {
+      expect(o.content.length).toBeGreaterThan(0);
+    }
+  });
+
+  // ── Finding 3.17: model resolution assertion ──
+  it("includes model annotation in GEMINI.md when agent has model configured", async () => {
+    const manifest = makeManifest();
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const geminiMd = outputs.find((o) => o.path === "GEMINI.md");
+    expect(geminiMd).toBeDefined();
+    // test-agent fixture has model: sonnet -> resolves to claude-sonnet-4-6
+    expect(geminiMd!.content).toContain("Recommended model:");
+    expect(geminiMd!.content).toContain("claude-sonnet-4-6");
   });
 
   it("escapes TOML triple-quote injection in command descriptions", async () => {

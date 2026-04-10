@@ -17,7 +17,7 @@ hatch3r is an open-source CLI (TypeScript, Commander.js) that generates tool-agn
 | `src/merge/` | Safe write (temp+rename atomic), managed block tracking |
 | `src/integrity/` | SHA-256 file integrity, manifest-level checksum |
 | `agents/` `skills/` `rules/` `commands/` `hooks/` | Canonical content artifacts (16 agents, 26 skills, 26 rules, 34 commands, 6 hooks) |
-| `checks/` `prompts/` `github-agents/` | Additional content: 6 checks, 3 prompts, 4 github-agents |
+| `checks/` `prompts/` `github-agents/` | Additional content: 5 checks, 3 prompts, 4 github-agents |
 | `governance/` | 6 Binding Pillars, 19 audit domains, audit cycle, closed-loop phases |
 | `.claude/` | Rules, skills, hooks for framework development |
 

@@ -22,6 +22,8 @@ import {
   error as logError,
   warn,
   info,
+  setVerbose,
+  verbose,
 } from "../shared/ui.js";
 
 // Default fallback set; overridden by manifest.content when available
@@ -538,7 +540,8 @@ export async function validateDocsCounts(rootDir: string): Promise<{ mismatches:
   return { mismatches, checked };
 }
 
-export async function validateCommand(opts?: { docs?: boolean }): Promise<void> {
+export async function validateCommand(opts?: { docs?: boolean; verbose?: boolean }): Promise<void> {
+  setVerbose(!!opts?.verbose);
   printBanner(true);
 
   const rootDir = process.cwd();
@@ -573,18 +576,28 @@ export async function validateCommand(opts?: { docs?: boolean }): Promise<void> 
 
   const manifest = await readManifest(rootDir);
 
+  verbose("Checking manifest...");
   await validateManifest(rootDir, manifest, result);
+  verbose("Checking directory structure...");
   await validateDirectories(agentsDir, result);
+  verbose("Checking frontmatter...");
   await validateFrontmatter(agentsDir, result);
 
   if (manifest) {
+    verbose("Checking file prefixes...");
     await validateManagedFilePrefixes(manifest, result);
+    verbose("Checking hooks...");
     await validateHooks(agentsDir, manifest, result);
+    verbose("Checking MCP configuration...");
     await validateMcp(agentsDir, manifest, result);
+    verbose("Checking model configuration...");
     await validateModels(manifest, result);
+    verbose("Checking cost tracking...");
     await validateCostTracking(manifest, result);
+    verbose("Checking customizations...");
     await validateCustomizations(rootDir, agentsDir, manifest, result);
     await validateCustomizeYaml(rootDir, result);
+    verbose("Checking content consistency...");
     await validateContentConsistency(rootDir, agentsDir, manifest, result);
 
     // Cross-reference validation: check that installed content doesn't have broken references
@@ -613,8 +626,12 @@ export async function validateCommand(opts?: { docs?: boolean }): Promise<void> 
           `Content ID collision: "${collision.id}" exists as ${collision.existingType} (${collision.existingPath}) and ${collision.duplicateType} (${collision.duplicatePath})`,
         );
       }
-    } catch {
-      // Content scanning failed — skip cross-ref and collision validation
+    } catch (err) {
+      // #252 (D8-8.19): Log content scanning errors instead of silently swallowing them.
+      // This helps diagnose broken cross-references or index build failures.
+      result.warnings.push(
+        `Content scanning failed — cross-reference and collision validation skipped: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
 
     // Orchestration dependency validation: check required agents are selected

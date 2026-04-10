@@ -4,7 +4,7 @@ import type { Framework, RepoInfo, Tool } from "../types.js";
 import { detectPackageManager } from "./packageManager.js";
 
 export async function analyzeRepo(rootDir: string): Promise<RepoInfo> {
-  const [languages, pm, isMonorepo, hasExistingAgents, existingTools, frameworks] =
+  const [languages, pm, isMonorepo, hasExistingAgents, existingTools, frameworks, linters, testFrameworks, ciProviders] =
     await Promise.all([
       detectLanguages(rootDir),
       detectPackageManager(rootDir),
@@ -12,6 +12,9 @@ export async function analyzeRepo(rootDir: string): Promise<RepoInfo> {
       detectExistingAgents(rootDir),
       detectExistingTools(rootDir),
       detectFrameworks(rootDir),
+      detectLinters(rootDir),
+      detectTestFrameworks(rootDir),
+      detectCIProviders(rootDir),
     ]);
   const packageManager = pm.name;
 
@@ -23,6 +26,9 @@ export async function analyzeRepo(rootDir: string): Promise<RepoInfo> {
     hasExistingAgents,
     existingTools,
     rootDir,
+    linters,
+    testFrameworks,
+    ciProviders,
   };
 }
 
@@ -253,6 +259,112 @@ async function detectFrameworks(rootDir: string): Promise<Framework[]> {
   return [...detected];
 }
 
+// ── D14 Medium (#14.5): Linter / formatter detection ──────────────
+
+/** Linter/formatter indicator files. */
+const LINTER_INDICATORS: { name: string; configs: string[] }[] = [
+  { name: "eslint", configs: [".eslintrc", ".eslintrc.js", ".eslintrc.json", ".eslintrc.yml", ".eslintrc.cjs", "eslint.config.js", "eslint.config.mjs", "eslint.config.ts"] },
+  { name: "prettier", configs: [".prettierrc", ".prettierrc.js", ".prettierrc.json", ".prettierrc.yml", ".prettierrc.cjs", "prettier.config.js", "prettier.config.mjs"] },
+  { name: "biome", configs: ["biome.json", "biome.jsonc"] },
+  { name: "ruff", configs: ["ruff.toml", ".ruff.toml"] },
+  { name: "black", configs: ["pyproject.toml"] }, // pyproject.toml with [tool.black] — config presence is sufficient
+  { name: "rubocop", configs: [".rubocop.yml"] },
+  { name: "golangci-lint", configs: [".golangci.yml", ".golangci.yaml", ".golangci.toml", ".golangci.json"] },
+  { name: "clippy", configs: [".clippy.toml", "clippy.toml"] },
+  { name: "checkstyle", configs: ["checkstyle.xml"] },
+  { name: "stylelint", configs: [".stylelintrc", ".stylelintrc.json", ".stylelintrc.yml", "stylelint.config.js"] },
+  { name: "deno-lint", configs: ["deno.json", "deno.jsonc"] },
+];
+
+export async function detectLinters(rootDir: string): Promise<string[]> {
+  const detected: string[] = [];
+  const results = await Promise.allSettled(
+    LINTER_INDICATORS.map(async ({ name, configs }) => {
+      for (const cfg of configs) {
+        if (await pathExists(join(rootDir, cfg))) return name;
+      }
+      return null;
+    }),
+  );
+  for (const r of results) {
+    if (r.status === "fulfilled" && r.value !== null) {
+      detected.push(r.value);
+    }
+  }
+  return detected;
+}
+
+// ── D14 Medium (#14.6): Test framework detection ─────────────────
+
+/** Test framework indicator files. */
+const TEST_FRAMEWORK_INDICATORS: { name: string; configs: string[] }[] = [
+  { name: "vitest", configs: ["vitest.config.ts", "vitest.config.js", "vitest.config.mts"] },
+  { name: "jest", configs: ["jest.config.js", "jest.config.ts", "jest.config.mjs", "jest.config.json"] },
+  { name: "mocha", configs: [".mocharc.yml", ".mocharc.json", ".mocharc.js"] },
+  { name: "pytest", configs: ["pytest.ini", "conftest.py"] },
+  { name: "rspec", configs: [".rspec", "spec/spec_helper.rb"] },
+  { name: "junit", configs: ["src/test/java"] },
+  { name: "go-test", configs: ["go.mod"] }, // Go test is built-in; presence of go.mod implies go test availability
+  { name: "cargo-test", configs: ["Cargo.toml"] }, // Rust test is built-in
+  { name: "phpunit", configs: ["phpunit.xml", "phpunit.xml.dist"] },
+  { name: "playwright", configs: ["playwright.config.ts", "playwright.config.js"] },
+  { name: "cypress", configs: ["cypress.config.ts", "cypress.config.js", "cypress.json"] },
+];
+
+export async function detectTestFrameworks(rootDir: string): Promise<string[]> {
+  const detected: string[] = [];
+  const results = await Promise.allSettled(
+    TEST_FRAMEWORK_INDICATORS.map(async ({ name, configs }) => {
+      for (const cfg of configs) {
+        if (await pathExists(join(rootDir, cfg))) return name;
+      }
+      return null;
+    }),
+  );
+  for (const r of results) {
+    if (r.status === "fulfilled" && r.value !== null) {
+      detected.push(r.value);
+    }
+  }
+  return detected;
+}
+
+// ── D14 Medium (#14.7): CI provider detection ────────────────────
+
+/** CI provider indicator files/directories. */
+const CI_PROVIDER_INDICATORS: { name: string; configs: string[] }[] = [
+  { name: "github-actions", configs: [".github/workflows"] },
+  { name: "gitlab-ci", configs: [".gitlab-ci.yml"] },
+  { name: "circleci", configs: [".circleci/config.yml"] },
+  { name: "travis", configs: [".travis.yml"] },
+  { name: "jenkins", configs: ["Jenkinsfile"] },
+  { name: "azure-pipelines", configs: ["azure-pipelines.yml"] },
+  { name: "bitbucket-pipelines", configs: ["bitbucket-pipelines.yml"] },
+  { name: "buildkite", configs: [".buildkite/pipeline.yml"] },
+  { name: "drone", configs: [".drone.yml"] },
+  { name: "woodpecker", configs: [".woodpecker.yml", ".woodpecker"] },
+];
+
+export async function detectCIProviders(rootDir: string): Promise<string[]> {
+  const detected: string[] = [];
+  const results = await Promise.allSettled(
+    CI_PROVIDER_INDICATORS.map(async ({ name, configs }) => {
+      for (const cfg of configs) {
+        if (await pathExists(join(rootDir, cfg))) return name;
+      }
+      return null;
+    }),
+  );
+  for (const r of results) {
+    if (r.status === "fulfilled" && r.value !== null) {
+      detected.push(r.value);
+    }
+  }
+  return detected;
+}
+
+// ── Utilities ─────────────────────────────────────────────────────
+
 async function pathExists(path: string): Promise<boolean> {
   try {
     await access(path);
@@ -277,6 +389,18 @@ export function formatRepoSummary(info: RepoInfo): string {
 
   if (info.existingTools.length > 0) {
     lines.push(`Existing tool configs: ${info.existingTools.join(", ")}`);
+  }
+
+  if (info.linters && info.linters.length > 0) {
+    lines.push(`Linters: ${info.linters.join(", ")}`);
+  }
+
+  if (info.testFrameworks && info.testFrameworks.length > 0) {
+    lines.push(`Test frameworks: ${info.testFrameworks.join(", ")}`);
+  }
+
+  if (info.ciProviders && info.ciProviders.length > 0) {
+    lines.push(`CI providers: ${info.ciProviders.join(", ")}`);
   }
 
   return lines.join("\n");

@@ -1,5 +1,7 @@
 # Commit Conventions
 
+**Pillars:** P2 (Scientific Quality), P5 (Governance Self-Quality)
+
 1. **Format:** Conventional Commits — `type(scope): description`
    - Types: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`, `audit`
    - Scopes: `cli`, `adapters`, `pipeline`, `content`, `governance`, `audit`, `workspace`, `worktree`

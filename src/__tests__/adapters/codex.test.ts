@@ -84,8 +84,9 @@ describe("CodexAdapter", () => {
 
     const agent = agentFiles.find((o) => o.path === ".codex/agents/hatch3r-test-agent.toml");
     expect(agent).toBeDefined();
-    expect(agent!.content).toContain('.agents/agents/test-agent.md');
     expect(agent!.content).toContain('description =');
+    // model_instructions_file is legacy/reserved — Codex discovers AGENTS.md natively
+    expect(agent!.content).not.toContain('model_instructions_file');
 
     // config.toml should NOT contain agent sections
     const configToml = outputs.find((o) => o.path === ".codex/config.toml");
@@ -237,7 +238,9 @@ You are a test agent.`,
       expect(configToml.content).toContain("[mcp_servers.filesystem]");
       expect(configToml.content).toContain('command = "npx"');
       expect(configToml.content).toContain('args = ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]');
-      expect(configToml.content).toContain('env.MCP_FS_ROOT = "/tmp"');
+      // Codex v0.114+: env uses TOML table sections, not inline dotted keys
+      expect(configToml.content).toContain('[mcp_servers.filesystem.env]');
+      expect(configToml.content).toContain('MCP_FS_ROOT = "/tmp"');
     });
 
     it("skips _disabled MCP servers", async () => {

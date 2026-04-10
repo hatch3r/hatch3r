@@ -3,6 +3,7 @@ id: researcher-mode-refactoring-strategy
 type: mode
 description: Design the refactoring approach with transformations, invariants, and patterns.
 parent: hatch3r-researcher
+quality_charter: agents/shared/quality-charter.md
 ---
 ### Mode: `refactoring-strategy`
 

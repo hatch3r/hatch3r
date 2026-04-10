@@ -1,5 +1,6 @@
 ---
 description: Browser-based verification for UI and user-facing changes
+globs: ["**/*.vue", "**/*.jsx", "**/*.tsx", "**/*.svelte", "**/components/**", "**/*.html", "**/*.css", "**/*.scss"]
 alwaysApply: false
 ---
 # Browser Verification

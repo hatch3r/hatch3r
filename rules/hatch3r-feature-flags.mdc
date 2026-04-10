@@ -1,5 +1,6 @@
 ---
 description: Feature flag patterns and lifecycle for the project
+globs: ["**/*feature-flag*", "**/*featureFlag*", "**/*feature_flag*", "**/config/**"]
 alwaysApply: false
 ---
 # Feature Flags

@@ -1,5 +1,6 @@
 ---
 description: Structured logging and error reporting conventions for the project
+globs: ["**/*log*", "**/*logger*", "**/*logging*", "**/*error*", "**/observability/**"]
 alwaysApply: false
 ---
 # Observability -- Logging & Error Reporting

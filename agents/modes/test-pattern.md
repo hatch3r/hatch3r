@@ -3,6 +3,7 @@ id: researcher-mode-test-pattern
 type: mode
 description: Extract existing test conventions, framework usage, mock patterns, and helper libraries.
 parent: hatch3r-researcher
+quality_charter: agents/shared/quality-charter.md
 ---
 ### Mode: `test-pattern`
 

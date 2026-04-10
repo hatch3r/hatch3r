@@ -164,7 +164,11 @@ For each dependency level, starting at Level 1:
 After all implementer sub-agents complete across all levels:
 
 1. Run a combined quality check across all changes from all issues.
-2. Resolve any cross-issue file conflicts or integration issues.
+2. **File conflict resolution:** When parallel sub-agents modify the same file, apply this resolution protocol:
+   - **Disjoint regions:** Accept both changes (non-overlapping edits to different functions/sections).
+   - **Overlapping regions:** If changes touch the same lines or function, merge manually using the sub-agent that modified the larger scope as the base, then apply the smaller-scope change on top. Run tests after merge.
+   - **Semantic conflicts:** If two sub-agents make contradictory changes to the same interface, type, or contract, halt and surface both changes to the user with the conflict description. Do not auto-resolve semantic conflicts.
+   - **Prevention:** Step 3 (collision detection) should move file-overlapping issues to sequential dependency levels. Conflicts at this stage indicate a missed overlap in Step 3.4.
 3. Verify no regressions between parallel sub-agent outputs.
 
 ### 6c.5. Post-Implementation Quality Pipeline

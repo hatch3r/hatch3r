@@ -1,5 +1,7 @@
 # Audit Cycle Awareness
 
+**Pillars:** P5 (Governance Self-Quality), P2 (Scientific Quality)
+
 The audit cycle is the framework's primary quality mechanism. Understand the flow:
 
 1. **Audit** (`governance/AUDIT.md`): 19 domains across 4 tiers deploy 106 sub-agents. Each produces findings with severity (Critical/High/Medium/Low/Info)

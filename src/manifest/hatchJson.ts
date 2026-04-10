@@ -15,6 +15,31 @@ import {
 import { HATCH3R_VERSION } from "../version.js";
 import { atomicWriteFile } from "../merge/safeWrite.js";
 
+/**
+ * Validate a git branch name against the rules from `git check-ref-format`.
+ *
+ * Rejects names that:
+ * - are empty or whitespace-only
+ * - contain `..", `~`, `^`, `:`, `\`, spaces, or control characters
+ * - start or end with `/` or `.`
+ * - contain consecutive slashes `//`
+ * - end with `.lock`
+ * - contain `@{` (reflog syntax)
+ * - are exactly `@`
+ */
+export function isValidGitBranchName(name: string): boolean {
+  if (!name || name.trim() !== name) return false;
+  if (/[~^:\\\x00-\x1f\x7f ]/.test(name)) return false;
+  if (name.startsWith("/") || name.endsWith("/")) return false;
+  if (name.startsWith(".") || name.endsWith(".")) return false;
+  if (name.includes("..")) return false;
+  if (name.includes("//")) return false;
+  if (name.endsWith(".lock")) return false;
+  if (name.includes("@{")) return false;
+  if (name === "@") return false;
+  return true;
+}
+
 function createMinimalBoardConfig(owner: string, repo: string, defaultBranch: string): BoardConfig {
   return {
     owner,
@@ -138,7 +163,11 @@ function validateManifest(data: unknown): data is HatchManifest {
     const board = obj.board as Record<string, unknown>;
     if (typeof board.owner !== "string") return false;
     if (typeof board.repo !== "string") return false;
-    if (board.defaultBranch !== undefined && typeof board.defaultBranch !== "string") return false;
+    if (board.defaultBranch !== undefined) {
+      if (typeof board.defaultBranch !== "string") return false;
+      // #1.15: Validate defaultBranch against git branch naming rules
+      if (!isValidGitBranchName(board.defaultBranch)) return false;
+    }
   }
 
   // #108: Validate worktree.extraPatterns when present

@@ -305,6 +305,10 @@ Each specialist sub-agent prompt MUST include:
 
 Await all specialist sub-agents. Apply their feedback (fixes, additional tests, documentation updates).
 
+#### 4b.1. Re-Review After Phase 4 Fixes
+
+If any Phase 4 specialist produced fixes (not just findings), run a lightweight re-review to catch regressions introduced by the specialist changes. Spawn `hatch3r-reviewer` with a focused prompt covering only the files modified by Phase 4 specialists. If the re-review finds Critical findings, spawn `hatch3r-fixer` and re-review once more (max 1 additional iteration). This prevents Phase 4 fixes from bypassing the review gate.
+
 #### 4c. Verify Against Acceptance Criteria
 
 Check each acceptance criterion from the original task or issue. Mark as met or not-met with evidence.

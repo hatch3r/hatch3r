@@ -83,6 +83,12 @@ You MUST spawn these agents via the Task tool (`subagent_type: "generalPurpose"`
 - **Skill**: `hatch3r-logical-refactor` — use when the refactor changes internal logic flow while preserving external behavior
 - **Skill**: `hatch3r-visual-refactor` — use when the refactor targets UI/styling changes without altering functionality
 
+## Error Handling
+
+- **Existing tests fail after refactor**: Do not modify tests to make them pass unless the test was verifying an implementation detail (not behavior). If a behavioral test fails, the refactor changed external behavior and must be revised.
+- **Refactor scope expands beyond the original module**: If additional modules need changes due to coupling, stop and assess whether the refactor should be split into phases. Get confirmation before expanding scope.
+- **Type errors after restructuring**: Resolve all type errors before running tests. If the type system reveals unexpected dependencies, document them as findings for the codebase health record.
+
 ## Definition of Done
 
 - [ ] All existing tests pass without modification

@@ -125,6 +125,20 @@ export function label(name: string, value: string): string {
   return `${chalk.dim(name.padEnd(12))} ${value}`;
 }
 
+/** Whether verbose output is enabled for the current command. */
+let verboseEnabled = false;
+
+/** Enable or disable verbose output. Call before command execution. */
+export function setVerbose(enabled: boolean): void {
+  verboseEnabled = enabled;
+}
+
+/** Print a verbose-only message to stderr. No-op when verbose is off. */
+export function verbose(msg: string): void {
+  if (!verboseEnabled) return;
+  console.error(`  ${chalk.dim("[verbose]")} ${msg}`);
+}
+
 /**
  * D19 Medium (#415-#431): Display a success message with next-steps guidance.
  * Used after init/update to reduce first-run friction.

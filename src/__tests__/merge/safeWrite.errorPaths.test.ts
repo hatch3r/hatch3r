@@ -180,13 +180,17 @@ describe("atomicWriteFile error paths", () => {
   // ── Non-ENOSPC errors rethrown ─────────────────────────────────
 
   describe("non-ENOSPC errors pass through", () => {
-    it("rethrows EACCES without wrapping", async () => {
+    // #239 (D8-8.6): EACCES now gets an actionable error message
+    it("wraps EACCES with actionable guidance", async () => {
       const err = mkErrno("EACCES", "permission denied");
       mockWriteFile.mockRejectedValue(err);
 
       await expect(
         atomicWriteFile("/tmp/test.txt", "data"),
-      ).rejects.toThrow("permission denied");
+      ).rejects.toThrow(/Permission denied writing/);
+      await expect(
+        atomicWriteFile("/tmp/test.txt", "data"),
+      ).rejects.toThrow(/Check file\/directory permissions/);
     });
 
     it("rethrows generic errors without wrapping", async () => {

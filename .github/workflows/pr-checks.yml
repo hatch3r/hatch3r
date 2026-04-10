@@ -15,6 +15,7 @@ jobs:
   lint-commits:
     name: Validate PR title (conventional commits)
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Check PR title
         env:
@@ -32,6 +33,7 @@ jobs:
   dco-check:
     name: DCO sign-off check
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4

@@ -77,6 +77,12 @@ Produce a structured report with:
 - If validation fails, state what must be fixed before re-validation.
 - Post report as comment on the issue/work item or linked PR/MR (check `platform` in `.agents/hatch.json`).
 
+## Error Handling
+
+- **Test environment unavailable or misconfigured**: Document which tests could not be executed, note the environment gap, and recommend a fix. Do not mark untested scenarios as passing.
+- **Validation discovers a blocking defect**: File an issue immediately, mark the validation as HOLD, and include the defect details in the validation report with reproduction steps.
+- **Flaky test results (pass on retry)**: Run the test 3 times. If it passes inconsistently, mark it as flaky in the report, file a tracking issue, and exclude it from the pass/fail determination.
+
 ## Definition of Done
 
 - [ ] All test cases in the matrix executed

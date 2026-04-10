@@ -57,6 +57,12 @@ Produce a cost report using the output format from the `hatch3r-cost-tracking` c
 - Budget status (if configured)
 - Top optimization opportunities
 
+## Error Handling
+
+- **Token usage data unavailable**: If the platform does not expose token metrics, use input/output character counts divided by 4 as an estimate. Note the approximation method in the report.
+- **Budget limit exceeded mid-session**: Stop non-critical operations, produce a partial cost report, and recommend which remaining tasks to defer or delegate to a lower-cost model.
+- **Cost configuration missing from hatch.json**: Operate in report-only mode and note that budget enforcement is inactive. Recommend adding cost configuration to enable guardrails.
+
 ## Definition of Done
 
 - [ ] Cost configuration reviewed (or report-only mode noted)

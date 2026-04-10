@@ -125,6 +125,33 @@ describe("AmazonQAdapter", () => {
     }
   });
 
+  // ── Finding 3.17: model resolution assertion ──
+  it("includes model annotation in bridge when agent has model configured", async () => {
+    const manifest = createManifest({
+      tools: ["amazon-q"],
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const bridge = outputs.find((o) => o.path === ".amazonq/rules/hatch3r-agents.md");
+    expect(bridge).toBeDefined();
+    // test-agent fixture has model: sonnet -> resolves to claude-sonnet-4-6
+    expect(bridge!.content).toContain("Recommended model:");
+    expect(bridge!.content).toContain("claude-sonnet-4-6");
+  });
+
+  // ── Finding 3.16: no empty content assertion ──
+  it("produces no empty content in any output", async () => {
+    const manifest = createManifest({
+      tools: ["amazon-q"],
+      mcpServers: ["github"],
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    for (const o of outputs) {
+      expect(o.content.length).toBeGreaterThan(0);
+    }
+  });
+
   it("generates native custom agent descriptors in .amazonq/cli-agents/", async () => {
     const manifest = createManifest({
       tools: ["amazon-q"],

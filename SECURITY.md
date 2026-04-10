@@ -69,13 +69,42 @@ Each security control is either **code-enforced** (validated at runtime by TypeS
 | Atomic file writes (temp+rename) | Code | `src/merge/safeWrite.ts` | Active |
 | Managed block boundary markers | Code | `src/merge/managedBlocks.ts` | Active |
 | SHA-256 integrity verification | Code | `src/integrity/index.ts` | Active |
+| MCP configuration integrity | Code | `src/integrity/index.ts` (covers `mcp/` directory) | Active |
+| MCP timeout enforcement | Code | `src/adapters/mcp-utils.ts` (per-server configurable, default 30s) | Active |
 | Path traversal protection | Code | `src/cli/` (init/sync path validation) | Active |
-| Secret pattern detection | Code | `src/cli/commands/validate.ts` | Active |
-| Content safety deny patterns | Instruction | `agents/shared/quality-charter.md`, `rules/hatch3r-security-patterns.md` | Active |
+| Secret pattern detection | Code | `src/env/secretDetection.ts`, `src/cli/commands/validate.ts` | Active |
+| Customization content-length limits | Code | `src/models/customize.ts`, `src/adapters/customization.ts` | Active |
+| Content safety deny patterns | Hybrid | `src/adapters/customization.ts` (code scan) + `agents/shared/quality-charter.md` (instruction) | Active |
 | Agent behavioral constraints | Instruction | `agents/hatch3r-*.md` (per-agent role definitions) | Active |
 | Guardrails policy | Instruction | `rules/hatch3r-code-standards.md`, `rules/hatch3r-security-patterns.md` | Active |
 | Hook condition guards | Instruction | `hooks/hatch3r-*.md` (glob/label/branch scoping) | Active |
 | MCP server security warnings | Instruction | `agents/shared/quality-charter.md` | Active |
+
+## ASI Control Delegation Mapping
+
+OWASP ASI controls are implemented through a combination of code enforcement and instruction delegation. The following table maps each ASI control to its enforcement mechanism.
+
+| ASI Control | Description | Enforcement | Implementation |
+|-------------|-------------|-------------|----------------|
+| ASI01 | Prompt injection prevention | Code | `src/pipeline/promptGuard.ts` -- input sanitization, output validation, boundary markers |
+| ASI02 | Tool use restrictions | Code | `src/pipeline/agentToolAllowlist.ts` -- per-agent tool category restrictions |
+| ASI03 | Agent isolation | Hybrid | Code: review loop iteration limits (`reviewLoop.ts`), diff-hash verification (`diffHash.ts`). Instruction: agent role boundaries, file access scoping |
+| ASI04 | Secure model configuration | Instruction | Model selection per-agent via `customize.yaml`. No runtime model override mechanism |
+| ASI05 | Input/output validation | Code | `src/pipeline/phaseOutputSchema.ts` -- schema validation at phase boundaries |
+| ASI06 | Monitoring and logging | Code | `src/pipeline/observability.ts`, `src/pipeline/failureLog.ts` |
+| ASI07 | Data flow integrity | Code | Phase boundary schemas, diff-hash on handoffs |
+| ASI08 | Supply chain security | Code (CI) | `.github/workflows/ci.yml` -- supply chain audit, lockfile checks |
+| ASI09 | Access control | Code | Path traversal guards, tool allowlists, managed block enforcement |
+| ASI10 | Secure deployment | Instruction | Deployment guidance in agent content. No runtime deployment control |
+
+## Content Signing Limitations
+
+The integrity verification system (`src/integrity/index.ts`) is **content-addressed** (SHA-256 per-file hashing with a manifest-level checksum) but **not cryptographically signed**:
+
+- **What it detects:** unauthorized modifications, missing files, new files not in the manifest, and manifest tampering (via the checksum field).
+- **What it does not prevent:** an attacker with write access to `.agents/` can regenerate a valid manifest that certifies tampered content. The manifest has no HMAC or digital signature.
+- **Trust model:** the integrity system detects accidental changes and flags intentional modifications during `hatch3r verify`. It does not provide a tamper-proof guarantee. Users who need stronger assurance should verify content against the published npm package hashes.
+- **Future consideration:** HMAC signing with a project-specific key would close this gap, but introduces key management complexity that exceeds the current threat model for a developer-local CLI tool.
 
 ## Scope
 

@@ -1,5 +1,6 @@
 ---
 description: Metrics, SLO/SLI definitions, alerting, and dashboard conventions for the project
+globs: ["**/*metric*", "**/*slo*", "**/*sli*", "**/*alert*", "**/*dashboard*", "**/observability/**"]
 alwaysApply: false
 ---
 # Observability -- Metrics, SLOs & Alerting

@@ -152,7 +152,7 @@ export async function generateRootAgentsMd(agentsDir: string): Promise<{ full: s
 
   sections.push("# Project Agent Instructions");
   sections.push("");
-  sections.push("This project uses [hatch3r](https://github.com/hatch3r-ai/hatch3r) for agentic coding orchestration.");
+  sections.push("This project uses [hatch3r](https://github.com/hatch3r/hatch3r) for agentic coding orchestration.");
   sections.push("Full canonical instructions are at `/.agents/AGENTS.md`.");
 
   // Build agent roster from what's on disk

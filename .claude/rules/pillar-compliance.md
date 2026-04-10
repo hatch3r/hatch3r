@@ -1,5 +1,7 @@
 # Pillar Compliance
 
+**Pillars:** P5 (Governance Self-Quality)
+
 Before modifying any file in `governance/`, `agents/`, `skills/`, `rules/`, `commands/`, or `hooks/`, answer:
 
 1. **Which pillar(s) does this change serve?** (P1-P6, defined in `governance/CONSTITUTION.md` §2)

@@ -41,6 +41,19 @@ const CONTENT_DIRS = ["agents", "commands", "rules", "skills", "prompts", "githu
 const ALWAYS_COPY_FILES = new Set(["mcp.json"]);
 
 /**
+ * Package update timeout in milliseconds.
+ * Override with HATCH3R_UPDATE_TIMEOUT_MS env var (default: 30000).
+ */
+const UPDATE_TIMEOUT_MS = (() => {
+  const envVal = process.env.HATCH3R_UPDATE_TIMEOUT_MS;
+  if (envVal) {
+    const parsed = parseInt(envVal, 10);
+    if (!Number.isNaN(parsed) && parsed > 0) return parsed;
+  }
+  return 30_000;
+})();
+
+/**
  * Read a file's content, returning null if the file does not exist.
  */
 async function readFileOrNull(filePath: string): Promise<string | null> {
@@ -158,12 +171,12 @@ export async function runUpdate(
     const cmd = process.platform === "win32" && pm.name !== "bun"
       ? `${pm.updateCmd}.cmd`
       : pm.updateCmd;
-    execFileSync(cmd, pm.updateArgs, { stdio: "pipe", timeout: 30_000, killSignal: "SIGTERM" });
+    execFileSync(cmd, pm.updateArgs, { stdio: "pipe", timeout: UPDATE_TIMEOUT_MS, killSignal: "SIGTERM" });
     contentRoot = findPackageRoot(__dirname);
   } catch (err) {
     const isTimeout = err && typeof err === "object" && ("killed" in err || "signal" in err);
     const msg = isTimeout
-      ? "Package update timed out after 30s. Check network connectivity and retry."
+      ? `Package update timed out after ${UPDATE_TIMEOUT_MS / 1000}s. Check network connectivity and retry, or set HATCH3R_UPDATE_TIMEOUT_MS to increase the timeout.`
       : (err instanceof Error ? err.message : String(err));
     s0.fail(step(offset + 1, total, "Failed to update package"));
     logError(msg);

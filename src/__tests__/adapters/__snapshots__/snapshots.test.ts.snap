@@ -351,8 +351,10 @@ exports[`adapter output snapshots > CopilotAdapter > output structure matches sn
   },
   {
     "action": "create",
-    "contentMarkers": [],
-    "hasManagedContent": false,
+    "contentMarkers": [
+      "MANAGED_BLOCK",
+    ],
+    "hasManagedContent": true,
     "path": ".github/workflows/copilot-setup-steps.yml",
   },
   {

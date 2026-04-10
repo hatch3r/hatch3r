@@ -3,6 +3,7 @@ id: researcher-mode-feature-design
 type: mode
 description: Break the subject down into implementable sub-tasks with user stories and acceptance criteria.
 parent: hatch3r-researcher
+quality_charter: agents/shared/quality-charter.md
 ---
 ### Mode: `feature-design`
 

@@ -34,7 +34,7 @@ For lighter reconfiguration without re-initializing, use:
 
 ### Invalid tool(s)
 
-Use only valid tools: `cursor`, `copilot`, `claude`, `opencode`, `windsurf`, `amp`, `codex`, `gemini`, `cline`, `aider`, `kiro`, `goose`, `zed`.
+Use only valid tools: `cursor`, `copilot`, `claude`, `opencode`, `windsurf`, `amp`, `codex`, `gemini`, `cline`, `aider`, `kiro`, `goose`, `zed`, `amazon-q`, `antigravity`.
 
 ```bash
 npx hatch3r init --tools cursor,claude
@@ -141,6 +141,34 @@ Run `npx hatch3r sync` to regenerate. Content outside managed blocks is preserve
 ### Drift between canonical and generated files
 
 Run `npx hatch3r status` to check. Run `npx hatch3r sync` to fix drift.
+
+## Diagnostics and Failure Logs
+
+### Reading the failure log
+
+When pipeline operations fail, hatch3r writes structured entries to `.agents/.failure-log.jsonl`. Each line is a JSON object with timestamp, command, error message, and context.
+
+To inspect recent failures:
+
+```bash
+# View the last 10 failures
+tail -10 .agents/.failure-log.jsonl | jq .
+
+# Filter by command
+grep '"command":"sync"' .agents/.failure-log.jsonl | jq .
+```
+
+Include relevant failure log entries when reporting issues.
+
+### Environment information for bug reports
+
+When filing an issue, include:
+
+```bash
+node --version
+npx hatch3r --version
+npx hatch3r status
+```
 
 ## Getting Help
 

@@ -44,24 +44,29 @@ program
   .description("Re-generate tool outputs from canonical .agents/ state (run after editing .agents/)")
   .option("--repos [paths...]", "Sync workspace content to sub-repos (all opted-in if no paths given)")
   .option("--dry-run", "Show what would change without modifying files")
+  .option("--diff", "Show a before/after diff summary for each generated file")
   .option("--force", "Overwrite locally modified files in sub-repos")
   .option("--minimal", "Generate stripped-down output (no comments, minimal formatting) to reduce token usage")
+  .option("--verbose", "Show detailed output for each file processed")
   .action(syncCommand);
 
 program
   .command("status")
   .description("Check sync status between canonical .agents/ and generated files")
+  .option("--verbose", "Show detailed per-file status information")
   .action(statusCommand);
 
 program
   .command("update")
   .description("Pull latest hatch3r templates with safe merge (preserves customizations)")
   .option("--yes", "Skip interactive prompts, use defaults")
+  .option("--diff", "Show a before/after diff summary for each generated file")
   .action(updateCommand);
 
 program
   .command("validate")
   .description("Validate the canonical .agents/ structure (checks frontmatter, content, security)")
+  .option("--verbose", "Show detailed validation output for each check")
   .action(validateCommand);
 
 program
@@ -103,10 +108,11 @@ program
 // Agent command names that users might try to run directly in the terminal.
 // These are slash commands meant to be invoked inside an AI-powered editor, not from the CLI.
 const AGENT_COMMAND_NAMES = new Set([
-  "workflow", "project-spec", "codebase-map", "debug", "release", "review",
+  "workflow", "project-spec", "codebase-map", "debug", "release",
   "refactor-plan", "test-plan", "bug-plan", "feature-plan", "migration-plan",
   "roadmap", "onboard", "recipe",
   "board-init", "board-pickup", "board-groom", "board-refresh", "board-fill",
+  "board-shared",
   "security-audit", "dep-audit", "benchmark", "healthcheck", "context-health",
   "learn", "revision", "cost-tracking", "api-spec", "hooks", "quick-change",
   "command-customize", "agent-customize", "rule-customize", "skill-customize",
@@ -188,6 +194,7 @@ try {
     console.error(`  Run "hatch3r --help" for usage information.`);
   } else {
     console.error("  For help, see: https://github.com/hatch3r/hatch3r#troubleshooting");
+    console.error("  Check .agents/.failure-log.jsonl for recent failure details.");
     console.error("  Set DEBUG=1 for a full stack trace.");
   }
   if (process.env.DEBUG) {

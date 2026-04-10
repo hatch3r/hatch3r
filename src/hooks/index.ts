@@ -44,6 +44,15 @@ export async function readHookDefinitions(
   return hooks;
 }
 
+/**
+ * Sanitize a hook field value that may be interpolated into shell commands
+ * or TOML strings. Strips characters that could enable shell injection
+ * (backticks, $, semicolons, pipes, newlines, null bytes).
+ */
+function sanitizeHookField(value: string): string {
+  return value.replace(/[`$;|&\n\r\0\\'"]/g, "");
+}
+
 function parseHookFrontmatter(content: string): HookDefinition | null {
   const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!match) return null;
@@ -56,10 +65,12 @@ function parseHookFrontmatter(content: string): HookDefinition | null {
   const eventStr = String(parsed.event);
   if (!isValidHookEvent(eventStr)) return null;
 
+  // #1.18: Sanitize id and agent fields that get interpolated into
+  // shell echo commands (e.g. Codex adapter hook output)
   const hook: HookDefinition = {
-    id: String(parsed.id),
+    id: sanitizeHookField(String(parsed.id)),
     event: eventStr,
-    agent: String(parsed.agent),
+    agent: sanitizeHookField(String(parsed.agent)),
     description: parsed.description ? String(parsed.description) : "",
   };
 

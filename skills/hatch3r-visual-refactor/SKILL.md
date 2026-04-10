@@ -78,6 +78,12 @@ Use the project's PR template. Include:
 - Accessibility verification evidence
 - Responsive behavior across sizes
 
+## Error Handling
+
+- **No design mockup or reference provided**: Ask the user for a design reference before implementing. If none is available, propose the design based on existing design system tokens and get approval before proceeding.
+- **Snapshot tests fail after visual changes**: Update the snapshots only after visually verifying the new rendering is correct. Do not blindly update snapshots without visual confirmation.
+- **Component renders differently across browsers**: Test in at least two browser engines. Document browser-specific rendering differences and fix those that affect usability or accessibility.
+
 ## Definition of Done
 
 - [ ] UI matches mockup/design in the issue

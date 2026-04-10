@@ -68,6 +68,12 @@ Task Progress:
 - Delete unused migration scripts after they've been applied to all environments.
 - Write a migration retrospective noting what went well and any issues encountered.
 
+## Error Handling
+
+- **Migration phase fails partway through**: Roll back to the last successful phase checkpoint. Diagnose the failure before retrying. Each phase must leave the codebase in a working state.
+- **Rollback procedure does not restore original behavior**: Treat this as a critical gap. Fix the rollback procedure before proceeding with the migration, since an untested rollback path is a deployment risk.
+- **Dependency version conflict during migration**: Pin the conflicting dependency to the version compatible with the migration target. Document the pin and plan its removal after all consumers are updated.
+
 ## Definition of Done
 
 - [ ] All phases completed and verified

@@ -60,6 +60,12 @@ Run the recipe on a test project to verify:
 - Error handling works (intentionally fail a step)
 - Completion message is accurate
 
+## Error Handling
+
+- **Recipe step fails during execution**: The recipe runner should report which step failed, its inputs, and the error message. Provide a `resume-from` option to restart from the failed step after fixing the issue.
+- **Recipe YAML has schema validation errors**: Report the specific field and line that violates the schema. Do not attempt to execute a recipe that fails validation.
+- **Circular dependency between recipe steps**: Detect cycles during the dry-run phase and report the dependency chain that creates the loop.
+
 ## Definition of Done
 
 - [ ] Recipe YAML validates against schema

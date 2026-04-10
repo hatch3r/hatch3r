@@ -77,7 +77,7 @@ describe("CLI entry point (src/cli/index.ts)", () => {
     });
 
     it("redirects agent commands with helpful message", () => {
-      const { exitCode, stderr } = runCli(["review"]);
+      const { exitCode, stderr } = runCli(["workflow"]);
       expect(exitCode).toBe(1);
       expect(stderr).toContain("agent command");
       expect(stderr).toContain("AI editor");

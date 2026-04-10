@@ -9,7 +9,14 @@ export interface McpServerEntry {
   headers?: Record<string, string>;
   _description?: string;
   _disabled?: boolean;
+  /** D15 Medium (#15.44): Per-server timeout in milliseconds (default: 30000). */
+  _timeout?: number;
 }
+
+/** Default MCP server request timeout in milliseconds. */
+export const DEFAULT_MCP_TIMEOUT_MS = 30_000;
+/** Maximum allowed MCP timeout in milliseconds (5 minutes). */
+export const MAX_MCP_TIMEOUT_MS = 300_000;
 
 /**
  * Transforms `${env:VAR}` references to the native format for a given adapter.
@@ -142,6 +149,21 @@ export function validateMcpEntry(
             `Unscoped packages are susceptible to typosquatting. Consider using a scoped package (@org/pkg).`,
         );
       }
+    }
+  }
+
+  // D15 Medium (#15.44): Validate timeout if specified
+  if (entry._timeout !== undefined) {
+    if (typeof entry._timeout !== "number" || entry._timeout <= 0) {
+      warnings.push(
+        `MCP server "${name}" has invalid timeout: ${entry._timeout}. ` +
+        `Timeout must be a positive number (milliseconds). Using default ${DEFAULT_MCP_TIMEOUT_MS}ms.`,
+      );
+    } else if (entry._timeout > MAX_MCP_TIMEOUT_MS) {
+      warnings.push(
+        `MCP server "${name}" timeout (${entry._timeout}ms) exceeds maximum (${MAX_MCP_TIMEOUT_MS}ms). ` +
+        `Capping at ${MAX_MCP_TIMEOUT_MS}ms.`,
+      );
     }
   }
 

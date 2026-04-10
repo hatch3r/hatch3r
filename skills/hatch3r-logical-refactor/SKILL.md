@@ -64,6 +64,12 @@ Use the project's PR template. Include:
 - Test evidence for both new behavior and preserved behavior
 - Spec docs updated (if any)
 
+## Error Handling
+
+- **Behavioral invariant violated during refactor**: If a test that should pass now fails, check whether the invariant was incorrectly preserved or whether the refactor inadvertently changed behavior. Fix the refactor, not the test, unless the test was wrong.
+- **Refactor scope grows beyond the original task**: If additional modules need changes to complete the refactor, stop, document the expanded scope, and get confirmation before continuing.
+- **Cannot verify behavioral equivalence due to missing tests**: Write characterization tests for the current behavior before applying the refactor. This provides a safety net for the transformation.
+
 ## Definition of Done
 
 - [ ] New behavior matches the "after" description

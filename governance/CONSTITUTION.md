@@ -27,7 +27,7 @@ Every lifecycle stage (init through release) delivers the best achievable CLI in
 Content is of verifiable, real-world-applicable quality. Agents self-validate assumptions against neutral senior baselines without explicit prompting. Operationalized through the Behavioral Charter (challenge the premise, adversarial thinking), measurable acceptance criteria, confidence expression, root-cause orientation.
 
 **Measurement:** Behavioral charter compliance rate, one-shot success rate (see [VISION.md](VISION.md) §Quality Bar), finding root-cause depth (symptom vs. systemic).
-**Governance refs:** AUDIT.md Behavioral Charter (13 directives), Audit Quality Architecture (3 layers), D1/D5/D7/D13.
+**Governance refs:** [AUDIT.md §Sub-Agent Behavioral Charter](AUDIT.md) (13 directives, authoritative location), Audit Quality Architecture (3 layers), D1/D5/D7/D13.
 
 ### P3. Adapter & MCP Currency
 
@@ -173,7 +173,7 @@ governance/
 ├── COMPETITIVE-ANALYSIS.md  <- Market context (gitignored)
 ├── AUDIT-REPORT.md          <- Latest audit results (gitignored)
 └── audit/
-    ├── domains/D01-D19.md   <- Domain definitions (18 files)
+    ├── domains/D01-D19.md   <- Domain definitions (19 files)
     ├── templates/            <- Sub-agent templates (4 files)
     ├── baseline.json         <- Immutable baseline per cycle
     ├── finding-registry.json <- Finding lifecycle tracking

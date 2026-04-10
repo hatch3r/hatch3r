@@ -121,6 +121,12 @@ You MUST spawn these agents via the Task tool (`subagent_type: "generalPurpose"`
 
 - **Rule**: `hatch3r-browser-verification` — follow this rule for live browser-based accessibility testing
 
+## Error Handling
+
+- **No automated scanner available**: If axe-core, Lighthouse, or equivalent is not installed, report the gap and proceed with manual checklist-only audit. Do not skip the audit.
+- **Scanner produces false positives**: Cross-reference automated findings against manual inspection. Mark confirmed false positives with justification and exclude from the violation count.
+- **Component renders differently across browsers**: Test in at least two browser engines (Chromium + Firefox or Safari). Document browser-specific a11y gaps with reproduction steps.
+
 ## Definition of Done
 
 - [ ] No critical a11y violations

@@ -8,7 +8,6 @@ import { BaseAdapter, output, type AdapterContext } from "./base.js";
 import { readCanonicalFiles } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
 import { applyCustomization } from "./customization.js";
-import { transformEnvVarSyntax } from "./mcp-utils.js";
 import { detectPackageManager } from "../detect/packageManager.js";
 
 export class CopilotAdapter extends BaseAdapter {
@@ -65,7 +64,7 @@ export class CopilotAdapter extends BaseAdapter {
     const pm = await detectPackageManager(ctx.projectRoot);
     const install = [pm.installCmd, ...pm.installArgs].join(" ");
     const build = `${pm.installCmd} run build`;
-    const copilotSetupSteps = `name: "Copilot Setup Steps"
+    const copilotSetupStepsInner = `name: "Copilot Setup Steps"
 on: push
 jobs:
   copilot-setup-steps:
@@ -75,9 +74,12 @@ jobs:
       - name: Install dependencies
         run: ${install}
       - name: Build
-        run: ${build}
-`;
-    results.push(output(".github/workflows/copilot-setup-steps.yml", copilotSetupSteps));
+        run: ${build}`;
+    results.push(output(
+      ".github/workflows/copilot-setup-steps.yml",
+      wrapInManagedBlock(copilotSetupStepsInner) + "\n",
+      copilotSetupStepsInner,
+    ));
 
     for (const { rule, content, scope } of scopedRules) {
       const globs = scope.includes(",")
@@ -136,20 +138,8 @@ jobs:
 
     const mcp = await this.readFilteredMcp(ctx);
     if (mcp && Object.keys(mcp).length > 0) {
-      const vscodeServers: Record<string, Record<string, unknown>> = {};
-      for (const [name, server] of Object.entries(mcp)) {
-        const entry: Record<string, unknown> = {};
-        if (server.command) entry.command = server.command;
-        if (server.args) entry.args = server.args;
-        if (server.url) entry.url = server.url;
-        if (server.env && Object.keys(server.env).length > 0) {
-          entry.env = transformEnvVarSyntax(server.env, "shell");
-        }
-        if (server.headers && Object.keys(server.headers).length > 0) {
-          entry.headers = transformEnvVarSyntax(server.headers, "shell");
-        }
-        vscodeServers[name] = entry;
-      }
+      // Use shared buildStdMcpEntries to avoid redundant env construction (#2.19)
+      const vscodeServers = this.buildStdMcpEntries(mcp, "shell");
       results.push(output(".vscode/mcp.json", JSON.stringify({ servers: vscodeServers }, null, 2) + "\n"));
     }
 

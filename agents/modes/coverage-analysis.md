@@ -3,6 +3,7 @@ id: researcher-mode-coverage-analysis
 type: mode
 description: Map existing test coverage, identify gaps, and surface critical untested paths.
 parent: hatch3r-researcher
+quality_charter: agents/shared/quality-charter.md
 ---
 ### Mode: `coverage-analysis`
 

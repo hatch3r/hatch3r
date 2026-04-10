@@ -1,5 +1,6 @@
 ---
 description: Extended orchestration reference — PipelineContext schemas, resilience protocols, observability integration, and auto-mode guardrails
+globs: ["**/.agents/**", "**/pipeline/**", "**/*orchestrat*", "**/*agent*"]
 alwaysApply: false
 ---
 # Agent Orchestration — Extended Reference

@@ -107,6 +107,12 @@ You MUST spawn these agents via the Task tool (`subagent_type: "generalPurpose"`
 
 - **Rule**: `hatch3r-performance-budgets` — reference this rule for the project's defined performance budget thresholds
 
+## Error Handling
+
+- **No performance budgets defined for the project**: Use the defaults from `hatch3r-performance-budgets` rule as a baseline. Note in the report that custom budgets should be defined.
+- **Profiling tool unavailable or incompatible**: Fall back to manual timing measurements (e.g., `performance.now()` or `console.time`) for critical paths. Document the measurement method used.
+- **Optimization introduces functional regressions**: Revert the optimization, add a regression test for the broken behavior, then re-attempt with a different approach.
+
 ## Definition of Done
 
 - [ ] All performance budgets met

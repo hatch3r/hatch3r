@@ -59,6 +59,12 @@ Task Progress:
 - Check that path parameters, query parameters, and headers are documented with accurate types, required flags, and example values.
 - Validate against any existing API consumers (SDKs, frontend clients) for breaking changes.
 
+## Error Handling
+
+- **Route definitions use dynamic or meta-programmed patterns**: If endpoints are generated at runtime or via decorators that resist static analysis, document the gap and manually enumerate the missing endpoints.
+- **OpenAPI linter fails on generated output**: Fix the specific schema violations reported by the linter. Do not suppress linter rules without documenting the reason.
+- **Breaking changes detected against existing consumers**: Flag each breaking change with the affected consumer, the migration path, and whether a versioned endpoint is needed.
+
 ## Definition of Done
 
 - [ ] OpenAPI spec covers all endpoints in the codebase

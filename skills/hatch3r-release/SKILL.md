@@ -87,6 +87,12 @@ npm run build
 - Watch user-reported issues for first 24h.
 - If errors spike: rollback and investigate.
 
+## Error Handling
+
+- **Quality gates fail during release preparation**: Do not proceed with the release. Fix the failing gate (test failures, lint errors, type errors), re-run all gates, and restart the release process.
+- **Git tag already exists for the target version**: Check whether the existing tag points to the correct commit. If it was created in error, delete and recreate it. If it was a previous release attempt, bump the version and start over.
+- **Post-deploy monitoring detects regressions**: Execute the rollback plan immediately. Document the regression in a post-mortem issue and block the next release until the regression is fixed.
+
 ## Definition of Done
 
 - [ ] Version bumped in package.json

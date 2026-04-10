@@ -107,6 +107,12 @@ Verification is not just "sync completes." Confirm:
 - [ ] If an artifact was disabled, verify no command or skill references it as a required dependency
 - [ ] If a rule scope was narrowed, verify the excluded file patterns do not lose important coverage
 
+## Error Handling
+
+- **`hatch3r sync` fails after customization**: Check the customization YAML for syntax errors (missing quotes, incorrect indentation). Validate the file against the schema documented in the corresponding customize command.
+- **Customization has no visible effect in adapter output**: Verify the customization file is in the correct directory (`.hatch3r/{type}s/`) and that the `id` field matches the target artifact's `id` exactly.
+- **Disabling an artifact breaks a command dependency**: Re-enable the artifact, then check which commands reference it. Either update the command to remove the dependency or keep the artifact enabled.
+
 ## Definition of Done
 
 - [ ] Root-cause considered (Step 1) — not working around an upstream issue

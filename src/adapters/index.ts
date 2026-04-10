@@ -96,7 +96,7 @@ const ADAPTER_CAPABILITIES: Record<Tool, AdapterCapability> = {
   kiro:     { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true  },
   aider:    { agents: true, skills: true, rules: true, hooks: false, mcp: false, commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true  },
   goose:    { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true  },
-  zed:      { agents: true, skills: false, rules: true, hooks: false, mcp: false, commands: false, prompts: false, githubAgents: false, worktree: false, customization: false, modelOverride: false },
+  zed:      { agents: true, skills: false, rules: true, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: false, modelOverride: false },
   antigravity: { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true  },
   "agents-md": { agents: true, skills: true, rules: true, hooks: false, mcp: false, commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true  },
 };
@@ -145,6 +145,8 @@ export { KiroAdapter } from "./kiro.js";
 export { OpenCodeAdapter } from "./opencode.js";
 export { WindsurfAdapter } from "./windsurf.js";
 export { ZedAdapter } from "./zed.js";
-export type { Adapter } from "./base.js";
+export type { Adapter, AdapterContext } from "./base.js";
+export { BaseAdapter, output } from "./base.js";
 export { readCanonicalFiles } from "./canonical.js";
 export type { CanonicalType } from "./canonical.js";
+export type { CustomizationResult } from "./customization.js";

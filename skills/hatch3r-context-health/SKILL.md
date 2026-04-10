@@ -78,6 +78,12 @@ During context health checks, also scan for signs of context poisoning -- stale 
 
 Context poisoning is more dangerous than missing context because it leads to confident-but-wrong decisions.
 
+## Error Handling
+
+- **Context degradation detected mid-task**: If health drops to Orange or Red during implementation, stop the current task, summarize progress so far, and recommend delegating the remainder to a fresh sub-agent with the summary as input.
+- **Health checks produce conflicting signals**: If some checks indicate Green while others indicate Red, trust the worst signal and investigate the specific check that failed before proceeding.
+- **Unable to estimate token usage**: If the platform does not expose token counts, use character-based estimation (1 token per 4 characters) and note the approximation in the report.
+
 ## Definition of Done
 
 - [ ] Context health assessed with all 5 checks

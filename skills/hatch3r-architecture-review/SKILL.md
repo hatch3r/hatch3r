@@ -90,6 +90,12 @@ Save as `docs/adr/XXXX_short-title.md` (or project convention). Use next availab
 - Link from related issues/work items or PRs/MRs on the platform.
 - If superseding an ADR, update the old ADR's Status to `SUPERSEDED by ADR-XXXX`.
 
+## Error Handling
+
+- **Conflicting ADRs discovered**: If an existing ADR contradicts the proposed decision, reference both ADRs and recommend superseding the older one with explicit justification.
+- **Insufficient context for trade-off evaluation**: If the codebase lacks enough information to evaluate an option, state the knowledge gap and recommend a time-boxed spike before finalizing the decision.
+- **Stakeholder disagreement on recommended option**: Document all positions with their rationale and escalate to the project lead with a clear recommendation and dissent summary.
+
 ## Definition of Done
 
 - [ ] ADR written following project template

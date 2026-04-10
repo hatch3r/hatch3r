@@ -3,6 +3,7 @@ id: researcher-mode-current-state
 type: mode
 description: Map the current state of code being analyzed — complexity, coupling, cohesion, coverage.
 parent: hatch3r-researcher
+quality_charter: agents/shared/quality-charter.md
 ---
 ### Mode: `current-state`
 

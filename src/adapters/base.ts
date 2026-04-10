@@ -68,6 +68,7 @@ export abstract class BaseAdapter implements Adapter {
    */
   async generate(agentsDir: string, manifest: HatchManifest, generationMode: GenerationMode = "standard"): Promise<AdapterOutput[]> {
     this.warnings = [];
+    this._cachedOutputPaths = null; // Invalidate path cache on re-generation
     const outputs = await this.doGenerate({
       agentsDir,
       manifest,
@@ -94,12 +95,21 @@ export abstract class BaseAdapter implements Adapter {
 
   /**
    * Returns the list of output file paths this adapter would produce.
-   * Override in subclasses for a lightweight implementation that avoids
-   * full content generation when only paths are needed.
+   *
+   * The default implementation calls `generate()` and extracts paths, which
+   * is correct but incurs the cost of full content generation. Subclasses
+   * that can determine paths without rendering content (e.g. adapters with
+   * fixed output paths or paths derived only from canonical file IDs)
+   * should override this with a lightweight implementation.
+   *
+   * Caches the result so repeated calls do not re-generate.
    */
+  private _cachedOutputPaths: string[] | null = null;
   async getOutputPaths(agentsDir: string, manifest: HatchManifest): Promise<string[]> {
+    if (this._cachedOutputPaths) return this._cachedOutputPaths;
     const outputs = await this.generate(agentsDir, manifest);
-    return outputs.map((o) => o.path);
+    this._cachedOutputPaths = outputs.map((o) => o.path);
+    return this._cachedOutputPaths;
   }
 
   protected abstract doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]>;

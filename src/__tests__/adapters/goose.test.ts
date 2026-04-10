@@ -93,6 +93,32 @@ describe("GooseAdapter", () => {
     }
   });
 
+  // ── Finding 3.17: model resolution assertion ──
+  it("includes model annotation in .goosehints when agent has model configured", async () => {
+    const manifest = createManifest({
+      tools: ["goose"],
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const hints = outputs.find((o) => o.path === ".goosehints");
+    expect(hints).toBeDefined();
+    // test-agent fixture has model: sonnet -> resolves to claude-sonnet-4-6
+    expect(hints!.content).toContain("Recommended model:");
+    expect(hints!.content).toContain("claude-sonnet-4-6");
+  });
+
+  // ── Finding 3.16: no empty content assertion ──
+  it("produces no empty content in any output", async () => {
+    const manifest = createManifest({
+      tools: ["goose"],
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    for (const o of outputs) {
+      expect(o.content.length).toBeGreaterThan(0);
+    }
+  });
+
   it("generates profile with instructions array matching Goose schema", async () => {
     const manifest = createManifest({
       tools: ["goose"],

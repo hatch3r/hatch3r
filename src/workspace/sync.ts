@@ -9,7 +9,7 @@ import {
   getAllItemsById,
   removeContentItem,
 } from "../content/index.js";
-import { generateIntegrityManifest, writeIntegrityManifest } from "../integrity/index.js";
+import { generateIntegrityManifest, writeIntegrityManifest, verifyIntegrity } from "../integrity/index.js";
 import {
   createManifest,
   readManifest,
@@ -28,13 +28,11 @@ import { ensureEnvMcp, ensureGitignoreEntry } from "../env/mcpEnv.js";
 import { readWorkspaceManifest, writeWorkspaceManifest } from "./manifest.js";
 import { resolveRepoConfig, buildSelectionFromIds } from "./resolve.js";
 import { detectRepoGitIdentity } from "./git.js";
+import { CHARS_PER_TOKEN } from "../pipeline/observability.js";
 import type { WorkspaceManifest, WorkspaceRepoEntry, WorkspaceSyncResult, WorkspaceRepoSyncResult } from "./types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONTENT_ROOT = findPackageRoot(__dirname);
-
-/** Estimate token count from character count (~4 chars per token). */
-const CHARS_PER_TOKEN = 4;
 
 /**
  * Estimate total tokens for a set of content IDs by summing the character
@@ -109,6 +107,22 @@ export async function syncWorkspaceRepos(
   const protectedIds = new Set(
     index.items.filter((item) => item.protected).map((item) => item.id),
   );
+
+  // D15 Medium (#15.24): Pre-sync integrity check — warn if workspace
+  // canonical content has been tampered with before propagating to sub-repos.
+  const wsAgentsDir = join(workspaceRoot, AGENTS_DIR);
+  const integrityResults = await verifyIntegrity(wsAgentsDir);
+  const tampered = integrityResults.filter(
+    (r) => r.status === "modified" || r.status === "tampered",
+  );
+  if (tampered.length > 0 && !options.force) {
+    for (const r of tampered) {
+      options.onWarn?.(
+        `Integrity issue in workspace content: ${r.file} (${r.status}). ` +
+        `Use --force to sync anyway, or run hatch3r verify to inspect.`,
+      );
+    }
+  }
 
   // Select target repos
   const targetRepos = options.repos?.length

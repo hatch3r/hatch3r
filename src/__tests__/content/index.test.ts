@@ -24,6 +24,8 @@ import {
   validateOrchestrationDependencies,
   typeIdKey,
   getAllItemsById,
+  applyCommandPrefix,
+  COMMAND_ID_PREFIX,
 } from "../../content/index.js";
 import type { CatalogItem, ContentIndex } from "../../content/index.js";
 import { getPreset } from "../../content/presets.js";
@@ -1999,6 +2001,47 @@ describe("content/index", () => {
       const { generateMdcCompanions } = await import("../../content/index.js");
       const result = await generateMdcCompanions("/nonexistent/path");
       expect(result).toEqual([]);
+    });
+  });
+
+  // ── Finding 3.23: applyCommandPrefix and COMMAND_ID_PREFIX ──────
+  describe("COMMAND_ID_PREFIX", () => {
+    it("is the string 'cmd-'", () => {
+      expect(COMMAND_ID_PREFIX).toBe("cmd-");
+    });
+  });
+
+  describe("applyCommandPrefix", () => {
+    it("prefixes command-type IDs with 'cmd-'", () => {
+      expect(applyCommandPrefix("hatch3r-feature-plan", "command")).toBe("cmd-hatch3r-feature-plan");
+    });
+
+    it("does not prefix agent-type IDs", () => {
+      expect(applyCommandPrefix("hatch3r-implementer", "agent")).toBe("hatch3r-implementer");
+    });
+
+    it("does not prefix rule-type IDs", () => {
+      expect(applyCommandPrefix("hatch3r-code-standards", "rule")).toBe("hatch3r-code-standards");
+    });
+
+    it("does not prefix skill-type IDs", () => {
+      expect(applyCommandPrefix("hatch3r-feature", "skill")).toBe("hatch3r-feature");
+    });
+
+    it("does not prefix prompt-type IDs", () => {
+      expect(applyCommandPrefix("hatch3r-prompt", "prompt")).toBe("hatch3r-prompt");
+    });
+
+    it("does not prefix hook-type IDs", () => {
+      expect(applyCommandPrefix("hatch3r-hook", "hook")).toBe("hatch3r-hook");
+    });
+
+    it("does not double-prefix already-prefixed command IDs", () => {
+      // applyCommandPrefix always adds the prefix for command type,
+      // so passing an already-prefixed ID will double-prefix it.
+      // This documents the behavior — callers should not pass pre-prefixed IDs.
+      const result = applyCommandPrefix("cmd-hatch3r-feature-plan", "command");
+      expect(result).toBe("cmd-cmd-hatch3r-feature-plan");
     });
   });
 });

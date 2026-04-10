@@ -1,0 +1,159 @@
+---
+id: hatch3r-observability-tracing-detail
+type: rule
+description: Extended tracing reference -- AI agent instrumentation, tool call audit trails, LLM request tracing, and correlation ID patterns
+scope: conditional
+tags: [devops]
+quality_charter: agents/shared/quality-charter.md
+---
+# Observability -- Tracing Extended Reference
+
+On-demand companion to `hatch3r-observability-tracing`. Load when instrumenting AI agent systems, implementing tool call audit trails, or setting up correlation IDs for multi-agent workflows.
+
+## GenAI Span Attributes
+
+Use these attributes on all spans representing interactions with generative AI models:
+
+| Attribute | Type | Description | Example |
+|-----------|------|-------------|---------|
+| `gen_ai.system` | string | GenAI provider system name | `openai`, `anthropic`, `azure_openai` |
+| `gen_ai.request.model` | string | Model name as specified in the request | `gpt-4o`, `claude-sonnet-4-20250514` |
+| `gen_ai.response.model` | string | Model name as returned in the response | `gpt-4o-2024-08-06` |
+| `gen_ai.request.max_tokens` | int | Maximum tokens requested for generation | `4096` |
+| `gen_ai.request.temperature` | float | Temperature parameter | `0.7` |
+| `gen_ai.response.finish_reasons` | string[] | Reasons the model stopped generating | `["stop"]`, `["length"]` |
+| `gen_ai.usage.input_tokens` | int | Tokens in the input/prompt | `1250` |
+| `gen_ai.usage.output_tokens` | int | Tokens in the generated output | `530` |
+
+- Always set `gen_ai.system` and `gen_ai.request.model` on every GenAI span.
+- Record `gen_ai.usage.input_tokens` and `gen_ai.usage.output_tokens` from the API response for cost dashboards.
+- Use `gen_ai.response.finish_reasons` to detect truncated outputs (`length`) and trigger re-prompting.
+
+## Agent Invocation Spans
+
+Instrument the full lifecycle of an agent invocation with a dedicated span. This span is the parent for all LLM calls, tool executions, and sub-agent delegations.
+
+- **Span name pattern:** `agent.{agent_name}.invoke`
+- **Required attributes:** `agent.id`, `agent.name`, `agent.parent_id`, `agent.task`, `agent.framework`
+- **Span events for state transitions:** `agent.planning`, `agent.tool_selection`, `agent.awaiting_human`, `agent.delegating`, `agent.completed`, `agent.error`
+
+```typescript
+const agentSpan = tracer.startSpan('agent.code_reviewer.invoke', {
+  attributes: {
+    'agent.id': invocationId,
+    'agent.name': 'code_reviewer',
+    'agent.parent_id': parentAgentId ?? '',
+    'agent.task': `review PR #${prNumber}`,
+    'agent.framework': 'custom',
+  },
+});
+agentSpan.addEvent('agent.planning');
+// ... agent reasoning and tool calls happen as child spans ...
+agentSpan.addEvent('agent.completed');
+agentSpan.end();
+```
+
+## Tool Call Spans
+
+Every tool invocation by an agent creates a child span of the agent invocation span.
+
+- **Span name pattern:** `tool.{tool_name}.execute`
+- **Required attributes:** `tool.name`, `tool.input_hash` (SHA-256), `tool.output_status`, `tool.duration_ms`, `tool.parameters_count`
+- Tool spans must be children of the invoking agent span. Set span status to `ERROR` when `tool.output_status` is `error` or `timeout`.
+- For tools performing I/O, create nested child spans using appropriate semantic conventions (`http.*`, `db.*`).
+
+```typescript
+const toolSpan = tracer.startSpan(
+  'tool.git_diff.execute',
+  { attributes: { 'tool.name': 'git_diff' } },
+  trace.setSpan(context.active(), agentSpan),
+);
+try {
+  const result = await tools.gitDiff(params);
+  toolSpan.setAttributes({
+    'tool.output_status': 'success',
+    'tool.duration_ms': performance.now() - startTime,
+    'tool.input_hash': hashInput(params),
+  });
+} catch (err) {
+  toolSpan.setAttributes({ 'tool.output_status': 'error' });
+  toolSpan.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
+  toolSpan.recordException(err);
+  throw err;
+} finally {
+  toolSpan.end();
+}
+```
+
+## LLM Request/Response Tracing
+
+- **Span name pattern:** `gen_ai.{operation}` (e.g., `gen_ai.chat`, `gen_ai.completion`)
+- **Token tracking:** Capture `gen_ai.usage.input_tokens` and `gen_ai.usage.output_tokens`. Aggregate in metrics: Counter `gen_ai.tokens_total` with labels `{direction, model, agent_name}`, Histogram `gen_ai.request_duration_ms`.
+- **Model version tracking:** Record both `gen_ai.request.model` and `gen_ai.response.model` for drift detection.
+- **Retry spans:** Each retry attempt is a separate child span. Set `gen_ai.request.retries` on the final span. Record `http.response.status_code` on failed spans (429 vs 500+).
+- Never log raw prompt content or full model responses as span attributes. Use token counts for cost tracking and correlated logs for prompt debugging in non-production environments.
+- Sample GenAI spans at 50-100% in production (higher than general spans) because each call is expensive and low volume.
+
+## Tool Call Audit Trail
+
+Maintain a structured audit log for every tool invocation in agentic workflows, separate from tracing spans.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `tool.name` | string | Name of the tool invoked |
+| `tool.input_hash` | string | SHA-256 hash of tool input (never log raw input) |
+| `tool.output_status` | string | `success`, `error`, `timeout`, or `denied` |
+| `tool.duration_ms` | float | Execution time in milliseconds |
+| `agent.id` | string | ID of the invoking agent |
+| `agent.name` | string | Human-readable agent name |
+| `correlation.id` | string | Trace correlation ID |
+| `timestamp` | string | ISO 8601 timestamp |
+| `session.id` | string | Session identifier |
+
+- Log tool invocations at `info` level, failures at `error` level with `error.type` and `error.message`.
+- Aggregate tool call counts per agent per session for anomaly detection.
+- Retain audit logs for a minimum of 90 days.
+
+## Correlation IDs for Agent Workflows
+
+- Use UUIDv4 with workflow-type prefix: `{workflow-type}-{uuid}` (e.g., `agent-run-550e8400-...`).
+- Generate at the workflow entry point. Propagate to all sub-agents and tool calls.
+- Every log entry, span, and metric must include `correlation.id`.
+- Cross-process: propagate via `X-Correlation-ID` header alongside W3C Trace Context.
+- Use OpenTelemetry `SpanLink` for cross-workflow references (e.g., agent run triggered by CI event).
+
+```typescript
+import { randomUUID } from 'node:crypto';
+import { context, trace, SpanStatusCode } from '@opentelemetry/api';
+
+function generateCorrelationId(workflowType: string): string {
+  return `${workflowType}-${randomUUID()}`;
+}
+
+async function runAgentWorkflow(task: string): Promise<void> {
+  const correlationId = generateCorrelationId('agent-run');
+  const tracer = trace.getTracer('agent-orchestrator');
+  const rootSpan = tracer.startSpan('agent.orchestrator.invoke', {
+    attributes: {
+      'correlation.id': correlationId,
+      'agent.name': 'orchestrator',
+      'agent.task': task,
+    },
+  });
+  try {
+    await context.with(trace.setSpan(context.active(), rootSpan), async () => {
+      await delegateToSubAgent('code_reviewer', {
+        correlationId,
+        parentSpanId: rootSpan.spanContext().spanId,
+        task: 'review changes',
+      });
+    });
+  } catch (err) {
+    rootSpan.setStatus({ code: SpanStatusCode.ERROR, message: (err as Error).message });
+    rootSpan.recordException(err as Error);
+    throw err;
+  } finally {
+    rootSpan.end();
+  }
+}
+```

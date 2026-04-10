@@ -288,7 +288,7 @@ describe("validate command", () => {
     expect(allOutput).toContain("warning(s)");
   });
 
-  it("should report all checks passed when structure is complete", async () => {
+  it("should report validation passed with compliance warnings when structure is complete", async () => {
     await createMinimalAgentsDir(tempDir);
     const agentsDir = join(tempDir, AGENTS_DIR);
     for (const dir of ["prompts", "policy", "github-agents", "hooks"]) {
@@ -305,7 +305,11 @@ describe("validate command", () => {
     await validateCommand();
 
     const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
-    expect(allOutput).toContain("All checks passed");
+    // D15 Wave 3: integrity-signing-status compliance check emits a warning,
+    // so "All checks passed" is no longer expected — only "Validation passed"
+    expect(allOutput).toContain("Validation passed");
+    // The signing limitation warning should be present as an advisory
+    expect(allOutput).toContain("ASI-INTEGRITY");
   });
 
   it("should warn when hooks feature is enabled but no hooks exist", async () => {

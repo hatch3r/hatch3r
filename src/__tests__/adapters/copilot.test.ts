@@ -77,15 +77,18 @@ describe("CopilotAdapter", () => {
     expect(agentsMd).toBeUndefined();
   });
 
-  it("generates copilot-setup-steps.yml", async () => {
+  it("generates copilot-setup-steps.yml with managed blocks", async () => {
     const manifest = makeManifest();
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
     const setupSteps = outputs.find((o) => o.path === ".github/workflows/copilot-setup-steps.yml");
     expect(setupSteps).toBeDefined();
+    expect(setupSteps!.content).toContain(MANAGED_BLOCK_START);
+    expect(setupSteps!.content).toContain(MANAGED_BLOCK_END);
     expect(setupSteps!.content).toContain("jobs:");
     expect(setupSteps!.content).toContain("npm install");
     expect(setupSteps!.content).toContain("npm run build");
+    expect(setupSteps!.managedContent).toBeDefined();
   });
 
   it("generates prompt files from prompts and commands", async () => {
@@ -259,6 +262,16 @@ You are a test agent.`,
 
     for (const o of outputs) {
       expect(o.action).toBe("create");
+    }
+  });
+
+  // ── Finding 3.16: no empty content assertion ──
+  it("produces no empty content in any output", async () => {
+    const manifest = makeManifest();
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    for (const o of outputs) {
+      expect(o.content.length).toBeGreaterThan(0);
     }
   });
 });

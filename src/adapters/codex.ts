@@ -4,7 +4,7 @@ import { resolveAgentModel } from "../models/resolve.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
 import { readCanonicalFiles } from "./canonical.js";
 import { applyCustomization } from "./customization.js";
-import { escapeTomlString } from "./toml-utils.js";
+import { escapeTomlString, tomlKey } from "./toml-utils.js";
 import { transformEnvVarSyntax } from "./mcp-utils.js";
 
 // Codex adapter — generates configuration for OpenAI Codex CLI.
@@ -52,14 +52,14 @@ export class CodexAdapter extends BaseAdapter {
         const model = resolveAgentModel(agent.id, agent, ctx.manifest, overrides);
         const desc = overrides.description ?? agent.description;
 
-        // Codex expects individual TOML files per agent, not sections in config.toml
+        // Codex expects individual TOML files per agent, not sections in config.toml.
+        // model_instructions_file is legacy/reserved — Codex discovers AGENTS.md natively.
         const agentLines: string[] = [
           "# Codex agent configuration (managed by hatch3r)",
           "#",
           "# Do not manually edit — run `npx hatch3r sync` to regenerate.",
           "",
           `description = "${escapeTomlString(desc)}"`,
-          `model_instructions_file = "${escapeTomlString(`.agents/agents/${agent.id}.md`)}"`,
         ];
         if (model) agentLines.push(`model = "${escapeTomlString(model)}"`);
         agentLines.push("");
@@ -80,16 +80,20 @@ export class CodexAdapter extends BaseAdapter {
         } else if (server.url) {
           configLines.push(`url = "${escapeTomlString(server.url)}"`);
         }
-        if (server.env) {
+        // Codex v0.114+: use TOML table sections for env and headers.
+        // Keys are validated against TOML bare-key rules via tomlKey().
+        if (server.env && Object.keys(server.env).length > 0) {
+          configLines.push(`[mcp_servers.${name}.env]`);
           for (const [k, v] of Object.entries(server.env)) {
             const transformed = transformEnvVarSyntax(v, "shell") as string;
-            configLines.push(`env.${k} = "${escapeTomlString(transformed)}"`);
+            configLines.push(`${tomlKey(k)} = "${escapeTomlString(transformed)}"`);
           }
         }
-        if (server.headers) {
+        if (server.headers && Object.keys(server.headers).length > 0) {
+          configLines.push(`[mcp_servers.${name}.headers]`);
           for (const [k, v] of Object.entries(server.headers)) {
             const transformed = transformEnvVarSyntax(v, "shell") as string;
-            configLines.push(`headers.${k} = "${escapeTomlString(transformed)}"`);
+            configLines.push(`${tomlKey(k)} = "${escapeTomlString(transformed)}"`);
           }
         }
         configLines.push("");

@@ -44,6 +44,12 @@ const DENY_PATTERNS: RegExp[] = [
   /(?:upload|exfil)\s+(?:to|data|credentials|keys)/i,
   /(?:disable|turn\s+off|remove)\s+(?:logging|monitoring|audit)/i,
   /(?:hardcoded|embedded)\s+(?:credentials?|secrets?|passwords?)/i,
+  // D15 Medium (#15.40): Common prompt injection phrases
+  /(?:from now on|going forward),?\s+(?:ignore|disregard|forget)\s/i,
+  /pretend\s+(?:you\s+are|to\s+be)\s+(?:a|an|the)\s/i,
+  /(?:reveal|show|display|output)\s+(?:your|the)\s+(?:system\s+)?(?:prompt|instructions|rules)/i,
+  /(?:jailbreak|dan\s+mode|developer\s+mode)/i,
+  /(?:output|print|write)\s+(?:the|your)\s+(?:initial|original|system)\s+(?:prompt|instructions)/i,
 ];
 
 const ZERO_WIDTH_CHARS = /[\u200B\u200C\u200D\uFEFF\u00AD]/g;
@@ -96,11 +102,19 @@ function normalizeHomoglyphs(text: string): string {
     .replace(/[\u2000-\u200F\uFEFF]/g, ''); // Remove zero-width characters
 }
 
+/**
+ * Strip boundary markers before deny-pattern scanning so markers
+ * themselves don't trigger false positives. Covers the actual marker
+ * formats used in managed blocks and user customization sections.
+ *
+ * D15 Medium (#15.20): Fixed marker names — `MANAGED-BLOCK:*` replaced
+ * with the correct `HATCH3R:*` format matching `src/types.ts` constants.
+ */
 function stripBoundaryMarkers(content: string): string {
   return content
-    .replace(/<!-- MANAGED-BLOCK:(BEGIN|END) -->/g, '')
+    .replace(/<!-- HATCH3R:(BEGIN|END) -->/g, '')
     .replace(/<!-- USER-CUSTOMIZATION:(BEGIN|END) -->/g, '')
-    .replace(/<!-- HATCH3R:(BEGIN|END) -->/g, '');
+    .replace(/<!-- HATCH3R-PHASE:[^>]+ -->/g, '');
 }
 
 function collapseNewlines(content: string): string {

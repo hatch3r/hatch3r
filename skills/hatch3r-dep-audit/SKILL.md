@@ -77,6 +77,12 @@ Use the project's PR template. Include:
 - **Test evidence:** all tests pass, no regressions.
 - **Rollback plan:** if risky (e.g., major version bump).
 
+## Error Handling
+
+- **`npm audit` reports vulnerabilities with no fix available**: Document the vulnerability, assess exploitability in the project context, and create a tracking issue. If the risk is high, evaluate alternative packages.
+- **Major version upgrade breaks tests**: Roll back the upgrade, document the breaking changes encountered, and create a dedicated migration issue with the specific test failures and required code changes.
+- **Lockfile conflicts after upgrade**: Regenerate the lockfile from scratch (`rm package-lock.json && npm install`), verify all tests pass, and commit the clean lockfile.
+
 ## Definition of Done
 
 - [ ] No critical or high CVEs remaining

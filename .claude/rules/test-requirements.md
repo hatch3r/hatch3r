@@ -1,5 +1,7 @@
 # Test Requirements
 
+**Pillars:** P2 (Scientific Quality), P5 (Governance Self-Quality)
+
 Testing standards from `vitest.config.ts`:
 
 **Global thresholds:** 78% statements, 65% branches, 80% functions, 80% lines.

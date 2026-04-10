@@ -1,5 +1,7 @@
 # Content Authoring
 
+**Pillars:** P4 (Lean Coverage), P2 (Scientific Quality)
+
 When creating or modifying canonical content artifacts in `agents/`, `skills/`, `rules/`, `commands/`, `hooks/`:
 
 1. **YAML frontmatter required:** `id`, `type` (agent|skill|rule|command|hook|prompt|github-agent), `description`, `tags`

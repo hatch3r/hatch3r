@@ -482,4 +482,31 @@ You are a test agent.`,
     );
     expect(deprecationWarnings).toHaveLength(0);
   });
+
+  // ── Finding 3.10: generationMode "minimal" integration test ──
+  it("produces shorter output in minimal mode than standard mode", async () => {
+    const manifest = makeManifest();
+    const standardOutputs = await adapter.generate(FIXTURES_DIR, manifest, "standard");
+    const minimalAdapter = new ClaudeAdapter();
+    const minimalOutputs = await minimalAdapter.generate(FIXTURES_DIR, manifest, "minimal");
+
+    const stdBridge = standardOutputs.find((o) => o.path === "CLAUDE.md");
+    const minBridge = minimalOutputs.find((o) => o.path === "CLAUDE.md");
+    expect(stdBridge).toBeDefined();
+    expect(minBridge).toBeDefined();
+    expect(minBridge!.content.length).toBeLessThanOrEqual(stdBridge!.content.length);
+  });
+
+  it("minimal mode still produces valid non-empty output", async () => {
+    const manifest = makeManifest();
+    const minimalAdapter = new ClaudeAdapter();
+    const outputs = await minimalAdapter.generate(FIXTURES_DIR, manifest, "minimal");
+
+    for (const o of outputs) {
+      expect(o.content.length).toBeGreaterThan(0);
+    }
+    const claudeMd = outputs.find((o) => o.path === "CLAUDE.md");
+    expect(claudeMd).toBeDefined();
+    expect(claudeMd!.content).toContain("Hatch3r");
+  });
 });

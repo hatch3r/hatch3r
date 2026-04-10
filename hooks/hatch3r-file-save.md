@@ -6,6 +6,7 @@ agent: context-rules
 description: Activate context-specific rules on file save
 globs: "**/*.ts, **/*.tsx, **/*.js, **/*.jsx"
 tags: [core]
+quality_charter: agents/shared/quality-charter.md
 ---
 # Hook: file-save → context-rules
 

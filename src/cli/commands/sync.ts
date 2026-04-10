@@ -31,6 +31,8 @@ import {
   info,
   step,
   warn,
+  setVerbose,
+  verbose,
 } from "../shared/ui.js";
 
 /**
@@ -132,8 +134,10 @@ export async function syncCommand(
     diff?: boolean;
     force?: boolean;
     minimal?: boolean;
+    verbose?: boolean;
   } = {},
 ): Promise<void> {
+  setVerbose(!!opts.verbose);
   printBanner(true);
 
   const rootDir = process.cwd();
@@ -156,6 +160,8 @@ export async function syncCommand(
   }
 
   const m = manifest;
+
+  verbose(`Manifest loaded: ${m.tools.length} tool(s), ${Object.keys(m.features).filter(k => m.features[k as keyof typeof m.features]).length} feature(s)`);
 
   const integrityResults = await verifyIntegrity(agentsDir);
   const modified = integrityResults.filter((r) => r.status === "modified");
@@ -219,6 +225,14 @@ export async function syncCommand(
     info("Minimal generation mode: output will be stripped-down to reduce token usage.");
   }
 
+  // #260 (D11-11.7): Track output paths across adapters to detect collisions.
+  // Multiple adapters writing to the same file (e.g. Amp's AGENTS.md vs the
+  // sync bridge's AGENTS.md) can cause silent overwrites.
+  const outputPathOwners = new Map<string, string>();
+  // Seed with sync bridge outputs
+  outputPathOwners.set("AGENTS.md", "sync-bridge");
+  outputPathOwners.set(`${AGENTS_DIR}/AGENTS.md`, "sync-bridge");
+
   const adapterFailures: { tool: string; error: string }[] = [];
   for (const tool of m.tools) {
     const s = createSpinner(step(++currentStep, totalSteps, `Generating ${tool} output...`));
@@ -228,6 +242,16 @@ export async function syncCommand(
       const outputs = await adapter.generate(agentsDir, m, generationMode);
       for (const w of adapter.warnings) { warn(w); }
 
+      // #260 (D11-11.7): Detect output path collisions across adapters
+      for (const out of outputs) {
+        const existingOwner = outputPathOwners.get(out.path);
+        if (existingOwner && existingOwner !== tool) {
+          warn(`Output path collision: "${out.path}" written by both "${existingOwner}" and "${tool}". Last writer wins.`);
+        }
+        outputPathOwners.set(out.path, tool);
+      }
+
+      verbose(`${tool}: ${outputs.length} file(s) generated`);
       if (opts.dryRun) {
         // --dry-run: show what adapter would generate without writing files
         for (const out of outputs) {
@@ -248,10 +272,12 @@ export async function syncCommand(
               managedContent: out.managedContent,
             });
             if (result.warning) warn(result.warning);
+            verbose(`${out.path}: ${result.action}`);
             results.push({ path: out.path, action: result.action });
           } else {
             const result = await safeWriteFile(fullPath, out.content);
             if (result.warning) warn(result.warning);
+            verbose(`${out.path}: ${result.action}`);
             results.push({ path: out.path, action: result.action });
           }
           if (opts.diff) {
@@ -324,15 +350,47 @@ export async function syncCommand(
       }
     }
 
-    // Regenerate integrity manifest so checksums match newly generated files
-    const integrityManifest = await generateIntegrityManifest(agentsDir, HATCH3R_VERSION);
-    await writeIntegrityManifest(agentsDir, integrityManifest);
+    // #259 (D11-11.6): Only regenerate integrity manifest on full sync success.
+    // Writing a manifest after partial adapter failure would certify incomplete
+    // output, masking missing files in subsequent integrity checks.
+    if (adapterFailures.length === 0) {
+      const integrityManifest = await generateIntegrityManifest(agentsDir, HATCH3R_VERSION);
+      await writeIntegrityManifest(agentsDir, integrityManifest);
+    } else {
+      warn("Integrity manifest not updated due to adapter failures. Re-run sync after resolving errors.");
+    }
 
     // Prune stale archive entries
     await pruneArchives(rootDir);
 
     // Check spec freshness
     await checkSpecFreshness(rootDir);
+
+    // #267 (D11-11.14): Detect orphaned .customize.md files at sync time.
+    // When content is removed from the manifest, customization files become
+    // orphaned and should be flagged so users can clean them up.
+    if (m.content) {
+      const allContentIds = new Set<string>();
+      for (const ids of Object.values(m.content.items)) {
+        for (const id of ids) allContentIds.add(id);
+      }
+      const CUSTOMIZE_DIRS = ["agents", "commands", "skills", "rules"];
+      for (const dir of CUSTOMIZE_DIRS) {
+        try {
+          const files = await readdir(join(rootDir, ".hatch3r", dir));
+          for (const f of files.filter(f => f.endsWith(".customize.yaml") || f.endsWith(".customize.md"))) {
+            const itemId = f.replace(/\.customize\.(yaml|md)$/, "");
+            const prefixed = `hatch3r-${itemId}`;
+            if (!allContentIds.has(itemId) && !allContentIds.has(prefixed) &&
+                !allContentIds.has(`cmd-${itemId}`) && !allContentIds.has(`cmd-${prefixed}`)) {
+              warn(`Orphaned customization: .hatch3r/${dir}/${f} — content no longer in manifest. Consider removing it.`);
+            }
+          }
+        } catch {
+          // .hatch3r/{dir} does not exist — no customizations to check
+        }
+      }
+    }
   }
 
   console.log();

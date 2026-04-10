@@ -117,7 +117,7 @@ export async function worktreeSetupCommand(
   // Auto-sync adapter output in the worktree so CLAUDE.md, .claude/, etc. are fresh
   try {
     info("Syncing adapter output in worktree...");
-    execFileSync("npx", ["hatch3r", "sync", "--yes"], {
+    execFileSync("npx", ["hatch3r", "sync"], {
       cwd: targetRoot,
       stdio: "pipe",
     });

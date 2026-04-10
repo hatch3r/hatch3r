@@ -26,17 +26,17 @@ ALL sub-agents are **sequential** — they run only after D16 and D17 complete.
 - [ ] Feature prioritization — are high-impact features prioritized correctly?
 - [ ] Technical debt — are there architectural decisions that should be revisited?
 - [ ] VISION.md alignment — does the current implementation serve the north-star vision? Are there features that have drifted from the vision?
-- [ ] Vision-PRD consistency — does the PRD's Section 2 (Vision) align with VISION.md? Flag any divergence.
-- [ ] Audit-driven PRD currency — have previous audit cycles' PRD Evolution Candidates been incorporated? Check PRD version history.
-- [ ] CL-1 lifecycle tracking — verify that CL-1 PRD evolution candidates from the previous audit cycle have a tracked disposition (accepted, deferred with rationale, or rejected with rationale). Untracked CL-1 items indicate a broken closed-loop.
+- [ ] Vision-PRD consistency — does the PRD's Section 2 (Vision) align with VISION.md? Flag any divergence
+- [ ] PRD scope validation — verify adapter count, content counts, and platform names match the codebase. Mismatches are Critical findings
+- [ ] CL-1 lifecycle tracking — verify that CL-1 PRD evolution candidates from the previous audit cycle have a tracked disposition (accepted, deferred with rationale, or rejected with rationale). Untracked CL-1 items indicate a broken closed-loop
 
 ### 18.2 Roadmap Reprioritization
 - [ ] Reprioritization based on compound system evaluation (D16)
 - [ ] Reprioritization based on competitive landscape (D17)
-- [ ] Priority reassignment for existing roadmap items
+- [ ] Priority reassignment for existing roadmap items — escalate items with audit-driven urgency
 - [ ] Missing roadmap items revealed by the audit
 - [ ] Long-term strategic items — still relevant? Priority shift needed?
-- [ ] Closed-loop effectiveness — are audit findings actually reaching the PRD and roadmap? Compare previous audit's PRD Evolution Candidates against current PRD version.
+- [ ] Closed-loop effectiveness — are audit findings reaching the PRD and roadmap? Compare previous audit's PRD Evolution Candidates against current PRD version
 
 ### 18.3 Distribution Verdict
 

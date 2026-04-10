@@ -1,6 +1,8 @@
 # CLI UX Standards
 
-P1 (CLI UI/UX Excellence) requirements for all CLI code in `src/cli/`:
+**Pillars:** P1 (CLI UX Excellence)
+
+Requirements for all CLI code in `src/cli/`:
 
 1. **Actionable errors:** Every error includes what failed, why, and what the user should do next. Use `HatchError` class with `exitCode`
 2. **Progressive disclosure:** Simple output by default, `--verbose` for detail

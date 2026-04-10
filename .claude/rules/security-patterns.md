@@ -1,6 +1,8 @@
 # Security Patterns
 
-Security patterns required in all `src/` code (P6: Security & Trust Governance):
+**Pillars:** P6 (Security & Trust)
+
+Security patterns required in all `src/` code:
 
 1. **Atomic file writes:** Use temp file + rename pattern via `src/merge/safeWrite.ts` — never write directly to target path
 2. **Path traversal guards:** Validate all user-provided paths. No `../` traversal outside project root

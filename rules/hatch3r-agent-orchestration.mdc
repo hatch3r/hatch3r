@@ -153,6 +153,7 @@ After all Phase 4 specialists complete, run a validation pass to catch regressio
 2. No new failures: proceed to completion.
 3. New failures: identify causing specialist, spawn `hatch3r-fixer`, re-validate (max 2 iterations).
 4. Persistent regressions: surface to user. Do not silently accept.
+5. If any specialist produced code fixes (not just findings), spawn a lightweight `hatch3r-reviewer` re-review scoped to files modified by Phase 4 specialists. This prevents specialist fixes from bypassing the Phase 3 review gate. Max 1 re-review iteration; Critical findings trigger a single fixer pass.
 
 ### Specialist Success Criteria
 
@@ -255,7 +256,7 @@ The orchestrator must reject superficial fixes from any subagent. If a fixer's o
 
 **Single-task plain chat:** Classify task type, create synthetic issue context, run full pipeline. For issue references, fetch details via platform CLI.
 
-**Multi-task plain chat:** Parse into discrete tasks, classify each, build dependency graph, parallelize researchers and implementers per dependency level, run review loop after all implementations, then Phase 4 specialists.
+**Multi-task plain chat:** Parse into discrete tasks, classify each, build dependency graph, parallelize researchers and implementers per dependency level, run review loop after all implementations, then Phase 4 specialists. When parallel implementers modify the same file: accept disjoint region edits, merge overlapping regions using the larger-scope change as base, and halt on semantic conflicts (contradictory interface/contract changes) for user resolution.
 
 **Auto-mode guardrails:** In unattended execution, verify scope containment, no unapproved destructive operations, and output schema compliance after each phase. Halt on violation. See `hatch3r-agent-orchestration-detail` for full guardrail specifications.
 
@@ -277,6 +278,6 @@ All `scope: always` rules apply to every task including subagent work. Include r
 - `hatch3r-dependency-management` -- dependency-auditor
 
 **Tier 3 -- On-demand:**
-- `hatch3r-api-design`, `hatch3r-secrets-management`, `hatch3r-data-classification`, `hatch3r-performance-budgets`, `hatch3r-browser-verification`, `hatch3r-component-conventions`, `hatch3r-i18n`, `hatch3r-theming`, `hatch3r-migrations`, `hatch3r-feature-flags`, `hatch3r-observability-logging`, `hatch3r-observability-metrics`, `hatch3r-observability-tracing`
+- `hatch3r-api-design`, `hatch3r-secrets-management`, `hatch3r-data-classification`, `hatch3r-performance-budgets`, `hatch3r-browser-verification`, `hatch3r-component-conventions`, `hatch3r-i18n`, `hatch3r-theming`, `hatch3r-migrations`, `hatch3r-feature-flags`, `hatch3r-observability-logging`, `hatch3r-observability-metrics`, `hatch3r-observability-tracing`, `hatch3r-observability-tracing-detail`
 
 For limited context windows, Tier 1 is mandatory. Tier 2/3 included selectively by agent role and task scope.

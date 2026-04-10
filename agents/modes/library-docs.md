@@ -3,6 +3,7 @@ id: researcher-mode-library-docs
 type: mode
 description: Look up current API documentation for specific libraries via Context7 MCP.
 parent: hatch3r-researcher
+quality_charter: agents/shared/quality-charter.md
 ---
 ### Mode: `library-docs`
 

@@ -13,9 +13,12 @@ On-demand instruction bundles for specific tasks. Skills are loaded by agents wh
 |-------|-------------|
 | **a11y-audit** | Comprehensive WCAG AA audit with automated scanning, manual verification, and fix implementation. |
 | **agent-customize** | Configure per-agent customization via `.customize.yaml` files. |
+| **api-spec** | Generate and validate OpenAPI specifications from codebase. Covers endpoint design, schema validation, and documentation generation. |
 | **architecture-review** | Evaluate architectural decisions, compare options with pros/cons, and produce ADRs following the project template. |
 | **bug-fix** | Diagnose root cause, implement minimal fix, and write a regression test that fails before the fix. TDD/test-first workflow option. |
+| **ci-pipeline** | Design and optimize CI/CD pipelines. Covers stage design, test parallelization, artifact management, and pipeline performance. |
 | **command-customize** | Configure per-command customization via `.customize.yaml` files. |
+| **customize** | Create and manage customization files for any hatch3r artifact type (agents, commands, rules, skills). Supports model overrides, scope overrides, enable/disable control, and project-specific instructions. |
 | **context-health** | Monitor conversation context health and detect degradation during long sessions. |
 | **cost-tracking** | Track token usage and estimated costs across agent workflows. |
 | **dep-audit** | Audit npm dependencies for CVEs and freshness, research migration paths, upgrade one at a time with testing. |
@@ -24,6 +27,7 @@ On-demand instruction bundles for specific tasks. Skills are loaded by agents wh
 | **incident-response** | Structured triage, mitigation, root cause analysis, and post-mortem for production incidents with follow-up issues. |
 | **issue-workflow** | 8-step development workflow for GitHub issues: parse, load skill, read specs, plan, implement, test, PR, address review. |
 | **logical-refactor** | Change business logic or data flows without adding features, with explicit invariant tracking and verification. |
+| **migration** | Plan and execute migrations for databases, frameworks, and dependencies. Covers breaking change analysis, phased rollout, and rollback procedures. |
 | **perf-audit** | Profile and optimize against defined performance budgets with before/after measurements for every change. |
 | **pr-creation** | Create pull requests following project conventions -- branch naming, PR template, self-review checklist, and size guidelines. |
 | **qa-validation** | E2E validation workflow producing structured pass/fail reports with evidence and ship/hold recommendations. |

@@ -170,6 +170,24 @@ export function runComplianceChecks(): ComplianceReport {
     detail: "MCP-specific injection patterns and tool delimiter detection enabled",
   });
 
+  // ── D15 Medium (#15.22, #15.44): MCP integrity and timeout ──
+  checks.push({
+    id: "mcp-integrity-coverage",
+    description: "MCP configuration files are covered by integrity manifests",
+    controlRef: "ASI-MCP",
+    status: "pass",
+    detail: "Integrity scans include mcp/ directory (.json files). MCP timeout configurable per-server (default: 30s, max: 5m)",
+  });
+
+  // ── D15 Medium (#15.23): Content signing limitation ──
+  checks.push({
+    id: "integrity-signing-status",
+    description: "Integrity manifest signing status",
+    controlRef: "ASI-INTEGRITY",
+    status: "warn",
+    detail: "Content-addressed integrity (SHA-256) detects modifications but does not prevent re-generation by an attacker with write access. No HMAC signing is currently applied — see SECURITY.md for trust model details",
+  });
+
   // ── Summarize ──
   const passed = checks.filter((c) => c.status === "pass").length;
   const failed = checks.filter((c) => c.status === "fail").length;

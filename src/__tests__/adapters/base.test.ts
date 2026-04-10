@@ -158,4 +158,114 @@ describe("BaseAdapter", () => {
       expect(paths).toEqual(["test.md"]);
     });
   });
+
+  // ── Finding 3.10: generationMode "minimal" ──────────────────────
+  describe("generationMode minimal", () => {
+    it("defaults to 'standard' when no generationMode is passed", async () => {
+      let capturedMode: string | undefined;
+      class ModeCapture extends BaseAdapter {
+        readonly name = "mode-capture";
+        protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
+          capturedMode = ctx.generationMode;
+          return [output("test.md", "content")];
+        }
+      }
+      const adapter = new ModeCapture();
+      const manifest = makeManifest();
+      await adapter.generate(FIXTURES_DIR, manifest);
+      expect(capturedMode).toBe("standard");
+    });
+
+    it("passes 'minimal' to doGenerate when specified", async () => {
+      let capturedMode: string | undefined;
+      class ModeCapture extends BaseAdapter {
+        readonly name = "mode-capture";
+        protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
+          capturedMode = ctx.generationMode;
+          return [output("test.md", "content")];
+        }
+      }
+      const adapter = new ModeCapture();
+      const manifest = makeManifest();
+      await adapter.generate(FIXTURES_DIR, manifest, "minimal");
+      expect(capturedMode).toBe("minimal");
+    });
+
+    it("isMinimal returns true for minimal mode", async () => {
+      let isMin = false;
+      class MinimalCheck extends BaseAdapter {
+        readonly name = "minimal-check";
+        protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
+          isMin = this.isMinimal(ctx);
+          return [output("test.md", "content")];
+        }
+      }
+      const adapter = new MinimalCheck();
+      const manifest = makeManifest();
+      await adapter.generate(FIXTURES_DIR, manifest, "minimal");
+      expect(isMin).toBe(true);
+    });
+
+    it("isMinimal returns false for standard mode", async () => {
+      let isMin = true;
+      class MinimalCheck extends BaseAdapter {
+        readonly name = "minimal-check";
+        protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
+          isMin = this.isMinimal(ctx);
+          return [output("test.md", "content")];
+        }
+      }
+      const adapter = new MinimalCheck();
+      const manifest = makeManifest();
+      await adapter.generate(FIXTURES_DIR, manifest, "standard");
+      expect(isMin).toBe(false);
+    });
+
+    it("stripMinimal removes HTML comments", async () => {
+      let stripped = "";
+      class StripCheck extends BaseAdapter {
+        readonly name = "strip-check";
+        protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
+          stripped = this.stripMinimal("before <!-- comment --> after");
+          return [output("test.md", "content")];
+        }
+      }
+      const adapter = new StripCheck();
+      await adapter.generate(FIXTURES_DIR, makeManifest());
+      expect(stripped).not.toContain("<!-- comment -->");
+      expect(stripped).toContain("before");
+      expect(stripped).toContain("after");
+    });
+
+    it("stripMinimal removes horizontal rules", async () => {
+      let stripped = "";
+      class StripCheck extends BaseAdapter {
+        readonly name = "strip-check";
+        protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
+          stripped = this.stripMinimal("line1\n---\nline2\n***\nline3");
+          return [output("test.md", "content")];
+        }
+      }
+      const adapter = new StripCheck();
+      await adapter.generate(FIXTURES_DIR, makeManifest());
+      expect(stripped).not.toMatch(/^[-*_]{3,}$/m);
+      expect(stripped).toContain("line1");
+      expect(stripped).toContain("line2");
+      expect(stripped).toContain("line3");
+    });
+
+    it("stripMinimal collapses 3+ blank lines to one", async () => {
+      let stripped = "";
+      class StripCheck extends BaseAdapter {
+        readonly name = "strip-check";
+        protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
+          stripped = this.stripMinimal("a\n\n\n\n\nb");
+          return [output("test.md", "content")];
+        }
+      }
+      const adapter = new StripCheck();
+      await adapter.generate(FIXTURES_DIR, makeManifest());
+      expect(stripped).toBe("a\n\nb");
+    });
+  });
 });

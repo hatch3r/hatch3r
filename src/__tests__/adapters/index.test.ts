@@ -95,8 +95,8 @@ describe("getUnsupportedFeatureWarnings", () => {
 
   it("warns when MCP is enabled but adapter lacks MCP support", () => {
     const manifest = makeManifest({ mcp: true });
-    // zed does not support MCP
-    const warnings = getUnsupportedFeatureWarnings("zed", manifest);
+    // aider does not support MCP
+    const warnings = getUnsupportedFeatureWarnings("aider", manifest);
     expect(warnings.some((w) => w.includes("MCP"))).toBe(true);
   });
 
@@ -111,5 +111,47 @@ describe("getUnsupportedFeatureWarnings", () => {
     const manifest = makeManifest({ hooks: false, mcp: false });
     const warnings = getUnsupportedFeatureWarnings("aider", manifest);
     expect(warnings).toEqual([]);
+  });
+
+  // ── Finding 3.11: expanded getUnsupportedFeatureWarnings coverage ──
+
+  it("warns when commands are enabled but adapter lacks command support", () => {
+    const manifest = makeManifest({ commands: true });
+    // amp does not support commands
+    const warnings = getUnsupportedFeatureWarnings("amp", manifest);
+    expect(warnings.some((w) => w.includes("commands"))).toBe(true);
+  });
+
+  it("warns when githubAgents are enabled but adapter lacks githubAgent support", () => {
+    const manifest = makeManifest({ githubAgents: true });
+    // cursor does not support GitHub agents
+    const warnings = getUnsupportedFeatureWarnings("cursor", manifest);
+    expect(warnings.some((w) => w.includes("GitHub agents"))).toBe(true);
+  });
+
+  it("returns multiple warnings when several features are unsupported", () => {
+    const manifest = makeManifest({ hooks: true, mcp: true, commands: true });
+    // aider lacks hooks, mcp, and commands
+    const warnings = getUnsupportedFeatureWarnings("aider", manifest);
+    expect(warnings.length).toBeGreaterThanOrEqual(3);
+    expect(warnings.some((w) => w.includes("hooks"))).toBe(true);
+    expect(warnings.some((w) => w.includes("MCP"))).toBe(true);
+    expect(warnings.some((w) => w.includes("commands"))).toBe(true);
+  });
+
+  it("returns empty for tools that support all enabled features", () => {
+    const manifest = makeManifest({
+      agents: true, skills: true, rules: true, hooks: true,
+      mcp: true, commands: true,
+    });
+    // cursor supports all of these
+    const warnings = getUnsupportedFeatureWarnings("cursor", manifest);
+    expect(warnings).toEqual([]);
+  });
+
+  it("warns when skills are enabled for zed (no skills support)", () => {
+    const manifest = makeManifest({ skills: true });
+    const warnings = getUnsupportedFeatureWarnings("zed", manifest);
+    expect(warnings.some((w) => w.includes("skills"))).toBe(true);
   });
 });

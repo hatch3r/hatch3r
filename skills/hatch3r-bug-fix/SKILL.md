@@ -122,6 +122,12 @@ You MUST spawn these agents via the Task tool (`subagent_type: "generalPurpose"`
 
 - **Skill**: `hatch3r-qa-validation` — use this skill for end-to-end verification of the bug fix
 
+## Error Handling
+
+- **Root cause cannot be identified**: If tracing reaches a dead end, document the investigation path taken, the hypotheses eliminated, and recommend additional instrumentation (debug logging, reproduction steps) to narrow down the cause.
+- **Fix introduces test failures elsewhere**: Analyze whether the failing tests relied on the buggy behavior. Update those tests if they were testing incorrect expectations; otherwise, rethink the fix approach.
+- **Bug is in a third-party dependency**: If the root cause is in external code, implement a workaround with a code comment linking to the upstream issue, and file or reference the upstream bug report.
+
 ## Definition of Done
 
 - [ ] Root cause identified and documented in PR

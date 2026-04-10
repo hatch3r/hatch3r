@@ -21,7 +21,7 @@ That's it. hatch3r detects your repo, asks which tools you use, and generates ev
 2. **Asks about your platform** -- GitHub, Azure DevOps, or GitLab (auto-detected)
 3. **Asks about your project** -- greenfield (new) or brownfield (existing), solo or team
 4. **Asks which content profile** -- Minimal, Standard (recommended), Full, or Custom
-5. **Asks which tools** -- select from Cursor, Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline, Aider, Kiro, Goose, Zed
+5. **Asks which tools** -- select from Cursor, Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline, Aider, Kiro, Goose, Zed, Amazon Q, Antigravity
 6. **Asks about MCP servers** -- choose from 10 servers: Playwright, Context7, Filesystem (default); GitHub, Azure DevOps, GitLab, Brave Search, Sentry, Postgres, Linear (opt-in)
 7. **Generates canonical source** -- creates `.agents/` with only the selected agents, skills, rules, and commands
 8. **Generates tool configs** -- adapts canonical source to native formats for each selected tool
@@ -68,6 +68,7 @@ npx hatch3r update        # Pull latest templates (safe merge)
 npx hatch3r status        # Check sync status
 npx hatch3r validate      # Validate .agents/ structure
 npx hatch3r verify        # Verify file integrity checksums
+npx hatch3r clean         # Remove all hatch3r artifacts
 npx hatch3r add <pack>    # Install a community pack (coming soon)
 ```
 

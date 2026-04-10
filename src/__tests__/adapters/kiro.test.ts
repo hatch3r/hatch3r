@@ -151,6 +151,33 @@ describe("KiroAdapter", () => {
     }
   });
 
+  // ── Finding 3.17: model resolution assertion ──
+  it("includes model annotation in steering file when agent has model configured", async () => {
+    const manifest = createManifest({
+      tools: ["kiro"],
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const steering = outputs.find((o) => o.path === ".kiro/steering/hatch3r-agents.md");
+    expect(steering).toBeDefined();
+    // test-agent fixture has model: sonnet -> resolves to claude-sonnet-4-6
+    expect(steering!.content).toContain("Recommended model:");
+    expect(steering!.content).toContain("claude-sonnet-4-6");
+  });
+
+  // ── Finding 3.16: no empty content assertion ──
+  it("produces no empty content in any output", async () => {
+    const manifest = createManifest({
+      tools: ["kiro"],
+      mcpServers: ["github"],
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    for (const o of outputs) {
+      expect(o.content.length).toBeGreaterThan(0);
+    }
+  });
+
   it("generates native hook files in .kiro/hooks/", async () => {
     const manifest = createManifest({
       tools: ["kiro"],

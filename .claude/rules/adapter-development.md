@@ -1,5 +1,7 @@
 # Adapter Development
 
+**Pillars:** P3 (Adapter Currency), P2 (Scientific Quality)
+
 When creating or modifying a platform adapter in `src/adapters/`:
 
 1. **Extend** `BaseAdapter` from `src/adapters/base.ts` — implement `doGenerate(ctx: AdapterContext)` returning `AdapterOutput[]`

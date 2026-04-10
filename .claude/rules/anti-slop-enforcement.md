@@ -1,5 +1,7 @@
 # Anti-Slop Enforcement
 
+**Pillars:** P5 (Governance Self-Quality), P4 (Lean Coverage)
+
 Zero tolerance for filler phrases in all `.md` files under `governance/`, `agents/`, `commands/`, `rules/`, `skills/`, `hooks/`. Scan output before committing and replace:
 
 | Banned Phrase | Replacement |
