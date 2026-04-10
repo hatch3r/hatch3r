@@ -15,33 +15,13 @@
   },
   "teammateMode": "tool-using",
   "hooks": {
-    "SubagentStart": [
+    "SessionStart": [
       {
-        "matcher": "Bash",
+        "matcher": ".*",
         "hooks": [
           {
             "type": "command",
-            "command": "echo \"hatch3r hook: ci-failure-ci-watcher — activate ci-watcher agent\""
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "echo \"hatch3r hook: file-save-context-rules — activate context-rules agent\""
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "echo \"hatch3r hook: post-merge-ci-watcher — activate ci-watcher agent\""
+            "command": "head -90 governance/CONSTITUTION.md 2>/dev/null && echo '---' && echo 'Pending audit findings:' && python3 -c \"import json; r=json.load(open('governance/audit/finding-registry.json')); p=[f for f in r.get('findings',[]) if f.get('status')=='pending']; print(f'  {len(p)} pending')\" 2>/dev/null || echo '  Registry not found'"
           }
         ]
       }
@@ -52,27 +32,29 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo \"hatch3r hook: pre-commit-lint-fixer — activate lint-fixer agent\""
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "echo \"hatch3r hook: pre-push-security-auditor — activate security-auditor agent\""
+            "command": "echo 'hatch3r-dev: Changes to governance/ must serve a Binding Pillar (P1-P6). Changes to src/adapters/ require D09 checklist.'"
           }
         ]
       }
     ],
-    "SessionStart": [
+    "PostToolUse": [
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'hatch3r-dev: Content artifacts require frontmatter + Pillar alignment + duplication check. Governance files must respect lean thresholds.'"
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
       {
         "matcher": ".*",
         "hooks": [
           {
             "type": "command",
-            "command": "echo \"hatch3r hook: session-start-learnings — activate learnings-loader agent\""
+            "command": "echo 'hatch3r-dev: Sub-agent inherits governance. 6 Binding Pillars (P1-P6) in governance/CONSTITUTION.md. All changes must serve at least one.'"
           }
         ]
       }

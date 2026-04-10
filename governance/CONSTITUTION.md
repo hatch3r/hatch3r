@@ -98,7 +98,7 @@ If (1) is "none", the change is rejected. If (3) is "increase", the change must 
 | P2 Quality | P | P | P | S | D1,D5,D7,D13 | -- |
 | P3 Currency | S | P | P | S | D2,D9 | S |
 | P4 Lean | S | P | P | P | D5,D16 | -- |
-| P5 Governance | P | S | P | P | D16,D18 | -- |
+| P5 Governance | P | S | P | P | D16,D18,D19 | -- |
 | P6 Security | P | -- | S | S | D15 | P |
 
 P = primary coverage, S = supporting coverage, -- = no coverage (gap or acceptable).
@@ -173,7 +173,7 @@ governance/
 ├── COMPETITIVE-ANALYSIS.md  <- Market context (gitignored)
 ├── AUDIT-REPORT.md          <- Latest audit results (gitignored)
 └── audit/
-    ├── domains/D01-D18.md   <- Domain definitions (17 files)
+    ├── domains/D01-D19.md   <- Domain definitions (18 files)
     ├── templates/            <- Sub-agent templates (4 files)
     ├── baseline.json         <- Immutable baseline per cycle
     ├── finding-registry.json <- Finding lifecycle tracking
