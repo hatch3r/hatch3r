@@ -202,7 +202,7 @@ export function recordFailure(
   };
 
   // Only transient failures contribute to tripping the breaker
-  if (failureType === "transient" || failureType === "unknown") {
+  if (failureType === "transient") {
     newState.consecutiveFailures = state.consecutiveFailures + 1;
 
     if (newState.consecutiveFailures >= state.config.failureThreshold) {

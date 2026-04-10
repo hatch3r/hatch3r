@@ -111,6 +111,14 @@ describe("circuitBreaker", () => {
       expect(cb.state).toBe("CLOSED");
     });
 
+    it("should not increment consecutive failures for unknown errors", () => {
+      let cb = createCircuitBreaker({ serviceId: "test", failureThreshold: 2 });
+      cb = recordFailure(cb, "unknown");
+      expect(cb.consecutiveFailures).toBe(0);
+      expect(cb.totalFailures).toBe(1);
+      expect(cb.state).toBe("CLOSED");
+    });
+
     it("should re-open circuit on HALF_OPEN failure", () => {
       let cb: CircuitBreakerState = {
         state: "HALF_OPEN",
