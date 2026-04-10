@@ -21,11 +21,11 @@ jobs:
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
-          PATTERN="^(feat|fix|chore|docs|refactor|test|ci|perf|build|style)(\([a-z0-9-]+\))?!?: .+"
+          PATTERN="^(feat|fix|chore|docs|refactor|test|ci|perf|build|style|audit)(\([a-z0-9-]+\))?!?: .+"
           if ! echo "$PR_TITLE" | grep -qE "$PATTERN"; then
             echo "::error::PR title must follow conventional commits: $PR_TITLE"
             echo "Expected format: type(scope)?: description"
-            echo "Valid types: feat, fix, chore, docs, refactor, test, ci, perf, build, style"
+            echo "Valid types: feat, fix, chore, docs, refactor, test, ci, perf, build, style, audit"
             exit 1
           fi
           echo "PR title is valid: $PR_TITLE"
