@@ -2,6 +2,7 @@
 id: hatch3r-customize
 description: Create and manage customization files for any hatch3r artifact type (agents, commands, rules, skills). Supports model overrides, description changes, scope overrides, enable/disable control, and project-specific markdown instructions.
 tags: [customize]
+quality_charter: agents/shared/quality-charter.md
 ---
 # Artifact Customization Management
 
@@ -96,7 +97,7 @@ Confirm customizations appear in adapter output files:
 - Check YAML fields are reflected in adapter-specific frontmatter
 - Check markdown instructions appear inside the managed block
 - Verify disabled artifacts are absent from adapter outputs
-- **For rules:** verify scope is applied correctly in adapter-specific frontmatter
+- **For rules:** verify scope field in adapter-specific frontmatter matches the configured scope value
 
 ### Quality Gate
 
@@ -105,6 +106,12 @@ Verification is not just "sync completes." Confirm:
 - [ ] No unrelated artifacts were affected by the sync
 - [ ] If an artifact was disabled, verify no command or skill references it as a required dependency
 - [ ] If a rule scope was narrowed, verify the excluded file patterns do not lose important coverage
+
+## Error Handling
+
+- **`hatch3r sync` fails after customization**: Check the customization YAML for syntax errors (missing quotes, incorrect indentation). Validate the file against the schema documented in the corresponding customize command.
+- **Customization has no visible effect in adapter output**: Verify the customization file is in the correct directory (`.hatch3r/{type}s/`) and that the `id` field matches the target artifact's `id` exactly.
+- **Disabling an artifact breaks a command dependency**: Re-enable the artifact, then check which commands reference it. Either update the command to remove the dependency or keep the artifact enabled.
 
 ## Definition of Done
 

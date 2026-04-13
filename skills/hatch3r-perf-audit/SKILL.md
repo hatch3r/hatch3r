@@ -2,8 +2,9 @@
 id: hatch3r-perf-audit
 description: Profile and optimize application performance against defined budgets. Use when investigating performance issues, auditing performance budgets, or optimizing hot paths.
 tags: [review, performance]
+quality_charter: agents/shared/quality-charter.md
 ---
-> **Note:** Commands below use `npm` as an example. Substitute with your project's package manager (`yarn`, `pnpm`, `bun`) or build tool as appropriate.
+> **Note:** Commands below use `npm` as an example. Substitute with your project's package manager (`yarn`, `pnpm`, `bun`) or build tool when your project uses a different package manager.
 
 # Performance Audit Workflow
 
@@ -74,7 +75,7 @@ Common strategies:
 - **Database:** Reduce reads (batch, cache, denormalize).
 - **Cloud/API:** Warm-up strategies, reduce cold starts.
 
-- Check project ADRs for constraints. Ensure optimizations don't violate privacy/security invariants.
+- Check project ADRs for constraints. Verify optimizations do not violate privacy/security invariants documented in the ADRs.
 - For external library docs and current best practices, follow the project's tooling hierarchy.
 
 ## Step 5: Implement Optimizations
@@ -105,6 +106,12 @@ You MUST spawn these agents via the Task tool (`subagent_type: "generalPurpose"`
 ## Related Rules
 
 - **Rule**: `hatch3r-performance-budgets` — reference this rule for the project's defined performance budget thresholds
+
+## Error Handling
+
+- **No performance budgets defined for the project**: Use the defaults from `hatch3r-performance-budgets` rule as a baseline. Note in the report that custom budgets should be defined.
+- **Profiling tool unavailable or incompatible**: Fall back to manual timing measurements (e.g., `performance.now()` or `console.time`) for critical paths. Document the measurement method used.
+- **Optimization introduces functional regressions**: Revert the optimization, add a regression test for the broken behavior, then re-attempt with a different approach.
 
 ## Definition of Done
 

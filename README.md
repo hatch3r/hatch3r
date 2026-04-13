@@ -4,7 +4,7 @@
 
 **Crack the egg. Hatch better agents.**
 
-hatch3r is an open-source CLI and Cursor plugin that installs a battle-tested, tool-agnostic agentic coding setup into any repository. One command gives you up to 16 agents, 25 skills, 22 rules, 34 commands, and MCP integrations -- optimized for your coding tool of choice. Selective init installs only what you need based on your project type and team size.
+hatch3r is an open-source CLI and Cursor plugin that installs a battle-tested, tool-agnostic agentic coding setup into any repository. One command gives you up to 16 agents, 26 skills, 26 rules, 34 commands, and MCP integrations -- optimized for your coding tool of choice. Selective init installs only what you need based on your project type and team size.
 
 ## Quick Start
 
@@ -21,13 +21,13 @@ That's it. hatch3r detects your repo, asks about your project context (greenfiel
 | Category | Count | Highlights |
 |----------|-------|-----------|
 | **Agents** | 16 | Code reviewer, test writer, security auditor, implementer (sub-agentic), fixer, researcher, architect, DevOps, and more |
-| **Skills** | 25 | Bug fix, feature implementation, issue workflow, release, incident response, context health, cost tracking, recipes, API spec, CI pipeline, migration, customization, and more |
-| **Rules** | 22 | Code standards, testing, API design, observability, theming, i18n, security patterns, agent orchestration, deep context analysis, and more |
+| **Skills** | 26 | Bug fix, feature implementation, issue workflow, release, incident response, context health, cost tracking, recipes, API spec, CI pipeline, migration, customization, and more |
+| **Rules** | 26 | Code standards, testing, API design, observability, theming, i18n, security patterns, agent orchestration, deep context analysis, and more |
 | **Commands** | 34 | Board management, planning (feature, bug, refactor, test), workflow, quick-change, revision, debug, healthcheck, security-audit, cost-tracking, onboard, benchmark, customization, and more |
 | **MCP Servers** | 10 (3 default + 7 opt-in) | Playwright, Context7, Filesystem (default); GitHub, Brave Search, Sentry, Postgres, Linear, Azure DevOps, GitLab (opt-in) |
 | **Platforms** | 3 | GitHub, Azure DevOps, GitLab -- auto-detected from git remote |
 
-## Supported Tools (14 Adapters)
+## Supported Tools (15 Adapters)
 
 | Tool | Output |
 |------|--------|
@@ -45,6 +45,7 @@ That's it. hatch3r detects your repo, asks about your project context (greenfiel
 | **Goose** | `.goosehints` |
 | **Zed** | `.rules` |
 | **Amazon Q** | `.amazonq/rules/`, `.amazonq/mcp.json` |
+| **Antigravity** | `.antigravity/rules.md`, `.antigravity/settings.json` |
 
 Platform is auto-detected from your git remote during `hatch3r init`. All board commands, agents, rules, and skills adapt to your selected platform.
 
@@ -72,6 +73,7 @@ CONVENTIONS.md         <- Generated (Aider adapter)
 .goosehints            <- Generated (Goose adapter)
 .rules                 <- Generated (Zed adapter)
 .amazonq/              <- Generated (Amazon Q adapter)
+.antigravity/          <- Generated (Antigravity adapter)
 .worktreeinclude       <- Generated (worktree isolation)
 ```
 
@@ -140,7 +142,9 @@ npx hatch3r update        # Pull latest templates (safe merge)
 npx hatch3r status        # Check sync status between canonical and generated files
 npx hatch3r validate      # Validate canonical .agents/ structure
 npx hatch3r verify        # Verify file integrity checksums
+npx hatch3r clean                 # Remove generated files (optional --reinit)
 npx hatch3r worktree-setup <path>  # Set up gitignored files in a worktree
+npx hatch3r worktree-cleanup <path> # Clean up worktree-specific files
 npx hatch3r add <pack>    # Install a community pack (coming soon)
 ```
 
@@ -164,7 +168,7 @@ All commands are prefixed with `hatch3r-` (e.g., `hatch3r-board-fill`). See the 
 
 `hatch3r init` creates a `.env.mcp` file with required environment variables for your selected MCP servers (gitignored by default). MCP config is written to the tool-appropriate location (`.cursor/mcp.json`, `.mcp.json`, `.vscode/mcp.json`, etc.).
 
-- **VS Code / Copilot**: Secrets load automatically via the native `envFile` field.
+- **VS Code / Copilot**: Secrets are passed via the `env` object in `.vscode/mcp.json`.
 - **Cursor / Claude Code / others**: Source the file first: `set -a && source .env.mcp && set +a && cursor .`
 
 See [MCP Setup](https://docs.hatch3r.com/docs/guides/mcp-setup) for full setup, per-server details, and PAT scope guidance.
@@ -215,7 +219,7 @@ hatch3r separates managed from custom files:
 
 - `hatch3r-*` files are managed by hatch3r and fully replaced on update
 - Files without the prefix are your customizations and are never touched
-- All hatch3r-generated markdown files use managed blocks (`<!-- HATCH3R:BEGIN -->` / `<!-- HATCH3R:END -->`). Content outside these markers is preserved. Bridge files are emitted by 14 adapters: Cursor, Claude, Copilot, Cline, Codex, Gemini, Windsurf, Amp, OpenCode, Aider, Kiro, Goose, Zed, Amazon Q.
+- All hatch3r-generated markdown files use managed blocks (`<!-- HATCH3R:BEGIN -->` / `<!-- HATCH3R:END -->`). Content outside these markers is preserved. Bridge files are emitted by 15 adapters: Cursor, Claude, Copilot, Cline, Codex, Gemini, Windsurf, Amp, OpenCode, Aider, Kiro, Goose, Zed, Amazon Q, Antigravity.
 
 ## Model Selection
 

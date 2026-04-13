@@ -3,6 +3,7 @@ id: hatch3r-quick-change
 type: command
 description: Lightweight command for small changes not worth tracking on the board. Adaptive ceremony with inline or sub-agent implementation, batch support, and soft scope guards.
 tags: [core, implementation]
+quality_charter: agents/shared/quality-charter.md
 ---
 
 ## Agent Pipeline
@@ -262,6 +263,7 @@ The reviewer prompt MUST include:
 2. Process reviewer output:
    - If **0 Critical and 0 Warning** findings: review loop is clean. Proceed to Step 6b.
    - If Critical or Warning findings remain: spawn `hatch3r-fixer` sub-agent to address them, then re-run the reviewer (next iteration).
+     The fixer prompt MUST include: the reviewer findings, all `scope: always` rule directives, and the confidence expression requirement (high/medium/low per the quality charter).
    - **Suggestions**: skip. The point of quick-change is speed.
 
 3. If 3 iterations complete and findings remain, **ASK** the user whether to proceed or fix manually.

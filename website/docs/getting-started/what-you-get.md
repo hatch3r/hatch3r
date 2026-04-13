@@ -10,8 +10,8 @@ hatch3r ships a comprehensive agentic setup out of the box. During `hatch3r init
 | Category | Count | Highlights |
 |----------|-------|-----------|
 | **Agents** | 16 | Code reviewer, test writer, security auditor, implementer (sub-agentic), fixer, researcher, architect, DevOps, and more |
-| **Skills** | 25 | Bug fix, feature implementation, issue workflow, release, incident response, context health, cost tracking, recipes, customization, and more |
-| **Rules** | 22 | Code standards, testing, API design, observability, theming, i18n, security patterns, agent orchestration, deep context, and more |
+| **Skills** | 26 | Bug fix, feature implementation, issue workflow, release, incident response, context health, cost tracking, recipes, customization, and more |
+| **Rules** | 26 | Code standards, testing, API design, observability, theming, i18n, security patterns, agent orchestration, deep context, and more |
 | **Commands** | 34 | Board init, board fill, board groom, board pickup, board refresh, planning (feature, bug, refactor, test), healthcheck, security-audit, context-health, cost-tracking, customization, and more |
 | **MCP Servers** | 10 (3 default + 7 opt-in) | Playwright, Context7, Filesystem (default); GitHub, Brave Search, Sentry, Postgres, Linear, Azure DevOps, GitLab (opt-in) |
 
@@ -58,7 +58,7 @@ On-demand instruction bundles for specific tasks. Skills are loaded when agents 
 | **pr-creation** | PR conventions, branch naming, self-review checklist |
 | **incident-response** | Triage, mitigation, root cause analysis, post-mortem |
 
-...and 18 more. See the full [Skills reference](../reference/skills).
+...and 19 more. See the full [Skills reference](../reference/skills).
 
 ## Rules
 
@@ -74,7 +74,7 @@ Persistent coding standards and conventions always available to agents.
 | **deep-context** | Deep context retrieval and codebase understanding for AI agents |
 | **agent-orchestration** | Agent delegation patterns and multi-agent coordination protocols |
 
-...and 15 more. See the full [Rules reference](../reference/rules).
+...and 19 more. See the full [Rules reference](../reference/rules).
 
 ## Commands
 

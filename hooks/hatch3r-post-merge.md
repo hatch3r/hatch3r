@@ -5,6 +5,7 @@ event: post-merge
 agent: ci-watcher
 description: Check CI pipeline status after merge
 tags: [core]
+quality_charter: agents/shared/quality-charter.md
 ---
 # Hook: post-merge → ci-watcher
 

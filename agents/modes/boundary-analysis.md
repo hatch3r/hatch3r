@@ -3,10 +3,11 @@ id: researcher-mode-boundary-analysis
 type: mode
 description: Map integration boundaries, external dependencies, and data flow seams for test targeting.
 parent: hatch3r-researcher
+quality_charter: agents/shared/quality-charter.md
 ---
 ### Mode: `boundary-analysis`
 
-Map integration boundaries, external dependencies, data flow boundaries, and event chains to identify where integration and contract tests are most needed. Used by `hatch3r-test-plan` to ensure test coverage at system seams.
+Map integration boundaries, external dependencies, data flow boundaries, and event chains to identify where integration and contract tests are most needed. Used by `hatch3r-test-plan` to target test coverage at system seams.
 
 **Output structure:**
 

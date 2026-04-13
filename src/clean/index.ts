@@ -1,0 +1,242 @@
+import { access, cp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { TOOL_PATH_PREFIXES, collectToolFiles, cleanEmptyDirs } from "../archive/index.js";
+import { extractCustomContent, hasManagedBlock } from "../merge/managedBlocks.js";
+import { readManifest } from "../manifest/hatchJson.js";
+import { AGENTS_DIR, ARCHIVE_DIR, CUSTOMIZE_DIR, TOOLS, WORKTREE_INCLUDE_FILE, type HatchManifest, type Tool } from "../types.js";
+import { detectWorkspaceContext } from "../workspace/detect.js";
+
+export interface CleanInventory {
+  adapterFiles: string[];
+  canonicalDir: boolean;
+  archiveDir: boolean;
+  customizeDir: boolean;
+  worktreeInclude: boolean;
+  envMcp: boolean;
+  agentsMdHasUserContent: boolean;
+  learnings: string[];
+  isWorkspaceRoot: boolean;
+  isWorkspaceMember: boolean;
+  workspaceRootPath: string | null;
+  manifest: HatchManifest | null;
+}
+
+export interface CleanResult {
+  removed: string[];
+  kept: string[];
+  errors: string[];
+}
+
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function dirEntries(path: string): Promise<string[]> {
+  try {
+    return await readdir(path);
+  } catch {
+    return [];
+  }
+}
+
+export async function inventoryArtifacts(rootDir: string): Promise<CleanInventory> {
+  const manifest = await readManifest(rootDir);
+
+  // Collect adapter files from both manifest tracking and prefix scanning
+  const adapterFileSet = new Set<string>();
+
+  // Source 1: manifest.managedFiles (authoritative when available)
+  if (manifest) {
+    for (const f of manifest.managedFiles) {
+      adapterFileSet.add(f);
+    }
+  }
+
+  // Source 2: prefix scanning for all known tools (catches orphaned files)
+  const toolsToScan: Tool[] = manifest ? manifest.tools : [...TOOLS];
+  for (const tool of toolsToScan) {
+    const files = await collectToolFiles(rootDir, tool);
+    for (const f of files) {
+      adapterFileSet.add(f);
+    }
+  }
+
+  // toolsToScan already covers all TOOLS when manifest is absent (line above),
+  // so no additional scanning needed.
+
+  // Filter to only files that actually exist, excluding AGENTS.md
+  // (AGENTS.md is in amp's TOOL_PATH_PREFIXES but needs special managed-block handling)
+  const adapterFiles: string[] = [];
+  for (const f of adapterFileSet) {
+    if (f === "AGENTS.md") continue;
+    if (await fileExists(join(rootDir, f))) {
+      adapterFiles.push(f);
+    }
+  }
+
+  // Check root AGENTS.md for user content
+  let agentsMdHasUserContent = false;
+  const agentsMdPath = join(rootDir, "AGENTS.md");
+  if (await fileExists(agentsMdPath)) {
+    try {
+      const content = await readFile(agentsMdPath, "utf-8");
+      if (hasManagedBlock(content)) {
+        const userContent = extractCustomContent(content).trim();
+        agentsMdHasUserContent = userContent.length > 0;
+      }
+    } catch {
+      // Can't read, treat as no user content
+    }
+  }
+
+  // Check learnings
+  const learningsDir = join(rootDir, AGENTS_DIR, "learnings");
+  const learnings = await dirEntries(learningsDir);
+
+  // Check workspace context
+  const wsContext = await detectWorkspaceContext(rootDir);
+
+  return {
+    adapterFiles,
+    canonicalDir: await fileExists(join(rootDir, AGENTS_DIR)),
+    archiveDir: await fileExists(join(rootDir, ARCHIVE_DIR)),
+    customizeDir: await fileExists(join(rootDir, CUSTOMIZE_DIR)),
+    worktreeInclude: await fileExists(join(rootDir, WORKTREE_INCLUDE_FILE)),
+    envMcp: await fileExists(join(rootDir, ".env.mcp")),
+    agentsMdHasUserContent,
+    learnings,
+    isWorkspaceRoot: wsContext.type === "workspace-root",
+    isWorkspaceMember: wsContext.type === "workspace-member",
+    workspaceRootPath: wsContext.type === "workspace-member" ? wsContext.rootPath ?? null : null,
+    manifest,
+  };
+}
+
+export async function executeClean(
+  rootDir: string,
+  inventory: CleanInventory,
+  dryRun: boolean,
+): Promise<CleanResult> {
+  const removed: string[] = [];
+  const kept: string[] = [];
+  const errors: string[] = [];
+
+  if (dryRun) {
+    // Just report what would happen
+    for (const f of inventory.adapterFiles) {
+      removed.push(f);
+    }
+    if (inventory.canonicalDir) removed.push(`${AGENTS_DIR}/`);
+    if (inventory.worktreeInclude) removed.push(WORKTREE_INCLUDE_FILE);
+    if (inventory.archiveDir) removed.push(`${ARCHIVE_DIR}/`);
+    if (inventory.envMcp) kept.push(".env.mcp (contains secrets)");
+    if (inventory.customizeDir) kept.push(`${CUSTOMIZE_DIR}/ (customizations)`);
+    return { removed, kept, errors };
+  }
+
+  // 1. Remove adapter output files
+  for (const f of inventory.adapterFiles) {
+    const absPath = join(rootDir, f);
+    try {
+      await rm(absPath, { force: true });
+      removed.push(f);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== "ENOENT") {
+        errors.push(`${f}: ${(err as Error).message}`);
+      }
+    }
+  }
+
+  // Clean empty directories left by adapter file removal
+  await cleanEmptyDirs(rootDir, inventory.adapterFiles);
+
+  // 2. Handle root AGENTS.md
+  const agentsMdPath = join(rootDir, "AGENTS.md");
+  if (await fileExists(agentsMdPath)) {
+    try {
+      const content = await readFile(agentsMdPath, "utf-8");
+      if (hasManagedBlock(content)) {
+        const userContent = extractCustomContent(content).trim();
+        if (userContent.length > 0) {
+          await writeFile(agentsMdPath, userContent + "\n");
+          kept.push("AGENTS.md (user content preserved, managed block stripped)");
+        } else {
+          await rm(agentsMdPath, { force: true });
+          removed.push("AGENTS.md");
+        }
+      } else {
+        // No managed block — leave it alone, it's entirely user content
+        kept.push("AGENTS.md (no managed block, left untouched)");
+      }
+    } catch (err) {
+      errors.push(`AGENTS.md: ${(err as Error).message}`);
+    }
+  }
+
+  // 3. Remove .agents/ directory
+  if (inventory.canonicalDir) {
+    try {
+      await rm(join(rootDir, AGENTS_DIR), { recursive: true, force: true });
+      removed.push(`${AGENTS_DIR}/`);
+    } catch (err) {
+      errors.push(`${AGENTS_DIR}/: ${(err as Error).message}`);
+    }
+  }
+
+  // 4. Remove .worktreeinclude
+  if (inventory.worktreeInclude) {
+    try {
+      await rm(join(rootDir, WORKTREE_INCLUDE_FILE), { force: true });
+      removed.push(WORKTREE_INCLUDE_FILE);
+    } catch (err) {
+      errors.push(`${WORKTREE_INCLUDE_FILE}: ${(err as Error).message}`);
+    }
+  }
+
+  // 5. Remove .hatch3r-archive/
+  if (inventory.archiveDir) {
+    try {
+      await rm(join(rootDir, ARCHIVE_DIR), { recursive: true, force: true });
+      removed.push(`${ARCHIVE_DIR}/`);
+    } catch (err) {
+      errors.push(`${ARCHIVE_DIR}/: ${(err as Error).message}`);
+    }
+  }
+
+  // 6. .hatch3r/ customizations — always preserved
+  if (inventory.customizeDir) {
+    kept.push(`${CUSTOMIZE_DIR}/ (customizations preserved)`);
+  }
+
+  // 7. .env.mcp — always preserved
+  if (inventory.envMcp) {
+    kept.push(".env.mcp (contains secrets — remove manually if needed)");
+  }
+
+  return { removed, kept, errors };
+}
+
+export async function backupLearnings(rootDir: string): Promise<string | null> {
+  const learningsDir = join(rootDir, AGENTS_DIR, "learnings");
+  const entries = await dirEntries(learningsDir);
+  if (entries.length === 0) return null;
+
+  const backupDir = join(tmpdir(), `hatch3r-learnings-${Date.now()}`);
+  await mkdir(backupDir, { recursive: true });
+  await cp(learningsDir, backupDir, { recursive: true });
+  return backupDir;
+}
+
+export async function restoreLearnings(rootDir: string, backupPath: string): Promise<void> {
+  const learningsDir = join(rootDir, AGENTS_DIR, "learnings");
+  await mkdir(learningsDir, { recursive: true });
+  await cp(backupPath, learningsDir, { recursive: true });
+  await rm(backupPath, { recursive: true, force: true });
+}

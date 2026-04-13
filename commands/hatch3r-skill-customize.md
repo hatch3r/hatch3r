@@ -3,6 +3,7 @@ id: hatch3r-skill-customize
 type: command
 description: Configure per-skill customization including description overrides, enable/disable control, and project-specific markdown instructions
 tags: [customize]
+quality_charter: agents/shared/quality-charter.md
 ---
 
 ## Agent Pipeline

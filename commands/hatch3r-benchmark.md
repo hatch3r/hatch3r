@@ -3,6 +3,7 @@ id: hatch3r-benchmark
 type: command
 description: Run and analyze performance benchmarks. Compare results against baselines, identify regressions, and produce performance reports.
 tags: [review, performance]
+quality_charter: agents/shared/quality-charter.md
 ---
 
 ## Agent Pipeline
@@ -60,7 +61,7 @@ Benchmark Brief:
   Metrics:      {time / memory / throughput / all}
 ```
 
-**ASK:** "Does this capture the benchmark plan correctly? Adjust anything before I begin discovery."
+**ASK:** "Does this capture the benchmark plan? Adjust anything before I begin discovery."
 
 ---
 
@@ -287,7 +288,7 @@ Files Created/Updated:
 
 **ASK:** "Results saved. Should these become the new baseline for future comparisons? (yes — overwrites previous baseline / no — keep existing baseline)"
 
-If yes, ensure `results.json` is structured as the canonical baseline for the next `previous-run` comparison.
+If yes, save `results.json` as the canonical baseline for the next `previous-run` comparison.
 
 ---
 
@@ -392,7 +393,7 @@ The benchmark report follows this structure:
 - **Always exclude the cold start run from statistics.** The first iteration warms caches and JIT — including it skews results.
 - **Never overwrite baseline without confirmation.** Step 10 explicitly asks before promoting results to baseline status.
 - **Preserve existing `.benchmarks/results.json` history.** Append new runs; do not truncate historical data without user approval.
-- **Do not benchmark in debug mode.** Ensure `NODE_ENV=production` and no debug flags are active unless explicitly requested.
+- **Do not benchmark in debug mode.** Verify `NODE_ENV=production` and no debug flags are active unless explicitly requested.
 - **Respect the project's tooling hierarchy** for knowledge augmentation: project docs first, then codebase exploration, then Context7 MCP, then web research.
 - **Report, don't interpret subjectively.** Present statistical facts. Flag regressions by threshold, not opinion. Let the user decide what matters.
 

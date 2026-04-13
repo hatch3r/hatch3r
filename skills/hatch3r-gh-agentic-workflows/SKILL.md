@@ -2,6 +2,7 @@
 id: hatch3r-gh-agentic-workflows
 description: Set up CI/CD agentic workflows for continuous AI-powered repository automation (GitHub Actions, Azure Pipelines, GitLab CI)
 tags: [devops, team]
+quality_charter: agents/shared/quality-charter.md
 ---
 # CI/CD Agentic Workflows Integration
 
@@ -219,6 +220,12 @@ Trigger on merge to the default branch. Check if documentation needs updating an
   - **GitLab:** Pipeline email notifications (Settings → Integrations)
 - **Cost awareness**: Monitor AI token usage per workflow run. Set spending limits in org settings.
 - **Quality metrics**: Track: success rate, output acceptance rate (merged PRs/MRs / total), mean time per run.
+
+## Error Handling
+
+- **Workflow file has YAML syntax errors**: Validate the workflow file locally before pushing (e.g., `actionlint` for GitHub Actions, Azure Pipelines schema validation, or `glab ci lint` for GitLab). Fix all reported errors before committing.
+- **AI engine produces low-quality or empty output**: Add explicit context to the workflow prompt (file references, examples, constraints). If the output is still poor after enrichment, switch to a more capable model.
+- **Workflow runs exceed cost or time limits**: Add `timeout-minutes` to the workflow, scope file references to reduce context size, and add concurrency groups to prevent parallel runs.
 
 ## Troubleshooting
 

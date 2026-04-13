@@ -3,6 +3,7 @@ id: researcher-mode-regression
 type: mode
 description: Investigate when an issue was introduced by analyzing git history and changes.
 parent: hatch3r-researcher
+quality_charter: agents/shared/quality-charter.md
 ---
 ### Mode: `regression`
 

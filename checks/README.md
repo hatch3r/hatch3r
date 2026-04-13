@@ -40,6 +40,7 @@ Agents (particularly `hatch3r-reviewer`) reference checks during code review:
 | `security` | Vulnerability patterns, input validation, secrets |
 | `testing` | Test coverage, test quality, regression tests |
 | `performance` | Bundle size, render performance, memory usage, network optimization, database queries |
+| `accessibility` | WCAG compliance, semantic HTML, keyboard navigation, screen reader support, inclusive design |
 
 ## Adding New Checks
 

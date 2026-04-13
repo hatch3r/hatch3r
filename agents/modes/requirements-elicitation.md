@@ -3,6 +3,7 @@ id: researcher-mode-requirements-elicitation
 type: mode
 description: Detect ambiguities and missing requirements, generate structured questions across 10 dimensions.
 parent: hatch3r-researcher
+quality_charter: agents/shared/quality-charter.md
 ---
 ### Mode: `requirements-elicitation`
 

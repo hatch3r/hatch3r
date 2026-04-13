@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, rm, chmod } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { readCanonicalFiles } from "../../adapters/canonical.js";
@@ -289,6 +289,49 @@ describe("readCanonicalFiles", () => {
 
       const results = await readCanonicalFiles(dir, "rules");
       expect(results[0]!.rawContent).toBe(raw);
+    });
+  });
+
+  describe("per-file error handling (#20)", () => {
+    it.skipIf(process.platform === "win32")("should continue reading other files when one file read fails", async () => {
+      const dir = await createTempAgentsDir();
+      await mkdir(join(dir, "rules"), { recursive: true });
+      // Write two valid files and one that will cause an error
+      await writeFile(
+        join(dir, "rules", "good-1.md"),
+        "---\nid: good-1\ntype: rule\ndescription: First good rule\n---\n# Good Rule 1",
+      );
+      await writeFile(
+        join(dir, "rules", "good-2.md"),
+        "---\nid: good-2\ntype: rule\ndescription: Second good rule\n---\n# Good Rule 2",
+      );
+      // Create a file that will fail to read by making it unreadable
+      const badPath = join(dir, "rules", "bad-file.md");
+      await writeFile(badPath, "---\nid: bad\n---\n# Bad");
+      await chmod(badPath, 0o000);
+
+      const results = await readCanonicalFiles(dir, "rules");
+      // Restore permissions for cleanup
+      await chmod(badPath, 0o644);
+
+      // Should still have the two good files despite the bad one
+      const ids = results.map((r) => r.id);
+      expect(ids).toContain("good-1");
+      expect(ids).toContain("good-2");
+      expect(results.length).toBe(2);
+    });
+
+    it.skipIf(process.platform === "win32")("should return empty array when all files fail to read", async () => {
+      const dir = await createTempAgentsDir();
+      await mkdir(join(dir, "rules"), { recursive: true });
+      const badPath = join(dir, "rules", "unreadable.md");
+      await writeFile(badPath, "---\nid: unreadable\n---\n# Unreadable");
+      await chmod(badPath, 0o000);
+
+      const results = await readCanonicalFiles(dir, "rules");
+      await chmod(badPath, 0o644);
+
+      expect(results).toEqual([]);
     });
   });
 });

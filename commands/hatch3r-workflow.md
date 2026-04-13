@@ -3,6 +3,7 @@ id: hatch3r-workflow
 type: command
 description: Guided development lifecycle with 4 phases (Analyze, Plan, Implement, Review) and scale-adaptive Quick Mode for small tasks.
 tags: [core, implementation]
+quality_charter: agents/shared/quality-charter.md
 ---
 # Development Workflow -- Guided Lifecycle for Structured Implementation
 
@@ -303,6 +304,10 @@ Each specialist sub-agent prompt MUST include:
 - Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
 
 Await all specialist sub-agents. Apply their feedback (fixes, additional tests, documentation updates).
+
+#### 4b.1. Re-Review After Phase 4 Fixes
+
+If any Phase 4 specialist produced fixes (not just findings), run a lightweight re-review to catch regressions introduced by the specialist changes. Spawn `hatch3r-reviewer` with a focused prompt covering only the files modified by Phase 4 specialists. If the re-review finds Critical findings, spawn `hatch3r-fixer` and re-review once more (max 1 additional iteration). This prevents Phase 4 fixes from bypassing the review gate.
 
 #### 4c. Verify Against Acceptance Criteria
 

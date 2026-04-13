@@ -6,8 +6,56 @@ export interface McpServerEntry {
   args?: string[];
   url?: string;
   env?: Record<string, string>;
+  headers?: Record<string, string>;
   _description?: string;
   _disabled?: boolean;
+  /** D15 Medium (#15.44): Per-server timeout in milliseconds (default: 30000). */
+  _timeout?: number;
+}
+
+/** Default MCP server request timeout in milliseconds. */
+export const DEFAULT_MCP_TIMEOUT_MS = 30_000;
+/** Maximum allowed MCP timeout in milliseconds (5 minutes). */
+export const MAX_MCP_TIMEOUT_MS = 300_000;
+
+/**
+ * Transforms `${env:VAR}` references to the native format for a given adapter.
+ *
+ * The canonical MCP config uses `${env:VAR}` syntax (matching the MCP spec).
+ * Different adapters have different native env var reference syntaxes:
+ * - "claude": `${VAR}` (Claude Code native)
+ * - "process": `process.env.VAR` replaced at generation time (not used yet)
+ * - "passthrough": keep `${env:VAR}` as-is (for adapters that support MCP spec natively)
+ * - "shell": `$VAR` (for shell-based expansion)
+ *
+ * For adapters that don't understand `${env:VAR}`, this prevents silent failures
+ * by converting to a syntax the adapter can process.
+ */
+export function transformEnvVarSyntax(
+  value: unknown,
+  format: "claude" | "shell" | "passthrough" = "passthrough",
+): unknown {
+  if (typeof value === "string") {
+    switch (format) {
+      case "claude":
+        return value.replace(/\$\{env:([^}]+)\}/g, "${$1}");
+      case "shell":
+        return value.replace(/\$\{env:([^}]+)\}/g, "$$$1");
+      case "passthrough":
+        return value;
+    }
+  }
+  if (Array.isArray(value)) {
+    return value.map((v) => transformEnvVarSyntax(v, format));
+  }
+  if (typeof value === "object" && value !== null) {
+    const result: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) {
+      result[k] = transformEnvVarSyntax(v, format);
+    }
+    return result;
+  }
+  return value;
 }
 
 const ALLOWED_COMMANDS = new Set([
@@ -28,6 +76,12 @@ const ALLOWED_COMMANDS = new Set([
 
 const ALLOWED_URL_SCHEMES = new Set(["http:", "https:"]);
 
+/**
+ * Validate a single MCP server entry and return any warnings.
+ *
+ * Checks: command allowlist, URL scheme, env key naming (POSIX),
+ * arg shell metacharacters, unscoped npx packages, and timeout bounds.
+ */
 export function validateMcpEntry(
   name: string,
   entry: McpServerEntry,
@@ -67,6 +121,18 @@ export function validateMcpEntry(
     );
   }
 
+  // #120: Validate env key names follow POSIX convention
+  if (entry.env) {
+    for (const key of Object.keys(entry.env)) {
+      if (!VALID_ENV_KEY.test(key)) {
+        warnings.push(
+          `MCP server "${name}" has invalid env key "${key}". ` +
+            `Environment variable names must match [A-Za-z_][A-Za-z0-9_]*.`,
+        );
+      }
+    }
+  }
+
   if (entry.args) {
     const SHELL_METACHAR = /[|;&`$()]/;
     for (const arg of entry.args) {
@@ -92,14 +158,37 @@ export function validateMcpEntry(
     }
   }
 
+  // D15 Medium (#15.44): Validate timeout if specified
+  if (entry._timeout !== undefined) {
+    if (typeof entry._timeout !== "number" || entry._timeout <= 0) {
+      warnings.push(
+        `MCP server "${name}" has invalid timeout: ${entry._timeout}. ` +
+        `Timeout must be a positive number (milliseconds). Using default ${DEFAULT_MCP_TIMEOUT_MS}ms.`,
+      );
+    } else if (entry._timeout > MAX_MCP_TIMEOUT_MS) {
+      warnings.push(
+        `MCP server "${name}" timeout (${entry._timeout}ms) exceeds maximum (${MAX_MCP_TIMEOUT_MS}ms). ` +
+        `Capping at ${MAX_MCP_TIMEOUT_MS}ms.`,
+      );
+    }
+  }
+
   return warnings;
 }
+
+// Env var keys must follow POSIX convention: letters, digits, and underscores.
+// Keys with other characters are rejected to prevent injection.
+const VALID_ENV_KEY = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 // Server names must contain only alphanumeric characters, hyphens, and underscores.
 // Names with other special characters are rejected to prevent path traversal,
 // injection, or config key manipulation.
 const VALID_SERVER_NAME = /^[a-zA-Z0-9_-]+$/;
 
+/**
+ * Validate an MCP server name. Returns a warning string if invalid, or null if valid.
+ * Server names must contain only alphanumeric characters, hyphens, and underscores.
+ */
 export function validateServerName(name: string): string | null {
   if (!VALID_SERVER_NAME.test(name)) {
     return (
@@ -110,6 +199,7 @@ export function validateServerName(name: string): string | null {
   return null;
 }
 
+/** Runtime type guard for the top-level MCP config shape (`{ mcpServers: {...} }`). */
 function validateMcpConfig(
   parsed: unknown,
 ): parsed is { mcpServers: Record<string, McpServerEntry> } {
@@ -123,6 +213,13 @@ export interface McpConfigResult {
   warnings: string[];
 }
 
+/**
+ * Read and validate the MCP server configuration from `.agents/mcp/mcp.json`.
+ *
+ * Parses the JSON, validates each server name and entry, and returns
+ * the validated servers with any accumulated warnings. Servers with
+ * invalid names are skipped entirely.
+ */
 export async function readMcpConfig(
   agentsDir: string,
 ): Promise<McpConfigResult> {

@@ -3,6 +3,7 @@ id: hatch3r-board-shared
 type: shared-context
 description: Shared context and procedures for all board commands. Provides platform-agnostic board config, label taxonomy, branch conventions, sync enforcement, and tooling directives. Platform-specific details are in commands/board/shared-{platform}.md.
 tags: [board, team]
+quality_charter: agents/shared/quality-charter.md
 ---
 # Board Shared Reference
 
@@ -25,9 +26,9 @@ Before reading configuration, validate that prerequisites are met. If any check 
    > "Board commands require owner and repo. Run `npx hatch3r config` to set your repository identity, or provide them in `.agents/hatch.json` under the top-level `owner` and `repo` fields."
 
 3. **Platform authentication:** Verify CLI authentication for the configured platform:
-   - **GitHub:** Run `gh auth status`. If it fails, stop with: "GitHub CLI not authenticated. Run `gh auth login` and ensure your PAT has the `project` scope for Projects V2 access. See: https://docs.github.com/en/issues/planning-and-tracking-with-projects"
-   - **Azure DevOps:** Run `az account show`. If it fails, stop with: "Azure CLI not authenticated. Run `az login` or set AZURE_DEVOPS_PAT. Ensure access to organization `{namespace}`."
-   - **GitLab:** Run `glab auth status`. If it fails, stop with: "GitLab CLI not authenticated. Run `glab auth login` or set GITLAB_TOKEN. Ensure access to project `{namespace}/{project}`."
+   - **GitHub:** Run `gh auth status`. If it fails, stop with: "GitHub CLI not authenticated. Run `gh auth login` and confirm your PAT has the `project` scope for Projects V2 access. See: https://docs.github.com/en/issues/planning-and-tracking-with-projects"
+   - **Azure DevOps:** Run `az account show`. If it fails, stop with: "Azure CLI not authenticated. Run `az login` or set AZURE_DEVOPS_PAT. Confirm access to organization `{namespace}`."
+   - **GitLab:** Run `glab auth status`. If it fails, stop with: "GitLab CLI not authenticated. Run `glab auth login` or set GITLAB_TOKEN. Confirm access to project `{namespace}/{project}`."
 
 4. **projectNumber set (for commands other than board-init):** For `board-fill`, `board-groom`, `board-pickup`, and `board-refresh`, if `board.projectNumber` is null, stop with:
    > "No project board configured. Run the `board-init` command first to create or connect a project board. This sets up the board.projectNumber in `.agents/hatch.json`."
@@ -135,6 +136,36 @@ Board sync is **MANDATORY**, not optional. The following rules override any "ski
 5. **Fallback: never silently skip sync.** See platform sub-files for escalation paths. Silent skipping is prohibited.
 6. **Cross-reference: every epic/work item and sub-issue must have its board item ID tracked for subsequent updates.** After adding an item to the board, store the returned item ID in the run cache keyed by issue number.
 7. **`has-dependencies` label consistency:** Every issue with a non-empty `## Dependencies` section (containing at least one `Blocked by` or `Recommended after` reference) MUST have the `has-dependencies` label. Issues whose `## Dependencies` section contains only `None` MUST NOT have the label. Board commands enforce this during creation and update.
+
+---
+
+## Epic Grouping Policy
+
+All board commands that create or reorganize issues MUST follow this grouping policy. Epic grouping maximizes parallelization during pickup — agents can tackle multiple sub-issues of an epic concurrently, whereas standalone issues require serial pickup.
+
+### Standalone Threshold
+
+**Target: zero standalone issues. Hard limit: no more than 10% of non-sub-issue items on the board should be standalone.**
+
+Calculate: `standalone_count / (epic_count + standalone_count)`. Sub-issues are excluded from both numerator and denominator.
+
+When the threshold is exceeded, board commands must apply progressively looser grouping strategies (area match → domain match → type match → catch-all epic) until the ratio is at or below 10%.
+
+### Grouping Priority Order
+
+Apply these rules in strict priority order. Each rule reduces the remaining ungrouped pool before the next rule fires:
+
+1. **Absorb into existing epics** — item shares area, subsystem, or theme with an existing epic.
+2. **Form new epics** — 2+ ungrouped items share any connection (area, subsystem, type, domain, semantic similarity).
+3. **Singleton promotion** — a single item becomes a 1-item epic with a thematic name (e.g., "Performance Optimization", "Security Hardening"), positioned to absorb future related work. Prefer existing theme names from epics already on the board.
+4. **Catch-all epic** — truly isolated items go into a "General Improvements" epic (create one if it doesn't exist, absorb into it if it does).
+5. **Standalone (exception only)** — requires explicit user rejection of ALL grouping proposals AND a stated justification. The AI should never propose standalone status on its own.
+
+### When to Apply
+
+- **board-fill Step 5:** Full grouping pass on new items + regrouping pass on existing standalones + post-grouping standalone audit.
+- **board-groom Step 3f + Step 4j:** Detection of grouping opportunities + `regroup` action for execution.
+- Both commands surface the standalone ratio in their health summaries and final reports.
 
 ---
 

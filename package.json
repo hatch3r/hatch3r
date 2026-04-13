@@ -1,8 +1,14 @@
 {
   "name": "hatch3r",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Battle-tested agentic coding setup framework. One command to hatch your agent stack -- agents, skills, rules, commands, and MCP for every major AI coding tool.",
   "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/cli/index.js",
+      "types": "./dist/cli/index.d.ts"
+    }
+  },
   "bin": {
     "hatch3r": "./dist/cli/index.js"
   },
@@ -13,7 +19,8 @@
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "lockfile:check": "lockfile-lint --path package-lock.json --type npm --allowed-hosts npm --validate-https"
   },
   "keywords": [
     "agents",
@@ -44,11 +51,15 @@
   "bugs": {
     "url": "https://github.com/hatch3r/hatch3r/issues"
   },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
   "engines": {
     "node": ">=22.0.0"
   },
   "files": [
-    "dist/",
+    "dist/cli/",
     "agents/",
     "checks/",
     "commands/",
@@ -73,6 +84,7 @@
     "@types/node": "^25.5.0",
     "@vitest/coverage-v8": "^4.1.2",
     "eslint": "^10.1.0",
+    "lockfile-lint": "^5.0.0",
     "tsup": "^8.0.0",
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.57.2",
@@ -80,5 +92,8 @@
   },
   "overrides": {
     "flatted": "^3.4.2"
+  },
+  "comments": {
+    "overrides/flatted": "Pinned to >=3.4.2 to resolve security advisory in transitive eslint > flat-cache > flatted dependency"
   }
 }

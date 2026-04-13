@@ -2,6 +2,7 @@
 id: hatch3r-recipe
 description: Create, test, and manage workflow recipes that compose hatch3r capabilities into guided sequences. Use when creating new recipes, customizing existing ones, or troubleshooting recipe execution.
 tags: [core]
+quality_charter: agents/shared/quality-charter.md
 ---
 # Recipe Management
 
@@ -47,7 +48,7 @@ Execute `--dry-run` to validate:
 - YAML schema is valid
 - All referenced commands/skills exist
 - Dependency graph has no cycles
-- Variables are properly referenced
+- Variables are referenced with valid names that resolve to defined values
 - Prerequisites are checkable
 
 ## Step 5: Validate with Real Execution
@@ -58,6 +59,12 @@ Run the recipe on a test project to verify:
 - Checkpoints pause appropriately
 - Error handling works (intentionally fail a step)
 - Completion message is accurate
+
+## Error Handling
+
+- **Recipe step fails during execution**: The recipe runner should report which step failed, its inputs, and the error message. Provide a `resume-from` option to restart from the failed step after fixing the issue.
+- **Recipe YAML has schema validation errors**: Report the specific field and line that violates the schema. Do not attempt to execute a recipe that fails validation.
+- **Circular dependency between recipe steps**: Detect cycles during the dry-run phase and report the dependency chain that creates the loop.
 
 ## Definition of Done
 

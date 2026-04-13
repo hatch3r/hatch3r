@@ -10,12 +10,35 @@ export interface ClaudeConfig {
     allow?: string[];
     deny?: string[];
   };
+  /**
+   * Claude Code Agent Teams teammate display mode.
+   *
+   * GA values: "auto" (default), "in-process", "tmux".
+   * Deprecated values (pre-GA): "tool-using", "full-trust", "manual-approval".
+   * #264 (D9-9.35): Legacy values are still accepted for backward compatibility
+   * but map to "auto" at runtime. Use GA values in new configurations.
+   */
   teammateMode?: "auto" | "in-process" | "tmux" | "tool-using" | "full-trust" | "manual-approval";
   agentTeams?: boolean | "ga";
 }
 
 /** Controls how adapter output is generated (verbosity), not what content is selected. */
 export type GenerationMode = "standard" | "minimal";
+
+export interface CostTrackingConfig {
+  /** Maximum estimated cost per session in configured currency. */
+  sessionBudget?: number;
+  /** Maximum estimated cost per issue in configured currency. */
+  issueBudget?: number;
+  /** Maximum estimated cost per epic in configured currency. */
+  epicBudget?: number;
+  /** Currency code for cost display (default: "USD"). */
+  currency?: string;
+  /** Budget percentage thresholds that trigger warnings (default: [0.5, 0.75, 0.9]). */
+  warningThresholds?: number[];
+  /** When true, halt work when budget is exhausted. When false, warn only (default: false). */
+  hardStop?: boolean;
+}
 
 export interface HatchManifest {
   version: string;
@@ -34,6 +57,8 @@ export interface HatchManifest {
   hooks?: HooksConfig;
   models?: ModelConfig;
   claude?: ClaudeConfig;
+  /** Token usage and cost tracking configuration. */
+  costTracking?: CostTrackingConfig;
   /** Content selection from init. undefined = legacy "full" (backward compat). */
   content?: ContentSelection;
   /** Detected project languages from repo analysis. */
@@ -71,10 +96,13 @@ export interface WorktreeConfig {
   nodeModules?: "symlink" | "skip";
 }
 
-export const TOOLS = ["cursor", "copilot", "claude", "opencode", "windsurf", "amp", "codex", "gemini", "cline", "aider", "kiro", "goose", "zed", "amazon-q", "antigravity"] as const;
+export const TOOLS = ["cursor", "copilot", "claude", "opencode", "windsurf", "amp", "codex", "gemini", "cline", "aider", "kiro", "goose", "zed", "amazon-q", "antigravity", "agents-md"] as const;
 export type Tool = (typeof TOOLS)[number];
 export const VALID_TOOLS = new Set<string>(TOOLS);
 export const TOOL_CHOICES = TOOLS.join(", ");
+
+/** Tools that support git worktree file isolation. Shared across init, update, and config. */
+export const WORKTREE_CAPABLE_TOOLS = new Set<string>(["claude"]);
 
 export interface BoardConfig {
   owner: string;
@@ -209,7 +237,13 @@ export type Framework =
   | "react"
   | "express"
   | "fastify"
-  | "hono";
+  | "hono"
+  | "nestjs"
+  | "django"
+  | "flask"
+  | "rails"
+  | "spring"
+  | "laravel";
 
 export interface RepoInfo {
   languages: string[];
@@ -219,12 +253,20 @@ export interface RepoInfo {
   hasExistingAgents: boolean;
   existingTools: Tool[];
   rootDir: string;
+  /** D14 Medium (#14.5): Detected linter/formatter tools. */
+  linters?: string[];
+  /** D14 Medium (#14.6): Detected test framework(s). */
+  testFrameworks?: string[];
+  /** D14 Medium (#14.7): Detected CI provider(s). */
+  ciProviders?: string[];
 }
 
 export const MANAGED_BLOCK_START = "<!-- HATCH3R:BEGIN -->";
 export const MANAGED_BLOCK_END = "<!-- HATCH3R:END -->";
 export const HATCH3R_PREFIX = "hatch3r-";
 export const AGENTS_DIR = ".agents";
+export const ARCHIVE_DIR = ".hatch3r-archive";
+export const CUSTOMIZE_DIR = ".hatch3r";
 
 /** Structured error codes for programmatic error handling (e.g., CI scripts). */
 export type HatchErrorCode =
@@ -234,6 +276,7 @@ export type HatchErrorCode =
   | "INTEGRITY_ERROR"
   | "ADAPTER_ERROR"
   | "NETWORK_ERROR"
+  | "CLEAN_ERROR"
   | "UNKNOWN_ERROR";
 
 export class HatchError extends Error {
@@ -247,6 +290,7 @@ export class HatchError extends Error {
   }
 }
 
+/** Remove characters that are not alphanumeric, dot, hyphen, or underscore from an ID. */
 export function sanitizeId(id: string): string {
   return id.replace(/[^a-zA-Z0-9._-]/g, "");
 }

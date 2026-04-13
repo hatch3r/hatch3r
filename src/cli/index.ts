@@ -4,6 +4,8 @@
 import { Command } from "commander";
 import { addCommand } from "./commands/add.js";
 import { worktreeSetupCommand } from "./commands/worktreeSetup.js";
+import { worktreeCleanupCommand } from "./commands/worktreeCleanup.js";
+import { cleanCommand } from "./commands/clean.js";
 import { configCommand } from "./commands/config.js";
 import { initCommand } from "./commands/init.js";
 import { syncCommand } from "./commands/sync.js";
@@ -25,13 +27,13 @@ program
 
 program
   .command("init")
-  .description("Install a complete agent setup into the current repo")
+  .description("Install a complete agent setup into the current repo (first-run: creates .agents/ directory)")
   .option(
     "--tools <tools>",
     `Comma-separated tools (${TOOL_CHOICES})`,
   )
   .option("--yes", "Skip interactive prompts, use defaults")
-  .option("--preset <preset>", "Content preset: minimal, standard, full")
+  .option("--preset <preset>", "Content preset: minimal, standard, full (default: standard)")
   .option("--project-type <type>", "Project type: greenfield, brownfield")
   .option("--team-size <size>", "Team size: solo, team")
   .option("--workspace", "Initialize as a multi-repo workspace")
@@ -39,38 +41,50 @@ program
 
 program
   .command("sync")
-  .description("Re-generate tool outputs from canonical .agents/ state")
+  .description("Re-generate tool outputs from canonical .agents/ state (run after editing .agents/)")
   .option("--repos [paths...]", "Sync workspace content to sub-repos (all opted-in if no paths given)")
   .option("--dry-run", "Show what would change without modifying files")
+  .option("--diff", "Show a before/after diff summary for each generated file")
   .option("--force", "Overwrite locally modified files in sub-repos")
   .option("--minimal", "Generate stripped-down output (no comments, minimal formatting) to reduce token usage")
+  .option("--verbose", "Show detailed output for each file processed")
   .action(syncCommand);
 
 program
   .command("status")
   .description("Check sync status between canonical .agents/ and generated files")
+  .option("--verbose", "Show detailed per-file status information")
   .action(statusCommand);
 
 program
   .command("update")
-  .description("Pull latest hatch3r templates with safe merge")
+  .description("Pull latest hatch3r templates with safe merge (preserves customizations)")
   .option("--yes", "Skip interactive prompts, use defaults")
+  .option("--diff", "Show a before/after diff summary for each generated file")
   .action(updateCommand);
 
 program
   .command("validate")
-  .description("Validate the canonical .agents/ structure")
+  .description("Check .agents/ structure: frontmatter, cross-references, content safety, compliance")
+  .option("--verbose", "Show detailed validation output for each check")
   .action(validateCommand);
 
 program
   .command("verify")
-  .description("Verify integrity of canonical agent files")
+  .description("Check file integrity: SHA-256 hashes vs manifest (detect unauthorized modifications)")
   .action(verifyCommand);
 
 program
   .command("config")
   .description("Reconfigure tools, MCP servers, features, and platform")
   .action(configCommand);
+
+program
+  .command("clean")
+  .description("Remove all hatch3r artifacts from the current repo (optionally reinitialize after)")
+  .option("--yes", "Skip confirmation prompts (cleans without reinit)")
+  .option("--dry-run", "Show what would be removed without modifying files")
+  .action(cleanCommand);
 
 program
   .command("add [pack]")
@@ -85,15 +99,23 @@ program
   .option("--force", "Overwrite existing files in the worktree")
   .action(worktreeSetupCommand);
 
+program
+  .command("worktree-cleanup")
+  .description("Remove symlinks and copied files created by worktree-setup")
+  .option("--dry-run", "Show what would be done without changes")
+  .action(worktreeCleanupCommand);
+
 // Agent command names that users might try to run directly in the terminal.
 // These are slash commands meant to be invoked inside an AI-powered editor, not from the CLI.
 const AGENT_COMMAND_NAMES = new Set([
-  "review", "workflow", "project-spec", "codebase-map", "debug", "release",
-  "refactor-plan", "test-plan", "bug-plan", "roadmap", "onboard", "recipe",
-  "board-init", "board-pickup", "board-groom", "board-refresh",
+  "workflow", "project-spec", "codebase-map", "debug", "release",
+  "refactor-plan", "test-plan", "bug-plan", "feature-plan", "migration-plan",
+  "roadmap", "onboard", "recipe",
+  "board-init", "board-pickup", "board-groom", "board-refresh", "board-fill",
+  "board-shared",
   "security-audit", "dep-audit", "benchmark", "healthcheck", "context-health",
   "learn", "revision", "cost-tracking", "api-spec", "hooks", "quick-change",
-  "command-customize",
+  "command-customize", "agent-customize", "rule-customize", "skill-customize",
 ]);
 
 // Catch-all for unknown commands -- redirect agent commands to the editor
@@ -109,7 +131,15 @@ program.on("command:*", (operands: string[]) => {
   } else {
     console.error(
       `\n  Unknown command: ${cmd}` +
-      `\n  Run "hatch3r --help" for available commands.\n`,
+      `\n  Run "hatch3r --help" for available commands.` +
+      `\n\n  Common commands:` +
+      `\n    hatch3r init      Set up agent configuration in current repo` +
+      `\n    hatch3r sync      Regenerate tool outputs from .agents/` +
+      `\n    hatch3r status    Check sync status` +
+      `\n    hatch3r validate  Check .agents/ structure and content` +
+      `\n    hatch3r verify    Check file integrity (SHA-256)` +
+      `\n    hatch3r config    Reconfigure tools, features, MCP` +
+      `\n    hatch3r clean     Remove hatch3r artifacts\n`,
     );
   }
   process.exit(1);
@@ -124,14 +154,15 @@ if (nodeVersion < 22) {
 }
 
 let shuttingDown = false;
+const SIGNAL_EXIT_CODES: Record<string, number> = { SIGINT: 130, SIGTERM: 143 };
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
     if (shuttingDown) return;
     shuttingDown = true;
-    // Allow pending writes to flush
+    // Allow pending writes to flush, then exit with POSIX-correct code (128 + signal)
     process.stdout.write("", () => {
       process.stderr.write("", () => {
-        process.exit(0);
+        process.exit(SIGNAL_EXIT_CODES[signal] ?? 1);
       });
     });
   });
@@ -161,7 +192,13 @@ try {
   console.error(
     `\nhatch3r encountered an ${isUsageError ? "usage" : "unexpected"} error: ${err instanceof Error ? err.message : String(err)}`,
   );
-  console.error("  For help, see: https://hatch3r.dev/docs/troubleshooting");
+  if (isUsageError) {
+    console.error(`  Run "hatch3r --help" for usage information.`);
+  } else {
+    console.error("  For help, see: https://github.com/hatch3r/hatch3r#troubleshooting");
+    console.error("  Check .agents/.failure-log.jsonl for recent failure details.");
+    console.error("  Set DEBUG=1 for a full stack trace.");
+  }
   if (process.env.DEBUG) {
     console.error(err);
   }

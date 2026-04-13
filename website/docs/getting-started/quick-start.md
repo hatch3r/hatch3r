@@ -21,7 +21,7 @@ That's it. hatch3r detects your repo, asks which tools you use, and generates ev
 2. **Asks about your platform** -- GitHub, Azure DevOps, or GitLab (auto-detected)
 3. **Asks about your project** -- greenfield (new) or brownfield (existing), solo or team
 4. **Asks which content profile** -- Minimal, Standard (recommended), Full, or Custom
-5. **Asks which tools** -- select from Cursor, Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline, Aider, Kiro, Goose, Zed
+5. **Asks which tools** -- select from Cursor, Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline, Aider, Kiro, Goose, Zed, Amazon Q, Antigravity
 6. **Asks about MCP servers** -- choose from 10 servers: Playwright, Context7, Filesystem (default); GitHub, Azure DevOps, GitLab, Brave Search, Sentry, Postgres, Linear (opt-in)
 7. **Generates canonical source** -- creates `.agents/` with only the selected agents, skills, rules, and commands
 8. **Generates tool configs** -- adapts canonical source to native formats for each selected tool
@@ -51,8 +51,10 @@ The profile is combined with context filters: greenfield projects skip brownfiel
 After planning, the typical flow is:
 
 ```
-board-init → todo.md → board-fill → board-pickup → review → release
+board-init → todo.md → board-fill → board-pickup → release
 ```
+
+Review is handled automatically: the `board-pickup` workflow spawns the `hatch3r-reviewer` agent as part of its review loop, so there is no separate `review` CLI command.
 
 See the [Workflow guide](../guides/workflow) for the full lifecycle.
 
@@ -66,6 +68,7 @@ npx hatch3r update        # Pull latest templates (safe merge)
 npx hatch3r status        # Check sync status
 npx hatch3r validate      # Validate .agents/ structure
 npx hatch3r verify        # Verify file integrity checksums
+npx hatch3r clean         # Remove all hatch3r artifacts
 npx hatch3r add <pack>    # Install a community pack (coming soon)
 ```
 
@@ -102,7 +105,7 @@ BRAVE_API_KEY=xxxxxxxx
 
 How secrets are loaded depends on your editor:
 
-- **VS Code / Copilot** -- Loads automatically from `.env.mcp` via the native `envFile` field
+- **VS Code / Copilot** -- Env vars passed via `env` object in `.vscode/mcp.json`; source `.env.mcp` or set vars manually
 - **Cursor / Claude Code / others** -- Source before launching:
 
 ```bash

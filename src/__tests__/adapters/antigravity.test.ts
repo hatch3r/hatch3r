@@ -135,6 +135,20 @@ describe("AntigravityAdapter", () => {
     }
   });
 
+  // ── Finding 3.17: model resolution assertion ──
+  it("includes model annotation in rules.md when agent has model configured", async () => {
+    const manifest = createManifest({
+      tools: ["antigravity"],
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const rules = outputs.find((o) => o.path === ".antigravity/rules.md");
+    expect(rules).toBeDefined();
+    // test-agent fixture has model: sonnet -> resolves to claude-sonnet-4-6
+    expect(rules!.content).toContain("Recommended model:");
+    expect(rules!.content).toContain("claude-sonnet-4-6");
+  });
+
   it("produces no empty content in any output", async () => {
     const manifest = createManifest({
       tools: ["antigravity"],

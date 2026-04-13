@@ -1,4 +1,5 @@
 import { readdir, readFile, access } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { join, posix } from "node:path";
 import chalk from "chalk";
 import { parse as parseYaml } from "yaml";
@@ -8,8 +9,12 @@ import { AGENTS_DIR, HATCH3R_PREFIX, HatchError } from "../../types.js";
 import type { HatchManifest } from "../../types.js";
 import { scanForDeniedPatterns } from "../../adapters/customization.js";
 import { buildContentIndex, validateCrossReferences, validateOrchestrationDependencies } from "../../content/index.js";
+import { validateLearningsDirectory } from "../../content/learningsValidation.js";
 import { readCustomizationWithWarnings } from "../../models/customize.js";
 import type { CustomizableType } from "../../models/customize.js";
+import { parseEnvFile } from "../../env/mcpEnv.js";
+import { detectSecrets } from "../../env/secretDetection.js";
+import { runComplianceChecks, formatComplianceReport } from "../../pipeline/complianceVerification.js";
 import {
   printBanner,
   createSpinner,
@@ -17,6 +22,8 @@ import {
   error as logError,
   warn,
   info,
+  setVerbose,
+  verbose,
 } from "../shared/ui.js";
 
 // Default fallback set; overridden by manifest.content when available
@@ -258,6 +265,31 @@ async function validateModels(
   }
 }
 
+async function validateCostTracking(
+  manifest: HatchManifest,
+  result: ValidationResult,
+): Promise<void> {
+  if (!manifest.costTracking) return;
+
+  const ct = manifest.costTracking;
+  if (ct.sessionBudget !== undefined && ct.sessionBudget <= 0) {
+    result.warnings.push("hatch.json: costTracking.sessionBudget should be a positive number");
+  }
+  if (ct.issueBudget !== undefined && ct.issueBudget <= 0) {
+    result.warnings.push("hatch.json: costTracking.issueBudget should be a positive number");
+  }
+  if (ct.epicBudget !== undefined && ct.epicBudget <= 0) {
+    result.warnings.push("hatch.json: costTracking.epicBudget should be a positive number");
+  }
+  if (ct.warningThresholds) {
+    for (const t of ct.warningThresholds) {
+      if (t < 0 || t > 1) {
+        result.warnings.push(`hatch.json: costTracking.warningThresholds values should be between 0 and 1, got ${t}`);
+      }
+    }
+  }
+}
+
 /**
  * Validate .customize.yaml files for syntax and known field usage.
  * Checks that YAML parses correctly, uses only recognized fields,
@@ -344,8 +376,8 @@ async function validateCustomizeYaml(
         }
       }
 
-      // Run denied-pattern scan on string fields
-      for (const field of ["description", "scope"] as const) {
+      // Run denied-pattern scan on all free-text string fields
+      for (const field of ["description", "scope", "model"] as const) {
         const value = parsed[field];
         if (typeof value === "string") {
           const violations = scanForDeniedPatterns(value);
@@ -439,7 +471,7 @@ async function validateContentConsistency(
         const files = await readdir(customDir);
         for (const f of files.filter(f => f.endsWith(".customize.yaml") || f.endsWith(".customize.md"))) {
           const itemId = f.replace(/\.customize\.(yaml|md)$/, "");
-          if (!allContentIds.has(itemId) && !allContentIds.has(`${HATCH3R_PREFIX}${itemId}`)) {
+          if (!allContentIds.has(itemId) && !allContentIds.has(`${HATCH3R_PREFIX}${itemId}`) && !allContentIds.has(`cmd-${itemId}`) && !allContentIds.has(`cmd-${HATCH3R_PREFIX}${itemId}`)) {
             result.warnings.push(`Orphaned customization: .hatch3r/${dir}/${f} (content not in manifest)`);
           }
         }
@@ -449,29 +481,83 @@ async function validateContentConsistency(
     }
   }
 
-  // Validate learnings for denied patterns
+  // Validate learnings: schema, size, encoding, and denied patterns (#19 D15/D6)
   const learningsDir = join(agentsDir, "learnings");
-  try {
-    const learningFiles = await readdir(learningsDir);
-    const mdFiles = learningFiles.filter(f => f.endsWith(".md"));
-    for (const file of mdFiles) {
-      const content = await readFile(join(learningsDir, file), "utf-8");
-      const violations = scanForDeniedPatterns(content);
-      if (violations.length > 0) {
-        for (const v of violations) {
-          result.warnings.push(`Learning file "${file}" contains suspicious content: ${v}`);
-        }
-      }
-    }
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  const learningsResult = await validateLearningsDirectory(learningsDir);
+  for (const e of learningsResult.errors) {
+    result.errors.push(e);
+  }
+  for (const w of learningsResult.warnings) {
+    result.warnings.push(w);
   }
 }
 
-export async function validateCommand(): Promise<void> {
+export async function validateDocsCounts(rootDir: string): Promise<{ mismatches: string[]; checked: number }> {
+  const mismatches: string[] = [];
+  let checked = 0;
+
+  const actual: Record<string, number> = {};
+  const dirs: [string, string, (e: string) => boolean][] = [
+    ["adapters", join(rootDir, "src/adapters"), (e) => e.endsWith(".ts") && !["base.ts", "index.ts", "canonical.ts", "customization.ts", "types.ts", "mcp-utils.ts", "toml-utils.ts", "contextBudget.ts", "agentsmd.ts"].includes(e)],
+    ["commands", join(rootDir, "src/cli/commands"), (e) => e.endsWith(".ts")],
+    ["agents", join(rootDir, "agents"), (e) => e.endsWith(".md")],
+    ["skills", join(rootDir, "skills"), (e) => true],
+    ["rules", join(rootDir, "rules"), (e) => e.endsWith(".md")],
+    ["hooks", join(rootDir, "hooks"), (e) => e.endsWith(".md")],
+  ];
+
+  for (const [name, dir, filter] of dirs) {
+    try {
+      const entries = await readdir(dir, { withFileTypes: true });
+      if (name === "skills") {
+        actual[name] = entries.filter(e => e.isDirectory()).length;
+      } else {
+        actual[name] = entries.filter(e => e.isFile() && filter(e.name)).length;
+      }
+    } catch { actual[name] = 0; }
+  }
+
+  const readmePath = join(rootDir, "README.md");
+  try {
+    const readme = await readFile(readmePath, "utf-8");
+    const countPatterns: [string, RegExp][] = [
+      ["adapters", /(\d+)\s+Adapters/i],
+      ["skills", /(\d+)\s+skills/i],
+      ["rules", /(\d+)\s+rules/i],
+    ];
+    for (const [name, pattern] of countPatterns) {
+      const match = readme.match(pattern);
+      if (match) {
+        checked++;
+        const documented = parseInt(match[1], 10);
+        if (documented !== actual[name]) {
+          mismatches.push(`${name}: README says ${documented}, actual is ${actual[name]}`);
+        }
+      }
+    }
+  } catch { /* README not found */ }
+
+  return { mismatches, checked };
+}
+
+export async function validateCommand(opts?: { docs?: boolean; verbose?: boolean }): Promise<void> {
+  setVerbose(!!opts?.verbose);
   printBanner(true);
 
   const rootDir = process.cwd();
+
+  if (opts?.docs) {
+    const spinner = createSpinner("Verifying documentation counts...");
+    spinner.start();
+    const { mismatches, checked } = await validateDocsCounts(rootDir);
+    if (mismatches.length > 0) {
+      spinner.fail("Documentation count mismatches found");
+      for (const m of mismatches) logError(m);
+      throw new HatchError("Documentation counts do not match", 1, "VALIDATION_ERROR");
+    }
+    spinner.succeed(`Documentation counts verified (${checked} checks, 0 mismatches)`);
+    return;
+  }
   const agentsDir = join(rootDir, AGENTS_DIR);
   const result: ValidationResult = { errors: [], warnings: [] };
 
@@ -490,17 +576,28 @@ export async function validateCommand(): Promise<void> {
 
   const manifest = await readManifest(rootDir);
 
+  verbose("Checking manifest...");
   await validateManifest(rootDir, manifest, result);
+  verbose("Checking directory structure...");
   await validateDirectories(agentsDir, result);
+  verbose("Checking frontmatter...");
   await validateFrontmatter(agentsDir, result);
 
   if (manifest) {
+    verbose("Checking file prefixes...");
     await validateManagedFilePrefixes(manifest, result);
+    verbose("Checking hooks...");
     await validateHooks(agentsDir, manifest, result);
+    verbose("Checking MCP configuration...");
     await validateMcp(agentsDir, manifest, result);
+    verbose("Checking model configuration...");
     await validateModels(manifest, result);
+    verbose("Checking cost tracking...");
+    await validateCostTracking(manifest, result);
+    verbose("Checking customizations...");
     await validateCustomizations(rootDir, agentsDir, manifest, result);
     await validateCustomizeYaml(rootDir, result);
+    verbose("Checking content consistency...");
     await validateContentConsistency(rootDir, agentsDir, manifest, result);
 
     // Cross-reference validation: check that installed content doesn't have broken references
@@ -529,8 +626,12 @@ export async function validateCommand(): Promise<void> {
           `Content ID collision: "${collision.id}" exists as ${collision.existingType} (${collision.existingPath}) and ${collision.duplicateType} (${collision.duplicatePath})`,
         );
       }
-    } catch {
-      // Content scanning failed — skip cross-ref and collision validation
+    } catch (err) {
+      // #252 (D8-8.19): Log content scanning errors instead of silently swallowing them.
+      // This helps diagnose broken cross-references or index build failures.
+      result.warnings.push(
+        `Content scanning failed — cross-reference and collision validation skipped: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
 
     // Orchestration dependency validation: check required agents are selected
@@ -540,7 +641,13 @@ export async function validateCommand(): Promise<void> {
         result.warnings.push(w);
       }
     }
+
+    // Secret detection in .env.mcp (#82 D15)
+    await validateEnvMcpSecrets(rootDir, result);
   }
+
+  // Security compliance verification (#86 D15)
+  validateSecurityCompliance(result);
 
   spinner.stop();
 
@@ -603,6 +710,57 @@ export async function validateCommand(): Promise<void> {
 }
 
 /**
+ * Scan .env.mcp for accidentally committed secrets (#82 D15).
+ */
+async function validateEnvMcpSecrets(
+  rootDir: string,
+  result: ValidationResult,
+): Promise<void> {
+  const envMcpPath = join(rootDir, ".env.mcp");
+  if (!existsSync(envMcpPath)) return;
+
+  try {
+    const raw = await readFile(envMcpPath, "utf-8");
+    const vars = parseEnvFile(raw);
+    const detection = detectSecrets(vars);
+
+    for (const finding of detection.findings) {
+      const msg =
+        `Secret detected in .env.mcp: ${finding.variableName} contains a ${finding.secretType} ` +
+        `(${finding.maskedValue}). ${finding.guidance}`;
+      if (finding.severity === "critical") {
+        result.errors.push(msg);
+      } else {
+        result.warnings.push(msg);
+      }
+    }
+  } catch {
+    // File unreadable — skip silently
+  }
+}
+
+/**
+ * Run security compliance checks and fold results into validation (#86 D15).
+ */
+function validateSecurityCompliance(result: ValidationResult): void {
+  const report = runComplianceChecks();
+
+  for (const check of report.checks) {
+    if (check.status === "fail") {
+      result.errors.push(
+        `Security compliance [${check.controlRef}]: ${check.description}` +
+        (check.detail ? ` — ${check.detail}` : ""),
+      );
+    } else if (check.status === "warn") {
+      result.warnings.push(
+        `Security compliance [${check.controlRef}]: ${check.description}` +
+        (check.detail ? ` — ${check.detail}` : ""),
+      );
+    }
+  }
+}
+
+/**
  * Print a contextual explanation of the three customization mechanisms
  * when customization files are detected (D19-4).
  */
@@ -611,8 +769,8 @@ function printCustomizationHint(): void {
   info(chalk.bold("Customization mechanisms detected. Quick reference:"));
   console.log(chalk.dim("  1. hatch3r- prefix: Files prefixed with hatch3r- are managed by hatch3r and"));
   console.log(chalk.dim("     overwritten on update. Do not edit these directly."));
-  console.log(chalk.dim("  2. Managed blocks: Sections between <!-- MANAGED-BLOCK:BEGIN --> and"));
-  console.log(chalk.dim("     <!-- MANAGED-BLOCK:END --> are auto-updated. Add content outside these markers."));
+  console.log(chalk.dim("  2. Managed blocks: Sections between <!-- HATCH3R:BEGIN --> and"));
+  console.log(chalk.dim("     <!-- HATCH3R:END --> are auto-updated. Add content outside these markers."));
   console.log(chalk.dim("  3. .customize.yaml/.md: Place in .hatch3r/{type}/ to override model, scope,"));
   console.log(chalk.dim("     description, or disable items. Use .customize.md for content additions."));
   console.log(chalk.dim("  See: https://docs.hatch3r.com/docs/guides/customization"));

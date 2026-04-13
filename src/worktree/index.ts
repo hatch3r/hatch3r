@@ -41,8 +41,7 @@ export const ADAPTER_WORKTREE_PATTERNS: Record<
     { pattern: ".github/instructions/", strategy: "copy", reason: "Copilot scoped instructions" },
     { pattern: ".github/agents/", strategy: "copy", reason: "Copilot agents" },
     { pattern: ".github/prompts/", strategy: "copy", reason: "Copilot prompts" },
-    { pattern: ".github/copilot/", strategy: "copy", reason: "Copilot commands and agents" },
-    { pattern: ".github/skills/", strategy: "copy", reason: "Copilot skills" },
+{ pattern: ".github/skills/", strategy: "copy", reason: "Copilot skills" },
     { pattern: ".vscode/mcp.json", strategy: "copy", reason: "VS Code MCP config" },
   ],
   windsurf: [
@@ -85,6 +84,9 @@ export const ADAPTER_WORKTREE_PATTERNS: Record<
   ],
   antigravity: [
     { pattern: ".antigravity/", strategy: "copy", reason: "Antigravity adapter output (rules, skills, settings)" },
+  ],
+  "agents-md": [
+    { pattern: "AGENTS.md", strategy: "copy", reason: "AGENTS.md agent instructions" },
   ],
 };
 
@@ -234,6 +236,7 @@ export function parseWorktreeInclude(content: string): WorktreeEntry[] {
 export async function setupWorktree(
   mainRoot: string,
   worktreeRoot: string,
+  options: { force?: boolean } = {},
 ): Promise<WorktreeSetupResult> {
   const result: WorktreeSetupResult = {
     copied: [],
@@ -277,7 +280,7 @@ export async function setupWorktree(
     }
 
     try {
-      // Skip if destination already exists (idempotent re-run)
+      // Skip if destination already exists (idempotent re-run), unless --force
       let destExists = false;
       try {
         await lstat(destPath);
@@ -285,9 +288,13 @@ export async function setupWorktree(
       } catch {
         // Doesn't exist — proceed
       }
-      if (destExists) {
+      if (destExists && !options.force) {
         result.skipped.push(relPath);
         continue;
+      }
+      if (destExists && options.force) {
+        // Remove existing file/symlink before overwriting
+        await unlink(destPath);
       }
 
       await mkdir(dirname(destPath), { recursive: true });
@@ -324,12 +331,17 @@ export async function setupWorktree(
 // ─── Cleanup ─────────────────────────────────────────────────────────────────
 
 /**
- * Removes symlinks that were created by `setupWorktree`.
+ * Removes symlinks and copied files that were created by `setupWorktree`.
  * Reads the `.worktreeinclude` from the worktree root (it may have been
  * symlinked or copied in), falling back to the main worktree if not found.
+ *
+ * #110: Handles both symlink and copy strategy entries. Symlinks are always
+ * removed; copied files are only removed if they are exact matches of the
+ * source (not user-modified).
  */
 export async function cleanupWorktree(worktreeRoot: string): Promise<void> {
   let content: string | null = null;
+  let mainRoot: string | null = null;
 
   // Try reading from the worktree itself first
   const localPath = join(worktreeRoot, WORKTREE_INCLUDE_FILE);
@@ -338,7 +350,7 @@ export async function cleanupWorktree(worktreeRoot: string): Promise<void> {
   } catch {
     // Not found locally — try the main worktree
     try {
-      const mainRoot = findMainWorktree(worktreeRoot);
+      mainRoot = findMainWorktree(worktreeRoot);
       content = await readFile(join(mainRoot, WORKTREE_INCLUDE_FILE), "utf-8");
     } catch {
       // Can't find include file anywhere — nothing to clean up
@@ -347,17 +359,30 @@ export async function cleanupWorktree(worktreeRoot: string): Promise<void> {
   }
 
   if (!content) return;
+  if (!mainRoot) {
+    try { mainRoot = findMainWorktree(worktreeRoot); } catch { /* no main root */ }
+  }
 
   const entries = parseWorktreeInclude(content);
 
   for (const entry of entries) {
-    if (entry.strategy !== "symlink") continue;
-
     const targetPath = join(worktreeRoot, entry.pattern.replace(/\/$/, ""));
     try {
       const stat = await lstat(targetPath);
       if (stat.isSymbolicLink()) {
         await unlink(targetPath);
+      } else if (entry.strategy === "copy" && stat.isFile() && mainRoot) {
+        // Only remove copied files that match the source (not user-modified)
+        const sourcePath = join(mainRoot, entry.pattern.replace(/\/$/, ""));
+        try {
+          const sourceContent = await readFile(sourcePath, "utf-8");
+          const targetContent = await readFile(targetPath, "utf-8");
+          if (sourceContent === targetContent) {
+            await unlink(targetPath);
+          }
+        } catch {
+          // Source not readable or target not readable — skip
+        }
       }
     } catch {
       // Path doesn't exist or can't be stat'd — skip

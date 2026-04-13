@@ -3,6 +3,7 @@ id: hatch3r-revision
 type: command
 description: User-guided revision of agent-implemented code in a fresh context window. Reconstructs what was done, interviews the user for feedback, fixes issues, cleans up leftovers, and drives toward merge readiness.
 tags: [implementation, team]
+quality_charter: agents/shared/quality-charter.md
 ---
 
 ## Agent Pipeline
@@ -122,7 +123,7 @@ Based on the user's initial response and the diff scope, ask targeted follow-up 
 
 **If UI changes detected** (components, styles, templates in diff):
 - "Any visual mismatches -- spacing, alignment, colors, typography?"
-- "Does it behave correctly at different viewport sizes?"
+- "Does it render and respond as expected at different viewport sizes?"
 - "Any interaction issues -- hover states, focus, transitions, animations?"
 
 **If API/backend changes detected** (routes, services, middleware in diff):

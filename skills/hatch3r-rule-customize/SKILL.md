@@ -2,6 +2,7 @@
 id: hatch3r-rule-customize
 description: Rule customization — redirects to the unified hatch3r-customize skill.
 tags: [customize]
+quality_charter: agents/shared/quality-charter.md
 ---
 # Rule Customization
 

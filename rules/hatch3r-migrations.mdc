@@ -1,6 +1,6 @@
 ---
 description: Database migration and schema change patterns for the project
-alwaysApply: true
+globs: ["**/migrations/**", "**/*migration*", "**/migrate/**", "**/seeds/**", "**/seeders/**", "**/prisma/migrations/**", "**/drizzle/**", "**/knex/**"]
 ---
 # Migrations
 

@@ -1,6 +1,6 @@
 # Adapter Capability Matrix
 
-> **Last verified**: 2026-03-05 | **hatch3r version**: 1.0.0
+> **Last verified**: 2026-04-10 | **hatch3r version**: 1.5.0
 
 Living reference for framework capabilities vs. adapter implementations. This document tracks what each adapter emits, what each platform supports natively, and where gaps remain.
 
@@ -42,15 +42,17 @@ Living reference for framework capabilities vs. adapter implementations. This do
 | **copilot** | Y | Y | Y | Y | Y | Y | -- | Y | -- | Y | -- |
 | **claude** | Y | Y | Y | -- | Y | Y | -- | -- | Y | Y | Y |
 | **cline** | Y | Y | Y | -- | Y | Y | -- | -- | Y | Y | -- |
-| **codex** | B | B | Y | -- | -- | Y | -- | -- | -- | Y | -- |
+| **codex** | B | B | Y | -- | -- | Y | -- | -- | Y | Y | -- |
 | **gemini** | B | B | Y | -- | Y | Y | -- | -- | Y | Y | -- |
 | **windsurf** | Y | B | Y | -- | Y | Y | -- | -- | -- | Y | -- |
 | **amp** | B | B | Y | -- | ~ | Y | -- | -- | -- | Y | -- |
 | **opencode** | Y | Y | Y | -- | Y | Y | -- | -- | -- | Y | -- |
 | **aider** | B | B | Y | -- | -- | -- | -- | -- | -- | Y | -- |
 | **kiro** | Y | B | Y | -- | -- | Y | -- | -- | -- | Y | -- |
-| **goose** | B | B | B | -- | -- | -- | -- | -- | -- | Y | -- |
+| **goose** | B | B | B | -- | -- | Y | -- | -- | -- | Y | -- |
 | **zed** | B | B | -- | -- | -- | -- | -- | -- | -- | Y | -- |
+| **amazon-q** | B | B | Y | -- | -- | Y | -- | -- | Y | Y | -- |
+| **antigravity** | B | B | Y | -- | -- | Y | -- | -- | -- | Y | -- |
 
 ### Agent Model Customization
 
@@ -71,6 +73,8 @@ All adapters emit model preferences when configured via `hatch.json`, agent fron
 | **kiro** | Guidance | Text in .kiro/steering/hatch3r-agents.md |
 | **goose** | Guidance | Text in .goosehints |
 | **zed** | Guidance | Text in .rules |
+| **amazon-q** | Guidance | Text in .amazonq/rules/hatch3r-agents.md |
+| **antigravity** | Guidance | Text in .antigravity/rules.md |
 
 ---
 
@@ -111,9 +115,9 @@ Previously only the Cursor adapter inlined this content; others merely reference
 | agents | `.github/agents/hatch3r-{id}.md` | YAML frontmatter (`name`, `description`, `model`) |
 | skills | `.github/skills/hatch3r-{id}/SKILL.md` | YAML frontmatter (`name`, `description`) |
 | prompts | `.github/prompts/hatch3r-{id}.prompt.md` | Raw content |
-| commands | `.github/copilot/commands/hatch3r-{id}.prompt.md` | Raw content |
-| githubAgents | `.github/copilot/agents/hatch3r-{id}.md` | Raw content |
-| mcp | `.vscode/mcp.json` | Canonical MCP config with `envFile: "${workspaceFolder}/.env.mcp"` injected on STDIO servers |
+| commands | `.github/prompts/hatch3r-{id}.prompt.md` | Raw content |
+| githubAgents | `.github/agents/hatch3r-{id}.agent.md` | Raw content |
+| mcp | `.vscode/mcp.json` | Canonical MCP config with `env` object for secret passing |
 | setup | `.github/workflows/copilot-setup-steps.yml` | YAML build steps |
 
 ### Claude
@@ -171,10 +175,11 @@ When omitted, the adapter falls back to sensible defaults so existing projects c
 
 | Capability | Output Path | Format |
 |------------|-------------|--------|
-| rules | `.codex/config.toml` | `model_instructions_file` reference to AGENTS.md (bridge) |
-| agents | `.codex/config.toml` | `[agents.{id}]` sections with `model_instructions_file`, optional `model` |
+| rules | `.codex/config.toml` | Rule comments referencing AGENTS.md (bridge) |
+| agents | `.codex/agents/hatch3r-{id}.toml` | Per-agent TOML files with optional `model` |
 | skills | `.codex/skills/hatch3r-{id}/SKILL.md` | Raw content |
 | mcp | `.codex/config.toml` | `[mcp_servers.{name}]` TOML sections |
+| hooks | `.codex/config.toml` | `[hooks."{event}"]` TOML sections with command trigger |
 
 ### Gemini
 
@@ -215,9 +220,9 @@ When omitted, the adapter falls back to sensible defaults so existing projects c
 | Capability | Output Path | Format |
 |------------|-------------|--------|
 | rules | `opencode.json` | `instructions` array with glob references |
-| agents | `.opencode/agents/hatch3r-{id}.md` | YAML frontmatter (`description`, `model`) |
+| agents | `.opencode/agent/hatch3r-{id}.md` | YAML frontmatter (`description`, `model`) |
 | skills | `.opencode/skills/hatch3r-{id}/SKILL.md` | Raw content |
-| commands | `.opencode/commands/hatch3r-{id}.md` | Raw content |
+| commands | `.opencode/command/hatch3r-{id}.md` | Raw content |
 | mcp | `opencode.json` | JSON `mcp` object with type/command/url |
 
 ### Aider
@@ -248,6 +253,7 @@ When omitted, the adapter falls back to sensible defaults so existing projects c
 | rules | `.goosehints` | Inlined into managed block (bridge) |
 | agents | `.goosehints` | Inlined into managed block (bridge) |
 | skills | `.goosehints` | Inlined into managed block (bridge) |
+| mcp | `.goose/profile.yaml` | Extensions array within Goose profile config |
 | bridge | `.goosehints` | Managed block with inline orchestration + canonical reference |
 
 ### Zed
@@ -257,6 +263,27 @@ When omitted, the adapter falls back to sensible defaults so existing projects c
 | rules | `.rules` | Inlined into managed block (bridge) |
 | agents | `.rules` | Inlined into managed block (bridge) |
 | bridge | `.rules` | Managed block with inline orchestration + canonical reference |
+
+### Amazon Q
+
+| Capability | Output Path | Format |
+|------------|-------------|--------|
+| rules | `.amazonq/rules/hatch3r-agents.md` | Inlined into managed block (bridge) |
+| agents | `.amazonq/rules/hatch3r-agents.md` | Inlined into managed block (bridge) |
+| skills | `.amazonq/rules/hatch3r-skill-{id}.md` | Raw content |
+| mcp | `.amazonq/mcp.json` | JSON `mcpServers` object |
+| hooks | `.amazonq/rules/hatch3r-hooks.md` | Lifecycle event bindings with agent spawn directives |
+| bridge | `.amazonq/rules/hatch3r-agents.md` | Managed block with inline orchestration + canonical reference |
+
+### Antigravity
+
+| Capability | Output Path | Format |
+|------------|-------------|--------|
+| rules | `.antigravity/rules.md` | Inlined into managed block (bridge) |
+| agents | `.antigravity/rules.md` | Inlined into managed block (bridge) |
+| skills | `.antigravity/skills/hatch3r-{id}/SKILL.md` | Raw content |
+| mcp | `.antigravity/settings.json` | JSON `mcpServers` object |
+| bridge | `.antigravity/rules.md` | Managed block with inline orchestration + canonical reference |
 
 ---
 
@@ -280,7 +307,7 @@ All MCP secrets are centralized in a single `.env.mcp` file at the project root 
 
 | Adapter | Secret loading method | Auto-loads `.env.mcp`? | Notes |
 |---------|----------------------|:----------------------:|-------|
-| **copilot** | `envFile` field per STDIO server | **Yes** | VS Code natively reads `envFile: "${workspaceFolder}/.env.mcp"` |
+| **copilot** | `env` object per server | No | Env vars are passed directly via the `env` object in `.vscode/mcp.json`; user must source `.env.mcp` or set vars manually |
 | **cursor** | `${env:VAR}` from process env | No | User must source `.env.mcp` before launching, or set vars in shell profile / Cursor UI |
 | **claude** | `${env:VAR}` from process env | No | User must source `.env.mcp` before launching |
 | **cline** | `${env:VAR}` from process env | No | Same sourcing pattern |
@@ -291,8 +318,10 @@ All MCP secrets are centralized in a single `.env.mcp` file at the project root 
 | **windsurf** | `${env:VAR}` from process env | No | Same sourcing pattern |
 | **aider** | N/A | No | No project-level MCP support |
 | **kiro** | `${env:VAR}` from process env | No | Same sourcing pattern |
-| **goose** | N/A (global MCP only) | No | Goose MCP is global; secrets set via global config |
+| **goose** | `${env:VAR}` from process env | No | MCP configured as extensions in `.goose/profile.yaml` |
 | **zed** | N/A (global MCP only) | No | Zed MCP is global; secrets set via Zed settings |
+| **amazon-q** | `${env:VAR}` from process env | No | Same sourcing pattern |
+| **antigravity** | `${env:VAR}` from process env | No | Same sourcing pattern |
 
 ### Sourcing `.env.mcp`
 
@@ -313,15 +342,16 @@ set -a && source .env.mcp && set +a && <editor-command> .
 | **windsurf** | hooks | No documented Windsurf hook/event system. |
 | **opencode** | hooks | No documented OpenCode hook/event system. |
 | **amp** | hooks | No documented Amp hook/event system. |
-| **codex** | hooks | No documented Codex hook/event system. |
 | **aider** | mcp | Aider has no project-level MCP config file format. |
 | **aider** | hooks | No documented Aider hook/event system. |
-| **goose** | mcp | Goose MCP is global-only (`~/.config/goose/config.yaml`). No project-level MCP path. |
 | **goose** | hooks | No documented Goose hook/event system. |
 | **kiro** | hooks | No documented Kiro hook/event system for project-level config. |
 | **zed** | mcp | Zed MCP config is global-only (Zed settings). No project-level MCP path. |
 | **zed** | hooks | No documented Zed hook/event system. |
 | **zed** | skills | Zed has no skills concept; rules cover all guidance. |
+| **amazon-q** | commands | No documented Amazon Q commands format. |
+| **antigravity** | hooks | No documented Antigravity hook/event system. |
+| **antigravity** | commands | No documented Antigravity commands format. |
 | **all** | guardrails | No adapter emits policy files. Canonical location `.agents/policy/` exists for future use. |
 | **all** | prompts (except copilot) | Only Copilot has a dedicated prompts format (`.github/prompts/`). Other platforms map prompts to commands or skills. |
 | **all** | githubAgents (except copilot) | Copilot-specific capability; only the Copilot adapter emits. |
@@ -346,6 +376,8 @@ set -a && source .env.mcp && set +a && <editor-command> .
 | Kiro | [Kiro Steering](https://kiro.dev/docs/steering/) |
 | Goose | [Goosehints](https://block.github.io/goose/docs/guides/using-goosehints) |
 | Zed | [Zed AI Rules](https://zed.dev/docs/ai/rules.html) |
+| Amazon Q | [Amazon Q CLI Agents](https://docs.aws.amazon.com/amazonq/latest/qdeveloper-ug/q-cli-agents.html) |
+| Antigravity | [Antigravity Docs](https://antigravity.dev/docs) |
 
 ---
 

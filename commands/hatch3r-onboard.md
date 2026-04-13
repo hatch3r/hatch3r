@@ -3,6 +3,7 @@ id: hatch3r-onboard
 type: command
 description: Generate a comprehensive onboarding guide for a new developer joining the project -- spawn parallel researchers to analyze codebase structure, architecture, and conventions, then produce a tailored onboarding document with setup instructions, architecture walkthrough, coding conventions, key workflows, tribal knowledge, and a quick-reference cheat sheet.
 tags: [brownfield, team]
+quality_charter: agents/shared/quality-charter.md
 ---
 
 ## Agent Pipeline
@@ -56,7 +57,7 @@ Onboarding Brief:
   Depth:          {derived — junior=detailed, mid=standard, senior=concise, staff=architecture-focused}
 ```
 
-**ASK:** "Does this capture the onboarding needs correctly? Adjust anything before I continue."
+**ASK:** "Does this capture the onboarding needs? Adjust anything before I continue."
 
 #### Step 1b: Dimension Probing (Team Context)
 

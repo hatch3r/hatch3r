@@ -219,4 +219,16 @@ describe("WindsurfAdapter", () => {
       expect(o.content.length).toBeGreaterThan(0);
     }
   });
+
+  // ── Finding 3.17: model resolution assertion ──
+  it("includes model annotation in .windsurfrules when agent has model configured", async () => {
+    const manifest = makeManifest();
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const bridge = outputs.find((o) => o.path === ".windsurfrules");
+    expect(bridge).toBeDefined();
+    // test-agent fixture has model: sonnet -> resolves to claude-sonnet-4-6
+    expect(bridge!.content).toContain("Recommended model:");
+    expect(bridge!.content).toContain("claude-sonnet-4-6");
+  });
 });

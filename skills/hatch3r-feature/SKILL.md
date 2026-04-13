@@ -2,8 +2,9 @@
 id: hatch3r-feature
 description: End-to-end feature implementation workflow. Covers data model, domain logic, API, and UI as a vertical slice. Use when implementing new features or working on feature request issues.
 tags: [core, implementation]
+quality_charter: agents/shared/quality-charter.md
 ---
-> **Note:** Commands below use `npm` as an example. Substitute with your project's package manager (`yarn`, `pnpm`, `bun`) or build tool as appropriate.
+> **Note:** Commands below use `npm` as an example. Substitute with your project's package manager (`yarn`, `pnpm`, `bun`) or build tool when your project uses a different package manager.
 
 # Feature Implementation Workflow
 
@@ -66,11 +67,12 @@ Use standard flow (implement → test) when:
 ## Step 3: Implement
 
 - Deliver a complete vertical slice (data -> logic -> UI).
-- Follow the convention lock from Step 1 / the implementer's Step 1b — match the reference implementation's patterns for file structure, state management, error handling, data fetching, and testing. Do not invent new patterns when established ones exist in the codebase.
+- Follow the convention lock from Step 1 / the implementer's Step 1b -- match the reference implementation's patterns for file structure, state management, error handling, data fetching, and testing. Do not invent new patterns when established ones exist in the codebase.
 - Use stable IDs from the project glossary.
 - If database/backend data is needed, include security rules updates.
 - If feature is gated, enforce entitlements client-side AND server-side.
 - If new events, follow the project's event schema.
+- **Error handling for new code paths.** Every new function that can fail must use the project's error handling patterns (Result types for expected failures, custom error classes for domain errors, error boundaries at architectural boundaries). Do not defer error handling to "a future PR" -- incomplete error handling is a Critical review finding.
 
 ## Step 4: Tests
 
@@ -90,9 +92,9 @@ npm run lint && npm run typecheck && npm run test
 
 Skip this step if the feature has no user-facing UI changes.
 
-- Ensure the dev server is running. If not, start it in the background.
+- Confirm the dev server is running by checking the expected port. If not running, start it in the background.
 - Navigate to the page or surface affected by the new feature.
-- Walk through the acceptance criteria visually — confirm the feature renders and behaves correctly.
+- Walk through the acceptance criteria visually — confirm the feature renders and behaves as specified in the issue.
 - Interact with new UI elements: click, type, trigger state transitions.
 - Check the browser console for errors or warnings.
 - If the feature is responsive, test at different viewport sizes.
@@ -121,6 +123,12 @@ You MUST spawn these agents via the Task tool (`subagent_type: "generalPurpose"`
 ## Related Skills
 
 - **Skill**: `hatch3r-qa-validation` — use this skill for end-to-end verification of the implemented feature
+
+## Error Handling
+
+- **Acceptance criteria are ambiguous or incomplete**: Stop implementation, document the specific ambiguities, and ask the user for clarification before proceeding. Do not guess at requirements.
+- **Feature touches a module with no existing tests**: Write foundational tests for the existing behavior first, then implement the feature. This prevents regressions in untested code.
+- **Database migration fails or is irreversible**: Test the migration against a local database or emulator before applying. If rollback is needed, verify the down-migration restores the original schema.
 
 ## Definition of Done
 

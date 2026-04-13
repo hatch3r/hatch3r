@@ -92,14 +92,14 @@ describe("OpenCodeAdapter", () => {
     expect(parsed.mcp).toBeUndefined();
   });
 
-  it("generates agent files in .opencode/agents/", async () => {
+  it("generates agent files in .opencode/agent/", async () => {
     const manifest = makeManifest();
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
-    const agents = outputs.filter((o) => o.path.startsWith(".opencode/agents/"));
+    const agents = outputs.filter((o) => o.path.startsWith(".opencode/agent/"));
     expect(agents.length).toBe(2);
 
-    const agent = agents.find((o) => o.path === ".opencode/agents/hatch3r-test-agent.md")!;
+    const agent = agents.find((o) => o.path === ".opencode/agent/hatch3r-test-agent.md")!;
     expect(agent).toBeDefined();
     expect(agent.content).toContain("description: A test agent for unit testing");
     expect(agent.content).toContain("You are a test agent");
@@ -110,7 +110,7 @@ describe("OpenCodeAdapter", () => {
     const manifest = makeManifest({ features: { agents: false } });
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
-    const agents = outputs.filter((o) => o.path.startsWith(".opencode/agents/"));
+    const agents = outputs.filter((o) => o.path.startsWith(".opencode/agent/"));
     expect(agents.length).toBe(0);
   });
 
@@ -125,7 +125,7 @@ describe("OpenCodeAdapter", () => {
     expect(skills[0]!.path).toContain("hatch3r-");
     expect(skills[0]!.path).toMatch(/SKILL\.md$/);
 
-    const commands = outputs.filter((o) => o.path.startsWith(".opencode/commands/"));
+    const commands = outputs.filter((o) => o.path.startsWith(".opencode/command/"));
     expect(commands.length).toBe(1);
     expect(commands[0]!.path).toContain("hatch3r-");
     expect(commands[0]!.path).toMatch(/\.md$/);
@@ -135,7 +135,7 @@ describe("OpenCodeAdapter", () => {
     const manifest = makeManifest();
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
-    const agentFile = outputs.find((o) => o.path === ".opencode/agents/hatch3r-test-agent.md");
+    const agentFile = outputs.find((o) => o.path === ".opencode/agent/hatch3r-test-agent.md");
     expect(agentFile).toBeDefined();
     expect(agentFile!.content).toContain("model: anthropic/claude-sonnet-4-6");
   });
@@ -162,7 +162,7 @@ You are a test agent.`,
       });
       const outputs = await adapter.generate(agentsDir, manifest);
 
-      const agentFile = outputs.find((o) => o.path === ".opencode/agents/hatch3r-test-agent.md");
+      const agentFile = outputs.find((o) => o.path === ".opencode/agent/hatch3r-test-agent.md");
       expect(agentFile).toBeDefined();
       expect(agentFile!.content).toContain("model: openai/gpt-4");
     } finally {
@@ -176,6 +176,16 @@ You are a test agent.`,
 
     for (const o of outputs) {
       expect(o.action).toBe("create");
+    }
+  });
+
+  // ── Finding 3.16: no empty content assertion ──
+  it("produces no empty content in any output", async () => {
+    const manifest = makeManifest();
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    for (const o of outputs) {
+      expect(o.content.length).toBeGreaterThan(0);
     }
   });
 
@@ -215,7 +225,7 @@ You are a test agent.`,
     const manifest = makeManifest({ features: { commands: false } });
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
-    const commands = outputs.filter((o) => o.path.startsWith(".opencode/commands/"));
+    const commands = outputs.filter((o) => o.path.startsWith(".opencode/command/"));
     expect(commands.length).toBe(0);
   });
 

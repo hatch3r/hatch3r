@@ -1,19 +1,28 @@
-import { stat, readdir } from "node:fs/promises";
+import { appendFile, readFile, stat, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import chalk from "chalk";
 import { readManifest } from "../../manifest/hatchJson.js";
 import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
+import { checkContextBudget, formatBudgetWarning } from "../../adapters/contextBudget.js";
 import { safeWriteFile } from "../../merge/safeWrite.js";
 import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
 import { AGENTS_DIR, HatchError, WORKTREE_INCLUDE_FILE, type GenerationMode } from "../../types.js";
 import { ensureEnvMcp, ensureGitignoreEntry, getSourceEnvMcpCommand } from "../../env/mcpEnv.js";
 import { readWorkspaceManifest } from "../../workspace/manifest.js";
+import { detectWorkspaceContext } from "../../workspace/detect.js";
 import { syncWorkspaceRepos } from "../../workspace/sync.js";
-import { AGENTS_MD_INNER, AGENTS_MD_FULL, generateCanonicalAgentsMd } from "../shared/agentsContent.js";
+import { generateCanonicalAgentsMd, generateRootAgentsMd } from "../shared/agentsContent.js";
 import { verifyIntegrity, generateIntegrityManifest, writeIntegrityManifest } from "../../integrity/index.js";
 import { pruneArchives } from "../../archive/index.js";
 import { HATCH3R_VERSION } from "../../version.js";
+import {
+  createFailureLogEntry,
+  formatLogEntry,
+  shouldRotateLog,
+  rotateLog,
+  FAILURE_LOG_FILE,
+} from "../../pipeline/failureLog.js";
 import {
   printBanner,
   createSpinner,
@@ -22,6 +31,8 @@ import {
   info,
   step,
   warn,
+  setVerbose,
+  verbose,
 } from "../shared/ui.js";
 
 /**
@@ -73,17 +84,72 @@ async function checkSpecFreshness(rootDir: string): Promise<void> {
   }
 }
 
+/**
+ * Append a failure entry to the persistent failure log in .agents/.
+ * Performs log rotation when the log exceeds 500KB.
+ * Silently skips if the write fails (failure logging must not break sync).
+ */
+async function appendFailure(agentsDir: string, phase: string, error: unknown, tool?: string): Promise<void> {
+  try {
+    const logPath = join(agentsDir, FAILURE_LOG_FILE);
+    const entry = createFailureLogEntry(phase, error, {
+      tool,
+      version: HATCH3R_VERSION,
+    });
+    const line = formatLogEntry(entry) + "\n";
+
+    // Check if rotation is needed before appending
+    try {
+      const existing = await readFile(logPath, "utf-8");
+      if (shouldRotateLog(existing + line)) {
+        const rotated = rotateLog(existing);
+        await safeWriteFile(logPath, rotated + line);
+        return;
+      }
+    } catch {
+      // File does not exist yet — that is fine, appendFile will create it
+    }
+
+    await appendFile(logPath, line);
+  } catch {
+    // Failure logging must not break the sync command
+  }
+}
+
+/**
+ * Read a file's content, returning null if the file does not exist.
+ */
+async function readFileOrNull(filePath: string): Promise<string | null> {
+  try {
+    return await readFile(filePath, "utf-8");
+  } catch {
+    return null;
+  }
+}
+
 export async function syncCommand(
   opts: {
     repos?: string[] | true;
     dryRun?: boolean;
+    diff?: boolean;
     force?: boolean;
     minimal?: boolean;
+    verbose?: boolean;
   } = {},
 ): Promise<void> {
+  setVerbose(!!opts.verbose);
   printBanner(true);
 
   const rootDir = process.cwd();
+
+  const wsContext = await detectWorkspaceContext(rootDir);
+  if (wsContext.type === "workspace-member") {
+    warn(
+      `This repository appears to be managed by a workspace at ${wsContext.workspaceRoot ?? ".."}. ` +
+      `Run ${chalk.cyan("hatch3r sync")} from the workspace root to sync all repos.`,
+    );
+  }
+
   const agentsDir = join(rootDir, AGENTS_DIR);
   const manifest = await readManifest(rootDir);
 
@@ -94,6 +160,8 @@ export async function syncCommand(
   }
 
   const m = manifest;
+
+  verbose(`Manifest loaded: ${m.tools.length} tool(s), ${Object.keys(m.features).filter(k => m.features[k as keyof typeof m.features]).length} feature(s)`);
 
   const integrityResults = await verifyIntegrity(agentsDir);
   const modified = integrityResults.filter((r) => r.status === "modified");
@@ -114,23 +182,56 @@ export async function syncCommand(
   const totalSteps = m.tools.length + 1;
   let currentStep = 0;
 
+  // --diff: track file snapshots before and after generation
+  const diffBefore = new Map<string, string | null>();
+  const diffAfter = new Map<string, string | null>();
+
+  if (opts.diff) {
+    diffBefore.set("AGENTS.md", await readFileOrNull(join(rootDir, "AGENTS.md")));
+    diffBefore.set(`${AGENTS_DIR}/AGENTS.md`, await readFileOrNull(join(agentsDir, "AGENTS.md")));
+  }
+
   const s1 = createSpinner(step(++currentStep, totalSteps, "Syncing AGENTS.md..."));
   s1.start();
-  const agentsMdResult = await safeWriteFile(join(rootDir, "AGENTS.md"), AGENTS_MD_FULL, {
-    managedContent: AGENTS_MD_INNER,
-  });
-  if (agentsMdResult.warning) warn(agentsMdResult.warning);
-  results.push({ path: "AGENTS.md", action: agentsMdResult.action });
-  const canonicalAgentsMd = await generateCanonicalAgentsMd(agentsDir);
-  const canonicalResult = await safeWriteFile(join(agentsDir, "AGENTS.md"), canonicalAgentsMd);
-  if (canonicalResult.warning) warn(canonicalResult.warning);
-  results.push({ path: `${AGENTS_DIR}/AGENTS.md`, action: canonicalResult.action });
-  s1.succeed(step(currentStep, totalSteps, "AGENTS.md synced"));
+  const rootAgentsMd = await generateRootAgentsMd(agentsDir);
+
+  if (opts.dryRun) {
+    results.push({ path: "AGENTS.md", action: "dry-run" });
+    const canonicalAgentsMd = await generateCanonicalAgentsMd(agentsDir);
+    results.push({ path: `${AGENTS_DIR}/AGENTS.md`, action: "dry-run" });
+    if (opts.diff) {
+      diffAfter.set("AGENTS.md", rootAgentsMd.full);
+      diffAfter.set(`${AGENTS_DIR}/AGENTS.md`, canonicalAgentsMd);
+    }
+  } else {
+    const agentsMdResult = await safeWriteFile(join(rootDir, "AGENTS.md"), rootAgentsMd.full, {
+      managedContent: rootAgentsMd.inner,
+    });
+    if (agentsMdResult.warning) warn(agentsMdResult.warning);
+    results.push({ path: "AGENTS.md", action: agentsMdResult.action });
+    const canonicalAgentsMd = await generateCanonicalAgentsMd(agentsDir);
+    const canonicalResult = await safeWriteFile(join(agentsDir, "AGENTS.md"), canonicalAgentsMd);
+    if (canonicalResult.warning) warn(canonicalResult.warning);
+    results.push({ path: `${AGENTS_DIR}/AGENTS.md`, action: canonicalResult.action });
+    if (opts.diff) {
+      diffAfter.set("AGENTS.md", await readFileOrNull(join(rootDir, "AGENTS.md")));
+      diffAfter.set(`${AGENTS_DIR}/AGENTS.md`, await readFileOrNull(join(agentsDir, "AGENTS.md")));
+    }
+  }
+  s1.succeed(step(currentStep, totalSteps, opts.dryRun ? "AGENTS.md (dry run)" : "AGENTS.md synced"));
 
   const generationMode: GenerationMode = opts.minimal ? "minimal" : "standard";
   if (opts.minimal) {
     info("Minimal generation mode: output will be stripped-down to reduce token usage.");
   }
+
+  // #260 (D11-11.7): Track output paths across adapters to detect collisions.
+  // Multiple adapters writing to the same file (e.g. Amp's AGENTS.md vs the
+  // sync bridge's AGENTS.md) can cause silent overwrites.
+  const outputPathOwners = new Map<string, string>();
+  // Seed with sync bridge outputs
+  outputPathOwners.set("AGENTS.md", "sync-bridge");
+  outputPathOwners.set(`${AGENTS_DIR}/AGENTS.md`, "sync-bridge");
 
   const adapterFailures: { tool: string; error: string }[] = [];
   for (const tool of m.tools) {
@@ -140,27 +241,66 @@ export async function syncCommand(
       const adapter = getAdapter(tool);
       const outputs = await adapter.generate(agentsDir, m, generationMode);
       for (const w of adapter.warnings) { warn(w); }
+
+      // #260 (D11-11.7): Detect output path collisions across adapters
       for (const out of outputs) {
-        const fullPath = join(rootDir, out.path);
-        if (out.managedContent) {
-          const result = await safeWriteFile(fullPath, out.content, {
-            managedContent: out.managedContent,
-          });
-          if (result.warning) warn(result.warning);
-          results.push({ path: out.path, action: result.action });
-        } else {
-          const result = await safeWriteFile(fullPath, out.content);
-          if (result.warning) warn(result.warning);
-          results.push({ path: out.path, action: result.action });
+        const existingOwner = outputPathOwners.get(out.path);
+        if (existingOwner && existingOwner !== tool) {
+          warn(`Output path collision: "${out.path}" written by both "${existingOwner}" and "${tool}". Last writer wins.`);
+        }
+        outputPathOwners.set(out.path, tool);
+      }
+
+      verbose(`${tool}: ${outputs.length} file(s) generated`);
+      if (opts.dryRun) {
+        // --dry-run: show what adapter would generate without writing files
+        for (const out of outputs) {
+          results.push({ path: out.path, action: "dry-run" });
+          if (opts.diff) {
+            diffBefore.set(out.path, await readFileOrNull(join(rootDir, out.path)));
+            diffAfter.set(out.path, out.content);
+          }
+        }
+      } else {
+        for (const out of outputs) {
+          if (opts.diff) {
+            diffBefore.set(out.path, await readFileOrNull(join(rootDir, out.path)));
+          }
+          const fullPath = join(rootDir, out.path);
+          if (out.managedContent) {
+            const result = await safeWriteFile(fullPath, out.content, {
+              managedContent: out.managedContent,
+            });
+            if (result.warning) warn(result.warning);
+            verbose(`${out.path}: ${result.action}`);
+            results.push({ path: out.path, action: result.action });
+          } else {
+            const result = await safeWriteFile(fullPath, out.content);
+            if (result.warning) warn(result.warning);
+            verbose(`${out.path}: ${result.action}`);
+            results.push({ path: out.path, action: result.action });
+          }
+          if (opts.diff) {
+            diffAfter.set(out.path, await readFileOrNull(join(rootDir, out.path)));
+          }
         }
       }
-      s.succeed(step(currentStep, totalSteps, `${tool} output generated`));
+      // Check context budget utilization for this adapter
+      const budgetResult = checkContextBudget(tool, outputs);
+      const budgetWarning = formatBudgetWarning(budgetResult);
+      if (budgetWarning) { warn(budgetWarning); }
+
+      s.succeed(step(currentStep, totalSteps, opts.dryRun
+        ? `${tool} output (dry run: ${outputs.length} file(s))`
+        : `${tool} output generated`));
     } catch (err) {
       s.fail(step(currentStep, totalSteps, `Failed to generate ${tool} output`));
       adapterFailures.push({
         tool,
         error: err instanceof Error ? err.message : String(err),
       });
+      // Record to persistent failure log for post-hoc debugging
+      await appendFailure(agentsDir, "sync:adapter-generate", err, tool);
     }
   }
   if (adapterFailures.length > 0) {
@@ -170,6 +310,9 @@ export async function syncCommand(
     if (adapterFailures.length === m.tools.length) {
       throw new HatchError("All adapters failed", 1, "ADAPTER_ERROR");
     }
+    // #253 (D8-8.20): Partial adapter failures should not silently report success.
+    // We continue to generate a summary but track that partial failure occurred.
+    warn(`${adapterFailures.length} of ${m.tools.length} adapter(s) failed. Output may be incomplete.`);
   }
 
   for (const tool of m.tools) {
@@ -179,42 +322,76 @@ export async function syncCommand(
     }
   }
 
-  // Regenerate .worktreeinclude
-  if (m.worktree?.enabled) {
-    const wtContent = await generateWorktreeInclude(m, rootDir);
-    const wtManaged = extractManagedContent(wtContent);
-    const wtResult = await safeWriteFile(
-      join(rootDir, WORKTREE_INCLUDE_FILE),
-      wtContent,
-      { managedContent: wtManaged },
-    );
-    if (wtResult.warning) warn(wtResult.warning);
-    results.push({ path: WORKTREE_INCLUDE_FILE, action: wtResult.action });
-  }
-
-  if (m.features.mcp && m.mcp.servers.length > 0) {
-    const envResult = await ensureEnvMcp(rootDir, m.mcp.servers);
-    await ensureGitignoreEntry(rootDir);
-    if (envResult.action !== "skipped") {
-      results.push({ path: envResult.path, action: envResult.action });
-    }
-    if (envResult.newVars.length > 0) {
-      warn(
-        `New secrets needed in .env.mcp: ${envResult.newVars.join(", ")}`,
+  if (!opts.dryRun) {
+    // Regenerate .worktreeinclude
+    if (m.worktree?.enabled) {
+      const wtContent = await generateWorktreeInclude(m, rootDir);
+      const wtManaged = extractManagedContent(wtContent);
+      const wtResult = await safeWriteFile(
+        join(rootDir, WORKTREE_INCLUDE_FILE),
+        wtContent,
+        { managedContent: wtManaged },
       );
-      info(`Run this, then start or restart your editor: ${getSourceEnvMcpCommand()}`);
+      if (wtResult.warning) warn(wtResult.warning);
+      results.push({ path: WORKTREE_INCLUDE_FILE, action: wtResult.action });
+    }
+
+    if (m.features.mcp && m.mcp.servers.length > 0) {
+      const envResult = await ensureEnvMcp(rootDir, m.mcp.servers);
+      await ensureGitignoreEntry(rootDir);
+      if (envResult.action !== "skipped") {
+        results.push({ path: envResult.path, action: envResult.action });
+      }
+      if (envResult.newVars.length > 0) {
+        warn(
+          `New secrets needed in .env.mcp: ${envResult.newVars.join(", ")}`,
+        );
+        info(`Run this, then start or restart your editor: ${getSourceEnvMcpCommand()}`);
+      }
+    }
+
+    // #259 (D11-11.6): Only regenerate integrity manifest on full sync success.
+    // Writing a manifest after partial adapter failure would certify incomplete
+    // output, masking missing files in subsequent integrity checks.
+    if (adapterFailures.length === 0) {
+      const integrityManifest = await generateIntegrityManifest(agentsDir, HATCH3R_VERSION);
+      await writeIntegrityManifest(agentsDir, integrityManifest);
+    } else {
+      warn("Integrity manifest not updated due to adapter failures. Re-run sync after resolving errors.");
+    }
+
+    // Prune stale archive entries
+    await pruneArchives(rootDir);
+
+    // Check spec freshness
+    await checkSpecFreshness(rootDir);
+
+    // #267 (D11-11.14): Detect orphaned .customize.md files at sync time.
+    // When content is removed from the manifest, customization files become
+    // orphaned and should be flagged so users can clean them up.
+    if (m.content) {
+      const allContentIds = new Set<string>();
+      for (const ids of Object.values(m.content.items)) {
+        for (const id of ids) allContentIds.add(id);
+      }
+      const CUSTOMIZE_DIRS = ["agents", "commands", "skills", "rules"];
+      for (const dir of CUSTOMIZE_DIRS) {
+        try {
+          const files = await readdir(join(rootDir, ".hatch3r", dir));
+          for (const f of files.filter(f => f.endsWith(".customize.yaml") || f.endsWith(".customize.md"))) {
+            const itemId = f.replace(/\.customize\.(yaml|md)$/, "");
+            const prefixed = `hatch3r-${itemId}`;
+            if (!allContentIds.has(itemId) && !allContentIds.has(prefixed) &&
+                !allContentIds.has(`cmd-${itemId}`) && !allContentIds.has(`cmd-${prefixed}`)) {
+              warn(`Orphaned customization: .hatch3r/${dir}/${f} — content no longer in manifest. Consider removing it.`);
+            }
+          }
+        } catch {
+          // .hatch3r/{dir} does not exist — no customizations to check
+        }
+      }
     }
   }
-
-  // Regenerate integrity manifest so checksums match newly generated files
-  const integrityManifest = await generateIntegrityManifest(agentsDir, HATCH3R_VERSION);
-  await writeIntegrityManifest(agentsDir, integrityManifest);
-
-  // Prune stale archive entries
-  await pruneArchives(rootDir);
-
-  // Check spec freshness
-  await checkSpecFreshness(rootDir);
 
   console.log();
 
@@ -222,6 +399,7 @@ export async function syncCommand(
     created: chalk.green("+"),
     updated: chalk.yellow("~"),
     skipped: chalk.dim("="),
+    "dry-run": chalk.cyan("?"),
   };
 
   const summaryLines = results.map((r) => {
@@ -229,7 +407,49 @@ export async function syncCommand(
     return `${icon} ${r.path} ${chalk.dim(`(${r.action})`)}`;
   });
 
-  printBox("Sync complete", summaryLines, "success");
+  // --diff: show file change summary
+  if (opts.diff && diffBefore.size > 0) {
+    const diffLines: string[] = [];
+    for (const [filePath] of diffBefore) {
+      const before = diffBefore.get(filePath) ?? null;
+      const after = diffAfter.get(filePath) ?? null;
+      if (before === null && after !== null) {
+        diffLines.push(`${chalk.green("+ added")}    ${filePath}`);
+      } else if (before !== null && after !== null && before !== after) {
+        diffLines.push(`${chalk.yellow("~ modified")} ${filePath}`);
+      } else if (before !== null && after !== null && before === after) {
+        diffLines.push(`${chalk.dim("= unchanged")} ${filePath}`);
+      }
+    }
+    if (diffLines.length > 0) {
+      printBox("Diff summary", diffLines, "info");
+      console.log();
+    }
+  }
+
+  const boxTitle = opts.dryRun
+    ? "Sync dry run complete"
+    : adapterFailures.length > 0 ? "Sync complete (with warnings)" : "Sync complete";
+
+  printBox(
+    boxTitle,
+    summaryLines,
+    opts.dryRun ? "info" : adapterFailures.length > 0 ? "info" : "success",
+  );
+
+  // Dry-run: skip error throwing and return before workspace cascade
+  // (workspace sync has its own dry-run handling below)
+  if (opts.dryRun) return;
+
+  // #253 (D8-8.20): Exit non-zero on partial adapter failure
+  // so CI pipelines can detect incomplete syncs.
+  if (adapterFailures.length > 0) {
+    throw new HatchError(
+      `Sync completed with ${adapterFailures.length} adapter failure(s)`,
+      2,
+      "ADAPTER_ERROR",
+    );
+  }
 
   // ── Workspace sync cascade ────────────────────────────────────
   const wsManifest = await readWorkspaceManifest(rootDir);
@@ -251,9 +471,7 @@ export async function syncCommand(
 
   console.log();
   const wsSpinner = createSpinner(
-    opts.dryRun
-      ? "Workspace sync (dry run)..."
-      : `Syncing workspace to ${repoPaths ? repoPaths.length : syncableCount} repo(s)...`,
+    `Syncing workspace to ${repoPaths ? repoPaths.length : syncableCount} repo(s)...`,
   );
   wsSpinner.start();
 
@@ -263,18 +481,6 @@ export async function syncCommand(
     force: opts.force,
     onWarn: (msg) => warn(msg),
   });
-
-  if (opts.dryRun) {
-    wsSpinner.succeed("Workspace sync (dry run)");
-    for (const r of wsResult.repos) {
-      const changes = [];
-      if (r.added.length > 0) changes.push(`+${r.added.length} content`);
-      if (r.removed.length > 0) changes.push(`-${r.removed.length} content`);
-      if (r.toolsSynced.length > 0) changes.push(`${r.toolsSynced.length} tools`);
-      info(`  ${r.path}: ${changes.length > 0 ? changes.join(", ") : "up to date"}`);
-    }
-    return;
-  }
 
   const succeeded = wsResult.repos.filter((r) => r.action === "synced").length;
   const failed = wsResult.repos.filter((r) => r.action === "error").length;

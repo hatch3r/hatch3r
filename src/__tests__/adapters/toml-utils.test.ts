@@ -39,4 +39,12 @@ describe("escapeTomlString", () => {
   it("preserves unicode characters", () => {
     expect(escapeTomlString("hello 世界 🌍")).toBe("hello 世界 🌍");
   });
+
+  it("#120: escapes backspace characters", () => {
+    expect(escapeTomlString("before\x08after")).toBe("before\\bafter");
+  });
+
+  it("#120: escapes form feed characters", () => {
+    expect(escapeTomlString("before\fafter")).toBe("before\\fafter");
+  });
 });

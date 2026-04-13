@@ -131,4 +131,31 @@ describe("AmpAdapter", () => {
       expect(o.action).toBe("create");
     }
   });
+
+  // ── Finding 3.17: model resolution assertion ──
+  it("includes model annotation in AGENTS.md when agent has model configured", async () => {
+    const manifest = createManifest({
+      tools: ["amp"],
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const bridge = outputs.find((o) => o.path === "AGENTS.md");
+    expect(bridge).toBeDefined();
+    // test-agent fixture has model: sonnet -> resolves to claude-sonnet-4-6
+    expect(bridge!.content).toContain("Recommended model:");
+    expect(bridge!.content).toContain("claude-sonnet-4-6");
+  });
+
+  // ── Finding 3.16: no empty content assertion ──
+  it("produces no empty content in any output", async () => {
+    const manifest = createManifest({
+      tools: ["amp"],
+      mcpServers: ["github"],
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    for (const o of outputs) {
+      expect(o.content.length).toBeGreaterThan(0);
+    }
+  });
 });

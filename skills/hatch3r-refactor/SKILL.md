@@ -2,8 +2,9 @@
 id: hatch3r-refactor
 description: Internal code quality improvement workflow without changing external behavior. Use when refactoring code structure, simplifying modules, or improving maintainability.
 tags: [core, implementation]
+quality_charter: agents/shared/quality-charter.md
 ---
-> **Note:** Commands below use `npm` as an example. Substitute with your project's package manager (`yarn`, `pnpm`, `bun`) or build tool as appropriate.
+> **Note:** Commands below use `npm` as an example. Substitute with your project's package manager (`yarn`, `pnpm`, `bun`) or build tool when your project uses a different package manager.
 
 # Code Refactor Workflow
 
@@ -46,7 +47,8 @@ Before changing code, output:
 - Preserve all public interfaces and external behavior.
 - Remove dead code created by the refactor.
 - Do not introduce new dependencies.
-- If a bug is found, document it — fix in a separate PR.
+- If a bug is found, document it -- fix in a separate PR.
+- **Error handling preservation.** When moving or restructuring error handling code, verify that the error behavior is preserved. A common refactoring mistake is accidentally changing error types, removing error context, or altering error propagation paths. Run error-path tests after each structural change.
 
 ## Step 4: Verify
 
@@ -80,6 +82,12 @@ You MUST spawn these agents via the Task tool (`subagent_type: "generalPurpose"`
 
 - **Skill**: `hatch3r-logical-refactor` — use when the refactor changes internal logic flow while preserving external behavior
 - **Skill**: `hatch3r-visual-refactor` — use when the refactor targets UI/styling changes without altering functionality
+
+## Error Handling
+
+- **Existing tests fail after refactor**: Do not modify tests to make them pass unless the test was verifying an implementation detail (not behavior). If a behavioral test fails, the refactor changed external behavior and must be revised.
+- **Refactor scope expands beyond the original module**: If additional modules need changes due to coupling, stop and assess whether the refactor should be split into phases. Get confirmation before expanding scope.
+- **Type errors after restructuring**: Resolve all type errors before running tests. If the type system reveals unexpected dependencies, document them as findings for the codebase health record.
 
 ## Definition of Done
 

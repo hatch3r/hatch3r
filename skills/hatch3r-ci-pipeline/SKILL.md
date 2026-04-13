@@ -3,6 +3,7 @@ id: hatch3r-ci-pipeline
 type: skill
 description: Design and optimize CI/CD pipelines. Covers stage design, test parallelization, artifact management, and pipeline performance.
 tags: [devops]
+quality_charter: agents/shared/quality-charter.md
 ---
 
 # CI Pipeline Workflow
@@ -53,7 +54,7 @@ Task Progress:
 ## Step 5: Implement and Validate
 
 - Implement pipeline changes incrementally — test each stage change in a feature branch.
-- Verify caching works correctly: first run populates cache, second run uses it.
+- Verify caching works: first run populates cache, second run uses it (confirmed by cache hit log output).
 - Confirm parallel stages don't have hidden dependencies causing race conditions.
 - Measure pipeline duration improvement against the baseline from Step 1.
 - Document the pipeline architecture for the team.
@@ -67,6 +68,12 @@ Task Progress:
 | Integration tests | < 10 minutes |
 | Full pipeline (push to artifact) | < 15 minutes |
 | Cache hit ratio | > 80% |
+
+## Error Handling
+
+- **Pipeline config syntax errors**: Validate workflow YAML locally (e.g., `actionlint` for GitHub Actions) before pushing. Report the exact line and field causing the parse failure.
+- **Flaky tests block pipeline**: Identify the flaky test(s) by re-running the failing job. If confirmed flaky, quarantine the test with a tracking issue reference and unblock the pipeline.
+- **Cache invalidation causes slow builds**: Verify cache key patterns match the lockfile hash. If caches are stale, clear them and document the corrected key strategy.
 
 ## Definition of Done
 

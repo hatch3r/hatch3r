@@ -191,4 +191,29 @@ describe("ClineAdapter", () => {
       expect(o.action).toBe("create");
     }
   });
+
+  // ── Finding 3.17: model resolution assertion ──
+  it("includes model guidance in custom mode roleDefinition when agent has model configured", async () => {
+    const manifest = makeManifest();
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const roomodes = outputs.find((o) => o.path === ".roomodes");
+    expect(roomodes).toBeDefined();
+    const parsed = JSON.parse(roomodes!.content);
+    // slug uses toPrefixedId which adds "hatch3r-" prefix
+    const testMode = parsed.customModes.find((m: { slug: string }) => m.slug === "hatch3r-test-agent");
+    expect(testMode).toBeDefined();
+    // test-agent fixture has model: sonnet -> resolves to claude-sonnet-4-6
+    expect(testMode.roleDefinition).toContain("claude-sonnet-4-6");
+  });
+
+  // ── Finding 3.16: no empty content assertion ──
+  it("produces no empty content in any output", async () => {
+    const manifest = makeManifest();
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    for (const o of outputs) {
+      expect(o.content.length).toBeGreaterThan(0);
+    }
+  });
 });

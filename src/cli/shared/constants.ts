@@ -23,6 +23,7 @@ export const TOOL_DISPLAY_NAMES: Record<Tool, string> = {
   zed: "Zed",
   "amazon-q": "Amazon Q",
   antigravity: "Antigravity",
+  "agents-md": "AGENTS.md",
 };
 
 export const TOOL_PROMPT_CHOICES: { name: string; value: Tool }[] = TOOLS.map((t) => ({
@@ -78,6 +79,7 @@ export const TOOL_COMMAND_SYNTAX: Record<Tool, string> = {
   zed: "/",
   "amazon-q": "/",
   antigravity: "/",
+  "agents-md": "prompt with ",
 };
 
 /**

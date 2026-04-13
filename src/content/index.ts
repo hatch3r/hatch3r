@@ -4,7 +4,15 @@ import { parseFrontmatter } from "../adapters/canonical.js";
 import { HatchError } from "../types.js";
 import type { ContentSelection } from "../types.js";
 import type { ContentPreset } from "./presets.js";
+import { isLanguageTag, LANGUAGE_TO_TAG } from "./tags.js";
 
+/**
+ * Validate that a relative path does not escape its base directory.
+ *
+ * Throws a HatchError if the path contains directory traversal (`..`),
+ * is absolute, or contains null bytes. Used to prevent path injection
+ * during content copy and install operations.
+ */
 export function assertSafePath(relativePath: string, label: string): void {
   // Strip null bytes before validation — prevents null byte injection bypasses
   const sanitized = relativePath.replace(/\0/g, '');
@@ -25,7 +33,7 @@ export function assertSafePath(relativePath: string, label: string): void {
  */
 export function extractContentReferences(content: string): string[] {
   const refs = new Set<string>();
-  const pattern = /`(hatch3r-[a-z0-9-]+)`/g;
+  const pattern = /`((?:cmd-)?hatch3r-[a-z0-9-]+)`/g;
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(content)) !== null) {
     refs.add(match[1]);
@@ -64,7 +72,8 @@ export async function validateCrossReferences(
     const refs = extractContentReferences(content);
     for (const ref of refs) {
       if (ref === item.id) continue; // self-reference is fine
-      if (!allIds.has(ref)) {
+      // Check both the raw ref and the cmd-prefixed form (command IDs are prefixed during indexing)
+      if (!allIds.has(ref) && !allIds.has(`${COMMAND_ID_PREFIX}${ref}`)) {
         warnings.push(
           `${item.type} "${item.id}" references "${ref}" which does not exist in the content index`,
         );
@@ -164,6 +173,22 @@ export function getAllItemsById(index: ContentIndex, id: string): CatalogItem[] 
   return index.items.filter((item) => item.id === id);
 }
 
+// ── Command ID prefix ─────────────────────────────────────────
+
+/**
+ * Prefix applied to command-type content IDs to prevent cross-type
+ * collisions (e.g. a command and skill sharing the same base name).
+ */
+export const COMMAND_ID_PREFIX = "cmd-";
+
+/**
+ * Apply the command ID prefix if the content type is "command".
+ * Other content types are returned unchanged.
+ */
+export function applyCommandPrefix(id: string, type: string): string {
+  return type === "command" ? `${COMMAND_ID_PREFIX}${id}` : id;
+}
+
 // ── Content type configs ───────────────────────────────────────
 
 interface ContentTypeConfig {
@@ -209,7 +234,8 @@ export async function buildContentIndex(contentRoot: string): Promise<ContentInd
         try {
           const raw = await readFile(skillPath, "utf-8");
           const { metadata } = parseFrontmatter(raw);
-          const id = metadata.id || metadata.name || dirent.name;
+          const rawId = metadata.id || metadata.name || dirent.name;
+          const id = applyCommandPrefix(rawId, config.type);
           items.push({
             id,
             type: config.type,
@@ -237,7 +263,8 @@ export async function buildContentIndex(contentRoot: string): Promise<ContentInd
         const filePath = join(dirPath, file);
         const raw = await readFile(filePath, "utf-8");
         const { metadata } = parseFrontmatter(raw);
-        const id = metadata.id || metadata.name || file.replace(/\.md$/, "");
+        const rawId = metadata.id || metadata.name || file.replace(/\.md$/, "");
+        const id = applyCommandPrefix(rawId, config.type);
 
         const item: CatalogItem = {
           id,
@@ -330,6 +357,9 @@ export const TYPE_TO_SELECTION_KEY: Record<string, keyof ContentSelection["items
  * 6. If teamSize is "solo", remove items whose ONLY tags are "team" / "board"
  * 7. Items with protected: true are always included
  * 8. For "custom" preset, use customSelections as explicit ID list
+ * 9. Language filtering (Finding #71): items with language tags (lang:*) are only
+ *    included when the project's detected languages match. Items without language
+ *    tags are always included.
  */
 export function resolveSelection(
   preset: ContentPreset,
@@ -337,8 +367,18 @@ export function resolveSelection(
   teamSize: "solo" | "team",
   index: ContentIndex,
   customSelections?: string[],
+  projectLanguages?: string[],
 ): ContentSelection {
   let selected: CatalogItem[];
+
+  // Build the set of relevant language tags from detected project languages
+  const relevantLangTags = new Set<string>();
+  if (projectLanguages) {
+    for (const lang of projectLanguages) {
+      const tag = LANGUAGE_TO_TAG[lang];
+      if (tag) relevantLangTags.add(tag);
+    }
+  }
 
   if (preset.id === "custom" && customSelections) {
     // For custom, use explicit ID list
@@ -361,11 +401,14 @@ export function resolveSelection(
     }
 
     // Apply excludeTags filter
+    // #122: Guard against vacuous truth — items with no tags should pass through,
+    // not be excluded (Array.every on empty array returns true).
     if (preset.excludeTags.length > 0) {
       const excludeSet = new Set<string>(preset.excludeTags);
       selected = selected.filter(
         (item) =>
           item.protected ||
+          item.tags.length === 0 ||
           !item.tags.every((t) => excludeSet.has(t)),
       );
     }
@@ -401,6 +444,20 @@ export function resolveSelection(
         );
       });
     }
+  }
+
+  // Language filtering (Finding #71): remove items whose language tags
+  // don't match the detected project languages. Items without any language
+  // tags pass through (language-agnostic content).
+  if (projectLanguages && projectLanguages.length > 0) {
+    selected = selected.filter((item) => {
+      if (item.protected) return true;
+      const itemLangTags = item.tags.filter(isLanguageTag);
+      // Items with no language tags are language-agnostic — always included
+      if (itemLangTags.length === 0) return true;
+      // Items with language tags must match at least one project language
+      return itemLangTags.some((t) => relevantLangTags.has(t));
+    });
   }
 
   // Build the selection items grouped by type
@@ -450,10 +507,10 @@ export function countPresetExclusions(
         continue;
       }
     }
-    // excludeTags filter
+    // excludeTags filter (#122: guard against vacuous truth for empty tags)
     if (preset.excludeTags.length > 0) {
       const excludeSet = new Set<string>(preset.excludeTags);
-      if (item.tags.every((t) => excludeSet.has(t))) {
+      if (item.tags.length > 0 && item.tags.every((t) => excludeSet.has(t))) {
         count++;
       }
     }
@@ -623,7 +680,8 @@ export async function getAvailableItems(
             try {
               const raw = await readFile(join(dirPath, d.name, "SKILL.md"), "utf-8");
               const { metadata } = parseFrontmatter(raw);
-              installed.add(metadata.id || metadata.name || d.name);
+              const rawId = metadata.id || metadata.name || d.name;
+              installed.add(applyCommandPrefix(rawId, config.type));
             } catch {
               // skip
             }
@@ -638,7 +696,8 @@ export async function getAvailableItems(
         for (const f of files.filter((f) => f.endsWith(".md"))) {
           const raw = await readFile(join(dirPath, f), "utf-8");
           const { metadata } = parseFrontmatter(raw);
-          installed.add(metadata.id || metadata.name || f.replace(/\.md$/, ""));
+          const rawId = metadata.id || metadata.name || f.replace(/\.md$/, "");
+          installed.add(applyCommandPrefix(rawId, config.type));
         }
       } catch {
         // directory doesn't exist
@@ -681,7 +740,8 @@ export async function buildSelectionsFromDisk(
           try {
             const raw = await readFile(join(dirPath, d.name, "SKILL.md"), "utf-8");
             const { metadata } = parseFrontmatter(raw);
-            items[key].push(metadata.id || metadata.name || d.name);
+            const rawId = metadata.id || metadata.name || d.name;
+            items[key].push(applyCommandPrefix(rawId, config.type));
           } catch {
             // skip
           }
@@ -695,7 +755,8 @@ export async function buildSelectionsFromDisk(
         for (const f of files.filter((f) => f.endsWith(".md"))) {
           const raw = await readFile(join(dirPath, f), "utf-8");
           const { metadata } = parseFrontmatter(raw);
-          items[key].push(metadata.id || metadata.name || f.replace(/\.md$/, ""));
+          const rawId = metadata.id || metadata.name || f.replace(/\.md$/, "");
+          items[key].push(applyCommandPrefix(rawId, config.type));
         }
       } catch {
         // directory doesn't exist
@@ -797,8 +858,9 @@ export async function removeContentItem(
     };
     const customDir = typeToDir[item.type];
     if (customDir) {
-      const yamlPath = join(options.rootDir, ".hatch3r", customDir, `${item.id}.customize.yaml`);
-      const mdPath = join(options.rootDir, ".hatch3r", customDir, `${item.id}.customize.md`);
+      const cleanId = item.id.replace(/^cmd-/, "").replace(/^hatch3r-/, "");
+      const yamlPath = join(options.rootDir, ".hatch3r", customDir, `${cleanId}.customize.yaml`);
+      const mdPath = join(options.rootDir, ".hatch3r", customDir, `${cleanId}.customize.md`);
       await rm(yamlPath, { force: true });
       await rm(mdPath, { force: true });
     }
@@ -825,8 +887,9 @@ export function estimatePresetItemCount(
   projectType: "greenfield" | "brownfield",
   teamSize: "solo" | "team",
   index: ContentIndex,
+  projectLanguages?: string[],
 ): number {
-  const selection = resolveSelection(preset, projectType, teamSize, index);
+  const selection = resolveSelection(preset, projectType, teamSize, index, undefined, projectLanguages);
   return Object.values(selection.items).reduce((sum, arr) => sum + arr.length, 0);
 }
 

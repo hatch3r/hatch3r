@@ -3,11 +3,13 @@ import { toPrefixedId } from "../types.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
 
-// Antigravity adapter — generates configuration for Google Antigravity IDE.
-// Antigravity reads project rules from `.antigravity/rules.md` and skills
-// from `.antigravity/skills/`. MCP servers are configured in
-// `.antigravity/settings.json`. The adapter also generates a bridge file
-// referencing the canonical `.agents/AGENTS.md`.
+/**
+ * Antigravity adapter.
+ *
+ * Generates `.antigravity/rules.md` (bridge with inline rules/agents),
+ * skills in `.antigravity/skills/`, and `.antigravity/settings.json`
+ * for MCP server configuration. No hooks or commands support.
+ */
 export class AntigravityAdapter extends BaseAdapter {
   readonly name = "antigravity";
 
@@ -27,7 +29,7 @@ export class AntigravityAdapter extends BaseAdapter {
 
     const mcp = await this.readFilteredMcp(ctx);
     if (mcp && Object.keys(mcp).length > 0) {
-      const entries = this.buildStdMcpEntries(mcp);
+      const entries = this.buildStdMcpEntries(mcp, "shell");
       if (Object.keys(entries).length > 0) {
         results.push(output(".antigravity/settings.json", JSON.stringify({ mcpServers: entries }, null, 2)));
       }

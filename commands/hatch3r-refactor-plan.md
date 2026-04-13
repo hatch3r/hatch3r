@@ -3,6 +3,7 @@ id: hatch3r-refactor-plan
 type: command
 description: Plan a refactoring or migration effort -- spawn parallel researchers, produce refactoring spec, ADR(s), and phased todo.md entries for board-fill.
 tags: [planning]
+quality_charter: agents/shared/quality-charter.md
 ---
 
 ## Agent Pipeline
@@ -78,7 +79,7 @@ Refactoring Brief:
   Dimension(s):   {Structural / Logical / Visual / Migration — one or more}
 ```
 
-**ASK:** "Does this capture the refactoring goal correctly? Adjust anything before I send this to the research phase."
+**ASK:** "Does this capture the refactoring goal? Adjust anything before I send this to the research phase."
 
 ---
 

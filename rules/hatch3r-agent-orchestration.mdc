@@ -79,6 +79,21 @@ Spawn `hatch3r-implementer` via Task tool for ALL code changes. Never implement 
 
 **Implementer prompt enrichment (Tier 2+):** Include `similar-implementation` findings as "Reference Conventions", resolved `requirements-elicitation` answers as "Resolved Requirements", and blast radius data (Tier 3 only).
 
+### Mid-Implementation Research Gap Checkpoint
+
+At the midpoint of Phase 2 (after initial files are modified but before completion), the implementer MUST evaluate whether research gaps exist. This prevents discovering missing context too late in the pipeline.
+
+**Checkpoint triggers:**
+1. Implementation requires modifying a file not listed in `researchFindings.affectedFiles`.
+2. An undocumented dependency or integration point is discovered.
+3. The implementer's confidence drops below "medium" for any sub-task.
+4. A test file expected from research does not exist or covers different behavior.
+
+**Actions when gaps are detected:**
+- Log the gap in `PipelineContext.researchGaps`.
+- If the gap is blocking (cannot proceed without the missing context): pause implementation, surface the gap to the orchestrator, and request a targeted re-run of `hatch3r-researcher` with the specific modes needed.
+- If the gap is non-blocking (can proceed with assumptions): document the assumption, continue implementation, and flag for reviewer attention in Phase 3.
+
 ### Per-Task Mini-Review
 
 For multi-sub-task implementations, the implementer performs a lightweight mini-review after each sub-task: verify correctness, check interface contracts, validate no regressions, gate progression. Mini-reviews are internal (no separate reviewer agent).
@@ -90,16 +105,45 @@ For multi-sub-task implementations, the implementer performs a lightweight mini-
 1. Spawn `hatch3r-reviewer` with diff and acceptance criteria. Reviewer includes blast radius summary.
 2. Critical/Warning findings: spawn `hatch3r-fixer` with full reviewer output.
 3. Re-review after fixes. Repeat until 0 Critical + 0 Warning, or max 3 iterations.
-4. **Confirmation pass** after clean review: lightweight re-review for fix-driven regressions and acceptance criteria completeness.
-5. Max iterations reached: surface to user for manual resolution.
+4. **Confirmation pass** after clean review: lightweight re-review for fix-driven regressions and acceptance criteria completeness. The confirmation pass checks only: (a) no new test failures compared to Phase 2 baseline, (b) no type errors introduced, (c) acceptance criteria from the issue are still met. It does not re-run the full review checklist.
+5. Max iterations reached: surface to user with a structured summary: iteration count, remaining Critical findings (with file:line), remaining Warning findings, and a recommendation (fix manually vs. accept risk). Never present raw reviewer output without summarization.
 
 **Phase 4 — Final Quality** (after review loop is clean):
 
-Launch parallel subagents — no artificial concurrency limit.
+Launch parallel subagents -- no artificial concurrency limit.
 
 - **Always:** `hatch3r-test-writer`, `hatch3r-security-auditor`
 - **Evaluate:** `hatch3r-docs-writer` (when APIs/architecture/UX affected)
 - **Conditional:** `hatch3r-lint-fixer`, `hatch3r-a11y-auditor`, `hatch3r-perf-profiler`, `hatch3r-dependency-auditor`, `hatch3r-architect`, `hatch3r-devops`
+
+**Specialist Prompt Enrichment:** When spawning Phase 4 specialists, include:
+- The `filesChanged` list from Phase 2 so specialists focus on affected code.
+- The review verdict summary from Phase 3 so specialists do not re-flag already-reviewed issues.
+- The `researchFindings.blastRadius` so specialists can assess downstream impact of their changes.
+
+**Phase 4 Specialist Trigger Table:**
+
+| Specialist | Mode | Trigger Conditions |
+|-----------|------|--------------------|
+| `hatch3r-test-writer` | Always | Any code change |
+| `hatch3r-security-auditor` | Always | Any code change |
+| `hatch3r-docs-writer` | Evaluate | Public API, architecture, or UX changes |
+| `hatch3r-lint-fixer` | Conditional | Lint/type errors present |
+| `hatch3r-a11y-auditor` | Conditional | UI/accessibility changes |
+| `hatch3r-perf-profiler` | Conditional | Performance-sensitive changes |
+| `hatch3r-dependency-auditor` | Conditional | Dependency files modified (package.json, go.mod, Cargo.toml, requirements.txt, Gemfile, pom.xml, pubspec.yaml, mix.exs, composer.json, and their lockfiles) |
+| `hatch3r-architect` | Conditional | Architectural decisions, new modules/services |
+| `hatch3r-devops` | Conditional | CI/CD or infrastructure changes |
+
+**Project-Type-Aware Specialist Selection:**
+
+When `PipelineContext.projectType` is available (populated from repo analysis), use the detected languages and frameworks to enrich specialist prompts with language-specific hints. For example:
+- **TypeScript/JavaScript:** Include strict mode checks for lint-fixer, framework-specific test patterns for test-writer.
+- **Python:** Include ruff/mypy hints for lint-fixer, pytest patterns for test-writer, SSTI/SQLi checks for security-auditor.
+- **Go:** Include golangci-lint for lint-fixer, govulncheck for security-auditor, table-driven test patterns for test-writer.
+- **Rust:** Include clippy lints for lint-fixer, cargo-audit for security-auditor.
+
+See `src/pipeline/pipelineContext.ts` for the full `LANGUAGE_SPECIALIST_CONFIGS` mapping.
 
 ### Phase 4 Validation Pass
 
@@ -109,6 +153,7 @@ After all Phase 4 specialists complete, run a validation pass to catch regressio
 2. No new failures: proceed to completion.
 3. New failures: identify causing specialist, spawn `hatch3r-fixer`, re-validate (max 2 iterations).
 4. Persistent regressions: surface to user. Do not silently accept.
+5. If any specialist produced code fixes (not just findings), spawn a lightweight `hatch3r-reviewer` re-review scoped to files modified by Phase 4 specialists. This prevents specialist fixes from bypassing the Phase 3 review gate. Max 1 re-review iteration; Critical findings trigger a single fixer pass.
 
 ### Specialist Success Criteria
 
@@ -146,6 +191,15 @@ Skill-referenced agent delegations are mandatory.
 3. Launch independent subagents in parallel — maximum parallelism.
 4. Await and review results. Surface BLOCKED or PARTIAL to user.
 
+## Cross-Phase Error Propagation
+
+When a phase produces a non-SUCCESS status, the orchestrator must propagate error context to downstream phases rather than silently dropping it:
+
+1. **Phase 1 PARTIAL** (incomplete research): Include the `researchGaps` list in the implementer prompt so the implementer knows which areas lack verified context. Set implementer confidence expectations accordingly.
+2. **Phase 2 PARTIAL** (incomplete implementation): Include the `reason` field and list of unimplemented acceptance criteria in the reviewer prompt. The reviewer must distinguish between "not done yet" and "done incorrectly."
+3. **Phase 3 UNRESOLVED** (review loop exhausted): Include the unresolved findings list in the Phase 4 specialist prompts. Specialists must not introduce changes that conflict with known unresolved issues.
+4. **Phase 4 specialist FAILED**: Include the failure reason when surfacing to the user. Never report "Phase 4 failed" without specifying which specialist failed and why.
+
 ## Correlation ID
 
 Generate a UUID v4 per top-level task before Phase 1. Include in every subagent prompt as `correlation_id`. All subagents include it in logs, outputs, and status reports. Epic sub-issues get individual IDs; batch tasks share one ID with a sub-task index.
@@ -172,11 +226,37 @@ All subagents MUST map findings to this scale.
 | **SKIPPED** | Intentionally not executed. |
 | **TIMEOUT** | Time budget exceeded; forward partial output. |
 
+## Phase Skip Criteria
+
+Consistent criteria for when each pipeline phase can be safely skipped. All commands that use the pipeline MUST reference these criteria — do not invent command-specific skip rules.
+
+| Phase | Can Skip When | Mandatory Minimum (even when skipped) |
+|-------|--------------|--------------------------------------|
+| **Phase 1 (Research)** | Trivial single-line edit (typo, comment, single-value config); Tier 1 single-file change with no cross-module impact; Research already cached in PipelineContext | Affected files identified (even via quick scan); existing tests noted |
+| **Phase 2 (Implement)** | Never — implementation is always required for code changes | All changes via hatch3r-implementer (never inline except trivial items in quick-change) |
+| **Phase 3 (Review)** | All items trivial (quick-change only); documentation-only change with no code | Quality checks (lint/typecheck/test) must pass; acceptance criteria verified |
+| **Phase 4 (Quality)** | Review loop unresolved AND user chose manual resolution; documentation-only; all trivial + quality checks pass (quick-change only) | test-writer + security-auditor always required for code changes; quality checks must pass |
+
+See `src/pipeline/pipelineContext.ts` for the programmatic `PHASE_SKIP_CRITERIA` constant.
+
+## Root-Cause Depth Requirements
+
+When a pipeline phase reports a failure or unexpected result, the orchestrator must perform root-cause classification before deciding the next action:
+
+| Symptom | Shallow Fix (avoid) | Root-Cause Fix (required) |
+|---------|---------------------|---------------------------|
+| Test failure after Phase 2 | Disable or skip the failing test | Identify why the implementation breaks the test -- fix the code or update the test with justification |
+| Lint errors after Phase 4 | Add `eslint-disable` comments | Fix the underlying code pattern that triggers the lint rule |
+| Type errors after fixer changes | Cast with `as any` | Trace the type mismatch to its source and fix the type definition or usage |
+| Review loop not converging | Surface to user after 3 iterations without analysis | Classify whether findings are oscillating (fixer A breaks what fixer B fixed) and surface the conflict pattern |
+
+The orchestrator must reject superficial fixes from any subagent. If a fixer's output contains suppression patterns (disable comments, `any` casts, test skips without linked issues), classify as PARTIAL and re-run with an adjusted prompt that requests a root-cause fix.
+
 ## Task Context Protocols
 
 **Single-task plain chat:** Classify task type, create synthetic issue context, run full pipeline. For issue references, fetch details via platform CLI.
 
-**Multi-task plain chat:** Parse into discrete tasks, classify each, build dependency graph, parallelize researchers and implementers per dependency level, run review loop after all implementations, then Phase 4 specialists.
+**Multi-task plain chat:** Parse into discrete tasks, classify each, build dependency graph, parallelize researchers and implementers per dependency level, run review loop after all implementations, then Phase 4 specialists. When parallel implementers modify the same file: accept disjoint region edits, merge overlapping regions using the larger-scope change as base, and halt on semantic conflicts (contradictory interface/contract changes) for user resolution.
 
 **Auto-mode guardrails:** In unattended execution, verify scope containment, no unapproved destructive operations, and output schema compliance after each phase. Halt on violation. See `hatch3r-agent-orchestration-detail` for full guardrail specifications.
 
@@ -198,6 +278,6 @@ All `scope: always` rules apply to every task including subagent work. Include r
 - `hatch3r-dependency-management` -- dependency-auditor
 
 **Tier 3 -- On-demand:**
-- `hatch3r-api-design`, `hatch3r-secrets-management`, `hatch3r-data-classification`, `hatch3r-performance-budgets`, `hatch3r-browser-verification`, `hatch3r-component-conventions`, `hatch3r-i18n`, `hatch3r-theming`, `hatch3r-migrations`, `hatch3r-feature-flags`, `hatch3r-observability`
+- `hatch3r-api-design`, `hatch3r-secrets-management`, `hatch3r-data-classification`, `hatch3r-performance-budgets`, `hatch3r-browser-verification`, `hatch3r-component-conventions`, `hatch3r-i18n`, `hatch3r-theming`, `hatch3r-migrations`, `hatch3r-feature-flags`, `hatch3r-observability-logging`, `hatch3r-observability-metrics`, `hatch3r-observability-tracing`, `hatch3r-observability-tracing-detail`
 
 For limited context windows, Tier 1 is mandatory. Tier 2/3 included selectively by agent role and task scope.

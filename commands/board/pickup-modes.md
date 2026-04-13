@@ -3,6 +3,7 @@ id: hatch3r-board-pickup-modes
 type: command
 description: Auto-advance mode, error handling, and guardrails for board-pickup. Covers --auto/--unattended operation, safety guardrails, and specification generation.
 tags: [board, team]
+quality_charter: agents/shared/quality-charter.md
 ---
 # Board Pickup — Modes, Guardrails, and Error Handling
 

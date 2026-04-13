@@ -5,6 +5,13 @@ import type { CanonicalFile, CanonicalMetadata } from "../types.js";
 
 const FRONTMATTER_REGEX = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n([\s\S]*))?$/;
 
+/**
+ * Parse YAML frontmatter from a markdown file's raw content.
+ *
+ * Returns the parsed metadata and the body content after the frontmatter block.
+ * If the file has no frontmatter delimiters (`---`), returns empty metadata
+ * and the full content as the body.
+ */
 export function parseFrontmatter(rawContent: string): {
   metadata: CanonicalMetadata;
   content: string;
@@ -74,6 +81,11 @@ const READER_CONFIGS: Record<CanonicalType, ReaderConfig> = {
   "github-agents": { type: "github-agent", dir: "github-agents", strategy: "glob" },
 };
 
+/**
+ * Read all `.md` files in a directory (recursively) and parse frontmatter.
+ * Per-file errors are caught and the file is skipped, so a single corrupt
+ * file does not prevent reading the rest of the directory.
+ */
 async function readGlobMd(baseDir: string, fileType: CanonicalFile["type"]): Promise<CanonicalFile[]> {
   let entries: string[];
   try {
@@ -87,32 +99,42 @@ async function readGlobMd(baseDir: string, fileType: CanonicalFile["type"]): Pro
   const results = await Promise.all(
     entries.map(async (relPath) => {
       const fullPath = join(baseDir, relPath);
-      const stats = await lstat(fullPath);
-      if (stats.isSymbolicLink()) {
+      try {
+        const stats = await lstat(fullPath);
+        if (stats.isSymbolicLink()) {
+          return null;
+        }
+        const rawContent = await readFile(fullPath, "utf-8");
+        const { metadata, content } = parseFrontmatter(rawContent);
+        const id = metadata.id || metadata.name || relPath.replace(/\.md$/, "").replace(/\//g, "-");
+        return {
+          id,
+          type: fileType,
+          description: metadata.description ?? "",
+          scope: metadata.scope,
+          model: metadata.model,
+          protected: metadata.protected,
+          readonly: metadata.readonly,
+          background: metadata.background,
+          tags: metadata.tags,
+          content,
+          rawContent,
+          sourcePath: fullPath,
+        };
+      } catch {
+        // Per-file error handling: skip this file but continue reading the rest
         return null;
       }
-      const rawContent = await readFile(fullPath, "utf-8");
-      const { metadata, content } = parseFrontmatter(rawContent);
-      const id = metadata.id || metadata.name || relPath.replace(/\.md$/, "").replace(/\//g, "-");
-      return {
-        id,
-        type: fileType,
-        description: metadata.description ?? "",
-        scope: metadata.scope,
-        model: metadata.model,
-        protected: metadata.protected,
-        readonly: metadata.readonly,
-        background: metadata.background,
-        tags: metadata.tags,
-        content,
-        rawContent,
-        sourcePath: fullPath,
-      };
     }),
   );
   return results.filter((r): r is NonNullable<typeof r> => r !== null);
 }
 
+/**
+ * Read skill content from subdirectories (`{baseDir}/{skillName}/SKILL.md`).
+ * Each skill is a directory containing a `SKILL.md` file with frontmatter.
+ * Symlinks are skipped; missing `SKILL.md` files cause the directory to be skipped.
+ */
 async function readSkillSubdirs(baseDir: string): Promise<CanonicalFile[]> {
   let dirents: { name: string; isDirectory: () => boolean }[];
   try {
@@ -155,6 +177,13 @@ async function readSkillSubdirs(baseDir: string): Promise<CanonicalFile[]> {
   return entries.filter((e): e is NonNullable<typeof e> => e !== null);
 }
 
+/**
+ * Read all canonical files of a given type from the `.agents/` directory.
+ *
+ * Returns parsed `CanonicalFile` objects with frontmatter metadata and body content.
+ * Skills use subdirectory strategy (`skills/{name}/SKILL.md`); all others use glob
+ * strategy (flat `.md` files in the type directory).
+ */
 export async function readCanonicalFiles(
   agentsDir: string,
   type: CanonicalType,

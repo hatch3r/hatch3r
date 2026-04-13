@@ -3,6 +3,8 @@ import { join } from "node:path";
 import {
   AGENTS_DIR,
   MANIFEST_FILE,
+  VALID_TOOLS,
+  WORKTREE_CAPABLE_TOOLS,
   DEFAULT_FEATURES,
   type BoardConfig,
   type ContentSelection,
@@ -12,6 +14,31 @@ import {
 } from "../types.js";
 import { HATCH3R_VERSION } from "../version.js";
 import { atomicWriteFile } from "../merge/safeWrite.js";
+
+/**
+ * Validate a git branch name against the rules from `git check-ref-format`.
+ *
+ * Rejects names that:
+ * - are empty or whitespace-only
+ * - contain `..", `~`, `^`, `:`, `\`, spaces, or control characters
+ * - start or end with `/` or `.`
+ * - contain consecutive slashes `//`
+ * - end with `.lock`
+ * - contain `@{` (reflog syntax)
+ * - are exactly `@`
+ */
+export function isValidGitBranchName(name: string): boolean {
+  if (!name || name.trim() !== name) return false;
+  if (/[~^:\\\x00-\x1f\x7f ]/.test(name)) return false;
+  if (name.startsWith("/") || name.endsWith("/")) return false;
+  if (name.startsWith(".") || name.endsWith(".")) return false;
+  if (name.includes("..")) return false;
+  if (name.includes("//")) return false;
+  if (name.endsWith(".lock")) return false;
+  if (name.includes("@{")) return false;
+  if (name === "@") return false;
+  return true;
+}
 
 function createMinimalBoardConfig(owner: string, repo: string, defaultBranch: string): BoardConfig {
   return {
@@ -78,8 +105,7 @@ export function createManifest(options: {
   if (options.defaultBranch) {
     manifest.board = createMinimalBoardConfig(owner, repo, options.defaultBranch);
   }
-  const worktreeCapableTools = new Set(["claude"]);
-  if (options.tools.some(t => worktreeCapableTools.has(t))) {
+  if (options.tools.some(t => WORKTREE_CAPABLE_TOOLS.has(t))) {
     manifest.worktree = { enabled: true };
   }
   return manifest;
@@ -126,6 +152,33 @@ function validateManifest(data: unknown): data is HatchManifest {
     return false;
   }
 
+  // #108: Validate tools array entries are known tool strings
+  for (const tool of obj.tools as unknown[]) {
+    if (typeof tool !== "string" || !VALID_TOOLS.has(tool)) return false;
+  }
+
+  // #108: Validate board sub-schema when present
+  if (obj.board !== undefined) {
+    if (typeof obj.board !== "object" || obj.board === null) return false;
+    const board = obj.board as Record<string, unknown>;
+    if (typeof board.owner !== "string") return false;
+    if (typeof board.repo !== "string") return false;
+    if (board.defaultBranch !== undefined) {
+      if (typeof board.defaultBranch !== "string") return false;
+      // #1.15: Validate defaultBranch against git branch naming rules
+      if (!isValidGitBranchName(board.defaultBranch)) return false;
+    }
+  }
+
+  // #108: Validate worktree.extraPatterns when present
+  if (obj.worktree !== undefined) {
+    const wt = obj.worktree as Record<string, unknown>;
+    if (wt.extraPatterns !== undefined) {
+      if (!Array.isArray(wt.extraPatterns)) return false;
+      if (!(wt.extraPatterns as unknown[]).every((v) => typeof v === "string")) return false;
+    }
+  }
+
   if (obj.content !== undefined) {
     if (typeof obj.content !== "object" || obj.content === null) return false;
     const content = obj.content as Record<string, unknown>;
@@ -141,10 +194,18 @@ function validateManifest(data: unknown): data is HatchManifest {
     }
   }
 
-  if (obj.worktree !== undefined) {
-    if (typeof obj.worktree !== "object" || obj.worktree === null) return false;
-    const wt = obj.worktree as Record<string, unknown>;
-    if (typeof wt.enabled !== "boolean") return false;
+  if (obj.costTracking !== undefined) {
+    if (typeof obj.costTracking !== "object" || obj.costTracking === null) return false;
+    const ct = obj.costTracking as Record<string, unknown>;
+    if (ct.sessionBudget !== undefined && typeof ct.sessionBudget !== "number") return false;
+    if (ct.issueBudget !== undefined && typeof ct.issueBudget !== "number") return false;
+    if (ct.epicBudget !== undefined && typeof ct.epicBudget !== "number") return false;
+    if (ct.currency !== undefined && typeof ct.currency !== "string") return false;
+    if (ct.warningThresholds !== undefined) {
+      if (!Array.isArray(ct.warningThresholds)) return false;
+      if (!(ct.warningThresholds as unknown[]).every((v) => typeof v === "number")) return false;
+    }
+    if (ct.hardStop !== undefined && typeof ct.hardStop !== "boolean") return false;
   }
 
   if (obj.specs !== undefined) {

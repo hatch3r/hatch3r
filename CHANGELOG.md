@@ -2,6 +2,72 @@
 
 All notable changes to hatch3r are documented in this file.
 
+## [1.5.0] - 2026-04-02
+
+### Added
+
+- **Pipeline infrastructure**: 14 new modules in `src/pipeline/` — adapter timeout, agent identity verification, agent tool allowlist, circuit breaker, compliance verification, diff hashing, failure logging, observability spans, phase output schema validation, phase timeout, pipeline context, pipeline timeout, prompt guard, and review loop
+- **Secret detection**: `src/env/secretDetection.ts` scans MCP environment variable values for accidentally committed API keys, tokens, passwords, and private keys
+- **Verification gates**: `src/detect/verificationGates.ts` abstracts test/lint/typecheck commands per detected language (not just npm)
+- **Learnings validation**: `src/content/learningsValidation.ts` enforces file size limits (64KB per file, 512KB total), safe filenames, and deny-pattern scanning on user-provided learnings
+- **Worktree cleanup command**: `src/cli/commands/worktreeCleanup.ts` for removing stale worktree directories
+- **Accessibility check**: `checks/accessibility.md` — WCAG compliance, semantic HTML, keyboard navigation, screen reader support, and inclusive design review criteria
+- **Trust framework**: `governance/trust-delegation-chain.md` and `governance/trust-framework-compliance.md` documenting trust flow from user through orchestrator to agents and tools
+- **Observability rule modules**: Split `hatch3r-observability` into three focused rules — `hatch3r-observability-logging`, `hatch3r-observability-metrics`, and `hatch3r-observability-tracing`
+- **Competitive analysis**: `governance/COMPETITIVE-ANALYSIS.md` (772 lines) benchmarking hatch3r against the ecosystem
+- **PRD refresh**: `governance/hatch3r-prd.md` fully rewritten (1,511 lines) reflecting current architecture and roadmap
+
+### Changed
+
+- **Goose adapter rewrite**: Replaced speculative recipe/ACP schema with actual Goose platform schema — `instructions` array, `stdio`/`sse` extension types, `env_keys` for environment variables
+- **Verify command**: Added `--fix` flag for self-healing loop (verify → fix → re-verify, max 5 cycles)
+- **Researcher agent**: Major restructuring (~960 lines changed) with improved analysis mode organization
+- **Observability rule**: Comprehensive rewrite (~457 lines changed) with structured logging, metrics, and distributed tracing guidance
+- **Agent orchestration rules**: Expanded with pipeline context propagation and phase boundary enforcement
+- **16 agent spec files**: Updated with finding-driven improvements — structured reasoning sections, verification gate references, and cross-agent protocol alignment
+- **CI hardening**: `persist-credentials: false` on all checkout steps, `timeout-minutes` on all jobs, supply chain security job (lockfile lint + tiered npm audit), DCO sign-off check
+- **Adapter improvements**: Bug fixes and schema corrections across adapters
+- **Validate command**: Extended with learnings validation and verification gate integration
+- **Update command**: Enhanced reconciliation with verification output
+- **46 rule files updated**: Content quality and tag alignment across all standard rules
+- **45 command docs updated**: Content tag alignment and accuracy improvements
+- **26 skill docs updated**: Content tag alignment
+
+### Fixed
+
+- **Goose adapter schema**: Replaced fabricated `recipes`, `acp`, and `name`/`description` profile fields with actual Goose platform schema
+- **Adapter customization**: Duplicate `readCanonicalFiles` calls in Goose adapter eliminated
+- **Content index**: Improved error handling and edge case coverage
+
+### Security
+
+- **Audit execution (Cycle 4)**: 233/249 agent-actionable findings resolved across 4 severity waves (Critical, High, Medium, Low) with zero rollbacks — framework score improved from 68/100 to 85/100
+- **Secret pattern detection**: New `secretDetection` module prevents accidental credential exposure in MCP configuration
+- **Trust delegation chain**: Documented monotonically decreasing privilege model from user through pipeline to tools
+- **Trust framework compliance**: Mapped all pipeline boundaries to trust verification checkpoints
+- **Supply chain hardening**: Lockfile-lint validation and tiered npm audit added to CI pipeline
+- **DCO enforcement**: Signed-off-by trailer check on all PR commits
+- **Credential persistence disabled**: All GitHub Actions checkout steps now use `persist-credentials: false`
+
+### Tests
+
+- 24 new test files with comprehensive coverage:
+  - **Pipeline tests** (15 files): adapterTimeout, agentIdentity, agentToolAllowlist, circuitBreaker, complianceVerification, diffHash, failureLog, observability, phaseOutputSchema, phaseTimeout, pipelineContext, pipelineTimeout, promptGuard, reviewLoop, wave3Medium
+  - **Security tests** (2 files): secretDetection, verificationGates
+  - **CLI tests** (3 files): entrypoint, lifecycle, worktreeSetup
+  - **Integration tests** (4 files): mcp-dataflow, concurrentWrite, learningsValidation, setupCleanup
+- 51 total test files modified
+- Test count: 1,089 → 1,734 (+645 new tests, +59%)
+
+### Documentation
+
+- Audit report: `governance/AUDIT-REPORT.md` (1,445 lines) with executive dashboard, domain heatmap, and holistic assessment
+- Finding registry: `governance/audit/finding-registry.json` (7,306 lines) with full resolution tracking
+- Execution insights: `governance/audit/execution-insights.json` documenting cross-cycle patterns
+- 45 command documentation files updated
+- 26 skill documentation files updated
+- Website docs: quick-start, MCP setup guide, and adapter capability matrix updated
+
 ## [1.4.0] - 2026-03-25
 
 ### Added

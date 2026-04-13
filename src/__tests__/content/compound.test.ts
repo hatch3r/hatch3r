@@ -438,15 +438,8 @@ describe("compound system content validation", () => {
   // ── Content index integrity ────────────────────────────────
 
   describe("content index integrity", () => {
-    it("buildContentIndex has only expected cross-type collisions (command/skill)", () => {
-      const unexpected = contentIndex.collisions.filter(
-        (c) =>
-          !(
-            (c.existingType === "command" && c.duplicateType === "skill") ||
-            (c.existingType === "skill" && c.duplicateType === "command")
-          ),
-      );
-      expect(unexpected).toEqual([]);
+    it("buildContentIndex has no cross-type collisions (command IDs are cmd- prefixed)", () => {
+      expect(contentIndex.collisions).toEqual([]);
     });
 
     it("index item count matches file count", () => {

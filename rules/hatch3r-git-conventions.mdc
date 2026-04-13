@@ -1,6 +1,7 @@
 ---
 description: Git commit message and branching conventions
-alwaysApply: true
+globs: "**/.git/**,**/.gitignore,**/.gitattributes,**/.gitmodules,**/COMMIT_EDITMSG"
+alwaysApply: false
 ---
 # Git Conventions
 

@@ -11,6 +11,33 @@ vi.mock("../../integrity/index.js", () => ({
   verifyIntegrity: vi.fn(),
 }));
 
+vi.mock("../../cli/commands/update.js", () => ({
+  runUpdate: vi.fn(async () => ({
+    copiedFiles: 5,
+    syncedTools: 2,
+    failedTools: 0,
+    version: "1.0.0",
+  })),
+}));
+
+vi.mock("../../manifest/hatchJson.js", () => ({
+  readManifest: vi.fn(async () => ({
+    version: "1.0.0",
+    hatch3rVersion: "1.0.0",
+    owner: "test",
+    repo: "test",
+    namespace: "test",
+    project: "test",
+    tools: ["cursor"],
+    features: {
+      agents: true, skills: true, rules: true, prompts: false,
+      commands: false, mcp: false, githubAgents: false, hooks: false,
+    },
+    mcp: { servers: [] },
+    managedFiles: [],
+  })),
+}));
+
 describe("verify command", () => {
   let tempDir: string;
   let originalCwd: string;
@@ -394,5 +421,98 @@ describe("verify command", () => {
 
     expect(allOutput()).toContain("NEW");
     expect(allOutput()).toContain("commands/hatch3r-fresh.md");
+  });
+
+  // ── --fix flag tests (Finding #61) ────────────────────────────
+
+  it("accepts fix option and attempts repair on failure", async () => {
+    mockReadIntegrityManifest.mockResolvedValue(dummyManifest);
+    // First call: modified files. Second call (after fix): all pass.
+    const failResults: VerifyResult[] = [
+      { file: "rules/hatch3r-code.md", status: "modified", expected: "sha256:aaa", actual: "sha256:bbb" },
+    ];
+    const passResults: VerifyResult[] = [
+      { file: "rules/hatch3r-code.md", status: "pass" },
+    ];
+    mockVerifyIntegrity
+      .mockResolvedValueOnce(failResults)
+      .mockResolvedValueOnce(passResults);
+
+    const { verifyCommand } = await import("../../cli/commands/verify.js");
+    await verifyCommand({ fix: true });
+
+    const combined = allOutput() + " " + allErrorOutput();
+    expect(combined).toContain("Integrity restored");
+  });
+
+  it("--fix throws after max attempts when issues persist", async () => {
+    mockReadIntegrityManifest.mockResolvedValue(dummyManifest);
+    const failResults: VerifyResult[] = [
+      { file: "rules/hatch3r-code.md", status: "modified", expected: "sha256:aaa", actual: "sha256:bbb" },
+    ];
+    // All verify calls return failures (fix doesn't resolve)
+    mockVerifyIntegrity.mockResolvedValue(failResults);
+
+    const { verifyCommand } = await import("../../cli/commands/verify.js");
+    await expect(verifyCommand({ fix: true, maxFixAttempts: 2 })).rejects.toThrow(HatchError);
+
+    const combined = allOutput() + " " + allErrorOutput();
+    expect(combined).toContain("fix attempt");
+  });
+
+  it("--fix with no issues passes immediately", async () => {
+    mockReadIntegrityManifest.mockResolvedValue(dummyManifest);
+    const passResults: VerifyResult[] = [
+      { file: "agents/hatch3r-test.md", status: "pass" },
+    ];
+    mockVerifyIntegrity.mockResolvedValue(passResults);
+
+    const { verifyCommand } = await import("../../cli/commands/verify.js");
+    await verifyCommand({ fix: true });
+
+    expect(allOutput()).toContain("Integrity check passed");
+  });
+
+  it("--fix respects maxFixAttempts option", async () => {
+    mockReadIntegrityManifest.mockResolvedValue(dummyManifest);
+    const failResults: VerifyResult[] = [
+      { file: "rules/hatch3r-code.md", status: "missing", expected: "sha256:aaa" },
+    ];
+    mockVerifyIntegrity.mockResolvedValue(failResults);
+
+    const { verifyCommand } = await import("../../cli/commands/verify.js");
+    try {
+      await verifyCommand({ fix: true, maxFixAttempts: 1 });
+    } catch (e) {
+      expect((e as HatchError).message).toContain("1 fix attempt");
+    }
+  });
+
+  it("without --fix still reports failure normally", async () => {
+    mockReadIntegrityManifest.mockResolvedValue(dummyManifest);
+    const results: VerifyResult[] = [
+      { file: "rules/hatch3r-code.md", status: "modified", expected: "sha256:aaa", actual: "sha256:bbb" },
+    ];
+    mockVerifyIntegrity.mockResolvedValue(results);
+
+    const { verifyCommand } = await import("../../cli/commands/verify.js");
+    await expect(verifyCommand()).rejects.toThrow(HatchError);
+    expect(allOutput()).toContain("Integrity check failed");
+  });
+
+  it("--fix clamps maxFixAttempts to 5", async () => {
+    mockReadIntegrityManifest.mockResolvedValue(dummyManifest);
+    const failResults: VerifyResult[] = [
+      { file: "rules/hatch3r-code.md", status: "modified", expected: "sha256:aaa", actual: "sha256:bbb" },
+    ];
+    mockVerifyIntegrity.mockResolvedValue(failResults);
+
+    const { verifyCommand } = await import("../../cli/commands/verify.js");
+    try {
+      await verifyCommand({ fix: true, maxFixAttempts: 100 });
+    } catch (e) {
+      // Should be clamped to 5 max
+      expect((e as HatchError).message).toContain("5 fix attempt");
+    }
   });
 });

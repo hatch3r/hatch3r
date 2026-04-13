@@ -1,5 +1,10 @@
 import { MANAGED_BLOCK_START, MANAGED_BLOCK_END } from "../types.js";
 
+/**
+ * Replace the content inside an existing managed block with new content.
+ *
+ * Throws if the managed block markers are missing, duplicated, or misordered.
+ */
 export function insertManagedBlock(
   existingContent: string,
   managedContent: string,
@@ -10,7 +15,7 @@ export function insertManagedBlock(
   const block = `${MANAGED_BLOCK_START}\n${managedContent}\n${MANAGED_BLOCK_END}`;
 
   if (startIdx === -1 || endIdx === -1) {
-    throw new Error("Content must contain managed block markers");
+    throw new Error("Content must contain managed block markers (HATCH3R:BEGIN and HATCH3R:END)");
   }
 
   const secondStart = existingContent.indexOf(MANAGED_BLOCK_START, startIdx + 1);
@@ -31,6 +36,7 @@ export function insertManagedBlock(
   return `${before}${block}${after}`;
 }
 
+/** Extract the text between HATCH3R:BEGIN and HATCH3R:END markers, or null if absent. */
 export function extractManagedBlock(content: string): string | null {
   const startIdx = content.indexOf(MANAGED_BLOCK_START);
   const endIdx = content.indexOf(MANAGED_BLOCK_END);
@@ -44,6 +50,7 @@ export function extractManagedBlock(content: string): string | null {
     .trim();
 }
 
+/** Extract user-authored content outside the managed block markers. */
 export function extractCustomContent(content: string): string {
   const startIdx = content.indexOf(MANAGED_BLOCK_START);
   const endIdx = content.indexOf(MANAGED_BLOCK_END);
@@ -57,10 +64,12 @@ export function extractCustomContent(content: string): string {
   return [before, after].filter(Boolean).join("\n\n");
 }
 
+/** Wrap content with HATCH3R:BEGIN / HATCH3R:END markers. */
 export function wrapInManagedBlock(content: string): string {
   return `${MANAGED_BLOCK_START}\n${content}\n${MANAGED_BLOCK_END}`;
 }
 
+/** Check whether content contains both managed block start and end markers. */
 export function hasManagedBlock(content: string): boolean {
   return (
     content.includes(MANAGED_BLOCK_START) &&

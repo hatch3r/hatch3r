@@ -15,30 +15,72 @@ jobs:
   lint-commits:
     name: Validate PR title (conventional commits)
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Check PR title
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
-          PATTERN="^(feat|fix|chore|docs|refactor|test|ci|perf|build|style)(\([a-z0-9-]+\))?!?: .+"
+          PATTERN="^(feat|fix|chore|docs|refactor|test|ci|perf|build|style|audit)(\([a-z0-9-]+\))?!?: .+"
           if ! echo "$PR_TITLE" | grep -qE "$PATTERN"; then
             echo "::error::PR title must follow conventional commits: $PR_TITLE"
             echo "Expected format: type(scope)?: description"
-            echo "Valid types: feat, fix, chore, docs, refactor, test, ci, perf, build, style"
+            echo "Valid types: feat, fix, chore, docs, refactor, test, ci, perf, build, style, audit"
             exit 1
           fi
           echo "PR title is valid: $PR_TITLE"
 
+  dco-check:
+    name: DCO sign-off check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check for DCO sign-off
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if ! COMMITS=$(git log --format="%H %s" "$BASE_SHA".."$HEAD_SHA"); then
+            echo "::error::Could not list commits between base and head for DCO verification."
+            exit 1
+          fi
+          if [ -z "$COMMITS" ]; then
+            echo "No commits to check."
+            exit 0
+          fi
+          MISSING=""
+          while IFS= read -r line; do
+            SHA=$(echo "$line" | cut -d' ' -f1)
+            BODY=$(git log -1 --format="%B" "$SHA")
+            if ! echo "$BODY" | grep -qiE "^Signed-off-by: .+ <.+>"; then
+              MISSING+=$'\n  '"$line"
+            fi
+          done <<< "$COMMITS"
+          if [ -n "$MISSING" ]; then
+            echo "::error::The following commits are missing DCO sign-off (Signed-off-by):$MISSING"
+            echo "Consider using 'git commit -s' for future commits."
+            exit 1
+          fi
+
   # Lint, typecheck, test, and audit are handled by ci.yml (which also triggers
   # on pull_request) across the full OS matrix. This workflow only contains
-  # PR-specific checks: title validation (above) and bundle size (below).
+  # PR-specific checks: title validation (above), DCO (above), and bundle size (below).
 
   size-check:
     name: Bundle size report
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0

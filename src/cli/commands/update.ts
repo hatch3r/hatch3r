@@ -1,16 +1,25 @@
-import { cp, mkdir, readdir, stat } from "node:fs/promises";
+import { appendFile, cp, mkdir, readFile, readdir, stat } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import chalk from "chalk";
 import inquirer from "inquirer";
-import { readManifest, writeManifest } from "../../manifest/hatchJson.js";
-import { getAdapter } from "../../adapters/index.js";
+import { readManifest, writeManifest, addManagedFile } from "../../manifest/hatchJson.js";
+import { getApplicableCheckpoints } from "../../version/checkpoints.js";
+import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
 import { safeWriteFile } from "../../merge/safeWrite.js";
-import { AGENTS_DIR, HATCH3R_PREFIX, HatchError, WORKTREE_INCLUDE_FILE, type HatchManifest, type Platform } from "../../types.js";
-import { generateCanonicalAgentsMd } from "../shared/agentsContent.js";
-import { generateWorktreeInclude } from "../../worktree/index.js";
+import { AGENTS_DIR, HATCH3R_PREFIX, HatchError, WORKTREE_CAPABLE_TOOLS, WORKTREE_INCLUDE_FILE, type HatchManifest, type Platform } from "../../types.js";
+import { generateCanonicalAgentsMd, generateRootAgentsMd } from "../shared/agentsContent.js";
+import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
+import { ensureEnvMcp, ensureGitignoreEntry, getSourceEnvMcpCommand } from "../../env/mcpEnv.js";
 import { HATCH3R_VERSION } from "../../version.js";
+import {
+  createFailureLogEntry,
+  formatLogEntry,
+  shouldRotateLog,
+  rotateLog,
+  FAILURE_LOG_FILE,
+} from "../../pipeline/failureLog.js";
 import {
   printBanner,
   createSpinner,
@@ -23,13 +32,69 @@ import {
 } from "../shared/ui.js";
 import { findPackageRoot } from "../shared/paths.js";
 import { detectPackageManager } from "../../detect/packageManager.js";
-import { generateIntegrityManifest, writeIntegrityManifest } from "../../integrity/index.js";
+import { generateIntegrityManifest, writeIntegrityManifest, verifyIntegrity } from "../../integrity/index.js";
 import { pruneArchives } from "../../archive/index.js";
 import { buildSelectionsFromDisk } from "../../content/index.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONTENT_DIRS = ["agents", "commands", "rules", "skills", "prompts", "github-agents", "mcp", "hooks"];
 const ALWAYS_COPY_FILES = new Set(["mcp.json"]);
+
+/**
+ * Package update timeout in milliseconds.
+ * Override with HATCH3R_UPDATE_TIMEOUT_MS env var (default: 30000).
+ */
+const UPDATE_TIMEOUT_MS = (() => {
+  const envVal = process.env.HATCH3R_UPDATE_TIMEOUT_MS;
+  if (envVal) {
+    const parsed = parseInt(envVal, 10);
+    if (!Number.isNaN(parsed) && parsed > 0) return parsed;
+  }
+  return 30_000;
+})();
+
+/**
+ * Read a file's content, returning null if the file does not exist.
+ */
+async function readFileOrNull(filePath: string): Promise<string | null> {
+  try {
+    return await readFile(filePath, "utf-8");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Append a failure entry to the persistent failure log in .agents/.
+ * Performs log rotation when the log exceeds 500KB.
+ * Silently skips if the write fails (failure logging must not break update).
+ */
+async function appendFailure(agentsDir: string, phase: string, error: unknown, tool?: string): Promise<void> {
+  try {
+    const logPath = join(agentsDir, FAILURE_LOG_FILE);
+    const entry = createFailureLogEntry(phase, error, {
+      tool,
+      version: HATCH3R_VERSION,
+    });
+    const line = formatLogEntry(entry) + "\n";
+
+    // Check if rotation is needed before appending
+    try {
+      const existing = await readFile(logPath, "utf-8");
+      if (shouldRotateLog(existing + line)) {
+        const rotated = rotateLog(existing);
+        await safeWriteFile(logPath, rotated + line);
+        return;
+      }
+    } catch {
+      // File does not exist yet -- appendFile will create it
+    }
+
+    await appendFile(logPath, line);
+  } catch {
+    // Failure logging must not break the update command
+  }
+}
 
 async function copyHatch3rFiles(
   srcDir: string,
@@ -83,12 +148,15 @@ export interface UpdateResult {
   syncedTools: number;
   failedTools: number;
   version: string;
+  /** Diff data: before/after snapshots for each generated file (only populated when --diff is used). */
+  diffBefore?: Map<string, string | null>;
+  diffAfter?: Map<string, string | null>;
 }
 
 export async function runUpdate(
   rootDir: string,
   manifest: HatchManifest,
-  options: { stepOffset?: number; totalSteps?: number } = {},
+  options: { stepOffset?: number; totalSteps?: number; diff?: boolean } = {},
 ): Promise<UpdateResult> {
   const offset = options.stepOffset ?? 0;
   const total = options.totalSteps ?? 4;
@@ -103,12 +171,12 @@ export async function runUpdate(
     const cmd = process.platform === "win32" && pm.name !== "bun"
       ? `${pm.updateCmd}.cmd`
       : pm.updateCmd;
-    execFileSync(cmd, pm.updateArgs, { stdio: "pipe", timeout: 30_000, killSignal: "SIGTERM" });
+    execFileSync(cmd, pm.updateArgs, { stdio: "pipe", timeout: UPDATE_TIMEOUT_MS, killSignal: "SIGTERM" });
     contentRoot = findPackageRoot(__dirname);
   } catch (err) {
     const isTimeout = err && typeof err === "object" && ("killed" in err || "signal" in err);
     const msg = isTimeout
-      ? "Package update timed out after 30s. Check network connectivity and retry."
+      ? `Package update timed out after ${UPDATE_TIMEOUT_MS / 1000}s. Check network connectivity and retry, or set HATCH3R_UPDATE_TIMEOUT_MS to increase the timeout.`
       : (err instanceof Error ? err.message : String(err));
     s0.fail(step(offset + 1, total, "Failed to update package"));
     logError(msg);
@@ -142,7 +210,16 @@ export async function runUpdate(
   // Generate dynamic AGENTS.md based on what's on disk
   const canonicalAgentsMd = await generateCanonicalAgentsMd(agentsDir);
   await safeWriteFile(join(agentsDir, "AGENTS.md"), canonicalAgentsMd);
+  // Regenerate root AGENTS.md with inline agent/skill/command rosters for platform discovery
+  const rootAgentsMd = await generateRootAgentsMd(agentsDir);
+  await safeWriteFile(join(rootDir, "AGENTS.md"), rootAgentsMd.full, {
+    managedContent: rootAgentsMd.inner,
+  });
   s1.succeed(step(offset + 2, total, `Updated ${copied.length} canonical files`));
+
+  // --diff: track file snapshots before and after generation
+  const diffBefore = new Map<string, string | null>();
+  const diffAfter = new Map<string, string | null>();
 
   const s2 = createSpinner(step(offset + 3, total, "Re-syncing adapter output..."));
   s2.start();
@@ -153,6 +230,9 @@ export async function runUpdate(
       const outputs = await adapter.generate(agentsDir, manifest);
       for (const w of adapter.warnings) { warn(w); }
       for (const out of outputs) {
+        if (options.diff) {
+          diffBefore.set(out.path, await readFileOrNull(join(rootDir, out.path)));
+        }
         const fullPath = join(rootDir, out.path);
         if (out.managedContent) {
           await safeWriteFile(fullPath, out.content, {
@@ -161,12 +241,18 @@ export async function runUpdate(
         } else {
           await safeWriteFile(fullPath, out.content);
         }
+        addManagedFile(manifest, out.path);
+        if (options.diff) {
+          diffAfter.set(out.path, await readFileOrNull(join(rootDir, out.path)));
+        }
       }
     } catch (err) {
       adapterFailures.push({
         tool,
         error: err instanceof Error ? err.message : String(err),
       });
+      // Record to persistent failure log for post-hoc debugging
+      await appendFailure(agentsDir, "update:adapter-generate", err, tool);
     }
   }
   if (adapterFailures.length > 0) {
@@ -181,6 +267,34 @@ export async function runUpdate(
   s2.succeed(step(offset + 3, total, adapterFailures.length > 0
     ? `Re-synced ${manifest.tools.length - adapterFailures.length}/${manifest.tools.length} tool(s)`
     : `Re-synced ${manifest.tools.length} tool(s)`));
+
+  // #107: Show unsupported feature warnings (parity with sync command)
+  for (const tool of manifest.tools) {
+    const warnings = getUnsupportedFeatureWarnings(tool, manifest);
+    for (const w of warnings) { warn(w); }
+  }
+
+  // ── Reconciliation: .worktreeinclude & .env.mcp (parity with sync) ──
+  if (manifest.worktree?.enabled) {
+    const wtContent = await generateWorktreeInclude(manifest, rootDir);
+    const wtManaged = extractManagedContent(wtContent);
+    await safeWriteFile(
+      join(rootDir, WORKTREE_INCLUDE_FILE),
+      wtContent,
+      { managedContent: wtManaged },
+    );
+  }
+
+  if (manifest.features.mcp && manifest.mcp.servers.length > 0) {
+    const envResult = await ensureEnvMcp(rootDir, manifest.mcp.servers);
+    await ensureGitignoreEntry(rootDir);
+    if (envResult.newVars.length > 0) {
+      warn(
+        `New secrets needed in .env.mcp: ${envResult.newVars.join(", ")}`,
+      );
+      info(`Run this, then start or restart your editor: ${getSourceEnvMcpCommand()}`);
+    }
+  }
 
   const s3 = createSpinner(step(offset + 4, total, "Writing manifest..."));
   s3.start();
@@ -200,6 +314,7 @@ export async function runUpdate(
     syncedTools: manifest.tools.length - adapterFailures.length,
     failedTools: adapterFailures.length,
     version: HATCH3R_VERSION,
+    ...(options.diff ? { diffBefore, diffAfter } : {}),
   };
 }
 
@@ -225,7 +340,7 @@ const MIGRATION_CHECKPOINTS: MigrationCheckpoint[] = [
         // Ask user for context since we can't infer it from legacy installs
         const { projectType } = await inquirer.prompt<{ projectType: "greenfield" | "brownfield" }>([
           {
-            type: "list",
+            type: "select",
             name: "projectType",
             message: "For content tracking — is this a greenfield or brownfield project?",
             choices: [
@@ -237,7 +352,7 @@ const MIGRATION_CHECKPOINTS: MigrationCheckpoint[] = [
         ]);
         const { teamSize } = await inquirer.prompt<{ teamSize: "solo" | "team" }>([
           {
-            type: "list",
+            type: "select",
             name: "teamSize",
             message: "Solo developer or team?",
             choices: [
@@ -269,7 +384,7 @@ const MIGRATION_CHECKPOINTS: MigrationCheckpoint[] = [
       } else {
         const answer = await inquirer.prompt<{ platform: Platform }>([
           {
-            type: "list",
+            type: "select",
             name: "platform",
             message: "hatch3r now supports multiple platforms. Select your platform:",
             choices: [
@@ -350,8 +465,7 @@ const MIGRATION_CHECKPOINTS: MigrationCheckpoint[] = [
     id: "worktree-config-init",
     condition: async (manifest) => {
       if (manifest.worktree !== undefined) return false;
-      const worktreeCapableTools = new Set(["claude"]);
-      return manifest.tools.some(t => worktreeCapableTools.has(t));
+      return manifest.tools.some(t => WORKTREE_CAPABLE_TOOLS.has(t));
     },
     execute: async (manifest, rootDir, headless) => {
       let enabled: boolean;
@@ -402,7 +516,7 @@ async function runMigrationCheckpoints(manifest: HatchManifest, rootDir: string,
   return { manifest: current, allNotices };
 }
 
-export async function updateCommand(_opts?: Record<string, unknown> & { yes?: boolean }): Promise<void> {
+export async function updateCommand(_opts?: Record<string, unknown> & { yes?: boolean; diff?: boolean }): Promise<void> {
   printBanner(true);
 
   const rootDir = process.cwd();
@@ -422,6 +536,19 @@ export async function updateCommand(_opts?: Record<string, unknown> & { yes?: bo
     warn(notice);
   }
 
+  // #118: Run integrity pre-check before update to detect tampered files
+  const agentsDir = join(rootDir, AGENTS_DIR);
+  const integrityResults = await verifyIntegrity(agentsDir);
+  const modified = integrityResults.filter((r) => r.status === "modified");
+  const missing = integrityResults.filter((r) => r.status === "missing");
+  if (modified.length > 0 || missing.length > 0) {
+    warn("Integrity issues detected before update:");
+    for (const r of modified) { warn(`  MODIFIED: ${r.file}`); }
+    for (const r of missing) { warn(`  MISSING:  ${r.file}`); }
+    warn("These files will be overwritten during update.");
+    console.log();
+  }
+
   const isUpToDate = m.hatch3rVersion === HATCH3R_VERSION;
   if (isUpToDate) {
     info(`Already at hatch3r v${HATCH3R_VERSION}`);
@@ -430,7 +557,45 @@ export async function updateCommand(_opts?: Record<string, unknown> & { yes?: bo
   }
   console.log();
 
-  const result = await runUpdate(rootDir, m);
+  const result = await runUpdate(rootDir, m, { diff: !!_opts?.diff });
+
+  // Version checkpoint advisory: detect if a clean reinit is recommended
+  const versionCheckpoints = getApplicableCheckpoints(m.hatch3rVersion, HATCH3R_VERSION);
+  const reinitAdvisories = versionCheckpoints.filter(cp => cp.action === "reinit-advisory");
+
+  if (reinitAdvisories.length > 0) {
+    console.log();
+    warn("A clean reinit is recommended for this version update:");
+    for (const advisory of reinitAdvisories) {
+      console.log(chalk.dim(`  - ${advisory.reason}`));
+      for (const change of advisory.changes ?? []) {
+        console.log(chalk.dim(`    • ${change}`));
+      }
+    }
+    console.log();
+    info(`Run ${chalk.bold("hatch3r clean")} and choose to reinitialize when prompted.`);
+    console.log(chalk.dim("  Your customizations and learnings will be preserved.\n"));
+  }
+
+  // --diff: show file change summary
+  if (_opts?.diff && result.diffBefore && result.diffAfter) {
+    const diffLines: string[] = [];
+    for (const [filePath] of result.diffBefore) {
+      const before = result.diffBefore.get(filePath) ?? null;
+      const after = result.diffAfter.get(filePath) ?? null;
+      if (before === null && after !== null) {
+        diffLines.push(`${chalk.green("+ added")}    ${filePath}`);
+      } else if (before !== null && after !== null && before !== after) {
+        diffLines.push(`${chalk.yellow("~ modified")} ${filePath}`);
+      } else if (before !== null && after !== null && before === after) {
+        diffLines.push(`${chalk.dim("= unchanged")} ${filePath}`);
+      }
+    }
+    if (diffLines.length > 0) {
+      console.log();
+      printBox("Diff summary", diffLines, "info");
+    }
+  }
 
   console.log();
   printBox("Update complete", [

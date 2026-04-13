@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { analyzeRepo, formatRepoSummary } from "../../detect/repoAnalyzer.js";
+import { analyzeRepo, formatRepoSummary, detectLinters, detectTestFrameworks, detectCIProviders } from "../../detect/repoAnalyzer.js";
 
 describe("analyzeRepo", () => {
   let tempDir: string;
@@ -97,6 +97,62 @@ describe("analyzeRepo", () => {
 
       const info = await analyzeRepo(root);
       expect(info.languages).toContain("java");
+    });
+
+    it("detects Ruby from Gemfile", async () => {
+      const root = await createTempRepo();
+      await writeFile(join(root, "Gemfile"), "source 'https://rubygems.org'\ngem 'rails'");
+
+      const info = await analyzeRepo(root);
+      expect(info.languages).toContain("ruby");
+    });
+
+    it("detects Kotlin from build.gradle.kts", async () => {
+      const root = await createTempRepo();
+      await writeFile(join(root, "build.gradle.kts"), "plugins { kotlin(\"jvm\") }");
+
+      const info = await analyzeRepo(root);
+      expect(info.languages).toContain("kotlin");
+    });
+
+    it("detects Python from Pipfile", async () => {
+      const root = await createTempRepo();
+      await writeFile(join(root, "Pipfile"), "[packages]\nflask = \"*\"");
+
+      const info = await analyzeRepo(root);
+      expect(info.languages).toContain("python");
+    });
+
+    it("detects Dart from pubspec.yaml", async () => {
+      const root = await createTempRepo();
+      await writeFile(join(root, "pubspec.yaml"), "name: my_app");
+
+      const info = await analyzeRepo(root);
+      expect(info.languages).toContain("dart");
+    });
+
+    it("detects Elixir from mix.exs", async () => {
+      const root = await createTempRepo();
+      await writeFile(join(root, "mix.exs"), "defmodule MyApp do");
+
+      const info = await analyzeRepo(root);
+      expect(info.languages).toContain("elixir");
+    });
+
+    it("detects Swift from Package.swift", async () => {
+      const root = await createTempRepo();
+      await writeFile(join(root, "Package.swift"), "// swift-tools-version:5.5");
+
+      const info = await analyzeRepo(root);
+      expect(info.languages).toContain("swift");
+    });
+
+    it("detects PHP from composer.json", async () => {
+      const root = await createTempRepo();
+      await writeFile(join(root, "composer.json"), "{}");
+
+      const info = await analyzeRepo(root);
+      expect(info.languages).toContain("php");
     });
 
     it("detects C# from .csproj files", async () => {
@@ -722,5 +778,254 @@ describe("formatRepoSummary", () => {
     expect(summary).not.toContain("Frameworks");
     expect(summary).not.toContain("Existing tool configs");
     expect(summary).toContain("Monorepo: no");
+  });
+
+  it("includes linters, test frameworks, and CI providers when present", () => {
+    const summary = formatRepoSummary({
+      languages: ["typescript"],
+      packageManager: "npm",
+      frameworks: [],
+      isMonorepo: false,
+      hasExistingAgents: false,
+      existingTools: [],
+      rootDir: "/test",
+      linters: ["eslint", "prettier"],
+      testFrameworks: ["vitest"],
+      ciProviders: ["github-actions"],
+    });
+
+    expect(summary).toContain("Linters: eslint, prettier");
+    expect(summary).toContain("Test frameworks: vitest");
+    expect(summary).toContain("CI providers: github-actions");
+  });
+});
+
+// ── D14 Medium (#14.5): Linter detection ──────────────────────────
+
+describe("detectLinters", () => {
+  let tempDir: string;
+
+  afterEach(async () => {
+    if (tempDir) {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  async function createTempRepo(): Promise<string> {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-lint-"));
+    return tempDir;
+  }
+
+  it("detects ESLint from eslint.config.js", async () => {
+    const root = await createTempRepo();
+    await writeFile(join(root, "eslint.config.js"), "export default {};");
+
+    const linters = await detectLinters(root);
+    expect(linters).toContain("eslint");
+  });
+
+  it("detects Prettier from .prettierrc", async () => {
+    const root = await createTempRepo();
+    await writeFile(join(root, ".prettierrc"), "{}");
+
+    const linters = await detectLinters(root);
+    expect(linters).toContain("prettier");
+  });
+
+  it("detects Biome from biome.json", async () => {
+    const root = await createTempRepo();
+    await writeFile(join(root, "biome.json"), "{}");
+
+    const linters = await detectLinters(root);
+    expect(linters).toContain("biome");
+  });
+
+  it("detects Ruff from ruff.toml", async () => {
+    const root = await createTempRepo();
+    await writeFile(join(root, "ruff.toml"), "[lint]");
+
+    const linters = await detectLinters(root);
+    expect(linters).toContain("ruff");
+  });
+
+  it("detects RuboCop from .rubocop.yml", async () => {
+    const root = await createTempRepo();
+    await writeFile(join(root, ".rubocop.yml"), "AllCops:");
+
+    const linters = await detectLinters(root);
+    expect(linters).toContain("rubocop");
+  });
+
+  it("detects golangci-lint from .golangci.yml", async () => {
+    const root = await createTempRepo();
+    await writeFile(join(root, ".golangci.yml"), "linters:");
+
+    const linters = await detectLinters(root);
+    expect(linters).toContain("golangci-lint");
+  });
+
+  it("detects multiple linters simultaneously", async () => {
+    const root = await createTempRepo();
+    await writeFile(join(root, "eslint.config.js"), "export default {};");
+    await writeFile(join(root, ".prettierrc"), "{}");
+
+    const linters = await detectLinters(root);
+    expect(linters).toContain("eslint");
+    expect(linters).toContain("prettier");
+  });
+
+  it("returns empty array when no linters found", async () => {
+    const root = await createTempRepo();
+    await writeFile(join(root, "README.md"), "# Hello");
+
+    const linters = await detectLinters(root);
+    expect(linters).toEqual([]);
+  });
+});
+
+// ── D14 Medium (#14.6): Test framework detection ──────────────────
+
+describe("detectTestFrameworks", () => {
+  let tempDir: string;
+
+  afterEach(async () => {
+    if (tempDir) {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  async function createTempRepo(): Promise<string> {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-test-"));
+    return tempDir;
+  }
+
+  it("detects Vitest from vitest.config.ts", async () => {
+    const root = await createTempRepo();
+    await writeFile(join(root, "vitest.config.ts"), "export default {};");
+
+    const frameworks = await detectTestFrameworks(root);
+    expect(frameworks).toContain("vitest");
+  });
+
+  it("detects Jest from jest.config.js", async () => {
+    const root = await createTempRepo();
+    await writeFile(join(root, "jest.config.js"), "module.exports = {};");
+
+    const frameworks = await detectTestFrameworks(root);
+    expect(frameworks).toContain("jest");
+  });
+
+  it("detects pytest from conftest.py", async () => {
+    const root = await createTempRepo();
+    await writeFile(join(root, "conftest.py"), "import pytest");
+
+    const frameworks = await detectTestFrameworks(root);
+    expect(frameworks).toContain("pytest");
+  });
+
+  it("detects RSpec from .rspec", async () => {
+    const root = await createTempRepo();
+    await writeFile(join(root, ".rspec"), "--format documentation");
+
+    const frameworks = await detectTestFrameworks(root);
+    expect(frameworks).toContain("rspec");
+  });
+
+  it("detects Playwright from playwright.config.ts", async () => {
+    const root = await createTempRepo();
+    await writeFile(join(root, "playwright.config.ts"), "export default {};");
+
+    const frameworks = await detectTestFrameworks(root);
+    expect(frameworks).toContain("playwright");
+  });
+
+  it("detects Cypress from cypress.config.ts", async () => {
+    const root = await createTempRepo();
+    await writeFile(join(root, "cypress.config.ts"), "export default {};");
+
+    const frameworks = await detectTestFrameworks(root);
+    expect(frameworks).toContain("cypress");
+  });
+
+  it("returns empty array when no test frameworks found", async () => {
+    const root = await createTempRepo();
+
+    const frameworks = await detectTestFrameworks(root);
+    expect(frameworks).toEqual([]);
+  });
+});
+
+// ── D14 Medium (#14.7): CI provider detection ────────────────────
+
+describe("detectCIProviders", () => {
+  let tempDir: string;
+
+  afterEach(async () => {
+    if (tempDir) {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  async function createTempRepo(): Promise<string> {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-ci-"));
+    return tempDir;
+  }
+
+  it("detects GitHub Actions from .github/workflows directory", async () => {
+    const root = await createTempRepo();
+    await mkdir(join(root, ".github", "workflows"), { recursive: true });
+
+    const providers = await detectCIProviders(root);
+    expect(providers).toContain("github-actions");
+  });
+
+  it("detects GitLab CI from .gitlab-ci.yml", async () => {
+    const root = await createTempRepo();
+    await writeFile(join(root, ".gitlab-ci.yml"), "stages:");
+
+    const providers = await detectCIProviders(root);
+    expect(providers).toContain("gitlab-ci");
+  });
+
+  it("detects CircleCI from .circleci/config.yml", async () => {
+    const root = await createTempRepo();
+    await mkdir(join(root, ".circleci"), { recursive: true });
+    await writeFile(join(root, ".circleci", "config.yml"), "version: 2.1");
+
+    const providers = await detectCIProviders(root);
+    expect(providers).toContain("circleci");
+  });
+
+  it("detects Jenkins from Jenkinsfile", async () => {
+    const root = await createTempRepo();
+    await writeFile(join(root, "Jenkinsfile"), "pipeline {}");
+
+    const providers = await detectCIProviders(root);
+    expect(providers).toContain("jenkins");
+  });
+
+  it("detects Azure Pipelines from azure-pipelines.yml", async () => {
+    const root = await createTempRepo();
+    await writeFile(join(root, "azure-pipelines.yml"), "trigger:");
+
+    const providers = await detectCIProviders(root);
+    expect(providers).toContain("azure-pipelines");
+  });
+
+  it("returns empty array when no CI providers found", async () => {
+    const root = await createTempRepo();
+
+    const providers = await detectCIProviders(root);
+    expect(providers).toEqual([]);
+  });
+
+  it("detects multiple CI providers", async () => {
+    const root = await createTempRepo();
+    await mkdir(join(root, ".github", "workflows"), { recursive: true });
+    await writeFile(join(root, ".gitlab-ci.yml"), "stages:");
+
+    const providers = await detectCIProviders(root);
+    expect(providers).toContain("github-actions");
+    expect(providers).toContain("gitlab-ci");
   });
 });

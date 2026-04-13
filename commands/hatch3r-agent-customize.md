@@ -3,6 +3,7 @@ id: hatch3r-agent-customize
 type: command
 description: Configure per-agent customization including model overrides, description changes, and project-specific markdown instructions
 tags: [customize]
+quality_charter: agents/shared/quality-charter.md
 ---
 
 ## Agent Pipeline
