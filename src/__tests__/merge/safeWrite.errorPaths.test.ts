@@ -122,14 +122,15 @@ describe("atomicWriteFile error paths", () => {
       expect(mockRename).toHaveBeenCalledTimes(2);
     });
 
-    it("throws if retry also fails with EBUSY", async () => {
-      mockRename
-        .mockRejectedValueOnce(mkErrno("EBUSY"))
-        .mockRejectedValueOnce(mkErrno("EBUSY", "retry also failed"));
+    it("throws if all retries fail with EBUSY", async () => {
+      // 1 initial + 4 retries = 5 total attempts
+      mockRename.mockRejectedValue(mkErrno("EBUSY", "persistent lock"));
 
       await expect(
         atomicWriteFile("/tmp/test.txt", "data"),
       ).rejects.toThrow();
+
+      expect(mockRename).toHaveBeenCalledTimes(5);
     });
 
     it("rethrows non-EBUSY/non-EPERM rename errors immediately", async () => {

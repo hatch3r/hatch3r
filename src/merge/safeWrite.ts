@@ -53,15 +53,18 @@ export async function atomicWriteFile(filePath: string, content: string): Promis
     } finally {
       await fh.close();
     }
-    try {
-      await rename(tmpPath, filePath);
-    } catch (err) {
-      // Retry once for Windows AV locks (EBUSY/EPERM)
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code === "EBUSY" || code === "EPERM") {
-        await new Promise((r) => setTimeout(r, 100));
+    // Retry with exponential backoff for Windows file-lock contention (EBUSY/EPERM)
+    const MAX_RENAME_RETRIES = 4;
+    for (let attempt = 0; ; attempt++) {
+      try {
         await rename(tmpPath, filePath);
-      } else {
+        break;
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code;
+        if ((code === "EBUSY" || code === "EPERM") && attempt < MAX_RENAME_RETRIES) {
+          await new Promise((r) => setTimeout(r, 50 * 2 ** attempt));
+          continue;
+        }
         throw err;
       }
     }
