@@ -2,8 +2,9 @@
 id: hatch3r-bug-fix
 description: Step-by-step bug fix workflow. Diagnose root cause, implement minimal fix, write regression test. Use when fixing bugs, working on bug report issues, or when the user mentions a bug.
 tags: [core, implementation]
+quality_charter: agents/shared/quality-charter.md
 ---
-> **Note:** Commands below use `npm` as an example. Substitute with your project's package manager (`yarn`, `pnpm`, `bun`) or build tool as appropriate.
+> **Note:** Commands below use `npm` as an example. Substitute with your project's package manager (`yarn`, `pnpm`, `bun`) or build tool when your project uses a different package manager.
 
 # Bug Fix Workflow
 
@@ -33,16 +34,18 @@ Task Progress:
 
 Before fixing, output:
 
-- **Root cause hypothesis:** what is wrong and why
-- **Files to investigate:** list of files
-- **Reproduction strategy:** how to confirm the bug via tests
-- **Risks:** what could go wrong with the fix
+- **Root cause hypothesis:** what is wrong and why (distinguish between the symptom the user reported and the underlying cause)
+- **Files to investigate:** list of files with reason each file is relevant
+- **Reproduction strategy:** how to confirm the bug via tests (specific test scenario, expected vs. actual result)
+- **Error handling check:** does the affected code have proper error handling? If the bug is caused by a missing or incorrect error path, note this explicitly
+- **Risks:** what could go wrong with the fix (regression risk, related code paths that could be affected)
+- **Confidence:** high/medium/low for the hypothesis. If low, describe what additional investigation is needed before proceeding
 
 ## Step 2b: Browser Reproduction (if UI Bug)
 
 Skip this step if the bug has no visual or interactive symptoms.
 
-- Ensure the dev server is running. If not, start it in the background.
+- Confirm the dev server is running by checking the expected port. If not running, start it in the background.
 - Navigate to the page where the bug manifests.
 - Follow the reproduction steps from the issue to confirm the bug is observable.
 - Take a screenshot of the broken state as baseline evidence.
@@ -78,7 +81,7 @@ Skip TDD and use the standard flow (Steps 3→4) when:
 
 - Write a test that **fails before** the fix and **passes after**.
 - Add edge case tests if the bug reveals coverage gaps.
-- Ensure all existing tests still pass.
+- Run the full test suite and confirm 0 failures — all existing tests still pass.
 
 ## Step 5: Verify
 
@@ -118,6 +121,12 @@ You MUST spawn these agents via the Task tool (`subagent_type: "generalPurpose"`
 ## Related Skills
 
 - **Skill**: `hatch3r-qa-validation` — use this skill for end-to-end verification of the bug fix
+
+## Error Handling
+
+- **Root cause cannot be identified**: If tracing reaches a dead end, document the investigation path taken, the hypotheses eliminated, and recommend additional instrumentation (debug logging, reproduction steps) to narrow down the cause.
+- **Fix introduces test failures elsewhere**: Analyze whether the failing tests relied on the buggy behavior. Update those tests if they were testing incorrect expectations; otherwise, rethink the fix approach.
+- **Bug is in a third-party dependency**: If the root cause is in external code, implement a workaround with a code comment linking to the upstream issue, and file or reference the upstream bug report.
 
 ## Definition of Done
 

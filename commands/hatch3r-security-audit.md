@@ -3,6 +3,7 @@ id: hatch3r-security-audit
 type: command
 description: Create a full-product security audit epic with one sub-issue per project module
 tags: [maintenance, security]
+quality_charter: agents/shared/quality-charter.md
 ---
 
 ## Agent Pipeline

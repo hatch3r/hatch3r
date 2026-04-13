@@ -11,6 +11,23 @@ function steeringFrontmatter(globs?: string): string {
   return `---\ninclusion: fileMatch\nfileMatchPattern: "${globs}"\n---\n\n`;
 }
 
+// Map hatch3r hook events to Kiro native hook trigger types.
+// Kiro supports hooks via .kiro/hooks/ directory with per-hook files
+// containing YAML frontmatter specifying trigger and conditions.
+function mapToKiroTrigger(event: HookEvent): string {
+  const mapping: Record<HookEvent, string> = {
+    "pre-commit": "beforeCommit",
+    "post-merge": "afterMerge",
+    "ci-failure": "onCIFailure",
+    "file-save": "onFileSave",
+    "session-start": "onSessionStart",
+    "pre-push": "beforePush",
+    "worktree-create": "onWorktreeCreate",
+    "worktree-remove": "onWorktreeRemove",
+  };
+  return mapping[event] || event;
+}
+
 export class KiroAdapter extends BaseAdapter {
   readonly name = "kiro";
 
@@ -46,28 +63,41 @@ export class KiroAdapter extends BaseAdapter {
       ...await this.processSkillsRaw(ctx, (id) => `.kiro/steering/hatch3r-skill-${id}.md`),
     );
 
+    // Generate native Kiro hooks in .kiro/hooks/ directory.
+    // Each hook gets its own file with YAML frontmatter specifying
+    // the trigger type and conditions.
     const hooks = await this.readHooks(ctx);
-    if (hooks.length > 0) {
-      const hookLines: string[] = ["# Hatch3r Hooks", ""];
-      for (const hook of hooks) {
-        hookLines.push(`## ${hook.id}`, "");
-        hookLines.push(`**Event:** ${hook.event}`);
-        hookLines.push(`**Agent:** ${hook.agent}`);
-        hookLines.push(`**Description:** ${hook.description}`);
-        if (hook.condition?.globs) {
-          hookLines.push(`**Globs:** ${hook.condition.globs.join(", ")}`);
-        }
-        hookLines.push("");
-        hookLines.push(`HATCH3R_HOOK_ACTIVATED: When this hook's event (${hook.event}) is triggered, you MUST spawn the ${hook.agent} agent now. Read and follow the ${hook.agent} agent protocol in \`.agents/agents/${toPrefixedId(hook.agent)}.md\`.`);
-        hookLines.push("");
+    for (const hook of hooks) {
+      const trigger = mapToKiroTrigger(hook.event);
+      const fmLines: string[] = [
+        "---",
+        `trigger: ${trigger}`,
+      ];
+      if (hook.condition?.globs && hook.condition.globs.length > 0) {
+        fmLines.push(`filePattern: "${hook.condition.globs.join(", ")}"`);
       }
-      const hookContent = hookLines.join("\n");
-      results.push(output(".kiro/steering/hatch3r-hooks.md", wrapInManagedBlock(hookContent), hookContent));
+      if (hook.condition?.branches && hook.condition.branches.length > 0) {
+        fmLines.push(`branches: "${hook.condition.branches.join(", ")}"`);
+      }
+      fmLines.push("---");
+      fmLines.push("");
+
+      const body = [
+        `# Hook: ${hook.id}`,
+        "",
+        hook.description,
+        "",
+        `HATCH3R_HOOK_ACTIVATED: When this hook's event (${hook.event}) is triggered, you MUST spawn the ${hook.agent} agent now. Read and follow the ${hook.agent} agent protocol in \`.agents/agents/${toPrefixedId(hook.agent)}.md\`.`,
+      ].join("\n");
+
+      const fm = fmLines.join("\n");
+      const fullContent = `${fm}\n${wrapInManagedBlock(body)}`;
+      results.push(output(`.kiro/hooks/hatch3r-${hook.id}.md`, fullContent, body));
     }
 
     const mcp = await this.readFilteredMcp(ctx);
     if (mcp && Object.keys(mcp).length > 0) {
-      const entries = this.buildStdMcpEntries(mcp);
+      const entries = this.buildStdMcpEntries(mcp, "shell");
       if (Object.keys(entries).length > 0) {
         results.push(output(".kiro/settings/mcp.json", JSON.stringify({ mcpServers: entries }, null, 2)));
       }

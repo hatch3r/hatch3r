@@ -1,6 +1,6 @@
 ---
 description: Security patterns including input validation, auth enforcement, and AI/agentic security for the project
-alwaysApply: true
+globs: ["**/auth/**", "**/security/**", "**/middleware/**", "**/*auth*", "**/*guard*", "**/*policy*", "**/*permission*", "**/*sanitiz*", "**/*validat*"]
 ---
 # Security Patterns
 

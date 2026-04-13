@@ -24,6 +24,7 @@ const PM_INFO: Record<PackageManagerName, Omit<PackageManagerInfo, "name">> = {
   npm: { installCmd: "npm", installArgs: ["install"], updateCmd: "npm", updateArgs: ["install", "hatch3r@latest"] },
 };
 
+/** Detect the project's package manager by checking for lockfile presence. Falls back to npm. */
 export async function detectPackageManager(rootDir: string): Promise<PackageManagerInfo> {
   for (const { file, name } of LOCK_FILE_MAP) {
     try {

@@ -41,6 +41,7 @@ export const PRESETS: ContentPreset[] = [
   },
 ];
 
+/** Look up a content preset by ID. Throws if the preset does not exist. */
 export function getPreset(id: PresetId): ContentPreset {
   const preset = PRESETS.find((p) => p.id === id);
   if (!preset) throw new Error(`Unknown preset: ${id}`);

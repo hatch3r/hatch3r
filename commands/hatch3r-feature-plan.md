@@ -3,6 +3,7 @@ id: hatch3r-feature-plan
 type: command
 description: Plan a single feature in depth -- spawn parallel researchers, produce feature spec, ADR(s), and structured todo.md entries for board-fill.
 tags: [core, planning]
+quality_charter: agents/shared/quality-charter.md
 ---
 
 ## Agent Pipeline
@@ -56,7 +57,7 @@ Feature Brief:
   Constraints: {list}
 ```
 
-**ASK:** "Does this capture the feature correctly? Adjust anything before I send this to the research phase."
+**ASK:** "Does this capture the feature? Adjust anything before I send this to the research phase."
 
 #### Step 1b: Dimension Probing (Requirements Elicitation)
 
@@ -76,7 +77,7 @@ After the feature brief is confirmed, probe for missing requirements across key 
    - **Rollout**: Feature flags? Phased rollout? Rollback strategy?
 3. Skip dimensions that the feature brief already addresses clearly.
 
-**ASK:** "Before research begins, I have {N} questions to ensure we don't miss anything:
+**ASK:** "Before research begins, I have {N} questions to confirm coverage of all feature dimensions:
 {numbered question list — each with the dimension label and why the answer matters}
 
 Answer these now, or say 'use defaults' for any where you're comfortable with a reasonable default."

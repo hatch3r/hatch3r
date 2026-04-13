@@ -1,6 +1,6 @@
 ---
 description: Priority order for tools and knowledge sources
-alwaysApply: true
+globs: ["**/.agents/**", "**/mcp/**", "**/mcp.json", "**/.cursor/**", "**/.github/copilot*", "**/.windsurf/**", "**/hatch.json", "**/.claude/**"]
 ---
 # Tooling Hierarchy
 

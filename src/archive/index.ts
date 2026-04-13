@@ -1,15 +1,16 @@
-import { access, cp, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { access, cp, mkdir, open, readFile, readdir, rm, stat } from "node:fs/promises";
 import { dirname, join, sep } from "node:path";
 import type { HatchManifest, Tool } from "../types.js";
-import { HATCH3R_PREFIX, sanitizeId } from "../types.js";
+import { ARCHIVE_DIR, HATCH3R_PREFIX, sanitizeId } from "../types.js";
 import { extractCustomContent, hasManagedBlock } from "../merge/managedBlocks.js";
+import { atomicWriteFile } from "../merge/safeWrite.js";
 import type { CustomizableType } from "../models/customize.js";
 
 function toPosixPath(p: string): string {
   return sep === "\\" ? p.replaceAll("\\", "/") : p;
 }
 
-const ARCHIVE_DIR = ".hatch3r-archive";
+// ARCHIVE_DIR imported from types.ts
 
 export interface MigrationNotice {
   from: string;
@@ -23,22 +24,25 @@ interface ParsedOutputPath {
   id: string;
 }
 
-const TOOL_PATH_PREFIXES: Record<Tool, string[]> = {
+// #255 (D9-9.26): Added "AGENTS.md" to amp prefixes so archive cleanup catches amp's root-level output.
+// #256 (D9-9.27): Added ".aider/" to aider prefixes so archive cleanup catches aider's skills subdirectory.
+export const TOOL_PATH_PREFIXES: Record<Tool, string[]> = {
   cursor: [".cursor/"],
   claude: [".claude/", "CLAUDE.md", ".mcp.json"],
-  copilot: [".github/copilot-instructions.md", ".github/workflows/copilot-setup-steps.yml", ".vscode/mcp.json"],
+  copilot: [".github/copilot-instructions.md", ".github/workflows/copilot-setup-steps.yml", ".vscode/mcp.json", ".github/instructions/", ".github/agents/", ".github/prompts/", ".github/skills/"],
   windsurf: [".windsurf/", ".windsurfrules"],
-  amp: [".amp/"],
+  amp: [".amp/", "AGENTS.md"],
   codex: [".codex/"],
   gemini: [".gemini/", "GEMINI.md"],
-  cline: [".roo/", ".roomodes"],
-  aider: ["CONVENTIONS.md", ".aider.conf.yml"],
+  cline: [".cline/", ".clinerules/", ".roo/", ".roomodes"],
+  aider: ["CONVENTIONS.md", ".aider.conf.yml", ".aider/"],
   kiro: [".kiro/"],
-  opencode: ["opencode.json"],
-  goose: [".goosehints"],
-  zed: [".rules"],
+  opencode: ["opencode.json", ".opencode/"],
+  goose: [".goosehints", ".goose/"],
+  zed: [".rules", ".zed/"],
   "amazon-q": [".amazonq/"],
   antigravity: [".antigravity/"],
+  "agents-md": ["AGENTS.md"],
 };
 
 const PATH_PATTERNS: Array<{ pattern: RegExp; type: CustomizableType }> = [
@@ -91,7 +95,7 @@ async function fileExists(path: string): Promise<boolean> {
   }
 }
 
-async function collectToolFiles(rootDir: string, tool: Tool): Promise<string[]> {
+export async function collectToolFiles(rootDir: string, tool: Tool): Promise<string[]> {
   const prefixes = TOOL_PATH_PREFIXES[tool];
   if (!prefixes) return [];
 
@@ -154,7 +158,8 @@ export async function archiveToolOutputs(
           const customizePath = join(rootDir, ".hatch3r", parsed.type, `${parsed.id}.customize.md`);
           if (!(await fileExists(customizePath))) {
             await mkdir(dirname(customizePath), { recursive: true });
-            await writeFile(customizePath, customContent + "\n", "utf-8");
+            // #241 (D8-8.8): Route through atomicWriteFile for crash-safe migration writes
+            await atomicWriteFile(customizePath, customContent + "\n");
             migrations.push({
               from: relPath,
               to: `.hatch3r/${parsed.type}/${parsed.id}.customize.md`,
@@ -169,11 +174,23 @@ export async function archiveToolOutputs(
     const archiveDest = join(archiveBase, relPath);
     await mkdir(dirname(archiveDest), { recursive: true });
     await cp(absPath, archiveDest);
-    // Verify the copy succeeded before removing the original
-    const srcStat = await stat(absPath);
-    const destStat = await stat(archiveDest);
-    if (destStat.size !== srcStat.size) {
-      throw new Error(`Archive copy size mismatch for ${relPath}: source=${srcStat.size}, dest=${destStat.size}`);
+    // #243 (D8-8.10): Use fd-based stat to avoid TOCTOU race between stat
+    // calls. Opening both files and using fh.stat() ensures we read sizes
+    // atomically from the same inodes we just wrote/read.
+    const srcFh = await open(absPath, "r");
+    try {
+      const destFh = await open(archiveDest, "r");
+      try {
+        const srcStat = await srcFh.stat();
+        const destStat = await destFh.stat();
+        if (destStat.size !== srcStat.size) {
+          throw new Error(`Archive copy size mismatch for ${relPath}: source=${srcStat.size}, dest=${destStat.size}`);
+        }
+      } finally {
+        await destFh.close();
+      }
+    } finally {
+      await srcFh.close();
     }
     await rm(absPath);
     archivedFiles.push(relPath);
@@ -184,7 +201,7 @@ export async function archiveToolOutputs(
   return { archivedFiles, migrations };
 }
 
-async function cleanEmptyDirs(rootDir: string, paths: string[]): Promise<void> {
+export async function cleanEmptyDirs(rootDir: string, paths: string[]): Promise<void> {
   const dirs = new Set<string>();
   for (const p of paths) {
     let dir = dirname(join(rootDir, p));

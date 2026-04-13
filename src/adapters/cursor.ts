@@ -4,11 +4,11 @@ import type {
 } from "../types.js";
 import { toPrefixedId } from "../types.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
-import { generateBridgeOrchestration } from "../cli/shared/agentsContent.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
 import { readCanonicalFiles } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
 import { applyCustomization } from "./customization.js";
+import { transformEnvVarSyntax } from "./mcp-utils.js";
 
 /**
  * The Cursor adapter generates .mdc files from .md canonical files by adding
@@ -83,7 +83,8 @@ export class CursorAdapter extends BaseAdapter {
 
     const mcp = await this.readFilteredMcp(ctx);
     if (mcp) {
-      results.push(output(".cursor/mcp.json", JSON.stringify({ mcpServers: mcp }, null, 2)));
+      const transformed = transformEnvVarSyntax(mcp, "shell") as Record<string, Record<string, unknown>>;
+      results.push(output(".cursor/mcp.json", JSON.stringify({ mcpServers: transformed }, null, 2)));
     }
 
     const hookResults = await this.readHooks(ctx);
@@ -102,7 +103,7 @@ export class CursorAdapter extends BaseAdapter {
 description: Bridge to canonical agent instructions and mandatory orchestration directives
 alwaysApply: true
 ---`;
-    const bridgeOrchestration = await generateBridgeOrchestration(ctx.agentsDir);
+    const bridgeOrchestration = await this.bridgeOrchestration(ctx);
     const bridgeBody = `# Hatch3r Bridge
 
 This project uses hatch3r for agentic coding setup.

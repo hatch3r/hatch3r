@@ -5,6 +5,7 @@ description: Rules for component development in web applications
 scope: conditional
 globs: src/**/*.vue, src/**/*.tsx, src/**/*.jsx
 tags: [implementation]
+quality_charter: agents/shared/quality-charter.md
 ---
 # Component Conventions
 
@@ -78,7 +79,7 @@ tags: [implementation]
 - Group related fields with `<fieldset>` and `<legend>` (e.g., "Shipping Address", "Payment Details").
 - Use progressive disclosure for complex forms: show advanced options behind an expandable section or a follow-up step.
 - Autofocus the first input field on form mount.
-- Ensure tab order follows the visual layout order — never use positive `tabindex` values.
+- Verify tab order follows the visual layout order by tabbing through the form — never use positive `tabindex` values.
 
 ### Submit Behavior
 - Disable the submit button when the form has known validation errors (but keep it focusable for screen readers).

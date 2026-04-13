@@ -2,6 +2,7 @@
 id: hatch3r-qa-validation
 description: E2E validation workflow producing a structured pass/fail report with evidence. Use when running QA validation, acceptance testing, verifying releases, or working on QA E2E validation issues.
 tags: [core, review]
+quality_charter: agents/shared/quality-charter.md
 ---
 # QA E2E Validation Workflow
 
@@ -46,7 +47,7 @@ Run the project's automated test suites (unit, integration, E2E) and record resu
 
 For each user-facing test case in the matrix:
 
-1. Ensure the dev server is running. If not, start it in the background.
+1. Confirm the dev server is running by checking the expected port. If not running, start it in the background.
 2. Navigate to the page or surface under test using browser automation MCP.
 3. Execute the test steps exactly as described — click, type, navigate, trigger state changes.
 4. Observe the actual result and compare to the expected result.
@@ -75,6 +76,12 @@ Produce a structured report with:
 - File new issues for bugs discovered during validation.
 - If validation fails, state what must be fixed before re-validation.
 - Post report as comment on the issue/work item or linked PR/MR (check `platform` in `.agents/hatch.json`).
+
+## Error Handling
+
+- **Test environment unavailable or misconfigured**: Document which tests could not be executed, note the environment gap, and recommend a fix. Do not mark untested scenarios as passing.
+- **Validation discovers a blocking defect**: File an issue immediately, mark the validation as HOLD, and include the defect details in the validation report with reproduction steps.
+- **Flaky test results (pass on retry)**: Run the test 3 times. If it passes inconsistently, mark it as flaky in the report, file a tracking issue, and exclude it from the pass/fail determination.
 
 ## Definition of Done
 

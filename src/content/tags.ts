@@ -42,6 +42,20 @@ export const TAG_PERFORMANCE = "performance";
 /** Meta-customization commands/skills */
 export const TAG_CUSTOMIZE = "customize";
 
+// ── Language tags (Finding #71, #74) ─────────────────────────
+/** TypeScript/JavaScript projects */
+export const TAG_LANG_TYPESCRIPT = "lang:typescript";
+/** Python projects */
+export const TAG_LANG_PYTHON = "lang:python";
+/** Go projects */
+export const TAG_LANG_GO = "lang:go";
+/** Rust projects */
+export const TAG_LANG_RUST = "lang:rust";
+/** Java projects */
+export const TAG_LANG_JAVA = "lang:java";
+/** Ruby projects */
+export const TAG_LANG_RUBY = "lang:ruby";
+
 /** All valid tags */
 export const ALL_TAGS = [
   TAG_CORE,
@@ -59,6 +73,12 @@ export const ALL_TAGS = [
   TAG_A11Y,
   TAG_PERFORMANCE,
   TAG_CUSTOMIZE,
+  TAG_LANG_TYPESCRIPT,
+  TAG_LANG_PYTHON,
+  TAG_LANG_GO,
+  TAG_LANG_RUST,
+  TAG_LANG_JAVA,
+  TAG_LANG_RUBY,
 ] as const;
 
 export type ContentTag = (typeof ALL_TAGS)[number];
@@ -89,3 +109,35 @@ export const DOMAIN_TAGS: ContentTag[] = [
   TAG_PERFORMANCE,
   TAG_CUSTOMIZE,
 ];
+
+/** Language tags — for language-specific content filtering (Finding #71) */
+export const LANGUAGE_TAGS: ContentTag[] = [
+  TAG_LANG_TYPESCRIPT,
+  TAG_LANG_PYTHON,
+  TAG_LANG_GO,
+  TAG_LANG_RUST,
+  TAG_LANG_JAVA,
+  TAG_LANG_RUBY,
+];
+
+/**
+ * Map detected language names to their corresponding language tags.
+ * Used by resolveSelection to filter content by project language (Finding #71).
+ */
+export const LANGUAGE_TO_TAG: Record<string, ContentTag> = {
+  typescript: TAG_LANG_TYPESCRIPT,
+  javascript: TAG_LANG_TYPESCRIPT, // JS projects also benefit from TS rules
+  python: TAG_LANG_PYTHON,
+  go: TAG_LANG_GO,
+  rust: TAG_LANG_RUST,
+  java: TAG_LANG_JAVA,
+  kotlin: TAG_LANG_JAVA, // Kotlin shares Java ecosystem
+  ruby: TAG_LANG_RUBY,
+};
+
+/**
+ * Check whether a tag is a language tag (prefixed with "lang:").
+ */
+export function isLanguageTag(tag: string): boolean {
+  return tag.startsWith("lang:");
+}

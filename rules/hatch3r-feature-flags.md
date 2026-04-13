@@ -3,7 +3,9 @@ id: hatch3r-feature-flags
 type: rule
 description: Feature flag patterns and lifecycle for the project
 scope: conditional
+globs: "**/*feature-flag*,**/*featureFlag*,**/*feature_flag*,**/config/**"
 tags: [implementation]
+quality_charter: agents/shared/quality-charter.md
 ---
 # Feature Flags
 

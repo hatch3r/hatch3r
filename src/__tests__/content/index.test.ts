@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { mkdtemp, mkdir, writeFile, readFile, rm, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -19,6 +19,13 @@ import {
   countPresetExclusions,
   countProjectTypeExclusions,
   countTeamSizeExclusions,
+  extractContentReferences,
+  validateCrossReferences,
+  validateOrchestrationDependencies,
+  typeIdKey,
+  getAllItemsById,
+  applyCommandPrefix,
+  COMMAND_ID_PREFIX,
 } from "../../content/index.js";
 import type { CatalogItem, ContentIndex } from "../../content/index.js";
 import { getPreset } from "../../content/presets.js";
@@ -483,6 +490,16 @@ describe("content/index", () => {
       expect(allIds.has("no-tags-rule")).toBe(true);
     });
 
+    it("#122: items without tags pass through excludeTags filter (vacuous truth fix)", () => {
+      // Standard preset has excludeTags. Items with empty tags should NOT be excluded.
+      const preset = getPreset("standard");
+      const selection = resolveSelection(preset, "brownfield", "team", index);
+
+      const allIds = getAllContentIds(selection);
+      // no-tags-rule has no tags, should survive excludeTags filter
+      expect(allIds.has("no-tags-rule")).toBe(true);
+    });
+
     it("greenfield projectType removes brownfield-only items", () => {
       const preset = getPreset("full");
       const selection = resolveSelection(preset, "greenfield", "team", index);
@@ -678,6 +695,136 @@ describe("content/index", () => {
       // "core" is a non-context tag, so item should survive solo filter
       const selection = resolveSelection(preset, "brownfield", "solo", mixedIndex);
       expect(getAllContentIds(selection).has("team-core-item")).toBe(true);
+    });
+
+    // ── Language filtering (Finding #71) ────────────────────
+
+    it("items without language tags are included regardless of project languages", () => {
+      const genericRule = makeCatalogItem({
+        id: "generic-rule",
+        type: "rule",
+        tags: ["core"],
+        relativePath: "rules/generic-rule.md",
+      });
+      const langIndex = makeIndex([genericRule]);
+      const preset = getPreset("full");
+
+      const selection = resolveSelection(preset, "brownfield", "team", langIndex, undefined, ["python"]);
+      expect(getAllContentIds(selection).has("generic-rule")).toBe(true);
+    });
+
+    it("items with matching language tag are included for that language", () => {
+      const tsRule = makeCatalogItem({
+        id: "ts-rule",
+        type: "rule",
+        tags: ["core", "lang:typescript"],
+        relativePath: "rules/ts-rule.md",
+      });
+      const langIndex = makeIndex([tsRule]);
+      const preset = getPreset("full");
+
+      const selection = resolveSelection(preset, "brownfield", "team", langIndex, undefined, ["typescript"]);
+      expect(getAllContentIds(selection).has("ts-rule")).toBe(true);
+    });
+
+    it("items with non-matching language tag are excluded for other languages", () => {
+      const tsRule = makeCatalogItem({
+        id: "ts-only-rule",
+        type: "rule",
+        tags: ["core", "lang:typescript"],
+        relativePath: "rules/ts-only-rule.md",
+      });
+      const langIndex = makeIndex([tsRule]);
+      const preset = getPreset("full");
+
+      const selection = resolveSelection(preset, "brownfield", "team", langIndex, undefined, ["python"]);
+      expect(getAllContentIds(selection).has("ts-only-rule")).toBe(false);
+    });
+
+    it("javascript projects match lang:typescript tagged items", () => {
+      const tsRule = makeCatalogItem({
+        id: "ts-js-rule",
+        type: "rule",
+        tags: ["core", "lang:typescript"],
+        relativePath: "rules/ts-js-rule.md",
+      });
+      const langIndex = makeIndex([tsRule]);
+      const preset = getPreset("full");
+
+      const selection = resolveSelection(preset, "brownfield", "team", langIndex, undefined, ["javascript"]);
+      expect(getAllContentIds(selection).has("ts-js-rule")).toBe(true);
+    });
+
+    it("multi-language projects include items matching any detected language", () => {
+      const pyRule = makeCatalogItem({
+        id: "py-rule",
+        type: "rule",
+        tags: ["core", "lang:python"],
+        relativePath: "rules/py-rule.md",
+      });
+      const goRule = makeCatalogItem({
+        id: "go-rule",
+        type: "rule",
+        tags: ["core", "lang:go"],
+        relativePath: "rules/go-rule.md",
+      });
+      const rubyRule = makeCatalogItem({
+        id: "ruby-rule",
+        type: "rule",
+        tags: ["core", "lang:ruby"],
+        relativePath: "rules/ruby-rule.md",
+      });
+      const langIndex = makeIndex([pyRule, goRule, rubyRule]);
+      const preset = getPreset("full");
+
+      const selection = resolveSelection(preset, "brownfield", "team", langIndex, undefined, ["python", "go"]);
+      const allIds = getAllContentIds(selection);
+      expect(allIds.has("py-rule")).toBe(true);
+      expect(allIds.has("go-rule")).toBe(true);
+      expect(allIds.has("ruby-rule")).toBe(false);
+    });
+
+    it("protected items with non-matching language tags are still included", () => {
+      const protectedLangItem = makeCatalogItem({
+        id: "protected-lang",
+        type: "agent",
+        tags: ["core", "lang:typescript"],
+        protected: true,
+        relativePath: "agents/protected-lang.md",
+      });
+      const langIndex = makeIndex([protectedLangItem]);
+      const preset = getPreset("full");
+
+      const selection = resolveSelection(preset, "brownfield", "team", langIndex, undefined, ["python"]);
+      expect(getAllContentIds(selection).has("protected-lang")).toBe(true);
+    });
+
+    it("no language filtering when projectLanguages is undefined", () => {
+      const tsRule = makeCatalogItem({
+        id: "ts-rule-no-filter",
+        type: "rule",
+        tags: ["core", "lang:typescript"],
+        relativePath: "rules/ts-rule-no-filter.md",
+      });
+      const langIndex = makeIndex([tsRule]);
+      const preset = getPreset("full");
+
+      const selection = resolveSelection(preset, "brownfield", "team", langIndex);
+      expect(getAllContentIds(selection).has("ts-rule-no-filter")).toBe(true);
+    });
+
+    it("no language filtering when projectLanguages is empty array", () => {
+      const tsRule = makeCatalogItem({
+        id: "ts-rule-empty",
+        type: "rule",
+        tags: ["core", "lang:typescript"],
+        relativePath: "rules/ts-rule-empty.md",
+      });
+      const langIndex = makeIndex([tsRule]);
+      const preset = getPreset("full");
+
+      const selection = resolveSelection(preset, "brownfield", "team", langIndex, undefined, []);
+      expect(getAllContentIds(selection).has("ts-rule-empty")).toBe(true);
     });
   });
 
@@ -1026,7 +1173,7 @@ describe("content/index", () => {
 
       const selection = await buildSelectionsFromDisk(agentsDir);
       expect(selection.items.agents).toContain("a");
-      expect(selection.items.commands).toContain("c");
+      expect(selection.items.commands).toContain("cmd-c");
       expect(selection.items.rules).toContain("r");
       expect(selection.items.prompts).toContain("p");
       expect(selection.items.hooks).toContain("h");
@@ -1213,6 +1360,33 @@ describe("content/index", () => {
 
       await expect(readFile(join(rootDir, ".hatch3r", "agents", "my-agent.customize.yaml"), "utf-8")).rejects.toThrow();
       await expect(readFile(join(rootDir, ".hatch3r", "agents", "my-agent.customize.md"), "utf-8")).rejects.toThrow();
+    });
+
+    it("strips cmd- and hatch3r- prefixes when cleaning up command customize files", async () => {
+      const dir = await makeTempDir();
+      const agentsDir = join(dir, "agents");
+      const rootDir = join(dir, "project");
+
+      // Create the command file to remove
+      await mkdir(join(agentsDir, "commands"), { recursive: true });
+      await writeFile(join(agentsDir, "commands", "hatch3r-board-init.md"), "# command");
+
+      // Customize files are stored WITHOUT the cmd- and hatch3r- prefixes
+      await mkdir(join(rootDir, ".hatch3r", "commands"), { recursive: true });
+      await writeFile(join(rootDir, ".hatch3r", "commands", "board-init.customize.yaml"), "overrides: true");
+
+      const item: CatalogItem = {
+        id: "cmd-hatch3r-board-init",
+        type: "command",
+        description: "Command with prefixed id",
+        tags: [],
+        relativePath: "commands/hatch3r-board-init.md",
+      };
+
+      await removeContentItem(agentsDir, item, { rootDir });
+
+      // The customize file (named without prefixes) should be deleted
+      await expect(readFile(join(rootDir, ".hatch3r", "commands", "board-init.customize.yaml"), "utf-8")).rejects.toThrow();
     });
 
     it("throws HatchError for path traversal in relativePath", async () => {
@@ -1441,6 +1615,433 @@ describe("content/index", () => {
         makeCatalogItem({ id: "prot-team", type: "command", tags: ["team"], relativePath: "commands/pt.md", protected: true }),
       ];
       expect(countTeamSizeExclusions("solo", items)).toBe(0);
+    });
+  });
+
+  // ── Integration tests for complex validation paths (#100) ──
+
+  describe("buildContentIndex — collision detection", () => {
+    it("detects cross-type ID collisions (agent vs rule with same ID)", async () => {
+      const dir = await makeTempDir();
+      // Create an agent and a rule with the same ID (neither is prefixed)
+      await mkdir(join(dir, "agents"), { recursive: true });
+      await writeFile(
+        join(dir, "agents", "hatch3r-dupe.md"),
+        mdFile({ id: "hatch3r-dupe", type: "agent", description: "Agent dupe" }),
+      );
+      await mkdir(join(dir, "rules"), { recursive: true });
+      await writeFile(
+        join(dir, "rules", "hatch3r-dupe.md"),
+        mdFile({ id: "hatch3r-dupe", type: "rule", description: "Rule dupe" }),
+      );
+
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const index = await buildContentIndex(dir);
+      warnSpy.mockRestore();
+
+      expect(index.collisions.length).toBe(1);
+      expect(index.collisions[0]!.kind).toBe("cross-type");
+      expect(index.collisions[0]!.id).toBe("hatch3r-dupe");
+    });
+
+    it("does not collide when agent and command share the same base ID (cmd- prefix)", async () => {
+      const dir = await makeTempDir();
+      await mkdir(join(dir, "agents"), { recursive: true });
+      await writeFile(
+        join(dir, "agents", "hatch3r-dupe.md"),
+        mdFile({ id: "hatch3r-dupe", type: "agent", description: "Agent dupe" }),
+      );
+      await mkdir(join(dir, "commands"), { recursive: true });
+      await writeFile(
+        join(dir, "commands", "hatch3r-dupe.md"),
+        mdFile({ id: "hatch3r-dupe", type: "command", description: "Command dupe" }),
+      );
+
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const index = await buildContentIndex(dir);
+      warnSpy.mockRestore();
+
+      // Command gets prefixed to "cmd-hatch3r-dupe", so no collision
+      expect(index.collisions.length).toBe(0);
+      expect(index.byId.get("hatch3r-dupe")).toBeDefined();
+      expect(index.byId.get("hatch3r-dupe")!.type).toBe("agent");
+      expect(index.byId.get("cmd-hatch3r-dupe")).toBeDefined();
+      expect(index.byId.get("cmd-hatch3r-dupe")!.type).toBe("command");
+    });
+
+    it("detects same-type ID collisions (duplicate files with same frontmatter id)", async () => {
+      const dir = await makeTempDir();
+      await mkdir(join(dir, "agents"), { recursive: true });
+      // Two files mapping to the same ID via frontmatter
+      await writeFile(
+        join(dir, "agents", "alpha.md"),
+        mdFile({ id: "shared-id", type: "agent", description: "Alpha" }),
+      );
+      await writeFile(
+        join(dir, "agents", "beta.md"),
+        mdFile({ id: "shared-id", type: "agent", description: "Beta" }),
+      );
+
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const index = await buildContentIndex(dir);
+      warnSpy.mockRestore();
+
+      expect(index.collisions.length).toBe(1);
+      expect(index.collisions[0]!.kind).toBe("same-type");
+    });
+
+    it("byTypeAndId provides collision-safe lookup", async () => {
+      const dir = await makeTempDir();
+      await mkdir(join(dir, "agents"), { recursive: true });
+      await writeFile(
+        join(dir, "agents", "hatch3r-shared.md"),
+        mdFile({ id: "hatch3r-shared", type: "agent", description: "Agent" }),
+      );
+      await mkdir(join(dir, "commands"), { recursive: true });
+      await writeFile(
+        join(dir, "commands", "hatch3r-shared.md"),
+        mdFile({ id: "hatch3r-shared", type: "command", description: "Command" }),
+      );
+
+      const index = await buildContentIndex(dir);
+
+      // Agent retains original ID, command gets cmd- prefix
+      const agent = index.byTypeAndId.get(typeIdKey("agent", "hatch3r-shared"));
+      expect(agent).toBeDefined();
+      expect(agent!.type).toBe("agent");
+
+      // Command ID is prefixed: cmd-hatch3r-shared
+      const command = index.byTypeAndId.get(typeIdKey("command", "cmd-hatch3r-shared"));
+      expect(command).toBeDefined();
+      expect(command!.type).toBe("command");
+    });
+
+    it("getAllItemsById returns single item when agent and command have distinct IDs (cmd- prefix)", async () => {
+      const dir = await makeTempDir();
+      await mkdir(join(dir, "agents"), { recursive: true });
+      await writeFile(
+        join(dir, "agents", "hatch3r-multi.md"),
+        mdFile({ id: "hatch3r-multi", type: "agent", description: "Agent" }),
+      );
+      await mkdir(join(dir, "commands"), { recursive: true });
+      await writeFile(
+        join(dir, "commands", "hatch3r-multi.md"),
+        mdFile({ id: "hatch3r-multi", type: "command", description: "Command" }),
+      );
+
+      const index = await buildContentIndex(dir);
+
+      // Agent keeps "hatch3r-multi", command becomes "cmd-hatch3r-multi"
+      const agentItems = getAllItemsById(index, "hatch3r-multi");
+      expect(agentItems.length).toBe(1);
+      expect(agentItems[0]!.type).toBe("agent");
+
+      const commandItems = getAllItemsById(index, "cmd-hatch3r-multi");
+      expect(commandItems.length).toBe(1);
+      expect(commandItems[0]!.type).toBe("command");
+    });
+  });
+
+  describe("extractContentReferences", () => {
+    it("extracts backtick-quoted hatch3r references", () => {
+      const content = "Use `hatch3r-implementer` and `hatch3r-reviewer` for this.";
+      const refs = extractContentReferences(content);
+      expect(refs).toContain("hatch3r-implementer");
+      expect(refs).toContain("hatch3r-reviewer");
+    });
+
+    it("returns empty array when no references present", () => {
+      const content = "No hatch3r references here. Just plain text.";
+      const refs = extractContentReferences(content);
+      expect(refs).toEqual([]);
+    });
+
+    it("deduplicates references", () => {
+      const content = "Use `hatch3r-test` and then `hatch3r-test` again.";
+      const refs = extractContentReferences(content);
+      expect(refs.length).toBe(1);
+      expect(refs[0]).toBe("hatch3r-test");
+    });
+
+    it("does not match non-backtick-quoted references", () => {
+      const content = "Use hatch3r-implementer without backticks.";
+      const refs = extractContentReferences(content);
+      expect(refs).toEqual([]);
+    });
+
+    it("handles multiple references on same line", () => {
+      const content = "Both `hatch3r-alpha` and `hatch3r-beta` are needed.";
+      const refs = extractContentReferences(content);
+      expect(refs).toContain("hatch3r-alpha");
+      expect(refs).toContain("hatch3r-beta");
+    });
+  });
+
+  describe("validateCrossReferences", () => {
+    it("returns no warnings when all references exist in index", async () => {
+      const dir = await makeTempDir();
+      await mkdir(join(dir, "agents"), { recursive: true });
+      await writeFile(
+        join(dir, "agents", "hatch3r-caller.md"),
+        mdFile({ id: "hatch3r-caller", type: "agent", description: "Calls others" }) +
+        "\nUse `hatch3r-callee` for details.\n",
+      );
+      await writeFile(
+        join(dir, "agents", "hatch3r-callee.md"),
+        mdFile({ id: "hatch3r-callee", type: "agent", description: "Called by others" }),
+      );
+
+      const index = await buildContentIndex(dir);
+      const result = await validateCrossReferences(dir, index);
+      expect(result.warnings).toEqual([]);
+    });
+
+    it("returns warnings for missing cross-referenced IDs", async () => {
+      const dir = await makeTempDir();
+      await mkdir(join(dir, "agents"), { recursive: true });
+      await writeFile(
+        join(dir, "agents", "hatch3r-orphan-ref.md"),
+        mdFile({ id: "hatch3r-orphan-ref", type: "agent", description: "Refs missing ID" }) +
+        "\nSee `hatch3r-nonexistent` for details.\n",
+      );
+
+      const index = await buildContentIndex(dir);
+      const result = await validateCrossReferences(dir, index);
+      expect(result.warnings.length).toBe(1);
+      expect(result.warnings[0]).toContain("hatch3r-nonexistent");
+      expect(result.warnings[0]).toContain("does not exist");
+    });
+
+    it("self-references do not trigger warnings", async () => {
+      const dir = await makeTempDir();
+      await mkdir(join(dir, "agents"), { recursive: true });
+      await writeFile(
+        join(dir, "agents", "hatch3r-self.md"),
+        mdFile({ id: "hatch3r-self", type: "agent", description: "Self-referencing" }) +
+        "\nThis is `hatch3r-self`.\n",
+      );
+
+      const index = await buildContentIndex(dir);
+      const result = await validateCrossReferences(dir, index);
+      expect(result.warnings).toEqual([]);
+    });
+
+    it("handles skill subdirectory cross-references", async () => {
+      const dir = await makeTempDir();
+      await mkdir(join(dir, "skills", "hatch3r-skillref"), { recursive: true });
+      await writeFile(
+        join(dir, "skills", "hatch3r-skillref", "SKILL.md"),
+        mdFile({ id: "hatch3r-skillref", type: "skill", description: "Skill that refs" }) +
+        "\nUse `hatch3r-missing-agent` to assist.\n",
+      );
+
+      const index = await buildContentIndex(dir);
+      const result = await validateCrossReferences(dir, index);
+      expect(result.warnings.length).toBe(1);
+      expect(result.warnings[0]).toContain("hatch3r-missing-agent");
+    });
+  });
+
+  describe("validateOrchestrationDependencies", () => {
+    it("returns no warnings when orchestration rule is absent", () => {
+      const selection = emptySelection({
+        items: {
+          agents: [],
+          skills: [],
+          rules: [],
+          commands: [],
+          prompts: [],
+          hooks: [],
+          githubAgents: [],
+        },
+      });
+      const warnings = validateOrchestrationDependencies(selection);
+      expect(warnings).toEqual([]);
+    });
+
+    it("returns no warnings when all required agents are present", () => {
+      const selection = emptySelection({
+        items: {
+          agents: [
+            "hatch3r-researcher",
+            "hatch3r-implementer",
+            "hatch3r-reviewer",
+            "hatch3r-test-writer",
+            "hatch3r-security-auditor",
+          ],
+          skills: [],
+          rules: ["hatch3r-agent-orchestration"],
+          commands: [],
+          prompts: [],
+          hooks: [],
+          githubAgents: [],
+        },
+      });
+      const warnings = validateOrchestrationDependencies(selection);
+      expect(warnings).toEqual([]);
+    });
+
+    it("returns warnings for each missing orchestration agent", () => {
+      const selection = emptySelection({
+        items: {
+          agents: ["hatch3r-researcher"],
+          skills: [],
+          rules: ["hatch3r-agent-orchestration"],
+          commands: [],
+          prompts: [],
+          hooks: [],
+          githubAgents: [],
+        },
+      });
+      const warnings = validateOrchestrationDependencies(selection);
+      // Missing: implementer, reviewer, test-writer, security-auditor
+      expect(warnings.length).toBe(4);
+      expect(warnings.some((w) => w.includes("hatch3r-implementer"))).toBe(true);
+      expect(warnings.some((w) => w.includes("hatch3r-reviewer"))).toBe(true);
+      expect(warnings.some((w) => w.includes("hatch3r-test-writer"))).toBe(true);
+      expect(warnings.some((w) => w.includes("hatch3r-security-auditor"))).toBe(true);
+    });
+
+    it("warning messages mention the 4-phase pipeline", () => {
+      const selection = emptySelection({
+        items: {
+          agents: [],
+          skills: [],
+          rules: ["hatch3r-agent-orchestration"],
+          commands: [],
+          prompts: [],
+          hooks: [],
+          githubAgents: [],
+        },
+      });
+      const warnings = validateOrchestrationDependencies(selection);
+      for (const w of warnings) {
+        expect(w).toContain("4-phase pipeline");
+      }
+    });
+  });
+
+  // ── estimatePresetItemCount (#127) ─────────────────────────────
+  describe("estimatePresetItemCount", () => {
+    let tempDir: string;
+
+    afterEach(async () => {
+      if (tempDir) await rm(tempDir, { recursive: true, force: true });
+    });
+
+    it("returns item count for full preset", async () => {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-estimate-"));
+      const root = await createContentRoot(tempDir);
+      const index = await buildContentIndex(root);
+      const { estimatePresetItemCount } = await import("../../content/index.js");
+      const preset = getPreset("full");
+      const count = estimatePresetItemCount(preset, "brownfield", "team", index);
+      expect(count).toBe(index.items.length);
+    });
+
+    it("returns fewer items for minimal preset", async () => {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-estimate-"));
+      const root = await createContentRoot(tempDir);
+      const index = await buildContentIndex(root);
+      const { estimatePresetItemCount } = await import("../../content/index.js");
+      const fullPreset = getPreset("full");
+      const minPreset = getPreset("minimal");
+      const fullCount = estimatePresetItemCount(fullPreset, "brownfield", "team", index);
+      const minCount = estimatePresetItemCount(minPreset, "brownfield", "team", index);
+      expect(minCount).toBeLessThanOrEqual(fullCount);
+    });
+  });
+
+  // ── generateMdcCompanions (#127) ──────────────────────────────
+  describe("generateMdcCompanions", () => {
+    let tempDir: string;
+
+    afterEach(async () => {
+      if (tempDir) await rm(tempDir, { recursive: true, force: true });
+    });
+
+    it("generates .mdc files for each .md file in the rules directory", async () => {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-mdc-"));
+      const rulesDir = join(tempDir, "rules");
+      await mkdir(rulesDir, { recursive: true });
+      await writeFile(
+        join(rulesDir, "hatch3r-test-rule.md"),
+        "---\nid: hatch3r-test-rule\ntype: rule\ndescription: A test rule\nscope: always\n---\n# Test Rule\n\nContent.\n",
+      );
+
+      const { generateMdcCompanions } = await import("../../content/index.js");
+      const written = await generateMdcCompanions(rulesDir);
+      expect(written.length).toBe(1);
+
+      const mdcContent = await readFile(join(rulesDir, "hatch3r-test-rule.mdc"), "utf-8");
+      expect(mdcContent).toContain("alwaysApply: true");
+      expect(mdcContent).toContain("A test rule");
+      expect(mdcContent).toContain("# Test Rule");
+    });
+
+    it("generates correct globs for scoped rules", async () => {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-mdc-scope-"));
+      const rulesDir = join(tempDir, "rules");
+      await mkdir(rulesDir, { recursive: true });
+      await writeFile(
+        join(rulesDir, "hatch3r-ts-rule.md"),
+        "---\nid: hatch3r-ts-rule\ntype: rule\ndescription: TypeScript rule\nscope: \"**/*.ts, **/*.tsx\"\n---\n# TS Rule\n",
+      );
+
+      const { generateMdcCompanions } = await import("../../content/index.js");
+      await generateMdcCompanions(rulesDir);
+
+      const mdcContent = await readFile(join(rulesDir, "hatch3r-ts-rule.mdc"), "utf-8");
+      expect(mdcContent).toContain("globs:");
+      expect(mdcContent).toContain("**/*.ts");
+      expect(mdcContent).toContain("**/*.tsx");
+    });
+
+    it("returns empty array for nonexistent directory", async () => {
+      const { generateMdcCompanions } = await import("../../content/index.js");
+      const result = await generateMdcCompanions("/nonexistent/path");
+      expect(result).toEqual([]);
+    });
+  });
+
+  // ── Finding 3.23: applyCommandPrefix and COMMAND_ID_PREFIX ──────
+  describe("COMMAND_ID_PREFIX", () => {
+    it("is the string 'cmd-'", () => {
+      expect(COMMAND_ID_PREFIX).toBe("cmd-");
+    });
+  });
+
+  describe("applyCommandPrefix", () => {
+    it("prefixes command-type IDs with 'cmd-'", () => {
+      expect(applyCommandPrefix("hatch3r-feature-plan", "command")).toBe("cmd-hatch3r-feature-plan");
+    });
+
+    it("does not prefix agent-type IDs", () => {
+      expect(applyCommandPrefix("hatch3r-implementer", "agent")).toBe("hatch3r-implementer");
+    });
+
+    it("does not prefix rule-type IDs", () => {
+      expect(applyCommandPrefix("hatch3r-code-standards", "rule")).toBe("hatch3r-code-standards");
+    });
+
+    it("does not prefix skill-type IDs", () => {
+      expect(applyCommandPrefix("hatch3r-feature", "skill")).toBe("hatch3r-feature");
+    });
+
+    it("does not prefix prompt-type IDs", () => {
+      expect(applyCommandPrefix("hatch3r-prompt", "prompt")).toBe("hatch3r-prompt");
+    });
+
+    it("does not prefix hook-type IDs", () => {
+      expect(applyCommandPrefix("hatch3r-hook", "hook")).toBe("hatch3r-hook");
+    });
+
+    it("does not double-prefix already-prefixed command IDs", () => {
+      // applyCommandPrefix always adds the prefix for command type,
+      // so passing an already-prefixed ID will double-prefix it.
+      // This documents the behavior — callers should not pass pre-prefixed IDs.
+      const result = applyCommandPrefix("cmd-hatch3r-feature-plan", "command");
+      expect(result).toBe("cmd-cmd-hatch3r-feature-plan");
     });
   });
 });

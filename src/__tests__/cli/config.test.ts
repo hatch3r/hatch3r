@@ -46,6 +46,7 @@ vi.mock("../../content/index.js", () => ({
 
 vi.mock("../../cli/shared/agentsContent.js", () => ({
   generateCanonicalAgentsMd: vi.fn().mockResolvedValue("# AGENTS.md content"),
+  generateRootAgentsMd: vi.fn().mockResolvedValue({ full: "<!-- HATCH3R:BEGIN -->\n# Root AGENTS.md\n<!-- HATCH3R:END -->\n", inner: "# Root AGENTS.md" }),
 }));
 
 vi.mock("../../merge/safeWrite.js", () => ({
@@ -60,6 +61,24 @@ vi.mock("../../env/mcpEnv.js", () => ({
 
 vi.mock("../../cli/shared/paths.js", () => ({
   findPackageRoot: vi.fn().mockReturnValue("/fake/package/root"),
+}));
+
+vi.mock("../../workspace/detect.js", () => ({
+  detectWorkspaceContext: vi.fn().mockResolvedValue({ type: "standalone" }),
+  detectSubRepos: vi.fn().mockResolvedValue([]),
+}));
+
+vi.mock("../../workspace/manifest.js", () => ({
+  readWorkspaceManifest: vi.fn().mockResolvedValue(null),
+  writeWorkspaceManifest: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("../../workspace/sync.js", () => ({
+  syncWorkspaceRepos: vi.fn().mockResolvedValue({ repos: [] }),
+}));
+
+vi.mock("../../workspace/git.js", () => ({
+  detectRepoGitIdentity: vi.fn().mockReturnValue({ owner: "", repo: "", defaultBranch: "main", platform: undefined }),
 }));
 
 vi.mock("../../cli/shared/ui.js", () => ({
@@ -88,10 +107,12 @@ import {
   extractContentReferences,
   validateOrchestrationDependencies,
 } from "../../content/index.js";
-import { generateCanonicalAgentsMd } from "../../cli/shared/agentsContent.js";
+import { generateCanonicalAgentsMd, generateRootAgentsMd } from "../../cli/shared/agentsContent.js";
 import { safeWriteFile } from "../../merge/safeWrite.js";
 import { ensureEnvMcp, ensureGitignoreEntry, getSourceEnvMcpCommand } from "../../env/mcpEnv.js";
 import { printBox, info, error as logError, warn } from "../../cli/shared/ui.js";
+import { detectWorkspaceContext } from "../../workspace/detect.js";
+import { readWorkspaceManifest, writeWorkspaceManifest } from "../../workspace/manifest.js";
 
 // ── Helpers ────────────────────────────────────────────────────
 
@@ -250,11 +271,16 @@ describe("config command", () => {
     vi.mocked(extractContentReferences).mockReturnValue([]);
     vi.mocked(validateOrchestrationDependencies).mockReturnValue([]);
     vi.mocked(generateCanonicalAgentsMd).mockResolvedValue("# AGENTS.md content");
+    vi.mocked(generateRootAgentsMd).mockResolvedValue({ full: "<!-- HATCH3R:BEGIN -->\n# Root AGENTS.md\n<!-- HATCH3R:END -->\n", inner: "# Root AGENTS.md" });
     vi.mocked(ensureEnvMcp).mockResolvedValue({ action: "skipped", path: ".env.mcp", newVars: [] });
     vi.mocked(getSourceEnvMcpCommand).mockReturnValue("source .env.mcp");
     vi.mocked(runUpdate).mockResolvedValue({ copiedFiles: 10, syncedTools: 1, failedTools: 0, version: "1.1.0" });
     vi.mocked(archiveToolOutputs).mockResolvedValue({ archivedFiles: [], migrations: [] });
     vi.mocked(writeManifest).mockResolvedValue(undefined);
+
+    // Re-apply workspace mocks
+    vi.mocked(detectWorkspaceContext).mockResolvedValue({ type: "standalone" });
+    vi.mocked(readWorkspaceManifest).mockResolvedValue(null);
 
     // Re-apply findPackageRoot mock
     const pathsMod = await import("../../cli/shared/paths.js");
@@ -1712,6 +1738,118 @@ describe("config command", () => {
       await configCommand();
 
       expect(callOrder).toEqual(["writeManifest", "runUpdate"]);
+    });
+  });
+
+  // ── Workspace context ─────────────────────────────────────────
+
+  describe("workspace context", () => {
+    it("should show member warning and exit when user chooses workspace", async () => {
+      const manifest = makeManifest();
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+      vi.mocked(detectWorkspaceContext).mockResolvedValue({
+        type: "workspace-member",
+        workspaceRoot: "/path/to/workspace",
+        rootPath: "../..",
+      });
+
+      // User chooses to switch to workspace root
+      vi.mocked(inquirer.prompt).mockResolvedValueOnce({ action: "workspace" });
+
+      const { configCommand } = await import("../../cli/commands/config.js");
+      await configCommand();
+
+      expect(vi.mocked(warn)).toHaveBeenCalledWith(
+        expect.stringContaining("managed by workspace"),
+      );
+      expect(vi.mocked(info)).toHaveBeenCalledWith(
+        expect.stringContaining("cd /path/to/workspace"),
+      );
+      // Should NOT have written manifest (early return)
+      expect(vi.mocked(writeManifest)).not.toHaveBeenCalled();
+    });
+
+    it("should continue with local config when member chooses local", async () => {
+      const manifest = makeManifest();
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+      vi.mocked(detectWorkspaceContext).mockResolvedValue({
+        type: "workspace-member",
+        workspaceRoot: "/path/to/workspace",
+        rootPath: "../..",
+      });
+
+      // User chooses to configure locally -- prepend the action prompt
+      const inquirerMock = vi.mocked(inquirer);
+      inquirerMock.prompt.mockResolvedValueOnce({ action: "local" });
+      setupStandardPrompts(manifest);
+
+      const { configCommand } = await import("../../cli/commands/config.js");
+      await configCommand();
+
+      // Should still warn but proceed
+      expect(vi.mocked(warn)).toHaveBeenCalledWith(
+        expect.stringContaining("managed by workspace"),
+      );
+    });
+
+    it("should show workspace header for workspace-root context", async () => {
+      // Use tools different from default to ensure a diff is detected
+      const manifest = makeManifest({ tools: ["cursor"] });
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+      vi.mocked(detectWorkspaceContext).mockResolvedValue({
+        type: "workspace-root",
+        workspaceRoot: "/path/to/workspace",
+      });
+      vi.mocked(readWorkspaceManifest).mockResolvedValue({
+        version: "1.0.0",
+        hatch3rVersion: "1.5.0",
+        name: "my-workspace",
+        repos: [
+          { path: "repo-a", name: "repo-a", sync: true },
+          { path: "repo-b", name: "repo-b", sync: false },
+        ],
+        defaults: {
+          tools: ["cursor"],
+          features: { ...DEFAULT_FEATURES },
+          mcp: { servers: ["github"] },
+          content: makeContentSelection(),
+        },
+        syncStrategy: "manual",
+      } as any);
+
+      // Change tools to create a diff so config proceeds past "no changes"
+      setupStandardPrompts(manifest, { tools: ["cursor", "claude"] });
+      // Add the workspace management prompt (decline to manage)
+      vi.mocked(inquirer.prompt).mockResolvedValueOnce({ manageWorkspace: false });
+
+      const { configCommand } = await import("../../cli/commands/config.js");
+      await configCommand();
+
+      // Should show workspace-aware header box
+      expect(vi.mocked(printBox)).toHaveBeenCalledWith(
+        expect.stringContaining("Workspace configuration (2 repos)"),
+        expect.any(Array),
+        "info",
+      );
+      // Should save workspace defaults even without managing
+      expect(vi.mocked(writeWorkspaceManifest)).toHaveBeenCalled();
+    });
+
+    it("should not show workspace prompts for standalone context", async () => {
+      const manifest = makeManifest();
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+      vi.mocked(detectWorkspaceContext).mockResolvedValue({ type: "standalone" });
+
+      setupStandardPrompts(manifest);
+
+      const { configCommand } = await import("../../cli/commands/config.js");
+      await configCommand();
+
+      // Should not show workspace header or member warning
+      expect(vi.mocked(warn)).not.toHaveBeenCalledWith(
+        expect.stringContaining("managed by workspace"),
+      );
+      expect(vi.mocked(writeWorkspaceManifest)).not.toHaveBeenCalled();
     });
   });
 });

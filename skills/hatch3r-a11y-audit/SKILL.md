@@ -2,6 +2,7 @@
 id: hatch3r-a11y-audit
 description: Comprehensive WCAG AA accessibility audit with findings and fixes. Use when auditing accessibility, verifying WCAG compliance, or improving a11y across the application.
 tags: [review, a11y]
+quality_charter: agents/shared/quality-charter.md
 ---
 # Accessibility Audit Workflow
 
@@ -50,7 +51,7 @@ Task Progress:
 
 **Keyboard navigation:**
 
-- Tab through all interactive elements. Ensure logical order, no focus traps.
+- Tab through all interactive elements. Verify logical order and confirm no focus traps exist.
 - All buttons, links, inputs, custom controls focusable.
 - Visible focus indicator (outline or ring) — no `outline: none` without replacement.
 - Escape closes modals/dropdowns. Enter/Space activates buttons.
@@ -58,7 +59,7 @@ Task Progress:
 **Color contrast:**
 
 - Check text vs background: ≥ 4.5:1 for normal text, ≥ 3:1 for large text.
-- Use DevTools or contrast checker. Test with design tokens — ensure no ad-hoc colors fail.
+- Use DevTools or contrast checker. Test with design tokens — flag any ad-hoc colors that fall below the 4.5:1 ratio.
 
 **ARIA attributes:**
 
@@ -99,7 +100,7 @@ Task Progress:
 - Implement fixes following project component and quality requirements.
 - Use semantic HTML where possible (`<button>`, `<a>`, `<nav>`, `<main>`).
 - Add `aria-*` attributes for custom components.
-- Ensure `prefers-reduced-motion` respected in CSS and JS.
+- Verify `prefers-reduced-motion` is respected by enabling the media query in DevTools and confirming animations are disabled or simplified.
 - Add or fix focus styles. Use design tokens for focus ring.
 - Verify reduced-motion behavior in tests.
 
@@ -107,7 +108,7 @@ Task Progress:
 
 - Re-run automated scan. No critical or major violations.
 - Manual keyboard and screen reader check on fixed areas.
-- Run full test suite to ensure no regressions.
+- Run full test suite and confirm 0 failures to verify no regressions.
 - Document remaining minor findings for future backlog.
 
 ## Required Agent Delegation
@@ -119,6 +120,12 @@ You MUST spawn these agents via the Task tool (`subagent_type: "generalPurpose"`
 ## Related Rules
 
 - **Rule**: `hatch3r-browser-verification` — follow this rule for live browser-based accessibility testing
+
+## Error Handling
+
+- **No automated scanner available**: If axe-core, Lighthouse, or equivalent is not installed, report the gap and proceed with manual checklist-only audit. Do not skip the audit.
+- **Scanner produces false positives**: Cross-reference automated findings against manual inspection. Mark confirmed false positives with justification and exclude from the violation count.
+- **Component renders differently across browsers**: Test in at least two browser engines (Chromium + Firefox or Safari). Document browser-specific a11y gaps with reproduction steps.
 
 ## Definition of Done
 

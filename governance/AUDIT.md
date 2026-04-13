@@ -4,7 +4,7 @@
 
 Perform a deep, end-to-end audit of every area, aspect, and line of code or content in the hatch3r framework. The goal is to ensure this framework is production-ready, open-sourceable, and excels in every capability compared to the current market — enabling end users to build winning software products at scale.
 
-This audit covers **19 domains** organized across **4 tiers**, deploying **107 sub-agents** for maximum depth. Every domain requires web research for current market context. The final deliverable is a structured audit report with severity-tagged findings, weighted domain scores, and prioritized action items using 3-tier progressive disclosure.
+This audit covers **19 domains** organized across **4 tiers**, deploying **106 sub-agents** for maximum depth. Every domain requires web research for current market context. The final deliverable is a structured audit report with severity-tagged findings, weighted domain scores, and prioritized action items using 3-tier progressive disclosure.
 
 > **Path Convention:** All file paths in this document are relative to the **repository root**. Governance files live under `governance/`. The ephemeral `.audit-workspace/` directory is created at repository root.
 
@@ -12,72 +12,23 @@ This audit covers **19 domains** organized across **4 tiers**, deploying **107 s
 
 ## Framework Context
 
-hatch3r is an open-source CLI (`npx hatch3r init`) and Cursor plugin that installs a tool-agnostic agentic coding setup into any repository. It uses a canonical source model (`/.agents/`) and generates tool-specific configurations via adapters.
+> Framework identity, architecture, and principles: see [VISION.md](VISION.md).
 
 ### Architecture
 
-```
-/.agents/                    <- Canonical source (tool-agnostic)
-  ├── agents/                <- Agent definitions
-  ├── skills/                <- Skill workflows (*/SKILL.md)
-  ├── rules/                 <- Coding standards, conventions
-  ├── commands/              <- Slash-command workflows
-  ├── prompts/               <- Reusable prompt templates
-  ├── hooks/                 <- Event-triggered automation
-  ├── checks/                <- Review criteria
-  ├── mcp/mcp.json           <- MCP server configuration
-  ├── policy/                <- Guardrails and deny lists
-  ├── learnings/             <- Project learnings
-  ├── AGENTS.md              <- Canonical orchestration reference
-  └── hatch.json             <- Manifest
+| Canonical Source (`/.agents/`) | Adapter Outputs |
+|------|-------|
+| agents/, skills/, rules/, commands/, prompts/, hooks/, checks/, mcp/, policy/, learnings/, AGENTS.md, hatch.json | .cursor/ (Cursor), .github/ (Copilot), CLAUDE.md (Claude), GEMINI.md (Gemini), .windsurfrules (Windsurf), .amp/ (Amp), AGENTS.md (OpenCode), .codex/ (Codex), .roo/.roomodes (Cline), .aider/ (Aider), .kiro/ (Kiro), .goosehints (Goose), .rules (Zed), .amazonq/ (Amazon Q), .antigravity/ (Antigravity) |
 
-Adapters generate tool-specific output:
-  .cursor/          <- Cursor       .github/         <- Copilot
-  CLAUDE.md         <- Claude Code  GEMINI.md        <- Gemini CLI
-  .windsurfrules    <- Windsurf     .amp/            <- Amp
-  AGENTS.md         <- OpenCode     .codex/          <- Codex CLI
-  .roo/ .roomodes   <- Cline        .aider/          <- Aider
-  .kiro/            <- Kiro         .goosehints      <- Goose
-  .rules            <- Zed          .amazonq/        <- Amazon Q
-```
+### Component Inventory
 
-### Component Inventory (verify counts during audit)
-
-| Category | Directory | Count |
-|----------|-----------|-------|
-| Agents | `agents/` | 16 |
-| Rules | `rules/` | 22 .md + 22 .mdc = 44 files |
-| Commands | `commands/` | 34 |
-| Skills | `skills/` | 25 directories |
-| Hooks | `hooks/` | 6 |
-| Prompts | `prompts/` | 3 |
-| Checks | `checks/` | 5 |
-| GitHub Agents | `github-agents/` | 4 |
-| **Total Content Artifacts** | | **137** |
-| Adapters | `src/adapters/` | 14 tool adapters (20 files total) |
-| CLI Commands | `src/cli/commands/` | 9 (add, config, init, status, sync, update, validate, verify, worktreeSetup) |
-| Content System | `src/content/` | 3 files (index.ts 686 LOC, tags.ts 91 LOC, presets.ts 48 LOC) = 825 LOC |
-| Workspace | `src/workspace/` | 6 files (763 LOC) |
-| Worktree | `src/worktree/` | 3 files (500 LOC) |
-| Integrity | `src/integrity/` | 1 file |
-| Archive | `src/archive/` | 1 file (index.ts, 263 LOC) |
-| TypeScript Source | `src/` | 61 files (excluding tests) |
-| Test Files | `src/__tests__/` | 47 test files |
-| CI Workflows | `.github/workflows/` | 4 workflows (ci, pr-checks, release, deploy-docs) |
-| Website Docs | `website/docs/` | 25 files |
+Sub-agents MUST run the Dynamic Verification Protocol below to establish actual counts. Do not rely on static numbers — verify by scanning the filesystem at audit start.
 
 #### Dynamic Verification Protocol
 
-The component inventory above is a reference snapshot. During audit execution, Tier A sub-agents MUST verify actual counts by scanning the filesystem:
-
-1. **Before Tier A launches:** Count files in each directory listed above. Record actual counts.
-2. **Discrepancy handling:** If actual counts differ from the table, use actual counts for all audit calculations. Flag the discrepancy as an Info finding in the relevant domain (D1 for content artifacts, D2 for adapters, D3 for tests, D4 for CI).
-3. **New categories:** If directories exist that are not in the table (e.g., a new content type), flag as Info in D1 and include in the audit scope.
-4. **Output:** Write verified inventory to `.audit-workspace/verified-inventory.json`. All subsequent sub-agents reference this file, not the static table.
-
-### Orchestration Model
-
-All tasks follow a four-phase sub-agent pipeline: (1) Research, (2) Implement, (3) Review Loop (max 3 iterations), (4) Final Quality (specialists).
+1. **Before Tier A launches:** Count files in each content and source directory. Record actual counts.
+2. **Discrepancy handling:** If actual counts differ from expectations, use actual counts for all audit calculations. Flag the discrepancy as an Info finding in the relevant domain (D1 for content artifacts, D2 for adapters, D3 for tests, D4 for CI).
+3. **Output:** Write verified inventory to `.audit-workspace/verified-inventory.json`. All subsequent sub-agents reference this file.
 
 ---
 
@@ -101,7 +52,7 @@ Not all domains require equal audit depth every cycle. To prevent diminishing re
 
 ### Sub-Agent Strategy
 
-Spawn **107 sub-agents** across 19 audit domains organized in 4 tiers. Each domain decomposes into multiple focused sub-agents for maximum depth. Sub-agents within the same domain run in parallel unless a sequential dependency is noted. Domain-level synthesis sub-agents run only after their prerequisite sub-agents complete. Inherit your LLM model to every sub-agent — do not downgrade. Each sub-agent MUST use web research. **Never optimize for token efficiency — optimize for audit quality and depth.**
+Spawn **106 sub-agents** across 19 audit domains organized in 4 tiers. Each domain decomposes into multiple focused sub-agents for maximum depth. Sub-agents within the same domain run in parallel unless a sequential dependency is noted. Domain-level synthesis sub-agents run only after their prerequisite sub-agents complete. Inherit your LLM model to every sub-agent — do not downgrade. Each sub-agent MUST use web research. **Never optimize for token efficiency — optimize for audit quality and depth.**
 
 ### Dependency Graph
 
@@ -111,26 +62,21 @@ The following sub-agents have sequential dependencies and MUST NOT launch until 
 |-----------|-----------|--------|
 | 9.15 (Capability Matrix Verification) | 9.1–9.14 | Requires all per-adapter audit findings |
 | 9.16 (Emerging Platforms) | 9.1–9.14 | Requires understanding of current adapter landscape |
-| 16.1 (One-Shot Success Analysis) | D5, D7 | Requires prompt quality and orchestration findings |
-| 16.2 (Content Coverage Gap Analysis) | D5, D9 | Requires content and adapter findings |
-| 16.3 (Prompt Consistency) | D5, D7 | Requires cross-artifact analysis |
-| 16.4 (Regression & Maintenance) | D3, D4 | Requires test and CI findings |
+| 16.1 (Cross-Domain Pattern Synthesis) | D5, D7, D9 | Requires prompt, orchestration, and adapter findings |
+| 16.2 (Coverage Gap Analysis) | D5, D9 | Requires content and adapter findings |
 | 17.3 (Market Positioning & Strategy) | 17.1, 17.2 | Requires competitor and ecosystem data |
-| 18.1 (PRD Alignment) | D16, D17 | Requires compound system and competitive findings |
-| 18.2 (Roadmap Reprioritization) | D16, D17 | Requires compound system and competitive findings |
-| 16.5 (Closed-Loop Effectiveness) | D18 (prev cycle)* | Requires previous audit cycle's PRD/content/evolution outputs |
+| 18.1 (PRD Alignment) | D16, D17 | Requires cross-domain synthesis and competitive findings |
+| 18.2 (Roadmap Reprioritization) | D16, D17 | Requires cross-domain synthesis and competitive findings |
 | 18.3 (Distribution Verdict) | 18.1, 18.2 | Requires PRD and roadmap analysis |
-
-> \* **External data dependency:** 16.5 depends on the *previous* cycle's D18 output, not the current cycle's D18 execution. This is a data prerequisite (load previous cycle's report), not a current-cycle execution dependency. 16.5 launches in Tier C after 16.4 completes — it does not wait for current-cycle Tier D.
 
 ### Concurrency Model
 
-Of the 107 total sub-agents, **96 launch immediately** in parallel. The remaining **11 sub-agents** launch sequentially after their dependencies complete:
+Of the 106 total sub-agents, **97 launch immediately** in parallel. The remaining **9 sub-agents** launch sequentially after their dependencies complete:
 
 | Tier | Sequential Sub-Agents |
 |------|----------------------|
 | B | 9.15, 9.16 |
-| C | 16.1, 16.2, 16.3, 16.4, 16.5 |
+| C | 16.1, 16.2 |
 | D | 17.3, 18.1, 18.2, 18.3 |
 
 ### Web Research Requirements
@@ -139,6 +85,7 @@ Every sub-agent MUST perform web research relevant to its domain:
 - **Platform/adapter domains (D9, D17):** Current platform documentation, competitor features, market shifts
 - **Security domains (D15):** Current OWASP guidelines, recent CVEs, MCP vulnerability reports
 - **Code quality domains (D1, D3, D8):** Current best practices for the specific pattern being audited (e.g., safe write patterns, test isolation techniques)
+- **Agentic development domain (D19):** Current Claude Code documentation for hooks, settings.json schema, skill format, Agent Teams API
 - **All domains:** At minimum, verify any external references (tool docs, standards) are current. Cite all sources with version/date.
 
 The goal is grounding findings in current standards, not satisfying a checkbox.
@@ -161,23 +108,17 @@ Execute by tier with synthesis between tiers:
 | Tier | Domains | Agents | Action |
 |------|---------|--------|--------|
 | A | D1–D4 | 27 | Launch → synthesize → release from context |
-| B | D5–D10 | 42 | Launch → synthesize → release from context |
-| C | D11–D16, D19 | 32 | Launch → synthesize → release from context |
+| B | D5–D10,D19 | 49 | Launch → synthesize → release from context |
+| C | D11–D16 | 24 | Launch → synthesize → release from context |
 | D | D17–D18 | 6 | Launch → synthesize → final assembly |
 
-Peak context: 42 sub-agent results (Tier B), not 107.
+Peak context: 49 sub-agent results (Tier B), not 106.
 
 ### Pre-Audit Questions
 
 Before beginning, ask the user:
 1. Is there a previous audit report to compare against? If so, where?
 2. Are there specific areas of concern or priority for this audit cycle?
-
-The following have sensible defaults. Ask only if context suggests the default is wrong:
-3. Include gitignored PRD (`governance/hatch3r-prd.md`) and competitive analysis (`governance/COMPETITIVE-ANALYSIS.md`) if available locally? **Default: Yes**
-4. Distribution model to evaluate? **Default: All (open-source npm, marketplace plugins, private npm)**
-5. New tools/platforms to add to adapter coverage? **Default: None — sub-agent 9.16 will discover via web research**
-6. Run closed-loop phases after audit assembly (PRD evolution, self-evolution, content gap identification)? **Default: Yes**
 
 ---
 
@@ -188,15 +129,15 @@ The following have sensible defaults. Ask only if context suggests the default i
 | Tier | Domains | Weight Per Domain | Tier Total |
 |------|---------|-------------------|------------|
 | A — Foundational | D1–D4 | 0.077 | 0.308 |
-| B — Quality | D5–D10 | 0.058 | 0.348 |
-| C — System-Level | D11–D16, D19 | 0.038 | 0.266 |
+| B — Quality | D5–D10,D19 | 0.0497 | 0.348 |
+| C — System-Level | D11–D16 | 0.0443 | 0.266 |
 | D — Strategic | D17–D18 | 0.039 | 0.078 |
 | **Total** | | | **1.00** |
 
 ### Weighted Score Formula
 
 ```
-Overall Score = SUM(domain_score[i] * weight[i]) for i in 1..19
+Overall Score = SUM(domain_score[i] * weight[i]) for all domains
 ```
 
 Each `domain_score[i]` is 0–100. The overall score is therefore 0–100.
@@ -225,30 +166,17 @@ Any domain with an unresolved **Critical** finding has its domain score capped a
 
 ### Calibration Check
 
-The quality score formula is a heuristic — it measures problem absence, not actual quality. To prevent score drift from reality:
-
-- After report assembly, the orchestrator compares each domain's formula score against its holistic assessment of that domain's actual quality.
-- Flag any domain where the formula score and holistic impression diverge by more than 10 points. Include the divergence in the Executive Dashboard with a brief explanation.
-- Over multiple cycles, persistent divergences should trigger CL-3 proposals to adjust the scoring formula weights.
+**Calibration check:** Flag any domain where formula score and holistic assessment diverge by >10 points. Persistent divergences across 2+ cycles trigger a CL-3 proposal.
 
 ### Severity Taxonomy
 
-| Severity | Definition | Release Impact |
-|----------|-----------|----------------|
-| **Critical** | Blocks production release or creates security/correctness risk | Must resolve before any release |
-| **High** | Significantly impacts quality, UX, or market competitiveness | Should resolve before release |
-| **Medium** | Improvement opportunity with clear benefit | Can defer to next release |
-| **Low** | Nice-to-have, polish item | Defer freely |
-| **Info** | Observation, suggestion, or context for future consideration | No release impact |
-
-### Effort Levels
-
-| Level | Duration |
-|-------|----------|
-| **S** | < 2 hours |
-| **M** | 2–8 hours |
-| **L** | 1–3 days |
-| **XL** | 1+ weeks |
+| Severity | Definition | Release Impact | Typical Effort |
+|----------|-----------|----------------|----------------|
+| Critical | Blocks correct operation or creates security vulnerability | Must fix before any release | S-M |
+| High | Significant quality gap affecting user success | Fix in current cycle | S-M |
+| Medium | Improvement opportunity with measurable user impact | Fix in current or next cycle | S-L |
+| Low | Minor enhancement or polish | Fix when convenient | S |
+| Info | Observation, no action required | None | — |
 
 ---
 
@@ -287,8 +215,8 @@ If total findings fall below 50, the orchestrating agent MUST verify depth by ch
 
 ### Quality Checklist
 
-- [ ] All 19 domains were thoroughly examined (no domain was skipped). Domains with zero findings must include a clean-domain justification citing: specific files examined, verification methods used, and web research performed. A clean domain is acceptable; a skipped domain is not.
-- [ ] All 107 sub-agents produced output (no silent failures)
+- [ ] All 19 domains were examined (no domain was skipped). Domains with zero findings must include a clean-domain justification citing: specific files examined, verification methods used, and web research performed. A clean domain is acceptable; a skipped domain is not.
+- [ ] All 106 sub-agents produced output (no silent failures)
 - [ ] Every Critical and High finding has a specific, actionable recommendation
 - [ ] Every finding references specific files, line numbers, or artifacts
 - [ ] Web research was performed for every domain (cite sources)
@@ -339,11 +267,13 @@ The orchestrator spawns sub-agents per domain file. Each sub-agent:
 
 ### Sub-Agent Behavioral Charter
 
+> **Canonical definition:** [CONSTITUTION.md](CONSTITUTION.md) §2 P2 defines the charter's governance role. The 13 directives below are the authoritative behavioral specification for audit sub-agents.
+
 Every audit sub-agent must internalize these behavioral directives. These govern HOW you think, not just WHAT you check. The checklists define scope; the charter defines mindset.
 
 1. **Neutrality** — Do not favor findings that inflate your domain's importance. Do not confirm previous audit conclusions without re-verifying independently. Approach each artifact as if seeing it for the first time.
 
-2. **Adversarial thinking** — Think like an attacker (D15), a confused first-time user (D19), a fatigued developer copy-pasting from a tutorial (D5). Ask "how could this realistically fail in practice?" not just "does this follow best practices?"
+2. **Adversarial thinking** — Think like an attacker (D15), a confused first-time user (D10), a fatigued developer copy-pasting from a tutorial (D5). Ask "how could this realistically fail in practice?" not just "does this follow best practices?"
 
 3. **Root-cause orientation** — Report root causes, not symptoms. "Missing error handling in function X" is a symptom; "no error strategy defined at the architecture level" is the root cause. If you can only identify the symptom, say so and rate confidence as medium.
 
@@ -360,6 +290,12 @@ Every audit sub-agent must internalize these behavioral directives. These govern
 9. **Challenge the premise** — At least once per domain, ask: "Is this the right approach, or is there a fundamentally better way?" Do not just evaluate execution quality — question whether the design itself is optimal. D7.1 (Pipeline Design) is the explicit home for architectural alternatives, but every domain should question its own assumptions.
 
 10. **Holistic awareness** — Consider how your findings interact with other domains. A D1 finding about error handling patterns may affect D8 (Error Recovery) and D5 (Prompt Engineering). Flag cross-cutting concerns explicitly with domain references so the cross-domain analysis pass can synthesize them.
+
+11. **User-facing perspective** — For any finding affecting CLI output, error messages, or user-visible behavior, evaluate from the perspective of a first-time user running `npx hatch3r init`, not from the developer maintaining the code.
+
+12. **Currency verification** — For any finding involving adapters or MCP servers, verify against the platform's latest official documentation. Cite the documentation version and date. A finding based on stale documentation is itself a finding.
+
+13. **Duplication awareness** — Before flagging a missing content artifact (agent, skill, rule, command), search existing artifacts for overlapping coverage. A proposal for content that already exists is a false positive, not a finding.
 
 ### Domain File Quality Standard
 
@@ -378,22 +314,22 @@ Each domain file (`governance/audit/domains/D{NN}-{name}.md`) must meet these mi
 | A | 2: Adapter Infrastructure | 7 | 7 | 0 |
 | A | 3: Test Infrastructure | 5 | 5 | 0 |
 | A | 4: Build, CI/CD & Dependencies | 5 | 5 | 0 |
-| B | 5: Prompt Engineering Quality | 7 | 7 | 0 |
+| B | 5: Prompt Engineering Quality | 8 | 8 | 0 |
 | B | 6: Context Engineering & Token Economics | 4 | 4 | 0 |
 | B | 7: Agent Orchestration Optimization | 5 | 5 | 0 |
 | B | 8: Error Recovery & Resilience | 4 | 4 | 0 |
-| B | 9: Platform Adapters | 16 | 14 | 2 (9.15, 9.16) |
-| B | 10: Documentation & Developer Experience | 6 | 6 | 0 |
+| B | 9: Platform Adapters | 16 | 14 | 2 |
+| B | 10: User Experience & Documentation | 8 | 8 | 0 |
+| B | 19: Agentic Development Self-Governance | 4 | 4 | 0 |
 | C | 11: End-to-End Data Flow | 4 | 4 | 0 |
-| C | 12: Agent Observability & Debuggability | 4 | 4 | 0 |
+| C | 12: CLI Diagnostics & Traceability | 4 | 4 | 0 |
 | C | 13: Human-AI Collaboration Quality | 4 | 4 | 0 |
 | C | 14: Cross-Project Adaptability & Scalability | 4 | 4 | 0 |
 | C | 15: Agentic Security & Trust Model | 6 | 6 | 0 |
-| C | 16: Compound System Evaluation | 5 | 0 | 5 |
-| C | 19: User Journey & Adoption Friction | 5 | 5 | 0 |
-| D | 17: Competition & Market Intelligence | 3 | 2 | 1 (17.3) |
+| C | 16: Cross-Domain Synthesis | 2 | 0 | 2 |
+| D | 17: Competition & Market Intelligence | 3 | 2 | 1 |
 | D | 18: PRD, Roadmap & Distribution | 3 | 0 | 3 |
-| **Total** | | **107** | **96** | **11** |
+| **Total** | | **106** | **98** | **8** |
 
 > **Note:** Sub-agent counts and domain list may evolve across audit cycles via the self-evolution process (Phase CL-3). The table above reflects the current baseline. Any changes require explicit user consent.
 
@@ -448,67 +384,21 @@ The final audit report MUST use 3-tier progressive disclosure for maximum utilit
 
 ### Tier 1: Executive Dashboard
 
-```
-Audit Date: YYYY-MM-DD
-Framework Version: (from package.json)
-Previous Audit: (date or "N/A")
-Auditor: (model name and version)
-Domains Covered: 19/19
-Sub-Agents Deployed: 107
+> Template: see `governance/audit/templates/report-format.md`
 
-Overall Score: XX/100 (Weighted)
-Score Band: [Ship Ready / Minor Issues / Needs Work / Significant Risk / Not Ready]
-Severity Ceiling Applied: [Yes/No — if any domain has unresolved Critical]
-
-Top 3 Strengths:
-1. ...
-2. ...
-3. ...
-
-Top 3 Critical Issues:
-1. ...
-2. ...
-3. ...
-
-Competitive Positioning: (1 sentence)
-Distribution Recommendation: (1 sentence)
-```
-
-#### Holistic Assessment
-
-In 3-5 sentences, provide the orchestrator's subjective quality impression of the framework — independent of the formula score. What feels strong? What feels fragile? What is the overall craft quality and design coherence? Note specifically where the holistic impression diverges from the formula score and explain why. This section serves as a calibration signal for the scoring methodology.
-
-#### Domain Heatmap
-
-```
-| Domain | Score | Critical | High | Medium | Low | Info |
-|--------|-------|----------|------|--------|-----|------|
-| D1: Core Source Implementation | XX | N | N | N | N | N |
-| D2: Adapter Infrastructure | XX | N | N | N | N | N |
-| D3: Test Infrastructure | XX | N | N | N | N | N |
-| D4: Build, CI/CD & Dependencies | XX | N | N | N | N | N |
-| D5: Prompt Engineering Quality | XX | N | N | N | N | N |
-| D6: Context Engineering | XX | N | N | N | N | N |
-| D7: Orchestration Optimization | XX | N | N | N | N | N |
-| D8: Error Recovery & Resilience | XX | N | N | N | N | N |
-| D9: Platform Adapters | XX | N | N | N | N | N |
-| D10: Documentation & DevEx | XX | N | N | N | N | N |
-| D11: End-to-End Data Flow | XX | N | N | N | N | N |
-| D12: Observability | XX | N | N | N | N | N |
-| D13: Human-AI Collaboration | XX | N | N | N | N | N |
-| D14: Adaptability & Scalability | XX | N | N | N | N | N |
-| D15: Agentic Security | XX | N | N | N | N | N |
-| D16: Compound System | XX | N | N | N | N | N |
-| D17: Competition & Market | XX | N | N | N | N | N |
-| D18: PRD, Roadmap & Distribution | XX | N | N | N | N | N |
-| D19: User Journey & Adoption | XX | N | N | N | N | N |
-```
+Includes: Holistic Assessment (3-5 sentence subjective quality impression) and Domain Heatmap (score + finding counts per domain).
 
 ---
 
 ### Tier 2: Domain Summaries
 
-For each of the 19 domains: Health Score (X/100), Finding Count by severity, Top 3 Findings (`[Severity] Finding — recommendation (Effort)`), Key Recommendation (1 sentence).
+For each domain: Health Score (X/100), Finding Count by severity, Top 3 Findings (`[Severity] Finding — recommendation (Effort)`), Key Recommendation (1 sentence).
+
+---
+
+### Strengths Inventory
+
+Each domain summary must include a **Strengths** subsection listing 1-3 specific implementation strengths observed during the audit. Strengths must cite specific files, patterns, or metrics -- not general praise. Example: "Atomic write pattern in `src/merge/safeWrite.ts` prevents partial-write corruption across all 15 adapters." Strengths that persist across 3+ audit cycles are candidates for the project's public documentation.
 
 ---
 
@@ -534,17 +424,7 @@ Findings spanning multiple domains: `#`, `Finding`, `Domains`, `Primary Domain`,
 
 ### Enhanced Action Items
 
-**This table MUST include every unique finding post-deduplication.** Do not curate, truncate, or limit to a "top N" subset. The execution prompt (`AUDIT-EXECUTE.md`) reads this table as the complete universe of findings.
-
-Ordered by: Critical first, then High, Medium, Low. Within severity, order by impact-to-effort ratio (highest first).
-
-Columns: `#`, `Domain`, `Action Item`, `Severity`, `Effort`, `Risk Score` (Impact x Likelihood x Reversibility, each 1-5), `Owner`, `Depends On`, `Status`.
-
-**Status values:** `Open` (agent-actionable), `Open (human-only)`, `**Done**`, `Deferred (reason)`.
-
-**Completeness check:** Total row count must equal the post-dedup finding count in the Executive Dashboard.
-
-**Sections:** Blockers (Critical), Should-Have (High), Deferred (Medium/Low). Include: Estimated Total Effort, Recommended Sequence, Risk Assessment.
+> Template: see `governance/audit/templates/report-format.md`
 
 ---
 
@@ -556,11 +436,11 @@ Recommendation on: open-source vs private npm, marketplace strategy, timing, lic
 
 ### Delta Since Previous Audit
 
-(If previous audit exists) New findings, resolved findings, regressed findings, score changes per domain.
+> Template: see `governance/audit/templates/report-format.md`
 
 ---
 
-### Closed-Loop Analysis (if Pre-Audit Question 6 = Yes)
+### Closed-Loop Analysis
 
 Append three tables produced by the Post-Audit Closed-Loop Phases:
 1. **PRD Evolution Candidates** — from Phase CL-1
@@ -573,133 +453,40 @@ These sections are informational. They do not affect domain scores or the distri
 
 ## Post-Audit Closed-Loop Phases
 
-These phases run after report assembly, gated by Pre-Audit Question 6. They produce structured output appended to the audit report. They are identification-only — no files are modified. The execution companion (AUDIT-EXECUTE.md) acts on the output.
+These phases run after report assembly. They produce structured output appended to the audit report. They are identification-only — no files are modified. The execution companion (AUDIT-EXECUTE.md) acts on the output.
 
 ### Phase CL-1: PRD Evolution Identification
 
-**Trigger:** Pre-Audit Question 6 = Yes AND `governance/hatch3r-prd.md` is available.
-**Input:** Assembled audit report (all tiers), `governance/hatch3r-prd.md`, `governance/VISION.md` (if available).
-**Agent:** Single synthesis agent (not a sub-agent pool — this requires cross-domain reasoning).
-
-#### Process
-
-1. Extract PRD-relevant findings from:
-   - D17 (competitive gaps): Features competitors offer that hatch3r does not → candidates for PRD feature additions
-   - D16.2 (content coverage gaps): Uncovered workflows/tech stacks → candidates for PRD scope expansion
-   - D19 (user journey issues): Adoption friction points → candidates for PRD UX requirement changes
-   - D18.1 (PRD alignment): Implementation/spec gaps → candidates for PRD corrections
-   - D9 (adapter findings): Platform changes → candidates for PRD adapter requirement updates
-
-2. For each candidate, produce:
-   - **PRD section affected** (by section number)
-   - **Change type:** Addition / Modification / Removal / Reprioritization
-   - **Proposed change** (specific text or description)
-   - **Justification** (which finding(s) and evidence support this)
-   - **VISION.md alignment** (does this change align with the north star? If not, flag as "Requires Vision Review")
-
-3. Output format — append to audit report:
-
-```
-### PRD Evolution Candidates
-
-| # | PRD Section | Change Type | Proposed Change | Justification | Vision Aligned |
-|---|-------------|-------------|-----------------|---------------|----------------|
-```
-
-#### Constraints
-- Do NOT modify `governance/hatch3r-prd.md` — only identify changes.
-- Competitive features are candidates, not mandates. The user decides priority.
-- Changes that contradict VISION.md must be flagged with "Requires Vision Review."
+**Trigger:** Audit findings suggest product direction changes.
+**Inputs:** Findings tagged with PRD impact, current `governance/hatch3r-prd.md`.
+**Output table:** | Candidate | Domain | Finding | PRD Section | Change Type | Priority |
+**Constraints:** Identification only — no modifications. Flag items needing Vision Review.
+**Process detail:** See `governance/audit/templates/closed-loop-agents.md` Phase 5 agent.
 
 ### Phase CL-2: Content Gap Identification
 
-**Trigger:** Pre-Audit Question 6 = Yes.
-**Input:** D16.2 findings (content coverage gap analysis), verified component inventory.
-**Agent:** Single synthesis agent.
-
-#### Process
-
-1. From D16.2 findings, extract every identified gap:
-   - Missing agents (workflow types with no supporting agent)
-   - Missing skills (common tasks with no skill workflow)
-   - Missing rules (conventions not codified)
-   - Missing commands (actions users need but cannot invoke)
-   - Missing prompts (reusable templates that would reduce duplication)
-
-2. For each gap, produce:
-   - **Content type:** Agent / Skill / Rule / Command / Prompt / Hook / Check
-   - **Proposed name** (following `hatch3r-{name}` convention)
-   - **Purpose** (1-2 sentences)
-   - **Priority:** P1 (blocks common workflows) / P2 (improves coverage) / P3 (nice-to-have)
-   - **Estimated complexity:** S / M / L
-   - **Dependencies** (existing artifacts it would interact with)
-
-3. Output format — append to audit report:
-
-```
-### Content Gap Artifacts
-
-| # | Type | Proposed Name | Purpose | Priority | Complexity | Dependencies |
-|---|------|---------------|---------|----------|------------|--------------|
-```
-
-#### Constraints
-- Do NOT create content artifacts — only identify them.
-- Names must follow existing conventions.
-- Priority must be justified by specific D16.2 findings.
+**Trigger:** Audit reveals missing or inadequate content artifacts.
+**Inputs:** Findings identifying content gaps, verified artifact inventory.
+**Output table:** | Artifact | Type | Gap Description | Priority (P1/P2/P3) | Depends On |
+**Priority tiers:** P1 = full spec (blocks user success), P2 = outline spec (improves quality), P3 = list only (nice-to-have).
+**Constraints:** Specs only — no content implementation. Follow existing conventions and frontmatter patterns.
+**Process detail:** See `governance/audit/templates/closed-loop-agents.md` Phase 6 agent.
 
 ### Phase CL-3: Audit Self-Evolution Identification
 
-**Trigger:** Pre-Audit Question 6 = Yes.
-**Input:** Full audit execution experience (all domain results, quality gate outcomes, scoring anomalies).
-**Agent:** Single meta-analysis agent.
+**Trigger:** Audit process itself has improvement opportunities.
+**Inputs:** Audit execution observations, cross-domain patterns.
+**Output table:** | Proposal | Category | Current State | Proposed Change | Rationale | Risk |
 
-**User consent is required before any self-evolution proposals are applied. This phase only identifies proposals — it does not modify AUDIT.md or domain files.**
+**Categories:** (1) New/modified domain scope, (2) Sub-agent count changes, (3) Checklist refinements, (4) Scoring methodology adjustments, (5) Process improvements.
 
-#### Process
-
-1. **New domain candidates:** Are there recurring cross-domain findings that suggest a dedicated domain? Threshold: 3+ findings spanning 3+ existing domains with a shared theme not covered by any single domain.
-
-2. **Domain hardening candidates:** For each domain:
-   - Were all checklist items exercised, or were some too vague to audit?
-   - Were findings discovered that no checklist item covers?
-   - Should checklist items be split into more specific checks?
-
-3. **Scoring weight adjustment candidates:**
-   - Did any domain's weight produce counterintuitive results?
-   - Did the tier structure correctly reflect importance?
-
-4. **Sub-agent count adjustment candidates:**
-   - Were any sub-agents consistently producing zero findings (oversized scope)?
-   - Were any sub-agents consistently producing 10+ findings (undersized scope)?
-
-5. **Quality gate adjustment candidates:**
-   - Were the expected finding count ranges accurate?
-   - Were the shallow finding detector patterns effective?
-
-6. For each proposal, produce:
-   - **Target:** AUDIT.md section or domain file
-   - **Change type:** Add domain / Add checklist item / Modify checklist item / Adjust weight / Adjust sub-agent count / Adjust quality gate
-   - **Proposal** (specific text)
-   - **Evidence** (what from this audit cycle triggered this)
-   - **Risk** (what could go wrong if adopted)
-
-7. Output format — append to audit report:
-
-```
-### Audit Self-Evolution Proposals
-
-| # | Target | Change Type | Proposal | Evidence | Risk |
-|---|--------|-------------|----------|----------|------|
-
-**These proposals require explicit user consent before implementation. Present each proposal individually for yes/no decision.**
-```
-
-#### Constraints
-- Maximum 10 proposals per audit cycle (prevents runaway evolution).
-- New domains require user approval AND a full domain file specification.
-- Weight adjustments must preserve tier total invariant (A=0.308, B=0.348, C=0.266, D=0.078, Total=1.00).
-- Never propose removing a domain — only adding, splitting, or hardening.
+**Constraints:**
+- Maximum 10 proposals per cycle
+- Per-proposal user consent required (never batch-approve)
+- Weight changes must preserve tier totals (A=0.308, B=0.348, C=0.266, D=0.078)
+- Never remove domains without replacement
+- Sub-agent count changes require corresponding domain file updates
+**Process detail:** See `governance/audit/templates/closed-loop-agents.md` Phase 7 agent.
 
 ---
 

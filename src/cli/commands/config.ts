@@ -8,6 +8,7 @@ import {
   AGENTS_DIR,
   DEFAULT_FEATURES,
   HatchError,
+  WORKTREE_CAPABLE_TOOLS,
   WORKTREE_INCLUDE_FILE,
   type ContentSelection,
   type Features,
@@ -30,7 +31,7 @@ import { runUpdate } from "./update.js";
 import { archiveToolOutputs, removeManagedFilesForPaths, type MigrationNotice } from "../../archive/index.js";
 import { findPackageRoot } from "../shared/paths.js";
 import { readWorkspaceManifest, writeWorkspaceManifest } from "../../workspace/manifest.js";
-import { detectSubRepos } from "../../workspace/detect.js";
+import { detectSubRepos, detectWorkspaceContext } from "../../workspace/detect.js";
 import { syncWorkspaceRepos } from "../../workspace/sync.js";
 import { detectRepoGitIdentity } from "../../workspace/git.js";
 import { TOOL_DISPLAY_NAMES, TOOL_PROMPT_CHOICES, FEATURE_CHOICES, MCP_CHOICES, PLATFORM_DISPLAY_NAMES, PLATFORM_MCP_SERVER, sanitizeInput, isWSL } from "../shared/constants.js";
@@ -45,7 +46,7 @@ import {
   validateOrchestrationDependencies,
   TYPE_TO_SELECTION_KEY,
 } from "../../content/index.js";
-import { generateCanonicalAgentsMd } from "../shared/agentsContent.js";
+import { generateCanonicalAgentsMd, generateRootAgentsMd } from "../shared/agentsContent.js";
 import { safeWriteFile } from "../../merge/safeWrite.js";
 import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
 
@@ -158,13 +159,46 @@ export async function configCommand(): Promise<void> {
     throw new HatchError("No .agents/hatch.json found.", 1, "CONFIG_ERROR");
   }
 
-  // Warn early if this repo is managed by a workspace
-  if (manifest.workspace) {
+  // Detect workspace context early to drive UI flow
+  const wsContext = await detectWorkspaceContext(rootDir);
+
+  if (wsContext.type === "workspace-member") {
     warn(
-      `This repo is managed by workspace at ${manifest.workspace.rootPath}. ` +
+      `This repo is managed by workspace at ${wsContext.workspaceRoot}. ` +
       `Changes here may be overwritten on next workspace sync.`,
     );
     console.log();
+    const { action } = await inquirer.prompt<{ action: string }>([
+      {
+        type: "select",
+        name: "action",
+        message: "How would you like to proceed?",
+        choices: [
+          { name: "Configure this repo locally", value: "local" },
+          { name: "Switch to workspace root config", value: "workspace" },
+        ],
+        default: "local",
+      },
+    ]);
+    if (action === "workspace") {
+      info(`To configure the workspace, run: cd ${wsContext.workspaceRoot} && npx hatch3r config`);
+      return;
+    }
+  }
+
+  // Show workspace-aware header for workspace roots
+  const wsManifest = await readWorkspaceManifest(rootDir);
+  if (wsContext.type === "workspace-root" && wsManifest) {
+    const repoCount = wsManifest.repos.length;
+    printBox(
+      `Workspace configuration (${repoCount} repo${repoCount !== 1 ? "s" : ""})`,
+      [
+        label("Workspace", wsManifest.name),
+        label("Strategy", wsManifest.syncStrategy),
+        label("Repos", wsManifest.repos.map((r) => r.name ?? r.path).join(", ") || "(none)"),
+      ],
+      "info",
+    );
   }
 
   printCurrentConfig(manifest);
@@ -176,7 +210,7 @@ export async function configCommand(): Promise<void> {
   // --- Platform ---
   const platformAnswer = await inquirer.prompt<{ platform: Platform }>([
     {
-      type: "list",
+      type: "select",
       name: "platform",
       message: "Platform:",
       choices: [
@@ -296,8 +330,7 @@ export async function configCommand(): Promise<void> {
   }
 
   // --- Worktree isolation ---
-  const worktreeCapableTools = new Set(["claude"]);
-  const hasWorktreeTool = tools.some(t => worktreeCapableTools.has(t));
+  const hasWorktreeTool = tools.some(t => WORKTREE_CAPABLE_TOOLS.has(t));
   if (hasWorktreeTool) {
     const wtAnswer = await inquirer.prompt<{ enabled: boolean }>([{
       type: "confirm",
@@ -347,7 +380,7 @@ export async function configCommand(): Promise<void> {
           name: "items",
           message: "Select content items (space to toggle):",
           choices: index.items.map((item) => ({
-            name: `${item.type}: ${item.id.replace(/^hatch3r-/, "")} — ${item.description.slice(0, 60)}`,
+            name: `${item.type}: ${item.id.replace(/^(cmd-)?hatch3r-/, "")} — ${item.description.slice(0, 60)}`,
             value: item.id,
             checked: currentIds.has(item.id),
           })),
@@ -452,10 +485,14 @@ export async function configCommand(): Promise<void> {
       }
       manifest.content.items = newItems;
 
-      // Regenerate canonical AGENTS.md after content changes
+      // Regenerate canonical and root AGENTS.md after content changes
       if (contentChanges.added.length > 0 || contentChanges.removed.length > 0) {
         const canonicalAgentsMd = await generateCanonicalAgentsMd(agentsDir);
         await safeWriteFile(join(agentsDir, "AGENTS.md"), canonicalAgentsMd);
+        const rootAgentsMd = await generateRootAgentsMd(agentsDir);
+        await safeWriteFile(join(rootDir, "AGENTS.md"), rootAgentsMd.full, {
+          managedContent: rootAgentsMd.inner,
+        });
       }
     }
   }
@@ -633,27 +670,41 @@ export async function configCommand(): Promise<void> {
   }
 
   // ── Workspace management ──────────────────────────────────────
-  const wsManifest = await readWorkspaceManifest(rootDir);
-  if (wsManifest) {
+  // Re-read workspace manifest in case it wasn't loaded earlier (e.g. standalone with workspace.json)
+  const wsManifestFinal = wsManifest ?? await readWorkspaceManifest(rootDir);
+  if (wsManifestFinal) {
+    // Save workspace defaults when running at workspace root
+    if (wsContext.type === "workspace-root") {
+      wsManifestFinal.defaults.tools = tools;
+      wsManifestFinal.defaults.features = features;
+      wsManifestFinal.defaults.mcp = { servers: mcpServers };
+      if (manifest.content) {
+        wsManifestFinal.defaults.content = manifest.content;
+      }
+      if (platform) {
+        wsManifestFinal.defaults.platform = platform;
+      }
+    }
+
     console.log();
     info(chalk.bold("Workspace configuration"));
-    const currentRepos = wsManifest.repos.map((r) => r.path);
+    const currentRepos = wsManifestFinal.repos.map((r) => r.path);
     console.log(chalk.dim(`  Repos: ${currentRepos.join(", ") || "(none)"}`));
-    console.log(chalk.dim(`  Sync strategy: ${wsManifest.syncStrategy}`));
+    console.log(chalk.dim(`  Sync strategy: ${wsManifestFinal.syncStrategy}`));
 
     const { manageWorkspace } = await inquirer.prompt<{ manageWorkspace: boolean }>([
       {
         type: "confirm",
         name: "manageWorkspace",
         message: "Configure workspace settings?",
-        default: false,
+        default: wsContext.type === "workspace-root",
       },
     ]);
 
     if (manageWorkspace) {
       // Scan for new repos
       const detectedRepos = await detectSubRepos(rootDir);
-      const existingPaths = new Set(wsManifest.repos.map((r) => r.path));
+      const existingPaths = new Set(wsManifestFinal.repos.map((r) => r.path));
       const newRepos = detectedRepos.filter((r) => !existingPaths.has(r.path));
 
       if (newRepos.length > 0) {
@@ -671,18 +722,18 @@ export async function configCommand(): Promise<void> {
           },
         ]);
         for (const path of addRepos) {
-          wsManifest.repos.push({ path, name: path, sync: false });
+          wsManifestFinal.repos.push({ path, name: path, sync: false });
         }
       }
 
       // Toggle sync per repo
-      if (wsManifest.repos.length > 0) {
+      if (wsManifestFinal.repos.length > 0) {
         const { syncRepos } = await inquirer.prompt<{ syncRepos: string[] }>([
           {
             type: "checkbox",
             name: "syncRepos",
             message: "Select repos to sync:",
-            choices: wsManifest.repos.map((r) => ({
+            choices: wsManifestFinal.repos.map((r) => ({
               name: r.name ?? r.path,
               value: r.path,
               checked: r.sync,
@@ -691,16 +742,16 @@ export async function configCommand(): Promise<void> {
           },
         ]);
         const syncSet = new Set(syncRepos);
-        for (const repo of wsManifest.repos) {
+        for (const repo of wsManifestFinal.repos) {
           repo.sync = syncSet.has(repo.path);
         }
       }
 
       // Per-repo git identity
-      if (wsManifest.repos.length > 0) {
+      if (wsManifestFinal.repos.length > 0) {
         const { editIdentity } = await inquirer.prompt<{ editIdentity: string }>([
           {
-            type: "list",
+            type: "select",
             name: "editIdentity",
             message: "Repo git identities:",
             choices: [
@@ -713,7 +764,7 @@ export async function configCommand(): Promise<void> {
         ]);
 
         if (editIdentity === "detect") {
-          for (const repo of wsManifest.repos) {
+          for (const repo of wsManifestFinal.repos) {
             const identity = detectRepoGitIdentity(join(rootDir, repo.path));
             repo.owner = identity.owner || undefined;
             repo.repo = identity.repo || undefined;
@@ -722,7 +773,7 @@ export async function configCommand(): Promise<void> {
           }
           info("Re-detected git identities for all repos.");
         } else if (editIdentity === "edit") {
-          for (const repo of wsManifest.repos) {
+          for (const repo of wsManifestFinal.repos) {
             console.log(chalk.bold(`\n  ${repo.name ?? repo.path}:`));
             const identity = await inquirer.prompt<{ owner: string; repo: string; defaultBranch: string }>([
               { type: "input", name: "owner", message: "  Owner:", default: repo.owner || undefined },
@@ -739,22 +790,22 @@ export async function configCommand(): Promise<void> {
       // Sync strategy
       const { strategy } = await inquirer.prompt<{ strategy: "manual" | "on-sync" }>([
         {
-          type: "list",
+          type: "select",
           name: "strategy",
           message: "Sync strategy:",
           choices: [
             { name: "Manual — sync sub-repos only with --repos flag", value: "manual" as const },
             { name: "On sync — auto-sync sub-repos when running hatch3r sync", value: "on-sync" as const },
           ],
-          default: wsManifest.syncStrategy,
+          default: wsManifestFinal.syncStrategy,
         },
       ]);
-      wsManifest.syncStrategy = strategy;
+      wsManifestFinal.syncStrategy = strategy;
 
-      await writeWorkspaceManifest(rootDir, wsManifest);
+      await writeWorkspaceManifest(rootDir, wsManifestFinal);
 
       // Offer to sync now
-      const syncCount = wsManifest.repos.filter((r) => r.sync).length;
+      const syncCount = wsManifestFinal.repos.filter((r) => r.sync).length;
       if (syncCount > 0) {
         const { syncNow } = await inquirer.prompt<{ syncNow: boolean }>([
           {
@@ -772,6 +823,9 @@ export async function configCommand(): Promise<void> {
           wsSpinner.succeed(`Workspace sync: ${succeeded} repo(s) synced`);
         }
       }
+    } else if (wsContext.type === "workspace-root") {
+      // Even without managing repos/sync, save workspace defaults
+      await writeWorkspaceManifest(rootDir, wsManifestFinal);
     }
   }
 

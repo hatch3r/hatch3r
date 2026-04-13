@@ -3,6 +3,7 @@ id: researcher-mode-risk-prioritization
 type: mode
 description: Risk-ranked prioritization of testing effort by business impact and coverage.
 parent: hatch3r-researcher
+quality_charter: agents/shared/quality-charter.md
 ---
 ### Mode: `risk-prioritization`
 

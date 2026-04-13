@@ -4,7 +4,6 @@ import type {
 } from "../types.js";
 import { toPrefixedId } from "../types.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
-import { generateBridgeOrchestration } from "../cli/shared/agentsContent.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
 import { readCanonicalFiles } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
@@ -35,7 +34,7 @@ export class CopilotAdapter extends BaseAdapter {
       }
     }
 
-    const bridgeOrchestration = await generateBridgeOrchestration(ctx.agentsDir);
+    const bridgeOrchestration = await this.bridgeOrchestration(ctx);
     const innerContent = [
       "",
       "# Hatch3r Project Instructions",
@@ -55,7 +54,7 @@ export class CopilotAdapter extends BaseAdapter {
       "New to this project's agent setup? Progress through these stages:",
       "",
       "**Start here:** Instructions in `.github/instructions/` scope rules to specific file patterns. The orchestration bridge above guides your workflow.",
-      "**Next:** Use prompts in `.github/prompts/` and commands in `.github/copilot/commands/` for guided workflows.",
+      "**Next:** Use prompts and commands in `.github/prompts/` for guided workflows.",
       "**Then:** Delegate to agents in `.github/agents/` for specialized tasks.",
       "**Later:** Customize agent behavior via `.hatch3r/{type}/{id}.customize.yaml` without editing managed files.",
       "",
@@ -65,19 +64,22 @@ export class CopilotAdapter extends BaseAdapter {
     const pm = await detectPackageManager(ctx.projectRoot);
     const install = [pm.installCmd, ...pm.installArgs].join(" ");
     const build = `${pm.installCmd} run build`;
-    const copilotSetupSteps = `name: "Copilot Setup Steps"
-on: [push]
+    const copilotSetupStepsInner = `name: "Copilot Setup Steps"
+on: push
 jobs:
-  setup:
+  copilot-setup-steps:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
         run: ${install}
       - name: Build
-        run: ${build}
-`;
-    results.push(output(".github/workflows/copilot-setup-steps.yml", copilotSetupSteps));
+        run: ${build}`;
+    results.push(output(
+      ".github/workflows/copilot-setup-steps.yml",
+      wrapInManagedBlock(copilotSetupStepsInner) + "\n",
+      copilotSetupStepsInner,
+    ));
 
     for (const { rule, content, scope } of scopedRules) {
       const globs = scope.includes(",")
@@ -119,14 +121,14 @@ jobs:
     }
 
     results.push(
-      ...await this.processCommandsRaw(ctx, (id) => `.github/copilot/commands/${toPrefixedId(id)}.prompt.md`),
+      ...await this.processCommandsRaw(ctx, (id) => `.github/prompts/${toPrefixedId(id)}.prompt.md`),
     );
 
     if (ctx.features.githubAgents) {
       const ghAgents = await readCanonicalFiles(ctx.agentsDir, "github-agents");
       for (const agent of ghAgents) {
         const body = agent.rawContent;
-        results.push(output(`.github/copilot/agents/${toPrefixedId(agent.id)}.md`, wrapInManagedBlock(body), body));
+        results.push(output(`.github/agents/${toPrefixedId(agent.id)}.agent.md`, wrapInManagedBlock(body), body));
       }
     }
 
@@ -136,18 +138,8 @@ jobs:
 
     const mcp = await this.readFilteredMcp(ctx);
     if (mcp && Object.keys(mcp).length > 0) {
-      const vscodeServers: Record<string, Record<string, unknown>> = {};
-      for (const [name, server] of Object.entries(mcp)) {
-        const entry: Record<string, unknown> = {};
-        if (server.command) entry.command = server.command;
-        if (server.args) entry.args = server.args;
-        if (server.url) entry.url = server.url;
-        if (server.env) entry.env = server.env;
-        if (server.command && server.env && Object.keys(server.env).length > 0) {
-          entry.env = server.env;
-        }
-        vscodeServers[name] = entry;
-      }
+      // Use shared buildStdMcpEntries to avoid redundant env construction (#2.19)
+      const vscodeServers = this.buildStdMcpEntries(mcp, "shell");
       results.push(output(".vscode/mcp.json", JSON.stringify({ servers: vscodeServers }, null, 2) + "\n"));
     }
 

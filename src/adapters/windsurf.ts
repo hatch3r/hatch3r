@@ -1,7 +1,6 @@
 import type { AdapterOutput } from "../types.js";
 import { toPrefixedId } from "../types.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
-import { generateBridgeOrchestration } from "../cli/shared/agentsContent.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
 import { readCanonicalFiles } from "./canonical.js";
 import { applyCustomization } from "./customization.js";
@@ -22,7 +21,7 @@ export class WindsurfAdapter extends BaseAdapter {
   protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
     const results: AdapterOutput[] = [];
 
-    const bridgeOrchestration = await generateBridgeOrchestration(ctx.agentsDir);
+    const bridgeOrchestration = await this.bridgeOrchestration(ctx);
     const windsurfInner = [
       "",
       "# Hatch3r Agent Instructions",
@@ -57,8 +56,11 @@ export class WindsurfAdapter extends BaseAdapter {
         const globScope = (trigger === "glob" && scope)
           ? (isGlobPattern(scope) ? scope : `${scope}/**`)
           : undefined;
-        const fm = `---\ntrigger: ${trigger}${globScope ? `\nglobs: "${globScope}"` : ""}\n---`;
         const desc = overrides.description ?? rule.description;
+        // Windsurf requires a description field for model_decision triggers
+        // so the AI model knows when to activate the rule.
+        const descField = trigger === "model_decision" ? `\ndescription: "${desc.replace(/"/g, '\\"')}"` : "";
+        const fm = `---\ntrigger: ${trigger}${descField}${globScope ? `\nglobs: "${globScope}"` : ""}\n---`;
         const body = `# ${rule.id}\n\n${desc}\n\n${content}`;
         results.push(output(`.windsurf/rules/${toPrefixedId(rule.id)}.md`, `${fm}\n\n${wrapInManagedBlock(body)}`, body));
       }
@@ -74,7 +76,7 @@ export class WindsurfAdapter extends BaseAdapter {
 
     const mcp = await this.readFilteredMcp(ctx);
     if (mcp && Object.keys(mcp).length > 0) {
-      const entries = this.buildStdMcpEntries(mcp);
+      const entries = this.buildStdMcpEntries(mcp, "shell");
       if (Object.keys(entries).length > 0) {
         results.push(output(".windsurf/mcp.json", JSON.stringify({ mcpServers: entries }, null, 2) + "\n"));
       }

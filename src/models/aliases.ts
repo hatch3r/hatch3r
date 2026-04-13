@@ -1,3 +1,8 @@
+/**
+ * Short alias -> full model ID mapping.
+ * Used in hatch.json `models` configuration and .customize.yaml files
+ * so users can write `"opus"` instead of `"claude-opus-4-6"`.
+ */
 export const MODEL_ALIASES: Record<string, string> = {
   "opus": "claude-opus-4-6",
   "sonnet": "claude-sonnet-4-6",
@@ -11,6 +16,7 @@ export const MODEL_ALIASES: Record<string, string> = {
   "gemini-stable": "gemini-2.5-pro",
 };
 
+/** Expand a model alias to its full ID, or return the input if not an alias. */
 export function resolveModelAlias(input: string): string {
   return MODEL_ALIASES[input] ?? input;
 }

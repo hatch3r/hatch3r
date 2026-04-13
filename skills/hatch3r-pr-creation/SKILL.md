@@ -2,8 +2,9 @@
 id: hatch3r-pr-creation
 description: Create a pull request or merge request following project conventions including branch naming, PR/MR template, checklist, and rollout plan. Use when opening or preparing a PR/MR, or when the user asks to create a PR or MR.
 tags: [core, implementation]
+quality_charter: agents/shared/quality-charter.md
 ---
-> **Note:** Commands below use `npm` as an example. Substitute with your project's package manager (`yarn`, `pnpm`, `bun`) or build tool as appropriate.
+> **Note:** Commands below use `npm` as an example. Substitute with your project's package manager (`yarn`, `pnpm`, `bun`) or build tool when your project uses a different package manager.
 
 # PR / MR Creation Workflow
 
@@ -84,6 +85,12 @@ You MUST spawn these agents via the Task tool (`subagent_type: "generalPurpose"`
 ## Related Skills
 
 - **Skill**: `hatch3r-issue-workflow` — use this skill for the parent issue-to-PR workflow that feeds into PR creation
+
+## Error Handling
+
+- **PR/MR creation fails due to missing remote branch**: Push the local branch to the remote first (`git push -u origin {branch}`), then retry the PR/MR creation.
+- **CI checks fail on the PR/MR**: Diagnose the failure locally, push fixes as new commits (do not force-push during review), and verify CI passes before requesting review.
+- **Merge conflicts with the target branch**: Rebase onto the target branch, resolve conflicts, re-run all tests, and force-push the rebased branch only if no reviews have been submitted yet.
 
 ## Size Guidelines
 

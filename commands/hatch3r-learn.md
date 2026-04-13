@@ -3,6 +3,7 @@ id: hatch3r-learn
 type: command
 description: Capture learnings from development sessions into reusable knowledge files for future consultation.
 tags: [core, maintenance]
+quality_charter: agents/shared/quality-charter.md
 ---
 
 ## Agent Pipeline

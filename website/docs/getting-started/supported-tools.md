@@ -5,7 +5,7 @@ title: Supported Tools
 
 # Supported Tools
 
-hatch3r generates native configuration for 14 AI coding platforms from a single canonical source.
+hatch3r generates native configuration for 15 AI coding platforms from a single canonical source.
 
 ## Platform Overview
 
@@ -25,6 +25,7 @@ hatch3r generates native configuration for 14 AI coding platforms from a single 
 | **Goose** | B | B | B | -- | Y | -- |
 | **Zed** | B | B | -- | -- | -- | -- |
 | **Amazon Q** | B | B | Y | -- | Y | -- |
+| **Antigravity** | B | B | Y | -- | Y | -- |
 
 **Legend:** **Y** = adapter emits files, **B** = bridge (content folded into instruction file), **~** = platform reads canonical paths natively, **--** = no platform support
 

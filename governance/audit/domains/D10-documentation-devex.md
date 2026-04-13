@@ -1,59 +1,80 @@
-# Domain 10: Documentation & Developer Experience
+# Domain 10: User Experience & Documentation
 
-**Scope:** All user-facing documentation, CLI UX, first-run experience, and developer experience metrics.
-**Sub-agents:** 6
+**Scope:** All user-facing documentation, CLI UX, first-run experience, adoption friction, and developer experience metrics. The gap between "code works correctly" and "user succeeds" — tracing user journeys to find where correct code creates confusion, surprise, or failure.
+**Sub-agents:** 8
+**Evaluation method:** Sub-agents 10.3-10.7 trace concrete user scenarios end-to-end through the codebase. Reference specific files, functions, output strings, and user-facing messages. Findings are about UX clarity and adoption friction, not code correctness.
 
 | SA | Focus |
 |----|-------|
-| 10.1 | README, Docs & Website |
-| 10.2 | CLI UX |
-| 10.3 | First-Run Experience |
-| 10.4 | SPACE DevEx Metrics |
-| 10.5 | Output Clarity |
-| 10.6 | Learning Curve |
+| 10.1 | Documentation Accuracy |
+| 10.2 | CLI UX & Output Quality |
+| 10.3 | First-Run to First-Value Journey |
+| 10.4 | Customization & Configuration Clarity |
+| 10.5 | Multi-Tool Coexistence |
+| 10.6 | Content Profile & Selection Impact |
+| 10.7 | Workflow Chain Viability |
+| 10.8 | Learning Curve & Adoption Metrics |
 
 ## Audit Checklists
 
-### 10.1 README, Docs & Website
+### 10.1 Documentation Accuracy
 - [ ] README accuracy — counts, examples, links all correct and current
-- [ ] `docs/` accuracy — all docs files reflect current implementation
-- [ ] `website/docs/` accuracy and completeness — all features documented, navigation logical
+- [ ] `docs/` and `website/docs/` accuracy — reflect current implementation, navigation logical
 - [ ] CHANGELOG accuracy — reflects all actual changes since last release
 - [ ] Plugin manifest — `.cursor-plugin/plugin.json` version, description, counts match reality
 - [ ] Cross-references — internal links work, related topics connected
-- [ ] Comparison to competitors — how does documentation quality compare?
-
-### 10.2 CLI UX
-- [ ] Interactive prompts clarity (inquirer) — questions clear, defaults sensible, flow logical
-- [ ] Progress feedback (ora) — informative without being noisy
-- [ ] Output formatting (boxen, chalk) — readable and accessible
-- [ ] Error message actionability — clear next steps for every error
-- [ ] Accessibility — works in high-contrast terminals, screen readers, CI environments
-
-### 10.3 First-Run Experience
-- [ ] Getting-started UX — can a new user go from zero to working setup in under 5 minutes?
-- [ ] Per-preset end-to-end test — default, minimal, full, custom presets all work
-- [ ] Decision count per preset — how many choices must the user make?
-- [ ] Quality of defaults — pressing Enter through everything produces a good setup
-- [ ] Post-init guidance — CLI tells the user what to do next
-- [ ] In-IDE discoverability — once installed, how intuitive is discovery within each supported tool?
-
-### 10.4 SPACE DevEx Metrics
-Apply the SPACE framework to assess hatch3r's impact on developer experience:
+- [ ] Competitor comparison — how does documentation quality compare?
+### 10.2 CLI UX & Output Quality
+- [ ] Interactive prompts (inquirer) — questions clear, defaults sensible, flow logical
+- [ ] Progress feedback (ora) — informative without noise; users can track long operations
+- [ ] Output formatting (boxen, chalk) — readable, accessible in high-contrast, screen readers, CI
+- [ ] Error actionability — clear next steps for every error; severity levels visually distinct
+- [ ] Agent and review output — structured, parseable, actionable; users understand findings
+### 10.3 First-Run to First-Value Journey
+Trace init to first useful agent output. Ref: `src/cli/commands/init.ts`, generated rules files, `quick-start.md`
+- [ ] Zero-to-working in under 5 min — per-preset end-to-end test (default, minimal, full, custom)
+- [ ] Decision count and default quality — choices per preset; Enter-through produces good setup
+- [ ] Post-init message clarity — distinguishes CLI vs agent slash commands; adapts for greenfield/brownfield
+- [ ] MCP setup guidance — `.env.mcp` flow explained at the right moment, not discovered on failure
+- [ ] First agent invocation — user reaches `/project-spec` or `/codebase-map` without external docs
+- [ ] Common misstep errors — slash commands in terminal, missing env vars, unsourced `.env.mcp`
+- [ ] Time-to-first-value and in-IDE discoverability — total steps to first output; intuitive discovery in each tool
+- [ ] Simulated walkthrough — trace init-to-first-value on greenfield and brownfield repos, record friction
+### 10.4 Customization & Configuration Clarity
+Ref: `src/manifest/hatchJson.ts`, `src/cli/commands/config.ts`, `sync.ts`, `src/adapters/base.ts`
+- [ ] Three mechanisms distinguished — managed blocks, `.customize.yaml`, manual edits explained where encountered
+- [ ] Sync/update output — explains preserved vs overwritten, not just file counts
+- [ ] `.customize.yaml` validation — syntax (valid YAML) and references (valid IDs) checked
+- [ ] Marker recovery — path exists when user deletes `HATCH3R:BEGIN`/`HATCH3R:END`
+- [ ] Config vs customize relationship — `hatch3r config` clarifies its role; removing content warns about dependencies
+- [ ] Sync fear factor — messaging reassures customizations outside managed blocks are preserved
+### 10.5 Multi-Tool Coexistence
+Ref: `src/adapters/`, `src/cli/commands/config.ts`
+- [ ] Output path collision audit — enumerate all adapter output paths; identify shared files
+- [ ] Secret loading differences — documented at tool selection time, not discovered later
+- [ ] Adapter cleanup on removal — removing a tool deletes its generated files
+- [ ] Tool switching guidance — documented path for migrating between tools
+### 10.6 Content Profile & Selection Impact
+Ref: `src/content/index.ts`, `presets.ts`, `tags.ts`, `src/cli/commands/init.ts`
+- [ ] Profile selector shows exclusions — Minimal/Standard/Full shows what's excluded, not just included
+- [ ] Filter visibility — greenfield/brownfield and solo/team effects visible at selection time
+- [ ] Content dependency chains — removing agent X breaks skills Y/Z; dependency surfaced to user
+- [ ] Profile change after init — path from Minimal to Standard/Full is obvious and additive, not destructive
+- [ ] Filter interaction effects — brownfield + solo + Minimal yields intended experience
+### 10.7 Workflow Chain Viability
+Ref: `.agents/commands/`, `.agents/skills/`, `website/docs/guides/`, `quick-start.md`
+- [ ] Full chain mapped: init -> /project-spec -> /roadmap -> /board-init -> /board-fill -> /board-pickup -> /workflow -> /review -> /release
+- [ ] Prerequisites per step — GitHub Projects V2, MCP servers, API keys, git remote identified
+- [ ] Failure clarity — which steps fail silently vs with clear errors; which are falsely optional?
+- [ ] Lite path — workflow chain viable without board management steps
+- [ ] Progressive disclosure — features encountered at right time, not all visible from day one
+- [ ] Quick-start accuracy — docs represent the minimum viable workflow
+### 10.8 Learning Curve & Adoption Metrics
+SPACE framework and learning curve assessment:
 - [ ] **Satisfaction** — developer sentiment toward the framework
-- [ ] **Performance** — task completion rate and quality with the framework
+- [ ] **Performance** — task completion rate and quality
 - [ ] **Activity** — usage metrics and engagement patterns
-- [ ] **Communication** — how the framework affects collaboration quality
-- [ ] **Efficiency** — impact on developer flow state and productivity
-
-### 10.5 Output Clarity
-- [ ] Agent output quality — are outputs structured, parseable, actionable?
-- [ ] Review loop output clarity — can users understand what was found and fixed?
-- [ ] Error output — are errors distinguishable from warnings and info?
-- [ ] Progress output — can users track what the framework is doing?
-
-### 10.6 Learning Curve
-- [ ] Learning curve estimation — time from first use to proficient use
-- [ ] Cognitive load measurement — how many concepts must a user learn?
-- [ ] Progressive disclosure evaluation — does the framework reveal complexity gradually?
-- [ ] Documentation-to-action ratio — how much reading before productive use?
+- [ ] **Communication** — impact on collaboration quality
+- [ ] **Efficiency** — impact on flow state and productivity
+- [ ] Learning curve — time to proficiency; concepts to learn; complexity revealed gradually
+- [ ] Documentation-to-action ratio — reading required before productive use

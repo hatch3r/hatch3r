@@ -17,6 +17,7 @@ import {
   DEFAULT_FEATURES,
   HatchError,
   VALID_TOOLS,
+  WORKTREE_CAPABLE_TOOLS,
   WORKTREE_INCLUDE_FILE,
   type ContentSelection,
   type Features,
@@ -26,7 +27,7 @@ import {
 } from "../../types.js";
 import { analyzeRepo } from "../../detect/repoAnalyzer.js";
 import { ensureEnvMcp, ensureGitignoreEntry, getSourceEnvMcpCommand } from "../../env/mcpEnv.js";
-import { AGENTS_MD_INNER, AGENTS_MD_FULL, generateCanonicalAgentsMd } from "../shared/agentsContent.js";
+import { generateCanonicalAgentsMd, generateRootAgentsMd } from "../shared/agentsContent.js";
 import {
   printBanner,
   createSpinner,
@@ -58,10 +59,10 @@ const DEFAULT_MCP: string[] = ["playwright", "github", "context7"];
 
 /**
  * Check if a content selection includes any board-related content.
- * Board content IDs follow the pattern "hatch3r-board-*".
+ * Board content IDs follow the pattern "cmd-hatch3r-board-*" (prefixed during indexing).
  */
 function selectionHasBoardContent(selection: ContentSelection): boolean {
-  return selection.items.commands.some((id) => id.startsWith("hatch3r-board"));
+  return selection.items.commands.some((id) => id.startsWith("cmd-hatch3r-board"));
 }
 
 /**
@@ -90,7 +91,7 @@ function deriveWorkspacePlatform(identities: Array<{ platform: Platform }>): Pla
   return best;
 }
 
-interface RunInitOptions {
+export interface RunInitOptions {
   rootDir: string;
   platform: Platform;
   owner: string;
@@ -105,7 +106,7 @@ interface RunInitOptions {
   contentSelection: ContentSelection;
 }
 
-async function runInit(options: RunInitOptions): Promise<void> {
+export async function runInit(options: RunInitOptions): Promise<void> {
   const { rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection } = options;
   const agentsDir = join(rootDir, AGENTS_DIR);
   const totalSteps = 4;
@@ -176,8 +177,10 @@ async function runInit(options: RunInitOptions): Promise<void> {
   );
   s3.start();
   // On init, preserve existing user content: prepend managed block if file has no markers.
-  await safeWriteFile(join(rootDir, "AGENTS.md"), AGENTS_MD_FULL, {
-    managedContent: AGENTS_MD_INNER,
+  // Generate rich root AGENTS.md with agent/skill/command rosters for platform discovery.
+  const rootAgentsMd = await generateRootAgentsMd(agentsDir);
+  await safeWriteFile(join(rootDir, "AGENTS.md"), rootAgentsMd.full, {
+    managedContent: rootAgentsMd.inner,
     appendIfNoBlock: true,
   });
   addManagedFile(manifest, "AGENTS.md");
@@ -223,8 +226,7 @@ async function runInit(options: RunInitOptions): Promise<void> {
   }
 
   // Generate .worktreeinclude for worktree-capable tools
-  const worktreeCapableTools = new Set(["claude"]);
-  const hasWorktreeTool = tools.some(t => worktreeCapableTools.has(t));
+  const hasWorktreeTool = tools.some(t => WORKTREE_CAPABLE_TOOLS.has(t));
   if (hasWorktreeTool) {
     manifest.worktree = manifest.worktree ?? { enabled: true };
   }
@@ -483,7 +485,7 @@ export async function initCommand(
 
   const platformAnswer = await inquirer.prompt<{ platform: Platform }>([
     {
-      type: "list",
+      type: "select",
       name: "platform",
       message: "Select your platform:",
       choices: [
@@ -553,7 +555,7 @@ export async function initCommand(
   const brownfieldExcl = countProjectTypeExclusions("brownfield", filterIndex.items);
   const projectTypeAnswer = await inquirer.prompt<{ projectType: "greenfield" | "brownfield" }>([
     {
-      type: "list",
+      type: "select",
       name: "projectType",
       message: "Is this a new (greenfield) or existing (brownfield) project?",
       choices: [
@@ -569,7 +571,7 @@ export async function initCommand(
   const soloExcl = countTeamSizeExclusions("solo", filterIndex.items);
   const teamSizeAnswer = await inquirer.prompt<{ teamSize: "solo" | "team" }>([
     {
-      type: "list",
+      type: "select",
       name: "teamSize",
       message: "Solo developer or team collaboration?",
       choices: [
@@ -585,7 +587,7 @@ export async function initCommand(
   const totalItems = filterIndex.items.length;
   const presetAnswer = await inquirer.prompt<{ preset: PresetId }>([
     {
-      type: "list",
+      type: "select",
       name: "preset",
       message: "Select content profile:",
       choices: PRESETS.map((p) => {
@@ -632,7 +634,7 @@ export async function initCommand(
       groupedChoices.push(new inquirer.Separator(`── ${TAG_LABELS[tag] ?? tag} (${items.length}) ──`));
       for (const item of items) {
         groupedChoices.push({
-          name: `${item.type}: ${item.id.replace(/^hatch3r-/, "")} — ${item.description.slice(0, 60)}`,
+          name: `${item.type}: ${item.id.replace(/^(cmd-)?hatch3r-/, "")} — ${item.description.slice(0, 60)}`,
           value: item.id,
           checked: item.protected || item.tags.includes("core"),
         });
@@ -852,7 +854,7 @@ async function runWorkspaceInit(
     const wsBrownfieldExcl = countProjectTypeExclusions("brownfield", wsFilterIndex.items);
     const projectTypeAnswer = await inquirer.prompt<{ projectType: "greenfield" | "brownfield" }>([
       {
-        type: "list",
+        type: "select",
         name: "projectType",
         message: "Is this a new (greenfield) or existing (brownfield) project?",
         choices: [
@@ -867,7 +869,7 @@ async function runWorkspaceInit(
     const wsSoloExcl = countTeamSizeExclusions("solo", wsFilterIndex.items);
     const teamSizeAnswer = await inquirer.prompt<{ teamSize: "solo" | "team" }>([
       {
-        type: "list",
+        type: "select",
         name: "teamSize",
         message: "Solo developer or team collaboration?",
         choices: [
@@ -882,7 +884,7 @@ async function runWorkspaceInit(
     const wsTotalItems = wsFilterIndex.items.length;
     const presetAnswer = await inquirer.prompt<{ preset: PresetId }>([
       {
-        type: "list",
+        type: "select",
         name: "preset",
         message: "Select content profile:",
         choices: PRESETS.map((p) => {
@@ -923,7 +925,7 @@ async function runWorkspaceInit(
         wsGroupedChoices.push(new inquirer.Separator(`── ${WS_TAG_LABELS[tag] ?? tag} (${items.length}) ──`));
         for (const item of items) {
           wsGroupedChoices.push({
-            name: `${item.type}: ${item.id.replace(/^hatch3r-/, "")} — ${item.description.slice(0, 60)}`,
+            name: `${item.type}: ${item.id.replace(/^(cmd-)?hatch3r-/, "")} — ${item.description.slice(0, 60)}`,
             value: item.id,
             checked: item.protected || item.tags.includes("core"),
           });

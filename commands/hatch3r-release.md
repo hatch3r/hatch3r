@@ -3,6 +3,7 @@ id: hatch3r-release
 type: command
 description: Cut a versioned release with changelog generation, version bumping, and GitHub release creation.
 tags: [devops]
+quality_charter: agents/shared/quality-charter.md
 ---
 # Release — Cut a Versioned Release with Changelog
 
@@ -19,6 +20,8 @@ This command runs as a single orchestrator without sub-agent delegation. Quality
 **Read the project's shared board context at the start of the run** (e.g., `.agents/commands/hatch3r-board-shared.md` or equivalent). It contains GitHub Context, Project Reference, and tooling directives. Use GitHub MCP tools for issue/PR operations. Fallback to `gh` CLI for release creation (outside MCP catalog).
 
 **Default branch:** Use `board.defaultBranch` from `.agents/hatch.json` (fallback: `"main"`) for all git operations involving the base branch (e.g., `git log`, `search_pull_requests` with `base`, `git push origin`).
+
+**Consult learnings:** If `.agents/learnings/` exists, scan for learnings related to release processes, version bumping conventions, or prior release issues before starting.
 
 ## Global Rule Overrides
 
@@ -104,7 +107,7 @@ npm run lint && npm run typecheck && npm run test
 
 1. Update `version` in `package.json` to the confirmed version.
 2. If `functions/package.json` exists and tracks version, update it to the same version.
-3. If other workspace packages track version, update them as needed.
+3. If other workspace packages track version, update them when their `package.json` references the root version.
 
 **ASK:** "Version bump applied. Proceed to commit and tag? (yes / abort)"
 

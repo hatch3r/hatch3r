@@ -112,7 +112,7 @@ describe("update command", () => {
     const manifest = JSON.parse(
       await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"),
     );
-    expect(manifest.hatch3rVersion).toBe("1.4.0");
+    expect(manifest.hatch3rVersion).toBe("1.5.0");
   });
 
   it("should copy hatch3r-prefixed files from pack", async () => {
@@ -164,7 +164,7 @@ describe("update command", () => {
   });
 
   it("should note when already at latest version", async () => {
-    await createTestProject(tempDir, { hatch3rVersion: "1.4.0" });
+    await createTestProject(tempDir, { hatch3rVersion: "1.5.0" });
 
     const { updateCommand } = await import("../../cli/commands/update.js");
     await updateCommand({ backup: false });

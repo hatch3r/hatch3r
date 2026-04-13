@@ -10,7 +10,7 @@ import { wrapInManagedBlock } from "../merge/managedBlocks.js";
 import { generateBridgeOrchestration } from "../cli/shared/agentsContent.js";
 import { readCanonicalFiles } from "./canonical.js";
 import { applyCustomization, applyCustomizationRaw } from "./customization.js";
-import { readMcpConfig, type McpServerEntry } from "./mcp-utils.js";
+import { readMcpConfig, transformEnvVarSyntax, type McpServerEntry } from "./mcp-utils.js";
 import { readHookDefinitions } from "../hooks/index.js";
 
 export interface Adapter {
@@ -20,6 +20,7 @@ export interface Adapter {
   getOutputPaths(agentsDir: string, manifest: HatchManifest): Promise<string[]>;
 }
 
+/** Convenience factory for creating an AdapterOutput with `action: "create"`. */
 export function output(
   path: string,
   content: string,
@@ -67,29 +68,63 @@ export abstract class BaseAdapter implements Adapter {
    */
   async generate(agentsDir: string, manifest: HatchManifest, generationMode: GenerationMode = "standard"): Promise<AdapterOutput[]> {
     this.warnings = [];
-    return this.doGenerate({
+    this._cachedOutputPaths = null; // Invalidate path cache on re-generation
+    const outputs = await this.doGenerate({
       agentsDir,
       manifest,
       features: manifest.features,
       projectRoot: dirname(agentsDir),
       generationMode,
     });
+
+    // #119: Validate output invariants to catch generation bugs early
+    for (const out of outputs) {
+      if (out.path.startsWith("/") || out.path.includes("..")) {
+        this.warnings.push(`[${this.name}] Invalid output path "${out.path}" — must be relative with no traversal`);
+      }
+      if (!out.content) {
+        this.warnings.push(`[${this.name}] Empty content for output "${out.path}" — possible generation bug`);
+      }
+      if (out.managedContent && !out.content.includes(out.managedContent)) {
+        this.warnings.push(`[${this.name}] managedContent is not a substring of content for "${out.path}"`);
+      }
+    }
+
+    return outputs;
   }
 
   /**
    * Returns the list of output file paths this adapter would produce.
-   * Override in subclasses for a lightweight implementation that avoids
-   * full content generation when only paths are needed.
+   *
+   * The default implementation calls `generate()` and extracts paths, which
+   * is correct but incurs the cost of full content generation. Subclasses
+   * that can determine paths without rendering content (e.g. adapters with
+   * fixed output paths or paths derived only from canonical file IDs)
+   * should override this with a lightweight implementation.
+   *
+   * Caches the result so repeated calls do not re-generate.
    */
+  private _cachedOutputPaths: string[] | null = null;
   async getOutputPaths(agentsDir: string, manifest: HatchManifest): Promise<string[]> {
+    if (this._cachedOutputPaths) return this._cachedOutputPaths;
     const outputs = await this.generate(agentsDir, manifest);
-    return outputs.map((o) => o.path);
+    this._cachedOutputPaths = outputs.map((o) => o.path);
+    return this._cachedOutputPaths;
   }
 
   protected abstract doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]>;
 
+  /**
+   * Returns the raw bridge orchestration content (no surrounding headers).
+   * Use this when the adapter needs custom formatting around the bridge content.
+   */
+  protected async bridgeOrchestration(ctx: AdapterContext): Promise<string> {
+    const orchestration = await generateBridgeOrchestration(ctx.agentsDir, ctx.manifest.content?.preset);
+    return this.isMinimal(ctx) ? this.stripMinimal(orchestration) : orchestration;
+  }
+
   protected async bridgeHeader(ctx: AdapterContext, agentsPath = "/.agents/AGENTS.md"): Promise<string[]> {
-    const orchestration = await generateBridgeOrchestration(ctx.agentsDir);
+    const orchestration = await this.bridgeOrchestration(ctx);
     if (this.isMinimal(ctx)) {
       return [
         "",
@@ -97,7 +132,7 @@ export abstract class BaseAdapter implements Adapter {
         "",
         `Instructions: \`${agentsPath}\``,
         "",
-        this.stripMinimal(orchestration),
+        orchestration,
         "",
       ];
     }
@@ -112,6 +147,7 @@ export abstract class BaseAdapter implements Adapter {
     ];
   }
 
+  /** Read canonical rules and format them as inline markdown sections. */
   protected async inlineRules(ctx: AdapterContext): Promise<string[]> {
     if (!ctx.features.rules) return [];
     const lines: string[] = [];
@@ -131,6 +167,7 @@ export abstract class BaseAdapter implements Adapter {
     return lines;
   }
 
+  /** Read canonical agents and format them as inline markdown sections with optional model annotations. */
   protected async inlineAgents(
     ctx: AdapterContext,
     formatModel?: (model: string) => ModelFormat,
@@ -159,6 +196,7 @@ export abstract class BaseAdapter implements Adapter {
     return lines;
   }
 
+  /** Process skills and output each as a raw managed-block file at the path returned by `pathFn`. */
   protected async processSkillsRaw(
     ctx: AdapterContext,
     pathFn: (id: string) => string,
@@ -175,6 +213,7 @@ export abstract class BaseAdapter implements Adapter {
     return results;
   }
 
+  /** Process skills and output each with YAML frontmatter (name, description) at the path returned by `pathFn`. */
   protected async processSkillsWithFm(
     ctx: AdapterContext,
     pathFn: (id: string) => string,
@@ -193,6 +232,7 @@ export abstract class BaseAdapter implements Adapter {
     return results;
   }
 
+  /** Process commands and output each as a raw managed-block file at the path returned by `pathFn`. */
   protected async processCommandsRaw(
     ctx: AdapterContext,
     pathFn: (id: string) => string,
@@ -209,6 +249,7 @@ export abstract class BaseAdapter implements Adapter {
     return results;
   }
 
+  /** Read MCP server config and filter to only the servers selected in the manifest. */
   protected async readFilteredMcp(
     ctx: AdapterContext,
   ): Promise<Record<string, CleanMcpEntry> | null> {
@@ -227,19 +268,31 @@ export abstract class BaseAdapter implements Adapter {
     return Object.keys(filtered).length > 0 ? filtered : null;
   }
 
+  /** Build a standard MCP server configuration object from filtered entries, with env var syntax transformation. */
   protected buildStdMcpEntries(
     filtered: Record<string, CleanMcpEntry>,
+    envVarFormat: "claude" | "shell" | "passthrough" = "passthrough",
   ): Record<string, Record<string, unknown>> {
     const result: Record<string, Record<string, unknown>> = {};
     for (const [name, server] of Object.entries(filtered)) {
       if (server.command) {
-        result[name] = {
+        const entry: Record<string, unknown> = {
           command: server.command,
           args: server.args || [],
-          ...(server.env && Object.keys(server.env).length > 0 ? { env: server.env } : {}),
+          ...(server.env && Object.keys(server.env).length > 0
+            ? { env: transformEnvVarSyntax(server.env, envVarFormat) }
+            : {}),
         };
+        if (server.headers && Object.keys(server.headers).length > 0) {
+          entry.headers = transformEnvVarSyntax(server.headers, envVarFormat);
+        }
+        result[name] = entry;
       } else if (server.url) {
-        result[name] = { url: server.url };
+        const entry: Record<string, unknown> = { url: server.url };
+        if (server.headers && Object.keys(server.headers).length > 0) {
+          entry.headers = transformEnvVarSyntax(server.headers, envVarFormat);
+        }
+        result[name] = entry;
       }
     }
     return result;

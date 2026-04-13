@@ -2,8 +2,9 @@
 id: hatch3r-security-patterns
 type: rule
 description: Security patterns including input validation, auth enforcement, and AI/agentic security for the project
-scope: always
+scope: "**/auth/**,**/security/**,**/middleware/**,**/*auth*,**/*guard*,**/*policy*,**/*permission*,**/*sanitiz*,**/*validat*"
 tags: [security]
+quality_charter: agents/shared/quality-charter.md
 ---
 # Security Patterns
 
@@ -202,7 +203,7 @@ tags: [security]
 ### A08 — Software and Data Integrity Failures
 
 - Verify integrity of all software updates, dependencies, and CI/CD pipeline artifacts using digital signatures or checksums.
-- Use lockfiles and verify their integrity. `npm ci` (not `npm install`) in CI to ensure deterministic builds.
+- Use lockfiles and verify their integrity. `npm ci` (not `npm install`) in CI for deterministic builds that fail on lockfile drift.
 - CI/CD pipelines: require code review for all changes, enforce branch protection, sign commits where feasible.
 - Never deserialize untrusted data without validation. Use schemas (zod, JSON Schema) to validate structure before processing.
 - Protect CI/CD secrets and permissions: restrict who can modify pipeline configuration, require approval for deployment steps.

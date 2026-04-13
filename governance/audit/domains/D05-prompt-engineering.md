@@ -1,7 +1,7 @@
 # Domain 5: Prompt Engineering Quality
 
 **Scope:** ALL 137 content artifacts evaluated for prompt engineering quality, instruction clarity, and LLM execution reliability.
-**Sub-agents:** 7
+**Sub-agents:** 8
 
 ## Sub-Agent Decomposition
 
@@ -14,6 +14,7 @@
 | 5.5 | Commands | 34 command files |
 | 5.6 | Skills | 25 skill directories (SKILL.md each) |
 | 5.7 | Supporting Artifacts | 5 checks + 6 hooks + 3 prompts + 4 github-agents = 18 files |
+| 5.8 | Cross-Artifact Consistency | All 137 content artifacts (redistributed from D16) |
 
 ## Universal Checklist (apply to ALL sub-agents)
 
@@ -104,3 +105,10 @@ Verify that all content artifacts embody the shared quality charter (`agents/sha
 - [ ] **Requirement questioning** — Does the implementer agent question unclear or potentially misguided requirements before building, or does it blindly implement whatever is specified?
 - [ ] **Information currency** — Do agents use Context7 MCP and web search as instructed by the tooling hierarchy rule? Or do they rely on potentially stale training data for technical decisions?
 - [ ] **Stakeholder awareness** — Do agents consider impact on multiple stakeholders (end user, maintaining developer, team lead, ops team) in their recommendations?
+
+### 5.8 Cross-Artifact Consistency (redistributed from D16)
+- [ ] Consistent terminology across all 137 content artifacts
+- [ ] Consistent severity levels ("Critical", "High", "Medium", "Low") usage across artifacts
+- [ ] Consistent output format structures across artifacts
+- [ ] Content interaction testing: when an agent loads 15+ always-apply rules, a skill, shared context, and agent instructions simultaneously, do instructions conflict or create ambiguity?
+- [ ] MCP dependency graceful degradation: when a command references an unconfigured MCP server, does the workflow fail gracefully with guidance?

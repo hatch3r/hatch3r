@@ -3,7 +3,8 @@ id: hatch3r-code-standards
 type: rule
 description: Code quality and file naming conventions for the project
 scope: always
-tags: [core]
+tags: [core, lang:typescript]
+quality_charter: agents/shared/quality-charter.md
 ---
 # Code Standards
 
@@ -29,7 +30,7 @@ tags: [core]
 ### Discriminated Unions
 
 - Model domain variants with discriminated unions over polymorphic classes or `type` string checks. Every variant must share a common literal discriminant field (e.g., `kind`, `type`, `status`).
-- Use exhaustive `switch` with a `never` default case to ensure all variants are handled. The compiler will error when a new variant is added but not handled.
+- Use exhaustive `switch` with a `never` default case so the compiler errors when a new variant is added but not handled.
 
 ### Branded Types
 
@@ -90,6 +91,18 @@ tags: [core]
 - Retry with exponential backoff for transient failures (network, rate limits). Honor `Retry-After` on 429.
 - Include `correlationId` in all error logs for tracing across client and server.
 - No secrets, tokens, or PII in error messages or logs.
+
+### Error Handling Anti-Patterns (Prohibited)
+
+The following patterns are always wrong and must be flagged in review:
+
+| Anti-Pattern | Why It Is Wrong | Correct Alternative |
+|-------------|-----------------|---------------------|
+| `catch (e) {}` (empty catch) | Silently swallows errors; failures become invisible | `catch (e) { logger.error('context', e); throw e; }` or handle with Result type |
+| `catch (e) { return null; }` in auth paths | Fail-open: returns "no user" instead of "auth failed" | `catch (e) { throw new AuthError('auth_failed', e); }` |
+| `as any` to fix type errors | Bypasses type safety; hides real type mismatches | Fix the actual type or use a proper type guard |
+| `// @ts-ignore` without linked issue | Permanent type-safety hole | Fix the type error or add `// @ts-expect-error` with issue link |
+| `try { ... } catch { return defaultValue; }` for all errors | Treats transient errors (network) same as permanent ones (validation) | Discriminate error types: retry transient, fail permanent |
 
 ## Import Ordering
 

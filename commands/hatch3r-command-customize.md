@@ -3,6 +3,7 @@ id: hatch3r-command-customize
 type: command
 description: Configure per-command customization including description overrides, enable/disable control, and project-specific markdown instructions
 tags: [customize]
+quality_charter: agents/shared/quality-charter.md
 ---
 
 ## Agent Pipeline
@@ -54,7 +55,7 @@ Create `.hatch3r/commands/{command-id}.customize.md` with free-form markdown to 
 
 Before creating any release:
 
-1. Ensure all E2E tests pass on staging: `npm run test:e2e:staging`
+1. Run `npm run test:e2e:staging` and confirm all E2E tests pass on staging
 2. Verify the changelog has been updated in `CHANGELOG.md`
 3. Confirm the release has been approved in the `#releases` Slack channel
 4. Tag the Docker image with the release version

@@ -11,6 +11,8 @@ import {
   printBox,
   error as logError,
   info,
+  setVerbose,
+  verbose,
 } from "../shared/ui.js";
 import { readWorkspaceManifest } from "../../workspace/manifest.js";
 
@@ -35,7 +37,8 @@ async function dirCharCount(dir: string): Promise<number> {
   return total;
 }
 
-export async function statusCommand(): Promise<void> {
+export async function statusCommand(opts?: { verbose?: boolean }): Promise<void> {
+  setVerbose(!!opts?.verbose);
   printBanner(true);
 
   const rootDir = process.cwd();
@@ -54,9 +57,11 @@ export async function statusCommand(): Promise<void> {
   const stats = { synced: 0, drifted: 0, missing: 0 };
   const fileLines: string[] = [];
 
+  verbose(`Checking ${manifest.tools.length} tool(s): ${manifest.tools.join(", ")}`);
   for (const tool of manifest.tools) {
     const adapter = getAdapter(tool);
     const outputs = await adapter.generate(agentsDir, manifest);
+    verbose(`${tool}: ${outputs.length} output file(s) to check`);
 
     fileLines.push(chalk.bold(`${tool}:`));
 

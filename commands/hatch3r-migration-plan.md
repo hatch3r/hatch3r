@@ -3,6 +3,7 @@ id: hatch3r-migration-plan
 type: command
 description: Create a phased migration plan for a major dependency or framework upgrade. Analyzes breaking changes and produces an actionable plan with rollback procedures.
 tags: [planning, brownfield]
+quality_charter: agents/shared/quality-charter.md
 ---
 
 ## Agent Pipeline
@@ -61,7 +62,7 @@ Migration Brief:
   Version Gap:       {N} major versions / {M} minor versions
 ```
 
-**ASK:** "Does this capture the migration correctly? Adjust anything before I proceed to analysis."
+**ASK:** "Does this capture the migration? Adjust anything before I proceed to analysis."
 
 #### Step 1b: Dimension Probing
 
@@ -77,7 +78,7 @@ After the migration brief is confirmed, probe for missing context. Analyze the b
 
 Skip dimensions that the migration brief already addresses clearly.
 
-**ASK:** "Before research begins, I have {N} questions to ensure we don't miss anything:
+**ASK:** "Before research begins, I have {N} questions to confirm coverage of all migration dimensions:
 {numbered question list — each with the dimension label and why the answer matters}
 
 Answer these now, or say 'use defaults' for any where you're comfortable with a reasonable default."

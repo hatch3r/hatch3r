@@ -2,8 +2,9 @@
 id: hatch3r-api-design
 type: rule
 description: API endpoint and contract design patterns for the project
-scope: always
+scope: "**/api/**,**/routes/**,**/controllers/**,**/endpoints/**,**/*route*,**/*controller*,**/*endpoint*,**/*handler*,**/graphql/**,**/trpc/**"
 tags: [planning]
+quality_charter: agents/shared/quality-charter.md
 ---
 # API Design
 

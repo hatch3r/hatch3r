@@ -1,6 +1,6 @@
 ---
 description: Rules for managing project dependencies
-alwaysApply: true
+globs: ["**/package.json", "**/package-lock.json", "**/yarn.lock", "**/pnpm-lock.yaml", "**/Cargo.toml", "**/Cargo.lock", "**/requirements*.txt", "**/pyproject.toml", "**/go.mod", "**/go.sum", "**/Gemfile*"]
 ---
 # Dependency Management
 

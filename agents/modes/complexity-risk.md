@@ -3,6 +3,7 @@ id: researcher-mode-complexity-risk
 type: mode
 description: Identify code complexity hotspots and mutation-prone areas for test prioritization.
 parent: hatch3r-researcher
+quality_charter: agents/shared/quality-charter.md
 ---
 ### Mode: `complexity-risk`
 

@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { AVAILABLE_MCP_SERVERS, ENV_VAR_HELP } from "../types.js";
@@ -143,7 +143,8 @@ export async function ensureGitignoreEntry(rootDir: string): Promise<void> {
   if (dominated) return;
 
   const separator = content.length > 0 && !content.endsWith("\n") ? "\n" : "";
-  await writeFile(gitignorePath, `${content}${separator}.env.mcp\n`, "utf-8");
+  // #240 (D8-8.7): Route through atomicWriteFile for crash-safe writes
+  await atomicWriteFile(gitignorePath, `${content}${separator}.env.mcp\n`);
 }
 
 export interface EnsureResult {

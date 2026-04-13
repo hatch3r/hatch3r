@@ -2,8 +2,9 @@
 id: hatch3r-git-conventions
 type: rule
 description: Git commit message and branching conventions
-scope: always
+scope: "**/.git/**,**/.gitignore,**/.gitattributes,**/.gitmodules,**/COMMIT_EDITMSG"
 tags: [core]
+quality_charter: agents/shared/quality-charter.md
 ---
 # Git Conventions
 

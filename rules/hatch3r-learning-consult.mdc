@@ -1,6 +1,7 @@
 ---
 description: Auto-consult project learnings before implementation
-alwaysApply: true
+globs: "**/.agents/learnings/**,**/learnings/**"
+alwaysApply: false
 ---
 # Learning Consultation
 
@@ -26,3 +27,12 @@ Before implementing any task, check `.agents/learnings/` for relevant past learn
 - **Pitfalls** are highest priority -- always surface these.
 - **Patterns** are surfaced when the current task matches their trigger conditions.
 - **Decisions** are surfaced when the current task might conflict with a past decision.
+
+## Consultation Efficiency
+
+To avoid excessive token usage during consultation:
+
+1. **Scan frontmatter first.** Read only the YAML frontmatter (`tags`, `area`, `category`) of each learning file to determine relevance. Only read the full body of learnings that match the current task.
+2. **Limit surfaced learnings.** Present at most 5 relevant learnings per consultation. If more are relevant, prioritize by confidence level (high > medium > low) and recency.
+3. **Cache consultation results.** If consultation was already performed for this task (e.g., during board-pickup), do not re-consult during skill execution. The orchestrator passes relevant learnings to subagents as part of prompt enrichment.
+4. **Skip when empty.** If `.agents/learnings/` has fewer than 3 files, consultation overhead exceeds value. Skip silently.

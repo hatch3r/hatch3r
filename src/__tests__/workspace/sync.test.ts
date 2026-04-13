@@ -10,7 +10,7 @@ import {
   readWorkspaceManifest,
 } from "../../workspace/manifest.js";
 import { syncWorkspaceRepos } from "../../workspace/sync.js";
-import { detectSubRepos, shouldSuggestWorkspace, detectWorkspaceContext } from "../../workspace/detect.js";
+import { detectSubRepos, shouldSuggestWorkspace, detectWorkspaceContext, isWorkspaceRoot } from "../../workspace/detect.js";
 import type { ContentSelection } from "../../types.js";
 import type { WorkspaceDefaults } from "../../workspace/types.js";
 
@@ -154,6 +154,51 @@ describe("workspace detect", () => {
       expect(ctx.type).toBe("workspace-member");
       expect(ctx.workspaceRoot).toBe(dir);
     });
+  });
+});
+
+describe("isWorkspaceRoot", () => {
+  let tempDir: string;
+
+  afterEach(async () => {
+    if (tempDir) await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("returns true for directory with workspace.json", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-ws-isroot-"));
+    await mkdir(join(tempDir, AGENTS_DIR), { recursive: true });
+    await writeFile(
+      join(tempDir, AGENTS_DIR, "workspace.json"),
+      JSON.stringify({
+        version: "1.0.0",
+        hatch3rVersion: "1.4.0",
+        name: "test",
+        repos: [],
+        defaults: { tools: [], features: DEFAULT_FEATURES, mcp: { servers: [] }, content: { preset: "standard", projectType: "brownfield", teamSize: "solo", items: { agents: [], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] } } },
+        syncStrategy: "manual",
+      }),
+    );
+
+    const result = await isWorkspaceRoot(tempDir);
+    expect(result).toBe(true);
+  });
+
+  it("returns false for directory without workspace.json", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-ws-notroot-"));
+    const result = await isWorkspaceRoot(tempDir);
+    expect(result).toBe(false);
+  });
+
+  it("returns false for directory with only hatch.json (not a workspace root)", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-ws-nows-"));
+    await mkdir(join(tempDir, AGENTS_DIR), { recursive: true });
+    await writeFile(
+      join(tempDir, AGENTS_DIR, "hatch.json"),
+      JSON.stringify({ version: "2.0.0", tools: ["cursor"] }),
+    );
+
+    const result = await isWorkspaceRoot(tempDir);
+    expect(result).toBe(false);
   });
 });
 
@@ -447,5 +492,23 @@ describe("workspace sync", () => {
 
     const result = await syncWorkspaceRepos(tempDir);
     expect(result.repos).toHaveLength(0);
+  });
+
+  it("produces sync output with added and tools arrays", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-ws-output-"));
+    await mkdir(join(tempDir, AGENTS_DIR), { recursive: true });
+    await createGitRepo(join(tempDir, "api"));
+
+    const wsManifest = createWorkspaceManifest("test", defaults, [
+      { path: "api", name: "api", sync: true },
+    ], "manual");
+    await writeWorkspaceManifest(tempDir, wsManifest);
+
+    const result = await syncWorkspaceRepos(tempDir);
+    expect(result.repos).toHaveLength(1);
+    expect(result.repos[0].action).toBe("synced");
+    expect(Array.isArray(result.repos[0].added)).toBe(true);
+    expect(Array.isArray(result.repos[0].toolsSynced)).toBe(true);
+    expect(result.repos[0].toolsSynced).toContain("cursor");
   });
 });

@@ -8,6 +8,7 @@ const pkg = JSON.parse(readFileSync("./package.json", "utf-8")) as {
 export default defineConfig({
   entry: ["src/cli/index.ts"],
   format: ["esm"],
+  target: "node22",
   splitting: false,
   dts: true,
   clean: true,

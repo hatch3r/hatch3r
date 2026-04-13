@@ -2,8 +2,9 @@
 id: hatch3r-dep-audit
 description: Audit and update npm dependencies for security, freshness, and bundle impact. Use when auditing dependencies, responding to CVEs, or upgrading packages.
 tags: [maintenance, security]
+quality_charter: agents/shared/quality-charter.md
 ---
-> **Note:** Commands below use `npm` as an example. Substitute with your project's package manager (`yarn`, `pnpm`, `bun`) or build tool as appropriate.
+> **Note:** Commands below use `npm` as an example. Substitute with your project's package manager (`yarn`, `pnpm`, `bun`) or build tool when your project uses a different package manager.
 
 # Dependency Audit Workflow
 
@@ -64,7 +65,7 @@ npm run build
 
 - Confirm bundle size within budget (if defined).
 - Run `npm audit` — no critical or high vulnerabilities remaining.
-- Ensure `package-lock.json` is committed.
+- Verify `package-lock.json` is committed by checking `git status` for untracked or modified lockfile.
 
 ## Step 6: Open PR
 
@@ -75,6 +76,12 @@ Use the project's PR template. Include:
 - **Bundle impact:** before/after gzipped size.
 - **Test evidence:** all tests pass, no regressions.
 - **Rollback plan:** if risky (e.g., major version bump).
+
+## Error Handling
+
+- **`npm audit` reports vulnerabilities with no fix available**: Document the vulnerability, assess exploitability in the project context, and create a tracking issue. If the risk is high, evaluate alternative packages.
+- **Major version upgrade breaks tests**: Roll back the upgrade, document the breaking changes encountered, and create a dedicated migration issue with the specific test failures and required code changes.
+- **Lockfile conflicts after upgrade**: Regenerate the lockfile from scratch (`rm package-lock.json && npm install`), verify all tests pass, and commit the clean lockfile.
 
 ## Definition of Done
 

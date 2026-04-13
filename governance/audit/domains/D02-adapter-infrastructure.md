@@ -42,7 +42,7 @@
 - [ ] Utility robustness — edge cases, malformed input, missing fields
 
 ### 2.5 Adapter Index & Registry
-- [ ] Registry completeness — all 14 adapters registered and discoverable
+- [ ] Registry completeness — all 15 adapters registered and discoverable
 - [ ] Adapter discovery — dynamic lookup works correctly
 - [ ] Enable/disable logic — toggling adapters in config takes effect
 - [ ] Capability querying — callers can query adapter capabilities accurately
@@ -61,3 +61,7 @@
 - [ ] Archive/backup creation and restoration — backups are complete and restorable
 - [ ] Archive cleanup — old archives pruned to avoid disk bloat
 - [ ] Integrity verification during update — updates verify integrity before modifying files
+
+## Domain Boundary
+
+> D02 audits adapter contracts and abstractions (base.ts, canonical.ts, customization.ts, content system, integrity system): "Are the abstractions correct?" D09 audits per-adapter implementations: "Does each adapter correctly implement the contract for its target platform?" D11 audits end-to-end integration by tracing specific content types through the full pipeline: "When content flows from canonical source through adapter transformation to disk output, does it arrive correctly?" D11 findings must demonstrate cross-component failures that neither D02 nor D09 would catch independently.

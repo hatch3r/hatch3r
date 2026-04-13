@@ -2,6 +2,7 @@
 id: hatch3r-agent-customize
 description: Agent customization — redirects to the unified hatch3r-customize skill.
 tags: [customize]
+quality_charter: agents/shared/quality-charter.md
 ---
 # Agent Customization
 

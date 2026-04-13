@@ -6,6 +6,7 @@ agent: lint-fixer
 description: Auto-fix lint and formatting issues before commit
 globs: "**/*.ts, **/*.tsx, **/*.js, **/*.jsx"
 tags: [core]
+quality_charter: agents/shared/quality-charter.md
 ---
 # Hook: pre-commit → lint-fixer
 

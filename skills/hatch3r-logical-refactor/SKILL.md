@@ -2,8 +2,9 @@
 id: hatch3r-logical-refactor
 description: Workflow for changing behavior or logic flow without adding new features or overhauling UI. Use when modifying business logic, data flows, behavioral rules, or working on logical refactor issues.
 tags: [implementation]
+quality_charter: agents/shared/quality-charter.md
 ---
-> **Note:** Commands below use `npm` as an example. Substitute with your project's package manager (`yarn`, `pnpm`, `bun`) or build tool as appropriate.
+> **Note:** Commands below use `npm` as an example. Substitute with your project's package manager (`yarn`, `pnpm`, `bun`) or build tool when your project uses a different package manager.
 
 # Logical Refactor Workflow
 
@@ -62,6 +63,12 @@ Use the project's PR template. Include:
 - Invariants preserved and changed
 - Test evidence for both new behavior and preserved behavior
 - Spec docs updated (if any)
+
+## Error Handling
+
+- **Behavioral invariant violated during refactor**: If a test that should pass now fails, check whether the invariant was incorrectly preserved or whether the refactor inadvertently changed behavior. Fix the refactor, not the test, unless the test was wrong.
+- **Refactor scope grows beyond the original task**: If additional modules need changes to complete the refactor, stop, document the expanded scope, and get confirmation before continuing.
+- **Cannot verify behavioral equivalence due to missing tests**: Write characterization tests for the current behavior before applying the refactor. This provides a safety net for the transformation.
 
 ## Definition of Done
 

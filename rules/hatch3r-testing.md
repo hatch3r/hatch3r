@@ -2,8 +2,9 @@
 id: hatch3r-testing
 type: rule
 description: Test standards and conventions for the project
-scope: always
+scope: "**/*.test.*,**/*.spec.*,**/__tests__/**,**/tests/**,**/test/**,**/*.cy.*,**/playwright/**,**/vitest.config.*,**/jest.config.*,**/cypress.config.*"
 tags: [core]
+quality_charter: agents/shared/quality-charter.md
 ---
 # Testing Standards
 
@@ -80,11 +81,20 @@ tags: [core]
 - **Fixture files** (JSON, YAML) are acceptable for large, complex, or externally-sourced test inputs (API response snapshots, configuration samples). Store in `tests/fixtures/`.
 - **Database state:** Integration tests that require database state must set up and tear down within the test using helpers. Never depend on database state from a previous test.
 
+## Error Path Coverage
+
+Error handling code is often under-tested because developers focus on happy paths. Enforce minimum error coverage:
+
+- **Every exported function that can fail** must have at least one test exercising the error path. "Can fail" includes: functions returning `Result<T, E>`, functions with `throw` statements, async functions calling external services, and functions with input validation.
+- **Error message assertions.** Test that error messages, codes, and structured fields contain the expected values. Do not assert only that "an error was thrown" -- verify the error content.
+- **Error propagation.** When a function wraps or transforms errors from a dependency, test that the original error context is preserved (cause chain, stack trace, original error code).
+- **Boundary error tests.** For each architectural boundary (API handler, event handler, background processor), test that errors are caught, logged, and returned as safe responses without leaking internal details.
+
 ## Snapshot Testing
 
 - **Use sparingly.** Snapshots are appropriate for serialized output (JSON API responses, CLI output, rendered HTML structure) where the exact output matters and is stable.
 - **Not appropriate for:** UI component visual appearance (use visual regression tests), objects with timestamps or random IDs (unstable), large objects (unreadable diffs).
-- **Review discipline.** Snapshot updates (`--update-snapshots`) must be reviewed as carefully as code changes. Reviewers must verify the new snapshot is intentionally correct, not just "different."
+- **Review discipline.** Snapshot updates (`--update-snapshots`) must be reviewed with the same rigor as code changes. Reviewers must verify the new snapshot is intentionally correct, not just "different."
 - **Keep snapshots small.** Snapshot files > 100 lines suggest the test is asserting too broadly. Narrow the assertion to the relevant subset.
 - **Inline snapshots** (where supported) are preferred over external `.snap` files for short outputs (< 20 lines) because they keep the assertion co-located with the test.
 - **Name snapshot files** to match their test file: `auth.test.ts` → `auth.test.ts.snap`.

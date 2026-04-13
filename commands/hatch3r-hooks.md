@@ -3,11 +3,16 @@ id: hatch3r-hooks
 type: command
 description: Define and manage event-driven hooks that activate agents on project events
 tags: [core, devops]
+quality_charter: agents/shared/quality-charter.md
 ---
 
 ## Agent Pipeline
 
 This command runs as a single orchestrator without sub-agent delegation. Hook definition and management are performed inline.
+
+## Learnings Consultation
+
+If `.agents/learnings/` exists, scan for learnings related to hook configurations, event trigger patterns, or prior hook issues before starting.
 
 # Hooks — Event-Driven Agent Activation
 

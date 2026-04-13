@@ -1,0 +1,158 @@
+{
+  "cycle_date": "2026-04-02",
+  "cycle_number": 4,
+  "fix_success_rate": {
+    "code": {
+      "targeted": 180,
+      "resolved": 168,
+      "partial": 12,
+      "rolled_back": 0,
+      "rate": 0.933
+    },
+    "content": {
+      "targeted": 45,
+      "resolved": 42,
+      "partial": 3,
+      "rolled_back": 0,
+      "rate": 0.933
+    },
+    "config": {
+      "targeted": 14,
+      "resolved": 13,
+      "partial": 1,
+      "rolled_back": 0,
+      "rate": 0.929
+    },
+    "docs": {
+      "targeted": 10,
+      "resolved": 10,
+      "partial": 0,
+      "rolled_back": 0,
+      "rate": 1.0
+    },
+    "overall": {
+      "targeted": 249,
+      "resolved": 233,
+      "partial": 16,
+      "rolled_back": 0,
+      "human_only_skipped": 5,
+      "deferred_skipped": 6,
+      "rate": 0.936
+    }
+  },
+  "sizing_accuracy": {
+    "wave_1_critical": {
+      "estimated_findings": 15,
+      "actual_findings": 15,
+      "agent_actionable": 12,
+      "human_only": 3,
+      "accuracy": 1.0
+    },
+    "wave_2_high": {
+      "estimated_findings": 106,
+      "actual_findings": 91,
+      "agent_actionable": 83,
+      "deferred": 5,
+      "human_only": 3,
+      "accuracy": 0.858
+    },
+    "wave_3_medium": {
+      "estimated_findings": 350,
+      "actual_findings": 138,
+      "agent_actionable": 138,
+      "accuracy": 0.394,
+      "note": "Many Medium findings consolidated during triage (proportional severity patterns merged). The 350 pre-dedup count reduced to 138 actionable groups."
+    },
+    "wave_4_low": {
+      "estimated_findings": 250,
+      "actual_findings": 16,
+      "agent_actionable": 16,
+      "partial": 16,
+      "accuracy": 0.064,
+      "note": "Low findings consolidated aggressively during triage. 16 actionable groups addressed as partial improvements (documentation/guidance additions)."
+    },
+    "overall_note": "Pre-dedup finding counts (600+) vs post-triage actionable groups (260) show significant consolidation benefit. Sizing accuracy is most meaningful at Critical/High severity where consolidation is minimal."
+  },
+  "recurring_failures": [],
+  "false_positive_rate_by_domain": {},
+  "false_positive_note": "No false positives detected during Cycle 4 execution. All targeted findings had actionable remediation applied. Future cycles should track findings that are reopened or re-reported after claimed resolution.",
+  "rollbacks": {
+    "count": 0,
+    "details": []
+  },
+  "regression_gates": {
+    "wave_1": "PASS: typecheck 0 errors, all tests pass",
+    "wave_2": "PASS: typecheck 0 errors, all tests pass",
+    "wave_3": "PASS: typecheck 0 errors, all tests pass",
+    "wave_4": "PASS: typecheck 0 errors, all tests pass"
+  },
+  "test_infrastructure": {
+    "tests_before": 1089,
+    "tests_after": 1734,
+    "tests_added": 645,
+    "typecheck_errors_throughout": 0
+  },
+  "score_progression": {
+    "cycle_3": 78,
+    "cycle_4_audit": 68,
+    "cycle_4_post_execution": 85,
+    "delta_vs_cycle_3": 7,
+    "delta_vs_audit": 17
+  },
+  "closed_loop_phases": {
+    "phase_5_prd_update": {
+      "status": "completed",
+      "total_candidates": 15,
+      "already_done": 11,
+      "newly_applied": 4,
+      "details": {
+        "already_done": [
+          "#1: Adapter count 15, Amazon Q in list",
+          "#2: Competitive landscape updates (Spec Kit, Superpowers v5, GSD, Ruflo)",
+          "#3: MCP Server Cards tracking",
+          "#5: Distribution explicit in Milestone 1",
+          "#6: AGENTS.md generation in Milestone 1",
+          "#8: AGENTS.md in canonical structure",
+          "#10: Repositioning differentiation",
+          "#11: Multi-language support requirements in roadmap",
+          "#13: Junie/Augment adapters in Milestone 2",
+          "#14: Context budget requirements in roadmap",
+          "#15 partial: MCP Server Cards in roadmap (but not propagation requirements)"
+        ],
+        "newly_applied": [
+          "#4: Updated content counts (26 skills, 23 rules, 5 checks) in 3 locations",
+          "#7: Added TTY/CI-mode detection and preset-aware messaging to Section 8 UX",
+          "#9: Added Principle #18: Coverage infrastructure must reflect actual quality",
+          "#12: Added release quality gate (coverage accuracy prerequisite)",
+          "#15: Added MCP header forwarding and env:VAR transformation requirements"
+        ]
+      }
+    },
+    "phase_6_content_specs": {
+      "status": "completed",
+      "total_artifacts": 12,
+      "p1_full_specs": 4,
+      "p2_outline_specs": 8,
+      "p3_list_only": 0,
+      "output_directory": ".audit-workspace/content-specs/"
+    },
+    "phase_7_audit_evolution": {
+      "status": "completed",
+      "total_proposals": 10,
+      "applied": 0,
+      "pending_review": 10,
+      "output_file": ".audit-workspace/audit-evolution-proposals.md",
+      "note": "All 10 proposals prepared for user review. None applied without consent."
+    }
+  },
+  "top_insights": [
+    "Zero rollbacks across 4 waves demonstrates the regression-gate strategy is effective. Typecheck + test gates caught issues before they propagated.",
+    "Wave 1-2 execution during earlier phases already applied 11 of 15 PRD evolution candidates, showing the audit-execute-PRD loop is working as designed.",
+    "Medium/Low finding counts reduced dramatically during triage (350->138, 250->16) suggesting proportional severity (Proposal #6) should be adopted to prevent count inflation at source.",
+    "The 107-sub-agent architecture produced deep findings but also significant duplication across compound domains (D16 re-reporting D3/D5/D7 findings). Proposal #5 (auto-dedup for D16) addresses this.",
+    "D12 (Observability) remains the lowest-scoring domain (60 post-execution) because the checklist measures runtime observability inappropriate for a CLI tool. Proposal #4 recalibration is recommended.",
+    "Test count increased by 59% (+645 tests) during execution, indicating significant test infrastructure gaps were addressed. Future cycles should see smaller test additions if quality is maintained.",
+    "Documentation fixes had 100% success rate, suggesting docs-type findings are consistently well-specified and straightforward to resolve.",
+    "The competitive landscape analysis (D17) identified existential distribution gap. Open-sourcing and npm publish are now the highest-priority strategic items."
+  ]
+}

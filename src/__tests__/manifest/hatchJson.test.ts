@@ -1,8 +1,8 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createManifest, addManagedFile, removeManagedFile, migrateManifest, readManifest } from "../../manifest/hatchJson.js";
+import { createManifest, addManagedFile, removeManagedFile, migrateManifest, readManifest, writeManifest } from "../../manifest/hatchJson.js";
 
 describe("hatchJson", () => {
   describe("createManifest", () => {
@@ -11,7 +11,7 @@ describe("hatchJson", () => {
         tools: ["cursor"],
       });
       expect(manifest.version).toBe("2.0.0");
-      expect(manifest.hatch3rVersion).toBe("1.4.0");
+      expect(manifest.hatch3rVersion).toBe("1.5.0");
       expect(manifest.platform).toBe("github");
       expect(manifest.tools).toEqual(["cursor"]);
       expect(manifest.features.agents).toBe(true);
@@ -298,7 +298,7 @@ describe("hatchJson", () => {
       const rootDir = await setup();
       await writeManifestJson(rootDir, {
         version: "2.0.0",
-        hatch3rVersion: "1.4.0",
+        hatch3rVersion: "1.5.0",
         owner: "acme",
         repo: "app",
         namespace: "acme",
@@ -317,7 +317,7 @@ describe("hatchJson", () => {
       const rootDir = await setup();
       await writeManifestJson(rootDir, {
         // version: missing
-        hatch3rVersion: "1.4.0",
+        hatch3rVersion: "1.5.0",
         owner: "acme",
         repo: "app",
         namespace: "acme",
@@ -336,7 +336,7 @@ describe("hatchJson", () => {
       const rootDir = await setup();
       await writeManifestJson(rootDir, {
         version: "2.0.0",
-        hatch3rVersion: "1.4.0",
+        hatch3rVersion: "1.5.0",
         owner: "acme",
         repo: "app",
         namespace: "acme",
@@ -355,7 +355,7 @@ describe("hatchJson", () => {
       const rootDir = await setup();
       await writeManifestJson(rootDir, {
         version: "2.0.0",
-        hatch3rVersion: "1.4.0",
+        hatch3rVersion: "1.5.0",
         owner: "acme",
         repo: "app",
         namespace: "acme",
@@ -374,7 +374,7 @@ describe("hatchJson", () => {
       const rootDir = await setup();
       await writeManifestJson(rootDir, {
         version: "2.0.0",
-        hatch3rVersion: "1.4.0",
+        hatch3rVersion: "1.5.0",
         owner: "acme",
         repo: "app",
         namespace: "acme",
@@ -393,7 +393,7 @@ describe("hatchJson", () => {
       const rootDir = await setup();
       await writeManifestJson(rootDir, {
         version: "2.0.0",
-        hatch3rVersion: "1.4.0",
+        hatch3rVersion: "1.5.0",
         owner: "acme",
         repo: "app",
         namespace: "acme",
@@ -417,7 +417,7 @@ describe("hatchJson", () => {
       const rootDir = await setup();
       await writeManifestJson(rootDir, {
         version: "2.0.0",
-        hatch3rVersion: "1.4.0",
+        hatch3rVersion: "1.5.0",
         owner: "acme",
         repo: "app",
         namespace: "acme",
@@ -458,6 +458,264 @@ describe("hatchJson", () => {
       await expect(readManifest(rootDir)).rejects.toThrow(
         /Run hatch3r init to regenerate/,
       );
+    });
+
+    it("validates content sub-schema: rejects non-string preset", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "2.0.0",
+        hatch3rVersion: "1.5.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        content: {
+          preset: 123,
+          projectType: "brownfield",
+          teamSize: "solo",
+          items: { agents: [], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
+        },
+      });
+      await expect(readManifest(rootDir)).rejects.toThrow(
+        /Invalid manifest.*required fields missing or malformed/,
+      );
+    });
+
+    it("validates content sub-schema: rejects missing items", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "2.0.0",
+        hatch3rVersion: "1.5.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        content: {
+          preset: "standard",
+          projectType: "brownfield",
+          teamSize: "solo",
+          // items is missing
+        },
+      });
+      await expect(readManifest(rootDir)).rejects.toThrow(
+        /Invalid manifest.*required fields missing or malformed/,
+      );
+    });
+
+    it("accepts valid content sub-schema", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "2.0.0",
+        hatch3rVersion: "1.5.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        content: {
+          preset: "standard",
+          projectType: "brownfield",
+          teamSize: "solo",
+          items: { agents: ["hatch3r-researcher"], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
+        },
+      });
+      const result = await readManifest(rootDir);
+      expect(result).not.toBeNull();
+      expect(result!.content?.preset).toBe("standard");
+      expect(result!.content?.items.agents).toContain("hatch3r-researcher");
+    });
+  });
+
+  describe("writeManifest", () => {
+    let tempDir: string;
+
+    afterEach(async () => {
+      if (tempDir) {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it("writes a manifest that can be read back", async () => {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-write-"));
+      await mkdir(join(tempDir, ".agents"), { recursive: true });
+
+      const manifest = createManifest({ tools: ["cursor"], mcpServers: ["github"] });
+      await writeManifest(tempDir, manifest);
+
+      const result = await readManifest(tempDir);
+      expect(result).not.toBeNull();
+      expect(result!.tools).toEqual(["cursor"]);
+      expect(result!.mcp.servers).toEqual(["github"]);
+    });
+
+    it("writes valid JSON with trailing newline", async () => {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-write-"));
+      await mkdir(join(tempDir, ".agents"), { recursive: true });
+
+      const manifest = createManifest({ tools: ["cursor"] });
+      await writeManifest(tempDir, manifest);
+
+      const raw = await readFile(join(tempDir, ".agents", "hatch.json"), "utf-8");
+      expect(raw.endsWith("\n")).toBe(true);
+      expect(() => JSON.parse(raw)).not.toThrow();
+    });
+
+    it("overwrites existing manifest", async () => {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-write-"));
+      await mkdir(join(tempDir, ".agents"), { recursive: true });
+
+      const original = createManifest({ tools: ["cursor"] });
+      await writeManifest(tempDir, original);
+
+      const updated = createManifest({ tools: ["claude", "cursor"] });
+      await writeManifest(tempDir, updated);
+
+      const result = await readManifest(tempDir);
+      expect(result!.tools).toEqual(["claude", "cursor"]);
+    });
+  });
+
+  describe("manifest validation (#108)", () => {
+    let tempDir: string;
+
+    afterEach(async () => {
+      if (tempDir) {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    async function setup(): Promise<string> {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-validate-"));
+      await mkdir(join(tempDir, ".agents"), { recursive: true });
+      return tempDir;
+    }
+
+    async function writeManifestJson(rootDir: string, data: unknown): Promise<void> {
+      await writeFile(
+        join(rootDir, ".agents", "hatch.json"),
+        JSON.stringify(data, null, 2),
+        "utf-8",
+      );
+    }
+
+    it("rejects invalid tool names in tools array", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "2.0.0",
+        hatch3rVersion: "1.5.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["invalid-tool"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+      });
+      await expect(readManifest(rootDir)).rejects.toThrow(/Invalid manifest/);
+    });
+
+    it("rejects non-string tool entries", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "2.0.0",
+        hatch3rVersion: "1.5.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: [123, "cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+      });
+      await expect(readManifest(rootDir)).rejects.toThrow(/Invalid manifest/);
+    });
+
+    it("accepts all known tool names", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "2.0.0",
+        hatch3rVersion: "1.5.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor", "claude", "copilot"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+      });
+      const result = await readManifest(rootDir);
+      expect(result).not.toBeNull();
+      expect(result!.tools).toEqual(["cursor", "claude", "copilot"]);
+    });
+
+    it("validates board sub-schema", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "2.0.0",
+        hatch3rVersion: "1.5.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        board: { owner: 123 },
+      });
+      await expect(readManifest(rootDir)).rejects.toThrow(/Invalid manifest/);
+    });
+
+    it("validates worktree.extraPatterns must be string array", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "2.0.0",
+        hatch3rVersion: "1.5.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        worktree: { enabled: true, extraPatterns: [123] },
+      });
+      await expect(readManifest(rootDir)).rejects.toThrow(/Invalid manifest/);
+    });
+
+    it("accepts valid worktree.extraPatterns", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "2.0.0",
+        hatch3rVersion: "1.5.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        worktree: { enabled: true, extraPatterns: [".custom-dir/"] },
+      });
+      const result = await readManifest(rootDir);
+      expect(result).not.toBeNull();
+      expect(result!.worktree?.extraPatterns).toEqual([".custom-dir/"]);
     });
   });
 });

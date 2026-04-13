@@ -85,3 +85,7 @@
 - [ ] Copy/symlink strategy — per-adapter worktree patterns applied correctly, files land in expected locations
 - [ ] Cross-worktree isolation — changes in one worktree do not contaminate others
 - [ ] worktreeSetup CLI command — end-to-end flow from invocation to completion, including error handling
+
+## Domain Boundary
+
+> D01 audits per-command error correctness: "Does this specific command handle this specific error correctly?" D08 audits cross-framework error patterns and resilience: "Does the framework have consistent error handling patterns across all commands, and are recovery mechanisms (retry, circuit breaker, watchdog, rollback) implemented?" A D01 finding about a specific command's missing error case is not a D08 finding unless it reveals a systemic pattern gap affecting multiple commands.

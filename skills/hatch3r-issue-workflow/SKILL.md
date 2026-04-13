@@ -2,6 +2,7 @@
 id: hatch3r-issue-workflow
 description: Guides the 8-step agentic development workflow for issues/work items. Covers parsing issues, loading skills, reading specs, planning, implementing, testing, opening PRs/MRs, and addressing review. Use when working on any issue/work item or when the user mentions an issue number.
 tags: [core, implementation]
+quality_charter: agents/shared/quality-charter.md
 ---
 # Issue Workflow
 
@@ -108,7 +109,7 @@ The implementer sub-agent protocol is defined in the hatch3r-implementer agent. 
 
 Skip this step if the issue has no user-facing UI changes.
 
-- Ensure the dev server is running. If not, start it in the background.
+- Confirm the dev server is running by checking the expected port. If not running, start it in the background.
 - Navigate to the page or surface affected by the change.
 - Visually confirm the implementation matches acceptance criteria from the issue.
 - Interact with changed elements to verify functional correctness.
@@ -131,6 +132,12 @@ Skip this step if the issue has no user-facing UI changes.
 - Respond to every review comment.
 - Push fixes as new commits (don't force-push during review).
 - Re-request review after addressing all comments.
+
+## Error Handling
+
+- **Issue description is too vague to implement**: Do not guess. Ask the user for clarification on acceptance criteria, scope boundaries, and expected behavior before starting Step 3 (planning).
+- **Tests fail after implementation and the cause is unclear**: Run tests in isolation to identify whether the failure is in new code or existing code. If existing tests broke, check whether they relied on behavior that was intentionally changed.
+- **PR/MR creation fails due to branch conflicts**: Rebase onto the target branch, resolve conflicts, re-run all tests, and verify the merge result before re-creating the PR/MR.
 
 ## Escalation
 

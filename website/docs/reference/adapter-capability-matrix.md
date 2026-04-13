@@ -35,6 +35,7 @@ Living reference for framework capabilities vs. adapter implementations. Tracks 
 | **goose** | B | B | B | -- | -- | Y | -- | -- | Y | -- | -- |
 | **zed** | B | B | -- | -- | -- | -- | -- | -- | Y | -- | -- |
 | **amazon-q** | B | B | Y | -- | -- | Y | -- | -- | Y | -- | -- |
+| **antigravity** | B | B | Y | -- | -- | Y | -- | -- | Y | -- | -- |
 
 ## Agent Model Customization
 
@@ -56,6 +57,7 @@ All adapters emit model preferences when configured. See [Model Selection](../gu
 | **goose** | Guidance | Text in .goosehints |
 | **zed** | Guidance | Text in .rules |
 | **amazon-q** | Guidance | Text in .amazonq/rules/hatch3r-agents.md |
+| **antigravity** | Guidance | Text in .antigravity/rules.md |
 
 ## Secret Management {#secret-management}
 
@@ -63,7 +65,7 @@ All MCP secrets are centralized in `.env.mcp` at the project root.
 
 | Adapter | Secret loading method | Auto-loads `.env.mcp`? |
 |---------|----------------------|:----------------------:|
-| **copilot** | `envFile` field per STDIO server | Yes |
+| **copilot** | `env` object per server | No |
 | **cursor** | `${env:VAR}` from process env | No |
 | **claude** | `${env:VAR}` from process env | No |
 | **cline** | `${env:VAR}` from process env | No |
@@ -77,6 +79,7 @@ All MCP secrets are centralized in `.env.mcp` at the project root.
 | **goose** | `${env:VAR}` from process env | No |
 | **zed** | N/A (global MCP only) | No |
 | **amazon-q** | `${env:VAR}` from process env | No |
+| **antigravity** | `${env:VAR}` from process env | No |
 
 For editors that don't auto-load, source before launching:
 
@@ -97,6 +100,8 @@ set -a && source .env.mcp && set +a && <editor-command> .
 | goose | hooks | No documented hook/event system |
 | amazon-q | hooks | No documented hook/event system |
 | amazon-q | commands | No documented commands format |
+| antigravity | hooks | No documented hook/event system |
+| antigravity | commands | No documented commands format |
 | zed | mcp | Global-only MCP config |
 | zed | hooks | No documented hook/event system |
 | zed | skills | No skills concept; rules cover all guidance |

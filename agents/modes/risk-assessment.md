@@ -3,6 +3,7 @@ id: researcher-mode-risk-assessment
 type: mode
 description: Identify risks, security implications, performance concerns, and breaking changes.
 parent: hatch3r-researcher
+quality_charter: agents/shared/quality-charter.md
 ---
 ### Mode: `risk-assessment`
 

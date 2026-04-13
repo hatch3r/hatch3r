@@ -7,6 +7,7 @@ import {
   unlink,
   open,
   copyFile,
+  stat,
 } from "node:fs/promises";
 import { dirname, basename } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -14,6 +15,7 @@ import { HATCH3R_PREFIX, type MergeResult } from "../types.js";
 import { insertManagedBlock, hasManagedBlock, extractCustomContent } from "./managedBlocks.js";
 import { scanForDeniedPatterns } from "../adapters/customization.js";
 
+/** Check whether a file exists. Returns false for ENOENT, throws for other errors. */
 async function fileExists(path: string): Promise<boolean> {
   try {
     await access(path);
@@ -36,25 +38,33 @@ export async function atomicWriteFile(filePath: string, content: string): Promis
   const tmpPath = filePath + ".tmp." + randomBytes(4).toString("hex");
   try {
     await writeFile(tmpPath, content, "utf-8");
-    const fh = await open(tmpPath, "r");
+    // #239 (D8-8.6): Open with "r+" instead of "r" so fdatasync operates on a
+    // writable file descriptor. Read-only descriptors cause EPERM/EBADF on some
+    // platforms (Windows, certain Linux configurations).
+    const fh = await open(tmpPath, "r+");
     try {
       await fh.datasync();
     } catch (err) {
-      // Windows rejects fdatasync on read-only handles (EPERM).
-      // The atomic rename provides the safety guarantee; datasync is best-effort.
-      if ((err as NodeJS.ErrnoException).code !== "EPERM") throw err;
+      // Some filesystems or OS configurations still reject fdatasync (e.g. FAT32,
+      // network mounts). The atomic rename provides the safety guarantee; datasync
+      // is best-effort durability.
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== "EPERM" && code !== "ENOTSUP" && code !== "EINVAL") throw err;
     } finally {
       await fh.close();
     }
-    try {
-      await rename(tmpPath, filePath);
-    } catch (err) {
-      // Retry once for Windows AV locks (EBUSY/EPERM)
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code === "EBUSY" || code === "EPERM") {
-        await new Promise((r) => setTimeout(r, 100));
+    // Retry with exponential backoff for Windows file-lock contention (EBUSY/EPERM)
+    const MAX_RENAME_RETRIES = 4;
+    for (let attempt = 0; ; attempt++) {
+      try {
         await rename(tmpPath, filePath);
-      } else {
+        break;
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code;
+        if ((code === "EBUSY" || code === "EPERM") && attempt < MAX_RENAME_RETRIES) {
+          await new Promise((r) => setTimeout(r, 50 * 2 ** attempt));
+          continue;
+        }
         throw err;
       }
     }
@@ -63,6 +73,12 @@ export async function atomicWriteFile(filePath: string, content: string): Promis
     if (code === "ENOSPC") {
       throw new Error(
         `Not enough disk space to write ${filePath}. Free up space and re-run the command.`,
+      );
+    }
+    // #239 (D8-8.6): Actionable error for EACCES/permission-denied failures.
+    if (code === "EACCES") {
+      throw new Error(
+        `Permission denied writing ${filePath}. Check file/directory permissions and ensure the current user has write access.`,
       );
     }
     throw err;
@@ -129,8 +145,17 @@ export async function safeWriteFile(
     } catch {
       // Managed block is corrupted (duplicate markers, wrong order, etc.).
       // Create a .bak backup before overwriting so user content is not lost.
+      // #242 (D8-8.9): Verify backup integrity before proceeding with overwrite.
       const bakPath = filePath + ".bak";
       await copyFile(filePath, bakPath);
+      const srcStat = await stat(filePath);
+      const bakStat = await stat(bakPath);
+      if (bakStat.size !== srcStat.size) {
+        throw new Error(
+          `Backup verification failed for ${filePath}: source=${srcStat.size} bytes, backup=${bakStat.size} bytes. ` +
+          `Aborting auto-repair to prevent data loss.`,
+        );
+      }
       await atomicWriteFile(filePath, content);
       return {
         path: filePath,
@@ -162,6 +187,7 @@ export async function safeWriteFile(
   };
 }
 
+/** Check whether a file path's basename starts with the hatch3r- prefix. */
 export function isManagedPath(filePath: string): boolean {
   const fileName = basename(filePath) ?? "";
   return fileName.startsWith(HATCH3R_PREFIX);

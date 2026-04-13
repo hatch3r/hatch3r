@@ -39,7 +39,7 @@ The init flow asks:
 4. **Project type** -- greenfield (new project) or brownfield (existing codebase)
 5. **Team size** -- solo developer or team collaboration
 6. **Content profile** -- Minimal, Standard (recommended), Full, or Custom
-7. **Tools** -- select from 14 supported coding tools
+7. **Tools** -- select from 15 supported coding tools
 8. **Features** -- agents, skills, rules, commands, prompts, MCP, hooks, GitHub agents
 9. **MCP servers** -- optionally configure up to 10 MCP servers
 
@@ -80,6 +80,7 @@ npx hatch3r sync --force                     # overwrite even if unchanged
 | `--repos` | space-separated paths | all repos | Sync only the listed sub-repos |
 | `--dry-run` | — | off | Show what would be synced without writing files |
 | `--force` | — | off | Overwrite target files even if unchanged |
+| `--verbose` | — | off | Show detailed output for each file processed |
 
 Run after manually editing canonical files or when generated files get out of sync. Preserves content outside managed blocks in markdown files. Warns if project specs in `docs/specs/` are stale (>7 days without update).
 
@@ -101,7 +102,14 @@ Checks sync status between canonical `.agents/` and generated tool files.
 
 ```bash
 npx hatch3r status
+npx hatch3r status --verbose   # detailed per-file status
 ```
+
+**Flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--verbose` | Show detailed per-file status information |
 
 Reports synced, drifted, and missing files for each configured tool. When a `workspace.json` manifest exists, also displays workspace topology -- listing each sub-repo, its sync status, and any per-repo overrides.
 
@@ -111,7 +119,14 @@ Validates the `.agents/` directory structure and file contents.
 
 ```bash
 npx hatch3r validate
+npx hatch3r validate --verbose   # detailed validation output
 ```
+
+**Flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--verbose` | Show detailed validation output for each check |
 
 Checks for:
 - Required directories (`agents/`, `skills/`, `rules/`)
@@ -138,6 +153,25 @@ Recovery:
 - **Modified/Tampered:** Run `hatch3r update` to restore originals
 - **Missing:** Run `hatch3r update` to regenerate
 
+## hatch3r clean
+
+Remove all hatch3r artifacts from the current repository.
+
+```bash
+npx hatch3r clean
+npx hatch3r clean --yes       # skip confirmation (no reinit)
+npx hatch3r clean --dry-run   # preview without modifying files
+```
+
+**Flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--yes` | Skip confirmation prompts (cleans without reinit) |
+| `--dry-run` | Show what would be removed without modifying files |
+
+Removes `.agents/`, all generated tool files, and archive directories. Optionally offers to reinitialize after cleanup.
+
 ## hatch3r worktree-setup
 
 Sets up gitignored files (`.env.mcp`, `.agents/.integrity.json`, etc.) in a new git worktree.
@@ -155,6 +189,21 @@ npx hatch3r worktree-setup [worktree-path]
 | `--force` | Overwrite existing files in the worktree |
 
 Automatically triggered by the Claude adapter's PostToolUse hook when `git worktree add` is detected. Can also be run manually after creating a worktree.
+
+## hatch3r worktree-cleanup
+
+Remove symlinks and copied files created by `worktree-setup` in the current worktree.
+
+```bash
+npx hatch3r worktree-cleanup
+npx hatch3r worktree-cleanup --dry-run   # preview without changes
+```
+
+**Flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--dry-run` | Show what would be done without changes |
 
 ## hatch3r add
 

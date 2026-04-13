@@ -259,4 +259,40 @@ You are a test agent.`,
       expect(o.action).toBe("create");
     }
   });
+
+  // ── Finding 3.18: hooks feature assertion ──
+  it("generates hook rules in .cursor/rules/ when hooks are enabled", async () => {
+    const manifest = makeManifest();
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const hookRules = outputs.filter(
+      (o) => o.path.startsWith(".cursor/rules/") && o.path.includes("hook-"),
+    );
+    expect(hookRules.length).toBeGreaterThan(0);
+
+    for (const hook of hookRules) {
+      expect(hook.content).toContain("HATCH3R_HOOK_ACTIVATED");
+      expect(hook.content).toContain("Hook:");
+    }
+  });
+
+  it("does not generate hook rules when hooks feature is disabled", async () => {
+    const manifest = makeManifest({ features: { hooks: false } });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const hookRules = outputs.filter(
+      (o) => o.path.startsWith(".cursor/rules/") && o.path.includes("hook-"),
+    );
+    expect(hookRules.length).toBe(0);
+  });
+
+  // ── Finding 3.16: no empty content assertion ──
+  it("produces no empty content in any output", async () => {
+    const manifest = makeManifest();
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    for (const o of outputs) {
+      expect(o.content.length).toBeGreaterThan(0);
+    }
+  });
 });

@@ -48,3 +48,7 @@ Audit against the 7 resilience patterns:
 - [ ] **(5) Output validation** — are agent outputs validated before being used by the next phase?
 - [ ] **(6) Dead man's switch** — is there a maximum total execution time?
 - [ ] **(7) Audit trail** — are failures logged for debugging?
+
+## Domain Boundary
+
+> D01 audits per-command error correctness: "Does this specific command handle this specific error correctly?" D08 audits cross-framework error patterns and resilience: "Does the framework have consistent error handling patterns across all commands, and are recovery mechanisms (retry, circuit breaker, watchdog, rollback) implemented?" A D01 finding about a specific command's missing error case is not a D08 finding unless it reveals a systemic pattern gap affecting multiple commands.

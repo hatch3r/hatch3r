@@ -93,7 +93,33 @@ describe("GooseAdapter", () => {
     }
   });
 
-  it("generates profile with recipe and ACP configuration", async () => {
+  // ── Finding 3.17: model resolution assertion ──
+  it("includes model annotation in .goosehints when agent has model configured", async () => {
+    const manifest = createManifest({
+      tools: ["goose"],
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const hints = outputs.find((o) => o.path === ".goosehints");
+    expect(hints).toBeDefined();
+    // test-agent fixture has model: sonnet -> resolves to claude-sonnet-4-6
+    expect(hints!.content).toContain("Recommended model:");
+    expect(hints!.content).toContain("claude-sonnet-4-6");
+  });
+
+  // ── Finding 3.16: no empty content assertion ──
+  it("produces no empty content in any output", async () => {
+    const manifest = createManifest({
+      tools: ["goose"],
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    for (const o of outputs) {
+      expect(o.content.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("generates profile with instructions array matching Goose schema", async () => {
     const manifest = createManifest({
       tools: ["goose"],
     });
@@ -101,15 +127,16 @@ describe("GooseAdapter", () => {
 
     const profile = outputs.find((o) => o.path === ".goose/profiles/hatch3r.yaml");
     expect(profile).toBeDefined();
-    expect(profile!.content).toContain("name: hatch3r");
-    expect(profile!.content).toContain("hatch3r-pipeline");
+    // Goose profiles use an instructions array, not name/recipes/acp fields.
+    expect(profile!.content).toContain("instructions:");
+    expect(profile!.content).toContain("Follow the canonical agent instructions");
     expect(profile!.content).toContain("Research");
     expect(profile!.content).toContain("Implement");
     expect(profile!.content).toContain("Review");
     expect(profile!.content).toContain("Quality");
   });
 
-  it("profile includes ACP configuration", async () => {
+  it("profile does not contain speculative schema fields", async () => {
     const manifest = createManifest({
       tools: ["goose"],
     });
@@ -117,14 +144,13 @@ describe("GooseAdapter", () => {
 
     const profile = outputs.find((o) => o.path === ".goose/profiles/hatch3r.yaml");
     expect(profile).toBeDefined();
-    expect(profile!.content).toContain("acp:");
-    expect(profile!.content).toContain("enabled: true");
-    expect(profile!.content).toContain("version: \"0.2\"");
-    expect(profile!.content).toContain("code-generation");
-    expect(profile!.content).toContain("code-review");
+    // These fields were part of a speculative schema and do not exist in Goose.
+    expect(profile!.content).not.toContain("acp:");
+    expect(profile!.content).not.toContain("recipes:");
+    expect(profile!.content).not.toContain("name: hatch3r");
   });
 
-  it("profile recipe references agents from fixtures", async () => {
+  it("profile references agent pipeline steps as instructions", async () => {
     const manifest = createManifest({
       tools: ["goose"],
     });
@@ -133,7 +159,7 @@ describe("GooseAdapter", () => {
     const profile = outputs.find((o) => o.path === ".goose/profiles/hatch3r.yaml");
     expect(profile).toBeDefined();
     // The fixture has test-agent which does not match pipeline patterns,
-    // so recipe steps should use fallback instructions.
+    // so instructions should use fallback text.
     expect(profile!.content).toContain("Gather context from the codebase");
     expect(profile!.content).toContain("Implement the requested changes");
   });
@@ -150,15 +176,19 @@ describe("GooseAdapter", () => {
     expect(profile!.content).not.toContain("extensions:");
   });
 
-  it("ACP capabilities include tool-use when MCP is enabled", async () => {
+  it("does not emit separate mcp.json — MCP goes in profile extensions", async () => {
     const manifest = createManifest({
       tools: ["goose"],
+      mcpServers: ["github"],
     });
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
+    // Goose does not use a separate mcp.json; MCP is in profile extensions.
+    const mcpJson = outputs.find((o) => o.path === ".goose/mcp.json");
+    expect(mcpJson).toBeUndefined();
+
     const profile = outputs.find((o) => o.path === ".goose/profiles/hatch3r.yaml");
     expect(profile).toBeDefined();
-    // MCP feature is enabled by default, so tool-use capability should be present.
-    expect(profile!.content).toContain("tool-use");
+    expect(profile!.content).toContain("extensions:");
   });
 });

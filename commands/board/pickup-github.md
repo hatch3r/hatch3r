@@ -3,6 +3,7 @@ id: hatch3r-board-pickup-github
 type: command
 description: GitHub-specific platform procedures for board-pickup. Covers gh CLI commands for issue listing, status updates, collision detection, PR creation, and label transitions.
 tags: [board, team, github]
+quality_charter: agents/shared/quality-charter.md
 ---
 # Board Pickup — GitHub Platform Details
 

@@ -3,6 +3,7 @@ id: hatch3r-bug-plan
 type: command
 description: Plan a complex bug investigation -- spawn parallel researchers, produce diagnosis report with ranked hypotheses and structured todo.md entries for board-fill.
 tags: [core, planning]
+quality_charter: agents/shared/quality-charter.md
 ---
 
 ## Agent Pipeline
@@ -65,7 +66,7 @@ Bug Brief:
   Prior attempts:   {what has been tried, or "none"}
 ```
 
-**ASK:** "Does this capture the bug correctly? Adjust anything before I send this to the research phase."
+**ASK:** "Does this capture the bug? Adjust anything before I send this to the research phase."
 
 ---
 

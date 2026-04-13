@@ -5,6 +5,7 @@ event: pre-push
 agent: security-auditor
 description: Scan for secrets and security issues before push
 tags: [core]
+quality_charter: agents/shared/quality-charter.md
 ---
 # Hook: pre-push → security-auditor
 

@@ -3,6 +3,7 @@ id: hatch3r-board-shared-overview
 type: shared-context
 description: Board overview dashboard template, model pool, model selection heuristic, and lane computation algorithm. Referenced from hatch3r-board-shared.
 tags: [board, team]
+quality_charter: agents/shared/quality-charter.md
 ---
 # Board Overview Reference
 

@@ -3,6 +3,7 @@ id: hatch3r-healthcheck
 type: command
 description: Create a full-product QA and testing audit epic with one sub-issue per project module
 tags: [maintenance]
+quality_charter: agents/shared/quality-charter.md
 ---
 
 ## Agent Pipeline
