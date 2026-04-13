@@ -293,7 +293,7 @@ describe("readCanonicalFiles", () => {
   });
 
   describe("per-file error handling (#20)", () => {
-    it("should continue reading other files when one file read fails", async () => {
+    it.skipIf(process.platform === "win32")("should continue reading other files when one file read fails", async () => {
       const dir = await createTempAgentsDir();
       await mkdir(join(dir, "rules"), { recursive: true });
       // Write two valid files and one that will cause an error
@@ -321,7 +321,7 @@ describe("readCanonicalFiles", () => {
       expect(results.length).toBe(2);
     });
 
-    it("should return empty array when all files fail to read", async () => {
+    it.skipIf(process.platform === "win32")("should return empty array when all files fail to read", async () => {
       const dir = await createTempAgentsDir();
       await mkdir(join(dir, "rules"), { recursive: true });
       const badPath = join(dir, "rules", "unreadable.md");

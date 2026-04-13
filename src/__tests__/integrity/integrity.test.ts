@@ -325,7 +325,7 @@ describe("integrity", () => {
       expect(statuses["agents/brand-new.md"]).toBe("new");
     });
 
-    it("should rethrow non-ENOENT errors during file verification", async () => {
+    it.skipIf(process.platform === "win32")("should rethrow non-ENOENT errors during file verification", async () => {
       await mkdir(join(agentsDir, "agents"), { recursive: true });
       const content = "# Agent\n";
       await writeFile(join(agentsDir, "agents", "hatch3r-reviewer.md"), content);
@@ -461,7 +461,7 @@ describe("integrity", () => {
   });
 
   describe("readIntegrityManifest — error paths", () => {
-    it("should rethrow non-ENOENT, non-SyntaxError exceptions", async () => {
+    it.skipIf(process.platform === "win32")("should rethrow non-ENOENT, non-SyntaxError exceptions", async () => {
       // Write a valid file then remove read permission to trigger EACCES
       await writeFile(join(agentsDir, ".integrity.json"), "{}");
       await chmod(join(agentsDir, ".integrity.json"), 0o000);
@@ -512,7 +512,7 @@ describe("integrity", () => {
       expect(manifest.files["agents/hatch3r-symlinked.md"]).toBeUndefined();
     });
 
-    it("should rethrow non-ENOENT errors from readdir", async () => {
+    it.skipIf(process.platform === "win32")("should rethrow non-ENOENT errors from readdir", async () => {
       await mkdir(join(agentsDir, "agents"), { recursive: true });
       // Remove read+execute permission from the directory to trigger EACCES
       await chmod(join(agentsDir, "agents"), 0o000);
