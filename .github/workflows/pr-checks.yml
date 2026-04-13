@@ -57,6 +57,12 @@ jobs:
           MISSING=""
           while IFS= read -r line; do
             SHA=$(echo "$line" | cut -d' ' -f1)
+            # Skip merge commits (e.g. GitHub "Update branch" button) — they
+            # are auto-generated and cannot carry a Signed-off-by trailer.
+            PARENT_COUNT=$(git cat-file -p "$SHA" | grep -c "^parent ")
+            if [ "$PARENT_COUNT" -gt 1 ]; then
+              continue
+            fi
             BODY=$(git log -1 --format="%B" "$SHA")
             if ! echo "$BODY" | grep -qiE "^Signed-off-by: .+ <.+>"; then
               MISSING+=$'\n  '"$line"
