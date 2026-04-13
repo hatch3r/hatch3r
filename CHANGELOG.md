@@ -2,7 +2,7 @@
 
 All notable changes to hatch3r are documented in this file.
 
-## [1.5.0] - 2026-04-02
+## [1.5.0] - 2026-04-13
 
 ### Added
 
@@ -38,6 +38,8 @@ All notable changes to hatch3r are documented in this file.
 - **Goose adapter schema**: Replaced fabricated `recipes`, `acp`, and `name`/`description` profile fields with actual Goose platform schema
 - **Adapter customization**: Duplicate `readCanonicalFiles` calls in Goose adapter eliminated
 - **Content index**: Improved error handling and edge case coverage
+- **TypeScript 6 compatibility**: Added explicit `@types/node` references for TypeScript 6 module resolution
+- **DCO sign-off check**: Skip merge commits in CI sign-off verification to avoid false failures
 
 ### Security
 
@@ -67,6 +69,12 @@ All notable changes to hatch3r are documented in this file.
 - 45 command documentation files updated
 - 26 skill documentation files updated
 - Website docs: quick-start, MCP setup guide, and adapter capability matrix updated
+
+### Dependencies
+
+- Bump inquirer from 13.3.2 to 13.4.1
+- Bump dev dependencies: @vitest/coverage-v8, eslint, typescript, typescript-eslint, vitest (6 updates)
+- Bump GitHub Actions: softprops/action-gh-release 2.2.2→2.6.1, actions/upload-artifact 6.0.0→7.0.0, actions/deploy-pages 4.0.5→5.0.0, github/codeql-action 0.62.5→0.65.6
 
 ## [1.4.0] - 2026-03-25
 
