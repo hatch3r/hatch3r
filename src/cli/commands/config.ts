@@ -352,6 +352,7 @@ export async function configCommand(): Promise<void> {
 
   // --- Content management ---
   const contentChanges: { added: Array<{ type: string; id: string }>; removed: Array<{ type: string; id: string }> } = { added: [], removed: [] };
+  let contentMetadataChanged = false;
   if (manifest.content) {
     // #145 (D19-16): Explain config vs .customize.yaml distinction
     info(
@@ -363,6 +364,7 @@ export async function configCommand(): Promise<void> {
     const contentRoot = findPackageRoot(__dirname);
     const agentsDir = join(rootDir, AGENTS_DIR);
     const index = await buildContentIndex(contentRoot);
+    const previousContent = manifest.content;
     const { projectType, teamSize } = manifest.content;
 
     // --- Content preset selection (mirrors init flow) ---
@@ -478,6 +480,10 @@ export async function configCommand(): Promise<void> {
 
     // Update manifest content wholesale
     manifest.content = newSelection;
+    contentMetadataChanged =
+      previousContent.preset !== newSelection.preset ||
+      previousContent.projectType !== newSelection.projectType ||
+      previousContent.teamSize !== newSelection.teamSize;
 
     // Regenerate canonical and root AGENTS.md after content changes
     if (contentChanges.added.length > 0 || contentChanges.removed.length > 0) {
@@ -495,7 +501,7 @@ export async function configCommand(): Promise<void> {
   diff.addedContent = contentChanges.added;
   diff.removedContent = contentChanges.removed;
 
-  if (isDiffEmpty(diff) && defaultBranch === currentBranch) {
+  if (isDiffEmpty(diff) && defaultBranch === currentBranch && !contentMetadataChanged) {
     console.log();
     info("No changes detected.");
     console.log();
