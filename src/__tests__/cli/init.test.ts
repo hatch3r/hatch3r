@@ -52,7 +52,7 @@ describe("init command", () => {
     const manifest = JSON.parse(raw);
 
     expect(manifest.version).toBe("2.0.0");
-    expect(manifest.hatch3rVersion).toBe("1.5.0");
+    expect(manifest.hatch3rVersion).toBe("1.5.1");
     expect(manifest.platform).toBe("github");
     expect(Array.isArray(manifest.tools)).toBe(true);
     expect(manifest.tools.length).toBeGreaterThan(0);
@@ -192,7 +192,7 @@ describe("init command", () => {
     await initCommand({ yes: true });
 
     const manifest = JSON.parse(await readFile(join(agentsDir, "hatch.json"), "utf-8"));
-    expect(manifest.hatch3rVersion).toBe("1.5.0");
+    expect(manifest.hatch3rVersion).toBe("1.5.1");
   });
 
   it("should include AGENTS.md in managedFiles", async () => {
@@ -285,15 +285,15 @@ describe("init command", () => {
     expect(manifest.tools).toEqual(["amp"]);
   });
 
-  it("should use standard preset by default with --yes flag", async () => {
+  it("should use full preset by default with --yes flag", async () => {
     await initCommand({ yes: true });
 
     const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
     const manifest = JSON.parse(await readFile(manifestPath, "utf-8"));
 
-    // In --yes mode, content.preset should default to standard
+    // In --yes mode, content.preset should default to full
     if (manifest.content) {
-      expect(manifest.content.preset).toBe("standard");
+      expect(manifest.content.preset).toBe("full");
     }
   });
 

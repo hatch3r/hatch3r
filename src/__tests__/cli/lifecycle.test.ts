@@ -88,7 +88,7 @@ describe("init -> sync -> update lifecycle", () => {
     // Verify update refreshed the manifest version
     const updatedManifestRaw = await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8");
     const updatedManifest = JSON.parse(updatedManifestRaw);
-    expect(updatedManifest.hatch3rVersion).toBe("1.5.0");
+    expect(updatedManifest.hatch3rVersion).toBe("1.5.1");
 
     // Verify adapter output was regenerated
     const updatedBridge = await readFile(bridgePath, "utf-8").catch(() => null);

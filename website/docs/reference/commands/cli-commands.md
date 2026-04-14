@@ -24,7 +24,7 @@ npx hatch3r init --preset full --project-type brownfield --team-size team --yes
 |------|--------|---------|-------------|
 | `--tools` | comma-separated tool names | auto-detected | Which coding tools to configure |
 | `--yes` | — | off | Skip all prompts (headless mode) |
-| `--preset` | `minimal`, `standard`, `full` | `standard` | Content profile preset |
+| `--preset` | `minimal`, `standard`, `full` | `full` | Content profile preset |
 | `--project-type` | `greenfield`, `brownfield` | auto-detected | Project type context |
 | `--team-size` | `solo`, `team` | `solo` | Team size context |
 | `--workspace` | — | off | Force workspace mode for multi-repo directories |

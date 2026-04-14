@@ -53,7 +53,7 @@ import { parseGitRemote, parseGitDefaultBranch, getGitRemoteUrl, detectPlatformF
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONTENT_ROOT = findPackageRoot(__dirname);
 
-const DEFAULT_TOOLS: Tool[] = ["cursor"];
+const DEFAULT_TOOLS: Tool[] = ["claude"];
 const DEFAULT_FEATURE_KEYS = Object.keys(DEFAULT_FEATURES) as (keyof Features)[];
 const DEFAULT_MCP: string[] = ["playwright", "github", "context7"];
 
@@ -460,7 +460,7 @@ export async function initCommand(
       repoInfo.languages[0] === "unknown" &&
       repoInfo.existingTools.length === 0 &&
       !repoInfo.hasExistingAgents;
-    const presetId = validateFlag(opts.preset, ["minimal", "standard", "full"], "standard", "preset");
+    const presetId = validateFlag(opts.preset, ["minimal", "standard", "full"], "full", "preset");
     const projectType = validateFlag(opts.projectType, ["greenfield", "brownfield"], isGreenfield ? "greenfield" : "brownfield", "project-type");
     const teamSize = validateFlag(opts.teamSize, ["solo", "team"], "solo", "team-size");
     const preset = getPreset(presetId);
@@ -600,7 +600,7 @@ export async function initCommand(
           value: p.id,
         };
       }),
-      default: "standard" as PresetId,
+      default: "full" as PresetId,
     },
   ]);
   const selectedPreset = getPreset(presetAnswer.preset);
@@ -752,7 +752,7 @@ async function runWorkspaceInit(
       ? Array.from(new Set([platformMcp, ...DEFAULT_MCP.filter((s) => s !== "github")]))
       : [];
     const index = await buildContentIndex(CONTENT_ROOT);
-    const contentSelection = resolveSelection(getPreset("standard"), "brownfield", "solo", index);
+    const contentSelection = resolveSelection(getPreset("full"), "brownfield", "solo", index);
     const wsManifest = createWorkspaceManifest(
       basename(rootDir) || "workspace",
       { platform, tools, features, mcp: { servers: mcpServers }, content: contentSelection },
@@ -832,7 +832,7 @@ async function runWorkspaceInit(
       repoInfo.languages[0] === "unknown" &&
       repoInfo.existingTools.length === 0 &&
       !repoInfo.hasExistingAgents;
-    const presetId = validateFlag(opts.preset, ["minimal", "standard", "full"], "standard", "preset");
+    const presetId = validateFlag(opts.preset, ["minimal", "standard", "full"], "full", "preset");
     const projectType = validateFlag(opts.projectType, ["greenfield", "brownfield"], isGreenfield ? "greenfield" : "brownfield", "project-type");
     const teamSize = validateFlag(opts.teamSize, ["solo", "team"], "solo", "team-size");
     const preset = getPreset(presetId);
@@ -897,7 +897,7 @@ async function runWorkspaceInit(
             value: p.id,
           };
         }),
-        default: "standard" as PresetId,
+        default: "full" as PresetId,
       },
     ]);
     const selectedPreset = getPreset(presetAnswer.preset);

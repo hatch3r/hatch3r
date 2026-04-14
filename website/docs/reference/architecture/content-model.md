@@ -57,7 +57,7 @@ The `hatch.json` manifest includes a `content` field that tracks which items are
 ```json
 {
   "content": {
-    "preset": "standard",
+    "preset": "full",
     "projectType": "brownfield",
     "teamSize": "solo",
     "items": {

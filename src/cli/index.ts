@@ -33,7 +33,7 @@ program
     `Comma-separated tools (${TOOL_CHOICES})`,
   )
   .option("--yes", "Skip interactive prompts, use defaults")
-  .option("--preset <preset>", "Content preset: minimal, standard, full (default: standard)")
+  .option("--preset <preset>", "Content preset: minimal, standard, full (default: full)")
   .option("--project-type <type>", "Project type: greenfield, brownfield")
   .option("--team-size <size>", "Team size: solo, team")
   .option("--workspace", "Initialize as a multi-repo workspace")
