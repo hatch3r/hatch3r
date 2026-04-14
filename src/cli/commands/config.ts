@@ -35,6 +35,7 @@ import { detectSubRepos, detectWorkspaceContext } from "../../workspace/detect.j
 import { syncWorkspaceRepos } from "../../workspace/sync.js";
 import { detectRepoGitIdentity } from "../../workspace/git.js";
 import { TOOL_DISPLAY_NAMES, TOOL_PROMPT_CHOICES, FEATURE_CHOICES, MCP_CHOICES, PLATFORM_DISPLAY_NAMES, PLATFORM_MCP_SERVER, sanitizeInput, isWSL } from "../shared/constants.js";
+import { buildTagGroupedCustomContentChoices } from "../shared/customContentChoices.js";
 import {
   buildContentIndex,
   getAvailableItems,
@@ -390,31 +391,7 @@ export async function configCommand(): Promise<void> {
     let customSelections: string[] | undefined;
     if (selectedPreset.id === "custom") {
       const currentIds = getAllContentIds(manifest.content);
-      const tagGroups = new Map<string, typeof index.items>();
-      for (const item of index.items) {
-        const primaryTag = item.tags[0] ?? "other";
-        if (!tagGroups.has(primaryTag)) tagGroups.set(primaryTag, []);
-        tagGroups.get(primaryTag)!.push(item);
-      }
-
-      const TAG_LABELS: Record<string, string> = {
-        core: "Core", planning: "Planning", implementation: "Implementation",
-        review: "Review", devops: "DevOps", maintenance: "Maintenance",
-        greenfield: "Greenfield", brownfield: "Brownfield", board: "Board",
-        security: "Security", a11y: "Accessibility", performance: "Performance",
-        customize: "Customization", other: "Other",
-      };
-      const groupedChoices: Array<InstanceType<typeof inquirer.Separator> | { name: string; value: string; checked: boolean }> = [];
-      for (const [tag, items] of tagGroups) {
-        groupedChoices.push(new inquirer.Separator(`── ${TAG_LABELS[tag] ?? tag} (${items.length}) ──`));
-        for (const item of items) {
-          groupedChoices.push({
-            name: `${item.type}: ${item.id.replace(/^(cmd-)?hatch3r-/, "")} — ${item.description.slice(0, 60)}`,
-            value: item.id,
-            checked: currentIds.has(item.id),
-          });
-        }
-      }
+      const groupedChoices = buildTagGroupedCustomContentChoices(index.items, (item) => currentIds.has(item.id));
 
       const customAnswer = await inquirer.prompt<{ items: string[] }>([
         {

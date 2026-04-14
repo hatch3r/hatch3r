@@ -39,6 +39,7 @@ import {
   warn,
 } from "../shared/ui.js";
 import { findPackageRoot } from "../shared/paths.js";
+import { buildTagGroupedCustomContentChoices } from "../shared/customContentChoices.js";
 import { TOOL_DISPLAY_NAMES, TOOL_PROMPT_CHOICES, FEATURE_CHOICES, MCP_CHOICES, PLATFORM_DISPLAY_NAMES, PLATFORM_MCP_SERVER, sanitizeInput, isWSL, formatCommandHint, TOOL_SECRET_NOTES } from "../shared/constants.js";
 import { generateIntegrityManifest, writeIntegrityManifest } from "../../integrity/index.js";
 import { HATCH3R_VERSION } from "../../version.js";
@@ -614,32 +615,10 @@ export async function initCommand(
   let customSelections: string[] | undefined;
   if (selectedPreset.id === "custom") {
     const contentIndex = filterIndex;
-    const tagGroups = new Map<string, typeof contentIndex.items>();
-    for (const item of contentIndex.items) {
-      const primaryTag = item.tags[0] ?? "other";
-      if (!tagGroups.has(primaryTag)) tagGroups.set(primaryTag, []);
-      tagGroups.get(primaryTag)!.push(item);
-    }
-
-    // Build grouped choices with separators
-    const TAG_LABELS: Record<string, string> = {
-      core: "Core", planning: "Planning", implementation: "Implementation",
-      review: "Review", devops: "DevOps", maintenance: "Maintenance",
-      greenfield: "Greenfield", brownfield: "Brownfield", board: "Board",
-      security: "Security", a11y: "Accessibility", performance: "Performance",
-      customize: "Customization", other: "Other",
-    };
-    const groupedChoices: Array<InstanceType<typeof inquirer.Separator> | { name: string; value: string; checked: boolean }> = [];
-    for (const [tag, items] of tagGroups) {
-      groupedChoices.push(new inquirer.Separator(`── ${TAG_LABELS[tag] ?? tag} (${items.length}) ──`));
-      for (const item of items) {
-        groupedChoices.push({
-          name: `${item.type}: ${item.id.replace(/^(cmd-)?hatch3r-/, "")} — ${item.description.slice(0, 60)}`,
-          value: item.id,
-          checked: item.protected || item.tags.includes("core"),
-        });
-      }
-    }
+    const groupedChoices = buildTagGroupedCustomContentChoices(
+      contentIndex.items,
+      (item) => item.protected || item.tags.includes("core"),
+    );
 
     const customAnswer = await inquirer.prompt<{ items: string[] }>([
       {
@@ -906,31 +885,10 @@ async function runWorkspaceInit(
     let customSelections: string[] | undefined;
     if (selectedPreset.id === "custom") {
       const contentIndex = wsFilterIndex;
-      const wsTagGroups = new Map<string, typeof contentIndex.items>();
-      for (const item of contentIndex.items) {
-        const primaryTag = item.tags[0] ?? "other";
-        if (!wsTagGroups.has(primaryTag)) wsTagGroups.set(primaryTag, []);
-        wsTagGroups.get(primaryTag)!.push(item);
-      }
-
-      const WS_TAG_LABELS: Record<string, string> = {
-        core: "Core", planning: "Planning", implementation: "Implementation",
-        review: "Review", devops: "DevOps", maintenance: "Maintenance",
-        greenfield: "Greenfield", brownfield: "Brownfield", board: "Board",
-        security: "Security", a11y: "Accessibility", performance: "Performance",
-        customize: "Customization", other: "Other",
-      };
-      const wsGroupedChoices: Array<InstanceType<typeof inquirer.Separator> | { name: string; value: string; checked: boolean }> = [];
-      for (const [tag, items] of wsTagGroups) {
-        wsGroupedChoices.push(new inquirer.Separator(`── ${WS_TAG_LABELS[tag] ?? tag} (${items.length}) ──`));
-        for (const item of items) {
-          wsGroupedChoices.push({
-            name: `${item.type}: ${item.id.replace(/^(cmd-)?hatch3r-/, "")} — ${item.description.slice(0, 60)}`,
-            value: item.id,
-            checked: item.protected || item.tags.includes("core"),
-          });
-        }
-      }
+      const wsGroupedChoices = buildTagGroupedCustomContentChoices(
+        contentIndex.items,
+        (item) => item.protected || item.tags.includes("core"),
+      );
 
       const customAnswer = await inquirer.prompt<{ items: string[] }>([
         {
