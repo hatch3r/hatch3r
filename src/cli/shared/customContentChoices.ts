@@ -2,7 +2,7 @@ import inquirer from "inquirer";
 import type { CatalogItem } from "../../content/index.js";
 
 /** Display labels for primary content tags (custom profile checkbox groups). */
-export const CONTENT_TAG_LABELS: Record<string, string> = {
+const CONTENT_TAG_LABELS: Record<string, string> = {
   core: "Core",
   planning: "Planning",
   implementation: "Implementation",
@@ -19,7 +19,7 @@ export const CONTENT_TAG_LABELS: Record<string, string> = {
   other: "Other",
 };
 
-export type TagGroupedCustomContentChoice =
+type TagGroupedCustomContentChoice =
   | InstanceType<typeof inquirer.Separator>
   | { name: string; value: string; checked: boolean };
 
