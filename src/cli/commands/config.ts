@@ -408,7 +408,7 @@ export async function configCommand(): Promise<void> {
     }
 
     // --- Resolve new selection and diff against current ---
-    const newSelection = resolveSelection(selectedPreset, projectType, teamSize, index, customSelections);
+    const newSelection = resolveSelection(selectedPreset, projectType, teamSize, index, customSelections, undefined, { skipContextFilters: true });
     const oldIds = getAllContentIds(manifest.content);
     const newIds = getAllContentIds(newSelection);
 

@@ -368,6 +368,7 @@ export function resolveSelection(
   index: ContentIndex,
   customSelections?: string[],
   projectLanguages?: string[],
+  options?: { skipContextFilters?: boolean },
 ): ContentSelection {
   let selected: CatalogItem[];
 
@@ -413,43 +414,47 @@ export function resolveSelection(
       );
     }
 
-    // Context filtering: project type
-    if (projectType === "greenfield") {
-      // Remove items tagged ONLY with "brownfield"
-      selected = selected.filter(
-        (item) =>
-          item.protected ||
-          !item.tags.includes("brownfield") ||
-          item.tags.some((t) => t !== "brownfield" && t !== "team" && t !== "solo"),
-      );
-    } else {
-      // Remove items tagged ONLY with "greenfield"
-      selected = selected.filter(
-        (item) =>
-          item.protected ||
-          !item.tags.includes("greenfield") ||
-          item.tags.some((t) => t !== "greenfield" && t !== "team" && t !== "solo"),
-      );
-    }
-
-    // Context filtering: team size
-    if (teamSize === "solo") {
-      // Remove items whose tags are exclusively team/board (no other workflow/domain tags)
-      selected = selected.filter((item) => {
-        if (item.protected) return true;
-        if (!item.tags.includes("team") && !item.tags.includes("board")) return true;
-        // Has team/board tag — keep if it has other non-context tags too
-        return item.tags.some(
-          (t) => t !== "team" && t !== "board" && t !== "solo" && t !== "greenfield" && t !== "brownfield",
+    // Context filtering: project type, team size, language
+    // Skipped when called from config — the user is explicitly choosing a preset
+    // and should not have items silently removed by stored context filters.
+    if (!options?.skipContextFilters) {
+      if (projectType === "greenfield") {
+        // Remove items tagged ONLY with "brownfield"
+        selected = selected.filter(
+          (item) =>
+            item.protected ||
+            !item.tags.includes("brownfield") ||
+            item.tags.some((t) => t !== "brownfield" && t !== "team" && t !== "solo"),
         );
-      });
+      } else {
+        // Remove items tagged ONLY with "greenfield"
+        selected = selected.filter(
+          (item) =>
+            item.protected ||
+            !item.tags.includes("greenfield") ||
+            item.tags.some((t) => t !== "greenfield" && t !== "team" && t !== "solo"),
+        );
+      }
+
+      // Context filtering: team size
+      if (teamSize === "solo") {
+        // Remove items whose tags are exclusively team/board (no other workflow/domain tags)
+        selected = selected.filter((item) => {
+          if (item.protected) return true;
+          if (!item.tags.includes("team") && !item.tags.includes("board")) return true;
+          // Has team/board tag — keep if it has other non-context tags too
+          return item.tags.some(
+            (t) => t !== "team" && t !== "board" && t !== "solo" && t !== "greenfield" && t !== "brownfield",
+          );
+        });
+      }
     }
   }
 
   // Language filtering (Finding #71): remove items whose language tags
   // don't match the detected project languages. Items without any language
   // tags pass through (language-agnostic content).
-  if (projectLanguages && projectLanguages.length > 0) {
+  if (!options?.skipContextFilters && projectLanguages && projectLanguages.length > 0) {
     selected = selected.filter((item) => {
       if (item.protected) return true;
       const itemLangTags = item.tags.filter(isLanguageTag);
