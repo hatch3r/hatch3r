@@ -893,8 +893,9 @@ export function estimatePresetItemCount(
   teamSize: "solo" | "team",
   index: ContentIndex,
   projectLanguages?: string[],
+  options?: { skipContextFilters?: boolean },
 ): number {
-  const selection = resolveSelection(preset, projectType, teamSize, index, undefined, projectLanguages);
+  const selection = resolveSelection(preset, projectType, teamSize, index, undefined, projectLanguages, options);
   return Object.values(selection.items).reduce((sum, arr) => sum + arr.length, 0);
 }
 

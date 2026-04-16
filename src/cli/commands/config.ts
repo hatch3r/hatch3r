@@ -376,7 +376,7 @@ export async function configCommand(): Promise<void> {
         message: "Select content profile:",
         choices: PRESETS.map((p) => {
           const excluded = countPresetExclusions(p, index);
-          const estimated = p.id !== "custom" ? estimatePresetItemCount(p, projectType, teamSize, index) : 0;
+          const estimated = p.id !== "custom" ? estimatePresetItemCount(p, projectType, teamSize, index, undefined, { skipContextFilters: true }) : 0;
           const countHint = estimated > 0 ? ` (~${estimated} items)` : "";
           const suffix = excluded > 0 ? ` (excludes ${excluded} of ${totalItems})` : "";
           return {
