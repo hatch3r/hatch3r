@@ -1,5 +1,9 @@
 # Domain 9: Platform Adapters
 
+> Last updated: 2026-04-19
+
+**Pillars served:** P3 (primary), P4 (supporting).
+
 **Scope:** All 15 adapters and the capability matrix. One sub-agent per adapter for maximum depth.
 **Sub-agents:** 16
 
@@ -58,7 +62,7 @@ This sub-agent runs after all 14 adapter sub-agents complete:
 - [ ] Verify all "Intentional Omissions" are still valid (platform may have added support)
 - [ ] Check for new platform capabilities not yet reflected in the matrix
 - [ ] Verify "Canonical Path Matches" are still accurate
-- [ ] Ensure maintenance guide is complete and accurate
+- [ ] Maintenance guide verified: every adapter listed, every command documented, every hook mapping shown, against filesystem actuals
 
 ### 9.16 Emerging Platforms (SEQUENTIAL)
 - [ ] Search for new AI coding tools with significant traction

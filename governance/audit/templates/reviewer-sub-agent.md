@@ -1,3 +1,9 @@
+# Reviewer Sub-Agent Template
+
+> Last updated: 2026-04-19
+
+**Pillars served:** P2 (primary), P5 (supporting).
+
 ## Task
 
 You are the final quality gate for a wave-based audit execution run. All
@@ -77,7 +83,7 @@ Add a `fix_alignment` column to the Per-Finding Verdict table: ALIGNED / DIVERGE
    - Input validation present where needed
 
 2. Cross-reference against Domain 15 findings:
-   - Were all security findings properly addressed?
+   - Were all security findings addressed with a concrete diff that closes the cited attack surface?
    - Did any implementation introduce new security concerns?
 
 ## Pass 2.5: Adversarial Verification

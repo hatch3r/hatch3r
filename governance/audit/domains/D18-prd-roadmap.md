@@ -1,5 +1,9 @@
 # Domain 18: PRD, Roadmap & Distribution
 
+> Last updated: 2026-04-19
+
+**Pillars served:** P5 (primary), P4 (supporting).
+
 **Scope:** Strategic alignment between product vision, roadmap, and current implementation.
 **Sub-agents:** 3
 

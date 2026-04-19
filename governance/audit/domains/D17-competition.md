@@ -1,5 +1,9 @@
 # Domain 17: Competition & Market Intelligence
 
+> Last updated: 2026-04-19
+
+**Pillars served:** P3 (primary), P4 (supporting).
+
 **Scope:** Competitive landscape, market positioning, and strategic alignment.
 **Sub-agents:** 3
 

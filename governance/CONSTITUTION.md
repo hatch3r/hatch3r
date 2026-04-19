@@ -55,9 +55,14 @@ Governance and audit cycles apply the same quality standards, anti-slop, and ant
 | Metric | Limit | Calibration |
 |--------|-------|-------------|
 | CONSTITUTION.md | <=200 lines | Stable unless new pillars added |
+| VISION.md | <=250 lines | Stable; add principles rarely |
 | AUDIT.md | <=600 lines | ±4 lines per domain count delta |
 | AUDIT-EXECUTE.md | <=700 lines | ±50 lines per execution phase delta |
-| Domain file | 30-80 lines | Sub-agent count × 15 as baseline |
+| RE-ENVISION.md | <=350 lines | ±20 lines per theme-block delta |
+| EVOLVE.md | <=400 lines | ±20 lines per assessment-dimension delta |
+| Domain file (SA ≤5) | 30-80 lines | Limit authoritative |
+| Domain file (SA >5) | SA × 15 lines | Calibration supersedes Limit |
+| Template file | 80-200 lines | Role-specific; bounded by role scope |
 | Cross-file duplication | <5% | 0% ideal; audit per cycle |
 | Finding inflation | <2.0x pre-dedup/post-triage | Source-level dedup improvement |
 | Governance total | <=3000 lines | Increasing across cycles = bloat signal |
@@ -71,6 +76,7 @@ Governance and audit cycles apply the same quality standards, anti-slop, and ant
 3. **Compression Over Verbosity:** Tables over prose. References over repetition.
 4. **Proportional Depth:** File size proportional to governed complexity.
 5. **Anti-Slop:** No filler phrases without measurable criteria. See anti-slop wordlist in AUDIT-EXECUTE.md regression gates.
+6. **Currency transparency:** Every governance prompt or template file MUST carry `> Last updated: YYYY-MM-DD` as the second or third content line. Absence is Low; staleness >180 days is Medium. Verified by AUDIT-EXECUTE.md regression gates.
 
 ### P6. Security & Trust Governance
 
@@ -92,18 +98,17 @@ If (1) is "none", the change is rejected. If (3) is "increase", the change must 
 
 ## 3. Pillar-to-Governance Traceability Matrix
 
-| Pillar | CONSTITUTION | VISION | AUDIT | AUDIT-EXECUTE | Key Domains | Trust (D15 Part B) |
-|--------|:-----------:|:------:|:-----:|:------------:|:-----------:|:------------------:|
-| P1 CLI UX | S | P | S | S | D10 | -- |
-| P2 Quality | P | P | P | S | D1,D5,D7,D13 | -- |
-| P3 Currency | S | P | P | S | D2,D9 | S |
-| P4 Lean | S | P | P | P | D5,D16 | -- |
-| P5 Governance | P | S | P | P | D16,D18,D19 | -- |
-| P6 Security | P | -- | S | S | D15 | P |
+| Pillar | CONST | VISION | AUDIT | A-EXEC | RE-ENV | EVOLVE | TMPL | Domains | Trust |
+|--------|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| P1 CLI UX | S | P | S | S | S | S | — | D10 | — |
+| P2 Quality | P | P | P | S | S | S | P | D1,D5,D7,D13 | — |
+| P3 Currency | S | P | P | S | — | S | — | D2,D9 | S |
+| P4 Lean | S | P | P | P | — | S | — | D5,D16 | — |
+| P5 Governance | P | S | P | P | S | P | S | D16,D18,D19 | — |
+| P6 Security | P | — | S | S | — | — | — | D15 | P |
 
-P = primary coverage, S = supporting coverage, -- = no coverage (gap or acceptable).
-
-**Known gap:** P6 has no VISION.md coverage. Recommendation: add a security/trust principle via the RE-ENVISION.md workflow in a future cycle.
+P=primary, S=supporting, —=gap or acceptable. Columns: A-EXEC=AUDIT-EXECUTE.md · RE-ENV=RE-ENVISION.md · TMPL=audit/templates · Domains=audit/domains · Trust=D15 Part B.
+**Known gap:** P6 ↔ VISION.md — add via RE-ENVISION.md workflow.
 
 ---
 

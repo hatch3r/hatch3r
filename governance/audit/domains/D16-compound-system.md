@@ -1,5 +1,9 @@
 # Domain 16: Cross-Domain Synthesis
 
+> Last updated: 2026-04-19
+
+**Pillars served:** P4 (primary), P5 (supporting).
+
 **Scope:** Cross-domain insights that no single domain can produce. This domain synthesizes findings from all other domains to identify contradictions, systemic patterns, and closed-loop effectiveness. Explicitly NOT re-auditing scope covered by home domains.
 **Sub-agents:** 2
 

@@ -1,5 +1,9 @@
 # Domain 3: Test Infrastructure
 
+> Last updated: 2026-04-19
+
+**Pillars served:** P2 (primary), P5 (supporting).
+
 **Scope:** All 47 test files across the test suite. Coverage analysis, test quality assessment, and testing infrastructure evaluation.
 **Sub-agents:** 5
 

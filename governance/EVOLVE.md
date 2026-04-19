@@ -62,6 +62,10 @@ Before any assessment begins, the executing agent accepts this contract.
 
 **File-path exception.** Strings inside backticks that name files in this repository (e.g., adapter-output filenames whose names happen to be derived from vendor or product identifiers) are factual references to repository files, not self-identification by the executing agent. They are exempt from the name-ban in this contract.
 
+**Platform-scope exception.** Factual references to the framework's committed adapter-target platforms by name (the set registered in `src/adapters/index.ts`) in scope statements — for example, `VISION.md` §Supported Platforms or `AUDIT.md` Canonical Source ↔ Adapter Outputs — are factual adapter-target references, not executing-agent self-identification. They are exempt from the brand/vendor name-ban.
+
+**External-currency exception.** Directives referencing current external research or platform documentation (e.g., "current documentation", "published research") in checklist items or sub-agent prompts, where the subject is external artefacts and not the executing agent's capability tier, are exempt from the generation-word ban. The cited source and its access date must accompany the directive.
+
 The report artefact is `governance/EVOLVE-REPORT.md`. The prompt writes no other file.
 
 ### Web Research Mandate

@@ -1,5 +1,9 @@
 # Domain 11: End-to-End Data Flow
 
+> Last updated: 2026-04-19
+
+**Pillars served:** P4 (primary), P2 (supporting).
+
 **Scope:** The full data flow from canonical source through adapters to tool-specific output.
 **Sub-agents:** 4
 

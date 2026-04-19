@@ -1,5 +1,9 @@
 # Domain 5: Prompt Engineering Quality
 
+> Last updated: 2026-04-19
+
+**Pillars served:** P2 (primary), P4 (supporting).
+
 **Scope:** ALL 137 content artifacts evaluated for prompt engineering quality, instruction clarity, and LLM execution reliability.
 **Sub-agents:** 8
 
@@ -25,9 +29,6 @@
 - [ ] **Cross-agent handoff contract analysis** — For pipeline agents: are handoff contracts between phases (researcher to implementer, reviewer to fixer) explicitly defined with data schemas?
 - [ ] **Golden test case methodology** — Could you write a deterministic test case to verify this artifact produces correct output? If not, why?
 - [ ] **Prompt drift detection** — Are there version markers or checksums to detect when artifact content has drifted from intended behavior?
-- [ ] **Token efficiency** — Is the artifact optimally sized? Could it be shorter without losing effectiveness? (Reference: AGENTS.md best practices: 6-10 rules, <150 lines)
-- [ ] **Hallucination prevention** — Does the artifact include grounding mechanisms (file references, schema constraints, verification steps)?
-- [ ] **State-of-the-art alignment** — Compare against latest research on effective LLM instruction formats
 - [ ] **Negative scenario testing** — For each content type examined: what happens when prerequisites are missing? When inputs are malformed? When referenced artifacts (agents, skills, MCP servers) don't exist? Content must fail gracefully with clear guidance or warn clearly — not fail silently or produce confusing output.
 
 ## Audit Checklists
@@ -37,17 +38,20 @@
 - [ ] Context propagation between phases — critical information flows forward without loss
 - [ ] Review loop termination conditions — clear criteria for when to stop iterating
 - [ ] Phase 4 specialist dispatch logic — which specialists are invoked and when
+- [ ] **Token efficiency** — Pipeline artifact is optimally sized. Reference: AGENTS.md best practices (6-10 rules, ≲150 lines per GitHub 2026 research).
 
 ### 5.2 Specialist Agents
 - [ ] Domain expertise depth — does each specialist demonstrate deep knowledge?
 - [ ] Tool usage instructions — are MCP tools, file operations, and external tools correctly referenced?
 - [ ] Output actionability — can a user act on the specialist's output without interpretation?
 - [ ] Integration with review loop — specialist findings feed back correctly into fixer
+- [ ] **External-research alignment** — Compare against published research on LLM instruction formats; cite source and date.
 
 ### 5.3 Meta Agents
 - [ ] Cross-cutting concern coverage — do meta agents address concerns that span multiple domains?
 - [ ] Learning system effectiveness — does the learnings-loader actually improve future agent behavior?
 - [ ] Security coverage breadth — does the security-auditor cover the full attack surface?
+- [ ] **Hallucination prevention** — Meta agent includes grounding mechanisms (file references, schema constraints, verification steps).
 
 ### 5.4 Rules
 - [ ] Technical accuracy — do recommendations reflect current best practices?
@@ -61,24 +65,7 @@
 - [ ] Platform feature integration — commands leverage platform capabilities (GitHub API, git, etc.)
 - [ ] UX quality — intuitive naming, helpful output, clear error messages
 - [ ] Simulated LLM execution — for ALL core and orchestration-heavy commands (minimum: `hatch3r-workflow`, `hatch3r-board-pickup`, `hatch3r-revision`, `hatch3r-quick-change`, `hatch3r-learn`, `hatch3r-security-audit`), mentally simulate step-by-step LLM execution. Predict output at each step. Compare against stated purpose. Flag deviation/hallucination risks. For commands with sub-files (e.g., board-pickup's delegation files), simulate the full delegation chain.
-- [ ] Governance compliance — for each command, verify adherence to governance standards:
-
-  **VISION.md Principles:**
-  - [ ] ASK checkpoints present at every user-facing decision point (Principle 13: quality through measurable standards)
-  - [ ] Quality gates mandatory and not skippable (Principle 9: one-shot success)
-  - [ ] Sub-agent delegation follows four-phase pipeline (Principle 12: sub-agentic by design)
-  - [ ] Learnings consulted when `.agents/learnings/` exists (Principle 5: compound knowledge)
-  - [ ] `scope: always` rules included in every sub-agent prompt (Principle 4: proven patterns)
-  - [ ] Up-to-date information sources referenced — Context7 MCP, web research (Principle 8: up-to-date information always)
-  - [ ] Measurable acceptance criteria in quality verification (Principle 13)
-  - [ ] Context degradation guards present (Principle 9)
-
-  **CONSTITUTION.md Behavioral Standards:**
-  - [ ] Severity routing respects defined levels — Critical never silently deferred without rationale
-  - [ ] Confidence expression present in gates, delegation prompts, and result summaries
-  - [ ] Review loop termination follows max-3-iteration pattern with user ASK on exhaustion
-  - [ ] Sub-agent prompts include agent protocol reference
-  - [ ] Error handling explicit with recovery guidance
+- [ ] **Governance compliance** — Verify adherence to Principles in `governance/VISION.md` §Principles and Behavioral Standards in `governance/CONSTITUTION.md` §2 P2. Specific checks: ASK checkpoints at user-facing decisions, mandatory quality gates, sub-agent delegation via four-phase pipeline, learnings consultation, scope-always rules in sub-agent prompts, current-information grounding, measurable acceptance criteria, context-degradation guards, severity routing, confidence expression, max-3-iteration review loop with user ASK on exhaustion, agent protocol reference, explicit error handling with recovery guidance.
 
 ### 5.6 Skills
 - [ ] Step-by-step correctness — each step is executable and produces expected results
@@ -88,7 +75,7 @@
 - [ ] Real-world applicability — skill addresses actual production scenarios
 
 ### 5.7 Supporting Artifacts
-- [ ] Check criteria completeness — all 5 checks cover their domain thoroughly
+- [ ] Check criteria completeness — all 5 checks have explicit pass/fail criteria covering their stated domain scope
 - [ ] Hook trigger accuracy — all 6 hooks fire on correct events
 - [ ] Prompt output quality — all 3 prompts produce useful, structured output
 - [ ] GitHub Actions integration quality — all 4 github-agents work correctly in CI
@@ -99,7 +86,7 @@ Verify that all content artifacts embody the shared quality charter (`agents/sha
 
 - [ ] **Charter inheritance** — Do agents reference or inherit the shared quality charter? Is the charter accessible in the agent's context when loaded?
 - [ ] **Confidence expression** — Do agents express confidence levels (high/medium/low) in their output? Or do they present all recommendations with equal false certainty?
-- [ ] **Measurable acceptance criteria** — Do commands include measurable, verifiable acceptance criteria (not just "verify it works" or "ensure quality")?
+- [ ] **Measurable acceptance criteria** — Do commands include measurable, verifiable acceptance criteria (not vague aspirational wording without measurable pass/fail conditions)?
 - [ ] **Failure mode documentation** — Do skills define what happens when prerequisites are missing, when edge cases arise, or when the skill cannot complete its task?
 - [ ] **Approach challenging** — Does the reviewer agent challenge the approach and design, not just the implementation details? Does it ask "is this the right solution?" in addition to "is this solution correct?"
 - [ ] **Requirement questioning** — Does the implementer agent question unclear or potentially misguided requirements before building, or does it blindly implement whatever is specified?

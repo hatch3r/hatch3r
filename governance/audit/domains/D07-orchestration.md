@@ -1,5 +1,9 @@
 # Domain 7: Agent Orchestration Optimization
 
+> Last updated: 2026-04-19
+
+**Pillars served:** P2 (primary), P4 (supporting).
+
 **Scope:** The four-phase pipeline architecture and its optimization for maximum task success rate.
 **Sub-agents:** 5
 

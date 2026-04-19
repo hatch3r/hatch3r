@@ -1,5 +1,9 @@
 # Domain 6: Context Engineering & Token Economics
 
+> Last updated: 2026-04-19
+
+**Pillars served:** P4 (primary), P2 (supporting).
+
 **Scope:** How the framework manages context windows, instruction density, and token costs across the agent pipeline.
 **Sub-agents:** 4
 

@@ -1,5 +1,9 @@
 # Domain 2: Adapter Infrastructure
 
+> Last updated: 2026-04-19
+
+**Pillars served:** P3 (primary), P2 (supporting).
+
 **Scope:** All adapter support code — the base contract, canonical reader, customization pipeline, utilities, registry, content system, and integrity/archive systems. Does NOT cover per-adapter implementations (those are Domain 9).
 **Sub-agents:** 7
 

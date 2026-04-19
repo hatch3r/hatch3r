@@ -1,5 +1,9 @@
 # Domain 14: Cross-Project Adaptability & Scalability
 
+> Last updated: 2026-04-19
+
+**Pillars served:** P4 (primary), P3 (supporting).
+
 **Scope:** How well the framework works across different project types, sizes, and team configurations.
 **Sub-agents:** 4
 

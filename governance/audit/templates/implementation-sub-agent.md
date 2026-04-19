@@ -1,3 +1,9 @@
+# Implementation Sub-Agent Template
+
+> Last updated: 2026-04-19
+
+**Pillars served:** P2 (primary), P4 (supporting).
+
 ## Task
 
 Implement the following audit findings for [project name].
@@ -41,7 +47,7 @@ For each finding, provide:
 
 4. **Preserve existing behavior.** Do not break existing tests, introduce lint
    errors, or change unrelated code. If a finding requires modifying a public API,
-   ensure all callers are updated.
+   update every caller and verify with `grep` across the codebase.
 
 5. **Follow project conventions.** Match the existing code style, naming patterns,
    and architectural patterns. Do not introduce new dependencies without explicit

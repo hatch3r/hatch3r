@@ -1,5 +1,9 @@
 # Domain 1: Core Source Implementation
 
+> Last updated: 2026-04-19
+
+**Pillars served:** P2 (primary), P5 (supporting).
+
 **Scope:** All `src/` TypeScript except adapters and content system. Covers all 9 CLI commands, merge infrastructure, manifest/model/detect modules, workspace/worktree modules, environment/hooks/shared utilities, and the CLI entry point.
 **Sub-agents:** 10
 

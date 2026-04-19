@@ -1,5 +1,9 @@
 # Audit Report Format Templates
 
+> Last updated: 2026-04-19
+
+**Pillars served:** P5 (primary), P1 (supporting).
+
 > Extracted from AUDIT.md for lean governance. Referenced by AUDIT.md §Output Format.
 > These templates define the structure of audit report sections.
 

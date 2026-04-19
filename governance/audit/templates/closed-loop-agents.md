@@ -1,5 +1,9 @@
 # Closed-Loop Agent Templates
 
+> Last updated: 2026-04-19
+
+**Pillars served:** P2 (primary), P5 (supporting).
+
 Templates for AUDIT-EXECUTE.md Phases 5-7. Replace placeholders with registry values.
 
 ---

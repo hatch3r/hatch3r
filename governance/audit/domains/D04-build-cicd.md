@@ -1,5 +1,9 @@
 # Domain 4: Build, CI/CD & Dependencies
 
+> Last updated: 2026-04-19
+
+**Pillars served:** P4 (primary), P2 (supporting).
+
 **Scope:** Build tooling, dependency health, CI workflows, release pipeline, and community readiness for open-source distribution.
 **Sub-agents:** 5
 

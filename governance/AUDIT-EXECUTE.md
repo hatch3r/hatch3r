@@ -1,5 +1,7 @@
 # hatch3r — Audit Execution Prompt
 
+> Last updated: 2026-04-19
+
 ## Purpose
 
 Implement all agent-actionable findings from an audit report using a wave-based progressive execution model with regression gates between waves. This is the execution companion to `AUDIT.md` (audit prompt) and `AUDIT-REPORT.md` (audit report).
@@ -305,7 +307,7 @@ Prioritize within wave: dependency-first, then impact-to-effort ratio, then secu
 
 ## Regression Gates
 
-After each wave commit, run 12-check gate comparing against Phase 0 baseline (NOT a shifted baseline).
+After each wave commit, run 13-check gate comparing against Phase 0 baseline (NOT a shifted baseline).
 
 ### Gate Checks
 
@@ -320,7 +322,8 @@ After each wave commit, run 12-check gate comparing against Phase 0 baseline (NO
 | Fix-Finding | Review diff against finding recommendations | Each "done" finding's change addresses its specific recommendation | Change addresses a related area but not the specific recommendation |
 | Governance | Scan modified `.md` files in `commands/`, `agents/`, `skills/` against pre-wave versions | Modified governance files retain ASK checkpoints, quality gate references, and sub-agent delegation patterns present in the pre-wave version | A governance file lost an ASK checkpoint, quality gate reference, or sub-agent delegation pattern that existed before the wave |
 | Governance weight | `wc -l` on modified governance `.md` files. FAIL if any file exceeds its lean threshold (see CONSTITUTION.md §2 P5). |
-| Anti-slop | `grep -c` against anti-slop wordlist on modified governance `.md` files. FAIL if count > 0. Wordlist: "best possible", "best-in-class", "world-class", "comprehensive and thorough", "exhaustive", "robust and resilient", "high-quality" (without measure), "ensure" (without method), "properly"/"correctly" (without criterion), "as needed"/"as appropriate" (without trigger), "scalable" (without dimension), "carefully", "thoroughly", "it is important to note", "this section describes". |
+| Anti-slop | Two-pass: (1) `grep -c` against the wordlist on modified governance `.md` files; (2) for each hit, verify a measurable qualifier exists within 8 words of the match. FAIL only on hits lacking a qualifier. Wordlist (qualifier requirement in parens where conditional): "best possible", "best-in-class", "world-class", "comprehensive and thorough", "exhaustive", "robust and resilient", "high-quality" (requires measure within 8w), "ensure" (requires method within 8w), "properly"/"correctly" (requires criterion within 8w), "as needed"/"as appropriate" (requires trigger within 8w), "scalable" (requires dimension within 8w), "carefully", "thoroughly", "it is important to note", "this section describes". |
+| Governance currency | Verify `> Last updated: YYYY-MM-DD` header is present on any modified governance `.md` file matching the EVOLVE in-scope glob (`governance/*.md`, `governance/audit/domains/*.md`, `governance/audit/templates/*.md`). FAIL if header missing or header date older than commit date. |
 | Doc accuracy | Compare documented counts (adapter count, agent count, rule count, command count, skill count, hook count, sub-agent count) in modified `.md` files against filesystem actuals. FAIL if any stated count diverges from `ls` / `find` result. |
 | Cross-domain dedup | Scan findings resolved in current wave against findings in remaining waves. FAIL if two findings share the same root cause and file reference but were not merged during Phase 1 dedup. Log missed merges for next-cycle triage calibration. |
 
@@ -607,7 +610,7 @@ The next cycle's Phase 1 (Enhanced Triage) should:
 
 ## Execution History
 
-| Date | Report Version | Model | Waves | Findings Targeted | Resolved | Partial | Failed | Rolled Back | Never Attempted | Duration | Resolution Rate | Remaining Human | PRD Updates | Content Specs | Audit Evolution |
-|------|---------------|-------|-------|-------------------|----------|---------|--------|-------------|-----------------|----------|-----------------|-----------------|-------------|---------------|-----------------|
-| 2026-03-05 | v3 (80/100) | -- | 4/4 | 36 | 36 | 0 | 0 | 0 | 0 | -- | 100% | 4 (#3, #4, #5, #6) | -- | -- | -- |
-| 2026-03-05 | v4 (82/100) | -- | 4/4 | 31 | 30 | 1 | 0 | 0 | 0 | -- | 97% | 4 (#1, #2, #3, #4) | -- | -- | -- |
+| Date | Report Version | Waves | Findings Targeted | Resolved | Partial | Failed | Rolled Back | Never Attempted | Duration | Resolution Rate | Remaining Human | PRD Updates | Content Specs | Audit Evolution |
+|------|---------------|-------|-------------------|----------|---------|--------|-------------|-----------------|----------|-----------------|-----------------|-------------|---------------|-----------------|
+| 2026-03-05 | v3 (80/100) | 4/4 | 36 | 36 | 0 | 0 | 0 | 0 | -- | 100% | 4 (#3, #4, #5, #6) | -- | -- | -- |
+| 2026-03-05 | v4 (82/100) | 4/4 | 31 | 30 | 1 | 0 | 0 | 0 | -- | 97% | 4 (#1, #2, #3, #4) | -- | -- | -- |

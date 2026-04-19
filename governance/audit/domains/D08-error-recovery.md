@@ -1,5 +1,9 @@
 # Domain 8: Error Recovery & Resilience
 
+> Last updated: 2026-04-19
+
+**Pillars served:** P2 (primary), P6 (supporting).
+
 **Scope:** How the framework handles failures across CLI, filesystem, and pipeline layers.
 **Sub-agents:** 4
 

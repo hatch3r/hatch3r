@@ -1,8 +1,11 @@
 # Domain 19: Agentic Development Self-Governance
 
+> Last updated: 2026-04-19
+
+**Pillars served:** P5 (primary), P2 (supporting).
+
 **Scope:** The agentic development environment used to develop hatch3r itself — CLAUDE.md, `.claude/` configuration (rules, skills, hooks, settings). Audits whether this setup correctly reflects the governance system it enforces.
 **Sub-agents:** 4
-**Pillars:** P5 (primary), P2 (supporting)
 
 ## Sub-Agent Decomposition
 

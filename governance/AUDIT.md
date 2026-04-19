@@ -1,8 +1,10 @@
 # hatch3r — Full Framework Audit Prompt
 
+> Last updated: 2026-04-19
+
 ## Purpose
 
-Perform a deep, end-to-end audit of every area, aspect, and line of code or content in the hatch3r framework. The goal is to ensure this framework is production-ready, open-sourceable, and excels in every capability compared to the current market — enabling end users to build winning software products at scale.
+Perform a deep, end-to-end audit of every area, aspect, and line of code or content in the hatch3r framework. The goal: verify this framework is production-ready and open-sourceable by applying the 19-domain checklist across code, content, and adapter implementations — enabling end users to build winning software products at scale.
 
 This audit covers **19 domains** organized across **4 tiers**, deploying **106 sub-agents** for maximum depth. Every domain requires web research for current market context. The final deliverable is a structured audit report with severity-tagged findings, weighted domain scores, and prioritized action items using 3-tier progressive disclosure.
 
@@ -206,7 +208,7 @@ When duplicates are detected:
 |----------|----------------|----------------|---------------------|
 | Critical | 0–5 | Genuine maturity — verify depth before concluding | Fundamental issues |
 | High | 5–20 | Verify sub-agents examined specific files and cited line numbers before concluding | Significant quality gaps |
-| Medium | 20–55 | Verify sub-agents analyzed code paths, not just file headers | Exhaustive analysis |
+| Medium | 20–55 | Verify sub-agents analyzed code paths, not just file headers | Over-broad analysis pattern |
 | Low | 15–45 | Verify findings are substantive, not padded | Over-reporting |
 | Info | 10–30 | Missing strategic context | Appropriate depth |
 | **Total** | **50–155** | **Verify audit depth before finalizing** | **Thorough audit** |

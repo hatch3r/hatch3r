@@ -1,5 +1,9 @@
 # Domain 12: CLI Diagnostics & Traceability
 
+> Last updated: 2026-04-19
+
+**Pillars served:** P1 (primary), P4 (supporting).
+
 **Scope:** Can users understand what hatch3r did, diagnose problems, and trace generated output back to its source? This domain evaluates the framework's diagnostic and traceability capabilities appropriate for a setup-time CLI configuration generator.
 **Sub-agents:** 4
 
