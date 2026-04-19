@@ -1,4 +1,4 @@
-import type { HatchManifest, Tool } from "../types.js";
+import { HatchError, type HatchManifest, type Tool } from "../types.js";
 import type { Adapter } from "./base.js";
 import { AgentsMdAdapter } from "./agentsmd.js";
 import { AiderAdapter } from "./aider.js";
@@ -51,7 +51,7 @@ export function getAdapter(tool: Tool): Adapter {
   if (adapter) return adapter;
   const factory = adapterFactories[tool];
   if (!factory) {
-    throw new Error(`Unknown tool: ${tool}`);
+    throw new HatchError(`Unknown tool: ${tool}`, 1, "VALIDATION_ERROR");
   }
   adapter = factory();
   adapterCache.set(tool, adapter);

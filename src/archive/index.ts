@@ -1,7 +1,7 @@
 import { access, cp, mkdir, open, readFile, readdir, rm, stat } from "node:fs/promises";
 import { dirname, join, sep } from "node:path";
 import type { HatchManifest, Tool } from "../types.js";
-import { ARCHIVE_DIR, HATCH3R_PREFIX, sanitizeId } from "../types.js";
+import { ARCHIVE_DIR, HATCH3R_PREFIX, HatchError, sanitizeId } from "../types.js";
 import { extractCustomContent, hasManagedBlock } from "../merge/managedBlocks.js";
 import { atomicWriteFile } from "../merge/safeWrite.js";
 import type { CustomizableType } from "../models/customize.js";
@@ -184,7 +184,11 @@ export async function archiveToolOutputs(
         const srcStat = await srcFh.stat();
         const destStat = await destFh.stat();
         if (destStat.size !== srcStat.size) {
-          throw new Error(`Archive copy size mismatch for ${relPath}: source=${srcStat.size}, dest=${destStat.size}`);
+          throw new HatchError(
+            `Archive copy size mismatch for ${relPath}: source=${srcStat.size}, dest=${destStat.size}`,
+            1,
+            "FS_ERROR",
+          );
         }
       } finally {
         await destFh.close();

@@ -1,0 +1,30 @@
+{
+  "name": "hatch3r",
+  "description": "Battle-tested agentic coding setup: 16 agents, 26 skills, 27 rules, 34 commands, 6 hooks, and MCP integrations. Counts derived from governance/inventory.json.",
+  "version": "1.5.1",
+  "author": {
+    "name": "hatch3r",
+    "email": "support@hatch3r.com"
+  },
+  "homepage": "https://docs.hatch3r.com",
+  "repository": "https://github.com/hatch3r/hatch3r",
+  "license": "MIT",
+  "keywords": [
+    "agents",
+    "skills",
+    "rules",
+    "mcp",
+    "coding-assistant",
+    "agentic",
+    "sub-agents",
+    "board-management",
+    "code-review",
+    "testing",
+    "claude-code"
+  ],
+  "skills": "skills/",
+  "agents": "agents/",
+  "commands": "commands/",
+  "hooks": "hooks/hooks.json",
+  "mcpServers": ".mcp.json"
+}

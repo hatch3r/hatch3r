@@ -28,6 +28,8 @@ import {
   LANGUAGE_TAGS,
   LANGUAGE_TO_TAG,
   isLanguageTag,
+  resolveLanguageTags,
+  filterByLanguages,
 } from "../../content/tags.js";
 
 describe("tag constants", () => {
@@ -251,5 +253,125 @@ describe("tag group completeness", () => {
   it("ALL_TAGS equals the union of WORKFLOW_TAGS, CONTEXT_TAGS, DOMAIN_TAGS, and LANGUAGE_TAGS", () => {
     const combined = [...WORKFLOW_TAGS, ...CONTEXT_TAGS, ...DOMAIN_TAGS, ...LANGUAGE_TAGS];
     expect(ALL_TAGS).toEqual(combined);
+  });
+});
+
+describe("resolveLanguageTags", () => {
+  it("maps a single known language to its lang:* tag", () => {
+    const result = resolveLanguageTags(["typescript"]);
+    expect(result.has(TAG_LANG_TYPESCRIPT)).toBe(true);
+    expect(result.size).toBe(1);
+  });
+
+  it("maps multiple known languages to their tags", () => {
+    const result = resolveLanguageTags(["python", "go"]);
+    expect(result.has(TAG_LANG_PYTHON)).toBe(true);
+    expect(result.has(TAG_LANG_GO)).toBe(true);
+    expect(result.size).toBe(2);
+  });
+
+  it("collapses javascript and typescript to the same lang:typescript tag", () => {
+    const result = resolveLanguageTags(["javascript", "typescript"]);
+    expect(result.has(TAG_LANG_TYPESCRIPT)).toBe(true);
+    expect(result.size).toBe(1);
+  });
+
+  it("silently drops unknown languages (e.g. 'unknown', 'cobol')", () => {
+    const result = resolveLanguageTags(["unknown", "cobol", "python"]);
+    expect(result.has(TAG_LANG_PYTHON)).toBe(true);
+    expect(result.size).toBe(1);
+  });
+
+  it("returns an empty set for an empty input", () => {
+    const result = resolveLanguageTags([]);
+    expect(result.size).toBe(0);
+  });
+});
+
+describe("filterByLanguages", () => {
+  // Minimal local fixture — independent of CatalogItem to keep this a unit test.
+  type Item = { id: string; tags: string[]; protected?: boolean };
+
+  function item(id: string, tags: string[], extras: Partial<Item> = {}): Item {
+    return { id, tags, ...extras };
+  }
+
+  it("includes items with no lang:* tags (universal/agnostic content)", () => {
+    const items: Item[] = [
+      item("agnostic-a", ["core"]),
+      item("agnostic-b", ["security"]),
+      item("agnostic-c", []),
+    ];
+    const result = filterByLanguages(items, ["python"]);
+    expect(result.map((i) => i.id)).toEqual(["agnostic-a", "agnostic-b", "agnostic-c"]);
+  });
+
+  it("includes items whose lang:* tag matches a project language", () => {
+    const items: Item[] = [
+      item("py-rule", ["lang:python"]),
+      item("ts-rule", ["lang:typescript"]),
+    ];
+    const result = filterByLanguages(items, ["python"]);
+    expect(result.map((i) => i.id)).toEqual(["py-rule"]);
+  });
+
+  it("excludes items whose lang:* tags do not intersect the project languages", () => {
+    const items: Item[] = [
+      item("ts-only", ["core", "lang:typescript"]),
+      item("go-only", ["core", "lang:go"]),
+      item("agnostic", ["core"]),
+    ];
+    const result = filterByLanguages(items, ["python"]);
+    expect(result.map((i) => i.id)).toEqual(["agnostic"]);
+  });
+
+  it("includes items with at least one matching lang tag among many", () => {
+    const items: Item[] = [
+      item("multi", ["lang:python", "lang:go", "lang:rust"]),
+    ];
+    expect(filterByLanguages(items, ["go"]).map((i) => i.id)).toEqual(["multi"]);
+    expect(filterByLanguages(items, ["python"]).map((i) => i.id)).toEqual(["multi"]);
+    expect(filterByLanguages(items, ["java"]).map((i) => i.id)).toEqual([]);
+  });
+
+  it("treats projectLanguages=[] as a no-op (returns all items unchanged)", () => {
+    const items: Item[] = [
+      item("ts-only", ["lang:typescript"]),
+      item("agnostic", ["core"]),
+    ];
+    const result = filterByLanguages(items, []);
+    expect(result.map((i) => i.id)).toEqual(["ts-only", "agnostic"]);
+  });
+
+  it("always includes protected items even when their lang tag does not match", () => {
+    const items: Item[] = [
+      item("ts-protected", ["lang:typescript"], { protected: true }),
+      item("ts-unprotected", ["lang:typescript"]),
+    ];
+    const result = filterByLanguages(items, ["python"]);
+    expect(result.map((i) => i.id)).toEqual(["ts-protected"]);
+  });
+
+  it("multi-language projects include items matching any of the listed languages", () => {
+    const items: Item[] = [
+      item("py-rule", ["lang:python"]),
+      item("go-rule", ["lang:go"]),
+      item("ruby-rule", ["lang:ruby"]),
+    ];
+    const result = filterByLanguages(items, ["python", "go"]);
+    expect(result.map((i) => i.id).sort()).toEqual(["go-rule", "py-rule"]);
+  });
+
+  it("javascript projects accept items tagged lang:typescript (alias mapping)", () => {
+    const items: Item[] = [item("ts-rule", ["lang:typescript"])];
+    const result = filterByLanguages(items, ["javascript"]);
+    expect(result.map((i) => i.id)).toEqual(["ts-rule"]);
+  });
+
+  it("does not mutate the input array", () => {
+    const items: Item[] = [item("a", ["lang:python"]), item("b", ["lang:go"])];
+    const snapshot = [...items];
+    filterByLanguages(items, ["python"]);
+    expect(items).toEqual(snapshot);
   });
 });

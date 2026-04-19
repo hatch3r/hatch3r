@@ -19,7 +19,7 @@
 
 import { describe, it, expect } from "vitest";
 import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
-import type { HatchManifest, Tool } from "../../types.js";
+import { HatchError, type HatchManifest, type Tool } from "../../types.js";
 
 describe("getAdapter", () => {
   it("returns adapter for known tools", () => {
@@ -32,6 +32,19 @@ describe("getAdapter", () => {
 
   it("throws for unknown tool", () => {
     expect(() => getAdapter("unknown" as Tool)).toThrow("Unknown tool: unknown");
+  });
+
+  // C7-H14: getAdapter throws HatchError (not plain Error) so the CLI can
+  // surface a structured exitCode for unknown tool selections.
+  it("throws HatchError with VALIDATION_ERROR code for unknown tool", () => {
+    try {
+      getAdapter("unknown" as Tool);
+      throw new Error("expected throw did not occur");
+    } catch (e) {
+      expect(e).toBeInstanceOf(HatchError);
+      expect((e as HatchError).errorCode).toBe("VALIDATION_ERROR");
+      expect((e as HatchError).exitCode).toBe(1);
+    }
   });
 
   it("returns adapters for all supported tools", () => {

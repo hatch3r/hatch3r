@@ -4,7 +4,7 @@ import { parseFrontmatter } from "../adapters/canonical.js";
 import { HatchError } from "../types.js";
 import type { ContentSelection } from "../types.js";
 import type { ContentPreset } from "./presets.js";
-import { isLanguageTag, LANGUAGE_TO_TAG } from "./tags.js";
+import { filterByLanguages } from "./tags.js";
 
 /**
  * Validate that a relative path does not escape its base directory.
@@ -372,15 +372,6 @@ export function resolveSelection(
 ): ContentSelection {
   let selected: CatalogItem[];
 
-  // Build the set of relevant language tags from detected project languages
-  const relevantLangTags = new Set<string>();
-  if (projectLanguages) {
-    for (const lang of projectLanguages) {
-      const tag = LANGUAGE_TO_TAG[lang];
-      if (tag) relevantLangTags.add(tag);
-    }
-  }
-
   if (preset.id === "custom" && customSelections) {
     // For custom, use explicit ID list
     const customSet = new Set(customSelections);
@@ -453,16 +444,10 @@ export function resolveSelection(
 
   // Language filtering (Finding #71): remove items whose language tags
   // don't match the detected project languages. Items without any language
-  // tags pass through (language-agnostic content).
+  // tags pass through (language-agnostic content). Skipped when
+  // skipContextFilters is set (e.g. from `hatch3r config`).
   if (!options?.skipContextFilters && projectLanguages && projectLanguages.length > 0) {
-    selected = selected.filter((item) => {
-      if (item.protected) return true;
-      const itemLangTags = item.tags.filter(isLanguageTag);
-      // Items with no language tags are language-agnostic — always included
-      if (itemLangTags.length === 0) return true;
-      // Items with language tags must match at least one project language
-      return itemLangTags.some((t) => relevantLangTags.has(t));
-    });
+    selected = filterByLanguages(selected, projectLanguages);
   }
 
   // Build the selection items grouped by type

@@ -10,6 +10,8 @@
  * Finding #68 (D13, High): Add iteration-count-based confidence signal to review gate output.
  */
 
+import { HatchError } from "../types.js";
+
 // ── Constants ────────────────────────────────────────────────────
 
 /**
@@ -147,16 +149,20 @@ export function recordReviewIteration(
   findingsCount: number,
 ): ReviewLoopState {
   if (state.terminated) {
-    throw new Error(
+    throw new HatchError(
       `Review loop already terminated (reason: ${state.terminationReason}). ` +
       `Cannot record iteration ${state.currentIteration + 1}.`,
+      1,
+      "VALIDATION_ERROR",
     );
   }
 
   if (state.currentIteration >= state.maxIterations) {
-    throw new Error(
+    throw new HatchError(
       `Review loop at maximum iterations (${state.maxIterations}). ` +
       `Call terminateReviewLoop() to finalize.`,
+      1,
+      "VALIDATION_ERROR",
     );
   }
 

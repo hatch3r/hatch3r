@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createManifest, addManagedFile, removeManagedFile, migrateManifest, readManifest, writeManifest } from "../../manifest/hatchJson.js";
+import { HatchError } from "../../types.js";
 
 describe("hatchJson", () => {
   describe("createManifest", () => {
@@ -292,6 +293,26 @@ describe("hatchJson", () => {
         "utf-8",
       );
       await expect(readManifest(rootDir)).rejects.toThrow("Malformed JSON");
+    });
+
+    // C7-H14: readManifest throws HatchError (not plain Error) so the CLI can
+    // distinguish CONFIG_ERROR (malformed JSON / invalid manifest) from other
+    // failure modes and surface a structured exitCode.
+    it("throws HatchError with CONFIG_ERROR code on malformed JSON", async () => {
+      const rootDir = await setup();
+      await writeFile(
+        join(rootDir, ".agents", "hatch.json"),
+        "{ not valid json }}}",
+        "utf-8",
+      );
+      try {
+        await readManifest(rootDir);
+        throw new Error("expected throw did not occur");
+      } catch (e) {
+        expect(e).toBeInstanceOf(HatchError);
+        expect((e as HatchError).errorCode).toBe("CONFIG_ERROR");
+        expect((e as HatchError).exitCode).toBe(1);
+      }
     });
 
     it("throws with descriptive message when required field 'tools' is missing", async () => {

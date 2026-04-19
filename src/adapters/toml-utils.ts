@@ -1,3 +1,5 @@
+import { HatchError } from "../types.js";
+
 /**
  * Escape a string value for use in a TOML quoted string.
  *
@@ -33,7 +35,11 @@ export function tomlKey(key: string): string {
   if (TOML_BARE_KEY.test(key)) return key;
   // Keys with special chars need quoting — reject control characters
   if (/[\x00-\x08\x0a-\x1f\x7f]/.test(key)) {
-    throw new Error(`Invalid TOML key: contains control characters: "${key}"`);
+    throw new HatchError(
+      `Invalid TOML key: contains control characters: "${key}"`,
+      1,
+      "VALIDATION_ERROR",
+    );
   }
   return `"${escapeTomlString(key)}"`;
 }

@@ -65,6 +65,57 @@ const silentFailurePlugin = {
   },
 };
 
+/**
+ * Cycle 7 H14 — HatchError Migration Contract.
+ *
+ * Local ESLint rule enforcing CLI UX Standards (.claude/rules/cli-ux-standards.md):
+ *   Every `throw new Error(...)` in src/ MUST use HatchError so the CLI emits a
+ *   structured exitCode + machine-readable errorCode for programmatic recovery.
+ *
+ * The rule flags `throw new Error(...)` (callee Identifier "Error") as a warning.
+ * It does NOT flag:
+ *   - HatchError, TypeError, RangeError, etc. (any other Identifier)
+ *   - Re-thrown caught errors (`throw err`)
+ *   - Member-expression callees (`throw new SomeNs.Error(...)`)
+ *
+ * Scope: src/**\/*.ts excluding src/__tests__/** (tests use plain Error to
+ * simulate failures in mock adapters and process.exit guards).
+ *
+ * Severity is "warn" so any future regression surfaces in lint output without
+ * breaking the build, matching the silent-failure precedent.
+ */
+const hatchErrorPlugin = {
+  meta: { name: "hatch-error", version: "1.0.0" },
+  rules: {
+    "use-hatch-error": {
+      meta: {
+        type: "problem",
+        docs: {
+          description:
+            "Require HatchError instead of plain Error for thrown errors so the CLI emits structured exitCode and errorCode (.claude/rules/cli-ux-standards.md).",
+        },
+        schema: [],
+        messages: {
+          plainError:
+            "Use HatchError instead of plain Error. Replace `throw new Error(msg)` with `throw new HatchError(msg, exitCode, errorCode)` so the CLI surfaces a structured exit code (.claude/rules/cli-ux-standards.md).",
+        },
+      },
+      create(context) {
+        return {
+          ThrowStatement(node) {
+            const arg = node.argument;
+            if (!arg || arg.type !== "NewExpression") return;
+            const callee = arg.callee;
+            if (callee.type !== "Identifier") return;
+            if (callee.name !== "Error") return;
+            context.report({ node, messageId: "plainError" });
+          },
+        };
+      },
+    },
+  },
+};
+
 export default tseslint.config(
   {
     ignores: ["dist/", "node_modules/"],
@@ -73,6 +124,7 @@ export default tseslint.config(
   {
     plugins: {
       "silent-failure": silentFailurePlugin,
+      "hatch-error": hatchErrorPlugin,
     },
     rules: {
       "@typescript-eslint/no-unused-vars": [
@@ -81,6 +133,15 @@ export default tseslint.config(
       ],
       "@typescript-eslint/no-explicit-any": "warn",
       "silent-failure/no-silent-catch": "warn",
+      "hatch-error/use-hatch-error": "warn",
+    },
+  },
+  {
+    // Tests intentionally throw plain Error to simulate adapter/process failures
+    // (e.g. `throw new Error("simulated cursor failure")`, `throw new Error("process.exit called")`).
+    files: ["src/__tests__/**/*.ts"],
+    rules: {
+      "hatch-error/use-hatch-error": "off",
     },
   },
 );

@@ -324,7 +324,7 @@ export async function syncCommand(
         for (const w of generationResult.warnings) { warn(w); }
         breaker = recordFailure(breaker, classifyFailure(new Error(errMessage)));
         breakers.set(tool, breaker);
-        throw new Error(errMessage);
+        throw new HatchError(errMessage, 1, "ADAPTER_ERROR");
       }
       const outputs = generationResult.outputs ?? [];
       for (const w of generationResult.warnings) { warn(w); }

@@ -94,3 +94,11 @@ jobs:
         run: |
           npm run inventory
           git diff --exit-code governance/inventory.json
+
+      # Cycle 7 H12: every `rules/hatch3r-*.md` must have a `.mdc` Cursor
+      # counterpart whose body content matches (frontmatter format may differ).
+      # Per .claude/rules/content-authoring.md the two variants are the
+      # single-source-of-truth pairing for editor and CLI consumers.
+      - name: Rule parity drift check
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 22
+        run: npm run validate:rule-parity

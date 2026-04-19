@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   AGENTS_DIR,
+  HatchError,
   MANIFEST_FILE,
   VALID_TOOLS,
   WORKTREE_CAPABLE_TOOLS,
@@ -255,16 +256,20 @@ export async function readManifest(
   try {
     parsed = JSON.parse(raw);
   } catch (err: unknown) {
-    throw new Error(
+    throw new HatchError(
       `Malformed JSON in ${manifestPath}: ${err instanceof Error ? err.message : String(err)}`,
+      1,
+      "CONFIG_ERROR",
     );
   }
 
   const migrated = migrateManifest(parsed as Record<string, unknown>);
 
   if (!validateManifest(migrated)) {
-    throw new Error(
+    throw new HatchError(
       `Invalid manifest in ${manifestPath}: required fields missing or malformed. Run hatch3r init to regenerate.`,
+      1,
+      "CONFIG_ERROR",
     );
   }
   return migrated;

@@ -6,6 +6,7 @@ exports[`adapter output snapshots > ClaudeAdapter > file paths match snapshot 1`
   ".claude/agents/hatch3r-test-agent.md",
   ".claude/commands/hatch3r-agent-team.md",
   ".claude/commands/hatch3r-test-command.md",
+  ".claude/hooks/hatch3r-hooks.json",
   ".claude/rules/hatch3r-scoped-rule.md",
   ".claude/rules/hatch3r-test-rule.md",
   ".claude/settings.json",
@@ -50,6 +51,14 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
     ],
     "hasManagedContent": true,
     "path": ".claude/commands/hatch3r-test-command.md",
+  },
+  {
+    "action": "create",
+    "contentMarkers": [
+      "VALID_JSON",
+    ],
+    "hasManagedContent": false,
+    "path": ".claude/hooks/hatch3r-hooks.json",
   },
   {
     "action": "create",

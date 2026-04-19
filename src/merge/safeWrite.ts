@@ -11,7 +11,7 @@ import {
 } from "node:fs/promises";
 import { dirname, basename } from "node:path";
 import { randomBytes } from "node:crypto";
-import { HATCH3R_PREFIX, type MergeResult } from "../types.js";
+import { HATCH3R_PREFIX, HatchError, type MergeResult } from "../types.js";
 import { insertManagedBlock, hasManagedBlock, extractCustomContent } from "./managedBlocks.js";
 import { scanForDeniedPatterns } from "../adapters/customization.js";
 
@@ -71,14 +71,18 @@ export async function atomicWriteFile(filePath: string, content: string): Promis
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code === "ENOSPC") {
-      throw new Error(
+      throw new HatchError(
         `Not enough disk space to write ${filePath}. Free up space and re-run the command.`,
+        1,
+        "FS_ERROR",
       );
     }
     // #239 (D8-8.6): Actionable error for EACCES/permission-denied failures.
     if (code === "EACCES") {
-      throw new Error(
+      throw new HatchError(
         `Permission denied writing ${filePath}. Check file/directory permissions and ensure the current user has write access.`,
+        1,
+        "FS_ERROR",
       );
     }
     throw err;
@@ -151,9 +155,11 @@ export async function safeWriteFile(
       const srcStat = await stat(filePath);
       const bakStat = await stat(bakPath);
       if (bakStat.size !== srcStat.size) {
-        throw new Error(
+        throw new HatchError(
           `Backup verification failed for ${filePath}: source=${srcStat.size} bytes, backup=${bakStat.size} bytes. ` +
           `Aborting auto-repair to prevent data loss.`,
+          1,
+          "FS_ERROR",
         );
       }
       await atomicWriteFile(filePath, content);

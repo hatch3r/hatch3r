@@ -81,6 +81,15 @@ function warnBoardPrerequisites(selection: ContentSelection): void {
 
 // Git detection functions imported from ../../workspace/git.js
 
+/**
+ * Derive the projectLanguages array passed to resolveSelection from a RepoInfo.
+ * Filters out the synthetic "unknown" sentinel so language filtering becomes
+ * a no-op when detection fails, rather than excluding all language-tagged items.
+ */
+function languagesForSelection(repoInfo: RepoInfo): string[] {
+  return repoInfo.languages.filter((l) => l !== "unknown");
+}
+
 function deriveWorkspacePlatform(identities: Array<{ platform: Platform }>): Platform {
   const counts = new Map<Platform, number>();
   for (const id of identities) {
@@ -469,7 +478,8 @@ export async function initCommand(
     const teamSize = validateFlag(opts.teamSize, ["solo", "team"], "solo", "team-size");
     const preset = getPreset(presetId);
     const index = await buildContentIndex(CONTENT_ROOT);
-    const contentSelection = resolveSelection(preset, projectType, teamSize, index);
+    const projectLanguages = languagesForSelection(repoInfo);
+    const contentSelection = resolveSelection(preset, projectType, teamSize, index, undefined, projectLanguages);
 
     // Warn if orchestration-critical agents are missing from selection
     const orchWarnings = validateOrchestrationDependencies(contentSelection);
@@ -550,6 +560,7 @@ export async function initCommand(
 
   // --- Project type (with filter exclusion counts) ---
   const filterIndex = await buildContentIndex(CONTENT_ROOT);
+  const projectLanguages = languagesForSelection(repoInfo);
   const isAutoGreenfield =
     repoInfo.languages.length === 1 &&
     repoInfo.languages[0] === "unknown" &&
@@ -596,7 +607,7 @@ export async function initCommand(
       message: "Select content profile:",
       choices: PRESETS.map((p) => {
         const excluded = countPresetExclusions(p, filterIndex);
-        const estimated = p.id !== "custom" ? estimatePresetItemCount(p, projectType, teamSize, filterIndex) : 0;
+        const estimated = p.id !== "custom" ? estimatePresetItemCount(p, projectType, teamSize, filterIndex, projectLanguages) : 0;
         const countHint = estimated > 0 ? ` (~${estimated} items)` : "";
         const suffix = excluded > 0 ? ` (excludes ${excluded} of ${totalItems})` : "";
         return {
@@ -696,7 +707,7 @@ export async function initCommand(
   }
 
   // --- Resolve content selection ---
-  const contentSelection = resolveSelection(selectedPreset, projectType, teamSize, filterIndex, customSelections);
+  const contentSelection = resolveSelection(selectedPreset, projectType, teamSize, filterIndex, customSelections, projectLanguages);
 
   // Warn if orchestration-critical agents are missing from selection
   const orchWarnings = validateOrchestrationDependencies(contentSelection);
@@ -734,7 +745,8 @@ async function runWorkspaceInit(
       ? Array.from(new Set([platformMcp, ...DEFAULT_MCP.filter((s) => s !== "github")]))
       : [];
     const index = await buildContentIndex(CONTENT_ROOT);
-    const contentSelection = resolveSelection(getPreset("full"), "brownfield", "solo", index);
+    const projectLanguages = languagesForSelection(repoInfo);
+    const contentSelection = resolveSelection(getPreset("full"), "brownfield", "solo", index, undefined, projectLanguages);
     const wsManifest = createWorkspaceManifest(
       basename(rootDir) || "workspace",
       { platform, tools, features, mcp: { servers: mcpServers }, content: contentSelection },
@@ -819,7 +831,8 @@ async function runWorkspaceInit(
     const teamSize = validateFlag(opts.teamSize, ["solo", "team"], "solo", "team-size");
     const preset = getPreset(presetId);
     const index = await buildContentIndex(CONTENT_ROOT);
-    contentSelection = resolveSelection(preset, projectType, teamSize, index);
+    const projectLanguages = languagesForSelection(repoInfo);
+    contentSelection = resolveSelection(preset, projectType, teamSize, index, undefined, projectLanguages);
   } else {
     // Interactive workspace-wide config prompts
     const wslTheme = isWSL()
@@ -827,6 +840,7 @@ async function runWorkspaceInit(
       : undefined;
 
     const wsFilterIndex = await buildContentIndex(CONTENT_ROOT);
+    const projectLanguages = languagesForSelection(repoInfo);
     const isAutoGreenfield =
       repoInfo.languages.length === 1 &&
       repoInfo.languages[0] === "unknown" &&
@@ -871,7 +885,7 @@ async function runWorkspaceInit(
         message: "Select content profile:",
         choices: PRESETS.map((p) => {
           const excluded = countPresetExclusions(p, wsFilterIndex);
-          const wsEstimated = p.id !== "custom" ? estimatePresetItemCount(p, projectType, teamSize, wsFilterIndex) : 0;
+          const wsEstimated = p.id !== "custom" ? estimatePresetItemCount(p, projectType, teamSize, wsFilterIndex, projectLanguages) : 0;
           const wsCountHint = wsEstimated > 0 ? ` (~${wsEstimated} items)` : "";
           const suffix = excluded > 0 ? ` (excludes ${excluded} of ${wsTotalItems})` : "";
           return {
@@ -965,7 +979,7 @@ async function runWorkspaceInit(
       }
     }
 
-    contentSelection = resolveSelection(selectedPreset, projectType, teamSize, wsFilterIndex, customSelections);
+    contentSelection = resolveSelection(selectedPreset, projectType, teamSize, wsFilterIndex, customSelections, projectLanguages);
   }
 
   // Warn if orchestration-critical agents are missing from selection

@@ -176,6 +176,54 @@ describe("ClaudeAdapter", () => {
     expect(parsed.hooks.PreToolUse).toBeDefined();
   });
 
+  // C7-H17: Claude Code plugin-style hooks emission (D9, P3)
+  // Source: https://code.claude.com/docs/en/plugins (accessed 2026-04-19)
+  it("emits .claude/hooks/hatch3r-hooks.json with plugin-style hooks schema", async () => {
+    const manifest = makeManifest();
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const pluginHooks = outputs.find((o) => o.path === ".claude/hooks/hatch3r-hooks.json");
+    expect(pluginHooks).toBeDefined();
+
+    const parsed = JSON.parse(pluginHooks!.content);
+    expect(parsed.hooks).toBeDefined();
+    // hooks/hooks.json uses the same {hooks: {EVENT: [{matcher, hooks:[...]}]}} schema as settings.json
+    expect(parsed.hooks.PreToolUse).toBeDefined();
+    expect(parsed.hooks.PreToolUse[0].matcher).toBeDefined();
+    expect(Array.isArray(parsed.hooks.PreToolUse[0].hooks)).toBe(true);
+    expect(parsed.hooks.PreToolUse[0].hooks[0].type).toBe("command");
+
+    // Hatch3r metadata for managed-block tracking
+    expect(parsed._hatch3r).toBeDefined();
+    expect(parsed._hatch3r.managed).toBe(true);
+    expect(parsed._hatch3r.schema).toBe("claude-code/plugin-hooks/v1");
+  });
+
+  it("does not emit plugin-style hooks file when hooks feature is disabled", async () => {
+    const manifest = makeManifest({ features: { hooks: false } });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const pluginHooks = outputs.find((o) => o.path === ".claude/hooks/hatch3r-hooks.json");
+    expect(pluginHooks).toBeUndefined();
+  });
+
+  it("plugin-style hooks file mirrors settings.json hooks (additive, both emitted)", async () => {
+    const manifest = makeManifest();
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const pluginHooks = outputs.find((o) => o.path === ".claude/hooks/hatch3r-hooks.json");
+    const settings = outputs.find((o) => o.path === ".claude/settings.json");
+    expect(pluginHooks).toBeDefined();
+    expect(settings).toBeDefined();
+
+    const pluginParsed = JSON.parse(pluginHooks!.content);
+    const settingsParsed = JSON.parse(settings!.content);
+    // Same hook event keys appear in both files
+    const pluginEventKeys = Object.keys(pluginParsed.hooks).sort();
+    const settingsEventKeys = Object.keys(settingsParsed.hooks).sort();
+    expect(pluginEventKeys).toEqual(settingsEventKeys);
+  });
+
   it("generates skill files in .claude/skills/", async () => {
     const manifest = makeManifest();
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);

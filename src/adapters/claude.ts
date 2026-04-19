@@ -360,6 +360,25 @@ export class ClaudeAdapter extends BaseAdapter {
     }
     results.push(output(".claude/settings.json", JSON.stringify(settingsObj, null, 2)));
 
+    // C7-H17 (D9, P3): Emit Claude Code plugin-style hooks file alongside settings.json.
+    // Per code.claude.com/docs/en/plugins (accessed 2026-04-19), plugins distribute hooks
+    // via `hooks/hooks.json` at the plugin root using the same {hooks: {EVENT: [{matcher, hooks: [...]}]}}
+    // schema as settings.json. This makes hatch3r's hook set portable as a plugin component
+    // and consumable by Claude Code's `/plugin install` flow without reading settings.json.
+    // The settings.json emission above is preserved (additive); plugin consumers prefer
+    // the standalone hooks/hooks.json file.
+    if (ctx.features.hooks) {
+      const pluginHooksObj = {
+        _hatch3r: {
+          version: HATCH3R_VERSION,
+          managed: true,
+          schema: "claude-code/plugin-hooks/v1",
+        },
+        hooks: hooksConfig,
+      };
+      results.push(output(".claude/hooks/hatch3r-hooks.json", JSON.stringify(pluginHooksObj, null, 2)));
+    }
+
     results.push(
       ...await this.processSkillsRaw(ctx, (id) => `.claude/skills/${toPrefixedId(id)}/SKILL.md`),
     );

@@ -1,3 +1,4 @@
+import { HatchError } from "../types.js";
 import type { ContentTag } from "./tags.js";
 
 export type PresetId = "minimal" | "standard" | "full" | "custom";
@@ -44,6 +45,6 @@ export const PRESETS: ContentPreset[] = [
 /** Look up a content preset by ID. Throws if the preset does not exist. */
 export function getPreset(id: PresetId): ContentPreset {
   const preset = PRESETS.find((p) => p.id === id);
-  if (!preset) throw new Error(`Unknown preset: ${id}`);
+  if (!preset) throw new HatchError(`Unknown preset: ${id}`, 1, "VALIDATION_ERROR");
   return preset;
 }
