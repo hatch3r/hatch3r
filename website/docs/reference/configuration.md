@@ -128,7 +128,7 @@ The `content` field tracks which content items are installed. It is populated du
 ```json
 {
   "content": {
-    "preset": "standard",
+    "preset": "full",
     "projectType": "brownfield",
     "teamSize": "solo",
     "items": {
@@ -168,7 +168,7 @@ When `hatch3r init --workspace` is run in a directory containing multiple git re
     "tools": ["cursor", "claude"],
     "features": { "agents": true, "skills": true, "rules": true, "...": true },
     "mcp": { "servers": ["github", "playwright"] },
-    "content": { "preset": "standard", "projectType": "brownfield", "teamSize": "team", "items": { "...": [] } }
+    "content": { "preset": "full", "projectType": "brownfield", "teamSize": "team", "items": { "...": [] } }
   },
   "repos": [
     {

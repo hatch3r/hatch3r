@@ -91,4 +91,4 @@ Hooks trigger agents on specific lifecycle events (e.g., post-commit, pre-push, 
 
 ## Presets
 
-hatch3r ships with 4 content presets: **Minimal** (core only), **Standard** (recommended, full dev lifecycle), **Full** (everything), and **Custom** (pick exactly what you need). Select during `hatch3r init` or change later with `hatch3r config`.
+hatch3r ships with 4 content presets: **Minimal** (core only), **Standard** (full dev lifecycle), **Full** (recommended, everything), and **Custom** (pick exactly what you need). Select during `hatch3r init` or change later with `hatch3r config`.
