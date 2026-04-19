@@ -2,13 +2,26 @@
 
 All notable changes to hatch3r are documented in this file.
 
-## [1.5.1] - 2026-04-14
+## [1.5.1] - 2026-04-19
+
+### Added
+
+- **EVOLVE governance prompt**: `governance/EVOLVE.md` (375 lines) — a proposal-only constitutional self-check that assesses the 7-file governance corpus plus domain and template files against nine measurable dimensions. Routes each proposal to one of three buckets (Vision / Audit system / Constitution and prompt mechanics), enforces a Model-Independence Contract with a forbidden-pattern table, a Web Research Mandate requiring at least two independent sources per topic with trust-tier and recency constraints, a six-test Scientific Rigor Contract (falsifiability, citation + triangulation, confidence expression, root-cause orientation, bias check, adversarial peer-review), four hard-stop ASK gates, 16 guardrails, and a 15-proposal cap per run ranked by severity × pillar impact × North-Star multiplier
+- **Shared custom content choices helper**: `src/cli/shared/customContentChoices.ts` extracts `CONTENT_TAG_LABELS` and `buildTagGroupedCustomContentChoices()` so `config` and `init` (including workspace flow) stay consistent when tags change
 
 ### Changed
 
 - **Config content flow**: Replaced "Manage content items?" confirm prompt with direct preset selection (minimal/standard/full/custom) and tag-grouped custom picker, matching the init experience
 - **Default content profile**: Changed default from "Standard" to "Full (recommended)" for both interactive and headless (`--yes`) init
 - **Default tool fallback**: Changed fallback tool from Cursor to Claude Code when auto-detection finds no existing tools
+- **Revision command decomposed**: Split monolithic `commands/hatch3r-revision.md` (517 lines) into a 5-file structure matching board-pickup quality patterns — `revision-delegation.md` (complexity-aware fix delegation with blast-radius grouping), `revision-quality.md` (two-stage quality pipeline with 3 conditional specialists), `revision-modes.md` (auto-advance mode, safety guardrails, platform-aware error handling), `revision-board-integration.md` (run cache, PR summary updates, dashboard refresh). Core file retains Steps 1-5 and 8-10 inline; platform abstraction added to Step 1b (GitHub, GitLab, Azure DevOps)
+- **Custom content helpers module-private**: Restricted exposure of CLI helpers to reduce surface area
+
+### Fixed
+
+- **Config preset resolution ignored context filters**: `resolveSelection` applied `projectType`/`teamSize` filtering which silently dropped board/team-only items (e.g. `hatch3r-board-fill`, `hatch3r-onboard`) for solo users. Correct for `init`, wrong for `config` where the user is explicitly choosing a preset. Added `skipContextFilters` option and use it from `config`
+- **Preset item count estimates were misleadingly low for solo users**: `estimatePresetItemCount` calls `resolveSelection` internally; now passes `skipContextFilters` so hints in the preset selector show the actual count (e.g. "Full (~109 items)" instead of "~95")
+- **Manifest not persisted when only content preset metadata changed**: `isDiffEmpty` ignored `manifest.content` preset/projectType/teamSize, so switching to an equivalent item set (e.g. `full` → `custom`) skipped `writeManifest` and reverted the in-memory preset. Now tracks metadata changes and bypasses the early return when they differ
 
 ## [1.5.0] - 2026-04-13
 
