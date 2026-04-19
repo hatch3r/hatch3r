@@ -36,6 +36,7 @@ docs-site/.docusaurus/
 
 # Audit scratch files
 governance/AUDIT-REPORT.md
+governance/EVOLVE-REPORT.md
 .audit-workspace/
 .agents/
 skills-lock.json
