@@ -182,4 +182,95 @@ describe("update command", () => {
     const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
     expect(output).toContain("2 tool(s) re-synced");
   });
+
+  // C7-H5 (D15, OWASP ASI 2026): Preflight integrity check tests
+  describe("preflight integrity check", () => {
+    async function seedIntegrityManifest(root: string): Promise<void> {
+      const { generateIntegrityManifest, writeIntegrityManifest } = await import("../../integrity/index.js");
+      const agentsDir = join(root, AGENTS_DIR);
+      const manifest = await generateIntegrityManifest(agentsDir, "1.0.0");
+      await writeIntegrityManifest(agentsDir, manifest);
+    }
+
+    it("refuses to update when canonical file has been modified (no --force)", async () => {
+      await createTestProject(tempDir);
+      await seedIntegrityManifest(tempDir);
+      await writeFile(
+        join(tempDir, AGENTS_DIR, "rules", "hatch3r-test.md"),
+        "tampered content",
+      );
+
+      const { updateCommand } = await import("../../cli/commands/update.js");
+      await expect(updateCommand({})).rejects.toThrow(HatchError);
+
+      const combined = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ") +
+        " " + consoleErrorSpy.mock.calls.map((c) => String(c[0])).join(" ");
+      expect(combined).toMatch(/MODIFIED/);
+      expect(combined).toMatch(/--force/);
+    });
+
+    it("proceeds with --force despite integrity drift", async () => {
+      await createTestProject(tempDir);
+      await seedIntegrityManifest(tempDir);
+      await writeFile(
+        join(tempDir, AGENTS_DIR, "rules", "hatch3r-test.md"),
+        "tampered content",
+      );
+
+      const { updateCommand } = await import("../../cli/commands/update.js");
+      await expect(updateCommand({ force: true })).resolves.toBeUndefined();
+    });
+
+    it("emits HatchError with INTEGRITY_ERROR code on drift block", async () => {
+      await createTestProject(tempDir);
+      await seedIntegrityManifest(tempDir);
+      await writeFile(
+        join(tempDir, AGENTS_DIR, "rules", "hatch3r-test.md"),
+        "tampered",
+      );
+
+      const { updateCommand } = await import("../../cli/commands/update.js");
+      try {
+        await updateCommand({});
+      } catch (e) {
+        const err = e as HatchError;
+        expect(err.errorCode).toBe("INTEGRITY_ERROR");
+        expect(err.exitCode).toBe(1);
+      }
+    });
+  });
+
+  // C7-H9 (D1): runPackageUpdate / runRegenerate split — verify the
+  // exported helpers are individually callable.
+  describe("runPackageUpdate / runRegenerate split", () => {
+    it("exports runPackageUpdate as a separate function", async () => {
+      const mod = await import("../../cli/commands/update.js");
+      expect(typeof mod.runPackageUpdate).toBe("function");
+    });
+
+    it("exports runRegenerate as a separate function", async () => {
+      const mod = await import("../../cli/commands/update.js");
+      expect(typeof mod.runRegenerate).toBe("function");
+    });
+
+    it("runRegenerate copies canonical files and regenerates adapter outputs without touching the network", async () => {
+      await createTestProject(tempDir);
+
+      // Reset the execFileSync mock so prior tests in this file don't taint
+      // the not-called assertion below.
+      vi.mocked(execFileSync).mockClear();
+
+      const { runRegenerate } = await import("../../cli/commands/update.js");
+      const { readManifest } = await import("../../manifest/hatchJson.js");
+      const manifest = await readManifest(tempDir);
+      expect(manifest).not.toBeNull();
+
+      const result = await runRegenerate(tempDir, manifest!);
+      expect(result.copiedFiles).toBeGreaterThan(0);
+      expect(result.failedTools).toBe(0);
+      // execFileSync is mocked at the top of this file. runRegenerate should
+      // never invoke it because there is no package fetch step.
+      expect(vi.mocked(execFileSync)).not.toHaveBeenCalled();
+    });
+  });
 });

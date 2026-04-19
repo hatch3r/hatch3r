@@ -167,11 +167,14 @@ export async function runInit(options: RunInitOptions): Promise<void> {
 
   s1.succeed(step(1, totalSteps, `Canonical files created (${countSelectionItems(contentSelection)} items)`));
 
-  const s2 = createSpinner(step(2, totalSteps, "Writing manifest..."));
+  // C7-H8 (D1): Build the manifest in memory but defer the disk write until
+  // after adapter generation succeeds. Writing the manifest before adapters
+  // run would leave a `.agents/hatch.json` referencing tools whose output
+  // never reached disk if all adapters fail (line 215 throw below).
+  const s2 = createSpinner(step(2, totalSteps, "Preparing manifest..."));
   s2.start();
   const manifest = createManifest({ platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, content: contentSelection, languages: repoInfo.languages });
-  await writeManifest(rootDir, manifest);
-  s2.succeed(step(2, totalSteps, "Manifest written"));
+  s2.succeed(step(2, totalSteps, "Manifest prepared"));
 
   const s3 = createSpinner(
     step(3, totalSteps, `Generating ${tools.map((t) => TOOL_DISPLAY_NAMES[t] ?? t).join(", ")} output...`),

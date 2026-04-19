@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { validateMcpEntry, validateServerName, transformEnvVarSyntax } from "../../adapters/mcp-utils.js";
+import { validateMcpEntry, validateServerName, transformEnvVarSyntax, checkVersionPin } from "../../adapters/mcp-utils.js";
 import type { McpServerEntry } from "../../adapters/mcp-utils.js";
 
 describe("validateMcpEntry", () => {
@@ -276,7 +276,7 @@ describe("McpServerEntry headers field", () => {
   it("accepts command entries with headers", () => {
     const entry: McpServerEntry = {
       command: "npx",
-      args: ["-y", "@org/mcp-server"],
+      args: ["-y", "@org/mcp-server@1.0.0"],
       headers: { "X-Auth": "token-value" },
     };
     const warnings = validateMcpEntry("cmd-with-headers", entry);
@@ -311,5 +311,136 @@ describe("McpServerEntry headers field", () => {
     };
     const warnings = validateMcpEntry("test-server", entry);
     expect(warnings).toEqual([]);
+  });
+});
+
+// ── C7-H6 (D15 / Pillar P6): MCP version-pin warning ────────────
+describe("checkVersionPin (C7-H6)", () => {
+  it("returns null for scoped package pinned to exact semver", () => {
+    expect(checkVersionPin("srv", "@anthropic/mcp-server@1.0.0")).toBeNull();
+  });
+
+  it("returns null for scoped package pinned to semver range", () => {
+    expect(checkVersionPin("srv", "@anthropic/mcp-server@^1.0.0")).toBeNull();
+  });
+
+  it("warns on scoped package without version", () => {
+    const result = checkVersionPin("srv", "@anthropic/mcp-server");
+    expect(result).not.toBeNull();
+    expect(result).toContain("unpinned");
+    expect(result).toContain("@anthropic/mcp-server");
+    expect(result).toContain("@<version>");
+  });
+
+  it("warns on scoped package pinned to @latest tag", () => {
+    const result = checkVersionPin("srv", "@anthropic/mcp-server@latest");
+    expect(result).not.toBeNull();
+    expect(result).toContain("unpinned");
+  });
+
+  it("returns null for unscoped package pinned to exact semver", () => {
+    expect(checkVersionPin("srv", "unscoped-pkg@1.0.0")).toBeNull();
+  });
+
+  it("warns on unscoped package without version", () => {
+    const result = checkVersionPin("srv", "unscoped-pkg");
+    expect(result).not.toBeNull();
+    expect(result).toContain("unpinned");
+    expect(result).toContain("unscoped-pkg");
+  });
+
+  it("warns on unscoped package pinned to @latest tag", () => {
+    const result = checkVersionPin("srv", "unscoped-pkg@latest");
+    expect(result).not.toBeNull();
+    expect(result).toContain("unpinned");
+  });
+
+  it("returns null for non-latest dist-tags (treated as pinned)", () => {
+    expect(checkVersionPin("srv", "@scope/pkg@beta")).toBeNull();
+    expect(checkVersionPin("srv", "@scope/pkg@next")).toBeNull();
+  });
+
+  it("returns null for tarball, git, and http sources", () => {
+    expect(checkVersionPin("srv", "file:./local.tgz")).toBeNull();
+    expect(checkVersionPin("srv", "git+https://github.com/o/r.git")).toBeNull();
+    expect(checkVersionPin("srv", "https://example.com/p-1.0.0.tgz")).toBeNull();
+    expect(checkVersionPin("srv", "./local-pkg.tgz")).toBeNull();
+  });
+});
+
+describe("validateMcpEntry version-pin integration (C7-H6)", () => {
+  it("emits no version-pin warning when scoped package is pinned", () => {
+    const entry: McpServerEntry = {
+      command: "npx",
+      args: ["-y", "@anthropic/mcp-server@1.0.0"],
+    };
+    const warnings = validateMcpEntry("anthropic", entry);
+    expect(warnings.filter((w) => w.includes("unpinned"))).toHaveLength(0);
+  });
+
+  it("emits no version-pin warning when scoped package uses semver range", () => {
+    const entry: McpServerEntry = {
+      command: "npx",
+      args: ["-y", "@anthropic/mcp-server@^1.0.0"],
+    };
+    const warnings = validateMcpEntry("anthropic", entry);
+    expect(warnings.filter((w) => w.includes("unpinned"))).toHaveLength(0);
+  });
+
+  it("emits version-pin warning when scoped package is unpinned", () => {
+    const entry: McpServerEntry = {
+      command: "npx",
+      args: ["-y", "@anthropic/mcp-server"],
+    };
+    const warnings = validateMcpEntry("anthropic", entry);
+    const pinWarnings = warnings.filter((w) => w.includes("unpinned"));
+    expect(pinWarnings).toHaveLength(1);
+    expect(pinWarnings[0]).toContain("@anthropic/mcp-server");
+  });
+
+  it("emits version-pin warning when scoped package uses @latest", () => {
+    const entry: McpServerEntry = {
+      command: "npx",
+      args: ["-y", "@anthropic/mcp-server@latest"],
+    };
+    const warnings = validateMcpEntry("anthropic", entry);
+    expect(warnings.some((w) => w.includes("unpinned"))).toBe(true);
+  });
+
+  it("does not emit version-pin warning for non-npx commands", () => {
+    const entry: McpServerEntry = {
+      command: "node",
+      args: ["script.js"],
+    };
+    const warnings = validateMcpEntry("local", entry);
+    expect(warnings.some((w) => w.includes("unpinned"))).toBe(false);
+  });
+
+  it("emits no version-pin warning for unscoped pinned package", () => {
+    const entry: McpServerEntry = {
+      command: "npx",
+      args: ["-y", "unscoped-pkg@1.0.0"],
+    };
+    const warnings = validateMcpEntry("unscoped", entry);
+    expect(warnings.filter((w) => w.includes("unpinned"))).toHaveLength(0);
+  });
+
+  it("emits version-pin warning for unscoped unpinned package (in addition to typosquatting warning)", () => {
+    const entry: McpServerEntry = {
+      command: "npx",
+      args: ["-y", "unscoped-pkg"],
+    };
+    const warnings = validateMcpEntry("unscoped", entry);
+    expect(warnings.some((w) => w.includes("typosquatting"))).toBe(true);
+    expect(warnings.some((w) => w.includes("unpinned"))).toBe(true);
+  });
+
+  it("does not emit version-pin warning when -y flag is absent", () => {
+    const entry: McpServerEntry = {
+      command: "npx",
+      args: ["@anthropic/mcp-server"],
+    };
+    const warnings = validateMcpEntry("anthropic", entry);
+    expect(warnings.some((w) => w.includes("unpinned"))).toBe(false);
   });
 });

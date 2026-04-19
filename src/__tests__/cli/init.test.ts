@@ -306,6 +306,47 @@ describe("init command", () => {
     // hooks feature should be enabled by default
     expect(manifest.features.hooks).toBe(true);
   });
+
+  // C7-H8 (D1): writeManifest must run AFTER adapter generation so that a
+  // failure to generate any adapter output does not leave a partial-state
+  // hatch.json on disk.
+  describe("manifest write ordering (C7-H8)", () => {
+    it("writes manifest only after adapter generation succeeds", async () => {
+      await initCommand({ yes: true, tools: "claude" });
+
+      const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
+      const manifest = JSON.parse(await readFile(manifestPath, "utf-8"));
+
+      // After successful init the manifest exists with managedFiles populated
+      // (managedFiles entries are added during adapter generation).
+      expect(manifest.managedFiles.length).toBeGreaterThan(0);
+      // CLAUDE.md is one of the adapter outputs that should be tracked.
+      expect(manifest.managedFiles).toContain("CLAUDE.md");
+    });
+
+    it("does NOT leave a manifest on disk when all adapters fail", async () => {
+      // Mock the adapter to fail. We replace the adapter map's generate to
+      // throw; this exercises the early-throw path where writeManifest must
+      // not have run yet (per C7-H8).
+      const adaptersMod = await import("../../adapters/index.js");
+      const failingAdapter = {
+        get warnings() { return [] as string[]; },
+        generate: async () => { throw new Error("simulated adapter failure"); },
+      };
+      const getAdapterSpy = vi.spyOn(adaptersMod, "getAdapter")
+        .mockReturnValue(failingAdapter as unknown as ReturnType<typeof adaptersMod.getAdapter>);
+
+      try {
+        await expect(initCommand({ yes: true, tools: "claude" })).rejects.toThrow(HatchError);
+
+        // C7-H8: hatch.json must NOT exist when all adapters failed
+        const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
+        await expect(access(manifestPath)).rejects.toThrow();
+      } finally {
+        getAdapterSpy.mockRestore();
+      }
+    });
+  });
 });
 
 describe("workspace init", () => {

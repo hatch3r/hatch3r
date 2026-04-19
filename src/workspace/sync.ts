@@ -336,9 +336,21 @@ async function syncSingleRepo(
   // Write manifest again with managedFiles populated
   await writeManifest(repoDir, manifest);
 
-  // Generate integrity manifest
-  const integrityManifest = await generateIntegrityManifest(repoAgentsDir, HATCH3R_VERSION);
-  await writeIntegrityManifest(repoAgentsDir, integrityManifest);
+  // C7-H13 (D11): Only refresh the integrity manifest when every adapter
+  // succeeded. With partial adapter failure the freshly written outputs of
+  // the successful adapters would be certified alongside stale outputs of
+  // the failed ones, causing later `verify` to falsely flag clean files as
+  // "modified".
+  const allAdaptersSucceeded = toolsSynced.length === resolved.tools.length;
+  if (allAdaptersSucceeded) {
+    const integrityManifest = await generateIntegrityManifest(repoAgentsDir, HATCH3R_VERSION);
+    await writeIntegrityManifest(repoAgentsDir, integrityManifest);
+  } else {
+    options.onWarn?.(
+      `Integrity manifest not updated for ${repoEntry.path} due to adapter failures. ` +
+      `Re-run sync after resolving errors.`,
+    );
+  }
 
   // Ensure .env.mcp for MCP servers
   if (manifest.features.mcp && manifest.mcp.servers.length > 0) {

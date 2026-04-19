@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { mkdtemp, mkdir, rm, writeFile, readFile, access } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -510,5 +510,77 @@ describe("workspace sync", () => {
     expect(Array.isArray(result.repos[0].added)).toBe(true);
     expect(Array.isArray(result.repos[0].toolsSynced)).toBe(true);
     expect(result.repos[0].toolsSynced).toContain("cursor");
+  });
+
+  // C7-H13 (D11): Integrity manifest write must be contingent on every
+  // adapter succeeding. With partial failure the manifest would certify
+  // a mix of fresh + stale adapter outputs and trip false-positive
+  // "MODIFIED" findings on the next `verify` run.
+  it("writes integrity manifest when all adapters succeed", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-ws-integ-ok-"));
+    await mkdir(join(tempDir, AGENTS_DIR), { recursive: true });
+    await createGitRepo(join(tempDir, "api"));
+
+    const wsManifest = createWorkspaceManifest("test", defaults, [
+      { path: "api", name: "api", sync: true },
+    ], "manual");
+    await writeWorkspaceManifest(tempDir, wsManifest);
+
+    await syncWorkspaceRepos(tempDir);
+
+    // .integrity.json should exist after a clean sync
+    await expect(
+      access(join(tempDir, "api", AGENTS_DIR, ".integrity.json")),
+    ).resolves.toBeUndefined();
+  });
+
+  it("does NOT write integrity manifest when an adapter fails", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-ws-integ-fail-"));
+    await mkdir(join(tempDir, AGENTS_DIR), { recursive: true });
+    await createGitRepo(join(tempDir, "api"));
+
+    // Use a config with two tools where one will fail. We mock the cursor
+    // adapter to throw — claude succeeds. With C7-H13 in place, the
+    // integrity manifest should NOT be written for this partial-failure
+    // sync.
+    const adaptersMod = await import("../../adapters/index.js");
+    const realGetAdapter = adaptersMod.getAdapter;
+    const failingAdapter = {
+      get warnings() { return [] as string[]; },
+      generate: async () => { throw new Error("simulated cursor failure"); },
+    };
+    const getAdapterSpy = vi.spyOn(adaptersMod, "getAdapter")
+      .mockImplementation(((tool: string) => {
+        if (tool === "cursor") {
+          return failingAdapter as unknown as ReturnType<typeof realGetAdapter>;
+        }
+        return realGetAdapter(tool as Parameters<typeof realGetAdapter>[0]);
+      }) as typeof realGetAdapter);
+
+    try {
+      const twoToolDefaults: WorkspaceDefaults = {
+        ...defaults,
+        tools: ["cursor", "claude"],
+      };
+      const wsManifest = createWorkspaceManifest("test", twoToolDefaults, [
+        { path: "api", name: "api", sync: true },
+      ], "manual");
+      await writeWorkspaceManifest(tempDir, wsManifest);
+
+      const warnings: string[] = [];
+      await syncWorkspaceRepos(tempDir, { onWarn: (m) => warnings.push(m) });
+
+      // Integrity manifest should be absent because not every adapter
+      // succeeded.
+      await expect(
+        access(join(tempDir, "api", AGENTS_DIR, ".integrity.json")),
+      ).rejects.toThrow();
+
+      // The user should have been told why the integrity manifest is missing
+      const combined = warnings.join("\n");
+      expect(combined).toMatch(/Integrity manifest not updated/);
+    } finally {
+      getAdapterSpy.mockRestore();
+    }
   });
 });

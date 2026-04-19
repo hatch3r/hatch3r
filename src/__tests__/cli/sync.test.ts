@@ -236,4 +236,72 @@ describe("sync command", () => {
     expect(output).toContain("Sync complete");
     expect(output).toContain("AGENTS.md");
   });
+
+  // C7-H5 (D15, OWASP ASI 2026): Preflight integrity check tests
+  describe("preflight integrity check", () => {
+    async function seedIntegrityManifest(root: string): Promise<void> {
+      const { generateIntegrityManifest, writeIntegrityManifest } = await import("../../integrity/index.js");
+      const agentsDir = join(root, AGENTS_DIR);
+      const manifest = await generateIntegrityManifest(agentsDir, "1.0.0");
+      await writeIntegrityManifest(agentsDir, manifest);
+    }
+
+    it("refuses to sync when canonical file has been modified (no --force)", async () => {
+      await createTestProject(tempDir);
+      await seedIntegrityManifest(tempDir);
+
+      // Modify a canonical file after the integrity manifest was sealed
+      await writeFile(
+        join(tempDir, AGENTS_DIR, "rules", "hatch3r-test.md"),
+        "---\nid: hatch3r-test\ntype: rule\ndescription: tampered\nscope: always\n---\n# Tampered.\n",
+      );
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await expect(syncCommand()).rejects.toThrow(HatchError);
+
+      const combined = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ") +
+        " " + consoleErrorSpy.mock.calls.map((c) => String(c[0])).join(" ");
+      expect(combined).toMatch(/MODIFIED/);
+      expect(combined).toMatch(/--force/);
+    });
+
+    it("proceeds with --force despite integrity drift", async () => {
+      await createTestProject(tempDir);
+      await seedIntegrityManifest(tempDir);
+
+      await writeFile(
+        join(tempDir, AGENTS_DIR, "rules", "hatch3r-test.md"),
+        "---\nid: hatch3r-test\ntype: rule\ndescription: tampered\nscope: always\n---\n# Tampered.\n",
+      );
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await expect(syncCommand({ force: true })).resolves.toBeUndefined();
+    });
+
+    it("does NOT block when no integrity manifest exists yet (fresh repo)", async () => {
+      await createTestProject(tempDir);
+      // Intentionally do NOT seed integrity manifest
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await expect(syncCommand()).resolves.toBeUndefined();
+    });
+
+    it("emits an HatchError with INTEGRITY_ERROR code on drift block", async () => {
+      await createTestProject(tempDir);
+      await seedIntegrityManifest(tempDir);
+      await writeFile(
+        join(tempDir, AGENTS_DIR, "rules", "hatch3r-test.md"),
+        "modified content without frontmatter",
+      );
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      try {
+        await syncCommand();
+      } catch (e) {
+        const err = e as HatchError;
+        expect(err.errorCode).toBe("INTEGRITY_ERROR");
+        expect(err.exitCode).toBe(1);
+      }
+    });
+  });
 });

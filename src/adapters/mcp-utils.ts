@@ -155,6 +155,16 @@ export function validateMcpEntry(
             `Unscoped packages are susceptible to typosquatting. Consider using a scoped package (@org/pkg).`,
         );
       }
+      // C7-H6 (D15/P6): Warn when npx -y package lacks an immutable version pin.
+      // Per the 2025 npm supply-chain incident (qix maintainer compromise affecting
+      // 18 packages, 2.6B weekly downloads) and OWASP Top 10 for Agentic Apps 2026,
+      // unpinned npx invocations resolve `latest` on every launch and inherit any
+      // upstream compromise. `@latest` is treated as unpinned because it is a tag,
+      // not an immutable version.
+      if (entry.command === "npx" && pkgArg) {
+        const pinWarning = checkVersionPin(name, pkgArg);
+        if (pinWarning) warnings.push(pinWarning);
+      }
     }
   }
 
@@ -174,6 +184,58 @@ export function validateMcpEntry(
   }
 
   return warnings;
+}
+
+/**
+ * Check whether an `npx`-launched package argument carries an immutable version pin.
+ *
+ * Returns a warning string when the package is unpinned (no `@version` suffix) or
+ * pinned to a mutable tag (`@latest`); returns `null` for any other case (a
+ * pinned semver like `@1.2.3`, a range like `@^1.0.0`, a dist-tag like `@beta`,
+ * or a tarball/git URL).
+ *
+ * Handles both unscoped (`pkg-name`) and scoped (`@scope/pkg`) package arguments
+ * by detecting the package version separator after the optional scope prefix.
+ *
+ * Origin: C7-H6 (D15 / Pillar P6). See call site in `validateMcpEntry`.
+ */
+export function checkVersionPin(
+  serverName: string,
+  pkgArg: string,
+): string | null {
+  // Skip non-package args: tarballs, git URLs, file paths.
+  if (
+    pkgArg.startsWith("file:") ||
+    pkgArg.startsWith("git+") ||
+    pkgArg.startsWith("git:") ||
+    pkgArg.startsWith("http:") ||
+    pkgArg.startsWith("https:") ||
+    pkgArg.endsWith(".tgz")
+  ) {
+    return null;
+  }
+
+  // Locate the version separator. For scoped packages (`@scope/pkg[@version]`),
+  // the version `@` is the SECOND `@`. For unscoped (`pkg[@version]`), it is
+  // the first occurrence after the package name.
+  const versionAt = pkgArg.startsWith("@")
+    ? pkgArg.indexOf("@", 1)
+    : pkgArg.indexOf("@");
+
+  const versionSpec = versionAt > 0 ? pkgArg.slice(versionAt + 1) : "";
+
+  // Unpinned: no `@version` suffix. `@latest` is also unpinned because it is
+  // a mutable tag that resolves to the newest published version on each launch.
+  if (versionSpec === "" || versionSpec === "latest") {
+    return (
+      `MCP server "${serverName}" uses npx -y with unpinned package "${pkgArg}". ` +
+      `Unpinned packages download the latest version on every invocation, exposing ` +
+      `the agent to supply chain compromise (e.g., 2025 npm maintainer-account incidents). ` +
+      `Add an immutable version pin: "${pkgArg.slice(0, versionAt > 0 ? versionAt : pkgArg.length)}@<version>".`
+    );
+  }
+
+  return null;
 }
 
 // Env var keys must follow POSIX convention: letters, digits, and underscores.

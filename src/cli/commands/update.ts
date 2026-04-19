@@ -171,16 +171,22 @@ export interface UpdateResult {
   diffAfter?: Map<string, string | null>;
 }
 
-export async function runUpdate(
+/**
+ * Fetch the latest hatch3r package via the project's package manager.
+ *
+ * C7-H9 (D1): Extracted from `runUpdate` so callers that only need to
+ * regenerate output from already-installed canonical content (config,
+ * verify --fix) can skip the 30s network step.
+ *
+ * Step numbering: occupies `stepOffset + 1` of `totalSteps`. When called
+ * standalone with default options the step renders as `[1/1]`.
+ */
+export async function runPackageUpdate(
   rootDir: string,
-  manifest: HatchManifest,
-  options: { stepOffset?: number; totalSteps?: number; diff?: boolean } = {},
-): Promise<UpdateResult> {
+  options: { stepOffset?: number; totalSteps?: number } = {},
+): Promise<void> {
   const offset = options.stepOffset ?? 0;
-  const total = options.totalSteps ?? 4;
-  const agentsDir = join(rootDir, AGENTS_DIR);
-
-  let contentRoot = findPackageRoot(__dirname);
+  const total = options.totalSteps ?? 1;
 
   const pm = await detectPackageManager(rootDir);
   const s0 = createSpinner(step(offset + 1, total, "Updating package..."));
@@ -198,7 +204,6 @@ export async function runUpdate(
       },
       { maxAttempts: 2, initialDelayMs: 500, maxDelayMs: 2_000 },
     );
-    contentRoot = findPackageRoot(__dirname);
   } catch (err) {
     const isTimeout = err && typeof err === "object" && ("killed" in err || "signal" in err);
     const msg = isTimeout
@@ -209,8 +214,35 @@ export async function runUpdate(
     throw new HatchError(msg, 1, isTimeout ? "NETWORK_ERROR" : "UNKNOWN_ERROR");
   }
   s0.succeed(step(offset + 1, total, "Package updated"));
+}
 
-  const s1 = createSpinner(step(offset + 2, total, "Updating canonical files..."));
+/**
+ * Regenerate canonical content, adapter outputs, and the integrity manifest
+ * from the currently-installed hatch3r package — without fetching a new
+ * package version.
+ *
+ * C7-H9 (D1): Extracted from `runUpdate` so config/verify --fix can skip
+ * the network fetch. Callers that need to also pull a new package version
+ * should call `runPackageUpdate` first (or use the combined `runUpdate`).
+ *
+ * Step numbering: this function emits 3 spinners starting at
+ * `stepOffset + 1` of `totalSteps`. When called via `runUpdate` the offset
+ * is 1 (after the package-update step) and total is 4.
+ */
+export async function runRegenerate(
+  rootDir: string,
+  manifest: HatchManifest,
+  options: { stepOffset?: number; totalSteps?: number; diff?: boolean } = {},
+): Promise<UpdateResult> {
+  const offset = options.stepOffset ?? 0;
+  const total = options.totalSteps ?? 3;
+  const agentsDir = join(rootDir, AGENTS_DIR);
+
+  // Re-resolve the package root each invocation so that callers chaining
+  // runPackageUpdate -> runRegenerate see the freshly fetched content.
+  const contentRoot = findPackageRoot(__dirname);
+
+  const s1 = createSpinner(step(offset + 1, total, "Updating canonical files..."));
   s1.start();
 
   // Build a set of selected IDs if manifest has content selections
@@ -241,13 +273,13 @@ export async function runUpdate(
   await safeWriteFile(join(rootDir, "AGENTS.md"), rootAgentsMd.full, {
     managedContent: rootAgentsMd.inner,
   });
-  s1.succeed(step(offset + 2, total, `Updated ${copied.length} canonical files`));
+  s1.succeed(step(offset + 1, total, `Updated ${copied.length} canonical files`));
 
   // --diff: track file snapshots before and after generation
   const diffBefore = new Map<string, string | null>();
   const diffAfter = new Map<string, string | null>();
 
-  const s2 = createSpinner(step(offset + 3, total, "Re-syncing adapter output..."));
+  const s2 = createSpinner(step(offset + 2, total, "Re-syncing adapter output..."));
   s2.start();
   const adapterFailures: { tool: string; error: string }[] = [];
   // Per-adapter circuit breakers and a phase-level timeout protect the
@@ -322,11 +354,11 @@ export async function runUpdate(
       logError(`Failed to generate ${f.tool}: ${f.error}`);
     }
     if (adapterFailures.length === manifest.tools.length) {
-      s2.fail(step(offset + 3, total, "All adapters failed"));
+      s2.fail(step(offset + 2, total, "All adapters failed"));
       throw new HatchError("All adapters failed", 1, "ADAPTER_ERROR");
     }
   }
-  s2.succeed(step(offset + 3, total, adapterFailures.length > 0
+  s2.succeed(step(offset + 2, total, adapterFailures.length > 0
     ? `Re-synced ${manifest.tools.length - adapterFailures.length}/${manifest.tools.length} tool(s)`
     : `Re-synced ${manifest.tools.length} tool(s)`));
 
@@ -358,18 +390,27 @@ export async function runUpdate(
     }
   }
 
-  const s3 = createSpinner(step(offset + 4, total, "Writing manifest..."));
+  const s3 = createSpinner(step(offset + 3, total, "Writing manifest..."));
   s3.start();
   manifest.hatch3rVersion = HATCH3R_VERSION;
   await writeManifest(rootDir, manifest);
 
-  const integrityManifest = await generateIntegrityManifest(agentsDir, HATCH3R_VERSION);
-  await writeIntegrityManifest(agentsDir, integrityManifest);
+  // C7-H13 (D11): Only refresh the integrity manifest when every adapter
+  // succeeded. When adapter A succeeds and adapter B fails, A's output is
+  // freshly written to disk; regenerating the integrity manifest here would
+  // certify the partial state and cause a later `verify` run to flag A as
+  // "modified" even though it matches what we just produced.
+  if (adapterFailures.length === 0) {
+    const integrityManifest = await generateIntegrityManifest(agentsDir, HATCH3R_VERSION);
+    await writeIntegrityManifest(agentsDir, integrityManifest);
+  } else {
+    warn("Integrity manifest not updated due to adapter failures. Re-run update after resolving errors.");
+  }
 
   // Prune stale archive entries
   await pruneArchives(rootDir);
 
-  s3.succeed(step(offset + 4, total, "Manifest updated"));
+  s3.succeed(step(offset + 3, total, "Manifest updated"));
 
   return {
     copiedFiles: copied.length,
@@ -378,6 +419,29 @@ export async function runUpdate(
     version: HATCH3R_VERSION,
     ...(options.diff ? { diffBefore, diffAfter } : {}),
   };
+}
+
+/**
+ * Combined package fetch + regenerate, preserving the legacy `runUpdate`
+ * behavior used by `updateCommand`. Splits step numbering across both phases:
+ * step 1 fetches the package, steps 2-4 regenerate.
+ *
+ * C7-H9 (D1): Callers that don't need the network fetch should call
+ * `runRegenerate` directly to avoid the 30s package-update timeout.
+ */
+export async function runUpdate(
+  rootDir: string,
+  manifest: HatchManifest,
+  options: { stepOffset?: number; totalSteps?: number; diff?: boolean } = {},
+): Promise<UpdateResult> {
+  const offset = options.stepOffset ?? 0;
+  const total = options.totalSteps ?? 4;
+  await runPackageUpdate(rootDir, { stepOffset: offset, totalSteps: total });
+  return runRegenerate(rootDir, manifest, {
+    stepOffset: offset + 1,
+    totalSteps: total,
+    diff: options.diff,
+  });
 }
 
 interface MigrationCheckpoint {
@@ -578,7 +642,7 @@ async function runMigrationCheckpoints(manifest: HatchManifest, rootDir: string,
   return { manifest: current, allNotices };
 }
 
-export async function updateCommand(_opts?: Record<string, unknown> & { yes?: boolean; diff?: boolean }): Promise<void> {
+export async function updateCommand(_opts?: Record<string, unknown> & { yes?: boolean; diff?: boolean; force?: boolean }): Promise<void> {
   printBanner(true);
 
   // Pipeline-level timeout: tracks overall command duration and emits a
@@ -605,16 +669,35 @@ export async function updateCommand(_opts?: Record<string, unknown> & { yes?: bo
     warn(notice);
   }
 
-  // #118: Run integrity pre-check before update to detect tampered files
+  // C7-H5 (D15, OWASP ASI 2026): Preflight integrity check. If canonical
+  // files have drifted (modified, missing, or tampered manifest) we refuse
+  // the mutation operation unless the user opts in with --force. Update
+  // would overwrite the drifted files in-place, silently destroying any
+  // legitimate edits that were not yet integrated through `hatch3r config`
+  // or a `.customize.yaml` file.
   const agentsDir = join(rootDir, AGENTS_DIR);
   const integrityResults = await verifyIntegrity(agentsDir);
   const modified = integrityResults.filter((r) => r.status === "modified");
   const missing = integrityResults.filter((r) => r.status === "missing");
-  if (modified.length > 0 || missing.length > 0) {
+  const tampered = integrityResults.filter((r) => r.status === "tampered");
+  const driftDetected = modified.length > 0 || missing.length > 0 || tampered.length > 0;
+  if (driftDetected) {
     warn("Integrity issues detected before update:");
+    for (const r of tampered) { warn(`  TAMPERED: ${r.file}`); }
     for (const r of modified) { warn(`  MODIFIED: ${r.file}`); }
     for (const r of missing) { warn(`  MISSING:  ${r.file}`); }
-    warn("These files will be overwritten during update.");
+    if (!_opts?.force) {
+      logError(
+        "Refusing to update with integrity drift. Run `hatch3r verify` to inspect, " +
+        "or re-run with --force to overwrite the drifted files with the latest canonical content.",
+      );
+      throw new HatchError(
+        "Integrity drift detected (use --force to override)",
+        1,
+        "INTEGRITY_ERROR",
+      );
+    }
+    warn("Continuing with --force: drifted files will be overwritten with canonical content.");
     console.log();
   }
 

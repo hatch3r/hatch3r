@@ -183,7 +183,7 @@ export async function verifyCommand(options: VerifyOptions = {}): Promise<void> 
     MAX_FIX_ATTEMPTS,
   );
 
-  // Circuit breaker around the fix step: if `runUpdate` fails repeatedly
+  // Circuit breaker around the fix step: if `runRegenerate` fails repeatedly
   // with transient errors, short-circuit further attempts during this run
   // rather than retrying through the full attempt budget.
   let fixBreaker: CircuitBreakerState = createCircuitBreaker({
@@ -206,8 +206,11 @@ export async function verifyCommand(options: VerifyOptions = {}): Promise<void> 
     fixSpinner.start();
 
     try {
-      // Dynamically import to avoid circular dependency
-      const { runUpdate } = await import("./update.js");
+      // Dynamically import to avoid circular dependency.
+      // C7-H9 (D1): Use runRegenerate (no network) instead of runUpdate.
+      // Auto-fix repairs drift FROM the already-installed canonical content;
+      // it does not need to fetch a newer package version.
+      const { runRegenerate } = await import("./update.js");
       const { readManifest } = await import("../../manifest/hatchJson.js");
 
       const hatchManifest = await readManifest(rootDir);
@@ -216,14 +219,14 @@ export async function verifyCommand(options: VerifyOptions = {}): Promise<void> 
         throw new HatchError("Cannot auto-fix: no hatch.json manifest", 1, "CONFIG_ERROR");
       }
 
-      // Retry the underlying update on transient failures (npm registry
-      // hiccups, ECONNRESET, etc.). Substantive failures propagate.
+      // Retry the regenerate on transient failures (disk I/O hiccups, etc).
+      // Substantive failures propagate.
       await retryWithBackoff(
-        () => runUpdate(rootDir, hatchManifest),
+        () => runRegenerate(rootDir, hatchManifest),
         { maxAttempts: 2, initialDelayMs: 500, maxDelayMs: 2_000 },
       );
       fixBreaker = recordSuccess(fixBreaker);
-      fixSpinner.succeed(`Fix attempt ${attempt}: update completed`);
+      fixSpinner.succeed(`Fix attempt ${attempt}: regenerate completed`);
     } catch (err) {
       fixSpinner.fail(`Fix attempt ${attempt}: update failed`);
       fixBreaker = recordFailure(fixBreaker, classifyFailure(err));

@@ -190,18 +190,40 @@ export async function syncCommand(
 
   verbose(`Manifest loaded: ${m.tools.length} tool(s), ${Object.keys(m.features).filter(k => m.features[k as keyof typeof m.features]).length} feature(s)`);
 
+  // C7-H5 (D15, OWASP ASI 2026): Preflight integrity check. If canonical
+  // files have drifted (modified, missing, or tampered manifest) we refuse
+  // the mutation operation unless the user explicitly opts in with --force.
+  // This stops sync from amplifying unauthorized edits to every adapter
+  // output silently.
   const integrityResults = await verifyIntegrity(agentsDir);
   const modified = integrityResults.filter((r) => r.status === "modified");
   const missing = integrityResults.filter((r) => r.status === "missing");
-  if (modified.length > 0 || missing.length > 0) {
+  const tampered = integrityResults.filter((r) => r.status === "tampered");
+  const driftDetected = modified.length > 0 || missing.length > 0 || tampered.length > 0;
+  if (driftDetected) {
     warn("Integrity issues detected in canonical files:");
+    for (const r of tampered) {
+      warn(`  TAMPERED: ${r.file}`);
+    }
     for (const r of modified) {
       warn(`  MODIFIED: ${r.file}`);
     }
     for (const r of missing) {
       warn(`  MISSING:  ${r.file}`);
     }
-    warn("These files may have been tampered with. Syncing will propagate their current content.");
+    if (!opts.force) {
+      logError(
+        "Refusing to sync with integrity drift. Run `hatch3r verify` to inspect, " +
+        "`hatch3r update` to restore canonical content, or re-run with --force to " +
+        "proceed and propagate the current on-disk content.",
+      );
+      throw new HatchError(
+        "Integrity drift detected (use --force to override)",
+        1,
+        "INTEGRITY_ERROR",
+      );
+    }
+    warn("Continuing with --force: drifted files will be propagated as-is.");
     console.log();
   }
 

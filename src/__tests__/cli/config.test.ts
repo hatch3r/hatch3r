@@ -17,6 +17,8 @@ vi.mock("../../manifest/hatchJson.js", () => ({
 
 vi.mock("../../cli/commands/update.js", () => ({
   runUpdate: vi.fn(),
+  runRegenerate: vi.fn(),
+  runPackageUpdate: vi.fn(),
 }));
 
 vi.mock("../../archive/index.js", () => ({
@@ -113,7 +115,7 @@ vi.mock("../../cli/shared/ui.js", () => ({
 
 import inquirer from "inquirer";
 import { readManifest, writeManifest } from "../../manifest/hatchJson.js";
-import { runUpdate } from "../../cli/commands/update.js";
+import { runRegenerate } from "../../cli/commands/update.js";
 import { archiveToolOutputs, removeManagedFilesForPaths } from "../../archive/index.js";
 import {
   buildContentIndex,
@@ -294,7 +296,7 @@ describe("config command", () => {
     vi.mocked(generateRootAgentsMd).mockResolvedValue({ full: "<!-- HATCH3R:BEGIN -->\n# Root AGENTS.md\n<!-- HATCH3R:END -->\n", inner: "# Root AGENTS.md" });
     vi.mocked(ensureEnvMcp).mockResolvedValue({ action: "skipped", path: ".env.mcp", newVars: [] });
     vi.mocked(getSourceEnvMcpCommand).mockReturnValue("source .env.mcp");
-    vi.mocked(runUpdate).mockResolvedValue({ copiedFiles: 10, syncedTools: 1, failedTools: 0, version: "1.1.0" });
+    vi.mocked(runRegenerate).mockResolvedValue({ copiedFiles: 10, syncedTools: 1, failedTools: 0, version: "1.1.0" });
     vi.mocked(archiveToolOutputs).mockResolvedValue({ archivedFiles: [], migrations: [] });
     vi.mocked(writeManifest).mockResolvedValue(undefined);
 
@@ -922,7 +924,7 @@ describe("config command", () => {
       expect(vi.mocked(info)).toHaveBeenCalledWith(expect.stringContaining("No changes detected"));
     });
 
-    it("should return without calling writeManifest or runUpdate", async () => {
+    it("should return without calling writeManifest or runRegenerate", async () => {
       const manifest = makeManifest();
       vi.mocked(readManifest).mockResolvedValue(manifest);
       setupStandardPrompts(manifest);
@@ -931,7 +933,7 @@ describe("config command", () => {
       await configCommand();
 
       expect(vi.mocked(writeManifest)).not.toHaveBeenCalled();
-      expect(vi.mocked(runUpdate)).not.toHaveBeenCalled();
+      expect(vi.mocked(runRegenerate)).not.toHaveBeenCalled();
     });
   });
 
@@ -997,7 +999,7 @@ describe("config command", () => {
   // ── Update + env ─────────────────────────────────────────────
 
   describe("update and env", () => {
-    it("should call runUpdate after manifest changes", async () => {
+    it("should call runRegenerate after manifest changes", async () => {
       const manifest = makeManifest({ tools: ["cursor"] });
       vi.mocked(readManifest).mockResolvedValue(manifest);
       setupStandardPrompts(manifest, { tools: ["cursor", "claude"] });
@@ -1005,7 +1007,7 @@ describe("config command", () => {
       const { configCommand } = await import("../../cli/commands/config.js");
       await configCommand();
 
-      expect(vi.mocked(runUpdate)).toHaveBeenCalledWith(tempDir, expect.objectContaining({ tools: ["cursor", "claude"] }));
+      expect(vi.mocked(runRegenerate)).toHaveBeenCalledWith(tempDir, expect.objectContaining({ tools: ["cursor", "claude"] }));
     });
 
     it("should call ensureEnvMcp for MCP servers when mcp feature enabled", async () => {
@@ -1186,7 +1188,7 @@ describe("config command", () => {
     it("should show version in summary", async () => {
       const manifest = makeManifest({ tools: ["cursor"] });
       vi.mocked(readManifest).mockResolvedValue(manifest);
-      vi.mocked(runUpdate).mockResolvedValue({ copiedFiles: 10, syncedTools: 2, failedTools: 0, version: "1.1.0" });
+      vi.mocked(runRegenerate).mockResolvedValue({ copiedFiles: 10, syncedTools: 2, failedTools: 0, version: "1.1.0" });
       setupStandardPrompts(manifest, { tools: ["cursor", "claude"] });
 
       const { configCommand } = await import("../../cli/commands/config.js");
@@ -1205,7 +1207,7 @@ describe("config command", () => {
     it("should show files and tools count in summary", async () => {
       const manifest = makeManifest({ tools: ["cursor"] });
       vi.mocked(readManifest).mockResolvedValue(manifest);
-      vi.mocked(runUpdate).mockResolvedValue({ copiedFiles: 15, syncedTools: 2, failedTools: 0, version: "1.1.0" });
+      vi.mocked(runRegenerate).mockResolvedValue({ copiedFiles: 15, syncedTools: 2, failedTools: 0, version: "1.1.0" });
       setupStandardPrompts(manifest, { tools: ["cursor", "claude"] });
 
       const { configCommand } = await import("../../cli/commands/config.js");
@@ -1667,7 +1669,7 @@ describe("config command", () => {
 
       expect(vi.mocked(info)).toHaveBeenCalledWith(expect.stringContaining("No changes detected"));
       expect(vi.mocked(writeManifest)).not.toHaveBeenCalled();
-      expect(vi.mocked(runUpdate)).not.toHaveBeenCalled();
+      expect(vi.mocked(runRegenerate)).not.toHaveBeenCalled();
     });
 
     it("isDiffEmpty: returns false when only branch changed", async () => {
@@ -1808,14 +1810,14 @@ describe("config command", () => {
       expect(vi.mocked(archiveToolOutputs)).toHaveBeenCalledWith(tempDir, "copilot");
     });
 
-    it("should call writeManifest before runUpdate", async () => {
+    it("should call writeManifest before runRegenerate", async () => {
       const manifest = makeManifest({ tools: ["cursor"] });
       vi.mocked(readManifest).mockResolvedValue(manifest);
 
       const callOrder: string[] = [];
       vi.mocked(writeManifest).mockImplementation(async () => { callOrder.push("writeManifest"); });
-      vi.mocked(runUpdate).mockImplementation(async () => {
-        callOrder.push("runUpdate");
+      vi.mocked(runRegenerate).mockImplementation(async () => {
+        callOrder.push("runRegenerate");
         return { copiedFiles: 10, syncedTools: 1, failedTools: 0, version: "1.1.0" };
       });
 
@@ -1824,7 +1826,7 @@ describe("config command", () => {
       const { configCommand } = await import("../../cli/commands/config.js");
       await configCommand();
 
-      expect(callOrder).toEqual(["writeManifest", "runUpdate"]);
+      expect(callOrder).toEqual(["writeManifest", "runRegenerate"]);
     });
   });
 

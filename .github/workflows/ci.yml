@@ -86,3 +86,11 @@ jobs:
       - name: Test without coverage
         if: matrix.os != 'ubuntu-latest' || matrix.node-version != 22
         run: npm test
+
+      # Cycle 7 H10: filesystem-derived inventory must match committed copy.
+      # Drift means CLAUDE.md / README.md counts can no longer be trusted.
+      - name: Inventory drift check
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 22
+        run: |
+          npm run inventory
+          git diff --exit-code governance/inventory.json

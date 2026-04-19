@@ -28,8 +28,9 @@ const AGENT_COMMAND_NAMES = new Set([
 
 /**
  * Create and configure the Commander program with all commands registered.
- * Separated from index.ts so tests can import without triggering side effects
- * (signal handlers, parseAsync).
+ * Single source of truth for command/option registration. Separated from
+ * index.ts so tests can import without triggering side effects (signal
+ * handlers, parseAsync, Node version check).
  */
 export function createProgram(): Command {
   const program = new Command();
@@ -63,11 +64,13 @@ export function createProgram(): Command {
     .option("--diff", "Show a before/after diff summary for each generated file")
     .option("--force", "Overwrite locally modified files in sub-repos")
     .option("--minimal", "Generate stripped-down output (no comments, minimal formatting) to reduce token usage")
+    .option("--verbose", "Show detailed output for each file processed")
     .action(syncCommand);
 
   program
     .command("status")
     .description("Check sync status between canonical .agents/ and generated files")
+    .option("--verbose", "Show detailed per-file status information")
     .action(statusCommand);
 
   program
@@ -75,17 +78,18 @@ export function createProgram(): Command {
     .description("Pull latest hatch3r templates with safe merge (preserves customizations)")
     .option("--yes", "Skip interactive prompts, use defaults")
     .option("--diff", "Show a before/after diff summary for each generated file")
+    .option("--force", "Override the preflight integrity check and proceed despite drift")
     .action(updateCommand);
 
   program
     .command("validate")
-    .description("Validate the canonical .agents/ structure (checks frontmatter, content, security)")
-    .option("--docs", "Verify documented artifact counts in README.md match actual counts on disk")
+    .description("Check .agents/ structure: frontmatter, cross-references, content safety, compliance")
+    .option("--verbose", "Show detailed validation output for each check")
     .action(validateCommand);
 
   program
     .command("verify")
-    .description("Verify integrity of canonical agent files (detect tampering)")
+    .description("Check file integrity: SHA-256 hashes vs manifest (detect unauthorized modifications)")
     .option("--fix", "Auto-fix integrity issues by running hatch3r update")
     .option("--max-fix-attempts <n>", "Maximum verify-fix cycles (default: 2, max: 5)", parseInt)
     .action(verifyCommand);
@@ -105,6 +109,7 @@ export function createProgram(): Command {
   program
     .command("add [pack]")
     .description("Install a community pack (coming soon)")
+    .option("--force", "Override the preflight integrity check and proceed despite drift")
     .action(addCommand);
 
   program
@@ -138,9 +143,11 @@ export function createProgram(): Command {
         `\n\n  Common commands:` +
         `\n    hatch3r init      Set up agent configuration in current repo` +
         `\n    hatch3r sync      Regenerate tool outputs from .agents/` +
-        `\n    hatch3r clean     Remove hatch3r artifacts (optionally reinit)` +
         `\n    hatch3r status    Check sync status` +
-        `\n    hatch3r validate  Validate .agents/ structure\n`,
+        `\n    hatch3r validate  Check .agents/ structure and content` +
+        `\n    hatch3r verify    Check file integrity (SHA-256)` +
+        `\n    hatch3r config    Reconfigure tools, features, MCP` +
+        `\n    hatch3r clean     Remove hatch3r artifacts\n`,
       );
     }
     process.exit(1);

@@ -78,6 +78,12 @@ Governance and audit cycles apply the same quality standards, anti-slop, and ant
 5. **Anti-Slop:** No filler phrases without measurable criteria. See anti-slop wordlist in AUDIT-EXECUTE.md regression gates.
 6. **Currency transparency:** Every governance prompt or template file MUST carry `> Last updated: YYYY-MM-DD` as the second or third content line. Absence is Low; staleness >180 days is Medium. Verified by AUDIT-EXECUTE.md regression gates.
 
+#### Silent Failure Contract
+
+Every `catch` block in `src/` MUST emit a diagnostic via one of: a `warnings[]` array returned to the caller, the observability channel (`src/pipeline/observability.ts`), or the failure log (`src/pipeline/failureLog.ts`). Catch-and-skip without channel emission is a contract violation — failures hidden from operators are indistinguishable from success and silently degrade the lean coverage guarantee (P4).
+
+Acceptable patterns: re-throw after classification (e.g. `if (code !== "ENOENT") throw err`); emit then return a sentinel; push to a caller-visible warnings collection. Unacceptable patterns: empty catch body; catch that contains only `return null` / `return []` / `return undefined`. Enforced by ESLint rule `silent-failure/no-silent-catch` (warning severity; opt-out via `// eslint-disable-next-line silent-failure/no-silent-catch` requires a justification comment naming the diagnostic channel that replaces it).
+
 ### P6. Security & Trust Governance
 
 Security and trust are first-class governance concerns integrated into every tier, not siloed. Trust delegation, verification, revocation, and OWASP ASI compliance are governance-level requirements.
@@ -167,25 +173,9 @@ Identification and action are separated because audit is read-only (safe to run 
 
 ## 7. Governance File Structure
 
-```
-governance/
-├── CONSTITUTION.md          <- This file: design rationale, pillars, traceability
-├── VISION.md                <- North star statement (public identity)
-├── RE-ENVISION.md           <- Vision capture/refinement prompt
-├── AUDIT.md                 <- Audit prompt (domains, scoring, charter, CL phases)
-├── AUDIT-EXECUTE.md         <- Execution companion (waves, gates, registry, learning)
-├── hatch3r-prd.md           <- Product requirements (gitignored)
-├── COMPETITIVE-ANALYSIS.md  <- Market context (gitignored)
-├── AUDIT-REPORT.md          <- Latest audit results (gitignored)
-└── audit/
-    ├── domains/D01-D19.md   <- Domain definitions (19 files)
-    ├── templates/            <- Sub-agent templates (5 files, incl. rigor-contract.md)
-    ├── baseline.json         <- Immutable baseline per cycle
-    ├── finding-registry.json <- Finding lifecycle tracking
-    └── execution-insights.json <- Cross-cycle learning
-```
+`governance/` top level: `CONSTITUTION.md` (this file) · `VISION.md` (public identity) · `RE-ENVISION.md` (capture/refinement prompt) · `AUDIT.md` (domains, scoring, charter, CL phases) · `AUDIT-EXECUTE.md` (waves, gates, registry, learning) · `inventory.json` (filesystem-derived counts, drift-checked in CI) · `hatch3r-prd.md`/`COMPETITIVE-ANALYSIS.md`/`AUDIT-REPORT.md` (gitignored).
 
-Trust delegation chain and compliance mapping are in D15 Part B (not separate files).
+`governance/audit/`: `domains/D01-D19.md` (19 domain definitions) · `templates/` (sub-agent templates incl. `rigor-contract.md`) · `baseline.json` · `finding-registry.json` · `execution-insights.json`. Trust delegation chain and compliance mapping live in D15 Part B (not separate files).
 
 ---
 

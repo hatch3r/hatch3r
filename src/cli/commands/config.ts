@@ -27,7 +27,7 @@ import {
   label,
   warn,
 } from "../shared/ui.js";
-import { runUpdate } from "./update.js";
+import { runRegenerate } from "./update.js";
 import { archiveToolOutputs, removeManagedFilesForPaths, type MigrationNotice } from "../../archive/index.js";
 import { findPackageRoot } from "../shared/paths.js";
 import { readWorkspaceManifest, writeWorkspaceManifest } from "../../workspace/manifest.js";
@@ -576,9 +576,12 @@ export async function configCommand(): Promise<void> {
     });
   }
 
-  // --- Run full update (pull latest + copy templates + sync adapters) ---
+  // --- Regenerate from currently-installed package (no network fetch) ---
+  // C7-H9 (D1): Config changes only need to copy canonical content and
+  // re-run adapters — not fetch a newer package. Using `runRegenerate`
+  // skips the 30s npm update step that offered no value here.
   console.log();
-  const updateResult = await runUpdate(rootDir, manifest);
+  const updateResult = await runRegenerate(rootDir, manifest);
 
   // --- Handle .env.mcp for new MCP servers ---
   if (features.mcp && mcpServers.length > 0) {
