@@ -7,15 +7,16 @@ import { applyCustomization } from "./customization.js";
 import type { HookEvent } from "../hooks/types.js";
 
 // Amazon Q lifecycle hook events.
-// Amazon Q supports 5 lifecycle events for custom agent hooks.
-// Reference: https://docs.aws.amazon.com/amazonq/latest/qdeveloper-ug/q-cli-agents.html
+// Amazon Q CLI custom agents support 5 canonical hook events:
+// agentSpawn, userPromptSubmit, preToolUse, postToolUse, stop.
+// Reference: https://aws.github.io/amazon-q-developer-cli/agent-format.html (accessed 2026-04-19)
 function mapToAmazonQEvent(event: HookEvent): string | null {
   const mapping: Partial<Record<HookEvent, string>> = {
-    "pre-commit": "onPreCommit",
-    "file-save": "onFileSave",
-    "session-start": "onSessionStart",
-    "post-merge": "onPostMerge",
-    "ci-failure": "onCIFailure",
+    "session-start": "agentSpawn",
+    "pre-commit": "preToolUse",
+    "file-save": "postToolUse",
+    "post-merge": "postToolUse",
+    "ci-failure": "stop",
   };
   return mapping[event] ?? null;
 }
@@ -76,8 +77,8 @@ export class AmazonQAdapter extends BaseAdapter {
     }
 
     // Generate hooks as lifecycle event bindings.
-    // Amazon Q supports 5 lifecycle events: onPreCommit, onFileSave,
-    // onSessionStart, onPostMerge, onCIFailure.
+    // Amazon Q canonical hook events: agentSpawn, userPromptSubmit,
+    // preToolUse, postToolUse, stop.
     const hooks = await this.readHooks(ctx);
     if (hooks.length > 0) {
       const hookLines: string[] = ["# Hatch3r Hooks", ""];

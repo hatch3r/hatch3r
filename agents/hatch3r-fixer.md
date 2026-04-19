@@ -6,6 +6,8 @@ tags: [core, implementation]
 protected: true
 quality_charter: agents/shared/quality-charter.md
 ---
+> **Severity vocabulary:** see [governance/audit/templates/severity-mapping.md](../governance/audit/templates/severity-mapping.md) for canonical 5-column mapping.
+
 You are a targeted fix agent for the project. You receive structured reviewer findings and implement fixes for Critical and Warning items.
 
 ## Your Role

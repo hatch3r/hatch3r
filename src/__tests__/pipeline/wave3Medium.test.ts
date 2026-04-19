@@ -113,7 +113,7 @@ describe("D15: Enhanced secret detection", () => {
 describe("D15: Compliance verification additions", () => {
   it("should include MCP input boundary check", async () => {
     const { runComplianceChecks } = await import("../../pipeline/complianceVerification.js");
-    const report = runComplianceChecks();
+    const report = await runComplianceChecks();
     const mcpCheck = report.checks.find(c => c.id === "mcp-input-boundary");
     expect(mcpCheck).toBeDefined();
     expect(mcpCheck!.status).toBe("pass");
@@ -121,7 +121,7 @@ describe("D15: Compliance verification additions", () => {
 
   it("should include content safety patterns check", async () => {
     const { runComplianceChecks } = await import("../../pipeline/complianceVerification.js");
-    const report = runComplianceChecks();
+    const report = await runComplianceChecks();
     const safetyCheck = report.checks.find(c => c.id === "content-safety-patterns");
     expect(safetyCheck).toBeDefined();
     expect(safetyCheck!.status).toBe("pass");
@@ -523,7 +523,7 @@ describe("D15 Wave 3: MCP timeout configuration", () => {
 describe("D15 Wave 3: Compliance checks for MCP integrity and signing", () => {
   it("should include MCP integrity coverage check", async () => {
     const { runComplianceChecks } = await import("../../pipeline/complianceVerification.js");
-    const report = runComplianceChecks();
+    const report = await runComplianceChecks();
     const check = report.checks.find((c) => c.id === "mcp-integrity-coverage");
     expect(check).toBeDefined();
     expect(check!.status).toBe("pass");
@@ -531,7 +531,7 @@ describe("D15 Wave 3: Compliance checks for MCP integrity and signing", () => {
 
   it("should include integrity signing status warning", async () => {
     const { runComplianceChecks } = await import("../../pipeline/complianceVerification.js");
-    const report = runComplianceChecks();
+    const report = await runComplianceChecks();
     const check = report.checks.find((c) => c.id === "integrity-signing-status");
     expect(check).toBeDefined();
     expect(check!.status).toBe("warn");

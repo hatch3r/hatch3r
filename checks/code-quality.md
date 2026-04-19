@@ -5,6 +5,8 @@ description: Code quality review criteria covering standards compliance, complex
 ---
 # Code Quality Check
 
+> **Severity vocabulary:** see [governance/audit/templates/severity-mapping.md](../governance/audit/templates/severity-mapping.md) for canonical 5-column mapping.
+
 Review criteria for evaluating code quality in pull requests.
 
 ## Standards Compliance

@@ -652,7 +652,7 @@
     "reviewer_verdict": null,
     "reviewer_notes": null,
     "false_positive": false,
-    "exclusion_reason": "SDR-5 decision required — amazon-q adapter rename depends on strategic naming decision"
+    "exclusion_reason": "SDR-5 decision required \u2014 amazon-q adapter rename depends on strategic naming decision"
   },
   {
     "finding_id": "#25",
@@ -2669,7 +2669,7 @@
     "reviewer_verdict": null,
     "reviewer_notes": null,
     "false_positive": false,
-    "exclusion_reason": "Human-only — npm publish requires manual strategic decision (SDR-1/SDR-2)"
+    "exclusion_reason": "Human-only \u2014 npm publish requires manual strategic decision (SDR-1/SDR-2)"
   },
   {
     "finding_id": "#99",
@@ -4390,6 +4390,1526 @@
     "rollback_level": null,
     "reviewer_verdict": "PASS",
     "reviewer_notes": null,
+    "false_positive": false
+  },
+  {
+    "finding_id": "C7-C1",
+    "cycle": 7,
+    "domain": "D8: Error Recovery & Resilience",
+    "severity": "Critical",
+    "description": "Wire 5 resilience modules (circuitBreaker, adapterTimeout, phaseTimeout, pipelineTimeout, phaseOutputSchema) into CLI commands sync/update/verify; add retry-with-backoff module; update complianceVerification.ts to verify invocation not existence",
+    "effort": "L",
+    "owner": "Agent",
+    "depends_on": "C7-C2",
+    "dedup_action": "keep",
+    "dedup_tier": null,
+    "dedup_rationale": null,
+    "disposition": "targeted",
+    "pillar": [
+      "P2",
+      "P6"
+    ],
+    "finding_type": "code",
+    "confidence": "high",
+    "causal_chain_depth": 5,
+    "sources": [
+      {
+        "url": "https://resilience4j.readme.io/",
+        "accessed": "2026-04-19",
+        "author": "resilience4j",
+        "trust_tier": "official-docs"
+      },
+      {
+        "url": "https://github.com/Netflix/Hystrix/wiki",
+        "accessed": "2026-04-19",
+        "author": "Netflix",
+        "trust_tier": "vendor-note"
+      },
+      {
+        "url": "https://martinfowler.com/articles/patterns-of-distributed-systems/",
+        "accessed": "2026-04-19",
+        "author": "Martin Fowler",
+        "trust_tier": "independent-analysis"
+      },
+      {
+        "url": "https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/",
+        "accessed": "2026-04-19",
+        "author": "OWASP",
+        "trust_tier": "official-docs"
+      }
+    ],
+    "files_affected": [
+      "src/pipeline/complianceVerification.ts:118-145",
+      "src/pipeline/circuitBreaker.ts",
+      "src/pipeline/adapterTimeout.ts",
+      "src/pipeline/phaseTimeout.ts",
+      "src/pipeline/pipelineTimeout.ts",
+      "src/pipeline/phaseOutputSchema.ts",
+      "src/cli/commands/sync.ts",
+      "src/cli/commands/update.ts",
+      "src/cli/commands/verify.ts"
+    ],
+    "work_unit": "WU-C7-1.2-ResilienceWiring",
+    "wave": 1,
+    "sub_wave_batch": 1,
+    "execution_status": "done",
+    "commit_sha": "ffcd7de",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": null,
+    "false_positive": false
+  },
+  {
+    "finding_id": "C7-C2",
+    "cycle": 7,
+    "domain": "D5: Prompt Engineering Quality",
+    "severity": "Critical",
+    "description": "Create governance/audit/templates/severity-mapping.md with 5-column canonical map (reviewer verdicts, reviewer levels, security-auditor severity, check tags, audit severity); cross-reference from each consumer; add AUDIT-EXECUTE.md regression gate",
+    "effort": "S",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": null,
+    "dedup_rationale": null,
+    "disposition": "targeted",
+    "pillar": [
+      "P2",
+      "P4"
+    ],
+    "finding_type": "content",
+    "confidence": "high",
+    "causal_chain_depth": 4,
+    "sources": [
+      {
+        "url": "agents/hatch3r-reviewer.md:48-60",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      },
+      {
+        "url": "agents/hatch3r-security-auditor.md:103-104",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      },
+      {
+        "url": "agents/hatch3r-fixer.md:56",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      },
+      {
+        "url": "checks/code-quality.md:10-15",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      }
+    ],
+    "files_affected": [
+      "governance/audit/templates/severity-mapping.md",
+      "agents/hatch3r-reviewer.md",
+      "agents/hatch3r-fixer.md",
+      "agents/hatch3r-security-auditor.md",
+      "checks/code-quality.md",
+      "governance/AUDIT-EXECUTE.md"
+    ],
+    "work_unit": "WU-C7-1.1-SeverityMap",
+    "wave": 1,
+    "sub_wave_batch": 1,
+    "execution_status": "done",
+    "commit_sha": "ffcd7de",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": null,
+    "false_positive": false
+  },
+  {
+    "finding_id": "C7-H1",
+    "cycle": 7,
+    "domain": "D9: Platform Adapters",
+    "severity": "High",
+    "description": "Fix Amazon Q hook event names (amazonq.ts:12-21) to match AWS 2026 schema (preToolUse etc.)",
+    "effort": "S",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": null,
+    "dedup_rationale": null,
+    "disposition": "targeted",
+    "pillar": [
+      "P3"
+    ],
+    "finding_type": "code",
+    "confidence": "high",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://docs.aws.amazon.com/amazonq/",
+        "accessed": "2026-04-19",
+        "author": "AWS",
+        "trust_tier": "official-docs"
+      },
+      {
+        "url": "src/adapters/amazonq.ts:12-21",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      }
+    ],
+    "files_affected": [
+      "src/adapters/amazonq.ts:12-21"
+    ],
+    "work_unit": "WU-C7-1.3-AdapterQuickFixes",
+    "wave": 1,
+    "sub_wave_batch": 1,
+    "execution_status": "done",
+    "commit_sha": "ffcd7de",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": null,
+    "false_positive": false
+  },
+  {
+    "finding_id": "C7-H2",
+    "cycle": 7,
+    "domain": "D9: Platform Adapters",
+    "severity": "High",
+    "description": "Fix Antigravity skills path from .antigravity/skills/ to .agent/skills/",
+    "effort": "S",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": null,
+    "dedup_rationale": null,
+    "disposition": "targeted",
+    "pillar": [
+      "P3"
+    ],
+    "finding_type": "code",
+    "confidence": "high",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "src/adapters/antigravity.ts",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      },
+      {
+        "url": "https://developers.google.com/antigravity",
+        "accessed": "2026-04-19",
+        "author": "Google",
+        "trust_tier": "official-docs"
+      }
+    ],
+    "files_affected": [
+      "src/adapters/antigravity.ts"
+    ],
+    "work_unit": "WU-C7-1.3-AdapterQuickFixes",
+    "wave": 1,
+    "sub_wave_batch": 1,
+    "execution_status": "done",
+    "commit_sha": "ffcd7de",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": null,
+    "false_positive": false
+  },
+  {
+    "finding_id": "C7-H3",
+    "cycle": 7,
+    "domain": "D10: User Experience & Documentation",
+    "severity": "High",
+    "description": "Register verify --fix flag on src/cli/index.ts:72-75 (5 min fix unlocks existing code)",
+    "effort": "S",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": null,
+    "dedup_rationale": null,
+    "disposition": "targeted",
+    "pillar": [
+      "P1"
+    ],
+    "finding_type": "code",
+    "confidence": "high",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "src/cli/commands/verify.ts:92-193",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      },
+      {
+        "url": "src/cli/index.ts:72-75",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      }
+    ],
+    "files_affected": [
+      "src/cli/index.ts:72-75",
+      "src/cli/commands/verify.ts:92-193"
+    ],
+    "work_unit": "WU-C7-1.4-CLIFixes",
+    "wave": 1,
+    "sub_wave_batch": 1,
+    "execution_status": "done",
+    "commit_sha": "ffcd7de",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": null,
+    "false_positive": false
+  },
+  {
+    "finding_id": "C7-H4",
+    "cycle": 7,
+    "domain": "D10: User Experience & Documentation",
+    "severity": "High",
+    "description": "Delete src/cli/program.ts dead code OR refactor index.ts to import createProgram()",
+    "effort": "M",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": null,
+    "dedup_rationale": null,
+    "disposition": "targeted",
+    "pillar": [
+      "P1"
+    ],
+    "finding_type": "code",
+    "confidence": "high",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "src/cli/program.ts:34-149",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      },
+      {
+        "url": "src/cli/index.ts:19-206",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      },
+      {
+        "url": "tsup.config.ts:9",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      }
+    ],
+    "files_affected": [
+      "src/cli/program.ts:34-149",
+      "src/cli/index.ts:19-206",
+      "tsup.config.ts:9"
+    ],
+    "work_unit": "WU-C7-2.3-DeadCodeRemoval",
+    "wave": 2,
+    "sub_wave_batch": null,
+    "execution_status": "pending",
+    "commit_sha": null,
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false
+  },
+  {
+    "finding_id": "C7-H5",
+    "cycle": 7,
+    "domain": "D15: Agentic Security & Trust",
+    "severity": "High",
+    "description": "Add preflight verifyIntegrity() to sync/update/add commands",
+    "effort": "S",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": null,
+    "dedup_rationale": null,
+    "disposition": "targeted",
+    "pillar": [
+      "P6"
+    ],
+    "finding_type": "code",
+    "confidence": "high",
+    "causal_chain_depth": 4,
+    "sources": [
+      {
+        "url": "https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/",
+        "accessed": "2026-04-19",
+        "author": "OWASP",
+        "trust_tier": "official-docs"
+      },
+      {
+        "url": "src/integrity/index.ts",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      },
+      {
+        "url": "src/cli/commands/sync.ts",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      }
+    ],
+    "files_affected": [
+      "src/cli/commands/sync.ts",
+      "src/cli/commands/update.ts",
+      "src/cli/commands/add.ts",
+      "src/integrity/index.ts"
+    ],
+    "work_unit": "WU-C7-2.2-SecurityAdditions",
+    "wave": 2,
+    "sub_wave_batch": null,
+    "execution_status": "pending",
+    "commit_sha": null,
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false
+  },
+  {
+    "finding_id": "C7-H6",
+    "cycle": 7,
+    "domain": "D15: Agentic Security & Trust",
+    "severity": "High",
+    "description": "MCP config version-pin warning on unpinned npx -y @scoped/pkg without @version",
+    "effort": "S",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": null,
+    "dedup_rationale": null,
+    "disposition": "targeted",
+    "pillar": [
+      "P6"
+    ],
+    "finding_type": "code",
+    "confidence": "high",
+    "causal_chain_depth": 4,
+    "sources": [
+      {
+        "url": "https://www.practical-devsecops.com/mcp-security-vulnerabilities/",
+        "accessed": "2026-04-19",
+        "author": "Practical DevSecOps",
+        "trust_tier": "independent-analysis"
+      },
+      {
+        "url": "https://authzed.com/blog/timeline-mcp-breaches",
+        "accessed": "2026-04-19",
+        "author": "Authzed",
+        "trust_tier": "vendor-note"
+      },
+      {
+        "url": "https://www.paloaltonetworks.com/blog/cloud-security/npm-supply-chain-attack/",
+        "accessed": "2026-04-19",
+        "author": "Palo Alto Networks",
+        "trust_tier": "vendor-note"
+      },
+      {
+        "url": "https://www.infoq.com/news/2026/04/axios-supply-chain/",
+        "accessed": "2026-04-19",
+        "author": "InfoQ",
+        "trust_tier": "independent-analysis"
+      },
+      {
+        "url": "src/adapters/mcp-utils.ts:147-158",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      }
+    ],
+    "files_affected": [
+      "src/adapters/mcp-utils.ts:147-158"
+    ],
+    "work_unit": "WU-C7-2.2-SecurityAdditions",
+    "wave": 2,
+    "sub_wave_batch": null,
+    "execution_status": "pending",
+    "commit_sha": null,
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false
+  },
+  {
+    "finding_id": "C7-H7",
+    "cycle": 7,
+    "domain": "D19: Agentic Development Self-Governance",
+    "severity": "High",
+    "description": "Fix .claude/settings.json:24 SessionStart python3 script (iterate list, use execution_status key, remove 2>/dev/null)",
+    "effort": "S",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": null,
+    "dedup_rationale": null,
+    "disposition": "targeted",
+    "pillar": [
+      "P5"
+    ],
+    "finding_type": "config",
+    "confidence": "high",
+    "causal_chain_depth": 4,
+    "sources": [
+      {
+        "url": "https://code.claude.com/docs/en/hooks",
+        "accessed": "2026-04-19",
+        "author": "Anthropic",
+        "trust_tier": "official-docs"
+      },
+      {
+        "url": ".claude/settings.json:24",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      },
+      {
+        "url": "governance/audit/finding-registry.json",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      }
+    ],
+    "files_affected": [
+      ".claude/settings.json:24"
+    ],
+    "work_unit": "WU-C7-1.4-CLIFixes",
+    "wave": 1,
+    "sub_wave_batch": 1,
+    "execution_status": "done",
+    "commit_sha": "ffcd7de",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": null,
+    "false_positive": false
+  },
+  {
+    "finding_id": "C7-H8",
+    "cycle": 7,
+    "domain": "D1: Core Source Implementation",
+    "severity": "High",
+    "description": "Defer writeManifest at init.ts:173 until after adapter generation succeeds",
+    "effort": "S",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": null,
+    "dedup_rationale": null,
+    "disposition": "targeted",
+    "pillar": [
+      "P2"
+    ],
+    "finding_type": "code",
+    "confidence": "high",
+    "causal_chain_depth": 4,
+    "sources": [
+      {
+        "url": "src/cli/commands/init.ts:173",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      },
+      {
+        "url": "src/cli/commands/init.ts:189-217",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      }
+    ],
+    "files_affected": [
+      "src/cli/commands/init.ts:173",
+      "src/cli/commands/init.ts:189-217"
+    ],
+    "work_unit": "WU-C7-2.1-InitUpdateRefactor",
+    "wave": 2,
+    "sub_wave_batch": null,
+    "execution_status": "pending",
+    "commit_sha": null,
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false
+  },
+  {
+    "finding_id": "C7-H9",
+    "cycle": 7,
+    "domain": "D1: Core Source Implementation",
+    "severity": "High",
+    "description": "Split runUpdate into runPackageUpdate + runRegenerate (update.ts:170-184); fix config/verify callers",
+    "effort": "M",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": null,
+    "dedup_rationale": null,
+    "disposition": "targeted",
+    "pillar": [
+      "P2"
+    ],
+    "finding_type": "code",
+    "confidence": "high",
+    "causal_chain_depth": 4,
+    "sources": [
+      {
+        "url": "src/cli/commands/update.ts:170-184",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      },
+      {
+        "url": "src/cli/commands/config.ts:581",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      },
+      {
+        "url": "src/cli/commands/verify.ts",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      }
+    ],
+    "files_affected": [
+      "src/cli/commands/update.ts:170-184",
+      "src/cli/commands/config.ts:581",
+      "src/cli/commands/verify.ts"
+    ],
+    "work_unit": "WU-C7-2.1-InitUpdateRefactor",
+    "wave": 2,
+    "sub_wave_batch": null,
+    "execution_status": "pending",
+    "commit_sha": null,
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false
+  },
+  {
+    "finding_id": "C7-H10",
+    "cycle": 7,
+    "domain": "D16: Cross-Domain Synthesis",
+    "severity": "High",
+    "description": "Add scripts/inventory.ts deriving governance/inventory.json; CI check across CLAUDE.md/README/plugin.json/domain files",
+    "effort": "M",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": null,
+    "dedup_rationale": null,
+    "disposition": "targeted",
+    "pillar": [
+      "P4",
+      "P5"
+    ],
+    "finding_type": "code",
+    "confidence": "high",
+    "causal_chain_depth": 4,
+    "sources": [
+      {
+        "url": "CLAUDE.md:19",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      },
+      {
+        "url": ".cursor-plugin/plugin.json:4",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      },
+      {
+        "url": "README.md:7,25",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      },
+      {
+        "url": "website/docs/getting-started/what-you-get.md:14",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      }
+    ],
+    "files_affected": [
+      "scripts/inventory.ts",
+      "governance/inventory.json",
+      "CLAUDE.md:19",
+      ".cursor-plugin/plugin.json:4",
+      "README.md:7",
+      "README.md:25"
+    ],
+    "work_unit": "WU-C7-2.4-CrossDomainPatterns",
+    "wave": 2,
+    "sub_wave_batch": null,
+    "execution_status": "pending",
+    "commit_sha": null,
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false
+  },
+  {
+    "finding_id": "C7-H11",
+    "cycle": 7,
+    "domain": "D16: Cross-Domain Synthesis",
+    "severity": "High",
+    "description": "Add Silent Failure Contract to CONSTITUTION.md + ESLint rule flagging catch-blocks lacking diagnostic emission",
+    "effort": "M",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": null,
+    "dedup_rationale": null,
+    "disposition": "targeted",
+    "pillar": [
+      "P4",
+      "P5"
+    ],
+    "finding_type": "content",
+    "confidence": "high",
+    "causal_chain_depth": 5,
+    "sources": [
+      {
+        "url": "src/adapters/canonical.ts:99-130",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      },
+      {
+        "url": "src/adapters/canonical.ts:147-177",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      },
+      {
+        "url": "src/adapters/amazonq.ts:12-21",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      },
+      {
+        "url": "src/hooks/index.ts:31-45",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      },
+      {
+        "url": "src/env/mcpEnv.ts:160-194",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      }
+    ],
+    "files_affected": [
+      "governance/CONSTITUTION.md",
+      ".eslintrc.json",
+      "src/adapters/canonical.ts",
+      "src/hooks/index.ts",
+      "src/env/mcpEnv.ts"
+    ],
+    "work_unit": "WU-C7-2.4-CrossDomainPatterns",
+    "wave": 2,
+    "sub_wave_batch": null,
+    "execution_status": "pending",
+    "commit_sha": null,
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false
+  },
+  {
+    "finding_id": "C7-H12",
+    "cycle": 7,
+    "domain": "D5: Prompt Engineering Quality",
+    "severity": "High",
+    "description": "Add .md to .mdc parity CI check; fix hatch3r-observability-tracing-detail.mdc 97-line shortfall",
+    "effort": "M",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": null,
+    "dedup_rationale": null,
+    "disposition": "targeted",
+    "pillar": [
+      "P2",
+      "P4"
+    ],
+    "finding_type": "content",
+    "confidence": "high",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "rules/hatch3r-observability-tracing-detail.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      },
+      {
+        "url": "rules/hatch3r-observability-tracing-detail.mdc",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      }
+    ],
+    "files_affected": [
+      "rules/hatch3r-observability-tracing-detail.mdc",
+      "scripts/validate-rule-parity.ts",
+      ".github/workflows/ci.yml"
+    ],
+    "work_unit": "WU-C7-3.1-MdcParity",
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "pending",
+    "commit_sha": null,
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false
+  },
+  {
+    "finding_id": "C7-H13",
+    "cycle": 7,
+    "domain": "D11: End-to-End Data Flow",
+    "severity": "High",
+    "description": "Make integrity-manifest write contingent on adapter success in update.ts:304-305 and workspace/sync.ts:340-341",
+    "effort": "S",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": null,
+    "dedup_rationale": null,
+    "disposition": "targeted",
+    "pillar": [
+      "P2"
+    ],
+    "finding_type": "code",
+    "confidence": "high",
+    "causal_chain_depth": 4,
+    "sources": [
+      {
+        "url": "src/cli/commands/sync.ts:356",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      },
+      {
+        "url": "src/cli/commands/update.ts:304-305",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      },
+      {
+        "url": "src/workspace/sync.ts:340-341",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      }
+    ],
+    "files_affected": [
+      "src/cli/commands/update.ts:304-305",
+      "src/workspace/sync.ts:340-341"
+    ],
+    "work_unit": "WU-C7-2.5-IntegrityManifest",
+    "wave": 2,
+    "sub_wave_batch": null,
+    "execution_status": "pending",
+    "commit_sha": null,
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false
+  },
+  {
+    "finding_id": "C7-H14",
+    "cycle": 7,
+    "domain": "D8: Error Recovery & Resilience",
+    "severity": "High",
+    "description": "Convert all plain throw new Error to HatchError with exitCode; add ESLint rule",
+    "effort": "S",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": null,
+    "dedup_rationale": null,
+    "disposition": "targeted",
+    "pillar": [
+      "P2",
+      "P6"
+    ],
+    "finding_type": "code",
+    "confidence": "high",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "src/types.ts:271-291",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      },
+      {
+        "url": ".claude/rules/cli-ux-standards.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      }
+    ],
+    "files_affected": [
+      "src/types.ts:271-291",
+      ".eslintrc.json",
+      "src/cli/commands/"
+    ],
+    "work_unit": "WU-C7-3.2-HatchErrorMigration",
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "pending",
+    "commit_sha": null,
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false
+  },
+  {
+    "finding_id": "C7-H15",
+    "cycle": 7,
+    "domain": "D14: Adaptability & Scalability",
+    "severity": "High",
+    "description": "Wire projectLanguages through 5 resolveSelection(...) call-sites in init.ts; tag rules with lang:*",
+    "effort": "M",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": null,
+    "dedup_rationale": null,
+    "disposition": "targeted",
+    "pillar": [
+      "P4"
+    ],
+    "finding_type": "code",
+    "confidence": "high",
+    "causal_chain_depth": 4,
+    "sources": [
+      {
+        "url": "src/content/tags.ts",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      },
+      {
+        "url": "src/content/index.ts",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      },
+      {
+        "url": "src/detect/repoAnalyzer.ts",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      },
+      {
+        "url": "src/cli/commands/init.ts",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      }
+    ],
+    "files_affected": [
+      "src/cli/commands/init.ts",
+      "src/content/tags.ts",
+      "src/content/index.ts",
+      "rules/"
+    ],
+    "work_unit": "WU-C7-3.3-LanguageWiring",
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "pending",
+    "commit_sha": null,
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false
+  },
+  {
+    "finding_id": "C7-H16",
+    "cycle": 7,
+    "domain": "D17: Competition & Market",
+    "severity": "High",
+    "description": "Submit to anthropics/claude-plugins-official/external_plugins (1 day packaging + submission)",
+    "effort": "M",
+    "owner": "Agent",
+    "depends_on": "C7-H17",
+    "dedup_action": "keep",
+    "dedup_tier": null,
+    "dedup_rationale": null,
+    "disposition": "targeted",
+    "pillar": [
+      "P5"
+    ],
+    "finding_type": "config",
+    "confidence": "high",
+    "causal_chain_depth": 4,
+    "sources": [
+      {
+        "url": "https://github.com/anthropics/claude-plugins-official",
+        "accessed": "2026-04-19",
+        "author": "Anthropic",
+        "trust_tier": "official-docs"
+      },
+      {
+        "url": "https://github.com/intellectronica/ruler",
+        "accessed": "2026-04-19",
+        "author": "intellectronica",
+        "trust_tier": "independent-analysis"
+      },
+      {
+        "url": "https://github.com/obra/superpowers",
+        "accessed": "2026-04-19",
+        "author": "obra",
+        "trust_tier": "independent-analysis"
+      }
+    ],
+    "files_affected": [
+      ".cursor-plugin/plugin.json",
+      "README.md"
+    ],
+    "work_unit": "WU-C7-3.4-Marketplace",
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "pending",
+    "commit_sha": null,
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false
+  },
+  {
+    "finding_id": "C7-H17",
+    "cycle": 7,
+    "domain": "D9: Platform Adapters",
+    "severity": "High",
+    "description": "Add Claude Code SkillHooks v2.1.x emission in claude adapter",
+    "effort": "M",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": null,
+    "dedup_rationale": null,
+    "disposition": "targeted",
+    "pillar": [
+      "P3"
+    ],
+    "finding_type": "code",
+    "confidence": "high",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://code.claude.com/docs/en/hooks",
+        "accessed": "2026-04-19",
+        "author": "Anthropic",
+        "trust_tier": "official-docs"
+      },
+      {
+        "url": "src/adapters/claude.ts",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      }
+    ],
+    "files_affected": [
+      "src/adapters/claude.ts"
+    ],
+    "work_unit": "WU-C7-3.4-Marketplace",
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "pending",
+    "commit_sha": null,
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false
+  },
+  {
+    "finding_id": "C7-H18",
+    "cycle": 7,
+    "domain": "D2: Adapter Infrastructure",
+    "severity": "High",
+    "description": "Convert silent-null returns in canonical.ts:99-130, 147-177 to {file, error} + surface via warnings",
+    "effort": "M",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": null,
+    "dedup_rationale": null,
+    "disposition": "targeted",
+    "pillar": [
+      "P2",
+      "P3"
+    ],
+    "finding_type": "code",
+    "confidence": "high",
+    "causal_chain_depth": 4,
+    "sources": [
+      {
+        "url": "src/adapters/canonical.ts:99-130",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      },
+      {
+        "url": "src/adapters/canonical.ts:147-177",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      }
+    ],
+    "files_affected": [
+      "src/adapters/canonical.ts:99-130",
+      "src/adapters/canonical.ts:147-177"
+    ],
+    "work_unit": "WU-C7-4.1-AdapterSilentFix",
+    "wave": 4,
+    "sub_wave_batch": null,
+    "execution_status": "pending",
+    "commit_sha": null,
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false
+  },
+  {
+    "finding_id": "C7-H19",
+    "cycle": 7,
+    "domain": "D2: Adapter Infrastructure",
+    "severity": "High",
+    "description": "Complete UAX #39 confusables coverage (Coptic/Deseret/Osage/Latin Extended Additional)",
+    "effort": "M",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": null,
+    "dedup_rationale": null,
+    "disposition": "targeted",
+    "pillar": [
+      "P2",
+      "P3"
+    ],
+    "finding_type": "code",
+    "confidence": "high",
+    "causal_chain_depth": 4,
+    "sources": [
+      {
+        "url": "https://www.unicode.org/reports/tr39/",
+        "accessed": "2026-04-19",
+        "author": "Unicode Consortium",
+        "trust_tier": "official-docs"
+      },
+      {
+        "url": "https://www.anthropic.com/research/prompt-injection-defenses",
+        "accessed": "2026-04-19",
+        "author": "Anthropic",
+        "trust_tier": "official-docs"
+      },
+      {
+        "url": "src/adapters/customization.ts:55-103",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      }
+    ],
+    "files_affected": [
+      "src/adapters/customization.ts:55-103"
+    ],
+    "work_unit": "WU-C7-4.2-ConfusablesCoverage",
+    "wave": 4,
+    "sub_wave_batch": null,
+    "execution_status": "pending",
+    "commit_sha": null,
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false
+  },
+  {
+    "finding_id": "C7-H20",
+    "cycle": 7,
+    "domain": "D3: Test Infrastructure",
+    "severity": "High",
+    "description": "Increase src/cli/commands/init.ts branch coverage from 32% to 65%; add workspace-detect + error-path tests",
+    "effort": "M",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": null,
+    "dedup_rationale": null,
+    "disposition": "targeted",
+    "pillar": [
+      "P2"
+    ],
+    "finding_type": "code",
+    "confidence": "high",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://vitest.dev",
+        "accessed": "2026-04-19",
+        "author": "Vitest team",
+        "trust_tier": "official-docs"
+      },
+      {
+        "url": "src/cli/commands/init.ts:1063,1082-1084",
+        "accessed": "2026-04-19",
+        "author": "hatch3r",
+        "trust_tier": "official-docs"
+      }
+    ],
+    "files_affected": [
+      "src/cli/commands/init.ts",
+      "src/__tests__/cli/init.test.ts"
+    ],
+    "work_unit": "WU-C7-4.3-InitCoverage",
+    "wave": 4,
+    "sub_wave_batch": null,
+    "execution_status": "pending",
+    "commit_sha": null,
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false
+  },
+  {
+    "finding_id": "C7-D1-rollover-medium-low",
+    "cycle": 7,
+    "domain": "D1: Core Source Implementation",
+    "severity": "Medium+Low",
+    "description": "Cycle 7 untargeted Medium+Low findings; defer to Cycle 8 triage. See .audit-workspace/D1-synthesis.md and per-sub-agent files for details.",
+    "medium_count": 16,
+    "low_count": 8,
+    "owner": "Agent",
+    "disposition": "rollover",
+    "pillar": [
+      "P2"
+    ],
+    "execution_status": "deferred",
+    "false_positive": false
+  },
+  {
+    "finding_id": "C7-D2-rollover-medium-low",
+    "cycle": 7,
+    "domain": "D2: Adapter Infrastructure",
+    "severity": "Medium+Low",
+    "description": "Cycle 7 untargeted Medium+Low findings; defer to Cycle 8 triage. See .audit-workspace/D2-synthesis.md and per-sub-agent files for details.",
+    "medium_count": 22,
+    "low_count": 8,
+    "owner": "Agent",
+    "disposition": "rollover",
+    "pillar": [
+      "P2",
+      "P3"
+    ],
+    "execution_status": "deferred",
+    "false_positive": false
+  },
+  {
+    "finding_id": "C7-D3-rollover-medium-low",
+    "cycle": 7,
+    "domain": "D3: Test Infrastructure",
+    "severity": "Medium+Low",
+    "description": "Cycle 7 untargeted Medium+Low findings; defer to Cycle 8 triage. See .audit-workspace/D3-synthesis.md and per-sub-agent files for details.",
+    "medium_count": 9,
+    "low_count": 2,
+    "owner": "Agent",
+    "disposition": "rollover",
+    "pillar": [
+      "P2"
+    ],
+    "execution_status": "deferred",
+    "false_positive": false
+  },
+  {
+    "finding_id": "C7-D4-rollover-medium-low",
+    "cycle": 7,
+    "domain": "D4: Build, CI/CD & Dependencies",
+    "severity": "Medium+Low",
+    "description": "Cycle 7 untargeted Medium+Low findings; defer to Cycle 8 triage. See .audit-workspace/D4-synthesis.md and per-sub-agent files for details.",
+    "medium_count": 1,
+    "low_count": 8,
+    "owner": "Agent",
+    "disposition": "rollover",
+    "pillar": [
+      "P5",
+      "P6"
+    ],
+    "execution_status": "deferred",
+    "false_positive": false
+  },
+  {
+    "finding_id": "C7-D5-rollover-medium-low",
+    "cycle": 7,
+    "domain": "D5: Prompt Engineering Quality",
+    "severity": "Medium+Low",
+    "description": "Cycle 7 untargeted Medium+Low findings; defer to Cycle 8 triage. See .audit-workspace/D5-synthesis.md and per-sub-agent files for details.",
+    "medium_count": 28,
+    "low_count": 8,
+    "owner": "Agent",
+    "disposition": "rollover",
+    "pillar": [
+      "P2",
+      "P4"
+    ],
+    "execution_status": "deferred",
+    "false_positive": false
+  },
+  {
+    "finding_id": "C7-D6-rollover-medium-low",
+    "cycle": 7,
+    "domain": "D6: Context Engineering",
+    "severity": "Medium+Low",
+    "description": "Cycle 7 untargeted Medium+Low findings; defer to Cycle 8 triage. See .audit-workspace/D6-synthesis.md and per-sub-agent files for details.",
+    "medium_count": 11,
+    "low_count": 2,
+    "owner": "Agent",
+    "disposition": "rollover",
+    "pillar": [
+      "P2"
+    ],
+    "execution_status": "deferred",
+    "false_positive": false
+  },
+  {
+    "finding_id": "C7-D7-rollover-medium-low",
+    "cycle": 7,
+    "domain": "D7: Agent Orchestration",
+    "severity": "Medium+Low",
+    "description": "Cycle 7 untargeted Medium+Low findings; defer to Cycle 8 triage. See .audit-workspace/D7-synthesis.md and per-sub-agent files for details.",
+    "medium_count": 12,
+    "low_count": 4,
+    "owner": "Agent",
+    "disposition": "rollover",
+    "pillar": [
+      "P2"
+    ],
+    "execution_status": "deferred",
+    "false_positive": false
+  },
+  {
+    "finding_id": "C7-D8-rollover-medium-low",
+    "cycle": 7,
+    "domain": "D8: Error Recovery & Resilience",
+    "severity": "Medium+Low",
+    "description": "Cycle 7 untargeted Medium+Low findings; defer to Cycle 8 triage. See .audit-workspace/D8-synthesis.md and per-sub-agent files for details.",
+    "medium_count": 8,
+    "low_count": 2,
+    "owner": "Agent",
+    "disposition": "rollover",
+    "pillar": [
+      "P2",
+      "P6"
+    ],
+    "execution_status": "deferred",
+    "false_positive": false
+  },
+  {
+    "finding_id": "C7-D9-rollover-medium-low",
+    "cycle": 7,
+    "domain": "D9: Platform Adapters",
+    "severity": "Medium+Low",
+    "description": "Cycle 7 untargeted Medium+Low findings; defer to Cycle 8 triage. See .audit-workspace/D9-synthesis.md and per-sub-agent files for details.",
+    "medium_count": 15,
+    "low_count": 2,
+    "owner": "Agent",
+    "disposition": "rollover",
+    "pillar": [
+      "P3"
+    ],
+    "execution_status": "deferred",
+    "false_positive": false
+  },
+  {
+    "finding_id": "C7-D10-rollover-medium-low",
+    "cycle": 7,
+    "domain": "D10: User Experience & Documentation",
+    "severity": "Medium+Low",
+    "description": "Cycle 7 untargeted Medium+Low findings; defer to Cycle 8 triage. See .audit-workspace/D10-synthesis.md and per-sub-agent files for details.",
+    "medium_count": 14,
+    "low_count": 10,
+    "owner": "Agent",
+    "disposition": "rollover",
+    "pillar": [
+      "P1"
+    ],
+    "execution_status": "deferred",
+    "false_positive": false
+  },
+  {
+    "finding_id": "C7-D11-rollover-medium-low",
+    "cycle": 7,
+    "domain": "D11: End-to-End Data Flow",
+    "severity": "Medium+Low",
+    "description": "Cycle 7 untargeted Medium+Low findings; defer to Cycle 8 triage. See .audit-workspace/D11-synthesis.md and per-sub-agent files for details.",
+    "medium_count": 6,
+    "low_count": 4,
+    "owner": "Agent",
+    "disposition": "rollover",
+    "pillar": [
+      "P2"
+    ],
+    "execution_status": "deferred",
+    "false_positive": false
+  },
+  {
+    "finding_id": "C7-D12-rollover-medium-low",
+    "cycle": 7,
+    "domain": "D12: CLI Diagnostics & Traceability",
+    "severity": "Medium+Low",
+    "description": "Cycle 7 untargeted Medium+Low findings; defer to Cycle 8 triage. See .audit-workspace/D12-synthesis.md and per-sub-agent files for details.",
+    "medium_count": 13,
+    "low_count": 6,
+    "owner": "Agent",
+    "disposition": "rollover",
+    "pillar": [
+      "P1"
+    ],
+    "execution_status": "deferred",
+    "false_positive": false
+  },
+  {
+    "finding_id": "C7-D13-rollover-medium-low",
+    "cycle": 7,
+    "domain": "D13: Human-AI Collaboration",
+    "severity": "Medium+Low",
+    "description": "Cycle 7 untargeted Medium+Low findings; defer to Cycle 8 triage. See .audit-workspace/D13-synthesis.md and per-sub-agent files for details.",
+    "medium_count": 5,
+    "low_count": 4,
+    "owner": "Agent",
+    "disposition": "rollover",
+    "pillar": [
+      "P1",
+      "P2"
+    ],
+    "execution_status": "deferred",
+    "false_positive": false
+  },
+  {
+    "finding_id": "C7-D14-rollover-medium-low",
+    "cycle": 7,
+    "domain": "D14: Adaptability & Scalability",
+    "severity": "Medium+Low",
+    "description": "Cycle 7 untargeted Medium+Low findings; defer to Cycle 8 triage. See .audit-workspace/D14-synthesis.md and per-sub-agent files for details.",
+    "medium_count": 6,
+    "low_count": 4,
+    "owner": "Agent",
+    "disposition": "rollover",
+    "pillar": [
+      "P4"
+    ],
+    "execution_status": "deferred",
+    "false_positive": false
+  },
+  {
+    "finding_id": "C7-D15-rollover-medium-low",
+    "cycle": 7,
+    "domain": "D15: Agentic Security & Trust",
+    "severity": "Medium+Low",
+    "description": "Cycle 7 untargeted Medium+Low findings; defer to Cycle 8 triage. See .audit-workspace/D15-synthesis.md and per-sub-agent files for details.",
+    "medium_count": 13,
+    "low_count": 6,
+    "owner": "Agent",
+    "disposition": "rollover",
+    "pillar": [
+      "P6"
+    ],
+    "execution_status": "deferred",
+    "false_positive": false
+  },
+  {
+    "finding_id": "C7-D16-rollover-medium-low",
+    "cycle": 7,
+    "domain": "D16: Cross-Domain Synthesis",
+    "severity": "Medium+Low",
+    "description": "Cycle 7 untargeted Medium+Low findings; defer to Cycle 8 triage. See .audit-workspace/D16-synthesis.md and per-sub-agent files for details.",
+    "medium_count": 4,
+    "low_count": 0,
+    "owner": "Agent",
+    "disposition": "rollover",
+    "pillar": [
+      "P4",
+      "P5"
+    ],
+    "execution_status": "deferred",
+    "false_positive": false
+  },
+  {
+    "finding_id": "C7-D17-rollover-medium-low",
+    "cycle": 7,
+    "domain": "D17: Competition & Market",
+    "severity": "Medium+Low",
+    "description": "Cycle 7 untargeted Medium+Low findings; defer to Cycle 8 triage. See .audit-workspace/D17-synthesis.md and per-sub-agent files for details.",
+    "medium_count": 9,
+    "low_count": 0,
+    "owner": "Agent",
+    "disposition": "rollover",
+    "pillar": [
+      "P5"
+    ],
+    "execution_status": "deferred",
+    "false_positive": false
+  },
+  {
+    "finding_id": "C7-D18-rollover-medium-low",
+    "cycle": 7,
+    "domain": "D18: PRD, Roadmap & Distribution",
+    "severity": "Medium+Low",
+    "description": "Cycle 7 untargeted Medium+Low findings; defer to Cycle 8 triage. See .audit-workspace/D18-synthesis.md and per-sub-agent files for details.",
+    "medium_count": 8,
+    "low_count": 2,
+    "owner": "Agent",
+    "disposition": "rollover",
+    "pillar": [
+      "P5"
+    ],
+    "execution_status": "deferred",
+    "false_positive": false
+  },
+  {
+    "finding_id": "C7-D19-rollover-medium-low",
+    "cycle": 7,
+    "domain": "D19: Agentic Development Self-Governance",
+    "severity": "Medium+Low",
+    "description": "Cycle 7 untargeted Medium+Low findings; defer to Cycle 8 triage. See .audit-workspace/D19-synthesis.md and per-sub-agent files for details.",
+    "medium_count": 7,
+    "low_count": 5,
+    "owner": "Agent",
+    "disposition": "rollover",
+    "pillar": [
+      "P5"
+    ],
+    "execution_status": "deferred",
     "false_positive": false
   }
 ]

@@ -281,7 +281,7 @@ When omitted, the adapter falls back to sensible defaults so existing projects c
 |------------|-------------|--------|
 | rules | `.antigravity/rules.md` | Inlined into managed block (bridge) |
 | agents | `.antigravity/rules.md` | Inlined into managed block (bridge) |
-| skills | `.antigravity/skills/hatch3r-{id}/SKILL.md` | Raw content |
+| skills | `.agent/skills/hatch3r-{id}/SKILL.md` | Raw content (canonical Antigravity workspace path) |
 | mcp | `.antigravity/settings.json` | JSON `mcpServers` object |
 | bridge | `.antigravity/rules.md` | Managed block with inline orchestration + canonical reference |
 

@@ -56,13 +56,13 @@ describe("AntigravityAdapter", () => {
     expect(rules!.content).not.toContain("test-rule");
   });
 
-  it("generates skill files in .antigravity/skills/", async () => {
+  it("generates skill files in .agent/skills/ (canonical Antigravity workspace path)", async () => {
     const manifest = createManifest({
       tools: ["antigravity"],
     });
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
-    const skills = outputs.filter((o) => o.path.startsWith(".antigravity/skills/"));
+    const skills = outputs.filter((o) => o.path.startsWith(".agent/skills/"));
     expect(skills.length).toBe(1);
 
     const skill = skills[0]!;
@@ -70,6 +70,10 @@ describe("AntigravityAdapter", () => {
     expect(skill.path).toMatch(/SKILL\.md$/);
     expect(skill.content).toContain("test-skill");
     expect(skill.managedContent).toBeDefined();
+
+    // Negative assertion: legacy path no longer used.
+    const legacySkills = outputs.filter((o) => o.path.startsWith(".antigravity/skills/"));
+    expect(legacySkills.length).toBe(0);
   });
 
   it("skips skills when features.skills is false", async () => {
@@ -79,7 +83,7 @@ describe("AntigravityAdapter", () => {
     });
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
-    const skills = outputs.filter((o) => o.path.startsWith(".antigravity/skills/"));
+    const skills = outputs.filter((o) => o.path.startsWith(".agent/skills/"));
     expect(skills.length).toBe(0);
   });
 

@@ -165,6 +165,8 @@ Any domain with an unresolved **Critical** finding has its domain score capped a
 
 ### Severity Taxonomy
 
+> **Cross-artifact mapping:** see [audit/templates/severity-mapping.md](audit/templates/severity-mapping.md) for the canonical 5-column mapping across reviewer, security-auditor, and check-criteria vocabularies.
+
 | Severity | Definition | Release Impact | Typical Effort |
 |----------|-----------|----------------|----------------|
 | Critical | Blocks correct operation or creates security vulnerability | Must fix before any release | S-M |

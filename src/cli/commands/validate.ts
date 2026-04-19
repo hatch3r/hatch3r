@@ -647,7 +647,7 @@ export async function validateCommand(opts?: { docs?: boolean; verbose?: boolean
   }
 
   // Security compliance verification (#86 D15)
-  validateSecurityCompliance(result);
+  await validateSecurityCompliance(result);
 
   spinner.stop();
 
@@ -742,8 +742,8 @@ async function validateEnvMcpSecrets(
 /**
  * Run security compliance checks and fold results into validation (#86 D15).
  */
-function validateSecurityCompliance(result: ValidationResult): void {
-  const report = runComplianceChecks();
+async function validateSecurityCompliance(result: ValidationResult): Promise<void> {
+  const report = await runComplianceChecks();
 
   for (const check of report.checks) {
     if (check.status === "fail") {

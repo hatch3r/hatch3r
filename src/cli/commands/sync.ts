@@ -23,6 +23,24 @@ import {
   rotateLog,
   FAILURE_LOG_FILE,
 } from "../../pipeline/failureLog.js";
+import { generateWithTimeout } from "../../pipeline/adapterTimeout.js";
+import {
+  createCircuitBreaker,
+  shouldAllowRequest,
+  recordSuccess,
+  recordFailure,
+  classifyFailure,
+  type CircuitBreakerState,
+} from "../../pipeline/circuitBreaker.js";
+import { executeWithPhaseTimeout } from "../../pipeline/phaseTimeout.js";
+import {
+  createPipelineExecution,
+  isPipelineTimedOut,
+  terminatePipeline,
+  DEFAULT_PIPELINE_TIMEOUT_MS,
+} from "../../pipeline/pipelineTimeout.js";
+import { compactPhaseOutput } from "../../pipeline/phaseOutputSchema.js";
+import { retryWithBackoff } from "../../pipeline/retryWithBackoff.js";
 import {
   printBanner,
   createSpinner,
@@ -140,6 +158,15 @@ export async function syncCommand(
   setVerbose(!!opts.verbose);
   printBanner(true);
 
+  // Pipeline-level timeout: track overall command duration and emit a warning
+  // if the run exceeds the configured budget. The state is read after the
+  // critical work completes so a slow run still surfaces as a notice without
+  // aborting in-progress disk writes.
+  const pipelineState = createPipelineExecution(
+    ["generation", "adapter", "merge", "integrity"],
+    DEFAULT_PIPELINE_TIMEOUT_MS,
+  );
+
   const rootDir = process.cwd();
 
   const wsContext = await detectWorkspaceContext(rootDir);
@@ -234,13 +261,51 @@ export async function syncCommand(
   outputPathOwners.set(`${AGENTS_DIR}/AGENTS.md`, "sync-bridge");
 
   const adapterFailures: { tool: string; error: string }[] = [];
-  for (const tool of m.tools) {
+  // Per-adapter circuit breakers: an adapter that fails repeatedly with
+  // transient errors trips and is short-circuited until the cooldown
+  // elapses. Maintained across the loop so a tool seen multiple times
+  // (e.g., during retry) accumulates state correctly.
+  const breakers = new Map<string, CircuitBreakerState>();
+
+  // Wrap the entire per-adapter generation loop in a phase timeout so a
+  // hanging adapter cohort surfaces as a phase-level timeout in addition
+  // to the per-adapter timeout.
+  const phaseResult = await executeWithPhaseTimeout("adapter", async () => {
+    for (const tool of m.tools) {
     const s = createSpinner(step(++currentStep, totalSteps, `Generating ${tool} output...`));
     s.start();
+
+    let breaker = breakers.get(tool) ?? createCircuitBreaker({ serviceId: `adapter:${tool}` });
+    const allowResult = shouldAllowRequest(breaker);
+    breaker = allowResult.state;
+    if (!allowResult.allowed) {
+      s.fail(step(currentStep, totalSteps, `Skipped ${tool} (circuit open)`));
+      adapterFailures.push({
+        tool,
+        error: allowResult.reason ?? `Circuit open for adapter:${tool}`,
+      });
+      breakers.set(tool, breaker);
+      continue;
+    }
+
     try {
       const adapter = getAdapter(tool);
-      const outputs = await adapter.generate(agentsDir, m, generationMode);
-      for (const w of adapter.warnings) { warn(w); }
+      // Run adapter generation with a per-adapter timeout, and retry
+      // transient failures with exponential backoff. Substantive failures
+      // (auth, 404, malformed config) propagate on the first attempt.
+      const generationResult = await retryWithBackoff(
+        () => generateWithTimeout(tool, adapter, agentsDir, m, generationMode),
+        { maxAttempts: 2 },
+      );
+      if (!generationResult.completed) {
+        const errMessage = generationResult.error ?? `Adapter ${tool} did not complete`;
+        for (const w of generationResult.warnings) { warn(w); }
+        breaker = recordFailure(breaker, classifyFailure(new Error(errMessage)));
+        breakers.set(tool, breaker);
+        throw new Error(errMessage);
+      }
+      const outputs = generationResult.outputs ?? [];
+      for (const w of generationResult.warnings) { warn(w); }
 
       // #260 (D11-11.7): Detect output path collisions across adapters
       for (const out of outputs) {
@@ -290,11 +355,15 @@ export async function syncCommand(
       const budgetWarning = formatBudgetWarning(budgetResult);
       if (budgetWarning) { warn(budgetWarning); }
 
+      breaker = recordSuccess(breaker);
+      breakers.set(tool, breaker);
       s.succeed(step(currentStep, totalSteps, opts.dryRun
         ? `${tool} output (dry run: ${outputs.length} file(s))`
         : `${tool} output generated`));
     } catch (err) {
       s.fail(step(currentStep, totalSteps, `Failed to generate ${tool} output`));
+      breaker = recordFailure(breaker, classifyFailure(err));
+      breakers.set(tool, breaker);
       adapterFailures.push({
         tool,
         error: err instanceof Error ? err.message : String(err),
@@ -302,6 +371,10 @@ export async function syncCommand(
       // Record to persistent failure log for post-hoc debugging
       await appendFailure(agentsDir, "sync:adapter-generate", err, tool);
     }
+    }
+  });
+  if (!phaseResult.completed && phaseResult.error) {
+    warn(phaseResult.error);
   }
   if (adapterFailures.length > 0) {
     for (const f of adapterFailures) {
@@ -402,10 +475,26 @@ export async function syncCommand(
     "dry-run": chalk.cyan("?"),
   };
 
-  const summaryLines = results.map((r) => {
+  // Phase output schema: compact the per-file results so a sync over a very
+  // large adapter set still produces a readable summary. compactPhaseOutput
+  // is a no-op below the threshold and head/tail-slices large arrays above
+  // it, keeping the human summary bounded.
+  const compactedResults = compactPhaseOutput(results);
+  const summaryLines = compactedResults.map((r) => {
+    if (typeof r === "string") {
+      return chalk.dim(r);
+    }
     const icon = icons[r.action] ?? chalk.dim(" ");
     return `${icon} ${r.path} ${chalk.dim(`(${r.action})`)}`;
   });
+
+  // Pipeline timeout advisory: if total wall time exceeded the budget, surface
+  // it as a warning. We do not abort an in-flight sync — disk writes are
+  // already complete by this point — but the user gets visibility.
+  if (isPipelineTimedOut(pipelineState)) {
+    const { report } = terminatePipeline(pipelineState);
+    warn(report.summary);
+  }
 
   // --diff: show file change summary
   if (opts.diff && diffBefore.size > 0) {

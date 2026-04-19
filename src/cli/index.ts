@@ -72,6 +72,8 @@ program
 program
   .command("verify")
   .description("Check file integrity: SHA-256 hashes vs manifest (detect unauthorized modifications)")
+  .option("--fix", "Auto-fix integrity issues by running hatch3r update")
+  .option("--max-fix-attempts <n>", "Maximum verify-fix cycles (default: 2, max: 5)", parseInt)
   .action(verifyCommand);
 
 program

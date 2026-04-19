@@ -1,16 +1,32 @@
 {
-  "commit": "0c5f5d46b9e42e93cecb7bed4bd01c5ac750fcb0",
-  "timestamp": "2026-04-10T13:35:00Z",
-  "cycle": 5,
-  "tests": { "total": 1791, "passed": 1791, "failed": 0, "skipped": 0, "files": 82 },
+  "commit": "91682e104d1ef2bfeb84837368c2f43cf891f9c2",
+  "timestamp": "2026-04-19T23:23:00Z",
+  "cycle": 7,
+  "tests": { "total": 1993, "passed": 1993, "failed": 0, "skipped": 0, "files": 88, "duration_sec": 52.94 },
   "typecheck": { "errors": 0 },
-  "lint": { "errors": 0, "warnings": 64 },
+  "lint": { "errors": 0, "warnings": 77 },
   "build": "pass",
-  "contentValidation": { "errors": 1, "preExisting": true, "note": ".agents/ directory not found — pre-existing condition" },
+  "contentValidation": { "errors": 1, "preExisting": true, "note": ".agents/ directory not found — pre-existing condition (same as Cycle 5 baseline); validate command requires hatch3r init in target repo" },
   "domainScores": {
-    "D1": 87, "D2": 88, "D3": 49, "D4": 82, "D5": 84,
-    "D6": 74, "D7": 78, "D8": 91, "D9": 79, "D10": 68,
-    "D11": 88, "D12": 52, "D13": 96, "D14": 86, "D15": 81,
-    "D16": 77, "D17": 72, "D18": 55, "D19": 79
+    "D1": 0, "D2": 0, "D3": 41, "D4": 89, "D5": 0,
+    "D6": 45, "D7": 30, "D8": 19, "D9": 0, "D10": 28,
+    "D11": 58, "D12": 55, "D13": 71, "D14": 58, "D15": 0,
+    "D16": 38, "D17": 0, "D18": 4, "D19": 54
+  },
+  "overallScore": 31,
+  "scoreBand": "Not Ready",
+  "severityCeilingApplied": ["D5", "D8"],
+  "findingCounts": {
+    "preDedup": { "critical": 2, "high": 96, "medium": 207, "low": 81, "info": 82, "total": 468 },
+    "postDedup": { "critical": 2, "high": 72, "medium": 158, "low": 66, "info": 70, "total": 368 }
+  },
+  "previousBaseline": {
+    "cycle": 5,
+    "commit": "0c5f5d46b9e42e93cecb7bed4bd01c5ac750fcb0",
+    "delta": {
+      "tests_added": 202,
+      "lint_warnings_delta": 13,
+      "typecheck_unchanged": true
+    }
   }
 }

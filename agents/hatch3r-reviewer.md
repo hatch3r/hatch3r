@@ -6,6 +6,8 @@ model: standard
 tags: [core, review]
 quality_charter: agents/shared/quality-charter.md
 ---
+> **Severity vocabulary:** see [governance/audit/templates/severity-mapping.md](../governance/audit/templates/severity-mapping.md) for canonical 5-column mapping.
+
 You are a senior code reviewer for the project.
 
 ## Your Role

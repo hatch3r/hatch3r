@@ -20,6 +20,24 @@ import {
   rotateLog,
   FAILURE_LOG_FILE,
 } from "../../pipeline/failureLog.js";
+import { generateWithTimeout } from "../../pipeline/adapterTimeout.js";
+import {
+  createCircuitBreaker,
+  shouldAllowRequest,
+  recordSuccess,
+  recordFailure,
+  classifyFailure,
+  type CircuitBreakerState,
+} from "../../pipeline/circuitBreaker.js";
+import { executeWithPhaseTimeout } from "../../pipeline/phaseTimeout.js";
+import {
+  createPipelineExecution,
+  isPipelineTimedOut,
+  terminatePipeline,
+  DEFAULT_PIPELINE_TIMEOUT_MS,
+} from "../../pipeline/pipelineTimeout.js";
+import { compactPhaseOutput } from "../../pipeline/phaseOutputSchema.js";
+import { retryWithBackoff } from "../../pipeline/retryWithBackoff.js";
 import {
   printBanner,
   createSpinner,
@@ -171,7 +189,15 @@ export async function runUpdate(
     const cmd = process.platform === "win32" && pm.name !== "bun"
       ? `${pm.updateCmd}.cmd`
       : pm.updateCmd;
-    execFileSync(cmd, pm.updateArgs, { stdio: "pipe", timeout: UPDATE_TIMEOUT_MS, killSignal: "SIGTERM" });
+    // Retry the package update on transient network failures (ECONNRESET,
+    // 503, EAI_AGAIN, etc.). Substantive failures (auth, missing package)
+    // throw on the first attempt without further retries.
+    await retryWithBackoff(
+      async () => {
+        execFileSync(cmd, pm.updateArgs, { stdio: "pipe", timeout: UPDATE_TIMEOUT_MS, killSignal: "SIGTERM" });
+      },
+      { maxAttempts: 2, initialDelayMs: 500, maxDelayMs: 2_000 },
+    );
     contentRoot = findPackageRoot(__dirname);
   } catch (err) {
     const isTimeout = err && typeof err === "object" && ("killed" in err || "signal" in err);
@@ -224,36 +250,72 @@ export async function runUpdate(
   const s2 = createSpinner(step(offset + 3, total, "Re-syncing adapter output..."));
   s2.start();
   const adapterFailures: { tool: string; error: string }[] = [];
-  for (const tool of manifest.tools) {
-    const adapter = getAdapter(tool);
-    try {
-      const outputs = await adapter.generate(agentsDir, manifest);
-      for (const w of adapter.warnings) { warn(w); }
-      for (const out of outputs) {
-        if (options.diff) {
-          diffBefore.set(out.path, await readFileOrNull(join(rootDir, out.path)));
-        }
-        const fullPath = join(rootDir, out.path);
-        if (out.managedContent) {
-          await safeWriteFile(fullPath, out.content, {
-            managedContent: out.managedContent,
-          });
-        } else {
-          await safeWriteFile(fullPath, out.content);
-        }
-        addManagedFile(manifest, out.path);
-        if (options.diff) {
-          diffAfter.set(out.path, await readFileOrNull(join(rootDir, out.path)));
-        }
+  // Per-adapter circuit breakers and a phase-level timeout protect the
+  // re-sync loop the same way they protect `hatch3r sync`.
+  const breakers = new Map<string, CircuitBreakerState>();
+  const adapterPhaseResult = await executeWithPhaseTimeout("adapter", async () => {
+    for (const tool of manifest.tools) {
+      let breaker = breakers.get(tool) ?? createCircuitBreaker({ serviceId: `adapter:${tool}` });
+      const allowResult = shouldAllowRequest(breaker);
+      breaker = allowResult.state;
+      if (!allowResult.allowed) {
+        adapterFailures.push({
+          tool,
+          error: allowResult.reason ?? `Circuit open for adapter:${tool}`,
+        });
+        breakers.set(tool, breaker);
+        continue;
       }
-    } catch (err) {
-      adapterFailures.push({
-        tool,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      // Record to persistent failure log for post-hoc debugging
-      await appendFailure(agentsDir, "update:adapter-generate", err, tool);
+      const adapter = getAdapter(tool);
+      try {
+        // Run adapter generation with per-adapter timeout and retry-with-backoff
+        // for transient failures. Substantive failures propagate immediately.
+        const generationResult = await retryWithBackoff(
+          () => generateWithTimeout(tool, adapter, agentsDir, manifest, "standard"),
+          { maxAttempts: 2 },
+        );
+        if (!generationResult.completed) {
+          const errMessage = generationResult.error ?? `Adapter ${tool} did not complete`;
+          for (const w of generationResult.warnings) { warn(w); }
+          breaker = recordFailure(breaker, classifyFailure(new Error(errMessage)));
+          breakers.set(tool, breaker);
+          throw new Error(errMessage);
+        }
+        const outputs = generationResult.outputs ?? [];
+        for (const w of generationResult.warnings) { warn(w); }
+        for (const out of outputs) {
+          if (options.diff) {
+            diffBefore.set(out.path, await readFileOrNull(join(rootDir, out.path)));
+          }
+          const fullPath = join(rootDir, out.path);
+          if (out.managedContent) {
+            await safeWriteFile(fullPath, out.content, {
+              managedContent: out.managedContent,
+            });
+          } else {
+            await safeWriteFile(fullPath, out.content);
+          }
+          addManagedFile(manifest, out.path);
+          if (options.diff) {
+            diffAfter.set(out.path, await readFileOrNull(join(rootDir, out.path)));
+          }
+        }
+        breaker = recordSuccess(breaker);
+        breakers.set(tool, breaker);
+      } catch (err) {
+        breaker = recordFailure(breaker, classifyFailure(err));
+        breakers.set(tool, breaker);
+        adapterFailures.push({
+          tool,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        // Record to persistent failure log for post-hoc debugging
+        await appendFailure(agentsDir, "update:adapter-generate", err, tool);
+      }
     }
+  });
+  if (!adapterPhaseResult.completed && adapterPhaseResult.error) {
+    warn(adapterPhaseResult.error);
   }
   if (adapterFailures.length > 0) {
     for (const f of adapterFailures) {
@@ -519,6 +581,13 @@ async function runMigrationCheckpoints(manifest: HatchManifest, rootDir: string,
 export async function updateCommand(_opts?: Record<string, unknown> & { yes?: boolean; diff?: boolean }): Promise<void> {
   printBanner(true);
 
+  // Pipeline-level timeout: tracks overall command duration and emits a
+  // warning at the end if the run exceeded the configured budget.
+  const pipelineState = createPipelineExecution(
+    ["generation", "adapter", "merge", "integrity"],
+    DEFAULT_PIPELINE_TIMEOUT_MS,
+  );
+
   const rootDir = process.cwd();
   const manifest = await readManifest(rootDir);
 
@@ -598,9 +667,25 @@ export async function updateCommand(_opts?: Record<string, unknown> & { yes?: bo
   }
 
   console.log();
+  // Phase output schema: compact the structured update result before
+  // formatting so a high-fanout update (many adapters) keeps the summary
+  // bounded.
+  const compactedResult = compactPhaseOutput({
+    copiedFiles: result.copiedFiles,
+    syncedTools: result.syncedTools,
+    failedTools: result.failedTools,
+    version: result.version,
+  });
   printBox("Update complete", [
-    label("Files", `${result.copiedFiles} canonical files updated`),
-    label("Tools", `${result.syncedTools} tool(s) re-synced`),
-    label("Version", `v${result.version}`),
+    label("Files", `${compactedResult.copiedFiles} canonical files updated`),
+    label("Tools", `${compactedResult.syncedTools} tool(s) re-synced`),
+    label("Version", `v${compactedResult.version}`),
   ], "success");
+
+  // Pipeline timeout advisory: surface a warning if total wall time exceeded
+  // the budget. Disk writes are already complete; this is informational only.
+  if (isPipelineTimedOut(pipelineState)) {
+    const { report } = terminatePipeline(pipelineState);
+    warn(report.summary);
+  }
 }

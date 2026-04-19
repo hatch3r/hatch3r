@@ -7,8 +7,11 @@ import { BaseAdapter, output, type AdapterContext } from "./base.js";
  * Antigravity adapter.
  *
  * Generates `.antigravity/rules.md` (bridge with inline rules/agents),
- * skills in `.antigravity/skills/`, and `.antigravity/settings.json`
- * for MCP server configuration. No hooks or commands support.
+ * skills in `.agent/skills/` (canonical Antigravity workspace skills path),
+ * and `.antigravity/settings.json` for MCP server configuration. No hooks
+ * or commands support.
+ *
+ * Reference: https://antigravity.google/docs/skills (accessed 2026-04-19)
  */
 export class AntigravityAdapter extends BaseAdapter {
   readonly name = "antigravity";
@@ -24,7 +27,7 @@ export class AntigravityAdapter extends BaseAdapter {
     results.push(output(".antigravity/rules.md", wrapInManagedBlock(inner), inner));
 
     results.push(
-      ...await this.processSkillsRaw(ctx, (id) => `.antigravity/skills/${toPrefixedId(id)}/SKILL.md`),
+      ...await this.processSkillsRaw(ctx, (id) => `.agent/skills/${toPrefixedId(id)}/SKILL.md`),
     );
 
     const mcp = await this.readFilteredMcp(ctx);

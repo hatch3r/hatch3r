@@ -193,6 +193,31 @@ describe("AmazonQAdapter", () => {
     expect(hookFile!.content).toContain("HATCH3R_HOOK_ACTIVATED");
   });
 
+  // ── Finding C7-H1: canonical Amazon Q event names ──
+  // Reference: https://aws.github.io/amazon-q-developer-cli/agent-format.html (accessed 2026-04-19)
+  it("uses canonical Amazon Q hook event names (agentSpawn/preToolUse/postToolUse/stop)", async () => {
+    const manifest = createManifest({
+      tools: ["amazon-q"],
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const hookFile = outputs.find((o) => o.path === ".amazonq/rules/hatch3r-hooks.md");
+    expect(hookFile).toBeDefined();
+
+    // Canonical event names appear in the rules markdown for any mapped event.
+    // Test fixtures include at least one hook whose event maps to a canonical name.
+    const canonicalEvents = ["agentSpawn", "preToolUse", "postToolUse", "userPromptSubmit", "stop"];
+    const hasCanonical = canonicalEvents.some((e) => hookFile!.content.includes(e));
+    expect(hasCanonical).toBe(true);
+
+    // Negative assertion: legacy non-canonical names must not appear.
+    expect(hookFile!.content).not.toContain("onPreCommit");
+    expect(hookFile!.content).not.toContain("onFileSave");
+    expect(hookFile!.content).not.toContain("onSessionStart");
+    expect(hookFile!.content).not.toContain("onPostMerge");
+    expect(hookFile!.content).not.toContain("onCIFailure");
+  });
+
   it("skips hooks when hooks feature is disabled", async () => {
     const manifest = createManifest({
       tools: ["amazon-q"],
