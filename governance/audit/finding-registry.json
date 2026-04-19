@@ -4776,7 +4776,8 @@
     "rollback_level": null,
     "reviewer_verdict": "PASS",
     "reviewer_notes": null,
-    "false_positive": false
+    "false_positive": false,
+    "cl1_status": "applied"
   },
   {
     "finding_id": "C7-H6",
@@ -4841,7 +4842,8 @@
     "rollback_level": null,
     "reviewer_verdict": "PASS",
     "reviewer_notes": null,
-    "false_positive": false
+    "false_positive": false,
+    "cl1_status": "applied"
   },
   {
     "finding_id": "C7-H7",
@@ -5062,7 +5064,8 @@
     "rollback_level": null,
     "reviewer_verdict": "PASS",
     "reviewer_notes": null,
-    "false_positive": false
+    "false_positive": false,
+    "cl1_status": "applied"
   },
   {
     "finding_id": "C7-H11",
@@ -5132,7 +5135,8 @@
     "rollback_level": null,
     "reviewer_verdict": "PASS",
     "reviewer_notes": null,
-    "false_positive": false
+    "false_positive": false,
+    "cl1_status": "applied"
   },
   {
     "finding_id": "C7-H12",
