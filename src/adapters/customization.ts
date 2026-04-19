@@ -91,14 +91,45 @@ const HOMOGLYPH_MAP: Record<string, string> = {
   '\u10DC': 'n', '\u10DD': 'o', '\u10DE': 'p', '\u10E0': 'r',
   '\u10E1': 's', '\u10E2': 't', '\u10E3': 'u', '\u10E5': 'k',
   '\u10E8': 'x', '\u10EE': 'h',
+  // Coptic → Latin (C7-H19: visually-confusable Coptic letters)
+  // Greek-derived Coptic block U+03E2–U+03EF
+  '\u03E2': 'W', '\u03E3': 'w',
+  // Modern Coptic block U+2C80–U+2CFF — confusables with Latin
+  '\u2C80': 'A', '\u2C81': 'a', '\u2C82': 'B', '\u2C83': 'b',
+  '\u2C84': 'G', '\u2C85': 'g', '\u2C88': 'E', '\u2C89': 'e',
+  '\u2C8E': 'H', '\u2C8F': 'h', '\u2C92': 'I', '\u2C93': 'i',
+  '\u2C94': 'K', '\u2C95': 'k', '\u2C98': 'M', '\u2C99': 'm',
+  '\u2C9A': 'N', '\u2C9B': 'n', '\u2C9E': 'O', '\u2C9F': 'o',
+  '\u2CA0': 'P', '\u2CA1': 'p', '\u2CA2': 'R', '\u2CA3': 'r',
+  '\u2CA4': 'C', '\u2CA5': 'c', '\u2CA6': 'T', '\u2CA7': 't',
+  '\u2CA8': 'Y', '\u2CA9': 'y', '\u2CAA': 'F', '\u2CAB': 'f',
+  '\u2CAC': 'X', '\u2CAD': 'x', '\u2CB0': 'W', '\u2CB1': 'w',
+  // Deseret → Latin (C7-H19: Deseret alphabet was designed as a Latin replacement)
+  // Capitals U+10400–U+10427, lowercase U+10428–U+1044F
+  '\u{10401}': 'E', '\u{10403}': 'O', '\u{10405}': 'A', '\u{1040D}': 'I',
+  '\u{10412}': 'S', '\u{10417}': 'B', '\u{1041B}': 'P', '\u{1041D}': 'T',
+  '\u{10429}': 'e', '\u{1042B}': 'o', '\u{1042D}': 'a', '\u{10435}': 'i',
+  '\u{1043A}': 's', '\u{1043F}': 'b', '\u{10443}': 'p', '\u{10445}': 't',
+  // Osage → Latin (C7-H19: Osage script has confusables with Latin/Cyrillic)
+  // Capitals U+104B0–U+104D3, lowercase U+104D8–U+104FB
+  '\u{104B5}': 'T', '\u{104BB}': 'V', '\u{104C0}': 'P', '\u{104C7}': 'Y',
+  '\u{104D2}': 'I', '\u{104DD}': 't', '\u{104E3}': 'v', '\u{104E8}': 'p',
+  '\u{104EF}': 'y', '\u{104FA}': 'i',
 };
 
 function normalizeHomoglyphs(text: string): string {
-  // Apply NFKC normalization first to collapse fullwidth and mathematical forms
-  const nfkc = text.normalize("NFKC");
-  return nfkc
-    // Cyrillic, Greek, Armenian, Cherokee, Georgian ranges
-    .replace(/[\u0370-\u03FF\u0400-\u04FF\u0530-\u058F\u10D0-\u10FF\u13A0-\u13FF]/g, (ch) => HOMOGLYPH_MAP[ch] ?? ch)
+  // Apply NFKD normalization to (a) collapse fullwidth and mathematical forms via
+  // compatibility decomposition and (b) decompose Latin Extended Additional
+  // precomposed diacritics (e.g. U+1E05 → "b" + U+0323) so combining marks can
+  // be stripped to expose the base ASCII letter (C7-H19, UAX #39 §4 confusables).
+  const nfkd = text.normalize("NFKD");
+  return nfkd
+    // Strip combining marks left over from NFKD (Latin Extended Additional, etc.)
+    .replace(/[\u0300-\u036F]/g, '')
+    // Greek, Cyrillic, Armenian, Georgian, Cherokee, modern Coptic ranges
+    .replace(/[\u0370-\u03FF\u0400-\u04FF\u0530-\u058F\u10D0-\u10FF\u13A0-\u13FF\u2C80-\u2CFF]/g, (ch) => HOMOGLYPH_MAP[ch] ?? ch)
+    // Deseret (U+10400–U+1044F) and Osage (U+104B0–U+104FF) supplementary planes
+    .replace(/[\u{10400}-\u{1044F}\u{104B0}-\u{104FF}]/gu, (ch) => HOMOGLYPH_MAP[ch] ?? ch)
     .replace(/[\u2000-\u200F\uFEFF]/g, ''); // Remove zero-width characters
 }
 

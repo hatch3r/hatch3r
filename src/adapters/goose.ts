@@ -39,7 +39,7 @@ export class GooseAdapter extends BaseAdapter {
     // #123: Read agents once and reuse for both inline content and profile generation
     // to avoid double readCanonicalFiles + double applyCustomization.
     const agents = ctx.features.agents
-      ? await readCanonicalFiles(ctx.agentsDir, "agents")
+      ? await readCanonicalFiles(ctx.agentsDir, "agents", this.warnings)
       : [];
 
     const lines = [
@@ -49,7 +49,7 @@ export class GooseAdapter extends BaseAdapter {
     ];
 
     if (ctx.features.skills) {
-      const skills = await readCanonicalFiles(ctx.agentsDir, "skills");
+      const skills = await readCanonicalFiles(ctx.agentsDir, "skills", this.warnings);
       for (const skill of skills) {
         const { content, skip, warnings } = await applyCustomizationRaw(ctx.projectRoot, skill);
         this.warnings.push(...warnings);

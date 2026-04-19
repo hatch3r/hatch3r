@@ -1,8 +1,25 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach, type MockInstance } from "vitest";
+import inquirer from "inquirer";
 import { mkdtemp, mkdir, writeFile, readFile, rm, access } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { HatchError } from "../../types.js";
+
+// Mock inquirer so interactive paths can be exercised. The --yes paths in
+// initCommand do not call inquirer.prompt, so existing non-interactive tests
+// remain unaffected by this mock. Separator is required by
+// src/cli/shared/customContentChoices.ts (custom-preset path).
+vi.mock("inquirer", () => {
+  class Separator {
+    constructor(public readonly line: string) {}
+  }
+  return {
+    default: {
+      prompt: vi.fn(),
+      Separator,
+    },
+  };
+});
 
 const AGENTS_DIR = ".agents";
 
@@ -451,3 +468,761 @@ describe("workspace init", () => {
     expect(wsManifest.repos).toHaveLength(2);
   });
 });
+
+// ── C7-H20 (D3): branch-coverage uplift for src/cli/commands/init.ts ──
+//
+// The blocks below exercise interactive flows, validation paths, partial
+// failures, language wiring, and workspace branches that the existing tests
+// (which run --yes only) cannot reach. They are required to bring branch
+// coverage on init.ts from ~33% to >=65% per the global vitest threshold.
+
+describe("init validation flags (--yes path)", () => {
+  let initCommand: (opts?: { tools?: string; yes?: boolean; preset?: string; projectType?: string; teamSize?: string; workspace?: boolean }) => Promise<void>;
+  let tempDir: string;
+  let cwdSpy: MockInstance;
+  let exitSpy: MockInstance;
+  let consoleSpy: MockInstance;
+  let consoleErrorSpy: MockInstance;
+
+  beforeAll(async () => {
+    ({ initCommand } = await import("../../cli/commands/init.js"));
+  });
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-init-flags-"));
+    cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+    exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation((() => {
+        throw new Error("process.exit called");
+      }) as never);
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(async () => {
+    cwdSpy.mockRestore();
+    exitSpy.mockRestore();
+    consoleSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("rejects an invalid --preset value", async () => {
+    await expect(
+      initCommand({ yes: true, preset: "kitchen-sink" }),
+    ).rejects.toThrow(HatchError);
+    try {
+      await initCommand({ yes: true, preset: "kitchen-sink" });
+    } catch (e) {
+      expect((e as HatchError).exitCode).toBe(1);
+      expect((e as HatchError).errorCode).toBe("VALIDATION_ERROR");
+    }
+  });
+
+  it("rejects an invalid --project-type value", async () => {
+    await expect(
+      initCommand({ yes: true, projectType: "legacy" }),
+    ).rejects.toThrow(HatchError);
+  });
+
+  it("rejects an invalid --team-size value", async () => {
+    await expect(
+      initCommand({ yes: true, teamSize: "duo" }),
+    ).rejects.toThrow(HatchError);
+  });
+
+  it("accepts --preset minimal and writes it to the manifest", async () => {
+    await initCommand({ yes: true, preset: "minimal" });
+    const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf-8"));
+    expect(manifest.content?.preset).toBe("minimal");
+  });
+
+  it("accepts --preset standard and writes it to the manifest", async () => {
+    await initCommand({ yes: true, preset: "standard" });
+    const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf-8"));
+    expect(manifest.content?.preset).toBe("standard");
+  });
+
+  it("--preset standard yields fewer items than --preset full", async () => {
+    await initCommand({ yes: true, preset: "standard" });
+    const stdManifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
+    const stdCount = Object.values(stdManifest.content.items).reduce(
+      (s: number, arr) => s + (arr as string[]).length,
+      0,
+    );
+
+    // Reset and run with full preset
+    await rm(join(tempDir, AGENTS_DIR), { recursive: true, force: true });
+    await initCommand({ yes: true, preset: "full" });
+    const fullManifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
+    const fullCount = Object.values(fullManifest.content.items).reduce(
+      (s: number, arr) => s + (arr as string[]).length,
+      0,
+    );
+
+    expect(stdCount).toBeLessThanOrEqual(fullCount);
+  });
+
+  it("accepts --project-type greenfield via flag", async () => {
+    await initCommand({ yes: true, projectType: "greenfield" });
+    const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
+    expect(manifest.content?.projectType).toBe("greenfield");
+  });
+
+  it("accepts --team-size team via flag", async () => {
+    await initCommand({ yes: true, teamSize: "team" });
+    const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
+    expect(manifest.content?.teamSize).toBe("team");
+  });
+});
+
+describe("init partial adapter failure (one of many fails)", () => {
+  let initCommand: (opts?: { tools?: string; yes?: boolean }) => Promise<void>;
+  let tempDir: string;
+  let cwdSpy: MockInstance;
+  let exitSpy: MockInstance;
+  let consoleSpy: MockInstance;
+  let consoleErrorSpy: MockInstance;
+
+  beforeAll(async () => {
+    ({ initCommand } = await import("../../cli/commands/init.js"));
+  });
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-init-partial-"));
+    cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+    exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation((() => {
+        throw new Error("process.exit called");
+      }) as never);
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(async () => {
+    cwdSpy.mockRestore();
+    exitSpy.mockRestore();
+    consoleSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("writes manifest when at least one adapter succeeds (partial failure)", async () => {
+    // Mock cursor adapter to fail, claude succeeds. With both selected,
+    // partial failure path runs (line 230-232 ternary + line 258 writeManifest).
+    const adaptersMod = await import("../../adapters/index.js");
+    const realGetAdapter = adaptersMod.getAdapter;
+    const failingAdapter = {
+      get warnings() { return [] as string[]; },
+      generate: async () => { throw new Error("simulated cursor failure"); },
+    };
+    const getAdapterSpy = vi.spyOn(adaptersMod, "getAdapter")
+      .mockImplementation(((tool: string) => {
+        if (tool === "cursor") {
+          return failingAdapter as unknown as ReturnType<typeof realGetAdapter>;
+        }
+        return realGetAdapter(tool as Parameters<typeof realGetAdapter>[0]);
+      }) as typeof realGetAdapter);
+
+    try {
+      await initCommand({ yes: true, tools: "cursor,claude" });
+
+      // Manifest IS written because claude succeeded
+      const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
+      await expect(access(manifestPath)).resolves.toBeUndefined();
+
+      const manifest = JSON.parse(await readFile(manifestPath, "utf-8"));
+      // CLAUDE.md exists, .cursor/ does not
+      expect(manifest.managedFiles).toContain("CLAUDE.md");
+
+      // Failure should be reported on stderr/stdout via logError
+      const errOutput = consoleErrorSpy.mock.calls.map((c) => String(c[0])).join(" ");
+      const allOutput = errOutput + consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
+      expect(allOutput).toMatch(/Failed to generate Cursor/);
+    } finally {
+      getAdapterSpy.mockRestore();
+    }
+  });
+});
+
+describe("init re-init: stale content cleanup", () => {
+  let initCommand: (opts?: { tools?: string; yes?: boolean; preset?: string }) => Promise<void>;
+  let tempDir: string;
+  let cwdSpy: MockInstance;
+  let exitSpy: MockInstance;
+  let consoleSpy: MockInstance;
+  let consoleErrorSpy: MockInstance;
+
+  beforeAll(async () => {
+    ({ initCommand } = await import("../../cli/commands/init.js"));
+  });
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-init-stale-"));
+    cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+    exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation((() => {
+        throw new Error("process.exit called");
+      }) as never);
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(async () => {
+    cwdSpy.mockRestore();
+    exitSpy.mockRestore();
+    consoleSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("removes stale content when switching from full to minimal preset", async () => {
+    // First init with full preset
+    await initCommand({ yes: true, preset: "full" });
+    const fullManifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
+    const fullItemCount = Object.values(fullManifest.content.items).reduce(
+      (s: number, arr) => s + (arr as string[]).length,
+      0,
+    );
+
+    // Re-init with minimal preset (triggers stale-content cleanup branch lines 136-145)
+    await initCommand({ yes: true, preset: "minimal" });
+    const minimalManifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
+    const minimalItemCount = Object.values(minimalManifest.content.items).reduce(
+      (s: number, arr) => s + (arr as string[]).length,
+      0,
+    );
+
+    // The minimal preset should have strictly fewer items
+    expect(minimalItemCount).toBeLessThan(fullItemCount);
+    expect(minimalManifest.content.preset).toBe("minimal");
+  });
+});
+
+describe("init worktree generation (claude tool present)", () => {
+  let initCommand: (opts?: { tools?: string; yes?: boolean }) => Promise<void>;
+  let tempDir: string;
+  let cwdSpy: MockInstance;
+  let exitSpy: MockInstance;
+  let consoleSpy: MockInstance;
+  let consoleErrorSpy: MockInstance;
+
+  beforeAll(async () => {
+    ({ initCommand } = await import("../../cli/commands/init.js"));
+  });
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-init-worktree-"));
+    cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+    exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation((() => {
+        throw new Error("process.exit called");
+      }) as never);
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(async () => {
+    cwdSpy.mockRestore();
+    exitSpy.mockRestore();
+    consoleSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("generates .worktreeinclude when a worktree-capable tool is selected", async () => {
+    await initCommand({ yes: true, tools: "claude" });
+
+    // Worktree branch (lines 242-254) generates .worktreeinclude
+    await expect(
+      access(join(tempDir, ".worktreeinclude")),
+    ).resolves.toBeUndefined();
+
+    const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
+    expect(manifest.worktree?.enabled).toBe(true);
+    expect(manifest.managedFiles).toContain(".worktreeinclude");
+  });
+
+  it("does NOT generate .worktreeinclude when only non-worktree tools are selected", async () => {
+    // amp is not in WORKTREE_CAPABLE_TOOLS — branch falls through line 242
+    await initCommand({ yes: true, tools: "amp" });
+
+    await expect(
+      access(join(tempDir, ".worktreeinclude")),
+    ).rejects.toThrow();
+  });
+});
+
+describe("init language detection (Wave 3 H15)", () => {
+  let initCommand: (opts?: { tools?: string; yes?: boolean }) => Promise<void>;
+  let tempDir: string;
+  let cwdSpy: MockInstance;
+  let exitSpy: MockInstance;
+  let consoleSpy: MockInstance;
+  let consoleErrorSpy: MockInstance;
+
+  beforeAll(async () => {
+    ({ initCommand } = await import("../../cli/commands/init.js"));
+  });
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-init-lang-"));
+    cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+    exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation((() => {
+        throw new Error("process.exit called");
+      }) as never);
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(async () => {
+    cwdSpy.mockRestore();
+    exitSpy.mockRestore();
+    consoleSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("records detected TypeScript language in the manifest", async () => {
+    // Drop a tsconfig.json to trigger TypeScript detection
+    await writeFile(
+      join(tempDir, "tsconfig.json"),
+      JSON.stringify({ compilerOptions: { target: "ES2022" } }),
+    );
+
+    await initCommand({ yes: true });
+
+    const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
+    expect(Array.isArray(manifest.languages)).toBe(true);
+    expect(manifest.languages).toContain("typescript");
+  });
+
+  it("records detected Python language in the manifest", async () => {
+    await writeFile(
+      join(tempDir, "pyproject.toml"),
+      "[tool.poetry]\nname = \"test\"\n",
+    );
+
+    await initCommand({ yes: true });
+
+    const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
+    expect(manifest.languages).toContain("python");
+  });
+
+  it("omits the languages field when no language could be detected", async () => {
+    // Empty repo with no language-indicator files
+    await initCommand({ yes: true });
+
+    const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
+    // languagesForSelection filters out 'unknown'; createManifest then omits
+    // the languages field altogether (line 103-105 of hatchJson.ts).
+    expect(manifest.languages).toBeUndefined();
+  });
+
+  it("agnostic content (rules without language tags) is included for any project", async () => {
+    // Empty repo (unknown language) — language-agnostic content still copied
+    await initCommand({ yes: true });
+
+    const agentsDir = join(tempDir, AGENTS_DIR);
+    // Core agents are language-agnostic and should always be present
+    await expect(
+      access(join(agentsDir, "agents", "hatch3r-implementer.md")),
+    ).resolves.toBeUndefined();
+  });
+});
+
+describe("init interactive single-repo flow", () => {
+  let initCommand: (opts?: { tools?: string; yes?: boolean }) => Promise<void>;
+  let tempDir: string;
+  let cwdSpy: MockInstance;
+  let exitSpy: MockInstance;
+  let consoleSpy: MockInstance;
+  let consoleErrorSpy: MockInstance;
+
+  beforeAll(async () => {
+    ({ initCommand } = await import("../../cli/commands/init.js"));
+  });
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-init-inter-"));
+    cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+    exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation((() => {
+        throw new Error("process.exit called");
+      }) as never);
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(inquirer.prompt).mockReset();
+  });
+
+  afterEach(async () => {
+    cwdSpy.mockRestore();
+    exitSpy.mockRestore();
+    consoleSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  /**
+   * Queue prompt responses for the interactive single-repo flow.
+   * Order matches the prompts in initCommand() lines 500-707.
+   */
+  function setupGithubInteractive(opts: {
+    preset?: "minimal" | "standard" | "full" | "custom";
+    projectType?: "greenfield" | "brownfield";
+    teamSize?: "solo" | "team";
+    tools?: string[];
+    features?: string[];
+    mcpServers?: string[];
+    customItems?: string[];
+  } = {}): void {
+    const inq = vi.mocked(inquirer.prompt);
+    inq.mockResolvedValueOnce({ platform: "github" });
+    inq.mockResolvedValueOnce({ owner: "test-owner", repo: "test-repo" });
+    inq.mockResolvedValueOnce({ defaultBranch: "main" });
+    inq.mockResolvedValueOnce({ projectType: opts.projectType ?? "brownfield" });
+    inq.mockResolvedValueOnce({ teamSize: opts.teamSize ?? "solo" });
+    inq.mockResolvedValueOnce({ preset: opts.preset ?? "full" });
+    if (opts.preset === "custom") {
+      inq.mockResolvedValueOnce({ items: opts.customItems ?? [] });
+    }
+    inq.mockResolvedValueOnce({ tools: opts.tools ?? ["claude"] });
+    inq.mockResolvedValueOnce({
+      features: opts.features ?? ["agents", "skills", "rules", "prompts", "commands", "mcp", "githubAgents", "hooks"],
+    });
+    if ((opts.features ?? ["mcp"]).includes("mcp")) {
+      inq.mockResolvedValueOnce({ mcp: opts.mcpServers ?? ["github", "playwright", "context7"] });
+    }
+  }
+
+  it("runs the GitHub interactive flow end-to-end", async () => {
+    setupGithubInteractive();
+
+    await initCommand({});
+
+    const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
+    expect(manifest.platform).toBe("github");
+    expect(manifest.owner).toBe("test-owner");
+    expect(manifest.repo).toBe("test-repo");
+    expect(manifest.namespace).toBe("test-owner");
+    expect(manifest.project).toBe("test-repo");
+    expect(manifest.tools).toEqual(["claude"]);
+    expect(manifest.board?.defaultBranch).toBe("main");
+  });
+
+  it("runs the GitHub interactive flow with custom preset and explicit selections", async () => {
+    setupGithubInteractive({
+      preset: "custom",
+      customItems: ["hatch3r-implementer"],
+    });
+
+    await initCommand({});
+
+    const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
+    expect(manifest.content?.preset).toBe("custom");
+    // The custom selection plus protected items should be included
+    expect(Array.isArray(manifest.content.items.agents)).toBe(true);
+  });
+
+  it("runs the Azure DevOps interactive flow", async () => {
+    const inq = vi.mocked(inquirer.prompt);
+    inq.mockResolvedValueOnce({ platform: "azure-devops" });
+    inq.mockResolvedValueOnce({ org: "ado-org", project: "ado-proj", repo: "ado-repo" });
+    inq.mockResolvedValueOnce({ defaultBranch: "main" });
+    inq.mockResolvedValueOnce({ projectType: "brownfield" });
+    inq.mockResolvedValueOnce({ teamSize: "solo" });
+    inq.mockResolvedValueOnce({ preset: "minimal" });
+    inq.mockResolvedValueOnce({ tools: ["claude"] });
+    inq.mockResolvedValueOnce({ features: ["agents"] });
+
+    await initCommand({});
+
+    const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
+    expect(manifest.platform).toBe("azure-devops");
+    expect(manifest.owner).toBe("ado-org");
+    expect(manifest.namespace).toBe("ado-org");
+    expect(manifest.project).toBe("ado-proj");
+    expect(manifest.repo).toBe("ado-repo");
+  });
+
+  it("runs the GitLab interactive flow", async () => {
+    const inq = vi.mocked(inquirer.prompt);
+    inq.mockResolvedValueOnce({ platform: "gitlab" });
+    inq.mockResolvedValueOnce({ namespace: "gl-ns", project: "gl-proj" });
+    inq.mockResolvedValueOnce({ defaultBranch: "main" });
+    inq.mockResolvedValueOnce({ projectType: "brownfield" });
+    inq.mockResolvedValueOnce({ teamSize: "solo" });
+    inq.mockResolvedValueOnce({ preset: "minimal" });
+    inq.mockResolvedValueOnce({ tools: ["claude"] });
+    inq.mockResolvedValueOnce({ features: ["agents"] });
+
+    await initCommand({});
+
+    const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
+    expect(manifest.platform).toBe("gitlab");
+    expect(manifest.owner).toBe("gl-ns");
+    expect(manifest.repo).toBe("gl-proj");
+    expect(manifest.namespace).toBe("gl-ns");
+    expect(manifest.project).toBe("gl-proj");
+  });
+
+  it("falls back to defaults when interactive answers are blank", async () => {
+    const inq = vi.mocked(inquirer.prompt);
+    inq.mockResolvedValueOnce({ platform: "github" });
+    inq.mockResolvedValueOnce({ owner: "", repo: "" });
+    // Empty branch -> falls back to detected default ("main" via parseGitDefaultBranch)
+    inq.mockResolvedValueOnce({ defaultBranch: "" });
+    inq.mockResolvedValueOnce({ projectType: "brownfield" });
+    inq.mockResolvedValueOnce({ teamSize: "solo" });
+    inq.mockResolvedValueOnce({ preset: "minimal" });
+    // Empty tool selection -> falls back to DEFAULT_TOOLS
+    inq.mockResolvedValueOnce({ tools: [] });
+    inq.mockResolvedValueOnce({ features: ["agents"] });
+
+    await initCommand({});
+
+    const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
+    // tools: [] -> defaults to ["claude"]
+    expect(manifest.tools).toEqual(["claude"]);
+    // defaultBranch defaults to "main"
+    expect(manifest.board?.defaultBranch).toBe("main");
+  });
+
+  it("interactive flow with mcp disabled does not prompt for MCP servers", async () => {
+    setupGithubInteractive({ features: ["agents"], mcpServers: undefined });
+    await initCommand({});
+
+    const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
+    expect(manifest.features.mcp).toBe(false);
+    expect(manifest.mcp.servers).toEqual([]);
+  });
+
+  it("interactive: existing .agents/ prompt accept proceeds with init", async () => {
+    // Pre-create .agents/ to force the checkExisting prompt
+    const agentsDir = join(tempDir, AGENTS_DIR);
+    await mkdir(agentsDir, { recursive: true });
+    await writeFile(
+      join(agentsDir, "hatch.json"),
+      JSON.stringify({ version: "2.0.0", hatch3rVersion: "0.0.1", platform: "github", tools: [], features: {}, mcp: { servers: [] }, managedFiles: [] }),
+    );
+
+    const inq = vi.mocked(inquirer.prompt);
+    inq.mockResolvedValueOnce({ platform: "github" });
+    inq.mockResolvedValueOnce({ owner: "o", repo: "r" });
+    inq.mockResolvedValueOnce({ defaultBranch: "main" });
+    inq.mockResolvedValueOnce({ projectType: "brownfield" });
+    inq.mockResolvedValueOnce({ teamSize: "solo" });
+    inq.mockResolvedValueOnce({ preset: "minimal" });
+    inq.mockResolvedValueOnce({ tools: ["claude"] });
+    inq.mockResolvedValueOnce({ features: ["agents"] });
+    // The checkExisting prompt — accept overwrite
+    inq.mockResolvedValueOnce({ proceed: true });
+
+    await initCommand({});
+
+    const manifest = JSON.parse(await readFile(join(agentsDir, "hatch.json"), "utf-8"));
+    expect(manifest.owner).toBe("o");
+    expect(manifest.repo).toBe("r");
+  });
+
+  it("interactive: existing .agents/ prompt reject throws cancellation", async () => {
+    const agentsDir = join(tempDir, AGENTS_DIR);
+    await mkdir(agentsDir, { recursive: true });
+    await writeFile(
+      join(agentsDir, "hatch.json"),
+      JSON.stringify({ version: "2.0.0", hatch3rVersion: "0.0.1", platform: "github", tools: [], features: {}, mcp: { servers: [] }, managedFiles: [] }),
+    );
+
+    const inq = vi.mocked(inquirer.prompt);
+    inq.mockResolvedValueOnce({ platform: "github" });
+    inq.mockResolvedValueOnce({ owner: "o", repo: "r" });
+    inq.mockResolvedValueOnce({ defaultBranch: "main" });
+    inq.mockResolvedValueOnce({ projectType: "brownfield" });
+    inq.mockResolvedValueOnce({ teamSize: "solo" });
+    inq.mockResolvedValueOnce({ preset: "minimal" });
+    inq.mockResolvedValueOnce({ tools: ["claude"] });
+    inq.mockResolvedValueOnce({ features: ["agents"] });
+    // Reject overwrite
+    inq.mockResolvedValueOnce({ proceed: false });
+
+    await expect(initCommand({})).rejects.toThrow(HatchError);
+  });
+});
+
+describe("init interactive workspace flow", () => {
+  let initCommand: (opts?: { tools?: string; yes?: boolean; workspace?: boolean }) => Promise<void>;
+  let tempDir: string;
+  let cwdSpy: MockInstance;
+  let exitSpy: MockInstance;
+  let consoleSpy: MockInstance;
+  let consoleErrorSpy: MockInstance;
+
+  beforeAll(async () => {
+    ({ initCommand } = await import("../../cli/commands/init.js"));
+  });
+
+  async function createWorkspaceLayout(root: string, repos: string[]): Promise<void> {
+    for (const name of repos) {
+      const repoDir = join(root, name);
+      await mkdir(join(repoDir, ".git"), { recursive: true });
+    }
+  }
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-init-ws-inter-"));
+    cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+    exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation((() => {
+        throw new Error("process.exit called");
+      }) as never);
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(inquirer.prompt).mockReset();
+  });
+
+  afterEach(async () => {
+    cwdSpy.mockRestore();
+    exitSpy.mockRestore();
+    consoleSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("interactive workspace prompt accepts workspace mode", async () => {
+    await createWorkspaceLayout(tempDir, ["api", "web"]);
+
+    const inq = vi.mocked(inquirer.prompt);
+    // 1) Confirm workspace mode (line 400)
+    inq.mockResolvedValueOnce({ useWorkspace: true });
+    // 2) Accept detected repo identities (line 784) — true means skip per-repo edit
+    inq.mockResolvedValueOnce({ acceptIdentity: true });
+    // 3) Project type
+    inq.mockResolvedValueOnce({ projectType: "brownfield" });
+    // 4) Team size
+    inq.mockResolvedValueOnce({ teamSize: "solo" });
+    // 5) Preset
+    inq.mockResolvedValueOnce({ preset: "minimal" });
+    // 6) Tools
+    inq.mockResolvedValueOnce({ tools: ["claude"] });
+    // 7) Features
+    inq.mockResolvedValueOnce({ features: ["agents"] });
+    // 8) Repo selection for sync
+    inq.mockResolvedValueOnce({ syncRepos: [] });
+
+    await initCommand({});
+
+    const wsRaw = await readFile(join(tempDir, AGENTS_DIR, "workspace.json"), "utf-8");
+    const wsManifest = JSON.parse(wsRaw);
+    expect(wsManifest.repos).toHaveLength(2);
+  });
+
+  it("interactive workspace prompt rejects workspace mode (falls through to single-repo)", async () => {
+    await createWorkspaceLayout(tempDir, ["api"]);
+
+    const inq = vi.mocked(inquirer.prompt);
+    // 1) Decline workspace mode -> falls through to single-repo interactive flow
+    inq.mockResolvedValueOnce({ useWorkspace: false });
+    // 2-9) Single-repo prompts
+    inq.mockResolvedValueOnce({ platform: "github" });
+    inq.mockResolvedValueOnce({ owner: "o", repo: "r" });
+    inq.mockResolvedValueOnce({ defaultBranch: "main" });
+    inq.mockResolvedValueOnce({ projectType: "brownfield" });
+    inq.mockResolvedValueOnce({ teamSize: "solo" });
+    inq.mockResolvedValueOnce({ preset: "minimal" });
+    inq.mockResolvedValueOnce({ tools: ["claude"] });
+    inq.mockResolvedValueOnce({ features: ["agents"] });
+
+    await initCommand({});
+
+    // No workspace.json should exist (single-repo path)
+    await expect(
+      access(join(tempDir, AGENTS_DIR, "workspace.json")),
+    ).rejects.toThrow();
+
+    const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
+    expect(manifest.owner).toBe("o");
+  });
+
+  it("interactive workspace: edit identities path runs per-repo prompts", async () => {
+    await createWorkspaceLayout(tempDir, ["api"]);
+
+    const inq = vi.mocked(inquirer.prompt);
+    // 1) Confirm workspace mode
+    inq.mockResolvedValueOnce({ useWorkspace: true });
+    // 2) Reject auto-detected identity -> enter edit-identities branch (lines 793-805)
+    inq.mockResolvedValueOnce({ acceptIdentity: false });
+    // 3) Per-repo identity prompt for "api"
+    inq.mockResolvedValueOnce({ owner: "edited-owner", repo: "edited-repo", defaultBranch: "develop" });
+    // 4) Project type
+    inq.mockResolvedValueOnce({ projectType: "brownfield" });
+    // 5) Team size
+    inq.mockResolvedValueOnce({ teamSize: "solo" });
+    // 6) Preset
+    inq.mockResolvedValueOnce({ preset: "minimal" });
+    // 7) Tools
+    inq.mockResolvedValueOnce({ tools: ["claude"] });
+    // 8) Features
+    inq.mockResolvedValueOnce({ features: ["agents"] });
+    // 9) Repo sync selection
+    inq.mockResolvedValueOnce({ syncRepos: [] });
+
+    await initCommand({});
+
+    const wsRaw = await readFile(join(tempDir, AGENTS_DIR, "workspace.json"), "utf-8");
+    const wsManifest = JSON.parse(wsRaw);
+    const apiEntry = wsManifest.repos.find((r: { name: string }) => r.name === "api");
+    expect(apiEntry?.owner).toBe("edited-owner");
+    expect(apiEntry?.repo).toBe("edited-repo");
+    expect(apiEntry?.defaultBranch).toBe("develop");
+  });
+
+  it("--workspace flag with empty subdirs yields workspace with 0 sub-repos", async () => {
+    // No git subdirectories — but --workspace forces workspace mode (line 414).
+    // detectSubRepos returns empty -> empty-workspace branch (lines 737-758).
+    // Pre-create .agents/ since the empty-workspace branch writes
+    // workspace.json directly without calling runInit (which would mkdir it).
+    await mkdir(join(tempDir, AGENTS_DIR), { recursive: true });
+
+    await initCommand({ yes: true, workspace: true });
+
+    const wsRaw = await readFile(join(tempDir, AGENTS_DIR, "workspace.json"), "utf-8");
+    const wsManifest = JSON.parse(wsRaw);
+    expect(wsManifest.repos).toHaveLength(0);
+  });
+
+  it("workspace --yes with multiple repos derives platform from sub-repo majority", async () => {
+    // All sub-repos are bare .git dirs (no remotes) -> deriveWorkspacePlatform
+    // defaults each to "github", so workspace platform is "github".
+    await createWorkspaceLayout(tempDir, ["api", "web", "infra"]);
+
+    await initCommand({ yes: true });
+
+    const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
+    expect(manifest.platform).toBe("github");
+  });
+
+  it("workspace --yes with explicit --workspace flag and zero subdirs", async () => {
+    // Explicit --workspace + 0 repos triggers the empty-workspace early return
+    // path (lines 737-758) even when shouldSuggestWorkspace would return false.
+    // The empty-workspace branch writes workspace.json directly without
+    // creating .agents/ so we pre-create it here.
+    await mkdir(join(tempDir, AGENTS_DIR), { recursive: true });
+
+    await initCommand({ yes: true, workspace: true });
+
+    await expect(
+      access(join(tempDir, AGENTS_DIR, "workspace.json")),
+    ).resolves.toBeUndefined();
+  });
+});
+

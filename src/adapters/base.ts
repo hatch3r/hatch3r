@@ -151,7 +151,7 @@ export abstract class BaseAdapter implements Adapter {
   protected async inlineRules(ctx: AdapterContext): Promise<string[]> {
     if (!ctx.features.rules) return [];
     const lines: string[] = [];
-    const rules = await readCanonicalFiles(ctx.agentsDir, "rules");
+    const rules = await readCanonicalFiles(ctx.agentsDir, "rules", this.warnings);
     const minimal = this.isMinimal(ctx);
     for (const rule of rules) {
       const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);
@@ -174,7 +174,7 @@ export abstract class BaseAdapter implements Adapter {
   ): Promise<string[]> {
     if (!ctx.features.agents) return [];
     const lines: string[] = [];
-    const agents = await readCanonicalFiles(ctx.agentsDir, "agents");
+    const agents = await readCanonicalFiles(ctx.agentsDir, "agents", this.warnings);
     const minimal = this.isMinimal(ctx);
     for (const agent of agents) {
       const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
@@ -203,7 +203,7 @@ export abstract class BaseAdapter implements Adapter {
   ): Promise<AdapterOutput[]> {
     if (!ctx.features.skills) return [];
     const results: AdapterOutput[] = [];
-    const skills = await readCanonicalFiles(ctx.agentsDir, "skills");
+    const skills = await readCanonicalFiles(ctx.agentsDir, "skills", this.warnings);
     for (const skill of skills) {
       const { content, skip, warnings } = await applyCustomizationRaw(ctx.projectRoot, skill);
       this.warnings.push(...warnings);
@@ -220,7 +220,7 @@ export abstract class BaseAdapter implements Adapter {
   ): Promise<AdapterOutput[]> {
     if (!ctx.features.skills) return [];
     const results: AdapterOutput[] = [];
-    const skills = await readCanonicalFiles(ctx.agentsDir, "skills");
+    const skills = await readCanonicalFiles(ctx.agentsDir, "skills", this.warnings);
     for (const skill of skills) {
       const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, skill);
       this.warnings.push(...warnings);
@@ -239,7 +239,7 @@ export abstract class BaseAdapter implements Adapter {
   ): Promise<AdapterOutput[]> {
     if (!ctx.features.commands) return [];
     const results: AdapterOutput[] = [];
-    const commands = await readCanonicalFiles(ctx.agentsDir, "commands");
+    const commands = await readCanonicalFiles(ctx.agentsDir, "commands", this.warnings);
     for (const cmd of commands) {
       const { content, skip, warnings } = await applyCustomizationRaw(ctx.projectRoot, cmd);
       this.warnings.push(...warnings);

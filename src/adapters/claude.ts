@@ -250,7 +250,7 @@ export class ClaudeAdapter extends BaseAdapter {
     results.push(output("CLAUDE.md", wrapInManagedBlock(innerContent), innerContent));
 
     if (ctx.features.rules) {
-      const rules = await readCanonicalFiles(ctx.agentsDir, "rules");
+      const rules = await readCanonicalFiles(ctx.agentsDir, "rules", this.warnings);
       for (const rule of rules) {
         const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);
         this.warnings.push(...warnings);
@@ -264,7 +264,7 @@ export class ClaudeAdapter extends BaseAdapter {
     }
 
     if (ctx.features.agents) {
-      const agents = await readCanonicalFiles(ctx.agentsDir, "agents");
+      const agents = await readCanonicalFiles(ctx.agentsDir, "agents", this.warnings);
       for (const agent of agents) {
         const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
         this.warnings.push(...warnings);

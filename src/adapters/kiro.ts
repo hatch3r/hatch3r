@@ -36,7 +36,7 @@ export class KiroAdapter extends BaseAdapter {
     const lines = [...await this.bridgeHeader(ctx)];
 
     if (ctx.features.rules) {
-      const rules = await readCanonicalFiles(ctx.agentsDir, "rules");
+      const rules = await readCanonicalFiles(ctx.agentsDir, "rules", this.warnings);
       for (const rule of rules) {
         const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);
         this.warnings.push(...warnings);

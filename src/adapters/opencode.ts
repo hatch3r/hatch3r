@@ -76,7 +76,7 @@ export class OpenCodeAdapter extends BaseAdapter {
     results.push(output("opencode.json", JSON.stringify(opencodeConfig, null, 2)));
 
     if (ctx.features.agents) {
-      const agents = await readCanonicalFiles(ctx.agentsDir, "agents");
+      const agents = await readCanonicalFiles(ctx.agentsDir, "agents", this.warnings);
       for (const agent of agents) {
         const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
         this.warnings.push(...warnings);

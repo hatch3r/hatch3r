@@ -20,7 +20,7 @@ export class CopilotAdapter extends BaseAdapter {
     const scopedRules: { rule: CanonicalFile; content: string; scope: string }[] = [];
 
     if (ctx.features.rules) {
-      const rules = await readCanonicalFiles(ctx.agentsDir, "rules");
+      const rules = await readCanonicalFiles(ctx.agentsDir, "rules", this.warnings);
       for (const rule of rules) {
         const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);
         this.warnings.push(...warnings);
@@ -98,7 +98,7 @@ jobs:
     }
 
     if (ctx.features.agents) {
-      const agents = await readCanonicalFiles(ctx.agentsDir, "agents");
+      const agents = await readCanonicalFiles(ctx.agentsDir, "agents", this.warnings);
       for (const agent of agents) {
         const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
         this.warnings.push(...warnings);
@@ -113,7 +113,7 @@ jobs:
     }
 
     if (ctx.features.prompts) {
-      const prompts = await readCanonicalFiles(ctx.agentsDir, "prompts");
+      const prompts = await readCanonicalFiles(ctx.agentsDir, "prompts", this.warnings);
       for (const prompt of prompts) {
         const body = prompt.rawContent;
         results.push(output(`.github/prompts/${toPrefixedId(prompt.id)}.prompt.md`, wrapInManagedBlock(body), body));
@@ -125,7 +125,7 @@ jobs:
     );
 
     if (ctx.features.githubAgents) {
-      const ghAgents = await readCanonicalFiles(ctx.agentsDir, "github-agents");
+      const ghAgents = await readCanonicalFiles(ctx.agentsDir, "github-agents", this.warnings);
       for (const agent of ghAgents) {
         const body = agent.rawContent;
         results.push(output(`.github/agents/${toPrefixedId(agent.id)}.agent.md`, wrapInManagedBlock(body), body));

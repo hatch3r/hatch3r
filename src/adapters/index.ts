@@ -147,6 +147,6 @@ export { WindsurfAdapter } from "./windsurf.js";
 export { ZedAdapter } from "./zed.js";
 export type { Adapter, AdapterContext } from "./base.js";
 export { BaseAdapter, output } from "./base.js";
-export { readCanonicalFiles } from "./canonical.js";
-export type { CanonicalType } from "./canonical.js";
+export { readCanonicalFiles, readCanonicalFilesDetailed } from "./canonical.js";
+export type { CanonicalType, CanonicalReadResult, CanonicalReadError } from "./canonical.js";
 export type { CustomizationResult } from "./customization.js";
