@@ -16,6 +16,8 @@
 | 19.3 | Skill & Command Completeness |
 | 19.4 | Hook Reliability & Self-Coherence |
 
+> Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
+
 ## Audit Checklists
 
 ### 19.1 CLAUDE.md & Settings Accuracy

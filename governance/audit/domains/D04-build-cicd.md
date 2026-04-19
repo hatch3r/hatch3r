@@ -17,6 +17,8 @@
 | 4.4 | Release Pipeline & OIDC | `.github/workflows/release.yml`, npm provenance, OIDC signing |
 | 4.5 | Community & OSS Readiness | `CONTRIBUTING.md`, issue templates, PR template, CoC, dependabot, license |
 
+> Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
+
 ## Audit Checklists
 
 ### 4.1 Build Configuration

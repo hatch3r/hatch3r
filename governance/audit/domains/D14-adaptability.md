@@ -14,6 +14,8 @@
 | 14.3 | Team Scalability |
 | 14.4 | Convention Self-Discovery |
 
+> Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
+
 ## Audit Checklists
 
 ### 14.1 Tech Stack Generalization

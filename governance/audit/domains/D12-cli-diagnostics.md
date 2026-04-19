@@ -14,6 +14,8 @@
 | 12.3 | Agent Instruction Debugging |
 | 12.4 | Content Traceability |
 
+> Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
+
 ## Audit Checklists
 
 ### 12.1 CLI Output Diagnostic Quality

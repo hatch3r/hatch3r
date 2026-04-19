@@ -22,6 +22,8 @@ ALL sub-agents are **sequential** — they run only after D16 and D17 complete.
 - `governance/VISION.md` (committed — stable north-star vision document)
 - `governance/RE-ENVISION.md` (committed — framework-owner vision capture prompt)
 
+> Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
+
 ## Audit Checklists
 
 ### 18.1 PRD Alignment

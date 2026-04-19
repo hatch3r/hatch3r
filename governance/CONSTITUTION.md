@@ -24,7 +24,7 @@ Every lifecycle stage (init through release) delivers the best achievable CLI in
 
 ### P2. Scientific & Practical Quality
 
-Content is of verifiable, real-world-applicable quality. Agents self-validate assumptions against neutral senior baselines without explicit prompting. Operationalized through the Behavioral Charter (challenge the premise, adversarial thinking), measurable acceptance criteria, confidence expression, root-cause orientation.
+Content is of verifiable, real-world-applicable quality. Findings carry the Scientific Rigor Contract — falsifiability, triangulated citations, confidence with basis, ≥3-step causal chain, bias check, peer-review counter-argument — defined in [audit/templates/rigor-contract.md](audit/templates/rigor-contract.md) and operationalised by the Behavioral Charter.
 
 **Measurement:** Behavioral charter compliance rate, one-shot success rate (see [VISION.md](VISION.md) §Quality Bar), finding root-cause depth (symptom vs. systemic).
 **Governance refs:** [AUDIT.md §Sub-Agent Behavioral Charter](AUDIT.md) (13 directives, authoritative location), Audit Quality Architecture (3 layers), D1/D5/D7/D13.
@@ -179,7 +179,7 @@ governance/
 ├── AUDIT-REPORT.md          <- Latest audit results (gitignored)
 └── audit/
     ├── domains/D01-D19.md   <- Domain definitions (19 files)
-    ├── templates/            <- Sub-agent templates (4 files)
+    ├── templates/            <- Sub-agent templates (5 files, incl. rigor-contract.md)
     ├── baseline.json         <- Immutable baseline per cycle
     ├── finding-registry.json <- Finding lifecycle tracking
     └── execution-insights.json <- Cross-cycle learning

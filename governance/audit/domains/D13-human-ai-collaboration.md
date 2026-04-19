@@ -14,6 +14,8 @@
 | 13.3 | Confidence Indication |
 | 13.4 | Feedback Loops & Educational Value |
 
+> Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
+
 ## Audit Checklists
 
 ### 13.1 Interaction Patterns

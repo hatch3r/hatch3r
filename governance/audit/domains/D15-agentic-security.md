@@ -23,6 +23,10 @@ This is a distinct concern from Domain 1 (source code quality) and Domain 4 (pro
 
 > D06 audits context engineering quality under normal operation (overflow, isolation, format validation). D15 audits context security under adversarial conditions (poisoning, injection, weaponization of user-controlled files). If a finding involves intentional malicious input, it belongs in D15.
 
+> Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
+
+**Specific source set (D15-targeted):** OWASP ASI 2026 (URL + access date), CVE feeds for MCP and agentic frameworks, vendor security advisories <=12 months old.
+
 ## Audit Checklists
 
 ### 15.1 Prompt Injection & Instruction Integrity

@@ -22,6 +22,8 @@
 | 1.9 | Workspace Module | `src/workspace/{index,types,manifest,detect,resolve,sync}.ts` |
 | 1.10 | Worktree Module | `src/worktree/{index,resolve,types}.ts`, `src/cli/commands/worktreeSetup.ts` |
 
+> Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
+
 ## Audit Checklists
 
 ### 1.1 CLI Command: init

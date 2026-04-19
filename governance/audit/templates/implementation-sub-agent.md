@@ -96,6 +96,13 @@ For each finding, provide:
     only address the symptom within your scope, mark as PARTIAL with
     an explanation of what remains.
 
+14. **Source freshness re-check.** Before implementing any finding whose
+    recommendation cites external research, re-fetch each cited URL from
+    the finding's `sources` block per [rigor-contract.md](rigor-contract.md).
+    If 404 or content has materially changed since the audit's `accessed`
+    date, mark the finding PARTIAL and request re-research before
+    proceeding. Do not implement against a stale source.
+
 ## Constraints
 
 - Do not modify files outside the scope of your assigned findings

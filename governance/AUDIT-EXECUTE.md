@@ -111,6 +111,8 @@ If the file does not exist (first cycle), skip this step.
 
 Build three lists: Agent-implementable, Mixed, Human-only. Cross-reference Tier 3 for detailed descriptions, files, acceptance criteria, and `Depends On` references.
 
+- **Rigor carry-forward.** Carry `confidence`, `causal_chain_depth`, and `sources` fields verbatim from each sub-agent finding into the registry per [audit/templates/rigor-contract.md](audit/templates/rigor-contract.md) §Required Finding Output Schema. Findings missing any of these fields are flagged for re-research before triage; do not assign placeholder values.
+
 ### New Code Classification
 
 When the audit report references code not present in the previous audit baseline (e.g., new workspace module in v1.3.0), classify findings as:
@@ -174,6 +176,9 @@ Central manifest tracking every finding through its lifecycle. Store as `governa
 | `severity` | Phase 1 | Critical / High / Medium / Low |
 | `owner` | Phase 1 | Agent / Human / Mixed / Resolved / Deferred |
 | `description` | Phase 1 | Action item description |
+| `confidence` | Phase 1 | `high` / `medium` / `low`. Copied verbatim from sub-agent finding's rigor schema header per `governance/audit/templates/rigor-contract.md` §Required Finding Output Schema. Phase 1 Triage flags Low-confidence Critical/High findings for prioritised re-verification. |
+| `causal_chain_depth` | Phase 1 | Integer ≥3. Count of `→` arrows in the sub-agent finding's `causal_chain` field. Used by reviewer Pass 1.5 (Fix-to-Finding Alignment) to verify the implementation addresses the root, not the symptom. |
+| `sources` | Phase 1 | Array of `{url, accessed, author, trust_tier}` objects. Copied verbatim from sub-agent finding's `sources` block. Used by implementation-sub-agent freshness re-check (refetch URL before implementing; if 404, mark finding PARTIAL). |
 | `dedup_action` | Phase 1 | `keep` / `merge_into:[id]` / `merged_from:[id]` |
 | `dedup_tier` | Phase 1 | 1–4 |
 | `dedup_rationale` | Phase 1 | Why the dedup decision was made |

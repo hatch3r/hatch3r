@@ -15,6 +15,8 @@
 | 7.4 | Dynamic Adaptation |
 | 7.5 | Multi-Task Orchestration |
 
+> Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
+
 ## Audit Checklists
 
 ### 7.1 Pipeline Design

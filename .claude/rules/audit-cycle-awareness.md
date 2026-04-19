@@ -16,5 +16,6 @@ The audit cycle is the framework's primary quality mechanism. Understand the flo
 - Use domain sub-agent templates from `governance/audit/templates/`
 - Update `governance/audit/finding-registry.json` when resolving findings
 - Never modify the audit prompt (AUDIT.md) during wave execution
+- Every finding satisfies the Scientific Rigor Contract (`governance/audit/templates/rigor-contract.md`): falsifiability, ≥2 independent sources with trust tier, confidence with basis, ≥3-step causal chain, bias check, adversarial peer-review counter-argument
 
 **Domain files:** `governance/audit/domains/D01-D19.md` (19 domain files)

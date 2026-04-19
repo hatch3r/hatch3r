@@ -30,6 +30,10 @@ Sub-agents 9.15 and 9.16 are **sequential** — they run only after 9.1–9.14 c
 | 9.15 | **Capability Matrix Verification (SEQUENTIAL)** | `docs/adapter-capability-matrix.md` | Cross-adapter synthesis |
 | 9.16 | **Emerging Platforms (SEQUENTIAL)** | Web research only | New adapter candidates |
 
+> Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
+
+**Specific source set (D9-targeted):** official platform documentation for each adapter target (URL + access date YYYY-MM-DD), platform changelog diff vs prior audit cycle, vendor release notes <=12 months. Single-source acceptable only when the trust tier is `official-docs` AND the claim is platform-specific.
+
 ## Audit Checklists
 
 ### 9.1–9.14 Per-Adapter Checklist

@@ -14,6 +14,8 @@
 | 11.3 | MCP Propagation & Secrets |
 | 11.4 | Customization & CLI Lifecycle |
 
+> Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
+
 ## Audit Checklists
 
 ### 11.1 Canonical to Adapter to Output Tracing

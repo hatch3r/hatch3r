@@ -36,6 +36,8 @@
 | 3.4 | Integration Tests | `src/__tests__/{hooks,models,detect,env,integrity,archive,merge,workspace,worktree}/` (14 files) |
 | 3.5 | Coverage Meta-Analysis | All 47 test files, coverage report, test infrastructure |
 
+> Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
+
 ## Audit Checklists
 
 ### 3.1 Adapter Tests

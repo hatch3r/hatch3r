@@ -22,6 +22,8 @@ Before creating any finding, verify:
 
 If yes to either: log as "cross-domain confirmation of D{N} #{ID}" without creating a new finding. Only findings that span 3+ domains or reveal contradictions between domains qualify as D16 findings.
 
+> Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
+
 ## Audit Checklists
 
 ### 16.1 Cross-Domain Contradiction Detection

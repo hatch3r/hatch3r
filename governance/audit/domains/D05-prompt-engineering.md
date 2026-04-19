@@ -20,6 +20,8 @@
 | 5.7 | Supporting Artifacts | 5 checks + 6 hooks + 3 prompts + 4 github-agents = 18 files |
 | 5.8 | Cross-Artifact Consistency | All 137 content artifacts (redistributed from D16) |
 
+> Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
+
 ## Universal Checklist (apply to ALL sub-agents)
 
 - [ ] **One-shot success prediction** — Would an LLM execute this artifact correctly on the first attempt without clarification? Rate 1-5.

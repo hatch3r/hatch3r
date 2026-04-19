@@ -19,6 +19,8 @@
 | 2.6 | Content System | `src/content/index.ts` (686 LOC), `src/content/tags.ts` (91 LOC), `src/content/presets.ts` (48 LOC) |
 | 2.7 | Integrity & Archive Systems | `src/integrity/index.ts`, `src/archive/index.ts` (263 LOC) |
 
+> Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
+
 ## Audit Checklists
 
 ### 2.1 Base Adapter Contract

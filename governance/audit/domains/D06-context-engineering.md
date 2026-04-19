@@ -16,6 +16,8 @@
 | 6.3 | Cost Modeling |
 | 6.4 | Context Integrity & Isolation |
 
+> Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
+
 ## Audit Checklists
 
 ### 6.1 Context Window Utilization

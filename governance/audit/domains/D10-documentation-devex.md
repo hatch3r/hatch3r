@@ -19,6 +19,8 @@
 | 10.7 | Workflow Chain Viability |
 | 10.8 | Learning Curve & Adoption Metrics |
 
+> Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
+
 ## Audit Checklists
 
 ### 10.1 Documentation Accuracy

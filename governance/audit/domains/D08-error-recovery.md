@@ -14,6 +14,8 @@
 | 8.3 | Pipeline Failure Modes |
 | 8.4 | Self-Healing Patterns |
 
+> Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
+
 ## Audit Checklists
 
 ### 8.1 CLI Error Handling
