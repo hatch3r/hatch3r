@@ -42,6 +42,23 @@ vi.mock("../../content/index.js", () => ({
     hook: "hooks",
     "github-agent": "githubAgents",
   },
+  resolveSelection: vi.fn().mockReturnValue({
+    preset: "full", projectType: "brownfield", teamSize: "team",
+    items: { agents: [], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
+  }),
+  countPresetExclusions: vi.fn().mockReturnValue(0),
+  estimatePresetItemCount: vi.fn().mockReturnValue(50),
+  getAllContentIds: vi.fn().mockReturnValue(new Set<string>()),
+}));
+
+vi.mock("../../content/presets.js", () => ({
+  PRESETS: [
+    { id: "minimal", name: "Minimal", description: "Core only", includeTags: ["core"], excludeTags: [] },
+    { id: "standard", name: "Standard", description: "Full dev lifecycle", includeTags: [], excludeTags: [] },
+    { id: "full", name: "Full (recommended)", description: "Everything", includeTags: [], excludeTags: [] },
+    { id: "custom", name: "Custom", description: "Choose exactly what you need", includeTags: [], excludeTags: [] },
+  ],
+  getPreset: vi.fn().mockReturnValue({ id: "full", name: "Full (recommended)", description: "Everything", includeTags: [], excludeTags: [] }),
 }));
 
 vi.mock("../../cli/shared/agentsContent.js", () => ({
@@ -106,7 +123,10 @@ import {
   selectionSummary,
   extractContentReferences,
   validateOrchestrationDependencies,
+  resolveSelection,
+  getAllContentIds,
 } from "../../content/index.js";
+import { getPreset } from "../../content/presets.js";
 import { generateCanonicalAgentsMd, generateRootAgentsMd } from "../../cli/shared/agentsContent.js";
 import { safeWriteFile } from "../../merge/safeWrite.js";
 import { ensureEnvMcp, ensureGitignoreEntry, getSourceEnvMcpCommand } from "../../env/mcpEnv.js";
@@ -169,7 +189,7 @@ function makeContentSelection(overrides: Partial<ContentSelection> = {}): Conten
 
 /**
  * Set up the standard prompt sequence for configCommand:
- * platform -> repo identity -> branch -> tools -> features -> mcp -> content manage
+ * platform -> repo identity -> branch -> tools -> features -> mcp -> content preset [-> custom items]
  */
 function setupStandardPrompts(
   manifest: HatchManifest,
@@ -180,7 +200,7 @@ function setupStandardPrompts(
     tools?: string[];
     features?: (keyof Features)[];
     mcpServers?: string[];
-    manageContent?: boolean;
+    contentPreset?: string;
     contentItems?: string[];
   } = {},
 ): void {
@@ -236,14 +256,14 @@ function setupStandardPrompts(
     });
   }
 
-  // 7. Content management prompt (only if manifest has content)
+  // 7. Content preset selection prompt (only if manifest has content)
   if (manifest.content) {
     inquirerMock.prompt.mockResolvedValueOnce({
-      manage: overrides.manageContent ?? false,
+      preset: overrides.contentPreset ?? manifest.content.preset ?? "full",
     });
 
-    // 8. Content items prompt (only if manage=true)
-    if (overrides.manageContent) {
+    // 8. Custom items prompt (only if preset is "custom")
+    if (overrides.contentPreset === "custom") {
       inquirerMock.prompt.mockResolvedValueOnce({
         items: overrides.contentItems ?? [],
       });
@@ -640,7 +660,7 @@ describe("config command", () => {
   // ── Content management ───────────────────────────────────────
 
   describe("content management", () => {
-    it("should skip content when user declines to manage", async () => {
+    it("should use preset selection for content management", async () => {
       const manifest = makeManifest({
         content: makeContentSelection({
           items: { agents: ["hatch3r-implementer"], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
@@ -649,15 +669,32 @@ describe("config command", () => {
       vi.mocked(readManifest).mockResolvedValue(manifest);
       vi.mocked(countSelectionItems).mockReturnValue(1);
       vi.mocked(selectionSummary).mockReturnValue("1 agents");
-      setupStandardPrompts(manifest, { manageContent: false });
+
+      const mockIndex = {
+        items: [
+          { id: "hatch3r-implementer", type: "agent", description: "Implementer", tags: [], relativePath: "agents/hatch3r-implementer.md" },
+        ],
+        byType: {},
+        byId: new Map([
+          ["hatch3r-implementer", { id: "hatch3r-implementer", type: "agent", description: "Implementer", tags: [], relativePath: "agents/hatch3r-implementer.md" }],
+        ]),
+      };
+      vi.mocked(buildContentIndex).mockResolvedValue(mockIndex as any);
+      vi.mocked(getAllContentIds).mockReturnValue(new Set(["hatch3r-implementer"]));
+      vi.mocked(resolveSelection).mockReturnValue(makeContentSelection({
+        items: { agents: ["hatch3r-implementer"], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
+      }));
+
+      setupStandardPrompts(manifest);
 
       const { configCommand } = await import("../../cli/commands/config.js");
       await configCommand();
 
-      expect(vi.mocked(buildContentIndex)).not.toHaveBeenCalled();
+      expect(vi.mocked(buildContentIndex)).toHaveBeenCalled();
+      expect(vi.mocked(resolveSelection)).toHaveBeenCalled();
     });
 
-    it("should add new content items when selected", async () => {
+    it("should add new content items when preset resolves additional items", async () => {
       const contentItems = makeContentSelection({
         items: { agents: ["hatch3r-implementer"], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
       });
@@ -679,10 +716,18 @@ describe("config command", () => {
       };
       vi.mocked(buildContentIndex).mockResolvedValue(mockIndex as any);
 
-      setupStandardPrompts(manifest, {
-        manageContent: true,
-        contentItems: ["hatch3r-implementer", "hatch3r-reviewer"],
+      // Old selection has implementer, new selection adds reviewer
+      let callCount = 0;
+      vi.mocked(getAllContentIds).mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) return new Set(["hatch3r-implementer"]); // old
+        return new Set(["hatch3r-implementer", "hatch3r-reviewer"]); // new
       });
+      vi.mocked(resolveSelection).mockReturnValue(makeContentSelection({
+        items: { agents: ["hatch3r-implementer", "hatch3r-reviewer"], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
+      }));
+
+      setupStandardPrompts(manifest);
 
       const { configCommand } = await import("../../cli/commands/config.js");
       await configCommand();
@@ -694,7 +739,7 @@ describe("config command", () => {
       );
     });
 
-    it("should remove deselected content items", async () => {
+    it("should remove content items when preset resolves fewer items", async () => {
       const contentItems = makeContentSelection({
         items: { agents: ["hatch3r-implementer", "hatch3r-reviewer"], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
       });
@@ -716,10 +761,19 @@ describe("config command", () => {
       };
       vi.mocked(buildContentIndex).mockResolvedValue(mockIndex as any);
 
-      setupStandardPrompts(manifest, {
-        manageContent: true,
-        contentItems: ["hatch3r-implementer"],
+      // Old has both, new only has implementer
+      let callCount = 0;
+      vi.mocked(getAllContentIds).mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) return new Set(["hatch3r-implementer", "hatch3r-reviewer"]); // old
+        return new Set(["hatch3r-implementer"]); // new
       });
+      vi.mocked(resolveSelection).mockReturnValue(makeContentSelection({
+        preset: "minimal",
+        items: { agents: ["hatch3r-implementer"], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
+      }));
+
+      setupStandardPrompts(manifest, { contentPreset: "minimal" });
 
       const { configCommand } = await import("../../cli/commands/config.js");
       await configCommand();
@@ -731,7 +785,7 @@ describe("config command", () => {
       );
     });
 
-    it("should update manifest content items after content changes", async () => {
+    it("should update manifest content after preset change", async () => {
       const contentItems = makeContentSelection({
         items: { agents: ["hatch3r-implementer"], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
       });
@@ -753,10 +807,18 @@ describe("config command", () => {
       };
       vi.mocked(buildContentIndex).mockResolvedValue(mockIndex as any);
 
-      setupStandardPrompts(manifest, {
-        manageContent: true,
-        contentItems: ["hatch3r-implementer", "hatch3r-test-writer"],
+      const newSelection = makeContentSelection({
+        items: { agents: ["hatch3r-implementer", "hatch3r-test-writer"], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
       });
+      let callCount = 0;
+      vi.mocked(getAllContentIds).mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) return new Set(["hatch3r-implementer"]); // old
+        return new Set(["hatch3r-implementer", "hatch3r-test-writer"]); // new
+      });
+      vi.mocked(resolveSelection).mockReturnValue(newSelection);
+
+      setupStandardPrompts(manifest);
 
       const { configCommand } = await import("../../cli/commands/config.js");
       await configCommand();
@@ -789,10 +851,17 @@ describe("config command", () => {
       };
       vi.mocked(buildContentIndex).mockResolvedValue(mockIndex as any);
 
-      setupStandardPrompts(manifest, {
-        manageContent: true,
-        contentItems: ["hatch3r-implementer", "hatch3r-reviewer"],
+      let callCount = 0;
+      vi.mocked(getAllContentIds).mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) return new Set(["hatch3r-implementer"]); // old
+        return new Set(["hatch3r-implementer", "hatch3r-reviewer"]); // new
       });
+      vi.mocked(resolveSelection).mockReturnValue(makeContentSelection({
+        items: { agents: ["hatch3r-implementer", "hatch3r-reviewer"], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
+      }));
+
+      setupStandardPrompts(manifest);
 
       const { configCommand } = await import("../../cli/commands/config.js");
       await configCommand();
@@ -824,10 +893,13 @@ describe("config command", () => {
       };
       vi.mocked(buildContentIndex).mockResolvedValue(mockIndex as any);
 
-      setupStandardPrompts(manifest, {
-        manageContent: true,
-        contentItems: ["hatch3r-implementer"],
-      });
+      // Both old and new resolve to the same set — no changes
+      vi.mocked(getAllContentIds).mockReturnValue(new Set(["hatch3r-implementer"]));
+      vi.mocked(resolveSelection).mockReturnValue(makeContentSelection({
+        items: { agents: ["hatch3r-implementer"], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
+      }));
+
+      setupStandardPrompts(manifest);
 
       const { configCommand } = await import("../../cli/commands/config.js");
       await configCommand();
@@ -1087,10 +1159,17 @@ describe("config command", () => {
       };
       vi.mocked(buildContentIndex).mockResolvedValue(mockIndex as any);
 
-      setupStandardPrompts(manifest, {
-        manageContent: true,
-        contentItems: ["hatch3r-implementer", "hatch3r-reviewer"],
+      let callCount = 0;
+      vi.mocked(getAllContentIds).mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) return new Set(["hatch3r-implementer"]);
+        return new Set(["hatch3r-implementer", "hatch3r-reviewer"]);
       });
+      vi.mocked(resolveSelection).mockReturnValue(makeContentSelection({
+        items: { agents: ["hatch3r-implementer", "hatch3r-reviewer"], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
+      }));
+
+      setupStandardPrompts(manifest);
 
       const { configCommand } = await import("../../cli/commands/config.js");
       await configCommand();
@@ -1283,10 +1362,18 @@ describe("config command", () => {
       };
       vi.mocked(buildContentIndex).mockResolvedValue(mockIndex as any);
 
-      setupStandardPrompts(manifest, {
-        manageContent: true,
-        contentItems: ["hatch3r-implementer"],
+      let callCount = 0;
+      vi.mocked(getAllContentIds).mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) return new Set(["hatch3r-implementer", "hatch3r-reviewer"]);
+        return new Set(["hatch3r-implementer"]);
       });
+      vi.mocked(resolveSelection).mockReturnValue(makeContentSelection({
+        preset: "minimal",
+        items: { agents: ["hatch3r-implementer"], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
+      }));
+
+      setupStandardPrompts(manifest, { contentPreset: "minimal" });
 
       const { configCommand } = await import("../../cli/commands/config.js");
       await configCommand();

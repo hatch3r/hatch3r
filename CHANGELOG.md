@@ -2,6 +2,14 @@
 
 All notable changes to hatch3r are documented in this file.
 
+## [1.5.1] - 2026-04-14
+
+### Changed
+
+- **Config content flow**: Replaced "Manage content items?" confirm prompt with direct preset selection (minimal/standard/full/custom) and tag-grouped custom picker, matching the init experience
+- **Default content profile**: Changed default from "Standard" to "Full (recommended)" for both interactive and headless (`--yes`) init
+- **Default tool fallback**: Changed fallback tool from Cursor to Claude Code when auto-detection finds no existing tools
+
 ## [1.5.0] - 2026-04-13
 
 ### Added

@@ -1,7 +1,7 @@
 ---
 id: hatch3r-revision
 type: command
-description: User-guided revision of agent-implemented code in a fresh context window. Reconstructs what was done, interviews the user for feedback, fixes issues, cleans up leftovers, and drives toward merge readiness.
+description: User-guided revision of agent-implemented code in a fresh context window. Reconstructs what was done, interviews the user for feedback, fixes issues, cleans up leftovers, and drives toward merge readiness. Delegation, quality pipeline, modes, and board integration details are in commands/revision/.
 tags: [implementation, team]
 quality_charter: agents/shared/quality-charter.md
 ---
@@ -15,7 +15,10 @@ quality_charter: agents/shared/quality-charter.md
 | 3. Leftover Scan + Triage Routing | Orchestrator (inline) | No | Yes |
 | 4. Fix Implementation | `hatch3r-implementer`, `hatch3r-lint-fixer`, `hatch3r-test-writer` | Per finding type | [FIX NOW] items only |
 | 5a. Review Loop | `hatch3r-reviewer` -> `hatch3r-fixer` (max 3 iterations) | No (sequential) | Yes |
-| 5b. Final Quality | `hatch3r-test-writer` + `hatch3r-security-auditor` | Yes | Yes (code changes) |
+| 5b. Final Quality — Testing | `hatch3r-test-writer` | Yes | Yes (code changes) |
+| 5c. Final Quality — Security | `hatch3r-security-auditor` | Yes | Yes (code changes) |
+| 5d. Final Quality — Docs | `hatch3r-docs-writer` | Yes | When APIs/architecture/UX affected |
+| 5e. Final Quality — Conditional | `hatch3r-lint-fixer`, `hatch3r-a11y-auditor`, `hatch3r-perf-profiler` | Yes | When triggered |
 
 ## Browser Automation
 
@@ -37,7 +40,7 @@ The user is the reviewer. The agent is the interviewer and fixer.
 
 ## Shared Context
 
-**If board context exists** (current branch has an associated PR linked to GitHub issues), **read the `hatch3r-board-shared` command at the start of the run.** It contains Board Configuration, GitHub Context, Project Reference, and tooling directives. Cache all values for the duration of this run.
+**If board context exists** (current branch has an associated PR linked to issues), **read the `hatch3r-board-shared` command at the start of the run.** It contains Board Configuration, Platform Detection, Platform Context, Board Sync Procedure, and tooling directives. Cache all values for the duration of this run.
 
 If no board context exists (plain instruction, no PR, no linked issues), skip shared context loading and work from the git diff alone.
 
@@ -51,6 +54,10 @@ If no board context exists (plain instruction, no PR, no linked issues), skip sh
 2. **Targeted file reads only.** When scanning for leftovers in Step 4, read only the files that appear in the diff -- not the full codebase.
 3. **Do NOT re-read shared context files** -- their content is available via always-applied rules or inline in this command.
 4. **Limit documentation reads.** Read project documentation selectively -- TOC/headers first, full content only for relevant sections.
+
+## Run Cache
+
+Initialize the run cache at the start of the workflow. See `commands/revision/revision-board-integration.md` for the full schema. The cache tracks: diff, findings with triage routing and fix status, quality agents spawned, errors encountered.
 
 ---
 
@@ -68,16 +75,22 @@ Rebuild full context in the fresh window. No prior implementation context is ass
 2. Determine the default branch from `.agents/hatch.json` (`board.defaultBranch`). Fall back to `main` if unavailable.
 3. Compute the diff: `git diff {defaultBranch}...HEAD --stat` for a summary, then `git diff {defaultBranch}...HEAD` for the full diff.
 4. Parse the diff summary: files changed, lines added/removed, file types affected.
-5. Identify affected areas from the file paths (e.g., `src/routes/` → API, `src/components/` → UI, `tests/` → testing).
+5. Identify affected areas from the file paths (e.g., `src/routes/` -> API, `src/components/` -> UI, `tests/` -> testing).
 
 #### 1b. Find Associated PR and Issues
 
-1. Search for an open PR on this branch: `gh pr list --head {branch} --state open --json number,title,body,url --limit 1`.
-2. If a PR exists:
+> Platform-specific CLI commands: see `commands/board/shared-{platform}.md` for PR/issue lookup
+
+1. Detect the platform from `.agents/hatch.json` (`board.platform`). Fall back to GitHub if unavailable.
+2. Search for an open PR on this branch using the platform CLI:
+   - **GitHub:** `gh pr list --head {branch} --state open --json number,title,body,url --limit 1`
+   - **Azure DevOps:** `az repos pr list --source-branch {branch} --status active --top 1`
+   - **GitLab:** `glab mr list --source-branch {branch} --state opened --per-page 1`
+3. If a PR exists:
    - Read the PR body.
    - Extract linked issues from `Closes #N`, `Fixes #N`, `Relates to #N` references.
-   - For each linked issue: `gh issue view {N} --json title,body,labels` to read acceptance criteria and labels.
-3. If no PR exists: note this and work from the branch diff alone.
+   - For each linked issue: fetch title, body, labels, and acceptance criteria using the platform CLI.
+4. If no PR exists: note this and work from the branch diff alone.
 
 #### 1c. Load Project Rules
 
@@ -96,6 +109,7 @@ Present a reconstruction summary to the user:
 ```
 Revision Context:
   Branch: {branch}
+  Platform: {GitHub / Azure DevOps / GitLab}
   PR: #{N} — {title} ({url}) | No PR found
   Linked issues: #{N} — {title} (×{count}) | None
   Diff: {files_changed} files changed (+{additions} / -{deletions})
@@ -265,7 +279,7 @@ If the user attempts to defer a Critical finding, execute the Critical Deferral 
      Deferral rationale: {user's stated rationale}
    ```
 
-4. **Flag for triage.** The `Critical-deferred` tag ensures board-fill surfaces this item with elevated visibility during the next triage cycle. Board-fill should treat `Critical-deferred` items as priority:p0 candidates regardless of other signals.
+4. **Flag for triage.** The `Critical-deferred` tag signals board-fill to surface this item with elevated visibility during the next triage cycle. Board-fill should treat `Critical-deferred` items as priority:p0 candidates regardless of other signals.
 
 The user is never blocked — this protocol adds accountability, not a veto.
 
@@ -299,7 +313,7 @@ If any findings are routed to [DEFER]:
 2. Present summary:
    `"Deferred {N} findings to todo.md. Run /hatch3r-board-fill to triage them into an epic with full dependency analysis."`
 
-3. Cache the deferred findings list for use in Steps 8 and 9.
+3. Cache the deferred findings list for use in Steps 8 and 9. Update run cache `deferred_findings`.
 
 If no findings are routed to [DEFER] (including the "fix all" shortcut), skip this sub-step entirely.
 
@@ -307,99 +321,19 @@ If no findings are routed to [DEFER] (including the "fix all" shortcut), skip th
 
 ### Step 6: Fix Implementation (Sub-Agent Delegation)
 
-Delegate [FIX NOW] findings to specialist sub-agents via the Task tool. Group findings by specialist and parallelize where possible. [DEFER] findings have been appended to `todo.md` in Step 5c and are excluded from this step.
+> Full details: see `commands/revision/revision-delegation.md`
+
+Delegate [FIX NOW] findings to specialist sub-agents. The delegation protocol covers complexity assessment (using `hatch3r-deep-context` scoring), blast-radius-aware finding grouping, expanded sub-agent prompt templates, and cross-agent conflict resolution.
 
 If all findings were deferred (no [FIX NOW] items), skip Step 6 entirely and proceed to Step 7.
-
-#### 6a. Group Findings by Specialist
-
-| Finding Category | Sub-Agent | Protocol |
-|-----------------|-----------|----------|
-| Bugs, missing features, error handling, logic fixes | `hatch3r-implementer` | hatch3r-implementer agent protocol |
-| Dead code, unused imports, type fixes, lint errors | `hatch3r-lint-fixer` | hatch3r-lint-fixer agent protocol |
-| Missing tests, insufficient coverage | `hatch3r-test-writer` | hatch3r-test-writer agent protocol |
-
-If findings span multiple independent areas, spawn one `hatch3r-implementer` per area to parallelize.
-
-#### 6b. Spawn Sub-Agents
-
-Use the Task tool with `subagent_type: "generalPurpose"`. Launch as many independent sub-agents in parallel as the platform supports.
-
-Each sub-agent prompt MUST include:
-- The specific findings to address (file paths, line numbers, descriptions, expected behavior).
-- Instruction to follow the corresponding agent protocol (e.g., "Follow the hatch3r-implementer agent protocol").
-- All `scope: always` rule directives from `.agents/rules/` -- sub-agents do not inherit rules automatically.
-- Acceptance criteria from linked issues (if available from Step 1b).
-- Relevant learnings from `.agents/learnings/` (if found in Step 1d).
-- Explicit instruction: do NOT create branches, commits, or PRs.
-- Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
-
-#### 6c. Await and Integrate Results
-
-1. Await all sub-agents. Collect their structured results (files changed, tests written, issues encountered).
-2. If any sub-agent reports BLOCKED or PARTIAL, **ASK** the user how to proceed (skip, provide guidance, fix manually).
-3. If sub-agents modified overlapping files, review for conflicts and resolve.
-4. Apply all changes to the working tree.
 
 ---
 
 ### Step 7: Quality Verification
 
-Run the project's quality checks. Refer to `package.json` scripts, `README.md`, or `AGENTS.md` for the appropriate commands.
+> Full details: see `commands/revision/revision-quality.md`
 
-#### 7a. Run Quality Gates
-
-1. Lint check (e.g., `npm run lint`)
-2. Type check (e.g., `npm run typecheck`)
-3. Test suite (e.g., `npm run test`)
-
-#### 7b. Verify User-Reported Issues
-
-Walk through each critical and important finding from Step 5. Verify it is addressed by the changes made in Step 6. If acceptance criteria exist from linked issues, verify each criterion.
-
-For each verified finding and acceptance criterion, rate verification confidence: high (fix confirmed via tests or direct observation), medium (code change addresses the issue but edge cases not independently tested), low (fix applied but uncertain of completeness).
-
-#### 7c. Review Loop
-
-Run an iterative review loop (max 3 iterations) until 0 Critical + 0 Warning findings remain:
-
-1. Spawn `hatch3r-reviewer` sub-agent via the Task tool (`subagent_type: "generalPurpose"`).
-
-The reviewer prompt MUST include:
-- The diff of all changes made (use `git diff` on the working tree).
-- All `scope: always` rule directives from `.agents/rules/`.
-- Iteration number and previous findings (if not the first iteration).
-- Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
-
-2. Process reviewer output:
-   - If **0 Critical and 0 Warning** findings: review loop is clean. Proceed to Step 7d.
-   - If Critical or Warning findings remain: spawn `hatch3r-fixer` sub-agent to address them, then re-run the reviewer (next iteration).
-
-3. If 3 iterations complete and findings remain, **ASK** the user whether to proceed or fix manually.
-
-After each reviewer iteration, assess the reviewer's findings confidence: if the reviewer rates any finding as low-confidence, flag it separately in the ASK prompt so the user can prioritize human review of uncertain findings.
-
-4. After any fixes, re-run quality gates (Step 7a) to verify nothing broke.
-
-#### 7d. Final Quality
-
-After the review loop is clean, spawn both agents in parallel via the Task tool:
-
-1. `hatch3r-test-writer` — write or update tests for code changes.
-2. `hatch3r-security-auditor` — security review of code changes.
-
-Both prompts MUST include:
-- The diff of all changes made.
-- All `scope: always` rule directives from `.agents/rules/`.
-- Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
-
-Apply any resulting changes (new tests, security fixes). Re-run quality gates (Step 7a) if changes were made.
-
-#### 7e. Handle Failures
-
-- If quality checks fail: identify the specific failures, fix them directly (for simple issues) or loop back to Step 6 with specific failures.
-- Max 2 retry loops on quality check failures. After 2 retries, **ASK** the user for guidance: "Quality checks still failing. Fix confidence: {high/medium/low — based on whether root cause is identified}."
-- If a user-reported issue was not fully addressed: **ASK** the user whether to attempt another fix or defer.
+Two-stage quality pipeline: Stage 1 runs a sequential review loop (`hatch3r-reviewer` -> `hatch3r-fixer`, max 3 iterations). Stage 2 spawns final quality specialists in parallel — mandatory (`hatch3r-test-writer`, `hatch3r-security-auditor`), evaluated (`hatch3r-docs-writer`), and conditional (`hatch3r-a11y-auditor`, `hatch3r-perf-profiler`, `hatch3r-lint-fixer`).
 
 ---
 
@@ -429,6 +363,8 @@ git push
   ```
 
 If `git push` fails (e.g., remote branch does not exist yet), use `git push -u origin {branch}`.
+
+**Post-commit board integration:** If board context exists, update the PR description with a revision summary. See `commands/revision/revision-board-integration.md` for the full procedure.
 
 ---
 
@@ -460,7 +396,17 @@ Verdict: READY / NOT READY ({remaining items})
 
 A deferred finding counts as "tracked" not "unaddressed" -- it does not block merge readiness.
 
-#### 9b. Present Assessment
+#### 9b. Board Housekeeping
+
+> Full details: see `commands/revision/revision-board-integration.md`
+
+When board context exists, run the board housekeeping steps:
+- **9b.i. Refresh Board Dashboard** (mandatory when `meta:board-overview` exists).
+- **9b.ii. Lightweight Reconciliation** — verify PR body integrity, deferred findings in todo.md, and issue status consistency.
+
+When no board context exists, skip 9b entirely.
+
+#### 9c. Present Assessment
 
 **ASK:** "Revision complete. {verdict}. Options: (a) ready to merge, (b) run another revision cycle with new feedback, (c) done for now."
 
@@ -490,27 +436,8 @@ Capture revision-specific learnings. Focus on patterns that inform future implem
 
 ---
 
-## Error Handling
+## Auto-Advance Mode, Error Handling, and Guardrails
 
-- **Git diff failure**: If `git diff` fails (e.g., no commits on branch, detached HEAD), **ASK** the user for the correct branch or base ref.
-- **No changes detected**: If the diff is empty, inform the user and exit. There is nothing to revise.
-- **PR/issue fetch failure**: Proceed without PR/issue context. Work from the diff alone. Warn the user that acceptance criteria are unavailable.
-- **Sub-agent failure**: Retry once. If the retry fails, fall back to direct implementation for that finding.
-- **Quality check failure after 2 retries**: Present the specific failures and **ASK** the user whether to proceed with a partial fix commit or continue debugging.
-- **Push failure**: Present the error. Common fixes: `git push -u origin {branch}` for new branches, `git pull --rebase` for diverged branches.
-- **Context degradation (>25 turns)**: Suggest starting a fresh chat with a progress summary. The revision command is designed for fresh contexts -- it can be re-run.
+> Full details: see `commands/revision/revision-modes.md`
 
-## Guardrails
-
-- **Never skip ASK checkpoints.** Every significant decision requires user confirmation.
-- **Never skip the proactive scan (Step 4)** -- even if the user reports no issues. Agents leave leftovers.
-- **Always run quality checks (Step 7)** before committing. Never commit code that fails lint, typecheck, or tests.
-- **Stay within the revision scope.** Fix what was reported and what the scan found. Do not refactor unrelated code, add new features, or expand beyond the original implementation's intent.
-- **Always commit and push** at the end of a revision cycle. The user invoked this command to get fixes merged -- do not exit without committing (unless the user explicitly abandons).
-- **Respect the original implementation's architecture.** Revision fixes issues within the existing patterns. If the architecture itself is flawed, note it as a finding but do not restructure -- suggest a separate refactor instead.
-- **One sub-agent per concern.** Delegate to specialist sub-agents based on finding type. Do not ask the implementer to also fix lint issues or write tests.
-- **Git safety.** Never force-push. Never rewrite history. Always create new commits for revision changes.
-- **This command composes existing hatch3r agents** -- it does not replace them. The reviewer, implementer, lint-fixer, and test-writer agents handle the actual work.
-- **Critical findings default to FIX NOW.** If the user overrides this, execute the Critical Deferral Protocol (Step 5b): structured warning with specific risk, require written rationale, record in todo.md with `Critical-deferred` tag, and flag for elevated triage in board-fill. The user is never blocked — rationale adds accountability, not a veto.
-- **Deferred findings go to `todo.md`, not directly to GitHub issues.** The board-fill pipeline handles triage, epic creation, dependency analysis, and readiness assessment. Revision does not shortcut this process.
-- **Always format deferred items as a single epic block** in `todo.md`, regardless of count. This ensures board-fill groups them together during the next run.
+The modes file contains: auto-advance mode (`--auto`), safety guardrails, error handling, and session report format for revision.

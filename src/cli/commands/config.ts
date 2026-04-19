@@ -35,6 +35,7 @@ import { detectSubRepos, detectWorkspaceContext } from "../../workspace/detect.j
 import { syncWorkspaceRepos } from "../../workspace/sync.js";
 import { detectRepoGitIdentity } from "../../workspace/git.js";
 import { TOOL_DISPLAY_NAMES, TOOL_PROMPT_CHOICES, FEATURE_CHOICES, MCP_CHOICES, PLATFORM_DISPLAY_NAMES, PLATFORM_MCP_SERVER, sanitizeInput, isWSL } from "../shared/constants.js";
+import { buildTagGroupedCustomContentChoices } from "../shared/customContentChoices.js";
 import {
   buildContentIndex,
   getAvailableItems,
@@ -45,7 +46,12 @@ import {
   extractContentReferences,
   validateOrchestrationDependencies,
   TYPE_TO_SELECTION_KEY,
+  resolveSelection,
+  countPresetExclusions,
+  estimatePresetItemCount,
+  getAllContentIds,
 } from "../../content/index.js";
+import { PRESETS, getPreset, type PresetId } from "../../content/presets.js";
 import { generateCanonicalAgentsMd, generateRootAgentsMd } from "../shared/agentsContent.js";
 import { safeWriteFile } from "../../merge/safeWrite.js";
 import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
@@ -346,154 +352,147 @@ export async function configCommand(): Promise<void> {
 
   // --- Content management ---
   const contentChanges: { added: Array<{ type: string; id: string }>; removed: Array<{ type: string; id: string }> } = { added: [], removed: [] };
+  let contentMetadataChanged = false;
   if (manifest.content) {
-    const manageContent = await inquirer.prompt<{ manage: boolean }>([
+    // #145 (D19-16): Explain config vs .customize.yaml distinction
+    info(
+      chalk.dim("Config adds/removes content items. To customize an item's behavior without ") +
+      chalk.dim("removing it, use .hatch3r/<type>/<id>.customize.yaml instead."),
+    );
+    console.log();
+
+    const contentRoot = findPackageRoot(__dirname);
+    const agentsDir = join(rootDir, AGENTS_DIR);
+    const index = await buildContentIndex(contentRoot);
+    const previousContent = manifest.content;
+    const { projectType, teamSize } = manifest.content;
+
+    // --- Content preset selection (mirrors init flow) ---
+    const totalItems = index.items.length;
+    const presetAnswer = await inquirer.prompt<{ preset: PresetId }>([
       {
-        type: "confirm",
-        name: "manage",
-        message: "Manage content items?",
-        default: false,
+        type: "select",
+        name: "preset",
+        message: "Select content profile:",
+        choices: PRESETS.map((p) => {
+          const excluded = countPresetExclusions(p, index);
+          const estimated = p.id !== "custom" ? estimatePresetItemCount(p, projectType, teamSize, index, undefined, { skipContextFilters: true }) : 0;
+          const countHint = estimated > 0 ? ` (~${estimated} items)` : "";
+          const suffix = excluded > 0 ? ` (excludes ${excluded} of ${totalItems})` : "";
+          return {
+            name: `${p.name} — ${p.description}${countHint}${suffix}`,
+            value: p.id,
+          };
+        }),
+        default: manifest.content.preset as PresetId,
       },
     ]);
+    const selectedPreset = getPreset(presetAnswer.preset);
 
-    if (manageContent.manage) {
-      // #145 (D19-16): Explain config vs .customize.yaml distinction
-      info(
-        chalk.dim("Config adds/removes content items. To customize an item's behavior without ") +
-        chalk.dim("removing it, use .hatch3r/<type>/<id>.customize.yaml instead."),
-      );
-      console.log();
+    // --- Custom content selection (tag-grouped, mirrors init flow) ---
+    let customSelections: string[] | undefined;
+    if (selectedPreset.id === "custom") {
+      const currentIds = getAllContentIds(manifest.content);
+      const groupedChoices = buildTagGroupedCustomContentChoices(index.items, (item) => currentIds.has(item.id));
 
-      const contentRoot = findPackageRoot(__dirname);
-      const agentsDir = join(rootDir, AGENTS_DIR);
-      const index = await buildContentIndex(contentRoot);
-
-      // Build current installed set from manifest
-      const currentIds = new Set<string>();
-      for (const ids of Object.values(manifest.content.items)) {
-        for (const id of ids) currentIds.add(id);
-      }
-
-      const contentAnswer = await inquirer.prompt<{ items: string[] }>([
+      const customAnswer = await inquirer.prompt<{ items: string[] }>([
         {
           type: "checkbox",
           name: "items",
-          message: "Select content items (space to toggle):",
-          choices: index.items.map((item) => ({
-            name: `${item.type}: ${item.id.replace(/^(cmd-)?hatch3r-/, "")} — ${item.description.slice(0, 60)}`,
-            value: item.id,
-            checked: currentIds.has(item.id),
-          })),
+          message: "Select content items:",
+          choices: groupedChoices,
           ...(wslTheme && { theme: wslTheme }),
         },
       ]);
+      customSelections = customAnswer.items;
+    }
 
-      const newIds = new Set(contentAnswer.items);
+    // --- Resolve new selection and diff against current ---
+    const newSelection = resolveSelection(selectedPreset, projectType, teamSize, index, customSelections, undefined, { skipContextFilters: true });
+    const oldIds = getAllContentIds(manifest.content);
+    const newIds = getAllContentIds(newSelection);
 
-      // Identify removed items and warn about dependents (D19-6)
-      const pendingRemovals: string[] = [];
-      for (const id of currentIds) {
-        if (!newIds.has(id)) pendingRemovals.push(id);
-      }
+    // Identify removed items and warn about dependents (D19-6)
+    const pendingRemovals: string[] = [];
+    for (const id of oldIds) {
+      if (!newIds.has(id)) pendingRemovals.push(id);
+    }
 
-      if (pendingRemovals.length > 0) {
-        const dependencyWarnings: string[] = [];
-        for (const removedId of pendingRemovals) {
-          const dependents: string[] = [];
-          for (const keepId of contentAnswer.items) {
-            const keepItem = index.byId.get(keepId);
-            if (!keepItem) continue;
-            try {
-              const filePath = keepItem.type === "skill"
-                ? join(agentsDir, keepItem.relativePath, "SKILL.md")
-                : join(agentsDir, keepItem.relativePath);
-              const content = await readFile(filePath, "utf-8");
-              const refs = extractContentReferences(content);
-              if (refs.includes(removedId)) {
-                dependents.push(keepId);
-              }
-            } catch {
-              // File not readable, skip
+    if (pendingRemovals.length > 0) {
+      const dependencyWarnings: string[] = [];
+      for (const removedId of pendingRemovals) {
+        const dependents: string[] = [];
+        for (const keepId of newIds) {
+          const keepItem = index.byId.get(keepId);
+          if (!keepItem) continue;
+          try {
+            const filePath = keepItem.type === "skill"
+              ? join(agentsDir, keepItem.relativePath, "SKILL.md")
+              : join(agentsDir, keepItem.relativePath);
+            const content = await readFile(filePath, "utf-8");
+            const refs = extractContentReferences(content);
+            if (refs.includes(removedId)) {
+              dependents.push(keepId);
             }
-          }
-          if (dependents.length > 0) {
-            dependencyWarnings.push(
-              `Removing "${removedId}" — referenced by: ${dependents.join(", ")}`,
-            );
+          } catch {
+            // File not readable, skip
           }
         }
-
-        // Check orchestration dependencies with the proposed new selection
-        const proposedSelection: ContentSelection = {
-          ...manifest.content!,
-          items: {
-            agents: [], skills: [], rules: [], commands: [],
-            prompts: [], hooks: [], githubAgents: [],
-          },
-        };
-        for (const id of contentAnswer.items) {
-          const proposedItem = index.byId.get(id);
-          if (proposedItem) {
-            const key = TYPE_TO_SELECTION_KEY[proposedItem.type];
-            if (key) proposedSelection.items[key].push(proposedItem.id);
-          }
-        }
-        const orchWarnings = validateOrchestrationDependencies(proposedSelection);
-        dependencyWarnings.push(...orchWarnings);
-
-        if (dependencyWarnings.length > 0) {
-          console.log();
-          warn("Dependency warnings for removed content:");
-          for (const w of dependencyWarnings) {
-            console.log(chalk.dim(`  ${w}`));
-          }
-          console.log();
+        if (dependents.length > 0) {
+          dependencyWarnings.push(
+            `Removing "${removedId}" — referenced by: ${dependents.join(", ")}`,
+          );
         }
       }
 
-      // Find added and removed items
-      for (const id of contentAnswer.items) {
-        if (!currentIds.has(id)) {
-          const item = index.byId.get(id);
-          if (item) {
-            contentChanges.added.push({ type: item.type, id: item.id });
-            await addContentItem(contentRoot, agentsDir, item);
-          }
-        }
-      }
-      for (const id of currentIds) {
-        if (!newIds.has(id)) {
-          const item = index.byId.get(id);
-          if (item) {
-            contentChanges.removed.push({ type: item.type, id: item.id });
-            await removeContentItem(agentsDir, item, { rootDir });
-          }
-        }
-      }
+      const orchWarnings = validateOrchestrationDependencies(newSelection);
+      dependencyWarnings.push(...orchWarnings);
 
-      // Update manifest content items
-      const newItems: ContentSelection["items"] = {
-        agents: [], skills: [], rules: [], commands: [],
-        prompts: [], hooks: [], githubAgents: [],
-      };
-      for (const id of contentAnswer.items) {
+      if (dependencyWarnings.length > 0) {
+        console.log();
+        warn("Dependency warnings for removed content:");
+        for (const w of dependencyWarnings) {
+          console.log(chalk.dim(`  ${w}`));
+        }
+        console.log();
+      }
+    }
+
+    // Apply adds and removes
+    for (const id of newIds) {
+      if (!oldIds.has(id)) {
         const item = index.byId.get(id);
         if (item) {
-          const key = TYPE_TO_SELECTION_KEY[item.type];
-          if (key) newItems[key].push(item.id);
+          contentChanges.added.push({ type: item.type, id: item.id });
+          await addContentItem(contentRoot, agentsDir, item);
         }
       }
-      manifest.content.items = newItems;
-
-      // Regenerate canonical and root AGENTS.md after content changes
-      if (contentChanges.added.length > 0 || contentChanges.removed.length > 0) {
-        const canonicalAgentsMd = await generateCanonicalAgentsMd(agentsDir);
-        await safeWriteFile(join(agentsDir, "AGENTS.md"), canonicalAgentsMd);
-        const rootAgentsMd = await generateRootAgentsMd(agentsDir);
-        await safeWriteFile(join(rootDir, "AGENTS.md"), rootAgentsMd.full, {
-          managedContent: rootAgentsMd.inner,
-        });
+    }
+    for (const id of oldIds) {
+      if (!newIds.has(id)) {
+        const item = index.byId.get(id);
+        if (item) {
+          contentChanges.removed.push({ type: item.type, id: item.id });
+          await removeContentItem(agentsDir, item, { rootDir });
+        }
       }
+    }
+
+    // Update manifest content wholesale
+    manifest.content = newSelection;
+    contentMetadataChanged =
+      previousContent.preset !== newSelection.preset ||
+      previousContent.projectType !== newSelection.projectType ||
+      previousContent.teamSize !== newSelection.teamSize;
+
+    // Regenerate canonical and root AGENTS.md after content changes
+    if (contentChanges.added.length > 0 || contentChanges.removed.length > 0) {
+      const canonicalAgentsMd = await generateCanonicalAgentsMd(agentsDir);
+      await safeWriteFile(join(agentsDir, "AGENTS.md"), canonicalAgentsMd);
+      const rootAgentsMd = await generateRootAgentsMd(agentsDir);
+      await safeWriteFile(join(rootDir, "AGENTS.md"), rootAgentsMd.full, {
+        managedContent: rootAgentsMd.inner,
+      });
     }
   }
 
@@ -502,7 +501,7 @@ export async function configCommand(): Promise<void> {
   diff.addedContent = contentChanges.added;
   diff.removedContent = contentChanges.removed;
 
-  if (isDiffEmpty(diff) && defaultBranch === currentBranch) {
+  if (isDiffEmpty(diff) && defaultBranch === currentBranch && !contentMetadataChanged) {
     console.log();
     info("No changes detected.");
     console.log();
