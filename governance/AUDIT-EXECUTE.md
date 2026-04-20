@@ -187,6 +187,7 @@ Central manifest tracking every finding through its lifecycle. Store as `governa
 | `wave` | Phase 2 | Wave number (1–4) |
 | `sub_wave_batch` | Phase 2 | Batch number within wave |
 | `execution_status` | Phase 4 | `pending` → `done` / `partial` / `failed` / `rolled_back` / `never_attempted` |
+| `feature_status` | Phase 1 | 4-tuple `{implemented, wired, cli_registered, tested}` of booleans capturing the implementation stage of the artifact targeted by the finding. `implemented` = source file exists; `wired` = invoked from a parent module; `cli_registered` = reachable via a `src/cli/commands/` entry; `tested` = covered by a vitest case. Triage flags any finding where `implemented=true` but any later stage is `false` as an Integration Gap candidate. |
 | `commit_sha` | Phase 4 | Git commit hash |
 | `rollback_reason` | Phase 4 | Why rolled back (if applicable) |
 | `rollback_level` | Phase 4 | 1 / 2 / 3 |
