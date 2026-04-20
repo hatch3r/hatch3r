@@ -126,6 +126,17 @@ Before beginning, ask the user:
 1. Is there a previous audit report to compare against? If so, where?
 2. Are there specific areas of concern or priority for this audit cycle?
 
+### Pre-Audit Inventory Validation Gate
+
+Before launching Tier A, run `npm run inventory` (the inventory script tracked under `scripts/inventory.ts`, wired by Wave 2 H10). The orchestrator MUST:
+
+1. Execute the script and capture exit status
+2. Compare its output against documented counts in `governance/audit/domains/D*.md`, `CLAUDE.md`, and `README.md`
+3. **HALT the audit start** if drift is detected — domain files claiming counts that contradict filesystem actuals invalidate downstream sub-agent reasoning
+4. Either auto-update the divergent count and proceed, or surface drift to the user with a one-line summary per affected file
+
+D03 domain file claimed 47 test files when filesystem held 88 (Cycle 7 sub-agent observation). This gate prevents that class of drift from corrupting the audit baseline.
+
 ---
 
 ## Scoring Methodology
