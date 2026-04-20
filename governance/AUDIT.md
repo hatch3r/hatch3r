@@ -270,7 +270,7 @@ The orchestrator spawns sub-agents per domain file. Each sub-agent:
 2. Applies the universal checklist below
 3. Conducts web research per the global directive
 4. Writes results to `.audit-workspace/D{N}-SA{M}.findings.md`
-5. Optionally includes an **Inconclusive Areas** section for areas examined where the sub-agent couldn't determine whether an issue exists, with explanation of what blocked determination. These do not count as findings and do not affect scores.
+5. Optionally includes an **Inconclusive Areas** section for areas examined where the sub-agent couldn't determine whether an issue exists, with explanation of what blocked determination. These do not count as findings and do not affect scores. **Mandatory for any domain producing fewer than 3 High findings:** an Inconclusive Areas section MUST be included to flag depth concerns. Empty Inconclusive Areas with `none` is acceptable only when accompanied by a 1-sentence rationale (e.g., "all checklist items examined to root cause"). Cycle 7 D4, D12, D14 would have benefited from explicit inconclusive tracking.
 
 ### Universal Audit Checklist (apply to ALL sub-agents)
 
