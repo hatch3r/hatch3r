@@ -1,6 +1,6 @@
 # Domain 5: Prompt Engineering Quality
 
-> Last updated: 2026-04-19
+> Last updated: 2026-04-20
 
 **Pillars served:** P2 (primary), P4 (supporting).
 
