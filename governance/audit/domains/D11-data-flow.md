@@ -16,6 +16,10 @@
 
 > Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
 
+## Severity Discipline Cap
+
+D11 Medium findings are capped at **8 per cycle** absent explicit justification per finding above the cap. Cycle 6 D11 produced 25 Mediums; Cycle 7 triage reduced to 6 by removing items where the impact was below the Medium threshold definition. If the cap is exceeded, the orchestrator MUST tag each Medium beyond #8 with a `cap_exception_rationale` referencing a specific user-impact scenario.
+
 ## Audit Checklists
 
 ### 11.1 Canonical to Adapter to Output Tracing
