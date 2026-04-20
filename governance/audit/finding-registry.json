@@ -652,7 +652,7 @@
     "reviewer_verdict": null,
     "reviewer_notes": null,
     "false_positive": false,
-    "exclusion_reason": "SDR-5 decision required — amazon-q adapter rename depends on strategic naming decision"
+    "exclusion_reason": "SDR-5 decision required \u2014 amazon-q adapter rename depends on strategic naming decision"
   },
   {
     "finding_id": "#25",
@@ -2669,7 +2669,7 @@
     "reviewer_verdict": null,
     "reviewer_notes": null,
     "false_positive": false,
-    "exclusion_reason": "Human-only — npm publish requires manual strategic decision (SDR-1/SDR-2)"
+    "exclusion_reason": "Human-only \u2014 npm publish requires manual strategic decision (SDR-1/SDR-2)"
   },
   {
     "finding_id": "#99",
@@ -9389,7 +9389,7 @@
     "reviewer_verdict": "PASS",
     "reviewer_notes": "ALIGNED: --fix/--max-fix-attempts registered in verify CLI.",
     "false_positive": false,
-    "cl1_status": "none",
+    "cl1_status": "declined",
     "sdr_status": "none"
   },
   {
@@ -9488,7 +9488,7 @@
     "reviewer_verdict": "PASS",
     "reviewer_notes": "ALIGNED: Double runInit conflict detection wired.",
     "false_positive": false,
-    "cl1_status": "none",
+    "cl1_status": "declined",
     "sdr_status": "none"
   },
   {
@@ -9537,7 +9537,7 @@
     "reviewer_verdict": "PASS",
     "reviewer_notes": "ALIGNED: Flag validation runs in interactive mode.",
     "false_positive": false,
-    "cl1_status": "none",
+    "cl1_status": "declined",
     "sdr_status": "none"
   },
   {
@@ -9588,7 +9588,7 @@
     "reviewer_verdict": "PARTIAL",
     "reviewer_notes": "BETTER-ALTERNATIVE: Foundation + ERROR_CODE_TO_EXIT_CODE map + exitCodeForErrorCode helper landed in types.ts; 59 call-site migrations deferred to Cycle 9 per explicit scope discipline in plan.",
     "false_positive": false,
-    "cl1_status": "none",
+    "cl1_status": "declined",
     "sdr_status": "none"
   },
   {
@@ -9638,7 +9638,7 @@
     "reviewer_verdict": "PASS",
     "reviewer_notes": "ALIGNED: --offline/--skip-fetch flag added to update command.",
     "false_positive": false,
-    "cl1_status": "none",
+    "cl1_status": "declined",
     "sdr_status": "none"
   },
   {
@@ -9687,7 +9687,7 @@
     "reviewer_verdict": "PASS",
     "reviewer_notes": "ALIGNED: sync-now moved before manifest write for atomicity.",
     "false_positive": false,
-    "cl1_status": "none",
+    "cl1_status": "declined",
     "sdr_status": "none"
   },
   {
@@ -9736,7 +9736,7 @@
     "reviewer_verdict": "PASS",
     "reviewer_notes": "ALIGNED: add returns exit 0 (coming soon).",
     "false_positive": false,
-    "cl1_status": "none",
+    "cl1_status": "applied",
     "sdr_status": "none"
   },
   {
@@ -9788,7 +9788,7 @@
     "reviewer_verdict": "PASS",
     "reviewer_notes": "ALIGNED: isValidGitBranchName enforced at init.ts, config.ts, update.ts call sites.",
     "false_positive": false,
-    "cl1_status": "none",
+    "cl1_status": "declined",
     "sdr_status": "none"
   },
   {
@@ -9838,7 +9838,7 @@
     "reviewer_verdict": "PASS",
     "reviewer_notes": "ALIGNED: --format human|json option added to validate command.",
     "false_positive": false,
-    "cl1_status": "none",
+    "cl1_status": "declined",
     "sdr_status": "none"
   },
   {
@@ -9888,7 +9888,7 @@
     "reviewer_verdict": "PASS",
     "reviewer_notes": "ALIGNED: Nested HATCH3R:BEGIN/END detection in managed-block invariant.",
     "false_positive": false,
-    "cl1_status": "none",
+    "cl1_status": "declined",
     "sdr_status": "none"
   },
   {
@@ -9938,7 +9938,7 @@
     "reviewer_verdict": "PASS",
     "reviewer_notes": "ALIGNED: declareOutputPaths helper for lightweight getOutputPaths.",
     "false_positive": false,
-    "cl1_status": "none",
+    "cl1_status": "declined",
     "sdr_status": "none"
   },
   {
@@ -9990,7 +9990,7 @@
     "reviewer_verdict": "PASS",
     "reviewer_notes": "ALIGNED: CanonicalType extended with hooks/checks/policy/learnings + symlink skip.",
     "false_positive": false,
-    "cl1_status": "none",
+    "cl1_status": "declined",
     "sdr_status": "none"
   },
   {
@@ -10041,7 +10041,7 @@
     "reviewer_verdict": "PASS",
     "reviewer_notes": "ALIGNED: readCustomizationSnapshot with pre/post stat mtime check; 6 new tests.",
     "false_positive": false,
-    "cl1_status": "none",
+    "cl1_status": "declined",
     "sdr_status": "none"
   },
   {
@@ -10090,7 +10090,7 @@
     "reviewer_verdict": "PASS",
     "reviewer_notes": "ALIGNED: DEFAULT_TRANSFORM_MAX_DEPTH=32 with RangeError guard; 9 new tests.",
     "false_positive": false,
-    "cl1_status": "none",
+    "cl1_status": "declined",
     "sdr_status": "none"
   },
   {
@@ -10140,7 +10140,7 @@
     "reviewer_verdict": "PASS",
     "reviewer_notes": "ALIGNED: init.ts branch coverage tests added.",
     "false_positive": false,
-    "cl1_status": "none",
+    "cl1_status": "declined",
     "sdr_status": "none"
   },
   {
@@ -10189,7 +10189,7 @@
     "reviewer_verdict": "PASS",
     "reviewer_notes": "ALIGNED: dependency-review-action@v4.9.0 SHA-pinned with PR-only gating and fail-on-severity:critical.",
     "false_positive": false,
-    "cl1_status": "none",
+    "cl1_status": "applied",
     "sdr_status": "none"
   },
   {
@@ -10240,7 +10240,7 @@
     "reviewer_verdict": "PASS",
     "reviewer_notes": "ALIGNED: orchestrator: frontmatter added to command files with validate check.",
     "false_positive": false,
-    "cl1_status": "none",
+    "cl1_status": "declined",
     "sdr_status": "none"
   },
   {
@@ -10291,7 +10291,7 @@
     "reviewer_verdict": "PASS",
     "reviewer_notes": "ALIGNED: Canonical catalog at agents/shared/injection-patterns.md + patternId schema in promptGuard.ts and learningsValidation.ts + 7-assertion sync test.",
     "false_positive": false,
-    "cl1_status": "none",
+    "cl1_status": "declined",
     "sdr_status": "none"
   },
   {
@@ -10341,7 +10341,7 @@
     "reviewer_verdict": "PASS",
     "reviewer_notes": "ALIGNED (pre-existing): Budget gate + --strict-budget flag verified present in baseline; no changes needed.",
     "false_positive": false,
-    "cl1_status": "none",
+    "cl1_status": "declined",
     "sdr_status": "none"
   },
   {
@@ -10391,7 +10391,7 @@
     "reviewer_verdict": "PASS",
     "reviewer_notes": "ALIGNED: References to canonical rule file replace duplication.",
     "false_positive": false,
-    "cl1_status": "none",
+    "cl1_status": "declined",
     "sdr_status": "none"
   },
   {
@@ -10493,7 +10493,7 @@
     "reviewer_verdict": "PASS",
     "reviewer_notes": "ALIGNED: classifyFailure wired into terminal HatchError throws in sync.ts and update.ts with transient/substantive aggregate guidance.",
     "false_positive": false,
-    "cl1_status": "none",
+    "cl1_status": "declined",
     "sdr_status": "none"
   },
   {
@@ -10542,7 +10542,7 @@
     "reviewer_verdict": "PASS",
     "reviewer_notes": "ALIGNED (pre-existing): Kiro Powers mention present in bridge content.",
     "false_positive": false,
-    "cl1_status": "none",
+    "cl1_status": "declined",
     "sdr_status": "none"
   },
   {
@@ -10591,7 +10591,7 @@
     "reviewer_verdict": "PASS",
     "reviewer_notes": "ALIGNED: spawn_agent + OAuth MCP mention added to Zed adapter bridge.",
     "false_positive": false,
-    "cl1_status": "none",
+    "cl1_status": "declined",
     "sdr_status": "none"
   },
   {
@@ -10645,7 +10645,7 @@
     "reviewer_verdict": "PASS",
     "reviewer_notes": "ALIGNED: governance/inventory.json regenerated (pipeline 16->17) + README/CLAUDE updated; plugin.json already aligned.",
     "false_positive": false,
-    "cl1_status": "none",
+    "cl1_status": "applied",
     "sdr_status": "none"
   },
   {
@@ -10695,7 +10695,7 @@
     "reviewer_verdict": "PASS",
     "reviewer_notes": "ALIGNED: --quick/--default mode collapse in init flow.",
     "false_positive": false,
-    "cl1_status": "none",
+    "cl1_status": "declined",
     "sdr_status": "none"
   },
   {
@@ -10745,7 +10745,7 @@
     "reviewer_verdict": "PASS",
     "reviewer_notes": "ALIGNED: normalizeInputToFixedPoint with 5-iter cap; 6 new tests.",
     "false_positive": false,
-    "cl1_status": "none",
+    "cl1_status": "applied",
     "sdr_status": "none"
   },
   {
@@ -10794,7 +10794,7 @@
     "reviewer_verdict": "PASS",
     "reviewer_notes": "ALIGNED: error/warn routed to stderr via console.error; info stays on stdout. 3 new tests.",
     "false_positive": false,
-    "cl1_status": "none",
+    "cl1_status": "declined",
     "sdr_status": "none"
   },
   {
@@ -10844,7 +10844,7 @@
     "reviewer_verdict": "PASS",
     "reviewer_notes": "ALIGNED: --dry-run preview flag added to update command.",
     "false_positive": false,
-    "cl1_status": "none",
+    "cl1_status": "applied",
     "sdr_status": "none"
   },
   {
@@ -10896,7 +10896,7 @@
     "reviewer_verdict": "PASS",
     "reviewer_notes": "ALIGNED: AdapterOutput.sourceFiles[] + readTrackedCanonicalFiles wrapper + .agents/.provenance.json manifest; 23 new tests.",
     "false_positive": false,
-    "cl1_status": "none",
+    "cl1_status": "declined",
     "sdr_status": "none"
   },
   {
@@ -10996,7 +10996,7 @@
     "reviewer_verdict": "PASS",
     "reviewer_notes": "ALIGNED (pre-existing): Verified projectLanguages passed at all 5 resolveSelection call sites.",
     "false_positive": false,
-    "cl1_status": "none",
+    "cl1_status": "declined",
     "sdr_status": "none"
   },
   {
@@ -11045,7 +11045,7 @@
     "reviewer_verdict": "PASS",
     "reviewer_notes": "ALIGNED: 5 new P-PIPE-08..P-PIPE-12 patterns (Unicode tags, base64, homoglyph, image exfil, error-wrap) + 13 new tests.",
     "false_positive": false,
-    "cl1_status": "none",
+    "cl1_status": "applied",
     "sdr_status": "none"
   },
   {
@@ -11095,7 +11095,7 @@
     "reviewer_verdict": "PASS",
     "reviewer_notes": "ALIGNED: CWE-552 blast-radius warning + interactive confirm + --yes bypass; 6 new tests.",
     "false_positive": false,
-    "cl1_status": "none",
+    "cl1_status": "applied",
     "sdr_status": "none"
   },
   {
@@ -11144,7 +11144,7 @@
     "reviewer_verdict": "PASS",
     "reviewer_notes": "ALIGNED: validateToolPolicies throws HatchError(VALIDATION_ERROR) on unknown tool categories with Levenshtein suggestion; 10 new tests.",
     "false_positive": false,
-    "cl1_status": "none",
+    "cl1_status": "applied",
     "sdr_status": "none"
   },
   {
@@ -11243,14 +11243,14 @@
     "reviewer_verdict": "PASS",
     "reviewer_notes": "ALIGNED: 7-row vs-Ruler comparison with OIDC provenance, managed blocks, SHA-256 integrity.",
     "false_positive": false,
-    "cl1_status": "none",
+    "cl1_status": "declined",
     "sdr_status": "none"
   },
   {
     "finding_id": "C8-D18-M1-prd-23-shipped-status",
     "domain": "D18: PRD, Roadmap & Distribution",
     "severity": "Medium",
-    "description": "Rewrite PRD §23 existential-risk row to reflect shipped status (GitHub public + npm publish complete)",
+    "description": "Rewrite PRD \u00a723 existential-risk row to reflect shipped status (GitHub public + npm publish complete)",
     "effort": "S",
     "owner": "Agent",
     "depends_on": null,
@@ -11291,9 +11291,9 @@
     "rollback_reason": null,
     "rollback_level": null,
     "reviewer_verdict": "PASS",
-    "reviewer_notes": "ALIGNED: PRD §23 shipped-state update.",
+    "reviewer_notes": "ALIGNED: PRD \u00a723 shipped-state update.",
     "false_positive": false,
-    "cl1_status": "none",
+    "cl1_status": "applied",
     "sdr_status": "none"
   },
   {
@@ -11345,7 +11345,7 @@
     "reviewer_verdict": "PASS",
     "reviewer_notes": "ALIGNED: scripts/inventory.ts --check-docs with 11 drift probes + CI step + package.json script.",
     "false_positive": false,
-    "cl1_status": "none",
+    "cl1_status": "applied",
     "sdr_status": "none"
   },
   {

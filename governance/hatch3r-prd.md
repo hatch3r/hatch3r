@@ -1,18 +1,18 @@
-# hatch3r — Product Requirements Document v4.4
+# hatch3r — Product Requirements Document v4.5
 
 **Product name:** hatch3r
 **Mascot:** a tiny T-rex hatchling peeking out of an egg
 **Primary slogan:** Crack the egg. Hatch better agents.
-**Doc version:** v4.4
-**Date:** 2026-04-20 (Europe/Berlin)
-**Supersedes:** hatch3r PRD v4.3 (2026-04-20)
-**Last updated:** 2026-04-20
+**Doc version:** v4.5
+**Date:** 2026-04-21 (Europe/Berlin)
+**Supersedes:** hatch3r PRD v4.4 (2026-04-20)
+**Last updated:** 2026-04-21
 
 ---
 
 ## 1. Executive Summary
 
-> **Posture (post Cycle 7.5 W2B2, 2026-04-20):** Ship Ready — overall audit score 81/100, 0 Critical findings, 15 platform adapters wired, 19-domain governance audit cycle operational, resilience pipeline and trust-delegation per-adapter `tools:` emission landed this wave (H41/H44/H45/H46).
+> **Posture (post Cycle 8 partial, 2026-04-21):** Ship Ready — overall audit score 81/100, 0 Critical findings, 15 platform adapters wired, 19-domain governance audit cycle operational, resilience pipeline and trust-delegation per-adapter `tools:` emission landed in Cycle 7.5 W2B2 (H41/H44/H45/H46), Cycle 8 Wave 3 cleared 35 of 40 targeted Medium findings (1 partial, 3 rolled back, 1 already-resolved) with the Wave 3 commit at `34d2ba4` reviewed PARTIAL-SHIP.
 
 hatch3r is an open-source CLI and Cursor plugin that installs a battle-tested, tool-agnostic agentic coding setup into any repository under `/.agents/`, then generates optimal native configuration for the developer's selected coding tool(s): Cursor, GitHub Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline/Roo Code, Aider, Kiro, Goose, Zed, Amazon Q, Antigravity, and a standalone AGENTS.md output.
 
@@ -174,6 +174,8 @@ README.md carries a "How hatch3r differs from Ruler" section derived from `gover
 17. **Behavioral quality standards** (all content artifacts inherit from a shared quality charter (`agents/shared/quality-charter.md`) that defines measurable behavioral standards: confidence expression, root-cause orientation, stakeholder awareness, graceful failure, and measurable acceptance criteria — verified by the weekly audit)
 18. **Coverage infrastructure must reflect actual quality** (test coverage metrics must accurately measure real codebase coverage — no inflated percentages from misconfigured exclusions; coverage is a quality signal, not a vanity metric. Added from Cycle 4 finding D3-C1)
 19. **Architecture decisions are documented** (significant architectural choices are recorded as ADRs in `docs/decisions/`. ADR-001 documents the pipeline library-without-orchestrator pattern — hatch3r provides composable pipeline building blocks rather than a runtime orchestration engine. Added from Cycle 5 CL1-7)
+20. **Destructive commands expose `--dry-run`** (any CLI command that writes, updates, or removes files under a managed path supports a `--dry-run` flag that previews the full action set — created/modified/removed paths with per-file rationale — without mutating the working tree. Rationale: reduces fear-of-use for `update`, `clean`, `worktree-cleanup`, and future write-capable commands by letting users verify intent before committing to changes. Landed for `update` in Cycle 8 via finding C8-D12-M2. Added from Cycle 8 CL-1)
+21. **Not-yet-implemented is not a user error** (commands or subcommands whose canonical codepath is scaffolded but not wired — e.g., `hatch3r add <source>` pending full pack resolution — exit with code 0 and a "coming soon" message rather than exit 2 "usage error". Exit 2 is reserved for actual usage mistakes (unknown flag, missing required argument). Added from Cycle 8 finding C8-D1-M8)
 
 ### Audit Cycle as Product Feature
 
@@ -1377,6 +1379,10 @@ Trust controls divide into two classes; the PRD does not claim the same enforcem
 
 Truthful per-control status (runtime-enforced vs delegated, plus current wiring state) is maintained in `SECURITY.md`. The PRD references but does not duplicate `SECURITY.md`; suggest the maintainer updates `SECURITY.md` with the per-control partition table referenced here.
 
+### 20.4 Inventory as Single Source of Truth (added Cycle 8, findings C8-D10-M1, C8-D19-M1)
+
+`governance/inventory.json` is the canonical source for every framework-wide content count surfaced in user-facing documentation: README.md inventory callouts, CLAUDE.md architecture tables, `.cursor-plugin/plugin.json` manifest summaries, the §1 Executive Summary "live counts" pointer, and the §22 status rows. The file is regenerated each cycle by `scripts/inventory.ts`. Enforcement: `scripts/inventory.ts --check-docs` (wired into CI) runs 11 drift probes comparing inventory-derived totals against literal digits in the tracked documents and fails the build on divergence. Rationale: Cycle 7 and Cycle 8 both surfaced rule-count and content-type drift in README / CLAUDE.md that would otherwise be caught only by manual audit; the drift guard eliminates a recurring finding class. Any new documentation surface that states framework-wide counts must cite `governance/inventory.json` and be added to the probe list in `scripts/inventory.ts`.
+
 ---
 
 ## 21. Success Metrics
@@ -1430,6 +1436,7 @@ Status legend per row: **[I/W/C/T]** = implemented / wired / CLI-registered / te
 - **Adapter tool translator [I/W/n/a/T]** — Cycle 7.5 W2B2 H45 landed; `src/adapters/adapterToolTranslator.ts` translates canonical tool IDs into per-adapter tool names with deny-by-default semantics.
 - **MCP description scan [I/W/n/a/T]** — Cycle 7.5 W2B2 H46 landed; `src/pipeline/mcpDescriptionScan.ts` scans MCP server descriptions for prompt-injection patterns during generation.
 - **Allowlist denial observability [I/W/n/a/T]** — Cycle 7.5 W2B2 H44 landed; `allowlistDenialEvent` telemetry fires from `src/pipeline/agentToolAllowlist.ts` when a denied tool is attempted, enabling audit replay via `src/pipeline/observability.ts`.
+- **Cycle 8 security hardening layer [I/W/n/a/T]** — Five targeted Medium hardenings landed in Wave 3 (commit `34d2ba4`): (1) `DENY_PATTERNS` extended with 2026 injection variants P-PIPE-08..P-PIPE-12 covering Unicode tag chars, base64 directive overrides, homoglyphs, image-exfiltration URIs, and error-wrap exfiltration (C8-D15-M1); (2) deny-pattern normalization runs a 5-iteration cascade fixpoint preventing partial-replacement bypass (C8-D11-M1); (3) `validateToolPolicies` throws `HatchError(VALIDATION_ERROR)` with Levenshtein suggestion on unknown tool categories instead of warning and continuing (C8-D15-M3); (4) `worktree-setup` emits a CWE-552 blast-radius warning and interactive confirmation (with `--yes` bypass) when `.env.mcp` is detected, documenting credential-exposure risk (C8-D15-M2); (5) CI supply-chain job gates PRs via `actions/dependency-review-action@v4.9.0` SHA-pinned with `fail-on-severity:critical` (C8-D4-M1). All items covered by new tests (35 total across the 5 sub-findings).
 - **Release quality gate (Cycle 4 findings D3-C1, D16-C1):** Every release must pass (1) typecheck with zero errors, (2) all tests pass, (3) coverage metrics reflect real codebase coverage (no inflated percentages from misconfigured exclusions), (4) no regressions from previous release. Coverage accuracy is a prerequisite for the other gates.
 - **v4.0 historical changes:** `hatch3r-error-handling` merged into `hatch3r-code-standards`; 5 new agents (architect, context-rules, devops, fixer, learnings-loader); 3 new skills (api-spec, ci-pipeline, migration); 5 new rules (accessibility-standards, ci-cd, data-classification, deep-context, secrets-management); 8 new commands; 4 new adapters (Aider, Kiro, Goose, Zed).
 
@@ -1603,6 +1610,21 @@ A cute but capable "ops assistant" vibe:
 ---
 
 ## 27. Changelog
+
+### v4.5 (2026-04-21) — Cycle 8 Partial Phase 5 CL-1 PRD Evolution
+
+Applied 4 non-Vision-Review CL-1 candidates derived from the 36 eligible Cycle 8 partial findings (35 done + 1 partial; 3 rolled-back and 1 already-resolved excluded per the Phase 5 guardrail). Scope deliberately narrow — Cycle 8 was a cleanup cycle, not a vision shift. All 4 candidates slot into existing PRD structure; no restructuring.
+
+| ID | Change | Sections Updated | Source Finding(s) |
+|----|--------|-----------------|------------------|
+| CL1-1 | Inventory as Single Source of Truth principle — `governance/inventory.json` is canonical for README/CLAUDE.md/plugin.json content counts; `scripts/inventory.ts --check-docs` runs 11 drift probes in CI | §20.4 (new subsection) | C8-D10-M1-content-counts-reconcile, C8-D19-M1-inventory-rule-count-drift |
+| CL1-2 | Product Principle #20 — destructive CLI commands expose `--dry-run` preview (landed for `update` via C8-D12-M2) | §6 (new principle) | C8-D12-M2-update-dry-run |
+| CL1-3 | Product Principle #21 — "not-yet-implemented is not a user error": scaffolded-but-unwired commands exit 0 "coming soon", reserving exit 2 for real usage errors | §6 (new principle) | C8-D1-M8-add-command-exit-code |
+| CL1-4 | Cycle 8 security hardening layer enumerated in Shipped Surface: 2026 injection variants (P-PIPE-08..P-PIPE-12), deny-pattern cascade fixpoint, `validateToolPolicies` hard errors with Levenshtein suggestion, `.env.mcp` worktree CWE-552 warning, CI dependency-review-action gating | §22 (new Shipped Surface row); §1 posture line refreshed to post-Cycle-8 state | C8-D15-M1, C8-D15-M2, C8-D15-M3, C8-D11-M1, C8-D4-M1 |
+
+**Evaluation summary:** 36 eligible findings evaluated; 4 CL-1 candidates proposed and applied grouping 9 source findings; 0 pending Vision-Review; 26 findings declined for PRD text (principles already codified elsewhere — e.g., C8-D5-M1 orchestrator marker under §9 canonical content model, C8-D5-M2 injection-pattern extract under §20.3 trust partitioning, C8-D2-M3 CanonicalType extensions under §9, C8-D17-M1 Ruler comparison under §5 Comparison vs Ruler — or code-layer hardening without PRD signal). C8-D18-M1 is tracked in the v4.4 entry below; C8-D16-M1 (already-resolved) and the three rolled-back findings (C8-D1-M2, C8-D7-M1, C8-D13-M1) are excluded per the Phase 5 guardrail.
+
+Finding traceability: C8-D10-M1, C8-D19-M1, C8-D12-M2, C8-D1-M8, C8-D15-M1, C8-D15-M2, C8-D15-M3, C8-D11-M1, C8-D4-M1 transition `cl1_status: none -> applied`; the 26 declined findings transition `cl1_status: none -> declined` in `governance/audit/finding-registry.json`. C8-D18-M1 transitions `cl1_status: none -> applied` reflecting the v4.4 §23 update.
 
 ### v4.4 (2026-04-20) — Cycle 8 Wave 3 D18-M1 §23 Shipped-Status Refresh
 
