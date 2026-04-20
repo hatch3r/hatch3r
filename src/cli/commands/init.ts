@@ -58,6 +58,54 @@ const DEFAULT_TOOLS: Tool[] = ["claude"];
 const DEFAULT_FEATURE_KEYS = Object.keys(DEFAULT_FEATURES) as (keyof Features)[];
 const DEFAULT_MCP: string[] = ["playwright", "github", "context7"];
 
+// D5-SA5.3-H1: Seed content for `.agents/learnings/README.md`. Explains the
+// directory's purpose so `hatch3r-learnings-loader` surfaces an actionable
+// starting point on first session instead of silently skipping when empty.
+const LEARNINGS_README_SEED = `# Project Learnings
+
+This directory holds project-specific learnings surfaced by the
+\`hatch3r-learnings-loader\` agent at session start.
+
+## What to capture
+
+| Category | Examples |
+| --- | --- |
+| Decisions | Architecture choices, library selections, trade-off rationale |
+| Patterns | Established code patterns, naming conventions, data flow norms |
+| Pitfalls | Known gotchas, edge cases, things that look wrong but are intentional |
+| Context | Domain knowledge, business rules, regulatory constraints |
+
+## Format
+
+Add one markdown file per learning with YAML frontmatter:
+
+\`\`\`yaml
+---
+id: <kebab-case-slug>
+category: decision | pattern | pitfall | context
+area: <subsystem or feature area>
+recorded: <ISO-8601 date>
+source: session | <agent-name> | manual
+confidence: high | medium | low
+author: agent | human
+tags: [<tag>, ...]
+---
+
+## Learning
+
+<What was learned, in 1-3 sentences.>
+
+## Evidence
+
+<Files, commits, or commands that support the learning.>
+\`\`\`
+
+The loader agent applies content-security and integrity checks to every
+entry; see \`hatch3r-learnings-loader\` for the full protocol.
+
+Delete this README once you have authored real learnings.
+`;
+
 /**
  * Check if a content selection includes any board-related content.
  * Board content IDs follow the pattern "cmd-hatch3r-board-*" (prefixed during indexing).
@@ -145,6 +193,19 @@ export async function runInit(options: RunInitOptions): Promise<void> {
   }
 
   await mkdir(join(agentsDir, "learnings"), { recursive: true });
+  // D5-SA5.3-H1: Seed learnings/ with a README so `hatch3r-learnings-loader`
+  // has something to surface instead of silently skipping. Only created when
+  // absent (fresh init) — never overwrites user-authored content on re-init.
+  const learningsReadmePath = join(agentsDir, "learnings", "README.md");
+  try {
+    await access(learningsReadmePath);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      await safeWriteFile(learningsReadmePath, LEARNINGS_README_SEED);
+    } else {
+      throw err;
+    }
+  }
 
   const mcpPath = join(agentsDir, "mcp", "mcp.json");
   try {

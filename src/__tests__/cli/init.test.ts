@@ -91,6 +91,34 @@ describe("init command", () => {
     await expect(access(join(agentsDir, "commands"))).resolves.toBeUndefined();
   });
 
+  // D5-SA5.3-H1: `hatch3r init` must seed `.agents/learnings/README.md`
+  // so the learnings directory exists and surfaces the feature to users
+  // instead of the loader agent silently no-op'ing on an empty dir.
+  it("should seed .agents/learnings/README.md on fresh init", async () => {
+    await initCommand({ yes: true });
+
+    const readmePath = join(tempDir, AGENTS_DIR, "learnings", "README.md");
+    await expect(access(readmePath)).resolves.toBeUndefined();
+
+    const content = await readFile(readmePath, "utf-8");
+    expect(content).toContain("Project Learnings");
+    expect(content).toContain("hatch3r-learnings-loader");
+    expect(content).toContain("frontmatter");
+  });
+
+  it("should preserve a user-edited learnings README on re-init", async () => {
+    await initCommand({ yes: true });
+
+    const readmePath = join(tempDir, AGENTS_DIR, "learnings", "README.md");
+    const userContent = "# My Custom Learnings\n\nDo not overwrite.\n";
+    await writeFile(readmePath, userContent, "utf-8");
+
+    await initCommand({ yes: true });
+
+    const afterReinit = await readFile(readmePath, "utf-8");
+    expect(afterReinit).toBe(userContent);
+  });
+
   it("should create AGENTS.md with managed content", async () => {
     await initCommand({ yes: true });
 

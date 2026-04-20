@@ -186,4 +186,114 @@ describe("readHookDefinitions with inline fixtures", () => {
     const hooks = await readHookDefinitions(agentsDir);
     expect(hooks.length).toBe(0);
   });
+
+  // D5-SA5.7-H3: Invalid event, missing frontmatter fields, malformed YAML,
+  // and duplicate IDs must surface via the warnings channel instead of
+  // silently dropping the hook (Silent Failure Contract, CONSTITUTION §2 P5).
+  describe("D5-SA5.7-H3 diagnostic warnings", () => {
+    it("emits INVALID_EVENT warning when event is not in the enum", async () => {
+      const agentsDir = await setupHooksDir();
+      await writeFile(
+        join(agentsDir, "hooks", "typo-event.md"),
+        "---\nid: typo-hook\nevent: pre-comit\nagent: checker\n---\n# Typo\n",
+        "utf-8",
+      );
+
+      const warnings: string[] = [];
+      const hooks = await readHookDefinitions(agentsDir, warnings);
+
+      expect(hooks.length).toBe(0);
+      expect(warnings.length).toBe(1);
+      expect(warnings[0]).toContain("INVALID_EVENT");
+      expect(warnings[0]).toContain("pre-comit");
+      expect(warnings[0]).toContain("typo-event.md");
+      // Ensure the warning lists valid event names so the user can self-correct
+      expect(warnings[0]).toContain("pre-commit");
+    });
+
+    it("emits MISSING_FIELD warning when required frontmatter fields are absent", async () => {
+      const agentsDir = await setupHooksDir();
+      await writeFile(
+        join(agentsDir, "hooks", "missing-agent.md"),
+        "---\nid: incomplete\nevent: pre-commit\n---\n# Incomplete\n",
+        "utf-8",
+      );
+
+      const warnings: string[] = [];
+      const hooks = await readHookDefinitions(agentsDir, warnings);
+
+      expect(hooks.length).toBe(0);
+      expect(warnings.length).toBe(1);
+      expect(warnings[0]).toContain("MISSING_FIELD");
+      expect(warnings[0]).toContain("agent");
+    });
+
+    it("emits NO_FRONTMATTER warning when file has no --- block", async () => {
+      const agentsDir = await setupHooksDir();
+      await writeFile(
+        join(agentsDir, "hooks", "plain.md"),
+        "# Just prose, no frontmatter\n",
+        "utf-8",
+      );
+
+      const warnings: string[] = [];
+      const hooks = await readHookDefinitions(agentsDir, warnings);
+
+      expect(hooks.length).toBe(0);
+      expect(warnings.length).toBe(1);
+      expect(warnings[0]).toContain("NO_FRONTMATTER");
+    });
+
+    it("emits DUPLICATE_ID warning when the same hook id appears in two files", async () => {
+      const agentsDir = await setupHooksDir();
+      await writeFile(
+        join(agentsDir, "hooks", "a-first.md"),
+        "---\nid: dup-hook\nevent: pre-commit\nagent: agent-a\n---\n# First\n",
+        "utf-8",
+      );
+      await writeFile(
+        join(agentsDir, "hooks", "b-second.md"),
+        "---\nid: dup-hook\nevent: pre-commit\nagent: agent-b\n---\n# Second\n",
+        "utf-8",
+      );
+
+      const warnings: string[] = [];
+      const hooks = await readHookDefinitions(agentsDir, warnings);
+
+      // First wins; duplicate is rejected with a diagnostic
+      expect(hooks.length).toBe(1);
+      expect(hooks[0].agent).toBe("agent-a");
+      expect(warnings.length).toBe(1);
+      expect(warnings[0]).toContain("DUPLICATE_ID");
+      expect(warnings[0]).toContain("b-second.md");
+    });
+
+    it("does not emit warnings for valid hooks", async () => {
+      const agentsDir = await setupHooksDir();
+      await writeFile(
+        join(agentsDir, "hooks", "valid.md"),
+        "---\nid: valid-hook\nevent: session-start\nagent: loader\n---\n# Valid\n",
+        "utf-8",
+      );
+
+      const warnings: string[] = [];
+      const hooks = await readHookDefinitions(agentsDir, warnings);
+
+      expect(hooks.length).toBe(1);
+      expect(warnings.length).toBe(0);
+    });
+
+    it("omits diagnostics when no warnings array is passed (back-compat)", async () => {
+      const agentsDir = await setupHooksDir();
+      await writeFile(
+        join(agentsDir, "hooks", "bad.md"),
+        "---\nid: bad\nevent: not-an-event\nagent: a\n---\n# Bad\n",
+        "utf-8",
+      );
+
+      // Single-arg call (existing API) must continue to return empty array.
+      const hooks = await readHookDefinitions(agentsDir);
+      expect(hooks.length).toBe(0);
+    });
+  });
 });

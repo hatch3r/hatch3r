@@ -2,6 +2,7 @@
 // manager operations where async would add complexity without benefit.
 
 import { createProgram } from "./program.js";
+import { classifyCliError } from "./errorClassification.js";
 import { HatchError } from "../types.js";
 
 const nodeVersion = parseInt(process.version.slice(1), 10);
@@ -45,11 +46,14 @@ try {
   if (err instanceof HatchError) {
     process.exit(err.exitCode);
   }
-  const isUsageError = err instanceof Error && (
-    err.message.includes("Invalid") ||
-    err.message.includes("Unknown") ||
-    err.message.includes("missing required")
-  );
+  // D1-SA1.8.1: Classify ExitPromptError (SIGINT during inquirer prompt) and
+  // shuttingDown as clean user cancellations — emitting an "unexpected error"
+  // banner for a user-initiated Ctrl-C is a CLI UX regression (P1).
+  const kind = classifyCliError(err, { shuttingDown });
+  if (kind === "exit-prompt" || kind === "shutting-down") {
+    process.exit(SIGNAL_EXIT_CODES.SIGINT);
+  }
+  const isUsageError = kind === "usage";
   console.error(
     `\nhatch3r encountered an ${isUsageError ? "usage" : "unexpected"} error: ${err instanceof Error ? err.message : String(err)}`,
   );

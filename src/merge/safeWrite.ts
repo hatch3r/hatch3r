@@ -11,6 +11,7 @@ import {
 } from "node:fs/promises";
 import { dirname, basename } from "node:path";
 import { randomBytes } from "node:crypto";
+import * as properLockfile from "proper-lockfile";
 import { HATCH3R_PREFIX, HatchError, type MergeResult } from "../types.js";
 import { insertManagedBlock, hasManagedBlock, extractCustomContent } from "./managedBlocks.js";
 import { scanForDeniedPatterns } from "../adapters/customization.js";
@@ -27,14 +28,78 @@ async function fileExists(path: string): Promise<boolean> {
 }
 
 /**
+ * D1-SA1.5.1: Default timeout in ms for cross-process file lock acquisition
+ * when HATCH3R_LOCK=1 is set. 5 retries × 500ms ≈ 5s ceiling.
+ */
+const LOCK_RETRIES = 5;
+const LOCK_RETRY_MIN_MS = 100;
+const LOCK_RETRY_MAX_MS = 1500;
+/** Lock staleness threshold: a lock older than this is treated as abandoned. */
+const LOCK_STALE_MS = 15_000;
+
+/**
+ * D1-SA1.5.1: Acquire a cross-process advisory lock for {@link filePath} when
+ * the `HATCH3R_LOCK=1` opt-in env var is set. Default (unset) is a no-op so
+ * existing behavior is preserved.
+ *
+ * Returns a release function. Callers MUST invoke release in a finally block
+ * — even when the wrapped write throws — to prevent stale locks.
+ *
+ * Throws {@link HatchError} with code `LOCK_TIMEOUT` when contention exceeds
+ * the retry budget (~5s).
+ */
+async function acquireWriteLock(filePath: string): Promise<() => Promise<void>> {
+  if (process.env.HATCH3R_LOCK !== "1") {
+    return async () => { /* locking disabled */ };
+  }
+  // proper-lockfile's `lock()` requires the target to exist; we may be
+  // creating a new file, so put the lock file beside it instead.
+  const lockfilePath = filePath + ".hatch3r.lock";
+  // Ensure parent directory exists so the lockfile can be created.
+  await mkdir(dirname(filePath), { recursive: true });
+  try {
+    const release = await properLockfile.lock(filePath, {
+      lockfilePath,
+      realpath: false,
+      stale: LOCK_STALE_MS,
+      retries: {
+        retries: LOCK_RETRIES,
+        minTimeout: LOCK_RETRY_MIN_MS,
+        maxTimeout: LOCK_RETRY_MAX_MS,
+        factor: 2,
+      },
+    });
+    return release;
+  } catch (err) {
+    // proper-lockfile surfaces contention as ELOCKED once retries are exhausted.
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ELOCKED") {
+      throw new HatchError(
+        `Timed out acquiring file lock on ${filePath} after ~5s. ` +
+          `Another hatch3r process is writing to the same file. ` +
+          `Re-run sequentially, or remove a stale ${lockfilePath} if no process is active.`,
+        1,
+        "LOCK_TIMEOUT",
+      );
+    }
+    throw err;
+  }
+}
+
+/**
  * Write a file atomically via tmp+rename with fsync.
  *
- * **Concurrency note:** This function does not use file locking. Running
- * multiple hatch3r processes against the same directory concurrently is
- * unsupported and may produce corrupted output. If you need to sync from
- * multiple terminals, run them sequentially.
+ * **Concurrency:** By default this function does not use file locking. Two
+ * hatch3r processes writing the same target path concurrently can silently
+ * clobber one another. Set `HATCH3R_LOCK=1` to opt into cross-process file
+ * locking via `proper-lockfile` (D1-SA1.5.1). Locking is gated behind the env
+ * var to keep the default behavior unchanged for single-process flows.
+ *
+ * When locking is enabled and contention exceeds ~5s, throws {@link HatchError}
+ * with code `LOCK_TIMEOUT`.
  */
 export async function atomicWriteFile(filePath: string, content: string): Promise<void> {
+  const release = await acquireWriteLock(filePath);
   const tmpPath = filePath + ".tmp." + randomBytes(4).toString("hex");
   try {
     await writeFile(tmpPath, content, "utf-8");
@@ -92,18 +157,29 @@ export async function atomicWriteFile(filePath: string, content: string): Promis
     } catch {
       // Temp file already renamed or doesn't exist
     }
+    // Silent Failure Contract: log if release throws; do not mask the original error.
+    try {
+      await release();
+    } catch (releaseErr) {
+      if (process.env.HATCH3R_LOCK === "1") {
+        console.error(
+          `hatch3r: failed to release write lock for ${filePath}: ` +
+            `${releaseErr instanceof Error ? releaseErr.message : String(releaseErr)}`,
+        );
+      }
+    }
   }
 }
 
 /**
  * Safely write or merge a file, preserving user content outside managed blocks.
  *
- * **Concurrency note:** This function relies on {@link atomicWriteFile} which
- * does not acquire file locks. Running multiple hatch3r processes (e.g. two
- * terminal tabs running `hatch3r sync`) against the same target directory at
- * the same time is unsupported. To avoid conflicts, run sync operations
- * sequentially. Workspace sync already processes repos one at a time
- * internally, so a single `hatch3r sync --repos` invocation is safe.
+ * **Concurrency:** Delegates atomic writes to {@link atomicWriteFile}. By
+ * default, no cross-process lock is taken — running multiple hatch3r processes
+ * against the same target is unsupported and may clobber output. Set
+ * `HATCH3R_LOCK=1` to opt into file locking for scenarios like CI matrix runs
+ * (D1-SA1.5.1). Workspace sync already processes repos sequentially internally,
+ * so a single `hatch3r sync --repos` invocation is safe without the opt-in.
  */
 export async function safeWriteFile(
   filePath: string,

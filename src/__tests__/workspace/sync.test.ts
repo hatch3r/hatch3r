@@ -356,6 +356,41 @@ describe("workspace sync", () => {
     expect(new Date(updated!.repos[0].lastSync!).getTime()).toBeGreaterThan(0);
   });
 
+  // D1-SA1.9.1 (High): Incremental per-repo lastSync writes survive mid-loop
+  // interruption. We simulate an interruption by failing the SECOND repo's
+  // sync and then reading the workspace manifest from disk — the first
+  // repo's lastSync must have been persisted incrementally, even though
+  // the loop did not run to completion successfully.
+  it("persists lastSync incrementally per successful sub-repo", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-ws-incremental-"));
+    await mkdir(join(tempDir, AGENTS_DIR), { recursive: true });
+    await createGitRepo(join(tempDir, "api"));
+    // Intentionally omit the "web" directory so its per-repo sync will
+    // error out, simulating a mid-loop failure scenario.
+
+    const wsManifest = createWorkspaceManifest("test", defaults, [
+      { path: "api", name: "api", sync: true },
+      { path: "web", name: "web", sync: true }, // directory missing on disk
+    ], "manual");
+    await writeWorkspaceManifest(tempDir, wsManifest);
+
+    const result = await syncWorkspaceRepos(tempDir);
+
+    // api succeeded; web errored
+    expect(result.repos.find((r) => r.path === "api")?.action).toBe("synced");
+    expect(result.repos.find((r) => r.path === "web")?.action).toBe("error");
+
+    // Read workspace manifest FROM DISK — api.lastSync must have been
+    // persisted even though web failed immediately afterward.
+    const persisted = await readWorkspaceManifest(tempDir);
+    const apiEntry = persisted!.repos.find((r) => r.path === "api");
+    expect(apiEntry?.lastSync).toBeDefined();
+    expect(new Date(apiEntry!.lastSync!).getTime()).toBeGreaterThan(0);
+
+    const webEntry = persisted!.repos.find((r) => r.path === "web");
+    expect(webEntry?.lastSync).toBeUndefined();
+  });
+
   it("populates complete workspace provenance in sub-repo manifest", async () => {
     tempDir = await mkdtemp(join(tmpdir(), "hatch3r-ws-prov-"));
     await mkdir(join(tempDir, AGENTS_DIR), { recursive: true });
@@ -512,10 +547,14 @@ describe("workspace sync", () => {
     expect(result.repos[0].toolsSynced).toContain("cursor");
   });
 
-  // C7-H13 (D11): Integrity manifest write must be contingent on every
-  // adapter succeeding. With partial failure the manifest would certify
-  // a mix of fresh + stale adapter outputs and trip false-positive
-  // "MODIFIED" findings on the next `verify` run.
+  // D1-SA1.3.2 (High, supersedes C7-H13): The integrity manifest records
+  // canonical-content hashes in `.agents/` — those files are READ, not
+  // written, by adapters. Regenerating the manifest on partial-failure
+  // sync therefore does not certify stale adapter outputs; it simply
+  // reflects the current canonical state. The partial-failure signal
+  // moves into the `expectedAdapters`/`successfulAdapters` fields so
+  // downstream tools (`hatch3r status`, `hatch3r verify`) can detect
+  // the incomplete sync without re-reading hatch.json.
   it("writes integrity manifest when all adapters succeed", async () => {
     tempDir = await mkdtemp(join(tmpdir(), "hatch3r-ws-integ-ok-"));
     await mkdir(join(tempDir, AGENTS_DIR), { recursive: true });
@@ -534,15 +573,15 @@ describe("workspace sync", () => {
     ).resolves.toBeUndefined();
   });
 
-  it("does NOT write integrity manifest when an adapter fails", async () => {
+  it("writes integrity manifest with partial-failure metadata when an adapter fails", async () => {
     tempDir = await mkdtemp(join(tmpdir(), "hatch3r-ws-integ-fail-"));
     await mkdir(join(tempDir, AGENTS_DIR), { recursive: true });
     await createGitRepo(join(tempDir, "api"));
 
     // Use a config with two tools where one will fail. We mock the cursor
-    // adapter to throw — claude succeeds. With C7-H13 in place, the
-    // integrity manifest should NOT be written for this partial-failure
-    // sync.
+    // adapter to throw — claude succeeds. Under D1-SA1.3.2, the manifest
+    // IS written but records cursor as absent from `successfulAdapters`
+    // so consumers can detect the partial-failure sync.
     const adaptersMod = await import("../../adapters/index.js");
     const realGetAdapter = adaptersMod.getAdapter;
     const failingAdapter = {
@@ -570,15 +609,23 @@ describe("workspace sync", () => {
       const warnings: string[] = [];
       await syncWorkspaceRepos(tempDir, { onWarn: (m) => warnings.push(m) });
 
-      // Integrity manifest should be absent because not every adapter
-      // succeeded.
-      await expect(
-        access(join(tempDir, "api", AGENTS_DIR, ".integrity.json")),
-      ).rejects.toThrow();
+      // Integrity manifest is now written even on partial failure — it
+      // captures the canonical-content state plus adapter metadata.
+      const integrityPath = join(tempDir, "api", AGENTS_DIR, ".integrity.json");
+      await expect(access(integrityPath)).resolves.toBeUndefined();
 
-      // The user should have been told why the integrity manifest is missing
+      const { readIntegrityManifest } = await import("../../integrity/index.js");
+      const loaded = await readIntegrityManifest(join(tempDir, "api", AGENTS_DIR));
+      expect(loaded).not.toBeNull();
+      expect(loaded!.expectedAdapters).toEqual(["claude", "cursor"]);
+      // Only claude succeeded; cursor was mocked to throw.
+      expect(loaded!.successfulAdapters).toEqual(["claude"]);
+
+      // The user should have been told that the manifest is a partial-sync
+      // seal so they re-run after resolving adapter errors.
       const combined = warnings.join("\n");
-      expect(combined).toMatch(/Integrity manifest not updated/);
+      expect(combined).toMatch(/Integrity manifest regenerated/);
+      expect(combined).toMatch(/1\/2 adapters successful/);
     } finally {
       getAdapterSpy.mockRestore();
     }

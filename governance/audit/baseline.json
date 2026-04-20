@@ -1,32 +1,43 @@
 {
-  "commit": "91682e104d1ef2bfeb84837368c2f43cf891f9c2",
-  "timestamp": "2026-04-19T23:23:00Z",
-  "cycle": 7,
-  "tests": { "total": 1993, "passed": 1993, "failed": 0, "skipped": 0, "files": 88, "duration_sec": 52.94 },
+  "commit": "9ca6f32b4b854e1ab1722ae25d7a8e49ea20774c",
+  "timestamp": "2026-04-20T09:22:00Z",
+  "cycle": "7.5",
+  "note": "Cycle 7.5 execution baseline — executing ~298 remaining Cycle 7 rollover findings (74 Highs + 158 Mediums + 66 Lows) against post-Cycle 7 state. Cycle 8 audit not yet run; this execution consumes Cycle 7 audit's rollover queue.",
+  "tests": { "total": 2120, "passed": 2120, "failed": 0, "skipped": 0, "files": 89, "duration_sec": 75.13 },
   "typecheck": { "errors": 0 },
-  "lint": { "errors": 0, "warnings": 77 },
+  "lint": { "errors": 0, "warnings": 150 },
   "build": "pass",
-  "contentValidation": { "errors": 1, "preExisting": true, "note": ".agents/ directory not found — pre-existing condition (same as Cycle 5 baseline); validate command requires hatch3r init in target repo" },
+  "contentValidation": { "errors": 1, "preExisting": true, "note": ".agents/ directory not found — pre-existing condition (same as Cycle 5/7 baseline); validate command requires hatch3r init in target repo" },
   "domainScores": {
-    "D1": 0, "D2": 0, "D3": 41, "D4": 89, "D5": 0,
-    "D6": 45, "D7": 30, "D8": 19, "D9": 0, "D10": 28,
-    "D11": 58, "D12": 55, "D13": 71, "D14": 58, "D15": 0,
-    "D16": 38, "D17": 0, "D18": 4, "D19": 54
+    "D1": 14, "D2": 9, "D3": 49, "D4": 89, "D5": 9,
+    "D6": 45, "D7": 30, "D8": 47, "D9": 15, "D10": 44,
+    "D11": 66, "D12": 55, "D13": 71, "D14": 66, "D15": 11,
+    "D16": 54, "D17": 3, "D18": 8, "D19": 62
   },
-  "overallScore": 31,
-  "scoreBand": "Not Ready",
-  "severityCeilingApplied": ["D5", "D8"],
+  "overallScore": 39,
+  "scoreBand": "Needs Work",
+  "severityCeilingApplied": [],
   "findingCounts": {
     "preDedup": { "critical": 2, "high": 96, "medium": 207, "low": 81, "info": 82, "total": 468 },
-    "postDedup": { "critical": 2, "high": 72, "medium": 158, "low": 66, "info": 70, "total": 368 }
+    "postDedup": { "critical": 2, "high": 72, "medium": 158, "low": 66, "info": 70, "total": 368 },
+    "cycle7Resolved": { "critical": 2, "high": 20, "medium": 0, "low": 0, "info": 0, "total": 22 },
+    "cycle7_5Target": { "critical": 0, "high": 74, "medium": 158, "low": 66, "info": 0, "total": 298 },
+    "note": "cycle7_5Target includes still-remaining Highs (H column in AUDIT-REPORT.md Tier 2 heatmap summing to ~74) plus all rolled M+L. Info findings excluded per Cycle 7 triage."
   },
   "previousBaseline": {
-    "cycle": 5,
-    "commit": "0c5f5d46b9e42e93cecb7bed4bd01c5ac750fcb0",
+    "cycle": 7,
+    "commit": "91682e104d1ef2bfeb84837368c2f43cf891f9c2",
+    "timestamp": "2026-04-19T23:23:00Z",
+    "overallScore": 31,
+    "scoreBand": "Not Ready",
     "delta": {
-      "tests_added": 202,
-      "lint_warnings_delta": 13,
-      "typecheck_unchanged": true
+      "tests_added": 127,
+      "lint_warnings_delta": 73,
+      "typecheck_unchanged": true,
+      "cycle7_executed_findings": 22,
+      "cycle7_resolved": 21,
+      "cycle7_partial": 1,
+      "note": "Cycle 7 added H11 silent-failure ESLint rule which surfaced 74 new lint warnings; this is expected design per execution-insights.json."
     }
   }
 }

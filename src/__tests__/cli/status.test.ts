@@ -192,4 +192,81 @@ describe("status command", () => {
     const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
     expect(output).toContain("Status");
   });
+
+  // D1-SA1.4.1 (High): fast vs deep status-check paths
+  describe("fast vs deep status paths", () => {
+    it("uses fast path (integrity-manifest based) by default after sync", async () => {
+      await createTestProject(tempDir);
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand();
+
+      consoleSpy.mockClear();
+      const { statusCommand } = await import("../../cli/commands/status.js");
+      await statusCommand();
+
+      const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      // Fast-path banner should surface in summary
+      expect(output).toContain("mode: fast");
+      expect(output).toContain("--deep");
+    });
+
+    it("falls back to deep path when --deep flag is passed", async () => {
+      await createTestProject(tempDir);
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand();
+
+      consoleSpy.mockClear();
+      const { statusCommand } = await import("../../cli/commands/status.js");
+      await statusCommand({ deep: true });
+
+      const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      // Deep-path output omits the "mode: fast" banner
+      expect(output).not.toContain("mode: fast");
+      expect(output).toContain("Status");
+    });
+
+    it("falls back to deep path when no integrity manifest exists", async () => {
+      await createTestProject(tempDir);
+
+      // Sync runs but we remove the integrity manifest to simulate a pre-1.5.0
+      // install or a user who deleted it.
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand();
+      await rm(join(tempDir, AGENTS_DIR, ".integrity.json"), { force: true });
+
+      consoleSpy.mockClear();
+      const { statusCommand } = await import("../../cli/commands/status.js");
+      await statusCommand();
+
+      const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      // No fast-path banner because we fell back to deep.
+      expect(output).not.toContain("mode: fast");
+      expect(output).toContain("Status");
+    });
+
+    it("surfaces partial-sync state from integrity manifest's successfulAdapters", async () => {
+      await createTestProject(tempDir);
+
+      // Seed an integrity manifest that records a partial sync.
+      const { generateIntegrityManifest, writeIntegrityManifest } = await import("../../integrity/index.js");
+      const integrityManifest = await generateIntegrityManifest(
+        join(tempDir, AGENTS_DIR),
+        "1.0.0",
+        {
+          expectedAdapters: ["cursor", "claude"],
+          successfulAdapters: ["cursor"],
+        },
+      );
+      await writeIntegrityManifest(join(tempDir, AGENTS_DIR), integrityManifest);
+
+      consoleSpy.mockClear();
+      const { statusCommand } = await import("../../cli/commands/status.js");
+      await statusCommand();
+
+      const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(output).toMatch(/claude.*last sync did not complete/);
+    });
+  });
 });

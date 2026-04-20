@@ -445,14 +445,37 @@ export async function syncCommand(
       }
     }
 
-    // #259 (D11-11.6): Only regenerate integrity manifest on full sync success.
-    // Writing a manifest after partial adapter failure would certify incomplete
-    // output, masking missing files in subsequent integrity checks.
-    if (adapterFailures.length === 0) {
-      const integrityManifest = await generateIntegrityManifest(agentsDir, HATCH3R_VERSION);
-      await writeIntegrityManifest(agentsDir, integrityManifest);
-    } else {
-      warn("Integrity manifest not updated due to adapter failures. Re-run sync after resolving errors.");
+    // D1-SA1.3.2 (High): Always regenerate the integrity manifest after sync.
+    // The manifest records canonical content hashes in `.agents/` — those files
+    // are READ, not written, by adapters, so the hash set is stable regardless
+    // of adapter outcome. We also record `expectedAdapters` (all configured
+    // tools) and `successfulAdapters` (tools whose generation completed) so
+    // that `hatch3r status`, `hatch3r verify`, and CI consumers can detect a
+    // partial-failure sync without re-reading hatch.json.
+    //
+    // Historical context: pre-C7-H13, the manifest was regenerated on every
+    // sync; C7-H13 (Cycle 7) then skipped regeneration on partial failure out
+    // of concern that "fresh + stale" adapter outputs would be certified.
+    // That concern was based on the incorrect premise that adapter outputs
+    // are in the manifest — they are not. The manifest only covers canonical
+    // `.agents/` content, which is unaffected by adapter success/failure.
+    const successfulAdapters = m.tools.filter(
+      (t) => !adapterFailures.some((f) => f.tool === t),
+    );
+    const integrityManifest = await generateIntegrityManifest(
+      agentsDir,
+      HATCH3R_VERSION,
+      {
+        expectedAdapters: m.tools,
+        successfulAdapters,
+      },
+    );
+    await writeIntegrityManifest(agentsDir, integrityManifest);
+    if (adapterFailures.length > 0) {
+      warn(
+        `Integrity manifest regenerated with ${successfulAdapters.length}/${m.tools.length} adapters successful. ` +
+        `Re-run sync after resolving errors to produce a complete manifest.`,
+      );
     }
 
     // Prune stale archive entries

@@ -71,6 +71,7 @@ export function createProgram(): Command {
     .command("status")
     .description("Check sync status between canonical .agents/ and generated files")
     .option("--verbose", "Show detailed per-file status information")
+    .option("--deep", "Regenerate every adapter's output in-memory to compare byte-for-byte (slower; default uses integrity-manifest fast path)")
     .action(statusCommand);
 
   program

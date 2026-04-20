@@ -300,7 +300,10 @@ export abstract class BaseAdapter implements Adapter {
 
   protected async readHooks(ctx: AdapterContext) {
     if (!ctx.features.hooks) return [];
-    return readHookDefinitions(ctx.agentsDir);
+    // D5-SA5.7-H3 — Surface hook-parse diagnostics (invalid event, missing
+    // field, YAML error, duplicate id) via the adapter warnings channel
+    // instead of silently discarding malformed definitions.
+    return readHookDefinitions(ctx.agentsDir, this.warnings);
   }
 
   /** Returns true when the adapter is running in minimal generation mode. */

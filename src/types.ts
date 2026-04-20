@@ -277,6 +277,7 @@ export type HatchErrorCode =
   | "ADAPTER_ERROR"
   | "NETWORK_ERROR"
   | "CLEAN_ERROR"
+  | "LOCK_TIMEOUT"
   | "UNKNOWN_ERROR";
 
 export class HatchError extends Error {

@@ -304,4 +304,33 @@ describe("sync command", () => {
       }
     });
   });
+
+  // D1-SA1.3.2 (High): integrity manifest metadata after sync
+  describe("integrity manifest adapter metadata", () => {
+    it("records expectedAdapters and successfulAdapters on full-success sync", async () => {
+      await createTestProject(tempDir, { tools: ["cursor", "claude"] });
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand();
+
+      const { readIntegrityManifest } = await import("../../integrity/index.js");
+      const manifest = await readIntegrityManifest(join(tempDir, AGENTS_DIR));
+      expect(manifest).not.toBeNull();
+      expect(manifest!.expectedAdapters).toEqual(["claude", "cursor"]);
+      expect(manifest!.successfulAdapters).toEqual(["claude", "cursor"]);
+    });
+
+    it("re-sealed manifests preserve sorted adapter field order", async () => {
+      // Tools in non-alphabetical order in hatch.json
+      await createTestProject(tempDir, { tools: ["cursor", "claude"] });
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand();
+
+      const { readIntegrityManifest } = await import("../../integrity/index.js");
+      const manifest = await readIntegrityManifest(join(tempDir, AGENTS_DIR));
+      // Expectation order is stable (sorted) regardless of manifest input order
+      expect(manifest!.expectedAdapters).toEqual(["claude", "cursor"]);
+    });
+  });
 });
