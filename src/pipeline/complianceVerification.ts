@@ -218,16 +218,21 @@ export async function runComplianceChecks(): Promise<ComplianceReport> {
       : `${overPrivileged.length} agent(s) with excessive privileges: ${overPrivileged.map((p) => p.agentId).join(", ")}`,
   });
 
-  // ── ASI07: Phase boundary validation ──
-  // Verified by import-presence in CLI commands (Finding C7-C1).
+  // ── ASI07: Phase output size bounding ──
+  // Verified by import-presence in CLI commands (Finding C7-C1). The
+  // phaseOutputSchema module exposes `compactPhaseOutput`, invoked by
+  // sync/update/verify to keep command-summary output within prompt-guard
+  // size limits. The dormant validator surface was removed in Cycle 7.5
+  // (C7.5-W2B2-H42) per P4/Silent-Failure Contract; phase-shape contracts
+  // remain typed in `pipelineContext.ts` for downstream AI-tool consumption.
   const phaseSchemaInvoked = invokedResilience.has("phaseOutputSchema");
   checks.push({
     id: "asi07-phase-schemas",
-    description: "Phase output schema validators are invoked from a CLI command",
+    description: "Phase output compaction is invoked from a CLI command",
     controlRef: "ASI07",
     status: phaseSchemaInvoked ? "pass" : "fail",
     detail: phaseSchemaInvoked
-      ? "phaseOutputSchema is imported by at least one CLI command"
+      ? "phaseOutputSchema.compactPhaseOutput is imported by at least one CLI command"
       : "phaseOutputSchema is not imported by any CLI command (src/cli/commands/)",
   });
 

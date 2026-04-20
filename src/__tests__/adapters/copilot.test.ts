@@ -274,4 +274,66 @@ You are a test agent.`,
       expect(o.content.length).toBeGreaterThan(0);
     }
   });
+
+  // C7.5-W2B2-H41 (D15, P6): per-adapter tools: allowlist emission.
+  // Source: https://docs.github.com/en/copilot/reference/custom-agents-configuration
+  describe("C7.5-W2B2-H41 Copilot tools: YAML array emission", () => {
+    async function runWithAgent(agentId: string) {
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-tools-"));
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "agents"), { recursive: true });
+      await writeFile(
+        join(agentsDir, "agents", `${agentId}.md`),
+        `---\nid: ${agentId}\ntype: agent\ndescription: ${agentId} description\n---\n# ${agentId}\n`,
+        "utf-8",
+      );
+      try {
+        return await adapter.generate(agentsDir, makeManifest());
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    }
+
+    it("emits tools: array for hatch3r-reviewer restricted to read/search", async () => {
+      const outputs = await runWithAgent("reviewer");
+      const file = outputs.find(
+        (o) => o.path === ".github/agents/hatch3r-reviewer.agent.md",
+      );
+      expect(file).toBeDefined();
+      const fmMatch = file!.content.match(/^---\n([\s\S]*?)\n---/);
+      expect(fmMatch).not.toBeNull();
+      const fm = fmMatch![1];
+      expect(fm).toMatch(/tools:\s*\[/);
+      expect(fm).toContain('"read"');
+      expect(fm).toContain('"search"');
+      expect(fm).not.toContain('"edit"');
+      expect(fm).not.toContain('"execute"');
+    });
+
+    it("emits edit and execute for hatch3r-implementer", async () => {
+      const outputs = await runWithAgent("implementer");
+      const file = outputs.find(
+        (o) => o.path === ".github/agents/hatch3r-implementer.agent.md",
+      );
+      expect(file).toBeDefined();
+      const fmMatch = file!.content.match(/^---\n([\s\S]*?)\n---/);
+      expect(fmMatch).not.toBeNull();
+      const fm = fmMatch![1];
+      expect(fm).toContain('"edit"');
+      expect(fm).toContain('"execute"');
+      expect(fm).toContain('"read"');
+      expect(fm).toContain('"search"');
+    });
+
+    it("omits tools: for custom agents without a registered policy", async () => {
+      const outputs = await runWithAgent("custom-agent");
+      const file = outputs.find(
+        (o) => o.path === ".github/agents/hatch3r-custom-agent.agent.md",
+      );
+      expect(file).toBeDefined();
+      const fmMatch = file!.content.match(/^---\n([\s\S]*?)\n---/);
+      expect(fmMatch).not.toBeNull();
+      expect(fmMatch![1]).not.toContain("tools:");
+    });
+  });
 });

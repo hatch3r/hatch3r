@@ -69,12 +69,12 @@ After implementation completes, run the two-stage quality pipeline. Use the Task
 
 **Stage 1 — Review Loop (sequential):**
 
-1. Spawn **`hatch3r-reviewer`** — code review of all changes. Include the diff and acceptance criteria in the prompt.
+1. Spawn **`hatch3r-reviewer`** — code review of all changes. Include the diff and acceptance criteria in the prompt. The reviewer sub-agent output MUST include a top-level `confidence: high | medium | low` field (not just per-finding) so the gate in step 4 can evaluate it deterministically.
 2. If the reviewer reports Critical or Warning findings, spawn **`hatch3r-fixer`** with the reviewer output to apply fixes. When fixes touch shared or public interfaces, also include:
    - **Blast radius data** from Step 6a.1 (if available) — so the fixer knows which consumers and contracts must be preserved.
    - **Reference conventions** from Step 6a.1 (if available) — so the fixer maintains established patterns when applying fixes.
 3. Re-spawn **`hatch3r-reviewer`** to verify fixes.
-4. Repeat steps 2-3 for a maximum of **3 iterations** until the reviewer reports 0 Critical + 0 Warning findings.
+4. Repeat steps 2-3 for a maximum of **3 iterations** until the confidence-aware gate passes: **0 Critical + 0 Warning AND reviewer confidence != low**. If reviewer confidence is low but there are no Critical/Warning findings, trigger a second reviewer pass before exiting the loop; do not exit until the second pass returns non-low confidence OR the user explicitly accepts the low-confidence PASS.
    After each reviewer iteration, assess the reviewer's findings confidence: if the reviewer rates any finding as low-confidence, flag it separately in the ASK prompt so the user can prioritize human review of uncertain findings.
 5. If still not clean after 3 iterations, **ASK** the user how to proceed.
 

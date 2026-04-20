@@ -51,6 +51,17 @@ describe("KiroAdapter", () => {
     expect(steering!.managedContent).toBeDefined();
   });
 
+  it("mentions Kiro Powers bundling in the steering bridge", async () => {
+    const manifest = createManifest({
+      tools: ["kiro"],
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const steering = outputs.find((o) => o.path === ".kiro/steering/hatch3r-agents.md");
+    expect(steering).toBeDefined();
+    expect(steering!.content).toContain("Kiro Power");
+  });
+
   it("generates scoped rules as separate steering files with frontmatter", async () => {
     const manifest = createManifest({
       tools: ["kiro"],
@@ -187,11 +198,51 @@ describe("KiroAdapter", () => {
     const hookFiles = outputs.filter((o) => o.path.startsWith(".kiro/hooks/"));
     expect(hookFiles.length).toBeGreaterThanOrEqual(1);
 
-    // Check that hooks use native format with YAML frontmatter
+    // Check that hooks use native format with YAML frontmatter using
+    // Kiro 2026 trigger identifiers (https://kiro.dev/docs/hooks/types/).
     const preCommitHook = hookFiles.find((o) => o.path.includes("pre-commit"));
     expect(preCommitHook).toBeDefined();
-    expect(preCommitHook!.content).toContain("trigger: beforeCommit");
+    expect(preCommitHook!.content).toContain("trigger: pre-tool-use");
     expect(preCommitHook!.content).toContain("HATCH3R_HOOK_ACTIVATED");
+  });
+
+  it("maps each hatch3r hook event to a Kiro 2026 trigger identifier", async () => {
+    const manifest = createManifest({
+      tools: ["kiro"],
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+    const hookFiles = outputs.filter((o) => o.path.startsWith(".kiro/hooks/"));
+
+    // Every emitted hook must use a documented Kiro 2026 trigger identifier.
+    const validTriggers = new Set([
+      "prompt-submit",
+      "agent-stop",
+      "pre-tool-use",
+      "post-tool-use",
+      "file-create",
+      "file-save",
+      "file-delete",
+      "pre-task-execution",
+      "post-task-execution",
+      "manual-trigger",
+    ]);
+    for (const hook of hookFiles) {
+      const match = hook.content.match(/^trigger:\s*(\S+)/m);
+      expect(match).not.toBeNull();
+      expect(validTriggers.has(match![1])).toBe(true);
+    }
+
+    // Specific mappings verified:
+    //   pre-commit      -> pre-tool-use
+    //   post-merge      -> post-tool-use
+    //   ci-failure      -> manual-trigger
+    //   session-start   -> prompt-submit
+    const postMerge = hookFiles.find((o) => o.path.includes("post-merge"));
+    expect(postMerge!.content).toContain("trigger: post-tool-use");
+    const ciFailure = hookFiles.find((o) => o.path.includes("ci-failure"));
+    expect(ciFailure!.content).toContain("trigger: manual-trigger");
+    const sessionStart = hookFiles.find((o) => o.path.includes("session-start"));
+    expect(sessionStart!.content).toContain("trigger: prompt-submit");
   });
 
   it("hook files include condition frontmatter when globs present", async () => {

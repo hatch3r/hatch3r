@@ -5,6 +5,8 @@ description: Accessibility review criteria covering WCAG compliance, semantic HT
 ---
 # Accessibility Check
 
+> **Severity vocabulary:** see [governance/audit/templates/severity-mapping.md](../governance/audit/templates/severity-mapping.md) for canonical 5-column mapping.
+
 Review criteria for evaluating accessibility in pull requests.
 
 ## Semantic HTML and ARIA

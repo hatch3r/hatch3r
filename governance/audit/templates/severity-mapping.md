@@ -1,8 +1,8 @@
 # Severity Vocabulary Canonical Mapping
 
-> Last updated: 2026-04-19
+> Last updated: 2026-04-20
 > Pillars: P2 (primary), P4 (supporting).
-> Canonical for: agents/hatch3r-reviewer.md, agents/hatch3r-fixer.md, agents/hatch3r-security-auditor.md, checks/*.md, governance/AUDIT.md, governance/AUDIT-EXECUTE.md.
+> Canonical for: agents/hatch3r-reviewer.md, agents/hatch3r-fixer.md, agents/hatch3r-security-auditor.md, agents/hatch3r-a11y-auditor.md, agents/hatch3r-dependency-auditor.md, checks/*.md, governance/AUDIT.md, governance/AUDIT-EXECUTE.md.
 
 ## Purpose
 
@@ -40,10 +40,12 @@ Single source of truth for severity vocabulary alignment across all hatch3r cont
 - **Reviewer `Critical` overlaps two canonical buckets.** Disambiguation rule: use `DESIGN_OBJECTION` verdict for canonical Critical, `REQUEST CHANGES` + Critical level for canonical High. When unclear, default to Critical (conservative for fixer blocking-action policy).
 - **Check Criteria has only two tags.** `[CRITICAL]` covers canonical Critical + High; `[RECOMMENDED]` covers canonical Medium + Low. Severity-rollup reports must use the worst-case canonical mapping for `[CRITICAL]` tags (treat as canonical Critical until disambiguated by file/line context).
 - **Security-Auditor has no Info tier.** Security findings of observation-only nature must be either omitted from audit output or flagged as Low with a `confidence: low` qualifier per the Confidence Expression section of `agents/hatch3r-security-auditor.md`.
+- **A11y-Auditor WCAG vocabulary.** `Critical/Major/Minor` maps to canonical `Critical/Medium/Low` (WCAG A blockers → Critical; AA violations → Medium; advisory AA/AAA → Low). No direct High equivalent — escalate Major to High when the violation blocks a critical user journey.
+- **Dependency-Auditor CVSS vocabulary.** CVSS-derived Critical (≥9.0) / High (7.0–8.9) / Medium (4.0–6.9) / Low (<4.0) aligns 1:1 with canonical audit severity. No mapping translation required.
 
 ## Verification
 
-`grep -r "severity-mapping.md" agents/ checks/ governance/` MUST return ≥6 references (fixer, reviewer, security-auditor, code-quality.md, AUDIT.md, AUDIT-EXECUTE.md).
+`grep -r "severity-mapping.md" agents/ checks/ governance/` MUST return ≥12 references (fixer, reviewer, security-auditor, a11y-auditor, dependency-auditor, code-quality.md, security.md, testing.md, accessibility.md, performance.md, AUDIT.md, AUDIT-EXECUTE.md).
 
 ## Pillar Service
 

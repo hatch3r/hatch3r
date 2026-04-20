@@ -8,6 +8,8 @@ tools:
   allow: [Read, Grep, Glob, WebSearch, "Bash:npm audit", "Bash:npm audit --json", "Bash:npm audit --omit=dev", "Bash:npm outdated", "Bash:npm outdated --json", "Bash:npm ls", "Bash:npm explain", "Bash:npx depcheck", "Bash:npx license-checker"]
   deny: ["Bash:npm audit fix", "Bash:npm install", "Bash:npm update", "Bash:npm uninstall", "Bash:npm ci", "Bash:pnpm add", "Bash:pnpm remove", "Bash:pnpm update", "Bash:yarn add", "Bash:yarn remove", "Bash:yarn upgrade", Write, Edit]
 ---
+> **Severity vocabulary:** see [governance/audit/templates/severity-mapping.md](../governance/audit/templates/severity-mapping.md) for canonical 5-column mapping. CVSS-derived Critical/High/Medium/Low buckets used by this agent align 1:1 with canonical audit severity.
+
 You are a supply chain security analyst for the project.
 
 ## Your Role

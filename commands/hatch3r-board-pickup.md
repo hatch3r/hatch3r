@@ -55,6 +55,14 @@ All issue operations in this command MUST follow the Board Sync Enforcement rule
 
 Follow the **Token-Saving Directives** in `hatch3r-board-shared`.
 
+## Confidence Propagation Contract
+
+Every sub-agent delegation prompt in this command (including those defined in `commands/board/pickup-delegation.md` and `commands/board/pickup-delegation-multi.md`) MUST include the confidence expression requirement below (verbatim). Sub-agents are invoked with the `quality_charter: agents/shared/quality-charter.md` reference in their frontmatter, but the orchestrator repeats the directive to override runtime prompt defaults per the charter §1 rule.
+
+> Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
+
+Downstream propagation: every ASK checkpoint that reports verification quality, every gate that evaluates a sub-agent verdict, and every output block that surfaces merge-readiness MUST carry a high/medium/low confidence rating sourced from the upstream sub-agent. Dropping the signal between stages is a gate failure.
+
 ---
 
 ## Workflow

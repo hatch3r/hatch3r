@@ -2,6 +2,7 @@ import { readFile, readdir, lstat } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import type { CanonicalFile, CanonicalMetadata } from "../types.js";
+import { sanitizePipelineInput } from "../pipeline/promptGuard.js";
 
 const FRONTMATTER_REGEX = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n([\s\S]*))?$/;
 
@@ -29,6 +30,14 @@ export interface CanonicalReadResult {
   canonical?: CanonicalFile;
   /** Present when the read or parse failed. */
   error?: CanonicalReadError;
+  /**
+   * C7.5-W2B2-H8: Non-fatal frontmatter type mismatches. Present when the
+   * file loaded successfully but one or more identity fields (id/type/
+   * description/tags) parsed into the wrong YAML type. The file is still
+   * exposed via `canonical` so adapters keep working; the warning channel
+   * exposes the mismatch so users notice adversarial or mistaken content.
+   */
+  typeMismatches?: CanonicalReadError[];
 }
 
 /**
@@ -38,9 +47,16 @@ export interface CanonicalReadResult {
  * failure modes (UTF8/YAML) into a discriminated set so callers and
  * users can react to the specific failure mode instead of receiving a
  * generic null.
+ *
+ * C7.5-W2B2-H8 adds TYPE_MISMATCH for frontmatter fields that parse
+ * successfully but carry the wrong YAML type (e.g. `id: 123` instead of
+ * `id: "123"`, or `tags: "foo,bar"` instead of `tags: [foo, bar]`). The
+ * categorisation is emitted as a warning — the file still loads with the
+ * offending field coerced to its empty fallback — so adversarial canonical
+ * content cannot silently impersonate another id via type manipulation.
  */
 export interface CanonicalReadError {
-  code: "NOT_FOUND" | "PERMISSION_DENIED" | "UTF8_DECODE_ERROR" | "YAML_PARSE_ERROR" | "UNKNOWN";
+  code: "NOT_FOUND" | "PERMISSION_DENIED" | "UTF8_DECODE_ERROR" | "YAML_PARSE_ERROR" | "TYPE_MISMATCH" | "UNKNOWN";
   message: string;
   cause?: unknown;
 }
@@ -92,6 +108,18 @@ function makeErrorResult(
 }
 
 /**
+ * C7.5-W2B2-H8: Describe the observed YAML type of a frontmatter value so
+ * the emitted warning pinpoints the wrong shape (array, number, boolean,
+ * object, null) rather than a generic "not a string". Callers use this
+ * string in the warning message.
+ */
+function describeYamlType(v: unknown): string {
+  if (v === null) return "null";
+  if (Array.isArray(v)) return "array";
+  return typeof v;
+}
+
+/**
  * Parse YAML frontmatter from a markdown file's raw content.
  *
  * Returns the parsed metadata and the body content after the frontmatter block.
@@ -100,8 +128,17 @@ function makeErrorResult(
  *
  * Throws when the YAML is structurally invalid; callers handle this and
  * surface a YAML_PARSE_ERROR via the warnings channel (C7-H18).
+ *
+ * C7.5-W2B2-H8: pass `typeMismatches` to collect per-field TYPE_MISMATCH
+ * diagnostics when `id`, `type`, `description`, or `tags` parse into the
+ * wrong YAML type. The field is still coerced to its empty fallback; the
+ * warning exposes the offending input so adversarial canonical content
+ * cannot silently impersonate another id via `id: 123` or `id: [a, b]`.
  */
-export function parseFrontmatter(rawContent: string): {
+export function parseFrontmatter(
+  rawContent: string,
+  typeMismatches?: string[],
+): {
   metadata: CanonicalMetadata;
   content: string;
 } {
@@ -122,9 +159,23 @@ export function parseFrontmatter(rawContent: string): {
   };
 
   if (parsed && typeof parsed === "object") {
-    if (typeof parsed.id === "string") metadata.id = parsed.id;
-    if (typeof parsed.type === "string") metadata.type = parsed.type;
-    if (typeof parsed.description === "string") metadata.description = parsed.description;
+    // C7.5-W2B2-H8: enforce type contract on security-relevant identity
+    // fields (id/type/description/tags). Values that parse to non-string
+    // / non-array shapes are rejected with a TYPE_MISMATCH diagnostic so
+    // users see that a YAML mistake (e.g. unquoted numeric id) has caused
+    // the field to fall back to its empty default.
+    const scalarFields: ReadonlyArray<"id" | "type" | "description"> = ["id", "type", "description"];
+    for (const field of scalarFields) {
+      const raw = parsed[field];
+      if (raw === undefined) continue;
+      if (typeof raw === "string") {
+        metadata[field] = raw;
+      } else if (typeMismatches) {
+        typeMismatches.push(
+          `${field} field must be a string, got ${describeYamlType(raw)} (value: ${JSON.stringify(raw)})`,
+        );
+      }
+    }
     if (typeof parsed.name === "string") metadata.name = parsed.name;
     if (typeof parsed.scope === "string") metadata.scope = parsed.scope;
     if (typeof parsed.model === "string") metadata.model = parsed.model;
@@ -135,7 +186,13 @@ export function parseFrontmatter(rawContent: string): {
     if (typeof parsed.alwaysApply === "boolean") metadata.alwaysApply = parsed.alwaysApply;
     if (typeof parsed.readonly === "boolean") metadata.readonly = parsed.readonly;
     if (typeof parsed.background === "boolean") metadata.background = parsed.background;
-    if (Array.isArray(parsed.tags)) metadata.tags = parsed.tags.filter((t: unknown) => typeof t === "string");
+    if (Array.isArray(parsed.tags)) {
+      metadata.tags = parsed.tags.filter((t: unknown) => typeof t === "string");
+    } else if (parsed.tags !== undefined && typeMismatches) {
+      typeMismatches.push(
+        `tags field must be an array of strings, got ${describeYamlType(parsed.tags)} (value: ${JSON.stringify(parsed.tags)})`,
+      );
+    }
   }
 
   if (!metadata.id && metadata.name) {
@@ -202,8 +259,9 @@ async function readSingleMd(
   }
 
   let parsed;
+  const typeMismatches: string[] = [];
   try {
-    parsed = parseFrontmatter(rawContent);
+    parsed = parseFrontmatter(rawContent, typeMismatches);
   } catch (err) {
     const errorResult = makeErrorResult(fullPath, err, "YAML_PARSE_ERROR");
     return errorResult;
@@ -225,13 +283,72 @@ async function readSingleMd(
     rawContent,
     sourcePath: fullPath,
   };
-  return {
+  const result: CanonicalReadResult = {
     file: fullPath,
     content: rawContent,
     frontmatter: { ...metadata } as Record<string, unknown>,
     body: content,
     canonical,
   };
+  // C7.5-W2B2-H8: surface per-field type mismatches alongside the
+  // successfully-loaded canonical file. Using `typeMismatches` lets the
+  // file still load (with empty string/array fallbacks per prior
+  // behavior) while the warning channel exposes which field parsed into
+  // the wrong YAML type — closing the silent id-manipulation vector
+  // without breaking existing content.
+  if (typeMismatches.length > 0) {
+    result.typeMismatches = typeMismatches.map(
+      (m) => ({ code: "TYPE_MISMATCH" as const, message: `${fullPath}: ${m}` }),
+    );
+  }
+  // C7.5-W2B2-H43 (D15-F15.1-02): wire the pipeline promptGuard into the
+  // canonical read path so every sync/update/add/verify invocation that
+  // reads .agents/ content exercises ASI01 structural-injection scanning
+  // for the unambiguous tokens only. The template-literal check
+  // (`{{...}}`) and role-colon checks are deliberately SKIPPED here
+  // because legitimate canonical files intentionally embed Handlebars
+  // examples (rules/hatch3r-i18n.md, rules/hatch3r-secrets-management.md)
+  // and SMTP-style protocol docs — scanning those would flood sync with
+  // false positives. The remaining checks catch null bytes, ANSI escape
+  // sequences, chat template tokens, and tool-call delimiters, all of
+  // which are smoking-gun indicators that a canonical file was
+  // adversarially modified post-SHA-256 verification (or pre-publish).
+  const injectionScan = scanCanonicalInjectionTokens(content);
+  if (injectionScan.length > 0) {
+    const injectionEntries = injectionScan.map(
+      (v) => ({ code: "TYPE_MISMATCH" as const, message: `${fullPath}: promptGuard: ${v}` }),
+    );
+    result.typeMismatches = result.typeMismatches
+      ? [...result.typeMismatches, ...injectionEntries]
+      : injectionEntries;
+  }
+  return result;
+}
+
+/**
+ * C7.5-W2B2-H43: narrow subset of pipeline promptGuard checks applied to
+ * canonical file bodies. Returns a list of human-readable violation
+ * descriptions. Skips the template-literal and role-colon checks that the
+ * general pipeline guard runs because legitimate canonical docs contain
+ * Handlebars examples and RFC-style role markers. The retained checks
+ * are limited to structural tokens that have no business appearing in
+ * canonical markdown and therefore produce zero false positives on the
+ * hatch3r content library.
+ */
+function scanCanonicalInjectionTokens(body: string): string[] {
+  const violations: string[] = [];
+  if (/\x00/.test(body)) violations.push("null byte in canonical body");
+  if (/\x1b\[/.test(body)) violations.push("ANSI escape sequence in canonical body");
+  if (/\[INST\]|\[\/INST\]|<\|im_start\|>|<\|im_end\|>/i.test(body)) {
+    violations.push("chat template injection tokens in canonical body");
+  }
+  if (/<\|(?:tool|function|plugin)\|>/i.test(body)) {
+    violations.push("tool delimiter injection token in canonical body");
+  }
+  if (/<!--\s*(?:SYSTEM|ADMIN|ROOT)\s*-->/i.test(body)) {
+    violations.push("HTML comment role escalation in canonical body");
+  }
+  return violations;
 }
 
 /**
@@ -338,6 +455,12 @@ export async function readCanonicalFiles(
   for (const r of results) {
     if (r.canonical) {
       files.push(r.canonical);
+      // C7.5-W2B2-H8: surface non-fatal type mismatches even on success.
+      // The canonical is still loaded (with the offending field coerced
+      // to its empty fallback), so the warning is advisory, not blocking.
+      if (warnings && r.typeMismatches) {
+        for (const m of r.typeMismatches) warnings.push(formatWarning(m));
+      }
     } else if (r.error && warnings) {
       // Suppress NOT_FOUND for the skills strategy (missing SKILL.md or
       // skipped symlink) — this is normal directory layout, not an error.

@@ -40,7 +40,7 @@ alwaysApply: false
 
 - Allow 30–40% text expansion for German/Finnish translations relative to English; test UI with pseudo-localization that pads strings.
 - Use `min-height` instead of fixed `height` on text containers to accommodate CJK line-height requirements (1.6–1.8 recommended).
-- Define font stacks per script family: Latin, CJK, Arabic, Devanagari — ensure each stack includes a web-safe fallback and `system-ui`.
+- Define font stacks per script family: Latin, CJK, Arabic, Devanagari — each stack must include a web-safe fallback and `system-ui`.
 - Truncate overflowing text with `text-overflow: ellipsis` plus `overflow: hidden` and `white-space: nowrap` only when semantically safe; provide title/tooltip with full text.
 - Avoid fixed-width containers for translatable text; prefer `min-width` / `max-width` with flex/grid layout.
 

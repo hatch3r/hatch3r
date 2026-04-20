@@ -9,6 +9,7 @@ import { readCanonicalFiles } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
 import { applyCustomization } from "./customization.js";
 import { transformEnvVarSyntax } from "./mcp-utils.js";
+import { toCursorReadonlyFrontmatter } from "../pipeline/adapterToolTranslator.js";
 
 /**
  * The Cursor adapter generates .mdc files from .md canonical files by adding
@@ -62,14 +63,26 @@ export class CursorAdapter extends BaseAdapter {
         const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
         this.warnings.push(...warnings);
         if (skip) continue;
+        const prefixedId = toPrefixedId(agent.id);
         const model = resolveAgentModel(agent.id, agent, ctx.manifest, overrides);
         const desc = overrides.description ?? agent.description;
         const lines = [`name: ${agent.id}`, `description: ${desc}`];
         if (model) lines.push(`model: ${model}`);
-        if (agent.readonly) lines.push("readonly: true");
+        // C7.5-W2B2-H41/H45 (D15, P6): Cursor subagent frontmatter has
+        // no tool allowlist — the closest native primitive is
+        // `readonly: true`, which blocks file edits and state-changing
+        // shell commands. Emit readonly whenever the AGENT_TOOL_POLICIES
+        // entry lacks both `write` and `execute`, or whenever the
+        // canonical agent already declared itself readonly. Policy
+        // takes precedence: once a policy forbids write+execute,
+        // readonly is emitted regardless of the canonical flag so the
+        // monotonic-privilege invariant cannot be widened by omission.
+        const policyReadonly = toCursorReadonlyFrontmatter(prefixedId);
+        const effectiveReadonly = policyReadonly ?? agent.readonly ?? false;
+        if (effectiveReadonly) lines.push("readonly: true");
         if (agent.background) lines.push("is_background: true");
         const fm = `---\n${lines.join("\n")}\n---`;
-        results.push(mdcOutput(`.cursor/agents/${toPrefixedId(agent.id)}.md`, fm, content));
+        results.push(mdcOutput(`.cursor/agents/${prefixedId}.md`, fm, content));
       }
     }
 
@@ -126,6 +139,12 @@ Background subagents write output to \`~/.cursor/subagents/\` for later inspecti
 Cursor v2.6 added MCP Apps (interactive UIs in agent chats) and Team Marketplaces for plugins.
 If this project includes MCP servers that expose UI components, they will render inline as MCP Apps.
 Plugin configurations in \`.cursor/mcp.json\` are compatible with Team Marketplace distribution.
+
+## Cursor 3.0 Workflows
+
+Cursor 3.0 (April 2, 2026) added two slash commands that pair with hatch3r's parallel-agent pipeline:
+- \`/worktree\` — runs the current task in an isolated git worktree so agent edits cannot collide with your working tree. Use it when delegating to the implementer, fixer, or lint-fixer agents.
+- \`/best-of-n\` — runs the same task across multiple models in parallel worktrees and compares outcomes. Pair with the reviewer agent to pick the winner.
 
 ## Getting Started with Cursor
 

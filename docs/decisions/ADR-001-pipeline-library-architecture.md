@@ -39,7 +39,7 @@ centralized orchestrator.
 | 1 | `circuitBreaker` | Transient vs substantive failure classification | Planned: adapter retry logic |
 | 2 | `promptGuard` | Input/output size limits, boundary marker verification | Planned: content generation paths |
 | 3 | `agentToolAllowlist` | Per-agent deny-by-default tool restrictions | Library (consumed by agent configs) |
-| 4 | `phaseOutputSchema` | Schema validation at phase boundaries (ASI07) | Library (consumed by context validators) |
+| 4 | `phaseOutputSchema` | Phase output compaction for CLI summaries (ASI07 summary bounding) | Done: `sync`, `update`, `verify` commands (validator surface removed in Cycle 7.5 per P4) |
 | 5 | `reviewLoop` | Iterative review with finding severity tracking | Library (consumed by review phase) |
 | 6 | `observability` | Structured telemetry and timing data | Planned: `--verbose` output |
 | 7 | `failureLog` | Structured failure recording with context | Done: `sync` command error handler |

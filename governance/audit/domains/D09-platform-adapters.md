@@ -1,6 +1,6 @@
 # Domain 9: Platform Adapters
 
-> Last updated: 2026-04-19
+> Last updated: 2026-04-20
 
 **Pillars served:** P3 (primary), P4 (supporting).
 
@@ -63,7 +63,7 @@ Each adapter sub-agent MUST:
 
 This sub-agent runs after all 14 adapter sub-agents complete:
 - [ ] Cross-reference the Implementation Matrix table against all adapter audit findings
-- [ ] Verify all "Intentional Omissions" are still valid (platform may have added support)
+- [ ] Purge any Implementation Matrix omission claim contradicted by the filesystem: if `src/adapters/{name}.ts` emits the feature OR the vendor documentation now advertises support, the omission row is a finding (example: windsurf hooks and kiro hooks are emitted by their adapters as of cycle 7.5 and must not appear as omissions)
 - [ ] Check for new platform capabilities not yet reflected in the matrix
 - [ ] Verify "Canonical Path Matches" are still accurate
 - [ ] Maintenance guide verified: every adapter listed, every command documented, every hook mapping shown, against filesystem actuals

@@ -61,7 +61,7 @@ Each security control is either **code-enforced** (validated at runtime by TypeS
 | Agent tool allowlists (per-agent least-privilege) | Code | `src/pipeline/agentToolAllowlist.ts` | Active |
 | Circuit breaker (transient vs substantive failure classification) | Code | `src/pipeline/circuitBreaker.ts` | Active |
 | Failure logging (structured failure capture) | Code | `src/pipeline/failureLog.ts` | Active |
-| Phase output schema validation | Code | `src/pipeline/phaseOutputSchema.ts` | Active |
+| Phase output size compaction (summary bounding) | Code | `src/pipeline/phaseOutputSchema.ts` | Active |
 | Phase/pipeline/adapter timeouts | Code | `src/pipeline/phaseTimeout.ts`, `pipelineTimeout.ts`, `adapterTimeout.ts` | Active |
 | Compliance verification | Code | `src/pipeline/complianceVerification.ts` | Active |
 | Agent identity validation | Code | `src/pipeline/agentIdentity.ts` | Active |
@@ -90,7 +90,7 @@ OWASP ASI controls are implemented through a combination of code enforcement and
 | ASI02 | Tool use restrictions | Code | `src/pipeline/agentToolAllowlist.ts` -- per-agent tool category restrictions |
 | ASI03 | Agent isolation | Hybrid | Code: review loop iteration limits (`reviewLoop.ts`), diff-hash verification (`diffHash.ts`). Instruction: agent role boundaries, file access scoping |
 | ASI04 | Secure model configuration | Instruction | Model selection per-agent via `customize.yaml`. No runtime model override mechanism |
-| ASI05 | Input/output validation | Code | `src/pipeline/phaseOutputSchema.ts` -- schema validation at phase boundaries |
+| ASI05 | Input/output validation | Code | `src/pipeline/promptGuard.ts` -- input size limits (MAX_PHASE_INPUT_LENGTH 500 KB) and output size limits (MAX_AGENT_OUTPUT_LENGTH 1 MB); `src/adapters/customization.ts` -- deny-pattern scanning; `src/pipeline/phaseOutputSchema.ts` -- CLI summary compaction |
 | ASI06 | Monitoring and logging | Code | `src/pipeline/observability.ts`, `src/pipeline/failureLog.ts` |
 | ASI07 | Data flow integrity | Code | Phase boundary schemas, diff-hash on handoffs |
 | ASI08 | Supply chain security | Code (CI) | `.github/workflows/ci.yml` -- supply chain audit, lockfile checks |

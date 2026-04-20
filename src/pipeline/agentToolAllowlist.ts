@@ -7,7 +7,16 @@
  * descriptive error so the violation can be logged and investigated.
  *
  * Finding #79 (D15, High): Add tool allowlist per agent type (ASI02).
+ *
+ * Finding C7.5-W2B2-H44 (D15, High): Instrument allowlist denials with
+ * structured observability emission so denied tool calls flow to a
+ * diagnostic channel (e.g. failure-log.jsonl) rather than being rejected
+ * silently. Satisfies the Silent Failure Contract (CONSTITUTION.md §2 P5,
+ * C7-H11): every denial path emits a machine-readable event via the
+ * optional `onDeny` callback passed to `checkToolAccess`.
  */
+
+import type { FailureLogEntry } from "./failureLog.js";
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -24,7 +33,52 @@ export interface ToolAccessResult {
   allowed: boolean;
   /** Present when access is denied. */
   reason?: string;
+  /**
+   * Structured denial event, populated only when `allowed === false`.
+   * Safe to consume from observability channels without re-parsing `reason`.
+   * Finding C7.5-W2B2-H44.
+   */
+  denial?: AllowlistDenialEvent;
 }
+
+/**
+ * Finding C7.5-W2B2-H44 — denial-reason enum.
+ *
+ * Machine-readable codes so downstream consumers (failure-log.jsonl,
+ * compliance dashboards, alert rules) do not need to string-match on
+ * free-form reason text.
+ */
+export type AllowlistDenialReason =
+  | "NO_POLICY" // No policy is registered for the agent (deny-by-default).
+  | "TOOL_NOT_ALLOWED"; // Agent has a policy, but the requested tool is not on its allowlist.
+
+/**
+ * Finding C7.5-W2B2-H44 — structured denial event.
+ *
+ * Emitted to the `onDeny` observability callback whenever `checkToolAccess`
+ * returns `allowed === false`. Mirrors `FailureLogEntry` fields so the
+ * event can be persisted via `toFailureLogEntry()` without reshaping.
+ */
+export interface AllowlistDenialEvent {
+  /** ISO-8601 timestamp of the denial. */
+  timestamp: string;
+  /** The agent that was denied. */
+  agentId: string;
+  /** The tool category that was requested. */
+  tool: string;
+  /** Machine-readable denial reason code. */
+  reasonCode: AllowlistDenialReason;
+  /** Human-readable denial reason (same string as `ToolAccessResult.reason`). */
+  reason: string;
+  /** Tools the agent is allowed to use, if a policy exists. Empty for NO_POLICY. */
+  allowedTools: readonly string[];
+}
+
+/**
+ * Observability callback signature used by `checkToolAccess`.
+ * Finding C7.5-W2B2-H44.
+ */
+export type AllowlistDenialListener = (event: AllowlistDenialEvent) => void;
 
 // ── Allowlists ───────────────────────────────────────────────────
 
@@ -146,28 +200,81 @@ export function getAgentToolPolicy(agentId: string): AgentToolPolicy | undefined
  * Follows deny-by-default: if the agent has no registered policy,
  * access is denied. If the tool is not in the agent's allowlist,
  * access is denied.
+ *
+ * Finding C7.5-W2B2-H44: when access is denied, a structured
+ * `AllowlistDenialEvent` is attached to the result and, if `onDeny` is
+ * provided, pushed to that observability callback. This satisfies the
+ * Silent Failure Contract — denials never flow through a purely
+ * human-readable reason string; every denial surfaces a machine-readable
+ * `reasonCode` plus `agentId`, `tool`, `reason`, and `allowedTools`.
+ *
+ * Listener exceptions propagate to the caller. The authorization
+ * decision is ALREADY captured on the returned `ToolAccessResult`
+ * before the listener is invoked, so callers that want to tolerate
+ * a broken sink can wrap their own listener in a try/catch.
  */
-export function checkToolAccess(agentId: string, tool: string): ToolAccessResult {
+export function checkToolAccess(
+  agentId: string,
+  tool: string,
+  onDeny?: AllowlistDenialListener,
+): ToolAccessResult {
   const policy = policyMap.get(agentId);
 
   if (!policy) {
-    return {
-      allowed: false,
-      reason: `No tool policy registered for agent "${agentId}". Access denied by default (deny-by-default policy).`,
+    const reason = `No tool policy registered for agent "${agentId}". Access denied by default (deny-by-default policy).`;
+    const denial: AllowlistDenialEvent = {
+      timestamp: new Date().toISOString(),
+      agentId,
+      tool,
+      reasonCode: "NO_POLICY",
+      reason,
+      allowedTools: [],
     };
+    onDeny?.(denial);
+    return { allowed: false, reason, denial };
   }
 
   if (!policy.allowedTools.includes(tool)) {
-    return {
-      allowed: false,
-      reason:
-        `Agent "${agentId}" is not allowed to use tool "${tool}". ` +
-        `Allowed tools: ${policy.allowedTools.join(", ")}. ` +
-        `Policy: ${policy.description}`,
+    const reason =
+      `Agent "${agentId}" is not allowed to use tool "${tool}". ` +
+      `Allowed tools: ${policy.allowedTools.join(", ")}. ` +
+      `Policy: ${policy.description}`;
+    const denial: AllowlistDenialEvent = {
+      timestamp: new Date().toISOString(),
+      agentId,
+      tool,
+      reasonCode: "TOOL_NOT_ALLOWED",
+      reason,
+      allowedTools: policy.allowedTools,
     };
+    onDeny?.(denial);
+    return { allowed: false, reason, denial };
   }
 
   return { allowed: true };
+}
+
+/**
+ * Convert an `AllowlistDenialEvent` into a `FailureLogEntry` for persistence
+ * via `failure-log.jsonl`. Finding C7.5-W2B2-H44.
+ *
+ * The resulting entry uses phase `"tool-allowlist"` so denials can be
+ * filtered out of the log for compliance reporting.
+ */
+export function toFailureLogEntry(
+  event: AllowlistDenialEvent,
+  options?: { correlationId?: string; version?: string },
+): FailureLogEntry {
+  const entry: FailureLogEntry = {
+    timestamp: event.timestamp,
+    phase: "tool-allowlist",
+    tool: event.tool,
+    error: event.reason,
+    errorCode: event.reasonCode,
+  };
+  if (options?.correlationId) entry.correlationId = options.correlationId;
+  if (options?.version) entry.version = options.version;
+  return entry;
 }
 
 /**

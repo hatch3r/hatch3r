@@ -17,7 +17,7 @@
 | 5.4 | Rules | 22 .md + 22 .mdc = 44 files |
 | 5.5 | Commands | 34 command files |
 | 5.6 | Skills | 25 skill directories (SKILL.md each) |
-| 5.7 | Supporting Artifacts | 5 checks + 6 hooks + 3 prompts + 4 github-agents = 18 files |
+| 5.7 | Supporting Artifacts | 6 checks + 6 hooks + 3 prompts + 4 github-agents = 19 files |
 | 5.8 | Cross-Artifact Consistency | All 137 content artifacts (redistributed from D16) |
 
 > Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
@@ -77,7 +77,7 @@
 - [ ] Real-world applicability — skill addresses actual production scenarios
 
 ### 5.7 Supporting Artifacts
-- [ ] Check criteria completeness — all 5 checks have explicit pass/fail criteria covering their stated domain scope
+- [ ] Check criteria completeness — all 6 checks have explicit pass/fail criteria covering their stated domain scope
 - [ ] Hook trigger accuracy — all 6 hooks fire on correct events
 - [ ] Prompt output quality — all 3 prompts produce useful, structured output
 - [ ] GitHub Actions integration quality — all 4 github-agents work correctly in CI
@@ -101,3 +101,4 @@ Verify that all content artifacts embody the shared quality charter (`agents/sha
 - [ ] Consistent output format structures across artifacts
 - [ ] Content interaction testing: when an agent loads 15+ always-apply rules, a skill, shared context, and agent instructions simultaneously, do instructions conflict or create ambiguity?
 - [ ] MCP dependency graceful degradation: when a command references an unconfigured MCP server, does the workflow fail gracefully with guidance?
+- [ ] Filename prefix scope compliance — top-level published content has `hatch3r-` prefix; support subdirectories (`agents/shared/`, `agents/modes/`, `commands/board/`, `commands/revision/`, `checks/`) are exempt per `.claude/rules/content-authoring.md` item 2.

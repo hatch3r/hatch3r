@@ -8,8 +8,9 @@ import {
   open,
   copyFile,
   stat,
+  readdir,
 } from "node:fs/promises";
-import { dirname, basename } from "node:path";
+import { dirname, basename, join } from "node:path";
 import { randomBytes } from "node:crypto";
 import * as properLockfile from "proper-lockfile";
 import { HATCH3R_PREFIX, HatchError, type MergeResult } from "../types.js";
@@ -152,10 +153,23 @@ export async function atomicWriteFile(filePath: string, content: string): Promis
     }
     throw err;
   } finally {
+    // Silent Failure Contract (P5): emit a diagnostic when tmp-file cleanup
+    // fails for any reason other than "already renamed away" (ENOENT).
+    // Mid-stream exceptions can leave orphan .tmp.<hex> files on disk; if we
+    // cannot clean them up here, operators need to know so they can invoke
+    // sweepOrphanTmpFiles() or remove them manually. Silently swallowing all
+    // errors violates the Silent Failure Contract per governance/CONSTITUTION.md.
     try {
       await unlink(tmpPath);
-    } catch {
-      // Temp file already renamed or doesn't exist
+    } catch (unlinkErr) {
+      const code = (unlinkErr as NodeJS.ErrnoException).code;
+      if (code !== "ENOENT") {
+        console.error(
+          `hatch3r: failed to remove temp file ${tmpPath}: ` +
+            `${unlinkErr instanceof Error ? unlinkErr.message : String(unlinkErr)}. ` +
+            `Run 'hatch3r sync' or 'hatch3r update' to trigger orphan-tmp sweep.`,
+        );
+      }
     }
     // Silent Failure Contract: log if release throws; do not mask the original error.
     try {
@@ -169,6 +183,145 @@ export async function atomicWriteFile(filePath: string, content: string): Promis
       }
     }
   }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// D11-SA11.2-01 (C7.5-W2B2-H37): Orphan tmp-file sweep
+//
+// `atomicWriteFile` writes to `<target>.tmp.<8-hex>` then renames. If the
+// process is killed mid-stream (SIGKILL, crash, power loss) the `finally`
+// unlink does not run and the orphan accumulates across runs. This sweep
+// finds such orphans, removes them, and returns a diagnostic list so the
+// caller can emit a warning per the Silent Failure Contract.
+//
+// Callers (sync.ts, update.ts command entry points) should invoke this at
+// start-of-run and surface the returned entries via `warn()` / observability.
+// ──────────────────────────────────────────────────────────────────────────
+
+/** Matches `<anything>.tmp.<8 hex chars>` — the exact pattern produced by atomicWriteFile. */
+const ORPHAN_TMP_SUFFIX_RE = /\.tmp\.[0-9a-f]{8}$/;
+
+/** Minimum age (ms) before a tmp file is treated as an orphan. Younger
+ *  files may be in flight from a concurrent atomicWriteFile on another
+ *  worker; sweeping them would race and corrupt that write. 60s is
+ *  conservative — atomic writes should complete in sub-second on healthy
+ *  hardware, so a minute-old tmp file is almost certainly abandoned. */
+const ORPHAN_MIN_AGE_MS = 60_000;
+
+/**
+ * One orphan tmp file discovered by {@link sweepOrphanTmpFiles}.
+ * Exposed so callers can surface per-file diagnostics, not just a count.
+ */
+export interface OrphanTmpSweepEntry {
+  /** Absolute path to the orphan tmp file. */
+  path: string;
+  /** mtime in ms since epoch when the sweep discovered it. */
+  mtimeMs: number;
+  /** Whether the sweep succeeded in removing it. */
+  removed: boolean;
+  /** Populated when `removed === false`. */
+  error?: string;
+}
+
+/**
+ * Sweep orphan `.tmp.<8-hex>` files under a directory tree, removing any
+ * older than {@link ORPHAN_MIN_AGE_MS}. Returns one entry per orphan so the
+ * caller can emit a diagnostic per the Silent Failure Contract — the sweep
+ * itself is NOT silent.
+ *
+ * Safe against concurrent in-flight writes: only files older than
+ * {@link ORPHAN_MIN_AGE_MS} are candidates, so a live atomicWriteFile on
+ * another process (or in-flight on this one) is never swept.
+ *
+ * Non-recursive by default; pass `{ recursive: true }` to walk subtrees
+ * (e.g. `.agents/` which contains tool-specific nested layouts).
+ */
+export async function sweepOrphanTmpFiles(
+  dir: string,
+  options: { recursive?: boolean; nowMs?: number } = {},
+): Promise<OrphanTmpSweepEntry[]> {
+  const nowMs = options.nowMs ?? Date.now();
+  const results: OrphanTmpSweepEntry[] = [];
+  let entries: Array<{ name: string; isFile: boolean; parent: string }> = [];
+  try {
+    const raw = await readdir(dir, {
+      withFileTypes: true,
+      recursive: options.recursive === true,
+    });
+    entries = raw.map((e) => {
+      const parent =
+        (e as unknown as { parentPath?: string }).parentPath ??
+        (e as unknown as { path?: string }).path ??
+        dir;
+      return { name: e.name, isFile: e.isFile(), parent };
+    });
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    // ENOENT is expected on fresh checkouts before .agents/ is created.
+    // Any other failure deserves a diagnostic so operators see it.
+    if (code !== "ENOENT") {
+      console.error(
+        `hatch3r: orphan-tmp sweep could not read ${dir}: ` +
+          `${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    return results;
+  }
+
+  for (const entry of entries) {
+    if (!entry.isFile) continue;
+    if (!ORPHAN_TMP_SUFFIX_RE.test(entry.name)) continue;
+    const fullPath = join(entry.parent, entry.name);
+    let fileStat;
+    try {
+      fileStat = await stat(fullPath);
+    } catch {
+      // Disappeared between readdir and stat — treat as already cleaned.
+      continue;
+    }
+    const age = nowMs - fileStat.mtimeMs;
+    if (age < ORPHAN_MIN_AGE_MS) continue;
+    try {
+      await unlink(fullPath);
+      results.push({ path: fullPath, mtimeMs: fileStat.mtimeMs, removed: true });
+    } catch (unlinkErr) {
+      results.push({
+        path: fullPath,
+        mtimeMs: fileStat.mtimeMs,
+        removed: false,
+        error: unlinkErr instanceof Error ? unlinkErr.message : String(unlinkErr),
+      });
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Format a sweep result list as a human-readable diagnostic string.
+ * Returns `null` when the list is empty so callers can suppress the warning
+ * in the common case.
+ */
+export function formatOrphanTmpSweepDiagnostic(
+  entries: OrphanTmpSweepEntry[],
+): string | null {
+  if (entries.length === 0) return null;
+  const removed = entries.filter((e) => e.removed);
+  const failed = entries.filter((e) => !e.removed);
+  const parts: string[] = [];
+  if (removed.length > 0) {
+    parts.push(
+      `Swept ${removed.length} orphan temp file(s) from prior interrupted runs: ` +
+        removed.map((e) => e.path).join(", "),
+    );
+  }
+  if (failed.length > 0) {
+    parts.push(
+      `Failed to remove ${failed.length} orphan temp file(s); remove manually: ` +
+        failed.map((e) => `${e.path} (${e.error ?? "unknown"})`).join(", "),
+    );
+  }
+  return parts.join(". ");
 }
 
 /**

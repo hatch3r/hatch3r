@@ -13,7 +13,53 @@
 
 export type TaskType = "bug" | "feature" | "refactor" | "qa";
 export type DeepContextTier = 1 | 2 | 3;
-export type AgentStatus = "SUCCESS" | "PARTIAL" | "FAILED" | "SKIPPED" | "TIMEOUT";
+/**
+ * AgentStatus — terminal status produced by any agent in the pipeline.
+ *
+ * - SUCCESS: work completed against the acceptance criteria.
+ * - PARTIAL: work completed partially; `reason` explains what remains.
+ * - FAILED: work did not complete due to an error or fault; `reason` explains.
+ * - SKIPPED: work was skipped per documented skip criteria; `reason` cites the criterion.
+ * - TIMEOUT: work exceeded the allotted phase timeout.
+ * - BLOCKED_PREMISE_CHALLENGE: the agent determined the task premise is misconceived
+ *   (e.g., requested feature already exists, conflicts with an architectural invariant,
+ *   or requirements are internally contradictory) and the pipeline should halt pending
+ *   user clarification. Surfaces quality-charter §3 ("Question Unclear Requirements")
+ *   as a machine-actionable signal. `reason` must contain the premise concern and at
+ *   least one alternative approach. See Finding D7-SA7.1-2 / C7.5-W2B2-H24.
+ */
+export type AgentStatus =
+  | "SUCCESS"
+  | "PARTIAL"
+  | "FAILED"
+  | "SKIPPED"
+  | "TIMEOUT"
+  | "BLOCKED_PREMISE_CHALLENGE";
+
+/**
+ * The canonical list of all AgentStatus values. Consumers that validate status
+ * strings at runtime must import this constant rather than duplicating the
+ * list, so adding a new variant updates every consumer in lock-step.
+ */
+export const AGENT_STATUS_VALUES: readonly AgentStatus[] = [
+  "SUCCESS",
+  "PARTIAL",
+  "FAILED",
+  "SKIPPED",
+  "TIMEOUT",
+  "BLOCKED_PREMISE_CHALLENGE",
+] as const;
+
+/**
+ * True when the status indicates the pipeline should halt and surface to the
+ * user rather than proceed to the next phase. Currently only
+ * BLOCKED_PREMISE_CHALLENGE triggers halt semantics; other non-success states
+ * (FAILED/TIMEOUT) are handled by retry/circuit-breaker logic, not halt.
+ */
+export function isHaltStatus(status: AgentStatus): boolean {
+  return status === "BLOCKED_PREMISE_CHALLENGE";
+}
+
 export type ReviewVerdict = "CLEAN" | "UNRESOLVED";
 export type ConfirmationPassResult = "PASS" | "FAIL";
 
@@ -470,7 +516,7 @@ export function validatePhaseTransition(
     if (!context.implementationResult) {
       errors.push({ field: "implementationResult", message: "implementationResult must be populated before Phase 3" });
     } else {
-      if (!["SUCCESS", "PARTIAL", "FAILED", "SKIPPED", "TIMEOUT"].includes(context.implementationResult.status)) {
+      if (!AGENT_STATUS_VALUES.includes(context.implementationResult.status)) {
         errors.push({ field: "implementationResult.status", message: "implementationResult.status must be a valid AgentStatus" });
       }
     }

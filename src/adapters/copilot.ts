@@ -9,6 +9,7 @@ import { readCanonicalFiles } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
 import { applyCustomization } from "./customization.js";
 import { detectPackageManager } from "../detect/packageManager.js";
+import { toCopilotToolsFrontmatter } from "../pipeline/adapterToolTranslator.js";
 
 export class CopilotAdapter extends BaseAdapter {
   readonly name = "copilot";
@@ -105,10 +106,21 @@ jobs:
         if (skip) continue;
         const model = resolveAgentModel(agent.id, agent, ctx.manifest, overrides);
         const desc = overrides.description ?? agent.description;
+        const prefixedId = toPrefixedId(agent.id);
         const lines = [`name: ${agent.id}`, `description: ${desc}`];
         if (model) lines.push(`model: ${model}`);
+        // C7.5-W2B2-H41/H45 (D15, P6): emit Copilot `tools:` allowlist
+        // translated from AGENT_TOOL_POLICIES so the downstream Copilot
+        // agent runtime enforces the hatch3r monotonic-privilege
+        // invariant. Copilot frontmatter format:
+        // https://docs.github.com/en/copilot/reference/custom-agents-configuration
+        // (accessed 2026-04-20).
+        const copilotTools = toCopilotToolsFrontmatter(prefixedId);
+        if (copilotTools) {
+          lines.push(`tools: [${copilotTools.map((t) => `"${t}"`).join(", ")}]`);
+        }
         const fm = `---\n${lines.join("\n")}\n---`;
-        results.push(output(`.github/agents/${toPrefixedId(agent.id)}.agent.md`, `${fm}\n\n${wrapInManagedBlock(content)}`, content));
+        results.push(output(`.github/agents/${prefixedId}.agent.md`, `${fm}\n\n${wrapInManagedBlock(content)}`, content));
       }
     }
 

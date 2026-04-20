@@ -26,8 +26,8 @@ Every task MUST follow this four-phase pipeline: **Phase 1 — Research** (`hatc
 | `hatch3r-implementer` | Single-task implementation | Always — one per task |
 | `hatch3r-reviewer` | Code review | Always — Phase 3 review loop |
 | `hatch3r-fixer` | Fix reviewer findings | Phase 3 — Critical/Warning findings |
-| `hatch3r-test-writer` | Tests | Always — Phase 4 (every code change) |
-| `hatch3r-security-auditor` | Security review | Always — Phase 4 (every code change) |
+| `hatch3r-test-writer` | Tests | Always — Phase 4 (every code change; skip per Phase Skip Criteria) |
+| `hatch3r-security-auditor` | Security review | Always — Phase 4 (every code change; skip per Phase Skip Criteria) |
 | `hatch3r-docs-writer` | Documentation | Phase 4 — evaluate when APIs/architecture/UX affected |
 | `hatch3r-lint-fixer` | Lint/type fixes | Conditional — lint errors present |
 | `hatch3r-a11y-auditor` | WCAG AA checks | Conditional — UI/accessibility changes |
@@ -107,12 +107,13 @@ For multi-sub-task implementations, the implementer performs a lightweight mini-
 3. Re-review after fixes. Repeat until 0 Critical + 0 Warning, or max 3 iterations.
 4. **Confirmation pass** after clean review: lightweight re-review for fix-driven regressions and acceptance criteria completeness. The confirmation pass checks only: (a) no new test failures compared to Phase 2 baseline, (b) no type errors introduced, (c) acceptance criteria from the issue are still met. It does not re-run the full review checklist.
 5. Max iterations reached: surface to user with a structured summary: iteration count, remaining Critical findings (with file:line), remaining Warning findings, and a recommendation (fix manually vs. accept risk). Never present raw reviewer output without summarization.
+6. **Review gate confidence signal:** When the review loop exits with a clean verdict, record the iteration count in `PipelineContext.reviewResult.iterations`. Clean-on-first-pass (iteration 1) signals higher confidence than clean-after-multiple-iterations (iteration 2-3). Phase 4 specialists and the orchestrator should factor this into their risk assessment.
 
 **Phase 4 — Final Quality** (after review loop is clean):
 
 Launch parallel subagents -- no artificial concurrency limit.
 
-- **Always:** `hatch3r-test-writer`, `hatch3r-security-auditor`
+- **Always** (except when Phase Skip Criteria applies — see below)**:** `hatch3r-test-writer`, `hatch3r-security-auditor`
 - **Evaluate:** `hatch3r-docs-writer` (when APIs/architecture/UX affected)
 - **Conditional:** `hatch3r-lint-fixer`, `hatch3r-a11y-auditor`, `hatch3r-perf-profiler`, `hatch3r-dependency-auditor`, `hatch3r-architect`, `hatch3r-devops`
 
@@ -125,8 +126,8 @@ Launch parallel subagents -- no artificial concurrency limit.
 
 | Specialist | Mode | Trigger Conditions |
 |-----------|------|--------------------|
-| `hatch3r-test-writer` | Always | Any code change |
-| `hatch3r-security-auditor` | Always | Any code change |
+| `hatch3r-test-writer` | Always | Any code change; may skip per Phase Skip Criteria |
+| `hatch3r-security-auditor` | Always | Any code change; may skip per Phase Skip Criteria |
 | `hatch3r-docs-writer` | Evaluate | Public API, architecture, or UX changes |
 | `hatch3r-lint-fixer` | Conditional | Lint/type errors present |
 | `hatch3r-a11y-auditor` | Conditional | UI/accessibility changes |

@@ -2002,6 +2002,159 @@ describe("content/index", () => {
       const result = await generateMdcCompanions("/nonexistent/path");
       expect(result).toEqual([]);
     });
+
+    // C7.5-W2B2-H4 (D2-SA2.6-2): .mdc companion writes now go through
+    // atomicWriteFile (temp file + rename with fsync). A crash mid-write
+    // can no longer leave a truncated .mdc visible to Cursor.
+    it("C7.5-W2B2-H4: .mdc write is atomic (no partial files visible)", async () => {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-mdc-atomic-"));
+      const rulesDir = join(tempDir, "rules");
+      await mkdir(rulesDir, { recursive: true });
+      await writeFile(
+        join(rulesDir, "hatch3r-atomic-rule.md"),
+        "---\nid: hatch3r-atomic-rule\ntype: rule\ndescription: atomic\nscope: always\n---\n# Body\n",
+      );
+
+      const { generateMdcCompanions } = await import("../../content/index.js");
+      await generateMdcCompanions(rulesDir);
+
+      // After success, exactly one .mdc file exists (no .tmp leftover).
+      const entries = await readdir(rulesDir);
+      const mdcFiles = entries.filter((e) => e.endsWith(".mdc"));
+      const tmpFiles = entries.filter((e) => e.includes(".tmp."));
+      expect(mdcFiles).toEqual(["hatch3r-atomic-rule.mdc"]);
+      expect(tmpFiles).toEqual([]);
+    });
+
+    it("C7.5-W2B2-H4: .mdc content is well-formed after atomic write", async () => {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-mdc-wellformed-"));
+      const rulesDir = join(tempDir, "rules");
+      await mkdir(rulesDir, { recursive: true });
+      await writeFile(
+        join(rulesDir, "hatch3r-wf.md"),
+        "---\nid: hatch3r-wf\ntype: rule\ndescription: wf\n---\n# Body\nLine 1\nLine 2\n",
+      );
+
+      const { generateMdcCompanions } = await import("../../content/index.js");
+      await generateMdcCompanions(rulesDir);
+
+      const mdcContent = await readFile(join(rulesDir, "hatch3r-wf.mdc"), "utf-8");
+      expect(mdcContent.startsWith("---\n")).toBe(true);
+      expect(mdcContent).toContain("description: wf");
+      expect(mdcContent).toContain("Line 1");
+      expect(mdcContent).toContain("Line 2");
+    });
+  });
+
+  // C7.5-W2B2-H7 (D2-SA2.6-5): copySelectedContent warns on overwrite of
+  // locally-edited canonical files when `options.warnings` is supplied.
+  describe("C7.5-W2B2-H7 copySelectedContent user-edit overwrite detection", () => {
+    it("emits a warning when destination bytes differ from source", async () => {
+      const dir = await mkdtemp(join(tmpdir(), "hatch3r-overwrite-"));
+      try {
+        const contentRoot = await createContentRoot(dir);
+        const agentsDir = join(dir, "output");
+        const index = await buildContentIndex(contentRoot);
+
+        const selection = emptySelection({
+          items: {
+            agents: ["hatch3r-implementer"],
+            skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [],
+          },
+        });
+
+        // First copy: clean install.
+        await copySelectedContent(contentRoot, agentsDir, selection, index);
+
+        // User edits the canonical file locally.
+        const implPath = join(agentsDir, "agents", "hatch3r-implementer.md");
+        await writeFile(implPath, "locally edited content\n", "utf-8");
+
+        // Second copy with warnings sink: must detect divergence.
+        const warnings: string[] = [];
+        await copySelectedContent(contentRoot, agentsDir, selection, index, { warnings });
+
+        expect(warnings.some((w) => w.includes("Overwriting locally-edited") && w.includes(".hatch3r/"))).toBe(true);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("does not warn when destination matches source byte-for-byte", async () => {
+      const dir = await mkdtemp(join(tmpdir(), "hatch3r-no-overwrite-"));
+      try {
+        const contentRoot = await createContentRoot(dir);
+        const agentsDir = join(dir, "output");
+        const index = await buildContentIndex(contentRoot);
+
+        const selection = emptySelection({
+          items: {
+            agents: ["hatch3r-implementer"],
+            skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [],
+          },
+        });
+
+        await copySelectedContent(contentRoot, agentsDir, selection, index);
+
+        // Second invocation without local edits: source == dest.
+        const warnings: string[] = [];
+        await copySelectedContent(contentRoot, agentsDir, selection, index, { warnings });
+
+        expect(warnings.some((w) => w.includes("Overwriting locally-edited"))).toBe(false);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("does not warn on first-time copy (no destination exists)", async () => {
+      const dir = await mkdtemp(join(tmpdir(), "hatch3r-firstcopy-"));
+      try {
+        const contentRoot = await createContentRoot(dir);
+        const agentsDir = join(dir, "output");
+        const index = await buildContentIndex(contentRoot);
+
+        const selection = emptySelection({
+          items: {
+            agents: ["hatch3r-implementer"],
+            skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [],
+          },
+        });
+
+        const warnings: string[] = [];
+        await copySelectedContent(contentRoot, agentsDir, selection, index, { warnings });
+
+        expect(warnings.some((w) => w.includes("Overwriting"))).toBe(false);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("is opt-in — omitting options preserves legacy behavior (no warnings emitted)", async () => {
+      const dir = await mkdtemp(join(tmpdir(), "hatch3r-optin-"));
+      try {
+        const contentRoot = await createContentRoot(dir);
+        const agentsDir = join(dir, "output");
+        const index = await buildContentIndex(contentRoot);
+
+        const selection = emptySelection({
+          items: {
+            agents: ["hatch3r-implementer"],
+            skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [],
+          },
+        });
+
+        await copySelectedContent(contentRoot, agentsDir, selection, index);
+        const implPath = join(agentsDir, "agents", "hatch3r-implementer.md");
+        await writeFile(implPath, "local edit\n", "utf-8");
+
+        // No options argument: the function should still succeed without
+        // throwing and without populating any warnings (legacy callers).
+        const copied = await copySelectedContent(contentRoot, agentsDir, selection, index);
+        expect(copied.length).toBeGreaterThan(0);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
   });
 
   // ── Finding 3.23: applyCommandPrefix and COMMAND_ID_PREFIX ──────

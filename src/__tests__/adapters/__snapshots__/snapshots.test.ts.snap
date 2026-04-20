@@ -529,6 +529,7 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
 
 exports[`adapter output snapshots > WindsurfAdapter > file paths match snapshot 1`] = `
 [
+  ".windsurf/hooks.json",
   ".windsurf/mcp.json",
   ".windsurf/rules/hatch3r-scoped-rule.md",
   ".windsurf/rules/hatch3r-test-rule.md",
@@ -540,6 +541,14 @@ exports[`adapter output snapshots > WindsurfAdapter > file paths match snapshot 
 
 exports[`adapter output snapshots > WindsurfAdapter > output structure matches snapshot 1`] = `
 [
+  {
+    "action": "create",
+    "contentMarkers": [
+      "VALID_JSON",
+    ],
+    "hasManagedContent": false,
+    "path": ".windsurf/hooks.json",
+  },
   {
     "action": "create",
     "contentMarkers": [

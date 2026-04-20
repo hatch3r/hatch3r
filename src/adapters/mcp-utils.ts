@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { scanMcpServers } from "../pipeline/mcpDescriptionScan.js";
 
 export interface McpServerEntry {
   command?: string;
@@ -89,8 +90,19 @@ export function validateMcpEntry(
   const warnings: string[] = [];
 
   if (entry.command) {
-    const baseCommand =
+    // C7.5-W2B2-H3 (D2-SA2.4-1): Normalize Windows executable extensions
+    // before checking the allowlist. Windows users configuring MCP servers
+    // on native shells naturally specify `node.exe`, `python.cmd`, or
+    // `npx.bat` — the stripped basename ("node.exe", "python.cmd") then
+    // fails the allowlist check even though the underlying command is
+    // supported. Strip one trailing `.exe`, `.cmd`, or `.bat` (case
+    // insensitive) so Windows paths resolve to the same base command name
+    // as POSIX paths do. Preserves the original `entry.command` in the
+    // warning message when the normalized form is still unrecognized so
+    // the user sees the exact string they configured.
+    const rawBase =
       entry.command.split("/").pop()?.split("\\").pop() ?? entry.command;
+    const baseCommand = rawBase.replace(/\.(?:exe|cmd|bat)$/i, "");
     if (!ALLOWED_COMMANDS.has(baseCommand)) {
       warnings.push(
         `MCP server "${name}" uses unrecognized command "${entry.command}". ` +
@@ -301,6 +313,13 @@ export async function readMcpConfig(
         warnings.push(...validateMcpEntry(name, entry));
         validServers[name] = entry;
       }
+      // C7.5-W2B2-H46 (D15-F15.6-03, Pillar P6): static scan of MCP
+      // server descriptions and free-form textual surfaces for prompt
+      // injection / tool-poisoning markers (Invariant Labs 2025). Warns
+      // only — servers still emit so legitimate servers whose descriptions
+      // happen to hit a pattern are not silently dropped (Silent Failure
+      // Contract, CONSTITUTION.md §2 P5).
+      warnings.push(...scanMcpServers(validServers));
       return { servers: validServers, warnings };
     }
     return { servers: {}, warnings };

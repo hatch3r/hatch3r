@@ -305,6 +305,74 @@ describe("sync command", () => {
     });
   });
 
+  // C7.5-W2B2-H22 (D6-SA6.1-2): Pre-write context budget gate
+  describe("context budget pre-write gate", () => {
+    async function seedOversizedRule(root: string): Promise<void> {
+      // Copilot's budget is 64K tokens ~= 256K characters. Seed a rule
+      // containing ~300K characters of filler so the generated
+      // copilot-instructions.md overflows the budget. The rule body is
+      // injected verbatim into the inner-content block, guaranteeing overflow.
+      const filler = "x".repeat(300_000);
+      await writeFile(
+        join(root, AGENTS_DIR, "rules", "hatch3r-oversize.md"),
+        `---\nid: hatch3r-oversize\ntype: rule\ndescription: oversize rule for budget test\nscope: always\n---\n# Oversize\n\n${filler}\n`,
+      );
+    }
+
+    it("emits the budget warning before any file is written (default mode)", async () => {
+      await createTestProject(tempDir, { tools: ["copilot"] });
+      await seedOversizedRule(tempDir);
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand();
+
+      const combined =
+        consoleSpy.mock.calls.map((c) => String(c[0])).join(" ") +
+        " " + consoleErrorSpy.mock.calls.map((c) => String(c[0])).join(" ");
+      expect(combined).toMatch(/context budget/i);
+      expect(combined).toContain("hatch3r sync --minimal");
+      expect(combined).toContain("--strict-budget");
+
+      // Default behaviour: warning only, file is still written.
+      const instructions = await readFile(
+        join(tempDir, ".github", "copilot-instructions.md"),
+        "utf-8",
+      ).catch(() => null);
+      expect(instructions).not.toBeNull();
+    });
+
+    it("fails sync with exit code 2 when --strict-budget is set and budget is exceeded", async () => {
+      await createTestProject(tempDir, { tools: ["copilot"] });
+      await seedOversizedRule(tempDir);
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      try {
+        await syncCommand({ strictBudget: true });
+        expect.fail("expected syncCommand to throw HatchError");
+      } catch (e) {
+        const err = e as HatchError;
+        expect(err).toBeInstanceOf(HatchError);
+        expect(err.exitCode).toBe(2);
+        expect(err.errorCode).toBe("ADAPTER_ERROR");
+      }
+
+      // Strict mode aborts the write for the over-budget adapter.
+      const instructions = await readFile(
+        join(tempDir, ".github", "copilot-instructions.md"),
+        "utf-8",
+      ).catch(() => null);
+      expect(instructions).toBeNull();
+    });
+
+    it("does not trigger the budget gate when output fits (--strict-budget success)", async () => {
+      await createTestProject(tempDir, { tools: ["copilot"] });
+      // No oversized rule seeded: default test content is well under budget.
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await expect(syncCommand({ strictBudget: true })).resolves.toBeUndefined();
+    });
+  });
+
   // D1-SA1.3.2 (High): integrity manifest metadata after sync
   describe("integrity manifest adapter metadata", () => {
     it("records expectedAdapters and successfulAdapters on full-success sync", async () => {

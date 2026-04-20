@@ -1,6 +1,6 @@
 # Adapter Capability Matrix
 
-> **Last verified**: 2026-04-14 | **hatch3r version**: 1.5.1
+> **Last verified**: 2026-04-20 | **hatch3r version**: 1.6.0
 
 Living reference for framework capabilities vs. adapter implementations. This document tracks what each adapter emits, what each platform supports natively, and where gaps remain.
 
@@ -48,11 +48,12 @@ Living reference for framework capabilities vs. adapter implementations. This do
 | **amp** | B | B | Y | -- | ~ | Y | -- | -- | -- | Y | -- |
 | **opencode** | Y | Y | Y | -- | Y | Y | -- | -- | -- | Y | -- |
 | **aider** | B | B | Y | -- | -- | -- | -- | -- | -- | Y | -- |
-| **kiro** | Y | B | Y | -- | -- | Y | -- | -- | -- | Y | -- |
+| **kiro** | Y | B | Y | -- | -- | Y | -- | -- | Y | Y | -- |
 | **goose** | B | B | B | -- | -- | Y | -- | -- | -- | Y | -- |
 | **zed** | B | B | -- | -- | -- | -- | -- | -- | -- | Y | -- |
 | **amazon-q** | B | B | Y | -- | -- | Y | -- | -- | Y | Y | -- |
 | **antigravity** | B | B | Y | -- | -- | Y | -- | -- | -- | Y | -- |
+| **agents-md** | B | B | B | -- | -- | -- | -- | -- | -- | Y | -- |
 
 ### Agent Model Customization
 
@@ -75,12 +76,13 @@ All adapters emit model preferences when configured via `hatch.json`, agent fron
 | **zed** | Guidance | Text in .rules |
 | **amazon-q** | Guidance | Text in .amazonq/rules/hatch3r-agents.md |
 | **antigravity** | Guidance | Text in .antigravity/rules.md |
+| **agents-md** | Guidance | `**Model:** \`id\`` annotation per agent in AGENTS.md |
 
 ---
 
 ## Bridge Orchestration
 
-All adapters that emit bridge files (Cursor, Claude, Copilot, Gemini, Windsurf, Amp) now include **inline orchestration content** from a shared constant (`BRIDGE_ORCHESTRATION` in `src/cli/shared/agentsContent.ts`). This content comprises:
+All adapters that emit bridge files (Cursor, Claude, Copilot, Gemini, Windsurf, Amp, AGENTS.md) now include **inline orchestration content** from a shared constant (`BRIDGE_ORCHESTRATION` in `src/cli/shared/agentsContent.ts`). This content comprises:
 
 - **Mandatory Behaviors** — 6 directives (load skill, spawn researcher, spawn specialists, use Task tool, propagate rules, consult learnings)
 - **Agent Quick Reference** — Table of 16 agents with "When to Use"
@@ -176,10 +178,11 @@ When omitted, the adapter falls back to sensible defaults so existing projects c
 | Capability | Output Path | Format |
 |------------|-------------|--------|
 | rules | `.codex/config.toml` | Rule comments referencing AGENTS.md (bridge) |
-| agents | `.codex/agents/hatch3r-{id}.toml` | Per-agent TOML files with optional `model` |
+| agents | `.codex/agents/hatch3r-{id}.toml` | Per-agent TOML with `name`, `description`, `developer_instructions` (required); optional `model` |
 | skills | `.codex/skills/hatch3r-{id}/SKILL.md` | Raw content |
 | mcp | `.codex/config.toml` | `[mcp_servers.{name}]` TOML sections |
 | hooks | `.codex/config.toml` | `[hooks."{event}"]` TOML sections with command trigger |
+| project-doc precedence | `.codex/config.toml` | `project_doc_fallback_filenames = ["TEAM_GUIDE.md", ".agents.md"]`; `status` warns when `AGENTS.override.md` is present (per 2026 Codex discovery chain) |
 
 ### Gemini
 
@@ -243,8 +246,9 @@ When omitted, the adapter falls back to sensible defaults so existing projects c
 | rules (scoped) | `.kiro/steering/hatch3r-rule-{id}.md` | Conditional inclusion via YAML frontmatter (`globs`) |
 | agents | `.kiro/steering/hatch3r-agents.md` | Inlined into managed block (bridge) |
 | skills | `.kiro/steering/hatch3r-skill-{id}.md` | Raw content |
+| hooks | `.kiro/hooks/hatch3r-{id}.md` | YAML frontmatter with `trigger:` mapped to Kiro 2026 identifiers (file-save, pre-tool-use, post-tool-use, prompt-submit, manual-trigger) plus optional `filePattern`/`branches` |
 | mcp | `.kiro/settings/mcp.json` | JSON `mcpServers` object |
-| bridge | `.kiro/steering/hatch3r-agents.md` | Managed block with inline orchestration + canonical reference |
+| bridge | `.kiro/steering/hatch3r-agents.md` | Managed block with inline orchestration + Kiro Powers callout + canonical reference |
 
 ### Goose
 
@@ -285,6 +289,17 @@ When omitted, the adapter falls back to sensible defaults so existing projects c
 | mcp | `.antigravity/settings.json` | JSON `mcpServers` object |
 | bridge | `.antigravity/rules.md` | Managed block with inline orchestration + canonical reference |
 
+### AGENTS.md (AAIF)
+
+Produces a single AAIF-compliant `AGENTS.md` at the project root. Use this adapter for tools that read the AAIF standard directly and for which hatch3r ships no dedicated adapter (AAIF specification: https://agents.md, 60k+ repositories as of 2026-04).
+
+| Capability | Output Path | Format |
+|------------|-------------|--------|
+| rules | `AGENTS.md` | `## Rules` section with per-rule `### {id}` subsections (bridge) |
+| agents | `AGENTS.md` | `## Agent: {id}` sections with description, model annotation, `### Instructions` (bridge) |
+| skills | `AGENTS.md` | `## Skills` section with per-skill `### {id}` subsections (bridge) |
+| bridge | `AGENTS.md` | Managed block with inline orchestration + canonical structure reference |
+
 ---
 
 ## Canonical Path Matches
@@ -295,7 +310,7 @@ Some platforms natively read from `.agents/` paths, making adapter output unnece
 |----------|------|-------|
 | **Amp** | `.agents/commands/` | Amp discovers commands in `.agents/commands/` by convention. Canonical files work without transformation. |
 | **Amp** | `.agents/skills/` | Amp discovers skills in `.agents/skills/` by convention. The adapter also writes to `.amp/skills/` for explicit registration. |
-| **Codex** | `.agents/AGENTS.md` | Codex reads `model_instructions_file` pointing to `.agents/AGENTS.md`. Rules are available through this bridge. |
+| **Codex** | `AGENTS.md` (root) | Codex 2026 discovery precedence per scope: `AGENTS.override.md` -> `AGENTS.md` -> filenames in `project_doc_fallback_filenames`. hatch3r writes root `AGENTS.md` and registers `TEAM_GUIDE.md`, `.agents.md` as fallbacks in `.codex/config.toml`. `hatch3r status` warns when project-level `AGENTS.override.md` exists (it silently overrides hatch3r's AGENTS.md). |
 | **Windsurf** | `.agents/skills/` | Windsurf natively discovers skills in `.agents/skills/` for skill auto-discovery. The adapter also writes to `.windsurf/skills/` for explicit registration. |
 | **All** | `AGENTS.md` (root) | hatch3r generates a root `AGENTS.md` with managed blocks. Platforms that discover AGENTS.md (Amp, Codex, Windsurf, Cline) automatically read it. |
 
@@ -322,6 +337,7 @@ All MCP secrets are centralized in a single `.env.mcp` file at the project root 
 | **zed** | N/A (global MCP only) | No | Zed MCP is global; secrets set via Zed settings |
 | **amazon-q** | `${env:VAR}` from process env | No | Same sourcing pattern |
 | **antigravity** | `${env:VAR}` from process env | No | Same sourcing pattern |
+| **agents-md** | N/A | No | AGENTS.md adapter emits no MCP config; platforms consuming AGENTS.md load MCP through their own adapter or tooling |
 
 ### Sourcing `.env.mcp`
 
@@ -345,13 +361,13 @@ set -a && source .env.mcp && set +a && <editor-command> .
 | **aider** | mcp | Aider has no project-level MCP config file format. |
 | **aider** | hooks | No documented Aider hook/event system. |
 | **goose** | hooks | No documented Goose hook/event system. |
-| **kiro** | hooks | No documented Kiro hook/event system for project-level config. |
 | **zed** | mcp | Zed MCP config is global-only (Zed settings). No project-level MCP path. |
 | **zed** | hooks | No documented Zed hook/event system. |
 | **zed** | skills | Zed has no skills concept; rules cover all guidance. |
 | **amazon-q** | commands | No documented Amazon Q commands format. |
 | **antigravity** | hooks | No documented Antigravity hook/event system. |
 | **antigravity** | commands | No documented Antigravity commands format. |
+| **agents-md** | mcp, commands, prompts, hooks, githubAgents | AAIF `AGENTS.md` is a pure markdown bridge format: agents, rules, and skills only. Platform-specific capabilities (MCP, slash commands, event hooks, GitHub agent sidecars) are out of AAIF scope; consuming tools load those via their own adapters. |
 | **all** | guardrails | No adapter emits policy files. Canonical location `.agents/policy/` exists for future use. |
 | **all** | prompts (except copilot) | Only Copilot has a dedicated prompts format (`.github/prompts/`). Other platforms map prompts to commands or skills. |
 | **all** | githubAgents (except copilot) | Copilot-specific capability; only the Copilot adapter emits. |
@@ -373,11 +389,12 @@ set -a && source .env.mcp && set +a && <editor-command> .
 | Amp | [AGENTS.md](https://ampcode.com/agent.md) / [Custom Commands](https://ampcode.com/news/custom-slash-commands) |
 | OpenCode | [OpenCode](https://opencode.ai) |
 | Aider | [Aider YAML Config](https://aider.chat/docs/config/aider_conf.html) / [Conventions](https://aider.chat/docs/usage/conventions.html) |
-| Kiro | [Kiro Steering](https://kiro.dev/docs/steering/) |
+| Kiro | [Kiro Steering](https://kiro.dev/docs/steering/) / [Hooks](https://kiro.dev/docs/hooks/) / [Powers](https://kiro.dev/blog/introducing-powers/) |
 | Goose | [Goosehints](https://block.github.io/goose/docs/guides/using-goosehints) |
 | Zed | [Zed AI Rules](https://zed.dev/docs/ai/rules.html) |
 | Amazon Q | [Amazon Q CLI Agents](https://docs.aws.amazon.com/amazonq/latest/qdeveloper-ug/q-cli-agents.html) |
 | Antigravity | [Antigravity Docs](https://antigravity.dev/docs) |
+| AGENTS.md (AAIF) | [AAIF / AGENTS.md Standard](https://agents.md) |
 
 ---
 

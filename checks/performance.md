@@ -5,6 +5,8 @@ description: Performance review criteria covering bundle size, render performanc
 ---
 # Performance Check
 
+> **Severity vocabulary:** see [governance/audit/templates/severity-mapping.md](../governance/audit/templates/severity-mapping.md) for canonical 5-column mapping.
+
 Review criteria for evaluating performance in pull requests.
 
 ## Bundle Size and Asset Optimization

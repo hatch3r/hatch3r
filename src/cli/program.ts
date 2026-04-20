@@ -64,6 +64,7 @@ export function createProgram(): Command {
     .option("--diff", "Show a before/after diff summary for each generated file")
     .option("--force", "Overwrite locally modified files in sub-repos")
     .option("--minimal", "Generate stripped-down output (no comments, minimal formatting) to reduce token usage")
+    .option("--strict-budget", "Fail sync if any adapter's generated output exceeds its context budget (default: warn)")
     .option("--verbose", "Show detailed output for each file processed")
     .action(syncCommand);
 

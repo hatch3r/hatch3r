@@ -450,4 +450,175 @@ describe("readCanonicalFiles", () => {
       expect(results[0]!.id).toBe("ok");
     });
   });
+
+  // C7.5-W2B2-H8 (D2-SA2.2-2): frontmatter type-mismatch surfacing.
+  // Pre-fix, `id: 123` or `tags: "foo,bar"` silently collapsed to empty
+  // string / dropped without warning, falling back to path-derived id.
+  // Adversarial canonical content could exploit this for id manipulation.
+  describe("C7.5-W2B2-H8 frontmatter type-mismatch diagnostics", () => {
+    it("surfaces TYPE_MISMATCH when id is a number", async () => {
+      const dir = await createTempAgentsDir();
+      await mkdir(join(dir, "rules"), { recursive: true });
+      await writeFile(
+        join(dir, "rules", "numeric-id.md"),
+        "---\nid: 12345\ntype: rule\ndescription: numeric id\n---\n# Body",
+      );
+
+      const warnings: string[] = [];
+      const results = await readCanonicalFiles(dir, "rules", warnings);
+
+      // File still loads (id falls back to filename-derived form).
+      expect(results.length).toBe(1);
+      expect(results[0]!.id).toBe("numeric-id");
+      // Warning surfaces the type mismatch.
+      expect(warnings.some((w) => w.includes("TYPE_MISMATCH") && w.includes("id field"))).toBe(true);
+      expect(warnings.some((w) => w.includes("got number"))).toBe(true);
+    });
+
+    it("surfaces TYPE_MISMATCH when id is an array", async () => {
+      const dir = await createTempAgentsDir();
+      await mkdir(join(dir, "rules"), { recursive: true });
+      await writeFile(
+        join(dir, "rules", "array-id.md"),
+        "---\nid: [a, b, c]\ntype: rule\ndescription: array id\n---\n# Body",
+      );
+
+      const warnings: string[] = [];
+      const results = await readCanonicalFiles(dir, "rules", warnings);
+
+      expect(results.length).toBe(1);
+      expect(results[0]!.id).toBe("array-id");
+      expect(warnings.some((w) => w.includes("TYPE_MISMATCH") && w.includes("id field") && w.includes("got array"))).toBe(true);
+    });
+
+    it("surfaces TYPE_MISMATCH when description is a boolean", async () => {
+      const dir = await createTempAgentsDir();
+      await mkdir(join(dir, "rules"), { recursive: true });
+      await writeFile(
+        join(dir, "rules", "bool-desc.md"),
+        "---\nid: bool-desc\ntype: rule\ndescription: true\n---\n# Body",
+      );
+
+      const warnings: string[] = [];
+      const results = await readCanonicalFiles(dir, "rules", warnings);
+
+      expect(results.length).toBe(1);
+      expect(warnings.some((w) => w.includes("description field") && w.includes("got boolean"))).toBe(true);
+    });
+
+    it("surfaces TYPE_MISMATCH when tags is a string (not an array)", async () => {
+      const dir = await createTempAgentsDir();
+      await mkdir(join(dir, "rules"), { recursive: true });
+      await writeFile(
+        join(dir, "rules", "string-tags.md"),
+        '---\nid: string-tags\ntype: rule\ndescription: tags as string\ntags: "foo,bar"\n---\n# Body',
+      );
+
+      const warnings: string[] = [];
+      const results = await readCanonicalFiles(dir, "rules", warnings);
+
+      expect(results.length).toBe(1);
+      expect(warnings.some((w) => w.includes("tags field") && w.includes("got string"))).toBe(true);
+    });
+
+    it("does not warn when all fields have correct types", async () => {
+      const dir = await createTempAgentsDir();
+      await mkdir(join(dir, "rules"), { recursive: true });
+      await writeFile(
+        join(dir, "rules", "well-typed.md"),
+        "---\nid: well-typed\ntype: rule\ndescription: proper strings\ntags: [a, b]\n---\n# Body",
+      );
+
+      const warnings: string[] = [];
+      await readCanonicalFiles(dir, "rules", warnings);
+
+      expect(warnings.some((w) => w.includes("TYPE_MISMATCH"))).toBe(false);
+    });
+
+    it("collects multiple mismatches for a single file", async () => {
+      const dir = await createTempAgentsDir();
+      await mkdir(join(dir, "rules"), { recursive: true });
+      await writeFile(
+        join(dir, "rules", "multi-mismatch.md"),
+        "---\nid: 1\ntype: [wrong]\ndescription: 2.5\n---\n# Body",
+      );
+
+      const warnings: string[] = [];
+      await readCanonicalFiles(dir, "rules", warnings);
+
+      const typeMismatchCount = warnings.filter((w) => w.includes("TYPE_MISMATCH")).length;
+      expect(typeMismatchCount).toBeGreaterThanOrEqual(3);
+    });
+  });
+
+  // C7.5-W2B2-H43 (D15-F15.1-02): promptGuard wired into canonical read
+  // path. Advisory structural-injection scanning for null bytes, ANSI
+  // escapes, chat template tokens, and tool delimiters.
+  describe("C7.5-W2B2-H43 promptGuard advisory scan on canonical body", () => {
+    it("warns when canonical body contains a null byte", async () => {
+      const dir = await createTempAgentsDir();
+      await mkdir(join(dir, "rules"), { recursive: true });
+      await writeFile(
+        join(dir, "rules", "nullbyte.md"),
+        "---\nid: nullbyte\ntype: rule\ndescription: has nul\n---\nNormal\x00hidden",
+      );
+
+      const warnings: string[] = [];
+      const results = await readCanonicalFiles(dir, "rules", warnings);
+
+      // File still loads — advisory only.
+      expect(results.length).toBe(1);
+      expect(warnings.some((w) => w.includes("promptGuard") && w.toLowerCase().includes("null byte"))).toBe(true);
+    });
+
+    it("warns when canonical body contains chat template injection tokens", async () => {
+      const dir = await createTempAgentsDir();
+      await mkdir(join(dir, "rules"), { recursive: true });
+      await writeFile(
+        join(dir, "rules", "chat-tokens.md"),
+        "---\nid: chat-tokens\ntype: rule\ndescription: has tokens\n---\nNormal [INST] bad [/INST]",
+      );
+
+      const warnings: string[] = [];
+      const results = await readCanonicalFiles(dir, "rules", warnings);
+
+      expect(results.length).toBe(1);
+      expect(warnings.some((w) => w.includes("promptGuard") && w.includes("chat template"))).toBe(true);
+    });
+
+    it("does not flag legitimate Handlebars-style {{placeholder}} in canonical body", async () => {
+      // Handlebars examples in rules/hatch3r-i18n.md and similar files
+      // must NOT trigger promptGuard warnings — the narrow scan excludes
+      // the template-literal pattern that generates false positives.
+      const dir = await createTempAgentsDir();
+      await mkdir(join(dir, "rules"), { recursive: true });
+      await writeFile(
+        join(dir, "rules", "handlebars.md"),
+        "---\nid: handlebars\ntype: rule\ndescription: ok\n---\nUse {{ project_name }} as a variable.",
+      );
+
+      const warnings: string[] = [];
+      const results = await readCanonicalFiles(dir, "rules", warnings);
+
+      expect(results.length).toBe(1);
+      expect(warnings.some((w) => w.includes("promptGuard"))).toBe(false);
+    });
+
+    it("does not flag role-colon line markers in canonical body", async () => {
+      // Pattern `user:` at end of line is in the general pipeline guard
+      // but excluded from the canonical scan — legitimate protocol-style
+      // documentation uses these.
+      const dir = await createTempAgentsDir();
+      await mkdir(join(dir, "rules"), { recursive: true });
+      await writeFile(
+        join(dir, "rules", "role-doc.md"),
+        "---\nid: role-doc\ntype: rule\ndescription: ok\n---\nExample format:\nsystem:\nassistant:\n",
+      );
+
+      const warnings: string[] = [];
+      await readCanonicalFiles(dir, "rules", warnings);
+
+      expect(warnings.some((w) => w.includes("promptGuard"))).toBe(false);
+    });
+  });
 });

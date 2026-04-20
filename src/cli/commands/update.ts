@@ -27,6 +27,8 @@ import {
   recordSuccess,
   recordFailure,
   classifyFailure,
+  classifyDependency,
+  getRecoveryGuidance,
   type CircuitBreakerState,
 } from "../../pipeline/circuitBreaker.js";
 import { executeWithPhaseTimeout } from "../../pipeline/phaseTimeout.js";
@@ -206,12 +208,26 @@ export async function runPackageUpdate(
     );
   } catch (err) {
     const isTimeout = err && typeof err === "object" && ("killed" in err || "signal" in err);
-    const msg = isTimeout
-      ? `Package update timed out after ${UPDATE_TIMEOUT_MS / 1000}s. Check network connectivity and retry, or set HATCH3R_UPDATE_TIMEOUT_MS to increase the timeout.`
-      : (err instanceof Error ? err.message : String(err));
+    // C7.5-W2B2-H28 (D8): classify non-timeout failures so the error
+    // surfaces dependency-aware recovery guidance (package-manager vs
+    // network vs auth) instead of a bare vendor string.
+    let msg: string;
+    let errorCode: "NETWORK_ERROR" | "UNKNOWN_ERROR" = "UNKNOWN_ERROR";
+    if (isTimeout) {
+      msg = `Package update timed out after ${UPDATE_TIMEOUT_MS / 1000}s. Check network connectivity and retry, or set HATCH3R_UPDATE_TIMEOUT_MS to increase the timeout.`;
+      errorCode = "NETWORK_ERROR";
+    } else {
+      const raw = err instanceof Error ? err.message : String(err);
+      const depClass = classifyDependency(err);
+      const failType = classifyFailure(err);
+      const guidance = getRecoveryGuidance(depClass, failType);
+      msg = `${raw}. ${guidance}`;
+      // Map dependency class -> canonical HatchErrorCode.
+      if (depClass === "network") errorCode = "NETWORK_ERROR";
+    }
     s0.fail(step(offset + 1, total, "Failed to update package"));
     logError(msg);
-    throw new HatchError(msg, 1, isTimeout ? "NETWORK_ERROR" : "UNKNOWN_ERROR");
+    throw new HatchError(msg, 1, errorCode);
   }
   s0.succeed(step(offset + 1, total, "Package updated"));
 }
@@ -351,7 +367,15 @@ export async function runRegenerate(
   }
   if (adapterFailures.length > 0) {
     for (const f of adapterFailures) {
+      // C7.5-W2B2-H28 (D8): append dependency-class-specific recovery
+      // guidance so the user sees an actionable next step rather than a
+      // bare vendor error.
+      const reconstructed = new Error(f.error);
+      const depClass = classifyDependency(reconstructed);
+      const failType = classifyFailure(reconstructed);
+      const guidance = getRecoveryGuidance(depClass, failType);
       logError(`Failed to generate ${f.tool}: ${f.error}`);
+      info(`  ${guidance}`);
     }
     if (adapterFailures.length === manifest.tools.length) {
       s2.fail(step(offset + 2, total, "All adapters failed"));

@@ -1,4 +1,4 @@
-import { readFile, readdir, stat } from "node:fs/promises";
+import { access, readFile, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import chalk from "chalk";
 import { readManifest } from "../../manifest/hatchJson.js";
@@ -12,6 +12,7 @@ import {
   printBox,
   error as logError,
   info,
+  warn,
   setVerbose,
   verbose,
 } from "../shared/ui.js";
@@ -234,6 +235,30 @@ export async function statusCommand(opts?: { verbose?: boolean; deep?: boolean }
   if (stats.drifted > 0 || stats.missing > 0) {
     info(`Run ${chalk.bold("hatch3r sync")} to regenerate drifted/missing files.`);
     console.log();
+  }
+
+  // ── Codex precedence-chain warning (C7.5-W2B2-H36 / D9-SA9.5.1) ──
+  // OpenAI Codex CLI checks AGENTS.override.md before AGENTS.md in every
+  // scope. If ops or compliance has placed AGENTS.override.md at the
+  // project root, hatch3r-managed AGENTS.md is silently superseded. Warn
+  // when the override file is present so users know their hatch3r content
+  // is being overridden by a non-hatch3r file.
+  if (manifest.tools.includes("codex")) {
+    const overridePath = join(rootDir, "AGENTS.override.md");
+    try {
+      await access(overridePath);
+      warn(
+        `AGENTS.override.md present at project root -- Codex will use it instead of hatch3r's AGENTS.md (per Codex 2026 discovery precedence).`,
+      );
+      console.log();
+    } catch (err) {
+      // Expected path: no override file present is normal operation. Surface
+      // the probe outcome via the verbose channel so the silent-failure
+      // contract is satisfied and diagnostics are available when debugging
+      // (CONSTITUTION.md §2 P5).
+      const code = (err as NodeJS.ErrnoException | undefined)?.code ?? "UNKNOWN";
+      verbose(`AGENTS.override.md probe: not present (${code})`);
+    }
   }
 
   // ── Workspace topology ──────────────────────────────────────

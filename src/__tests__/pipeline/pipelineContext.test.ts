@@ -3,9 +3,12 @@ import {
   validatePhaseTransition,
   shouldTriggerSpecialist,
   getSpecialistHints,
+  isHaltStatus,
+  AGENT_STATUS_VALUES,
   PHASE_SKIP_CRITERIA,
   SPECIALIST_TRIGGER_TABLE,
   LANGUAGE_SPECIALIST_CONFIGS,
+  type AgentStatus,
   type PipelineContext,
   type ProjectTypeContext,
 } from "../../pipeline/pipelineContext.js";
@@ -478,5 +481,85 @@ describe("LANGUAGE_SPECIALIST_CONFIGS", () => {
     for (const config of LANGUAGE_SPECIALIST_CONFIGS) {
       expect(config.specialistHints.length).toBeGreaterThan(0);
     }
+  });
+});
+
+// ── AgentStatus (Finding C7.5-W2B2-H24 / D7-SA7.1-2) ─────────────
+
+describe("AGENT_STATUS_VALUES", () => {
+  it("should include all six canonical statuses", () => {
+    expect(AGENT_STATUS_VALUES).toEqual([
+      "SUCCESS",
+      "PARTIAL",
+      "FAILED",
+      "SKIPPED",
+      "TIMEOUT",
+      "BLOCKED_PREMISE_CHALLENGE",
+    ]);
+  });
+
+  it("should include BLOCKED_PREMISE_CHALLENGE for quality-charter §3 escalation", () => {
+    expect(AGENT_STATUS_VALUES).toContain("BLOCKED_PREMISE_CHALLENGE");
+  });
+
+  it("should be usable as a runtime allowlist", () => {
+    for (const status of AGENT_STATUS_VALUES) {
+      expect(typeof status).toBe("string");
+      expect(status.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("isHaltStatus", () => {
+  it("should return true for BLOCKED_PREMISE_CHALLENGE", () => {
+    expect(isHaltStatus("BLOCKED_PREMISE_CHALLENGE")).toBe(true);
+  });
+
+  it("should return false for SUCCESS", () => {
+    expect(isHaltStatus("SUCCESS")).toBe(false);
+  });
+
+  it("should return false for PARTIAL, FAILED, SKIPPED, TIMEOUT", () => {
+    const nonHalt: AgentStatus[] = ["PARTIAL", "FAILED", "SKIPPED", "TIMEOUT"];
+    for (const status of nonHalt) {
+      expect(isHaltStatus(status)).toBe(false);
+    }
+  });
+
+  it("should return true only for BLOCKED_PREMISE_CHALLENGE across the full enum", () => {
+    const haltStatuses = AGENT_STATUS_VALUES.filter((s) => isHaltStatus(s));
+    expect(haltStatuses).toEqual(["BLOCKED_PREMISE_CHALLENGE"]);
+  });
+});
+
+describe("validatePhaseTransition with BLOCKED_PREMISE_CHALLENGE", () => {
+  it("should accept BLOCKED_PREMISE_CHALLENGE as a valid implementation status", () => {
+    const ctx = {
+      correlationId: "550e8400-e29b-41d4-a716-446655440000",
+      taskType: "feature" as const,
+      issueRef: "#42",
+      deepContextTier: 2 as const,
+      startedAt: new Date().toISOString(),
+      completedAt: null,
+      totalDuration: null,
+      researchFindings: {
+        modes: ["codebase-impact"],
+        affectedFiles: ["src/foo.ts"],
+        blastRadius: [],
+        existingTests: [],
+        dependencies: [],
+        conventions: null,
+        resolvedRequirements: null,
+      },
+      implementationResult: {
+        filesChanged: [],
+        testsWritten: [],
+        status: "BLOCKED_PREMISE_CHALLENGE" as const,
+        reason:
+          "Task premise conflicts with architectural invariant X; alt: refactor invariant before feature",
+      },
+    };
+    const errors = validatePhaseTransition(ctx, 3);
+    expect(errors.filter((e) => e.field === "implementationResult.status")).toHaveLength(0);
   });
 });

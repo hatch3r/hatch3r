@@ -4,12 +4,36 @@ import { resolveAgentModel } from "../models/resolve.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
 import { readCanonicalFiles } from "./canonical.js";
 import { applyCustomization } from "./customization.js";
-import { escapeTomlString, tomlKey } from "./toml-utils.js";
+import { escapeTomlString, escapeTomlMultilineString, tomlKey } from "./toml-utils.js";
 import { transformEnvVarSyntax } from "./mcp-utils.js";
 
-// Codex adapter — generates configuration for OpenAI Codex CLI.
-// Codex reads project config from the `.codex/` directory. Agent-specific
-// configurations are written as individual TOML files in `.codex/agents/`.
+// Codex adapter — generates configuration for OpenAI Codex CLI (v0.114+).
+//
+// Codex reads project config from the `.codex/` directory plus project-doc
+// markdown files discovered via the Codex precedence chain. Per the 2026
+// OpenAI docs (https://developers.openai.com/codex/guides/agents-md):
+//
+//   Discovery order per scope (global ~/.codex/, then project root down to cwd):
+//     1. AGENTS.override.md   (opt-in override file)
+//     2. AGENTS.md            (default project doc)
+//     3. Any filename listed in `project_doc_fallback_filenames`
+//        (e.g. TEAM_GUIDE.md, .agents.md)
+//
+// hatch3r emits AGENTS.md at the project root (via the agents-md adapter) and
+// registers the legacy fallback names (TEAM_GUIDE.md, .agents.md) so existing
+// Codex users whose docs used those names still surface hatch3r content when
+// AGENTS.md is absent. The `status` command surfaces a warning when a
+// project-level AGENTS.override.md exists, since that file silently overrides
+// hatch3r-managed AGENTS.md (P3, D9-SA9.5.1).
+//
+// Per-agent (subagent) configurations are written as individual TOML files in
+// `.codex/agents/` per the Codex subagents schema
+// (https://developers.openai.com/codex/subagents). Required top-level keys:
+//   name, description, developer_instructions.
+// Optional: model, nickname_candidates, sandbox_mode, model_reasoning_effort,
+// plus per-agent `[mcp_servers.<id>]` tables. The `[agents]` section in
+// config.toml configures global orchestration (max_threads, max_depth,
+// job_max_runtime_seconds), not per-agent definitions.
 export class CodexAdapter extends BaseAdapter {
   readonly name = "codex";
 
@@ -20,6 +44,13 @@ export class CodexAdapter extends BaseAdapter {
       "# Codex project configuration (managed by hatch3r)",
       "#",
       "# Do not manually edit — run `npx hatch3r sync` to regenerate.",
+      "",
+      "# Project-doc discovery precedence (per OpenAI Codex CLI 2026 docs):",
+      "#   AGENTS.override.md -> AGENTS.md -> project_doc_fallback_filenames",
+      "# hatch3r writes AGENTS.md at the project root; legacy fallback names",
+      "# are registered below so projects migrating from pre-2026 Codex still",
+      "# surface hatch3r content if they renamed their project doc.",
+      'project_doc_fallback_filenames = ["TEAM_GUIDE.md", ".agents.md"]',
       "",
     ];
 
@@ -45,24 +76,32 @@ export class CodexAdapter extends BaseAdapter {
     if (ctx.features.agents) {
       const agents = await readCanonicalFiles(ctx.agentsDir, "agents", this.warnings);
       for (const agent of agents) {
-        const { skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
+        const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
         this.warnings.push(...warnings);
         if (skip) continue;
         const agentId = toPrefixedId(agent.id);
         const model = resolveAgentModel(agent.id, agent, ctx.manifest, overrides);
         const desc = overrides.description ?? agent.description;
 
-        // Codex expects individual TOML files per agent, not sections in config.toml.
-        // model_instructions_file is legacy/reserved — Codex discovers AGENTS.md natively.
+        // Per Codex subagents schema (2026), each standalone agent file uses
+        // top-level keys: `name`, `description`, `developer_instructions`
+        // (required), with optional `model`, `nickname_candidates`,
+        // `sandbox_mode`, etc. There is no `[agent]` wrapper section.
         const agentLines: string[] = [
           "# Codex agent configuration (managed by hatch3r)",
           "#",
           "# Do not manually edit — run `npx hatch3r sync` to regenerate.",
           "",
+          `name = "${escapeTomlString(agentId)}"`,
           `description = "${escapeTomlString(desc)}"`,
         ];
         if (model) agentLines.push(`model = "${escapeTomlString(model)}"`);
-        agentLines.push("");
+        agentLines.push(
+          `developer_instructions = """`,
+          escapeTomlMultilineString(content),
+          `"""`,
+          "",
+        );
         results.push(output(`.codex/agents/${agentId}.toml`, agentLines.join("\n")));
       }
     }

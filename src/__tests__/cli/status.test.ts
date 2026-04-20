@@ -269,4 +269,75 @@ describe("status command", () => {
       expect(output).toMatch(/claude.*last sync did not complete/);
     });
   });
+
+  // C7.5-W2B2-H36 / D9-SA9.5.1: when the codex adapter is configured,
+  // status warns if AGENTS.override.md is present at the project root,
+  // since Codex's 2026 discovery precedence lets that file silently
+  // override hatch3r's AGENTS.md.
+  describe("AGENTS.override.md precedence warning", () => {
+    it("warns when codex tool is configured and AGENTS.override.md exists", async () => {
+      await createTestProject(tempDir, { tools: ["codex"] });
+      await writeFile(
+        join(tempDir, "AGENTS.override.md"),
+        "# Ops-placed override\n",
+      );
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand();
+
+      consoleSpy.mockClear();
+      consoleErrorSpy.mockClear();
+
+      const { statusCommand } = await import("../../cli/commands/status.js");
+      await statusCommand();
+
+      const allOutput = [
+        ...consoleSpy.mock.calls.map((c) => String(c[0])),
+        ...consoleErrorSpy.mock.calls.map((c) => String(c[0])),
+      ].join("\n");
+      expect(allOutput).toContain("AGENTS.override.md present");
+    });
+
+    it("does not warn when codex is configured but no AGENTS.override.md exists", async () => {
+      await createTestProject(tempDir, { tools: ["codex"] });
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand();
+
+      consoleSpy.mockClear();
+      consoleErrorSpy.mockClear();
+
+      const { statusCommand } = await import("../../cli/commands/status.js");
+      await statusCommand();
+
+      const allOutput = [
+        ...consoleSpy.mock.calls.map((c) => String(c[0])),
+        ...consoleErrorSpy.mock.calls.map((c) => String(c[0])),
+      ].join("\n");
+      expect(allOutput).not.toContain("AGENTS.override.md present");
+    });
+
+    it("does not warn when AGENTS.override.md exists but codex is not configured", async () => {
+      await createTestProject(tempDir, { tools: ["cursor"] });
+      await writeFile(
+        join(tempDir, "AGENTS.override.md"),
+        "# Ops-placed override\n",
+      );
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand();
+
+      consoleSpy.mockClear();
+      consoleErrorSpy.mockClear();
+
+      const { statusCommand } = await import("../../cli/commands/status.js");
+      await statusCommand();
+
+      const allOutput = [
+        ...consoleSpy.mock.calls.map((c) => String(c[0])),
+        ...consoleErrorSpy.mock.calls.map((c) => String(c[0])),
+      ].join("\n");
+      expect(allOutput).not.toContain("AGENTS.override.md present");
+    });
+  });
 });

@@ -30,8 +30,8 @@ Every task MUST follow this four-phase pipeline: **Phase 1 — Research** (`hatc
 | `hatch3r-implementer` | Single-task implementation | Always — one per task |
 | `hatch3r-reviewer` | Code review | Always — Phase 3 review loop |
 | `hatch3r-fixer` | Fix reviewer findings | Phase 3 — Critical/Warning findings |
-| `hatch3r-test-writer` | Tests | Always — Phase 4 (every code change) |
-| `hatch3r-security-auditor` | Security review | Always — Phase 4 (every code change) |
+| `hatch3r-test-writer` | Tests | Always — Phase 4 (every code change; skip per Phase Skip Criteria) |
+| `hatch3r-security-auditor` | Security review | Always — Phase 4 (every code change; skip per Phase Skip Criteria) |
 | `hatch3r-docs-writer` | Documentation | Phase 4 — evaluate when APIs/architecture/UX affected |
 | `hatch3r-lint-fixer` | Lint/type fixes | Conditional — lint errors present |
 | `hatch3r-a11y-auditor` | WCAG AA checks | Conditional — UI/accessibility changes |
@@ -117,7 +117,7 @@ For multi-sub-task implementations, the implementer performs a lightweight mini-
 
 Launch parallel subagents -- no artificial concurrency limit.
 
-- **Always:** `hatch3r-test-writer`, `hatch3r-security-auditor`
+- **Always** (except when Phase Skip Criteria applies — see below)**:** `hatch3r-test-writer`, `hatch3r-security-auditor`
 - **Evaluate:** `hatch3r-docs-writer` (when APIs/architecture/UX affected)
 - **Conditional:** `hatch3r-lint-fixer`, `hatch3r-a11y-auditor`, `hatch3r-perf-profiler`, `hatch3r-dependency-auditor`, `hatch3r-architect`, `hatch3r-devops`
 
@@ -130,8 +130,8 @@ Launch parallel subagents -- no artificial concurrency limit.
 
 | Specialist | Mode | Trigger Conditions |
 |-----------|------|--------------------|
-| `hatch3r-test-writer` | Always | Any code change |
-| `hatch3r-security-auditor` | Always | Any code change |
+| `hatch3r-test-writer` | Always | Any code change; may skip per Phase Skip Criteria |
+| `hatch3r-security-auditor` | Always | Any code change; may skip per Phase Skip Criteria |
 | `hatch3r-docs-writer` | Evaluate | Public API, architecture, or UX changes |
 | `hatch3r-lint-fixer` | Conditional | Lint/type errors present |
 | `hatch3r-a11y-auditor` | Conditional | UI/accessibility changes |

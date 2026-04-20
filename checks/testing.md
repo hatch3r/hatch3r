@@ -5,6 +5,8 @@ description: Test coverage review criteria covering test quality, regression tes
 ---
 # Testing Check
 
+> **Severity vocabulary:** see [governance/audit/templates/severity-mapping.md](../governance/audit/templates/severity-mapping.md) for canonical 5-column mapping.
+
 Review criteria for evaluating test coverage and quality in pull requests.
 
 ## Coverage Requirements

@@ -444,3 +444,69 @@ describe("validateMcpEntry version-pin integration (C7-H6)", () => {
     expect(warnings.some((w) => w.includes("unpinned"))).toBe(false);
   });
 });
+
+// C7.5-W2B2-H3 (D2-SA2.4-1): Windows executable extension normalization.
+// `node.exe` / `python.cmd` / `npx.bat` used to fail the allowlist check
+// because the stripped basename retained the extension. These configurations
+// are semantically valid on Windows and should pass the allowlist.
+describe("validateMcpEntry — C7.5-W2B2-H3 Windows .exe/.cmd/.bat allowlist", () => {
+  it("accepts node.exe as an allowed command", () => {
+    const entry: McpServerEntry = {
+      command: "node.exe",
+      args: ["server.js"],
+    };
+    expect(validateMcpEntry("win-node", entry)).toEqual([]);
+  });
+
+  it("accepts npx.bat as an allowed command (Windows batch shim)", () => {
+    const entry: McpServerEntry = {
+      command: "npx.bat",
+      args: ["@modelcontextprotocol/server-github@1.2.3"],
+    };
+    expect(validateMcpEntry("win-npx", entry)).toEqual([]);
+  });
+
+  it("accepts python.cmd as an allowed command", () => {
+    const entry: McpServerEntry = {
+      command: "python.cmd",
+      args: ["-m", "mcp_server"],
+    };
+    expect(validateMcpEntry("win-py", entry)).toEqual([]);
+  });
+
+  it("accepts absolute Windows path ending in .exe", () => {
+    const entry: McpServerEntry = {
+      command: "C:\\Program Files\\nodejs\\node.exe",
+      args: ["server.js"],
+    };
+    expect(validateMcpEntry("win-abs-node", entry)).toEqual([]);
+  });
+
+  it("accepts extension case-insensitively (node.EXE, python.Cmd)", () => {
+    expect(
+      validateMcpEntry("ci-exe", { command: "node.EXE", args: ["x.js"] }),
+    ).toEqual([]);
+    expect(
+      validateMcpEntry("ci-cmd", { command: "python.Cmd", args: ["x.py"] }),
+    ).toEqual([]);
+  });
+
+  it("still warns on unrecognized command with .exe suffix", () => {
+    const entry: McpServerEntry = {
+      command: "bash.exe",
+      args: ["-c", "echo hi"],
+    };
+    const warnings = validateMcpEntry("evil", entry);
+    expect(warnings.some((w) => w.includes("unrecognized command") && w.includes("bash.exe"))).toBe(true);
+  });
+
+  it("only strips trailing extension, not mid-path occurrences", () => {
+    // `myexe.tool` is a tool name containing "exe" — must not be stripped.
+    const entry: McpServerEntry = {
+      command: "myexe.tool",
+      args: [],
+    };
+    const warnings = validateMcpEntry("midpath", entry);
+    expect(warnings.some((w) => w.includes("unrecognized command"))).toBe(true);
+  });
+});

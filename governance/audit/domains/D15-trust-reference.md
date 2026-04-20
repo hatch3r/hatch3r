@@ -88,7 +88,7 @@ originating audit finding number.
 | ASI01 Prompt Injection | Integrity, Resilience | promptGuard.ts | `validate` asi01-* | #78 |
 | ASI02 Tool Allowlists | Containment, Transparency | agentToolAllowlist.ts | `validate` asi02-* | #79 |
 | ASI03 Agent Identity | Accountability, Transparency | agentIdentity.ts | `validate` asi03-* | #80 |
-| ASI07 Schema Validation | Integrity | phaseOutputSchema.ts | `validate` asi07-* | #83 |
+| ASI07 Output Compaction | Integrity | phaseOutputSchema.ts (compactPhaseOutput) | `validate` asi07-* | #83 |
 | Review Loop Limits | Containment | Pipeline max 3 iterations | Manual audit | #81 |
 | Diff-Hash Verification | Integrity | diffHashVerify.ts | `validate` integrity | #82 |
 | Pipeline/Phase Timeouts | Resilience | pipelineTimeout.ts | `validate` timeouts | #84 |

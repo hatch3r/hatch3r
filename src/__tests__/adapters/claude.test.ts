@@ -196,7 +196,7 @@ describe("ClaudeAdapter", () => {
     // Hatch3r metadata for managed-block tracking
     expect(parsed._hatch3r).toBeDefined();
     expect(parsed._hatch3r.managed).toBe(true);
-    expect(parsed._hatch3r.schema).toBe("claude-code/plugin-hooks/v1");
+    expect(parsed._hatch3r.schema).toBe("claude-code/plugin-hooks/v2.1");
   });
 
   it("does not emit plugin-style hooks file when hooks feature is disabled", async () => {
@@ -205,6 +205,24 @@ describe("ClaudeAdapter", () => {
 
     const pluginHooks = outputs.find((o) => o.path === ".claude/hooks/hatch3r-hooks.json");
     expect(pluginHooks).toBeUndefined();
+  });
+
+  // C7.5-W2B2-H50 (D17-SA17.2-B, P3): Worktree events use Claude Code v2.1.x
+  // native lifecycle names (WorktreeCreate / WorktreeRemove) per
+  // code.claude.com/docs/en/plugins-reference (accessed 2026-04-19).
+  it("maps worktree-create / worktree-remove to Claude Code v2.1.x native events", async () => {
+    const manifest = makeManifest({
+      worktree: { enabled: true },
+    } as unknown as Parameters<typeof makeManifest>[0]);
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+    const settings = outputs.find((o) => o.path === ".claude/settings.json");
+    expect(settings).toBeDefined();
+    const parsed = JSON.parse(settings!.content);
+    // When worktree is enabled, the adapter emits a native WorktreeCreate handler
+    // in addition to the legacy PostToolUse+Bash fallback.
+    expect(parsed.hooks.WorktreeCreate).toBeDefined();
+    expect(Array.isArray(parsed.hooks.WorktreeCreate)).toBe(true);
+    expect(parsed.hooks.WorktreeCreate[0].hooks[0].command).toContain("hatch3r worktree-setup");
   });
 
   it("plugin-style hooks file mirrors settings.json hooks (additive, both emitted)", async () => {
@@ -556,5 +574,78 @@ You are a test agent.`,
     const claudeMd = outputs.find((o) => o.path === "CLAUDE.md");
     expect(claudeMd).toBeDefined();
     expect(claudeMd!.content).toContain("Hatch3r");
+  });
+
+  // C7.5-W2B2-H41 (D15, P6): per-adapter `tools:` frontmatter emission.
+  // Verify the Claude Code adapter emits a policy-derived `tools:` field
+  // for canonical agents registered in AGENT_TOOL_POLICIES, and omits it
+  // for custom/unknown agents (preserving the upstream inherit-from-parent
+  // default).
+  describe("C7.5-W2B2-H41 tools: frontmatter emission", () => {
+    async function runWithAgent(
+      agentId: string,
+      body: string,
+    ): Promise<Awaited<ReturnType<typeof adapter.generate>>> {
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-claude-tools-"));
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "agents"), { recursive: true });
+      await writeFile(
+        join(agentsDir, "agents", `${agentId}.md`),
+        `---\nid: ${agentId}\ntype: agent\ndescription: ${agentId} description\n---\n${body}\n`,
+        "utf-8",
+      );
+      try {
+        return await adapter.generate(agentsDir, makeManifest());
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    }
+
+    it("emits tools: for hatch3r-reviewer restricted to Read/Grep/Glob", async () => {
+      const outputs = await runWithAgent("reviewer", "# Reviewer");
+      const file = outputs.find(
+        (o) => o.path === ".claude/agents/hatch3r-reviewer.md",
+      );
+      expect(file).toBeDefined();
+      expect(file!.content).toMatch(/^---\n[\s\S]*?tools: [\s\S]*?\n---/m);
+      expect(file!.content).toContain("Read");
+      expect(file!.content).toContain("Grep");
+      expect(file!.content).toContain("Glob");
+      // Monotonic privilege: reviewer is read+search only — no write, edit, bash.
+      const fmMatch = file!.content.match(/^---\n([\s\S]*?)\n---/);
+      expect(fmMatch).not.toBeNull();
+      const fm = fmMatch![1];
+      expect(fm).not.toContain("Write");
+      expect(fm).not.toContain("Edit");
+      expect(fm).not.toContain("Bash");
+    });
+
+    it("emits tools: for hatch3r-implementer including Write and Bash", async () => {
+      const outputs = await runWithAgent("implementer", "# Implementer");
+      const file = outputs.find(
+        (o) => o.path === ".claude/agents/hatch3r-implementer.md",
+      );
+      expect(file).toBeDefined();
+      const fmMatch = file!.content.match(/^---\n([\s\S]*?)\n---/);
+      expect(fmMatch).not.toBeNull();
+      const fm = fmMatch![1];
+      expect(fm).toContain("tools:");
+      expect(fm).toContain("Write");
+      expect(fm).toContain("Bash");
+      expect(fm).toContain("Edit");
+    });
+
+    it("omits tools: for custom agents without a registered policy", async () => {
+      const outputs = await runWithAgent("custom-agent", "# Custom");
+      const file = outputs.find(
+        (o) => o.path === ".claude/agents/hatch3r-custom-agent.md",
+      );
+      expect(file).toBeDefined();
+      const fmMatch = file!.content.match(/^---\n([\s\S]*?)\n---/);
+      expect(fmMatch).not.toBeNull();
+      const fm = fmMatch![1];
+      expect(fm).not.toContain("tools:");
+      expect(fm).toContain("description:");
+    });
   });
 });

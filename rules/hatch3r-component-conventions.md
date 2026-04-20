@@ -3,7 +3,7 @@ id: hatch3r-component-conventions
 type: rule
 description: Rules for component development in web applications
 scope: conditional
-globs: src/**/*.vue, src/**/*.tsx, src/**/*.jsx
+globs: "src/**/*.vue,src/**/*.tsx,src/**/*.jsx"
 tags: [implementation, lang:typescript]
 quality_charter: agents/shared/quality-charter.md
 ---

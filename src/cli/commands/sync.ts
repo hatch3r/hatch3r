@@ -30,6 +30,8 @@ import {
   recordSuccess,
   recordFailure,
   classifyFailure,
+  classifyDependency,
+  getRecoveryGuidance,
   type CircuitBreakerState,
 } from "../../pipeline/circuitBreaker.js";
 import { executeWithPhaseTimeout } from "../../pipeline/phaseTimeout.js";
@@ -153,6 +155,7 @@ export async function syncCommand(
     force?: boolean;
     minimal?: boolean;
     verbose?: boolean;
+    strictBudget?: boolean;
   } = {},
 ): Promise<void> {
   setVerbose(!!opts.verbose);
@@ -283,6 +286,11 @@ export async function syncCommand(
   outputPathOwners.set(`${AGENTS_DIR}/AGENTS.md`, "sync-bridge");
 
   const adapterFailures: { tool: string; error: string }[] = [];
+  // C7.5-W2B2-H22 (D6-SA6.1-2): Track budget-gate failures separately so the
+  // terminal error carries exit code 2 (usage error, per finding spec), even
+  // when the gate fires on a single-adapter project where the general
+  // "all adapters failed" branch would otherwise exit with 1.
+  let budgetGateFailed = false;
   // Per-adapter circuit breakers: an adapter that fails repeatedly with
   // transient errors trips and is short-circuited until the cooldown
   // elapses. Maintained across the loop so a tool seen multiple times
@@ -339,6 +347,31 @@ export async function syncCommand(
       }
 
       verbose(`${tool}: ${outputs.length} file(s) generated`);
+
+      // C7.5-W2B2-H22 (D6-SA6.1-2): Pre-write context budget gate.
+      // The prior implementation checked the budget AFTER safeWriteFile
+      // completed, which meant an over-budget adapter silently wrote oversized
+      // files to disk and only then printed a warning. We now measure
+      // utilization before any write, so (a) the warning precedes the write
+      // (P1 actionable errors), and (b) `--strict-budget` can abort the write
+      // and surface the finding as a usage error (exit code 2).
+      const budgetResult = checkContextBudget(tool, outputs);
+      const budgetWarning = formatBudgetWarning(budgetResult);
+      if (budgetWarning) {
+        if (opts.strictBudget) {
+          s.fail(step(currentStep, totalSteps, `${tool} output exceeds context budget (--strict-budget)`));
+          warn(budgetWarning);
+          const errMessage = `${tool}: context budget exceeded (${budgetResult.utilizationPercent}% of ${Math.round(budgetResult.budgetTokens / 1000)}K tokens)`;
+          breaker = recordFailure(breaker, classifyFailure(new Error(errMessage)));
+          breakers.set(tool, breaker);
+          adapterFailures.push({ tool, error: errMessage });
+          budgetGateFailed = true;
+          await appendFailure(agentsDir, "sync:budget-gate", new Error(errMessage), tool);
+          continue;
+        }
+        warn(budgetWarning);
+      }
+
       if (opts.dryRun) {
         // --dry-run: show what adapter would generate without writing files
         for (const out of outputs) {
@@ -372,10 +405,6 @@ export async function syncCommand(
           }
         }
       }
-      // Check context budget utilization for this adapter
-      const budgetResult = checkContextBudget(tool, outputs);
-      const budgetWarning = formatBudgetWarning(budgetResult);
-      if (budgetWarning) { warn(budgetWarning); }
 
       breaker = recordSuccess(breaker);
       breakers.set(tool, breaker);
@@ -400,10 +429,23 @@ export async function syncCommand(
   }
   if (adapterFailures.length > 0) {
     for (const f of adapterFailures) {
+      // C7.5-W2B2-H28 (D8): append dependency-class-specific recovery
+      // guidance to the raw vendor message so the user sees an
+      // actionable next step rather than a bare error.
+      const reconstructed = new Error(f.error);
+      const depClass = classifyDependency(reconstructed);
+      const failType = classifyFailure(reconstructed);
+      const guidance = getRecoveryGuidance(depClass, failType);
       logError(`Failed to generate ${f.tool}: ${f.error}`);
+      info(`  ${guidance}`);
     }
     if (adapterFailures.length === m.tools.length) {
-      throw new HatchError("All adapters failed", 1, "ADAPTER_ERROR");
+      // C7.5-W2B2-H22: when --strict-budget tripped the only adapter(s) in
+      // this run, surface a usage-error exit code (2) instead of the generic
+      // runtime-error exit code (1). This matches the finding's contract:
+      // --strict-budget is a caller-driven gate, not an internal fault.
+      const exitCode = budgetGateFailed ? 2 : 1;
+      throw new HatchError("All adapters failed", exitCode, "ADAPTER_ERROR");
     }
     // #253 (D8-8.20): Partial adapter failures should not silently report success.
     // We continue to generate a summary but track that partial failure occurred.

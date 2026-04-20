@@ -9,7 +9,13 @@ import { transformEnvVarSyntax } from "./mcp-utils.js";
 import { HATCH3R_VERSION } from "../version.js";
 
 /**
- * OpenCode adapter.
+ * OpenCode adapter — targets sst/opencode (https://github.com/sst/opencode,
+ * 146k stars as of 2026-04-19), the successor to the archived opencode-ai org.
+ * Adapter output paths track the per-project conventions documented at
+ * https://opencode.ai/docs (accessed 2026-04-19):
+ *   - Agents:   `.opencode/agents/<name>.md`   (plural, per docs)
+ *   - Commands: `.opencode/commands/<name>.md` (plural, per docs)
+ *   - Skills:   `.opencode/skills/<name>/SKILL.md`
  *
  * #267 (D9-9.38): OpenCode loads instructions from both `opencode.json`
  * (via the `instructions` array) and individual `.opencode/` files.
@@ -87,7 +93,7 @@ export class OpenCodeAdapter extends BaseAdapter {
         const lines = [`description: ${desc}`];
         if (model) lines.push(`model: ${withProviderPrefix(model)}`);
         const fm = `---\n${lines.join("\n")}\n---`;
-        results.push(output(`.opencode/agent/${agentId}.md`, `${fm}\n\n${wrapInManagedBlock(content)}`, content));
+        results.push(output(`.opencode/agents/${agentId}.md`, `${fm}\n\n${wrapInManagedBlock(content)}`, content));
       }
     }
 
@@ -96,7 +102,7 @@ export class OpenCodeAdapter extends BaseAdapter {
     );
 
     results.push(
-      ...await this.processCommandsRaw(ctx, (id) => `.opencode/command/${toPrefixedId(id)}.md`),
+      ...await this.processCommandsRaw(ctx, (id) => `.opencode/commands/${toPrefixedId(id)}.md`),
     );
 
     return results;

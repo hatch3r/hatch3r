@@ -1,15 +1,18 @@
 #!/usr/bin/env node
 /**
- * scripts/validate-rule-parity.ts — Cycle 7 H12
+ * scripts/validate-rule-parity.ts — Cycle 7 H12 + Cycle 7.5 H16
  *
- * Enforces that every `rules/hatch3r-*.md` (canonical) and its `.mdc` (Cursor)
- * counterpart share the exact same body content. Frontmatter format may differ
- * (the Markdown variant uses hatch3r YAML keys; the Cursor variant uses MDC
- * description/globs/alwaysApply headers), but the body below the frontmatter
- * must match byte-for-byte after trailing-whitespace normalization.
+ * Enforces two invariants for every `rules/hatch3r-*.md` + `.mdc` pair:
  *
- * Per .claude/rules/content-authoring.md: "Rules format: Produce both .md
- * (canonical) and .mdc (Cursor) variants with matching content."
+ * 1. Body parity (H12): bodies below frontmatter match byte-for-byte after
+ *    trailing-whitespace normalization.
+ *
+ * 2. Scope transform (H16): the `.mdc` frontmatter is the deterministic
+ *    transform of the `.md` scope per .claude/rules/content-authoring.md:
+ *    - `scope: always`                       -> `alwaysApply: true`, no `globs`
+ *    - `scope: "<csv>"`                      -> `globs: [...]`, `alwaysApply: false`
+ *    - `scope: conditional` + `globs: <csv>` -> `globs: [...]`, `alwaysApply: false`
+ *    - `scope: conditional` (no globs)       -> `alwaysApply: false`, no `globs`
  *
  * Pillars: P2 (Scientific Quality), P4 (Lean Coverage).
  *
@@ -19,6 +22,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parse as parseYaml } from "yaml";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -99,7 +103,126 @@ async function listRulePairs(): Promise<string[]> {
     .sort((a, b) => a.localeCompare(b));
 }
 
-async function checkPair(mdName: string): Promise<DriftReport | null> {
+/**
+ * Extract and parse the leading YAML frontmatter block. Returns an empty
+ * object when no frontmatter is present or when parsing fails.
+ */
+function parseFrontmatter(content: string): Record<string, unknown> {
+  if (!content.startsWith("---\n") && !content.startsWith("---\r\n")) {
+    return {};
+  }
+  const afterOpen = content.indexOf("\n", 3) + 1;
+  if (afterOpen <= 0) return {};
+  const closeIdx = content.indexOf("\n---", afterOpen - 1);
+  if (closeIdx === -1) return {};
+  const fmRaw = content.slice(afterOpen, closeIdx);
+  try {
+    const parsed = parseYaml(fmRaw);
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Split a comma-separated glob list into a set, trimming whitespace and
+ * stripping surrounding quotes. Returns an empty set for empty input.
+ */
+function csvToSet(csv: string | undefined): Set<string> {
+  if (!csv) return new Set();
+  const trimmed = csv.trim().replace(/^["']|["']$/g, "");
+  return new Set(trimmed.split(",").map((s) => s.trim()).filter(Boolean));
+}
+
+/**
+ * Coerce the parsed `globs` value on the `.mdc` side into a set. The
+ * canonical form is a JSON array of strings; legacy CSV strings are accepted
+ * and flagged separately.
+ */
+function mdcGlobsToSet(value: unknown): { set: Set<string>; format: "array" | "csv" | "empty" } {
+  if (Array.isArray(value)) {
+    return { set: new Set(value.filter((g): g is string => typeof g === "string")), format: "array" };
+  }
+  if (typeof value === "string") {
+    return { set: csvToSet(value), format: "csv" };
+  }
+  return { set: new Set(), format: "empty" };
+}
+
+/**
+ * Validate that the `.mdc` frontmatter matches the deterministic scope
+ * transform of the `.md` side (H16). Returns one drift per violation:
+ * description mismatch, alwaysApply mismatch, globs-set mismatch, or
+ * bare-CSV globs format.
+ */
+function checkScopeTransform(
+  basename: string,
+  mdFm: Record<string, unknown>,
+  mdcFm: Record<string, unknown>,
+): DriftReport[] {
+  const reports: DriftReport[] = [];
+
+  const mdDesc = typeof mdFm.description === "string" ? mdFm.description : "";
+  const mdcDesc = typeof mdcFm.description === "string" ? mdcFm.description : "";
+  if (mdDesc && mdDesc !== mdcDesc) {
+    reports.push({
+      basename,
+      reason: "description mismatch",
+      detail: `.md : ${mdDesc}\n.mdc: ${mdcDesc}`,
+    });
+  }
+
+  const scope = typeof mdFm.scope === "string" ? mdFm.scope : "";
+  const mdGlobsField = typeof mdFm.globs === "string" ? mdFm.globs : "";
+  const mdcApply = typeof mdcFm.alwaysApply === "boolean" ? mdcFm.alwaysApply : undefined;
+  const { set: mdcGlobs, format: mdcFormat } = mdcGlobsToSet(mdcFm.globs);
+
+  let expectedApply: boolean;
+  let expectedGlobs: Set<string>;
+  if (scope === "always") {
+    expectedApply = true;
+    expectedGlobs = new Set();
+  } else if (scope === "conditional") {
+    expectedApply = false;
+    expectedGlobs = csvToSet(mdGlobsField);
+  } else if (scope) {
+    expectedApply = false;
+    expectedGlobs = csvToSet(scope);
+  } else {
+    expectedApply = false;
+    expectedGlobs = new Set();
+  }
+
+  if (mdcApply !== expectedApply) {
+    reports.push({
+      basename,
+      reason: "alwaysApply mismatch",
+      detail: `expected alwaysApply=${expectedApply} from .md scope="${scope}"; .mdc has alwaysApply=${mdcApply ?? "<absent>"}`,
+    });
+  }
+
+  const missing = [...expectedGlobs].filter((g) => !mdcGlobs.has(g));
+  const extra = [...mdcGlobs].filter((g) => !expectedGlobs.has(g));
+  if (missing.length > 0 || extra.length > 0) {
+    reports.push({
+      basename,
+      reason: "globs set mismatch",
+      detail: `missing from .mdc: ${JSON.stringify(missing)}; extra in .mdc: ${JSON.stringify(extra)}`,
+    });
+  }
+
+  if (mdcFormat === "csv" && expectedGlobs.size > 0) {
+    reports.push({
+      basename,
+      reason: "mdc globs format (must be JSON array)",
+      detail: `.mdc globs is a bare CSV string; expected array form like ["a", "b"]`,
+    });
+  }
+
+  return reports;
+}
+
+async function checkPair(mdName: string): Promise<DriftReport[]> {
   const basename = mdName.replace(/\.md$/, "");
   const mdPath = join(RULES_DIR, mdName);
   const mdcPath = join(RULES_DIR, `${basename}.mdc`);
@@ -108,31 +231,40 @@ async function checkPair(mdName: string): Promise<DriftReport | null> {
     mdcContent = await readFile(mdcPath, "utf-8");
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-      return {
+      return [{
         basename,
         reason: "missing .mdc counterpart",
         detail: `expected ${mdcPath}`,
-      };
+      }];
     }
     throw err;
   }
   const mdContent = await readFile(mdPath, "utf-8");
+  const reports: DriftReport[] = [];
+
   const mdBody = normalizeBody(stripFrontmatter(mdContent));
   const mdcBody = normalizeBody(stripFrontmatter(mdcContent));
-  if (mdBody === mdcBody) return null;
-  return {
-    basename,
-    reason: "body content drift",
-    detail: summarizeDiff(mdBody, mdcBody),
-  };
+  if (mdBody !== mdcBody) {
+    reports.push({
+      basename,
+      reason: "body content drift",
+      detail: summarizeDiff(mdBody, mdcBody),
+    });
+  }
+
+  const mdFm = parseFrontmatter(mdContent);
+  const mdcFm = parseFrontmatter(mdcContent);
+  reports.push(...checkScopeTransform(basename, mdFm, mdcFm));
+
+  return reports;
 }
 
 async function main(): Promise<void> {
   const mdNames = await listRulePairs();
   const drifts: DriftReport[] = [];
   for (const name of mdNames) {
-    const drift = await checkPair(name);
-    if (drift) drifts.push(drift);
+    const pairDrifts = await checkPair(name);
+    drifts.push(...pairDrifts);
   }
   if (drifts.length === 0) {
     // eslint-disable-next-line no-console

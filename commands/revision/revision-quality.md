@@ -45,13 +45,14 @@ The reviewer prompt MUST include:
 - Include blast radius data so the reviewer can verify fixes preserve dependent consumers and contracts.
 - Include reference conventions so the reviewer can verify fixes follow established patterns.
 
-2. Process reviewer output:
-   - If **0 Critical and 0 Warning** findings: review loop is clean. Proceed to Stage 2.
+2. Process reviewer output (confidence-aware gate):
+   - If **0 Critical + 0 Warning AND reviewer confidence != low:** review loop is clean. Proceed to Stage 2.
+   - If **0 Critical + 0 Warning AND reviewer confidence == low:** trigger a second reviewer pass before exiting. Do not proceed to Stage 2 until the second pass returns non-low confidence OR the user explicitly accepts the low-confidence PASS.
    - If Critical or Warning findings remain: spawn `hatch3r-fixer` sub-agent to address them. When fixes touch shared or public interfaces, include blast radius data and reference conventions in the fixer prompt. Then re-run the reviewer (next iteration).
 
 3. If 3 iterations complete and findings remain, **ASK** the user whether to proceed or fix manually.
 
-After each reviewer iteration, assess the reviewer's findings confidence: if the reviewer rates any finding as low-confidence, flag it separately in the ASK prompt so the user can prioritize human review of uncertain findings.
+After each reviewer iteration, assess the reviewer's findings confidence: if the reviewer rates any finding as low-confidence, flag it separately in the ASK prompt so the user can prioritize human review of uncertain findings. The reviewer sub-agent output MUST include a top-level `confidence: high | medium | low` field (not just per-finding) so the gate in step 2 can evaluate it deterministically.
 
 4. After any fixes, re-run quality gates (7a) to verify nothing broke.
 

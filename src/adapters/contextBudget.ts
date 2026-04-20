@@ -87,16 +87,21 @@ export function checkContextBudget(
 /**
  * Format a context budget warning message for display.
  * Returns null if the budget is not exceeded.
+ *
+ * C7.5-W2B2-H22 (D6-SA6.1-2): includes an actionable next-step suggestion
+ * with a concrete `hatch3r sync --minimal` command (P1 actionable errors).
  */
 export function formatBudgetWarning(result: ContextBudgetResult): string | null {
   if (!result.exceedsBudget) return null;
 
   const estK = Math.round(result.estimatedTokens / 1000);
   const budgetK = Math.round(result.budgetTokens / 1000);
+  const overK = Math.max(1, Math.round((result.estimatedTokens - result.budgetTokens) / 1000));
 
   return (
     `${result.tool}: generated output is ~${estK}K tokens, ` +
-    `exceeding the estimated ${budgetK}K token context budget (${result.utilizationPercent}% utilization). ` +
-    `Consider using a smaller content preset or disabling unused features to reduce output size.`
+    `exceeding the estimated ${budgetK}K token context budget (${result.utilizationPercent}% utilization, ~${overK}K over). ` +
+    `Run \`hatch3r sync --minimal\` to reduce output size, or remove unused content via \`hatch3r config\`. ` +
+    `Use \`--strict-budget\` to fail the sync on overflow.`
   );
 }

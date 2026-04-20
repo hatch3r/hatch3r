@@ -140,7 +140,9 @@ describe("formatBudgetWarning", () => {
     expect(warning).toContain("~80K tokens");
     expect(warning).toContain("64K token context budget");
     expect(warning).toContain("125% utilization");
-    expect(warning).toContain("smaller content preset");
+    // C7.5-W2B2-H22: warning now carries actionable next-step guidance
+    expect(warning).toContain("hatch3r sync --minimal");
+    expect(warning).toContain("--strict-budget");
   });
 
   it("includes the tool name in the warning", () => {

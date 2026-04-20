@@ -228,4 +228,111 @@ describe("AmazonQAdapter", () => {
     const hookFile = outputs.find((o) => o.path === ".amazonq/rules/hatch3r-hooks.md");
     expect(hookFile).toBeUndefined();
   });
+
+  // ── Finding C7.5-W2B2-H33: useLegacyMcpJson flag on cli-agent descriptors ──
+  // Reference: https://aws.github.io/amazon-q-developer-cli/agent-format.html (accessed 2026-04-19)
+  it("sets useLegacyMcpJson: true on every cli-agent descriptor", async () => {
+    const manifest = createManifest({
+      tools: ["amazon-q"],
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const agentFiles = outputs.filter((o) => o.path.startsWith(".amazonq/cli-agents/"));
+    expect(agentFiles.length).toBeGreaterThanOrEqual(1);
+
+    for (const file of agentFiles) {
+      const parsed = JSON.parse(file.content);
+      expect(parsed.useLegacyMcpJson).toBe(true);
+    }
+  });
+
+  // ── Finding C7.5-W2B2-H33 / D9-SA9.14.1: hooks field populated in descriptor ──
+  // Reference: https://aws.github.io/amazon-q-developer-cli/agent-format.html (accessed 2026-04-19)
+  it("populates hooks field on cli-agent descriptors with canonical AWS event keys", async () => {
+    const manifest = createManifest({
+      tools: ["amazon-q"],
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const agentFiles = outputs.filter((o) => o.path.startsWith(".amazonq/cli-agents/"));
+    expect(agentFiles.length).toBeGreaterThanOrEqual(1);
+
+    for (const file of agentFiles) {
+      const parsed = JSON.parse(file.content);
+      expect(parsed.hooks).toBeDefined();
+      // Every key must be one of the 5 canonical AWS events.
+      const canonicalEvents = new Set([
+        "agentSpawn",
+        "userPromptSubmit",
+        "preToolUse",
+        "postToolUse",
+        "stop",
+      ]);
+      for (const key of Object.keys(parsed.hooks)) {
+        expect(canonicalEvents.has(key)).toBe(true);
+      }
+      // Each entry must be an array of { command } objects per AWS schema.
+      for (const entries of Object.values(parsed.hooks) as Array<Array<{ command: string }>>) {
+        expect(Array.isArray(entries)).toBe(true);
+        expect(entries.length).toBeGreaterThan(0);
+        for (const entry of entries) {
+          expect(typeof entry.command).toBe("string");
+          expect(entry.command.length).toBeGreaterThan(0);
+        }
+      }
+    }
+  });
+
+  it("groups multiple hatch3r hooks sharing an AWS event under one array", async () => {
+    const manifest = createManifest({
+      tools: ["amazon-q"],
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    // Fixtures include `post-merge-deploy` (post-merge -> postToolUse) and
+    // `pre-commit-lint-fixer` (pre-commit -> preToolUse). At least one
+    // AWS event key must hold >=1 entries; the post-merge-deploy hook
+    // must appear under postToolUse.
+    const agentFiles = outputs.filter((o) => o.path.startsWith(".amazonq/cli-agents/"));
+    const first = JSON.parse(agentFiles[0]!.content);
+    expect(first.hooks.postToolUse).toBeDefined();
+    const postToolCommands = first.hooks.postToolUse.map((e: { command: string }) => e.command);
+    const hasPostMerge = postToolCommands.some((c: string) => c.includes("post-merge"));
+    expect(hasPostMerge).toBe(true);
+  });
+
+  it("omits hooks field from descriptor when no hooks are present", async () => {
+    const manifest = createManifest({
+      tools: ["amazon-q"],
+      features: { hooks: false },
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const agentFiles = outputs.filter((o) => o.path.startsWith(".amazonq/cli-agents/"));
+    expect(agentFiles.length).toBeGreaterThanOrEqual(1);
+
+    for (const file of agentFiles) {
+      const parsed = JSON.parse(file.content);
+      expect(parsed.hooks).toBeUndefined();
+      // useLegacyMcpJson still emitted -- it's independent of hooks feature.
+      expect(parsed.useLegacyMcpJson).toBe(true);
+    }
+  });
+
+  it("hook entry commands carry HATCH3R_HOOK_ACTIVATED marker for rules-bridge dispatch", async () => {
+    const manifest = createManifest({
+      tools: ["amazon-q"],
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const agentFiles = outputs.filter((o) => o.path.startsWith(".amazonq/cli-agents/"));
+    const parsed = JSON.parse(agentFiles[0]!.content);
+    const allCommands: string[] = [];
+    for (const entries of Object.values(parsed.hooks) as Array<Array<{ command: string }>>) {
+      for (const entry of entries) allCommands.push(entry.command);
+    }
+    expect(allCommands.length).toBeGreaterThan(0);
+    const hasMarker = allCommands.every((c) => c.includes("HATCH3R_HOOK_ACTIVATED"));
+    expect(hasMarker).toBe(true);
+  });
 });

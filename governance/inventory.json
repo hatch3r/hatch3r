@@ -1,5 +1,5 @@
 {
-  "lastUpdated": "2026-04-19",
+  "lastUpdated": "2026-04-20",
   "counts": {
     "adapters": 15,
     "agents": 16,
@@ -8,7 +8,7 @@
     "rulesMdc": 27,
     "commands": 34,
     "hooks": 6,
-    "pipeline": 15,
+    "pipeline": 16,
     "cliCommands": 11
   },
   "files": {
@@ -179,6 +179,7 @@
     ],
     "pipeline": [
       "adapterTimeout.ts",
+      "adapterToolTranslator.ts",
       "agentIdentity.ts",
       "agentToolAllowlist.ts",
       "circuitBreaker.ts",

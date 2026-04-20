@@ -1,6 +1,7 @@
 ---
 description: CI/CD pipeline standards covering stage gates, deployment strategies, and rollback procedures
 globs: ["**/.github/workflows/**", "**/Dockerfile*", "**/docker-compose*", "**/.gitlab-ci*", "**/Jenkinsfile", "**/azure-pipelines*", "**/.circleci/**", "**/deploy/**", "**/*pipeline*"]
+alwaysApply: false
 ---
 # CI/CD Standards
 
