@@ -56,6 +56,17 @@ Not all domains require equal audit depth every cycle. To prevent diminishing re
 
 Spawn **106 sub-agents** across 19 audit domains organized in 4 tiers. Each domain decomposes into multiple focused sub-agents for maximum depth. Sub-agents within the same domain run in parallel unless a sequential dependency is noted. Domain-level synthesis sub-agents run only after their prerequisite sub-agents complete. Inherit your LLM model to every sub-agent — do not downgrade. Each sub-agent MUST use web research. **Never optimize for token efficiency — optimize for audit quality and depth.**
 
+#### Optional Domain Orchestrator Bundling
+
+The orchestrator MAY bundle 2–3 thematically related domains into a single domain-orchestrator sub-agent invocation when (a) the bundled domains share a primary pillar, (b) bundled findings remain attributable to their home domain in `.audit-workspace/D{N}-SA{M}.findings.md`, and (c) the bundled invocation produces sub-agent counts identical to running the domains separately. Approved bundles for the current cycle:
+
+| Bundle | Domains | Rationale |
+|--------|---------|-----------|
+| Quality bundle | D6, D7, D8 | All Tier B Quality, share orchestration/error-recovery surface |
+| Adoption bundle | D13, D14 | Both Tier C, focus on user-facing collaboration and adoption friction |
+
+Cycle 7 successfully bundled D6–D8 with quality maintained at lower orchestration cost. Bundling is opt-in per cycle; the default remains one orchestrator per domain.
+
 ### Dependency Graph
 
 The following sub-agents have sequential dependencies and MUST NOT launch until their prerequisites complete:
