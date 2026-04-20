@@ -1,6 +1,7 @@
 ---
+name: hatch3r-refactor
 id: hatch3r-refactor
-description: Internal code quality improvement workflow without changing external behavior. Use when refactoring code structure, simplifying modules, or improving maintainability.
+description: "Internal code quality improvement without changing external behavior. Extracts methods, reduces duplication, simplifies control flow, and eliminates dead code. Use when refactoring code structure, cleaning up tech debt, addressing code smells, simplifying modules, or reorganizing code for maintainability."
 tags: [core, implementation]
 quality_charter: agents/shared/quality-charter.md
 ---
@@ -21,13 +22,11 @@ Task Progress:
 
 ## Step 1: Read Inputs
 
-- Parse the issue body: motivation, proposed change, affected files, safety plan, risk analysis, acceptance criteria.
-- Read project quality standards documentation.
-- Read specs for the area being refactored.
+- Parse the issue body: motivation, proposed change, affected files, risk analysis, acceptance criteria.
+- Read project quality standards and specs for the area being refactored.
 - Review all existing tests — every one must still pass after refactoring.
-- **Review reference implementations**: If the orchestrator provided `similar-implementation` researcher output, read the reference implementations and their extracted conventions. The refactored code should align with these established codebase patterns.
-- **Review resolved requirements**: If the orchestrator provided `requirements-elicitation` answers, use them to understand explicit user decisions on behavioral invariants and scope.
-- For external library docs and current best practices, follow the project's tooling hierarchy.
+- **Review reference implementations**: If `similar-implementation` researcher output is available, align refactored code with its extracted conventions.
+- **Review resolved requirements**: If `requirements-elicitation` answers are available, use them for behavioral invariants and scope.
 
 ## Step 2: Refactor Plan
 
@@ -48,7 +47,7 @@ Before changing code, output:
 - Remove dead code created by the refactor.
 - Do not introduce new dependencies.
 - If a bug is found, document it -- fix in a separate PR.
-- **Error handling preservation.** When moving or restructuring error handling code, verify that the error behavior is preserved. A common refactoring mistake is accidentally changing error types, removing error context, or altering error propagation paths. Run error-path tests after each structural change.
+- **Error handling preservation.** Verify error types, context, and propagation paths are unchanged after restructuring. Run error-path tests after each structural change.
 
 ## Step 4: Verify
 

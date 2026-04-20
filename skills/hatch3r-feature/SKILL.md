@@ -1,6 +1,7 @@
 ---
+name: hatch3r-feature
 id: hatch3r-feature
-description: End-to-end feature implementation workflow. Covers data model, domain logic, API, and UI as a vertical slice. Use when implementing new features or working on feature request issues.
+description: "End-to-end feature implementation workflow. Creates database migrations, implements service logic, builds API endpoints, and scaffolds UI components as a vertical slice. Use when implementing new features, building new functionality, working on feature request issues, or delivering a full-stack user story."
 tags: [core, implementation]
 quality_charter: agents/shared/quality-charter.md
 ---
@@ -24,12 +25,11 @@ Task Progress:
 
 ## Step 1: Read Inputs
 
-- Parse the issue body: problem/goal, proposed solution, acceptance criteria, scope (in/out), UX notes, edge cases, security considerations, rollout plan.
-- Read relevant project documentation (glossary, user flows, behavior, event model, data model, privacy, monetization, as applicable).
+- Parse the issue body: problem/goal, acceptance criteria, scope (in/out), edge cases, security considerations.
+- Read relevant project documentation (glossary, data model, user flows, as applicable).
 - Review existing code patterns in the affected area.
-- **Review reference implementations**: If the orchestrator provided `similar-implementation` researcher output, read the reference implementations and their extracted conventions. These define the patterns this feature should follow (file structure, state management, error handling, data fetching, test structure, component composition).
-- **Review resolved requirements**: If the orchestrator provided `requirements-elicitation` answers, read them to understand explicit user decisions on ambiguities (data shape, error behavior, UI states, security model, etc.). Do not guess when explicit answers are available.
-- For external library docs and current best practices, follow the project's tooling hierarchy.
+- **Review reference implementations**: If `similar-implementation` researcher output is available, follow its extracted conventions for file structure, state management, error handling, and test structure.
+- **Review resolved requirements**: If `requirements-elicitation` answers are available, use them for explicit decisions on ambiguities. Do not guess when explicit answers exist.
 
 ## Step 2: Implementation Plan
 
@@ -46,23 +46,12 @@ Before coding, output:
 
 ## Step 2b: Test-First Approach (TDD Alternative)
 
-When acceptance criteria are specific and testable, write tests BEFORE implementing:
+When acceptance criteria are specific and testable, write failing tests BEFORE implementing:
 
-1. **Write acceptance tests** from the issue's acceptance criteria. Each criterion becomes at least one test.
-2. **Write unit test shells** for planned functions/modules from the implementation plan.
-3. **Run all new tests** — confirm they fail (proves they're testing real behavior, not tautologies).
-4. **Implement the vertical slice** (Step 3) to make tests pass incrementally.
-5. **Add edge case tests** as you discover them during implementation.
-
-Prefer TDD when:
-- Acceptance criteria are specific and quantifiable
-- Building a well-defined API, service, or utility
-- Working in a domain with complex business logic
-
-Use standard flow (implement → test) when:
-- Acceptance criteria are exploratory ("improve UX of...")
-- Heavy UI work where visual verification is primary
-- Prototyping or spike work
+1. **Write acceptance tests** from the issue's criteria — each criterion becomes at least one test.
+2. **Run all new tests** — confirm they fail with the expected behavior gap, not a setup error.
+3. **Implement the vertical slice** (Step 3) to make tests pass incrementally.
+4. **Add edge case tests** as discovered during implementation.
 
 ## Step 3: Implement
 

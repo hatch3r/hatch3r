@@ -1,6 +1,7 @@
 ---
+name: hatch3r-bug-fix
 id: hatch3r-bug-fix
-description: Step-by-step bug fix workflow. Diagnose root cause, implement minimal fix, write regression test. Use when fixing bugs, working on bug report issues, or when the user mentions a bug.
+description: "Step-by-step bug fix workflow. Diagnose root cause, implement minimal fix, write regression test. Use when fixing bugs, resolving defects, investigating errors, debugging broken behavior, working on bug report issues, or when the user reports something is not working or crashing."
 tags: [core, implementation]
 quality_charter: agents/shared/quality-charter.md
 ---
@@ -59,16 +60,6 @@ When the root cause is clear from diagnosis, write the regression test BEFORE im
 2. **Run the test** — confirm it fails with the expected symptom (not a setup error).
 3. **Implement the minimal fix** (Step 3) to make the test pass.
 4. **Verify** the test now passes AND no other tests broke.
-
-This approach guarantees the fix addresses the actual bug and prevents regression. Prefer TDD when:
-- The bug has clear reproduction steps
-- The affected code has existing test infrastructure
-- The root cause is well-understood from Step 2
-
-Skip TDD and use the standard flow (Steps 3→4) when:
-- The bug requires exploratory debugging to locate
-- Test infrastructure needs setup first
-- The fix involves configuration or environment changes
 
 ## Step 3: Minimal Fix
 

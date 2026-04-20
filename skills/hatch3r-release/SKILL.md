@@ -1,4 +1,5 @@
 ---
+name: hatch3r-release
 id: hatch3r-release
 description: Cut a release with version bump, changelog, tagging, and deploy verification. Use when preparing a release, cutting a version, or deploying to production.
 tags: [devops]
@@ -81,11 +82,9 @@ npm run build
 
 ## Step 7: Monitor Post-Deploy
 
-- Monitor error rate (target per project SLO).
-- Monitor function/API error rate.
+- Monitor error rate against project SLO.
 - Check for startup time regression.
-- Watch user-reported issues for first 24h.
-- If errors spike: rollback and investigate.
+- If errors spike: rollback and investigate per the error handling section below.
 
 ## Error Handling
 

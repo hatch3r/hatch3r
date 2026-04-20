@@ -1,6 +1,7 @@
 ---
+name: hatch3r-a11y-audit
 id: hatch3r-a11y-audit
-description: Comprehensive WCAG AA accessibility audit with findings and fixes. Use when auditing accessibility, verifying WCAG compliance, or improving a11y across the application.
+description: "WCAG AA accessibility audit covering color contrast, semantic HTML, ARIA attributes, keyboard navigation, and screen reader compatibility. Use when auditing accessibility, verifying WCAG compliance, fixing a11y violations, or improving accessibility across the application."
 tags: [review, a11y]
 quality_charter: agents/shared/quality-charter.md
 ---
@@ -28,24 +29,25 @@ Task Progress:
 - Dynamic content changes: use `aria-live` regions.
 - Support high contrast mode.
 
-**From project quality documentation:**
-
-| Requirement         | Standard | Details                                                          |
-| ------------------- | -------- | ---------------------------------------------------------------- |
-| Reduced motion      | WCAG 2.1 | All animations respect `prefers-reduced-motion` and user setting |
-| Color contrast      | WCAG AA  | Text contrast ratio ≥ 4.5:1                                      |
-| Keyboard navigation | WCAG 2.1 | All interactive elements focusable and operable via keyboard     |
-| Screen reader       | WCAG 2.1 | Dynamic state and reactions announced via ARIA live regions      |
-| High contrast mode  | Custom   | User-configurable high contrast theme (if applicable)            |
-
 - For external library docs and current best practices, follow the project's tooling hierarchy.
 
 ## Step 2: Automated Scan
 
-- Install and run `@axe-core/vue`, `vitest-axe`, or Playwright's `@axe-core/playwright` on all pages and key components.
+Run axe-core on all pages and key components:
+
+```typescript
+// Playwright example
+import AxeBuilder from '@axe-core/playwright';
+
+const results = await new AxeBuilder({ page })
+  .withTags(['wcag2a', 'wcag2aa'])
+  .analyze();
+expect(results.violations).toEqual([]);
+```
+
 - Run against: main routes, key components (if testable in isolation).
 - Capture all violations. Map to WCAG criteria (e.g., 1.1.1, 1.4.3, 2.1.1, 4.1.2).
-- Document: rule ID, description, impact, elements affected, WCAG level.
+- Document: rule ID, impact, elements affected, WCAG level.
 
 ## Step 3: Manual Audit
 
