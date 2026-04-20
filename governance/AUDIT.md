@@ -193,6 +193,15 @@ When duplicates are detected:
 3. Preserve unique perspectives as sub-points under the primary finding.
 4. Do not inflate finding counts — deduplicated findings count as one.
 
+### Home-Domain Redundancy Rejection
+
+A cross-domain finding (D16) that merely re-states a home-domain finding with the same File + Root Cause is a duplicate, even if the Recommendation phrasing differs. Cycle 7 dedup rejected 12+ such home-domain confirmations at D16; codify here. Examples:
+
+| Home-domain finding | Cross-domain candidate | Verdict |
+|---------------------|------------------------|---------|
+| D5 #12: "Skill X missing measurable acceptance criteria in `skills/hatch3r-x/SKILL.md`" | D16: "Skill X has loose acceptance language" | Duplicate (File + Root Cause match) — log as cross-domain confirmation, do not create D16 finding |
+| D9 #4 (Cursor): "Cursor adapter omits MCP env file" + D9 #11 (Aider): "Aider adapter omits MCP env file" | D16: "MCP env file generation inconsistent across adapters" | Distinct (3+ domains, contradiction surface) — qualifies as D16 finding |
+
 ---
 
 ## Quality Gates
