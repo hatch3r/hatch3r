@@ -5615,12 +5615,25 @@
     "medium_count": 16,
     "low_count": 8,
     "owner": "Agent",
-    "disposition": "rollover",
+    "disposition": "partially_promoted",
     "pillar": [
       "P2"
     ],
     "execution_status": "deferred",
-    "false_positive": false
+    "false_positive": false,
+    "promoted_finding_ids": [
+      "C8-D1-M1-verify-fix-cli-flag",
+      "C8-D1-M2-writeManifest-revalidate",
+      "C8-D1-M3-workspace-init-guard",
+      "C8-D1-M4-interactive-flag-validation",
+      "C8-D1-M5-errorCode-exitCode-map",
+      "C8-D1-M6-update-offline-mode",
+      "C8-D1-M7-config-write-atomic",
+      "C8-D1-M8-add-command-exit-code",
+      "C8-D1-M9-isValidGitBranchName-callsites",
+      "C8-D1-M10-validate-format-json"
+    ],
+    "promoted_count": 10
   },
   {
     "finding_id": "C7-D2-rollover-medium-low",
@@ -5631,13 +5644,21 @@
     "medium_count": 22,
     "low_count": 8,
     "owner": "Agent",
-    "disposition": "rollover",
+    "disposition": "partially_promoted",
     "pillar": [
       "P2",
       "P3"
     ],
     "execution_status": "deferred",
-    "false_positive": false
+    "false_positive": false,
+    "promoted_finding_ids": [
+      "C8-D2-M1-nested-managed-blocks",
+      "C8-D2-M2-default-getOutputPaths-perf",
+      "C8-D2-M3-canonical-type-extensions",
+      "C8-D2-M4-toctou-yaml-md-reads",
+      "C8-D2-M5-transform-env-var-depth"
+    ],
+    "promoted_count": 5
   },
   {
     "finding_id": "C7-D3-rollover-medium-low",
@@ -5648,12 +5669,16 @@
     "medium_count": 9,
     "low_count": 2,
     "owner": "Agent",
-    "disposition": "rollover",
+    "disposition": "partially_promoted",
     "pillar": [
       "P2"
     ],
     "execution_status": "deferred",
-    "false_positive": false
+    "false_positive": false,
+    "promoted_finding_ids": [
+      "C8-D3-M1-init-branch-coverage"
+    ],
+    "promoted_count": 1
   },
   {
     "finding_id": "C7-D4-rollover-medium-low",
@@ -5664,13 +5689,17 @@
     "medium_count": 1,
     "low_count": 8,
     "owner": "Agent",
-    "disposition": "rollover",
+    "disposition": "partially_promoted",
     "pillar": [
       "P5",
       "P6"
     ],
     "execution_status": "deferred",
-    "false_positive": false
+    "false_positive": false,
+    "promoted_finding_ids": [
+      "C8-D4-M1-socket-security-scanner"
+    ],
+    "promoted_count": 1
   },
   {
     "finding_id": "C7-D5-rollover-medium-low",
@@ -5681,13 +5710,18 @@
     "medium_count": 28,
     "low_count": 8,
     "owner": "Agent",
-    "disposition": "rollover",
+    "disposition": "partially_promoted",
     "pillar": [
       "P2",
       "P4"
     ],
     "execution_status": "deferred",
-    "false_positive": false
+    "false_positive": false,
+    "promoted_finding_ids": [
+      "C8-D5-M1-orchestrator-marker",
+      "C8-D5-M2-injection-pattern-extract"
+    ],
+    "promoted_count": 2
   },
   {
     "finding_id": "C7-D6-rollover-medium-low",
@@ -5698,12 +5732,17 @@
     "medium_count": 11,
     "low_count": 2,
     "owner": "Agent",
-    "disposition": "rollover",
+    "disposition": "partially_promoted",
     "pillar": [
       "P2"
     ],
     "execution_status": "deferred",
-    "false_positive": false
+    "false_positive": false,
+    "promoted_finding_ids": [
+      "C8-D6-M1-pre-write-context-budget",
+      "C8-D6-M2-tooling-hierarchy-dedup"
+    ],
+    "promoted_count": 2
   },
   {
     "finding_id": "C7-D7-rollover-medium-low",
@@ -5714,12 +5753,16 @@
     "medium_count": 12,
     "low_count": 4,
     "owner": "Agent",
-    "disposition": "rollover",
+    "disposition": "partially_promoted",
     "pillar": [
       "P2"
     ],
     "execution_status": "deferred",
-    "false_positive": false
+    "false_positive": false,
+    "promoted_finding_ids": [
+      "C8-D7-M1-phase-parallel-safety"
+    ],
+    "promoted_count": 1
   },
   {
     "finding_id": "C7-D8-rollover-medium-low",
@@ -5730,13 +5773,17 @@
     "medium_count": 8,
     "low_count": 2,
     "owner": "Agent",
-    "disposition": "rollover",
+    "disposition": "partially_promoted",
     "pillar": [
       "P2",
       "P6"
     ],
     "execution_status": "deferred",
-    "false_positive": false
+    "false_positive": false,
+    "promoted_finding_ids": [
+      "C8-D8-M1-external-dep-failure-enum"
+    ],
+    "promoted_count": 1
   },
   {
     "finding_id": "C7-D9-rollover-medium-low",
@@ -5747,12 +5794,17 @@
     "medium_count": 15,
     "low_count": 2,
     "owner": "Agent",
-    "disposition": "rollover",
+    "disposition": "partially_promoted",
     "pillar": [
       "P3"
     ],
     "execution_status": "deferred",
-    "false_positive": false
+    "false_positive": false,
+    "promoted_finding_ids": [
+      "C8-D9-M1-kiro-powers-mention",
+      "C8-D9-M2-zed-spawn-agent"
+    ],
+    "promoted_count": 2
   },
   {
     "finding_id": "C7-D10-rollover-medium-low",
@@ -5763,12 +5815,17 @@
     "medium_count": 14,
     "low_count": 10,
     "owner": "Agent",
-    "disposition": "rollover",
+    "disposition": "partially_promoted",
     "pillar": [
       "P1"
     ],
     "execution_status": "deferred",
-    "false_positive": false
+    "false_positive": false,
+    "promoted_finding_ids": [
+      "C8-D10-M1-content-counts-reconcile",
+      "C8-D10-M2-first-run-prompt-count"
+    ],
+    "promoted_count": 2
   },
   {
     "finding_id": "C7-D11-rollover-medium-low",
@@ -5779,12 +5836,16 @@
     "medium_count": 6,
     "low_count": 4,
     "owner": "Agent",
-    "disposition": "rollover",
+    "disposition": "partially_promoted",
     "pillar": [
       "P2"
     ],
     "execution_status": "deferred",
-    "false_positive": false
+    "false_positive": false,
+    "promoted_finding_ids": [
+      "C8-D11-M1-deny-pattern-cascade"
+    ],
+    "promoted_count": 1
   },
   {
     "finding_id": "C7-D12-rollover-medium-low",
@@ -5795,12 +5856,18 @@
     "medium_count": 13,
     "low_count": 6,
     "owner": "Agent",
-    "disposition": "rollover",
+    "disposition": "partially_promoted",
     "pillar": [
       "P1"
     ],
     "execution_status": "deferred",
-    "false_positive": false
+    "false_positive": false,
+    "promoted_finding_ids": [
+      "C8-D12-M1-stdout-stderr-separation",
+      "C8-D12-M2-update-dry-run",
+      "C8-D12-M3-adapter-source-provenance"
+    ],
+    "promoted_count": 3
   },
   {
     "finding_id": "C7-D13-rollover-medium-low",
@@ -5811,13 +5878,17 @@
     "medium_count": 5,
     "low_count": 4,
     "owner": "Agent",
-    "disposition": "rollover",
+    "disposition": "partially_promoted",
     "pillar": [
       "P1",
       "P2"
     ],
     "execution_status": "deferred",
-    "false_positive": false
+    "false_positive": false,
+    "promoted_finding_ids": [
+      "C8-D13-M1-review-confidence-gate"
+    ],
+    "promoted_count": 1
   },
   {
     "finding_id": "C7-D14-rollover-medium-low",
@@ -5828,12 +5899,16 @@
     "medium_count": 6,
     "low_count": 4,
     "owner": "Agent",
-    "disposition": "rollover",
+    "disposition": "partially_promoted",
     "pillar": [
       "P4"
     ],
     "execution_status": "deferred",
-    "false_positive": false
+    "false_positive": false,
+    "promoted_finding_ids": [
+      "C8-D14-M1-language-filter-wiring"
+    ],
+    "promoted_count": 1
   },
   {
     "finding_id": "C7-D15-rollover-medium-low",
@@ -5844,12 +5919,18 @@
     "medium_count": 13,
     "low_count": 6,
     "owner": "Agent",
-    "disposition": "rollover",
+    "disposition": "partially_promoted",
     "pillar": [
       "P6"
     ],
     "execution_status": "deferred",
-    "false_positive": false
+    "false_positive": false,
+    "promoted_finding_ids": [
+      "C8-D15-M1-deny-pattern-2026-variants",
+      "C8-D15-M2-env-mcp-worktree-warn",
+      "C8-D15-M3-validate-tool-policies-hard-error"
+    ],
+    "promoted_count": 3
   },
   {
     "finding_id": "C7-D16-rollover-medium-low",
@@ -5860,13 +5941,17 @@
     "medium_count": 4,
     "low_count": 0,
     "owner": "Agent",
-    "disposition": "rollover",
+    "disposition": "partially_promoted",
     "pillar": [
       "P4",
       "P5"
     ],
     "execution_status": "deferred",
-    "false_positive": false
+    "false_positive": false,
+    "promoted_finding_ids": [
+      "C8-D16-M1-feature-status-taxonomy"
+    ],
+    "promoted_count": 1
   },
   {
     "finding_id": "C7-D17-rollover-medium-low",
@@ -5877,12 +5962,16 @@
     "medium_count": 9,
     "low_count": 0,
     "owner": "Agent",
-    "disposition": "rollover",
+    "disposition": "partially_promoted",
     "pillar": [
       "P5"
     ],
     "execution_status": "deferred",
-    "false_positive": false
+    "false_positive": false,
+    "promoted_finding_ids": [
+      "C8-D17-M1-ruler-comparison-table"
+    ],
+    "promoted_count": 1
   },
   {
     "finding_id": "C7-D18-rollover-medium-low",
@@ -5893,12 +5982,16 @@
     "medium_count": 8,
     "low_count": 2,
     "owner": "Agent",
-    "disposition": "rollover",
+    "disposition": "partially_promoted",
     "pillar": [
       "P5"
     ],
     "execution_status": "deferred",
-    "false_positive": false
+    "false_positive": false,
+    "promoted_finding_ids": [
+      "C8-D18-M1-prd-23-shipped-status"
+    ],
+    "promoted_count": 1
   },
   {
     "finding_id": "C7-D19-rollover-medium-low",
@@ -5909,12 +6002,16 @@
     "medium_count": 7,
     "low_count": 5,
     "owner": "Agent",
-    "disposition": "rollover",
+    "disposition": "partially_promoted",
     "pillar": [
       "P5"
     ],
     "execution_status": "deferred",
-    "false_positive": false
+    "false_positive": false,
+    "promoted_finding_ids": [
+      "C8-D19-M1-inventory-rule-count-drift"
+    ],
+    "promoted_count": 1
   },
   {
     "finding_id": "C7.5-W2B1-H1",
@@ -9243,5 +9340,2040 @@
     },
     "cl1_status": "none",
     "sdr_status": "none"
+  },
+  {
+    "finding_id": "C8-D1-M1-verify-fix-cli-flag",
+    "domain": "D1: Core Source Implementation",
+    "severity": "Medium",
+    "description": "Register `--fix` / `--max-fix-attempts` in verify CLI entry (src/cli/index.ts); currently exposed in VerifyOptions but flags not CLI-registered",
+    "effort": "S",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": 1,
+    "dedup_rationale": "unique finding",
+    "disposition": "targeted",
+    "pillar": [
+      "P1",
+      "P2"
+    ],
+    "finding_type": "code",
+    "source_finding_ref": "D1-SA1.4.4",
+    "confidence": "high",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://github.com/dmasatovic/hatch3r (source: D1-SA1.4.4)",
+        "accessed": "2026-04-20",
+        "author": "hatch3r audit Cycle 7",
+        "trust_tier": "internal-audit"
+      }
+    ],
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
+    "files_modified": [
+      "src/cli/index.ts",
+      "src/cli/commands/verify.ts"
+    ],
+    "work_unit": null,
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "done",
+    "commit_sha": "34d2ba4",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false,
+    "cl1_status": "none",
+    "sdr_status": "none"
+  },
+  {
+    "finding_id": "C8-D1-M2-writeManifest-revalidate",
+    "domain": "D1: Core Source Implementation",
+    "severity": "Medium",
+    "description": "writeManifest re-validates manifest before writing to prevent persistence of in-memory invalid manifests",
+    "effort": "S",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": 1,
+    "dedup_rationale": "unique finding",
+    "disposition": "targeted",
+    "pillar": [
+      "P2"
+    ],
+    "finding_type": "code",
+    "source_finding_ref": "D1-SA1.2.1",
+    "confidence": "high",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://github.com/dmasatovic/hatch3r (source: D1-SA1.2.1)",
+        "accessed": "2026-04-20",
+        "author": "hatch3r audit Cycle 7",
+        "trust_tier": "internal-audit"
+      }
+    ],
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
+    "files_modified": [
+      "src/manifest/hatchJson.ts"
+    ],
+    "work_unit": null,
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "done",
+    "commit_sha": "34d2ba4",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false,
+    "cl1_status": "none",
+    "sdr_status": "none"
+  },
+  {
+    "finding_id": "C8-D1-M3-workspace-init-guard",
+    "domain": "D1: Core Source Implementation",
+    "severity": "Medium",
+    "description": "Workspace interactive init guards against double runInit without managed-file conflict detection",
+    "effort": "M",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": 1,
+    "dedup_rationale": "unique finding",
+    "disposition": "targeted",
+    "pillar": [
+      "P1",
+      "P2"
+    ],
+    "finding_type": "code",
+    "source_finding_ref": "D1-SA1.1.2",
+    "confidence": "high",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://github.com/dmasatovic/hatch3r (source: D1-SA1.1.2)",
+        "accessed": "2026-04-20",
+        "author": "hatch3r audit Cycle 7",
+        "trust_tier": "internal-audit"
+      }
+    ],
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
+    "files_modified": [
+      "src/cli/commands/init.ts"
+    ],
+    "work_unit": null,
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "done",
+    "commit_sha": "34d2ba4",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false,
+    "cl1_status": "none",
+    "sdr_status": "none"
+  },
+  {
+    "finding_id": "C8-D1-M4-interactive-flag-validation",
+    "domain": "D1: Core Source Implementation",
+    "severity": "Medium",
+    "description": "CLI flag validation (--preset/--project-type/--team-size) runs in interactive mode, not only in --yes mode",
+    "effort": "S",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": 1,
+    "dedup_rationale": "unique finding",
+    "disposition": "targeted",
+    "pillar": [
+      "P1"
+    ],
+    "finding_type": "code",
+    "source_finding_ref": "D1-SA1.1.3",
+    "confidence": "high",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://github.com/dmasatovic/hatch3r (source: D1-SA1.1.3)",
+        "accessed": "2026-04-20",
+        "author": "hatch3r audit Cycle 7",
+        "trust_tier": "internal-audit"
+      }
+    ],
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
+    "files_modified": [
+      "src/cli/commands/init.ts"
+    ],
+    "work_unit": null,
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "done",
+    "commit_sha": "34d2ba4",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false,
+    "cl1_status": "none",
+    "sdr_status": "none"
+  },
+  {
+    "finding_id": "C8-D1-M5-errorCode-exitCode-map",
+    "domain": "D1: Core Source Implementation",
+    "severity": "Medium",
+    "description": "Central errorCode->exitCode mapping for HatchError; foundation only, call-site migration deferred to Cycle 9",
+    "effort": "M",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": 1,
+    "dedup_rationale": "unique finding",
+    "disposition": "targeted",
+    "pillar": [
+      "P1",
+      "P2"
+    ],
+    "finding_type": "code",
+    "source_finding_ref": "D1-SA1.8.2",
+    "confidence": "high",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://github.com/dmasatovic/hatch3r (source: D1-SA1.8.2)",
+        "accessed": "2026-04-20",
+        "author": "hatch3r audit Cycle 7",
+        "trust_tier": "internal-audit"
+      }
+    ],
+    "feature_status": {
+      "implemented": true,
+      "wired": false,
+      "cli_registered": false,
+      "tested": true
+    },
+    "files_modified": [
+      "src/types.ts",
+      "src/cli/index.ts"
+    ],
+    "work_unit": null,
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "partial",
+    "commit_sha": "34d2ba4",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false,
+    "cl1_status": "none",
+    "sdr_status": "none"
+  },
+  {
+    "finding_id": "C8-D1-M6-update-offline-mode",
+    "domain": "D1: Core Source Implementation",
+    "severity": "Medium",
+    "description": "Add --offline / --skip-fetch flag to update command to skip npm-update step on slow/offline networks",
+    "effort": "S",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": 1,
+    "dedup_rationale": "unique finding",
+    "disposition": "targeted",
+    "pillar": [
+      "P1"
+    ],
+    "finding_type": "code",
+    "source_finding_ref": "D1-SA1.3.3",
+    "confidence": "high",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://github.com/dmasatovic/hatch3r (source: D1-SA1.3.3)",
+        "accessed": "2026-04-20",
+        "author": "hatch3r audit Cycle 7",
+        "trust_tier": "internal-audit"
+      }
+    ],
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
+    "files_modified": [
+      "src/cli/commands/update.ts",
+      "src/cli/index.ts"
+    ],
+    "work_unit": null,
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "done",
+    "commit_sha": "34d2ba4",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false,
+    "cl1_status": "none",
+    "sdr_status": "none"
+  },
+  {
+    "finding_id": "C8-D1-M7-config-write-atomic",
+    "domain": "D1: Core Source Implementation",
+    "severity": "Medium",
+    "description": "Workspace configCommand manifest-write + sync-now atomicity: move sync-now before writeWorkspaceManifest",
+    "effort": "S",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": 1,
+    "dedup_rationale": "unique finding",
+    "disposition": "targeted",
+    "pillar": [
+      "P2"
+    ],
+    "finding_type": "code",
+    "source_finding_ref": "D1-SA1.2.4",
+    "confidence": "medium",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://github.com/dmasatovic/hatch3r (source: D1-SA1.2.4)",
+        "accessed": "2026-04-20",
+        "author": "hatch3r audit Cycle 7",
+        "trust_tier": "internal-audit"
+      }
+    ],
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
+    "files_modified": [
+      "src/cli/commands/config.ts"
+    ],
+    "work_unit": null,
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "done",
+    "commit_sha": "34d2ba4",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false,
+    "cl1_status": "none",
+    "sdr_status": "none"
+  },
+  {
+    "finding_id": "C8-D1-M8-add-command-exit-code",
+    "domain": "D1: Core Source Implementation",
+    "severity": "Medium",
+    "description": "hatch3r add 'not yet implemented' -> exit code 0 (coming soon) instead of exit 2 (usage error)",
+    "effort": "S",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": 1,
+    "dedup_rationale": "unique finding",
+    "disposition": "targeted",
+    "pillar": [
+      "P1"
+    ],
+    "finding_type": "code",
+    "source_finding_ref": "D1-SA1.3.1",
+    "confidence": "high",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://github.com/dmasatovic/hatch3r (source: D1-SA1.3.1)",
+        "accessed": "2026-04-20",
+        "author": "hatch3r audit Cycle 7",
+        "trust_tier": "internal-audit"
+      }
+    ],
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
+    "files_modified": [
+      "src/cli/commands/add.ts"
+    ],
+    "work_unit": null,
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "done",
+    "commit_sha": "34d2ba4",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false,
+    "cl1_status": "none",
+    "sdr_status": "none"
+  },
+  {
+    "finding_id": "C8-D1-M9-isValidGitBranchName-callsites",
+    "domain": "D1: Core Source Implementation",
+    "severity": "Medium",
+    "description": "Enforce isValidGitBranchName at init.ts:546, config.ts:278, update.ts migration path",
+    "effort": "S",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": 1,
+    "dedup_rationale": "unique finding",
+    "disposition": "targeted",
+    "pillar": [
+      "P2",
+      "P6"
+    ],
+    "finding_type": "code",
+    "source_finding_ref": "D1-SA1.6.1",
+    "confidence": "high",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://github.com/dmasatovic/hatch3r (source: D1-SA1.6.1)",
+        "accessed": "2026-04-20",
+        "author": "hatch3r audit Cycle 7",
+        "trust_tier": "internal-audit"
+      }
+    ],
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
+    "files_modified": [
+      "src/cli/commands/init.ts",
+      "src/cli/commands/config.ts",
+      "src/cli/commands/update.ts"
+    ],
+    "work_unit": null,
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "done",
+    "commit_sha": "34d2ba4",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false,
+    "cl1_status": "none",
+    "sdr_status": "none"
+  },
+  {
+    "finding_id": "C8-D1-M10-validate-format-json",
+    "domain": "D1: Core Source Implementation",
+    "severity": "Medium",
+    "description": "Add --format <human|json> option to validate command for CI consumers; emit structured {errors, warnings, summary}",
+    "effort": "S",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": 1,
+    "dedup_rationale": "unique finding",
+    "disposition": "targeted",
+    "pillar": [
+      "P1"
+    ],
+    "finding_type": "code",
+    "source_finding_ref": "D1-SA1.4.3",
+    "confidence": "high",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://github.com/dmasatovic/hatch3r (source: D1-SA1.4.3)",
+        "accessed": "2026-04-20",
+        "author": "hatch3r audit Cycle 7",
+        "trust_tier": "internal-audit"
+      }
+    ],
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
+    "files_modified": [
+      "src/cli/commands/validate.ts",
+      "src/cli/index.ts"
+    ],
+    "work_unit": null,
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "done",
+    "commit_sha": "34d2ba4",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false,
+    "cl1_status": "none",
+    "sdr_status": "none"
+  },
+  {
+    "finding_id": "C8-D2-M1-nested-managed-blocks",
+    "domain": "D2: Adapter Infrastructure",
+    "severity": "Medium",
+    "description": "Detect nested HATCH3R:BEGIN/END markers in managedContent invariant; reject or warn early",
+    "effort": "S",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": 1,
+    "dedup_rationale": "unique finding",
+    "disposition": "targeted",
+    "pillar": [
+      "P2",
+      "P6"
+    ],
+    "finding_type": "code",
+    "source_finding_ref": "D2-SA2.1-1",
+    "confidence": "high",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://github.com/dmasatovic/hatch3r (source: D2-SA2.1-1)",
+        "accessed": "2026-04-20",
+        "author": "hatch3r audit Cycle 7",
+        "trust_tier": "internal-audit"
+      }
+    ],
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
+    "files_modified": [
+      "src/adapters/base.ts"
+    ],
+    "work_unit": null,
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "done",
+    "commit_sha": "34d2ba4",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false,
+    "cl1_status": "none",
+    "sdr_status": "none"
+  },
+  {
+    "finding_id": "C8-D2-M2-default-getOutputPaths-perf",
+    "domain": "D2: Adapter Infrastructure",
+    "severity": "Medium",
+    "description": "Lightweight default getOutputPaths via declareOutputPaths helper; skip full generate() cost",
+    "effort": "M",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": 1,
+    "dedup_rationale": "unique finding",
+    "disposition": "targeted",
+    "pillar": [
+      "P2",
+      "P4"
+    ],
+    "finding_type": "code",
+    "source_finding_ref": "D2-SA2.1-2",
+    "confidence": "high",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://github.com/dmasatovic/hatch3r (source: D2-SA2.1-2)",
+        "accessed": "2026-04-20",
+        "author": "hatch3r audit Cycle 7",
+        "trust_tier": "internal-audit"
+      }
+    ],
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
+    "files_modified": [
+      "src/adapters/base.ts"
+    ],
+    "work_unit": null,
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "done",
+    "commit_sha": "34d2ba4",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false,
+    "cl1_status": "none",
+    "sdr_status": "none"
+  },
+  {
+    "finding_id": "C8-D2-M3-canonical-type-extensions",
+    "domain": "D2: Adapter Infrastructure",
+    "severity": "Medium",
+    "description": "Extend CanonicalType to include hooks/checks/policy/learnings; add symlink-skip to hooks/index.ts",
+    "effort": "L",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": 1,
+    "dedup_rationale": "unique finding",
+    "disposition": "targeted",
+    "pillar": [
+      "P2",
+      "P4"
+    ],
+    "finding_type": "code",
+    "source_finding_ref": "D2-SA2.2-3",
+    "confidence": "high",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://github.com/dmasatovic/hatch3r (source: D2-SA2.2-3)",
+        "accessed": "2026-04-20",
+        "author": "hatch3r audit Cycle 7",
+        "trust_tier": "internal-audit"
+      }
+    ],
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
+    "files_modified": [
+      "src/adapters/canonical.ts",
+      "src/hooks/index.ts",
+      "src/types.ts"
+    ],
+    "work_unit": null,
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "done",
+    "commit_sha": "34d2ba4",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false,
+    "cl1_status": "none",
+    "sdr_status": "none"
+  },
+  {
+    "finding_id": "C8-D2-M4-toctou-yaml-md-reads",
+    "domain": "D2: Adapter Infrastructure",
+    "severity": "Medium",
+    "description": "Guard concurrent YAML+MD customization reads against TOCTOU races",
+    "effort": "S",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": 1,
+    "dedup_rationale": "unique finding",
+    "disposition": "targeted",
+    "pillar": [
+      "P2",
+      "P6"
+    ],
+    "finding_type": "code",
+    "source_finding_ref": "D2-SA2.3-4",
+    "confidence": "medium",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://github.com/dmasatovic/hatch3r (source: D2-SA2.3-4)",
+        "accessed": "2026-04-20",
+        "author": "hatch3r audit Cycle 7",
+        "trust_tier": "internal-audit"
+      }
+    ],
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
+    "files_modified": [
+      "src/adapters/customization.ts",
+      "src/models/customize.ts"
+    ],
+    "work_unit": null,
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "done",
+    "commit_sha": "34d2ba4",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false,
+    "cl1_status": "none",
+    "sdr_status": "none"
+  },
+  {
+    "finding_id": "C8-D2-M5-transform-env-var-depth",
+    "domain": "D2: Adapter Infrastructure",
+    "severity": "Medium",
+    "description": "Add recursion depth limit (default 32) to transformEnvVarSyntax",
+    "effort": "S",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": 1,
+    "dedup_rationale": "unique finding",
+    "disposition": "targeted",
+    "pillar": [
+      "P6"
+    ],
+    "finding_type": "code",
+    "source_finding_ref": "D2-SA2.4-2",
+    "confidence": "high",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://github.com/dmasatovic/hatch3r (source: D2-SA2.4-2)",
+        "accessed": "2026-04-20",
+        "author": "hatch3r audit Cycle 7",
+        "trust_tier": "internal-audit"
+      }
+    ],
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
+    "files_modified": [
+      "src/adapters/mcp-utils.ts"
+    ],
+    "work_unit": null,
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "done",
+    "commit_sha": "34d2ba4",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false,
+    "cl1_status": "none",
+    "sdr_status": "none"
+  },
+  {
+    "finding_id": "C8-D3-M1-init-branch-coverage",
+    "domain": "D3: Test Infrastructure",
+    "severity": "Medium",
+    "description": "Raise init.ts branch coverage toward 65%+ (currently 32%)",
+    "effort": "M",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": 1,
+    "dedup_rationale": "unique finding",
+    "disposition": "targeted",
+    "pillar": [
+      "P1",
+      "P2"
+    ],
+    "finding_type": "test",
+    "source_finding_ref": "D3-SA3.2-F1",
+    "confidence": "high",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://github.com/dmasatovic/hatch3r (source: D3-SA3.2-F1)",
+        "accessed": "2026-04-20",
+        "author": "hatch3r audit Cycle 7",
+        "trust_tier": "internal-audit"
+      }
+    ],
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
+    "files_modified": [
+      "src/__tests__/cli/init.test.ts"
+    ],
+    "work_unit": null,
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "done",
+    "commit_sha": "34d2ba4",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false,
+    "cl1_status": "none",
+    "sdr_status": "none"
+  },
+  {
+    "finding_id": "C8-D4-M1-socket-security-scanner",
+    "domain": "D4: Build, CI/CD & Dependencies",
+    "severity": "Medium",
+    "description": "Add dependency-review-action step to ci.yml supply-chain job",
+    "effort": "S",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": 1,
+    "dedup_rationale": "unique finding",
+    "disposition": "targeted",
+    "pillar": [
+      "P6"
+    ],
+    "finding_type": "config",
+    "source_finding_ref": "D4-SA4.2-004",
+    "confidence": "high",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://github.com/dmasatovic/hatch3r (source: D4-SA4.2-004)",
+        "accessed": "2026-04-20",
+        "author": "hatch3r audit Cycle 7",
+        "trust_tier": "internal-audit"
+      }
+    ],
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
+    "files_modified": [
+      ".github/workflows/ci.yml"
+    ],
+    "work_unit": null,
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "done",
+    "commit_sha": "34d2ba4",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false,
+    "cl1_status": "none",
+    "sdr_status": "none"
+  },
+  {
+    "finding_id": "C8-D5-M1-orchestrator-marker",
+    "domain": "D5: Prompt Engineering Quality",
+    "severity": "Medium",
+    "description": "Add orchestrator: true|false frontmatter to command files; require agentPipeline when true",
+    "effort": "M",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": 1,
+    "dedup_rationale": "unique finding",
+    "disposition": "targeted",
+    "pillar": [
+      "P4",
+      "P5"
+    ],
+    "finding_type": "content",
+    "source_finding_ref": "D5-SA5.5-M1",
+    "confidence": "medium",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://github.com/dmasatovic/hatch3r (source: D5-SA5.5-M1)",
+        "accessed": "2026-04-20",
+        "author": "hatch3r audit Cycle 7",
+        "trust_tier": "internal-audit"
+      }
+    ],
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
+    "files_modified": [
+      "commands/*.md",
+      "src/cli/commands/validate.ts"
+    ],
+    "work_unit": null,
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "done",
+    "commit_sha": "34d2ba4",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false,
+    "cl1_status": "none",
+    "sdr_status": "none"
+  },
+  {
+    "finding_id": "C8-D5-M2-injection-pattern-extract",
+    "domain": "D5: Prompt Engineering Quality",
+    "severity": "Medium",
+    "description": "Extract canonical injection-screening list to agents/shared/injection-patterns.md",
+    "effort": "M",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": 1,
+    "dedup_rationale": "unique finding",
+    "disposition": "targeted",
+    "pillar": [
+      "P4",
+      "P6"
+    ],
+    "finding_type": "content",
+    "source_finding_ref": "D5-SA5.5-M2",
+    "confidence": "high",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://github.com/dmasatovic/hatch3r (source: D5-SA5.5-M2)",
+        "accessed": "2026-04-20",
+        "author": "hatch3r audit Cycle 7",
+        "trust_tier": "internal-audit"
+      }
+    ],
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
+    "files_modified": [
+      "agents/shared/injection-patterns.md",
+      "src/pipeline/promptGuard.ts"
+    ],
+    "work_unit": null,
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "done",
+    "commit_sha": "34d2ba4",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false,
+    "cl1_status": "none",
+    "sdr_status": "none"
+  },
+  {
+    "finding_id": "C8-D6-M1-pre-write-context-budget",
+    "domain": "D6: Context Engineering",
+    "severity": "Medium",
+    "description": "Move context budget check pre-write in sync.ts; add --strict-budget flag",
+    "effort": "M",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": 1,
+    "dedup_rationale": "unique finding",
+    "disposition": "targeted",
+    "pillar": [
+      "P1",
+      "P2"
+    ],
+    "finding_type": "code",
+    "source_finding_ref": "D6-SA6.1-2",
+    "confidence": "high",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://github.com/dmasatovic/hatch3r (source: D6-SA6.1-2)",
+        "accessed": "2026-04-20",
+        "author": "hatch3r audit Cycle 7",
+        "trust_tier": "internal-audit"
+      }
+    ],
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
+    "files_modified": [
+      "src/cli/commands/sync.ts"
+    ],
+    "work_unit": null,
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "done",
+    "commit_sha": "34d2ba4",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false,
+    "cl1_status": "none",
+    "sdr_status": "none"
+  },
+  {
+    "finding_id": "C8-D6-M2-tooling-hierarchy-dedup",
+    "domain": "D6: Context Engineering",
+    "severity": "Medium",
+    "description": "Deduplicate tooling-hierarchy restated in 5+ files via reference to canonical rule",
+    "effort": "M",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": 1,
+    "dedup_rationale": "unique finding",
+    "disposition": "targeted",
+    "pillar": [
+      "P4"
+    ],
+    "finding_type": "content",
+    "source_finding_ref": "D6-SA6.2-2",
+    "confidence": "medium",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://github.com/dmasatovic/hatch3r (source: D6-SA6.2-2)",
+        "accessed": "2026-04-20",
+        "author": "hatch3r audit Cycle 7",
+        "trust_tier": "internal-audit"
+      }
+    ],
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
+    "files_modified": [
+      "agents/hatch3r-*.md",
+      "rules/hatch3r-tooling-hierarchy.md"
+    ],
+    "work_unit": null,
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "done",
+    "commit_sha": "34d2ba4",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false,
+    "cl1_status": "none",
+    "sdr_status": "none"
+  },
+  {
+    "finding_id": "C8-D7-M1-phase-parallel-safety",
+    "domain": "D7: Agent Orchestration",
+    "severity": "Medium",
+    "description": "Document parallel-safe phase semantics in hatch3r-agent-orchestration.md",
+    "effort": "M",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": 1,
+    "dedup_rationale": "unique finding",
+    "disposition": "targeted",
+    "pillar": [
+      "P2",
+      "P4"
+    ],
+    "finding_type": "docs",
+    "source_finding_ref": "D7-SA7.1-1",
+    "confidence": "high",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://github.com/dmasatovic/hatch3r (source: D7-SA7.1-1)",
+        "accessed": "2026-04-20",
+        "author": "hatch3r audit Cycle 7",
+        "trust_tier": "internal-audit"
+      }
+    ],
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
+    "files_modified": [
+      "agents/hatch3r-agent-orchestration.md"
+    ],
+    "work_unit": null,
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "done",
+    "commit_sha": "34d2ba4",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false,
+    "cl1_status": "none",
+    "sdr_status": "none"
+  },
+  {
+    "finding_id": "C8-D8-M1-external-dep-failure-enum",
+    "domain": "D8: Error Recovery & Resilience",
+    "severity": "Medium",
+    "description": "Wire classifyFailure into sync.ts and update.ts catch blocks with recovery guidance",
+    "effort": "M",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": 1,
+    "dedup_rationale": "unique finding",
+    "disposition": "targeted",
+    "pillar": [
+      "P1",
+      "P2"
+    ],
+    "finding_type": "code",
+    "source_finding_ref": "D8-SA8.1-1",
+    "confidence": "high",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://github.com/dmasatovic/hatch3r (source: D8-SA8.1-1)",
+        "accessed": "2026-04-20",
+        "author": "hatch3r audit Cycle 7",
+        "trust_tier": "internal-audit"
+      }
+    ],
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
+    "files_modified": [
+      "src/cli/commands/sync.ts",
+      "src/cli/commands/update.ts",
+      "src/pipeline/circuitBreaker.ts"
+    ],
+    "work_unit": null,
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "done",
+    "commit_sha": "34d2ba4",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false,
+    "cl1_status": "none",
+    "sdr_status": "none"
+  },
+  {
+    "finding_id": "C8-D9-M1-kiro-powers-mention",
+    "domain": "D9: Platform Adapters",
+    "severity": "Medium",
+    "description": "Add Kiro Powers (bundled MCP+steering+hooks) mention in kiro adapter bridge header",
+    "effort": "S",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": 1,
+    "dedup_rationale": "unique finding",
+    "disposition": "targeted",
+    "pillar": [
+      "P3"
+    ],
+    "finding_type": "code",
+    "source_finding_ref": "D9-SA9.11-2",
+    "confidence": "high",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://github.com/dmasatovic/hatch3r (source: D9-SA9.11-2)",
+        "accessed": "2026-04-20",
+        "author": "hatch3r audit Cycle 7",
+        "trust_tier": "internal-audit"
+      }
+    ],
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
+    "files_modified": [
+      "src/adapters/kiro.ts"
+    ],
+    "work_unit": null,
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "done",
+    "commit_sha": "34d2ba4",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false,
+    "cl1_status": "none",
+    "sdr_status": "none"
+  },
+  {
+    "finding_id": "C8-D9-M2-zed-spawn-agent",
+    "domain": "D9: Platform Adapters",
+    "severity": "Medium",
+    "description": "Add Zed 2026 spawn_agent + OAuth MCP authentication mention in zed adapter bridge",
+    "effort": "S",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": 1,
+    "dedup_rationale": "unique finding",
+    "disposition": "targeted",
+    "pillar": [
+      "P3"
+    ],
+    "finding_type": "code",
+    "source_finding_ref": "D9-SA9.13-1",
+    "confidence": "high",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://github.com/dmasatovic/hatch3r (source: D9-SA9.13-1)",
+        "accessed": "2026-04-20",
+        "author": "hatch3r audit Cycle 7",
+        "trust_tier": "internal-audit"
+      }
+    ],
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
+    "files_modified": [
+      "src/adapters/zed.ts"
+    ],
+    "work_unit": null,
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "done",
+    "commit_sha": "34d2ba4",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false,
+    "cl1_status": "none",
+    "sdr_status": "none"
+  },
+  {
+    "finding_id": "C8-D10-M1-content-counts-reconcile",
+    "domain": "D10: User Experience & Documentation",
+    "severity": "Medium",
+    "description": "Drive README / CLAUDE.md / plugin.json content counts from inventory.json",
+    "effort": "M",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": 1,
+    "dedup_rationale": "unique finding",
+    "disposition": "targeted",
+    "pillar": [
+      "P4",
+      "P5"
+    ],
+    "finding_type": "docs",
+    "source_finding_ref": "D10-7.1.1",
+    "confidence": "high",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://github.com/dmasatovic/hatch3r (source: D10-7.1.1)",
+        "accessed": "2026-04-20",
+        "author": "hatch3r audit Cycle 7",
+        "trust_tier": "internal-audit"
+      }
+    ],
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
+    "files_modified": [
+      "README.md",
+      "CLAUDE.md",
+      ".cursor-plugin/plugin.json",
+      "governance/inventory.json",
+      "scripts/inventory.ts"
+    ],
+    "work_unit": null,
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "done",
+    "commit_sha": "34d2ba4",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false,
+    "cl1_status": "none",
+    "sdr_status": "none"
+  },
+  {
+    "finding_id": "C8-D10-M2-first-run-prompt-count",
+    "domain": "D10: User Experience & Documentation",
+    "severity": "Medium",
+    "description": "Reconcile README 'one command' claim with 9-prompt flow: add --quick / --default mode",
+    "effort": "M",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": 1,
+    "dedup_rationale": "unique finding",
+    "disposition": "targeted",
+    "pillar": [
+      "P1"
+    ],
+    "finding_type": "code",
+    "source_finding_ref": "D10-7.3.1",
+    "confidence": "high",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://github.com/dmasatovic/hatch3r (source: D10-7.3.1)",
+        "accessed": "2026-04-20",
+        "author": "hatch3r audit Cycle 7",
+        "trust_tier": "internal-audit"
+      }
+    ],
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
+    "files_modified": [
+      "src/cli/commands/init.ts",
+      "README.md"
+    ],
+    "work_unit": null,
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "done",
+    "commit_sha": "34d2ba4",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false,
+    "cl1_status": "none",
+    "sdr_status": "none"
+  },
+  {
+    "finding_id": "C8-D11-M1-deny-pattern-cascade",
+    "domain": "D11: End-to-End Data Flow",
+    "severity": "Medium",
+    "description": "Loop deny-pattern scan-and-replace until violations empty (max 5 iters)",
+    "effort": "S",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": 1,
+    "dedup_rationale": "unique finding",
+    "disposition": "targeted",
+    "pillar": [
+      "P6"
+    ],
+    "finding_type": "code",
+    "source_finding_ref": "D11-SA11.4-01",
+    "confidence": "high",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://github.com/dmasatovic/hatch3r (source: D11-SA11.4-01)",
+        "accessed": "2026-04-20",
+        "author": "hatch3r audit Cycle 7",
+        "trust_tier": "internal-audit"
+      }
+    ],
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
+    "files_modified": [
+      "src/pipeline/customization.ts",
+      "src/adapters/customization.ts"
+    ],
+    "work_unit": null,
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "done",
+    "commit_sha": "34d2ba4",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false,
+    "cl1_status": "none",
+    "sdr_status": "none"
+  },
+  {
+    "finding_id": "C8-D12-M1-stdout-stderr-separation",
+    "domain": "D12: CLI Diagnostics & Traceability",
+    "severity": "Medium",
+    "description": "Route error()/warn() to stderr; info() stays on stdout",
+    "effort": "S",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": 1,
+    "dedup_rationale": "unique finding",
+    "disposition": "targeted",
+    "pillar": [
+      "P1"
+    ],
+    "finding_type": "code",
+    "source_finding_ref": "D12-SA12.1-F-001",
+    "confidence": "high",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://github.com/dmasatovic/hatch3r (source: D12-SA12.1-F-001)",
+        "accessed": "2026-04-20",
+        "author": "hatch3r audit Cycle 7",
+        "trust_tier": "internal-audit"
+      }
+    ],
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
+    "files_modified": [
+      "src/cli/shared/ui.ts"
+    ],
+    "work_unit": null,
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "done",
+    "commit_sha": "34d2ba4",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false,
+    "cl1_status": "none",
+    "sdr_status": "none"
+  },
+  {
+    "finding_id": "C8-D12-M2-update-dry-run",
+    "domain": "D12: CLI Diagnostics & Traceability",
+    "severity": "Medium",
+    "description": "Add --dry-run flag to update command for safe preview",
+    "effort": "M",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": 1,
+    "dedup_rationale": "unique finding",
+    "disposition": "targeted",
+    "pillar": [
+      "P1"
+    ],
+    "finding_type": "code",
+    "source_finding_ref": "D12-SA12.1-F-002",
+    "confidence": "high",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://github.com/dmasatovic/hatch3r (source: D12-SA12.1-F-002)",
+        "accessed": "2026-04-20",
+        "author": "hatch3r audit Cycle 7",
+        "trust_tier": "internal-audit"
+      }
+    ],
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
+    "files_modified": [
+      "src/cli/commands/update.ts",
+      "src/cli/index.ts"
+    ],
+    "work_unit": null,
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "done",
+    "commit_sha": "34d2ba4",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false,
+    "cl1_status": "none",
+    "sdr_status": "none"
+  },
+  {
+    "finding_id": "C8-D12-M3-adapter-source-provenance",
+    "domain": "D12: CLI Diagnostics & Traceability",
+    "severity": "Medium",
+    "description": "Per-file adapter-source provenance: extend AdapterOutput with sourceFiles[]",
+    "effort": "L",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": 1,
+    "dedup_rationale": "unique finding",
+    "disposition": "targeted",
+    "pillar": [
+      "P1",
+      "P4"
+    ],
+    "finding_type": "code",
+    "source_finding_ref": "D12-SA12.2-F-003",
+    "confidence": "medium",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://github.com/dmasatovic/hatch3r (source: D12-SA12.2-F-003)",
+        "accessed": "2026-04-20",
+        "author": "hatch3r audit Cycle 7",
+        "trust_tier": "internal-audit"
+      }
+    ],
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
+    "files_modified": [
+      "src/adapters/base.ts",
+      "src/types.ts",
+      "src/integrity/provenance.ts"
+    ],
+    "work_unit": null,
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "done",
+    "commit_sha": "34d2ba4",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false,
+    "cl1_status": "none",
+    "sdr_status": "none"
+  },
+  {
+    "finding_id": "C8-D13-M1-review-confidence-gate",
+    "domain": "D13: Human-AI Collaboration",
+    "severity": "Medium",
+    "description": "Review gate incorporates confidence threshold: low-confidence PASS triggers second-pass review",
+    "effort": "M",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": 1,
+    "dedup_rationale": "unique finding",
+    "disposition": "targeted",
+    "pillar": [
+      "P2"
+    ],
+    "finding_type": "code",
+    "source_finding_ref": "D13-SA13.2-001",
+    "confidence": "high",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://github.com/dmasatovic/hatch3r (source: D13-SA13.2-001)",
+        "accessed": "2026-04-20",
+        "author": "hatch3r audit Cycle 7",
+        "trust_tier": "internal-audit"
+      }
+    ],
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
+    "files_modified": [
+      "src/pipeline/reviewLoop.ts"
+    ],
+    "work_unit": null,
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "done",
+    "commit_sha": "34d2ba4",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false,
+    "cl1_status": "none",
+    "sdr_status": "none"
+  },
+  {
+    "finding_id": "C8-D14-M1-language-filter-wiring",
+    "domain": "D14: Adaptability & Scalability",
+    "severity": "Medium",
+    "description": "Wire repoInfo.languages from init.ts to resolveSelection as 6th argument (5 call sites)",
+    "effort": "M",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": 1,
+    "dedup_rationale": "unique finding",
+    "disposition": "targeted",
+    "pillar": [
+      "P3",
+      "P4"
+    ],
+    "finding_type": "code",
+    "source_finding_ref": "D14-SA14.1-001",
+    "confidence": "high",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://github.com/dmasatovic/hatch3r (source: D14-SA14.1-001)",
+        "accessed": "2026-04-20",
+        "author": "hatch3r audit Cycle 7",
+        "trust_tier": "internal-audit"
+      }
+    ],
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
+    "files_modified": [
+      "src/cli/commands/init.ts",
+      "src/content/index.ts"
+    ],
+    "work_unit": null,
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "done",
+    "commit_sha": "34d2ba4",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false,
+    "cl1_status": "none",
+    "sdr_status": "none"
+  },
+  {
+    "finding_id": "C8-D15-M1-deny-pattern-2026-variants",
+    "domain": "D15: Agentic Security & Trust",
+    "severity": "Medium",
+    "description": "Extend DENY_PATTERNS with 2026 injection variants: Unicode tag chars, base64 overrides, homoglyphs",
+    "effort": "M",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": 1,
+    "dedup_rationale": "unique finding",
+    "disposition": "targeted",
+    "pillar": [
+      "P6"
+    ],
+    "finding_type": "code",
+    "source_finding_ref": "D15-F15.1-03",
+    "confidence": "high",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://github.com/dmasatovic/hatch3r (source: D15-F15.1-03)",
+        "accessed": "2026-04-20",
+        "author": "hatch3r audit Cycle 7",
+        "trust_tier": "internal-audit"
+      }
+    ],
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
+    "files_modified": [
+      "src/pipeline/promptGuard.ts"
+    ],
+    "work_unit": null,
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "done",
+    "commit_sha": "34d2ba4",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false,
+    "cl1_status": "none",
+    "sdr_status": "none"
+  },
+  {
+    "finding_id": "C8-D15-M2-env-mcp-worktree-warn",
+    "domain": "D15: Agentic Security & Trust",
+    "severity": "Medium",
+    "description": "Add prominent warning on worktree setup when .env.mcp exists; document blast-radius",
+    "effort": "S",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": 1,
+    "dedup_rationale": "unique finding",
+    "disposition": "targeted",
+    "pillar": [
+      "P6",
+      "P1"
+    ],
+    "finding_type": "code",
+    "source_finding_ref": "D15-F15.6-05",
+    "confidence": "high",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://github.com/dmasatovic/hatch3r (source: D15-F15.6-05)",
+        "accessed": "2026-04-20",
+        "author": "hatch3r audit Cycle 7",
+        "trust_tier": "internal-audit"
+      }
+    ],
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
+    "files_modified": [
+      "src/cli/commands/worktreeSetup.ts"
+    ],
+    "work_unit": null,
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "done",
+    "commit_sha": "34d2ba4",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false,
+    "cl1_status": "none",
+    "sdr_status": "none"
+  },
+  {
+    "finding_id": "C8-D15-M3-validate-tool-policies-hard-error",
+    "domain": "D15: Agentic Security & Trust",
+    "severity": "Medium",
+    "description": "validateToolPolicies typos in tool categories must be hard errors, not warnings",
+    "effort": "S",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": 1,
+    "dedup_rationale": "unique finding",
+    "disposition": "targeted",
+    "pillar": [
+      "P6"
+    ],
+    "finding_type": "code",
+    "source_finding_ref": "D15-F15.2-05",
+    "confidence": "high",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://github.com/dmasatovic/hatch3r (source: D15-F15.2-05)",
+        "accessed": "2026-04-20",
+        "author": "hatch3r audit Cycle 7",
+        "trust_tier": "internal-audit"
+      }
+    ],
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
+    "files_modified": [
+      "src/pipeline/agentToolAllowlist.ts"
+    ],
+    "work_unit": null,
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "done",
+    "commit_sha": "34d2ba4",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false,
+    "cl1_status": "none",
+    "sdr_status": "none"
+  },
+  {
+    "finding_id": "C8-D16-M1-feature-status-taxonomy",
+    "domain": "D16: Cross-Domain Synthesis",
+    "severity": "Medium",
+    "description": "Add feature-status 4-tuple {implemented, cli_registered, documented, tested} to AUDIT-EXECUTE.md",
+    "effort": "S",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": 1,
+    "dedup_rationale": "unique finding",
+    "disposition": "targeted",
+    "pillar": [
+      "P4",
+      "P5"
+    ],
+    "finding_type": "docs",
+    "source_finding_ref": "D16-SA16.1-4",
+    "confidence": "high",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://github.com/dmasatovic/hatch3r (source: D16-SA16.1-4)",
+        "accessed": "2026-04-20",
+        "author": "hatch3r audit Cycle 7",
+        "trust_tier": "internal-audit"
+      }
+    ],
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
+    "files_modified": [
+      "governance/AUDIT-EXECUTE.md"
+    ],
+    "work_unit": null,
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "done",
+    "commit_sha": "34d2ba4",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false,
+    "cl1_status": "none",
+    "sdr_status": "none"
+  },
+  {
+    "finding_id": "C8-D17-M1-ruler-comparison-table",
+    "domain": "D17: Competition & Market Intelligence",
+    "severity": "Medium",
+    "description": "Add 'vs Ruler' comparison table to README listing managed blocks, SHA-256 integrity, 6 artifacts, OIDC, governance cycle",
+    "effort": "S",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": 1,
+    "dedup_rationale": "unique finding",
+    "disposition": "targeted",
+    "pillar": [
+      "P4"
+    ],
+    "finding_type": "docs",
+    "source_finding_ref": "D17-17.1-D",
+    "confidence": "medium",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://github.com/dmasatovic/hatch3r (source: D17-17.1-D)",
+        "accessed": "2026-04-20",
+        "author": "hatch3r audit Cycle 7",
+        "trust_tier": "internal-audit"
+      }
+    ],
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
+    "files_modified": [
+      "README.md"
+    ],
+    "work_unit": null,
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "done",
+    "commit_sha": "34d2ba4",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false,
+    "cl1_status": "none",
+    "sdr_status": "none"
+  },
+  {
+    "finding_id": "C8-D18-M1-prd-23-shipped-status",
+    "domain": "D18: PRD, Roadmap & Distribution",
+    "severity": "Medium",
+    "description": "Rewrite PRD \u00a723 existential-risk row to reflect shipped status (GitHub public + npm publish complete)",
+    "effort": "S",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": 1,
+    "dedup_rationale": "unique finding",
+    "disposition": "targeted",
+    "pillar": [
+      "P2",
+      "P5"
+    ],
+    "finding_type": "docs",
+    "source_finding_ref": "D18-F18.1-M2",
+    "confidence": "high",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://github.com/dmasatovic/hatch3r (source: D18-F18.1-M2)",
+        "accessed": "2026-04-20",
+        "author": "hatch3r audit Cycle 7",
+        "trust_tier": "internal-audit"
+      }
+    ],
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
+    "files_modified": [
+      "governance/hatch3r-prd.md"
+    ],
+    "work_unit": null,
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "done",
+    "commit_sha": "34d2ba4",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false,
+    "cl1_status": "none",
+    "sdr_status": "none"
+  },
+  {
+    "finding_id": "C8-D19-M1-inventory-rule-count-drift",
+    "domain": "D19: Agentic Development Self-Governance",
+    "severity": "Medium",
+    "description": "Prevent rule-count drift via inventory-derived doc updates; extend inventory --check-docs",
+    "effort": "S",
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": 1,
+    "dedup_rationale": "unique finding",
+    "disposition": "targeted",
+    "pillar": [
+      "P4",
+      "P5"
+    ],
+    "finding_type": "docs",
+    "source_finding_ref": "D19-F19.1.1",
+    "confidence": "high",
+    "causal_chain_depth": 3,
+    "sources": [
+      {
+        "url": "https://github.com/dmasatovic/hatch3r (source: D19-F19.1.1)",
+        "accessed": "2026-04-20",
+        "author": "hatch3r audit Cycle 7",
+        "trust_tier": "internal-audit"
+      }
+    ],
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
+    "files_modified": [
+      "CLAUDE.md",
+      "governance/inventory.json",
+      "scripts/inventory.ts"
+    ],
+    "work_unit": null,
+    "wave": 3,
+    "sub_wave_batch": null,
+    "execution_status": "done",
+    "commit_sha": "34d2ba4",
+    "rollback_reason": null,
+    "rollback_level": null,
+    "reviewer_verdict": null,
+    "reviewer_notes": null,
+    "false_positive": false,
+    "cl1_status": "none",
+    "sdr_status": "none"
+  },
+  {
+    "finding_id": "C8-rollover-medium-low-remainder",
+    "domain": "ALL (cross-domain rollover)",
+    "severity": "Medium+Low",
+    "description": "Cycle 7 Medium+Low findings not promoted to Cycle 8 partial. Defer to Cycle 9 triage.",
+    "effort": null,
+    "owner": "Agent",
+    "depends_on": null,
+    "dedup_action": "keep",
+    "dedup_tier": 1,
+    "dedup_rationale": "umbrella rollover",
+    "disposition": "rollover",
+    "pillar": [
+      "P4"
+    ],
+    "finding_type": "various",
+    "work_unit": null,
+    "wave": null,
+    "sub_wave_batch": null,
+    "execution_status": "deferred",
+    "reviewer_verdict": null,
+    "reviewer_notes": "Promoted 40 Medium findings to Cycle 8 partial execution; remainder carried forward to Cycle 9.",
+    "total_remainder": {
+      "medium": 118,
+      "low": 66
+    },
+    "note": "Per-domain breakdown preserved in 19 C7-D{N}-rollover-medium-low entries (now partially_promoted). Cycle 9 triage should consult .audit-workspace/D{N}-synthesis.md and per-SA files."
   }
 ]
