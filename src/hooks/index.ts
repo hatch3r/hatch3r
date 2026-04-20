@@ -1,4 +1,4 @@
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, lstat } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import type { HookDefinition } from "./types.js";
@@ -9,13 +9,21 @@ import { isValidHookEvent, VALID_HOOK_EVENTS } from "./types.js";
  * Kept in sync with the Silent Failure Contract (CONSTITUTION.md §2 P5):
  * every rejection carries a machine-readable code so adapters and CI can
  * react without string-matching on free-form messages.
+ *
+ * C8-D2-M3 adds `SYMLINK_SKIPPED` so a symbolic link entry in
+ * `.agents/hooks/` that would otherwise be parsed as a hook produces a
+ * traceable diagnostic instead of a silent drop. Symlinks are a security
+ * boundary (they can point outside the repo, or form cycles with recursive
+ * readdir) and rejecting them here matches the behaviour already enforced
+ * by `readSingleMd` in `src/adapters/canonical.ts`.
  */
 export type HookParseErrorCode =
   | "NO_FRONTMATTER"
   | "YAML_PARSE_ERROR"
   | "MISSING_FIELD"
   | "INVALID_EVENT"
-  | "DUPLICATE_ID";
+  | "DUPLICATE_ID"
+  | "SYMLINK_SKIPPED";
 
 /**
  * Read all hook definitions from `.agents/hooks/` by parsing YAML frontmatter.
@@ -55,6 +63,34 @@ export async function readHookDefinitions(
 
   for (const entry of entries) {
     const fullPath = join(hooksDir, entry);
+    // C8-D2-M3: lstat-gate every entry before reading. `readdir({recursive:true})`
+    // walks through symlinked directories (and symlinked files) and can therefore
+    // enumerate either cross-filesystem paths or cycles. Skipping symlinks here
+    // matches the security boundary already enforced by `readSingleMd` in
+    // `src/adapters/canonical.ts` (C7-H18), closes the infinite-recursion risk
+    // identified in D2-SA2.2-3, and surfaces a SYMLINK_SKIPPED diagnostic so
+    // the skip is not silent.
+    let stats;
+    try {
+      stats = await lstat(fullPath);
+    } catch (err) {
+      // A race between readdir and lstat (file deleted mid-scan) is benign;
+      // treat it as a skip rather than propagating. ENOENT here cannot affect
+      // the remaining hooks.
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw err;
+    }
+    if (stats.isSymbolicLink()) {
+      if (warnings) {
+        warnings.push(
+          formatHookWarning(fullPath, {
+            code: "SYMLINK_SKIPPED",
+            message: "symbolic link entry in hooks/ skipped (security boundary)",
+          }),
+        );
+      }
+      continue;
+    }
     const content = await readFile(fullPath, "utf-8");
     const result = parseHookFrontmatter(content);
     if (result.error) {

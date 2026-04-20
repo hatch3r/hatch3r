@@ -1,7 +1,6 @@
 import type { CanonicalFile } from "../types.js";
 import {
-  readCustomization,
-  readCustomizationMarkdown,
+  readCustomizationSnapshot,
   type Customization,
   type CustomizableType,
 } from "../models/customize.js";
@@ -247,8 +246,49 @@ function normalizeInput(content: string): string {
   return normalizeHomoglyphs(collapseNewlines(stripBoundaryMarkers(content.replace(ZERO_WIDTH_CHARS, ""))));
 }
 
+/**
+ * Maximum iterations for the normalization-convergence loop in
+ * {@link normalizeInputToFixedPoint}. Capped at 5 to bound worst-case
+ * work on adversarial input while leaving headroom for legitimate
+ * multi-stage residue (e.g. Latin Extended Additional -> NFKD -> combining
+ * mark strip exposing a Cyrillic confusable that maps to Latin on a
+ * second pass). Empirically, benign content converges in 1 iteration
+ * and crafted cascades observed during C8-D11 analysis converged in <=3.
+ */
+const MAX_NORMALIZE_ITERATIONS = 5;
+
+/**
+ * C8-D11-M1 (D11-SA11.4-01): run {@link normalizeInput} repeatedly
+ * until the output is a fixed point (two consecutive passes produce
+ * identical strings) or the iteration cap is reached. Prevents the
+ * residue-cascade class of bypass in which a single-pass substitution
+ * exposes a confusable the scan would otherwise miss. Each pass is
+ * O(n) over the normalized string; the cap bounds total work at 5.n
+ * even on adversarial input that never converges.
+ *
+ * When iterations > 1, emit a warning so operators have traceability
+ * for content that required multiple normalization passes -- this
+ * surfaces layered-obfuscation attempts during sync/init.
+ */
+function normalizeInputToFixedPoint(content: string): string {
+  let current = normalizeInput(content);
+  let iteration = 1;
+  while (iteration < MAX_NORMALIZE_ITERATIONS) {
+    const next = normalizeInput(current);
+    if (next === current) break;
+    current = next;
+    iteration++;
+  }
+  if (iteration > 1) {
+    console.warn(
+      `[hatch3r] Deny-pattern normalization required ${iteration} iterations to converge (cap ${MAX_NORMALIZE_ITERATIONS}). Input may contain layered obfuscation.`,
+    );
+  }
+  return current;
+}
+
 export function scanForDeniedPatterns(content: string): string[] {
-  const normalized = normalizeInput(content);
+  const normalized = normalizeInputToFixedPoint(content);
   const violations: string[] = [];
   for (const pattern of DENY_PATTERNS) {
     const match = normalized.match(pattern);
@@ -277,10 +317,16 @@ async function applyCustomizationImpl(
     return { content: file[contentKey], skip: false, overrides: {}, warnings };
   }
 
-  const [yaml, md] = await Promise.all([
-    readCustomization(projectRoot, dir, file.id),
-    readCustomizationMarkdown(projectRoot, dir, file.id),
-  ]);
+  // C8-D2-M4 (TOCTOU guard): read both .customize.yaml and .customize.md as
+  // a time-consistent snapshot. The snapshot helper pre-stats both files,
+  // reads them concurrently, then re-stats and emits a warning if either
+  // file's mtime changed across the read window (edit-during-sync detection).
+  // The convention itself — do not edit customization files during a sync —
+  // is documented in readCustomizationSnapshot's JSDoc.
+  const snapshot = await readCustomizationSnapshot(projectRoot, dir, file.id);
+  warnings.push(...snapshot.warnings);
+  const yaml = snapshot.yaml;
+  const md = snapshot.md;
 
   const overrides: Customization = yaml ?? {};
 

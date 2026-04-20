@@ -50,6 +50,8 @@ export function createProgram(): Command {
       `Comma-separated tools (${TOOL_CHOICES})`,
     )
     .option("--yes", "Skip interactive prompts, use defaults")
+    .option("--quick", "Skip all prompts and use smart defaults (alias for --yes)")
+    .option("--default", "Skip all prompts and use smart defaults (alias for --yes)")
     .option("--preset <preset>", "Content preset: minimal, standard, full (default: full)")
     .option("--project-type <type>", "Project type: greenfield, brownfield")
     .option("--team-size <size>", "Team size: solo, team")
@@ -81,12 +83,19 @@ export function createProgram(): Command {
     .option("--yes", "Skip interactive prompts, use defaults")
     .option("--diff", "Show a before/after diff summary for each generated file")
     .option("--force", "Override the preflight integrity check and proceed despite drift")
+    .option("--offline, --skip-fetch", "Skip the package fetch step; regenerate only from already-installed canonical content")
+    .option("--dry-run", "Preview what would change (added/modified/unchanged per adapter) without writing files")
     .action(updateCommand);
 
   program
     .command("validate")
     .description("Check .agents/ structure: frontmatter, cross-references, content safety, compliance")
     .option("--verbose", "Show detailed validation output for each check")
+    .option(
+      "--format <format>",
+      "Output format for CI consumers: human (default) or json",
+      "human",
+    )
     .action(validateCommand);
 
   program
@@ -112,6 +121,23 @@ export function createProgram(): Command {
     .command("add [pack]")
     .description("Install a community pack (coming soon)")
     .option("--force", "Override the preflight integrity check and proceed despite drift")
+    .addHelpText(
+      "after",
+      [
+        "",
+        "Roadmap:",
+        "  Community pack installation is not yet shipped. The command exits 0 today and",
+        "  prints a pointer to the repo's releases + discussions. Scripts that probe for the",
+        "  subcommand (e.g. feature-flagged CI) will not see a usage error (exit 2) anymore.",
+        "  - Releases:    https://github.com/hatch3r/hatch3r/releases",
+        "  - Discussions: https://github.com/hatch3r/hatch3r/discussions",
+        "",
+        "Exit codes:",
+        "  0  Informational (feature pending; no action required)",
+        "  1  Integrity drift blocked the command (use --force to override; see `hatch3r verify`)",
+        "",
+      ].join("\n"),
+    )
     .action(addCommand);
 
   program

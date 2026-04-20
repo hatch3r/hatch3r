@@ -142,4 +142,52 @@ describe("ZedAdapter", () => {
     const mcpFile = outputs.find((o) => o.path === ".zed/mcp.json");
     expect(mcpFile).toBeUndefined();
   });
+
+  // C8-D9-M2-zed-spawn-agent: Zed 2026 platform capabilities must surface in
+  // the .rules bridge body so the Zed Agent is aware of spawn_agent (ACP,
+  // shipped in 0.227.1) and OAuth MCP authentication (shipped in 0.230.0).
+  // Sources: https://zed.dev/releases/stable (accessed 2026-04-19).
+  describe("Zed 2026 platform capability notes", () => {
+    it("surfaces spawn_agent primitive in .rules bridge body", async () => {
+      const manifest = createManifest({ tools: ["zed"] });
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const rules = outputs.find((o) => o.path === ".rules");
+      expect(rules).toBeDefined();
+      expect(rules!.content).toContain("spawn_agent");
+      expect(rules!.content).toContain("Agent Control Protocol");
+    });
+
+    it("surfaces OAuth MCP authentication guidance in .rules bridge body", async () => {
+      const manifest = createManifest({ tools: ["zed"] });
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const rules = outputs.find((o) => o.path === ".rules");
+      expect(rules).toBeDefined();
+      expect(rules!.content).toContain("OAuth");
+      expect(rules!.content).toContain("Authenticate");
+    });
+
+    it("places platform capabilities section before inline rules", async () => {
+      const manifest = createManifest({ tools: ["zed"] });
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const rules = outputs.find((o) => o.path === ".rules");
+      expect(rules).toBeDefined();
+      const caps = rules!.content.indexOf("Zed Platform Capabilities");
+      const firstRule = rules!.content.indexOf("## test-rule");
+      expect(caps).toBeGreaterThan(-1);
+      expect(firstRule).toBeGreaterThan(-1);
+      expect(caps).toBeLessThan(firstRule);
+    });
+
+    it("emits capabilities section even when rules and agents are disabled", async () => {
+      const manifest = createManifest({
+        tools: ["zed"],
+        features: { rules: false, agents: false },
+      });
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const rules = outputs.find((o) => o.path === ".rules");
+      expect(rules).toBeDefined();
+      expect(rules!.content).toContain("spawn_agent");
+      expect(rules!.content).toContain("OAuth");
+    });
+  });
 });

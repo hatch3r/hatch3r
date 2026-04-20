@@ -190,16 +190,28 @@ export async function runComplianceChecks(): Promise<ComplianceReport> {
     detail: `${agentCount} agent tool policies registered`,
   });
 
-  const policyWarnings = validateToolPolicies();
-  checks.push({
-    id: "asi02-policy-validation",
-    description: "Tool allowlist policies are well-formed",
-    controlRef: "ASI02",
-    status: policyWarnings.length === 0 ? "pass" : "warn",
-    detail: policyWarnings.length === 0
-      ? "All policies are well-formed"
-      : `${policyWarnings.length} warning(s): ${policyWarnings[0]}`,
-  });
+  // C8-D15-M3: validateToolPolicies now throws on unknown tool categories
+  // (typos). Surface the thrown error as a fail check so CI observes it.
+  try {
+    const policyWarnings = validateToolPolicies();
+    checks.push({
+      id: "asi02-policy-validation",
+      description: "Tool allowlist policies are well-formed",
+      controlRef: "ASI02",
+      status: policyWarnings.length === 0 ? "pass" : "warn",
+      detail: policyWarnings.length === 0
+        ? "All policies are well-formed"
+        : `${policyWarnings.length} warning(s): ${policyWarnings[0]}`,
+    });
+  } catch (err) {
+    checks.push({
+      id: "asi02-policy-validation",
+      description: "Tool allowlist policies are well-formed",
+      controlRef: "ASI02",
+      status: "fail",
+      detail: err instanceof Error ? err.message : String(err),
+    });
+  }
 
   // Verify no agent has write+git+board (excessive privilege)
   const overPrivileged = AGENT_TOOL_POLICIES.filter(

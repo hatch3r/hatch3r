@@ -9,6 +9,7 @@ import {
   readManifest,
   writeManifest,
   addManagedFile,
+  isValidGitBranchName,
 } from "../../manifest/hatchJson.js";
 import { safeWriteFile } from "../../merge/safeWrite.js";
 import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
@@ -164,7 +165,36 @@ export interface RunInitOptions {
   contentSelection: ContentSelection;
 }
 
+// C8-D1-M3: Guard against a double `runInit` on the same target directory.
+// Workspace init constructs a canonical `.agents/` at the workspace root and
+// also syncs selected sub-repos. A bug or re-entry path that called runInit
+// twice for the same rootDir in one process would race on manifest reads,
+// content copies, and managed-file writes. The guard holds for the lifetime
+// of a single CLI invocation.
+const RUNNING_INITS = new Set<string>();
+
 export async function runInit(options: RunInitOptions): Promise<void> {
+  const { rootDir } = options;
+
+  // C8-D1-M3: idempotency guard — fail fast on reentrant calls rather than
+  // producing a half-written `.agents/`.
+  if (RUNNING_INITS.has(rootDir)) {
+    throw new HatchError(
+      `runInit already in progress for ${rootDir}`,
+      1,
+      "CONFIG_ERROR",
+    );
+  }
+  RUNNING_INITS.add(rootDir);
+
+  try {
+    await runInitInner(options);
+  } finally {
+    RUNNING_INITS.delete(rootDir);
+  }
+}
+
+async function runInitInner(options: RunInitOptions): Promise<void> {
   const { rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection } = options;
   const agentsDir = join(rootDir, AGENTS_DIR);
   const totalSteps = 4;
@@ -442,9 +472,35 @@ export async function initCommand(
     projectType?: string;
     teamSize?: string;
     workspace?: boolean;
+    quick?: boolean;
+    default?: boolean;
   } = {},
 ): Promise<void> {
   printBanner();
+
+  // C8-D1-M4: Validate `--preset`, `--project-type`, and `--team-size` flag
+  // values eagerly, before any prompt or detection work runs. Previously
+  // these flags were only validated on the `--yes` branch, so an interactive
+  // invocation with `--preset kitchen-sink` silently discarded the bad flag
+  // and still prompted the user. Per CLI Guidelines fail-fast validation,
+  // invalid values abort with exit 1 before any side-effect.
+  if (opts.preset !== undefined) {
+    validateFlag(opts.preset, ["minimal", "standard", "full", "custom"], "full", "preset");
+  }
+  if (opts.projectType !== undefined) {
+    validateFlag(opts.projectType, ["greenfield", "brownfield"], "brownfield", "project-type");
+  }
+  if (opts.teamSize !== undefined) {
+    validateFlag(opts.teamSize, ["solo", "team"], "solo", "team-size");
+  }
+
+  // C8-D10-M2: `--quick` / `--default` collapses the 9-prompt interactive
+  // flow to smart defaults by routing to the existing `--yes` path. This
+  // reconciles the README "One command gives you..." claim with the
+  // interactive first-run experience.
+  if (opts.quick || opts.default) {
+    opts.yes = true;
+  }
 
   const rootDir = process.cwd();
 
@@ -615,6 +671,16 @@ export async function initCommand(
       name: "defaultBranch",
       message: "Default branch (for checkout, PR base, release):",
       default: defaultBranchDefault,
+      // C8-D1-M9: reject values that fail `git check-ref-format`. Empty
+      // input is allowed through (falls back to detected default below).
+      validate: (v: string) => {
+        const trimmed = v.trim();
+        if (trimmed === "") return true;
+        return (
+          isValidGitBranchName(trimmed) ||
+          `Invalid git branch name: "${trimmed}". See git-check-ref-format(1).`
+        );
+      },
     },
   ]);
   const defaultBranch = defaultBranchAnswers.defaultBranch.trim() || defaultBranchDefault;
@@ -857,7 +923,22 @@ async function runWorkspaceInit(
         const identity = await inquirer.prompt<{ owner: string; repo: string; defaultBranch: string }>([
           { type: "input", name: "owner", message: "  Owner:", default: r.owner || undefined },
           { type: "input", name: "repo", message: "  Repo:", default: r.repo || undefined },
-          { type: "input", name: "defaultBranch", message: "  Default branch:", default: r.defaultBranch || "main" },
+          {
+            type: "input",
+            name: "defaultBranch",
+            message: "  Default branch:",
+            default: r.defaultBranch || "main",
+            // C8-D1-M9: enforce `git check-ref-format` on per-repo workspace
+            // identity prompts as well as the top-level default-branch prompt.
+            validate: (v: string) => {
+              const trimmed = v.trim();
+              if (trimmed === "") return true;
+              return (
+                isValidGitBranchName(trimmed) ||
+                `Invalid git branch name: "${trimmed}". See git-check-ref-format(1).`
+              );
+            },
+          },
         ]);
         r.owner = sanitizeInput(identity.owner);
         r.repo = sanitizeInput(identity.repo);
@@ -1099,6 +1180,39 @@ async function runWorkspaceInit(
     ]);
 
     const syncSet = new Set(syncRepos);
+
+    // C8-D1-M3: Managed-file conflict guard. If any selected sub-repo already
+    // has `.agents/hatch.json`, warn before letting `syncWorkspaceRepos`
+    // overwrite managed files in those sub-repos. Managed content outside
+    // HATCH3R:BEGIN/END blocks is preserved by `safeWriteFile`, but the
+    // managed portions will be replaced — the user must explicitly consent.
+    const conflictingRepos = enriched.filter((r) => syncSet.has(r.path) && r.hasHatch3r);
+    if (conflictingRepos.length > 0) {
+      warn(
+        `${conflictingRepos.length} selected repo(s) already have hatch3r installed; their managed files will be overwritten by workspace content.`,
+      );
+      for (const r of conflictingRepos) {
+        console.log(chalk.dim(`  - ${r.name ?? r.path}`));
+      }
+      const { confirmConflict } = await inquirer.prompt<{ confirmConflict: boolean }>([
+        {
+          type: "confirm",
+          name: "confirmConflict",
+          message: "Proceed with overwriting managed files in existing hatch3r sub-repos?",
+          default: false,
+        },
+      ]);
+      if (!confirmConflict) {
+        // Drop the conflicting repos from the sync set; keep them registered
+        // in the workspace manifest so the user can sync later with
+        // `hatch3r sync --repos <path>` after reviewing their managed files.
+        for (const r of conflictingRepos) {
+          syncSet.delete(r.path);
+        }
+        info(chalk.dim("  Skipped syncing conflicting repos. They remain registered in the workspace — run `hatch3r sync --repos <path>` after reviewing their managed files."));
+      }
+    }
+
     repoEntries = enriched.map((r) => ({
       path: r.path,
       name: r.name,

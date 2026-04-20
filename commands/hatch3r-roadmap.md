@@ -1,6 +1,8 @@
 ---
 id: hatch3r-roadmap
 type: command
+orchestrator: true
+agentPipeline: [hatch3r-researcher, hatch3r-docs-writer]
 description: Generate a dual-lens phased roadmap (business milestones + technical milestones) from specs and vision using parallel researcher sub-agents, output to todo.md in the format that hatch3r-board-fill expects.
 tags: [planning, greenfield]
 quality_charter: agents/shared/quality-charter.md

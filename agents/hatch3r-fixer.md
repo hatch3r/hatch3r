@@ -161,19 +161,9 @@ Report back to the parent orchestrator with:
 - (any context the parent needs for re-review or PR description)
 ```
 
-## Platform CLI Usage
-
-Use the project's configured platform CLI (check `platform` in `.agents/hatch.json`):
-
-- **Always** use the platform CLI over platform MCP tools for reading issue details, searching code, or fetching labels:
-  - **GitHub:** `gh issue view`, `gh search issues`, `gh search code`
-  - **Azure DevOps:** `az boards work-item show`, `az boards query`, `az repos show`
-  - **GitLab:** `glab issue view`, `glab issue list --search`, `glab search`
-- **Fallback** to platform MCP only for operations not covered by the CLI (e.g., sub-issue management, project field mutations).
-
 ## External Knowledge
 
-Follow the shared protocol in `agents/shared/external-knowledge.md` (tooling hierarchy, platform CLI, Context7 MCP, web research).
+See [Tooling Hierarchy](../rules/hatch3r-tooling-hierarchy.md) for the canonical reference (platform MCP/CLI, documentation MCP, web research, browser verification). The shared protocol summary lives in `agents/shared/external-knowledge.md`.
 
 ## Review Loop Termination Conditions
 

@@ -20,6 +20,17 @@ export const DEFAULT_MCP_TIMEOUT_MS = 30_000;
 export const MAX_MCP_TIMEOUT_MS = 300_000;
 
 /**
+ * Default maximum recursion depth for {@link transformEnvVarSyntax}.
+ *
+ * C8-D2-M5 (D2-SA2.4-2, Pillar P6): MCP config JSON in the wild nests at
+ * most ~4 levels (root -> mcpServers -> server entry -> env/headers -> values),
+ * so 32 leaves ample headroom for legitimate nesting while bounding the stack
+ * against adversarial input. This is a defensive upper bound, not a functional
+ * limit expected to be reached in normal use.
+ */
+export const DEFAULT_TRANSFORM_MAX_DEPTH = 32;
+
+/**
  * Transforms `${env:VAR}` references to the native format for a given adapter.
  *
  * The canonical MCP config uses `${env:VAR}` syntax (matching the MCP spec).
@@ -31,11 +42,36 @@ export const MAX_MCP_TIMEOUT_MS = 300_000;
  *
  * For adapters that don't understand `${env:VAR}`, this prevents silent failures
  * by converting to a syntax the adapter can process.
+ *
+ * C8-D2-M5 (D2-SA2.4-2, Pillar P6): A recursion depth limit (default
+ * {@link DEFAULT_TRANSFORM_MAX_DEPTH}) is enforced to defend against adversarial
+ * or malformed input (cyclic references, pathologically nested JSON) that would
+ * otherwise exhaust the call stack. Legitimate MCP config depth is <=5 levels,
+ * so the default has wide headroom and will not trip on real inputs.
+ *
+ * @throws {RangeError} When the input nesting exceeds `maxDepth`.
  */
 export function transformEnvVarSyntax(
   value: unknown,
   format: "claude" | "shell" | "passthrough" = "passthrough",
+  maxDepth: number = DEFAULT_TRANSFORM_MAX_DEPTH,
 ): unknown {
+  return transformEnvVarSyntaxInner(value, format, maxDepth, 0);
+}
+
+function transformEnvVarSyntaxInner(
+  value: unknown,
+  format: "claude" | "shell" | "passthrough",
+  maxDepth: number,
+  depth: number,
+): unknown {
+  if (depth > maxDepth) {
+    throw new RangeError(
+      `transformEnvVarSyntax exceeded maximum recursion depth (${maxDepth}). ` +
+        `Input is too deeply nested or contains a cyclic structure. ` +
+        `This limit defends against adversarial or malformed MCP config input.`,
+    );
+  }
   if (typeof value === "string") {
     switch (format) {
       case "claude":
@@ -47,12 +83,14 @@ export function transformEnvVarSyntax(
     }
   }
   if (Array.isArray(value)) {
-    return value.map((v) => transformEnvVarSyntax(v, format));
+    return value.map((v) =>
+      transformEnvVarSyntaxInner(v, format, maxDepth, depth + 1),
+    );
   }
   if (typeof value === "object" && value !== null) {
     const result: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value)) {
-      result[k] = transformEnvVarSyntax(v, format);
+      result[k] = transformEnvVarSyntaxInner(v, format, maxDepth, depth + 1);
     }
     return result;
   }

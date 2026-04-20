@@ -204,13 +204,40 @@ export function parseFrontmatter(
   return { metadata, content: content ?? "" };
 }
 
+/**
+ * Canonical type discriminant accepted by {@link readCanonicalFiles}.
+ *
+ * C8-D2-M3: Widened from the original 6 (`rules`/`agents`/`skills`/
+ * `commands`/`prompts`/`github-agents`) to cover every on-disk
+ * `.agents/{dir}/` directory that holds frontmatter-bearing markdown.
+ *
+ * - `hooks` — hook definition files. Note: the full hook lifecycle is still
+ *   parsed by {@link readHookDefinitions} in `src/hooks/index.ts` because
+ *   hook frontmatter has its own required fields (`event`, `agent`) and its
+ *   own validation surface. Exposing `hooks` here lets generic tooling
+ *   (validate, status, audit readers) enumerate hook markdown through the
+ *   same discriminated read/warn pipeline as the other canonical types
+ *   without re-implementing directory traversal or symlink skipping.
+ * - `checks` — reusable quality-charter checklists referenced by agents
+ *   (e.g. `accessibility.md`, `security.md`, `testing.md`).
+ * - `policy` — optional deny-list and guardrail markdown under
+ *   `.agents/policy/` (referenced by `src/cli/shared/agentsContent.ts`).
+ * - `learnings` — project-specific `.agents/learnings/*.md` entries seeded
+ *   by `hatch3r init` (see `src/cli/commands/init.ts:195-199`). Learnings
+ *   carry lightweight frontmatter so agents can surface pitfalls/patterns
+ *   during sync; extending the canonical type keeps that path uniform.
+ */
 export type CanonicalType =
   | "rules"
   | "agents"
   | "skills"
   | "commands"
   | "prompts"
-  | "github-agents";
+  | "github-agents"
+  | "hooks"
+  | "checks"
+  | "policy"
+  | "learnings";
 
 interface ReaderConfig {
   type: CanonicalFile["type"];
@@ -225,6 +252,15 @@ const READER_CONFIGS: Record<CanonicalType, ReaderConfig> = {
   commands: { type: "command", dir: "commands", strategy: "glob" },
   prompts: { type: "prompt", dir: "prompts", strategy: "glob" },
   "github-agents": { type: "github-agent", dir: "github-agents", strategy: "glob" },
+  // C8-D2-M3: hooks/checks/policy/learnings use the same glob strategy as
+  // agents/rules — flat `.md` files with frontmatter. The existing
+  // readGlobMd() path already lstat-guards each entry and skips symlinks,
+  // so recursive symlinks in any of these directories cannot trigger
+  // infinite readdir loops even though readdir({recursive:true}) is used.
+  hooks: { type: "hook", dir: "hooks", strategy: "glob" },
+  checks: { type: "check", dir: "checks", strategy: "glob" },
+  policy: { type: "policy", dir: "policy", strategy: "glob" },
+  learnings: { type: "learning", dir: "learnings", strategy: "glob" },
 };
 
 /** Read a single markdown file and parse its frontmatter into a CanonicalReadResult. */

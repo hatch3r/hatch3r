@@ -1,13 +1,16 @@
 import { describe, it, expect } from "vitest";
 import {
   AGENT_TOOL_POLICIES,
+  ALL_TOOL_CATEGORIES,
   getAgentToolPolicy,
   checkToolAccess,
   toFailureLogEntry,
   validateToolPolicies,
+  type AgentToolPolicy,
   type AllowlistDenialEvent,
 } from "../../pipeline/agentToolAllowlist.js";
 import { parseFailureLog, formatLogEntry } from "../../pipeline/failureLog.js";
+import { HatchError } from "../../types.js";
 
 describe("agentToolAllowlist", () => {
   describe("AGENT_TOOL_POLICIES", () => {
@@ -110,6 +113,166 @@ describe("agentToolAllowlist", () => {
     it("should return no warnings for the default policies", () => {
       const warnings = validateToolPolicies();
       expect(warnings).toEqual([]);
+    });
+
+    // C8-D15-M3: unknown tool categories (typos) must be HARD errors, not
+    // warnings. A typo like "read-ony" makes `checkToolAccess` deny access
+    // for the real "read" category at runtime because the match is exact
+    // string equality — the agent is silently blocked.
+    describe("C8-D15-M3 unknown-category hard error", () => {
+      it("throws HatchError when a policy references an unknown tool category", () => {
+        const typoPolicies: AgentToolPolicy[] = [
+          {
+            agentId: "hatch3r-test-fixture",
+            // "read-ony" is a typo for "read" — silently deny-alls in current
+            // behaviour because lookups in checkToolAccess use exact equality.
+            allowedTools: ["read-ony", "search"],
+            description: "fixture with a deliberately typo'd category",
+          },
+        ];
+        expect(() => validateToolPolicies(typoPolicies)).toThrow(HatchError);
+      });
+
+      it("attaches errorCode VALIDATION_ERROR to the thrown HatchError", () => {
+        const typoPolicies: AgentToolPolicy[] = [
+          {
+            agentId: "hatch3r-test-fixture",
+            allowedTools: ["executte"],
+            description: "fixture",
+          },
+        ];
+        try {
+          validateToolPolicies(typoPolicies);
+          expect.fail("validateToolPolicies did not throw");
+        } catch (err) {
+          expect(err).toBeInstanceOf(HatchError);
+          expect((err as HatchError).errorCode).toBe("VALIDATION_ERROR");
+          expect((err as HatchError).exitCode).toBe(1);
+        }
+      });
+
+      it("includes the agentId and unknown category in the error message", () => {
+        const typoPolicies: AgentToolPolicy[] = [
+          {
+            agentId: "hatch3r-broken-agent",
+            allowedTools: ["read", "wriite"],
+            description: "fixture",
+          },
+        ];
+        expect(() => validateToolPolicies(typoPolicies)).toThrow(
+          /hatch3r-broken-agent/,
+        );
+        expect(() => validateToolPolicies(typoPolicies)).toThrow(
+          /wriite/,
+        );
+      });
+
+      it("emits a Did-you-mean suggestion for typos within Levenshtein distance 2", () => {
+        const typoPolicies: AgentToolPolicy[] = [
+          {
+            agentId: "hatch3r-fixture",
+            // "reed" is distance 1 from "read" (single substitution).
+            allowedTools: ["reed"],
+            description: "fixture",
+          },
+        ];
+        expect(() => validateToolPolicies(typoPolicies)).toThrow(
+          /Did you mean "read"/,
+        );
+      });
+
+      it("suggests the closest category for `executte` (typo for `execute`)", () => {
+        const typoPolicies: AgentToolPolicy[] = [
+          {
+            agentId: "hatch3r-fixture",
+            allowedTools: ["executte"],
+            description: "fixture",
+          },
+        ];
+        expect(() => validateToolPolicies(typoPolicies)).toThrow(
+          /Did you mean "execute"/,
+        );
+      });
+
+      it("omits the Did-you-mean hint when no category is within distance 2", () => {
+        const typoPolicies: AgentToolPolicy[] = [
+          {
+            agentId: "hatch3r-fixture",
+            // "xyznoclose" is too far from any canonical category for a hint.
+            allowedTools: ["xyznoclose"],
+            description: "fixture",
+          },
+        ];
+        let caught: HatchError | undefined;
+        try {
+          validateToolPolicies(typoPolicies);
+        } catch (err) {
+          caught = err as HatchError;
+        }
+        expect(caught).toBeInstanceOf(HatchError);
+        expect(caught!.message).not.toMatch(/Did you mean/);
+        // But the valid categories list is still surfaced for recovery.
+        expect(caught!.message).toMatch(/Valid categories:/);
+      });
+
+      it("still returns warnings (no throw) when all categories are valid", () => {
+        const overBroadPolicies: AgentToolPolicy[] = [
+          {
+            agentId: "hatch3r-over-broad",
+            allowedTools: [...ALL_TOOL_CATEGORIES],
+            description: "has every category",
+          },
+        ];
+        const warnings = validateToolPolicies(overBroadPolicies);
+        expect(warnings.length).toBeGreaterThan(0);
+        expect(warnings.some((w) => w.includes("all tool categories"))).toBe(
+          true,
+        );
+      });
+
+      it("warns on empty allowlist without throwing", () => {
+        const emptyPolicies: AgentToolPolicy[] = [
+          {
+            agentId: "hatch3r-empty",
+            allowedTools: [],
+            description: "empty allowlist",
+          },
+        ];
+        const warnings = validateToolPolicies(emptyPolicies);
+        expect(warnings.some((w) => w.includes("empty tool allowlist"))).toBe(
+          true,
+        );
+      });
+
+      it("throws on the FIRST unknown category encountered (fail-fast)", () => {
+        const typoPolicies: AgentToolPolicy[] = [
+          {
+            agentId: "hatch3r-first",
+            allowedTools: ["first-typo"],
+            description: "first",
+          },
+          {
+            agentId: "hatch3r-second",
+            allowedTools: ["second-typo"],
+            description: "second",
+          },
+        ];
+        expect(() => validateToolPolicies(typoPolicies)).toThrow(
+          /hatch3r-first/,
+        );
+      });
+
+      it("accepts all canonical tool categories without throwing", () => {
+        // Sanity check: every category listed in ALL_TOOL_CATEGORIES is
+        // actually accepted by the validator, so the registry and validator
+        // stay in lockstep.
+        const allValid: AgentToolPolicy[] = ALL_TOOL_CATEGORIES.map((cat) => ({
+          agentId: `hatch3r-${cat}-only`,
+          allowedTools: [cat],
+          description: `policy exercising the ${cat} category`,
+        }));
+        expect(() => validateToolPolicies(allValid)).not.toThrow();
+      });
     });
   });
 

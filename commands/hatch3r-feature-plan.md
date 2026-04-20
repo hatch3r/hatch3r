@@ -1,6 +1,8 @@
 ---
 id: hatch3r-feature-plan
 type: command
+orchestrator: true
+agentPipeline: [hatch3r-researcher, hatch3r-docs-writer]
 description: Plan a single feature in depth -- spawn parallel researchers, produce feature spec, ADR(s), and structured todo.md entries for board-fill.
 tags: [core, planning]
 quality_charter: agents/shared/quality-charter.md

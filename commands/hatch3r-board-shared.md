@@ -1,6 +1,7 @@
 ---
 id: hatch3r-board-shared
 type: shared-context
+orchestrator: false
 description: Shared context and procedures for all board commands. Provides platform-agnostic board config, label taxonomy, branch conventions, sync enforcement, and tooling directives. Platform-specific details are in commands/board/shared-{platform}.md.
 tags: [board, team]
 quality_charter: agents/shared/quality-charter.md

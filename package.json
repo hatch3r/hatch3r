@@ -21,6 +21,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "inventory": "tsx scripts/inventory.ts",
+    "inventory:check-docs": "tsx scripts/inventory.ts --check-docs",
     "validate:rule-parity": "tsx scripts/validate-rule-parity.ts",
     "lockfile:check": "lockfile-lint --path package-lock.json --type npm --allowed-hosts npm --validate-https"
   },

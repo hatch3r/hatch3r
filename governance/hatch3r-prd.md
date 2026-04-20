@@ -1,11 +1,11 @@
-# hatch3r — Product Requirements Document v4.3
+# hatch3r — Product Requirements Document v4.4
 
 **Product name:** hatch3r
 **Mascot:** a tiny T-rex hatchling peeking out of an egg
 **Primary slogan:** Crack the egg. Hatch better agents.
-**Doc version:** v4.3
+**Doc version:** v4.4
 **Date:** 2026-04-20 (Europe/Berlin)
-**Supersedes:** hatch3r PRD v4.2 (2026-04-19)
+**Supersedes:** hatch3r PRD v4.3 (2026-04-20)
 **Last updated:** 2026-04-20
 
 ---
@@ -1519,7 +1519,7 @@ Execution invariants: (1) No milestone blocks on a later one; (2) each milestone
 | **Naming conflicts** | `hatch3r-` prefix is distinctive. Community packs use their own prefix. |
 | **Learning data quality** | Learnings may accumulate noise over time. Mitigation: structured frontmatter format with tags, periodic curation, and deduplication. |
 | **Hook security** | Event-driven agents could execute unintended actions. Mitigation: hooks are explicitly opt-in, condition guards (globs/labels/branches) scope activation, and guardrails policy applies to hook-triggered agents. |
-| **Competitive traction gap** | Cycle 7 baseline (2026-04-19): GitHub repo public, npm package `hatch3r` v1.5.1 published with OIDC and provenance, 20 GitHub stars and 326 monthly npm downloads vs. live competitor totals (Superpowers 160k, OpenCode 146k, Spec Kit 89.4k, Cline 60.5k, BMAD ~41k, Ruler 2.6k as closest single-source-distribution analogue; per `governance/COMPETITIVE-ANALYSIS.md`). Distribution channel work is now incremental, not an existential prerequisite. Mitigation: Claude Code plugin marketplace submission (1 day, see §22 M2), AGENTS.md adapter fixes targeting `sst/opencode` (146k), README/CLI repositioning, Show HN plus `r/ClaudeAI` launch, and vs-Ruler comparison content. Defensible moats (managed blocks, SHA-256 integrity, 19-domain governance, 15 adapters) verified unique vs top-5 competitors per Cycle 7 D17. |
+| **Competitive traction gap** | Cycle 8 baseline (2026-04-20): GitHub public + npm publish complete — repo public, npm package `hatch3r` v1.5.1 published with OIDC and provenance, 20 GitHub stars and 432 monthly npm downloads (sources: `api.github.com/repos/hatch3r/hatch3r`, `api.npmjs.org/downloads/point/last-month/hatch3r`, accessed 2026-04-20). Live competitor totals: Superpowers 160k, OpenCode 146k, Spec Kit 89.4k, Cline 60.5k, BMAD ~41k, Ruler 2.6k as closest single-source-distribution analogue (per `governance/COMPETITIVE-ANALYSIS.md`). Distribution channel work is now incremental, not an existential prerequisite. Remaining (all tracked in §22 M2 / §22 M2a): Claude Code plugin marketplace submission, `docs.hatch3r.com` site, landing page. Additional mitigation: AGENTS.md adapter fixes targeting `sst/opencode` (146k), README/CLI repositioning, Show HN plus `r/ClaudeAI` launch, and vs-Ruler comparison content. Defensible moats (managed blocks, SHA-256 integrity, 19-domain governance, 15 adapters) verified unique vs top-5 competitors per Cycle 7 D17. |
 | **Context bloat** | Full content installations (110+ files) may degrade agent performance in tools with limited context windows. Research (Gloaguen et al. 2026) shows verbose context files harm agent effectiveness. Mitigation: tiered preset system (Minimal/Standard/Full/Custom) lets users control installed content volume; planned `--minimal` generation mode will produce compact configs; orchestration rule uses tiered rule inclusion to manage token budgets for subagent prompts. |
 | **Standards ecosystem drift** | AAIF (`AGENTS.md`) and ACP (Agent Coordination Protocol) are the two emerging multi-vendor standards for agent configuration distribution (§5.x). Drift risk: (1) hatch3r aligns with the wrong standard and invests in dead-end emission; (2) a dominant standard emerges that hatch3r lags on. Mitigation: pre-emptive AAIF emission already landed (`src/adapters/agentsmd.ts`, H34 adapter-capability-matrix row); quarterly D17 registry-check sub-agent monitors ACP registry listings (JetBrains + Zed, launched 2026-01-28) plus AAIF public registry; §22.Mx milestone (e) tracks AAIF/ACP listing as a named milestone with a W8 fallback post if neither registry accepts a listing. Tracked per C7.5-W2B2-H57. |
 
@@ -1603,6 +1603,14 @@ A cute but capable "ops assistant" vibe:
 ---
 
 ## 27. Changelog
+
+### v4.4 (2026-04-20) — Cycle 8 Wave 3 D18-M1 §23 Shipped-Status Refresh
+
+Rewrote §23 "Competitive traction gap" row per Cycle 8 Wave 3 Medium finding `C8-D18-M1-prd-23-shipped-status`. Frames distribution as "GitHub public + npm publish complete" (shipped), lists explicit remaining items (plugin marketplace, `docs.hatch3r.com`, landing page), and refreshes npm monthly downloads from 326 (Cycle 7 snapshot) to 432 (2026-04-20 last-month window, `api.npmjs.org/downloads/point/last-month/hatch3r`). GitHub stars and npm version unchanged (20 stars, v1.5.1). No other sections modified.
+
+| ID | Change | Sections Updated | Source Finding |
+|----|--------|-----------------|----------------|
+| C8-D18-M1 | §23 existential-risk row rewritten to shipped framing with explicit "Remaining:" list and refreshed download count | §23 (competitive traction row) | C8-D18-M1-prd-23-shipped-status |
 
 ### v4.3 (2026-04-20) — Cycle 7.5 W2B2 Phase 5 CL-1 PRD Evolution
 

@@ -296,4 +296,69 @@ describe("readHookDefinitions with inline fixtures", () => {
       expect(hooks.length).toBe(0);
     });
   });
+
+  // C8-D2-M3 (D2-SA2.2-3): `readdir({recursive:true})` can enumerate through
+  // symlinks, which risks infinite recursion and cross-repo reads. The
+  // lstat-gate inside the reader now skips symbolic links and emits a
+  // SYMLINK_SKIPPED diagnostic so the skip is not silent.
+  describe("C8-D2-M3 symlink skip", () => {
+    it.skipIf(process.platform === "win32")(
+      "skips a symbolic link inside hooks/ and surfaces SYMLINK_SKIPPED",
+      async () => {
+        const agentsDir = await setupHooksDir();
+        const { symlink } = await import("node:fs/promises");
+        // Real hook that must still load.
+        await writeFile(
+          join(agentsDir, "hooks", "real.md"),
+          "---\nid: real-hook\nevent: session-start\nagent: loader\n---\n# Real\n",
+          "utf-8",
+        );
+        // Symlink inside hooks/ pointing at the real hook. Without the
+        // lstat-gate, readdir(recursive) would enumerate this as a separate
+        // entry and parseHookFrontmatter would reject it as a duplicate id.
+        // With the gate, it is skipped and the SYMLINK_SKIPPED warning fires.
+        await symlink(join(agentsDir, "hooks", "real.md"), join(agentsDir, "hooks", "link.md"));
+
+        const warnings: string[] = [];
+        const hooks = await readHookDefinitions(agentsDir, warnings);
+
+        // Exactly one hook loaded — the symlink did not double-register.
+        expect(hooks.length).toBe(1);
+        expect(hooks[0].id).toBe("real-hook");
+        // The symlink skip surfaces as a diagnostic (not silent).
+        expect(warnings.some((w) => w.includes("SYMLINK_SKIPPED") && w.includes("link.md"))).toBe(true);
+        // And no DUPLICATE_ID warning — the symlink was rejected before the
+        // duplicate-id check ran, so operators aren't confused into thinking
+        // they wrote two hooks with the same id.
+        expect(warnings.some((w) => w.includes("DUPLICATE_ID"))).toBe(false);
+      },
+    );
+
+    it.skipIf(process.platform === "win32")(
+      "skips dangling symlinks without throwing",
+      async () => {
+        const agentsDir = await setupHooksDir();
+        const { symlink } = await import("node:fs/promises");
+        // Symlink pointing at a path that does not exist. Before the
+        // lstat-gate, readFile(fullPath) would throw ENOENT and abort the
+        // read. With the gate, the dangling link is skipped cleanly.
+        await symlink(
+          join(agentsDir, "hooks", "missing.md"),
+          join(agentsDir, "hooks", "dangling.md"),
+        );
+        await writeFile(
+          join(agentsDir, "hooks", "real.md"),
+          "---\nid: real-hook\nevent: session-start\nagent: loader\n---\n# Real\n",
+          "utf-8",
+        );
+
+        const warnings: string[] = [];
+        const hooks = await readHookDefinitions(agentsDir, warnings);
+
+        expect(hooks.length).toBe(1);
+        expect(hooks[0].id).toBe("real-hook");
+        expect(warnings.some((w) => w.includes("SYMLINK_SKIPPED") && w.includes("dangling.md"))).toBe(true);
+      },
+    );
+  });
 });

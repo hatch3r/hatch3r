@@ -11,7 +11,7 @@
  *
  * Usage: `npm run inventory` (invokes via tsx). No build step required.
  */
-import { readdir, stat, writeFile } from "node:fs/promises";
+import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -196,7 +196,135 @@ async function buildInventory(): Promise<InventoryDocument> {
   };
 }
 
+/**
+ * Count-drift probes for consumer documents (C8-D19-M1, C8-D10-M1).
+ *
+ * Each probe describes a filesystem document, a regex that extracts a numeric
+ * count next to a descriptor (e.g. "27 rules"), and the inventory counter the
+ * number must equal. Runs on `--check-docs` so CI can detect stale counts in
+ * README / CLAUDE.md / plugin.json without coupling the inventory write step
+ * to a blocking scan.
+ */
+interface DriftProbe {
+  file: string;
+  label: string;
+  expected: keyof InventoryCounts;
+  regex: RegExp;
+}
+
+const DRIFT_PROBES: DriftProbe[] = [
+  // README "What You Get" table rows
+  {
+    file: "README.md",
+    label: "Agents table row",
+    expected: "agents",
+    regex: /\|\s*\*\*Agents\*\*\s*\|\s*(\d+)\s*\|/,
+  },
+  {
+    file: "README.md",
+    label: "Skills table row",
+    expected: "skills",
+    regex: /\|\s*\*\*Skills\*\*\s*\|\s*(\d+)\s*\|/,
+  },
+  {
+    file: "README.md",
+    label: "Rules table row",
+    expected: "rules",
+    regex: /\|\s*\*\*Rules\*\*\s*\|\s*(\d+)\s*\|/,
+  },
+  {
+    file: "README.md",
+    label: "Commands table row",
+    expected: "commands",
+    regex: /\|\s*\*\*Commands\*\*\s*\|\s*(\d+)\s*\|/,
+  },
+  // CLAUDE.md architecture table
+  {
+    file: "CLAUDE.md",
+    label: "src/pipeline row",
+    expected: "pipeline",
+    regex: /\|\s*`src\/pipeline\/`\s*\|\s*(\d+)\s+pipeline modules/,
+  },
+  {
+    file: "CLAUDE.md",
+    label: "src/cli/commands row",
+    expected: "cliCommands",
+    regex: /\|\s*`src\/cli\/commands\/`\s*\|\s*(\d+)\s+CLI commands/,
+  },
+  {
+    file: "CLAUDE.md",
+    label: "src/adapters row",
+    expected: "adapters",
+    regex: /\|\s*`src\/adapters\/`\s*\|\s*(\d+)\s+platform adapters/,
+  },
+  // plugin.json description line
+  {
+    file: ".cursor-plugin/plugin.json",
+    label: "plugin.json agents count",
+    expected: "agents",
+    regex: /(\d+)\s+agents/,
+  },
+  {
+    file: ".cursor-plugin/plugin.json",
+    label: "plugin.json skills count",
+    expected: "skills",
+    regex: /(\d+)\s+skills/,
+  },
+  {
+    file: ".cursor-plugin/plugin.json",
+    label: "plugin.json rules count",
+    expected: "rules",
+    regex: /(\d+)\s+rules/,
+  },
+  {
+    file: ".cursor-plugin/plugin.json",
+    label: "plugin.json commands count",
+    expected: "commands",
+    regex: /(\d+)\s+commands/,
+  },
+];
+
+interface DriftResult {
+  file: string;
+  label: string;
+  expected: number;
+  found: number | null;
+}
+
+async function checkDocDrift(
+  counts: InventoryCounts,
+): Promise<DriftResult[]> {
+  const drifts: DriftResult[] = [];
+  for (const probe of DRIFT_PROBES) {
+    const absPath = join(ROOT, probe.file);
+    let contents: string;
+    try {
+      contents = await readFile(absPath, "utf-8");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw err;
+    }
+    const match = contents.match(probe.regex);
+    const expected = counts[probe.expected];
+    if (!match) {
+      drifts.push({
+        file: probe.file,
+        label: probe.label,
+        expected,
+        found: null,
+      });
+      continue;
+    }
+    const found = Number.parseInt(match[1], 10);
+    if (found !== expected) {
+      drifts.push({ file: probe.file, label: probe.label, expected, found });
+    }
+  }
+  return drifts;
+}
+
 async function main(): Promise<void> {
+  const checkDocs = process.argv.includes("--check-docs");
   const inventory = await buildInventory();
   const outPath = join(ROOT, "governance", "inventory.json");
   const json = `${JSON.stringify(inventory, null, 2)}\n`;
@@ -209,6 +337,29 @@ async function main(): Promise<void> {
       `${inventory.counts.commands} commands, ${inventory.counts.hooks} hooks, ` +
       `${inventory.counts.pipeline} pipeline modules, ${inventory.counts.cliCommands} CLI commands`,
   );
+
+  if (!checkDocs) return;
+
+  const drifts = await checkDocDrift(inventory.counts);
+  if (drifts.length === 0) {
+    // eslint-disable-next-line no-console
+    console.log(
+      `inventory: doc-drift check PASS — ${DRIFT_PROBES.length} probes, 0 drifts`,
+    );
+    return;
+  }
+  // eslint-disable-next-line no-console
+  console.error(
+    `inventory: doc-drift check FAIL — ${drifts.length} of ${DRIFT_PROBES.length} probes report drift:`,
+  );
+  for (const d of drifts) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `  - ${d.file} [${d.label}]: expected ${d.expected}, ` +
+        `found ${d.found === null ? "<no match>" : d.found}`,
+    );
+  }
+  process.exit(1);
 }
 
 main().catch((err) => {

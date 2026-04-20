@@ -153,8 +153,11 @@ describe("init command", () => {
     await expect(initCommand({ yes: true, tools: "invalid-tool" })).rejects.toThrow(HatchError);
     try { await initCommand({ yes: true, tools: "invalid-tool" }); } catch (e) { expect((e as HatchError).exitCode).toBe(1); }
 
-    const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
-    expect(allOutput).toContain("Invalid tool(s)");
+    // C8-D12-M1: `error()` routes to stderr per POSIX; check both streams so
+    // future routing changes don't false-positive this assertion.
+    const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    const stderr = consoleErrorSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    expect(stdout + " " + stderr).toContain("Invalid tool(s)");
   });
 
   it("should set all default features with --yes flag", async () => {
@@ -290,9 +293,12 @@ describe("init command", () => {
 
     await expect(initCommand({ yes: true, tools: "cursor,bogus" })).rejects.toThrow(HatchError);
     try { await initCommand({ yes: true, tools: "cursor,bogus" }); } catch (e) { expect((e as HatchError).exitCode).toBe(1); }
-    const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
-    expect(allOutput).toContain("Invalid tool(s)");
-    expect(allOutput).toContain("bogus");
+    // C8-D12-M1: `error()` routes to stderr per POSIX; check both streams.
+    const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    const stderr = consoleErrorSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    const all = stdout + " " + stderr;
+    expect(all).toContain("Invalid tool(s)");
+    expect(all).toContain("bogus");
   });
 
   it("should detect existing tools and use them as defaults with --yes", async () => {
@@ -1251,6 +1257,335 @@ describe("init interactive workspace flow", () => {
     await expect(
       access(join(tempDir, AGENTS_DIR, "workspace.json")),
     ).resolves.toBeUndefined();
+  });
+});
+
+// ── C8-D3-M1 (Wave 3): branch-coverage uplift for src/cli/commands/init.ts ──
+//
+// These suites exercise branches introduced or surfaced in Cycle 8 Wave 3:
+// * `--quick` / `--default` alias handling (C8-D10-M2)
+// * Eager flag validation in the interactive path (C8-D1-M4)
+// * runInit idempotency guard (C8-D1-M3)
+// * Workspace conflict-confirmation prompt (C8-D1-M3)
+// Together they push init.ts branch coverage toward the 65% threshold.
+
+describe("init --quick / --default aliases (C8-D10-M2)", () => {
+  let initCommand: (opts?: { tools?: string; yes?: boolean; quick?: boolean; default?: boolean }) => Promise<void>;
+  let tempDir: string;
+  let cwdSpy: MockInstance;
+  let exitSpy: MockInstance;
+  let consoleSpy: MockInstance;
+  let consoleErrorSpy: MockInstance;
+
+  beforeAll(async () => {
+    ({ initCommand } = await import("../../cli/commands/init.js"));
+  });
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-init-quick-"));
+    cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+    exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation((() => {
+        throw new Error("process.exit called");
+      }) as never);
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(async () => {
+    cwdSpy.mockRestore();
+    exitSpy.mockRestore();
+    consoleSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("--quick runs without prompts and writes a manifest", async () => {
+    await initCommand({ quick: true });
+    const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
+    await expect(access(manifestPath)).resolves.toBeUndefined();
+    const manifest = JSON.parse(await readFile(manifestPath, "utf-8"));
+    expect(manifest.platform).toBe("github");
+  });
+
+  it("--default runs without prompts and writes a manifest", async () => {
+    await initCommand({ default: true });
+    const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
+    await expect(access(manifestPath)).resolves.toBeUndefined();
+  });
+
+  it("--quick with --tools still honors the tool list", async () => {
+    await initCommand({ quick: true, tools: "cursor,claude" });
+    const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
+    expect(manifest.tools).toContain("cursor");
+    expect(manifest.tools).toContain("claude");
+  });
+});
+
+describe("init eager flag validation (C8-D1-M4)", () => {
+  let initCommand: (opts?: { tools?: string; yes?: boolean; preset?: string; projectType?: string; teamSize?: string }) => Promise<void>;
+  let tempDir: string;
+  let cwdSpy: MockInstance;
+  let exitSpy: MockInstance;
+  let consoleSpy: MockInstance;
+  let consoleErrorSpy: MockInstance;
+
+  beforeAll(async () => {
+    ({ initCommand } = await import("../../cli/commands/init.js"));
+  });
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-init-eager-"));
+    cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+    exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation((() => {
+        throw new Error("process.exit called");
+      }) as never);
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(inquirer.prompt).mockReset();
+  });
+
+  afterEach(async () => {
+    cwdSpy.mockRestore();
+    exitSpy.mockRestore();
+    consoleSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("rejects invalid --preset even in interactive mode (without --yes)", async () => {
+    // No --yes flag -> interactive path. Validation must run before any prompt.
+    await expect(initCommand({ preset: "does-not-exist" })).rejects.toThrow(HatchError);
+    // inquirer.prompt must not have been called because validation aborted.
+    expect(vi.mocked(inquirer.prompt)).not.toHaveBeenCalled();
+  });
+
+  it("rejects invalid --project-type in interactive mode", async () => {
+    await expect(initCommand({ projectType: "legacy" })).rejects.toThrow(HatchError);
+    expect(vi.mocked(inquirer.prompt)).not.toHaveBeenCalled();
+  });
+
+  it("rejects invalid --team-size in interactive mode", async () => {
+    await expect(initCommand({ teamSize: "duo" })).rejects.toThrow(HatchError);
+    expect(vi.mocked(inquirer.prompt)).not.toHaveBeenCalled();
+  });
+
+  it("accepts valid --preset with no --yes flag (enters interactive flow)", async () => {
+    const inq = vi.mocked(inquirer.prompt);
+    // Validation passes; the usual interactive flow runs.
+    inq.mockResolvedValueOnce({ platform: "github" });
+    inq.mockResolvedValueOnce({ owner: "o", repo: "r" });
+    inq.mockResolvedValueOnce({ defaultBranch: "main" });
+    inq.mockResolvedValueOnce({ projectType: "brownfield" });
+    inq.mockResolvedValueOnce({ teamSize: "solo" });
+    inq.mockResolvedValueOnce({ preset: "minimal" });
+    inq.mockResolvedValueOnce({ tools: ["claude"] });
+    inq.mockResolvedValueOnce({ features: ["agents"] });
+
+    await initCommand({ preset: "minimal" });
+
+    const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
+    expect(manifest).toBeDefined();
+  });
+});
+
+describe("init runInit idempotency guard (C8-D1-M3)", () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-init-guard-"));
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("rejects reentrant runInit for the same rootDir", async () => {
+    const { runInit } = await import("../../cli/commands/init.js");
+    const { PRESETS, getPreset } = await import("../../content/presets.js");
+    const { buildContentIndex, resolveSelection } = await import("../../content/index.js");
+    const { findPackageRoot } = await import("../../cli/shared/paths.js");
+    const { fileURLToPath } = await import("node:url");
+    const { dirname } = await import("node:path");
+
+    // Reconstruct content root the same way initCommand does.
+    const moduleUrl = (await import("../../cli/commands/init.js")) as unknown as { CONTENT_ROOT?: string };
+    // Fallback: use the same package-root resolution as the production CLI.
+    const contentRoot = moduleUrl.CONTENT_ROOT ?? findPackageRoot(dirname(fileURLToPath(import.meta.url)));
+
+    const index = await buildContentIndex(contentRoot);
+    void PRESETS;
+    const preset = getPreset("minimal");
+    const contentSelection = resolveSelection(preset, "brownfield", "solo", index);
+
+    const repoInfo = {
+      languages: ["unknown"],
+      existingTools: [],
+      hasExistingAgents: false,
+      packageManager: "unknown" as const,
+      isMonorepo: false,
+      frameworks: [],
+      rootDir: tempDir,
+    };
+
+    const options = {
+      rootDir: tempDir,
+      platform: "github" as const,
+      owner: "o",
+      repo: "r",
+      namespace: "o",
+      project: "r",
+      defaultBranch: "main",
+      tools: ["claude" as const],
+      features: {
+        agents: true,
+        skills: true,
+        rules: true,
+        prompts: true,
+        commands: true,
+        mcp: false,
+        hooks: false,
+        githubAgents: false,
+      },
+      mcpServers: [],
+      repoInfo,
+      contentSelection,
+    };
+
+    // Fire two concurrent runInit calls. The second should reject with the
+    // idempotency guard rather than producing a half-written .agents/.
+    const first = runInit(options);
+    await expect(runInit(options)).rejects.toThrow(/already in progress/);
+    await first;
+  });
+});
+
+describe("init workspace conflict guard (C8-D1-M3)", () => {
+  let initCommand: (opts?: { tools?: string; yes?: boolean; workspace?: boolean }) => Promise<void>;
+  let tempDir: string;
+  let cwdSpy: MockInstance;
+  let exitSpy: MockInstance;
+  let consoleSpy: MockInstance;
+  let consoleErrorSpy: MockInstance;
+
+  beforeAll(async () => {
+    ({ initCommand } = await import("../../cli/commands/init.js"));
+  });
+
+  async function createWorkspaceLayout(root: string, repos: { name: string; hasHatch3r?: boolean }[]): Promise<void> {
+    for (const r of repos) {
+      const repoDir = join(root, r.name);
+      await mkdir(join(repoDir, ".git"), { recursive: true });
+      if (r.hasHatch3r) {
+        await mkdir(join(repoDir, AGENTS_DIR), { recursive: true });
+        await writeFile(
+          join(repoDir, AGENTS_DIR, "hatch.json"),
+          JSON.stringify({
+            version: "2.0.0",
+            hatch3rVersion: "1.0.0",
+            platform: "github",
+            tools: [],
+            features: {},
+            mcp: { servers: [] },
+            managedFiles: [],
+          }),
+        );
+      }
+    }
+  }
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-init-wsconf-"));
+    cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+    exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation((() => {
+        throw new Error("process.exit called");
+      }) as never);
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(inquirer.prompt).mockReset();
+  });
+
+  afterEach(async () => {
+    cwdSpy.mockRestore();
+    exitSpy.mockRestore();
+    consoleSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("prompts for confirmation when selected sub-repo already has hatch3r, and on decline drops it from sync", async () => {
+    await createWorkspaceLayout(tempDir, [
+      { name: "api", hasHatch3r: true },
+      { name: "web", hasHatch3r: false },
+    ]);
+
+    const inq = vi.mocked(inquirer.prompt);
+    inq.mockResolvedValueOnce({ useWorkspace: true });
+    inq.mockResolvedValueOnce({ acceptIdentity: true });
+    inq.mockResolvedValueOnce({ projectType: "brownfield" });
+    inq.mockResolvedValueOnce({ teamSize: "solo" });
+    inq.mockResolvedValueOnce({ preset: "minimal" });
+    inq.mockResolvedValueOnce({ tools: ["claude"] });
+    inq.mockResolvedValueOnce({ features: ["agents"] });
+    // Select the repo with existing hatch3r for sync (triggers conflict prompt)
+    inq.mockResolvedValueOnce({ syncRepos: ["api"] });
+    // Decline the overwrite
+    inq.mockResolvedValueOnce({ confirmConflict: false });
+
+    await initCommand({});
+
+    const wsRaw = await readFile(join(tempDir, AGENTS_DIR, "workspace.json"), "utf-8");
+    const wsManifest = JSON.parse(wsRaw);
+    // api stays registered but sync is false because the user declined
+    const apiEntry = wsManifest.repos.find((r: { name: string }) => r.name === "api");
+    expect(apiEntry?.sync).toBe(false);
+  });
+
+  it("proceeds with sync when user confirms overwrite of existing hatch3r sub-repo", async () => {
+    await createWorkspaceLayout(tempDir, [{ name: "api", hasHatch3r: true }]);
+
+    const inq = vi.mocked(inquirer.prompt);
+    inq.mockResolvedValueOnce({ useWorkspace: true });
+    inq.mockResolvedValueOnce({ acceptIdentity: true });
+    inq.mockResolvedValueOnce({ projectType: "brownfield" });
+    inq.mockResolvedValueOnce({ teamSize: "solo" });
+    inq.mockResolvedValueOnce({ preset: "minimal" });
+    inq.mockResolvedValueOnce({ tools: ["claude"] });
+    inq.mockResolvedValueOnce({ features: ["agents"] });
+    inq.mockResolvedValueOnce({ syncRepos: ["api"] });
+    inq.mockResolvedValueOnce({ confirmConflict: true });
+
+    await initCommand({});
+
+    const wsManifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "workspace.json"), "utf-8"));
+    const apiEntry = wsManifest.repos.find((r: { name: string }) => r.name === "api");
+    expect(apiEntry?.sync).toBe(true);
+  });
+
+  it("skips conflict prompt when no selected sub-repo has existing hatch3r", async () => {
+    await createWorkspaceLayout(tempDir, [{ name: "api", hasHatch3r: false }]);
+
+    const inq = vi.mocked(inquirer.prompt);
+    inq.mockResolvedValueOnce({ useWorkspace: true });
+    inq.mockResolvedValueOnce({ acceptIdentity: true });
+    inq.mockResolvedValueOnce({ projectType: "brownfield" });
+    inq.mockResolvedValueOnce({ teamSize: "solo" });
+    inq.mockResolvedValueOnce({ preset: "minimal" });
+    inq.mockResolvedValueOnce({ tools: ["claude"] });
+    inq.mockResolvedValueOnce({ features: ["agents"] });
+    inq.mockResolvedValueOnce({ syncRepos: ["api"] });
+    // NO confirmConflict prompt expected here
+
+    await initCommand({});
+
+    const wsManifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "workspace.json"), "utf-8"));
+    const apiEntry = wsManifest.repos.find((r: { name: string }) => r.name === "api");
+    expect(apiEntry?.sync).toBe(true);
   });
 });
 

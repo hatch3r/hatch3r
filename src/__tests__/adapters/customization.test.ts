@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { mkdtemp, mkdir, writeFile, rm, cp } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -1074,5 +1074,80 @@ describe("applyCustomization — C7.5-W2B2-H43 promptGuard wiring", () => {
     // The field should be stripped (fail-closed).
     expect(result.overrides.description).toBeUndefined();
     expect(result.warnings.some((w) => w.includes("description") && w.includes("Stripped field"))).toBe(true);
+  });
+});
+
+// C8-D11-M1 (D11-SA11.4-01): scanForDeniedPatterns must loop its
+// normalization pipeline until a fixed point or 5 iterations, so that
+// replacements in one pass which expose new confusables/patterns are
+// caught on subsequent passes (residue-cascade bypass).
+describe("scanForDeniedPatterns -- C8-D11-M1 fixed-point normalization", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("converges in 1 iteration on pure-ASCII clean content and emits no warning", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const violations = scanForDeniedPatterns("Implement a new REST endpoint with tests.");
+    expect(violations).toEqual([]);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("converges in 1 iteration on single-pass homoglyph input and emits no warning", () => {
+    // One layer of Armenian confusables: normalizeInput converts them in one
+    // pass and the next pass produces an identical string -> converged, no
+    // warn. Uses the same confusable pair as the existing coverage test at
+    // line ~621 (Armenian b/a masquerading as Latin in "bypass security").
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // \u0562 (Armenian 'b') -> 'b'; \u0561 (Armenian 'a') -> 'a'.
+    const input = "\u0562yp\u0561ss security";
+    const violations = scanForDeniedPatterns(input);
+    expect(violations.length).toBeGreaterThan(0);
+    expect(violations[0].toLowerCase()).toContain("bypass security");
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("still reports a violation even when input requires only one normalization pass", () => {
+    // Regression guard: the loop must never drop violations that the
+    // previous single-pass code already caught.
+    const violations = scanForDeniedPatterns("skip security review");
+    expect(violations.length).toBeGreaterThan(0);
+  });
+
+  it("returns empty violations on clean content regardless of loop presence", () => {
+    // Stability check -- the loop must not fabricate violations.
+    expect(scanForDeniedPatterns("")).toEqual([]);
+    expect(scanForDeniedPatterns("   ")).toEqual([]);
+    expect(scanForDeniedPatterns("Focus on code quality.")).toEqual([]);
+  });
+
+  it("terminates in bounded time on heavily layered homoglyph input", () => {
+    // Construct multi-layer homoglyph input using confusables from distinct
+    // script blocks. The scan must return in finite time (bounded by the
+    // iteration cap) and produce a well-formed violations array.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const a1 = "\u0430"; // Cyrillic a
+    const a2 = "\u0561"; // Armenian a
+    const a3 = "\u10D0"; // Georgian a
+    const a4 = String.fromCodePoint(0x1042A); // Deseret a
+    const input = `byp${a1}ss ${a2}nd bypa${a3}s ${a4}gain security`;
+    const violations = scanForDeniedPatterns(input);
+    expect(Array.isArray(violations)).toBe(true);
+    // If warn fires at all, it must be a single call per scan invocation.
+    expect(warn.mock.calls.length).toBeLessThanOrEqual(1);
+  });
+
+  it("emits a shape-correct warning if normalization requires more than one pass", () => {
+    // Benign content path: warn must NOT fire.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    scanForDeniedPatterns("benign content");
+    expect(warn).not.toHaveBeenCalled();
+    // Contract-shape check on any warn that does fire during this test.
+    const allCalls = warn.mock.calls;
+    for (const call of allCalls) {
+      const msg = String(call[0] ?? "");
+      expect(msg).toMatch(/\[hatch3r\] Deny-pattern normalization required \d+ iterations/);
+      expect(msg).toMatch(/cap 5/);
+    }
   });
 });

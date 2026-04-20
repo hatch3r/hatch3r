@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { validateMcpEntry, validateServerName, transformEnvVarSyntax, checkVersionPin } from "../../adapters/mcp-utils.js";
+import {
+  validateMcpEntry,
+  validateServerName,
+  transformEnvVarSyntax,
+  checkVersionPin,
+  DEFAULT_TRANSFORM_MAX_DEPTH,
+} from "../../adapters/mcp-utils.js";
 import type { McpServerEntry } from "../../adapters/mcp-utils.js";
 
 describe("validateMcpEntry", () => {
@@ -256,6 +262,107 @@ describe("transformEnvVarSyntax", () => {
 
     it("returns null unchanged", () => {
       expect(transformEnvVarSyntax(null, "claude")).toBe(null);
+    });
+  });
+
+  // C8-D2-M5 (D2-SA2.4-2, Pillar P6): defensive recursion depth limit.
+  // Guards against adversarial or malformed input (cyclic structures,
+  // pathologically nested JSON) exhausting the call stack.
+  describe("C8-D2-M5: recursion depth limit", () => {
+    it("exposes a sensible default depth of 32", () => {
+      expect(DEFAULT_TRANSFORM_MAX_DEPTH).toBe(32);
+    });
+
+    it("accepts typical MCP config nesting (≤5 levels) without error", () => {
+      // Realistic MCP config shape: mcpServers -> name -> env -> value
+      const input = {
+        mcpServers: {
+          github: {
+            env: {
+              TOKEN: "${env:GITHUB_PAT}",
+            },
+            headers: {
+              Authorization: "Bearer ${env:GITHUB_PAT}",
+            },
+          },
+        },
+      };
+      const result = transformEnvVarSyntax(input, "claude") as {
+        mcpServers: { github: { env: { TOKEN: string } } };
+      };
+      expect(result.mcpServers.github.env.TOKEN).toBe("${GITHUB_PAT}");
+    });
+
+    it("accepts input at the default depth boundary", () => {
+      // Build a structure exactly DEFAULT_TRANSFORM_MAX_DEPTH levels deep.
+      // Each array wrap adds one depth level; starting with the string at depth 0
+      // and wrapping 32 times yields 32 levels of recursion, which must succeed.
+      let input: unknown = "${env:TOKEN}";
+      for (let i = 0; i < DEFAULT_TRANSFORM_MAX_DEPTH; i++) {
+        input = [input];
+      }
+      expect(() => transformEnvVarSyntax(input, "claude")).not.toThrow();
+    });
+
+    it("throws RangeError when nesting exceeds default depth", () => {
+      // 33 wraps exceeds the default limit of 32.
+      let input: unknown = "${env:TOKEN}";
+      for (let i = 0; i <= DEFAULT_TRANSFORM_MAX_DEPTH; i++) {
+        input = [input];
+      }
+      expect(() => transformEnvVarSyntax(input, "claude")).toThrow(RangeError);
+      expect(() => transformEnvVarSyntax(input, "claude")).toThrow(
+        /exceeded maximum recursion depth \(32\)/,
+      );
+    });
+
+    it("honours explicit custom maxDepth (lower bound)", () => {
+      const input = { a: { b: { c: "${env:X}" } } };
+      // Depth 0 (object) -> 1 (object) -> 2 (object) -> 3 (string). Limit = 2 fails.
+      expect(() => transformEnvVarSyntax(input, "claude", 2)).toThrow(
+        RangeError,
+      );
+    });
+
+    it("honours explicit custom maxDepth (matches boundary)", () => {
+      const input = { a: { b: { c: "${env:X}" } } };
+      // With maxDepth = 3, the deepest element reached at depth 3 is permitted.
+      expect(() =>
+        transformEnvVarSyntax(input, "claude", 3),
+      ).not.toThrow();
+    });
+
+    it("throws on cyclic object input instead of stack overflow", () => {
+      interface Cyclic {
+        self?: Cyclic;
+        value: string;
+      }
+      const cyclic: Cyclic = { value: "${env:TOKEN}" };
+      cyclic.self = cyclic;
+      // Without the depth guard this would recurse until the V8 call stack
+      // is exhausted. With the guard, it throws a controlled RangeError.
+      expect(() => transformEnvVarSyntax(cyclic, "claude")).toThrow(
+        RangeError,
+      );
+    });
+
+    it("throws on cyclic array input instead of stack overflow", () => {
+      const cyclic: unknown[] = ["${env:TOKEN}"];
+      cyclic.push(cyclic);
+      expect(() => transformEnvVarSyntax(cyclic, "claude")).toThrow(
+        RangeError,
+      );
+    });
+
+    it("permits maxDepth of 0 for a plain scalar", () => {
+      // A bare string is visited at depth 0, so maxDepth=0 must accept it.
+      expect(transformEnvVarSyntax("${env:X}", "claude", 0)).toBe("${X}");
+    });
+
+    it("rejects any nesting when maxDepth is 0", () => {
+      expect(() => transformEnvVarSyntax(["${env:X}"], "claude", 0)).toThrow(
+        RangeError,
+      );
     });
   });
 });

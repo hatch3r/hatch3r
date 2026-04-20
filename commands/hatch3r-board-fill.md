@@ -1,6 +1,7 @@
 ---
 id: hatch3r-board-fill
 type: command
+orchestrator: false
 description: Create epics and issues/work items from todo.md, reorganize the board with dependency analysis, readiness assessment, and implementation ordering. Supports GitHub, Azure DevOps, and GitLab.
 tags: [board, team]
 quality_charter: agents/shared/quality-charter.md

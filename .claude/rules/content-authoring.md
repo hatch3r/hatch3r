@@ -11,6 +11,7 @@ When creating or modifying canonical content artifacts in `agents/`, `skills/`, 
 5. **Skills format:** `skills/hatch3r-{name}/SKILL.md` directory structure with Quick Start + Step pattern
 6. **Rules format:** Produce both `.md` (canonical) and `.mdc` (Cursor) variants. Body bytes must match (checked by `scripts/validate-rule-parity.ts`); frontmatter follows the scope transform below.
 7. **Pillar alignment:** Every artifact must serve at least one Binding Pillar (P1-P6). Document which
+8. **Commands — orchestrator marker (C8-D5-M1):** every file in `commands/hatch3r-*.md` MUST declare `orchestrator: true|false` in frontmatter. When `orchestrator: true`, add `agentPipeline: [hatch3r-agent-1, hatch3r-agent-2, ...]` listing every hatch3r-* sub-agent the command delegates to via the Task tool. Commands classified as `orchestrator: false` (inline-execution: customize commands, hooks, learn, release, recipe, board-init/groom/refresh/fill/shared, healthcheck, security-audit, dep-audit, context-health, cost-tracking) omit `agentPipeline`. Enforced by `src/cli/commands/validate.ts::validateCommandOrchestratorFrontmatter`: a missing marker is a warning; `orchestrator: true` without `agentPipeline`, an empty array, or non-boolean `orchestrator` is a validation error.
 
 ## Rule Scope Transform (`.md` -> `.mdc`)
 

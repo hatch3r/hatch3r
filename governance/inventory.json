@@ -8,7 +8,7 @@
     "rulesMdc": 27,
     "commands": 34,
     "hooks": 6,
-    "pipeline": 16,
+    "pipeline": 17,
     "cliCommands": 11
   },
   "files": {
@@ -186,6 +186,7 @@
       "complianceVerification.ts",
       "diffHash.ts",
       "failureLog.ts",
+      "mcpDescriptionScan.ts",
       "observability.ts",
       "phaseOutputSchema.ts",
       "phaseTimeout.ts",

@@ -11,7 +11,7 @@
  * - D19: User journey (UI helpers)
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
 // ── D15: Agentic Security ──────────────────────────────────────────
 
@@ -551,5 +551,51 @@ describe("D14 Wave 3: analyzeRepo includes linters, test frameworks, CI", () => 
     type HasLinters = Awaited<ReturnType<typeof analyzeRepo>>["linters"];
     const _typeCheck: HasLinters = ["eslint"];
     expect(_typeCheck).toBeDefined();
+  });
+});
+
+// ── D12 Wave 3 Medium: stdout/stderr separation (C8-D12-M1) ──────
+
+describe("D12 Wave 3: error/warn route to stderr, info stays on stdout", () => {
+  it("error() writes to stderr via console.error", async () => {
+    const { error } = await import("../../cli/shared/ui.js");
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      error("boom");
+      expect(errSpy).toHaveBeenCalledTimes(1);
+      expect(logSpy).not.toHaveBeenCalled();
+    } finally {
+      logSpy.mockRestore();
+      errSpy.mockRestore();
+    }
+  });
+
+  it("warn() writes to stderr via console.error", async () => {
+    const { warn } = await import("../../cli/shared/ui.js");
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      warn("careful");
+      expect(errSpy).toHaveBeenCalledTimes(1);
+      expect(logSpy).not.toHaveBeenCalled();
+    } finally {
+      logSpy.mockRestore();
+      errSpy.mockRestore();
+    }
+  });
+
+  it("info() writes to stdout via console.log", async () => {
+    const { info } = await import("../../cli/shared/ui.js");
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      info("fyi");
+      expect(logSpy).toHaveBeenCalledTimes(1);
+      expect(errSpy).not.toHaveBeenCalled();
+    } finally {
+      logSpy.mockRestore();
+      errSpy.mockRestore();
+    }
   });
 });

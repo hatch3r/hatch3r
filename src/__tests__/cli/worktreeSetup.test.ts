@@ -17,14 +17,21 @@ vi.mock("../../worktree/resolve.js", () => ({
   resolvePatterns: vi.fn(async () => []),
 }));
 
+// Mock inquirer so the secret-propagation prompt is deterministic
+vi.mock("inquirer", () => ({
+  default: { prompt: vi.fn(async () => ({ proceed: true })) },
+}));
+
 describe("worktreeSetupCommand", () => {
   let worktreeSetupCommand: typeof import("../../cli/commands/worktreeSetup.js")["worktreeSetupCommand"];
   let isInsideWorktree: ReturnType<typeof vi.fn>;
   let findMainWorktree: ReturnType<typeof vi.fn>;
   let resolvePatterns: ReturnType<typeof vi.fn>;
+  let inquirerPrompt: ReturnType<typeof vi.fn>;
   let tempDir: string;
   let consoleSpy: MockInstance;
   let consoleErrorSpy: MockInstance;
+  let originalStdinIsTTY: boolean | undefined;
 
   beforeEach(async () => {
     vi.resetModules();
@@ -34,6 +41,11 @@ describe("worktreeSetupCommand", () => {
     findMainWorktree = resolveModule.findMainWorktree as ReturnType<typeof vi.fn>;
     resolvePatterns = resolveModule.resolvePatterns as ReturnType<typeof vi.fn>;
 
+    const inquirerModule = await import("inquirer");
+    inquirerPrompt = inquirerModule.default.prompt as unknown as ReturnType<typeof vi.fn>;
+    inquirerPrompt.mockReset();
+    inquirerPrompt.mockResolvedValue({ proceed: true });
+
     const cmdModule = await import("../../cli/commands/worktreeSetup.js");
     worktreeSetupCommand = cmdModule.worktreeSetupCommand;
 
@@ -41,10 +53,18 @@ describe("worktreeSetupCommand", () => {
     consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+    originalStdinIsTTY = process.stdin.isTTY;
+    // Default to non-TTY so tests don't block on prompts unless they opt in.
+    (process.stdin as { isTTY?: boolean }).isTTY = false;
   });
 
   afterEach(async () => {
     vi.restoreAllMocks();
+    if (originalStdinIsTTY === undefined) {
+      delete (process.stdin as { isTTY?: boolean }).isTTY;
+    } else {
+      (process.stdin as { isTTY?: boolean }).isTTY = originalStdinIsTTY;
+    }
     await rm(tempDir, { recursive: true, force: true });
   });
 
@@ -229,7 +249,161 @@ describe("worktreeSetupCommand", () => {
 
     await worktreeSetupCommand(worktreePath);
 
-    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    // D12-M1: warn() routes to console.error (stderr) per POSIX convention.
+    const output = [
+      ...consoleSpy.mock.calls.map((c) => String(c[0])),
+      ...consoleErrorSpy.mock.calls.map((c) => String(c[0])),
+    ].join("\n");
     expect(output).toContain("Could not auto-sync");
+  });
+
+  // ── Secret propagation warning (C8-D15-M2) ───────────────────
+
+  it("prints blast-radius warning when .env.mcp exists in main repo", async () => {
+    isInsideWorktree.mockReturnValue(false);
+
+    const includeContent = [
+      MANAGED_BLOCK_START,
+      "# env vars",
+      ".env.*",
+      MANAGED_BLOCK_END,
+    ].join("\n");
+    await writeFile(join(tempDir, WORKTREE_INCLUDE_FILE), includeContent);
+    await writeFile(join(tempDir, ".env.mcp"), "GITHUB_PAT=ghp_example");
+
+    const worktreePath = "wt-secret";
+    await mkdir(join(tempDir, worktreePath), { recursive: true });
+    resolvePatterns.mockResolvedValue([]);
+
+    await worktreeSetupCommand(worktreePath, { yes: true });
+
+    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(output).toContain("Secret propagation warning");
+    expect(output).toContain(".env.mcp");
+    expect(output).toContain("CWE-552");
+    expect(output).toContain("Blast radius");
+  });
+
+  it("does not print warning when no secret env files are present", async () => {
+    isInsideWorktree.mockReturnValue(false);
+
+    const includeContent = [
+      MANAGED_BLOCK_START,
+      "# env vars",
+      ".env.*",
+      MANAGED_BLOCK_END,
+    ].join("\n");
+    await writeFile(join(tempDir, WORKTREE_INCLUDE_FILE), includeContent);
+    // Intentionally no .env.mcp file on disk
+
+    const worktreePath = "wt-nosec";
+    await mkdir(join(tempDir, worktreePath), { recursive: true });
+    resolvePatterns.mockResolvedValue([]);
+
+    await worktreeSetupCommand(worktreePath);
+
+    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(output).not.toContain("Secret propagation warning");
+    expect(inquirerPrompt).not.toHaveBeenCalled();
+  });
+
+  it("prompts for confirmation on interactive TTY and cancels when user declines", async () => {
+    isInsideWorktree.mockReturnValue(false);
+    (process.stdin as { isTTY?: boolean }).isTTY = true;
+    inquirerPrompt.mockResolvedValueOnce({ proceed: false });
+
+    const includeContent = [
+      MANAGED_BLOCK_START,
+      "# env vars",
+      ".env.*",
+      MANAGED_BLOCK_END,
+    ].join("\n");
+    await writeFile(join(tempDir, WORKTREE_INCLUDE_FILE), includeContent);
+    await writeFile(join(tempDir, ".env.mcp"), "GITHUB_PAT=x");
+
+    const worktreePath = "wt-prompt-cancel";
+    await mkdir(join(tempDir, worktreePath), { recursive: true });
+    resolvePatterns.mockResolvedValue([]);
+
+    await expect(
+      worktreeSetupCommand(worktreePath),
+    ).rejects.toThrow("Worktree setup cancelled");
+    expect(inquirerPrompt).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips prompt with --yes even when .env.mcp exists", async () => {
+    isInsideWorktree.mockReturnValue(false);
+    (process.stdin as { isTTY?: boolean }).isTTY = true;
+
+    const includeContent = [
+      MANAGED_BLOCK_START,
+      "# env vars",
+      ".env.*",
+      MANAGED_BLOCK_END,
+    ].join("\n");
+    await writeFile(join(tempDir, WORKTREE_INCLUDE_FILE), includeContent);
+    await writeFile(join(tempDir, ".env.mcp"), "GITHUB_PAT=x");
+
+    const worktreePath = "wt-yes";
+    await mkdir(join(tempDir, worktreePath), { recursive: true });
+    resolvePatterns.mockResolvedValue([]);
+
+    await worktreeSetupCommand(worktreePath, { yes: true });
+
+    expect(inquirerPrompt).not.toHaveBeenCalled();
+    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(output).toContain("Secret propagation warning");
+  });
+
+  it("warns but proceeds in non-interactive session without --yes", async () => {
+    isInsideWorktree.mockReturnValue(false);
+    (process.stdin as { isTTY?: boolean }).isTTY = false;
+
+    const includeContent = [
+      MANAGED_BLOCK_START,
+      "# env vars",
+      ".env.*",
+      MANAGED_BLOCK_END,
+    ].join("\n");
+    await writeFile(join(tempDir, WORKTREE_INCLUDE_FILE), includeContent);
+    await writeFile(join(tempDir, ".env.mcp"), "GITHUB_PAT=x");
+
+    const worktreePath = "wt-noninteractive";
+    await mkdir(join(tempDir, worktreePath), { recursive: true });
+    resolvePatterns.mockResolvedValue([]);
+
+    await worktreeSetupCommand(worktreePath);
+
+    expect(inquirerPrompt).not.toHaveBeenCalled();
+    // D12-M1: warn() routes to console.error (stderr) per POSIX convention.
+    const output = [
+      ...consoleSpy.mock.calls.map((c) => String(c[0])),
+      ...consoleErrorSpy.mock.calls.map((c) => String(c[0])),
+    ].join("\n");
+    expect(output).toContain("Non-interactive session detected");
+  });
+
+  it("still prints warning in --dry-run but does not prompt", async () => {
+    isInsideWorktree.mockReturnValue(false);
+    (process.stdin as { isTTY?: boolean }).isTTY = true;
+
+    const includeContent = [
+      MANAGED_BLOCK_START,
+      "# env vars",
+      ".env.*",
+      MANAGED_BLOCK_END,
+    ].join("\n");
+    await writeFile(join(tempDir, WORKTREE_INCLUDE_FILE), includeContent);
+    await writeFile(join(tempDir, ".env.mcp"), "GITHUB_PAT=x");
+
+    const worktreePath = "wt-dry-secret";
+    await mkdir(join(tempDir, worktreePath), { recursive: true });
+
+    await worktreeSetupCommand(worktreePath, { dryRun: true });
+
+    expect(inquirerPrompt).not.toHaveBeenCalled();
+    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(output).toContain("Secret propagation warning");
+    expect(output).toContain("Dry run");
   });
 });

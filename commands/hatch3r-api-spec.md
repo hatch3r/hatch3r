@@ -1,6 +1,8 @@
 ---
 id: hatch3r-api-spec
 type: command
+orchestrator: true
+agentPipeline: [hatch3r-researcher, hatch3r-docs-writer, hatch3r-reviewer]
 description: Generate or validate an OpenAPI specification from the codebase. Scans route definitions, extracts schemas, and produces a complete API spec.
 tags: [planning]
 quality_charter: agents/shared/quality-charter.md

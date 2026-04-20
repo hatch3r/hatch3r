@@ -84,7 +84,11 @@ describe("sync command", () => {
     await expect(syncCommand()).rejects.toThrow(HatchError);
     try { await syncCommand(); } catch (e) { expect((e as HatchError).exitCode).toBe(1); }
 
-    const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    // D12-M1: error() routes to console.error (stderr) per POSIX convention.
+    const allOutput = [
+      ...consoleSpy.mock.calls.map((c) => String(c[0])),
+      ...consoleErrorSpy.mock.calls.map((c) => String(c[0])),
+    ].join(" ");
     expect(allOutput).toContain("No .agents/hatch.json found");
   });
 
@@ -174,7 +178,11 @@ describe("sync command", () => {
     const { syncCommand } = await import("../../cli/commands/sync.js");
     await syncCommand();
 
-    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    // D12-M1: warn() routes to console.error (stderr) per POSIX convention.
+    const output = [
+      ...consoleSpy.mock.calls.map((c) => String(c[0])),
+      ...consoleErrorSpy.mock.calls.map((c) => String(c[0])),
+    ].join("\n");
     expect(output).toContain("New secrets needed in .env.mcp");
     expect(output).toContain("GITHUB_PAT");
   });
@@ -399,6 +407,38 @@ describe("sync command", () => {
       const manifest = await readIntegrityManifest(join(tempDir, AGENTS_DIR));
       // Expectation order is stable (sorted) regardless of manifest input order
       expect(manifest!.expectedAdapters).toEqual(["claude", "cursor"]);
+    });
+  });
+
+  // C8-D8-M1 (D8): aggregated recovery guidance on thrown HatchError
+  describe("aggregated recovery guidance", () => {
+    it("HatchError thrown on all-adapter failure carries a recovery hint", async () => {
+      await createTestProject(tempDir, { tools: ["cursor"] });
+
+      // Force every adapter invocation to return completed:false so the
+      // adapter loop's catch block populates adapterFailures and the terminal
+      // "All adapters failed" branch fires with our new aggregated guidance.
+      const adapterTimeoutMod = await import("../../pipeline/adapterTimeout.js");
+      const spy = vi.spyOn(adapterTimeoutMod, "generateWithTimeout").mockResolvedValue({
+        tool: "cursor",
+        completed: false,
+        elapsedMs: 10,
+        error: "invalid config: missing required field",
+        warnings: [],
+      });
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      try {
+        await syncCommand();
+        expect.fail("expected syncCommand to throw HatchError");
+      } catch (e) {
+        const err = e as HatchError;
+        expect(err).toBeInstanceOf(HatchError);
+        expect(err.message).toMatch(/All adapters failed/);
+        expect(err.message).toMatch(/substantive|transient|Retry|Inspect|resolve/i);
+      } finally {
+        spy.mockRestore();
+      }
     });
   });
 });

@@ -7,6 +7,7 @@ import { readManifest } from "../../manifest/hatchJson.js";
 import { isValidHookEvent } from "../../hooks/types.js";
 import { AGENTS_DIR, HATCH3R_PREFIX, HatchError } from "../../types.js";
 import type { HatchManifest } from "../../types.js";
+import { HATCH3R_VERSION } from "../../version.js";
 import { scanForDeniedPatterns } from "../../adapters/customization.js";
 import { buildContentIndex, validateCrossReferences, validateOrchestrationDependencies } from "../../content/index.js";
 import { validateLearningsDirectory } from "../../content/learningsValidation.js";
@@ -124,6 +125,12 @@ async function validateFrontmatter(
               if (!parsedFm || typeof parsedFm !== "object" || !parsedFm.type) {
                 result.warnings.push(`Missing 'type' in frontmatter: .agents/${dir}/${entry.name}`);
               }
+              // C8-D5-M1: Commands must declare orchestrator marker so adapters
+              // and runtime gates can distinguish orchestrator commands (which
+              // delegate to sub-agents) from inline-execution commands.
+              if (dir === "commands" && parsedFm && typeof parsedFm === "object") {
+                validateCommandOrchestratorFrontmatter(parsedFm, `.agents/${dir}/${entry.name}`, result);
+              }
             }
           }
         } else if (entry.isDirectory()) {
@@ -146,6 +153,70 @@ async function validateFrontmatter(
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
     result.warnings.push("Missing .agents/AGENTS.md");
+  }
+}
+
+/**
+ * C8-D5-M1: Validate the `orchestrator` + `agentPipeline` frontmatter contract
+ * on command files. The orchestrator marker distinguishes commands that
+ * delegate to sub-agents (orchestrator: true) from inline-execution commands
+ * (orchestrator: false). When orchestrator is true, the file must declare
+ * `agentPipeline:` as a non-empty array of sub-agent IDs (e.g.
+ * `hatch3r-researcher`) so adapters and the validate gate know which agents
+ * must be selected for the command to function.
+ */
+function validateCommandOrchestratorFrontmatter(
+  parsedFm: Record<string, unknown>,
+  fileLabel: string,
+  result: ValidationResult,
+): void {
+  const orchestrator = parsedFm.orchestrator;
+  const agentPipeline = parsedFm.agentPipeline;
+
+  if (orchestrator === undefined) {
+    result.warnings.push(
+      `Missing 'orchestrator' in frontmatter: ${fileLabel} (add 'orchestrator: true' when the command delegates to sub-agents, or 'orchestrator: false' when it runs inline)`,
+    );
+    return;
+  }
+
+  if (typeof orchestrator !== "boolean") {
+    result.errors.push(
+      `Invalid 'orchestrator' value in ${fileLabel}: expected boolean (true|false), got ${typeof orchestrator}`,
+    );
+    return;
+  }
+
+  if (orchestrator === true) {
+    if (agentPipeline === undefined) {
+      result.errors.push(
+        `Missing 'agentPipeline' in ${fileLabel}: orchestrator commands must list delegated sub-agents (e.g. agentPipeline: [hatch3r-researcher, hatch3r-implementer])`,
+      );
+      return;
+    }
+    if (!Array.isArray(agentPipeline)) {
+      result.errors.push(
+        `Invalid 'agentPipeline' in ${fileLabel}: expected array of sub-agent IDs, got ${typeof agentPipeline}`,
+      );
+      return;
+    }
+    if (agentPipeline.length === 0) {
+      result.errors.push(
+        `Empty 'agentPipeline' in ${fileLabel}: orchestrator commands must list at least one sub-agent`,
+      );
+      return;
+    }
+    const nonStringEntries = agentPipeline.filter((a) => typeof a !== "string");
+    if (nonStringEntries.length > 0) {
+      result.errors.push(
+        `Invalid 'agentPipeline' entry in ${fileLabel}: all entries must be strings (sub-agent IDs)`,
+      );
+    }
+  } else if (Array.isArray(agentPipeline) && agentPipeline.length > 0) {
+    // orchestrator: false — agentPipeline should not list sub-agents
+    result.warnings.push(
+      `Unused 'agentPipeline' in ${fileLabel}: command declares orchestrator: false but lists sub-agents; either set orchestrator: true or remove the agentPipeline field`,
+    );
   }
 }
 
@@ -540,37 +611,120 @@ export async function validateDocsCounts(rootDir: string): Promise<{ mismatches:
   return { mismatches, checked };
 }
 
-export async function validateCommand(opts?: { docs?: boolean; verbose?: boolean }): Promise<void> {
-  setVerbose(!!opts?.verbose);
-  printBanner(true);
+/**
+ * Output format for the validate command.
+ * - "human" (default): banner, spinner, boxed summary, coloured error/warning list.
+ * - "json": single JSON object `{errors, warnings, summary}` to stdout, no banner.
+ *   Intended for CI consumers (see C8-D1-M10 / D1-SA1.4.3).
+ */
+export type ValidateOutputFormat = "human" | "json";
+
+interface ValidateJsonOutput {
+  errors: string[];
+  warnings: string[];
+  summary: {
+    status: "passed" | "failed";
+    errorCount: number;
+    warningCount: number;
+    docsMode: boolean;
+    hatch3rVersion: string;
+    timestamp: string;
+  };
+}
+
+function emitJson(output: ValidateJsonOutput): void {
+  // Write a single JSON document followed by a newline — one-shot payload for
+  // CI parsers. Do NOT interleave other stdout writes in json mode.
+  process.stdout.write(JSON.stringify(output) + "\n");
+}
+
+export async function validateCommand(opts?: {
+  docs?: boolean;
+  verbose?: boolean;
+  format?: ValidateOutputFormat;
+}): Promise<void> {
+  const format: ValidateOutputFormat = opts?.format === "json" ? "json" : "human";
+  const jsonMode = format === "json";
+
+  // In JSON mode: suppress verbose logging (sent to stdout via info()) and the
+  // banner, which would corrupt the machine-readable output. Errors/warnings
+  // still reach the final JSON object via the ValidationResult aggregator.
+  setVerbose(jsonMode ? false : !!opts?.verbose);
+  if (!jsonMode) printBanner(true);
 
   const rootDir = process.cwd();
+  const timestamp = new Date().toISOString();
 
   if (opts?.docs) {
-    const spinner = createSpinner("Verifying documentation counts...");
-    spinner.start();
+    const spinner = jsonMode ? null : createSpinner("Verifying documentation counts...");
+    spinner?.start();
     const { mismatches, checked } = await validateDocsCounts(rootDir);
     if (mismatches.length > 0) {
-      spinner.fail("Documentation count mismatches found");
-      for (const m of mismatches) logError(m);
+      if (jsonMode) {
+        emitJson({
+          errors: mismatches.map((m) => `Documentation count mismatch: ${m}`),
+          warnings: [],
+          summary: {
+            status: "failed",
+            errorCount: mismatches.length,
+            warningCount: 0,
+            docsMode: true,
+            hatch3rVersion: HATCH3R_VERSION,
+            timestamp,
+          },
+        });
+      } else {
+        spinner?.fail("Documentation count mismatches found");
+        for (const m of mismatches) logError(m);
+      }
       throw new HatchError("Documentation counts do not match", 1, "VALIDATION_ERROR");
     }
-    spinner.succeed(`Documentation counts verified (${checked} checks, 0 mismatches)`);
+    if (jsonMode) {
+      emitJson({
+        errors: [],
+        warnings: [],
+        summary: {
+          status: "passed",
+          errorCount: 0,
+          warningCount: 0,
+          docsMode: true,
+          hatch3rVersion: HATCH3R_VERSION,
+          timestamp,
+        },
+      });
+    } else {
+      spinner?.succeed(`Documentation counts verified (${checked} checks, 0 mismatches)`);
+    }
     return;
   }
   const agentsDir = join(rootDir, AGENTS_DIR);
   const result: ValidationResult = { errors: [], warnings: [] };
 
-  const spinner = createSpinner("Validating .agents/ structure...");
-  spinner.start();
+  const spinner = jsonMode ? null : createSpinner("Validating .agents/ structure...");
+  spinner?.start();
 
   try {
     await access(agentsDir);
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-    spinner.fail("Validation failed");
-    logError(".agents/ directory not found. Run `hatch3r init` first.");
-    console.log();
+    if (jsonMode) {
+      emitJson({
+        errors: [".agents/ directory not found. Run `hatch3r init` first."],
+        warnings: [],
+        summary: {
+          status: "failed",
+          errorCount: 1,
+          warningCount: 0,
+          docsMode: false,
+          hatch3rVersion: HATCH3R_VERSION,
+          timestamp,
+        },
+      });
+    } else {
+      spinner?.fail("Validation failed");
+      logError(".agents/ directory not found. Run `hatch3r init` first.");
+      console.log();
+    }
     throw new HatchError(".agents/ directory not found.", 1, "CONFIG_ERROR");
   }
 
@@ -649,7 +803,7 @@ export async function validateCommand(opts?: { docs?: boolean; verbose?: boolean
   // Security compliance verification (#86 D15)
   await validateSecurityCompliance(result);
 
-  spinner.stop();
+  spinner?.stop();
 
   // Detect if customization files exist for contextual help (#56 D19-4)
   let hasCustomizations = false;
@@ -663,6 +817,28 @@ export async function validateCommand(opts?: { docs?: boolean; verbose?: boolean
     } catch {
       // directory doesn't exist
     }
+  }
+
+  // JSON mode: emit one structured payload and either return or throw based on
+  // errors. Customization hint and boxes are human-only output.
+  if (jsonMode) {
+    const hasErrors = result.errors.length > 0;
+    emitJson({
+      errors: result.errors,
+      warnings: result.warnings,
+      summary: {
+        status: hasErrors ? "failed" : "passed",
+        errorCount: result.errors.length,
+        warningCount: result.warnings.length,
+        docsMode: false,
+        hatch3rVersion: HATCH3R_VERSION,
+        timestamp,
+      },
+    });
+    if (hasErrors) {
+      throw new HatchError("Validation failed", 1, "VALIDATION_ERROR");
+    }
+    return;
   }
 
   if (result.errors.length === 0 && result.warnings.length === 0) {

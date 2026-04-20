@@ -1,6 +1,8 @@
 ---
 id: hatch3r-codebase-map
 type: command
+orchestrator: true
+agentPipeline: [hatch3r-researcher, hatch3r-docs-writer]
 description: Reverse-engineer business and technical project specs from an existing codebase using parallel analyzer sub-agents with dual business/technical scoping
 tags: [planning, brownfield]
 quality_charter: agents/shared/quality-charter.md

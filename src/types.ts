@@ -160,7 +160,7 @@ export interface HooksConfig {
 
 export interface CanonicalFile {
   id: string;
-  type: "rule" | "agent" | "skill" | "command" | "prompt" | "github-agent" | "hook";
+  type: "rule" | "agent" | "skill" | "command" | "prompt" | "github-agent" | "hook" | "check" | "policy" | "learning";
   description: string;
   scope?: string;
   model?: string;
@@ -217,6 +217,20 @@ export interface AdapterOutput {
   /** Inner content for the managed block (used for merge on update). */
   managedContent?: string;
   action: "create" | "update" | "skip";
+  /**
+   * C8-D12-M3: Per-output source provenance — the canonical files (by
+   * absolute `sourcePath`) that contributed content to this adapter output.
+   *
+   * Populated by {@link BaseAdapter.generate} when the adapter reads
+   * canonical files through the tracked reader. Empty or absent when the
+   * adapter output has no canonical inputs (e.g. a pure-config file like
+   * `.zed/mcp.json` assembled from `mcp.json`).
+   *
+   * Consumers (`sync` -> `.agents/.provenance.json`) use this to answer
+   * "which canonical files shaped this generated file?" so operators can
+   * trace drift back to the source artifact without re-running generation.
+   */
+  sourceFiles?: string[];
 }
 
 export interface MergeResult {
@@ -280,13 +294,41 @@ export type HatchErrorCode =
   | "LOCK_TIMEOUT"
   | "UNKNOWN_ERROR";
 
+/**
+ * C8-D1-M5: Central mapping from HatchErrorCode to POSIX exit code. Keeps the
+ * "what kind of failure" (errorCode) and "how the CLI surfaces it" (exitCode)
+ * in one place so call sites can throw `new HatchError(msg, undefined, CODE)`
+ * without hand-picking an exit code. Explicit exitCode (incl. 0 for user
+ * cancellation, 2 for usage errors) always wins over this mapping.
+ */
+export const ERROR_CODE_TO_EXIT_CODE: Record<HatchErrorCode, number> = {
+  VALIDATION_ERROR: 1,
+  CONFIG_ERROR: 1,
+  FS_ERROR: 1,
+  INTEGRITY_ERROR: 1,
+  ADAPTER_ERROR: 1,
+  NETWORK_ERROR: 1,
+  CLEAN_ERROR: 1,
+  LOCK_TIMEOUT: 1,
+  UNKNOWN_ERROR: 1,
+};
+
+export function exitCodeForErrorCode(code: HatchErrorCode): number {
+  return ERROR_CODE_TO_EXIT_CODE[code];
+}
+
 export class HatchError extends Error {
+  public readonly exitCode: number;
+  public readonly errorCode: HatchErrorCode;
+
   constructor(
     message: string,
-    public readonly exitCode: number = 1,
-    public readonly errorCode: HatchErrorCode = "UNKNOWN_ERROR",
+    exitCode?: number,
+    errorCode: HatchErrorCode = "UNKNOWN_ERROR",
   ) {
     super(message);
+    this.errorCode = errorCode;
+    this.exitCode = exitCode ?? ERROR_CODE_TO_EXIT_CODE[errorCode];
     this.name = "HatchError";
   }
 }

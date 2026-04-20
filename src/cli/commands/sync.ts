@@ -7,13 +7,14 @@ import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.
 import { checkContextBudget, formatBudgetWarning } from "../../adapters/contextBudget.js";
 import { safeWriteFile } from "../../merge/safeWrite.js";
 import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
-import { AGENTS_DIR, HatchError, WORKTREE_INCLUDE_FILE, type GenerationMode } from "../../types.js";
+import { AGENTS_DIR, HatchError, WORKTREE_INCLUDE_FILE, type AdapterOutput, type GenerationMode } from "../../types.js";
 import { ensureEnvMcp, ensureGitignoreEntry, getSourceEnvMcpCommand } from "../../env/mcpEnv.js";
 import { readWorkspaceManifest } from "../../workspace/manifest.js";
 import { detectWorkspaceContext } from "../../workspace/detect.js";
 import { syncWorkspaceRepos } from "../../workspace/sync.js";
 import { generateCanonicalAgentsMd, generateRootAgentsMd } from "../shared/agentsContent.js";
 import { verifyIntegrity, generateIntegrityManifest, writeIntegrityManifest } from "../../integrity/index.js";
+import { buildProvenanceManifest, writeProvenanceManifest } from "../../integrity/provenance.js";
 import { pruneArchives } from "../../archive/index.js";
 import { HATCH3R_VERSION } from "../../version.js";
 import {
@@ -286,6 +287,11 @@ export async function syncCommand(
   outputPathOwners.set(`${AGENTS_DIR}/AGENTS.md`, "sync-bridge");
 
   const adapterFailures: { tool: string; error: string }[] = [];
+  // C8-D12-M3: Per-adapter output collector for `.agents/.provenance.json`
+  // persistence after the adapter loop completes. Entries are captured only
+  // on successful generation so failed adapters leave no stale provenance
+  // behind. Contains the `sourceFiles` populated by BaseAdapter tracking.
+  const perAdapterOutputs: Array<{ adapter: string; outputs: AdapterOutput[] }> = [];
   // C7.5-W2B2-H22 (D6-SA6.1-2): Track budget-gate failures separately so the
   // terminal error carries exit code 2 (usage error, per finding spec), even
   // when the gate fires on a single-adapter project where the general
@@ -408,6 +414,11 @@ export async function syncCommand(
 
       breaker = recordSuccess(breaker);
       breakers.set(tool, breaker);
+      // C8-D12-M3: Record adapter outputs for .provenance.json persistence
+      // below. We capture on success so a failed or timed-out adapter does
+      // not contribute stale attribution; the outputs already carry their
+      // BaseAdapter-populated `sourceFiles`.
+      perAdapterOutputs.push({ adapter: tool, outputs });
       s.succeed(step(currentStep, totalSteps, opts.dryRun
         ? `${tool} output (dry run: ${outputs.length} file(s))`
         : `${tool} output generated`));
@@ -427,14 +438,17 @@ export async function syncCommand(
   if (!phaseResult.completed && phaseResult.error) {
     warn(phaseResult.error);
   }
+  // C8-D8-M1 (D8): classify each adapter failure and aggregate transience
+  // across tools so the thrown HatchError carries actionable guidance in
+  // addition to the per-tool log lines. classifiedFailures persists past
+  // this block so the partial-failure terminal throw can reuse it.
+  const classifiedFailures: { tool: string; depClass: ReturnType<typeof classifyDependency>; failType: ReturnType<typeof classifyFailure> }[] = [];
   if (adapterFailures.length > 0) {
     for (const f of adapterFailures) {
-      // C7.5-W2B2-H28 (D8): append dependency-class-specific recovery
-      // guidance to the raw vendor message so the user sees an
-      // actionable next step rather than a bare error.
       const reconstructed = new Error(f.error);
       const depClass = classifyDependency(reconstructed);
       const failType = classifyFailure(reconstructed);
+      classifiedFailures.push({ tool: f.tool, depClass, failType });
       const guidance = getRecoveryGuidance(depClass, failType);
       logError(`Failed to generate ${f.tool}: ${f.error}`);
       info(`  ${guidance}`);
@@ -445,7 +459,13 @@ export async function syncCommand(
       // runtime-error exit code (1). This matches the finding's contract:
       // --strict-budget is a caller-driven gate, not an internal fault.
       const exitCode = budgetGateFailed ? 2 : 1;
-      throw new HatchError("All adapters failed", exitCode, "ADAPTER_ERROR");
+      const allTransient = classifiedFailures.every((c) => c.failType === "transient");
+      const aggregateGuidance = budgetGateFailed
+        ? "Re-run without --strict-budget, or reduce output size with `hatch3r sync --minimal` / `hatch3r config`."
+        : allTransient
+          ? "All failures appear transient. Retry `hatch3r sync`, or run `hatch3r update --offline` to refresh from canonical content."
+          : "One or more failures are substantive. Inspect the per-adapter messages above and resolve before retrying.";
+      throw new HatchError(`All adapters failed. ${aggregateGuidance}`, exitCode, "ADAPTER_ERROR");
     }
     // #253 (D8-8.20): Partial adapter failures should not silently report success.
     // We continue to generate a summary but track that partial failure occurred.
@@ -519,6 +539,19 @@ export async function syncCommand(
         `Re-run sync after resolving errors to produce a complete manifest.`,
       );
     }
+
+    // C8-D12-M3: Persist per-adapter source-file provenance to
+    // `.agents/.provenance.json` so operators can trace any generated
+    // adapter output back to its canonical inputs. The manifest is always
+    // regenerated after a sync that reached this point (even under partial
+    // adapter failure) — stale entries for failed adapters are omitted
+    // because only successful generations push into `perAdapterOutputs`.
+    const provenanceManifest = buildProvenanceManifest(
+      HATCH3R_VERSION,
+      rootDir,
+      perAdapterOutputs,
+    );
+    await writeProvenanceManifest(agentsDir, provenanceManifest);
 
     // Prune stale archive entries
     await pruneArchives(rootDir);
@@ -620,8 +653,15 @@ export async function syncCommand(
   // #253 (D8-8.20): Exit non-zero on partial adapter failure
   // so CI pipelines can detect incomplete syncs.
   if (adapterFailures.length > 0) {
+    // C8-D8-M1 (D8): attach aggregated recovery guidance to the terminal
+    // HatchError so CI operators reading the error (without the preceding
+    // logs) still receive an actionable retry hint.
+    const allTransient = classifiedFailures.length > 0 && classifiedFailures.every((c) => c.failType === "transient");
+    const aggregateGuidance = allTransient
+      ? "Failures appear transient. Retry `hatch3r sync` after transient conditions clear."
+      : "At least one failure is substantive. See the per-adapter messages above for remediation.";
     throw new HatchError(
-      `Sync completed with ${adapterFailures.length} adapter failure(s)`,
+      `Sync completed with ${adapterFailures.length} adapter failure(s). ${aggregateGuidance}`,
       2,
       "ADAPTER_ERROR",
     );

@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import chalk from "chalk";
-import { printBanner, error as logError, warn } from "../shared/ui.js";
+import { printBanner, error as logError, info, warn } from "../shared/ui.js";
 import { AGENTS_DIR, HatchError } from "../../types.js";
 import { verifyIntegrity } from "../../integrity/index.js";
 
@@ -46,18 +46,25 @@ export async function addCommand(opts: { force?: boolean } = {}): Promise<void> 
   printBanner(true);
   // C7-H5 (D15): Preflight integrity check runs before any future mutation
   // logic in this command, even though the body currently exits early with
-  // a "not yet implemented" error. When the command is wired up, the guard
-  // is already in place — no second pass required.
+  // an informational "coming soon" notice. When the command is wired up, the
+  // guard is already in place — no second pass required.
   await preflightIntegrityCheck(process.cwd(), !!opts.force);
 
+  // C8-D1-M8 (D1-SA1.3.1, P1): `hatch3r add` is advertised in `--help` as a
+  // community-pack installer that is not yet shipped. Exiting with code 2
+  // (usage error per Bash/sysexits) misrepresents a valid invocation as user
+  // misuse and trips CI pipelines that probe the subcommand. Return cleanly
+  // (exit 0) with an informational notice plus a roadmap pointer — this
+  // satisfies P1 actionable-error guidance (the user has an action: track
+  // the repo's releases / discussions) without pretending the feature is
+  // done.
+  //
+  // Sources re-verified 2026-04-20:
+  //   - https://tldp.org/LDP/abs/html/exitcodes.html (exit 2 = Bash misuse)
+  //   - https://man.freebsd.org/cgi/man.cgi?query=sysexits (EX_OK = 0)
   console.log();
-  warn("The `add` command is not yet implemented.");
-  console.log(chalk.dim("  It will allow installing community packs in a future release."));
-  console.log(chalk.dim("  Follow https://github.com/hatch3r for updates."));
+  info("Community pack installation is coming in a future hatch3r release.");
+  console.log(chalk.dim("  Track progress: https://github.com/hatch3r/hatch3r/releases"));
+  console.log(chalk.dim("  Discuss packs:  https://github.com/hatch3r/hatch3r/discussions"));
   console.log();
-  throw new HatchError(
-    "The `add` command is not yet implemented.",
-    2,
-    "VALIDATION_ERROR",
-  );
 }

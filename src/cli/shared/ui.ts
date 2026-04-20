@@ -105,12 +105,17 @@ export function printBox(
   );
 }
 
+// POSIX convention: diagnostics (errors, warnings) go to stderr so they remain
+// visible when stdout is redirected/piped, and CI systems (GitHub Actions,
+// GitLab CI) can parse stderr for failure signals.
+// Reference: https://en.wikipedia.org/wiki/Standard_streams
+
 export function error(msg: string): void {
-  console.log(`  ${chalk.red("✖")} ${msg}`);
+  console.error(`  ${chalk.red("✖")} ${msg}`);
 }
 
 export function warn(msg: string): void {
-  console.log(`  ${chalk.yellow("⚠")} ${msg}`);
+  console.error(`  ${chalk.yellow("⚠")} ${msg}`);
 }
 
 export function info(msg: string): void {

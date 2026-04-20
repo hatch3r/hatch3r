@@ -1,6 +1,7 @@
 ---
 id: hatch3r-recipe
 type: command
+orchestrator: false
 description: Execute shareable workflow recipes that compose agents, skills, and commands into guided sequences for common development scenarios
 tags: [core]
 quality_charter: agents/shared/quality-charter.md

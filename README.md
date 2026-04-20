@@ -22,7 +22,7 @@ That's it. hatch3r detects your repo, asks about your project context (greenfiel
 |----------|-------|-----------|
 | **Agents** | 16 | Code reviewer, test writer, security auditor, implementer (sub-agentic), fixer, researcher, architect, DevOps, and more |
 | **Skills** | 26 | Bug fix, feature implementation, issue workflow, release, incident response, context health, cost tracking, recipes, API spec, CI pipeline, migration, customization, and more |
-| **Rules** | 26 | Code standards, testing, API design, observability, theming, i18n, security patterns, agent orchestration, deep context analysis, and more |
+| **Rules** | 27 | Code standards, testing, API design, observability, theming, i18n, security patterns, agent orchestration, deep context analysis, and more |
 | **Commands** | 34 | Board management, planning (feature, bug, refactor, test), workflow, quick-change, revision, debug, healthcheck, security-audit, cost-tracking, onboard, benchmark, customization, and more |
 | **MCP Servers** | 10 (3 default + 7 opt-in) | Playwright, Context7, Filesystem (default); GitHub, Brave Search, Sentry, Postgres, Linear, Azure DevOps, GitLab (opt-in) |
 | **Platforms** | 3 | GitHub, Azure DevOps, GitLab -- auto-detected from git remote |
@@ -215,14 +215,16 @@ Content is tagged with workflow, context, and domain tags. After init, use `hatc
 
 ## How hatch3r differs from Ruler
 
-Ruler (`@intellectronica/ruler`) is the closest architectural analogue to hatch3r -- both distribute rules from a single canonical source to multiple AI coding tools. The depth of the integration and the content model differ:
+Ruler (`@intellectronica/ruler`) is the closest architectural analogue to hatch3r -- both distribute from a single canonical source to multiple AI coding tools. Ruler's model is simpler per-adapter emission of markdown rules only. hatch3r ships a deeper content model, integrity surface, and governance system:
 
 | Dimension | hatch3r | Ruler |
 |-----------|---------|-------|
 | Tool targets | 15 native adapters generating tool-specific primitives (Cursor `.mdc` frontmatter, Claude Code skills + hooks, Kiro steering, Copilot prompts) | 32 rule-distribution targets (markdown rules only; no tool-specific feature utilization) |
-| Content model | Agents, skills, rules, commands, hooks, MCP servers, board workflows, learning loop | Rules only |
-| Governance | 19-domain audit cycle with 106 sub-agents, 4-wave execution, closed-loop PRD evolution | None |
-| Integrity | SHA-256 per-file + manifest-level checksum in `hatch.json`; safe merge (temp+rename atomic) with managed blocks | None |
+| Canonical content model | 6 artifact types (agents, skills, rules, commands, hooks, MCP servers) plus board workflows and learning loop, indexed in `hatch.json` | 1 artifact type (rules) |
+| Managed blocks | `<!-- HATCH3R:BEGIN -->` / `<!-- HATCH3R:END -->` markers on every bridge file preserve user content across updates (`src/merge/managedBlocks.ts`) | Full-file replacement semantics |
+| Integrity manifest | SHA-256 per-file + manifest-level checksum in `hatch.json`; safe merge via temp file + atomic rename (`src/merge/safeWrite.ts`, `src/integrity/index.ts`) | None |
+| Governance audit cycle | 19-domain audit cycle with 106 sub-agents, 4-wave execution, closed-loop PRD evolution (`governance/AUDIT.md`, `governance/AUDIT-EXECUTE.md`) | None |
+| Supply-chain provenance | npm OIDC trusted publishing + `--provenance` attestations via `.github/workflows/release.yml` (SLSA-level provenance) | Not published with OIDC trusted publishing |
 | Security | OWASP Agentic Top 10 coverage via `src/pipeline/agentToolAllowlist.ts` + `src/pipeline/mcpDescriptionScan.ts` + `src/pipeline/promptGuard.ts` (500KB input / 1MB output limits) | Rule distribution only |
 
 See [governance/COMPETITIVE-ANALYSIS.md](governance/COMPETITIVE-ANALYSIS.md) section 4 (Feature Comparison) for the full matrix.

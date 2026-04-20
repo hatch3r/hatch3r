@@ -240,8 +240,11 @@ describe("migration checkpoints", () => {
       const { updateCommand } = await import("../../cli/commands/update.js");
       await updateCommand({ backup: false });
 
-      // The checkpoint should generate a notice about the large file
-      const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      // D12-M1: warn() routes to console.error (stderr). Capture both streams.
+      const allOutput = [
+        ...consoleSpy.mock.calls.map((c) => String(c[0])),
+        ...consoleErrorSpy.mock.calls.map((c) => String(c[0])),
+      ].join("\n");
       expect(allOutput).toContain("Large customize file");
     });
 
@@ -259,7 +262,10 @@ describe("migration checkpoints", () => {
       const { updateCommand } = await import("../../cli/commands/update.js");
       await updateCommand({ backup: false });
 
-      const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      const allOutput = [
+        ...consoleSpy.mock.calls.map((c) => String(c[0])),
+        ...consoleErrorSpy.mock.calls.map((c) => String(c[0])),
+      ].join("\n");
       expect(allOutput).not.toContain("Large customize file");
     });
   });
@@ -324,8 +330,11 @@ describe("migration checkpoints", () => {
       expect(updated.content.projectType).toBe("brownfield");
       expect(updated.content.teamSize).toBe("team");
 
-      // Should produce migration notice
-      const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      // D12-M1: info()/warn() notices may route to stderr. Capture both streams.
+      const allOutput = [
+        ...consoleSpy.mock.calls.map((c) => String(c[0])),
+        ...consoleErrorSpy.mock.calls.map((c) => String(c[0])),
+      ].join("\n");
       expect(allOutput).toContain("content tracking");
     });
   });
@@ -535,7 +544,11 @@ describe("migration checkpoints", () => {
       expect(updated.content.projectType).toBe("brownfield");
       expect(updated.platform).toBe("azure-devops");
 
-      const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      // D12-M1: warn()/info() may route to stderr. Capture both streams.
+      const allOutput = [
+        ...consoleSpy.mock.calls.map((c) => String(c[0])),
+        ...consoleErrorSpy.mock.calls.map((c) => String(c[0])),
+      ].join("\n");
       expect(allOutput).toContain("Large customize file");
       expect(allOutput).toContain("Azure DevOps");
     });
@@ -572,7 +585,11 @@ describe("migration checkpoints", () => {
 
       await expect(updateCommand()).rejects.toThrow(HatchError);
 
-      const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
+      // D12-M1: error() routes to console.error (stderr) per POSIX convention.
+      const allOutput = [
+        ...consoleSpy.mock.calls.map((c) => String(c[0])),
+        ...consoleErrorSpy.mock.calls.map((c) => String(c[0])),
+      ].join(" ");
       expect(allOutput).toContain("No .agents/hatch.json found");
     });
   });

@@ -187,8 +187,21 @@ npx hatch3r worktree-setup [worktree-path]
 | `--from <path>` | Main repo path (auto-detected by default) |
 | `--dry-run` | Show what would be done without changes |
 | `--force` | Overwrite existing files in the worktree |
+| `--yes` | Skip the secret-propagation confirmation prompt |
 
 Automatically triggered by the Claude adapter's PostToolUse hook when `git worktree add` is detected. Can also be run manually after creating a worktree.
+
+### Secret propagation (blast radius)
+
+`.env.mcp` and other `.env.*` files are copied (not symlinked) into each worktree so MCP servers can start without reaching outside the worktree root. This duplicates plaintext credentials and aligns with [CWE-552](https://cwe.mitre.org/data/definitions/552.html) (Files or Directories Accessible to External Parties).
+
+Before running `worktree-setup`, consider the blast radius:
+
+- Worktree paths on shared locations (`/tmp` mounts, network drives, devcontainer volumes) expose the copied secrets to every user with read access.
+- Ephemeral worktree farms (per-branch CI sandboxes, parallel AI agent scratch dirs) multiply the exposure surface — N worktrees equals N plaintext credential copies.
+- `hatch3r worktree-cleanup` removes symlinks and unmodified copies; run it as soon as a worktree is no longer needed.
+
+When `.env.mcp` is present, `worktree-setup` prints a highlighted warning box and, on an interactive terminal, asks for confirmation before continuing. Use `--yes` to skip the prompt in automation (for example, the Claude adapter's PostToolUse hook).
 
 ## hatch3r worktree-cleanup
 

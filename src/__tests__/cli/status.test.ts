@@ -81,7 +81,11 @@ describe("status command", () => {
     await expect(statusCommand()).rejects.toThrow(HatchError);
     try { await statusCommand(); } catch (e) { expect((e as HatchError).exitCode).toBe(1); }
 
-    const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
+    // D12-M1: error() routes to console.error (stderr) per POSIX convention.
+    const allOutput = [
+      ...consoleSpy.mock.calls.map((c) => String(c[0])),
+      ...consoleErrorSpy.mock.calls.map((c) => String(c[0])),
+    ].join(" ");
     expect(allOutput).toContain("No .agents/hatch.json found");
   });
 

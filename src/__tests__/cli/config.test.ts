@@ -154,6 +154,7 @@ import { findPackageRoot } from "../../cli/shared/paths.js";
 import { printBox, info, error as logError, warn, createSpinner, step, label } from "../../cli/shared/ui.js";
 import { detectWorkspaceContext } from "../../workspace/detect.js";
 import { readWorkspaceManifest, writeWorkspaceManifest } from "../../workspace/manifest.js";
+import { syncWorkspaceRepos } from "../../workspace/sync.js";
 
 // ── Local test helpers (thin wrappers around shared harness) ──
 
@@ -1449,6 +1450,128 @@ describe("config command", () => {
         expect.stringContaining("managed by workspace"),
       );
       expect(vi.mocked(writeWorkspaceManifest)).not.toHaveBeenCalled();
+    });
+
+    // C8-D1-M7 (D1 Medium): Workspace manifest-write + sync-now atomicity.
+    // sync-now must run BEFORE writeWorkspaceManifest so the persisted
+    // manifest reflects the last state that successfully propagated to
+    // sub-repos (or, on failure, surfaces the partial state to the user).
+    describe("manifest-write + sync atomicity (C8-D1-M7)", () => {
+      function queueManageWorkspacePrompts(manifest: HatchManifest, syncNow: boolean): void {
+        // Tool change ensures diff is non-empty and config proceeds.
+        setupStandardPrompts(manifest, { tools: ["cursor", "claude"] });
+        // manageWorkspace = true
+        vi.mocked(inquirer.prompt).mockResolvedValueOnce({ manageWorkspace: true });
+        // syncRepos: keep repo-a synced
+        vi.mocked(inquirer.prompt).mockResolvedValueOnce({ syncRepos: ["repo-a"] });
+        // editIdentity: keep current
+        vi.mocked(inquirer.prompt).mockResolvedValueOnce({ editIdentity: "keep" });
+        // strategy: manual
+        vi.mocked(inquirer.prompt).mockResolvedValueOnce({ strategy: "manual" });
+        // syncNow prompt
+        vi.mocked(inquirer.prompt).mockResolvedValueOnce({ syncNow });
+      }
+
+      function primeWorkspaceRoot(): HatchManifest {
+        const manifest = makeManifest({ tools: ["cursor"] });
+        vi.mocked(readManifest).mockResolvedValue(manifest);
+        vi.mocked(detectWorkspaceContext).mockResolvedValue({
+          type: "workspace-root",
+          workspaceRoot: "/path/to/workspace",
+        });
+        vi.mocked(readWorkspaceManifest).mockResolvedValue({
+          version: "1.0.0",
+          hatch3rVersion: "1.5.0",
+          name: "my-workspace",
+          repos: [{ path: "repo-a", name: "repo-a", sync: true }],
+          defaults: {
+            tools: ["cursor"],
+            features: { ...DEFAULT_FEATURES },
+            mcp: { servers: ["github"] },
+            content: makeContentSelection(),
+          },
+          syncStrategy: "manual",
+        } as any);
+        return manifest;
+      }
+
+      it("should call syncWorkspaceRepos BEFORE writeWorkspaceManifest when user opts to sync", async () => {
+        const manifest = primeWorkspaceRoot();
+        queueManageWorkspacePrompts(manifest, /* syncNow */ true);
+
+        const callOrder: string[] = [];
+        vi.mocked(syncWorkspaceRepos).mockImplementation(async () => {
+          callOrder.push("sync");
+          return { repos: [{ path: "repo-a", added: [], removed: [], toolsSynced: ["cursor"], action: "synced" }] };
+        });
+        vi.mocked(writeWorkspaceManifest).mockImplementation(async () => {
+          callOrder.push("write");
+        });
+
+        await (await importConfigCommand())();
+
+        // First observed event must be sync (before any manifest write),
+        // last observed event must be write (after sync resolves).
+        expect(callOrder[0]).toBe("sync");
+        expect(callOrder[callOrder.length - 1]).toBe("write");
+      });
+
+      it("should still persist manifest and warn when syncWorkspaceRepos rejects", async () => {
+        const manifest = primeWorkspaceRoot();
+        queueManageWorkspacePrompts(manifest, /* syncNow */ true);
+
+        vi.mocked(syncWorkspaceRepos).mockRejectedValueOnce(new Error("network down"));
+
+        await (await importConfigCommand())();
+
+        // Manifest IS still persisted so the user's in-memory selections
+        // (strategy + repo sync flags) are not silently discarded.
+        expect(vi.mocked(writeWorkspaceManifest)).toHaveBeenCalled();
+        // User is warned that the on-disk manifest now references un-synced
+        // state that must be reconciled with `hatch3r sync`.
+        expect(vi.mocked(warn)).toHaveBeenCalledWith(
+          expect.stringContaining("Workspace manifest persisted"),
+        );
+      });
+
+      it("should persist manifest once without warning when user declines syncNow", async () => {
+        const manifest = primeWorkspaceRoot();
+        queueManageWorkspacePrompts(manifest, /* syncNow */ false);
+
+        await (await importConfigCommand())();
+
+        // Sync is NOT attempted
+        expect(vi.mocked(syncWorkspaceRepos)).not.toHaveBeenCalled();
+        // Manifest persisted exactly once (no redundant second write)
+        expect(vi.mocked(writeWorkspaceManifest)).toHaveBeenCalledTimes(1);
+        // No atomicity warning when sync never ran
+        expect(vi.mocked(warn)).not.toHaveBeenCalledWith(
+          expect.stringContaining("Workspace manifest persisted"),
+        );
+      });
+
+      it("should warn and still persist manifest when syncWorkspaceRepos reports per-repo errors", async () => {
+        const manifest = primeWorkspaceRoot();
+        queueManageWorkspacePrompts(manifest, /* syncNow */ true);
+
+        vi.mocked(syncWorkspaceRepos).mockResolvedValueOnce({
+          repos: [{
+            path: "repo-a",
+            added: [],
+            removed: [],
+            toolsSynced: [],
+            action: "error",
+            error: "Directory not found: repo-a",
+          }],
+        });
+
+        await (await importConfigCommand())();
+
+        expect(vi.mocked(writeWorkspaceManifest)).toHaveBeenCalled();
+        expect(vi.mocked(warn)).toHaveBeenCalledWith(
+          expect.stringContaining("Workspace manifest persisted"),
+        );
+      });
     });
   });
 });

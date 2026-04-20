@@ -366,20 +366,28 @@ export async function runRegenerate(
     warn(adapterPhaseResult.error);
   }
   if (adapterFailures.length > 0) {
+    // C8-D8-M1 (D8): classify each adapter failure by transient/substantive
+    // and dependency class. Per-tool guidance is logged inline; the terminal
+    // HatchError message carries an aggregated recovery hint so callers that
+    // only see the thrown error (not the preceding log lines) still receive
+    // an actionable next step.
+    const classifiedFailures: { tool: string; depClass: ReturnType<typeof classifyDependency>; failType: ReturnType<typeof classifyFailure> }[] = [];
     for (const f of adapterFailures) {
-      // C7.5-W2B2-H28 (D8): append dependency-class-specific recovery
-      // guidance so the user sees an actionable next step rather than a
-      // bare vendor error.
       const reconstructed = new Error(f.error);
       const depClass = classifyDependency(reconstructed);
       const failType = classifyFailure(reconstructed);
+      classifiedFailures.push({ tool: f.tool, depClass, failType });
       const guidance = getRecoveryGuidance(depClass, failType);
       logError(`Failed to generate ${f.tool}: ${f.error}`);
       info(`  ${guidance}`);
     }
     if (adapterFailures.length === manifest.tools.length) {
       s2.fail(step(offset + 2, total, "All adapters failed"));
-      throw new HatchError("All adapters failed", 1, "ADAPTER_ERROR");
+      const allTransient = classifiedFailures.length > 0 && classifiedFailures.every((c) => c.failType === "transient");
+      const aggregateGuidance = allTransient
+        ? "All failures appear transient. Retry `hatch3r update`, or run with --offline to regenerate without the package fetch."
+        : "One or more failures are substantive. Inspect the per-adapter messages above and resolve before retrying.";
+      throw new HatchError(`All adapters failed. ${aggregateGuidance}`, 1, "ADAPTER_ERROR");
     }
   }
   s2.succeed(step(offset + 2, total, adapterFailures.length > 0
@@ -443,6 +451,140 @@ export async function runRegenerate(
     version: HATCH3R_VERSION,
     ...(options.diff ? { diffBefore, diffAfter } : {}),
   };
+}
+
+/**
+ * C8-D12-M2 (D12): Read-only preview of `runUpdate`.
+ *
+ * Enumerates the canonical files that would be copied and the adapter outputs
+ * that would be written — without invoking `runPackageUpdate`, without
+ * overwriting canonical content, and without mutating the integrity or
+ * hatch.json manifests. Safe to run against a drifted working tree.
+ *
+ * Per-adapter grouping:
+ *   + added      — adapter would create a new file at that path
+ *   ~ modified   — adapter would overwrite an existing file whose content
+ *                  differs from the generated output
+ *   = unchanged  — adapter would write the same bytes already on disk
+ *
+ * Canonical content is enumerated via a dry-pass over the same source tree
+ * that `runRegenerate` copies from; adapter outputs are produced in-memory
+ * via the same `generateWithTimeout` pipeline used by sync/update.
+ */
+export async function runUpdateDryRun(
+  rootDir: string,
+  manifest: HatchManifest,
+  options: { offline?: boolean } = {},
+): Promise<{
+  canonicalCandidates: string[];
+  adapterChanges: Map<string, { added: string[]; modified: string[]; unchanged: string[]; error?: string }>;
+}> {
+  const agentsDir = join(rootDir, AGENTS_DIR);
+  const contentRoot = findPackageRoot(__dirname);
+
+  let selectedIds: Set<string> | undefined;
+  if (manifest.content) {
+    selectedIds = new Set<string>();
+    for (const ids of Object.values(manifest.content.items)) {
+      for (const id of ids) selectedIds.add(id);
+    }
+  }
+
+  const canonicalCandidates: string[] = [];
+  for (const dir of CONTENT_DIRS) {
+    const srcDir = join(contentRoot, dir);
+    const entries = await enumerateHatch3rFiles(srcDir, false, selectedIds);
+    for (const rel of entries) canonicalCandidates.push(join(dir, rel));
+  }
+
+  const adapterChanges = new Map<
+    string,
+    { added: string[]; modified: string[]; unchanged: string[]; error?: string }
+  >();
+
+  for (const tool of manifest.tools) {
+    const bucket = { added: [] as string[], modified: [] as string[], unchanged: [] as string[] };
+    try {
+      const adapter = getAdapter(tool);
+      const generationResult = await generateWithTimeout(tool, adapter, agentsDir, manifest, "standard");
+      if (!generationResult.completed) {
+        adapterChanges.set(tool, { ...bucket, error: generationResult.error ?? `Adapter ${tool} did not complete` });
+        continue;
+      }
+      const outputs = generationResult.outputs ?? [];
+      for (const out of outputs) {
+        const existing = await readFileOrNull(join(rootDir, out.path));
+        if (existing === null) bucket.added.push(out.path);
+        else if (existing !== out.content) bucket.modified.push(out.path);
+        else bucket.unchanged.push(out.path);
+      }
+      adapterChanges.set(tool, bucket);
+    } catch (err) {
+      adapterChanges.set(tool, { ...bucket, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  const summaryLines: string[] = [];
+  summaryLines.push(chalk.dim(`Offline: ${options.offline ? "yes" : "no"}`));
+  summaryLines.push(chalk.dim(`Canonical candidate files: ${canonicalCandidates.length}`));
+  for (const [tool, bucket] of adapterChanges) {
+    if (bucket.error) {
+      summaryLines.push(`${chalk.red("x")} ${tool}: ${bucket.error}`);
+      continue;
+    }
+    const lines = [
+      ...bucket.added.map((p) => `${chalk.green("+ added")}    ${p}`),
+      ...bucket.modified.map((p) => `${chalk.yellow("~ modified")} ${p}`),
+      ...bucket.unchanged.map((p) => `${chalk.dim("= unchanged")} ${p}`),
+    ];
+    summaryLines.push(chalk.bold(tool));
+    summaryLines.push(...lines.map((l) => `  ${l}`));
+  }
+  console.log();
+  printBox("Update dry run (no writes)", summaryLines.length > 0 ? summaryLines : [chalk.dim("No adapters configured.")], "info");
+  return { canonicalCandidates, adapterChanges };
+}
+
+/**
+ * Recursively enumerate files that would be copied under `copyHatch3rFiles`
+ * without actually copying. Mirrors the filter rules (hatch3r prefix,
+ * insideHatch3rDir, ALWAYS_COPY_FILES, selectedIds). Used by the dry-run
+ * branch so we do not need a `dry` flag threaded through copyHatch3rFiles.
+ */
+async function enumerateHatch3rFiles(
+  srcDir: string,
+  insideHatch3rDir: boolean,
+  selectedIds: Set<string> | undefined,
+): Promise<string[]> {
+  let entries: { name: string; isDirectory: () => boolean }[];
+  try {
+    entries = await readdir(srcDir, { withFileTypes: true });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw err;
+  }
+  const out: string[] = [];
+  for (const entry of entries) {
+    const srcPath = join(srcDir, entry.name);
+    if (entry.isDirectory()) {
+      if (selectedIds && entry.name.startsWith(HATCH3R_PREFIX)) {
+        if (!selectedIds.has(entry.name)) continue;
+      }
+      const sub = await enumerateHatch3rFiles(
+        srcPath,
+        insideHatch3rDir || !entry.name.startsWith(HATCH3R_PREFIX),
+        selectedIds,
+      );
+      out.push(...sub.map((p) => join(entry.name, p)));
+    } else if (entry.name.startsWith(HATCH3R_PREFIX) || insideHatch3rDir || ALWAYS_COPY_FILES.has(entry.name)) {
+      if (selectedIds && entry.name.startsWith(HATCH3R_PREFIX)) {
+        const baseId = entry.name.replace(/\.(md|mdc)$/, "");
+        if (!selectedIds.has(baseId)) continue;
+      }
+      out.push(entry.name);
+    }
+  }
+  return out;
 }
 
 /**
@@ -666,7 +808,16 @@ async function runMigrationCheckpoints(manifest: HatchManifest, rootDir: string,
   return { manifest: current, allNotices };
 }
 
-export async function updateCommand(_opts?: Record<string, unknown> & { yes?: boolean; diff?: boolean; force?: boolean }): Promise<void> {
+export async function updateCommand(
+  _opts?: Record<string, unknown> & {
+    yes?: boolean;
+    diff?: boolean;
+    force?: boolean;
+    offline?: boolean;
+    skipFetch?: boolean;
+    dryRun?: boolean;
+  },
+): Promise<void> {
   printBanner(true);
 
   // Pipeline-level timeout: tracks overall command duration and emits a
@@ -726,14 +877,40 @@ export async function updateCommand(_opts?: Record<string, unknown> & { yes?: bo
   }
 
   const isUpToDate = m.hatch3rVersion === HATCH3R_VERSION;
+  // Commander stores `--offline, --skip-fetch` under the last long name
+  // (`skipFetch`), so we accept both keys for compatibility with
+  // programmatic callers that still pass `offline`.
+  const offlineMode = !!(_opts?.offline || _opts?.skipFetch);
+  const dryRun = !!_opts?.dryRun;
   if (isUpToDate) {
     info(`Already at hatch3r v${HATCH3R_VERSION}`);
+  } else if (offlineMode) {
+    info(`Regenerating from installed hatch3r v${HATCH3R_VERSION} (offline; manifest version v${m.hatch3rVersion})`);
   } else {
     info(`Updating from v${m.hatch3rVersion} to v${HATCH3R_VERSION}`);
   }
+  if (offlineMode) {
+    info("Offline mode: skipping package fetch, regenerating from installed canonical content only.");
+  }
+  if (dryRun) {
+    info("Dry-run mode: enumerating changes without writing files.");
+  }
   console.log();
 
-  const result = await runUpdate(rootDir, m, { diff: !!_opts?.diff });
+  // C8-D12-M2: --dry-run branch. Enumerate the changes each adapter would
+  // produce without invoking the destructive runUpdate / runRegenerate
+  // pipeline. No network, no writes.
+  if (dryRun) {
+    await runUpdateDryRun(rootDir, m, { offline: offlineMode });
+    return;
+  }
+
+  // C8-D1-M6: --offline / --skip-fetch skips runPackageUpdate and invokes
+  // runRegenerate directly, so update can still repair drifted output
+  // without network access (e.g. air-gapped CI, slow/offline networks).
+  const result = offlineMode
+    ? await runRegenerate(rootDir, m, { diff: !!_opts?.diff })
+    : await runUpdate(rootDir, m, { diff: !!_opts?.diff });
 
   // Version checkpoint advisory: detect if a clean reinit is recommended
   const versionCheckpoints = getApplicableCheckpoints(m.hatch3rVersion, HATCH3R_VERSION);

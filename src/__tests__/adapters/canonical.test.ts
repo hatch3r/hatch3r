@@ -621,4 +621,103 @@ describe("readCanonicalFiles", () => {
       expect(warnings.some((w) => w.includes("promptGuard"))).toBe(false);
     });
   });
+
+  // C8-D2-M3 (D2-SA2.2-3): CanonicalType extended to cover every on-disk
+  // `.agents/{dir}/` directory with frontmatter-bearing markdown — not just
+  // the original 6. The glob reader is unchanged; only new discriminants
+  // and READER_CONFIGS entries were added. These tests lock in that
+  // `hooks`, `checks`, `policy`, and `learnings` load through the same
+  // discriminated read/warn pipeline and that CanonicalFile.type carries
+  // the matching singular literal.
+  describe("C8-D2-M3 CanonicalType extensions", () => {
+    it("reads hook files via CanonicalType=hooks", async () => {
+      const dir = await createTempAgentsDir();
+      await mkdir(join(dir, "hooks"), { recursive: true });
+      await writeFile(
+        join(dir, "hooks", "session-start.md"),
+        "---\nid: session-start\ntype: hook\ndescription: Session start hook\n---\n# Hook\n",
+      );
+
+      const results = await readCanonicalFiles(dir, "hooks");
+      expect(results.length).toBe(1);
+      expect(results[0]!.id).toBe("session-start");
+      expect(results[0]!.type).toBe("hook");
+      expect(results[0]!.description).toBe("Session start hook");
+    });
+
+    it("reads checks files via CanonicalType=checks", async () => {
+      const dir = await createTempAgentsDir();
+      await mkdir(join(dir, "checks"), { recursive: true });
+      await writeFile(
+        join(dir, "checks", "accessibility.md"),
+        "---\nid: accessibility\ntype: check\ndescription: WCAG 2.2 AA coverage\n---\n# Accessibility\n",
+      );
+
+      const results = await readCanonicalFiles(dir, "checks");
+      expect(results.length).toBe(1);
+      expect(results[0]!.id).toBe("accessibility");
+      expect(results[0]!.type).toBe("check");
+    });
+
+    it("reads policy files via CanonicalType=policy", async () => {
+      const dir = await createTempAgentsDir();
+      await mkdir(join(dir, "policy"), { recursive: true });
+      await writeFile(
+        join(dir, "policy", "deny-list.md"),
+        "---\nid: deny-list\ntype: policy\ndescription: Deny-list guardrails\n---\n# Policy\n",
+      );
+
+      const results = await readCanonicalFiles(dir, "policy");
+      expect(results.length).toBe(1);
+      expect(results[0]!.id).toBe("deny-list");
+      expect(results[0]!.type).toBe("policy");
+    });
+
+    it("reads learnings files via CanonicalType=learnings", async () => {
+      const dir = await createTempAgentsDir();
+      await mkdir(join(dir, "learnings"), { recursive: true });
+      await writeFile(
+        join(dir, "learnings", "session-1.md"),
+        "---\nid: session-1\ntype: learning\ndescription: Observed pitfall\n---\n# Learning\n",
+      );
+
+      const results = await readCanonicalFiles(dir, "learnings");
+      expect(results.length).toBe(1);
+      expect(results[0]!.id).toBe("session-1");
+      expect(results[0]!.type).toBe("learning");
+    });
+
+    it("handles missing hooks/checks/policy/learnings directories gracefully", async () => {
+      const dir = await createTempAgentsDir();
+      // None of the directories exist; each call must return [] with no warning.
+      for (const type of ["hooks", "checks", "policy", "learnings"] as const) {
+        const warnings: string[] = [];
+        const results = await readCanonicalFiles(dir, type, warnings);
+        expect(results).toEqual([]);
+        // NOT_FOUND on the directory itself is benign and emits no warning
+        // (same contract as rules/agents/prompts/github-agents).
+        expect(warnings).toEqual([]);
+      }
+    });
+
+    it.skipIf(process.platform === "win32")("skips symbolic links in extended directories", async () => {
+      const dir = await createTempAgentsDir();
+      const { symlink } = await import("node:fs/promises");
+      await mkdir(join(dir, "hooks"), { recursive: true });
+      // Real file — should load.
+      await writeFile(
+        join(dir, "hooks", "real.md"),
+        "---\nid: real-hook\ntype: hook\ndescription: Real hook\n---\n# Real\n",
+      );
+      // Symlink pointing at the real file — should be skipped by the existing
+      // lstat-gate in readSingleMd (no infinite-recursion risk, no duplicate).
+      await symlink(join(dir, "hooks", "real.md"), join(dir, "hooks", "link.md"));
+
+      const results = await readCanonicalFiles(dir, "hooks");
+      const ids = results.map((r) => r.id);
+      expect(ids).toContain("real-hook");
+      // The symlink path is skipped — not duplicated.
+      expect(ids.filter((id) => id === "real-hook").length).toBe(1);
+    });
+  });
 });
