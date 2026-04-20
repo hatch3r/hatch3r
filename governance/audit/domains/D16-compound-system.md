@@ -14,6 +14,10 @@ ALL sub-agents are **sequential** — run only after all Tier A and B domains co
 | 16.1 | Cross-Domain Contradiction Detection | All Tier A+B |
 | 16.2 | Closed-Loop Effectiveness | D18 (previous cycle) |
 
+## Synthesis Methodology
+
+Before producing any 16.1 finding, sub-agent MUST read all 18 prior-tier synthesis files end-to-end (`.audit-workspace/D{1..15,17}-synthesis.md` plus any D19 synthesis). Reject any candidate pattern that cites fewer than 3 distinct domain syntheses — single-domain confirmations belong in their home domain, not D16.
+
 ## Deduplication Gate
 
 Before creating any finding, verify:
@@ -27,6 +31,7 @@ If yes to either: log as "cross-domain confirmation of D{N} #{ID}" without creat
 ## Audit Checklists
 
 ### 16.1 Cross-Domain Contradiction Detection
+- [ ] Read all 18 prior-tier synthesis files end-to-end before drafting findings; record which files were read in the sub-agent header
 - [ ] Identify findings spanning 3+ domains with shared root cause that no single domain reported
 - [ ] Flag domains that contradict each other (e.g., D01 says error handling is adequate, D08 says patterns are missing)
 - [ ] Cross-command consistency: do all commands implementing review loops use identical termination conditions, ASK behavior on exhaustion, and fixer dispatch logic?
