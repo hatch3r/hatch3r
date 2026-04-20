@@ -5910,7 +5910,9 @@
     "low_count": 5,
     "owner": "Agent",
     "disposition": "rollover",
-    "pillar": ["P5"],
+    "pillar": [
+      "P5"
+    ],
     "execution_status": "deferred",
     "false_positive": false
   },
@@ -5928,7 +5930,10 @@
     "dedup_tier": null,
     "dedup_rationale": "Not obviated by C7-H13; C7-H13 skipped manifest on any failure; D1-SA1.3.2 regenerates with adapter metadata so verify doesn't report false positives on successful-adapter files",
     "disposition": "targeted",
-    "pillar": ["P2", "P4"],
+    "pillar": [
+      "P2",
+      "P4"
+    ],
     "finding_type": "code",
     "work_unit": "C7.5-W2B1-WU1-D1SyncStatus",
     "wave": 2,
@@ -5955,7 +5960,10 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P1", "P4"],
+    "pillar": [
+      "P1",
+      "P4"
+    ],
     "finding_type": "code",
     "work_unit": "C7.5-W2B1-WU1-D1SyncStatus",
     "wave": 2,
@@ -5982,7 +5990,10 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P2", "P4"],
+    "pillar": [
+      "P2",
+      "P4"
+    ],
     "finding_type": "code",
     "work_unit": "C7.5-W2B1-WU1-D1SyncStatus",
     "wave": 2,
@@ -6009,7 +6020,10 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P2", "P6"],
+    "pillar": [
+      "P2",
+      "P6"
+    ],
     "finding_type": "code",
     "work_unit": "C7.5-W2B1-WU2-D1ErrorHandling",
     "wave": 2,
@@ -6036,7 +6050,9 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P1"],
+    "pillar": [
+      "P1"
+    ],
     "finding_type": "code",
     "work_unit": "C7.5-W2B1-WU2-D1ErrorHandling",
     "wave": 2,
@@ -6063,7 +6079,9 @@
     "dedup_tier": null,
     "dedup_rationale": "Pre-existing compliance: audit identified gap but all 6 agents already had Confidence Expression sections matching architect/security-auditor structure. Registered as done, no edit required.",
     "disposition": "targeted",
-    "pillar": ["P2"],
+    "pillar": [
+      "P2"
+    ],
     "finding_type": "content",
     "work_unit": "C7.5-W2B1-WU3-D5AgentGovernance",
     "wave": 2,
@@ -6090,7 +6108,10 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P2", "P6"],
+    "pillar": [
+      "P2",
+      "P6"
+    ],
     "finding_type": "content",
     "work_unit": "C7.5-W2B1-WU3-D5AgentGovernance",
     "wave": 2,
@@ -6117,7 +6138,10 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P2", "P5"],
+    "pillar": [
+      "P2",
+      "P5"
+    ],
     "finding_type": "content",
     "work_unit": "C7.5-W2B1-WU3-D5AgentGovernance",
     "wave": 2,
@@ -6144,7 +6168,10 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P1", "P2"],
+    "pillar": [
+      "P1",
+      "P2"
+    ],
     "finding_type": "code+content",
     "work_unit": "C7.5-W2B1-WU4-D5Structural",
     "wave": 2,
@@ -6171,7 +6198,10 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P2", "P5"],
+    "pillar": [
+      "P2",
+      "P5"
+    ],
     "finding_type": "code",
     "work_unit": "C7.5-W2B1-WU4-D5Structural",
     "wave": 2,
@@ -6198,7 +6228,10 @@
     "dedup_tier": null,
     "dedup_rationale": "C7-H19 closed part of UAX #39 scope; D2-SA2.3-1 Cycle 7 re-verified residual scripts remain uncovered per synthesis line 33",
     "disposition": "targeted",
-    "pillar": ["P6", "P2"],
+    "pillar": [
+      "P6",
+      "P2"
+    ],
     "finding_type": "code",
     "work_unit": "FL-promptGuard",
     "wave": 2,
@@ -6207,16 +6240,31 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: UAX #39 Coptic+Deseret+Osage+Latin-A/B homoglyph extension + widened BMP regex sweep",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 4,
     "sources": [
-      {"url": "https://unicode.org/reports/tr39/", "accessed": "2026-04-19", "author": "Unicode Consortium", "trust_tier": 1},
-      {"url": ".audit-workspace/D2-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": "https://unicode.org/reports/tr39/",
+        "accessed": "2026-04-19",
+        "author": "Unicode Consortium",
+        "trust_tier": 1
+      },
+      {
+        "url": ".audit-workspace/D2-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": true, "cli_registered": true, "tested": true},
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -6234,7 +6282,9 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P6"],
+    "pillar": [
+      "P6"
+    ],
     "finding_type": "code",
     "work_unit": "FL-promptGuard",
     "wave": 2,
@@ -6243,16 +6293,31 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: fail-closed drop of customization on any deny-pattern hit; replaces partial [BLOCKED] substitution",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": "https://www.anthropic.com/research/prompt-injection-defenses", "accessed": "2026-04-19", "author": "Anthropic", "trust_tier": 1},
-      {"url": ".audit-workspace/D2-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": "https://www.anthropic.com/research/prompt-injection-defenses",
+        "accessed": "2026-04-19",
+        "author": "Anthropic",
+        "trust_tier": 1
+      },
+      {
+        "url": ".audit-workspace/D2-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": true, "cli_registered": true, "tested": true},
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -6270,7 +6335,10 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P1", "P6"],
+    "pillar": [
+      "P1",
+      "P6"
+    ],
     "finding_type": "code",
     "work_unit": "FL-canonical",
     "wave": 2,
@@ -6279,15 +6347,25 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: Windows .exe/.cmd/.bat normalization for MCP allowlist",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D2-SA2.4.findings.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D2-SA2.4.findings.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": true, "cli_registered": true, "tested": true},
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -6305,7 +6383,10 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P2", "P6"],
+    "pillar": [
+      "P2",
+      "P6"
+    ],
     "finding_type": "code",
     "work_unit": "FL-canonical",
     "wave": 2,
@@ -6314,15 +6395,25 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: atomicWriteFile in generateMdcCompanions (no torn writes)",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D2-SA2.6.findings.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D2-SA2.6.findings.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": true, "cli_registered": true, "tested": true},
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -6340,7 +6431,10 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P2", "P3"],
+    "pillar": [
+      "P2",
+      "P3"
+    ],
     "finding_type": "code",
     "work_unit": "FL-canonical",
     "wave": 2,
@@ -6349,16 +6443,31 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: TOML control-char escape per spec (U+0000-U+007F range)",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": "https://toml.io/en/v1.0.0", "accessed": "2026-04-19", "author": "TOML Spec", "trust_tier": 1},
-      {"url": ".audit-workspace/D2-SA2.4.findings.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": "https://toml.io/en/v1.0.0",
+        "accessed": "2026-04-19",
+        "author": "TOML Spec",
+        "trust_tier": 1
+      },
+      {
+        "url": ".audit-workspace/D2-SA2.4.findings.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": true, "cli_registered": true, "tested": true},
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -6376,7 +6485,10 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P2", "P3"],
+    "pillar": [
+      "P2",
+      "P3"
+    ],
     "finding_type": "code",
     "work_unit": "WU-D2CapabilityMatrix",
     "wave": 2,
@@ -6385,15 +6497,25 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: property-based 16x8 capability-matrix drift test; 17/17 pass",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D2-SA2.5.findings.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D2-SA2.5.findings.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": true, "cli_registered": true, "tested": true},
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -6411,7 +6533,10 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P2", "P4"],
+    "pillar": [
+      "P2",
+      "P4"
+    ],
     "finding_type": "code",
     "work_unit": "FL-canonical",
     "wave": 2,
@@ -6420,15 +6545,25 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: SHA-256 pre-check detects user-edit overwrite in copy selection",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D2-SA2.6.findings.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D2-SA2.6.findings.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": true, "cli_registered": true, "tested": true},
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -6446,7 +6581,10 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P2", "P6"],
+    "pillar": [
+      "P2",
+      "P6"
+    ],
     "finding_type": "code",
     "work_unit": "FL-canonical",
     "wave": 2,
@@ -6455,15 +6593,25 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: TYPE_MISMATCH diagnostic for frontmatter fields",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D2-SA2.2.findings.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D2-SA2.2.findings.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": true, "cli_registered": true, "tested": true},
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -6481,7 +6629,10 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P2", "P5"],
+    "pillar": [
+      "P2",
+      "P5"
+    ],
     "finding_type": "code",
     "work_unit": "FL-config-test",
     "wave": 2,
@@ -6490,16 +6641,31 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: fixture-harness migration vi.mocked 269->111 (-59%)",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": "https://vitest.dev", "accessed": "2026-04-19", "author": "Vitest team", "trust_tier": 1},
-      {"url": ".audit-workspace/D3-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": "https://vitest.dev",
+        "accessed": "2026-04-19",
+        "author": "Vitest team",
+        "trust_tier": 1
+      },
+      {
+        "url": ".audit-workspace/D3-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": true, "cli_registered": true, "tested": true},
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -6517,7 +6683,10 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P2", "P6"],
+    "pillar": [
+      "P2",
+      "P6"
+    ],
     "finding_type": "code",
     "work_unit": "FL-archive-test",
     "wave": 2,
@@ -6526,15 +6695,25 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: pruneArchives coverage 77.95->96.85 stmt; 12 new tests",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D3-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D3-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": true, "cli_registered": true, "tested": false},
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": false
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -6552,7 +6731,10 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P2", "P5"],
+    "pillar": [
+      "P2",
+      "P5"
+    ],
     "finding_type": "content",
     "work_unit": "WU-D5XmlTags",
     "wave": 2,
@@ -6561,16 +6743,31 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PARTIAL",
+    "reviewer_notes": "ALIGNED-TO-SCOPE: 4/137 agents XML-structured per orchestrator scope; full rollout Cycle 8. Not a false positive; scope-driven.",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": "https://docs.claude.com/en/docs/build-with-claude/prompt-engineering/claude-4-best-practices", "accessed": "2026-04-19", "author": "Anthropic", "trust_tier": 1},
-      {"url": ".audit-workspace/D5-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": "https://docs.claude.com/en/docs/build-with-claude/prompt-engineering/claude-4-best-practices",
+        "accessed": "2026-04-19",
+        "author": "Anthropic",
+        "trust_tier": 1
+      },
+      {
+        "url": ".audit-workspace/D5-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": false, "wired": false, "cli_registered": false, "tested": false},
+    "feature_status": {
+      "implemented": false,
+      "wired": false,
+      "cli_registered": false,
+      "tested": false
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -6588,7 +6785,9 @@
     "dedup_tier": null,
     "dedup_rationale": "Cycle 6 C7 carry-over, demoted to High; unresolved",
     "disposition": "targeted",
-    "pillar": ["P2"],
+    "pillar": [
+      "P2"
+    ],
     "finding_type": "content",
     "work_unit": "FL-researcher",
     "wave": 2,
@@ -6597,15 +6796,25 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: Status field + BLOCKED output schema (6 states)",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D5-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D5-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": true, "cli_registered": true, "tested": false},
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": false
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -6623,7 +6832,10 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P1", "P2"],
+    "pillar": [
+      "P1",
+      "P2"
+    ],
     "finding_type": "content",
     "work_unit": "FL-researcher",
     "wave": 2,
@@ -6632,15 +6844,25 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: Full-Mode Breaking-Change Detection step 6",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D5-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D5-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": true, "cli_registered": true, "tested": false},
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": false
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -6658,7 +6880,10 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P2", "P4"],
+    "pillar": [
+      "P2",
+      "P4"
+    ],
     "finding_type": "content",
     "work_unit": "WU-D5SkillsPattern",
     "wave": 2,
@@ -6667,16 +6892,31 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PARTIAL",
+    "reviewer_notes": "ALIGNED-TO-SCOPE: 3 skills progressive-disclosure per orchestrator scope; commands/ deferred. Agent portion complete.",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": "https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices", "accessed": "2026-04-19", "author": "Anthropic", "trust_tier": 1},
-      {"url": ".audit-workspace/D5-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": "https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices",
+        "accessed": "2026-04-19",
+        "author": "Anthropic",
+        "trust_tier": 1
+      },
+      {
+        "url": ".audit-workspace/D5-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": true, "cli_registered": true, "tested": true},
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -6694,7 +6934,10 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P4", "P5"],
+    "pillar": [
+      "P4",
+      "P5"
+    ],
     "finding_type": "content",
     "work_unit": "WU-D5MdcParity",
     "wave": 2,
@@ -6703,15 +6946,25 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: 27 rule pairs parity-reconciled; 0 drift",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D5-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D5-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": true, "cli_registered": true, "tested": true},
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -6729,7 +6982,10 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P4", "P5"],
+    "pillar": [
+      "P4",
+      "P5"
+    ],
     "finding_type": "content",
     "work_unit": "WU-D5RuleScope",
     "wave": 2,
@@ -6738,15 +6994,25 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: scope transform documented; CI gate extended",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D5-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D5-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": true, "cli_registered": true, "tested": false},
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": false
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -6764,7 +7030,10 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P2", "P4"],
+    "pillar": [
+      "P2",
+      "P4"
+    ],
     "finding_type": "content",
     "work_unit": "WU-D5SkillsPattern",
     "wave": 2,
@@ -6773,16 +7042,31 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: SKILL.md + references/ progressive-disclosure (shared WU with H14)",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": "https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices", "accessed": "2026-04-19", "author": "Anthropic", "trust_tier": 1},
-      {"url": ".audit-workspace/D5-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": "https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices",
+        "accessed": "2026-04-19",
+        "author": "Anthropic",
+        "trust_tier": 1
+      },
+      {
+        "url": ".audit-workspace/D5-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": true, "cli_registered": true, "tested": true},
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -6800,7 +7084,9 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P5"],
+    "pillar": [
+      "P5"
+    ],
     "finding_type": "docs",
     "work_unit": "WU-D5DomainCount",
     "wave": 2,
@@ -6809,15 +7095,25 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: D05 check count 5->6, files 18->19 reconciled",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D5-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D5-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": true, "cli_registered": true, "tested": true},
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -6835,7 +7131,10 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P4", "P5"],
+    "pillar": [
+      "P4",
+      "P5"
+    ],
     "finding_type": "content",
     "work_unit": "WU-D5PrefixAudit",
     "wave": 2,
@@ -6844,15 +7143,25 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: scope hatch3r- prefix rule; 28 support files exempted",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D5-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D5-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": true, "cli_registered": true, "tested": false},
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": false
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -6870,7 +7179,10 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P2", "P4"],
+    "pillar": [
+      "P2",
+      "P4"
+    ],
     "finding_type": "code+content",
     "work_unit": "FL-shared-charter",
     "wave": 2,
@@ -6879,15 +7191,25 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: Role-specific Confidence Expression sections",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D5-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D5-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": false, "wired": false, "cli_registered": false, "tested": false},
+    "feature_status": {
+      "implemented": false,
+      "wired": false,
+      "cli_registered": false,
+      "tested": false
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -6905,7 +7227,10 @@
     "dedup_tier": "already-addressed",
     "dedup_rationale": "Already resolved in Wave 2 Batch 1 commit b00c126 via C7.5-W2B1-H8; no duplicate work",
     "disposition": "already_resolved",
-    "pillar": ["P2", "P5"],
+    "pillar": [
+      "P2",
+      "P5"
+    ],
     "finding_type": "content",
     "work_unit": "FL-shared-charter",
     "wave": 2,
@@ -6914,15 +7239,25 @@
     "commit_sha": "b00c126",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": "Cross-reference only: action executed via C7.5-W2B1-H8",
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "BETTER-ALTERNATIVE: recognized already-resolved in W2B1-H8; skipped redundant execution cleanly",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D5-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D5-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": true, "cli_registered": true, "tested": true},
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -6940,7 +7275,10 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P1", "P2"],
+    "pillar": [
+      "P1",
+      "P2"
+    ],
     "finding_type": "code",
     "work_unit": "FL-sync",
     "wave": 2,
@@ -6949,15 +7287,25 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: pre-write budget gate + --strict-budget flag (exit 2)",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D6-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D6-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": true, "cli_registered": true, "tested": false},
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": false
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -6975,7 +7323,10 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P4", "P5"],
+    "pillar": [
+      "P4",
+      "P5"
+    ],
     "finding_type": "content",
     "work_unit": "FL-shared-charter",
     "wave": 2,
@@ -6984,15 +7335,25 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: charter section 1 reference replaces inline confidence enum",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D6-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D6-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": true, "cli_registered": true, "tested": false},
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": false
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -7010,7 +7371,9 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P2"],
+    "pillar": [
+      "P2"
+    ],
     "finding_type": "code",
     "work_unit": "FL-agentStatus",
     "wave": 2,
@@ -7019,15 +7382,25 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: BLOCKED_PREMISE_CHALLENGE variant + isHaltStatus helper",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D7-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D7-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": false, "wired": false, "cli_registered": false, "tested": false},
+    "feature_status": {
+      "implemented": false,
+      "wired": false,
+      "cli_registered": false,
+      "tested": false
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -7045,7 +7418,10 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P2", "P5"],
+    "pillar": [
+      "P2",
+      "P5"
+    ],
     "finding_type": "code",
     "work_unit": "FL-reviewLoop",
     "wave": 2,
@@ -7054,15 +7430,25 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: CALIBRATION constant; basis=informed_estimate, sampleSize=0",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D7-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D7-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": true, "cli_registered": true, "tested": true},
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -7080,7 +7466,9 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P2"],
+    "pillar": [
+      "P2"
+    ],
     "finding_type": "code",
     "work_unit": "FL-reviewLoop",
     "wave": 2,
@@ -7089,15 +7477,25 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: DEFAULT_MAX_REVIEW_ITERATIONS 3->4 for oscillation reachability",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D7-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D7-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": false, "cli_registered": false, "tested": true},
+    "feature_status": {
+      "implemented": true,
+      "wired": false,
+      "cli_registered": false,
+      "tested": true
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -7115,7 +7513,10 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P5", "P6"],
+    "pillar": [
+      "P5",
+      "P6"
+    ],
     "finding_type": "content",
     "work_unit": "WU-D7SecAuditorConsistency",
     "wave": 2,
@@ -7124,15 +7525,25 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: quick-change Phase 4 skip reconciled across rule+command",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D7-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D7-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": true, "cli_registered": true, "tested": true},
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -7150,7 +7561,10 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P1", "P2"],
+    "pillar": [
+      "P1",
+      "P2"
+    ],
     "finding_type": "code",
     "work_unit": "WU-D8ErrorEnum",
     "wave": 2,
@@ -7159,15 +7573,25 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": "D8 Tier 2 synthesis rollover -- one remaining High beyond C7 resolved items",
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: dependency classifier + recovery guidance per failure class",
     "false_positive": false,
     "confidence": "medium",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D8-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D8-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": true, "cli_registered": true, "tested": true},
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -7185,7 +7609,10 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P3", "P5"],
+    "pillar": [
+      "P3",
+      "P5"
+    ],
     "finding_type": "docs",
     "work_unit": "FL-adapter-currency",
     "wave": 2,
@@ -7194,15 +7621,25 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PARTIAL",
+    "reviewer_notes": "SCOPE-EXCLUDED: governance+docs edits outside adapter-file WU; correct scope discipline (causal depth 0 intentional)",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D9-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D9-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": true, "cli_registered": true, "tested": true},
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -7220,7 +7657,9 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P3"],
+    "pillar": [
+      "P3"
+    ],
     "finding_type": "code+content",
     "work_unit": "FL-adapter-currency",
     "wave": 2,
@@ -7229,16 +7668,31 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: Cursor 3.0 /worktree and /best-of-n workflow bullets",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": "https://cursor.com/docs", "accessed": "2026-04-19", "author": "Cursor", "trust_tier": 1},
-      {"url": ".audit-workspace/D9-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": "https://cursor.com/docs",
+        "accessed": "2026-04-19",
+        "author": "Cursor",
+        "trust_tier": 1
+      },
+      {
+        "url": ".audit-workspace/D9-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": true, "cli_registered": true, "tested": true},
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -7256,7 +7710,9 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P3"],
+    "pillar": [
+      "P3"
+    ],
     "finding_type": "code",
     "work_unit": "FL-adapter-currency",
     "wave": 2,
@@ -7265,15 +7721,25 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: Windsurf Cascade hooks.json emission; capability flipped hooks:false->true",
     "false_positive": false,
     "confidence": "medium",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D9-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D9-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": false, "wired": false, "cli_registered": false, "tested": false},
+    "feature_status": {
+      "implemented": false,
+      "wired": false,
+      "cli_registered": false,
+      "tested": false
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -7291,7 +7757,10 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P3", "P5"],
+    "pillar": [
+      "P3",
+      "P5"
+    ],
     "finding_type": "code",
     "work_unit": "WU-D9KiroReconcile",
     "wave": 2,
@@ -7300,15 +7769,25 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: Kiro 2026 kebab-case triggers + Powers bundling callout",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D9-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D9-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": true, "cli_registered": true, "tested": true},
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -7326,7 +7805,9 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P3"],
+    "pillar": [
+      "P3"
+    ],
     "finding_type": "code",
     "work_unit": "WU-D9AmazonQDescriptor",
     "wave": 2,
@@ -7335,16 +7816,31 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: AmazonQ useLegacyMcpJson:true + hooks field per AWS 2026 schema",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": "https://docs.aws.amazon.com/amazonq/", "accessed": "2026-04-19", "author": "AWS", "trust_tier": 1},
-      {"url": ".audit-workspace/D9-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": "https://docs.aws.amazon.com/amazonq/",
+        "accessed": "2026-04-19",
+        "author": "AWS",
+        "trust_tier": 1
+      },
+      {
+        "url": ".audit-workspace/D9-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": true, "cli_registered": true, "tested": true},
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -7362,7 +7858,10 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P3", "P5"],
+    "pillar": [
+      "P3",
+      "P5"
+    ],
     "finding_type": "code",
     "work_unit": "WU-D9AgentsMdRow",
     "wave": 2,
@@ -7371,15 +7870,25 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: agents-md (AAIF) 16th-adapter row + file-path mapping",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D9-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D9-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": true, "cli_registered": true, "tested": true},
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -7397,7 +7906,10 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P3", "P5"],
+    "pillar": [
+      "P3",
+      "P5"
+    ],
     "finding_type": "docs",
     "work_unit": "WU-D9IntentionalOmissions",
     "wave": 2,
@@ -7406,15 +7918,25 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: active purge directive replaces passive omission verify",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D9-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D9-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": true, "cli_registered": true, "tested": true},
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -7432,7 +7954,9 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P3"],
+    "pillar": [
+      "P3"
+    ],
     "finding_type": "code",
     "work_unit": "WU-D9CodexRefresh",
     "wave": 2,
@@ -7441,15 +7965,25 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: Codex 2026 schema name+developer_instructions; fallback filenames",
     "false_positive": false,
     "confidence": "medium",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D9-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D9-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": true, "cli_registered": true, "tested": true},
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -7467,7 +8001,10 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P2", "P6"],
+    "pillar": [
+      "P2",
+      "P6"
+    ],
     "finding_type": "code",
     "work_unit": "FL-atomic-write",
     "wave": 2,
@@ -7476,15 +8013,25 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: sweepOrphanTmpFiles + non-ENOENT diagnostic emission",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 4,
     "sources": [
-      {"url": ".audit-workspace/D11-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D11-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": true, "cli_registered": true, "tested": true},
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -7502,7 +8049,10 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P2", "P5"],
+    "pillar": [
+      "P2",
+      "P5"
+    ],
     "finding_type": "content",
     "work_unit": "FL-inventory",
     "wave": 2,
@@ -7511,15 +8061,25 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": "Sequence D13-first within FL-inventory so D16 signal pipeline builds on propagation",
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: Confidence Propagation Contract section in 4 core command files",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D13-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D13-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": true, "cli_registered": true, "tested": true},
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -7537,7 +8097,10 @@
     "dedup_tier": null,
     "dedup_rationale": "Partial scope vs D14-SA14.4-001 full brief; remaining 3 importers (copilot/windsurf/awesome-cursorrules) deferred",
     "disposition": "targeted",
-    "pillar": ["P3", "P1"],
+    "pillar": [
+      "P3",
+      "P1"
+    ],
     "finding_type": "code",
     "work_unit": "FL-importer",
     "wave": 2,
@@ -7546,15 +8109,25 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PARTIAL",
+    "reviewer_notes": "ALIGNED-TO-SCOPE: minimal cursor-rules parser only per plan; CLI wiring + conflict detection to H59-61 multi-cycle",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D14-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D14-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": false, "wired": false, "cli_registered": false, "tested": false},
+    "feature_status": {
+      "implemented": false,
+      "wired": false,
+      "cli_registered": false,
+      "tested": false
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -7572,7 +8145,9 @@
     "dedup_tier": null,
     "dedup_rationale": "Cycle 6 Critical re-raised as High; partially mitigated by C7-C1 resilience wiring; rollover for explicit recordReviewIteration invocation",
     "disposition": "targeted",
-    "pillar": ["P6"],
+    "pillar": [
+      "P6"
+    ],
     "finding_type": "code",
     "work_unit": "FL-reviewLoop",
     "wave": 2,
@@ -7581,15 +8156,25 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PARTIAL",
+    "reviewer_notes": "ALIGNED-TO-SCOPE: enforceReviewIteration fns + tests added; production call-site deferred (Cycle 8 D15 follow-up)",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 4,
     "sources": [
-      {"url": ".audit-workspace/D15-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D15-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": false, "cli_registered": true, "tested": true},
+    "feature_status": {
+      "implemented": true,
+      "wired": false,
+      "cli_registered": true,
+      "tested": true
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -7607,7 +8192,9 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P6"],
+    "pillar": [
+      "P6"
+    ],
     "finding_type": "code",
     "work_unit": "WU-D15TrustDelegation",
     "wave": 2,
@@ -7616,15 +8203,25 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: policy-derived native tool allowlists emitted per adapter (4 adapters: claude, copilot, cursor, windsurf)",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 4,
     "sources": [
-      {"url": ".audit-workspace/D15-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D15-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": false, "cli_registered": true, "tested": true},
+    "feature_status": {
+      "implemented": true,
+      "wired": false,
+      "cli_registered": true,
+      "tested": true
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -7642,7 +8239,10 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P4", "P6"],
+    "pillar": [
+      "P4",
+      "P6"
+    ],
     "finding_type": "code",
     "work_unit": "WU-D15LeanPipeline",
     "wave": 2,
@@ -7651,15 +8251,25 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: unused validator surface removed (483->103 lines); SECURITY.md/ADR-001/D15-ref ASI07 docs rewritten to match wired behavior",
     "false_positive": false,
     "confidence": "medium",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D15-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D15-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": false, "cli_registered": false, "tested": true},
+    "feature_status": {
+      "implemented": true,
+      "wired": false,
+      "cli_registered": false,
+      "tested": true
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -7677,7 +8287,9 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P6"],
+    "pillar": [
+      "P6"
+    ],
     "finding_type": "code",
     "work_unit": "FL-promptGuard",
     "wave": 2,
@@ -7686,15 +8298,25 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: sanitizePipelineInput wired into customization + canonical scan (narrow variant for canonical)",
     "false_positive": false,
     "confidence": "medium",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D15-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D15-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": true, "cli_registered": true, "tested": true},
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -7712,7 +8334,9 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P6"],
+    "pillar": [
+      "P6"
+    ],
     "finding_type": "code",
     "work_unit": "WU-D15AllowlistTrace",
     "wave": 2,
@@ -7721,15 +8345,25 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: AllowlistDenialEvent + toFailureLogEntry for observability",
     "false_positive": false,
     "confidence": "medium",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D15-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D15-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": true, "cli_registered": true, "tested": true},
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -7747,7 +8381,9 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P6"],
+    "pillar": [
+      "P6"
+    ],
     "finding_type": "code",
     "work_unit": "WU-D15TrustDelegation",
     "wave": 2,
@@ -7756,15 +8392,25 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: per-adapter native allowlist primitive translator (18 unit + 10 integration tests)",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 4,
     "sources": [
-      {"url": ".audit-workspace/D15-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D15-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": false, "wired": false, "cli_registered": false, "tested": false},
+    "feature_status": {
+      "implemented": false,
+      "wired": false,
+      "cli_registered": false,
+      "tested": false
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -7782,7 +8428,9 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P6"],
+    "pillar": [
+      "P6"
+    ],
     "finding_type": "code",
     "work_unit": "WU-D15McpStaticScan",
     "wave": 2,
@@ -7791,16 +8439,31 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: sync-time static scan of MCP server descriptions/args/env (8 Invariant Labs patterns + reuse of 40+ shared deny patterns)",
     "false_positive": false,
     "confidence": "medium",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": "https://invariantlabs.ai/blog/mcp-security-notification-tool-poisoning-attacks", "accessed": "2026-04-19", "author": "Invariant Labs", "trust_tier": 3},
-      {"url": ".audit-workspace/D15-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": "https://invariantlabs.ai/blog/mcp-security-notification-tool-poisoning-attacks",
+        "accessed": "2026-04-19",
+        "author": "Invariant Labs",
+        "trust_tier": 3
+      },
+      {
+        "url": ".audit-workspace/D15-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": false, "wired": false, "cli_registered": false, "tested": false},
+    "feature_status": {
+      "implemented": false,
+      "wired": false,
+      "cli_registered": false,
+      "tested": false
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -7818,7 +8481,10 @@
     "dedup_tier": null,
     "dedup_rationale": "Partial mitigation from C7-C2; consumer migration deferred",
     "disposition": "targeted",
-    "pillar": ["P4", "P5"],
+    "pillar": [
+      "P4",
+      "P5"
+    ],
     "finding_type": "content",
     "work_unit": "FL-gov-anti-slop",
     "wave": 2,
@@ -7827,15 +8493,25 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: consumer migration to canonical severity vocab (6->13 refs)",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D16-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D16-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": false, "cli_registered": true, "tested": true},
+    "feature_status": {
+      "implemented": true,
+      "wired": false,
+      "cli_registered": true,
+      "tested": true
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -7853,7 +8529,10 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P2", "P5"],
+    "pillar": [
+      "P2",
+      "P5"
+    ],
     "finding_type": "code",
     "work_unit": "FL-inventory",
     "wave": 2,
@@ -7862,15 +8541,25 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": "Serialize after H38 within FL-inventory",
+    "reviewer_verdict": "PARTIAL",
+    "reviewer_notes": "ALIGNED-TO-SCOPE: prompt-layer confidence gate in 5 sites; TS field (ReviewResult.confidence) out of scope (FL-reviewLoop follow-up)",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 4,
     "sources": [
-      {"url": ".audit-workspace/D16-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D16-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": false, "cli_registered": true, "tested": true},
+    "feature_status": {
+      "implemented": true,
+      "wired": false,
+      "cli_registered": true,
+      "tested": true
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -7888,7 +8577,10 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P3", "P4"],
+    "pillar": [
+      "P3",
+      "P4"
+    ],
     "finding_type": "code",
     "work_unit": "FL-adapter-currency",
     "wave": 2,
@@ -7897,16 +8589,31 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: sst/opencode plural path convention (.opencode/agents, .opencode/commands)",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": "https://github.com/sst/opencode", "accessed": "2026-04-19", "author": "sst", "trust_tier": 1},
-      {"url": ".audit-workspace/D17-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": "https://github.com/sst/opencode",
+        "accessed": "2026-04-19",
+        "author": "sst",
+        "trust_tier": 1
+      },
+      {
+        "url": ".audit-workspace/D17-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": true, "cli_registered": true, "tested": true},
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -7924,7 +8631,9 @@
     "dedup_tier": null,
     "dedup_rationale": "Partial mitigation from C7-H17; currency refresh to v2.1.x specifics deferred",
     "disposition": "targeted",
-    "pillar": ["P3"],
+    "pillar": [
+      "P3"
+    ],
     "finding_type": "code",
     "work_unit": "FL-adapter-currency",
     "wave": 2,
@@ -7933,15 +8642,25 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: Claude Code v2.1 WorktreeCreate/Remove native events",
     "false_positive": false,
     "confidence": "medium",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D17-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D17-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": true, "cli_registered": true, "tested": true},
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -7959,7 +8678,9 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P3"],
+    "pillar": [
+      "P3"
+    ],
     "finding_type": "docs",
     "work_unit": "WU-D17Marketplace",
     "wave": 2,
@@ -7968,15 +8689,25 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PARTIAL",
+    "reviewer_notes": "EXTERNAL-BLOCKED: upstream Anthropic PR not yet merged; zero mutations performed (correct)",
     "false_positive": false,
     "confidence": "medium",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D17-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D17-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": true, "cli_registered": true, "tested": true},
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -7994,7 +8725,10 @@
     "dedup_tier": null,
     "dedup_rationale": null,
     "disposition": "targeted",
-    "pillar": ["P3", "P5"],
+    "pillar": [
+      "P3",
+      "P5"
+    ],
     "finding_type": "docs",
     "work_unit": "WU-D17Currency",
     "wave": 2,
@@ -8003,15 +8737,25 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: April 20 2026 star/version refresh + Ruler added",
     "false_positive": false,
     "confidence": "medium",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D17-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D17-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": false, "wired": false, "cli_registered": false, "tested": false},
+    "feature_status": {
+      "implemented": false,
+      "wired": false,
+      "cli_registered": false,
+      "tested": false
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -8029,7 +8773,12 @@
     "dedup_tier": "already-addressed",
     "dedup_rationale": "PRD v4.2 already applied 10/10 CL-1 candidates (Phase 5, commit f7b2ae3); D18 Highs structurally closed without per-finding execution",
     "disposition": "already_resolved",
-    "pillar": ["P2", "P3", "P4", "P5"],
+    "pillar": [
+      "P2",
+      "P3",
+      "P4",
+      "P5"
+    ],
     "finding_type": "docs",
     "work_unit": "D18-reconcile",
     "wave": 2,
@@ -8038,16 +8787,31 @@
     "commit_sha": "f7b2ae3",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": "Cross-reference: see governance/PRD.md section 27 changelog and finding-traceability",
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: already-resolved entry; closed cleanly",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D18-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1},
-      {"url": "governance/PRD.md#27", "accessed": "2026-04-19", "author": "hatch3r-governance", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D18-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      },
+      {
+        "url": "governance/PRD.md#27",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-governance",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": true, "cli_registered": true, "tested": true},
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
     "cl1_status": "applied",
     "sdr_status": "none"
   },
@@ -8065,7 +8829,9 @@
     "dedup_tier": null,
     "dedup_rationale": "Partial mitigation from C7-H10 inventory.json; full surface reconciliation deferred to C7.5",
     "disposition": "targeted",
-    "pillar": ["P5"],
+    "pillar": [
+      "P5"
+    ],
     "finding_type": "docs",
     "work_unit": "FL-claudeMd",
     "wave": 2,
@@ -8074,15 +8840,25 @@
     "commit_sha": "cee7f73b0b2ba1f04966f4c1bf08248533b4e600",
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": null,
+    "reviewer_verdict": "PASS",
+    "reviewer_notes": "ALIGNED: 16+20+3 shared = 39 files disambiguation (amended in gate-fix commit 3d1929f to 39 total)",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D19-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D19-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": true, "wired": true, "cli_registered": true, "tested": true},
+    "feature_status": {
+      "implemented": true,
+      "wired": true,
+      "cli_registered": true,
+      "tested": true
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -8100,7 +8876,9 @@
     "dedup_tier": null,
     "dedup_rationale": "Strategic/marketing item; execution is distribution sequencing (Show HN, community building), not code",
     "disposition": "phase_5_candidate",
-    "pillar": ["P3"],
+    "pillar": [
+      "P3"
+    ],
     "finding_type": "docs",
     "work_unit": "D17-phase5",
     "wave": 2,
@@ -8109,15 +8887,25 @@
     "commit_sha": null,
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": "Phase 5 CL-1 candidate; not actionable in Wave 2 Batch 2",
+    "reviewer_verdict": "DEFERRED",
+    "reviewer_notes": "NEVER-ATTEMPTED: phase_5_candidate (D17 roadmap item); register for Phase 5 CL-1 handling",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D17-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D17-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": false, "wired": false, "cli_registered": false, "tested": false},
+    "feature_status": {
+      "implemented": false,
+      "wired": false,
+      "cli_registered": false,
+      "tested": false
+    },
     "cl1_status": "candidate",
     "sdr_status": "none"
   },
@@ -8135,7 +8923,9 @@
     "dedup_tier": null,
     "dedup_rationale": "Strategic positioning content; Phase 5 candidate",
     "disposition": "phase_5_candidate",
-    "pillar": ["P3"],
+    "pillar": [
+      "P3"
+    ],
     "finding_type": "docs",
     "work_unit": "D17-phase5",
     "wave": 2,
@@ -8144,15 +8934,25 @@
     "commit_sha": null,
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": "Phase 5 CL-1 candidate",
+    "reviewer_verdict": "DEFERRED",
+    "reviewer_notes": "NEVER-ATTEMPTED: phase_5_candidate (D17 roadmap item); register for Phase 5 CL-1 handling",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D17-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D17-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": false, "wired": false, "cli_registered": false, "tested": false},
+    "feature_status": {
+      "implemented": false,
+      "wired": false,
+      "cli_registered": false,
+      "tested": false
+    },
     "cl1_status": "candidate",
     "sdr_status": "none"
   },
@@ -8170,7 +8970,9 @@
     "dedup_tier": null,
     "dedup_rationale": "Strategic/standards-ecosystem item; Phase 5 candidate",
     "disposition": "phase_5_candidate",
-    "pillar": ["P3"],
+    "pillar": [
+      "P3"
+    ],
     "finding_type": "docs",
     "work_unit": "D17-phase5",
     "wave": 2,
@@ -8179,15 +8981,25 @@
     "commit_sha": null,
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": "Phase 5 CL-1 candidate",
+    "reviewer_verdict": "DEFERRED",
+    "reviewer_notes": "NEVER-ATTEMPTED: phase_5_candidate (D17 roadmap item); register for Phase 5 CL-1 handling",
     "false_positive": false,
     "confidence": "medium",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D17-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D17-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": false, "wired": false, "cli_registered": false, "tested": false},
+    "feature_status": {
+      "implemented": false,
+      "wired": false,
+      "cli_registered": false,
+      "tested": false
+    },
     "cl1_status": "candidate",
     "sdr_status": "none"
   },
@@ -8205,7 +9017,9 @@
     "dedup_tier": null,
     "dedup_rationale": "Strategic positioning; Phase 5 candidate",
     "disposition": "phase_5_candidate",
-    "pillar": ["P3"],
+    "pillar": [
+      "P3"
+    ],
     "finding_type": "docs",
     "work_unit": "D17-phase5",
     "wave": 2,
@@ -8214,15 +9028,25 @@
     "commit_sha": null,
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": "Phase 5 CL-1 candidate",
+    "reviewer_verdict": "DEFERRED",
+    "reviewer_notes": "NEVER-ATTEMPTED: phase_5_candidate (D17 roadmap item); register for Phase 5 CL-1 handling",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D17-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D17-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": false, "wired": false, "cli_registered": false, "tested": false},
+    "feature_status": {
+      "implemented": false,
+      "wired": false,
+      "cli_registered": false,
+      "tested": false
+    },
     "cl1_status": "candidate",
     "sdr_status": "none"
   },
@@ -8240,7 +9064,9 @@
     "dedup_tier": null,
     "dedup_rationale": "Multi-cycle delivery scoped by plan; Cycle 8 after Cursor importer baseline lands",
     "disposition": "multi_cycle_deferred",
-    "pillar": ["P3"],
+    "pillar": [
+      "P3"
+    ],
     "finding_type": "code",
     "work_unit": "FL-importer",
     "wave": 2,
@@ -8249,15 +9075,25 @@
     "commit_sha": null,
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": "Deferred to Cycle 8",
+    "reviewer_verdict": "DEFERRED",
+    "reviewer_notes": "NEVER-ATTEMPTED: multi_cycle_deferred (depends on H39 minimal parser); Cycle 8 WU-D14Importers",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D14-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D14-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": false, "wired": false, "cli_registered": false, "tested": false},
+    "feature_status": {
+      "implemented": false,
+      "wired": false,
+      "cli_registered": false,
+      "tested": false
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -8275,7 +9111,9 @@
     "dedup_tier": null,
     "dedup_rationale": "Multi-cycle delivery; Cycle 8",
     "disposition": "multi_cycle_deferred",
-    "pillar": ["P3"],
+    "pillar": [
+      "P3"
+    ],
     "finding_type": "code",
     "work_unit": "FL-importer",
     "wave": 2,
@@ -8284,15 +9122,25 @@
     "commit_sha": null,
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": "Deferred to Cycle 8",
+    "reviewer_verdict": "DEFERRED",
+    "reviewer_notes": "NEVER-ATTEMPTED: multi_cycle_deferred (depends on H39 minimal parser); Cycle 8 WU-D14Importers",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D14-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D14-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": false, "wired": false, "cli_registered": false, "tested": false},
+    "feature_status": {
+      "implemented": false,
+      "wired": false,
+      "cli_registered": false,
+      "tested": false
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -8310,7 +9158,9 @@
     "dedup_tier": null,
     "dedup_rationale": "Multi-cycle delivery; Cycle 8",
     "disposition": "multi_cycle_deferred",
-    "pillar": ["P3"],
+    "pillar": [
+      "P3"
+    ],
     "finding_type": "code",
     "work_unit": "FL-importer",
     "wave": 2,
@@ -8319,15 +9169,25 @@
     "commit_sha": null,
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": "Deferred to Cycle 8",
+    "reviewer_verdict": "DEFERRED",
+    "reviewer_notes": "NEVER-ATTEMPTED: multi_cycle_deferred (depends on H39 minimal parser); Cycle 8 WU-D14Importers",
     "false_positive": false,
     "confidence": "medium",
     "causal_chain_depth": 3,
     "sources": [
-      {"url": ".audit-workspace/D14-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": ".audit-workspace/D14-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": false, "wired": false, "cli_registered": false, "tested": false},
+    "feature_status": {
+      "implemented": false,
+      "wired": false,
+      "cli_registered": false,
+      "tested": false
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   },
@@ -8345,7 +9205,9 @@
     "dedup_tier": null,
     "dedup_rationale": "External-project dependency; mcp-scan API surface unstable; monitor upstream",
     "disposition": "external_blocker",
-    "pillar": ["P6"],
+    "pillar": [
+      "P6"
+    ],
     "finding_type": "code",
     "work_unit": "D15-external",
     "wave": 2,
@@ -8354,16 +9216,31 @@
     "commit_sha": null,
     "rollback_reason": null,
     "rollback_level": null,
-    "reviewer_verdict": null,
-    "reviewer_notes": "Partial substitute via H46 static scan; full mcp-scan integration deferred",
+    "reviewer_verdict": "DEFERRED",
+    "reviewer_notes": "NEVER-ATTEMPTED: external_blocker (mcp-scan upstream integration); Cycle 8+ monitor",
     "false_positive": false,
     "confidence": "high",
     "causal_chain_depth": 4,
     "sources": [
-      {"url": "https://invariantlabs.ai/blog/mcp-security-notification-tool-poisoning-attacks", "accessed": "2026-04-19", "author": "Invariant Labs", "trust_tier": 3},
-      {"url": ".audit-workspace/D15-synthesis.md", "accessed": "2026-04-19", "author": "hatch3r-audit-cycle-7", "trust_tier": 1}
+      {
+        "url": "https://invariantlabs.ai/blog/mcp-security-notification-tool-poisoning-attacks",
+        "accessed": "2026-04-19",
+        "author": "Invariant Labs",
+        "trust_tier": 3
+      },
+      {
+        "url": ".audit-workspace/D15-synthesis.md",
+        "accessed": "2026-04-19",
+        "author": "hatch3r-audit-cycle-7",
+        "trust_tier": 1
+      }
     ],
-    "feature_status": {"implemented": false, "wired": false, "cli_registered": false, "tested": false},
+    "feature_status": {
+      "implemented": false,
+      "wired": false,
+      "cli_registered": false,
+      "tested": false
+    },
     "cl1_status": "none",
     "sdr_status": "none"
   }
