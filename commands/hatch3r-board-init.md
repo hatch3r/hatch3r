@@ -154,6 +154,8 @@ Board Init Plan:
 
 Execute all planned mutations in sequence. No further questions unless a mutation fails.
 
+**--resume flag.** When invoked with `--resume`, board-init checks `board.workflows.itemClosedEnabled` in `.agents/hatch.json`. If true, Phase 2.1 through 2.5 are skipped (project, status field, labels, migration, config write-back have already succeeded) and execution jumps directly to the workflow verification gate (§2.2 step 6 above) for the GitHub platform, then proceeds to §2.6 (Create Board Overview Issue) on success. If the gate still fails, the command re-halts with the same actionable message. Non-GitHub platforms ignore `--resume` and run Phase 2 normally.
+
 #### 2.1: Create or Connect Project
 
 **Platform-specific: Project creation/connection**
@@ -253,7 +255,32 @@ Execute all planned mutations in sequence. No further questions unless a mutatio
 4. Verify these status options exist on the field: **Backlog**, **Ready**, **In Progress**, **In Review**, **Done**.
    - For missing options, use the `updateProjectV2Field` mutation (or the appropriate mutation for adding options to a single-select field) to add them.
 5. Capture the field ID and each option's ID.
-6. **Verify built-in "Done on close" automation:** After board creation, check the Projects V2 built-in workflows. Navigate to Project settings > Workflows > "Item closed" and verify it is enabled with Status mapped to "Done". Also verify "Pull request merged" maps Status to "Done". These workflows are on by default for UI-created projects but may not be enabled for API-created projects. Without these workflows, the board status will remain "In Review" after PR merge until `board-groom` detects the drift.
+6. **Programmatic workflow verification (GitHub only):** GitHub's GraphQL API does not expose a mutation to enable Projects V2 workflows (only `deleteProjectV2Workflow` is public), so this step verifies the required workflows exist and are enabled. If missing or disabled, the command halts with an actionable error and supports `--resume`.
+
+   a. Query active workflows:
+      ```graphql
+      query {
+        node(id: "<project_id>") {
+          ... on ProjectV2 {
+            workflows(first: 20) {
+              nodes { id name enabled }
+            }
+          }
+        }
+      }
+      ```
+   b. Required workflows:
+      - `name == "Item closed"` with `enabled == true`
+      - `name == "Pull request merged"` with `enabled == true`
+   c. If either is missing or disabled, halt with:
+      > "GitHub Projects V2 requires these built-in workflows to keep board status in sync with issue/PR state, but the GraphQL API does not expose a mutation to enable them. Manual step required:
+      >   1. Open https://github.com/<owner>/projects/<number>/workflows (use `orgs/<owner>` path for org-owned projects).
+      >   2. Enable 'Item closed' -- map to Status = Done.
+      >   3. Enable 'Pull request merged' -- map to Status = Done.
+      >   4. Re-run: `hatch3r-board-init --resume`."
+   d. On success, record in memory for the Phase 2.5 config write-back:
+      - `board.workflows.itemClosedEnabled = true`
+      - `board.workflows.pullRequestMergedEnabled = true`
 
 **If platform is `azure-devops`:**
 
@@ -380,6 +407,8 @@ Skip if the user chose "no" in Phase 1, step 1.4.
    - `board.statusOptions.inProgress` — option ID
    - `board.statusOptions.inReview` — option ID
    - `board.statusOptions.done` — option ID
+   - `board.workflows.itemClosedEnabled` -- from §2.2 step 6 (GitHub only; omit or set false on other platforms)
+   - `board.workflows.pullRequestMergedEnabled` -- from §2.2 step 6 (GitHub only; omit or set false on other platforms)
    - `board.areas` — if area labels were created
 
 2. Write the file. Preserve any keys outside the `board` section.
