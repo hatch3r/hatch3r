@@ -283,7 +283,9 @@ Execute findings in severity-based waves. Each wave is atomic: passes its gate a
 | 1 | Critical | 5–15 | 2–5 | Security > correctness > blockers | `audit-wave-1-critical` |
 | 2 | High | 15–30 | 5–10 | Quality > competitiveness > UX | `audit-wave-2-high` |
 | 3 | Medium | 30–50 | 8–15 | Benefit > optimization > consistency | `audit-wave-3-medium` |
-| 4 | Low | 15–25 | 5–10 | Polish > docs > cosmetic | `audit-wave-4-low` |
+| 4 | Low + systemic patterns | 15–25 | 5–10 | Polish > docs > cosmetic; D16 cross-domain pattern findings (any severity) execute here regardless of bucket | `audit-wave-4-systemic` |
+
+**Wave 4 systemic-pattern allocation:** D16 findings flagged as cross-domain patterns (spanning 3+ domains, per the Deduplication Protocol's qualification rule in `governance/AUDIT.md`) are routed to Wave 4 even when their severity would otherwise place them in Wave 1–3. Rationale: systemic fixes touch multiple files across domains and benefit from Wave 1–3 stabilizing the per-domain code first. Cycle 7 produced 3 D16 Highs spanning 5+ domains each.
 
 **Empty Wave Protocol:** If a wave has 0 targeted findings after triage (e.g., 0 Critical findings), skip the wave entirely. Log: "Wave N ([Severity]): 0 targeted findings — skipped." Proceed to next wave. Do not run a regression gate for empty waves.
 
