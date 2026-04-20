@@ -41,7 +41,7 @@ Sub-agents 9.15 and 9.16 are **sequential** — they run only after 9.1–9.14 c
 Each adapter sub-agent MUST:
 1. Read the adapter source code (`src/adapters/{name}.ts`)
 2. Read the corresponding test file (`src/__tests__/adapters/{name}.test.ts`)
-3. Web research the platform's current documentation for config format changes
+3. Per-cycle currency research (mandatory, not optional): cite the platform's official documentation URL, the access date (YYYY-MM-DD), the author/org, and the trust tier per `governance/audit/templates/rigor-contract.md`. A sub-agent that omits this citation has produced a stale finding by definition, which is itself a finding.
 4. Verify against the following checklist:
 
 - [ ] Output file paths match the capability matrix documentation
