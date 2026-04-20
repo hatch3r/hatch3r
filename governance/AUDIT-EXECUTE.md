@@ -1,6 +1,6 @@
 # hatch3r — Audit Execution Prompt
 
-> Last updated: 2026-04-19
+> Last updated: 2026-04-20
 
 ## Purpose
 
@@ -183,9 +183,9 @@ Central manifest tracking every finding through its lifecycle. Store as `governa
 | `dedup_tier` | Phase 1 | 1–4 |
 | `dedup_rationale` | Phase 1 | Why the dedup decision was made |
 | `disposition` | Phase 1 | `targeted` / `excluded` / `human_only` / `deferred` / `already_resolved` |
-| `work_unit` | Phase 2 | Work unit name |
+| `work_unit` | Phase 2 | `finding_id` when 1:1 (default). `"file-lock:<filename>"` when grouped by same-file rule. `"chain:<root_finding_id>"` when grouped by Depends On chain. |
 | `wave` | Phase 2 | Wave number (1–4) |
-| `sub_wave_batch` | Phase 2 | Batch number within wave |
+| `sub_wave_batch` | Phase 2 | Batch number within wave. Vestigial since aggressive fan-out adoption — nullable for new registries, preserved for backward compatibility. |
 | `execution_status` | Phase 4 | `pending` → `done` / `partial` / `failed` / `rolled_back` / `never_attempted` |
 | `feature_status` | Phase 1 | 4-tuple `{implemented, wired, cli_registered, tested}` of booleans capturing the implementation stage of the artifact targeted by the finding. `implemented` = source file exists; `wired` = invoked from a parent module; `cli_registered` = reachable via a `src/cli/commands/` entry; `tested` = covered by a vitest case. Triage flags any finding where `implemented=true` but any later stage is `false` as an Integration Gap candidate. |
 | `commit_sha` | Phase 4 | Git commit hash |
@@ -218,24 +218,27 @@ These MUST hold at their respective checkpoints. Violation is a HALT condition.
 
 ---
 
-## Phase 2: Advanced Grouping
+## Phase 2: Sub-Agent Allocation
 
-Cluster related items into **work units** using six dimensions: file proximity, domain affinity, dependency chain, semantic similarity, risk level, wave assignment.
+Default rule: **1 finding = 1 sub-agent**. No numeric concurrency cap. Concurrency is bounded only by Phase 3 file-lock serialization and dependency graph edges.
 
-### Sizing Constraints
+### Allocation Algorithm
 
-| Constraint | Value |
-|------------|-------|
-| Minimum | 1 finding per work unit |
-| Maximum | 10 findings per work unit |
-| Target | 3–6 findings per work unit |
+1. If finding shares a primary modified file with any other in same wave → merge into the same sub-agent (file-lock group).
+2. Else if finding has `Depends On: <id>` AND `<id>` is same wave → merge into the same sub-agent OR sequence them (see Phase 3).
+3. Else → standalone sub-agent (1 finding = 1 work_unit = 1 sub-agent).
 
-### Grouping Rules
+**Cross-wave constraint:** Sub-agents NEVER cross wave boundaries.
 
-- **Adapter rule:** Group by adapter (one work unit per adapter), not by finding type.
-- **Content rule:** Group by content type (agents, rules, commands, skills).
-- **Security rule:** Group by attack surface, not by severity.
-- **Cross-wave constraint:** Work units NEVER cross wave boundaries.
+### Sizing Modes
+
+| Mode | Findings per sub-agent | Trigger |
+|------|------------------------|---------|
+| Default (1:1) | 1 | No file/dep conflict |
+| File-lock group | 2–N | ≥2 findings touch same file |
+| Dependency chain | 2–N | Same-wave Depends On chain |
+
+**Hard ceiling:** A sub-agent SHOULD handle ≤6 findings. If a file-lock group exceeds 6, split logically and serialize per Phase 3.
 
 #### Governance Size Check
 Flag any work unit that increases total governance line count. These require explicit justification that the added content serves a pillar and the net value exceeds the size cost.
@@ -248,15 +251,26 @@ After grouping, verify every targeted finding has a work unit assigned. If orpha
 
 ---
 
-## Phase 3: Conflict Resolution Planning
+## Phase 3: Conflict Resolution & Serialization
 
-### Same-Wave Conflicts
+### Same-File Serialization (MANDATORY)
 
-Multiple findings in same wave touching same file: (1) Preferred: assign to same work unit. (2) Alternative: serialize work units within wave.
+Build a file map before dispatch:
+
+```
+file_map = {}
+for finding in wave_findings:
+  for file in finding.files:
+    file_map[file].append(finding.id)
+```
+
+For each file with >1 finding: all findings touching that file MUST execute under one sub-agent (file-lock group), OR MUST be sequenced across separate sub-agents that share a `prereq_finding_id` and execute strictly serially. Default rule: merge into one sub-agent unless effort > L OR cross-domain (then sequence them; later sub-agent receives "rebase awareness" instruction to re-read the file post-prior-commit).
+
+**Special-case rule for governance .md files:** If the shared file is `governance/*.md` or `governance/audit/**/*.md`, ALWAYS merge into one sub-agent regardless of effort. Rationale: prevents fragmented anti-slop and governance-weight gate failures from cumulative independent edits.
 
 ### Cross-Wave Conflicts
 
-Later wave's sub-agent must re-read files at execution time, not rely on triage state. Include "file changed in previous wave" awareness in sub-agent prompt.
+Later wave sub-agents MUST re-read every assigned file at execution time; never trust triage-time content.
 
 ### Dependency-Linked Conflicts
 
@@ -266,9 +280,13 @@ Later wave's sub-agent must re-read files at execution time, not rely on triage 
 | Different waves (A higher severity) | Natural ordering |
 | Different waves (A lower severity) | Promote A to B's wave, or defer B |
 
+### Pre-Spawn Validation Gate
+
+Before orchestrator dispatches a wave fan-out, verify: (1) file_map shows no file appears in two distinct concurrent sub-agents; (2) dependency_graph shows no edge crosses concurrent sub-agents. If either violated, HALT and re-run Phase 2 allocation.
+
 ### Post-Wave Merge Window
 
-After each wave, before regression gate: review changes for consistency, resolve merge conflicts between work units, verify no overwrites, stage all changes.
+After each wave, before regression gate: review changes for consistency, resolve merge conflicts between work units, verify no overwrites, stage all changes. Per-finding result-file synthesis (see Context Management Protocol) happens here too.
 
 ---
 
@@ -278,27 +296,28 @@ Execute findings in severity-based waves. Each wave is atomic: passes its gate a
 
 ### Wave Parameters
 
-| Wave | Severity | Findings | Work Units | Priority | Tag |
-|------|----------|----------|------------|----------|-----|
-| 1 | Critical | 5–15 | 2–5 | Security > correctness > blockers | `audit-wave-1-critical` |
-| 2 | High | 15–30 | 5–10 | Quality > competitiveness > UX | `audit-wave-2-high` |
-| 3 | Medium | 30–50 | 8–15 | Benefit > optimization > consistency | `audit-wave-3-medium` |
-| 4 | Low + systemic patterns | 15–25 | 5–10 | Polish > docs > cosmetic; D16 cross-domain pattern findings (any severity) execute here regardless of bucket | `audit-wave-4-systemic` |
+| Wave | Severity | Findings | Sub-Agents (typical = findings minus file-locks) | Priority | Tag |
+|------|----------|----------|--------------------------------------------------|----------|-----|
+| 1 | Critical | 5–15 | 5–15 | Security > correctness > blockers | `audit-wave-1-critical` |
+| 2 | High | 15–30 | 15–60 | Quality > competitiveness > UX | `audit-wave-2-high` |
+| 3 | Medium | 30–50 | 25–50 | Benefit > optimization > consistency | `audit-wave-3-medium` |
+| 4 | Low + systemic patterns | 15–25 | 12–25 | Polish > docs > cosmetic; D16 cross-domain pattern findings (any severity) execute here regardless of bucket | `audit-wave-4-systemic` |
 
 **Wave 4 systemic-pattern allocation:** D16 findings flagged as cross-domain patterns (spanning 3+ domains, per the Deduplication Protocol's qualification rule in `governance/AUDIT.md`) are routed to Wave 4 even when their severity would otherwise place them in Wave 1–3. Rationale: systemic fixes touch multiple files across domains and benefit from Wave 1–3 stabilizing the per-domain code first. Cycle 7 produced 3 D16 Highs spanning 5+ domains each.
 
 **Empty Wave Protocol:** If a wave has 0 targeted findings after triage (e.g., 0 Critical findings), skip the wave entirely. Log: "Wave N ([Severity]): 0 targeted findings — skipped." Proceed to next wave. Do not run a regression gate for empty waves.
 
-### Sub-Wave Batching
+### Wave Fan-Out
 
-When work units exceed concurrency limit: sort by priority, divide into batches ≤ concurrency limit, execute batches sequentially (within-batch concurrent), regression gate runs once after ALL batches. Record `sub_wave_batch` in registry.
+Orchestrator spawns ALL sub-agents for the wave in a single parallel dispatch (one Agent tool call per sub-agent, batched in one message). No numeric concurrency cap. Concurrency is bounded only by Phase 3 file-lock serialization and dependency graph edges. Mirror the AUDIT.md precedent: 60 concurrent sub-agents is normal. Context discipline preserved by file-based output (see Context Management Protocol below).
 
 ### Per-Wave Execution Flow
 
 ```
 1.  Record pre-wave commit: git rev-parse HEAD → PRE_WAVE_COMMIT
-2.  Spawn work unit sub-agents (respect serialization for same-file conflicts)
-3.  Wait for all sub-agents / sub-wave batches to complete
+2.  Spawn sub-agents per Wave Fan-Out (single parallel dispatch). Each sub-agent writes results to `.audit-workspace/wave-{N}/{finding_id}.results.md`.
+3.  Wait for all sub-agents to report completion (file presence + summary line).
+3a. If `.audit-workspace/wave-{N}/*.results.md` count is less than spawned sub-agent count, identify missing finding_ids, mark each as `failed` with reason "no result file", do NOT block the gate.
 4.  Update Finding Registry (status, commit_sha, duration). Run Checkpoint 3.
 5.  Post-wave merge window: resolve conflicts, verify no overwrites
 6.  Stage: git add [modified files]
@@ -306,16 +325,53 @@ When work units exceed concurrency limit: sort by priority, divide into batches 
 8.  Run regression gate
 9.  If gate passes: calculate domain re-scores, proceed to next wave
 10. If gate fails: execute gate failure protocol, update registry
-11. Release sub-agent details from context (retain only wave summary)
+11. Synthesis gate: read only `.audit-workspace/wave-{N}/SUMMARY.md` (orchestrator-built index of one-line per-finding statuses). Discard per-finding result files from context. Retain wave summary only for Final Reviewer input.
 ```
 
 Prioritize within wave: dependency-first, then impact-to-effort ratio, then security before cosmetic.
 
 ---
 
+## Context Management Protocol
+
+Mirrors the AUDIT.md fan-out pattern. Sub-agents write detailed results to disk; orchestrator main-context retains only summaries.
+
+### Sub-Agent Output Contract
+
+Every implementation sub-agent MUST write to:
+`.audit-workspace/wave-{N}/{finding_id}.results.md`
+
+Schema:
+```
+## Finding {finding_id}
+- Status: done | partial | failed
+- Files modified: [list]
+- Commit-ready: yes | no
+- Rigor re-check: fresh | stale (PARTIAL)
+- Causal chain addressed: yes (depth N) | no
+- Notes: [≤3 sentences]
+```
+
+Sub-agent's chat reply to orchestrator: ONE line — `"Finding {id}: {status} → .audit-workspace/wave-{N}/{id}.results.md"`. No diffs, file contents, or explanations in chat.
+
+### Orchestrator Synthesis
+
+After fan-out completes:
+1. Read all `.audit-workspace/wave-{N}/*.results.md`.
+2. Build `SUMMARY.md`: `finding_id | status | files | one-line note` (one row per finding).
+3. Update Finding Registry from `SUMMARY.md` only.
+4. Pass `SUMMARY.md` (NOT individual results) to regression gate analysis.
+5. After wave commits, retain `SUMMARY.md` for Final Reviewer; release individual result files from context.
+
+### Workspace Lifecycle
+
+`.audit-workspace/` is created at Phase 0, retained through Final Review for traceability, deleted only after Report Update Protocol completes successfully. Add `.audit-workspace/` to `.gitignore` if not already present.
+
+---
+
 ## Regression Gates
 
-After each wave commit, run 13-check gate comparing against Phase 0 baseline (NOT a shifted baseline).
+After each wave commit, run 14-check gate comparing against Phase 0 baseline (NOT a shifted baseline).
 
 ### Gate Checks
 
@@ -327,10 +383,10 @@ After each wave commit, run 13-check gate comparing against Phase 0 baseline (NO
 | Build | `npm run build` | Build succeeds | Build fails AND baseline succeeded |
 | Content | `npx hatch3r validate` | No validation errors | Content structure/reference errors introduced |
 | Diff | `git diff --stat BASELINE..HEAD` | No unintended mods, no binaries, no credentials | Anomalies detected |
-| Fix-Finding | Review diff against finding recommendations | Each "done" finding's change addresses its specific recommendation | Change addresses a related area but not the specific recommendation |
+| Fix-Finding | Review diff against finding recommendations | Each `done` finding's SUMMARY.md row reports 'Causal chain addressed: yes'. Full per-diff alignment check stays in Final Reviewer Pass 1.5. | Row missing or reports 'no' |
 | Governance | Scan modified `.md` files in `commands/`, `agents/`, `skills/` against pre-wave versions | Modified governance files retain ASK checkpoints, quality gate references, and sub-agent delegation patterns present in the pre-wave version | A governance file lost an ASK checkpoint, quality gate reference, or sub-agent delegation pattern that existed before the wave |
 | Governance weight | `wc -l` on modified governance `.md` files. FAIL if any file exceeds its lean threshold (see CONSTITUTION.md §2 P5). |
-| Anti-slop | Two-pass: (1) `grep -c` against the wordlist on modified governance `.md` files; (2) for each hit, verify a measurable qualifier exists within 8 words of the match. FAIL only on hits lacking a qualifier. Wordlist (qualifier requirement in parens where conditional): "best possible", "best-in-class", "world-class", "comprehensive and thorough", "exhaustive", "robust and resilient", "high-quality" (requires measure within 8w), "ensure" (requires method within 8w), "properly"/"correctly" (requires criterion within 8w), "as needed"/"as appropriate" (requires trigger within 8w), "scalable" (requires dimension within 8w), "carefully", "thoroughly", "it is important to note", "this section describes". |
+| Anti-slop | Two-pass: (1) `grep -c` against the wordlist defined in CONSTITUTION.md §2 P5 on modified governance `.md` files; (2) for each hit, verify a measurable qualifier exists within 8 words. FAIL only on hits lacking a qualifier. |
 | Severity Vocab | grep across modified .md files in agents/, checks/, governance/ | All severity-keyword usages map to canonical buckets per `governance/audit/templates/severity-mapping.md` | A modified file uses an off-canonical severity term without a mapping reference |
 | Governance currency | Verify `> Last updated: YYYY-MM-DD` header is present on any modified governance `.md` file matching the EVOLVE in-scope glob (`governance/*.md`, `governance/audit/domains/*.md`, `governance/audit/templates/*.md`). FAIL if header missing or header date older than commit date. |
 | Doc accuracy | Compare documented counts (adapter count, agent count, rule count, command count, skill count, hook count, sub-agent count) in modified `.md` files against filesystem actuals. FAIL if any stated count diverges from `ls` / `find` result. |
@@ -381,21 +437,9 @@ Flag any domain whose score decreased — indicates cross-domain side effects.
 
 | Level | Scope | Command | When | Post-Action |
 |-------|-------|---------|------|-------------|
-| 1 | Work unit files | `git checkout <PRE_WAVE> -- <files>` | One unit fails | Re-run gate, recommit rest |
-| 2 | Full wave | `git reset --soft <PRE_WAVE>` | Multiple fail / L1 failed | Inspect, unstage, discard |
-| 3 | All changes | `git reset --hard <BASELINE>` | Cascading, no salvage. **USER CONFIRM required within 5 minutes.** If no response: keep successful waves, halt remaining. Log timeout and default action. | — |
-
-### Decision Matrix
-
-| Condition | Level |
-|-----------|-------|
-| Single work unit fails, others pass | 1 |
-| Multiple work units fail, no dependency chain | 1 (each) |
-| Multiple fail, shared dependencies | 2 |
-| Gate fails after Level 1 | 2 |
-| Gate fails after Level 2 | Halt wave, next |
-| Abort threshold, successful waves exist | Keep successful, halt |
-| Abort threshold, no successful waves | 3 (user confirmation) |
+| 1 | Work unit files | `git checkout <PRE_WAVE> -- <files>` | Single unit fails OR multiple units fail with no dependency chain (apply per-unit) | Re-run gate, recommit rest |
+| 2 | Full wave | `git reset --soft <PRE_WAVE>` | Multiple units fail with shared dependencies; OR gate fails after Level 1 attempt; OR gate fails after Level 2 (then halt wave, proceed to next) | Inspect, unstage, discard |
+| 3 | All changes | `git reset --hard <BASELINE>` | Abort threshold reached AND no successful waves exist. **USER CONFIRM required within 5 minutes.** If no response: keep successful waves, halt remaining. Log timeout and default action. If abort threshold reached with successful waves present, keep them and halt instead of escalating to Level 3. | — |
 
 ---
 
@@ -428,53 +472,19 @@ Track false positive rate per domain: `false_positives_in_domain / total_finding
 
 ---
 
-### Phase 5: PRD Update
+### Closed-Loop Phases 5–7
 
-**Trigger:** CL-1 produced PRD Evolution Candidates AND user approved closed-loop execution.
-**Prerequisite:** All execution waves complete. Findings referenced by candidates are not failed/rolled-back.
-**Agent:** Use `governance/audit/templates/closed-loop-agents.md` Phase 5 agent template.
+| Phase | Trigger | Prerequisite | Constraints | Agent Template |
+|-------|---------|--------------|-------------|----------------|
+| 5: PRD Update | CL-1 produced PRD Evolution Candidates AND user approved closed-loop execution | All execution waves complete; candidate findings not failed/rolled-back | Do not restructure PRD; individual approval for Vision Review items; skip if no candidates survive filtering | `governance/audit/templates/closed-loop-agents.md` Phase 5 |
+| 6: Content Generation Planning | CL-2 produced Content Gap Artifacts AND user approved closed-loop execution | Phase 5 complete (PRD up-to-date for spec alignment) | Specs only — do not implement content; follow existing conventions; P1 specs must include acceptance criteria | `governance/audit/templates/closed-loop-agents.md` Phase 6 |
+| 7: Audit Prompt Evolution | CL-3 produced Audit Self-Evolution Proposals AND user approved closed-loop execution | Phase 6 complete | Maximum 10 proposals per cycle; per-proposal user consent required; Guardrail 3 (no self-modification) is suspended only for this phase; commit each accepted proposal separately | `governance/audit/templates/closed-loop-agents.md` Phase 7 |
 
-**Execution-specific logic:**
-1. Filter out candidates whose source findings have `execution_status: "failed"` or `rollback_level: not null`
-2. Present remaining candidates to user for batch approval (except "Requires Vision Review" items — present individually)
-3. Apply approved changes to `governance/hatch3r-prd.md`
-4. Update PRD version, date, and changelog
-5. Commit separately from execution wave commits
+**Phase 5 execution logic:** Filter candidates whose source findings have `execution_status: "failed"` or `rollback_level: not null`; present remaining for batch approval (Vision Review items individually); apply approved changes to `governance/hatch3r-prd.md`; update PRD version, date, changelog; commit separately from execution wave commits.
 
-**Constraints:** Do not restructure the PRD. Individual approval for Vision Review items. Skip if no candidates survive filtering.
+**Phase 6 execution logic:** Priority filter — P1 (full specs for artifacts blocking user success), P2 (outline specs for quality improvements), P3 (list only for nice-to-haves); scan existing content for conventions, frontmatter patterns, naming standards; output to `.audit-workspace/content-specs/` organized by priority tier.
 
----
-
-### Phase 6: Content Generation Planning
-
-**Trigger:** CL-2 produced Content Gap Artifacts AND user approved closed-loop execution.
-**Prerequisite:** Phase 5 complete (PRD is up-to-date for spec alignment).
-**Agent:** Use `governance/audit/templates/closed-loop-agents.md` Phase 6 agent template.
-
-**Execution-specific logic:**
-1. Priority filter: P1 (full specs for artifacts blocking user success), P2 (outline specs for quality improvements), P3 (list only for nice-to-haves)
-2. For each artifact: scan existing content for conventions, frontmatter patterns, and naming standards
-3. Output to `.audit-workspace/content-specs/` organized by priority tier
-
-**Constraints:** Specs only — do not implement content. Follow existing conventions. P1 specs must include acceptance criteria.
-
----
-
-### Phase 7: Audit Prompt Evolution
-
-**Trigger:** CL-3 produced Audit Self-Evolution Proposals AND user approved closed-loop execution.
-**Prerequisite:** Phase 6 complete.
-**Agent:** Use `governance/audit/templates/closed-loop-agents.md` Phase 7 agent template.
-
-**Execution-specific logic:**
-1. Present each proposal individually to user (never batch-approve)
-2. For accepted proposals: apply changes to AUDIT.md and/or domain files
-3. Run invariant checks after each accepted proposal:
-   - Tier weight totals: A=0.308, B=0.348, C=0.266, D=0.078
-   - Sub-agent count consistency between AUDIT.md summary table and domain files
-   - All domain file references in AUDIT.md have corresponding files
-
-**Constraints:** Maximum 10 proposals per cycle. Per-proposal consent required. Guardrail 3 (no self-modification) is suspended only for this phase. Commit each accepted proposal separately.
+**Phase 7 execution logic:** Present each proposal individually to user (never batch-approve); for accepted proposals, apply changes to AUDIT.md and/or domain files; run invariant checks after each accepted proposal — Tier weight totals (A=0.308, B=0.348, C=0.266, D=0.078), sub-agent count consistency between AUDIT.md summary table and domain files, all domain file references in AUDIT.md have corresponding files.
 
 ---
 
@@ -551,15 +561,11 @@ After each complete execution cycle, produce an Execution Insights summary to in
 
 ### Tracked Patterns
 
-1. **Fix success rate by finding type:** Categorize findings as code, content, config, or documentation. Track which categories succeed on first attempt vs. require retries vs. get rolled back. Over time, this reveals which finding types need different execution strategies.
-
-2. **Work unit sizing accuracy:** Compare estimated effort (S/M/L/XL from the audit report) against actual execution duration. Flag systematic over-estimates (wasting parallelism by creating too-large work units) and under-estimates (causing cascading delays).
-
-3. **Recurring failure patterns:** If the same file, module, or code area causes rollbacks across multiple cycles, flag as a structural issue that may require architectural intervention rather than incremental fixes.
-
-4. **Fix-type effectiveness:** Track which fix approaches (refactor, add validation, update content, restructure architecture, add tests) have the highest first-attempt success rates. Use this to guide fix strategy selection in future cycles.
-
-5. **False positive patterns:** Aggregate false positive data from the reviewer across cycles. Identify domain-level patterns (e.g., "D9 adapter findings frequently turn out to be intentional platform differences").
+1. **Fix success rate by finding type:** Categorize findings as code/content/config/documentation and track first-attempt vs retry vs rolled-back rates per category to surface which types need different execution strategies.
+2. **Work unit sizing accuracy:** Compare audit-report effort (S/M/L/XL) against actual execution duration to flag systematic over-estimates (wasted parallelism) or under-estimates (cascading delays).
+3. **Recurring failure patterns:** Flag any file/module causing rollbacks across multiple cycles as a structural issue requiring architectural intervention rather than incremental fixes.
+4. **Fix-type effectiveness:** Track which approaches (refactor, add validation, update content, restructure architecture, add tests) have the highest first-attempt success rates to guide future fix strategy selection.
+5. **False positive patterns:** Aggregate reviewer false-positive data across cycles to identify domain-level patterns (e.g., "D9 adapter findings frequently turn out to be intentional platform differences").
 
 ### Output
 
@@ -587,12 +593,7 @@ Write to `governance/audit/execution-insights.json` (persistent — survives acr
 
 ### Consumption
 
-The next cycle's Phase 1 (Enhanced Triage) should:
-
-1. Read `governance/audit/execution-insights.json` if available from the previous cycle.
-2. Use fix success rates to adjust work unit concurrency — unreliable finding types get serialized work units rather than parallel.
-3. Use sizing accuracy data to calibrate effort estimates — if Medium findings consistently take L effort, adjust upward.
-4. Flag recurring failure files as "high-risk" work units requiring extra review attention.
+See Phase 1 "Previous Cycle Insights" for adjustment rules.
 
 ---
 
