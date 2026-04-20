@@ -1,16 +1,18 @@
-# hatch3r — Product Requirements Document v4.2
+# hatch3r — Product Requirements Document v4.3
 
 **Product name:** hatch3r
 **Mascot:** a tiny T-rex hatchling peeking out of an egg
 **Primary slogan:** Crack the egg. Hatch better agents.
-**Doc version:** v4.2
-**Date:** 2026-04-19 (Europe/Berlin)
-**Supersedes:** hatch3r PRD v4.1 (2026-04-10)
-**Last updated:** 2026-04-19
+**Doc version:** v4.3
+**Date:** 2026-04-20 (Europe/Berlin)
+**Supersedes:** hatch3r PRD v4.2 (2026-04-19)
+**Last updated:** 2026-04-20
 
 ---
 
 ## 1. Executive Summary
+
+> **Posture (post Cycle 7.5 W2B2, 2026-04-20):** Ship Ready — overall audit score 81/100, 0 Critical findings, 15 platform adapters wired, 19-domain governance audit cycle operational, resilience pipeline and trust-delegation per-adapter `tools:` emission landed this wave (H41/H44/H45/H46).
 
 hatch3r is an open-source CLI and Cursor plugin that installs a battle-tested, tool-agnostic agentic coding setup into any repository under `/.agents/`, then generates optimal native configuration for the developer's selected coding tool(s): Cursor, GitHub Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline/Roo Code, Aider, Kiro, Goose, Zed, Amazon Q, Antigravity, and a standalone AGENTS.md output.
 
@@ -131,6 +133,23 @@ hatch3r occupies a unique position as the only framework combining: **deeply nat
 ### Standards Alignment
 
 hatch3r's canonical-source-plus-adapter architecture aligns with the emerging Agentic AI Interoperability Format (AAIF) direction: a single `/.agents/` source maps to per-tool native configs (Cursor `.mdc`, Claude Code skills, Copilot instructions, AGENTS.md). hatch3r tracks AAIF and adjacent specifications (Anthropic Skills Library, AGENTS.md spec, MCP Server Cards June 2026) as inputs to adapter design — adopting standardized fields where they exist and contributing tool-specific extensions where they do not. Per Cycle 7 finding 17.3-C, explicit standards-alignment positioning differentiates hatch3r from template-only competitors.
+
+### 5.x AAIF/ACP Standards Alignment (Cycle 7.5 W2B2 H57)
+
+hatch3r emits AAIF-compatible artifacts today and monitors adjacent standards on a quarterly cadence defined in `governance/audit/domains/D17-competition.md`:
+
+| Standard | hatch3r Status | Monitoring Cadence | Evidence |
+|----------|---------------|--------------------|----------|
+| AAIF (Agentic AI Interoperability Format, AGENTS.md spec) | Active — `src/adapters/agentsmd.ts` emits AAIF-compliant `AGENTS.md`; AAIF row added to `docs/adapter-capability-matrix.md` in H34 | Each audit cycle (D17 live-baseline per CL-3 P2) | 60,000+ repositories consume AGENTS.md per AAIF-governance releases |
+| ACP (Agent Coordination Protocol) registry (JetBrains + Zed, launched 2026-01-28) | Monitoring — registry listing pending; no code blocker | Quarterly D17 sub-agent check | ACP registry endpoint at `jetbrains.com/help/ai-assistant/acp.html` |
+| Claude Plugin Marketplace | Submitted via C7-H16 (Partial) | Tracked in §22.Mx milestone (a) | Anthropic marketplace PR open |
+| MCP Server Cards (June 2026 spec) | Planned per §5 Standards Alignment paragraph | At spec finalization | See §22 M2 Cycle 4 Roadmap item 11 |
+
+Pre-emptive emission strategy: hatch3r adapters emit standards-compliant output before consumption is required, so adoption lag by tools does not block hatch3r users. Concrete example: AAIF `AGENTS.md` row landed in adapter capability matrix before the AAIF registry began auditing config distributors.
+
+### Comparison vs Ruler
+
+README.md carries a "How hatch3r differs from Ruler" section derived from `governance/COMPETITIVE-ANALYSIS.md`. Ruler is the closest architectural analogue to hatch3r's canonical-source-plus-adapter model. Measured differences: hatch3r has 16 native adapters vs Ruler's 32 rule-distribution targets (Ruler wider, hatch3r deeper); hatch3r ships skills/commands/hooks/MCP/board/learning-loop/audit-cycle content vs Ruler's rules-only distribution; hatch3r runs a 19-domain governance audit cycle with 106 sub-agents, Ruler ships none. PRD defers the table to README to avoid duplication per the D17 single-source-of-truth contract.
 
 ---
 
@@ -1406,7 +1425,11 @@ Status legend per row: **[I/W/C/T]** = implemented / wired / CLI-registered / te
 - **Guardrails [I/W/n/a/T]** — denylist plus `safe-run` wrapper (delegated trust class per §20.3).
 - **Safe merge [I/W/n/a/T]** — naming convention + managed blocks + backups + atomic temp+rename via `safeWrite`.
 - **Cursor plugin manifest [I/n/a/n/a/n/a]** — present at repo root; marketplace submission tracked in M2.
-- **Resilience pipeline modules — wiring status (Cycle 7).** `circuitBreaker`, `adapterTimeout`, `phaseTimeout`, `pipelineTimeout`, `phaseOutputSchema` are **[I/—/n/a/T]** as of Cycle 7 Wave 1 wiring work — implementation and tests exist; production wiring partially complete; per-module wiring status maintained in `finding-registry.json` against finding D8-SA8.4-1.
+- **Resilience pipeline modules — wiring status (Cycle 7 + Cycle 7.5 W2B2).** `circuitBreaker`, `adapterTimeout`, `phaseTimeout`, `pipelineTimeout`, `phaseOutputSchema` were **[I/—/n/a/T]** at Cycle 7 Wave 1 wiring work; Cycle 7.5 W2B2 landed resilience wiring (C7-C1) and the modules below. Per-module wiring status maintained in `finding-registry.json` against finding D8-SA8.4-1.
+- **Trust-delegation per-adapter `tools:` emission [I/W/n/a/T]** — Cycle 7.5 W2B2 H41 landed; adapters that expose per-agent tool allowlists now emit `tools:` entries from canonical metadata (see `src/adapters/` and `src/pipeline/agentToolAllowlist.ts`).
+- **Adapter tool translator [I/W/n/a/T]** — Cycle 7.5 W2B2 H45 landed; `src/adapters/adapterToolTranslator.ts` translates canonical tool IDs into per-adapter tool names with deny-by-default semantics.
+- **MCP description scan [I/W/n/a/T]** — Cycle 7.5 W2B2 H46 landed; `src/pipeline/mcpDescriptionScan.ts` scans MCP server descriptions for prompt-injection patterns during generation.
+- **Allowlist denial observability [I/W/n/a/T]** — Cycle 7.5 W2B2 H44 landed; `allowlistDenialEvent` telemetry fires from `src/pipeline/agentToolAllowlist.ts` when a denied tool is attempted, enabling audit replay via `src/pipeline/observability.ts`.
 - **Release quality gate (Cycle 4 findings D3-C1, D16-C1):** Every release must pass (1) typecheck with zero errors, (2) all tests pass, (3) coverage metrics reflect real codebase coverage (no inflated percentages from misconfigured exclusions), (4) no regressions from previous release. Coverage accuracy is a prerequisite for the other gates.
 - **v4.0 historical changes:** `hatch3r-error-handling` merged into `hatch3r-code-standards`; 5 new agents (architect, context-rules, devops, fixer, learnings-loader); 3 new skills (api-spec, ci-pipeline, migration); 5 new rules (accessibility-standards, ci-cd, data-classification, deep-context, secrets-management); 8 new commands; 4 new adapters (Aider, Kiro, Goose, Zed).
 
@@ -1454,6 +1477,20 @@ Status legend per row: **[I/W/C/T]** = implemented / wired / CLI-registered / te
 11. **MCP Server Cards support** — June 2026 MCP spec introduces Server Cards. Early adoption is a competitive differentiator. See COMPETITIVE-ANALYSIS.md section 3.2a. (D17-H10, Effort M)
 12. **Benchmark suite for native output quality** — Prove "deepest native integration" claim quantitatively. See COMPETITIVE-ANALYSIS.md section 5.4 for full specification. (D17-H13, Effort High)
 
+### Milestone 2a — Distribution Execution Sequence (Cycle 7.5 W2B2 H55)
+
+Five sequenced distribution milestones relative to Cycle 8 kickoff (W0). Each has a target week, a success metric, and a fallback plan. Cross-reference `governance/audit/domains/D17-competition.md` live-baseline npm/GitHub cadence (Cycle 7 CL-3 P2) — staleness >14 days is a D17 finding.
+
+| # | Milestone | Target Week | Success Metric | Fallback Plan |
+|---|-----------|-------------|----------------|---------------|
+| a | Anthropic Claude Plugin Marketplace PR merge | External (tracked via C7-H16 PARTIAL) | PR merged into `anthropics/claude-plugins-official/external_plugins` | If not merged by W2: execute milestones b-c regardless; resubmit after feedback |
+| b | Show HN post | W1 (post marketplace merge) | >=50 HN points in 24h, >=200 comments in 48h; title: "hatch3r v1.6 — tool-agnostic AI coding rule generator for Cursor/Claude/Copilot/Cline/Windsurf/Codex and 10 more" | If milestone (a) delayed past W2: post with "submitted to marketplace" framing instead of "in marketplace" |
+| c | r/ClaudeAI post | W2 | >=100 upvotes, cross-link to HN thread if live | If post downvoted under 10 upvotes within 2h: analyze feedback, revise framing, repost to r/LocalLLaMA or r/ChatGPTCoding in W3 |
+| d | docs.hatch3r.com launch | W3-W4 | Docusaurus site live at docs.hatch3r.com, getting-started + architecture + adapter matrix pages indexed by Google; relies on `docusaurus-generator` skill | If Docusaurus build blocks: ship minimal GitHub Pages fallback (README + inventory.json + adapter-capability-matrix.md) |
+| e | AAIF/ACP registry listing | W4-W6 | hatch3r listed in AAIF public registry OR ACP registry; per D17 quarterly standards-monitoring cadence | If neither registry accepts listing within W8: publish "why we are not in X registry" post documenting the gap; add issue to respective upstream registry repos |
+
+Execution invariants: (1) No milestone blocks on a later one; (2) each milestone has a named owner and a dated rollback condition; (3) week numbers are rescheduled (not deleted) if external dependencies slip. PRD §23 "Competitive traction gap" risk row covers mitigation if >=2 milestones slip past W+2.
+
 ### Milestone 3 — Ecosystem & Enterprise
 
 - Pack registry/discovery (optional hosted directory)
@@ -1484,6 +1521,7 @@ Status legend per row: **[I/W/C/T]** = implemented / wired / CLI-registered / te
 | **Hook security** | Event-driven agents could execute unintended actions. Mitigation: hooks are explicitly opt-in, condition guards (globs/labels/branches) scope activation, and guardrails policy applies to hook-triggered agents. |
 | **Competitive traction gap** | Cycle 7 baseline (2026-04-19): GitHub repo public, npm package `hatch3r` v1.5.1 published with OIDC and provenance, 20 GitHub stars and 326 monthly npm downloads vs. live competitor totals (Superpowers 160k, OpenCode 146k, Spec Kit 89.4k, Cline 60.5k, BMAD ~41k, Ruler 2.6k as closest single-source-distribution analogue; per `governance/COMPETITIVE-ANALYSIS.md`). Distribution channel work is now incremental, not an existential prerequisite. Mitigation: Claude Code plugin marketplace submission (1 day, see §22 M2), AGENTS.md adapter fixes targeting `sst/opencode` (146k), README/CLI repositioning, Show HN plus `r/ClaudeAI` launch, and vs-Ruler comparison content. Defensible moats (managed blocks, SHA-256 integrity, 19-domain governance, 15 adapters) verified unique vs top-5 competitors per Cycle 7 D17. |
 | **Context bloat** | Full content installations (110+ files) may degrade agent performance in tools with limited context windows. Research (Gloaguen et al. 2026) shows verbose context files harm agent effectiveness. Mitigation: tiered preset system (Minimal/Standard/Full/Custom) lets users control installed content volume; planned `--minimal` generation mode will produce compact configs; orchestration rule uses tiered rule inclusion to manage token budgets for subagent prompts. |
+| **Standards ecosystem drift** | AAIF (`AGENTS.md`) and ACP (Agent Coordination Protocol) are the two emerging multi-vendor standards for agent configuration distribution (§5.x). Drift risk: (1) hatch3r aligns with the wrong standard and invests in dead-end emission; (2) a dominant standard emerges that hatch3r lags on. Mitigation: pre-emptive AAIF emission already landed (`src/adapters/agentsmd.ts`, H34 adapter-capability-matrix row); quarterly D17 registry-check sub-agent monitors ACP registry listings (JetBrains + Zed, launched 2026-01-28) plus AAIF public registry; §22.Mx milestone (e) tracks AAIF/ACP listing as a named milestone with a W8 fallback post if neither registry accepts a listing. Tracked per C7.5-W2B2-H57. |
 
 ---
 
@@ -1565,6 +1603,21 @@ A cute but capable "ops assistant" vibe:
 ---
 
 ## 27. Changelog
+
+### v4.3 (2026-04-20) — Cycle 7.5 W2B2 Phase 5 CL-1 PRD Evolution
+
+Applied 4 user-approved CL-1 candidates from the Cycle 7.5 Wave 2 Batch 2 audit (reviewer verdict SHIP). User pre-approved all 4 candidates (2 Vision Review + 2 Routine) in a single batch approval.
+
+| ID | Change | Sections Updated | Source Finding |
+|----|--------|-----------------|----------------|
+| CL1-1 | Distribution Execution Sequence: 5 milestones (marketplace merge, Show HN, r/ClaudeAI, docs.hatch3r.com, AAIF/ACP registry) with target weeks + success metrics + fallbacks | §22 (new Milestone 2a subsection) | C7.5-W2B2-H55 (Vision Review) |
+| CL1-2 | vs-Ruler positioning: PRD cross-reference to README.md "How hatch3r differs from Ruler" section + COMPETITIVE-ANALYSIS.md Ruler row | §5 (new Comparison vs Ruler subsection) | C7.5-W2B2-H56 (Routine) |
+| CL1-3 | AAIF/ACP Standards Alignment: monitoring cadence, pre-emptive emission strategy, tracked standards list; Standards ecosystem drift risk row | §5.x (new subsection), §23 (new risk row) | C7.5-W2B2-H57 (Vision Review) |
+| CL1-4 | README repositioning + Ship Ready posture: §1 tagline refresh (overall 81, 0 Criticals); §22 Shipped Surface [W] tags for H41/H44/H45/H46 resilience + trust-delegation landings | §1 (posture line), §22 (Shipped Surface [W] tags) | C7.5-W2B2-H58 (Routine) |
+
+Finding traceability: C7.5-W2B2-H55, H56, H57, H58 all transition `cl1_status: candidate -> applied` in `governance/audit/finding-registry.json`.
+
+**Note:** `src/cli/index.ts` description() string refresh is tracked as a Cycle 8 Medium-severity code follow-on per the candidate spec; it is NOT part of this PRD update.
 
 ### v4.2 (2026-04-19) — Cycle 7 CL-1 PRD Evolution
 
