@@ -53,3 +53,15 @@ Rules live in `.agents/rules/hatch3r-{id}.md` with YAML frontmatter specifying `
 ## Customization
 
 Override rule behavior per-project using `.hatch3r/rules/{id}.customize.yaml`. See [Customization](../guides/customization).
+
+### Rule Precedence and Description Quality
+
+Rule frontmatter accepts an optional `precedence` field used by static routing to order concatenated rule output and resolve conflicts when multiple rules match a context:
+
+```yaml
+precedence: critical  # values: critical | high | normal | low  (default: normal)
+```
+
+Per-file rule adapters (cursor, windsurf, copilot, claude, cline) emit filenames prefixed with a two-digit rank (`10-`, `30-`, `50-`, `70-`) so load order follows precedence. Inline adapters (gemini, aider, amp, goose, zed, antigravity, amazon-q, codex) sort rules before concatenation. Precedence is parity-validated across `.md` and `.mdc` variants by `scripts/validate-rule-parity.ts`.
+
+`npx hatch3r validate` runs a description-quality lint on every canonical `agents/`, `skills/`, `rules/`, and `commands/` artifact: descriptions must be **at least 60 characters** and must not cosine-collide (threshold `>= 0.55`) with another description in the same `(type, primary-tag)` cluster. Authoring guidance lives in [`.claude/rules/content-authoring.md`](https://github.com/hatch3r/hatch3r/blob/main/.claude/rules/content-authoring.md).

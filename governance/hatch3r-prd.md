@@ -12,7 +12,7 @@
 
 ## 1. Executive Summary
 
-> **Posture (post Cycle 8 partial, 2026-04-21):** Ship Ready — overall audit score 81/100, 0 Critical findings, 15 platform adapters wired, 19-domain governance audit cycle operational, resilience pipeline and trust-delegation per-adapter `tools:` emission landed in Cycle 7.5 W2B2 (H41/H44/H45/H46), Cycle 8 Wave 3 cleared 35 of 40 targeted Medium findings (1 partial, 3 rolled back, 1 already-resolved) with the Wave 3 commit at `34d2ba4` reviewed PARTIAL-SHIP.
+> **Posture (post Cycle 8, 2026-04-21):** Ship Ready — overall audit score 83.74/100, 0 Critical findings, 15 platform adapters wired, 19-domain governance audit cycle operational, resilience pipeline and trust-delegation per-adapter `tools:` emission landed in Cycle 7.5 W2B2 (H41/H44/H45/H46), Cycle 8 Wave 3 reached terminal status on all 40 targeted Medium findings (38 done + 1 partial by plan + 1 already-resolved; 3 initially-rolled-back findings re-landed in commit `0a03a92`) with the reviewer verdict upgraded to SHIP.
 
 hatch3r is an open-source CLI and Cursor plugin that installs a battle-tested, tool-agnostic agentic coding setup into any repository under `/.agents/`, then generates optimal native configuration for the developer's selected coding tool(s): Cursor, GitHub Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline/Roo Code, Aider, Kiro, Goose, Zed, Amazon Q, Antigravity, and a standalone AGENTS.md output.
 

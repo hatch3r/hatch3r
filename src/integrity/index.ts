@@ -28,7 +28,7 @@ export interface IntegrityManifest {
    * (the full tool list from hatch.json). Consumers can compare this against
    * `successfulAdapters` to detect partial-failure syncs without needing to
    * re-read hatch.json. Optional for backward compatibility with manifests
-   * sealed by hatch3r <1.6.0.
+   * sealed by hatch3r <1.7.0.
    */
   expectedAdapters?: string[];
   /**
