@@ -13,7 +13,10 @@ vi.mock("node:child_process", async (importOriginal) => {
 
 const AGENTS_DIR = ".agents";
 
-describe("init -> sync -> update lifecycle", () => {
+// Heavy filesystem I/O per test (mkdtemp + init creates 131 files + per-adapter
+// generation + integrity hashing + rm -rf teardown). On Windows Node 22 CI
+// runners this regularly exceeds the 30s default (vitest#7302, nodejs/node#60397).
+describe("init -> sync -> update lifecycle", { timeout: 60_000 }, () => {
   let tempDir: string;
   let originalCwd: string;
   let exitSpy: MockInstance;
