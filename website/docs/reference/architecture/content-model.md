@@ -6,7 +6,7 @@ title: Content Model
 
 All hatch3r content lives in the `.agents/` directory. This is the single source of truth -- tool-specific outputs are generated from it.
 
-During `hatch3r init`, only the content matching your selected profile and context is copied. The full catalog has 16 agents, 25 skills, 22 rules, 34 commands, 3 prompts, 6 hooks, and 4 GitHub agents — but a typical project uses a subset.
+During `hatch3r init`, only the content matching your selected profile and context is copied. The full catalog has 16 agents, 26 skills, 27 rules, 34 commands, 3 prompts, 6 hooks, and 4 GitHub agents — but a typical project uses a subset.
 
 ```
 .agents/
@@ -31,12 +31,14 @@ During `hatch3r init`, only the content matching your selected profile and conte
 |------|-----------|-------------|---------|
 | **Agent** | `.agents/agents/*.md` | `id`, `type`, `description`, `model`, `readonly`, `background`, `tags` | Agent role definitions with behavioral instructions |
 | **Skill** | `.agents/skills/*/SKILL.md` | `id`, `type`, `description`, `tags` | On-demand instruction bundles for specific tasks |
-| **Rule** | `.agents/rules/*.md` | `id`, `type`, `description`, `alwaysApply`, `globs`, `tags` | Persistent instructions (coding standards, conventions) |
+| **Rule** | `.agents/rules/*.md` | `id`, `type`, `description`, `alwaysApply`, `globs`, `precedence`, `tags` | Persistent instructions (coding standards, conventions) |
 | **Command** | `.agents/commands/*.md` | `id`, `type`, `description`, `tags` | Slash-command workflows |
 | **Prompt** | `.agents/prompts/*.md` | `id`, `type`, `description`, `tags` | Reusable prompt templates |
 | **Hook** | `.agents/hooks/*.md` | `id`, `type`, `description`, `event`, `agent`, `tags` | Event-triggered automation |
 
 All content files use markdown with YAML frontmatter. The `id` field uses the `hatch3r-` prefix (e.g., `hatch3r-code-standards`) to distinguish managed content from custom files.
+
+Rules may also declare an optional `precedence: critical|high|normal|low` field (default `normal`). Per-file rule adapters (cursor, windsurf, copilot, claude, cline) emit filenames prefixed with a two-digit rank (`10-`, `30-`, `50-`, `70-`) so generated output loads in precedence order. See [Rules reference](../rules#rule-precedence-and-description-quality) for details.
 
 ## Content Tags
 

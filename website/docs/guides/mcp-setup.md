@@ -234,6 +234,10 @@ After adding a custom server:
 
 Custom servers persist across `hatch3r sync` and `hatch3r update` operations. However, `hatch3r init` regenerates `mcp.json` from the template -- if you re-run init, your custom servers will need to be re-added.
 
+:::info MCP version-pin check (1.6.0)
+`npx hatch3r validate` warns on unpinned `npx @scope/pkg` invocations and `@latest` tags in MCP server configs — both are supply-chain risks (per Palo Alto Networks' 2025 npm supply-chain attack report and OWASP ASI 2026). Pin to a specific version or SHA to clear the warning.
+:::
+
 :::tip
 For remote (HTTP-based) MCP servers, use the `url` and `headers` fields instead of `command`/`args`:
 
