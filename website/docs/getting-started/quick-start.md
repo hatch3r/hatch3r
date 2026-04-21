@@ -20,7 +20,7 @@ That's it. hatch3r detects your repo, asks which tools you use, and generates ev
 1. **Detects your repository** -- reads `git remote` for owner/repo info
 2. **Asks about your platform** -- GitHub, Azure DevOps, or GitLab (auto-detected)
 3. **Asks about your project** -- greenfield (new) or brownfield (existing), solo or team
-4. **Asks which content profile** -- Minimal, Standard (recommended), Full, or Custom
+4. **Asks which content profile** -- Minimal, Standard, Full (recommended, default), or Custom
 5. **Asks which tools** -- select from Cursor, Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline, Aider, Kiro, Goose, Zed, Amazon Q, Antigravity
 6. **Asks about MCP servers** -- choose from 10 servers: Playwright, Context7, Filesystem (default); GitHub, Azure DevOps, GitLab, Brave Search, Sentry, Postgres, Linear (opt-in)
 7. **Generates canonical source** -- creates `.agents/` with only the selected agents, skills, rules, and commands
@@ -32,8 +32,8 @@ That's it. hatch3r detects your repo, asks which tools you use, and generates ev
 | Profile | Description |
 |---------|-------------|
 | **Minimal** | Core agents and workflows only |
-| **Standard** (recommended) | Full development lifecycle without niche audits (board, a11y, performance, customize excluded) |
-| **Full** | Everything including board management and all audits |
+| **Standard** | Full development lifecycle without niche audits (board, a11y, performance, customize excluded) |
+| **Full** (recommended, default) | Everything including board management and all audits |
 | **Custom** | Interactive picker — choose exactly what you need |
 
 The profile is combined with context filters: greenfield projects skip brownfield-only content (e.g., `codebase-map`, `onboard`), solo developers skip team-only content (e.g., board commands, `revision`). Use `hatch3r config` to add or remove items after init.

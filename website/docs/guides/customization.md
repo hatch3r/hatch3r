@@ -71,6 +71,12 @@ rule: hatch3r-code-standards
 
 Use the `rule-customize` command for interactive setup.
 
+### Rule precedence and generated filenames
+
+Rules declare an optional `precedence: critical|high|normal|low` field in canonical frontmatter (default `normal`). Per-file rule adapters (cursor, windsurf, copilot, claude, cline) emit filenames prefixed with a two-digit rank — `10-` (critical), `30-` (high), `50-` (normal), `70-` (low) — so generated output loads in precedence order. Inline adapters (gemini, aider, amp, goose, zed, antigravity, amazon-q, codex) sort by precedence before concatenation.
+
+Validate with `npx hatch3r validate`. Parity between `.md` and `.mdc` variants is enforced by `npm run validate:rule-parity`. See [Rules reference](../reference/rules#rule-precedence-and-description-quality).
+
 ### Commands
 
 Create `.hatch3r/commands/{command-id}.customize.yaml`:
