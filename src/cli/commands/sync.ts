@@ -2,10 +2,11 @@ import { appendFile, readFile, stat, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import chalk from "chalk";
-import { readManifest } from "../../manifest/hatchJson.js";
+import { readManifest, writeManifest } from "../../manifest/hatchJson.js";
 import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
 import { checkContextBudget, formatBudgetWarning } from "../../adapters/contextBudget.js";
 import { safeWriteFile } from "../../merge/safeWrite.js";
+import { sweepOrphansForAdapter, formatOrphanCleanupDiagnostic, type OrphanCleanupEntry } from "../../merge/orphanCleanup.js";
 import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
 import { AGENTS_DIR, HatchError, WORKTREE_INCLUDE_FILE, type AdapterOutput, type GenerationMode } from "../../types.js";
 import { ensureEnvMcp, ensureGitignoreEntry, getSourceEnvMcpCommand } from "../../env/mcpEnv.js";
@@ -292,6 +293,20 @@ export async function syncCommand(
   // on successful generation so failed adapters leave no stale provenance
   // behind. Contains the `sourceFiles` populated by BaseAdapter tracking.
   const perAdapterOutputs: Array<{ adapter: string; outputs: AdapterOutput[] }> = [];
+  // Task #11 orphan-cleanup: snapshot the prior-run `managedFilesByAdapter`
+  // before the adapter loop so we can diff against the new output paths
+  // and unlink files previously written by hatch3r but not re-emitted by
+  // the current adapter set (e.g. pre-B3 `hatch3r-*.mdc` still on disk
+  // after an upgrade to `NN-hatch3r-*.mdc`).
+  const previousManagedByAdapter: Record<string, string[]> = m.managedFilesByAdapter
+    ? { ...m.managedFilesByAdapter }
+    : {};
+  // New managedFilesByAdapter assembled as adapters succeed. Persisted to
+  // hatch.json at end-of-run so the next sync has an up-to-date history.
+  const newManagedByAdapter: Record<string, string[]> = {};
+  // Aggregate orphan-cleanup diagnostics across adapters so we can emit
+  // one summary warning.
+  const orphanEntries: OrphanCleanupEntry[] = [];
   // C7.5-W2B2-H22 (D6-SA6.1-2): Track budget-gate failures separately so the
   // terminal error carries exit code 2 (usage error, per finding spec), even
   // when the gate fires on a single-adapter project where the general
@@ -419,6 +434,19 @@ export async function syncCommand(
       // not contribute stale attribution; the outputs already carry their
       // BaseAdapter-populated `sourceFiles`.
       perAdapterOutputs.push({ adapter: tool, outputs });
+      // Task #11 orphan-cleanup: record the paths this adapter emitted in
+      // the in-memory manifest snapshot, then sweep paths the prior run
+      // wrote but this run did not re-emit. Skipped entirely on dry-run
+      // and when no prior history exists for the adapter (first-run).
+      const currentPaths = outputs.map((o) => o.path);
+      newManagedByAdapter[tool] = currentPaths;
+      if (!opts.dryRun) {
+        const priorPaths = previousManagedByAdapter[tool];
+        if (priorPaths && priorPaths.length > 0) {
+          const entries = await sweepOrphansForAdapter(tool, rootDir, priorPaths, currentPaths);
+          orphanEntries.push(...entries);
+        }
+      }
       s.succeed(step(currentStep, totalSteps, opts.dryRun
         ? `${tool} output (dry run: ${outputs.length} file(s))`
         : `${tool} output generated`));
@@ -552,6 +580,26 @@ export async function syncCommand(
       perAdapterOutputs,
     );
     await writeProvenanceManifest(agentsDir, provenanceManifest);
+
+    // Task #11 orphan-cleanup: emit an aggregated diagnostic for every
+    // orphan candidate we inspected this run. `unlinked` entries are
+    // informational; `user-wrapped` / `outside-adapter-root` skips and
+    // `unlink-failed` entries surface via warn() per the Silent Failure
+    // Contract so operators see what was refused and why.
+    const orphanDiag = formatOrphanCleanupDiagnostic(orphanEntries);
+    if (orphanDiag) warn(orphanDiag);
+
+    // Task #11: persist the updated `managedFilesByAdapter` so the next
+    // sync has a history to diff against. We merge — adapters that failed
+    // this run keep their previously recorded paths (we did not verify
+    // those outputs changed), and successful adapters overwrite their
+    // entry with the fresh path list.
+    const mergedByAdapter: Record<string, string[]> = { ...previousManagedByAdapter };
+    for (const [tool, paths] of Object.entries(newManagedByAdapter)) {
+      mergedByAdapter[tool] = [...paths];
+    }
+    m.managedFilesByAdapter = mergedByAdapter;
+    await writeManifest(rootDir, m);
 
     // Prune stale archive entries
     await pruneArchives(rootDir);

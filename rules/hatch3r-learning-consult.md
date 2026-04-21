@@ -1,7 +1,7 @@
 ---
 id: hatch3r-learning-consult
 type: rule
-description: Auto-consult project learnings before implementation
+description: Consult .agents/learnings/ for pitfalls, patterns, and past decisions before implementation with frontmatter-first scan and priority ordering
 scope: "**/.agents/learnings/**,**/learnings/**"
 tags: [core]
 quality_charter: agents/shared/quality-charter.md

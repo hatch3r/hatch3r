@@ -99,8 +99,11 @@ describe("sync command", () => {
     await syncCommand();
 
     const cursorRulesDir = join(tempDir, ".cursor", "rules");
+    // Wave B3: rule outputs now carry a `NN-` precedence prefix. The fixture
+    // rule declares no `precedence:` frontmatter, so it falls into the
+    // default `normal` bucket (rank 500, rendered as `50-`).
     const rulesContent = await readFile(
-      join(cursorRulesDir, "hatch3r-test.mdc"),
+      join(cursorRulesDir, "50-hatch3r-test.mdc"),
       "utf-8",
     ).catch(() => null);
     expect(rulesContent).not.toBeNull();
@@ -407,6 +410,158 @@ describe("sync command", () => {
       const manifest = await readIntegrityManifest(join(tempDir, AGENTS_DIR));
       // Expectation order is stable (sorted) regardless of manifest input order
       expect(manifest!.expectedAdapters).toEqual(["claude", "cursor"]);
+    });
+  });
+
+  // Task #11: orphan adapter-output cleanup on sync. Verifies that files
+  // previously written by hatch3r but no longer emitted by the current
+  // adapter set are unlinked, and that the manifest's
+  // `managedFilesByAdapter` history is maintained across runs.
+  describe("orphan adapter-output cleanup", () => {
+    it("unlinks a pre-B3 hatch3r-*.mdc after sync emits NN-hatch3r-*.mdc", async () => {
+      await createTestProject(tempDir);
+
+      // Seed the manifest with a prior path the current sync will NOT
+      // re-emit (the pre-B3 filename shape). Also physically place the
+      // orphan file so the cleanup has something to unlink.
+      const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
+      const manifestRaw = await readFile(manifestPath, "utf-8");
+      const manifest = JSON.parse(manifestRaw) as Record<string, unknown>;
+      (manifest.managedFilesByAdapter as Record<string, string[]> | undefined) = {
+        cursor: [".cursor/rules/hatch3r-test.mdc"],
+      };
+      await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+
+      const cursorRulesDir = join(tempDir, ".cursor", "rules");
+      await mkdir(cursorRulesDir, { recursive: true });
+      const orphanPath = join(cursorRulesDir, "hatch3r-test.mdc");
+      await writeFile(orphanPath, "# pre-B3 stray file\n");
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand();
+
+      // Old file should be gone.
+      const stillThere = await readFile(orphanPath, "utf-8").catch(() => null);
+      expect(stillThere).toBeNull();
+
+      // New file should exist (the canonical B3 path with `50-` prefix).
+      const newFile = await readFile(
+        join(cursorRulesDir, "50-hatch3r-test.mdc"),
+        "utf-8",
+      ).catch(() => null);
+      expect(newFile).not.toBeNull();
+
+      // Manifest should record the new path under managedFilesByAdapter.cursor.
+      const updatedManifest = JSON.parse(await readFile(manifestPath, "utf-8")) as {
+        managedFilesByAdapter?: Record<string, string[]>;
+      };
+      expect(updatedManifest.managedFilesByAdapter?.cursor).toBeDefined();
+      expect(updatedManifest.managedFilesByAdapter!.cursor).toContain(
+        ".cursor/rules/50-hatch3r-test.mdc",
+      );
+      expect(updatedManifest.managedFilesByAdapter!.cursor).not.toContain(
+        ".cursor/rules/hatch3r-test.mdc",
+      );
+    });
+
+    it("no-op when the manifest has no managedFilesByAdapter history (first run)", async () => {
+      await createTestProject(tempDir);
+      // Seed a file that would be an orphan IF there were any history.
+      // Without history, the cleanup should not touch it.
+      const cursorRulesDir = join(tempDir, ".cursor", "rules");
+      await mkdir(cursorRulesDir, { recursive: true });
+      const foreignPath = join(cursorRulesDir, "hatch3r-untracked.mdc");
+      await writeFile(foreignPath, "# not in manifest history\n");
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand();
+
+      // Untracked file remains — no history means no inferred orphans.
+      const stillThere = await readFile(foreignPath, "utf-8").catch(() => null);
+      expect(stillThere).not.toBeNull();
+    });
+
+    it("does NOT unlink a file the user has wrapped with custom content outside the managed block", async () => {
+      await createTestProject(tempDir);
+
+      const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
+      const manifestRaw = await readFile(manifestPath, "utf-8");
+      const manifest = JSON.parse(manifestRaw) as Record<string, unknown>;
+      (manifest.managedFilesByAdapter as Record<string, string[]> | undefined) = {
+        cursor: [".cursor/rules/hatch3r-edited.mdc"],
+      };
+      await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+
+      const cursorRulesDir = join(tempDir, ".cursor", "rules");
+      await mkdir(cursorRulesDir, { recursive: true });
+      const editedPath = join(cursorRulesDir, "hatch3r-edited.mdc");
+      // User has customised the file — surrounding text outside the managed block.
+      const userContent =
+        "# My team preamble (keep this)\n\n" +
+        "<!-- HATCH3R:BEGIN -->\n# managed rule body\n<!-- HATCH3R:END -->\n\n" +
+        "# My team footer (keep this)\n";
+      await writeFile(editedPath, userContent);
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand();
+
+      // File remains untouched because it contains user content.
+      const preserved = await readFile(editedPath, "utf-8");
+      expect(preserved).toBe(userContent);
+    });
+
+    it("refuses to unlink a manifest-claimed path outside any known adapter output root", async () => {
+      await createTestProject(tempDir);
+
+      const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
+      const manifestRaw = await readFile(manifestPath, "utf-8");
+      const manifest = JSON.parse(manifestRaw) as Record<string, unknown>;
+      // Tampered manifest: claims ownership of a path under src/.
+      (manifest.managedFilesByAdapter as Record<string, string[]> | undefined) = {
+        cursor: ["src/hatch3r-evil.md"],
+      };
+      await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+
+      // Plant the file so if the defense is broken we see the loss.
+      await mkdir(join(tempDir, "src"), { recursive: true });
+      const foreignPath = join(tempDir, "src", "hatch3r-evil.md");
+      await writeFile(foreignPath, "# not an adapter output\n");
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand();
+
+      // File remains — root-containment filter rejected the unlink.
+      const stillThere = await readFile(foreignPath, "utf-8").catch(() => null);
+      expect(stillThere).not.toBeNull();
+    });
+
+    it("preserves managedFilesByAdapter entries for adapters not part of this sync", async () => {
+      await createTestProject(tempDir, { tools: ["cursor"] });
+
+      const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
+      const manifestRaw = await readFile(manifestPath, "utf-8");
+      const manifest = JSON.parse(manifestRaw) as Record<string, unknown>;
+      // Simulate a prior sync that also recorded a windsurf entry which the
+      // current run does NOT re-generate (tool removed from manifest.tools).
+      (manifest.managedFilesByAdapter as Record<string, string[]> | undefined) = {
+        windsurf: [".windsurf/rules/50-hatch3r-test.md"],
+      };
+      await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand();
+
+      const updatedManifest = JSON.parse(await readFile(manifestPath, "utf-8")) as {
+        managedFilesByAdapter?: Record<string, string[]>;
+      };
+      // windsurf entry preserved — we did not run windsurf this sync so we
+      // cannot claim its history is stale.
+      expect(updatedManifest.managedFilesByAdapter?.windsurf).toEqual([
+        ".windsurf/rules/50-hatch3r-test.md",
+      ]);
+      // cursor entry populated from this run.
+      expect(updatedManifest.managedFilesByAdapter?.cursor).toBeDefined();
+      expect(updatedManifest.managedFilesByAdapter!.cursor.length).toBeGreaterThan(0);
     });
   });
 

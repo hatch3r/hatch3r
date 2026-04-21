@@ -7,8 +7,8 @@ exports[`adapter output snapshots > ClaudeAdapter > file paths match snapshot 1`
   ".claude/commands/hatch3r-agent-team.md",
   ".claude/commands/hatch3r-test-command.md",
   ".claude/hooks/hatch3r-hooks.json",
-  ".claude/rules/hatch3r-scoped-rule.md",
-  ".claude/rules/hatch3r-test-rule.md",
+  ".claude/rules/50-hatch3r-scoped-rule.md",
+  ".claude/rules/50-hatch3r-test-rule.md",
   ".claude/settings.json",
   ".claude/skills/hatch3r-test-skill/SKILL.md",
   ".mcp.json",
@@ -66,7 +66,7 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
       "MANAGED_BLOCK",
     ],
     "hasManagedContent": true,
-    "path": ".claude/rules/hatch3r-scoped-rule.md",
+    "path": ".claude/rules/50-hatch3r-scoped-rule.md",
   },
   {
     "action": "create",
@@ -74,7 +74,7 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
       "MANAGED_BLOCK",
     ],
     "hasManagedContent": true,
-    "path": ".claude/rules/hatch3r-test-rule.md",
+    "path": ".claude/rules/50-hatch3r-test-rule.md",
   },
   {
     "action": "create",
@@ -122,13 +122,13 @@ exports[`adapter output snapshots > ClineAdapter > file paths match snapshot 1`]
   ".cline/skills/hatch3r-test-skill/SKILL.md",
   ".clinerules/workflows/hatch3r-test-command.md",
   ".roo/mcp.json",
+  ".roo/rules/50-hatch3r-scoped-rule.md",
+  ".roo/rules/50-hatch3r-test-rule.md",
   ".roo/rules/hatch3r-bridge.md",
   ".roo/rules/hatch3r-hook-ci-failure-label-handler.md",
   ".roo/rules/hatch3r-hook-post-merge-deploy.md",
   ".roo/rules/hatch3r-hook-pre-commit-lint-fixer.md",
   ".roo/rules/hatch3r-hook-session-start-ci-watcher.md",
-  ".roo/rules/hatch3r-scoped-rule.md",
-  ".roo/rules/hatch3r-test-rule.md",
   ".roomodes",
 ]
 `;
@@ -159,6 +159,22 @@ exports[`adapter output snapshots > ClineAdapter > output structure matches snap
     ],
     "hasManagedContent": false,
     "path": ".roo/mcp.json",
+  },
+  {
+    "action": "create",
+    "contentMarkers": [
+      "MANAGED_BLOCK",
+    ],
+    "hasManagedContent": true,
+    "path": ".roo/rules/50-hatch3r-scoped-rule.md",
+  },
+  {
+    "action": "create",
+    "contentMarkers": [
+      "MANAGED_BLOCK",
+    ],
+    "hasManagedContent": true,
+    "path": ".roo/rules/50-hatch3r-test-rule.md",
   },
   {
     "action": "create",
@@ -202,22 +218,6 @@ exports[`adapter output snapshots > ClineAdapter > output structure matches snap
     ],
     "hasManagedContent": true,
     "path": ".roo/rules/hatch3r-hook-session-start-ci-watcher.md",
-  },
-  {
-    "action": "create",
-    "contentMarkers": [
-      "MANAGED_BLOCK",
-    ],
-    "hasManagedContent": true,
-    "path": ".roo/rules/hatch3r-scoped-rule.md",
-  },
-  {
-    "action": "create",
-    "contentMarkers": [
-      "MANAGED_BLOCK",
-    ],
-    "hasManagedContent": true,
-    "path": ".roo/rules/hatch3r-test-rule.md",
   },
   {
     "action": "create",
@@ -276,7 +276,7 @@ exports[`adapter output snapshots > CopilotAdapter > file paths match snapshot 1
   ".github/agents/hatch3r-test-agent.agent.md",
   ".github/agents/hatch3r-test-gh-agent.agent.md",
   ".github/copilot-instructions.md",
-  ".github/instructions/hatch3r-scoped-rule.instructions.md",
+  ".github/instructions/50-hatch3r-scoped-rule.instructions.md",
   ".github/prompts/hatch3r-test-command.prompt.md",
   ".github/prompts/hatch3r-test-prompt.prompt.md",
   ".github/skills/hatch3r-test-skill/SKILL.md",
@@ -331,7 +331,7 @@ exports[`adapter output snapshots > CopilotAdapter > output structure matches sn
       "MANAGED_BLOCK",
     ],
     "hasManagedContent": true,
-    "path": ".github/instructions/hatch3r-scoped-rule.instructions.md",
+    "path": ".github/instructions/50-hatch3r-scoped-rule.instructions.md",
   },
   {
     "action": "create",
@@ -384,13 +384,13 @@ exports[`adapter output snapshots > CursorAdapter > file paths match snapshot 1`
   ".cursor/commands/hatch3r-test-command.md",
   ".cursor/environment.json",
   ".cursor/mcp.json",
+  ".cursor/rules/50-hatch3r-scoped-rule.mdc",
+  ".cursor/rules/50-hatch3r-test-rule.mdc",
   ".cursor/rules/hatch3r-bridge.mdc",
   ".cursor/rules/hatch3r-hook-ci-failure-label-handler.mdc",
   ".cursor/rules/hatch3r-hook-post-merge-deploy.mdc",
   ".cursor/rules/hatch3r-hook-pre-commit-lint-fixer.mdc",
   ".cursor/rules/hatch3r-hook-session-start-ci-watcher.mdc",
-  ".cursor/rules/hatch3r-scoped-rule.mdc",
-  ".cursor/rules/hatch3r-test-rule.mdc",
   ".cursor/skills/hatch3r-test-skill/SKILL.md",
 ]
 `;
@@ -440,6 +440,26 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
     ],
     "hasManagedContent": false,
     "path": ".cursor/mcp.json",
+  },
+  {
+    "action": "create",
+    "contentMarkers": [
+      "CURSOR_GLOBS",
+      "FRONTMATTER",
+      "MANAGED_BLOCK",
+    ],
+    "hasManagedContent": true,
+    "path": ".cursor/rules/50-hatch3r-scoped-rule.mdc",
+  },
+  {
+    "action": "create",
+    "contentMarkers": [
+      "CURSOR_ALWAYS_APPLY",
+      "FRONTMATTER",
+      "MANAGED_BLOCK",
+    ],
+    "hasManagedContent": true,
+    "path": ".cursor/rules/50-hatch3r-test-rule.mdc",
   },
   {
     "action": "create",
@@ -498,26 +518,6 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
   {
     "action": "create",
     "contentMarkers": [
-      "CURSOR_GLOBS",
-      "FRONTMATTER",
-      "MANAGED_BLOCK",
-    ],
-    "hasManagedContent": true,
-    "path": ".cursor/rules/hatch3r-scoped-rule.mdc",
-  },
-  {
-    "action": "create",
-    "contentMarkers": [
-      "CURSOR_ALWAYS_APPLY",
-      "FRONTMATTER",
-      "MANAGED_BLOCK",
-    ],
-    "hasManagedContent": true,
-    "path": ".cursor/rules/hatch3r-test-rule.mdc",
-  },
-  {
-    "action": "create",
-    "contentMarkers": [
       "FRONTMATTER",
       "MANAGED_BLOCK",
     ],
@@ -531,8 +531,8 @@ exports[`adapter output snapshots > WindsurfAdapter > file paths match snapshot 
 [
   ".windsurf/hooks.json",
   ".windsurf/mcp.json",
-  ".windsurf/rules/hatch3r-scoped-rule.md",
-  ".windsurf/rules/hatch3r-test-rule.md",
+  ".windsurf/rules/50-hatch3r-scoped-rule.md",
+  ".windsurf/rules/50-hatch3r-test-rule.md",
   ".windsurf/skills/hatch3r-test-skill/SKILL.md",
   ".windsurf/workflows/hatch3r-test-command.md",
   ".windsurfrules",
@@ -566,7 +566,7 @@ exports[`adapter output snapshots > WindsurfAdapter > output structure matches s
       "MANAGED_BLOCK",
     ],
     "hasManagedContent": true,
-    "path": ".windsurf/rules/hatch3r-scoped-rule.md",
+    "path": ".windsurf/rules/50-hatch3r-scoped-rule.md",
   },
   {
     "action": "create",
@@ -575,7 +575,7 @@ exports[`adapter output snapshots > WindsurfAdapter > output structure matches s
       "MANAGED_BLOCK",
     ],
     "hasManagedContent": true,
-    "path": ".windsurf/rules/hatch3r-test-rule.md",
+    "path": ".windsurf/rules/50-hatch3r-test-rule.md",
   },
   {
     "action": "create",

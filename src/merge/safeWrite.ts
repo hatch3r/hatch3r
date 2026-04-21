@@ -407,7 +407,7 @@ export async function safeWriteFile(
   }
 
   const fileName = basename(filePath) ?? "";
-  const isManagedFile = fileName.startsWith(HATCH3R_PREFIX);
+  const isManagedFile = isManagedFileName(fileName);
 
   if (isManagedFile || options.force) {
     await atomicWriteFile(filePath, content);
@@ -422,8 +422,31 @@ export async function safeWriteFile(
   };
 }
 
-/** Check whether a file path's basename starts with the hatch3r- prefix. */
+/**
+ * Wave B3: Match both the legacy `hatch3r-*` naming and the precedence-
+ * prefixed `NN-hatch3r-*` naming emitted by the per-file rule adapters
+ * (cursor, windsurf, copilot, claude, cline). The prefix is 2 decimal digits
+ * (10/30/50/70 for critical/high/normal/low) followed by a hyphen.
+ */
+const NN_HATCH3R_PREFIX_RE = /^\d{2}-hatch3r-/;
+
+/** True when a filename basename represents a hatch3r-managed output. */
+function isManagedFileName(fileName: string): boolean {
+  return fileName.startsWith(HATCH3R_PREFIX) || NN_HATCH3R_PREFIX_RE.test(fileName);
+}
+
+/**
+ * Check whether a file path's basename identifies a hatch3r-managed output.
+ *
+ * Recognises two naming shapes:
+ * - `hatch3r-<id>.<ext>` — the legacy shape used by agents, commands, skills,
+ *   inlined bridge files, and rule outputs emitted by adapters that inline
+ *   all rules into a single file.
+ * - `NN-hatch3r-<id>.<ext>` — the Wave B3 precedence-prefixed shape emitted
+ *   by per-file rule adapters (cursor, windsurf, copilot-scoped, claude,
+ *   cline) where `NN` is a 2-digit rank (10/30/50/70).
+ */
 export function isManagedPath(filePath: string): boolean {
   const fileName = basename(filePath) ?? "";
-  return fileName.startsWith(HATCH3R_PREFIX);
+  return isManagedFileName(fileName);
 }

@@ -1,5 +1,5 @@
 ---
-description: Code quality and file naming conventions for the project
+description: TypeScript typing discipline, naming, file size caps, Result types, barrel exports, import ordering, and monorepo boundary rules
 alwaysApply: true
 ---
 # Code Standards

@@ -2,7 +2,7 @@
 id: hatch3r-command-customize
 type: command
 orchestrator: false
-description: Configure per-command customization including description overrides, enable/disable control, and project-specific markdown instructions
+description: Tune slash-command display text, orchestrator sub-agent dispatch pipeline, and invocation arguments via .hatch3r/commands/ YAML and markdown overrides
 tags: [customize]
 quality_charter: agents/shared/quality-charter.md
 ---

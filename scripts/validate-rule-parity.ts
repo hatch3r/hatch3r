@@ -219,6 +219,57 @@ function checkScopeTransform(
     });
   }
 
+  // Wave A1: rule precedence parity. The `precedence` frontmatter field is
+  // optional and passes through from .md to .mdc without transform. When
+  // present, it must be one of the four enum values; when absent on .md it
+  // must be absent on .mdc too. Mismatches block the CI gate alongside
+  // description/alwaysApply/globs drift.
+  reports.push(...checkPrecedenceTransform(basename, mdFm, mdcFm));
+
+  return reports;
+}
+
+/**
+ * Wave A1: validate the optional `precedence` field across the `.md`/`.mdc`
+ * pair. Enum membership is enforced on the `.md` side; the `.mdc` side must
+ * carry the identical value (pass-through — no transform). Absent on both
+ * sides is the valid default case and emits no report.
+ */
+const RULE_PRECEDENCE_VALUES = ["critical", "high", "normal", "low"] as const;
+
+function checkPrecedenceTransform(
+  basename: string,
+  mdFm: Record<string, unknown>,
+  mdcFm: Record<string, unknown>,
+): DriftReport[] {
+  const reports: DriftReport[] = [];
+  const mdPrecedence = mdFm.precedence;
+  const mdcPrecedence = mdcFm.precedence;
+
+  // Enum validation on the .md side. Any non-string or out-of-enum value
+  // is a hard failure regardless of what the .mdc side contains — the .md
+  // is the source of truth for precedence.
+  if (mdPrecedence !== undefined) {
+    if (typeof mdPrecedence !== "string" || !(RULE_PRECEDENCE_VALUES as readonly string[]).includes(mdPrecedence)) {
+      reports.push({
+        basename,
+        reason: "precedence value out of enum",
+        detail: `.md precedence must be one of ${JSON.stringify(RULE_PRECEDENCE_VALUES)}; got ${JSON.stringify(mdPrecedence)}`,
+      });
+    }
+  }
+
+  // Pass-through parity. Compare raw values; string-vs-undefined and
+  // mismatched strings both fail here. No transform is applied — the
+  // canonical mdc format mirrors the md value verbatim.
+  if (mdPrecedence !== mdcPrecedence) {
+    reports.push({
+      basename,
+      reason: "precedence mismatch (.md vs .mdc pass-through)",
+      detail: `.md : ${JSON.stringify(mdPrecedence ?? null)}\n.mdc: ${JSON.stringify(mdcPrecedence ?? null)}`,
+    });
+  }
+
   return reports;
 }
 

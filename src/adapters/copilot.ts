@@ -5,7 +5,7 @@ import type {
 import { toPrefixedId } from "../types.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
-import { readCanonicalFiles } from "./canonical.js";
+import { readCanonicalFiles, sortByPrecedence, precedenceRank } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
 import { applyCustomization } from "./customization.js";
 import { detectPackageManager } from "../detect/packageManager.js";
@@ -22,7 +22,13 @@ export class CopilotAdapter extends BaseAdapter {
 
     if (ctx.features.rules) {
       const rules = await readCanonicalFiles(ctx.agentsDir, "rules", this.warnings);
-      for (const rule of rules) {
+      // Wave B3: sort by precedence so both the inlined always-rules (in
+      // copilot-instructions.md) and the per-file scoped-rules are emitted
+      // in priority order. Always-rules are concatenated into a single file,
+      // so no NN- prefix applies to them -- the sort alone establishes load
+      // order. Scoped-rules get a NN- filename prefix on their per-file path.
+      const sortedRules = sortByPrecedence(rules);
+      for (const rule of sortedRules) {
         const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);
         this.warnings.push(...warnings);
         if (skip) continue;
@@ -89,9 +95,11 @@ jobs:
       const applyTo = globs.join(", ");
       const fm = `---\napplyTo: "${applyTo}"\n---`;
       const body = `# ${rule.id}\n\n${rule.description}\n\n${content}`;
+      // Wave B3: NN- filename prefix on scoped per-file rule outputs.
+      const nn = precedenceRank(rule.precedence) / 10;
       results.push(
         output(
-          `.github/instructions/${toPrefixedId(rule.id)}.instructions.md`,
+          `.github/instructions/${nn}-${toPrefixedId(rule.id)}.instructions.md`,
           `${fm}\n\n${wrapInManagedBlock(body)}`,
           body,
         ),

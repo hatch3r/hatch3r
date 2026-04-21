@@ -8,6 +8,7 @@ import { readManifest, writeManifest, addManagedFile } from "../../manifest/hatc
 import { getApplicableCheckpoints } from "../../version/checkpoints.js";
 import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
 import { safeWriteFile } from "../../merge/safeWrite.js";
+import { sweepOrphansForAdapter, formatOrphanCleanupDiagnostic, type OrphanCleanupEntry } from "../../merge/orphanCleanup.js";
 import { AGENTS_DIR, HATCH3R_PREFIX, HatchError, WORKTREE_CAPABLE_TOOLS, WORKTREE_INCLUDE_FILE, type HatchManifest, type Platform } from "../../types.js";
 import { generateCanonicalAgentsMd, generateRootAgentsMd } from "../shared/agentsContent.js";
 import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
@@ -298,6 +299,13 @@ export async function runRegenerate(
   const s2 = createSpinner(step(offset + 2, total, "Re-syncing adapter output..."));
   s2.start();
   const adapterFailures: { tool: string; error: string }[] = [];
+  // Task #11 orphan-cleanup: snapshot the prior `managedFilesByAdapter` so
+  // we can diff against the new outputs and unlink orphans.
+  const previousManagedByAdapter: Record<string, string[]> = manifest.managedFilesByAdapter
+    ? { ...manifest.managedFilesByAdapter }
+    : {};
+  const newManagedByAdapter: Record<string, string[]> = {};
+  const orphanEntries: OrphanCleanupEntry[] = [];
   // Per-adapter circuit breakers and a phase-level timeout protect the
   // re-sync loop the same way they protect `hatch3r sync`.
   const breakers = new Map<string, CircuitBreakerState>();
@@ -331,6 +339,7 @@ export async function runRegenerate(
         }
         const outputs = generationResult.outputs ?? [];
         for (const w of generationResult.warnings) { warn(w); }
+        const toolPaths: string[] = [];
         for (const out of outputs) {
           if (options.diff) {
             diffBefore.set(out.path, await readFileOrNull(join(rootDir, out.path)));
@@ -344,9 +353,18 @@ export async function runRegenerate(
             await safeWriteFile(fullPath, out.content);
           }
           addManagedFile(manifest, out.path);
+          toolPaths.push(out.path);
           if (options.diff) {
             diffAfter.set(out.path, await readFileOrNull(join(rootDir, out.path)));
           }
+        }
+        newManagedByAdapter[tool] = toolPaths;
+        // Task #11 orphan-cleanup: sweep paths the prior run recorded that
+        // this run did NOT re-emit. Skipped when no prior history exists.
+        const priorPaths = previousManagedByAdapter[tool];
+        if (priorPaths && priorPaths.length > 0) {
+          const entries = await sweepOrphansForAdapter(tool, rootDir, priorPaths, toolPaths);
+          orphanEntries.push(...entries);
         }
         breaker = recordSuccess(breaker);
         breakers.set(tool, breaker);
@@ -365,6 +383,18 @@ export async function runRegenerate(
   if (!adapterPhaseResult.completed && adapterPhaseResult.error) {
     warn(adapterPhaseResult.error);
   }
+  // Task #11: emit aggregated orphan diagnostic (unlinked + safety skips +
+  // failures) per the Silent Failure Contract.
+  const orphanDiag = formatOrphanCleanupDiagnostic(orphanEntries);
+  if (orphanDiag) warn(orphanDiag);
+  // Task #11: persist updated `managedFilesByAdapter` — preserve entries
+  // for failed adapters (we cannot verify their output changed) and
+  // overwrite with fresh paths for successful ones.
+  const mergedByAdapter: Record<string, string[]> = { ...previousManagedByAdapter };
+  for (const [tool, paths] of Object.entries(newManagedByAdapter)) {
+    mergedByAdapter[tool] = [...paths];
+  }
+  manifest.managedFilesByAdapter = mergedByAdapter;
   if (adapterFailures.length > 0) {
     // C8-D8-M1 (D8): classify each adapter failure by transient/substantive
     // and dependency class. Per-tool guidance is logged inline; the terminal

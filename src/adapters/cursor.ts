@@ -5,7 +5,7 @@ import type {
 import { toPrefixedId } from "../types.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
-import { readCanonicalFiles } from "./canonical.js";
+import { readCanonicalFiles, sortByPrecedence, precedenceRank } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
 import { applyCustomization } from "./customization.js";
 import { transformEnvVarSyntax } from "./mcp-utils.js";
@@ -46,13 +46,20 @@ export class CursorAdapter extends BaseAdapter {
 
     if (ctx.features.rules) {
       const rules = await readCanonicalFiles(ctx.agentsDir, "rules", this.warnings);
-      for (const rule of rules) {
+      // Wave B3: precedence-ordered emission + NN- numeric filename prefix.
+      // NN derives from precedenceRank(rule.precedence): critical=10, high=30,
+      // normal=50, low=70. The prefix makes load order visible in the filesystem
+      // so tools that enumerate .cursor/rules/ alphabetically apply higher-
+      // precedence rules first.
+      const sortedRules = sortByPrecedence(rules);
+      for (const rule of sortedRules) {
         const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);
         this.warnings.push(...warnings);
         if (skip) continue;
         const desc = overrides.description ?? rule.description;
         const ruleWithDesc = { ...rule, description: desc };
-        const baseName = `${toPrefixedId(rule.id)}.mdc`;
+        const nn = precedenceRank(rule.precedence) / 10;
+        const baseName = `${nn}-${toPrefixedId(rule.id)}.mdc`;
         results.push(mdcOutput(`.cursor/rules/${baseName}`, cursorRuleFrontmatter(ruleWithDesc, overrides.scope), content));
       }
     }

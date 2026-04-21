@@ -2,6 +2,7 @@
 id: researcher-mode-root-cause
 type: mode
 description: Analyze the codebase for candidate root causes using static analysis patterns.
+tags: [core, planning, review]
 parent: hatch3r-researcher
 quality_charter: agents/shared/quality-charter.md
 ---

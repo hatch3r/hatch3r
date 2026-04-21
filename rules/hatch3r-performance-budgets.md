@@ -1,7 +1,7 @@
 ---
 id: hatch3r-performance-budgets
 type: rule
-description: Performance budgets and targets for the project
+description: Core Web Vitals targets, API response-time tables, database query caps, bundle-size limits, and Lighthouse CI enforcement gates
 scope: conditional
 globs: "**/*perf*,**/*benchmark*,**/*budget*,**/lighthouse*,**/*.perf.*"
 tags: [performance]

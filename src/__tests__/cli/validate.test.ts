@@ -44,9 +44,11 @@ async function createMinimalAgentsDir(root: string): Promise<void> {
     "# AGENTS.md\n\nTest agents file.\n",
   );
 
+  // Description >=60 chars to pass the Wave C1 description-quality lint
+  // (promoted from warning to error in src/cli/commands/validate.ts).
   await writeFile(
     join(agentsDir, "rules", "hatch3r-test-rule.md"),
-    "---\nid: hatch3r-test-rule\ntype: rule\ndescription: A test rule\nscope: always\n---\n# Test Rule\n\nTest content.\n",
+    "---\nid: hatch3r-test-rule\ntype: rule\ndescription: Test fixture rule for exercising the validate command pipeline without triggering description-quality lint errors\nscope: always\n---\n# Test Rule\n\nTest content.\n",
   );
 }
 
@@ -128,7 +130,10 @@ describe("validate command", () => {
     );
 
     const { validateCommand } = await import("../../cli/commands/validate.js");
-    await validateCommand();
+    // Wave C1: a file with no frontmatter surfaces both the frontmatter warning
+    // and the description-quality lint error (description length 0 < 60), so
+    // validate now throws. The warning message still reaches the output stream.
+    await expect(validateCommand()).rejects.toThrow(HatchError);
 
     expect(combinedOutput()).toContain("Missing frontmatter");
   });
@@ -165,7 +170,7 @@ describe("validate command", () => {
 
     await writeFile(
       join(tempDir, AGENTS_DIR, "rules", "no-id.md"),
-      "---\ntype: rule\ndescription: no id\n---\n# No ID\n\nContent.\n",
+      "---\ntype: rule\ndescription: fixture exercising the missing-id-in-frontmatter warning path for validate\n---\n# No ID\n\nContent.\n",
     );
 
     const { validateCommand } = await import("../../cli/commands/validate.js");
@@ -179,7 +184,7 @@ describe("validate command", () => {
 
     await writeFile(
       join(tempDir, AGENTS_DIR, "rules", "no-type.md"),
-      "---\nid: no-type\ndescription: no type\n---\n# No Type\n\nContent.\n",
+      "---\nid: no-type\ndescription: fixture exercising the missing-type-in-frontmatter warning path for validate\n---\n# No Type\n\nContent.\n",
     );
 
     const { validateCommand } = await import("../../cli/commands/validate.js");
@@ -202,7 +207,7 @@ describe("validate command", () => {
       await createMinimalAgentsDir(tempDir);
       await writeFile(
         join(tempDir, AGENTS_DIR, "commands", "hatch3r-no-marker.md"),
-        "---\nid: hatch3r-no-marker\ntype: command\ndescription: missing marker\n---\n# No marker\n",
+        "---\nid: hatch3r-no-marker\ntype: command\ndescription: fixture exercising the missing-orchestrator-marker warning path for validate\n---\n# No marker\n",
       );
 
       const { validateCommand } = await import("../../cli/commands/validate.js");
@@ -251,7 +256,7 @@ describe("validate command", () => {
       await createMinimalAgentsDir(tempDir);
       await writeFile(
         join(tempDir, AGENTS_DIR, "commands", "hatch3r-orchestrator.md"),
-        "---\nid: hatch3r-orchestrator\ntype: command\norchestrator: true\nagentPipeline: [hatch3r-researcher, hatch3r-implementer]\ndescription: orchestrator ok\n---\n# Orchestrator ok\n",
+        "---\nid: hatch3r-orchestrator\ntype: command\norchestrator: true\nagentPipeline: [hatch3r-researcher, hatch3r-implementer]\ndescription: fixture exercising the orchestrator-true-with-pipeline happy path in validate\n---\n# Orchestrator ok\n",
       );
 
       const { validateCommand } = await import("../../cli/commands/validate.js");
@@ -266,7 +271,7 @@ describe("validate command", () => {
       await createMinimalAgentsDir(tempDir);
       await writeFile(
         join(tempDir, AGENTS_DIR, "commands", "hatch3r-inline.md"),
-        "---\nid: hatch3r-inline\ntype: command\norchestrator: false\ndescription: inline ok\n---\n# Inline ok\n",
+        "---\nid: hatch3r-inline\ntype: command\norchestrator: false\ndescription: fixture exercising the orchestrator-false-no-pipeline happy path in validate\n---\n# Inline ok\n",
       );
 
       const { validateCommand } = await import("../../cli/commands/validate.js");
@@ -278,7 +283,7 @@ describe("validate command", () => {
       await createMinimalAgentsDir(tempDir);
       await writeFile(
         join(tempDir, AGENTS_DIR, "commands", "hatch3r-unused-pipeline.md"),
-        "---\nid: hatch3r-unused-pipeline\ntype: command\norchestrator: false\nagentPipeline: [hatch3r-researcher]\ndescription: unused pipeline\n---\n# Unused pipeline\n",
+        "---\nid: hatch3r-unused-pipeline\ntype: command\norchestrator: false\nagentPipeline: [hatch3r-researcher]\ndescription: fixture exercising the unused-agentPipeline-on-inline-command warning path in validate\n---\n# Unused pipeline\n",
       );
 
       const { validateCommand } = await import("../../cli/commands/validate.js");

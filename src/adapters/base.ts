@@ -9,7 +9,7 @@ import type {
 import { resolveAgentModel } from "../models/resolve.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
 import { generateBridgeOrchestration } from "../cli/shared/agentsContent.js";
-import { readCanonicalFiles, type CanonicalType } from "./canonical.js";
+import { readCanonicalFiles, sortByPrecedence, type CanonicalType } from "./canonical.js";
 import { applyCustomization, applyCustomizationRaw } from "./customization.js";
 import { readMcpConfig, transformEnvVarSyntax, type McpServerEntry } from "./mcp-utils.js";
 import { readHookDefinitions } from "../hooks/index.js";
@@ -212,7 +212,15 @@ export abstract class BaseAdapter implements Adapter {
   protected async inlineRules(ctx: AdapterContext): Promise<string[]> {
     if (!ctx.features.rules) return [];
     const lines: string[] = [];
-    const rules = await this.readTrackedCanonicalFiles(ctx.agentsDir, "rules");
+    // Wave B4: sort rules by precedence (critical -> high -> normal -> low,
+    // id lexicographic tie-break) before concatenation so the 7 inline
+    // adapters that pipe this helper into a single file (gemini, aider,
+    // amp, goose, zed, antigravity, amazonq) emit rule sections in a
+    // deterministic priority order. Rules without a `precedence` field fall
+    // back to "normal" rank, so legacy fixtures keep their alphabetic order.
+    const rules = sortByPrecedence(
+      await this.readTrackedCanonicalFiles(ctx.agentsDir, "rules"),
+    );
     const minimal = this.isMinimal(ctx);
     for (const rule of rules) {
       const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);

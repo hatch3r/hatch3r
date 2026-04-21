@@ -1,7 +1,7 @@
 ---
 id: hatch3r-api-design
 type: rule
-description: API endpoint and contract design patterns for the project
+description: REST, GraphQL, and gRPC contract patterns covering versioning, auth, CORS, pagination, webhooks, rate limiting, and security headers
 scope: "**/api/**,**/routes/**,**/controllers/**,**/endpoints/**,**/*route*,**/*controller*,**/*endpoint*,**/*handler*,**/graphql/**,**/trpc/**"
 tags: [planning]
 quality_charter: agents/shared/quality-charter.md

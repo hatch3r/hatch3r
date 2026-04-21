@@ -309,6 +309,73 @@ You are a test agent.`,
     }
   });
 
+  // Wave B3: precedence-based NN- filename prefix on rule outputs.
+  // Mapping: critical -> 10, high -> 30, normal -> 50, low -> 70.
+  it("emits NN- numeric prefix derived from rule precedence", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-cursor-precedence-"));
+    try {
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "rules"), { recursive: true });
+      await writeFile(
+        join(agentsDir, "rules", "security.md"),
+        `---
+id: security
+type: rule
+description: Critical security rule
+scope: always
+precedence: critical
+---
+# Security
+
+Critical security rule body.
+`,
+        "utf-8",
+      );
+      await writeFile(
+        join(agentsDir, "rules", "testing.md"),
+        `---
+id: testing
+type: rule
+description: Normal testing rule
+scope: always
+precedence: normal
+---
+# Testing
+
+Normal precedence rule body.
+`,
+        "utf-8",
+      );
+      await writeFile(
+        join(agentsDir, "rules", "learning.md"),
+        `---
+id: learning
+type: rule
+description: Low priority learning rule
+scope: always
+precedence: low
+---
+# Learning
+
+Low priority rule body.
+`,
+        "utf-8",
+      );
+
+      const outputs = await adapter.generate(agentsDir, makeManifest());
+
+      const securityRule = outputs.find((o) => o.path === ".cursor/rules/10-hatch3r-security.mdc");
+      const testingRule = outputs.find((o) => o.path === ".cursor/rules/50-hatch3r-testing.mdc");
+      const learningRule = outputs.find((o) => o.path === ".cursor/rules/70-hatch3r-learning.mdc");
+
+      expect(securityRule).toBeDefined();
+      expect(testingRule).toBeDefined();
+      expect(learningRule).toBeDefined();
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
   // C7.5-W2B2-H41 (D15, P6): per-adapter tool allowlist emission.
   // Cursor's native primitive is `readonly: true`; the translator emits
   // it whenever the policy forbids both write and execute categories.

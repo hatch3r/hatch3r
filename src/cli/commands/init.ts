@@ -290,18 +290,26 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   addManagedFile(manifest, "AGENTS.md");
 
   const adapterFailures: { tool: string; error: string }[] = [];
+  // Task #11 orphan-cleanup: populate managedFilesByAdapter on init so the
+  // first sync has a history to diff against (otherwise first-run behaviour
+  // would silently skip cleanup, and an upgrade-over-existing-init would
+  // miss the first opportunity to drop pre-B3 rule files).
+  manifest.managedFilesByAdapter = manifest.managedFilesByAdapter ?? {};
   for (const tool of tools) {
     const adapter = getAdapter(tool);
     try {
       const outputs = await adapter.generate(agentsDir, manifest);
       for (const w of adapter.warnings) { warn(w); }
+      const toolPaths: string[] = [];
       for (const out of outputs) {
         await safeWriteFile(join(rootDir, out.path), out.content, {
           managedContent: out.managedContent,
           appendIfNoBlock: true,
         });
         addManagedFile(manifest, out.path);
+        toolPaths.push(out.path);
       }
+      manifest.managedFilesByAdapter[tool] = toolPaths;
     } catch (err) {
       adapterFailures.push({
         tool: TOOL_DISPLAY_NAMES[tool] ?? tool,

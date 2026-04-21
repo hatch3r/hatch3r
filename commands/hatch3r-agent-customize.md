@@ -2,7 +2,7 @@
 id: hatch3r-agent-customize
 type: command
 orchestrator: false
-description: Configure per-agent customization including model overrides, description changes, and project-specific markdown instructions
+description: Override agent persona, model selection, preset enablement, and repo-file apply-scope via YAML plus markdown injection under .hatch3r/agents/
 tags: [customize]
 quality_charter: agents/shared/quality-charter.md
 ---

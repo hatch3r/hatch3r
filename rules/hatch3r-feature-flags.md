@@ -1,7 +1,7 @@
 ---
 id: hatch3r-feature-flags
 type: rule
-description: Feature flag patterns and lifecycle for the project
+description: OpenFeature provider interface, percentage-based rollout, kill switches, stale-flag detection, audit logging, and evaluation context rules
 scope: conditional
 globs: "**/*feature-flag*,**/*featureFlag*,**/*feature_flag*,**/config/**"
 tags: [implementation]

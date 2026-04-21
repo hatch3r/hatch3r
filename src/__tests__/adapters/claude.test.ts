@@ -576,6 +576,75 @@ You are a test agent.`,
     expect(claudeMd!.content).toContain("Hatch3r");
   });
 
+  // Wave B3: precedence-based NN- filename prefix on .claude/rules/ outputs.
+  // Mapping: critical -> 10, high -> 30, normal -> 50, low -> 70. The
+  // per-file adapter prepends the rank to the canonical `hatch3r-` prefix so
+  // alphabetical load order reflects precedence.
+  it("emits NN- numeric prefix derived from rule precedence", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-claude-precedence-"));
+    try {
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "rules"), { recursive: true });
+      await writeFile(
+        join(agentsDir, "rules", "security.md"),
+        `---
+id: security
+type: rule
+description: Critical security rule
+scope: always
+precedence: critical
+---
+# Security
+
+Critical security rule body.
+`,
+        "utf-8",
+      );
+      await writeFile(
+        join(agentsDir, "rules", "testing.md"),
+        `---
+id: testing
+type: rule
+description: Normal testing rule
+scope: always
+precedence: normal
+---
+# Testing
+
+Normal precedence rule body.
+`,
+        "utf-8",
+      );
+      await writeFile(
+        join(agentsDir, "rules", "learning.md"),
+        `---
+id: learning
+type: rule
+description: Low priority learning rule
+scope: always
+precedence: low
+---
+# Learning
+
+Low priority rule body.
+`,
+        "utf-8",
+      );
+
+      const outputs = await adapter.generate(agentsDir, makeManifest());
+
+      const securityRule = outputs.find((o) => o.path === ".claude/rules/10-hatch3r-security.md");
+      const testingRule = outputs.find((o) => o.path === ".claude/rules/50-hatch3r-testing.md");
+      const learningRule = outputs.find((o) => o.path === ".claude/rules/70-hatch3r-learning.md");
+
+      expect(securityRule).toBeDefined();
+      expect(testingRule).toBeDefined();
+      expect(learningRule).toBeDefined();
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
   // C7.5-W2B2-H41 (D15, P6): per-adapter `tools:` frontmatter emission.
   // Verify the Claude Code adapter emits a policy-derived `tools:` field
   // for canonical agents registered in AGENT_TOOL_POLICIES, and omits it

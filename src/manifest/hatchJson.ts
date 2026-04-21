@@ -234,6 +234,15 @@ function validateManifest(data: unknown): data is HatchManifest {
     }
   }
 
+  if (obj.managedFilesByAdapter !== undefined) {
+    if (typeof obj.managedFilesByAdapter !== "object" || obj.managedFilesByAdapter === null) return false;
+    for (const [k, v] of Object.entries(obj.managedFilesByAdapter as Record<string, unknown>)) {
+      if (typeof k !== "string") return false;
+      if (!Array.isArray(v)) return false;
+      if (!(v as unknown[]).every((p) => typeof p === "string")) return false;
+    }
+  }
+
   return true;
 }
 

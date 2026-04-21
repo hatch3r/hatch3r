@@ -1,5 +1,5 @@
 ---
-description: Priority order for tools and knowledge sources
+description: Platform MCP-first priority, documentation MCP for library APIs, web research for CVEs, and browser MCP for UI verification with fallback guidance
 globs: ["**/.agents/**", "**/mcp/**", "**/mcp.json", "**/.cursor/**", "**/.github/copilot*", "**/.windsurf/**", "**/hatch.json", "**/.claude/**"]
 alwaysApply: false
 ---

@@ -1,7 +1,7 @@
 ---
 id: hatch3r-git-conventions
 type: rule
-description: Git commit message and branching conventions
+description: Conventional Commits type list, subject line rules, breaking-change footer format, and branch naming template for type/short-description
 scope: "**/.git/**,**/.gitignore,**/.gitattributes,**/.gitmodules,**/COMMIT_EDITMSG"
 tags: [core]
 quality_charter: agents/shared/quality-charter.md

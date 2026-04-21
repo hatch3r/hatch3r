@@ -1,5 +1,5 @@
 ---
-description: Auto-consult project learnings before implementation
+description: Consult .agents/learnings/ for pitfalls, patterns, and past decisions before implementation with frontmatter-first scan and priority ordering
 globs: ["**/.agents/learnings/**", "**/learnings/**"]
 alwaysApply: false
 ---

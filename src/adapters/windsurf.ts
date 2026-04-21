@@ -2,7 +2,7 @@ import type { AdapterOutput } from "../types.js";
 import { toPrefixedId } from "../types.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
-import { readCanonicalFiles } from "./canonical.js";
+import { readCanonicalFiles, sortByPrecedence, precedenceRank } from "./canonical.js";
 import { applyCustomization } from "./customization.js";
 import { toWindsurfToolsFrontmatter } from "../pipeline/adapterToolTranslator.js";
 import type { HookEvent } from "../hooks/types.js";
@@ -116,7 +116,13 @@ export class WindsurfAdapter extends BaseAdapter {
 
     if (ctx.features.rules) {
       const rules = await readCanonicalFiles(ctx.agentsDir, "rules", this.warnings);
-      for (const rule of rules) {
+      // Wave B3: precedence-ordered emission + NN- numeric filename prefix.
+      // NN derives from precedenceRank(rule.precedence): critical=10, high=30,
+      // normal=50, low=70. Windsurf lists rule files alphabetically in the
+      // Cascade preamble, so the prefix surfaces load order at the filesystem
+      // level.
+      const sortedRules = sortByPrecedence(rules);
+      for (const rule of sortedRules) {
         const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);
         this.warnings.push(...warnings);
         if (skip) continue;
@@ -131,7 +137,8 @@ export class WindsurfAdapter extends BaseAdapter {
         const descField = trigger === "model_decision" ? `\ndescription: "${desc.replace(/"/g, '\\"')}"` : "";
         const fm = `---\ntrigger: ${trigger}${descField}${globScope ? `\nglobs: "${globScope}"` : ""}\n---`;
         const body = `# ${rule.id}\n\n${desc}\n\n${content}`;
-        results.push(output(`.windsurf/rules/${toPrefixedId(rule.id)}.md`, `${fm}\n\n${wrapInManagedBlock(body)}`, body));
+        const nn = precedenceRank(rule.precedence) / 10;
+        results.push(output(`.windsurf/rules/${nn}-${toPrefixedId(rule.id)}.md`, `${fm}\n\n${wrapInManagedBlock(body)}`, body));
       }
     }
 

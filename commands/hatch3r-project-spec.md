@@ -3,7 +3,7 @@ id: hatch3r-project-spec
 type: command
 orchestrator: true
 agentPipeline: [hatch3r-researcher, hatch3r-docs-writer]
-description: Generate complete business and technical project documentation (specs, ADRs, todo.md) from a project vision using parallel researcher sub-agents with dual business/technical scoping.
+description: Translate a greenfield vision into future-state design artifacts -- ADRs, domain model, API contracts, per-module technical specs, and a board-ready todo.md
 tags: [planning, greenfield]
 quality_charter: agents/shared/quality-charter.md
 ---

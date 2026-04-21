@@ -2,7 +2,12 @@ import { describe, it, expect, afterEach } from "vitest";
 import { mkdtemp, mkdir, writeFile, rm, chmod } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { readCanonicalFiles, readCanonicalFilesDetailed } from "../../adapters/canonical.js";
+import {
+  readCanonicalFiles,
+  readCanonicalFilesDetailed,
+  precedenceRank,
+  sortByPrecedence,
+} from "../../adapters/canonical.js";
 import { resolveTestPath } from "../fixtures.js";
 
 const FIXTURES_DIR = resolveTestPath(import.meta.url, "../fixtures/agents");
@@ -719,5 +724,122 @@ describe("readCanonicalFiles", () => {
       // The symlink path is skipped — not duplicated.
       expect(ids.filter((id) => id === "real-hook").length).toBe(1);
     });
+  });
+});
+
+// Wave A1: rule precedence helpers. These back the future Wave B adapter
+// ordering logic. Schema + helper land here; no rule file carries
+// precedence yet, so the parser path is covered with an inline temp file.
+describe("precedenceRank", () => {
+  it("returns the documented ranks for each enum value", () => {
+    expect(precedenceRank("critical")).toBe(100);
+    expect(precedenceRank("high")).toBe(300);
+    expect(precedenceRank("normal")).toBe(500);
+    expect(precedenceRank("low")).toBe(700);
+  });
+
+  it("falls back to normal rank when value is undefined", () => {
+    expect(precedenceRank(undefined)).toBe(500);
+  });
+
+  it("falls back to normal rank for unknown values", () => {
+    expect(precedenceRank("urgent")).toBe(500);
+    expect(precedenceRank("")).toBe(500);
+  });
+});
+
+describe("sortByPrecedence", () => {
+  it("sorts by rank ascending (higher priority first)", () => {
+    const input = [
+      { id: "b", precedence: "low" },
+      { id: "a", precedence: "critical" },
+      { id: "c", precedence: "normal" },
+      { id: "d", precedence: "high" },
+    ];
+    const sorted = sortByPrecedence(input);
+    expect(sorted.map((x) => x.id)).toEqual(["a", "d", "c", "b"]);
+  });
+
+  it("tie-breaks on id alphabetical within the same bucket", () => {
+    const input = [
+      { id: "zeta", precedence: "high" },
+      { id: "alpha", precedence: "high" },
+      { id: "mu", precedence: "high" },
+    ];
+    const sorted = sortByPrecedence(input);
+    expect(sorted.map((x) => x.id)).toEqual(["alpha", "mu", "zeta"]);
+  });
+
+  it("treats absent precedence as normal for ordering", () => {
+    const input = [
+      { id: "noPrec" }, // normal (500)
+      { id: "lowItem", precedence: "low" },
+      { id: "critItem", precedence: "critical" },
+    ];
+    const sorted = sortByPrecedence(input);
+    expect(sorted.map((x) => x.id)).toEqual(["critItem", "noPrec", "lowItem"]);
+  });
+
+  it("does not mutate the input array", () => {
+    const input = [
+      { id: "b", precedence: "low" },
+      { id: "a", precedence: "critical" },
+    ];
+    const snapshot = input.map((x) => ({ ...x }));
+    sortByPrecedence(input);
+    expect(input).toEqual(snapshot);
+  });
+
+  it("returns an empty array when given an empty array", () => {
+    expect(sortByPrecedence([])).toEqual([]);
+  });
+});
+
+describe("parseFrontmatter precedence field", () => {
+  let tempDir: string;
+
+  afterEach(async () => {
+    if (tempDir) {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("reads a valid precedence value onto the canonical file", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-canonical-prec-"));
+    await mkdir(join(tempDir, "rules"), { recursive: true });
+    await writeFile(
+      join(tempDir, "rules", "p.md"),
+      "---\nid: p\ntype: rule\ndescription: d\nprecedence: high\n---\n# body\n",
+    );
+
+    const results = await readCanonicalFiles(tempDir, "rules");
+    expect(results).toHaveLength(1);
+    expect(results[0]!.precedence).toBe("high");
+  });
+
+  it("leaves precedence undefined when the field is absent", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-canonical-prec-"));
+    await mkdir(join(tempDir, "rules"), { recursive: true });
+    await writeFile(
+      join(tempDir, "rules", "p.md"),
+      "---\nid: p\ntype: rule\ndescription: d\n---\n# body\n",
+    );
+
+    const results = await readCanonicalFiles(tempDir, "rules");
+    expect(results).toHaveLength(1);
+    expect(results[0]!.precedence).toBeUndefined();
+  });
+
+  it("drops out-of-enum precedence values silently (CI validator rejects them)", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-canonical-prec-"));
+    await mkdir(join(tempDir, "rules"), { recursive: true });
+    await writeFile(
+      join(tempDir, "rules", "p.md"),
+      "---\nid: p\ntype: rule\ndescription: d\nprecedence: urgent\n---\n# body\n",
+    );
+
+    const results = await readCanonicalFiles(tempDir, "rules");
+    expect(results).toHaveLength(1);
+    expect(results[0]!.precedence).toBeUndefined();
   });
 });

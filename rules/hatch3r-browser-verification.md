@@ -1,7 +1,7 @@
 ---
 id: hatch3r-browser-verification
 type: rule
-description: Browser-based verification for UI and user-facing changes
+description: Playwright browser verification protocol for UI changes covering visual regression, screenshot capture, console checks, and accessibility spot-checks
 scope: conditional
 globs: "**/*.vue,**/*.jsx,**/*.tsx,**/*.svelte,**/components/**,**/*.html,**/*.css,**/*.scss"
 tags: [review]

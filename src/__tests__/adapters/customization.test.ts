@@ -515,7 +515,10 @@ describe("CursorAdapter with customization", () => {
     const manifest = makeManifest();
     const outputs = await adapter.generate(join(projectRoot, "agents"), manifest);
 
-    const ruleFile = outputs.find((o) => o.path === ".cursor/rules/hatch3r-test-rule.mdc");
+    // Wave B3: rule outputs now carry a `NN-` precedence prefix. The setup
+    // fixture rule has no `precedence:` frontmatter and defaults to `normal`
+    // (rank 500, rendered as `50-`).
+    const ruleFile = outputs.find((o) => o.path === ".cursor/rules/50-hatch3r-test-rule.mdc");
     expect(ruleFile).toBeDefined();
     expect(ruleFile!.content).toContain('globs: ["src/**/*.ts"]');
     expect(ruleFile!.content).not.toContain("alwaysApply: true");

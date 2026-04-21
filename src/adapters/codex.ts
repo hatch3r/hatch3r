@@ -2,7 +2,7 @@ import type { AdapterOutput } from "../types.js";
 import { toPrefixedId } from "../types.js";
 import { resolveAgentModel } from "../models/resolve.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
-import { readCanonicalFiles } from "./canonical.js";
+import { readCanonicalFiles, sortByPrecedence } from "./canonical.js";
 import { applyCustomization } from "./customization.js";
 import { escapeTomlString, escapeTomlMultilineString, tomlKey } from "./toml-utils.js";
 import { transformEnvVarSyntax } from "./mcp-utils.js";
@@ -55,7 +55,13 @@ export class CodexAdapter extends BaseAdapter {
     ];
 
     if (ctx.features.rules) {
-      const rules = await readCanonicalFiles(ctx.agentsDir, "rules", this.warnings);
+      // Wave B4: sort by precedence so the `# rule: ...` comments emitted
+      // into .codex/config.toml appear in critical -> high -> normal -> low
+      // order (id lexicographic tie-break) — matches the ordering used by
+      // the other inline adapters that concatenate rule bodies.
+      const rules = sortByPrecedence(
+        await readCanonicalFiles(ctx.agentsDir, "rules", this.warnings),
+      );
       const enabledRules = [];
       for (const rule of rules) {
         const { skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);

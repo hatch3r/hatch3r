@@ -24,6 +24,8 @@ Canonical `.md` files declare rule scope using one of three frontmatter shapes. 
 | `scope: conditional` + `globs: "<g1>,<g2>,..."` | `globs: ["<g1>", "<g2>", ...]` + `alwaysApply: false` |
 | `scope: conditional` with no `globs:` (deprecated rules) | `alwaysApply: false` (no `globs`) |
 
+Precedence (`precedence: critical|high|normal|low`, optional, default `normal`) is passed through to `.mdc` unchanged. Validated by `scripts/validate-rule-parity.ts`.
+
 Enforced by `scripts/validate-rule-parity.ts` (CI gate via `npm run validate:rule-parity`):
 - Every `.mdc` has a `description:` field matching the `.md` `description:`.
 - `.mdc` files with `globs` carry `alwaysApply: false`.

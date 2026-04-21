@@ -1,8 +1,56 @@
 import { readFile, readdir, lstat } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
-import type { CanonicalFile, CanonicalMetadata } from "../types.js";
+import type { CanonicalFile, CanonicalMetadata, RulePrecedence } from "../types.js";
 import { sanitizePipelineInput } from "../pipeline/promptGuard.js";
+
+/**
+ * Set of valid rule precedence values. Kept in one place so the parser,
+ * the parity validator, and the sort helper all agree on the enum.
+ */
+export const RULE_PRECEDENCE_VALUES = ["critical", "high", "normal", "low"] as const;
+
+/**
+ * Precedence-to-rank table. Lower rank = higher priority in sort output.
+ * Spacing of 200 between buckets reserves room for future intermediate
+ * tiers without renumbering the existing ones.
+ */
+const PRECEDENCE_RANKS: Record<RulePrecedence, number> = {
+  critical: 100,
+  high: 300,
+  normal: 500,
+  low: 700,
+};
+
+/**
+ * Map a precedence value (or undefined/unknown) to its sort rank. Absent
+ * and non-enum values both fall back to `"normal"` (500) so the helper is
+ * safe on mixed inputs where some items carry precedence and others do not.
+ */
+export function precedenceRank(value?: string): number {
+  if (value && (RULE_PRECEDENCE_VALUES as readonly string[]).includes(value)) {
+    return PRECEDENCE_RANKS[value as RulePrecedence];
+  }
+  return PRECEDENCE_RANKS.normal;
+}
+
+/**
+ * Stable sort by precedence rank ascending (lower rank = higher priority),
+ * tie-breaking on `id` lexicographic order so ordering is deterministic
+ * across runs regardless of filesystem enumeration. Returns a new array;
+ * does not mutate the input.
+ *
+ * Consumers (Wave B) pipe rule collections through this helper before
+ * emitting adapter output so critical rules appear above high above
+ * normal above low in the generated files.
+ */
+export function sortByPrecedence<T extends { precedence?: string; id: string }>(items: T[]): T[] {
+  return [...items].sort((a, b) => {
+    const rankDiff = precedenceRank(a.precedence) - precedenceRank(b.precedence);
+    if (rankDiff !== 0) return rankDiff;
+    return a.id.localeCompare(b.id);
+  });
+}
 
 const FRONTMATTER_REGEX = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n([\s\S]*))?$/;
 
@@ -193,6 +241,18 @@ export function parseFrontmatter(
         `tags field must be an array of strings, got ${describeYamlType(parsed.tags)} (value: ${JSON.stringify(parsed.tags)})`,
       );
     }
+    // Wave A1: optional rule precedence bucket. Validated by
+    // scripts/validate-rule-parity.ts (enum check + pass-through parity).
+    // The parser accepts the value only when it is a string matching the
+    // enum; anything else is silently dropped so invalid values cannot
+    // reach consumers via this path. The CI validator emits the hard
+    // failure for out-of-enum values.
+    if (typeof parsed.precedence === "string") {
+      const val = parsed.precedence;
+      if ((RULE_PRECEDENCE_VALUES as readonly string[]).includes(val)) {
+        metadata.precedence = val as RulePrecedence;
+      }
+    }
   }
 
   if (!metadata.id && metadata.name) {
@@ -315,6 +375,7 @@ async function readSingleMd(
     readonly: metadata.readonly,
     background: metadata.background,
     tags: metadata.tags,
+    precedence: metadata.precedence,
     content,
     rawContent,
     sourcePath: fullPath,
