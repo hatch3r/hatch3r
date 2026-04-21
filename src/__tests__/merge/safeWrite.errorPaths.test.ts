@@ -219,6 +219,40 @@ describe("atomicWriteFile error paths", () => {
         atomicWriteFile("/tmp/test.txt", "data"),
       ).resolves.toBeUndefined();
     });
+
+    // D11-SA11.2-01 (C7.5-W2B2-H37): Silent Failure Contract — non-ENOENT
+    // unlink failures must emit a diagnostic. Prior behavior silently
+    // swallowed ALL unlink errors.
+    it("emits a console.error diagnostic when temp-file unlink fails with non-ENOENT", async () => {
+      mockUnlink.mockRejectedValue(mkErrno("EPERM", "locked"));
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      try {
+        await atomicWriteFile("/tmp/test-diag.txt", "data");
+
+        expect(errorSpy).toHaveBeenCalled();
+        const msg = errorSpy.mock.calls.map((c) => String(c[0])).join(" ");
+        expect(msg).toContain("failed to remove temp file");
+        expect(msg).toContain("/tmp/test-diag.txt.tmp.");
+        expect(msg).toContain("locked");
+        expect(msg).toContain("orphan-tmp sweep");
+      } finally {
+        errorSpy.mockRestore();
+      }
+    });
+
+    it("does NOT emit diagnostic when unlink fails with ENOENT (normal success path)", async () => {
+      mockUnlink.mockRejectedValue(mkErrno("ENOENT"));
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      try {
+        await atomicWriteFile("/tmp/test-silent.txt", "data");
+        // ENOENT is the normal case after a successful rename — must stay quiet.
+        expect(errorSpy).not.toHaveBeenCalled();
+      } finally {
+        errorSpy.mockRestore();
+      }
+    });
   });
 });
 

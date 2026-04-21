@@ -2,6 +2,7 @@
 id: researcher-mode-impact-analysis
 type: mode
 description: Map the blast radius of an issue across flows, modules, data, and users.
+tags: [core, planning, review]
 parent: hatch3r-researcher
 quality_charter: agents/shared/quality-charter.md
 ---

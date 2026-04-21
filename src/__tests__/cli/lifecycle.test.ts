@@ -13,7 +13,10 @@ vi.mock("node:child_process", async (importOriginal) => {
 
 const AGENTS_DIR = ".agents";
 
-describe("init -> sync -> update lifecycle", () => {
+// Heavy filesystem I/O per test (mkdtemp + init creates 131 files + per-adapter
+// generation + integrity hashing + rm -rf teardown). On Windows Node 22 CI
+// runners this regularly exceeds the 30s default (vitest#7302, nodejs/node#60397).
+describe("init -> sync -> update lifecycle", { timeout: 60_000 }, () => {
   let tempDir: string;
   let originalCwd: string;
   let exitSpy: MockInstance;
@@ -88,7 +91,7 @@ describe("init -> sync -> update lifecycle", () => {
     // Verify update refreshed the manifest version
     const updatedManifestRaw = await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8");
     const updatedManifest = JSON.parse(updatedManifestRaw);
-    expect(updatedManifest.hatch3rVersion).toBe("1.5.1");
+    expect(updatedManifest.hatch3rVersion).toBe("1.6.0");
 
     // Verify adapter output was regenerated
     const updatedBridge = await readFile(bridgePath, "utf-8").catch(() => null);

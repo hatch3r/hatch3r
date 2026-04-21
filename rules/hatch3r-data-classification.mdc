@@ -1,6 +1,7 @@
 ---
 description: Data classification standards covering PII handling, encryption, retention policies, and regulatory compliance
 globs: ["**/models/**", "**/schemas/**", "**/schema*", "**/database/**", "**/db/**", "**/*model*", "**/*entity*", "**/prisma/**", "**/drizzle/**", "**/*migration*"]
+alwaysApply: false
 ---
 # Data Classification Standards
 

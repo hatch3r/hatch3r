@@ -18,6 +18,13 @@ vi.mock("../../cli/commands/update.js", () => ({
     failedTools: 0,
     version: "1.0.0",
   })),
+  runRegenerate: vi.fn(async () => ({
+    copiedFiles: 5,
+    syncedTools: 2,
+    failedTools: 0,
+    version: "1.0.0",
+  })),
+  runPackageUpdate: vi.fn(async () => undefined),
 }));
 
 vi.mock("../../manifest/hatchJson.js", () => ({

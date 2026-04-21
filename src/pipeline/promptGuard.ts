@@ -90,38 +90,129 @@ export function extractBoundedContent(
  * Patterns that indicate prompt injection attempts in pipeline input.
  * More aggressive than the general denied patterns -- these are specific
  * to inter-agent communication.
+ *
+ * Canonical catalog: `agents/shared/injection-patterns.md` Section A.
+ * Each entry's `patternId` matches a row in the catalog. The sync test at
+ * `src/__tests__/pipeline/injectionPatternsSync.test.ts` asserts every ID
+ * here appears in the catalog, preventing silent drift. The catalog may
+ * contain rows ahead of the code during multi-sub-agent waves; those must
+ * be resolved before the wave closes.
  */
-const INJECTION_PATTERNS: { pattern: RegExp; description: string }[] = [
+const INJECTION_PATTERNS: { patternId: string; pattern: RegExp; description: string }[] = [
   {
+    patternId: "P-PIPE-01",
     pattern: /(?:^|\n)\s*(?:system|assistant|user)\s*:\s*$/im,
     description: "role injection (system/assistant/user colon)",
   },
   {
+    patternId: "P-PIPE-02",
     pattern: /\[INST\]|\[\/INST\]|<\|im_start\|>|<\|im_end\|>/i,
     description: "chat template injection tokens",
   },
   {
+    patternId: "P-PIPE-03",
     pattern: /<%[-=]?\s|%>|\{\{.*\}\}/,
     description: "template literal injection (ERB/Handlebars)",
   },
   {
+    patternId: "P-PIPE-04",
     pattern: /<!--\s*(?:SYSTEM|ADMIN|ROOT)\s*-->/i,
     description: "HTML comment role escalation",
   },
   {
+    patternId: "P-PIPE-05",
     pattern: /\x00|\x1b\[/,
     description: "null byte or ANSI escape sequence injection",
   },
   // D15 Medium: MCP-specific injection patterns (#358-#385)
   {
+    patternId: "P-PIPE-06",
     pattern: /(?:tool_call|function_call)\s*\(/i,
     description: "tool/function call injection attempt",
   },
   {
+    patternId: "P-PIPE-07",
     pattern: /<\|(?:tool|function|plugin)\|>/i,
     description: "tool delimiter injection token",
   },
+  // C8-D15-M1 (Cycle 8 Wave 3): 2026-disclosed injection variants.
+  // Sources: OWASP LLM01:2025 (accessed 2026-04-19); AWS "Defending LLM
+  // applications against Unicode character smuggling" (aws.amazon.com/
+  // blogs/security/); Microsoft MSRC "How Microsoft defends against indirect
+  // prompt injection attacks" (2025-07); Meta-llama/llama issue #1382
+  // (homoglyph filter bypass). See governance/audit/finding-registry.json
+  // entry C8-D15-M1-deny-pattern-2026-variants for causal chain.
+  {
+    patternId: "P-PIPE-08",
+    // Unicode Tag block U+E0000-U+E007F (invisible). Any occurrence of a
+    // tag codepoint in pipeline content is treated as smuggling -- there is
+    // no legitimate use of this block in inter-agent text, per AWS guidance
+    // and the HackerOne "Invisible Prompt Injection" disclosure (#2372363).
+    // Uses explicit surrogate pair range rather than the `u` flag to stay
+    // consistent with the existing non-unicode regex conventions in this
+    // file and to avoid changing match semantics for other patterns.
+    pattern: /[\uDB40][\uDC00-\uDC7F]/,
+    description: "Unicode tag character smuggling (U+E0000-U+E007F invisible payload)",
+  },
+  {
+    patternId: "P-PIPE-09",
+    // Base64-encoded injection overrides. LLMs decode base64 during
+    // pretraining but safety alignment rarely covers encoded payloads
+    // (Promptfoo base64 strategy; arxiv:2504.07467 "Mixture of Encodings").
+    // We match base64 encodings of the canonical override phrases rather
+    // than any base64 string (which would be far too broad): "Ignore all
+    // previous instructions", "Ignore previous instructions", "Disregard
+    // previous instructions", "System prompt:", "You are now". Encodings
+    // cover upper- and lower-case seeds.
+    pattern: /(?:SWdub3JlIGFsbCBwcmV2aW91cyBpbnN0cnVjdGlvbnM|aWdub3JlIGFsbCBwcmV2aW91cyBpbnN0cnVjdGlvbnM|SWdub3JlIHByZXZpb3VzIGluc3RydWN0aW9ucw|aWdub3JlIHByZXZpb3VzIGluc3RydWN0aW9ucw|RGlzcmVnYXJkIHByZXZpb3VzIGluc3RydWN0aW9ucw|ZGlzcmVnYXJkIHByZXZpb3VzIGluc3RydWN0aW9ucw|U3lzdGVtIHByb21wdDo|c3lzdGVtIHByb21wdDo|WW91IGFyZSBub3c|eW91IGFyZSBub3c)/,
+    description: "base64-encoded instruction override",
+  },
+  {
+    patternId: "P-PIPE-10",
+    // Homoglyph-masked instruction overrides. Attackers substitute
+    // visually identical non-Latin codepoints (Cyrillic a U+0430, Greek
+    // omicron U+03BF, etc.) inside the trigger words. We flag any of the
+    // canonical injection keywords that appear within 20 characters of a
+    // Cyrillic / Greek / Armenian / Cherokee / Georgian / Coptic letter.
+    // This is intentionally a lower-confidence signal: a homoglyph in
+    // adversary-controlled content near an override keyword is strong
+    // evidence of smuggling (Meta-llama issue #1382 LLaMA homoglyph
+    // bypass; Promptfoo homoglyph strategy).
+    pattern: /[\u0400-\u04FF\u0370-\u03FF\u0530-\u058F\u13A0-\u13FF\u10A0-\u10FF\u2C80-\u2CFF][\s\S]{0,20}(?:ignore|system|instructions?|you\s+are|disregard|override)|(?:ignore|system|instructions?|you\s+are|disregard|override)[\s\S]{0,20}[\u0400-\u04FF\u0370-\u03FF\u0530-\u058F\u13A0-\u13FF\u10A0-\u10FF\u2C80-\u2CFF]/i,
+    description: "homoglyph-masked instruction trigger (non-ASCII confusable near override keyword)",
+  },
+  {
+    patternId: "P-PIPE-11",
+    // Markdown/HTML image URL exfiltration. Attackers encode stolen data
+    // into an external image URL; the renderer's automatic GET leaks it
+    // to the attacker server (Simon Willison exfiltration-attacks tag;
+    // Salesforce ForcedLeak 2025; Notion AI exfiltration 2025). External
+    // image/link targets in pipeline content are blocked -- canonical
+    // agent outputs reference only relative paths.
+    pattern: /!\[[^\]]{0,200}\]\(\s*(?:https?:|data:|file:)|<img[^>]+src\s*=\s*["']\s*(?:https?:|data:)/i,
+    description: "markdown/HTML image URL exfiltration attempt",
+  },
+  {
+    patternId: "P-PIPE-12",
+    // Error-message instruction smuggling. Attackers wrap overrides in
+    // fake error/debug/diagnostic frames to exploit model trust in
+    // system-looking context (Unit 42 "Fooling AI Agents" 2025;
+    // cheatsheetseries.owasp.org LLM Prompt Injection Prevention). Match
+    // error/debug/warning frames that carry an override directive.
+    pattern: /(?:error|exception|warning|debug|stderr|traceback|panic)[\s:=\-]{1,4}[^\n]{0,80}(?:reveal|print|output|dump|show|leak|expose|display)\s+(?:the\s+|your\s+)?(?:system\s+prompt|prompt|instructions?|context|secrets?|tokens?|keys?)/i,
+    description: "error/debug frame wrapping an instruction override",
+  },
 ];
+
+/**
+ * Exported view of `INJECTION_PATTERNS` pattern IDs for the catalog
+ * synchronization test at `src/__tests__/pipeline/injectionPatternsSync.test.ts`.
+ * Consumers outside that test should use `sanitizePipelineInput` or
+ * `validateAgentOutput` instead.
+ */
+export const PIPELINE_INJECTION_PATTERN_IDS: readonly string[] = INJECTION_PATTERNS.map(
+  (p) => p.patternId,
+);
 
 export interface SanitizationResult {
   sanitized: string;

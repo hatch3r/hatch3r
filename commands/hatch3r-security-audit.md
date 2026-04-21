@@ -1,7 +1,8 @@
 ---
 id: hatch3r-security-audit
 type: command
-description: Create a full-product security audit epic with one sub-issue per project module
+orchestrator: false
+description: Open an OWASP ASI security epic reviewing auth boundaries, input validation, and supply-chain risks with one hardening sub-issue per module plus trust-boundary audit
 tags: [maintenance, security]
 quality_charter: agents/shared/quality-charter.md
 ---

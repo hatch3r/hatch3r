@@ -30,8 +30,8 @@ Every task MUST follow this four-phase pipeline: **Phase 1 — Research** (`hatc
 | `hatch3r-implementer` | Single-task implementation | Always — one per task |
 | `hatch3r-reviewer` | Code review | Always — Phase 3 review loop |
 | `hatch3r-fixer` | Fix reviewer findings | Phase 3 — Critical/Warning findings |
-| `hatch3r-test-writer` | Tests | Always — Phase 4 (every code change) |
-| `hatch3r-security-auditor` | Security review | Always — Phase 4 (every code change) |
+| `hatch3r-test-writer` | Tests | Always — Phase 4 (every code change; skip per Phase Skip Criteria) |
+| `hatch3r-security-auditor` | Security review | Always — Phase 4 (every code change; skip per Phase Skip Criteria) |
 | `hatch3r-docs-writer` | Documentation | Phase 4 — evaluate when APIs/architecture/UX affected |
 | `hatch3r-lint-fixer` | Lint/type fixes | Conditional — lint errors present |
 | `hatch3r-a11y-auditor` | WCAG AA checks | Conditional — UI/accessibility changes |
@@ -117,7 +117,7 @@ For multi-sub-task implementations, the implementer performs a lightweight mini-
 
 Launch parallel subagents -- no artificial concurrency limit.
 
-- **Always:** `hatch3r-test-writer`, `hatch3r-security-auditor`
+- **Always** (except when Phase Skip Criteria applies — see below)**:** `hatch3r-test-writer`, `hatch3r-security-auditor`
 - **Evaluate:** `hatch3r-docs-writer` (when APIs/architecture/UX affected)
 - **Conditional:** `hatch3r-lint-fixer`, `hatch3r-a11y-auditor`, `hatch3r-perf-profiler`, `hatch3r-dependency-auditor`, `hatch3r-architect`, `hatch3r-devops`
 
@@ -130,8 +130,8 @@ Launch parallel subagents -- no artificial concurrency limit.
 
 | Specialist | Mode | Trigger Conditions |
 |-----------|------|--------------------|
-| `hatch3r-test-writer` | Always | Any code change |
-| `hatch3r-security-auditor` | Always | Any code change |
+| `hatch3r-test-writer` | Always | Any code change; may skip per Phase Skip Criteria |
+| `hatch3r-security-auditor` | Always | Any code change; may skip per Phase Skip Criteria |
 | `hatch3r-docs-writer` | Evaluate | Public API, architecture, or UX changes |
 | `hatch3r-lint-fixer` | Conditional | Lint/type errors present |
 | `hatch3r-a11y-auditor` | Conditional | UI/accessibility changes |
@@ -195,6 +195,39 @@ Skill-referenced agent delegations are mandatory.
 2. Include: agent protocol, applicable `scope: always` rules, tooling hierarchy, relevant learnings.
 3. Launch independent subagents in parallel — maximum parallelism.
 4. Await and review results. Surface BLOCKED or PARTIAL to user.
+
+## Parallel Safety
+
+This section documents when spawning multiple sub-agents concurrently is safe and when it must remain sequential.
+
+### Design Rationale
+
+The pipeline's default is **linear per task** — Phase 1 → Phase 2 → Phase 3 → Phase 4, serially. `PipelineContext` captures a single logical handoff token that flows through sub-agents in sequence. LLM-driven orchestrators reason better with sequential, linearly-ordered context. Within Phase 4, parallel specialists are safe because they operate on read-only artifacts. Extending parallelism to Phases 1-3 requires explicit conditions.
+
+### Parallel-Safe Operations
+
+1. **Phase 4 Specialists** — test-writer, security-auditor, docs-writer, lint-fixer, etc. Read-only input from Phase 3 completion; independent outputs; no shared state mutation.
+2. **Intra-Phase-1 Researcher Modes** — multiple modes on the SAME task (symptom-trace + root-cause + codebase-impact) when the task is self-contained. Operate on read-only codebase; produce independent findings.
+3. **Per-Module Phase 2 Fan-Out (Disjoint `affectedFiles`)** — multi-module tasks with non-overlapping file sets; each implementer commits independently; merged post-Phase-2.
+4. **Tier 2/3 Elicitation Researchers** — parallel researchers on the same task to surface different perspectives; outputs tagged with confidence + perspective; orchestrator aggregates.
+
+### NOT Parallel-Safe
+
+1. **Cross-Phase Execution** — Phase 1 must complete before Phase 2 (Phase 2 depends on researchFindings). Phase 2 must complete before Phase 3 (review needs diff). Phase 3 must complete before Phase 4 (quality checks assume review-clean state).
+2. **Phase 3 Review Loop Iterations** — reviewer → fixer → re-reviewer must be serial.
+3. **Overlapping-File Implementers** — two Phase 2 implementers touching the same file must execute serially or use a merge-conflict detection gate.
+4. **Shared `PipelineContext` Field Writers** — if multiple agents mutate `state` / `featureFlags` / `metadata`, serialize them. Parallel agents must only READ context.
+5. **Phase 4 Validation Re-Review** — the confirmation pass after Phase 4 specialists must run serially; it checks fix-driven regressions.
+
+### Three Conditions to Parallelize
+
+ALL three must hold:
+
+1. **Read-only or disjoint writes** — agents read-only from context OR write to disjoint files/fields (no conflict zone).
+2. **Deterministic aggregation** — outputs merge without orchestrator intervention (tests: pass if all pass; findings: union).
+3. **Overhead < savings** — coordination cost (merge, conflict detection) is less than latency savings (max-of-agents vs sum-of-agents).
+
+**Default:** When in doubt, serialize. For typical hatch3r tasks (1–5 sub-tasks) the DAG-scheduling overhead often outweighs concurrency gain.
 
 ## Cross-Phase Error Propagation
 

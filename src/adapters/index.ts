@@ -1,4 +1,4 @@
-import type { HatchManifest, Tool } from "../types.js";
+import { HatchError, type HatchManifest, type Tool } from "../types.js";
 import type { Adapter } from "./base.js";
 import { AgentsMdAdapter } from "./agentsmd.js";
 import { AiderAdapter } from "./aider.js";
@@ -51,7 +51,7 @@ export function getAdapter(tool: Tool): Adapter {
   if (adapter) return adapter;
   const factory = adapterFactories[tool];
   if (!factory) {
-    throw new Error(`Unknown tool: ${tool}`);
+    throw new HatchError(`Unknown tool: ${tool}`, 1, "VALIDATION_ERROR");
   }
   adapter = factory();
   adapterCache.set(tool, adapter);
@@ -77,7 +77,7 @@ interface AdapterCapability {
   modelOverride: boolean;
 }
 
-// Adapter capability matrix — last updated for hatch3r v1.5.0.
+// Adapter capability matrix — last updated for hatch3r v1.6.0.
 // #260 (D9-9.31): Updated "last verified" version from v1.2.0 to v1.4.0.
 // Review this matrix when adding new adapters, removing adapters, or when
 // an existing tool gains/loses support for a feature (e.g. a tool ships
@@ -91,7 +91,9 @@ const ADAPTER_CAPABILITIES: Record<Tool, AdapterCapability> = {
   "amazon-q": { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true  },
   copilot:  { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: true,  prompts: true,  githubAgents: true,  worktree: true,  customization: true,  modelOverride: true  },
   opencode: { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: true,  prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true  },
-  windsurf: { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: true,  prompts: false, githubAgents: false, worktree: true,  customization: true,  modelOverride: true  },
+  // C7.5-W2B2-H31 (D9-SA9.7.1): Windsurf shipped Cascade Hooks in v1.13.12 (2026-01-25).
+  // Hatch3r emits `.windsurf/hooks.json` per docs.windsurf.com/windsurf/cascade/hooks.md.
+  windsurf: { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false, worktree: true,  customization: true,  modelOverride: true  },
   amp:      { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true  },
   kiro:     { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true  },
   aider:    { agents: true, skills: true, rules: true, hooks: false, mcp: false, commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true  },
@@ -147,6 +149,6 @@ export { WindsurfAdapter } from "./windsurf.js";
 export { ZedAdapter } from "./zed.js";
 export type { Adapter, AdapterContext } from "./base.js";
 export { BaseAdapter, output } from "./base.js";
-export { readCanonicalFiles } from "./canonical.js";
-export type { CanonicalType } from "./canonical.js";
+export { readCanonicalFiles, readCanonicalFilesDetailed } from "./canonical.js";
+export type { CanonicalType, CanonicalReadResult, CanonicalReadError } from "./canonical.js";
 export type { CustomizationResult } from "./customization.js";

@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { validateMcpEntry, validateServerName, transformEnvVarSyntax } from "../../adapters/mcp-utils.js";
+import {
+  validateMcpEntry,
+  validateServerName,
+  transformEnvVarSyntax,
+  checkVersionPin,
+  DEFAULT_TRANSFORM_MAX_DEPTH,
+} from "../../adapters/mcp-utils.js";
 import type { McpServerEntry } from "../../adapters/mcp-utils.js";
 
 describe("validateMcpEntry", () => {
@@ -258,6 +264,107 @@ describe("transformEnvVarSyntax", () => {
       expect(transformEnvVarSyntax(null, "claude")).toBe(null);
     });
   });
+
+  // C8-D2-M5 (D2-SA2.4-2, Pillar P6): defensive recursion depth limit.
+  // Guards against adversarial or malformed input (cyclic structures,
+  // pathologically nested JSON) exhausting the call stack.
+  describe("C8-D2-M5: recursion depth limit", () => {
+    it("exposes a sensible default depth of 32", () => {
+      expect(DEFAULT_TRANSFORM_MAX_DEPTH).toBe(32);
+    });
+
+    it("accepts typical MCP config nesting (≤5 levels) without error", () => {
+      // Realistic MCP config shape: mcpServers -> name -> env -> value
+      const input = {
+        mcpServers: {
+          github: {
+            env: {
+              TOKEN: "${env:GITHUB_PAT}",
+            },
+            headers: {
+              Authorization: "Bearer ${env:GITHUB_PAT}",
+            },
+          },
+        },
+      };
+      const result = transformEnvVarSyntax(input, "claude") as {
+        mcpServers: { github: { env: { TOKEN: string } } };
+      };
+      expect(result.mcpServers.github.env.TOKEN).toBe("${GITHUB_PAT}");
+    });
+
+    it("accepts input at the default depth boundary", () => {
+      // Build a structure exactly DEFAULT_TRANSFORM_MAX_DEPTH levels deep.
+      // Each array wrap adds one depth level; starting with the string at depth 0
+      // and wrapping 32 times yields 32 levels of recursion, which must succeed.
+      let input: unknown = "${env:TOKEN}";
+      for (let i = 0; i < DEFAULT_TRANSFORM_MAX_DEPTH; i++) {
+        input = [input];
+      }
+      expect(() => transformEnvVarSyntax(input, "claude")).not.toThrow();
+    });
+
+    it("throws RangeError when nesting exceeds default depth", () => {
+      // 33 wraps exceeds the default limit of 32.
+      let input: unknown = "${env:TOKEN}";
+      for (let i = 0; i <= DEFAULT_TRANSFORM_MAX_DEPTH; i++) {
+        input = [input];
+      }
+      expect(() => transformEnvVarSyntax(input, "claude")).toThrow(RangeError);
+      expect(() => transformEnvVarSyntax(input, "claude")).toThrow(
+        /exceeded maximum recursion depth \(32\)/,
+      );
+    });
+
+    it("honours explicit custom maxDepth (lower bound)", () => {
+      const input = { a: { b: { c: "${env:X}" } } };
+      // Depth 0 (object) -> 1 (object) -> 2 (object) -> 3 (string). Limit = 2 fails.
+      expect(() => transformEnvVarSyntax(input, "claude", 2)).toThrow(
+        RangeError,
+      );
+    });
+
+    it("honours explicit custom maxDepth (matches boundary)", () => {
+      const input = { a: { b: { c: "${env:X}" } } };
+      // With maxDepth = 3, the deepest element reached at depth 3 is permitted.
+      expect(() =>
+        transformEnvVarSyntax(input, "claude", 3),
+      ).not.toThrow();
+    });
+
+    it("throws on cyclic object input instead of stack overflow", () => {
+      interface Cyclic {
+        self?: Cyclic;
+        value: string;
+      }
+      const cyclic: Cyclic = { value: "${env:TOKEN}" };
+      cyclic.self = cyclic;
+      // Without the depth guard this would recurse until the V8 call stack
+      // is exhausted. With the guard, it throws a controlled RangeError.
+      expect(() => transformEnvVarSyntax(cyclic, "claude")).toThrow(
+        RangeError,
+      );
+    });
+
+    it("throws on cyclic array input instead of stack overflow", () => {
+      const cyclic: unknown[] = ["${env:TOKEN}"];
+      cyclic.push(cyclic);
+      expect(() => transformEnvVarSyntax(cyclic, "claude")).toThrow(
+        RangeError,
+      );
+    });
+
+    it("permits maxDepth of 0 for a plain scalar", () => {
+      // A bare string is visited at depth 0, so maxDepth=0 must accept it.
+      expect(transformEnvVarSyntax("${env:X}", "claude", 0)).toBe("${X}");
+    });
+
+    it("rejects any nesting when maxDepth is 0", () => {
+      expect(() => transformEnvVarSyntax(["${env:X}"], "claude", 0)).toThrow(
+        RangeError,
+      );
+    });
+  });
 });
 
 describe("McpServerEntry headers field", () => {
@@ -276,7 +383,7 @@ describe("McpServerEntry headers field", () => {
   it("accepts command entries with headers", () => {
     const entry: McpServerEntry = {
       command: "npx",
-      args: ["-y", "@org/mcp-server"],
+      args: ["-y", "@org/mcp-server@1.0.0"],
       headers: { "X-Auth": "token-value" },
     };
     const warnings = validateMcpEntry("cmd-with-headers", entry);
@@ -311,5 +418,202 @@ describe("McpServerEntry headers field", () => {
     };
     const warnings = validateMcpEntry("test-server", entry);
     expect(warnings).toEqual([]);
+  });
+});
+
+// ── C7-H6 (D15 / Pillar P6): MCP version-pin warning ────────────
+describe("checkVersionPin (C7-H6)", () => {
+  it("returns null for scoped package pinned to exact semver", () => {
+    expect(checkVersionPin("srv", "@anthropic/mcp-server@1.0.0")).toBeNull();
+  });
+
+  it("returns null for scoped package pinned to semver range", () => {
+    expect(checkVersionPin("srv", "@anthropic/mcp-server@^1.0.0")).toBeNull();
+  });
+
+  it("warns on scoped package without version", () => {
+    const result = checkVersionPin("srv", "@anthropic/mcp-server");
+    expect(result).not.toBeNull();
+    expect(result).toContain("unpinned");
+    expect(result).toContain("@anthropic/mcp-server");
+    expect(result).toContain("@<version>");
+  });
+
+  it("warns on scoped package pinned to @latest tag", () => {
+    const result = checkVersionPin("srv", "@anthropic/mcp-server@latest");
+    expect(result).not.toBeNull();
+    expect(result).toContain("unpinned");
+  });
+
+  it("returns null for unscoped package pinned to exact semver", () => {
+    expect(checkVersionPin("srv", "unscoped-pkg@1.0.0")).toBeNull();
+  });
+
+  it("warns on unscoped package without version", () => {
+    const result = checkVersionPin("srv", "unscoped-pkg");
+    expect(result).not.toBeNull();
+    expect(result).toContain("unpinned");
+    expect(result).toContain("unscoped-pkg");
+  });
+
+  it("warns on unscoped package pinned to @latest tag", () => {
+    const result = checkVersionPin("srv", "unscoped-pkg@latest");
+    expect(result).not.toBeNull();
+    expect(result).toContain("unpinned");
+  });
+
+  it("returns null for non-latest dist-tags (treated as pinned)", () => {
+    expect(checkVersionPin("srv", "@scope/pkg@beta")).toBeNull();
+    expect(checkVersionPin("srv", "@scope/pkg@next")).toBeNull();
+  });
+
+  it("returns null for tarball, git, and http sources", () => {
+    expect(checkVersionPin("srv", "file:./local.tgz")).toBeNull();
+    expect(checkVersionPin("srv", "git+https://github.com/o/r.git")).toBeNull();
+    expect(checkVersionPin("srv", "https://example.com/p-1.0.0.tgz")).toBeNull();
+    expect(checkVersionPin("srv", "./local-pkg.tgz")).toBeNull();
+  });
+});
+
+describe("validateMcpEntry version-pin integration (C7-H6)", () => {
+  it("emits no version-pin warning when scoped package is pinned", () => {
+    const entry: McpServerEntry = {
+      command: "npx",
+      args: ["-y", "@anthropic/mcp-server@1.0.0"],
+    };
+    const warnings = validateMcpEntry("anthropic", entry);
+    expect(warnings.filter((w) => w.includes("unpinned"))).toHaveLength(0);
+  });
+
+  it("emits no version-pin warning when scoped package uses semver range", () => {
+    const entry: McpServerEntry = {
+      command: "npx",
+      args: ["-y", "@anthropic/mcp-server@^1.0.0"],
+    };
+    const warnings = validateMcpEntry("anthropic", entry);
+    expect(warnings.filter((w) => w.includes("unpinned"))).toHaveLength(0);
+  });
+
+  it("emits version-pin warning when scoped package is unpinned", () => {
+    const entry: McpServerEntry = {
+      command: "npx",
+      args: ["-y", "@anthropic/mcp-server"],
+    };
+    const warnings = validateMcpEntry("anthropic", entry);
+    const pinWarnings = warnings.filter((w) => w.includes("unpinned"));
+    expect(pinWarnings).toHaveLength(1);
+    expect(pinWarnings[0]).toContain("@anthropic/mcp-server");
+  });
+
+  it("emits version-pin warning when scoped package uses @latest", () => {
+    const entry: McpServerEntry = {
+      command: "npx",
+      args: ["-y", "@anthropic/mcp-server@latest"],
+    };
+    const warnings = validateMcpEntry("anthropic", entry);
+    expect(warnings.some((w) => w.includes("unpinned"))).toBe(true);
+  });
+
+  it("does not emit version-pin warning for non-npx commands", () => {
+    const entry: McpServerEntry = {
+      command: "node",
+      args: ["script.js"],
+    };
+    const warnings = validateMcpEntry("local", entry);
+    expect(warnings.some((w) => w.includes("unpinned"))).toBe(false);
+  });
+
+  it("emits no version-pin warning for unscoped pinned package", () => {
+    const entry: McpServerEntry = {
+      command: "npx",
+      args: ["-y", "unscoped-pkg@1.0.0"],
+    };
+    const warnings = validateMcpEntry("unscoped", entry);
+    expect(warnings.filter((w) => w.includes("unpinned"))).toHaveLength(0);
+  });
+
+  it("emits version-pin warning for unscoped unpinned package (in addition to typosquatting warning)", () => {
+    const entry: McpServerEntry = {
+      command: "npx",
+      args: ["-y", "unscoped-pkg"],
+    };
+    const warnings = validateMcpEntry("unscoped", entry);
+    expect(warnings.some((w) => w.includes("typosquatting"))).toBe(true);
+    expect(warnings.some((w) => w.includes("unpinned"))).toBe(true);
+  });
+
+  it("does not emit version-pin warning when -y flag is absent", () => {
+    const entry: McpServerEntry = {
+      command: "npx",
+      args: ["@anthropic/mcp-server"],
+    };
+    const warnings = validateMcpEntry("anthropic", entry);
+    expect(warnings.some((w) => w.includes("unpinned"))).toBe(false);
+  });
+});
+
+// C7.5-W2B2-H3 (D2-SA2.4-1): Windows executable extension normalization.
+// `node.exe` / `python.cmd` / `npx.bat` used to fail the allowlist check
+// because the stripped basename retained the extension. These configurations
+// are semantically valid on Windows and should pass the allowlist.
+describe("validateMcpEntry — C7.5-W2B2-H3 Windows .exe/.cmd/.bat allowlist", () => {
+  it("accepts node.exe as an allowed command", () => {
+    const entry: McpServerEntry = {
+      command: "node.exe",
+      args: ["server.js"],
+    };
+    expect(validateMcpEntry("win-node", entry)).toEqual([]);
+  });
+
+  it("accepts npx.bat as an allowed command (Windows batch shim)", () => {
+    const entry: McpServerEntry = {
+      command: "npx.bat",
+      args: ["@modelcontextprotocol/server-github@1.2.3"],
+    };
+    expect(validateMcpEntry("win-npx", entry)).toEqual([]);
+  });
+
+  it("accepts python.cmd as an allowed command", () => {
+    const entry: McpServerEntry = {
+      command: "python.cmd",
+      args: ["-m", "mcp_server"],
+    };
+    expect(validateMcpEntry("win-py", entry)).toEqual([]);
+  });
+
+  it("accepts absolute Windows path ending in .exe", () => {
+    const entry: McpServerEntry = {
+      command: "C:\\Program Files\\nodejs\\node.exe",
+      args: ["server.js"],
+    };
+    expect(validateMcpEntry("win-abs-node", entry)).toEqual([]);
+  });
+
+  it("accepts extension case-insensitively (node.EXE, python.Cmd)", () => {
+    expect(
+      validateMcpEntry("ci-exe", { command: "node.EXE", args: ["x.js"] }),
+    ).toEqual([]);
+    expect(
+      validateMcpEntry("ci-cmd", { command: "python.Cmd", args: ["x.py"] }),
+    ).toEqual([]);
+  });
+
+  it("still warns on unrecognized command with .exe suffix", () => {
+    const entry: McpServerEntry = {
+      command: "bash.exe",
+      args: ["-c", "echo hi"],
+    };
+    const warnings = validateMcpEntry("evil", entry);
+    expect(warnings.some((w) => w.includes("unrecognized command") && w.includes("bash.exe"))).toBe(true);
+  });
+
+  it("only strips trailing extension, not mid-path occurrences", () => {
+    // `myexe.tool` is a tool name containing "exe" — must not be stripped.
+    const entry: McpServerEntry = {
+      command: "myexe.tool",
+      args: [],
+    };
+    const warnings = validateMcpEntry("midpath", entry);
+    expect(warnings.some((w) => w.includes("unrecognized command"))).toBe(true);
   });
 });

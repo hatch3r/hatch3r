@@ -141,3 +141,48 @@ export const LANGUAGE_TO_TAG: Record<string, ContentTag> = {
 export function isLanguageTag(tag: string): boolean {
   return tag.startsWith("lang:");
 }
+
+/**
+ * Resolve a list of detected project language names to the set of `lang:*`
+ * content tags that should match. Unknown languages are silently dropped.
+ *
+ * Example: `resolveLanguageTags(["typescript", "python"])`
+ *   → `Set { "lang:typescript", "lang:python" }`
+ */
+export function resolveLanguageTags(projectLanguages: readonly string[]): Set<ContentTag> {
+  const result = new Set<ContentTag>();
+  for (const lang of projectLanguages) {
+    const tag = LANGUAGE_TO_TAG[lang];
+    if (tag) result.add(tag);
+  }
+  return result;
+}
+
+/**
+ * Filter a list of items by language tags.
+ *
+ * Rules:
+ * 1. Items marked `protected: true` always pass (universal opt-out from filtering).
+ * 2. Items with no `lang:*` tags are language-agnostic and always pass.
+ * 3. Items with `lang:*` tags pass only when at least one of their language tags
+ *    is in the relevant set derived from `projectLanguages`.
+ *
+ * Returns `items` unchanged when `projectLanguages` is empty (filter is a no-op).
+ *
+ * @param items - The items to filter. Each must expose `tags: string[]` and
+ *                an optional `protected: boolean`.
+ * @param projectLanguages - The detected project languages (e.g. `["typescript"]`).
+ */
+export function filterByLanguages<T extends { tags: string[]; protected?: boolean }>(
+  items: readonly T[],
+  projectLanguages: readonly string[],
+): T[] {
+  if (projectLanguages.length === 0) return [...items];
+  const relevant = resolveLanguageTags(projectLanguages);
+  return items.filter((item) => {
+    if (item.protected) return true;
+    const itemLangTags = item.tags.filter(isLanguageTag);
+    if (itemLangTags.length === 0) return true;
+    return itemLangTags.some((t) => relevant.has(t as ContentTag));
+  });
+}

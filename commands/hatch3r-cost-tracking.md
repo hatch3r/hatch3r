@@ -1,6 +1,7 @@
 ---
 id: hatch3r-cost-tracking
 type: command
+orchestrator: false
 description: Track and report token usage and estimated costs across agent workflows and board operations
 tags: [maintenance]
 quality_charter: agents/shared/quality-charter.md

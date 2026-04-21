@@ -42,6 +42,23 @@ jobs:
       - name: Security audit (all dependencies)
         run: npm audit --audit-level=critical
 
+      # Cycle 8 C8-D4-M1: `npm audit` only flags packages that already
+      # have a published advisory; it misses the malicious-install class
+      # (typosquats, compromised maintainer accounts -- e.g. the
+      # Shai-Hulud / Axios 1.14.1 incident, Mar 2026). The GitHub
+      # Dependency Review Action inspects the PR diff of
+      # `package-lock.json` against the base ref and queries the GitHub
+      # Advisory Database live, catching newly-introduced compromised
+      # versions. Gated to pull_request events because the action
+      # requires a base ref to diff; for push events the npm audit
+      # steps above remain the supply-chain gate.
+      - name: Dependency review
+        if: github.event_name == 'pull_request'
+        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
+        with:
+          fail-on-severity: critical
+          comment-summary-in-pr: on-failure
+
   build:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
@@ -86,3 +103,28 @@ jobs:
       - name: Test without coverage
         if: matrix.os != 'ubuntu-latest' || matrix.node-version != 22
         run: npm test
+
+      # Cycle 7 H10: filesystem-derived inventory must match committed copy.
+      # Drift means CLAUDE.md / README.md counts can no longer be trusted.
+      - name: Inventory drift check
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 22
+        run: |
+          npm run inventory
+          git diff --exit-code governance/inventory.json
+
+      # Cycle 8 C8-D19-M1 / C8-D10-M1: counts claimed in README.md, CLAUDE.md,
+      # and .cursor-plugin/plugin.json must match the regenerated inventory.
+      # Stops the CLAUDE.md "26 rules" / stale-pipeline-count class of drift
+      # (historical rule-count drift and pipeline-count drift) from reaching
+      # main.
+      - name: Inventory doc-drift check
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 22
+        run: npm run inventory:check-docs
+
+      # Cycle 7 H12: every `rules/hatch3r-*.md` must have a `.mdc` Cursor
+      # counterpart whose body content matches (frontmatter format may differ).
+      # Per .claude/rules/content-authoring.md the two variants are the
+      # single-source-of-truth pairing for editor and CLI consumers.
+      - name: Rule parity drift check
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 22
+        run: npm run validate:rule-parity

@@ -1,4 +1,4 @@
-import { MANAGED_BLOCK_START, MANAGED_BLOCK_END } from "../types.js";
+import { HatchError, MANAGED_BLOCK_START, MANAGED_BLOCK_END } from "../types.js";
 
 /**
  * Replace the content inside an existing managed block with new content.
@@ -15,20 +15,36 @@ export function insertManagedBlock(
   const block = `${MANAGED_BLOCK_START}\n${managedContent}\n${MANAGED_BLOCK_END}`;
 
   if (startIdx === -1 || endIdx === -1) {
-    throw new Error("Content must contain managed block markers (HATCH3R:BEGIN and HATCH3R:END)");
+    throw new HatchError(
+      "Content must contain managed block markers (HATCH3R:BEGIN and HATCH3R:END)",
+      1,
+      "VALIDATION_ERROR",
+    );
   }
 
   const secondStart = existingContent.indexOf(MANAGED_BLOCK_START, startIdx + 1);
   const secondEnd = existingContent.indexOf(MANAGED_BLOCK_END, endIdx + 1);
   if (secondStart !== -1) {
-    throw new Error("Corrupted managed block: duplicate start marker found. Remove the duplicate before syncing.");
+    throw new HatchError(
+      "Corrupted managed block: duplicate start marker found. Remove the duplicate before syncing.",
+      1,
+      "VALIDATION_ERROR",
+    );
   }
   if (secondEnd !== -1) {
-    throw new Error("Corrupted managed block: duplicate end marker found. Remove the duplicate before syncing.");
+    throw new HatchError(
+      "Corrupted managed block: duplicate end marker found. Remove the duplicate before syncing.",
+      1,
+      "VALIDATION_ERROR",
+    );
   }
 
   if (startIdx >= endIdx) {
-    throw new Error("Corrupted managed block: start marker must appear before end marker");
+    throw new HatchError(
+      "Corrupted managed block: start marker must appear before end marker",
+      1,
+      "VALIDATION_ERROR",
+    );
   }
 
   const before = existingContent.substring(0, startIdx);

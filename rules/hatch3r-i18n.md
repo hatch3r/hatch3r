@@ -3,8 +3,8 @@ id: hatch3r-i18n
 type: rule
 description: Internationalization, localization, and RTL support conventions for the project
 scope: conditional
-globs: src/**/*.vue, src/**/*.tsx, src/**/*.jsx, src/**/*.ts
-tags: [implementation]
+globs: "src/**/*.vue,src/**/*.tsx,src/**/*.jsx,src/**/*.ts,**/locales/**,**/i18n/**,**/*i18n*,**/*locale*"
+tags: [implementation, lang:typescript]
 quality_charter: agents/shared/quality-charter.md
 ---
 # Internationalization & RTL

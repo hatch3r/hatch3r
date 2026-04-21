@@ -7,26 +7,43 @@ import { applyCustomization } from "./customization.js";
 import type { HookEvent } from "../hooks/types.js";
 
 // Amazon Q lifecycle hook events.
-// Amazon Q supports 5 lifecycle events for custom agent hooks.
-// Reference: https://docs.aws.amazon.com/amazonq/latest/qdeveloper-ug/q-cli-agents.html
+// Amazon Q CLI custom agents support 5 canonical hook events:
+// agentSpawn, userPromptSubmit, preToolUse, postToolUse, stop.
+// Reference: https://aws.github.io/amazon-q-developer-cli/agent-format.html (accessed 2026-04-19)
 function mapToAmazonQEvent(event: HookEvent): string | null {
   const mapping: Partial<Record<HookEvent, string>> = {
-    "pre-commit": "onPreCommit",
-    "file-save": "onFileSave",
-    "session-start": "onSessionStart",
-    "post-merge": "onPostMerge",
-    "ci-failure": "onCIFailure",
+    "session-start": "agentSpawn",
+    "pre-commit": "preToolUse",
+    "file-save": "postToolUse",
+    "post-merge": "postToolUse",
+    "ci-failure": "stop",
   };
   return mapping[event] ?? null;
 }
 
 // Amazon Q custom agent descriptor — written to .amazonq/cli-agents/{name}.json.
-// Reference: https://docs.aws.amazon.com/amazonq/latest/qdeveloper-ug/q-cli-agents.html
+// Schema per AWS 2026 docs:
+//   https://aws.github.io/amazon-q-developer-cli/agent-format.html (accessed 2026-04-19)
+// - `useLegacyMcpJson`: when true, inherits servers from legacy
+//   `~/.aws/amazonq/mcp.json` and `.amazonq/mcp.json`. Hatch3r writes the
+//   project-local `.amazonq/mcp.json`, so new agent descriptors set this to
+//   true to pick it up. Finding C7.5-W2B2-H33.
+// - `hooks`: map of canonical event name -> array of hook entries with a
+//   shell `command` (and optional `matcher` for tool-targeted events).
+//   hatch3r dispatches agents via rules-file markers, so each populated
+//   entry emits a shell `echo` carrying the HATCH3R_HOOK_ACTIVATED payload
+//   that the agent reads from the rules bridge. Finding D9-SA9.14.1.
+interface AmazonQHookEntry {
+  command: string;
+  matcher?: string;
+}
+
 interface AmazonQAgentDescriptor {
   name: string;
   description: string;
   instructions: string;
-  hooks?: Record<string, { agent: string; description: string }>;
+  useLegacyMcpJson: boolean;
+  hooks?: Record<string, AmazonQHookEntry[]>;
 }
 
 export class AmazonQAdapter extends BaseAdapter {
@@ -54,10 +71,16 @@ export class AmazonQAdapter extends BaseAdapter {
       }
     }
 
+    // Read hooks once so both the cli-agents descriptors and the rules-bridge
+    // file share a single mapping. Finding D9-SA9.14.1 requires the
+    // AgentDescriptor.hooks field be populated per AWS 2026 schema.
+    const hooks = await this.readHooks(ctx);
+    const descriptorHooks = this.buildDescriptorHooks(hooks);
+
     // Generate native Amazon Q custom agent descriptors in .amazonq/cli-agents/.
     // Each canonical agent maps to a JSON descriptor that Amazon Q discovers natively.
     if (ctx.features.agents) {
-      const agents = await readCanonicalFiles(ctx.agentsDir, "agents");
+      const agents = await readCanonicalFiles(ctx.agentsDir, "agents", this.warnings);
       for (const agent of agents) {
         const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
         this.warnings.push(...warnings);
@@ -67,7 +90,14 @@ export class AmazonQAdapter extends BaseAdapter {
           name: toPrefixedId(agent.id),
           description: desc,
           instructions: content,
+          // C7.5-W2B2-H33: hatch3r writes .amazonq/mcp.json; setting this to
+          // true makes new agent descriptors inherit it, otherwise Q CLI
+          // ignores the legacy MCP file when a cli-agent is spawned.
+          useLegacyMcpJson: true,
         };
+        if (Object.keys(descriptorHooks).length > 0) {
+          descriptor.hooks = descriptorHooks;
+        }
         results.push(output(
           `.amazonq/cli-agents/${toPrefixedId(agent.id)}.json`,
           JSON.stringify(descriptor, null, 2),
@@ -76,9 +106,8 @@ export class AmazonQAdapter extends BaseAdapter {
     }
 
     // Generate hooks as lifecycle event bindings.
-    // Amazon Q supports 5 lifecycle events: onPreCommit, onFileSave,
-    // onSessionStart, onPostMerge, onCIFailure.
-    const hooks = await this.readHooks(ctx);
+    // Amazon Q canonical hook events: agentSpawn, userPromptSubmit,
+    // preToolUse, postToolUse, stop.
     if (hooks.length > 0) {
       const hookLines: string[] = ["# Hatch3r Hooks", ""];
       for (const hook of hooks) {
@@ -102,5 +131,31 @@ export class AmazonQAdapter extends BaseAdapter {
     }
 
     return results;
+  }
+
+  /**
+   * Build the `hooks` map for a cli-agent descriptor from hatch3r canonical
+   * hook definitions. Group multiple hatch3r hooks that map to the same AWS
+   * canonical event (e.g. `file-save` + `post-merge` both map to
+   * `postToolUse`) so each canonical event key holds an array of entries.
+   *
+   * Each entry emits an `echo` command that carries the HATCH3R_HOOK_ACTIVATED
+   * directive so the surrounding agent (which reads the rules-bridge file)
+   * knows which hatch3r hook fired and which agent to dispatch.
+   */
+  private buildDescriptorHooks(
+    hooks: Awaited<ReturnType<AmazonQAdapter["readHooks"]>>,
+  ): Record<string, AmazonQHookEntry[]> {
+    const grouped: Record<string, AmazonQHookEntry[]> = {};
+    for (const hook of hooks) {
+      const amazonQEvent = mapToAmazonQEvent(hook.event);
+      if (!amazonQEvent) continue;
+      const marker = `HATCH3R_HOOK_ACTIVATED id=${hook.id} event=${hook.event} agent=${hook.agent}`;
+      const entry: AmazonQHookEntry = {
+        command: `echo ${JSON.stringify(marker)}`,
+      };
+      (grouped[amazonQEvent] ??= []).push(entry);
+    }
+    return grouped;
   }
 }

@@ -1,8 +1,9 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, rm, access } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createManifest, addManagedFile, removeManagedFile, migrateManifest, readManifest, writeManifest } from "../../manifest/hatchJson.js";
+import { HatchError } from "../../types.js";
 
 describe("hatchJson", () => {
   describe("createManifest", () => {
@@ -11,7 +12,7 @@ describe("hatchJson", () => {
         tools: ["cursor"],
       });
       expect(manifest.version).toBe("2.0.0");
-      expect(manifest.hatch3rVersion).toBe("1.5.1");
+      expect(manifest.hatch3rVersion).toBe("1.6.0");
       expect(manifest.platform).toBe("github");
       expect(manifest.tools).toEqual(["cursor"]);
       expect(manifest.features.agents).toBe(true);
@@ -292,6 +293,26 @@ describe("hatchJson", () => {
         "utf-8",
       );
       await expect(readManifest(rootDir)).rejects.toThrow("Malformed JSON");
+    });
+
+    // C7-H14: readManifest throws HatchError (not plain Error) so the CLI can
+    // distinguish CONFIG_ERROR (malformed JSON / invalid manifest) from other
+    // failure modes and surface a structured exitCode.
+    it("throws HatchError with CONFIG_ERROR code on malformed JSON", async () => {
+      const rootDir = await setup();
+      await writeFile(
+        join(rootDir, ".agents", "hatch.json"),
+        "{ not valid json }}}",
+        "utf-8",
+      );
+      try {
+        await readManifest(rootDir);
+        throw new Error("expected throw did not occur");
+      } catch (e) {
+        expect(e).toBeInstanceOf(HatchError);
+        expect((e as HatchError).errorCode).toBe("CONFIG_ERROR");
+        expect((e as HatchError).exitCode).toBe(1);
+      }
     });
 
     it("throws with descriptive message when required field 'tools' is missing", async () => {
@@ -583,6 +604,88 @@ describe("hatchJson", () => {
 
       const result = await readManifest(tempDir);
       expect(result!.tools).toEqual(["claude", "cursor"]);
+    });
+
+    // C8-D1-M2: writeManifest must validate the manifest schema before
+    // persisting to disk to prevent corrupt state from being serialized.
+    it("throws HatchError(CONFIG_ERROR) when managedFiles is not an array", async () => {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-write-"));
+      await mkdir(join(tempDir, ".agents"), { recursive: true });
+
+      const manifest = createManifest({ tools: ["cursor"] });
+      // Force an invalid shape past TS via cast.
+      (manifest as unknown as Record<string, unknown>).managedFiles = "not-an-array";
+
+      try {
+        await writeManifest(tempDir, manifest);
+        throw new Error("expected throw did not occur");
+      } catch (e) {
+        expect(e).toBeInstanceOf(HatchError);
+        expect((e as HatchError).errorCode).toBe("CONFIG_ERROR");
+        expect((e as HatchError).exitCode).toBe(1);
+      }
+    });
+
+    it("throws when tools contains invalid tool name outside VALID_TOOLS", async () => {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-write-"));
+      await mkdir(join(tempDir, ".agents"), { recursive: true });
+
+      const manifest = createManifest({ tools: ["cursor"] });
+      (manifest as unknown as Record<string, unknown>).tools = ["not-a-real-tool"];
+
+      await expect(writeManifest(tempDir, manifest)).rejects.toThrow(
+        /Invalid manifest schema/,
+      );
+    });
+
+    it("throws when required field (mcp) is missing", async () => {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-write-"));
+      await mkdir(join(tempDir, ".agents"), { recursive: true });
+
+      const manifest = createManifest({ tools: ["cursor"] });
+      // Remove mcp entirely.
+      delete (manifest as unknown as Record<string, unknown>).mcp;
+
+      await expect(writeManifest(tempDir, manifest)).rejects.toThrow(HatchError);
+    });
+
+    it("does NOT write file when validation fails", async () => {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-write-"));
+      await mkdir(join(tempDir, ".agents"), { recursive: true });
+
+      const manifest = createManifest({ tools: ["cursor"] });
+      (manifest as unknown as Record<string, unknown>).managedFiles = null;
+
+      await expect(writeManifest(tempDir, manifest)).rejects.toThrow(HatchError);
+
+      // Confirm no file was written — access must reject with ENOENT.
+      const manifestPath = join(tempDir, ".agents", "hatch.json");
+      try {
+        await access(manifestPath);
+        throw new Error("manifest file should not exist after failed validation");
+      } catch (e) {
+        expect((e as NodeJS.ErrnoException).code).toBe("ENOENT");
+      }
+    });
+
+    it("round-trip: createManifest then write then read succeeds", async () => {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-write-"));
+      await mkdir(join(tempDir, ".agents"), { recursive: true });
+
+      const manifest = createManifest({
+        tools: ["cursor", "claude"],
+        mcpServers: ["github"],
+        owner: "acme",
+        repo: "app",
+      });
+      await writeManifest(tempDir, manifest);
+
+      const result = await readManifest(tempDir);
+      expect(result).not.toBeNull();
+      expect(result!.tools).toEqual(["cursor", "claude"]);
+      expect(result!.mcp.servers).toEqual(["github"]);
+      expect(result!.owner).toBe("acme");
+      expect(result!.repo).toBe("app");
     });
   });
 

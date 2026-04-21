@@ -9,6 +9,7 @@ import {
   readManifest,
   writeManifest,
   addManagedFile,
+  isValidGitBranchName,
 } from "../../manifest/hatchJson.js";
 import { safeWriteFile } from "../../merge/safeWrite.js";
 import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
@@ -58,6 +59,54 @@ const DEFAULT_TOOLS: Tool[] = ["claude"];
 const DEFAULT_FEATURE_KEYS = Object.keys(DEFAULT_FEATURES) as (keyof Features)[];
 const DEFAULT_MCP: string[] = ["playwright", "github", "context7"];
 
+// D5-SA5.3-H1: Seed content for `.agents/learnings/README.md`. Explains the
+// directory's purpose so `hatch3r-learnings-loader` surfaces an actionable
+// starting point on first session instead of silently skipping when empty.
+const LEARNINGS_README_SEED = `# Project Learnings
+
+This directory holds project-specific learnings surfaced by the
+\`hatch3r-learnings-loader\` agent at session start.
+
+## What to capture
+
+| Category | Examples |
+| --- | --- |
+| Decisions | Architecture choices, library selections, trade-off rationale |
+| Patterns | Established code patterns, naming conventions, data flow norms |
+| Pitfalls | Known gotchas, edge cases, things that look wrong but are intentional |
+| Context | Domain knowledge, business rules, regulatory constraints |
+
+## Format
+
+Add one markdown file per learning with YAML frontmatter:
+
+\`\`\`yaml
+---
+id: <kebab-case-slug>
+category: decision | pattern | pitfall | context
+area: <subsystem or feature area>
+recorded: <ISO-8601 date>
+source: session | <agent-name> | manual
+confidence: high | medium | low
+author: agent | human
+tags: [<tag>, ...]
+---
+
+## Learning
+
+<What was learned, in 1-3 sentences.>
+
+## Evidence
+
+<Files, commits, or commands that support the learning.>
+\`\`\`
+
+The loader agent applies content-security and integrity checks to every
+entry; see \`hatch3r-learnings-loader\` for the full protocol.
+
+Delete this README once you have authored real learnings.
+`;
+
 /**
  * Check if a content selection includes any board-related content.
  * Board content IDs follow the pattern "cmd-hatch3r-board-*" (prefixed during indexing).
@@ -80,6 +129,15 @@ function warnBoardPrerequisites(selection: ContentSelection): void {
 }
 
 // Git detection functions imported from ../../workspace/git.js
+
+/**
+ * Derive the projectLanguages array passed to resolveSelection from a RepoInfo.
+ * Filters out the synthetic "unknown" sentinel so language filtering becomes
+ * a no-op when detection fails, rather than excluding all language-tagged items.
+ */
+function languagesForSelection(repoInfo: RepoInfo): string[] {
+  return repoInfo.languages.filter((l) => l !== "unknown");
+}
 
 function deriveWorkspacePlatform(identities: Array<{ platform: Platform }>): Platform {
   const counts = new Map<Platform, number>();
@@ -107,7 +165,36 @@ export interface RunInitOptions {
   contentSelection: ContentSelection;
 }
 
+// C8-D1-M3: Guard against a double `runInit` on the same target directory.
+// Workspace init constructs a canonical `.agents/` at the workspace root and
+// also syncs selected sub-repos. A bug or re-entry path that called runInit
+// twice for the same rootDir in one process would race on manifest reads,
+// content copies, and managed-file writes. The guard holds for the lifetime
+// of a single CLI invocation.
+const RUNNING_INITS = new Set<string>();
+
 export async function runInit(options: RunInitOptions): Promise<void> {
+  const { rootDir } = options;
+
+  // C8-D1-M3: idempotency guard — fail fast on reentrant calls rather than
+  // producing a half-written `.agents/`.
+  if (RUNNING_INITS.has(rootDir)) {
+    throw new HatchError(
+      `runInit already in progress for ${rootDir}`,
+      1,
+      "CONFIG_ERROR",
+    );
+  }
+  RUNNING_INITS.add(rootDir);
+
+  try {
+    await runInitInner(options);
+  } finally {
+    RUNNING_INITS.delete(rootDir);
+  }
+}
+
+async function runInitInner(options: RunInitOptions): Promise<void> {
   const { rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection } = options;
   const agentsDir = join(rootDir, AGENTS_DIR);
   const totalSteps = 4;
@@ -136,6 +223,19 @@ export async function runInit(options: RunInitOptions): Promise<void> {
   }
 
   await mkdir(join(agentsDir, "learnings"), { recursive: true });
+  // D5-SA5.3-H1: Seed learnings/ with a README so `hatch3r-learnings-loader`
+  // has something to surface instead of silently skipping. Only created when
+  // absent (fresh init) — never overwrites user-authored content on re-init.
+  const learningsReadmePath = join(agentsDir, "learnings", "README.md");
+  try {
+    await access(learningsReadmePath);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      await safeWriteFile(learningsReadmePath, LEARNINGS_README_SEED);
+    } else {
+      throw err;
+    }
+  }
 
   const mcpPath = join(agentsDir, "mcp", "mcp.json");
   try {
@@ -167,11 +267,14 @@ export async function runInit(options: RunInitOptions): Promise<void> {
 
   s1.succeed(step(1, totalSteps, `Canonical files created (${countSelectionItems(contentSelection)} items)`));
 
-  const s2 = createSpinner(step(2, totalSteps, "Writing manifest..."));
+  // C7-H8 (D1): Build the manifest in memory but defer the disk write until
+  // after adapter generation succeeds. Writing the manifest before adapters
+  // run would leave a `.agents/hatch.json` referencing tools whose output
+  // never reached disk if all adapters fail (line 215 throw below).
+  const s2 = createSpinner(step(2, totalSteps, "Preparing manifest..."));
   s2.start();
   const manifest = createManifest({ platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, content: contentSelection, languages: repoInfo.languages });
-  await writeManifest(rootDir, manifest);
-  s2.succeed(step(2, totalSteps, "Manifest written"));
+  s2.succeed(step(2, totalSteps, "Manifest prepared"));
 
   const s3 = createSpinner(
     step(3, totalSteps, `Generating ${tools.map((t) => TOOL_DISPLAY_NAMES[t] ?? t).join(", ")} output...`),
@@ -187,18 +290,26 @@ export async function runInit(options: RunInitOptions): Promise<void> {
   addManagedFile(manifest, "AGENTS.md");
 
   const adapterFailures: { tool: string; error: string }[] = [];
+  // Task #11 orphan-cleanup: populate managedFilesByAdapter on init so the
+  // first sync has a history to diff against (otherwise first-run behaviour
+  // would silently skip cleanup, and an upgrade-over-existing-init would
+  // miss the first opportunity to drop pre-B3 rule files).
+  manifest.managedFilesByAdapter = manifest.managedFilesByAdapter ?? {};
   for (const tool of tools) {
     const adapter = getAdapter(tool);
     try {
       const outputs = await adapter.generate(agentsDir, manifest);
       for (const w of adapter.warnings) { warn(w); }
+      const toolPaths: string[] = [];
       for (const out of outputs) {
         await safeWriteFile(join(rootDir, out.path), out.content, {
           managedContent: out.managedContent,
           appendIfNoBlock: true,
         });
         addManagedFile(manifest, out.path);
+        toolPaths.push(out.path);
       }
+      manifest.managedFilesByAdapter[tool] = toolPaths;
     } catch (err) {
       adapterFailures.push({
         tool: TOOL_DISPLAY_NAMES[tool] ?? tool,
@@ -369,9 +480,35 @@ export async function initCommand(
     projectType?: string;
     teamSize?: string;
     workspace?: boolean;
+    quick?: boolean;
+    default?: boolean;
   } = {},
 ): Promise<void> {
   printBanner();
+
+  // C8-D1-M4: Validate `--preset`, `--project-type`, and `--team-size` flag
+  // values eagerly, before any prompt or detection work runs. Previously
+  // these flags were only validated on the `--yes` branch, so an interactive
+  // invocation with `--preset kitchen-sink` silently discarded the bad flag
+  // and still prompted the user. Per CLI Guidelines fail-fast validation,
+  // invalid values abort with exit 1 before any side-effect.
+  if (opts.preset !== undefined) {
+    validateFlag(opts.preset, ["minimal", "standard", "full", "custom"], "full", "preset");
+  }
+  if (opts.projectType !== undefined) {
+    validateFlag(opts.projectType, ["greenfield", "brownfield"], "brownfield", "project-type");
+  }
+  if (opts.teamSize !== undefined) {
+    validateFlag(opts.teamSize, ["solo", "team"], "solo", "team-size");
+  }
+
+  // C8-D10-M2: `--quick` / `--default` collapses the 9-prompt interactive
+  // flow to smart defaults by routing to the existing `--yes` path. This
+  // reconciles the README "One command gives you..." claim with the
+  // interactive first-run experience.
+  if (opts.quick || opts.default) {
+    opts.yes = true;
+  }
 
   const rootDir = process.cwd();
 
@@ -466,7 +603,8 @@ export async function initCommand(
     const teamSize = validateFlag(opts.teamSize, ["solo", "team"], "solo", "team-size");
     const preset = getPreset(presetId);
     const index = await buildContentIndex(CONTENT_ROOT);
-    const contentSelection = resolveSelection(preset, projectType, teamSize, index);
+    const projectLanguages = languagesForSelection(repoInfo);
+    const contentSelection = resolveSelection(preset, projectType, teamSize, index, undefined, projectLanguages);
 
     // Warn if orchestration-critical agents are missing from selection
     const orchWarnings = validateOrchestrationDependencies(contentSelection);
@@ -541,12 +679,23 @@ export async function initCommand(
       name: "defaultBranch",
       message: "Default branch (for checkout, PR base, release):",
       default: defaultBranchDefault,
+      // C8-D1-M9: reject values that fail `git check-ref-format`. Empty
+      // input is allowed through (falls back to detected default below).
+      validate: (v: string) => {
+        const trimmed = v.trim();
+        if (trimmed === "") return true;
+        return (
+          isValidGitBranchName(trimmed) ||
+          `Invalid git branch name: "${trimmed}". See git-check-ref-format(1).`
+        );
+      },
     },
   ]);
   const defaultBranch = defaultBranchAnswers.defaultBranch.trim() || defaultBranchDefault;
 
   // --- Project type (with filter exclusion counts) ---
   const filterIndex = await buildContentIndex(CONTENT_ROOT);
+  const projectLanguages = languagesForSelection(repoInfo);
   const isAutoGreenfield =
     repoInfo.languages.length === 1 &&
     repoInfo.languages[0] === "unknown" &&
@@ -593,7 +742,7 @@ export async function initCommand(
       message: "Select content profile:",
       choices: PRESETS.map((p) => {
         const excluded = countPresetExclusions(p, filterIndex);
-        const estimated = p.id !== "custom" ? estimatePresetItemCount(p, projectType, teamSize, filterIndex) : 0;
+        const estimated = p.id !== "custom" ? estimatePresetItemCount(p, projectType, teamSize, filterIndex, projectLanguages) : 0;
         const countHint = estimated > 0 ? ` (~${estimated} items)` : "";
         const suffix = excluded > 0 ? ` (excludes ${excluded} of ${totalItems})` : "";
         return {
@@ -693,7 +842,7 @@ export async function initCommand(
   }
 
   // --- Resolve content selection ---
-  const contentSelection = resolveSelection(selectedPreset, projectType, teamSize, filterIndex, customSelections);
+  const contentSelection = resolveSelection(selectedPreset, projectType, teamSize, filterIndex, customSelections, projectLanguages);
 
   // Warn if orchestration-critical agents are missing from selection
   const orchWarnings = validateOrchestrationDependencies(contentSelection);
@@ -731,7 +880,8 @@ async function runWorkspaceInit(
       ? Array.from(new Set([platformMcp, ...DEFAULT_MCP.filter((s) => s !== "github")]))
       : [];
     const index = await buildContentIndex(CONTENT_ROOT);
-    const contentSelection = resolveSelection(getPreset("full"), "brownfield", "solo", index);
+    const projectLanguages = languagesForSelection(repoInfo);
+    const contentSelection = resolveSelection(getPreset("full"), "brownfield", "solo", index, undefined, projectLanguages);
     const wsManifest = createWorkspaceManifest(
       basename(rootDir) || "workspace",
       { platform, tools, features, mcp: { servers: mcpServers }, content: contentSelection },
@@ -781,7 +931,22 @@ async function runWorkspaceInit(
         const identity = await inquirer.prompt<{ owner: string; repo: string; defaultBranch: string }>([
           { type: "input", name: "owner", message: "  Owner:", default: r.owner || undefined },
           { type: "input", name: "repo", message: "  Repo:", default: r.repo || undefined },
-          { type: "input", name: "defaultBranch", message: "  Default branch:", default: r.defaultBranch || "main" },
+          {
+            type: "input",
+            name: "defaultBranch",
+            message: "  Default branch:",
+            default: r.defaultBranch || "main",
+            // C8-D1-M9: enforce `git check-ref-format` on per-repo workspace
+            // identity prompts as well as the top-level default-branch prompt.
+            validate: (v: string) => {
+              const trimmed = v.trim();
+              if (trimmed === "") return true;
+              return (
+                isValidGitBranchName(trimmed) ||
+                `Invalid git branch name: "${trimmed}". See git-check-ref-format(1).`
+              );
+            },
+          },
         ]);
         r.owner = sanitizeInput(identity.owner);
         r.repo = sanitizeInput(identity.repo);
@@ -816,7 +981,8 @@ async function runWorkspaceInit(
     const teamSize = validateFlag(opts.teamSize, ["solo", "team"], "solo", "team-size");
     const preset = getPreset(presetId);
     const index = await buildContentIndex(CONTENT_ROOT);
-    contentSelection = resolveSelection(preset, projectType, teamSize, index);
+    const projectLanguages = languagesForSelection(repoInfo);
+    contentSelection = resolveSelection(preset, projectType, teamSize, index, undefined, projectLanguages);
   } else {
     // Interactive workspace-wide config prompts
     const wslTheme = isWSL()
@@ -824,6 +990,7 @@ async function runWorkspaceInit(
       : undefined;
 
     const wsFilterIndex = await buildContentIndex(CONTENT_ROOT);
+    const projectLanguages = languagesForSelection(repoInfo);
     const isAutoGreenfield =
       repoInfo.languages.length === 1 &&
       repoInfo.languages[0] === "unknown" &&
@@ -868,7 +1035,7 @@ async function runWorkspaceInit(
         message: "Select content profile:",
         choices: PRESETS.map((p) => {
           const excluded = countPresetExclusions(p, wsFilterIndex);
-          const wsEstimated = p.id !== "custom" ? estimatePresetItemCount(p, projectType, teamSize, wsFilterIndex) : 0;
+          const wsEstimated = p.id !== "custom" ? estimatePresetItemCount(p, projectType, teamSize, wsFilterIndex, projectLanguages) : 0;
           const wsCountHint = wsEstimated > 0 ? ` (~${wsEstimated} items)` : "";
           const suffix = excluded > 0 ? ` (excludes ${excluded} of ${wsTotalItems})` : "";
           return {
@@ -962,7 +1129,7 @@ async function runWorkspaceInit(
       }
     }
 
-    contentSelection = resolveSelection(selectedPreset, projectType, teamSize, wsFilterIndex, customSelections);
+    contentSelection = resolveSelection(selectedPreset, projectType, teamSize, wsFilterIndex, customSelections, projectLanguages);
   }
 
   // Warn if orchestration-critical agents are missing from selection
@@ -1021,6 +1188,39 @@ async function runWorkspaceInit(
     ]);
 
     const syncSet = new Set(syncRepos);
+
+    // C8-D1-M3: Managed-file conflict guard. If any selected sub-repo already
+    // has `.agents/hatch.json`, warn before letting `syncWorkspaceRepos`
+    // overwrite managed files in those sub-repos. Managed content outside
+    // HATCH3R:BEGIN/END blocks is preserved by `safeWriteFile`, but the
+    // managed portions will be replaced — the user must explicitly consent.
+    const conflictingRepos = enriched.filter((r) => syncSet.has(r.path) && r.hasHatch3r);
+    if (conflictingRepos.length > 0) {
+      warn(
+        `${conflictingRepos.length} selected repo(s) already have hatch3r installed; their managed files will be overwritten by workspace content.`,
+      );
+      for (const r of conflictingRepos) {
+        console.log(chalk.dim(`  - ${r.name ?? r.path}`));
+      }
+      const { confirmConflict } = await inquirer.prompt<{ confirmConflict: boolean }>([
+        {
+          type: "confirm",
+          name: "confirmConflict",
+          message: "Proceed with overwriting managed files in existing hatch3r sub-repos?",
+          default: false,
+        },
+      ]);
+      if (!confirmConflict) {
+        // Drop the conflicting repos from the sync set; keep them registered
+        // in the workspace manifest so the user can sync later with
+        // `hatch3r sync --repos <path>` after reviewing their managed files.
+        for (const r of conflictingRepos) {
+          syncSet.delete(r.path);
+        }
+        info(chalk.dim("  Skipped syncing conflicting repos. They remain registered in the workspace — run `hatch3r sync --repos <path>` after reviewing their managed files."));
+      }
+    }
+
     repoEntries = enriched.map((r) => ({
       path: r.path,
       name: r.name,

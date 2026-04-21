@@ -2,6 +2,7 @@
 id: researcher-mode-boundary-analysis
 type: mode
 description: Map integration boundaries, external dependencies, and data flow seams for test targeting.
+tags: [core, planning, review]
 parent: hatch3r-researcher
 quality_charter: agents/shared/quality-charter.md
 ---

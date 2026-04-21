@@ -29,19 +29,46 @@ const SAFE_FILENAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]*\.md$/;
  * manipulation through the learnings system (D6 findings 6.7-6.9).
  * The existing DENY_PATTERNS in customization.ts handle general prompt
  * injection; these cover learnings-specific attack vectors.
+ *
+ * Canonical catalog: `agents/shared/injection-patterns.md` Section B.
+ * Each entry's `patternId` matches a row in the catalog. The sync test at
+ * `src/__tests__/pipeline/injectionPatternsSync.test.ts` asserts every ID
+ * here appears in the catalog.
  */
-const LEARNINGS_INJECTION_PATTERNS: RegExp[] = [
+const LEARNINGS_INJECTION_PATTERNS: { patternId: string; pattern: RegExp }[] = [
   // Fake section headers that mimic system/agent instructions
-  /^#{1,2}\s*(system\s+prompt|instructions|you\s+are|role)\s*:/im,
+  {
+    patternId: "P-LEARN-01",
+    pattern: /^#{1,2}\s*(system\s+prompt|instructions|you\s+are|role)\s*:/im,
+  },
   // Embedded YAML frontmatter trying to override agent config
-  /^---\s*\n[\s\S]*?(protected|scope|model)\s*:/m,
+  {
+    patternId: "P-LEARN-02",
+    pattern: /^---\s*\n[\s\S]*?(protected|scope|model)\s*:/m,
+  },
   // Attempts to reference or override other agents' context
-  /(?:override|replace|ignore)\s+(?:agent|rule|skill)\s+/i,
+  {
+    patternId: "P-LEARN-03",
+    pattern: /(?:override|replace|ignore)\s+(?:agent|rule|skill)\s+/i,
+  },
   // Fake managed block markers to inject into merge output
-  /HATCH3R:(BEGIN|END)/,
+  {
+    patternId: "P-LEARN-04",
+    pattern: /HATCH3R:(BEGIN|END)/,
+  },
   // Attempts to inject tool invocations
-  /<(?:tool_use|function_call|antml:invoke)\b/i,
+  {
+    patternId: "P-LEARN-05",
+    pattern: /<(?:tool_use|function_call|antml:invoke)\b/i,
+  },
 ];
+
+/**
+ * Exported view of `LEARNINGS_INJECTION_PATTERNS` pattern IDs for the catalog
+ * synchronization test. External consumers should use `validateLearningContent`.
+ */
+export const LEARNINGS_INJECTION_PATTERN_IDS: readonly string[] =
+  LEARNINGS_INJECTION_PATTERNS.map((p) => p.patternId);
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -164,7 +191,7 @@ export function sanitizeLearningsContent(
   let result = content;
 
   // Check learnings-specific injection patterns
-  for (const pattern of LEARNINGS_INJECTION_PATTERNS) {
+  for (const { pattern } of LEARNINGS_INJECTION_PATTERNS) {
     const globalPattern = new RegExp(
       pattern.source,
       pattern.flags.includes("g") ? pattern.flags : pattern.flags + "g",

@@ -1,7 +1,8 @@
 ---
 id: hatch3r-rule-customize
 type: command
-description: Configure per-rule customization including scope overrides, description changes, enable/disable control, and project-specific markdown instructions
+orchestrator: false
+description: Edit rule scope globs, toggle always-on versus conditional activation, and adjust precedence tier via .hatch3r/rules/ YAML overrides plus markdown appends
 tags: [customize]
 quality_charter: agents/shared/quality-charter.md
 ---

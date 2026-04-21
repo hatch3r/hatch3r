@@ -1,6 +1,7 @@
 ---
 description: Security patterns including input validation, auth enforcement, and AI/agentic security for the project
 globs: ["**/auth/**", "**/security/**", "**/middleware/**", "**/*auth*", "**/*guard*", "**/*policy*", "**/*permission*", "**/*sanitiz*", "**/*validat*"]
+alwaysApply: false
 ---
 # Security Patterns
 
@@ -51,7 +52,7 @@ globs: ["**/auth/**", "**/security/**", "**/middleware/**", "**/*auth*", "**/*gu
 ### ASI01 — Agent Goal Hijack
 
 - Separate system prompts from user input with clear delimiters. Never allow user content to override system instructions.
-- Implement input guardrails: scan user messages for injection patterns before LLM processing.
+- Implement input guardrails: scan user messages for injection patterns before LLM processing. Canonical pattern catalog: `agents/shared/injection-patterns.md` (Sections A, B, C enumerate pipeline, learnings-storage, and user-facing screening patterns respectively).
 - Enforce instruction hierarchy: system > developer > user. Reject attempts to redefine agent purpose.
 - Defend against indirect prompt injection: sanitize and tag content retrieved from external sources (RAG, web, files) before including in context.
 
@@ -199,7 +200,7 @@ globs: ["**/auth/**", "**/security/**", "**/middleware/**", "**/*auth*", "**/*gu
 ### A08 — Software and Data Integrity Failures
 
 - Verify integrity of all software updates, dependencies, and CI/CD pipeline artifacts using digital signatures or checksums.
-- Use lockfiles and verify their integrity. `npm ci` (not `npm install`) in CI to ensure deterministic builds.
+- Use lockfiles and verify their integrity. `npm ci` (not `npm install`) in CI for deterministic builds that fail on lockfile drift.
 - CI/CD pipelines: require code review for all changes, enforce branch protection, sign commits where feasible.
 - Never deserialize untrusted data without validation. Use schemas (zod, JSON Schema) to validate structure before processing.
 - Protect CI/CD secrets and permissions: restrict who can modify pipeline configuration, require approval for deployment steps.

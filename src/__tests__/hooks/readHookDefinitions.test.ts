@@ -186,4 +186,179 @@ describe("readHookDefinitions with inline fixtures", () => {
     const hooks = await readHookDefinitions(agentsDir);
     expect(hooks.length).toBe(0);
   });
+
+  // D5-SA5.7-H3: Invalid event, missing frontmatter fields, malformed YAML,
+  // and duplicate IDs must surface via the warnings channel instead of
+  // silently dropping the hook (Silent Failure Contract, CONSTITUTION §2 P5).
+  describe("D5-SA5.7-H3 diagnostic warnings", () => {
+    it("emits INVALID_EVENT warning when event is not in the enum", async () => {
+      const agentsDir = await setupHooksDir();
+      await writeFile(
+        join(agentsDir, "hooks", "typo-event.md"),
+        "---\nid: typo-hook\nevent: pre-comit\nagent: checker\n---\n# Typo\n",
+        "utf-8",
+      );
+
+      const warnings: string[] = [];
+      const hooks = await readHookDefinitions(agentsDir, warnings);
+
+      expect(hooks.length).toBe(0);
+      expect(warnings.length).toBe(1);
+      expect(warnings[0]).toContain("INVALID_EVENT");
+      expect(warnings[0]).toContain("pre-comit");
+      expect(warnings[0]).toContain("typo-event.md");
+      // Ensure the warning lists valid event names so the user can self-correct
+      expect(warnings[0]).toContain("pre-commit");
+    });
+
+    it("emits MISSING_FIELD warning when required frontmatter fields are absent", async () => {
+      const agentsDir = await setupHooksDir();
+      await writeFile(
+        join(agentsDir, "hooks", "missing-agent.md"),
+        "---\nid: incomplete\nevent: pre-commit\n---\n# Incomplete\n",
+        "utf-8",
+      );
+
+      const warnings: string[] = [];
+      const hooks = await readHookDefinitions(agentsDir, warnings);
+
+      expect(hooks.length).toBe(0);
+      expect(warnings.length).toBe(1);
+      expect(warnings[0]).toContain("MISSING_FIELD");
+      expect(warnings[0]).toContain("agent");
+    });
+
+    it("emits NO_FRONTMATTER warning when file has no --- block", async () => {
+      const agentsDir = await setupHooksDir();
+      await writeFile(
+        join(agentsDir, "hooks", "plain.md"),
+        "# Just prose, no frontmatter\n",
+        "utf-8",
+      );
+
+      const warnings: string[] = [];
+      const hooks = await readHookDefinitions(agentsDir, warnings);
+
+      expect(hooks.length).toBe(0);
+      expect(warnings.length).toBe(1);
+      expect(warnings[0]).toContain("NO_FRONTMATTER");
+    });
+
+    it("emits DUPLICATE_ID warning when the same hook id appears in two files", async () => {
+      const agentsDir = await setupHooksDir();
+      await writeFile(
+        join(agentsDir, "hooks", "a-first.md"),
+        "---\nid: dup-hook\nevent: pre-commit\nagent: agent-a\n---\n# First\n",
+        "utf-8",
+      );
+      await writeFile(
+        join(agentsDir, "hooks", "b-second.md"),
+        "---\nid: dup-hook\nevent: pre-commit\nagent: agent-b\n---\n# Second\n",
+        "utf-8",
+      );
+
+      const warnings: string[] = [];
+      const hooks = await readHookDefinitions(agentsDir, warnings);
+
+      // First wins; duplicate is rejected with a diagnostic
+      expect(hooks.length).toBe(1);
+      expect(hooks[0].agent).toBe("agent-a");
+      expect(warnings.length).toBe(1);
+      expect(warnings[0]).toContain("DUPLICATE_ID");
+      expect(warnings[0]).toContain("b-second.md");
+    });
+
+    it("does not emit warnings for valid hooks", async () => {
+      const agentsDir = await setupHooksDir();
+      await writeFile(
+        join(agentsDir, "hooks", "valid.md"),
+        "---\nid: valid-hook\nevent: session-start\nagent: loader\n---\n# Valid\n",
+        "utf-8",
+      );
+
+      const warnings: string[] = [];
+      const hooks = await readHookDefinitions(agentsDir, warnings);
+
+      expect(hooks.length).toBe(1);
+      expect(warnings.length).toBe(0);
+    });
+
+    it("omits diagnostics when no warnings array is passed (back-compat)", async () => {
+      const agentsDir = await setupHooksDir();
+      await writeFile(
+        join(agentsDir, "hooks", "bad.md"),
+        "---\nid: bad\nevent: not-an-event\nagent: a\n---\n# Bad\n",
+        "utf-8",
+      );
+
+      // Single-arg call (existing API) must continue to return empty array.
+      const hooks = await readHookDefinitions(agentsDir);
+      expect(hooks.length).toBe(0);
+    });
+  });
+
+  // C8-D2-M3 (D2-SA2.2-3): `readdir({recursive:true})` can enumerate through
+  // symlinks, which risks infinite recursion and cross-repo reads. The
+  // lstat-gate inside the reader now skips symbolic links and emits a
+  // SYMLINK_SKIPPED diagnostic so the skip is not silent.
+  describe("C8-D2-M3 symlink skip", () => {
+    it.skipIf(process.platform === "win32")(
+      "skips a symbolic link inside hooks/ and surfaces SYMLINK_SKIPPED",
+      async () => {
+        const agentsDir = await setupHooksDir();
+        const { symlink } = await import("node:fs/promises");
+        // Real hook that must still load.
+        await writeFile(
+          join(agentsDir, "hooks", "real.md"),
+          "---\nid: real-hook\nevent: session-start\nagent: loader\n---\n# Real\n",
+          "utf-8",
+        );
+        // Symlink inside hooks/ pointing at the real hook. Without the
+        // lstat-gate, readdir(recursive) would enumerate this as a separate
+        // entry and parseHookFrontmatter would reject it as a duplicate id.
+        // With the gate, it is skipped and the SYMLINK_SKIPPED warning fires.
+        await symlink(join(agentsDir, "hooks", "real.md"), join(agentsDir, "hooks", "link.md"));
+
+        const warnings: string[] = [];
+        const hooks = await readHookDefinitions(agentsDir, warnings);
+
+        // Exactly one hook loaded — the symlink did not double-register.
+        expect(hooks.length).toBe(1);
+        expect(hooks[0].id).toBe("real-hook");
+        // The symlink skip surfaces as a diagnostic (not silent).
+        expect(warnings.some((w) => w.includes("SYMLINK_SKIPPED") && w.includes("link.md"))).toBe(true);
+        // And no DUPLICATE_ID warning — the symlink was rejected before the
+        // duplicate-id check ran, so operators aren't confused into thinking
+        // they wrote two hooks with the same id.
+        expect(warnings.some((w) => w.includes("DUPLICATE_ID"))).toBe(false);
+      },
+    );
+
+    it.skipIf(process.platform === "win32")(
+      "skips dangling symlinks without throwing",
+      async () => {
+        const agentsDir = await setupHooksDir();
+        const { symlink } = await import("node:fs/promises");
+        // Symlink pointing at a path that does not exist. Before the
+        // lstat-gate, readFile(fullPath) would throw ENOENT and abort the
+        // read. With the gate, the dangling link is skipped cleanly.
+        await symlink(
+          join(agentsDir, "hooks", "missing.md"),
+          join(agentsDir, "hooks", "dangling.md"),
+        );
+        await writeFile(
+          join(agentsDir, "hooks", "real.md"),
+          "---\nid: real-hook\nevent: session-start\nagent: loader\n---\n# Real\n",
+          "utf-8",
+        );
+
+        const warnings: string[] = [];
+        const hooks = await readHookDefinitions(agentsDir, warnings);
+
+        expect(hooks.length).toBe(1);
+        expect(hooks[0].id).toBe("real-hook");
+        expect(warnings.some((w) => w.includes("SYMLINK_SKIPPED") && w.includes("dangling.md"))).toBe(true);
+      },
+    );
+  });
 });

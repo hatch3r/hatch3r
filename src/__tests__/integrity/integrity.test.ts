@@ -557,6 +557,98 @@ describe("integrity", () => {
     });
   });
 
+  // D1-SA1.3.2 (High): expectedAdapters / successfulAdapters fields
+  describe("generateIntegrityManifest — adapter metadata", () => {
+    it("omits expectedAdapters and successfulAdapters when options are not provided", async () => {
+      const manifest = await generateIntegrityManifest(agentsDir, "1.0.0");
+      expect(manifest.expectedAdapters).toBeUndefined();
+      expect(manifest.successfulAdapters).toBeUndefined();
+    });
+
+    it("records expectedAdapters when supplied via options", async () => {
+      const manifest = await generateIntegrityManifest(agentsDir, "1.0.0", {
+        expectedAdapters: ["cursor", "claude"],
+      });
+      // Array is sorted deterministically
+      expect(manifest.expectedAdapters).toEqual(["claude", "cursor"]);
+    });
+
+    it("records successfulAdapters when supplied via options", async () => {
+      const manifest = await generateIntegrityManifest(agentsDir, "1.0.0", {
+        expectedAdapters: ["cursor", "claude"],
+        successfulAdapters: ["cursor"],
+      });
+      expect(manifest.successfulAdapters).toEqual(["cursor"]);
+      expect(manifest.expectedAdapters).toEqual(["claude", "cursor"]);
+    });
+
+    it("round-trips adapter fields through write/read", async () => {
+      const manifest = await generateIntegrityManifest(agentsDir, "1.0.0", {
+        expectedAdapters: ["cursor", "claude", "copilot"],
+        successfulAdapters: ["cursor", "copilot"],
+      });
+      await writeIntegrityManifest(agentsDir, manifest);
+      const loaded = await readIntegrityManifest(agentsDir);
+      expect(loaded!.expectedAdapters).toEqual(["claude", "copilot", "cursor"]);
+      expect(loaded!.successfulAdapters).toEqual(["copilot", "cursor"]);
+    });
+
+    it("rejects malformed expectedAdapters (non-array)", async () => {
+      const files = { "agents/test.md": "sha256:abc" };
+      const checksum = createHash("sha256")
+        .update(JSON.stringify(files))
+        .digest("hex");
+      const raw = JSON.stringify({
+        version: 1,
+        generated: "2026-03-04T12:00:00.000Z",
+        hatchVersion: "1.0.0",
+        expectedAdapters: "cursor", // Not an array
+        files,
+        checksum,
+      });
+      await writeFile(join(agentsDir, ".integrity.json"), raw);
+      const loaded = await readIntegrityManifest(agentsDir);
+      expect(loaded).toBeNull();
+    });
+
+    it("rejects malformed successfulAdapters (non-string element)", async () => {
+      const files = { "agents/test.md": "sha256:abc" };
+      const checksum = createHash("sha256")
+        .update(JSON.stringify(files))
+        .digest("hex");
+      const raw = JSON.stringify({
+        version: 1,
+        generated: "2026-03-04T12:00:00.000Z",
+        hatchVersion: "1.0.0",
+        successfulAdapters: ["cursor", 42], // Mixed types
+        files,
+        checksum,
+      });
+      await writeFile(join(agentsDir, ".integrity.json"), raw);
+      const loaded = await readIntegrityManifest(agentsDir);
+      expect(loaded).toBeNull();
+    });
+
+    it("accepts manifests without adapter fields (backward compat)", async () => {
+      const files = { "agents/test.md": "sha256:abc" };
+      const checksum = createHash("sha256")
+        .update(JSON.stringify(files))
+        .digest("hex");
+      const raw = JSON.stringify({
+        version: 1,
+        generated: "2026-03-04T12:00:00.000Z",
+        hatchVersion: "1.5.0",
+        files,
+        checksum,
+      });
+      await writeFile(join(agentsDir, ".integrity.json"), raw);
+      const loaded = await readIntegrityManifest(agentsDir);
+      expect(loaded).not.toBeNull();
+      expect(loaded!.expectedAdapters).toBeUndefined();
+      expect(loaded!.successfulAdapters).toBeUndefined();
+    });
+  });
+
   describe("generateIntegrityManifest — checksum", () => {
     it("should produce a deterministic checksum from the files map", async () => {
       await mkdir(join(agentsDir, "agents"), { recursive: true });

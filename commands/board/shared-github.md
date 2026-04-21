@@ -104,7 +104,7 @@ Read the mapping from `board.statusOptions` in `.agents/hatch.json`:
 1. **Resolve project node ID** (once per run, cache for the run): `gh project view {board.projectNumber} --owner {board.owner} --format json -q '.id'`. Required for step 3.
 2. **Add to board + capture item ID:** `gh project item-add {board.projectNumber} --owner {board.owner} --url https://github.com/{board.owner}/{board.repo}/issues/{N} --format json -q '.id'`. **Capture the item ID from the output.** This call is idempotent -- if the item already exists on the board it returns the existing item with its ID.
 3. **Update status:** `gh project item-edit --id {item_id} --project-id {project_node_id} --field-id {board.statusFieldId} --single-select-option-id {option_id}` using the label→option mapping from the table above.
-4. **Verify (first sync per run only):** After step 3, optionally confirm via `gh project item-list {board.projectNumber} --owner {board.owner} --format json` that the item's status matches. If it does not, retry step 3 once.
+4. **Verify (mandatory, every sync):** After step 3, confirm via `gh project item-list {board.projectNumber} --owner {board.owner} --format json -q '.[] | select(.content.number == {N}) | .status'` that the item's status matches the intended option ID. On mismatch, retry step 3 once; if still mismatched, record the failure per rule 8 of Board Sync Enforcement in `hatch3r-board-shared` (retry-then-halt fallback policy).
 
 **For PRs:** Use `--url https://github.com/{board.owner}/{board.repo}/pull/{N}` in step 2.
 
@@ -112,7 +112,9 @@ Read the mapping from `board.statusOptions` in `.agents/hatch.json`:
 
 **MCP fallback:** If gh CLI fails, `project` scope is unavailable, or gh version is too old, fall back to `projects_write` / `projects_get` / `projects_list` with `method: add_project_item`, `method: update_project_item`, `method: get_project_item`, `method: list_project_items` as in the legacy procedure.
 
-**Resilience:** If any call fails, retry once. If it still fails, surface a warning to the user and continue with the next item. If gh CLI and MCP are both unavailable, skip sync silently and warn: "Projects v2 sync skipped -- run `gh auth refresh -s project` or enable the `projects` toolset in your MCP configuration."
+**Resilience:** On any single-call failure, apply rule 8 of Board Sync Enforcement (retry-then-halt fallback policy): two retries with 2-second and 8-second backoffs. If gh CLI and MCP are both unavailable, halt the command with: "Board sync cannot proceed: neither gh CLI nor Projects v2 MCP are available. Run `gh auth refresh -s project` or enable the `projects` toolset in your MCP configuration, then re-run this command." Silent skipping is prohibited (rule 5 of Board Sync Enforcement).
+
+**Option-mapping race rule:** The sync mutation (step 3) uses `option_id` from the local label-to-option mapping table (at the top of this section) computed at the moment the caller set the status label. Do not re-read the issue's current labels to derive `option_id` -- that introduces a race with GraphQL propagation where the label may not yet be visible. The mapping table is the source of truth for this call.
 
 ---
 

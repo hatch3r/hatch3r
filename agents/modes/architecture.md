@@ -2,6 +2,7 @@
 id: researcher-mode-architecture
 type: mode
 description: Design the architectural approach with data model changes, API contracts, and component design.
+tags: [core, planning, implementation]
 parent: hatch3r-researcher
 quality_charter: agents/shared/quality-charter.md
 ---

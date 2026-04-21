@@ -246,6 +246,97 @@ describe("GeminiAdapter", () => {
     expect(commands.length).toBe(0);
   });
 
+  // ── Wave B4: rule precedence ordering ──
+  describe("rule precedence ordering", () => {
+    let precedenceDir: string;
+
+    beforeAll(async () => {
+      precedenceDir = await mkdtemp(join(tmpdir(), "hatch3r-gemini-precedence-"));
+      await cp(FIXTURES_DIR, precedenceDir, { recursive: true });
+      // Replace the default rules fixtures with 3 rules whose precedence
+      // buckets (critical/normal/low) make sort order detectable from the
+      // emitted content. Using distinct rule ids plus distinct body strings
+      // lets the assertion check both id ordering and body ordering inside
+      // the single inlined GEMINI.md file.
+      const rulesDir = join(precedenceDir, "rules");
+      await rm(rulesDir, { recursive: true, force: true });
+      await mkdir(rulesDir, { recursive: true });
+      await writeFile(
+        join(rulesDir, "rule-low.md"),
+        [
+          "---",
+          "id: rule-low",
+          "type: rule",
+          "description: low precedence rule",
+          "scope: always",
+          "precedence: low",
+          "---",
+          "# Rule Low",
+          "",
+          "LOW_PRECEDENCE_BODY_MARKER",
+          "",
+        ].join("\n"),
+      );
+      await writeFile(
+        join(rulesDir, "rule-normal.md"),
+        [
+          "---",
+          "id: rule-normal",
+          "type: rule",
+          "description: normal precedence rule",
+          "scope: always",
+          "precedence: normal",
+          "---",
+          "# Rule Normal",
+          "",
+          "NORMAL_PRECEDENCE_BODY_MARKER",
+          "",
+        ].join("\n"),
+      );
+      await writeFile(
+        join(rulesDir, "rule-critical.md"),
+        [
+          "---",
+          "id: rule-critical",
+          "type: rule",
+          "description: critical precedence rule",
+          "scope: always",
+          "precedence: critical",
+          "---",
+          "# Rule Critical",
+          "",
+          "CRITICAL_PRECEDENCE_BODY_MARKER",
+          "",
+        ].join("\n"),
+      );
+    });
+
+    afterAll(async () => {
+      await rm(precedenceDir, { recursive: true, force: true });
+    });
+
+    it("inlines rules into GEMINI.md in critical -> normal -> low precedence order", async () => {
+      const manifest = makeManifest();
+      const outputs = await adapter.generate(precedenceDir, manifest);
+
+      const geminiMd = outputs.find((o) => o.path === "GEMINI.md");
+      expect(geminiMd).toBeDefined();
+
+      const criticalIdx = geminiMd!.content.indexOf("CRITICAL_PRECEDENCE_BODY_MARKER");
+      const normalIdx = geminiMd!.content.indexOf("NORMAL_PRECEDENCE_BODY_MARKER");
+      const lowIdx = geminiMd!.content.indexOf("LOW_PRECEDENCE_BODY_MARKER");
+
+      expect(criticalIdx).toBeGreaterThan(-1);
+      expect(normalIdx).toBeGreaterThan(-1);
+      expect(lowIdx).toBeGreaterThan(-1);
+      // Precedence sort places critical (rank 100) before normal (500) before
+      // low (700), so the body markers must appear in that order inside the
+      // single concatenated GEMINI.md output.
+      expect(criticalIdx).toBeLessThan(normalIdx);
+      expect(normalIdx).toBeLessThan(lowIdx);
+    });
+  });
+
   describe("extended MCP scenarios", () => {
     let extendedDir: string;
 

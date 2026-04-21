@@ -76,7 +76,7 @@ export class GeminiAdapter extends BaseAdapter {
     );
 
     if (ctx.features.commands) {
-      const commands = await readCanonicalFiles(ctx.agentsDir, "commands");
+      const commands = await readCanonicalFiles(ctx.agentsDir, "commands", this.warnings);
       for (const cmd of commands) {
         const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, cmd);
         this.warnings.push(...warnings);

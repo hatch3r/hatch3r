@@ -142,6 +142,32 @@ Run `npx hatch3r sync` to regenerate. Content outside managed blocks is preserve
 
 Run `npx hatch3r status` to check. Run `npx hatch3r sync` to fix drift.
 
+### Sync removed an adapter output file
+
+On every run, `hatch3r sync` unlinks files previously recorded under `managedFilesByAdapter` in `hatch.json` but no longer emitted by the current adapter set (orphan cleanup, implemented in `src/merge/orphanCleanup.ts`). This is expected when an adapter is removed, a canonical item is deleted, or the precedence-prefixed `NN-hatch3r-*` naming supersedes a pre-1.6.0 `hatch3r-*` filename.
+
+Safety refusals skip deletion for: user-wrapped content carrying a `HATCH3R:BEGIN/END` block, paths outside the adapter's output root, non-`hatch3r-`/`NN-hatch3r-` basenames, and first-run cases with no manifest history. If a needed customization was unlinked, restore it from git (`git checkout HEAD -- <path>`) and move the content into a non-`hatch3r-` filename so future syncs leave it alone.
+
+## Validation Errors
+
+### `description is N chars (min 60 required for disambiguation)`
+
+`hatch3r validate` enforces a minimum description length of 60 characters on every canonical agent, skill, rule, and command. Expand the frontmatter `description:` field to describe scope plus primary signal for the artifact.
+
+### `Description collision: ... ↔ ... (cosine=0.NN, cluster=...)`
+
+Two artifacts in the same `(type, primary-tag)` cluster have descriptions that cosine-collide at `>= 0.55`. Rewrite one to emphasize its distinct scope (different trigger, different domain, different output).
+
+## Board Sync Verification
+
+### `board-init` reports workflow verification mismatch
+
+Starting in 1.6.0, `board-init` verifies that the GitHub Project's built-in workflows are enabled (item-closed, PR-merged). If the verification fails, open the Project's workflow settings in the GitHub UI, enable the required workflows, then re-run `npx hatch3r board-init --resume` to persist the verified state into `hatch.json` under `board.workflows`.
+
+### `board-fill` or `board-pickup` halts with "retry budget exceeded"
+
+Board Sync Enforcement rule 10 aborts batch sync once per-run retry count exceeds 20% of batch size. Inspect `.agents/.failure-log.jsonl` for the underlying GraphQL errors (option-mapping race, null option, auth), resolve the root cause, and re-run. Rules 8 and 9 (retry-then-halt with rollback, null-option abort) surface specific halts — treat each as a substantive failure, not a transient retry.
+
 ## Diagnostics and Failure Logs
 
 ### Reading the failure log

@@ -1,7 +1,9 @@
 ---
 id: hatch3r-bug-plan
 type: command
-description: Plan a complex bug investigation -- spawn parallel researchers, produce diagnosis report with ranked hypotheses and structured todo.md entries for board-fill.
+orchestrator: true
+agentPipeline: [hatch3r-researcher, hatch3r-docs-writer]
+description: Diagnose a complex incident -- reproduce the symptom, rank root-cause hypotheses, design the fix path, and emit regression coverage items as a board-ready investigation
 tags: [core, planning]
 quality_charter: agents/shared/quality-charter.md
 ---

@@ -1,6 +1,6 @@
 ---
 id: hatch3r-agent-customize
-description: Agent customization — redirects to the unified hatch3r-customize skill.
+description: Redirect to write agent persona, model, and apply-scope overrides under .hatch3r/agents/ -- use when tailoring a sub-agent for the current repository
 tags: [customize]
 quality_charter: agents/shared/quality-charter.md
 ---

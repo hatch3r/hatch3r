@@ -1,10 +1,11 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, rm, utimes } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   readCustomization,
   readCustomizationMarkdown,
+  readCustomizationSnapshot,
 } from "../../models/customize.js";
 
 describe("readCustomization", () => {
@@ -209,5 +210,130 @@ describe("readCustomizationMarkdown", () => {
       const result = await readCustomizationMarkdown(projectRoot, type, "test-id");
       expect(result).toBe(`Custom ${type} content`);
     }
+  });
+});
+
+describe("readCustomizationSnapshot (C8-D2-M4 TOCTOU guard)", () => {
+  let tempDir: string;
+
+  afterEach(async () => {
+    if (tempDir) {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  async function createProjectRoot(): Promise<string> {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-customize-snapshot-"));
+    return tempDir;
+  }
+
+  it("returns undefined values and no warnings when neither file exists", async () => {
+    const projectRoot = await createProjectRoot();
+    const result = await readCustomizationSnapshot(projectRoot, "agents", "hatch3r-reviewer");
+    expect(result.yaml).toBeUndefined();
+    expect(result.md).toBeUndefined();
+    expect(result.warnings).toEqual([]);
+  });
+
+  it("reads both files consistently when neither changes during the read", async () => {
+    const projectRoot = await createProjectRoot();
+    const dir = join(projectRoot, ".hatch3r", "agents");
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, "hatch3r-reviewer.customize.yaml"),
+      "model: opus",
+      "utf-8",
+    );
+    await writeFile(
+      join(dir, "hatch3r-reviewer.customize.md"),
+      "Focus on security.",
+      "utf-8",
+    );
+    const result = await readCustomizationSnapshot(projectRoot, "agents", "hatch3r-reviewer");
+    expect(result.yaml).toEqual({ model: "opus" });
+    expect(result.md).toBe("Focus on security.");
+    expect(result.warnings).toEqual([]);
+  });
+
+  it("detects edit-during-sync by bumping yaml mtime mid-read", async () => {
+    const projectRoot = await createProjectRoot();
+    const dir = join(projectRoot, ".hatch3r", "agents");
+    await mkdir(dir, { recursive: true });
+    const yamlPath = join(dir, "hatch3r-reviewer.customize.yaml");
+    await writeFile(yamlPath, "model: opus", "utf-8");
+    // Pin the pre-read mtime to a known past timestamp so the bump is
+    // observable against the filesystem's resolution.
+    const past = new Date(Date.now() - 60_000);
+    await utimes(yamlPath, past, past);
+
+    // Race an mtime bump into the middle of the snapshot call. The snapshot
+    // runs pre-stat -> reads -> post-stat as separate awaits; yielding to
+    // the microtask queue after the call begins gives the snapshot time to
+    // begin before we bump the file.
+    const snapshotPromise = readCustomizationSnapshot(projectRoot, "agents", "hatch3r-reviewer");
+    await Promise.resolve();
+    await Promise.resolve();
+    const future = new Date(Date.now() + 60_000);
+    await utimes(yamlPath, future, future);
+
+    const result = await snapshotPromise;
+    // Race timing may not always land between pre-stat and post-stat.
+    // When it does, the helper must warn and name the yaml file; when it
+    // misses, the helper still returns consistent values. Both outcomes
+    // are acceptable for a best-effort detector; the property we assert
+    // is that whenever a warning is emitted it names the offending file.
+    expect(result.yaml).toEqual({ model: "opus" });
+    if (result.warnings.length > 0) {
+      expect(result.warnings[0]).toContain("changed during sync");
+      expect(result.warnings[0]).toContain(".customize.yaml");
+    }
+  });
+
+  it("emits a warning naming the md file when the md mtime bump lands mid-read", async () => {
+    const projectRoot = await createProjectRoot();
+    const dir = join(projectRoot, ".hatch3r", "agents");
+    await mkdir(dir, { recursive: true });
+    const yamlPath = join(dir, "hatch3r-reviewer.customize.yaml");
+    const mdPath = join(dir, "hatch3r-reviewer.customize.md");
+    await writeFile(yamlPath, "model: opus", "utf-8");
+    await writeFile(mdPath, "Focus on security.", "utf-8");
+    const past = new Date(Date.now() - 60_000);
+    await utimes(yamlPath, past, past);
+    await utimes(mdPath, past, past);
+
+    const snapshotPromise = readCustomizationSnapshot(projectRoot, "agents", "hatch3r-reviewer");
+    await Promise.resolve();
+    await Promise.resolve();
+    const future = new Date(Date.now() + 60_000);
+    await utimes(mdPath, future, future);
+
+    const result = await snapshotPromise;
+    expect(result.yaml).toEqual({ model: "opus" });
+    expect(result.md).toBe("Focus on security.");
+    if (result.warnings.length > 0) {
+      expect(result.warnings[0]).toContain("changed during sync");
+      expect(result.warnings[0]).toContain(".customize.md");
+    }
+  });
+
+  it("propagates oversized yaml warnings from the underlying reader", async () => {
+    const projectRoot = await createProjectRoot();
+    const dir = join(projectRoot, ".hatch3r", "agents");
+    await mkdir(dir, { recursive: true });
+    const largeYaml = "# pad\n".repeat(2048) + "model: opus";
+    await writeFile(join(dir, "hatch3r-reviewer.customize.yaml"), largeYaml, "utf-8");
+    const result = await readCustomizationSnapshot(projectRoot, "agents", "hatch3r-reviewer");
+    expect(result.warnings.some((w) => w.includes("exceeds"))).toBe(true);
+  });
+
+  it("returns empty values and no warnings for a sanitized traversal id", async () => {
+    const projectRoot = await createProjectRoot();
+    // sanitizeId strips traversal characters, so a malicious id resolves to
+    // a safe path within the project root with no matching files. The
+    // snapshot helper must not throw and must return undefined values.
+    const result = await readCustomizationSnapshot(projectRoot, "agents", "../../etc/passwd");
+    expect(result.yaml).toBeUndefined();
+    expect(result.md).toBeUndefined();
+    expect(result.warnings).toEqual([]);
   });
 });

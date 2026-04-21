@@ -22,6 +22,35 @@ export type CircuitState = "CLOSED" | "OPEN" | "HALF_OPEN";
 
 export type FailureType = "transient" | "substantive" | "unknown";
 
+/**
+ * C7.5-W2B2-H28 (D8 rollover): Canonical enumeration of external-dependency
+ * failure classes. Used by `classifyDependency` + `getRecoveryGuidance` to
+ * attach actionable recovery text to error messages produced in sync/update
+ * catch blocks. Each class maps 1:1 to an actionable hatch3r remediation
+ * step. The list is closed: any failure not matching one of these classes
+ * is classified as `"unknown"` and given a generic retry hint.
+ *
+ * - `network`: transport-level connectivity (DNS, TCP, socket) to any
+ *   external HTTP endpoint (npm registry, GitHub API, MCP SSE, etc.).
+ * - `filesystem`: local-disk I/O (ENOSPC, EACCES, EMFILE, EROFS, etc.).
+ * - `adapter-spawn`: a spawned adapter subprocess could not be started
+ *   or exited with a non-zero code before producing output.
+ * - `mcp-transport`: MCP server transport (stdio/HTTP) initialization or
+ *   protocol-level handshake failure.
+ * - `package-manager`: npm/pnpm/yarn/bun registry fetch or install failure.
+ * - `auth`: authentication/authorization failure against an external
+ *   service (401/403, invalid token, expired credential).
+ * - `unknown`: nothing above matched; generic retry hint is provided.
+ */
+export type DependencyClass =
+  | "network"
+  | "filesystem"
+  | "adapter-spawn"
+  | "mcp-transport"
+  | "package-manager"
+  | "auth"
+  | "unknown";
+
 export interface CircuitBreakerConfig {
   /** Number of consecutive transient failures before opening the circuit. */
   failureThreshold: number;
@@ -102,6 +131,150 @@ export function classifyFailure(error: unknown): FailureType {
   }
 
   return "unknown";
+}
+
+// ── External-Dependency Classification (C7.5-W2B2-H28, D8) ───────
+
+/**
+ * Classify an error by the external dependency it implicates. This is
+ * orthogonal to `classifyFailure` (which decides *transience*); callers
+ * typically use both: `classifyFailure` decides whether the circuit
+ * breaker trips, `classifyDependency` decides what remediation message
+ * to show the user.
+ *
+ * Matching order is deliberate: errno codes first (most specific),
+ * then MCP-specific message shape, then HTTP auth codes, then generic
+ * network/HTTP signals, then package-manager markers. The first match
+ * wins.
+ */
+export function classifyDependency(error: unknown): DependencyClass {
+  if (!(error instanceof Error)) return "unknown";
+
+  const msg = error.message.toLowerCase();
+  const code = (error as NodeJS.ErrnoException).code;
+
+  // Filesystem errno codes (local disk I/O).
+  if (code === "EACCES" || code === "EPERM" || code === "ENOSPC" ||
+      code === "EROFS" || code === "EISDIR" || code === "EMFILE" ||
+      code === "ENFILE" || code === "ENOTDIR" || code === "EEXIST" ||
+      code === "ENOENT") {
+    return "filesystem";
+  }
+
+  // Network errno codes (DNS, TCP, socket).
+  if (code === "ECONNREFUSED" || code === "ECONNRESET" || code === "ETIMEDOUT" ||
+      code === "ENOTFOUND" || code === "EPIPE" || code === "EAI_AGAIN" ||
+      code === "EHOSTUNREACH" || code === "ENETUNREACH") {
+    return "network";
+  }
+
+  // Subprocess spawn errors (adapter subprocesses, package manager shells).
+  // ENOENT on an executable path surfaces as "spawn <cmd> ENOENT".
+  if (/spawn\s+\S+\s+enoent/i.test(msg) || /spawn\s+\S+\s+eacces/i.test(msg) ||
+      /\badapter\s+.*\s+(failed|did not complete|exited)/i.test(msg) ||
+      /child process exited/i.test(msg)) {
+    // Package-manager shells (npm/pnpm/yarn/bun) bubble up as spawn ENOENT
+    // when the binary is missing; prefer package-manager classification.
+    if (/spawn\s+(npm|pnpm|yarn|bun)\b/i.test(msg)) return "package-manager";
+    return "adapter-spawn";
+  }
+
+  // MCP-specific transport markers.
+  if (/\bmcp\b/i.test(msg) || /model context protocol/i.test(msg) ||
+      /sse (stream|transport)/i.test(msg) ||
+      /stdio transport/i.test(msg)) {
+    return "mcp-transport";
+  }
+
+  // Authentication / authorization failures.
+  if (/\b(401|403)\b/.test(msg) || /unauthorized/i.test(msg) ||
+      /forbidden/i.test(msg) || /invalid (token|credential|api.?key)/i.test(msg) ||
+      /expired (token|credential)/i.test(msg)) {
+    return "auth";
+  }
+
+  // Package-manager / registry markers.
+  if (/\bnpm\b/i.test(msg) || /\bpnpm\b/i.test(msg) || /\byarn\b/i.test(msg) ||
+      /registry\.npmjs\.org/i.test(msg) || /package.*not.*found/i.test(msg) ||
+      /ETARGET|E404/.test(msg)) {
+    return "package-manager";
+  }
+
+  // Generic HTTP / network signals (after errno matches).
+  if (/\b(502|503|504|429)\b/.test(msg) || /service unavailable/i.test(msg) ||
+      /gateway timeout/i.test(msg) || /bad gateway/i.test(msg) ||
+      /too many requests/i.test(msg) ||
+      /\bfetch failed\b/i.test(msg) || /\bnetwork\b/i.test(msg) ||
+      /timeout|timed out/i.test(msg)) {
+    return "network";
+  }
+
+  return "unknown";
+}
+
+/**
+ * Return a single-line recovery hint for the given dependency class.
+ * Callers should append this to the user-facing error message so the
+ * CLI satisfies P1 (actionable errors) per cli-ux-standards.md and
+ * D8-SA8.1-1 (external-dependency failure enumeration with recovery
+ * guidance).
+ *
+ * The hint is a complete sentence (leading capital, trailing period)
+ * so it can be concatenated after the vendor error text with a space
+ * separator.
+ */
+export function getRecoveryGuidance(
+  dependencyClass: DependencyClass,
+  failureType: FailureType = "unknown",
+): string {
+  switch (dependencyClass) {
+    case "network":
+      return failureType === "substantive"
+        ? "Check the endpoint URL and your network configuration, then retry."
+        : "This appears to be a transient network issue. Check connectivity and retry, or set HATCH3R_UPDATE_TIMEOUT_MS to raise the timeout.";
+    case "filesystem":
+      return "Check file permissions and available disk space, then retry. For permission errors, re-run from a writable working directory.";
+    case "adapter-spawn":
+      return "An adapter subprocess failed to start or exited early. Re-run with --verbose to see the adapter's output, or rerun `hatch3r update` to refresh canonical content.";
+    case "mcp-transport":
+      return "MCP server transport failed. Verify the server binary is installed, `.env.mcp` contains the required secrets, and the server is reachable.";
+    case "package-manager":
+      return failureType === "substantive"
+        ? "The package or version was not found. Verify the package name in package.json and your registry configuration."
+        : "Package manager request failed. Retry the command, or set HATCH3R_UPDATE_TIMEOUT_MS to raise the timeout.";
+    case "auth":
+      return "Authentication failed. Check credentials in `.env.mcp` (or your tokens for the underlying service) and retry.";
+    case "unknown":
+    default:
+      return failureType === "transient"
+        ? "This looks like a transient failure. Retry the command."
+        : "Run with --verbose for details, or file an issue at https://github.com/denismasatovic/hatch3r/issues if the failure persists.";
+  }
+}
+
+/**
+ * Convenience helper: produce the full actionable error message for a
+ * caught error by combining the raw message with the classified
+ * recovery guidance. This is the one-liner intended for `logError` in
+ * sync/update catch blocks.
+ *
+ * Example output:
+ *   "claude: request timed out. This appears to be a transient network
+ *    issue. Check connectivity and retry, or set HATCH3R_UPDATE_TIMEOUT_MS
+ *    to raise the timeout."
+ */
+export function formatActionableError(
+  context: string,
+  error: unknown,
+): { message: string; dependencyClass: DependencyClass; failureType: FailureType } {
+  const rawMessage = error instanceof Error ? error.message : String(error);
+  const dependencyClass = classifyDependency(error);
+  const failureType = classifyFailure(error);
+  const guidance = getRecoveryGuidance(dependencyClass, failureType);
+  // Normalize punctuation between raw message and guidance.
+  const trimmed = rawMessage.trimEnd().replace(/[.!?]$/, "");
+  const message = `${context}: ${trimmed}. ${guidance}`;
+  return { message, dependencyClass, failureType };
 }
 
 // ── Implementation ───────────────────────────────────────────────

@@ -1,5 +1,5 @@
 ---
-description: Feature flag patterns and lifecycle for the project
+description: OpenFeature provider interface, percentage-based rollout, kill switches, stale-flag detection, audit logging, and evaluation context rules
 globs: ["**/*feature-flag*", "**/*featureFlag*", "**/*feature_flag*", "**/config/**"]
 alwaysApply: false
 ---

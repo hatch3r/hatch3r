@@ -1,6 +1,6 @@
 ---
 id: hatch3r-command-customize
-description: Command customization — redirects to the unified hatch3r-customize skill.
+description: Redirect to edit orchestrator pipeline and prompt wording for slash commands under .hatch3r/commands/ -- use when changing how a command fans out to sub-agents
 tags: [customize]
 quality_charter: agents/shared/quality-charter.md
 ---

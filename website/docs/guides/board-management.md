@@ -95,3 +95,29 @@ Regenerates the living board overview:
 - Computes board health metrics (missing metadata, stale issues, blocked chains)
 - Assigns recommended models using the quality-first heuristic
 - Updates the `meta:board-overview` issue with status tables, epic progress, and diagnostics
+
+## Sync Hardening (1.6.0)
+
+### Workflow verification in `board-init`
+
+`board-init --resume` performs programmatic verification of GitHub Project workflow settings via GraphQL and persists the result to `hatch.json` under `board.workflows.{itemClosedEnabled, pullRequestMergedEnabled}`. Re-run with `--resume` after adjusting workflow toggles in the GitHub Project UI to pick up the change.
+
+### Reviewer/fixer loop in `board-fill` Step 7.9
+
+Generated issue bodies are treated as specs and passed through a reviewer/fixer loop:
+
+- 6-criteria checklist applied to every generated body
+- Maximum 4 fix iterations per issue
+- Oscillation detection halts the loop if the reviewer flip-flops between states
+
+### Terminal-state verification in `pickup-post-impl` Step 9c
+
+After a PR merges, `pickup-post-impl` confirms the board item has reached a terminal workflow state (label flip + GitHub Projects V2 state check). Mismatches surface as halt-worthy findings rather than silent successes.
+
+### Board Sync Enforcement rules 8-10
+
+`commands/hatch3r-board-shared.md` adds three enforcement rules:
+
+- **Rule 8:** Retry-then-halt with rollback when an option mapping fails twice
+- **Rule 9:** Null-option abort — refuse to proceed when a required status/priority option resolves to null
+- **Rule 10:** 20% batch retry-budget ceiling — halt batch sync once retry count exceeds 20% of batch size

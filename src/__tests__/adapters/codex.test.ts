@@ -56,6 +56,22 @@ describe("CodexAdapter", () => {
     expect(configToml!.content).not.toContain('model_instructions_file = ".agents/AGENTS.md"');
   });
 
+  it("emits project_doc_fallback_filenames per Codex 2026 precedence chain", async () => {
+    // D9-SA9.5.1 / C7.5-W2B2-H36: Codex checks AGENTS.override.md -> AGENTS.md
+    // -> project_doc_fallback_filenames. Registering legacy names surfaces
+    // hatch3r content for projects migrating from pre-2026 Codex layouts.
+    const manifest = makeManifest();
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const configToml = outputs.find((o) => o.path === ".codex/config.toml")!;
+    expect(configToml.content).toContain(
+      'project_doc_fallback_filenames = ["TEAM_GUIDE.md", ".agents.md"]',
+    );
+    // Discovery-precedence documentation is inlined as comments so users
+    // understand why the fallback list is registered.
+    expect(configToml.content).toContain("AGENTS.override.md");
+  });
+
   it("includes rule references in config.toml when rules are enabled", async () => {
     const manifest = makeManifest();
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
@@ -84,7 +100,14 @@ describe("CodexAdapter", () => {
 
     const agent = agentFiles.find((o) => o.path === ".codex/agents/hatch3r-test-agent.toml");
     expect(agent).toBeDefined();
+    // Per the 2026 Codex subagents schema, required top-level keys are
+    // `name`, `description`, `developer_instructions`.
+    expect(agent!.content).toContain('name = "hatch3r-test-agent"');
     expect(agent!.content).toContain('description =');
+    expect(agent!.content).toContain('developer_instructions = """');
+    expect(agent!.content).toContain('"""');
+    // Body of the agent is embedded as the instructions payload.
+    expect(agent!.content).toContain("You are a test agent");
     // model_instructions_file is legacy/reserved — Codex discovers AGENTS.md natively
     expect(agent!.content).not.toContain('model_instructions_file');
 
@@ -158,6 +181,46 @@ You are a test agent.`,
       const agentToml = outputs.find((o) => o.path === ".codex/agents/hatch3r-test-agent.toml");
       expect(agentToml).toBeDefined();
       expect(agentToml!.content).toContain('model = "gpt-4"');
+      // Per the 2026 Codex subagents schema, order is model before
+      // developer_instructions so the instruction payload closes the file.
+      const modelIdx = agentToml!.content.indexOf("model =");
+      const instructionsIdx = agentToml!.content.indexOf("developer_instructions");
+      expect(modelIdx).toBeGreaterThan(-1);
+      expect(instructionsIdx).toBeGreaterThan(modelIdx);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("escapes triple-quote sequences inside agent developer_instructions", async () => {
+    // C7.5-W2B2-H36: the multi-line basic string terminator is `"""`. Any
+    // `"""` inside the instruction body must be broken so the TOML parser
+    // does not terminate the string early.
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-codex-triplequote-"));
+    try {
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "agents"), { recursive: true });
+      await writeFile(
+        join(agentsDir, "agents", "triplequote-agent.md"),
+        `---
+id: triplequote-agent
+type: agent
+description: Agent body contains a TOML terminator sequence
+---
+This body has a literal """ triple-quote sequence.
+Use a \\\\ backslash too.`,
+        "utf-8",
+      );
+      const manifest = makeManifest();
+      const outputs = await adapter.generate(agentsDir, manifest);
+      const agentToml = outputs.find((o) => o.path === ".codex/agents/hatch3r-triplequote-agent.toml");
+      expect(agentToml).toBeDefined();
+      // Triple-quote must be broken by an escape so the TOML string does
+      // not terminate early.
+      expect(agentToml!.content).not.toContain('""" triple-quote');
+      expect(agentToml!.content).toContain('""\\" triple-quote');
+      // Double backslash in source markdown escapes to quadruple in TOML.
+      expect(agentToml!.content).toContain("\\\\\\\\ backslash");
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }

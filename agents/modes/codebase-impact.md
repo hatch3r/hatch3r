@@ -2,6 +2,7 @@
 id: researcher-mode-codebase-impact
 type: mode
 description: Analyze current codebase to understand what exists in the areas the subject touches.
+tags: [core, planning, review]
 parent: hatch3r-researcher
 quality_charter: agents/shared/quality-charter.md
 ---

@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import chalk from "chalk";
 import inquirer from "inquirer";
-import { readManifest, writeManifest } from "../../manifest/hatchJson.js";
+import { readManifest, writeManifest, isValidGitBranchName } from "../../manifest/hatchJson.js";
 import {
   AGENTS_DIR,
   DEFAULT_FEATURES,
@@ -27,7 +27,7 @@ import {
   label,
   warn,
 } from "../shared/ui.js";
-import { runUpdate } from "./update.js";
+import { runRegenerate } from "./update.js";
 import { archiveToolOutputs, removeManagedFilesForPaths, type MigrationNotice } from "../../archive/index.js";
 import { findPackageRoot } from "../shared/paths.js";
 import { readWorkspaceManifest, writeWorkspaceManifest } from "../../workspace/manifest.js";
@@ -273,6 +273,17 @@ export async function configCommand(): Promise<void> {
       name: "defaultBranch",
       message: "Default branch (for checkout, PR base, release):",
       default: currentBranch,
+      // C8-D1-M9: reject values that fail `git check-ref-format`. Matches
+      // the init.ts default-branch prompt so an invalid ref cannot reach
+      // `manifest.board.defaultBranch`.
+      validate: (v: string) => {
+        const trimmed = v.trim();
+        if (trimmed === "") return true;
+        return (
+          isValidGitBranchName(trimmed) ||
+          `Invalid git branch name: "${trimmed}". See git-check-ref-format(1).`
+        );
+      },
     },
   ]);
   const defaultBranch = branchAnswer.defaultBranch.trim() || currentBranch;
@@ -576,9 +587,12 @@ export async function configCommand(): Promise<void> {
     });
   }
 
-  // --- Run full update (pull latest + copy templates + sync adapters) ---
+  // --- Regenerate from currently-installed package (no network fetch) ---
+  // C7-H9 (D1): Config changes only need to copy canonical content and
+  // re-run adapters — not fetch a newer package. Using `runRegenerate`
+  // skips the 30s npm update step that offered no value here.
   console.log();
-  const updateResult = await runUpdate(rootDir, manifest);
+  const updateResult = await runRegenerate(rootDir, manifest);
 
   // --- Handle .env.mcp for new MCP servers ---
   if (features.mcp && mcpServers.length > 0) {
@@ -777,7 +791,22 @@ export async function configCommand(): Promise<void> {
             const identity = await inquirer.prompt<{ owner: string; repo: string; defaultBranch: string }>([
               { type: "input", name: "owner", message: "  Owner:", default: repo.owner || undefined },
               { type: "input", name: "repo", message: "  Repo:", default: repo.repo || undefined },
-              { type: "input", name: "defaultBranch", message: "  Default branch:", default: repo.defaultBranch || "main" },
+              {
+                type: "input",
+                name: "defaultBranch",
+                message: "  Default branch:",
+                default: repo.defaultBranch || "main",
+                // C8-D1-M9: enforce `git check-ref-format` on per-repo
+                // identity prompts in workspace config.
+                validate: (v: string) => {
+                  const trimmed = v.trim();
+                  if (trimmed === "") return true;
+                  return (
+                    isValidGitBranchName(trimmed) ||
+                    `Invalid git branch name: "${trimmed}". See git-check-ref-format(1).`
+                  );
+                },
+              },
             ]);
             repo.owner = sanitizeInput(identity.owner) || undefined;
             repo.repo = sanitizeInput(identity.repo) || undefined;
@@ -801,10 +830,25 @@ export async function configCommand(): Promise<void> {
       ]);
       wsManifestFinal.syncStrategy = strategy;
 
-      await writeWorkspaceManifest(rootDir, wsManifestFinal);
-
-      // Offer to sync now
+      // C8-D1-M7 (D1 Medium): Atomicity — sync BEFORE persisting the workspace
+      // manifest so the manifest reflects the last successful state. If sync
+      // fails, surface the partial outcome to the user before the persist so
+      // they know the on-disk manifest may reference un-synced state.
+      //
+      // Ordering rationale:
+      //   1. Prompt for sync-now (user intent)
+      //   2. Attempt sync against the new in-memory config
+      //   3. Persist the manifest after sync resolves (success / declined /
+      //      zero-repos / error — we persist in every case so the user does
+      //      not silently lose their repo/sync selections, but we warn on
+      //      error so they know to reconcile with `hatch3r sync`).
+      //
+      // See: https://en.wikipedia.org/wiki/ACID — atomicity at the command
+      // boundary. Either both (manifest + propagation) commit, or the user
+      // is told which half failed.
       const syncCount = wsManifestFinal.repos.filter((r) => r.sync).length;
+      let syncAttempted = false;
+      let syncFailed = false;
       if (syncCount > 0) {
         const { syncNow } = await inquirer.prompt<{ syncNow: boolean }>([
           {
@@ -815,12 +859,44 @@ export async function configCommand(): Promise<void> {
           },
         ]);
         if (syncNow) {
+          syncAttempted = true;
           const wsSpinner = createSpinner(`Syncing ${syncCount} repo(s)...`);
           wsSpinner.start();
-          const result = await syncWorkspaceRepos(rootDir, { onWarn: (msg) => warn(msg) });
-          const succeeded = result.repos.filter((r) => r.action === "synced").length;
-          wsSpinner.succeed(`Workspace sync: ${succeeded} repo(s) synced`);
+          try {
+            const result = await syncWorkspaceRepos(rootDir, { onWarn: (msg) => warn(msg) });
+            const succeeded = result.repos.filter((r) => r.action === "synced").length;
+            const errored = result.repos.filter((r) => r.action === "error").length;
+            if (errored > 0) {
+              syncFailed = true;
+              wsSpinner.fail(
+                `Workspace sync: ${succeeded}/${result.repos.length} repo(s) synced ` +
+                `(${errored} failed — manifest will still be persisted so retry is possible)`,
+              );
+            } else {
+              wsSpinner.succeed(`Workspace sync: ${succeeded} repo(s) synced`);
+            }
+          } catch (err) {
+            syncFailed = true;
+            wsSpinner.fail(
+              `Workspace sync failed: ${err instanceof Error ? err.message : String(err)} ` +
+              `(manifest will still be persisted so retry is possible)`,
+            );
+          }
         }
+      }
+
+      // Persist the workspace manifest AFTER sync completes (or is declined).
+      // We persist even on sync failure so the user does not lose their
+      // in-memory repo/sync/strategy selections — but the warning below
+      // tells them the on-disk manifest now references un-synced state that
+      // should be reconciled by re-running `hatch3r sync`.
+      await writeWorkspaceManifest(rootDir, wsManifestFinal);
+
+      if (syncAttempted && syncFailed) {
+        warn(
+          "Workspace manifest persisted, but one or more sub-repos did not " +
+          "sync — re-run `hatch3r sync` to reconcile.",
+        );
       }
     } else if (wsContext.type === "workspace-root") {
       // Even without managing repos/sync, save workspace defaults

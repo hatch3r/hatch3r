@@ -1,6 +1,8 @@
 ---
 id: hatch3r-workflow
 type: command
+orchestrator: true
+agentPipeline: [hatch3r-researcher, hatch3r-implementer, hatch3r-reviewer, hatch3r-fixer, hatch3r-test-writer, hatch3r-security-auditor, hatch3r-docs-writer, hatch3r-lint-fixer, hatch3r-a11y-auditor, hatch3r-perf-profiler]
 description: Guided development lifecycle with 4 phases (Analyze, Plan, Implement, Review) and scale-adaptive Quick Mode for small tasks.
 tags: [core, implementation]
 quality_charter: agents/shared/quality-charter.md
@@ -46,6 +48,14 @@ If **no**: all browser verification steps are skipped silently throughout the en
 ## Token-Saving Directives
 
 Follow the **Token-Saving Directives** in `hatch3r-board-shared`.
+
+## Confidence Propagation Contract
+
+Every sub-agent delegation prompt in this command MUST include the confidence expression requirement below (verbatim). Sub-agents are invoked with the `quality_charter: agents/shared/quality-charter.md` reference in their frontmatter, but the orchestrator repeats the directive to override runtime prompt defaults per the charter §1 rule.
+
+> Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
+
+Downstream propagation: every ASK checkpoint that reports verification quality, every gate that evaluates a sub-agent verdict, and every output block that surfaces merge-readiness MUST carry a high/medium/low confidence rating sourced from the upstream sub-agent. Dropping the signal between stages is a gate failure.
 
 ---
 
@@ -262,13 +272,15 @@ Fix any issues before proceeding. If quality checks fail, loop back and resolve 
 
 Spawn a `hatch3r-reviewer` sub-agent via the Task tool (`subagent_type: "generalPurpose"`). Include the diff and acceptance criteria in the prompt.
 
-1. **Review:** Await the reviewer result. Check for Critical and Warning findings.
-2. **If 0 Critical + 0 Warning:** Review loop is clean. Proceed to 4b.
+1. **Review:** Await the reviewer result. Extract Critical and Warning findings AND the reviewer's top-level `confidence` field (high/medium/low).
+2. **Confidence-aware gate:**
+   - **0 Critical + 0 Warning AND reviewer confidence != low:** Review loop is clean. Proceed to 4b.
+   - **0 Critical + 0 Warning AND reviewer confidence == low:** Trigger a second reviewer pass before exiting. Do not proceed to 4b until the second pass returns non-low confidence OR the user explicitly accepts the low-confidence PASS at the ASK checkpoint in step 5.
 3. **If Critical or Warning findings exist:** Spawn a `hatch3r-fixer` sub-agent with the reviewer output. The fixer applies fixes for all Critical and Warning findings.
 4. **Re-review:** After the fixer completes, spawn `hatch3r-reviewer` again to verify fixes.
 5. **Repeat** steps 2-4 for a maximum of **3 iterations**. If still not clean after 3 iterations, **ASK** the user how to proceed (force continue / manual fix / abort).
 
-After each reviewer iteration, assess the reviewer's findings confidence: if the reviewer rates any finding as low-confidence, flag it separately in the ASK prompt so the user can prioritize human review of uncertain findings.
+After each reviewer iteration, assess the reviewer's findings confidence: if the reviewer rates any finding as low-confidence, flag it separately in the ASK prompt so the user can prioritize human review of uncertain findings. The reviewer sub-agent output MUST include a top-level `confidence: high | medium | low` field (not just per-finding) so step 2 can evaluate it deterministically.
 
 Each reviewer/fixer sub-agent prompt MUST include:
 - The agent protocol to follow.

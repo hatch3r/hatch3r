@@ -1,14 +1,18 @@
 import { readdir, readFile, access } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { join, posix } from "node:path";
+import { dirname, join, posix } from "node:path";
+import { fileURLToPath } from "node:url";
 import chalk from "chalk";
 import { parse as parseYaml } from "yaml";
 import { readManifest } from "../../manifest/hatchJson.js";
 import { isValidHookEvent } from "../../hooks/types.js";
 import { AGENTS_DIR, HATCH3R_PREFIX, HatchError } from "../../types.js";
 import type { HatchManifest } from "../../types.js";
+import { HATCH3R_VERSION } from "../../version.js";
 import { scanForDeniedPatterns } from "../../adapters/customization.js";
 import { buildContentIndex, validateCrossReferences, validateOrchestrationDependencies } from "../../content/index.js";
+import type { CatalogItem, ContentIndex } from "../../content/index.js";
+import { findPackageRoot } from "../shared/paths.js";
 import { validateLearningsDirectory } from "../../content/learningsValidation.js";
 import { readCustomizationWithWarnings } from "../../models/customize.js";
 import type { CustomizableType } from "../../models/customize.js";
@@ -124,6 +128,12 @@ async function validateFrontmatter(
               if (!parsedFm || typeof parsedFm !== "object" || !parsedFm.type) {
                 result.warnings.push(`Missing 'type' in frontmatter: .agents/${dir}/${entry.name}`);
               }
+              // C8-D5-M1: Commands must declare orchestrator marker so adapters
+              // and runtime gates can distinguish orchestrator commands (which
+              // delegate to sub-agents) from inline-execution commands.
+              if (dir === "commands" && parsedFm && typeof parsedFm === "object") {
+                validateCommandOrchestratorFrontmatter(parsedFm, `.agents/${dir}/${entry.name}`, result);
+              }
             }
           }
         } else if (entry.isDirectory()) {
@@ -149,16 +159,86 @@ async function validateFrontmatter(
   }
 }
 
+/**
+ * C8-D5-M1: Validate the `orchestrator` + `agentPipeline` frontmatter contract
+ * on command files. The orchestrator marker distinguishes commands that
+ * delegate to sub-agents (orchestrator: true) from inline-execution commands
+ * (orchestrator: false). When orchestrator is true, the file must declare
+ * `agentPipeline:` as a non-empty array of sub-agent IDs (e.g.
+ * `hatch3r-researcher`) so adapters and the validate gate know which agents
+ * must be selected for the command to function.
+ */
+function validateCommandOrchestratorFrontmatter(
+  parsedFm: Record<string, unknown>,
+  fileLabel: string,
+  result: ValidationResult,
+): void {
+  const orchestrator = parsedFm.orchestrator;
+  const agentPipeline = parsedFm.agentPipeline;
+
+  if (orchestrator === undefined) {
+    result.warnings.push(
+      `Missing 'orchestrator' in frontmatter: ${fileLabel} (add 'orchestrator: true' when the command delegates to sub-agents, or 'orchestrator: false' when it runs inline)`,
+    );
+    return;
+  }
+
+  if (typeof orchestrator !== "boolean") {
+    result.errors.push(
+      `Invalid 'orchestrator' value in ${fileLabel}: expected boolean (true|false), got ${typeof orchestrator}`,
+    );
+    return;
+  }
+
+  if (orchestrator === true) {
+    if (agentPipeline === undefined) {
+      result.errors.push(
+        `Missing 'agentPipeline' in ${fileLabel}: orchestrator commands must list delegated sub-agents (e.g. agentPipeline: [hatch3r-researcher, hatch3r-implementer])`,
+      );
+      return;
+    }
+    if (!Array.isArray(agentPipeline)) {
+      result.errors.push(
+        `Invalid 'agentPipeline' in ${fileLabel}: expected array of sub-agent IDs, got ${typeof agentPipeline}`,
+      );
+      return;
+    }
+    if (agentPipeline.length === 0) {
+      result.errors.push(
+        `Empty 'agentPipeline' in ${fileLabel}: orchestrator commands must list at least one sub-agent`,
+      );
+      return;
+    }
+    const nonStringEntries = agentPipeline.filter((a) => typeof a !== "string");
+    if (nonStringEntries.length > 0) {
+      result.errors.push(
+        `Invalid 'agentPipeline' entry in ${fileLabel}: all entries must be strings (sub-agent IDs)`,
+      );
+    }
+  } else if (Array.isArray(agentPipeline) && agentPipeline.length > 0) {
+    // orchestrator: false — agentPipeline should not list sub-agents
+    result.warnings.push(
+      `Unused 'agentPipeline' in ${fileLabel}: command declares orchestrator: false but lists sub-agents; either set orchestrator: true or remove the agentPipeline field`,
+    );
+  }
+}
+
 async function validateManagedFilePrefixes(
   manifest: HatchManifest,
   result: ValidationResult,
 ): Promise<void> {
+  // Wave B3: accept both the legacy `hatch3r-*` shape and the new
+  // `NN-hatch3r-*` shape (precedence-prefixed rule outputs from cursor /
+  // windsurf / copilot-scoped / claude / cline adapters).
+  const NN_HATCH3R_PREFIX_RE = /^\d{2}-hatch3r-/;
   for (const managedFile of manifest.managedFiles ?? []) {
     const fileName = posix.basename(managedFile) || "";
     const isSharedFile = ["AGENTS.md", "CLAUDE.md", "copilot-instructions.md", ".windsurfrules", "mcp.json", "opencode.json", ".mcp.json", "copilot-setup-steps.yml", "settings.json"].some(
       (sf) => fileName === sf || managedFile.endsWith(sf),
     );
-    if (!isSharedFile && !fileName.startsWith(HATCH3R_PREFIX) && !fileName.startsWith(".")) {
+    const hasHatch3rPrefix =
+      fileName.startsWith(HATCH3R_PREFIX) || NN_HATCH3R_PREFIX_RE.test(fileName);
+    if (!isSharedFile && !hasHatch3rPrefix && !fileName.startsWith(".")) {
       result.warnings.push(`Managed file without hatch3r- prefix: ${managedFile}`);
     }
   }
@@ -492,6 +572,155 @@ async function validateContentConsistency(
   }
 }
 
+// ── Description quality lint (Wave A2 → Wave C1) ────────────────
+//
+// Wave A2 introduced these checks as warnings; Wave B1 rewrote the 28
+// offending artifacts so the warning count reached 0. Wave C1 promotes them
+// from warnings to errors so future regressions (short/colliding descriptions
+// on new or edited canonical content) surface as non-zero-exit validation
+// failures. They run on the canonical package content root (agents/, skills/,
+// rules/, commands/) so they trigger regardless of whether `.agents/` has been
+// initialized.
+
+const DESCRIPTION_MIN_LENGTH = 60;
+const DESCRIPTION_COSINE_THRESHOLD = 0.55;
+
+const DESCRIPTION_STOPWORDS = new Set([
+  "a", "an", "the", "for", "with", "and", "or", "to", "of", "in", "on", "at",
+  "by", "use", "when", "from", "as", "is", "are", "this", "that", "it", "its",
+  "be", "has", "have",
+]);
+
+/**
+ * Tokenize a description for cosine-similarity comparison. Lowercase, split
+ * on non-word characters, drop stopwords and empty tokens.
+ */
+function tokenizeDescription(description: string): string[] {
+  return description
+    .toLowerCase()
+    .split(/\W+/)
+    .filter((t) => t.length > 0 && !DESCRIPTION_STOPWORDS.has(t));
+}
+
+/**
+ * Build a term-frequency vector from a token list.
+ */
+function termFrequency(tokens: string[]): Map<string, number> {
+  const tf = new Map<string, number>();
+  for (const token of tokens) {
+    tf.set(token, (tf.get(token) ?? 0) + 1);
+  }
+  return tf;
+}
+
+/**
+ * Cosine similarity between two TF vectors. Returns 0 if either vector is empty.
+ */
+function cosineSimilarity(
+  a: Map<string, number>,
+  b: Map<string, number>,
+): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  let dot = 0;
+  for (const [term, aCount] of a) {
+    const bCount = b.get(term);
+    if (bCount !== undefined) dot += aCount * bCount;
+  }
+  if (dot === 0) return 0;
+  let aMag = 0;
+  for (const count of a.values()) aMag += count * count;
+  let bMag = 0;
+  for (const count of b.values()) bMag += count * count;
+  return dot / (Math.sqrt(aMag) * Math.sqrt(bMag));
+}
+
+/**
+ * Flag artifacts whose `description:` is shorter than the disambiguation
+ * threshold. Short descriptions increase the risk of agent selection
+ * collisions at dispatch time. Wave C1: findings emit as errors (same
+ * pattern as validateCommandOrchestratorFrontmatter) so regressions cause
+ * a non-zero validate exit code.
+ */
+function validateDescriptionLength(artifacts: CatalogItem[]): string[] {
+  const findings: string[] = [];
+  for (const item of artifacts) {
+    const desc = (item.description ?? "").trim();
+    if (desc.length < DESCRIPTION_MIN_LENGTH) {
+      findings.push(
+        `${item.type} ${item.relativePath}: description is ${desc.length} chars (min ${DESCRIPTION_MIN_LENGTH} required for disambiguation)`,
+      );
+    }
+  }
+  return findings;
+}
+
+/**
+ * Flag artifact pairs that share (type, primaryTag) cluster and have
+ * cosine-similar descriptions. The cluster scoping keeps the pairwise
+ * comparison tractable and focuses findings on likely-confusable pairs.
+ * Wave C1: findings emit as errors.
+ */
+function validateDescriptionCollisions(artifacts: CatalogItem[]): string[] {
+  const findings: string[] = [];
+
+  // Group by (type, primaryTag)
+  const clusters = new Map<string, CatalogItem[]>();
+  for (const item of artifacts) {
+    const primaryTag = item.tags?.[0] ?? "_untagged";
+    const key = `${item.type}/${primaryTag}`;
+    const bucket = clusters.get(key);
+    if (bucket) bucket.push(item);
+    else clusters.set(key, [item]);
+  }
+
+  for (const [clusterKey, members] of clusters) {
+    if (members.length < 2) continue;
+
+    // Pre-compute TF vectors once per member
+    const vectors = members.map((item) => ({
+      item,
+      tf: termFrequency(tokenizeDescription(item.description ?? "")),
+    }));
+
+    for (let i = 0; i < vectors.length; i++) {
+      for (let j = i + 1; j < vectors.length; j++) {
+        const score = cosineSimilarity(vectors[i].tf, vectors[j].tf);
+        if (score >= DESCRIPTION_COSINE_THRESHOLD) {
+          findings.push(
+            `Description collision: ${vectors[i].item.relativePath} ↔ ${vectors[j].item.relativePath} (cosine=${score.toFixed(2)}, cluster=${clusterKey})`,
+          );
+        }
+      }
+    }
+  }
+
+  return findings;
+}
+
+/**
+ * Hook point: run both description-quality checks against the canonical
+ * content index and fold the findings into the shared ValidationResult.
+ * Wave C1: emits on the errors channel (previously warnings) — same
+ * pattern as validateCommandOrchestratorFrontmatter's error emissions.
+ */
+function runDescriptionQualityChecks(
+  index: ContentIndex,
+  result: ValidationResult,
+): void {
+  // Restrict to published artifact types; hooks/prompts/github-agents are
+  // out of scope for this lint (per plan: agents, skills, rules, commands).
+  const scoped = index.items.filter(
+    (i) => i.type === "agent" || i.type === "skill" || i.type === "rule" || i.type === "command",
+  );
+
+  for (const e of validateDescriptionLength(scoped)) {
+    result.errors.push(e);
+  }
+  for (const e of validateDescriptionCollisions(scoped)) {
+    result.errors.push(e);
+  }
+}
+
 export async function validateDocsCounts(rootDir: string): Promise<{ mismatches: string[]; checked: number }> {
   const mismatches: string[] = [];
   let checked = 0;
@@ -540,41 +769,205 @@ export async function validateDocsCounts(rootDir: string): Promise<{ mismatches:
   return { mismatches, checked };
 }
 
-export async function validateCommand(opts?: { docs?: boolean; verbose?: boolean }): Promise<void> {
-  setVerbose(!!opts?.verbose);
-  printBanner(true);
+/**
+ * Output format for the validate command.
+ * - "human" (default): banner, spinner, boxed summary, coloured error/warning list.
+ * - "json": single JSON object `{errors, warnings, summary}` to stdout, no banner.
+ *   Intended for CI consumers (see C8-D1-M10 / D1-SA1.4.3).
+ */
+export type ValidateOutputFormat = "human" | "json";
+
+interface ValidateJsonOutput {
+  errors: string[];
+  warnings: string[];
+  summary: {
+    status: "passed" | "failed";
+    errorCount: number;
+    warningCount: number;
+    docsMode: boolean;
+    hatch3rVersion: string;
+    timestamp: string;
+  };
+}
+
+function emitJson(output: ValidateJsonOutput): void {
+  // Write a single JSON document followed by a newline — one-shot payload for
+  // CI parsers. Do NOT interleave other stdout writes in json mode.
+  process.stdout.write(JSON.stringify(output) + "\n");
+}
+
+export async function validateCommand(opts?: {
+  docs?: boolean;
+  verbose?: boolean;
+  format?: ValidateOutputFormat;
+}): Promise<void> {
+  const format: ValidateOutputFormat = opts?.format === "json" ? "json" : "human";
+  const jsonMode = format === "json";
+
+  // In JSON mode: suppress verbose logging (sent to stdout via info()) and the
+  // banner, which would corrupt the machine-readable output. Errors/warnings
+  // still reach the final JSON object via the ValidationResult aggregator.
+  setVerbose(jsonMode ? false : !!opts?.verbose);
+  if (!jsonMode) printBanner(true);
 
   const rootDir = process.cwd();
+  const timestamp = new Date().toISOString();
 
   if (opts?.docs) {
-    const spinner = createSpinner("Verifying documentation counts...");
-    spinner.start();
+    const spinner = jsonMode ? null : createSpinner("Verifying documentation counts...");
+    spinner?.start();
     const { mismatches, checked } = await validateDocsCounts(rootDir);
     if (mismatches.length > 0) {
-      spinner.fail("Documentation count mismatches found");
-      for (const m of mismatches) logError(m);
+      if (jsonMode) {
+        emitJson({
+          errors: mismatches.map((m) => `Documentation count mismatch: ${m}`),
+          warnings: [],
+          summary: {
+            status: "failed",
+            errorCount: mismatches.length,
+            warningCount: 0,
+            docsMode: true,
+            hatch3rVersion: HATCH3R_VERSION,
+            timestamp,
+          },
+        });
+      } else {
+        spinner?.fail("Documentation count mismatches found");
+        for (const m of mismatches) logError(m);
+      }
       throw new HatchError("Documentation counts do not match", 1, "VALIDATION_ERROR");
     }
-    spinner.succeed(`Documentation counts verified (${checked} checks, 0 mismatches)`);
+    if (jsonMode) {
+      emitJson({
+        errors: [],
+        warnings: [],
+        summary: {
+          status: "passed",
+          errorCount: 0,
+          warningCount: 0,
+          docsMode: true,
+          hatch3rVersion: HATCH3R_VERSION,
+          timestamp,
+        },
+      });
+    } else {
+      spinner?.succeed(`Documentation counts verified (${checked} checks, 0 mismatches)`);
+    }
     return;
   }
   const agentsDir = join(rootDir, AGENTS_DIR);
   const result: ValidationResult = { errors: [], warnings: [] };
 
-  const spinner = createSpinner("Validating .agents/ structure...");
-  spinner.start();
+  const spinner = jsonMode ? null : createSpinner("Validating .agents/ structure...");
+  spinner?.start();
+
+  // Wave A2: when cwd is a hatch3r framework source repo (has canonical
+  // content roots but no .agents/), run the description-quality lint on
+  // the canonical source and exit 0. This lets framework maintainers run
+  // the lint as a worklist generator without having to `hatch3r init`
+  // their own repo.
+  const cwdIsFrameworkSource =
+    existsSync(join(rootDir, "agents")) &&
+    existsSync(join(rootDir, "skills")) &&
+    existsSync(join(rootDir, "rules")) &&
+    existsSync(join(rootDir, "commands"));
 
   try {
     await access(agentsDir);
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-    spinner.fail("Validation failed");
-    logError(".agents/ directory not found. Run `hatch3r init` first.");
-    console.log();
+
+    if (cwdIsFrameworkSource) {
+      spinner?.stop();
+      await validateCanonicalDescriptionQuality(rootDir, result);
+      if (jsonMode) {
+        const hasErrors = result.errors.length > 0;
+        emitJson({
+          errors: result.errors,
+          warnings: result.warnings,
+          summary: {
+            status: hasErrors ? "failed" : "passed",
+            errorCount: result.errors.length,
+            warningCount: result.warnings.length,
+            docsMode: false,
+            hatch3rVersion: HATCH3R_VERSION,
+            timestamp,
+          },
+        });
+        if (hasErrors) {
+          throw new HatchError("Validation failed", 1, "VALIDATION_ERROR");
+        }
+        return;
+      }
+      if (result.errors.length > 0) {
+        console.log();
+        for (const e of result.errors) logError(e);
+        console.log();
+        if (result.warnings.length > 0) {
+          for (const w of result.warnings) warn(w);
+          console.log();
+        }
+        printBox(
+          "Canonical content lint failed",
+          [
+            `${chalk.red("✖")} ${result.errors.length} error(s)`,
+            `${chalk.yellow("⚠")} ${result.warnings.length} warning(s)`,
+            chalk.dim("(framework-source mode — .agents/ not required)"),
+          ],
+          "error",
+        );
+        throw new HatchError("Validation failed", 1, "VALIDATION_ERROR");
+      }
+      if (result.warnings.length > 0) {
+        console.log();
+        for (const w of result.warnings) warn(w);
+        console.log();
+        printBox(
+          "Canonical content lint",
+          [
+            `${chalk.green("✔")} 0 errors`,
+            `${chalk.yellow("⚠")} ${result.warnings.length} warning(s)`,
+            chalk.dim("(framework-source mode — .agents/ not required)"),
+          ],
+          "success",
+        );
+      } else {
+        printBox(
+          "Canonical content lint",
+          [chalk.green("All checks passed")],
+          "success",
+        );
+      }
+      return;
+    }
+
+    if (jsonMode) {
+      emitJson({
+        errors: [".agents/ directory not found. Run `hatch3r init` first."],
+        warnings: [],
+        summary: {
+          status: "failed",
+          errorCount: 1,
+          warningCount: 0,
+          docsMode: false,
+          hatch3rVersion: HATCH3R_VERSION,
+          timestamp,
+        },
+      });
+    } else {
+      spinner?.fail("Validation failed");
+      logError(".agents/ directory not found. Run `hatch3r init` first.");
+      console.log();
+    }
     throw new HatchError(".agents/ directory not found.", 1, "CONFIG_ERROR");
   }
 
   const manifest = await readManifest(rootDir);
+
+  // Wave A2: track whether the description-quality lint has already run on
+  // installed `.agents/` content, so we don't duplicate findings from a
+  // second canonical-source pass below.
+  let descriptionLintRan = false;
 
   verbose("Checking manifest...");
   await validateManifest(rootDir, manifest, result);
@@ -608,6 +1001,11 @@ export async function validateCommand(opts?: { docs?: boolean; verbose?: boolean
         for (const w of crossRefResult.warnings) {
           result.warnings.push(w);
         }
+        // Wave A2: description-quality lint on the installed content.
+        // When this runs, we skip the canonical pass below to avoid duplicate
+        // findings.
+        runDescriptionQualityChecks(index, result);
+        descriptionLintRan = true;
       }
 
       // Content ID collision validation
@@ -647,9 +1045,18 @@ export async function validateCommand(opts?: { docs?: boolean; verbose?: boolean
   }
 
   // Security compliance verification (#86 D15)
-  validateSecurityCompliance(result);
+  await validateSecurityCompliance(result);
 
-  spinner.stop();
+  // Wave A2: Description-quality lint on the canonical package content
+  // (agents/, skills/, rules/, commands/ at the package root). This runs
+  // only when the installed-content lint above did not run (no .agents/ or
+  // empty index) — the source of truth for content rewrites is the canonical
+  // tree, and the worklist must reflect it.
+  if (!descriptionLintRan) {
+    await validateCanonicalDescriptionQuality(rootDir, result);
+  }
+
+  spinner?.stop();
 
   // Detect if customization files exist for contextual help (#56 D19-4)
   let hasCustomizations = false;
@@ -663,6 +1070,28 @@ export async function validateCommand(opts?: { docs?: boolean; verbose?: boolean
     } catch {
       // directory doesn't exist
     }
+  }
+
+  // JSON mode: emit one structured payload and either return or throw based on
+  // errors. Customization hint and boxes are human-only output.
+  if (jsonMode) {
+    const hasErrors = result.errors.length > 0;
+    emitJson({
+      errors: result.errors,
+      warnings: result.warnings,
+      summary: {
+        status: hasErrors ? "failed" : "passed",
+        errorCount: result.errors.length,
+        warningCount: result.warnings.length,
+        docsMode: false,
+        hatch3rVersion: HATCH3R_VERSION,
+        timestamp,
+      },
+    });
+    if (hasErrors) {
+      throw new HatchError("Validation failed", 1, "VALIDATION_ERROR");
+    }
+    return;
   }
 
   if (result.errors.length === 0 && result.warnings.length === 0) {
@@ -740,10 +1169,51 @@ async function validateEnvMcpSecrets(
 }
 
 /**
+ * Wave A2 canonical-source lint. Scans the package-root canonical content
+ * (agents/, skills/, rules/, commands/) and runs the description-quality
+ * checks. This runs independently of `.agents/` so the lint produces a
+ * worklist even when the validator is invoked against the framework repo
+ * itself (no .agents/ present) or a project whose .agents/ is absent or
+ * out of sync with its source.
+ *
+ * When invoked from a consumer repo whose `rootDir` is not a hatch3r
+ * package root, `findPackageRoot` still returns the framework's package
+ * root via __dirname, so the lint always targets the installed canonical
+ * content that Wave B would rewrite.
+ */
+async function validateCanonicalDescriptionQuality(
+  rootDir: string,
+  result: ValidationResult,
+): Promise<void> {
+  const __filename = fileURLToPath(import.meta.url);
+  const packageRoot = findPackageRoot(dirname(__filename));
+
+  // Prefer the cwd-resolved package root when cwd IS the framework repo
+  // (development mode); otherwise fall back to the installed package root.
+  const canonicalRoot = existsSync(join(rootDir, "agents"))
+    && existsSync(join(rootDir, "skills"))
+    && existsSync(join(rootDir, "rules"))
+    && existsSync(join(rootDir, "commands"))
+    ? rootDir
+    : packageRoot;
+
+  try {
+    const index = await buildContentIndex(canonicalRoot);
+    if (index.items.length === 0) return;
+    runDescriptionQualityChecks(index, result);
+  } catch (err) {
+    // Non-fatal: lint is an advisory warning channel only.
+    result.warnings.push(
+      `Description-quality lint skipped — canonical content scan failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
+/**
  * Run security compliance checks and fold results into validation (#86 D15).
  */
-function validateSecurityCompliance(result: ValidationResult): void {
-  const report = runComplianceChecks();
+async function validateSecurityCompliance(result: ValidationResult): Promise<void> {
+  const report = await runComplianceChecks();
 
   for (const check of report.checks) {
     if (check.status === "fail") {

@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { sanitizeId } from "../types.js";
@@ -154,5 +154,101 @@ export async function readCustomizationMarkdownWithWarnings(
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
     return { value: undefined, warnings };
   }
+}
+
+/**
+ * Combined result of reading both YAML and MD customization files as a
+ * time-consistent snapshot.
+ */
+export interface CustomizationSnapshot {
+  yaml: Customization | undefined;
+  md: string | undefined;
+  warnings: string[];
+}
+
+async function statMtimeMs(path: string): Promise<number | undefined> {
+  try {
+    const s = await stat(path);
+    return s.mtimeMs;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    return undefined;
+  }
+}
+
+/**
+ * Read both `.customize.yaml` and `.customize.md` for a content item as a
+ * time-consistent snapshot, guarding against TOCTOU (time-of-check to
+ * time-of-use) edit-during-sync races (C8-D2-M4).
+ *
+ * Convention (enforced by warning, not by lock):
+ * - Users must not edit customization files while a sync/update/init is in
+ *   flight. The window is typically sub-second, but concurrent edits can
+ *   produce an inconsistent snapshot where, for example, the YAML reflects
+ *   `enabled: false` but the MD append was captured from a prior state.
+ * - This function detects the race via stat-read-stat: it records the mtime
+ *   of each file before reading, then re-stats after both reads complete.
+ *   If either mtime or existence state (ENOENT <-> present) changed, a
+ *   warning is emitted and returned in `warnings[]`. The caller surfaces
+ *   it to the user.
+ * - Detection is best-effort: mtime resolution is filesystem-dependent
+ *   (typically 1ms to 1s). Sub-resolution edits cannot be detected; the
+ *   warning documents the convention instead. Node.js fs.promises.readFile
+ *   provides no atomic-across-calls guarantee (see nodejs.org/api/fs.html:
+ *   "These operations are not synchronized or threadsafe"), so no
+ *   in-process locking strategy can fully eliminate the race between two
+ *   independent files.
+ *
+ * Both files are read concurrently (Promise.all) for latency parity with
+ * the previous behavior.
+ */
+export async function readCustomizationSnapshot(
+  projectRoot: string,
+  type: CustomizableType,
+  id: string,
+): Promise<CustomizationSnapshot> {
+  const warnings: string[] = [];
+  const safeId = sanitizeId(id);
+  const yamlPath = join(projectRoot, ".hatch3r", type, `${safeId}.customize.yaml`);
+  const mdPath = join(projectRoot, ".hatch3r", type, `${safeId}.customize.md`);
+
+  const resolvedBase = resolve(projectRoot);
+  const yamlSafe = resolve(yamlPath).startsWith(resolvedBase);
+  const mdSafe = resolve(mdPath).startsWith(resolvedBase);
+
+  // Pre-read stat (check): record the mtime observed before the reads start.
+  const [yamlPreMtime, mdPreMtime] = await Promise.all([
+    yamlSafe ? statMtimeMs(yamlPath) : Promise.resolve(undefined),
+    mdSafe ? statMtimeMs(mdPath) : Promise.resolve(undefined),
+  ]);
+
+  // Concurrent reads (use): preserves the Promise.all latency pattern.
+  const [yamlRead, mdRead] = await Promise.all([
+    readCustomizationWithWarnings(projectRoot, type, id),
+    readCustomizationMarkdownWithWarnings(projectRoot, type, id),
+  ]);
+  warnings.push(...yamlRead.warnings, ...mdRead.warnings);
+
+  // Post-read stat (re-check): detect any mtime or existence change across
+  // the read window. If either file changed, the snapshot may be inconsistent.
+  const [yamlPostMtime, mdPostMtime] = await Promise.all([
+    yamlSafe ? statMtimeMs(yamlPath) : Promise.resolve(undefined),
+    mdSafe ? statMtimeMs(mdPath) : Promise.resolve(undefined),
+  ]);
+
+  const yamlChanged = yamlPreMtime !== yamlPostMtime;
+  const mdChanged = mdPreMtime !== mdPostMtime;
+  if (yamlChanged || mdChanged) {
+    const which: string[] = [];
+    if (yamlChanged) which.push(".customize.yaml");
+    if (mdChanged) which.push(".customize.md");
+    warnings.push(
+      `Customization file(s) for "${id}" changed during sync (${which.join(", ")}). ` +
+      `Snapshot may be inconsistent. Do not edit .customize.yaml/.customize.md while a ` +
+      `sync/update/init is running; re-run the command after edits complete.`,
+    );
+  }
+
+  return { yaml: yamlRead.value, md: mdRead.value, warnings };
 }
 

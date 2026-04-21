@@ -1,6 +1,8 @@
 ---
 id: hatch3r-board-pickup
 type: command
+orchestrator: true
+agentPipeline: [hatch3r-researcher, hatch3r-implementer, hatch3r-reviewer, hatch3r-fixer, hatch3r-test-writer, hatch3r-security-auditor, hatch3r-docs-writer, hatch3r-lint-fixer, hatch3r-a11y-auditor, hatch3r-perf-profiler]
 description: Pick up one or more epics/issues from the project board for development. Handles dependency-aware selection, collision detection, branching, parallel sub-agent delegation, and batch execution. Supports GitHub, Azure DevOps, and GitLab. Platform-specific details are in commands/board/pickup-{platform}.md.
 tags: [board, team]
 quality_charter: agents/shared/quality-charter.md
@@ -54,6 +56,14 @@ All issue operations in this command MUST follow the Board Sync Enforcement rule
 ## Token-Saving Directives
 
 Follow the **Token-Saving Directives** in `hatch3r-board-shared`.
+
+## Confidence Propagation Contract
+
+Every sub-agent delegation prompt in this command (including those defined in `commands/board/pickup-delegation.md` and `commands/board/pickup-delegation-multi.md`) MUST include the confidence expression requirement below (verbatim). Sub-agents are invoked with the `quality_charter: agents/shared/quality-charter.md` reference in their frontmatter, but the orchestrator repeats the directive to override runtime prompt defaults per the charter §1 rule.
+
+> Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
+
+Downstream propagation: every ASK checkpoint that reports verification quality, every gate that evaluates a sub-agent verdict, and every output block that surfaces merge-readiness MUST carry a high/medium/low confidence rating sourced from the upstream sub-agent. Dropping the signal between stages is a gate failure.
 
 ---
 

@@ -240,8 +240,11 @@ describe("migration checkpoints", () => {
       const { updateCommand } = await import("../../cli/commands/update.js");
       await updateCommand({ backup: false });
 
-      // The checkpoint should generate a notice about the large file
-      const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      // D12-M1: warn() routes to console.error (stderr). Capture both streams.
+      const allOutput = [
+        ...consoleSpy.mock.calls.map((c) => String(c[0])),
+        ...consoleErrorSpy.mock.calls.map((c) => String(c[0])),
+      ].join("\n");
       expect(allOutput).toContain("Large customize file");
     });
 
@@ -259,7 +262,10 @@ describe("migration checkpoints", () => {
       const { updateCommand } = await import("../../cli/commands/update.js");
       await updateCommand({ backup: false });
 
-      const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      const allOutput = [
+        ...consoleSpy.mock.calls.map((c) => String(c[0])),
+        ...consoleErrorSpy.mock.calls.map((c) => String(c[0])),
+      ].join("\n");
       expect(allOutput).not.toContain("Large customize file");
     });
   });
@@ -267,7 +273,7 @@ describe("migration checkpoints", () => {
   describe("fully migrated manifest", () => {
     it("should trigger no checkpoints when manifest is complete", async () => {
       await createTestProject(tempDir, {
-        hatch3rVersion: "1.5.1",
+        hatch3rVersion: "1.6.0",
         platform: "github",
         content: makeContentSelection(),
       });
@@ -324,8 +330,11 @@ describe("migration checkpoints", () => {
       expect(updated.content.projectType).toBe("brownfield");
       expect(updated.content.teamSize).toBe("team");
 
-      // Should produce migration notice
-      const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      // D12-M1: info()/warn() notices may route to stderr. Capture both streams.
+      const allOutput = [
+        ...consoleSpy.mock.calls.map((c) => String(c[0])),
+        ...consoleErrorSpy.mock.calls.map((c) => String(c[0])),
+      ].join("\n");
       expect(allOutput).toContain("content tracking");
     });
   });
@@ -436,7 +445,7 @@ describe("migration checkpoints", () => {
 
       const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
       const updated = JSON.parse(await readFile(manifestPath, "utf-8"));
-      expect(updated.hatch3rVersion).toBe("1.5.1");
+      expect(updated.hatch3rVersion).toBe("1.6.0");
 
       const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
       expect(allOutput).toContain("Update complete");
@@ -447,7 +456,7 @@ describe("migration checkpoints", () => {
   describe("update flow when manifest is already up-to-date", () => {
     it("should note already at latest version and still complete update", async () => {
       await createTestProject(tempDir, {
-        hatch3rVersion: "1.5.1",
+        hatch3rVersion: "1.6.0",
         platform: "github",
         content: makeContentSelection(),
       });
@@ -535,7 +544,11 @@ describe("migration checkpoints", () => {
       expect(updated.content.projectType).toBe("brownfield");
       expect(updated.platform).toBe("azure-devops");
 
-      const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      // D12-M1: warn()/info() may route to stderr. Capture both streams.
+      const allOutput = [
+        ...consoleSpy.mock.calls.map((c) => String(c[0])),
+        ...consoleErrorSpy.mock.calls.map((c) => String(c[0])),
+      ].join("\n");
       expect(allOutput).toContain("Large customize file");
       expect(allOutput).toContain("Azure DevOps");
     });
@@ -572,7 +585,11 @@ describe("migration checkpoints", () => {
 
       await expect(updateCommand()).rejects.toThrow(HatchError);
 
-      const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
+      // D12-M1: error() routes to console.error (stderr) per POSIX convention.
+      const allOutput = [
+        ...consoleSpy.mock.calls.map((c) => String(c[0])),
+        ...consoleErrorSpy.mock.calls.map((c) => String(c[0])),
+      ].join(" ");
       expect(allOutput).toContain("No .agents/hatch.json found");
     });
   });

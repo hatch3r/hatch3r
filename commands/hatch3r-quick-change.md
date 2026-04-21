@@ -1,6 +1,8 @@
 ---
 id: hatch3r-quick-change
 type: command
+orchestrator: true
+agentPipeline: [hatch3r-implementer, hatch3r-lint-fixer, hatch3r-reviewer, hatch3r-fixer, hatch3r-test-writer, hatch3r-security-auditor]
 description: Lightweight command for small changes not worth tracking on the board. Adaptive ceremony with inline or sub-agent implementation, batch support, and soft scope guards.
 tags: [core, implementation]
 quality_charter: agents/shared/quality-charter.md
@@ -64,6 +66,14 @@ It retains:
 3. **Targeted file reads only.** Read only files directly relevant to the described change(s).
 4. **No learnings capture.** Quick changes are too small to produce meaningful learnings. Existing learnings are consulted via a lightweight file-path scan (Step 2c) with a 150-token budget — no new learnings are written.
 5. **Minimal rule loading.** Load `scope: always` rules only when spawning sub-agents in Steps 4b or 6.
+
+## Confidence Propagation Contract
+
+Every sub-agent delegation prompt in this command MUST include the confidence expression requirement below (verbatim). Sub-agents are invoked with the `quality_charter: agents/shared/quality-charter.md` reference in their frontmatter, but the orchestrator repeats the directive to override runtime prompt defaults per the charter §1 rule.
+
+> Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
+
+Downstream propagation: every ASK checkpoint that reports verification quality, every gate that evaluates a sub-agent verdict, and every output block that surfaces merge-readiness MUST carry a high/medium/low confidence rating sourced from the upstream sub-agent. Dropping the signal between stages is a gate failure.
 
 ---
 
@@ -259,9 +269,11 @@ The reviewer prompt MUST include:
 - All `scope: always` rule directives from `.agents/rules/`.
 - Iteration number and previous findings (if not the first iteration).
 - Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
+- Requirement that the reviewer output include a top-level `confidence: high | medium | low` field (not just per-finding) so the gate in step 2 can evaluate it deterministically.
 
-2. Process reviewer output:
-   - If **0 Critical and 0 Warning** findings: review loop is clean. Proceed to Step 6b.
+2. Process reviewer output (confidence-aware gate):
+   - If **0 Critical + 0 Warning AND reviewer confidence != low**: review loop is clean. Proceed to Step 6b.
+   - If **0 Critical + 0 Warning AND reviewer confidence == low**: trigger a second reviewer pass before exiting. Do not proceed to 6b until the second pass returns non-low confidence OR the user explicitly accepts the low-confidence PASS.
    - If Critical or Warning findings remain: spawn `hatch3r-fixer` sub-agent to address them, then re-run the reviewer (next iteration).
      The fixer prompt MUST include: the reviewer findings, all `scope: always` rule directives, and the confidence expression requirement (high/medium/low per the quality charter).
    - **Suggestions**: skip. The point of quick-change is speed.

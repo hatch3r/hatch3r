@@ -1,10 +1,12 @@
-import { readFile, readdir, writeFile, cp, mkdir, rm } from "node:fs/promises";
+import { readFile, readdir, cp, mkdir, rm, stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { join, dirname, normalize, isAbsolute } from "node:path";
 import { parseFrontmatter } from "../adapters/canonical.js";
+import { atomicWriteFile } from "../merge/safeWrite.js";
 import { HatchError } from "../types.js";
 import type { ContentSelection } from "../types.js";
 import type { ContentPreset } from "./presets.js";
-import { isLanguageTag, LANGUAGE_TO_TAG } from "./tags.js";
+import { filterByLanguages } from "./tags.js";
 
 /**
  * Validate that a relative path does not escape its base directory.
@@ -372,15 +374,6 @@ export function resolveSelection(
 ): ContentSelection {
   let selected: CatalogItem[];
 
-  // Build the set of relevant language tags from detected project languages
-  const relevantLangTags = new Set<string>();
-  if (projectLanguages) {
-    for (const lang of projectLanguages) {
-      const tag = LANGUAGE_TO_TAG[lang];
-      if (tag) relevantLangTags.add(tag);
-    }
-  }
-
   if (preset.id === "custom" && customSelections) {
     // For custom, use explicit ID list
     const customSet = new Set(customSelections);
@@ -453,16 +446,10 @@ export function resolveSelection(
 
   // Language filtering (Finding #71): remove items whose language tags
   // don't match the detected project languages. Items without any language
-  // tags pass through (language-agnostic content).
+  // tags pass through (language-agnostic content). Skipped when
+  // skipContextFilters is set (e.g. from `hatch3r config`).
   if (!options?.skipContextFilters && projectLanguages && projectLanguages.length > 0) {
-    selected = selected.filter((item) => {
-      if (item.protected) return true;
-      const itemLangTags = item.tags.filter(isLanguageTag);
-      // Items with no language tags are language-agnostic — always included
-      if (itemLangTags.length === 0) return true;
-      // Items with language tags must match at least one project language
-      return itemLangTags.some((t) => relevantLangTags.has(t));
-    });
+    selected = filterByLanguages(selected, projectLanguages);
   }
 
   // Build the selection items grouped by type
@@ -567,16 +554,79 @@ export function countTeamSizeExclusions(
 // ── Copy selected content ──────────────────────────────────────
 
 /**
+ * C7.5-W2B2-H7: Compute SHA-256 of a file's bytes. Returns null when the
+ * file is absent or unreadable — callers treat a null hash as "no prior
+ * content to diff against" so the subsequent copy is an unconditional
+ * first write rather than a silent overwrite of user edits.
+ */
+async function sha256OfFile(filePath: string): Promise<string | null> {
+  try {
+    const buf = await readFile(filePath);
+    return createHash("sha256").update(buf).digest("hex");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+    // Permission or I/O errors propagate as null — the overwrite warning
+    // pathway does not treat these as user edits; the subsequent cp call
+    // will surface the underlying error if the destination is truly
+    // unwritable.
+    return null;
+  }
+}
+
+/**
+ * C7.5-W2B2-H7: Compare the pending source copy with the existing
+ * destination. Returns a warning string when the destination exists and
+ * its bytes differ from the source (user edit), otherwise null.
+ */
+async function detectUserEditOverwrite(
+  srcPath: string,
+  destPath: string,
+  relativePath: string,
+): Promise<string | null> {
+  // Skip when destination does not exist — nothing to overwrite.
+  let destStat;
+  try {
+    destStat = await stat(destPath);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+    return null;
+  }
+  if (!destStat.isFile()) return null;
+
+  const [srcHash, destHash] = await Promise.all([
+    sha256OfFile(srcPath),
+    sha256OfFile(destPath),
+  ]);
+  if (srcHash === null || destHash === null) return null;
+  if (srcHash === destHash) return null;
+
+  return (
+    `Overwriting locally-edited canonical file "${relativePath}" with package content. ` +
+    `Canonical files under .agents/ are regenerated on each sync/init — place ` +
+    `project-specific customizations under .hatch3r/ instead.`
+  );
+}
+
+/**
  * Copy only selected content files from package to .agents/.
+ *
  * Returns list of relative paths copied.
+ *
+ * C7.5-W2B2-H7 (D2-SA2.6-5): pass `options.warnings` to receive a warning
+ * for every .md/.mdc file whose destination bytes differ from the source
+ * before the overwrite. User edits in `.agents/` are expected to be
+ * regenerable; the warning points operators at `.hatch3r/` overrides so
+ * they do not silently lose customizations during sync/init.
  */
 export async function copySelectedContent(
   contentRoot: string,
   agentsDir: string,
   selection: ContentSelection,
   index: ContentIndex,
+  options?: { warnings?: string[] },
 ): Promise<string[]> {
   const copied: string[] = [];
+  const warnings = options?.warnings;
 
   // Collect all selected IDs
   const selectedIds = new Set<string>();
@@ -603,6 +653,10 @@ export async function copySelectedContent(
     } else {
       // Copy individual .md file
       await mkdir(dirname(destPath), { recursive: true });
+      if (warnings) {
+        const w = await detectUserEditOverwrite(srcPath, destPath, item.relativePath);
+        if (w) warnings.push(w);
+      }
       await cp(srcPath, destPath, { force: true });
       copied.push(item.relativePath);
 
@@ -611,6 +665,10 @@ export async function copySelectedContent(
         const mdcSrc = join(contentRoot, item.companionPath);
         const mdcDest = join(agentsDir, item.companionPath);
         try {
+          if (warnings) {
+            const w = await detectUserEditOverwrite(mdcSrc, mdcDest, item.companionPath);
+            if (w) warnings.push(w);
+          }
           await cp(mdcSrc, mdcDest, { force: true });
           copied.push(item.companionPath);
         } catch (err) {
@@ -971,7 +1029,11 @@ export async function generateMdcCompanions(rulesDir: string): Promise<string[]>
     const mdcContent = `${frontmatter}\n${content}`;
     const mdcFile = mdFile.replace(/\.md$/, ".mdc");
     const mdcPath = join(rulesDir, mdcFile);
-    await writeFile(mdcPath, mdcContent, "utf-8");
+    // C7.5-W2B2-H4 (D2-SA2.6-2): atomic temp+rename write so SIGINT or OOM
+    // mid-write does not produce a truncated .mdc companion. Matches the
+    // pattern used by every other production write path — the previous
+    // raw writeFile could leave callers (Cursor) consuming a partial file.
+    await atomicWriteFile(mdcPath, mdcContent);
     written.push(mdcPath);
   }
   return written;

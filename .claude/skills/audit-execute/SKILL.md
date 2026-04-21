@@ -42,30 +42,20 @@ Execute findings from an audit report using `governance/AUDIT-EXECUTE.md`.
 
 ## Phase 2 — Grouping
 
-11. Group findings into work units per rules:
-    - Adapter rule: all findings for one adapter = one work unit
-    - Content rule: all findings for one content artifact = one work unit
-    - Security rule: all security findings = one work unit (wave 1 priority)
-12. Assign work units to waves: Critical → Wave 1, High → Wave 2, Medium → Wave 3, Low → Wave 4
-13. Verify completeness: every triaged finding assigned to exactly one work unit and wave
+11. Allocate sub-agents per Phase 2: default 1 finding = 1 sub-agent; group only on same-file conflict (file-lock) or same-wave Depends On chain
+12. Assign sub-agents to waves: Critical → Wave 1, High → Wave 2, Medium → Wave 3, Low → Wave 4
+13. Verify completeness: every triaged finding assigned to exactly one sub-agent and wave; run Pre-Spawn Validation Gate
 
 ## Phase 3 — Wave Execution
 
 For each wave (1 through 4):
 
 14. Tag pre-wave state: `git tag audit-wave-{N}-pre`
-15. Spawn implementation sub-agents per work unit using template: `governance/audit/templates/implementation-sub-agent.md`
-16. After all units complete, run **10-check regression gate** against Phase 0 baseline:
-    - Tests: no new failures
-    - Typecheck: no new errors
-    - Lint: no new errors
-    - Build: succeeds if baseline succeeded
-    - Content validation: no structure errors
-    - Git diff: no unintended mods, no binaries, no credentials
-    - Fix-Finding: changes address specific recommendations
-    - Governance: ASK checkpoints, quality gates preserved
-    - Governance weight: files within lean thresholds
-    - Anti-slop: grep against wordlist, 0 hits
+15. Spawn ALL sub-agents for the wave in a single parallel dispatch (no concurrency cap); each sub-agent writes detailed results to `.audit-workspace/wave-{N}/{finding_id}.results.md`. Orchestrator reads only the wave SUMMARY.md per Context Management Protocol.
+16. After all sub-agents complete, run **15-check regression gate** against Phase 0 baseline:
+    - Tests, Typecheck, Lint, Build, Content validation, Git diff, Diff-backed status
+    - Fix-Finding (SUMMARY.md scan), Governance, Governance weight, Anti-slop
+    - Severity vocabulary, Governance currency, Doc accuracy, Cross-domain dedup
 17. On gate PASS: tag `audit-wave-{N}-post`, update finding-registry.json statuses, re-score domains
 18. On gate FAIL: follow Gate Failure Protocol (targeted fix → L1 rollback → L2 rollback)
 

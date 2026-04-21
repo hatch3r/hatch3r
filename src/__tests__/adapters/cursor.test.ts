@@ -214,6 +214,19 @@ You are a test agent.`,
     expect(bridge!.content).toContain("background");
   });
 
+  // C7.5-W2B2-H30 (D9-SA9.1.1): Cursor 3.0 /worktree and /best-of-n commands in bridge.
+  // Source: https://cursor.com/changelog (accessed 2026-04-19, Cursor 3.0 released 2026-04-02).
+  it("bridge includes Cursor 3.0 workflow commands", async () => {
+    const manifest = makeManifest();
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const bridge = outputs.find((o) => o.path === ".cursor/rules/hatch3r-bridge.mdc");
+    expect(bridge).toBeDefined();
+    expect(bridge!.content).toContain("Cursor 3.0 Workflows");
+    expect(bridge!.content).toContain("/worktree");
+    expect(bridge!.content).toContain("/best-of-n");
+  });
+
   it("skips rules when features.rules is false", async () => {
     const manifest = makeManifest({ features: { rules: false } });
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
@@ -294,5 +307,123 @@ You are a test agent.`,
     for (const o of outputs) {
       expect(o.content.length).toBeGreaterThan(0);
     }
+  });
+
+  // Wave B3: precedence-based NN- filename prefix on rule outputs.
+  // Mapping: critical -> 10, high -> 30, normal -> 50, low -> 70.
+  it("emits NN- numeric prefix derived from rule precedence", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-cursor-precedence-"));
+    try {
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "rules"), { recursive: true });
+      await writeFile(
+        join(agentsDir, "rules", "security.md"),
+        `---
+id: security
+type: rule
+description: Critical security rule
+scope: always
+precedence: critical
+---
+# Security
+
+Critical security rule body.
+`,
+        "utf-8",
+      );
+      await writeFile(
+        join(agentsDir, "rules", "testing.md"),
+        `---
+id: testing
+type: rule
+description: Normal testing rule
+scope: always
+precedence: normal
+---
+# Testing
+
+Normal precedence rule body.
+`,
+        "utf-8",
+      );
+      await writeFile(
+        join(agentsDir, "rules", "learning.md"),
+        `---
+id: learning
+type: rule
+description: Low priority learning rule
+scope: always
+precedence: low
+---
+# Learning
+
+Low priority rule body.
+`,
+        "utf-8",
+      );
+
+      const outputs = await adapter.generate(agentsDir, makeManifest());
+
+      const securityRule = outputs.find((o) => o.path === ".cursor/rules/10-hatch3r-security.mdc");
+      const testingRule = outputs.find((o) => o.path === ".cursor/rules/50-hatch3r-testing.mdc");
+      const learningRule = outputs.find((o) => o.path === ".cursor/rules/70-hatch3r-learning.mdc");
+
+      expect(securityRule).toBeDefined();
+      expect(testingRule).toBeDefined();
+      expect(learningRule).toBeDefined();
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  // C7.5-W2B2-H41 (D15, P6): per-adapter tool allowlist emission.
+  // Cursor's native primitive is `readonly: true`; the translator emits
+  // it whenever the policy forbids both write and execute categories.
+  describe("C7.5-W2B2-H41 policy-derived readonly emission", () => {
+    async function runWithAgent(agentId: string) {
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-cursor-readonly-"));
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "agents"), { recursive: true });
+      await writeFile(
+        join(agentsDir, "agents", `${agentId}.md`),
+        `---\nid: ${agentId}\ntype: agent\ndescription: ${agentId} description\n---\n# ${agentId}\n`,
+        "utf-8",
+      );
+      try {
+        return await adapter.generate(agentsDir, makeManifest());
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    }
+
+    it("emits readonly: true for hatch3r-reviewer (read+search only)", async () => {
+      const outputs = await runWithAgent("reviewer");
+      const file = outputs.find((o) => o.path === ".cursor/agents/hatch3r-reviewer.md");
+      expect(file).toBeDefined();
+      expect(file!.content).toContain("readonly: true");
+    });
+
+    it("does not emit readonly for hatch3r-implementer (has write+execute)", async () => {
+      const outputs = await runWithAgent("implementer");
+      const file = outputs.find(
+        (o) => o.path === ".cursor/agents/hatch3r-implementer.md",
+      );
+      expect(file).toBeDefined();
+      const fmMatch = file!.content.match(/^---\n([\s\S]*?)\n---/);
+      expect(fmMatch).not.toBeNull();
+      expect(fmMatch![1]).not.toContain("readonly: true");
+    });
+
+    it("policy-derived readonly applies to researcher even without explicit readonly flag", async () => {
+      // Researcher has no write/execute per policy, so even without an
+      // explicit canonical `readonly: true` flag the emitted cursor agent
+      // is readonly — trust policy cannot be widened by omission.
+      const outputs = await runWithAgent("researcher");
+      const file = outputs.find(
+        (o) => o.path === ".cursor/agents/hatch3r-researcher.md",
+      );
+      expect(file).toBeDefined();
+      expect(file!.content).toContain("readonly: true");
+    });
   });
 });

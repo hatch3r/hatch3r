@@ -1,6 +1,6 @@
 ---
 id: hatch3r-rule-customize
-description: Rule customization — redirects to the unified hatch3r-customize skill.
+description: Redirect to adjust glob patterns, always-on triggers, and precedence tiers under .hatch3r/rules/ -- use when narrowing or reprioritizing a canonical lint rule
 tags: [customize]
 quality_charter: agents/shared/quality-charter.md
 ---

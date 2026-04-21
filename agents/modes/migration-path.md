@@ -2,6 +2,7 @@
 id: researcher-mode-migration-path
 type: mode
 description: Design a phased execution plan with safe ordering and rollback points.
+tags: [core, planning, implementation]
 parent: hatch3r-researcher
 quality_charter: agents/shared/quality-charter.md
 ---

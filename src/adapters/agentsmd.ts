@@ -34,7 +34,7 @@ export class AgentsMdAdapter extends BaseAdapter {
 
     // Agents section
     if (ctx.features.agents) {
-      const agents = await readCanonicalFiles(ctx.agentsDir, "agents");
+      const agents = await readCanonicalFiles(ctx.agentsDir, "agents", this.warnings);
       for (const agent of agents) {
         const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
         this.warnings.push(...warnings);
@@ -61,7 +61,7 @@ export class AgentsMdAdapter extends BaseAdapter {
 
     // Rules section
     if (ctx.features.rules) {
-      const rules = await readCanonicalFiles(ctx.agentsDir, "rules");
+      const rules = await readCanonicalFiles(ctx.agentsDir, "rules", this.warnings);
       const enabledRules: Array<{ id: string; description: string; content: string }> = [];
       for (const rule of rules) {
         const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);
@@ -88,7 +88,7 @@ export class AgentsMdAdapter extends BaseAdapter {
 
     // Skills section
     if (ctx.features.skills) {
-      const skills = await readCanonicalFiles(ctx.agentsDir, "skills");
+      const skills = await readCanonicalFiles(ctx.agentsDir, "skills", this.warnings);
       const enabledSkills: Array<{ id: string; description: string; content: string }> = [];
       for (const skill of skills) {
         const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, skill);

@@ -2,6 +2,7 @@
 id: researcher-mode-symptom-trace
 type: mode
 description: Trace reported symptoms through the codebase to find divergence points.
+tags: [core, planning, review]
 parent: hatch3r-researcher
 quality_charter: agents/shared/quality-charter.md
 ---

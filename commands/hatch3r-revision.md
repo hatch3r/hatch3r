@@ -1,6 +1,8 @@
 ---
 id: hatch3r-revision
 type: command
+orchestrator: true
+agentPipeline: [hatch3r-implementer, hatch3r-lint-fixer, hatch3r-test-writer, hatch3r-reviewer, hatch3r-fixer, hatch3r-security-auditor, hatch3r-docs-writer, hatch3r-a11y-auditor, hatch3r-perf-profiler]
 description: User-guided revision of agent-implemented code in a fresh context window. Reconstructs what was done, interviews the user for feedback, fixes issues, cleans up leftovers, and drives toward merge readiness. Delegation, quality pipeline, modes, and board integration details are in commands/revision/.
 tags: [implementation, team]
 quality_charter: agents/shared/quality-charter.md
@@ -54,6 +56,14 @@ If no board context exists (plain instruction, no PR, no linked issues), skip sh
 2. **Targeted file reads only.** When scanning for leftovers in Step 4, read only the files that appear in the diff -- not the full codebase.
 3. **Do NOT re-read shared context files** -- their content is available via always-applied rules or inline in this command.
 4. **Limit documentation reads.** Read project documentation selectively -- TOC/headers first, full content only for relevant sections.
+
+## Confidence Propagation Contract
+
+Every sub-agent delegation prompt in this command (including those defined in `commands/revision/revision-delegation.md` and `commands/revision/revision-quality.md`) MUST include the confidence expression requirement below (verbatim). Sub-agents are invoked with the `quality_charter: agents/shared/quality-charter.md` reference in their frontmatter, but the orchestrator repeats the directive to override runtime prompt defaults per the charter §1 rule.
+
+> Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
+
+Downstream propagation: every ASK checkpoint that reports verification quality, every gate that evaluates a sub-agent verdict, and every output block that surfaces merge-readiness MUST carry a high/medium/low confidence rating sourced from the upstream sub-agent. Dropping the signal between stages is a gate failure.
 
 ## Run Cache
 

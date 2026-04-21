@@ -7,12 +7,108 @@
  * secret detection.
  *
  * Finding #86 (D15, High): Add compliance verification to validate command.
+ *
+ * Finding C7-C1 (D8 Critical): Resilience module wiring is verified by
+ * scanning `src/cli/commands/` for imports of each module. PASS only if
+ * every module is imported by at least one command file. This guarantees
+ * the modules are reachable from a CLI code path, not just present on disk.
  */
 
+import { readFile, readdir } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { AGENT_TOOL_POLICIES, validateToolPolicies } from "./agentToolAllowlist.js";
 import { HARD_MAX_REVIEW_ITERATIONS, DEFAULT_MAX_REVIEW_ITERATIONS } from "./reviewLoop.js";
 import { MAX_PHASE_INPUT_LENGTH, MAX_AGENT_OUTPUT_LENGTH } from "./promptGuard.js";
 import { DEFAULT_PIPELINE_TIMEOUT_MS, MAX_PIPELINE_TIMEOUT_MS } from "./pipelineTimeout.js";
+
+// Six resilience modules whose CLI invocation is checked. Each entry maps
+// the module's source filename (without extension) to the import-segment
+// the regex expects to see (".../pipeline/<segment>"). We treat .ts and .js
+// extensions interchangeably so the check works against TypeScript source
+// in dev and compiled output in `dist/`.
+const RESILIENCE_MODULES = [
+  "circuitBreaker",
+  "adapterTimeout",
+  "phaseTimeout",
+  "pipelineTimeout",
+  "phaseOutputSchema",
+  "retryWithBackoff",
+] as const;
+
+type ResilienceModule = typeof RESILIENCE_MODULES[number];
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Resolve the directory containing the CLI command source files.
+ *
+ * In dev (`vitest`/`tsc --noEmit`) the file lives at
+ * `src/pipeline/complianceVerification.ts` so commands are at
+ * `src/cli/commands/`. In the compiled bundle (tsup) only `dist/cli/`
+ * exists; in that case fall back to inspecting the bundled entrypoint.
+ */
+async function resolveCommandsDir(): Promise<string | null> {
+  const candidates = [
+    join(__dirname, "..", "cli", "commands"),
+    join(__dirname, "..", "..", "src", "cli", "commands"),
+    join(__dirname, "..", "cli"),
+  ];
+  for (const candidate of candidates) {
+    try {
+      const entries = await readdir(candidate);
+      if (entries.length > 0) return candidate;
+    } catch {
+      // Try next candidate
+    }
+  }
+  return null;
+}
+
+/**
+ * Scan command source files and return the set of resilience modules
+ * that are imported by at least one CLI command.
+ */
+export async function detectResilienceInvocations(): Promise<Set<ResilienceModule>> {
+  const invoked = new Set<ResilienceModule>();
+  const commandsDir = await resolveCommandsDir();
+  if (!commandsDir) return invoked;
+
+  let entries: string[];
+  try {
+    entries = await readdir(commandsDir, { recursive: true }) as string[];
+  } catch {
+    return invoked;
+  }
+
+  const files = entries
+    .filter((e) => typeof e === "string" && (e.endsWith(".ts") || e.endsWith(".js")))
+    .map((e) => join(commandsDir, e));
+
+  // Build one regex per module that matches a static import or dynamic
+  // import naming the module under `pipeline/`. The trailing `[".]` allows
+  // both the TypeScript `.js` import suffix and a plain segment reference.
+  const patterns: Record<ResilienceModule, RegExp> = {} as Record<ResilienceModule, RegExp>;
+  for (const mod of RESILIENCE_MODULES) {
+    patterns[mod] = new RegExp(`pipeline/${mod}(?:\\.js)?["']`);
+  }
+
+  for (const file of files) {
+    let contents: string;
+    try {
+      contents = await readFile(file, "utf-8");
+    } catch {
+      continue;
+    }
+    for (const mod of RESILIENCE_MODULES) {
+      if (!invoked.has(mod) && patterns[mod].test(contents)) {
+        invoked.add(mod);
+      }
+    }
+    if (invoked.size === RESILIENCE_MODULES.length) break;
+  }
+  return invoked;
+}
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -52,9 +148,16 @@ export interface ComplianceReport {
  *
  * This is called by the validate command to verify that the framework's
  * security controls are properly configured and within acceptable bounds.
+ *
+ * Note: This is async because resilience-module checks (C7-C1) scan the
+ * `src/cli/commands/` directory for import-presence of each module, which
+ * requires file I/O. A synchronous wrapper `runComplianceChecksSync` is
+ * exposed for callers that cannot await (legacy code paths).
  */
-export function runComplianceChecks(): ComplianceReport {
+export async function runComplianceChecks(): Promise<ComplianceReport> {
   const checks: ComplianceCheck[] = [];
+
+  const invokedResilience = await detectResilienceInvocations();
 
   // ── ASI01: Prompt injection guards ──
   checks.push({
@@ -87,16 +190,28 @@ export function runComplianceChecks(): ComplianceReport {
     detail: `${agentCount} agent tool policies registered`,
   });
 
-  const policyWarnings = validateToolPolicies();
-  checks.push({
-    id: "asi02-policy-validation",
-    description: "Tool allowlist policies are well-formed",
-    controlRef: "ASI02",
-    status: policyWarnings.length === 0 ? "pass" : "warn",
-    detail: policyWarnings.length === 0
-      ? "All policies are well-formed"
-      : `${policyWarnings.length} warning(s): ${policyWarnings[0]}`,
-  });
+  // C8-D15-M3: validateToolPolicies now throws on unknown tool categories
+  // (typos). Surface the thrown error as a fail check so CI observes it.
+  try {
+    const policyWarnings = validateToolPolicies();
+    checks.push({
+      id: "asi02-policy-validation",
+      description: "Tool allowlist policies are well-formed",
+      controlRef: "ASI02",
+      status: policyWarnings.length === 0 ? "pass" : "warn",
+      detail: policyWarnings.length === 0
+        ? "All policies are well-formed"
+        : `${policyWarnings.length} warning(s): ${policyWarnings[0]}`,
+    });
+  } catch (err) {
+    checks.push({
+      id: "asi02-policy-validation",
+      description: "Tool allowlist policies are well-formed",
+      controlRef: "ASI02",
+      status: "fail",
+      detail: err instanceof Error ? err.message : String(err),
+    });
+  }
 
   // Verify no agent has write+git+board (excessive privilege)
   const overPrivileged = AGENT_TOOL_POLICIES.filter(
@@ -115,14 +230,22 @@ export function runComplianceChecks(): ComplianceReport {
       : `${overPrivileged.length} agent(s) with excessive privileges: ${overPrivileged.map((p) => p.agentId).join(", ")}`,
   });
 
-  // ── ASI07: Phase boundary validation ──
-  // Verified by existence of the phaseOutputSchema module (static check)
+  // ── ASI07: Phase output size bounding ──
+  // Verified by import-presence in CLI commands (Finding C7-C1). The
+  // phaseOutputSchema module exposes `compactPhaseOutput`, invoked by
+  // sync/update/verify to keep command-summary output within prompt-guard
+  // size limits. The dormant validator surface was removed in Cycle 7.5
+  // (C7.5-W2B2-H42) per P4/Silent-Failure Contract; phase-shape contracts
+  // remain typed in `pipelineContext.ts` for downstream AI-tool consumption.
+  const phaseSchemaInvoked = invokedResilience.has("phaseOutputSchema");
   checks.push({
     id: "asi07-phase-schemas",
-    description: "Phase output schema validators are registered",
+    description: "Phase output compaction is invoked from a CLI command",
     controlRef: "ASI07",
-    status: "pass",
-    detail: "Schema validators registered for: research, implementation, review, quality",
+    status: phaseSchemaInvoked ? "pass" : "fail",
+    detail: phaseSchemaInvoked
+      ? "phaseOutputSchema.compactPhaseOutput is imported by at least one CLI command"
+      : "phaseOutputSchema is not imported by any CLI command (src/cli/commands/)",
   });
 
   // ── Review loop limits ──
@@ -135,13 +258,34 @@ export function runComplianceChecks(): ComplianceReport {
   });
 
   // ── Pipeline timeout ──
+  // Verifies both that the constant is configured AND that pipelineTimeout is
+  // imported by at least one CLI command (Finding C7-C1).
+  const pipelineTimeoutInvoked = invokedResilience.has("pipelineTimeout");
   checks.push({
     id: "pipeline-timeout",
-    description: "Pipeline execution timeout is configured",
+    description: "Pipeline execution timeout is configured and invoked from a CLI command",
     controlRef: "ASI-TIMEOUT",
-    status: DEFAULT_PIPELINE_TIMEOUT_MS > 0 ? "pass" : "fail",
-    detail: `Default: ${Math.round(DEFAULT_PIPELINE_TIMEOUT_MS / 1000)}s, max: ${Math.round(MAX_PIPELINE_TIMEOUT_MS / 1000)}s`,
+    status: DEFAULT_PIPELINE_TIMEOUT_MS > 0 && pipelineTimeoutInvoked ? "pass" : "fail",
+    detail: `Default: ${Math.round(DEFAULT_PIPELINE_TIMEOUT_MS / 1000)}s, max: ${Math.round(MAX_PIPELINE_TIMEOUT_MS / 1000)}s; ` +
+      `pipelineTimeout invoked from CLI: ${pipelineTimeoutInvoked ? "yes" : "no"}`,
   });
+
+  // ── Resilience module wiring (Finding C7-C1) ──
+  // PASS only if every resilience module is imported by at least one
+  // CLI command file. FAIL surfaces the specific module(s) that are
+  // unwired.
+  for (const mod of RESILIENCE_MODULES) {
+    const invoked = invokedResilience.has(mod);
+    checks.push({
+      id: `resilience-${mod.toLowerCase()}`,
+      description: `Resilience module \`${mod}\` is invoked from a CLI command`,
+      controlRef: "ASI-RESILIENCE",
+      status: invoked ? "pass" : "fail",
+      detail: invoked
+        ? `pipeline/${mod} is imported by at least one CLI command`
+        : `pipeline/${mod} is not imported by any CLI command (src/cli/commands/)`,
+    });
+  }
 
   // ── Diff-hash verification ──
   checks.push({

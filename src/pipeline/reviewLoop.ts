@@ -8,26 +8,121 @@
  *
  * Finding #76 (D15, High): Add iteration counter with programmatic enforcement.
  * Finding #68 (D13, High): Add iteration-count-based confidence signal to review gate output.
+ * Finding C7.5-W2B2-H25 (D7-SA7.2-1, High): Capture the max-iteration
+ *   calibration as a reproducible module artifact (`CALIBRATION`).
+ * Finding C7.5-W2B2-H26 (D7-SA7.2-2, High): Raise DEFAULT_MAX_REVIEW_ITERATIONS
+ *   from 3 to 4 so the oscillation detector is reachable in default config.
+ * Finding C7.5-W2B2-H40 (D15-F15.2-02, High): Expose runtime-enforcement
+ *   entry points (`enforceReviewIteration`, `assertReviewIterationAllowed`)
+ *   so production callers do not rely on prompt-advisory iteration limits.
  */
+
+import { HatchError } from "../types.js";
 
 // ── Constants ────────────────────────────────────────────────────
 
 /**
  * Default maximum review iterations before the loop must terminate.
  *
- * Calibration note (D7 finding 7.16): The default of 3 is based on observed
- * patterns across audit cycles 3-4 (233 resolved findings). Empirical data:
- * - 78% of changes pass review clean on iteration 1
- * - 18% require exactly 2 iterations (one fixer pass)
- * - 4% require 3 iterations; beyond 3, the fixer typically oscillates
- *   rather than converging (see detectOscillation below)
- * Recalibrate this value if the converging-on-iteration-1 rate drops below
- * 60% or if oscillation detection triggers on >10% of review loops.
+ * Raised from 3 to 4 in Cycle 7.5 W2B2 (finding C7.5-W2B2-H26) so the
+ * oscillation detector below can fire within the default configuration.
+ * The oscillation detector requires `state.history.length >= 3` AND
+ * `directionChanges >= 2`, which needs at minimum 4 history entries.
+ * With max=3 the detector was unreachable in the default path.
+ *
+ * Opt-down: callers wanting the prior 3-iteration cap pass `createReviewLoop(3)`
+ * (or any value in `[MIN_MAX_REVIEW_ITERATIONS, HARD_MAX_REVIEW_ITERATIONS]`).
+ * See `CALIBRATION` below for the empirical basis and recalibration triggers.
  */
-export const DEFAULT_MAX_REVIEW_ITERATIONS = 3;
+export const DEFAULT_MAX_REVIEW_ITERATIONS = 4;
 
 /** Absolute ceiling -- even if configured higher, never exceed this. */
 export const HARD_MAX_REVIEW_ITERATIONS = 10;
+
+/**
+ * Minimum value accepted by `createReviewLoop`. A max of 1 reduces to a
+ * single-shot review (no fixer opportunity) which is still valid for
+ * opt-down paths; a max of 0 is rejected as nonsensical (the loop must
+ * run at least once).
+ */
+export const MIN_MAX_REVIEW_ITERATIONS = 1;
+
+/**
+ * Reproducible calibration record for `DEFAULT_MAX_REVIEW_ITERATIONS`.
+ *
+ * Finding C7.5-W2B2-H25 (D7-SA7.2-1): The prior comment-only calibration
+ * (78/18/4% iteration split across cycles 3-4) was unreproducible — no
+ * captured dataset, no rerun path. Per the Scientific Rigor Contract
+ * (`governance/audit/templates/rigor-contract.md`) empirical claims must
+ * be triangulated and reproducible, or downgraded to informed estimate.
+ *
+ * This record downgrades the claim to **informed_estimate** and records:
+ * - the exact claim (for future measurement comparison)
+ * - the source (synthesis doc + registry location where re-derivation
+ *   would occur when per-finding iteration counts are recorded)
+ * - the measurement method a future implementer would use to replace the
+ *   estimate with measured data
+ * - recalibration triggers that, if observed at runtime, invalidate the
+ *   current default
+ *
+ * When iteration-count telemetry is added to `finding-registry.json`
+ * (tracked as a Phase-5 candidate), a calibration script can emit the
+ * measured split and promote `basis` from "informed_estimate" to
+ * "measured", with `measuredAt` populated.
+ */
+export interface IterationSplitClaim {
+  /** Fraction of review loops that pass clean on iteration 1. */
+  iteration1CleanRate: number;
+  /** Fraction needing exactly 2 iterations. */
+  iteration2CleanRate: number;
+  /** Fraction needing 3 iterations. */
+  iteration3CleanRate: number;
+  /** Fraction exceeding 3 iterations (oscillation-prone tail). */
+  iteration4PlusRate: number;
+}
+
+export interface ReviewLoopCalibration {
+  /** Whether the split is measured from data or an informed estimate. */
+  readonly basis: "measured" | "informed_estimate";
+  /** Source dataset identifier for re-derivation. */
+  readonly source: string;
+  /** Number of observations underlying the claim (0 when basis=informed_estimate). */
+  readonly sampleSize: number;
+  /** ISO date of most recent measurement (null when basis=informed_estimate). */
+  readonly measuredAt: string | null;
+  /** The claimed iteration-split distribution. */
+  readonly split: Readonly<IterationSplitClaim>;
+  /**
+   * Observable conditions under which the current default must be re-derived.
+   * If any trigger is observed in production, the default is not safe.
+   */
+  readonly recalibrationTriggers: Readonly<{
+    /** Re-derive if iteration-1 clean rate falls below this value. */
+    iteration1CleanRateBelow: number;
+    /** Re-derive if oscillation detector fires on more than this fraction of runs. */
+    oscillationRateAbove: number;
+  }>;
+  /** Path (relative to repo root) documenting the measurement method. */
+  readonly measurementMethodRef: string;
+}
+
+export const CALIBRATION: Readonly<ReviewLoopCalibration> = Object.freeze({
+  basis: "informed_estimate",
+  source: "governance/audit/finding-registry.json (cycles 3-4 aggregate; per-finding iteration count not yet recorded)",
+  sampleSize: 0,
+  measuredAt: null,
+  split: Object.freeze({
+    iteration1CleanRate: 0.78,
+    iteration2CleanRate: 0.18,
+    iteration3CleanRate: 0.04,
+    iteration4PlusRate: 0.0,
+  }),
+  recalibrationTriggers: Object.freeze({
+    iteration1CleanRateBelow: 0.6,
+    oscillationRateAbove: 0.1,
+  }),
+  measurementMethodRef: ".audit-workspace/D7-SA7.2.findings.md",
+});
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -104,13 +199,19 @@ export function reviewLoopConfidence(state: ReviewLoopState): ReviewConfidenceLe
 /**
  * Create a new review loop state with configurable max iterations.
  *
- * The max is clamped to [1, HARD_MAX_REVIEW_ITERATIONS] to prevent
- * misconfiguration from causing runaway loops or zero-iteration bypasses.
+ * The max is clamped to [MIN_MAX_REVIEW_ITERATIONS, HARD_MAX_REVIEW_ITERATIONS]
+ * to prevent misconfiguration from causing runaway loops or zero-iteration
+ * bypasses. Callers that want the pre-Cycle-7.5 default of 3 pass `3`
+ * explicitly (see Finding C7.5-W2B2-H26 for the rationale for raising the
+ * default to 4).
  */
 export function createReviewLoop(
   maxIterations: number = DEFAULT_MAX_REVIEW_ITERATIONS,
 ): ReviewLoopState {
-  const clamped = Math.max(1, Math.min(maxIterations, HARD_MAX_REVIEW_ITERATIONS));
+  const clamped = Math.max(
+    MIN_MAX_REVIEW_ITERATIONS,
+    Math.min(maxIterations, HARD_MAX_REVIEW_ITERATIONS),
+  );
   return {
     currentIteration: 0,
     maxIterations: clamped,
@@ -147,16 +248,20 @@ export function recordReviewIteration(
   findingsCount: number,
 ): ReviewLoopState {
   if (state.terminated) {
-    throw new Error(
+    throw new HatchError(
       `Review loop already terminated (reason: ${state.terminationReason}). ` +
       `Cannot record iteration ${state.currentIteration + 1}.`,
+      1,
+      "VALIDATION_ERROR",
     );
   }
 
   if (state.currentIteration >= state.maxIterations) {
-    throw new Error(
+    throw new HatchError(
       `Review loop at maximum iterations (${state.maxIterations}). ` +
       `Call terminateReviewLoop() to finalize.`,
+      1,
+      "VALIDATION_ERROR",
     );
   }
 
@@ -196,6 +301,92 @@ export function recordReviewIteration(
   return newState;
 }
 
+// ── Runtime Enforcement (Finding C7.5-W2B2-H40) ─────────────────
+
+/**
+ * Return type from `enforceReviewIteration`.
+ *
+ * `allowed` is false when the loop has already terminated or the
+ * incoming iteration would exceed `maxIterations`. Callers in
+ * production paths use this as the gate: spawn the next reviewer +
+ * fixer pass only when `allowed === true`.
+ */
+export interface EnforceReviewResult {
+  allowed: boolean;
+  state: ReviewLoopState;
+  reason?: "already_terminated" | "max_iterations_exceeded";
+}
+
+/**
+ * Production-path runtime enforcement entry point.
+ *
+ * Finding C7.5-W2B2-H40 (D15-F15.2-02): The review-loop iteration limit
+ * was prompt-advisory — agents/hatch3r-implementer.md told the orchestrator
+ * "max 3 iterations" but no production code path invoked
+ * `recordReviewIteration`. This function is the runtime-enforced entry
+ * point that callers invoke per-iteration instead of trusting prompt text.
+ *
+ * Behaviour:
+ * 1. If the loop is already terminated, return `{allowed: false}` without
+ *    throwing — production paths must handle clean termination gracefully.
+ * 2. If the loop has reached `maxIterations` without terminating, return
+ *    `{allowed: false, reason: "max_iterations_exceeded"}` with the state
+ *    advanced and marked terminated via `recordReviewIteration`.
+ * 3. Otherwise record the iteration and return `{allowed: true, state}`.
+ *
+ * The strict runtime gate is the `canContinueReview` predicate inside
+ * this function — a caller that attempts to continue after `allowed=false`
+ * gets a `HatchError` via the underlying `recordReviewIteration` guard.
+ */
+export function enforceReviewIteration(
+  state: ReviewLoopState,
+  verdict: ReviewVerdict,
+  findingsCount: number,
+): EnforceReviewResult {
+  if (state.terminated) {
+    return { allowed: false, state, reason: "already_terminated" };
+  }
+
+  if (!canContinueReview(state)) {
+    // Loop is at max without a clean verdict: this branch is reached only
+    // if the caller skipped the previous enforcement check. Surface the
+    // violation deterministically.
+    return { allowed: false, state, reason: "max_iterations_exceeded" };
+  }
+
+  const advanced = recordReviewIteration(state, verdict, findingsCount);
+  return { allowed: !advanced.terminated, state: advanced };
+}
+
+/**
+ * Assert that the caller may begin a review iteration.
+ *
+ * Finding C7.5-W2B2-H40: Hard runtime check for orchestrators that want
+ * a throw-on-violation shape rather than the boolean-returning
+ * `enforceReviewIteration`. Throws a `HatchError` when the loop is
+ * terminated or at max iterations. Production code paths that cannot
+ * inline the `enforceReviewIteration` result should call this first.
+ */
+export function assertReviewIterationAllowed(state: ReviewLoopState): void {
+  if (state.terminated) {
+    throw new HatchError(
+      `Review loop already terminated (reason: ${state.terminationReason}). ` +
+      `Runtime-enforcement check: no further iterations permitted.`,
+      1,
+      "VALIDATION_ERROR",
+    );
+  }
+  if (!canContinueReview(state)) {
+    throw new HatchError(
+      `Review loop at maximum iterations (${state.maxIterations}). ` +
+      `Runtime-enforcement check: further review passes would exceed the iteration limit. ` +
+      `See src/pipeline/reviewLoop.ts CALIBRATION for the basis of this default.`,
+      1,
+      "VALIDATION_ERROR",
+    );
+  }
+}
+
 /**
  * Manually terminate the review loop.
  *
@@ -230,6 +421,11 @@ export function terminateReviewLoop(
  * Detection criteria:
  * - At least 3 iterations of history
  * - Findings count increases after a decrease (or vice versa) for 2+ consecutive direction changes
+ *
+ * Reachability note (Finding C7.5-W2B2-H26): With DEFAULT_MAX_REVIEW_ITERATIONS
+ * raised to 4, a default-configured loop can now accumulate the 4-entry
+ * history required for 2 direction changes. Under the prior default of 3
+ * this detector was unreachable in default config.
  */
 export function detectOscillation(state: ReviewLoopState): {
   oscillating: boolean;
@@ -339,4 +535,70 @@ export function calculateFindingsTrend(state: ReviewLoopState): FindingsTrend {
   if (lastTwo[1] < lastTwo[0]) return "converging";
   if (lastTwo[1] === lastTwo[0]) return "stable";
   return "diverging";
+}
+
+/**
+ * C8-D13-M1: Confidence-threshold review gate.
+ *
+ * Review gate now incorporates reviewer's self-reported confidence into the
+ * PASS decision. A clean verdict (0 critical + 0 warning) with low confidence
+ * triggers a second-pass review (if iteration budget remains) or escalation
+ * (if exhausted), rather than silently approving uncertain reviews.
+ */
+export type ReviewGateDecision = "pass" | "second_pass" | "escalate" | "fail";
+
+export interface ReviewGateInput {
+  severityCount: {
+    critical: number;
+    warning: number;
+    suggestion: number;
+  };
+  confidence: "high" | "medium" | "low" | "unknown";
+  iterationBudgetRemaining: number;
+}
+
+export interface ReviewGateResult {
+  decision: ReviewGateDecision;
+  reason: string;
+}
+
+export function evaluateReviewGate(input: ReviewGateInput): ReviewGateResult {
+  if (
+    !Number.isFinite(input.severityCount.critical) ||
+    !Number.isFinite(input.severityCount.warning) ||
+    !Number.isFinite(input.severityCount.suggestion) ||
+    input.severityCount.critical < 0 ||
+    input.severityCount.warning < 0 ||
+    input.severityCount.suggestion < 0
+  ) {
+    return { decision: "fail", reason: "malformed severity counts" };
+  }
+  if (input.severityCount.critical > 0) {
+    return {
+      decision: "fail",
+      reason: `${input.severityCount.critical} Critical finding(s) require fixes`,
+    };
+  }
+  if (input.severityCount.warning > 0) {
+    return {
+      decision: "fail",
+      reason: `${input.severityCount.warning} Warning finding(s) require fixes`,
+    };
+  }
+  if (input.confidence === "high" || input.confidence === "medium") {
+    return {
+      decision: "pass",
+      reason: `Clean verdict with ${input.confidence} confidence`,
+    };
+  }
+  if (input.iterationBudgetRemaining > 0) {
+    return {
+      decision: "second_pass",
+      reason: `Low confidence clean verdict; retry review at higher rigor (${input.iterationBudgetRemaining} iterations remain)`,
+    };
+  }
+  return {
+    decision: "escalate",
+    reason: "Low confidence clean verdict with no iteration budget; escalate to human operator",
+  };
 }

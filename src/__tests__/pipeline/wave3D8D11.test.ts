@@ -150,20 +150,25 @@ describe("D8-8.19: Content scanning errors surfaced as warnings", () => {
   });
 });
 
-// ── D11-11.6: Integrity manifest gated on sync success ─────────────
+// ── D11-11.6 (superseded by D1-SA1.3.2): Integrity manifest adapter metadata ─
 
-describe("D11-11.6: Integrity manifest write gated on success", () => {
-  it("sync.ts gates integrity manifest on zero adapter failures", async () => {
+describe("D1-SA1.3.2: Integrity manifest regenerated with adapter metadata", () => {
+  it("sync.ts always regenerates integrity manifest and records adapter metadata", async () => {
     const syncSource = await readFile(
       join(process.cwd(), "src/cli/commands/sync.ts"),
       "utf-8",
     );
-    // Should conditionally write manifest only when no failures
-    expect(syncSource).toContain("if (adapterFailures.length === 0)");
+    // Should always call generateIntegrityManifest — even on partial failure —
+    // because the manifest tracks canonical content which adapters read but
+    // do not modify.
     expect(syncSource).toContain("generateIntegrityManifest");
-    // Should warn when not updating
+    // Should record which adapters were expected and which succeeded, so
+    // downstream tools can detect partial syncs without re-reading hatch.json.
+    expect(syncSource).toContain("expectedAdapters");
+    expect(syncSource).toContain("successfulAdapters");
+    // Should warn on partial-failure sync so the user knows to re-run
     expect(syncSource).toContain(
-      "Integrity manifest not updated due to adapter failures",
+      "Integrity manifest regenerated with",
     );
   });
 });

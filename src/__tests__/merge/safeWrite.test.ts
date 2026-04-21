@@ -1,9 +1,14 @@
-import { describe, it, expect, afterEach } from "vitest";
-import { readFile, writeFile, rm, access } from "node:fs/promises";
+import { describe, it, expect, afterEach, vi } from "vitest";
+import { readFile, writeFile, rm, access, readdir, utimes } from "node:fs/promises";
 import { join } from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { isManagedPath, safeWriteFile } from "../../merge/safeWrite.js";
+import {
+  isManagedPath,
+  safeWriteFile,
+  sweepOrphanTmpFiles,
+  formatOrphanTmpSweepDiagnostic,
+} from "../../merge/safeWrite.js";
 
 describe("safeWrite", () => {
   describe("isManagedPath", () => {
@@ -505,6 +510,390 @@ describe("safeWrite", () => {
       expect(result.warning).toContain("Auto-repaired");
       const content = await readFile(filePath, "utf-8");
       expect(content).toBe("fresh content");
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────
+  // D11-SA11.2-01 (C7.5-W2B2-H37): Orphan tmp-file sweep
+  // ──────────────────────────────────────────────────────────────────────
+
+  describe("sweepOrphanTmpFiles (D11-SA11.2-01)", () => {
+    let tempDir: string;
+
+    afterEach(async () => {
+      if (tempDir) {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    async function createTempDir(): Promise<string> {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-sweep-"));
+      return tempDir;
+    }
+
+    /**
+     * Create a file that looks like a real orphan tmp: name matches the exact
+     * `.tmp.<8-hex>` suffix atomicWriteFile produces, and its mtime is backdated
+     * past the 60s orphan-age threshold.
+     */
+    async function makeOrphanTmp(dir: string, base: string, suffix = "deadbeef"): Promise<string> {
+      const path = join(dir, `${base}.tmp.${suffix}`);
+      await writeFile(path, "orphan content", "utf-8");
+      // Backdate by 2 minutes so it exceeds the 60s min-age gate.
+      const past = new Date(Date.now() - 120_000);
+      await utimes(path, past, past);
+      return path;
+    }
+
+    it("returns empty array when directory has no orphans", async () => {
+      const dir = await createTempDir();
+      await writeFile(join(dir, "regular.md"), "content", "utf-8");
+
+      const result = await sweepOrphanTmpFiles(dir);
+
+      expect(result).toEqual([]);
+    });
+
+    it("removes an aged orphan tmp file and reports it", async () => {
+      const dir = await createTempDir();
+      const orphan = await makeOrphanTmp(dir, "file.md");
+
+      const result = await sweepOrphanTmpFiles(dir);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].path).toBe(orphan);
+      expect(result[0].removed).toBe(true);
+      expect(result[0].error).toBeUndefined();
+
+      // Orphan is gone from disk
+      const exists = await access(orphan).then(() => true).catch(() => false);
+      expect(exists).toBe(false);
+    });
+
+    it("does not remove tmp files younger than 60s (avoid racing a live write)", async () => {
+      const dir = await createTempDir();
+      const fresh = join(dir, "live.md.tmp.abcd1234");
+      await writeFile(fresh, "in-flight", "utf-8");
+      // Do not backdate — mtime is "now", well under the 60s threshold.
+
+      const result = await sweepOrphanTmpFiles(dir);
+
+      expect(result).toEqual([]);
+      const exists = await access(fresh).then(() => true).catch(() => false);
+      expect(exists).toBe(true);
+    });
+
+    it("ignores non-matching tmp-like filenames (wrong pattern)", async () => {
+      const dir = await createTempDir();
+      // Backdate these too so the only reason to skip is the pattern mismatch.
+      const past = new Date(Date.now() - 120_000);
+      const looksTmpButNotOurs1 = join(dir, "file.tmp"); // no hex suffix
+      const looksTmpButNotOurs2 = join(dir, "file.tmp.abc"); // too-short hex
+      const looksTmpButNotOurs3 = join(dir, "file.tmp.ghijklmn"); // non-hex chars
+      const looksTmpButNotOurs4 = join(dir, "file.tmp.abcd12345"); // too-long hex
+      await writeFile(looksTmpButNotOurs1, "x", "utf-8");
+      await writeFile(looksTmpButNotOurs2, "x", "utf-8");
+      await writeFile(looksTmpButNotOurs3, "x", "utf-8");
+      await writeFile(looksTmpButNotOurs4, "x", "utf-8");
+      for (const p of [looksTmpButNotOurs1, looksTmpButNotOurs2, looksTmpButNotOurs3, looksTmpButNotOurs4]) {
+        await utimes(p, past, past);
+      }
+
+      const result = await sweepOrphanTmpFiles(dir);
+
+      expect(result).toEqual([]);
+      // All non-matching files still present
+      for (const p of [looksTmpButNotOurs1, looksTmpButNotOurs2, looksTmpButNotOurs3, looksTmpButNotOurs4]) {
+        expect(await access(p).then(() => true).catch(() => false)).toBe(true);
+      }
+    });
+
+    it("finds multiple orphans in a single directory", async () => {
+      const dir = await createTempDir();
+      await makeOrphanTmp(dir, "a.md", "11111111");
+      await makeOrphanTmp(dir, "b.md", "22222222");
+      await makeOrphanTmp(dir, "c.md", "33333333");
+      // Plus a regular file that must NOT be swept
+      await writeFile(join(dir, "keeper.md"), "keep", "utf-8");
+
+      const result = await sweepOrphanTmpFiles(dir);
+
+      expect(result).toHaveLength(3);
+      expect(result.every((e) => e.removed)).toBe(true);
+      const remaining = await readdir(dir);
+      expect(remaining).toEqual(["keeper.md"]);
+    });
+
+    it("recurses into subdirectories when recursive: true", async () => {
+      const dir = await createTempDir();
+      const { mkdir } = await import("node:fs/promises");
+      const nested = join(dir, "nested", "deep");
+      await mkdir(nested, { recursive: true });
+      await makeOrphanTmp(nested, "deep.md", "abcdef00");
+      await makeOrphanTmp(dir, "root.md", "fedcba99");
+
+      const result = await sweepOrphanTmpFiles(dir, { recursive: true });
+
+      expect(result).toHaveLength(2);
+      expect(result.every((e) => e.removed)).toBe(true);
+    });
+
+    it("does not recurse by default", async () => {
+      const dir = await createTempDir();
+      const { mkdir } = await import("node:fs/promises");
+      const nested = join(dir, "nested");
+      await mkdir(nested, { recursive: true });
+      await makeOrphanTmp(nested, "deep.md", "abcdef00");
+      await makeOrphanTmp(dir, "root.md", "fedcba99");
+
+      const result = await sweepOrphanTmpFiles(dir);
+
+      // Only the root-level orphan is swept
+      expect(result).toHaveLength(1);
+      expect(result[0].path).toBe(join(dir, "root.md.tmp.fedcba99"));
+    });
+
+    it("returns [] without throwing when directory does not exist (ENOENT)", async () => {
+      const result = await sweepOrphanTmpFiles("/definitely-does-not-exist-hatch3r-sweep-test");
+
+      expect(result).toEqual([]);
+    });
+
+    it("reports non-ENOENT readdir failures via console.error and returns []", async () => {
+      // ESM namespace modules cannot be spied on via vi.spyOn. Use vi.doMock
+      // + module reset to substitute readdir with an EACCES rejection.
+      const dir = await createTempDir();
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      vi.resetModules();
+      vi.doMock("node:fs/promises", async (importOriginal) => {
+        const actual = await importOriginal<typeof import("node:fs/promises")>();
+        return {
+          ...actual,
+          readdir: vi.fn().mockRejectedValue(
+            Object.assign(new Error("perm denied"), { code: "EACCES" }),
+          ),
+        };
+      });
+
+      try {
+        const mod = await import("../../merge/safeWrite.js");
+        const result = await mod.sweepOrphanTmpFiles(dir);
+        expect(result).toEqual([]);
+        expect(errorSpy).toHaveBeenCalled();
+        const msg = errorSpy.mock.calls[0]?.[0];
+        expect(String(msg)).toContain("orphan-tmp sweep");
+        expect(String(msg)).toContain(dir);
+      } finally {
+        errorSpy.mockRestore();
+        vi.doUnmock("node:fs/promises");
+        vi.resetModules();
+      }
+    });
+
+    it("silently skips ENOENT readdir (fresh checkout, no diagnostic noise)", async () => {
+      // ENOENT must NOT log to console.error — it's the expected case for a
+      // brand new project that doesn't have .agents/ yet.
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        const result = await sweepOrphanTmpFiles(
+          "/definitely-missing-hatch3r-sweep-enoent-case",
+        );
+        expect(result).toEqual([]);
+        // No diagnostic — ENOENT is silent per the doc comment.
+        expect(errorSpy).not.toHaveBeenCalled();
+      } finally {
+        errorSpy.mockRestore();
+      }
+    });
+
+    it("reports unlink failures in the entry list without throwing", async () => {
+      // Seed a real orphan first (so readdir/stat succeed), then mock unlink.
+      const dir = await createTempDir();
+      const orphan = await makeOrphanTmp(dir, "stuck.md");
+
+      vi.resetModules();
+      vi.doMock("node:fs/promises", async (importOriginal) => {
+        const actual = await importOriginal<typeof import("node:fs/promises")>();
+        return {
+          ...actual,
+          unlink: vi.fn().mockRejectedValue(
+            Object.assign(new Error("busy"), { code: "EBUSY" }),
+          ),
+        };
+      });
+
+      try {
+        const mod = await import("../../merge/safeWrite.js");
+        const result = await mod.sweepOrphanTmpFiles(dir);
+        expect(result).toHaveLength(1);
+        expect(result[0].path).toBe(orphan);
+        expect(result[0].removed).toBe(false);
+        expect(result[0].error).toContain("busy");
+      } finally {
+        vi.doUnmock("node:fs/promises");
+        vi.resetModules();
+      }
+    });
+
+    it("uses explicit nowMs parameter for deterministic age testing", async () => {
+      const dir = await createTempDir();
+      const orphan = join(dir, "file.md.tmp.12345678");
+      await writeFile(orphan, "content", "utf-8");
+      // Do not backdate — normally the 60s gate would protect this file.
+      // But if we pass a nowMs far in the future, it becomes "aged".
+      const futureMs = Date.now() + 3_600_000; // 1 hour ahead
+
+      const result = await sweepOrphanTmpFiles(dir, { nowMs: futureMs });
+
+      expect(result).toHaveLength(1);
+      expect(result[0].removed).toBe(true);
+    });
+
+    it("skips orphan that disappears between readdir and stat", async () => {
+      // Race condition simulation: orphan present at readdir time, gone by stat.
+      // The sweep must skip it gracefully, not throw.
+      const dir = await createTempDir();
+      await makeOrphanTmp(dir, "ghost.md", "aaaaaaaa");
+
+      vi.resetModules();
+      vi.doMock("node:fs/promises", async (importOriginal) => {
+        const actual = await importOriginal<typeof import("node:fs/promises")>();
+        return {
+          ...actual,
+          stat: vi.fn().mockRejectedValue(
+            Object.assign(new Error("vanished"), { code: "ENOENT" }),
+          ),
+        };
+      });
+
+      try {
+        const mod = await import("../../merge/safeWrite.js");
+        const result = await mod.sweepOrphanTmpFiles(dir);
+        expect(result).toEqual([]);
+      } finally {
+        vi.doUnmock("node:fs/promises");
+        vi.resetModules();
+      }
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────
+  // formatOrphanTmpSweepDiagnostic
+  // ──────────────────────────────────────────────────────────────────────
+
+  describe("formatOrphanTmpSweepDiagnostic", () => {
+    it("returns null when entries is empty", () => {
+      expect(formatOrphanTmpSweepDiagnostic([])).toBeNull();
+    });
+
+    it("formats a single removed entry", () => {
+      const msg = formatOrphanTmpSweepDiagnostic([
+        { path: "/tmp/x.md.tmp.deadbeef", mtimeMs: 0, removed: true },
+      ]);
+      expect(msg).toContain("Swept 1 orphan temp file");
+      expect(msg).toContain("/tmp/x.md.tmp.deadbeef");
+      expect(msg).toContain("prior interrupted runs");
+    });
+
+    it("formats multiple removed entries with all paths", () => {
+      const msg = formatOrphanTmpSweepDiagnostic([
+        { path: "/tmp/a.md.tmp.11111111", mtimeMs: 0, removed: true },
+        { path: "/tmp/b.md.tmp.22222222", mtimeMs: 0, removed: true },
+      ]);
+      expect(msg).toContain("Swept 2");
+      expect(msg).toContain("/tmp/a.md.tmp.11111111");
+      expect(msg).toContain("/tmp/b.md.tmp.22222222");
+    });
+
+    it("reports failed entries separately with their error", () => {
+      const msg = formatOrphanTmpSweepDiagnostic([
+        { path: "/tmp/stuck.md.tmp.ffffffff", mtimeMs: 0, removed: false, error: "EBUSY" },
+      ]);
+      expect(msg).toContain("Failed to remove 1 orphan");
+      expect(msg).toContain("/tmp/stuck.md.tmp.ffffffff");
+      expect(msg).toContain("EBUSY");
+      expect(msg).toContain("remove manually");
+    });
+
+    it("combines swept + failed into one message", () => {
+      const msg = formatOrphanTmpSweepDiagnostic([
+        { path: "/tmp/ok.md.tmp.00000000", mtimeMs: 0, removed: true },
+        { path: "/tmp/stuck.md.tmp.ffffffff", mtimeMs: 0, removed: false, error: "EACCES" },
+      ]);
+      expect(msg).toContain("Swept 1");
+      expect(msg).toContain("Failed to remove 1");
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────
+  // C7.5-W2B2-H37: mid-stream exception produces an orphan that a later
+  // sweep cleans up with a diagnostic. Exercises the end-to-end contract.
+  // ──────────────────────────────────────────────────────────────────────
+
+  describe("mid-stream exception orphan recovery (C7.5-W2B2-H37)", () => {
+    let tempDir: string;
+
+    afterEach(async () => {
+      if (tempDir) {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    async function createTempDir(): Promise<string> {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-midstream-"));
+      return tempDir;
+    }
+
+    it("process-kill simulation: fabricate an orphan, later sweep removes it with warning", async () => {
+      const dir = await createTempDir();
+
+      // Step 1: Simulate a prior run that was SIGKILL'd mid-atomicWriteFile
+      // by fabricating an orphan (the finally unlink never ran). We backdate
+      // the mtime so it passes the 60s orphan-age gate.
+      const orphanPath = join(dir, "target.md.tmp.01234567");
+      await writeFile(orphanPath, "half-written content", "utf-8");
+      const past = new Date(Date.now() - 120_000);
+      await utimes(orphanPath, past, past);
+
+      // Step 2: A subsequent invocation (sync/update start) runs the sweep.
+      const sweepResults = await sweepOrphanTmpFiles(dir);
+
+      // Step 3: Diagnostic is produced — this is the key contract. The sweep
+      // is NOT silent; callers get a list they can log.
+      expect(sweepResults).toHaveLength(1);
+      expect(sweepResults[0].removed).toBe(true);
+      expect(sweepResults[0].path).toBe(orphanPath);
+
+      const diag = formatOrphanTmpSweepDiagnostic(sweepResults);
+      expect(diag).not.toBeNull();
+      expect(diag).toContain("prior interrupted runs");
+
+      // Step 4: Orphan is gone — workspace is clean for the new run.
+      const stillExists = await access(orphanPath).then(() => true).catch(() => false);
+      expect(stillExists).toBe(false);
+    });
+
+    it("failed write leaves no orphan under normal finally cleanup", async () => {
+      // Sanity: under normal error paths (not process-kill), the existing
+      // finally block in atomicWriteFile already unlinks the tmp. This
+      // confirms the sweep is only needed for process-kill scenarios.
+      const dir = await createTempDir();
+      const targetDir = join(dir, "missing-sub"); // does not exist
+      const target = join(targetDir, "nested.md");
+
+      // atomicWriteFile requires the parent to exist; safeWriteFile handles
+      // that via mkdir. But we want a failure mid-flow — directly calling
+      // atomicWriteFile on a nonexistent parent triggers writeFile ENOENT
+      // and the finally unlink runs.
+      const { atomicWriteFile } = await import("../../merge/safeWrite.js");
+      await expect(atomicWriteFile(target, "content")).rejects.toThrow();
+
+      // No tmp files should remain in the parent (when the parent exists).
+      // The dir itself doesn't exist, so readdir on the non-existent parent
+      // returns []; instead we check at the root.
+      const files = await readdir(dir);
+      expect(files.filter((f) => f.includes(".tmp."))).toEqual([]);
     });
   });
 });
