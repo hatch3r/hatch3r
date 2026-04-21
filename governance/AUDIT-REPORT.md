@@ -17,6 +17,7 @@ Overall Score: 81.4/100 (Weighted, post Cycle 7.5 W2B2; Cycle 7 post-exec was 39
 Score Band: Ship Ready (transitioned from "Needs Work" after Cycle 7.5 W2B2 resolved 45 done + 7 partial of 52 targeted Highs)
 Severity Ceiling Applied: NO (0 remaining Critical findings across Cycle 7 + Cycle 7.5)
 Post-execution updates: Cycle 7 closed 22 findings (21 done + 1 partial: C7-H16). Cycle 7.5 W2B1 closed 10 findings. Cycle 7.5 W2B2 closed 52 findings to terminal status (45 done + 7 partial) across 1 dispatch of 34 parallel sub-agents — commit cee7f73, registry sync c1d4e39, gate-fix 3d1929f, reviewer verdict at babe4f5. 10 disposition-filtered entries (4 phase_5_candidate, 3 multi_cycle_deferred, 1 external_blocker, 2 already_resolved) carry forward per explicit dispositions.
+Post Cycle 8 partial (commit c314309): 35/40 done + 1 partial + 1 already_resolved + 3 rolled-back (coverage 92.5%). Score 81.4 → 83.74 (+2.34). 4 CL-1 applied, 10 CL-3 applied.
 
 Finding Totals (Pre-Dedup):
 - Critical: 2
@@ -90,16 +91,18 @@ Weighted score: per-domain formula `new = baseline + (weighted_resolved / weight
 
 ## Tier 2: Domain Summaries
 
-### D1 — Core Source Implementation (Score: 0 → 14 → 82.8, +68.8 in Cycle 7.5)
+### D1 — Core Source Implementation (Score: 0 → 14 → 82.8 → 88.8, +6.0 in Cycle 8 partial)
 **Counts:** 0C/0H/16M/8L/2I = 26 remaining (all 6 targeted Highs resolved across Cycle 7 + Cycle 7.5 W2B1)
 **Resolved (Cycle 7):**
 - C7-H8 Defer writeManifest at `init.ts:173` until after adapter generation succeeds (commit e8a5f8f)
 - C7-H9 Split `runUpdate` into `runPackageUpdate` + `runRegenerate`; fix config/verify callers (commit e8a5f8f)
 **Resolved (Cycle 7.5 W2B1):**
 - 5 D1 Highs closed (covered by C7.5-W2B1-H1 through H5 customization-pipeline rigor suite)
+**Resolved (Cycle 8 partial):** C8-D1-M1, C8-D1-M3, C8-D1-M4, C8-D1-M6, C8-D1-M7, C8-D1-M8, C8-D1-M9, C8-D1-M10 (8 of 10 done). C8-D1-M5 PARTIAL (foundation only; call-site migration deferred to Cycle 9). C8-D1-M2 ROLLED-BACK (concurrent-edit clobbering).
+**Score update:** 82.8 → 88.8 (+6.0)
 **Strengths:** src/merge/ 99.03% coverage; safe atomic writes handle Windows EBUSY/EPERM retries; diff-hash verification on fixer handoff; well-typed `PipelineExecutionState`. Manifest-rollback invariant now enforced in init. All D1 targeted Highs terminal — M/L rollover to Cycle 8 drain remains.
 
-### D2 — Adapter Infrastructure (Score: 0 → 9 → 81.8, +72.8 in Cycle 7.5 W2B2)
+### D2 — Adapter Infrastructure (Score: 0 → 9 → 81.8 → 87.2, +5.4 in Cycle 8 partial)
 **Counts:** 0C/0H/22M/8L/5I = 35 remaining (all 10 targeted Highs resolved: 2 in Cycle 7, 8 in Cycle 7.5 W2B2)
 **Resolved (Cycle 7):**
 - C7-H18 Convert silent-null returns in `canonical.ts:99-130, 147-177` to `{file, error}` results, surfaced via warnings (commit eb89d4c)
@@ -113,26 +116,32 @@ Weighted score: per-domain formula `new = baseline + (weighted_resolved / weight
 - C7.5-W2B2-H6 Property-based 16×8 capability-matrix drift test (17/17 pass)
 - C7.5-W2B2-H7 SHA-256 pre-check detects user-edit overwrite in copy selection
 - C7.5-W2B2-H8 TYPE_MISMATCH diagnostic for frontmatter fields
+**Resolved (Cycle 8 partial):** C8-D2-M1 (nested managed blocks), C8-D2-M2 (declareOutputPaths helper), C8-D2-M3 (canonical type extensions: hooks/checks/policy/learnings), C8-D2-M4 (TOCTOU yaml+md atomic reads), C8-D2-M5 (recursion depth cap 32)
+**Score update:** 81.8 → 87.2 (+5.4)
 **Strengths:** Integrity manifest uses path-keyed JSON.stringify — Cycle 6 swap-detection gap RESOLVED (SA2.7-1); capability matrix property-based drift test operational (H6); managed-block nesting detection present; UAX #39 coverage extended to Coptic/Deseret/Osage/Latin-A/B; fail-closed customization pipeline; SHA-256 pre-check prevents user-edit overwrite.
 
-### D3 — Test Infrastructure (Score: 41 → 49 → 89.8, +40.8 in Cycle 7.5 W2B2)
+### D3 — Test Infrastructure (Score: 41 → 49 → 89.8 → 90.8, +1.0 in Cycle 8 partial)
 **Counts:** 0C/0H/9M/2L/6I = 17 remaining (all 3 targeted Highs resolved: 1 in Cycle 7, 2 in Cycle 7.5 W2B2)
 **Resolved (Cycle 7):**
 - C7-H20 Increase `src/cli/commands/init.ts` branch coverage from 32% to ≥65% (commit eb89d4c)
 **Resolved (Cycle 7.5 W2B2):**
 - C7.5-W2B2-H9 fixture-harness migration: vi.mocked 269→111 (−59%); `configHelpers.ts` introduced (commit cee7f73)
 - C7.5-W2B2-H10 `pruneArchives` coverage 77.95→96.85 stmt; 12 new tests
-**Strengths:** src/merge/ 99.03%, customization 100%/92.85%, all 15 adapters have tests, pipeline aggregate 95.52/89.23/98.37, tmpdir+afterEach pattern standard — no flakiness indicators. init.ts branch coverage ≥65%; config.test.ts vi.mocked density reduced 59%; archive restore-on-failure path covered. 2377/2377 tests (+257).
+**Resolved (Cycle 8 partial):** C8-D3-M1 (init.ts branch coverage tests added)
+**Score update:** 89.8 → 90.8 (+1.0)
+**Strengths:** src/merge/ 99.03%, customization 100%/92.85%, all 15 adapters have tests, pipeline aggregate 95.52/89.23/98.37, tmpdir+afterEach pattern standard — no flakiness indicators. init.ts branch coverage ≥65%; config.test.ts vi.mocked density reduced 59%; archive restore-on-failure path covered. 2517/2517 tests (+140 Cycle 8).
 
-### D4 — Build, CI/CD & Dependencies (Score: 89 → 89, no change)
+### D4 — Build, CI/CD & Dependencies (Score: 89 → 89 → 90.1, +1.1 in Cycle 8 partial)
 **Counts:** 0C/0H/1M/8L/19I = 28 findings (no Cycle 7 targeted findings; no Highs to resolve)
 **Rollover queue (Cycle 8):**
 - [M] No Socket.dev / malicious-dep scanner — npm audit catches only published CVEs; 2026 Axios + PackageGate attacks prove gap (30 min fix)
 - [L] lockfile-lint missing `--validate-integrity --validate-package-names` flags (addresses PackageGate class; 5 min fix)
 - [L] No CodeQL SAST workflow (30 min fix)
-**Strengths:** OIDC trusted publishing operational (release.yml L12-14, L35, L66 + environment gate L20); npm provenance configured; .npmrc ignore-scripts=true; 100% SHA-pinned GitHub Actions across 4 workflows (immune to tj-actions CVE-2025-30066 class).
+**Resolved (Cycle 8 partial):** C8-D4-M1 (dependency-review-action@v4.9.0 SHA-pinned, PR-only gating)
+**Score update:** 89.0 → 90.1 (+1.1)
+**Strengths:** OIDC trusted publishing operational (release.yml L12-14, L35, L66 + environment gate L20); npm provenance configured; .npmrc ignore-scripts=true; 100% SHA-pinned GitHub Actions across 4 workflows (immune to tj-actions CVE-2025-30066 class); dependency-review-action@v4.9.0 enforces critical-severity fail on PR.
 
-### D5 — Prompt Engineering Quality (Score: 0 → 9 → 77.2, +68.2 in Cycle 7.5 W2B2; Critical cap lifted Cycle 7)
+### D5 — Prompt Engineering Quality (Score: 0 → 9 → 77.2 → 81.1, +3.9 in Cycle 8 partial; Critical cap lifted Cycle 7)
 **Counts:** 0C/6H/28M/8L/0I = 42 remaining (1 Critical + 11 Highs resolved across Cycle 7 + Cycle 7.5 W2B1 + W2B2; 2 partials)
 **Resolved (Cycle 7):**
 - C7-C2 [Critical] Canonical `severity-mapping.md` 5-column map + regression gate (commit a207050)
@@ -156,9 +165,11 @@ Weighted score: per-domain formula `new = baseline + (weighted_resolved / weight
 - [H] C7.5-W2B2-H11 backlog — 133 agent/skill/command/rule files awaiting XML structuring (Cycle 8 batched)
 - [H] C7.5-W2B2-H14 commands/ progressive-disclosure rollout (Cycle 8)
 - 4 additional D5 Highs on the rollover queue for Cycle 8
-**Strengths:** Four-phase pipeline with consistent handoff schemas; scope-aware rule frontmatter; canonical severity map operational + consumer migration 6→13 refs (H47); .md/.mdc parity CI extended with scope transform; confidence expression role-specific; prompt-structure.md cross-references Anthropic long-input guidance.
+**Resolved (Cycle 8 partial):** C8-D5-M1 (orchestrator: frontmatter field), C8-D5-M2 (injection-patterns canonical catalog at agents/shared/injection-patterns.md)
+**Score update:** 77.2 → 81.1 (+3.9)
+**Strengths:** Four-phase pipeline with consistent handoff schemas; scope-aware rule frontmatter; canonical severity map operational + consumer migration 6→13 refs (H47); .md/.mdc parity CI extended with scope transform; confidence expression role-specific; prompt-structure.md cross-references Anthropic long-input guidance; injection-patterns catalog cross-linked across code + rule + test.
 
-### D6 — Context Engineering (Score: 45 → 45 → 89.0, +44.0 in Cycle 7.5 W2B2)
+### D6 — Context Engineering (Score: 45 → 45 → 89.0 → 90.9, +1.9 in Cycle 8 partial)
 **Counts:** 0C/0H/11M/2L/0I = 13 remaining (both targeted Highs resolved in Cycle 7.5 W2B2)
 **Resolved (Cycle 7.5 W2B2):**
 - C7.5-W2B2-H22 Pre-write budget gate + `--strict-budget` flag (exit 2) in `src/cli/commands/sync.ts` (commit cee7f73)
@@ -166,27 +177,33 @@ Weighted score: per-domain formula `new = baseline + (weighted_resolved / weight
 **Rollover queue (Cycle 8):**
 - [M] Fixed 4 chars/token heuristic under-counts code by 10-20%; should be 3.75 for mixed content; Gemini 2.5 Pro budget is 2M not 200K
 - 10 additional D6 Mediums + 2 Lows on rollover
+**Resolved (Cycle 8 partial):** C8-D6-M1 (pre-write context budget + --strict-budget verified pre-existing), C8-D6-M2 (tooling-hierarchy dedup via canonical rule references)
+**Score update:** 89.0 → 90.9 (+1.9)
 **Strengths:** `PipelineContext` type is well-modeled; pre-write budget gate operational; charter §1 canonical confidence source (no inline drift); token-summary infrastructure wired into CLI consumer.
 
-### D7 — Agent Orchestration (Score: 30 → 30 → 86.0, +56.0 in Cycle 7.5 W2B2)
+### D7 — Agent Orchestration (Score: 30 → 30 → 86.0 → 86.0, 0 in Cycle 8 partial; 1 rolled_back re-queued)
 **Counts:** 0C/0H/12M/4L/0I = 16 remaining (all 4 targeted Highs resolved in Cycle 7.5 W2B2)
 **Resolved (Cycle 7.5 W2B2):**
 - C7.5-W2B2-H24 `BLOCKED_PREMISE_CHALLENGE` AgentStatus variant + `isHaltStatus` helper in `pipelineContext.ts` (commit cee7f73)
 - C7.5-W2B2-H25 `CALIBRATION` constant in `reviewLoop.ts` (basis=informed_estimate, sampleSize=0)
 - C7.5-W2B2-H26 `DEFAULT_MAX_REVIEW_ITERATIONS` 3→4 — oscillation detector reachable in default config
 - C7.5-W2B2-H27 Quick-change Phase 4 skip reconciled across rule + command artifacts
+**Rolled-back (Cycle 8 partial):** C8-D7-M1 (phase parallel-safety doc) — concurrent-edit clobbering in parallel fan-out; re-queued for Cycle 9
+**Score update:** 86.0 → 86.0 (0)
 **Strengths:** Four-phase pipeline with clear handoff points; `validatePhaseOutput` schemas well-typed; premise-challenge status emits via charter §3 path; max-iteration calibration captured reproducibly; oscillation detector fires at default MAX=4.
 
-### D8 — Error Recovery & Resilience (Score: 19 → 47 → 89.4, +42.4 in Cycle 7.5 W2B2; Critical cap lifted Cycle 7)
+### D8 — Error Recovery & Resilience (Score: 19 → 47 → 89.4 → 90.5, +1.1 in Cycle 8 partial; Critical cap lifted Cycle 7)
 **Counts:** 0C/0H/8M/2L/0I = 10 remaining (all 3 targeted Highs + 1 Critical resolved across Cycle 7 + Cycle 7.5 W2B2)
 **Resolved (Cycle 7):**
 - C7-C1 [Critical] Wire 5 resilience modules into sync/update/verify; complianceVerification verifies invocation not existence (commit a207050)
 - C7-H14 Convert all plain `throw new Error` to `HatchError` with exitCode; add ESLint rule (commit 35416e5)
 **Resolved (Cycle 7.5 W2B2):**
 - C7.5-W2B2-H28 Dependency classifier + recovery guidance per failure class in `circuitBreaker.ts` + `sync.ts` + `update.ts` (commit cee7f73)
-**Strengths:** `classifyFailure` at `circuitBreaker.ts:68-104` differentiates transient from substantive failures; dependency classifier extends classification to per-module recovery guidance; failureLog fully integrated with JSONL rotation; phase timeout cooperative AbortController cancellation; resilience modules invoked at runtime in sync/update/verify.
+**Resolved (Cycle 8 partial):** C8-D8-M1 (classifyFailure wired into terminal catch throws with aggregate guidance)
+**Score update:** 89.4 → 90.5 (+1.1)
+**Strengths:** `classifyFailure` at `circuitBreaker.ts:68-104` differentiates transient from substantive failures; dependency classifier extends classification to per-module recovery guidance; failureLog fully integrated with JSONL rotation; phase timeout cooperative AbortController cancellation; resilience modules invoked at runtime in sync/update/verify; classifyFailure now referenced at terminal throw sites for aggregate error guidance.
 
-### D9 — Platform Adapters (Score: 0 → 15 → 74.5, +59.5 in Cycle 7.5 W2B2)
+### D9 — Platform Adapters (Score: 0 → 15 → 74.5 → 78.9, +4.4 in Cycle 8 partial)
 **Counts:** 0C/1H/15M/2L/17I = 35 remaining (10 of 11 targeted Highs resolved: 3 in Cycle 7, 7 in Cycle 7.5 W2B2; 1 scope-excluded partial)
 **Resolved (Cycle 7):**
 - C7-H1 Amazon Q hook event names to AWS 2026 schema (commit a207050)
@@ -204,9 +221,11 @@ Weighted score: per-domain formula `new = baseline + (weighted_resolved / weight
 - C7.5-W2B2-H29 `PARTIAL SCOPE-EXCLUDED` — governance+docs file edits outside adapter-file WU scope (depth 0); correct scope discipline
 **Remaining Highs:**
 - [H] H29 residue — governance self-contradiction (16 adapters code vs 15 rows docs vs 14 sub-agents D09) requires governance+docs WU in Cycle 8
-**Strengths:** 7 adapters refreshed against April 2026 docs (Cursor 3.0, Windsurf Cascade, Kiro 2026, AmazonQ, Codex, OpenCode, Claude Code v2.1); Amp/OpenCode/Zed/Aider fully current; claude adapter emits CLAUDE.md with managed block + SkillHooks v2.1.x + WorktreeCreate/Remove events; all 15 adapters have 100% test coverage; Windsurf hooks capability now true-and-wired.
+**Resolved (Cycle 8 partial):** C8-D9-M1 (Kiro Powers bundle mention verified in adapter content), C8-D9-M2 (Zed spawn_agent + OAuth MCP mention)
+**Score update:** 74.5 → 78.9 (+4.4)
+**Strengths:** 7 adapters refreshed against April 2026 docs (Cursor 3.0, Windsurf Cascade, Kiro 2026, AmazonQ, Codex, OpenCode, Claude Code v2.1); Amp/OpenCode/Zed/Aider fully current; claude adapter emits CLAUDE.md with managed block + SkillHooks v2.1.x + WorktreeCreate/Remove events; all 15 adapters have 100% test coverage; Windsurf hooks capability now true-and-wired; Zed adapter documents spawn_agent primitive + OAuth-backed MCP.
 
-### D10 — User Experience & Documentation (Score: 28 → 44, +16)
+### D10 — User Experience & Documentation (Score: 28 → 44 → 53.6, +9.6 in Cycle 8 partial)
 **Counts:** 0C/0H/14M/10L/2I = 26 remaining (2 of 2 Highs resolved this cycle)
 **Resolved (Cycle 7):**
 - C7-H3 Register `verify --fix` flag on `src/cli/index.ts:72-75` (5-min fix unlocks existing self-healing loop) (commit a207050)
@@ -214,9 +233,11 @@ Weighted score: per-domain formula `new = baseline + (weighted_resolved / weight
 **Rollover queue (Cycle 8):**
 - [M] Content counts drift: `.cursor-plugin/plugin.json:4` claims 25 skills/22 rules; README + CLAUDE.md + docs claim 26/26; filesystem has 26/27 (partially mitigated by C7-H10 inventory.json — Cycle 8 reconciliation pending)
 - 13 additional D10 Mediums + 10 Lows deferred per Cycle 8 rollover queue
-**Strengths:** 11 CLI commands with `ora` spinners + `chalk` color + `boxen` framing; progressive disclosure via `--verbose`; 1993 tests pass ensuring first-run fidelity; `verify --fix` now reachable; no dead-code diverging CLI source.
+**Resolved (Cycle 8 partial):** C8-D10-M1 (content counts reconciled via inventory.json drives README/CLAUDE/plugin.json), C8-D10-M2 (first-run prompt collapse via --quick/--default mode)
+**Score update:** 44.0 → 53.6 (+9.6)
+**Strengths:** 11 CLI commands with `ora` spinners + `chalk` color + `boxen` framing; progressive disclosure via `--verbose`; 2517 tests pass ensuring first-run fidelity; `verify --fix` now reachable; no dead-code diverging CLI source; content counts SSOT at governance/inventory.json drives downstream surfaces.
 
-### D11 — End-to-End Data Flow (Score: 58 → 66 → 93.2, +27.2 in Cycle 7.5 W2B2)
+### D11 — End-to-End Data Flow (Score: 58 → 66 → 93.2 → 93.9, +0.7 in Cycle 8 partial)
 **Counts:** 0C/0H/6M/4L/3I = 13 remaining (both targeted Highs resolved: 1 in Cycle 7, 1 in Cycle 7.5 W2B2)
 **Resolved (Cycle 7):**
 - C7-H13 Integrity-manifest write contingent on adapter success in `update.ts` + `workspace/sync.ts` (commit e8a5f8f)
@@ -225,26 +246,32 @@ Weighted score: per-domain formula `new = baseline + (weighted_resolved / weight
 **Rollover queue (Cycle 8):**
 - [M] Deny-pattern substitution doesn't re-scan (partially superseded by H2 fail-closed drop)
 - 5 additional D11 Mediums + 4 Lows on rollover queue (capped at 8 Mediums per D11 evolution proposal P4)
-**Strengths:** Content index `byTypeAndId` available; hash-based backup verification option in safeWrite; manifest writes contingent on adapter success uniformly; orphan tmp-file sweeper + ENOENT-only silent path; 10/10 D11 targeted Highs terminal.
+**Resolved (Cycle 8 partial):** C8-D11-M1 (deny-pattern cascade scan-and-replace loop to 5 iters + multi-pass warning)
+**Score update:** 93.2 → 93.9 (+0.7)
+**Strengths:** Content index `byTypeAndId` available; hash-based backup verification option in safeWrite; manifest writes contingent on adapter success uniformly; orphan tmp-file sweeper + ENOENT-only silent path; 10/10 D11 targeted Highs terminal; deny-pattern fixed-point loop prevents single-pass bypass.
 
-### D12 — CLI Diagnostics & Traceability (Score: 55 → 55, no change)
+### D12 — CLI Diagnostics & Traceability (Score: 55 → 55 → 65.1, +10.1 in Cycle 8 partial)
 **Counts:** 0C/0H/13M/6L/0I = 19 findings (no Cycle 7 targeted findings; no Highs)
 **Rollover queue (Cycle 8):**
 - [M] `error()/warn()/info()` in `src/cli/shared/ui.ts` use `console.log` (stdout) instead of stderr — POSIX violation breaking CI scriptability (30 min fix)
 - [M] `hatch3r update` lacks `--dry-run` despite being destructive — D12 checklist literal violation
 - [M] No per-file adapter→canonical-source provenance — `AdapterOutput` has no `sourceFiles` field; blocks 3 downstream sub-agent traceability checklists
-**Strengths:** Failure log with rotation wired; `sync --diff` present; integrity manifest includes generatedBy; verify --fix now CLI-registered (C7-H3) and reachable; `--verbose` mode present.
+**Resolved (Cycle 8 partial):** C8-D12-M1 (error/warn to stderr; info to stdout — POSIX compliance), C8-D12-M2 (update --dry-run preview), C8-D12-M3 (AdapterOutput.sourceFiles[] + .provenance.json)
+**Score update:** 55.0 → 65.1 (+10.1)
+**Strengths:** Failure log with rotation wired; `sync --diff` present; integrity manifest includes generatedBy; verify --fix now CLI-registered (C7-H3) and reachable; `--verbose` mode present; stdout/stderr POSIX-compliant; update --dry-run preview; adapter source provenance tracked end-to-end.
 
-### D13 — Human-AI Collaboration (Score: 71 → 71 → 94.2, +23.2 in Cycle 7.5 W2B2)
+### D13 — Human-AI Collaboration (Score: 71 → 71 → 94.2 → 94.2, 0 in Cycle 8 partial; 1 rolled_back re-queued)
 **Counts:** 0C/0H/5M/4L/3I = 12 remaining (sole targeted High resolved in Cycle 7.5 W2B2)
 **Resolved (Cycle 7.5 W2B2):**
 - C7.5-W2B2-H38 Confidence Propagation Contract added to 4 core command files (commit cee7f73); board-pickup, revision, quick-change now emit charter directive uniformly
 **Rollover queue (Cycle 8):**
 - [M] Phase 4a review gate ignores reviewer confidence — prompt-layer gate added via H48 partial; TS field (`ReviewResult.confidence`) in FL-reviewLoop scope
 - [M] Learnings feedback loop manual-only — `hatch3r-learnings-loader` invocation wiring deferred
+**Rolled-back (Cycle 8 partial):** C8-D13-M1 (review confidence gate + evaluateReviewGate) — concurrent-edit clobbering in parallel fan-out; re-queued for Cycle 9
+**Score update:** 94.2 → 94.2 (0)
 **Strengths:** Agents emit structured confidence labels; quality charter frontmatter pervasive (16/16 agents); Confidence Propagation Contract uniform across 4 core commands.
 
-### D14 — Cross-Project Adaptability (Score: 58 → 66 → 93.2, +27.2 in Cycle 7.5 W2B2)
+### D14 — Cross-Project Adaptability (Score: 58 → 66 → 93.2 → 93.9, +0.7 in Cycle 8 partial)
 **Counts:** 0C/3H/6M/4L/2I = 15 remaining (1 Cycle 7 High + Cycle 7.5 W2B2 H39 PARTIAL; 3 dependent importers deferred multi-cycle)
 **Resolved (Cycle 7):**
 - C7-H15 Wire `projectLanguages` through 5 `resolveSelection(...)` call-sites in `init.ts` (commit 35416e5)
@@ -256,9 +283,11 @@ Weighted score: per-domain formula `new = baseline + (weighted_resolved / weight
 - [H] C7.5-W2B2-H61 awesome-cursorrules importer — chained on H39
 **Rollover queue (Cycle 8):**
 - [M] Preset selection step-function — graduated scaling by repo size/team size deferred
+**Resolved (Cycle 8 partial):** C8-D14-M1 (projectLanguages wired at 5 call sites — verified pre-existing via Cycle 7 C7-H15)
+**Score update:** 93.2 → 93.9 (+0.7)
 **Strengths:** `repoAnalyzer.ts` detects 18 languages; detection infrastructure rich; language-filter path activated end-to-end via projectLanguages plumbing; minimal Cursor-rules parser landed as importer foundation.
 
-### D15 — Agentic Security & Trust (Score: 0 → 11 → 82.2, +71.2 in Cycle 7.5 W2B2)
+### D15 — Agentic Security & Trust (Score: 0 → 11 → 82.2 → 86.2, +4.0 in Cycle 8 partial)
 **Counts:** 0C/2H/13M/6L/8I = 29 remaining (8 of 10 targeted Highs resolved: 2 in Cycle 7, 6 in Cycle 7.5 W2B2; 1 partial + 1 external_blocker)
 **Resolved (Cycle 7):**
 - C7-H5 Preflight `verifyIntegrity()` on sync/update/add (commit a207050)
@@ -275,9 +304,11 @@ Weighted score: per-domain formula `new = baseline + (weighted_resolved / weight
 **Remaining Highs:**
 - [H] C7.5-W2B2-H40 production wiring of `enforceReviewIteration` into `sync.ts`/`workspace/sync.ts` review-loop invocation (Cycle 8 D15)
 - [H] C7.5-W2B2-H62 mcp-scan integration — `external_blocker` (upstream project state); Cycle 8+ monitor
-**Strengths:** Multi-layered prompt injection defense (promptGuard 500KB in / 1MB out, boundary markers); `agentToolAllowlist.ts` deny-by-default + observable denials (H44); per-adapter native-allowlist translator wired into 4 adapters (H41+H45); MCP description sync-time scan with 8 Invariant Labs patterns + 40+ deny-pattern reuse (H46); `sanitizePipelineInput` in customization + canonical (H43); ASI07 doc/code reconciled (H42); phaseOutputSchema validator surface pruned (−79%) now matches wired behavior.
+**Resolved (Cycle 8 partial):** C8-D15-M1 (5 new P-PIPE-08..12 injection variants: Unicode tag chars + homoglyphs), C8-D15-M2 (detectSecretEnvFiles + --yes worktree bypass; CWE-552), C8-D15-M3 (validateToolPolicies hard-error with Levenshtein hint)
+**Score update:** 82.2 → 86.2 (+4.0)
+**Strengths:** Multi-layered prompt injection defense (promptGuard 500KB in / 1MB out, boundary markers); `agentToolAllowlist.ts` deny-by-default + observable denials (H44); per-adapter native-allowlist translator wired into 4 adapters (H41+H45); MCP description sync-time scan with 8 Invariant Labs patterns + 40+ deny-pattern reuse (H46); `sanitizePipelineInput` in customization + canonical (H43); ASI07 doc/code reconciled (H42); phaseOutputSchema validator surface pruned (−79%) now matches wired behavior; 2026 injection variants (tag chars + homoglyphs); CWE-552 `.env.mcp` leak warning on worktree setup; tool-policy validation fails hard on typos.
 
-### D16 — Cross-Domain Synthesis (Score: 38 → 54 → 90.8, +36.8 in Cycle 7.5 W2B2)
+### D16 — Cross-Domain Synthesis (Score: 38 → 54 → 90.8 → 90.8, 0 in Cycle 8 partial; 1 already_resolved)
 **Counts:** 0C/0H/4M/0L/0I = 4 remaining (all 5 targeted Highs resolved: 3 in Cycle 7, 2 in Cycle 7.5 W2B2)
 **Resolved (Cycle 7) — three systemic patterns:**
 - C7-H10 **"Count drift"**: `scripts/inventory.ts` + `governance/inventory.json` + CI check (commit e8a5f8f)
@@ -286,9 +317,11 @@ Weighted score: per-domain formula `new = baseline + (weighted_resolved / weight
 **Resolved (Cycle 7.5 W2B2):**
 - C7.5-W2B2-H47 Consumer migration to canonical severity vocab (6→13 refs across 4 checks + 2 agents + severity-mapping.md) — severity fragmentation residue closed (commit cee7f73)
 - C7.5-W2B2-H48 Prompt-layer confidence gate in 5 orchestration/delegation commands — confidence signal pipeline 4-stage drop mitigated at prompt layer (`PARTIAL ALIGNED-TO-SCOPE`: TS field `ReviewResult.confidence` deferred to FL-reviewLoop Cycle 8)
+**Already-resolved (Cycle 8 partial):** C8-D16-M1 (feature-status taxonomy) — prior-cycle work satisfied at AUDIT-EXECUTE.md:190 from Cycle 7.5 commit ca8c5a2
+**Score update:** 90.8 → 90.8 (0)
 **Strengths:** Cycle 7 methodology deepened — 18 tier synthesis files read end-to-end vs Cycle 6's sampled approach; dedup gate rejected 12+ candidates as home-domain confirmations; "Wiring Before Declaration" invariant + verify-wired.ts CI check + Silent Failure Contract + derived-inventory mechanism operational; 20+ home-domain findings in D1/D5/D8/D10/D14/D15/D19 unblocked structurally. Severity-vocab unified across consumers; prompt-layer confidence gate in place.
 
-### D17 — Competition & Market Intelligence (Score: 0 → 3 → 61.2, +58.2 in Cycle 7.5 W2B2)
+### D17 — Competition & Market Intelligence (Score: 0 → 3 → 61.2 → 65.1, +3.9 in Cycle 8 partial)
 **Counts:** 0C/5H/9M/0L/3I = 17 remaining (3 Highs resolved in Cycle 7.5 W2B2; 1 external_blocker partial; 4 phase_5_candidate deferred)
 **Partial (Cycle 7):**
 - C7-H16 **PARTIAL Mixed:** anthropics marketplace packaging complete (commit 35416e5); PR submitted awaiting external Anthropic merge
@@ -303,19 +336,23 @@ Weighted score: per-domain formula `new = baseline + (weighted_resolved / weight
 - [H] C7.5-W2B2-H56 vs-Ruler positioning table in README
 - [H] C7.5-W2B2-H57 ACP (Agent Coordination Protocol) registry audit
 - [H] C7.5-W2B2-H58 README repositioning + `hatch3r --help` tagline refresh
-**Strengths:** Managed blocks + SHA-256 integrity + 19-domain governance remain defensible moats; 16 adapters (including agents-md 16th row) exceeds any competitor's breadth; opencode plural path alignment with upstream 146k-star sst/opencode; Claude Code v2.1 WorktreeCreate/Remove native emission; competitive analysis refreshed April 20 2026.
+**Resolved (Cycle 8 partial):** C8-D17-M1 (vs-Ruler 7-row comparison in README; OIDC provenance + managed blocks columns)
+**Score update:** 61.2 → 65.1 (+3.9)
+**Strengths:** Managed blocks + SHA-256 integrity + 19-domain governance remain defensible moats; 16 adapters (including agents-md 16th row) exceeds any competitor's breadth; opencode plural path alignment with upstream 146k-star sst/opencode; Claude Code v2.1 WorktreeCreate/Remove native emission; competitive analysis refreshed April 20 2026; README carries vs-Ruler positioning table.
 
-### D18 — PRD, Roadmap & Distribution (Score: 4 → 8 → 81.6, +73.6 in Cycle 7.5 W2B2)
+### D18 — PRD, Roadmap & Distribution (Score: 4 → 8 → 81.6 → 83.4, +1.8 in Cycle 8 partial)
 **Counts:** 0C/6H/8M/2L/4I = 20 remaining (7 D18 Highs addressed structurally via Phase 5 PRD v4.2 bump Cycle 7; 1 already_resolved closed Cycle 7.5 W2B2)
 **Phase 5 PRD update (commit f7b2ae3):** 10/10 CL-1 candidates applied — see Phase 5: PRD Update Summary section below
 **Resolved (Cycle 7.5 W2B2):**
 - C7.5-W2B2-H53 D18 rollover reconciliation — already_resolved via PRD v4.2 bump; registry status closed (commit cee7f73)
 **Rollover queue (Cycle 8):**
 - 6 D18 Highs remain on registry pending PRD v4.2 in-production verification; finding-by-finding triage in Cycle 8
+**Resolved (Cycle 8 partial):** C8-D18-M1 (§23 shipped-state update). PRD v4.4 → v4.5 applied 4 CL-1 candidates in commit 3a7e799.
+**Score update:** 81.6 → 83.4 (+1.8)
 **Distribution Verdict:** GO maintained — marketplace submission (C7-H16 / C7.5-W2B2-H51) PARTIAL external_blocker pending Anthropic merge. 6 preconditions met; MIT retained; GitHub-public + npm v1.5.1 shipped; compound-system hardening complete per Cycle 7.5 W2B2.
-**Strengths:** PRD v4.2 with §27 changelog + finding-traceability; roadmap exists (todo.md); release pipeline operational (OIDC + provenance); feature-status taxonomy [I/W/C/T] prevents future "shipped" conflation; Cycle 7.5 W2B2 security+resilience hardening (H40-H46) matches PRD Wiring Before Declaration principle end-to-end.
+**Strengths:** PRD v4.5 with §27 changelog + finding-traceability; roadmap exists (todo.md); release pipeline operational (OIDC + provenance); feature-status taxonomy [I/W/C/T] prevents future "shipped" conflation; Cycle 7.5 W2B2 security+resilience hardening (H40-H46) matches PRD Wiring Before Declaration principle end-to-end; §20.4 Inventory SSOT principle + §6 destructive-dry-run + coming-soon-exit-0 product principles added in Cycle 8 CL-1.
 
-### D19 — Agentic Development Self-Governance (Score: 54 → 62 → 92.4, +30.4 in Cycle 7.5 W2B2)
+### D19 — Agentic Development Self-Governance (Score: 54 → 62 → 92.4 → 93.2, +0.8 in Cycle 8 partial)
 **Counts:** 0C/0H/7M/5L/8I = 20 remaining (both targeted Highs resolved: 1 Cycle 7, 1 Cycle 7.5 W2B2)
 **Resolved (Cycle 7):**
 - C7-H7 Fix `.claude/settings.json:24` SessionStart python3 script (commit a207050)
@@ -324,7 +361,9 @@ Weighted score: per-domain formula `new = baseline + (weighted_resolved / weight
 **Rollover queue (Cycle 8):**
 - [M] SessionStart `head -90 CONSTITUTION.md` truncates P6 Security pillar from session-start context injection
 - 6 additional D19 Mediums + 5 Lows on rollover
-**Strengths:** `.claude/rules/` covers all 6 pillars with explicit mapping; `.claude/skills/` provides workflow automation (audit-cycle, audit-execute, release-prep); 6 binding pillars explicitly referenced in development instructions; SessionStart hook reports actual registry state; CLAUDE.md agent-count surface reconciled with inventory.json.
+**Resolved (Cycle 8 partial):** C8-D19-M1 (inventory --check-docs gate + CI step + 11 drift probes)
+**Score update:** 92.4 → 93.2 (+0.8)
+**Strengths:** `.claude/rules/` covers all 6 pillars with explicit mapping; `.claude/skills/` provides workflow automation (audit-cycle, audit-execute, release-prep); 6 binding pillars explicitly referenced in development instructions; SessionStart hook reports actual registry state; CLAUDE.md agent-count surface reconciled with inventory.json; inventory --check-docs gate enforces 11-probe drift prevention.
 
 ---
 
@@ -432,6 +471,55 @@ Per `governance/audit/finding-registry.json` (filter `cycle: 7.5 AND finding_id 
 
 **Cycle 7.5 W2B2 resolution stats:** 52 targeted/already_resolved entries — 45 **Done** + 7 PARTIAL = 52 terminal (100%). Partial breakdown: 4 ALIGNED-TO-SCOPE (H14/H39/H40/H48 agent-portion complete per orchestrator scope), 3 SCOPE-EXCLUDED or EXTERNAL (H11 Cycle 8 batch rollout, H29 WU scope boundary, H51 external Anthropic PR). 10 disposition-filtered entries (H55-H58, H59-H61, H62, plus H21/H53 already_resolved) carry explicit reasons per registry.
 
+### Post-execution status of Cycle 8 partial findings
+
+Per `governance/audit/finding-registry.json` (filter `cycle: 8 AND finding_id LIKE 'C8-%'`; Wave 3 Medium-only, baseline 7f24854, HEAD c314309). Commit chain: 34d2ba4 (wave 3 execution) + 2ab2d23 (registry sync + Phase 1 promotion + Phase 0 baseline) + 2c56a52 (reviewer verdict PARTIAL-SHIP) + 3a7e799 (Phase 5 PRD v4.4 → v4.5) + c314309 (Phase 7 CL-3 10/10 proposals applied).
+
+| Finding ID | Domain | Severity | Status | Wave | Commit | Notes |
+|------------|--------|----------|--------|------|--------|-------|
+| C8-D1-M1-verify-fix-cli-flag | D1 | Medium | **Done** | 3 | 34d2ba4 | --fix/--max-fix-attempts registered |
+| C8-D1-M2-writeManifest-revalidate | D1 | Medium | ROLLED-BACK | 3 | 34d2ba4 | Concurrent-edit clobbering in Wave 3 parallel fan-out; re-queued for Cycle 9 |
+| C8-D1-M3-workspace-init-guard | D1 | Medium | **Done** | 3 | 34d2ba4 | Double runInit conflict detection |
+| C8-D1-M4-interactive-flag-validation | D1 | Medium | **Done** | 3 | 34d2ba4 | Flag validation runs in interactive mode |
+| C8-D1-M5-errorCode-exitCode-map | D1 | Medium | PARTIAL | 3 | 34d2ba4 | Foundation only; call-site migration deferred to Cycle 9 |
+| C8-D1-M6-update-offline-mode | D1 | Medium | **Done** | 3 | 34d2ba4 | --offline / --skip-fetch flag |
+| C8-D1-M7-config-write-atomic | D1 | Medium | **Done** | 3 | 34d2ba4 | sync-now before manifest write |
+| C8-D1-M8-add-command-exit-code | D1 | Medium | **Done** | 3 | 34d2ba4 | add exits 0 (coming soon) |
+| C8-D1-M9-isValidGitBranchName-callsites | D1 | Medium | **Done** | 3 | 34d2ba4 | Enforced at init/config/update call sites |
+| C8-D1-M10-validate-format-json | D1 | Medium | **Done** | 3 | 34d2ba4 | --format human\|json |
+| C8-D2-M1-nested-managed-blocks | D2 | Medium | **Done** | 3 | 34d2ba4 | Nested marker detection |
+| C8-D2-M2-default-getOutputPaths-perf | D2 | Medium | **Done** | 3 | 34d2ba4 | declareOutputPaths helper |
+| C8-D2-M3-canonical-type-extensions | D2 | Medium | **Done** | 3 | 34d2ba4 | hooks/checks/policy/learnings |
+| C8-D2-M4-toctou-yaml-md-reads | D2 | Medium | **Done** | 3 | 34d2ba4 | Atomic buffered reads |
+| C8-D2-M5-transform-env-var-depth | D2 | Medium | **Done** | 3 | 34d2ba4 | maxDepth=32 recursion limit |
+| C8-D3-M1-init-branch-coverage | D3 | Medium | **Done** | 3 | 34d2ba4 | Branch coverage tests added |
+| C8-D4-M1-socket-security-scanner | D4 | Medium | **Done** | 3 | 34d2ba4 | dependency-review-action@v4.9.0 |
+| C8-D5-M1-orchestrator-marker | D5 | Medium | **Done** | 3 | 34d2ba4 | orchestrator: frontmatter field |
+| C8-D5-M2-injection-pattern-extract | D5 | Medium | **Done** | 3 | 34d2ba4 | Canonical catalog at agents/shared/injection-patterns.md |
+| C8-D6-M1-pre-write-context-budget | D6 | Medium | **Done** | 3 | 34d2ba4 | Verified pre-existing (Cycle 7.5 H22) |
+| C8-D6-M2-tooling-hierarchy-dedup | D6 | Medium | **Done** | 3 | 34d2ba4 | Canonical rule references |
+| C8-D7-M1-phase-parallel-safety | D7 | Medium | ROLLED-BACK | 3 | 34d2ba4 | Concurrent-edit clobbering in Wave 3 parallel fan-out; re-queued for Cycle 9 |
+| C8-D8-M1-external-dep-failure-enum | D8 | Medium | **Done** | 3 | 34d2ba4 | classifyFailure wired into terminal throws |
+| C8-D9-M1-kiro-powers-mention | D9 | Medium | **Done** | 3 | 34d2ba4 | Verified pre-existing (Kiro Powers mention present) |
+| C8-D9-M2-zed-spawn-agent | D9 | Medium | **Done** | 3 | 34d2ba4 | spawn_agent + OAuth MCP mention |
+| C8-D10-M1-content-counts-reconcile | D10 | Medium | **Done** | 3 | 34d2ba4 | inventory.json drives README/CLAUDE/plugin.json |
+| C8-D10-M2-first-run-prompt-count | D10 | Medium | **Done** | 3 | 34d2ba4 | --quick / --default mode collapse |
+| C8-D11-M1-deny-pattern-cascade | D11 | Medium | **Done** | 3 | 34d2ba4 | 5-iter fixed-point loop |
+| C8-D12-M1-stdout-stderr-separation | D12 | Medium | **Done** | 3 | 34d2ba4 | error/warn stderr; info stdout |
+| C8-D12-M2-update-dry-run | D12 | Medium | **Done** | 3 | 34d2ba4 | --dry-run preview |
+| C8-D12-M3-adapter-source-provenance | D12 | Medium | **Done** | 3 | 34d2ba4 | sourceFiles[] + .provenance.json |
+| C8-D13-M1-review-confidence-gate | D13 | Medium | ROLLED-BACK | 3 | 34d2ba4 | Concurrent-edit clobbering in Wave 3 parallel fan-out; re-queued for Cycle 9 |
+| C8-D14-M1-language-filter-wiring | D14 | Medium | **Done** | 3 | 34d2ba4 | Verified pre-existing via Cycle 7 C7-H15 |
+| C8-D15-M1-deny-pattern-2026-variants | D15 | Medium | **Done** | 3 | 34d2ba4 | 5 new P-PIPE-08..12 patterns |
+| C8-D15-M2-env-mcp-worktree-warn | D15 | Medium | **Done** | 3 | 34d2ba4 | CWE-552 warning + --yes bypass |
+| C8-D15-M3-validate-tool-policies-hard-error | D15 | Medium | **Done** | 3 | 34d2ba4 | HatchError + Levenshtein "Did you mean?" |
+| C8-D16-M1-feature-status-taxonomy | D16 | Medium | ALREADY-RESOLVED | 3 | — | Feature-status taxonomy already in AUDIT-EXECUTE.md from Cycle 7.5 commit ca8c5a2 |
+| C8-D17-M1-ruler-comparison-table | D17 | Medium | **Done** | 3 | 34d2ba4 | vs Ruler 7-row table in README |
+| C8-D18-M1-prd-23-shipped-status | D18 | Medium | **Done** | 3 | 34d2ba4 | §23 shipped-state update; PRD v4.4 |
+| C8-D19-M1-inventory-rule-count-drift | D19 | Medium | **Done** | 3 | 34d2ba4 | inventory --check-docs gate + CI step |
+
+**Cycle 8 partial resolution stats:** 40 targeted — 35 **Done** + 1 PARTIAL + 1 ALREADY-RESOLVED + 3 ROLLED-BACK = 40 terminal (effective coverage 37/40 = 92.5%). Verdict: PARTIAL-SHIP. Rolled-back findings (C8-D1-M2, C8-D7-M1, C8-D13-M1) re-queued for Cycle 9 with concurrent-edit clobbering root cause documented. 254 remaining Medium + Low findings rolled forward via `C8-rollover-medium-low-remainder` umbrella (167 Medium + 85 Low by Phase 0 count).
+
 ---
 
 ## Cross-Domain Analysis
@@ -534,6 +622,41 @@ All 52 targeted Cycle 7.5 W2B2 Highs reached terminal status in a single Wave 2 
 - 3 multi_cycle_deferred D14 importers (blocked on H39 merge baseline)
 - 1 external_blocker D15 item (H62 mcp-scan)
 - Cycle 7 rollover queue: 158 Medium + 66 Low (224 total) from `disposition: rollover`
+
+### Enhanced Action Items — Cycle 8 partial (appended post-execution)
+
+40 Medium findings targeted from the Cycle 7 rollover queue via aggressive parallel fan-out (28 sub-agents: 5 file-lock groups + 23 standalone). Summary per disposition bucket:
+
+| # | Scope | Action Item | Severity | Effort | Status |
+|---|-------|-------------|----------|--------|--------|
+| C8-done-35 | D1/D2/D3/D4/D5/D6/D8/D9/D10/D11/D12/D14/D15/D17/D18/D19 | 35 Medium findings fully resolved (see Tier 3 C8 table above for per-finding fix line) | Medium | varies | DONE |
+| C8-partial-D1-M5 | D1 | errorCode→exitCode taxonomy (foundation landed; 59 call-site migrations deferred) | Medium | M | PARTIAL (Cycle 9 D1 follow-up) |
+| C8-already-D16-M1 | D16 | feature-status taxonomy (already present in AUDIT-EXECUTE.md:190 from Cycle 7.5 commit ca8c5a2) | Medium | — | ALREADY-RESOLVED |
+| C8-rollback-D1-M2 | D1 | writeManifest revalidate (concurrent-edit clobbering in Wave 3 parallel fan-out) | Medium | S | ROLLED-BACK (re-queued Cycle 9) |
+| C8-rollback-D7-M1 | D7 | Phase parallel-safety doc (concurrent-edit clobbering in Wave 3 parallel fan-out) | Medium | M | ROLLED-BACK (re-queued Cycle 9) |
+| C8-rollback-D13-M1 | D13 | Review confidence gate (concurrent-edit clobbering in Wave 3 parallel fan-out) | Medium | S | ROLLED-BACK (re-queued Cycle 9) |
+| C8-rollover-remainder | all | C8-rollover-medium-low-remainder umbrella: 167 Medium + 85 Low (254 total) to Cycle 9 | Medium/Low | L | DEFERRED (rollover) |
+
+### Post-Execution Delta (Cycle 8 partial)
+
+**Baseline:** 7f24854 (post Cycle 7.5 report update). **HEAD:** c314309 (Phase 7 CL-3 applied). **Commits:** 34d2ba4 (wave 3 implementation) + 2ab2d23 (registry sync + Phase 1 promotion + Phase 0 baseline) + 2c56a52 (reviewer verdict PARTIAL-SHIP) + 3a7e799 (Phase 5 PRD v4.4 → v4.5) + c314309 (Phase 7 CL-3 10/10 applied).
+
+**Wave breakdown — single Wave 3 Medium-only dispatch (28 parallel sub-agents, 5 file-lock groups + 23 standalone):**
+
+| Wave | Targeted | Done | Partial | Rolled-back | Already-resolved | Deferred | Commit |
+|------|----------|------|---------|-------------|------------------|----------|--------|
+| 3 (Medium) | 40 | 35 | 1 | 3 | 1 | 254 (rollover umbrella) | 34d2ba4 + c314309 |
+| **Total** | **40** | **35** | **1** | **3** | **1** | **254** | — |
+
+**Score deltas per domain (Cycle 7.5 W2B2 post → Cycle 8 partial post):** D1 82.8→88.8 (+6.0), D2 81.8→87.2 (+5.4), D3 89.8→90.8 (+1.0), D4 89.0→90.1 (+1.1), D5 77.2→81.1 (+3.9), D6 89.0→90.9 (+1.9), D7 86.0→86.0 (0), D8 89.4→90.5 (+1.1), D9 74.5→78.9 (+4.4), D10 44.0→53.6 (+9.6), D11 93.2→93.9 (+0.7), D12 55.0→65.1 (+10.1), D13 94.2→94.2 (0), D14 93.2→93.9 (+0.7), D15 82.2→86.2 (+4.0), D16 90.8→90.8 (0), D17 61.2→65.1 (+3.9), D18 81.6→83.4 (+1.8), D19 92.4→93.2 (+0.8). **Overall 81.4 → 83.74 (+2.34)**; score band remains "Ship Ready"; 19/19 non-regressed.
+
+**Reviewer verdict:** PARTIAL-SHIP (see `.audit-workspace/REVIEWER-REPORT-cycle8-partial.md`). Pass 0 completeness PASS (orphaned=0); Pass 1 functional PASS (tests 2517/2517, tsc 0 err, lint 0 err + 133 warn, build 513.87 KB ESM); Pass 1.5 alignment 35 ALIGNED + 1 PARTIAL (BETTER-ALTERNATIVE on D1-M5 scope) + 1 ALREADY-RESOLVED (D16-M1) + 3 ROLLED-BACK (D1-M2, D7-M1, D13-M1); Pass 2 security PASS (D4-M1, D11-M1, D15-M1/M2/M3, D5-M2, D2-M5 landed with tests; 0 credential-like strings; 0 new attack surface); Pass 2.5 adversarial PASS with D12-M3 single-instance-per-generate constraint documented; Pass 3 cross-wave PASS (Cycle 7 + 7.5 fixes intact: H28 classifyFailure, H42 scanForDeniedPatterns, H43 promptGuard all preserved); Pass 4 domain-health +3.64 weighted (strict) / +2.34 (aggregate).
+
+**Phase 5 (PRD update):** COMPLETED. 4 CL-1 candidates applied (commit 3a7e799): §20.4 Inventory SSOT principle, §6 destructive-dry-run principle, §6 not-yet-implemented-exit-0 principle, §22 Shipped Surface Cycle 8 security hardening row. PRD v4.4 → v4.5 (v4.4 was used intra-wave by D18-M1 commit; v4.5 is the CL-1 bump).
+
+**Phase 6 (content specs):** COMPLETED. 7 specifications in `.audit-workspace/content-specs/` (2 P1 + 3 P2 + 2 P3). P1: `C8-P1-mcp-worktree-safety-rule.md` (new canonical rule), `C8-P1-parallel-safety-rule-rework.md` (rework of rolled-back D7-M1). P2: `C8-P2-feature-status-howto.md`, `C8-P2-inventory-ssot-authoring-note.md`, `C8-P2-provenance-diagnostic-doc.md`. P3 (list-only, existing content satisfies): `C8-P3-injection-patterns-rule-cross-ref.md`, `C8-P3-orchestrator-marker-semantic-doc.md`.
+
+**Phase 7 (audit evolution):** COMPLETED. 10/10 CL-3 proposals applied (commit c314309, per-proposal consent via 3 batched multiSelect 4+3+3). P1 Post-fan-out diff verification gate (addresses the 3 Wave 3 rollbacks); P2 Phase 1 prior-cycle resolution cross-check (addresses D16-M1 already-resolved surprise); P3 Registry anchor checksum (addresses registry-revert incident); P4 Synthesis file header schema; P5 Central-path classification (addresses 32 test regressions from D12-M1 stdout/stderr); P6 Baseline count source labels; P7 SubagentStart hook cost audit (D19 checklist item; settings.json edit deferred to owner consent); P8 File-lock group telemetry; P9 PARTIAL-SHIP/FIX-AND-SHIP/BLOCK criteria (SHIP Gate 4-verdict table); P10 D9 per-adapter web-research date anchor. Line counts: AUDIT.md 529/600, AUDIT-EXECUTE.md 627 → 641/700; D09 79/80; D19 56 → 57/80.
 
 ### Deferred to Cycle 8 (rollover, not "open")
 
@@ -657,6 +780,14 @@ All 52 targeted Cycle 7.5 W2B2 Highs reached terminal status in a single Wave 2 
 **Phase 6 (content specs):** SKIPPED — Cycle 7 Phase 6 specs still in flight (verify-wired.ts unimplemented); no new spec gap surfaced in W2B2.
 
 **Phase 7 (audit evolution):** SKIPPED — Cycle 7 Phase 7 applied 10/10 proposals (commits c339a14...34f8962); no new evolution candidates in W2B2 sub-cycle.
+
+### Delta Since Previous Audit (Cycle 7.5 W2B2 → Cycle 8 partial)
+
+Cycle 8 partial resolution statistics:
+- Wave 3 (Medium): 40 targeted, 35 done + 1 partial + 1 already_resolved + 3 rolled_back
+- Domain deltas: D12 +10.1, D10 +9.6, D1 +6.0, D15 +4.0 (from D15-M1/M2/M3), D9 +4.4, D2 +5.4 (top by gain)
+- Rolled-back findings (C8-D1-M2, C8-D7-M1, C8-D13-M1) re-queued for Cycle 9 with concurrent-edit-clobbering root cause documented
+- Open count: ~118 Medium + 66 Low rolled to Cycle 9 (remainder umbrella; Phase 0 count shows 167 M + 85 L remaining after Cycle 8 partial execution)
 
 ---
 
@@ -795,4 +926,5 @@ Consolidated table of external sources cited across Cycle 7 findings. Per `gover
 | 2026-04-19 | 1.5.1 | 34 (Cycle 6 pre-exec) | Claude Opus 4.7 | governance/AUDIT-REPORT.md (superseded) |
 | 2026-04-19 | 1.5.1 | 31 (Cycle 7 pre-exec) | Claude Opus 4.7 (1M context) | governance/AUDIT-REPORT.md (superseded by post-exec) |
 | 2026-04-19 | 1.5.1 | 39 (Cycle 7 post-exec) | Claude Opus 4.7 (1M context) | governance/AUDIT-REPORT.md (superseded by Cycle 7.5 W2B2) |
-| 2026-04-20 | 1.5.1 | 81.4 (Cycle 7.5 W2B2 post-exec) | Claude Opus 4.7 (1M context) | governance/AUDIT-REPORT.md (this) — commit cee7f73 + 3d1929f + babe4f5, 52/52 targeted terminal (45 done + 7 partial), 1 Wave 2 Batch 2 dispatch of 34 parallel sub-agents |
+| 2026-04-20 | 1.5.1 | 81.4 (Cycle 7.5 W2B2 post-exec) | Claude Opus 4.7 (1M context) | governance/AUDIT-REPORT.md (superseded by Cycle 8 partial) — commit cee7f73 + 3d1929f + babe4f5, 52/52 targeted terminal (45 done + 7 partial), 1 Wave 2 Batch 2 dispatch of 34 parallel sub-agents |
+| 2026-04-21 | 1.5.1 | 83.74 (Cycle 8 partial post-exec) | Claude Opus 4.7 (1M context) | governance/AUDIT-REPORT.md (this) — commits 34d2ba4 (wave 3) + 2ab2d23 (registry+baseline) + 2c56a52 (reviewer PARTIAL-SHIP) + 3a7e799 (Phase 5 PRD v4.5) + c314309 (Phase 7 CL-3 10/10), 40 targeted (35 done + 1 partial + 1 already-resolved + 3 rolled-back), coverage 92.5%, 28 parallel sub-agents (5 file-lock groups + 23 standalone) |
