@@ -536,3 +536,69 @@ export function calculateFindingsTrend(state: ReviewLoopState): FindingsTrend {
   if (lastTwo[1] === lastTwo[0]) return "stable";
   return "diverging";
 }
+
+/**
+ * C8-D13-M1: Confidence-threshold review gate.
+ *
+ * Review gate now incorporates reviewer's self-reported confidence into the
+ * PASS decision. A clean verdict (0 critical + 0 warning) with low confidence
+ * triggers a second-pass review (if iteration budget remains) or escalation
+ * (if exhausted), rather than silently approving uncertain reviews.
+ */
+export type ReviewGateDecision = "pass" | "second_pass" | "escalate" | "fail";
+
+export interface ReviewGateInput {
+  severityCount: {
+    critical: number;
+    warning: number;
+    suggestion: number;
+  };
+  confidence: "high" | "medium" | "low" | "unknown";
+  iterationBudgetRemaining: number;
+}
+
+export interface ReviewGateResult {
+  decision: ReviewGateDecision;
+  reason: string;
+}
+
+export function evaluateReviewGate(input: ReviewGateInput): ReviewGateResult {
+  if (
+    !Number.isFinite(input.severityCount.critical) ||
+    !Number.isFinite(input.severityCount.warning) ||
+    !Number.isFinite(input.severityCount.suggestion) ||
+    input.severityCount.critical < 0 ||
+    input.severityCount.warning < 0 ||
+    input.severityCount.suggestion < 0
+  ) {
+    return { decision: "fail", reason: "malformed severity counts" };
+  }
+  if (input.severityCount.critical > 0) {
+    return {
+      decision: "fail",
+      reason: `${input.severityCount.critical} Critical finding(s) require fixes`,
+    };
+  }
+  if (input.severityCount.warning > 0) {
+    return {
+      decision: "fail",
+      reason: `${input.severityCount.warning} Warning finding(s) require fixes`,
+    };
+  }
+  if (input.confidence === "high" || input.confidence === "medium") {
+    return {
+      decision: "pass",
+      reason: `Clean verdict with ${input.confidence} confidence`,
+    };
+  }
+  if (input.iterationBudgetRemaining > 0) {
+    return {
+      decision: "second_pass",
+      reason: `Low confidence clean verdict; retry review at higher rigor (${input.iterationBudgetRemaining} iterations remain)`,
+    };
+  }
+  return {
+    decision: "escalate",
+    reason: "Low confidence clean verdict with no iteration budget; escalate to human operator",
+  };
+}

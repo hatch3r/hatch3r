@@ -192,6 +192,39 @@ Skill-referenced agent delegations are mandatory.
 3. Launch independent subagents in parallel — maximum parallelism.
 4. Await and review results. Surface BLOCKED or PARTIAL to user.
 
+## Parallel Safety
+
+This section documents when spawning multiple sub-agents concurrently is safe and when it must remain sequential.
+
+### Design Rationale
+
+The pipeline's default is **linear per task** — Phase 1 → Phase 2 → Phase 3 → Phase 4, serially. `PipelineContext` captures a single logical handoff token that flows through sub-agents in sequence. LLM-driven orchestrators reason better with sequential, linearly-ordered context. Within Phase 4, parallel specialists are safe because they operate on read-only artifacts. Extending parallelism to Phases 1-3 requires explicit conditions.
+
+### Parallel-Safe Operations
+
+1. **Phase 4 Specialists** — test-writer, security-auditor, docs-writer, lint-fixer, etc. Read-only input from Phase 3 completion; independent outputs; no shared state mutation.
+2. **Intra-Phase-1 Researcher Modes** — multiple modes on the SAME task (symptom-trace + root-cause + codebase-impact) when the task is self-contained. Operate on read-only codebase; produce independent findings.
+3. **Per-Module Phase 2 Fan-Out (Disjoint `affectedFiles`)** — multi-module tasks with non-overlapping file sets; each implementer commits independently; merged post-Phase-2.
+4. **Tier 2/3 Elicitation Researchers** — parallel researchers on the same task to surface different perspectives; outputs tagged with confidence + perspective; orchestrator aggregates.
+
+### NOT Parallel-Safe
+
+1. **Cross-Phase Execution** — Phase 1 must complete before Phase 2 (Phase 2 depends on researchFindings). Phase 2 must complete before Phase 3 (review needs diff). Phase 3 must complete before Phase 4 (quality checks assume review-clean state).
+2. **Phase 3 Review Loop Iterations** — reviewer → fixer → re-reviewer must be serial.
+3. **Overlapping-File Implementers** — two Phase 2 implementers touching the same file must execute serially or use a merge-conflict detection gate.
+4. **Shared `PipelineContext` Field Writers** — if multiple agents mutate `state` / `featureFlags` / `metadata`, serialize them. Parallel agents must only READ context.
+5. **Phase 4 Validation Re-Review** — the confirmation pass after Phase 4 specialists must run serially; it checks fix-driven regressions.
+
+### Three Conditions to Parallelize
+
+ALL three must hold:
+
+1. **Read-only or disjoint writes** — agents read-only from context OR write to disjoint files/fields (no conflict zone).
+2. **Deterministic aggregation** — outputs merge without orchestrator intervention (tests: pass if all pass; findings: union).
+3. **Overhead < savings** — coordination cost (merge, conflict detection) is less than latency savings (max-of-agents vs sum-of-agents).
+
+**Default:** When in doubt, serialize. For typical hatch3r tasks (1–5 sub-tasks) the DAG-scheduling overhead often outweighs concurrency gain.
+
 ## Cross-Phase Error Propagation
 
 When a phase produces a non-SUCCESS status, the orchestrator must propagate error context to downstream phases rather than silently dropping it:

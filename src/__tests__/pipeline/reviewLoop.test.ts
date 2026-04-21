@@ -9,6 +9,7 @@ import {
   detectOscillation,
   enforceReviewIteration,
   assertReviewIterationAllowed,
+  evaluateReviewGate,
   CALIBRATION,
   DEFAULT_MAX_REVIEW_ITERATIONS,
   HARD_MAX_REVIEW_ITERATIONS,
@@ -542,5 +543,69 @@ describe("reviewLoop", () => {
       expect(state.terminationReason).toBe("max_iterations");
       expect(allowedCount).toBeLessThanOrEqual(state.maxIterations);
     });
+  });
+});
+
+describe("evaluateReviewGate (C8-D13-M1)", () => {
+  const clean = { critical: 0, warning: 0, suggestion: 0 };
+
+  it("passes on clean verdict with high confidence", () => {
+    const r = evaluateReviewGate({ severityCount: clean, confidence: "high", iterationBudgetRemaining: 2 });
+    expect(r.decision).toBe("pass");
+  });
+  it("passes on clean verdict with medium confidence", () => {
+    const r = evaluateReviewGate({ severityCount: clean, confidence: "medium", iterationBudgetRemaining: 2 });
+    expect(r.decision).toBe("pass");
+  });
+  it("second_pass on clean + low confidence + budget remaining", () => {
+    const r = evaluateReviewGate({ severityCount: clean, confidence: "low", iterationBudgetRemaining: 1 });
+    expect(r.decision).toBe("second_pass");
+  });
+  it("escalates on clean + low confidence + budget exhausted", () => {
+    const r = evaluateReviewGate({ severityCount: clean, confidence: "low", iterationBudgetRemaining: 0 });
+    expect(r.decision).toBe("escalate");
+  });
+  it("escalates on clean + unknown confidence + budget exhausted", () => {
+    const r = evaluateReviewGate({ severityCount: clean, confidence: "unknown", iterationBudgetRemaining: 0 });
+    expect(r.decision).toBe("escalate");
+  });
+  it("fails when critical findings exist", () => {
+    const r = evaluateReviewGate({ severityCount: { critical: 1, warning: 0, suggestion: 0 }, confidence: "high", iterationBudgetRemaining: 5 });
+    expect(r.decision).toBe("fail");
+    expect(r.reason).toContain("Critical");
+  });
+  it("fails when warning findings exist", () => {
+    const r = evaluateReviewGate({ severityCount: { critical: 0, warning: 2, suggestion: 0 }, confidence: "high", iterationBudgetRemaining: 5 });
+    expect(r.decision).toBe("fail");
+    expect(r.reason).toContain("Warning");
+  });
+  it("fails on NaN severity counts", () => {
+    const r = evaluateReviewGate({ severityCount: { critical: NaN, warning: 0, suggestion: 0 }, confidence: "high", iterationBudgetRemaining: 5 });
+    expect(r.decision).toBe("fail");
+    expect(r.reason).toContain("malformed");
+  });
+  it("fails on Infinity severity counts", () => {
+    const r = evaluateReviewGate({ severityCount: { critical: 0, warning: Infinity, suggestion: 0 }, confidence: "high", iterationBudgetRemaining: 5 });
+    expect(r.decision).toBe("fail");
+  });
+  it("fails on negative severity counts", () => {
+    const r = evaluateReviewGate({ severityCount: { critical: -1, warning: 0, suggestion: 0 }, confidence: "high", iterationBudgetRemaining: 5 });
+    expect(r.decision).toBe("fail");
+  });
+  it("returns non-empty reason on every path", () => {
+    const paths: Array<Parameters<typeof evaluateReviewGate>[0]> = [
+      { severityCount: clean, confidence: "high", iterationBudgetRemaining: 2 },
+      { severityCount: clean, confidence: "low", iterationBudgetRemaining: 1 },
+      { severityCount: clean, confidence: "low", iterationBudgetRemaining: 0 },
+      { severityCount: { critical: 1, warning: 0, suggestion: 0 }, confidence: "high", iterationBudgetRemaining: 5 },
+    ];
+    for (const p of paths) {
+      const r = evaluateReviewGate(p);
+      expect(r.reason.length).toBeGreaterThan(0);
+    }
+  });
+  it("treats unknown confidence like low", () => {
+    const r = evaluateReviewGate({ severityCount: clean, confidence: "unknown", iterationBudgetRemaining: 1 });
+    expect(r.decision).toBe("second_pass");
   });
 });

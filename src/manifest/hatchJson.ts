@@ -279,6 +279,16 @@ export async function writeManifest(
   rootDir: string,
   manifest: HatchManifest,
 ): Promise<void> {
+  // C8-D1-M2: Validate manifest schema before persisting to disk.
+  if (!validateManifest(manifest)) {
+    throw new HatchError(
+      "Invalid manifest schema: required fields missing or malformed. " +
+      "Expected valid HatchManifest with tools, mcp, managedFiles populated. " +
+      "Check that tools are in VALID_TOOLS and all required fields present.",
+      undefined,
+      "CONFIG_ERROR",
+    );
+  }
   const manifestPath = join(rootDir, AGENTS_DIR, MANIFEST_FILE);
   await atomicWriteFile(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
 }

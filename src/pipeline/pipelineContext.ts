@@ -119,6 +119,11 @@ export interface ReviewResult {
   finalVerdict: ReviewVerdict;
   findings: ReviewFinding[];
   confirmationPassResult: ConfirmationPassResult;
+  /**
+   * C8-D13-M1: Reviewer self-reported confidence (optional, backward-compatible).
+   * Consumed by evaluateReviewGate in reviewLoop.ts.
+   */
+  confidence?: "high" | "medium" | "low";
 }
 
 /** Detected project type for specialist selection (Finding #56). */
