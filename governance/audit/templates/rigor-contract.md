@@ -1,6 +1,6 @@
 # Scientific Rigor Contract & Web Research Mandate
 
-> Last updated: 2026-04-19
+> Last updated: 2026-04-21
 > Pillars: P2 (primary), P5 (supporting), P3 (supporting).
 > Canonical for: governance/AUDIT.md, governance/EVOLVE.md, governance/audit/domains/D*.md, governance/audit/templates/*.md, all sub-agent prompts.
 
@@ -43,7 +43,7 @@ Every finding satisfies six tests, drawn from established empirical practice. A 
 
 ## Required Finding Output Schema
 
-Every sub-agent finding written to `.audit-workspace/D{N}-SA{M}.findings.md` AND every EVOLVE proposal block carries this YAML-style header before the prose body:
+Every **individual sub-agent finding** written to `.audit-workspace/D{N}-SA{M}.findings.md` AND every EVOLVE proposal block carries this YAML-style header before the prose body. **Synthesis files** (`.audit-workspace/D{N}-synthesis.md`) are aggregations and MUST instead open with a domain-level metadata block (see §Synthesis File Header Schema below); per-finding rigor details are referenced by finding ID, not restated per finding in synthesis.
 
 ```
 confidence: high | medium | low
@@ -96,3 +96,22 @@ This template serves the framework's North Star through:
 - **P3 Adapter & MCP Currency (supporting).** Web Research Mandate enforces source-and-date capture for all currency claims.
 
 Pillar Compliance Test answers per `governance/CONSTITUTION.md` §2: (1) P2 primary, P5 / P3 supporting. (2) Measurable improvement — every finding gains 6 enforcement gates and a 7-field schema; placeholder findings are detectable and retryable. (3) Net governance size impact: +85 lines for this file, offset by −20 in EVOLVE.md and −1+ across domain files via reference-instead-of-restate.
+
+---
+
+## Synthesis File Header Schema
+
+Domain synthesis files (`.audit-workspace/D{N}-synthesis.md`) open with a single metadata block, not per-finding rigor headers:
+
+```yaml
+domain: D{N}
+cycle: {cycle_number}
+date: YYYY-MM-DD
+framework_version: {version}
+commit: {short_sha}
+rigor_contract: applied | partial | n/a
+sub_agents:
+  - SA{N}.{M} Name (count findings)
+```
+
+Per-finding rigor lives in `.audit-workspace/D{N}-SA{M}.findings.md`; synthesis references findings by ID.

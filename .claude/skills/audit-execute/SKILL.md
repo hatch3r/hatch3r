@@ -52,8 +52,8 @@ For each wave (1 through 4):
 
 14. Tag pre-wave state: `git tag audit-wave-{N}-pre`
 15. Spawn ALL sub-agents for the wave in a single parallel dispatch (no concurrency cap); each sub-agent writes detailed results to `.audit-workspace/wave-{N}/{finding_id}.results.md`. Orchestrator reads only the wave SUMMARY.md per Context Management Protocol.
-16. After all sub-agents complete, run **14-check regression gate** against Phase 0 baseline:
-    - Tests, Typecheck, Lint, Build, Content validation, Git diff
+16. After all sub-agents complete, run **15-check regression gate** against Phase 0 baseline:
+    - Tests, Typecheck, Lint, Build, Content validation, Git diff, Diff-backed status
     - Fix-Finding (SUMMARY.md scan), Governance, Governance weight, Anti-slop
     - Severity vocabulary, Governance currency, Doc accuracy, Cross-domain dedup
 17. On gate PASS: tag `audit-wave-{N}-post`, update finding-registry.json statuses, re-score domains

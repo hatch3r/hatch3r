@@ -1,6 +1,6 @@
 # Reviewer Sub-Agent Template
 
-> Last updated: 2026-04-19
+> Last updated: 2026-04-21
 
 **Pillars served:** P2 (primary), P5 (supporting).
 
@@ -179,8 +179,11 @@ Flag any implementation that handles only the happy path as **PARTIAL** with spe
 ### Recommendation
 [SHIP / FIX-AND-SHIP / PARTIAL-SHIP / BLOCK]
 
-PARTIAL-SHIP verdict: Ship waves 1-N, rollback waves N+1 onwards. Use when
-early waves improved the codebase but later waves introduced issues.
+See `governance/AUDIT-EXECUTE.md` §SHIP Gate for the 4-verdict criteria matrix.
+- SHIP: Pass 0 = PASS; all targeted terminal-status `done`; all gates PASS; zero `failed`/`rolled_back`.
+- FIX-AND-SHIP: Pass 0 = PASS; ≥1 `partial` but zero `failed`/`rolled_back`; Cycle N+1 rollover entries recorded; all gates PASS.
+- PARTIAL-SHIP: Pass 0 = PASS; cycle is explicitly user-scoped partial (e.g., subset of rolled-over findings); remainder documented in rollover umbrella finding; all gates PASS.
+- BLOCK: Pass 0 = FAIL OR undocumented `failed` OR any gate FAIL.
 
 ### Completeness Summary (Pass 0)
 - Targeted findings: [N]
