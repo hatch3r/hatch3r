@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   AGENTS_DIR,
+  HatchError,
   MANIFEST_FILE,
   VALID_TOOLS,
   WORKTREE_CAPABLE_TOOLS,
@@ -233,6 +234,15 @@ function validateManifest(data: unknown): data is HatchManifest {
     }
   }
 
+  if (obj.managedFilesByAdapter !== undefined) {
+    if (typeof obj.managedFilesByAdapter !== "object" || obj.managedFilesByAdapter === null) return false;
+    for (const [k, v] of Object.entries(obj.managedFilesByAdapter as Record<string, unknown>)) {
+      if (typeof k !== "string") return false;
+      if (!Array.isArray(v)) return false;
+      if (!(v as unknown[]).every((p) => typeof p === "string")) return false;
+    }
+  }
+
   return true;
 }
 
@@ -255,16 +265,20 @@ export async function readManifest(
   try {
     parsed = JSON.parse(raw);
   } catch (err: unknown) {
-    throw new Error(
+    throw new HatchError(
       `Malformed JSON in ${manifestPath}: ${err instanceof Error ? err.message : String(err)}`,
+      1,
+      "CONFIG_ERROR",
     );
   }
 
   const migrated = migrateManifest(parsed as Record<string, unknown>);
 
   if (!validateManifest(migrated)) {
-    throw new Error(
+    throw new HatchError(
       `Invalid manifest in ${manifestPath}: required fields missing or malformed. Run hatch3r init to regenerate.`,
+      1,
+      "CONFIG_ERROR",
     );
   }
   return migrated;
@@ -274,6 +288,16 @@ export async function writeManifest(
   rootDir: string,
   manifest: HatchManifest,
 ): Promise<void> {
+  // C8-D1-M2: Validate manifest schema before persisting to disk.
+  if (!validateManifest(manifest)) {
+    throw new HatchError(
+      "Invalid manifest schema: required fields missing or malformed. " +
+      "Expected valid HatchManifest with tools, mcp, managedFiles populated. " +
+      "Check that tools are in VALID_TOOLS and all required fields present.",
+      undefined,
+      "CONFIG_ERROR",
+    );
+  }
   const manifestPath = join(rootDir, AGENTS_DIR, MANIFEST_FILE);
   await atomicWriteFile(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
 }

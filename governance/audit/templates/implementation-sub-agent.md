@@ -1,3 +1,9 @@
+# Implementation Sub-Agent Template
+
+> Last updated: 2026-04-20
+
+**Pillars served:** P2 (primary), P4 (supporting).
+
 ## Task
 
 Implement the following audit findings for [project name].
@@ -41,7 +47,7 @@ For each finding, provide:
 
 4. **Preserve existing behavior.** Do not break existing tests, introduce lint
    errors, or change unrelated code. If a finding requires modifying a public API,
-   ensure all callers are updated.
+   update every caller and verify with `grep` across the codebase.
 
 5. **Follow project conventions.** Match the existing code style, naming patterns,
    and architectural patterns. Do not introduce new dependencies without explicit
@@ -70,11 +76,17 @@ For each finding, provide:
     wrapping in a try-catch without actual handling, or adding a `// validated`
     annotation is not a fix.
 
-11. **Understand the "why" before implementing.** Read the finding's full
-    justification and the referenced code path before writing any changes.
-    Understand what the finding is trying to achieve — the intent behind
-    the recommendation — not just what it literally says to change. If the
-    intent is unclear, implement the conservative interpretation.
+11. **Understand the "why" before implementing, then verify the fix
+    addresses it.** Before writing any changes, read the finding's full
+    justification and the referenced code path; understand the intent
+    behind the recommendation, not just the literal change requested.
+    If the intent is unclear, implement the conservative interpretation.
+    After implementing, re-read the finding and confirm the change
+    addresses the root cause, not the surface symptom (e.g., a finding
+    about "inconsistent error handling" is not resolved by one try-catch
+    — it must address the systemic pattern). If only the symptom can be
+    addressed within your scope, mark the finding PARTIAL and explain
+    what remains.
 
 12. **Consider side effects.** If your change modifies a shared module,
     trace all callers to verify no downstream breakage. If your change
@@ -82,13 +94,43 @@ For each finding, provide:
     adapters or all consumers still work correctly. Use grep to find
     all references before editing.
 
-13. **Verify fix addresses root cause.** After implementing, re-read the
-    original finding and confirm your change addresses the root cause
-    identified in the finding, not just the surface symptom. A finding
-    about "inconsistent error handling" should not be fixed by adding
-    one try-catch — it should address the systemic pattern. If you can
-    only address the symptom within your scope, mark as PARTIAL with
-    an explanation of what remains.
+13. **Source freshness re-check.** Before implementing any finding whose
+    recommendation cites external research, re-fetch each cited URL from
+    the finding's `sources` block per [rigor-contract.md](rigor-contract.md).
+    If 404 or content has materially changed since the audit's `accessed`
+    date, mark the finding PARTIAL and request re-research before
+    proceeding. Do not implement against a stale source.
+
+## Output Schema (MANDATORY)
+
+Write your full results to:
+`.audit-workspace/wave-{N}/{finding_id}.results.md`
+
+Use exactly this schema:
+
+```
+## Finding {finding_id}
+- Status: done | partial | failed
+- Files modified: <comma list>
+- Commit-ready: yes | no
+- Rigor re-check: fresh | stale
+- Causal chain addressed: yes (depth N) | no
+- Notes: <≤3 sentences>
+
+### Diff Summary
+<bullet list of logical changes, ≤8 bullets>
+
+### Risk Flags
+<list any same-file concurrency you avoided, side effects observed>
+```
+
+## Reply to Orchestrator
+
+Your chat reply MUST be a single line — nothing else:
+
+`Finding {finding_id}: {status} → .audit-workspace/wave-{N}/{finding_id}.results.md`
+
+Do NOT include diffs, file contents, or explanations in chat. The orchestrator reads them from your results file when needed.
 
 ## Constraints
 

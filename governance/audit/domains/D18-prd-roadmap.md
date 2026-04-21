@@ -1,5 +1,9 @@
 # Domain 18: PRD, Roadmap & Distribution
 
+> Last updated: 2026-04-19
+
+**Pillars served:** P5 (primary), P4 (supporting).
+
 **Scope:** Strategic alignment between product vision, roadmap, and current implementation.
 **Sub-agents:** 3
 
@@ -17,6 +21,18 @@ ALL sub-agents are **sequential** — they run only after D16 and D17 complete.
 - `todo.md` (gitignored — current roadmap)
 - `governance/VISION.md` (committed — stable north-star vision document)
 - `governance/RE-ENVISION.md` (committed — framework-owner vision capture prompt)
+
+> Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
+
+## Phase 0 Distribution Baseline (MUST run before 18.1)
+
+Before any 18.x sub-agent drafts a finding, the D18 orchestrator MUST capture a live distribution baseline (date-stamped within the current cycle, not carried from a prior cycle):
+
+- [ ] npm registry: `curl -s https://registry.npmjs.org/hatch3r | jq '{ name, "dist-tags": ."dist-tags", versions: (.versions | keys) }'` — record current published version, dist-tags, and version history
+- [ ] GitHub API (repo): `gh api repos/<owner>/<repo>` — record stargazers_count, forks_count, open_issues_count, default_branch, pushed_at
+- [ ] GitHub API (releases): `gh api repos/<owner>/<repo>/releases` — record latest release tag and date
+- [ ] Write the snapshot to `.audit-workspace/D18-distribution-baseline.json` with `captured_at` ISO timestamp
+- [ ] Any 18.3 distribution finding citing "zero npm presence" or "zero GitHub traction" MUST cite this snapshot, not a prior-cycle framing
 
 ## Audit Checklists
 

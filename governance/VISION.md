@@ -1,6 +1,6 @@
 # hatch3r — Vision
 
-> Last updated: 2026-03-25
+> Last updated: 2026-04-19
 
 **Crack the egg. Hatch better agents.**
 
@@ -26,7 +26,7 @@ hatch3r is for everyone building software with AI coding assistants — solo dev
 
 **Team Lead / Platform Owner** — Needs consistent AI-assisted development practices across a team. Standardizes on hatch3r so every developer gets the same quality bar regardless of which AI tool they prefer.
 
-**OSS Maintainer** — Wants contributors using AI tools to produce high-quality PRs. Ships a `.agents/` directory so AI assistants understand the project's conventions, architecture, and quality expectations from day one.
+**OSS Maintainer** — Wants contributors using AI tools to produce PRs that pass the project's code-review standards on first submission. Ships a `.agents/` directory so AI assistants understand the project's conventions, architecture, and quality expectations from day one.
 
 **Legacy System Maintainer** — Needs AI assistance that respects existing patterns, understands old codebases, and makes incremental improvements without breaking things. hatch3r's outside-in perspective and non-destructive adoption model make this safe.
 

@@ -107,6 +107,27 @@ If a `meta:board-overview` issue exists on the board, refresh it now using cache
 
 Run the **End-of-Run Reconciliation Procedure** from `hatch3r-board-shared`. This verifies board sync, sub-issue links, label consistency, and PR linkage for all issues modified during this pickup run. Output the reconciliation report before proceeding to Step 10.
 
+### 9c. Terminal-State Verification (after PR merge)
+
+After the PR merges and `Closes #N` auto-closes the referenced issue(s), confirm both sides of the status lifecycle reach their terminal state. Labels and V2 board state must agree.
+
+1. **Label flip.** GitHub does not auto-update issue labels on close. For each auto-closed issue, run:
+   ```
+   gh issue edit N --remove-label "status:in-review" --add-label "status:done"
+   ```
+   Record the mutation in the run cache under `updated_issues`.
+
+2. **Board state check.** Read `board.workflows.itemClosedEnabled` from `.agents/hatch.json`:
+   - **If true:** The V2 built-in "Item closed" workflow has already set the board status to Done. Skip to step 3.
+   - **If false or absent:** The workflow is not enabled (board-init should have halted, but this is a defensive fallback). Apply the full **Board Sync Procedure** from `hatch3r-board-shared` for each issue, target status = Done.
+
+3. **Verify terminal state.** For each issue:
+   - `gh issue view N --json labels` returns a label set containing `status:done` and not containing `status:in-review`.
+   - `gh project item-list {board.projectNumber} --owner {board.owner} --format json` returns status = Done for this item.
+   If either check fails, apply rule 8 of Board Sync Enforcement (retry-then-halt fallback policy) in `hatch3r-board-shared`.
+
+4. **Record outcome.** Append each issue's terminal-state result to the run cache `sync_results` with method = `terminal-verify`.
+
 ---
 
 ## Step 10: Capture Learnings

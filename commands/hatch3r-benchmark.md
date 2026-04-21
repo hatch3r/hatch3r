@@ -1,6 +1,8 @@
 ---
 id: hatch3r-benchmark
 type: command
+orchestrator: true
+agentPipeline: [hatch3r-researcher, hatch3r-perf-profiler, hatch3r-docs-writer]
 description: Run and analyze performance benchmarks. Compare results against baselines, identify regressions, and produce performance reports.
 tags: [review, performance]
 quality_charter: agents/shared/quality-charter.md

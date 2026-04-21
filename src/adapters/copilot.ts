@@ -5,10 +5,11 @@ import type {
 import { toPrefixedId } from "../types.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
-import { readCanonicalFiles } from "./canonical.js";
+import { readCanonicalFiles, sortByPrecedence, precedenceRank } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
 import { applyCustomization } from "./customization.js";
 import { detectPackageManager } from "../detect/packageManager.js";
+import { toCopilotToolsFrontmatter } from "../pipeline/adapterToolTranslator.js";
 
 export class CopilotAdapter extends BaseAdapter {
   readonly name = "copilot";
@@ -20,8 +21,14 @@ export class CopilotAdapter extends BaseAdapter {
     const scopedRules: { rule: CanonicalFile; content: string; scope: string }[] = [];
 
     if (ctx.features.rules) {
-      const rules = await readCanonicalFiles(ctx.agentsDir, "rules");
-      for (const rule of rules) {
+      const rules = await readCanonicalFiles(ctx.agentsDir, "rules", this.warnings);
+      // Wave B3: sort by precedence so both the inlined always-rules (in
+      // copilot-instructions.md) and the per-file scoped-rules are emitted
+      // in priority order. Always-rules are concatenated into a single file,
+      // so no NN- prefix applies to them -- the sort alone establishes load
+      // order. Scoped-rules get a NN- filename prefix on their per-file path.
+      const sortedRules = sortByPrecedence(rules);
+      for (const rule of sortedRules) {
         const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);
         this.warnings.push(...warnings);
         if (skip) continue;
@@ -88,9 +95,11 @@ jobs:
       const applyTo = globs.join(", ");
       const fm = `---\napplyTo: "${applyTo}"\n---`;
       const body = `# ${rule.id}\n\n${rule.description}\n\n${content}`;
+      // Wave B3: NN- filename prefix on scoped per-file rule outputs.
+      const nn = precedenceRank(rule.precedence) / 10;
       results.push(
         output(
-          `.github/instructions/${toPrefixedId(rule.id)}.instructions.md`,
+          `.github/instructions/${nn}-${toPrefixedId(rule.id)}.instructions.md`,
           `${fm}\n\n${wrapInManagedBlock(body)}`,
           body,
         ),
@@ -98,22 +107,33 @@ jobs:
     }
 
     if (ctx.features.agents) {
-      const agents = await readCanonicalFiles(ctx.agentsDir, "agents");
+      const agents = await readCanonicalFiles(ctx.agentsDir, "agents", this.warnings);
       for (const agent of agents) {
         const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
         this.warnings.push(...warnings);
         if (skip) continue;
         const model = resolveAgentModel(agent.id, agent, ctx.manifest, overrides);
         const desc = overrides.description ?? agent.description;
+        const prefixedId = toPrefixedId(agent.id);
         const lines = [`name: ${agent.id}`, `description: ${desc}`];
         if (model) lines.push(`model: ${model}`);
+        // C7.5-W2B2-H41/H45 (D15, P6): emit Copilot `tools:` allowlist
+        // translated from AGENT_TOOL_POLICIES so the downstream Copilot
+        // agent runtime enforces the hatch3r monotonic-privilege
+        // invariant. Copilot frontmatter format:
+        // https://docs.github.com/en/copilot/reference/custom-agents-configuration
+        // (accessed 2026-04-20).
+        const copilotTools = toCopilotToolsFrontmatter(prefixedId);
+        if (copilotTools) {
+          lines.push(`tools: [${copilotTools.map((t) => `"${t}"`).join(", ")}]`);
+        }
         const fm = `---\n${lines.join("\n")}\n---`;
-        results.push(output(`.github/agents/${toPrefixedId(agent.id)}.agent.md`, `${fm}\n\n${wrapInManagedBlock(content)}`, content));
+        results.push(output(`.github/agents/${prefixedId}.agent.md`, `${fm}\n\n${wrapInManagedBlock(content)}`, content));
       }
     }
 
     if (ctx.features.prompts) {
-      const prompts = await readCanonicalFiles(ctx.agentsDir, "prompts");
+      const prompts = await readCanonicalFiles(ctx.agentsDir, "prompts", this.warnings);
       for (const prompt of prompts) {
         const body = prompt.rawContent;
         results.push(output(`.github/prompts/${toPrefixedId(prompt.id)}.prompt.md`, wrapInManagedBlock(body), body));
@@ -125,7 +145,7 @@ jobs:
     );
 
     if (ctx.features.githubAgents) {
-      const ghAgents = await readCanonicalFiles(ctx.agentsDir, "github-agents");
+      const ghAgents = await readCanonicalFiles(ctx.agentsDir, "github-agents", this.warnings);
       for (const agent of ghAgents) {
         const body = agent.rawContent;
         results.push(output(`.github/agents/${toPrefixedId(agent.id)}.agent.md`, wrapInManagedBlock(body), body));

@@ -1,3 +1,9 @@
+# Reviewer Sub-Agent Template
+
+> Last updated: 2026-04-21
+
+**Pillars served:** P2 (primary), P5 (supporting).
+
 ## Task
 
 You are the final quality gate for a wave-based audit execution run. All
@@ -34,23 +40,20 @@ Pass 0 Result: PASS if orphaned = 0 and all non-terminal findings have reasons.
 
 ## Pass 1: Functional Verification
 
-1. Run the full test suite: `npm test`
-   Report: total, passed, failed, skipped. Flag regressions vs baseline.
+Run the four verification commands and report results against baseline:
 
-2. Run typecheck: `npx tsc --noEmit`
-   Report: error count. Flag new errors vs baseline.
+| Test | Command | Expected | Baseline behavior |
+|------|---------|----------|-------------------|
+| Unit + integration | `npm test` | 0 failures, coverage thresholds met | Re-run if any new test introduced; compare against Phase 0 baseline if available |
+| Type-check | `npx tsc --noEmit` | 0 type errors | Compare error count against Phase 0 baseline; new errors → BLOCK |
+| Lint | `npm run lint` | 0 errors, ≤Phase 0 warning count | New warnings allowed only if explicitly justified in commit |
+| Build | `npm run build` | 0 build errors, dist/ size within ±5% of baseline | Bundle size increase >5% → flag |
 
-3. Run lint: `npm run lint`
-   Report: error count, warning count. Flag new errors vs baseline.
-
-4. Run build: `npm run build`
-   Report: success/failure.
-
-5. Review the full git diff (all changes from BASELINE_COMMIT to HEAD):
-   - Each change matches its finding's recommendation
-   - No unrelated code modified
-   - No dead code, debug logging, or TODO comments left behind
-   - Changes follow project conventions
+Then review the full git diff (all changes from BASELINE_COMMIT to HEAD):
+- Each change matches its finding's recommendation
+- No unrelated code modified
+- No dead code, debug logging, or TODO comments left behind
+- Changes follow project conventions
 
 ## Pass 1.5: Fix-to-Finding Alignment
 
@@ -65,6 +68,8 @@ For each finding with execution_status = "done":
 5. If the change diverges from the recommendation but achieves the same goal through a demonstrably better approach, mark as **PASS** with a note explaining the alternative approach.
 6. If the change addresses a related but different issue than what the finding specified, reclassify as **PARTIAL**.
 
+7. **Confidence verification.** Compare the finding's `confidence` field (from the rigor schema header per [rigor-contract.md](rigor-contract.md)) against the strength of the implemented evidence. If the implementation surfaced new evidence that strengthens or weakens confidence, update the registry entry's `confidence` field accordingly. Mismatched confidence ≠ a fix-to-finding failure on its own, but it is logged for the next audit cycle's calibration check.
+
 Add a `fix_alignment` column to the Per-Finding Verdict table: ALIGNED / DIVERGENT / BETTER-ALTERNATIVE.
 
 ## Pass 2: Security Verification
@@ -77,7 +82,7 @@ Add a `fix_alignment` column to the Per-Finding Verdict table: ALIGNED / DIVERGE
    - Input validation present where needed
 
 2. Cross-reference against Domain 15 findings:
-   - Were all security findings properly addressed?
+   - Were all security findings addressed with a concrete diff that closes the cited attack surface?
    - Did any implementation introduce new security concerns?
 
 ## Pass 2.5: Adversarial Verification
@@ -174,8 +179,11 @@ Flag any implementation that handles only the happy path as **PARTIAL** with spe
 ### Recommendation
 [SHIP / FIX-AND-SHIP / PARTIAL-SHIP / BLOCK]
 
-PARTIAL-SHIP verdict: Ship waves 1-N, rollback waves N+1 onwards. Use when
-early waves improved the codebase but later waves introduced issues.
+See `governance/AUDIT-EXECUTE.md` §SHIP Gate for the 4-verdict criteria matrix.
+- SHIP: Pass 0 = PASS; all targeted terminal-status `done`; all gates PASS; zero `failed`/`rolled_back`.
+- FIX-AND-SHIP: Pass 0 = PASS; ≥1 `partial` but zero `failed`/`rolled_back`; Cycle N+1 rollover entries recorded; all gates PASS.
+- PARTIAL-SHIP: Pass 0 = PASS; cycle is explicitly user-scoped partial (e.g., subset of rolled-over findings); remainder documented in rollover umbrella finding; all gates PASS.
+- BLOCK: Pass 0 = FAIL OR undocumented `failed` OR any gate FAIL.
 
 ### Completeness Summary (Pass 0)
 - Targeted findings: [N]

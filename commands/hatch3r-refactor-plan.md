@@ -1,6 +1,8 @@
 ---
 id: hatch3r-refactor-plan
 type: command
+orchestrator: true
+agentPipeline: [hatch3r-researcher, hatch3r-docs-writer]
 description: Plan a refactoring or migration effort -- spawn parallel researchers, produce refactoring spec, ADR(s), and phased todo.md entries for board-fill.
 tags: [planning]
 quality_charter: agents/shared/quality-charter.md

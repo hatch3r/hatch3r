@@ -143,6 +143,30 @@ export async function syncWorkspaceRepos(
         options,
       );
       results.push(result);
+
+      // D1-SA1.9.1 (High): Persist lastSync incrementally per successful
+      // sub-repo so that a SIGINT/SIGTERM (or process crash) mid-loop does
+      // not lose the timestamp of already-completed repos. Prior behavior
+      // wrote the manifest ONCE after the entire loop, causing `hatch3r
+      // status` to show "never synced" for completed repos on the next run.
+      if (!options.dryRun && result.action === "synced") {
+        const entry = wsManifest.repos.find((r) => r.path === result.path);
+        if (entry) {
+          entry.lastSync = new Date().toISOString();
+          try {
+            await writeWorkspaceManifest(workspaceRoot, wsManifest);
+          } catch (err) {
+            // Silent Failure Contract: surface the incremental write failure
+            // via the warn callback so the user sees that a timestamp may
+            // have been missed, but do not abort the remaining repo loop
+            // (the per-repo sync itself already succeeded on disk).
+            options.onWarn?.(
+              `Failed to persist lastSync for ${result.path}: ` +
+              `${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+        }
+      }
     } catch (err) {
       results.push({
         path: repoEntry.path,
@@ -153,18 +177,6 @@ export async function syncWorkspaceRepos(
         error: err instanceof Error ? err.message : String(err),
       });
     }
-  }
-
-  // Update workspace manifest with lastSync timestamps (unless dry-run)
-  if (!options.dryRun) {
-    const now = new Date().toISOString();
-    for (const result of results) {
-      if (result.action === "synced") {
-        const entry = wsManifest.repos.find((r) => r.path === result.path);
-        if (entry) entry.lastSync = now;
-      }
-    }
-    await writeWorkspaceManifest(workspaceRoot, wsManifest);
   }
 
   return { repos: results };
@@ -336,9 +348,31 @@ async function syncSingleRepo(
   // Write manifest again with managedFiles populated
   await writeManifest(repoDir, manifest);
 
-  // Generate integrity manifest
-  const integrityManifest = await generateIntegrityManifest(repoAgentsDir, HATCH3R_VERSION);
+  // D1-SA1.3.2 (High): Always regenerate the integrity manifest, recording
+  // both `expectedAdapters` (all configured tools for this sub-repo) and
+  // `successfulAdapters` (tools whose generation completed). The manifest
+  // covers canonical content in `.agents/` which adapters read but do not
+  // modify, so regenerating on partial failure is safe — it simply reflects
+  // the current canonical state and surfaces the partial outcome via the
+  // adapter metadata so downstream tools can detect stale/missing adapter
+  // output directories.
+  const allAdaptersSucceeded = toolsSynced.length === resolved.tools.length;
+  const integrityManifest = await generateIntegrityManifest(
+    repoAgentsDir,
+    HATCH3R_VERSION,
+    {
+      expectedAdapters: resolved.tools,
+      successfulAdapters: toolsSynced,
+    },
+  );
   await writeIntegrityManifest(repoAgentsDir, integrityManifest);
+  if (!allAdaptersSucceeded) {
+    options.onWarn?.(
+      `Integrity manifest regenerated for ${repoEntry.path} with ` +
+      `${toolsSynced.length}/${resolved.tools.length} adapters successful. ` +
+      `Re-run sync after resolving errors to produce a complete manifest.`,
+    );
+  }
 
   // Ensure .env.mcp for MCP servers
   if (manifest.features.mcp && manifest.mcp.servers.length > 0) {

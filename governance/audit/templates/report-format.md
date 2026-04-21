@@ -1,5 +1,9 @@
 # Audit Report Format Templates
 
+> Last updated: 2026-04-19
+
+**Pillars served:** P5 (primary), P1 (supporting).
+
 > Extracted from AUDIT.md for lean governance. Referenced by AUDIT.md §Output Format.
 > These templates define the structure of audit report sections.
 
@@ -40,26 +44,26 @@ In 3-5 sentences, provide the orchestrator's subjective quality impression of th
 ### Domain Heatmap
 
 ```
-| Domain | Score | Critical | High | Medium | Low | Info |
-|--------|-------|----------|------|--------|-----|------|
-| D1: Core Source Implementation | XX | N | N | N | N | N |
-| D2: Adapter Infrastructure | XX | N | N | N | N | N |
-| D3: Test Infrastructure | XX | N | N | N | N | N |
-| D4: Build, CI/CD & Dependencies | XX | N | N | N | N | N |
-| D5: Prompt Engineering Quality | XX | N | N | N | N | N |
-| D6: Context Engineering | XX | N | N | N | N | N |
-| D7: Orchestration Optimization | XX | N | N | N | N | N |
-| D8: Error Recovery & Resilience | XX | N | N | N | N | N |
-| D9: Platform Adapters | XX | N | N | N | N | N |
-| D10: User Experience & Documentation | XX | N | N | N | N | N |
-| D11: End-to-End Data Flow | XX | N | N | N | N | N |
-| D12: CLI Diagnostics & Traceability | XX | N | N | N | N | N |
-| D13: Human-AI Collaboration | XX | N | N | N | N | N |
-| D14: Adaptability & Scalability | XX | N | N | N | N | N |
-| D15: Agentic Security | XX | N | N | N | N | N |
-| D16: Cross-Domain Synthesis | XX | N | N | N | N | N |
-| D17: Competition & Market | XX | N | N | N | N | N |
-| D18: PRD, Roadmap & Distribution | XX | N | N | N | N | N |
+| Domain | Score | Critical | High | Medium | Low | Info | Rigor Provenance |
+|--------|-------|----------|------|--------|-----|------|------------------|
+| D1: Core Source Implementation | XX | N | N | N | N | N | H/M/L median confidence |
+| D2: Adapter Infrastructure | XX | N | N | N | N | N | H/M/L median confidence |
+| D3: Test Infrastructure | XX | N | N | N | N | N | H/M/L median confidence |
+| D4: Build, CI/CD & Dependencies | XX | N | N | N | N | N | H/M/L median confidence |
+| D5: Prompt Engineering Quality | XX | N | N | N | N | N | H/M/L median confidence |
+| D6: Context Engineering | XX | N | N | N | N | N | H/M/L median confidence |
+| D7: Orchestration Optimization | XX | N | N | N | N | N | H/M/L median confidence |
+| D8: Error Recovery & Resilience | XX | N | N | N | N | N | H/M/L median confidence |
+| D9: Platform Adapters | XX | N | N | N | N | N | H/M/L median confidence |
+| D10: User Experience & Documentation | XX | N | N | N | N | N | H/M/L median confidence |
+| D11: End-to-End Data Flow | XX | N | N | N | N | N | H/M/L median confidence |
+| D12: CLI Diagnostics & Traceability | XX | N | N | N | N | N | H/M/L median confidence |
+| D13: Human-AI Collaboration | XX | N | N | N | N | N | H/M/L median confidence |
+| D14: Adaptability & Scalability | XX | N | N | N | N | N | H/M/L median confidence |
+| D15: Agentic Security | XX | N | N | N | N | N | H/M/L median confidence |
+| D16: Cross-Domain Synthesis | XX | N | N | N | N | N | H/M/L median confidence |
+| D17: Competition & Market | XX | N | N | N | N | N | H/M/L median confidence |
+| D18: PRD, Roadmap & Distribution | XX | N | N | N | N | N | H/M/L median confidence |
 ```
 
 ---
@@ -83,3 +87,15 @@ Columns: `#`, `Domain`, `Action Item`, `Severity`, `Effort`, `Risk Score` (Impac
 ## Delta Since Previous Audit
 
 (If previous audit exists) New findings, resolved findings, regressed findings, score changes per domain.
+
+---
+
+## Web Research Citations
+
+Consolidated table of every external source cited in this audit cycle's findings. Per [rigor-contract.md](rigor-contract.md) Web Research Mandate.
+
+| Source | URL | Accessed | Author / Org | Trust Tier | Topic / Domain | Recency Verdict |
+|--------|-----|----------|--------------|------------|----------------|-----------------|
+| (example) | https://genai.owasp.org/llm-top-10/ | 2026-04-19 | OWASP | official-docs | D15 (security) | within window |
+
+Rows are aggregated from the `sources` field of every finding. Sources cited by ≥3 findings appear once with all citing finding IDs in a footnote.

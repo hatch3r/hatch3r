@@ -1,6 +1,7 @@
 ---
-description: Priority order for tools and knowledge sources
+description: Platform MCP-first priority, documentation MCP for library APIs, web research for CVEs, and browser MCP for UI verification with fallback guidance
 globs: ["**/.agents/**", "**/mcp/**", "**/mcp.json", "**/.cursor/**", "**/.github/copilot*", "**/.windsurf/**", "**/hatch.json", "**/.claude/**"]
+alwaysApply: false
 ---
 # Tooling Hierarchy
 
@@ -88,7 +89,7 @@ If no web search MCP server is configured (e.g., `brave-search` is not in `mcp.s
 Use browser automation MCP tools to visually verify UI changes after automated tests pass.
 
 **When to use:**
-- Verifying UI component changes render correctly.
+- Verifying UI component changes render as specified in the design or acceptance criteria.
 - Reproducing and confirming fixes for visually observable bugs.
 - Accessibility auditing (keyboard nav, contrast, focus indicators).
 - Frontend performance profiling (CPU, frame rate, memory).

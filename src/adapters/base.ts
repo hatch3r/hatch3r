@@ -1,6 +1,7 @@
 import { dirname } from "node:path";
 import type {
   AdapterOutput,
+  CanonicalFile,
   Features,
   GenerationMode,
   HatchManifest,
@@ -8,7 +9,7 @@ import type {
 import { resolveAgentModel } from "../models/resolve.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
 import { generateBridgeOrchestration } from "../cli/shared/agentsContent.js";
-import { readCanonicalFiles } from "./canonical.js";
+import { readCanonicalFiles, sortByPrecedence, type CanonicalType } from "./canonical.js";
 import { applyCustomization, applyCustomizationRaw } from "./customization.js";
 import { readMcpConfig, transformEnvVarSyntax, type McpServerEntry } from "./mcp-utils.js";
 import { readHookDefinitions } from "../hooks/index.js";
@@ -69,6 +70,12 @@ export abstract class BaseAdapter implements Adapter {
   async generate(agentsDir: string, manifest: HatchManifest, generationMode: GenerationMode = "standard"): Promise<AdapterOutput[]> {
     this.warnings = [];
     this._cachedOutputPaths = null; // Invalidate path cache on re-generation
+    // C8-D12-M3: Reset per-invocation provenance tracker before doGenerate.
+    // Helpers on this class (inlineRules, inlineAgents, processSkills*,
+    // processCommandsRaw) push every canonical file they read into the set;
+    // after doGenerate returns, the set is the closed list of canonical
+    // files this adapter consumed in the current run.
+    this._trackedSourceFiles = new Set<string>();
     const outputs = await this.doGenerate({
       agentsDir,
       manifest,
@@ -87,6 +94,21 @@ export abstract class BaseAdapter implements Adapter {
       }
       if (out.managedContent && !out.content.includes(out.managedContent)) {
         this.warnings.push(`[${this.name}] managedContent is not a substring of content for "${out.path}"`);
+      }
+    }
+
+    // C8-D12-M3: Attach per-output source provenance. Adapters that already
+    // set `sourceFiles` explicitly (e.g. a single-canonical-file output path
+    // that wants a tighter attribution than the adapter-wide tracked set)
+    // retain their value — we only fill the default tracked set for outputs
+    // that left the field unset. The tracked list is deterministic (sorted)
+    // so downstream diffs over `.provenance.json` stay stable across runs.
+    const trackedList = [...this._trackedSourceFiles].sort();
+    if (trackedList.length > 0) {
+      for (const out of outputs) {
+        if (out.sourceFiles === undefined) {
+          out.sourceFiles = trackedList;
+        }
       }
     }
 
@@ -110,6 +132,45 @@ export abstract class BaseAdapter implements Adapter {
     const outputs = await this.generate(agentsDir, manifest);
     this._cachedOutputPaths = outputs.map((o) => o.path);
     return this._cachedOutputPaths;
+  }
+
+  /**
+   * C8-D12-M3: Per-invocation set of canonical-file `sourcePath`s consumed
+   * during the current `generate()` call. Reset at the top of `generate()`
+   * and populated by {@link readTrackedCanonicalFiles} — the wrapper used
+   * by every in-class helper that reads canonical content. The set is
+   * exposed to outputs via {@link AdapterOutput.sourceFiles} so operators
+   * can trace which canonical file(s) shaped each generated artifact.
+   *
+   * Initialised as empty so a subclass that calls `readTrackedCanonicalFiles`
+   * outside of `generate()` still has a defined collection to push into.
+   */
+  private _trackedSourceFiles: Set<string> = new Set<string>();
+
+  /**
+   * C8-D12-M3: Canonical-file read wrapper that records provenance.
+   *
+   * Delegates to {@link readCanonicalFiles} and additionally pushes every
+   * returned file's `sourcePath` into the per-invocation tracker. Helpers
+   * on this class use this wrapper so every adapter automatically gets
+   * source-file provenance without individual adapters needing to change.
+   *
+   * External callers (outside BaseAdapter) should prefer calling
+   * `readCanonicalFiles` directly; this wrapper is the BaseAdapter-internal
+   * integration point for {@link AdapterOutput.sourceFiles} population.
+   */
+  protected async readTrackedCanonicalFiles(
+    agentsDir: string,
+    type: CanonicalType,
+  ): Promise<CanonicalFile[]> {
+    const files = await readCanonicalFiles(agentsDir, type, this.warnings);
+    for (const f of files) {
+      // `sourcePath` is an absolute filesystem path to the canonical file;
+      // guarded against the rare test-fixture case where a synthesised
+      // CanonicalFile may have an empty path.
+      if (f.sourcePath) this._trackedSourceFiles.add(f.sourcePath);
+    }
+    return files;
   }
 
   protected abstract doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]>;
@@ -151,7 +212,15 @@ export abstract class BaseAdapter implements Adapter {
   protected async inlineRules(ctx: AdapterContext): Promise<string[]> {
     if (!ctx.features.rules) return [];
     const lines: string[] = [];
-    const rules = await readCanonicalFiles(ctx.agentsDir, "rules");
+    // Wave B4: sort rules by precedence (critical -> high -> normal -> low,
+    // id lexicographic tie-break) before concatenation so the 7 inline
+    // adapters that pipe this helper into a single file (gemini, aider,
+    // amp, goose, zed, antigravity, amazonq) emit rule sections in a
+    // deterministic priority order. Rules without a `precedence` field fall
+    // back to "normal" rank, so legacy fixtures keep their alphabetic order.
+    const rules = sortByPrecedence(
+      await this.readTrackedCanonicalFiles(ctx.agentsDir, "rules"),
+    );
     const minimal = this.isMinimal(ctx);
     for (const rule of rules) {
       const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);
@@ -174,7 +243,7 @@ export abstract class BaseAdapter implements Adapter {
   ): Promise<string[]> {
     if (!ctx.features.agents) return [];
     const lines: string[] = [];
-    const agents = await readCanonicalFiles(ctx.agentsDir, "agents");
+    const agents = await this.readTrackedCanonicalFiles(ctx.agentsDir, "agents");
     const minimal = this.isMinimal(ctx);
     for (const agent of agents) {
       const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
@@ -203,7 +272,7 @@ export abstract class BaseAdapter implements Adapter {
   ): Promise<AdapterOutput[]> {
     if (!ctx.features.skills) return [];
     const results: AdapterOutput[] = [];
-    const skills = await readCanonicalFiles(ctx.agentsDir, "skills");
+    const skills = await this.readTrackedCanonicalFiles(ctx.agentsDir, "skills");
     for (const skill of skills) {
       const { content, skip, warnings } = await applyCustomizationRaw(ctx.projectRoot, skill);
       this.warnings.push(...warnings);
@@ -220,7 +289,7 @@ export abstract class BaseAdapter implements Adapter {
   ): Promise<AdapterOutput[]> {
     if (!ctx.features.skills) return [];
     const results: AdapterOutput[] = [];
-    const skills = await readCanonicalFiles(ctx.agentsDir, "skills");
+    const skills = await this.readTrackedCanonicalFiles(ctx.agentsDir, "skills");
     for (const skill of skills) {
       const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, skill);
       this.warnings.push(...warnings);
@@ -239,7 +308,7 @@ export abstract class BaseAdapter implements Adapter {
   ): Promise<AdapterOutput[]> {
     if (!ctx.features.commands) return [];
     const results: AdapterOutput[] = [];
-    const commands = await readCanonicalFiles(ctx.agentsDir, "commands");
+    const commands = await this.readTrackedCanonicalFiles(ctx.agentsDir, "commands");
     for (const cmd of commands) {
       const { content, skip, warnings } = await applyCustomizationRaw(ctx.projectRoot, cmd);
       this.warnings.push(...warnings);
@@ -300,7 +369,10 @@ export abstract class BaseAdapter implements Adapter {
 
   protected async readHooks(ctx: AdapterContext) {
     if (!ctx.features.hooks) return [];
-    return readHookDefinitions(ctx.agentsDir);
+    // D5-SA5.7-H3 — Surface hook-parse diagnostics (invalid event, missing
+    // field, YAML error, duplicate id) via the adapter warnings channel
+    // instead of silently discarding malformed definitions.
+    return readHookDefinitions(ctx.agentsDir, this.warnings);
   }
 
   /** Returns true when the adapter is running in minimal generation mode. */

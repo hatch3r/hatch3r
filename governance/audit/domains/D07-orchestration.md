@@ -1,5 +1,9 @@
 # Domain 7: Agent Orchestration Optimization
 
+> Last updated: 2026-04-19
+
+**Pillars served:** P2 (primary), P4 (supporting).
+
 **Scope:** The four-phase pipeline architecture and its optimization for maximum task success rate.
 **Sub-agents:** 5
 
@@ -10,6 +14,8 @@
 | 7.3 | Phase 4 Dispatch |
 | 7.4 | Dynamic Adaptation |
 | 7.5 | Multi-Task Orchestration |
+
+> Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
 
 ## Audit Checklists
 

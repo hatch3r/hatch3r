@@ -1,5 +1,9 @@
 # Domain 3: Test Infrastructure
 
+> Last updated: 2026-04-19
+
+**Pillars served:** P2 (primary), P5 (supporting).
+
 **Scope:** All 47 test files across the test suite. Coverage analysis, test quality assessment, and testing infrastructure evaluation.
 **Sub-agents:** 5
 
@@ -31,6 +35,8 @@
 | 3.3 | Content & Manifest Tests | `src/__tests__/content/{index,tags,assertSafePath}.test.ts`, `src/__tests__/manifest/hatchJson.test.ts` |
 | 3.4 | Integration Tests | `src/__tests__/{hooks,models,detect,env,integrity,archive,merge,workspace,worktree}/` (14 files) |
 | 3.5 | Coverage Meta-Analysis | All 47 test files, coverage report, test infrastructure |
+
+> Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
 
 ## Audit Checklists
 

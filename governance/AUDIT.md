@@ -1,8 +1,10 @@
 # hatch3r — Full Framework Audit Prompt
 
+> Last updated: 2026-04-19
+
 ## Purpose
 
-Perform a deep, end-to-end audit of every area, aspect, and line of code or content in the hatch3r framework. The goal is to ensure this framework is production-ready, open-sourceable, and excels in every capability compared to the current market — enabling end users to build winning software products at scale.
+Perform a deep, end-to-end audit of every area, aspect, and line of code or content in the hatch3r framework. The goal: verify this framework is production-ready and open-sourceable by applying the 19-domain checklist across code, content, and adapter implementations — enabling end users to build winning software products at scale.
 
 This audit covers **19 domains** organized across **4 tiers**, deploying **106 sub-agents** for maximum depth. Every domain requires web research for current market context. The final deliverable is a structured audit report with severity-tagged findings, weighted domain scores, and prioritized action items using 3-tier progressive disclosure.
 
@@ -54,6 +56,17 @@ Not all domains require equal audit depth every cycle. To prevent diminishing re
 
 Spawn **106 sub-agents** across 19 audit domains organized in 4 tiers. Each domain decomposes into multiple focused sub-agents for maximum depth. Sub-agents within the same domain run in parallel unless a sequential dependency is noted. Domain-level synthesis sub-agents run only after their prerequisite sub-agents complete. Inherit your LLM model to every sub-agent — do not downgrade. Each sub-agent MUST use web research. **Never optimize for token efficiency — optimize for audit quality and depth.**
 
+#### Optional Domain Orchestrator Bundling
+
+The orchestrator MAY bundle 2–3 thematically related domains into a single domain-orchestrator sub-agent invocation when (a) the bundled domains share a primary pillar, (b) bundled findings remain attributable to their home domain in `.audit-workspace/D{N}-SA{M}.findings.md`, and (c) the bundled invocation produces sub-agent counts identical to running the domains separately. Approved bundles for the current cycle:
+
+| Bundle | Domains | Rationale |
+|--------|---------|-----------|
+| Quality bundle | D6, D7, D8 | All Tier B Quality, share orchestration/error-recovery surface |
+| Adoption bundle | D13, D14 | Both Tier C, focus on user-facing collaboration and adoption friction |
+
+Cycle 7 successfully bundled D6–D8 with quality maintained at lower orchestration cost. Bundling is opt-in per cycle; the default remains one orchestrator per domain.
+
 ### Dependency Graph
 
 The following sub-agents have sequential dependencies and MUST NOT launch until their prerequisites complete:
@@ -79,22 +92,15 @@ Of the 106 total sub-agents, **97 launch immediately** in parallel. The remainin
 | C | 16.1, 16.2 |
 | D | 17.3, 18.1, 18.2, 18.3 |
 
-### Web Research Requirements
+### Web Research & Scientific Rigor
 
-Every sub-agent MUST perform web research relevant to its domain:
-- **Platform/adapter domains (D9, D17):** Current platform documentation, competitor features, market shifts
-- **Security domains (D15):** Current OWASP guidelines, recent CVEs, MCP vulnerability reports
-- **Code quality domains (D1, D3, D8):** Current best practices for the specific pattern being audited (e.g., safe write patterns, test isolation techniques)
-- **Agentic development domain (D19):** Current Claude Code documentation for hooks, settings.json schema, skill format, Agent Teams API
-- **All domains:** At minimum, verify any external references (tool docs, standards) are current. Cite all sources with version/date.
-
-The goal is grounding findings in current standards, not satisfying a checkbox.
+Every sub-agent applies the canonical contract in [audit/templates/rigor-contract.md](audit/templates/rigor-contract.md) — Web Research Mandate (≥2 independent sources, citation format, trust tiers, recency windows) and Scientific Rigor Contract (falsifiability, triangulation, confidence with basis, ≥3-step causal chain, bias check, adversarial peer-review counter-argument). Per-domain research targets and recency windows are listed in that file's `Per-Domain Source Targets` table. Stale sources, single-source empirical claims, and missing rigor metadata are findings per the contract.
 
 ### Result Management Protocol
 
 Sub-agent results MUST be file-based to prevent context overflow:
 
-1. Each sub-agent writes findings to: `.audit-workspace/D{N}-SA{M}.findings.md`
+1. Each sub-agent writes findings to: `.audit-workspace/D{N}-SA{M}.findings.md`. Each finding MUST begin with the YAML-style rigor schema header per [audit/templates/rigor-contract.md](audit/templates/rigor-contract.md) §Required Finding Output Schema (confidence, confidence_basis, falsifiability, causal_chain, bias_check, counter_argument, sources).
 2. After each domain completes, orchestrator reads domain results, produces synthesis (`.audit-workspace/D{N}-synthesis.md`), then releases individual results from context.
 3. Report assembled from synthesis files, not accumulated context.
 4. Create `.audit-workspace/` at repository root at execution start. Clean per-run artifacts (findings, synthesis files) at the start of each new audit cycle, but preserve cross-cycle files (`execution-insights.json`).
@@ -119,6 +125,17 @@ Peak context: 49 sub-agent results (Tier B), not 106.
 Before beginning, ask the user:
 1. Is there a previous audit report to compare against? If so, where?
 2. Are there specific areas of concern or priority for this audit cycle?
+
+### Pre-Audit Inventory Validation Gate
+
+Before launching Tier A, run `npm run inventory` (the inventory script tracked under `scripts/inventory.ts`, wired by Wave 2 H10). The orchestrator MUST:
+
+1. Execute the script and capture exit status
+2. Compare its output against documented counts in `governance/audit/domains/D*.md`, `CLAUDE.md`, and `README.md`
+3. **HALT the audit start** if drift is detected — domain files claiming counts that contradict filesystem actuals invalidate downstream sub-agent reasoning
+4. Either auto-update the divergent count and proceed, or surface drift to the user with a one-line summary per affected file
+
+D03 domain file claimed 47 test files when filesystem held 88 (Cycle 7 sub-agent observation). This gate prevents that class of drift from corrupting the audit baseline.
 
 ---
 
@@ -170,6 +187,8 @@ Any domain with an unresolved **Critical** finding has its domain score capped a
 
 ### Severity Taxonomy
 
+> **Cross-artifact mapping:** see [audit/templates/severity-mapping.md](audit/templates/severity-mapping.md) for the canonical 5-column mapping across reviewer, security-auditor, and check-criteria vocabularies.
+
 | Severity | Definition | Release Impact | Typical Effort |
 |----------|-----------|----------------|----------------|
 | Critical | Blocks correct operation or creates security vulnerability | Must fix before any release | S-M |
@@ -196,6 +215,15 @@ When duplicates are detected:
 3. Preserve unique perspectives as sub-points under the primary finding.
 4. Do not inflate finding counts — deduplicated findings count as one.
 
+### Home-Domain Redundancy Rejection
+
+A cross-domain finding (D16) that merely re-states a home-domain finding with the same File + Root Cause is a duplicate, even if the Recommendation phrasing differs. Cycle 7 dedup rejected 12+ such home-domain confirmations at D16; codify here. Examples:
+
+| Home-domain finding | Cross-domain candidate | Verdict |
+|---------------------|------------------------|---------|
+| D5 #12: "Skill X missing measurable acceptance criteria in `skills/hatch3r-x/SKILL.md`" | D16: "Skill X has loose acceptance language" | Duplicate (File + Root Cause match) — log as cross-domain confirmation, do not create D16 finding |
+| D9 #4 (Cursor): "Cursor adapter omits MCP env file" + D9 #11 (Aider): "Aider adapter omits MCP env file" | D16: "MCP env file generation inconsistent across adapters" | Distinct (3+ domains, contradiction surface) — qualifies as D16 finding |
+
 ---
 
 ## Quality Gates
@@ -206,7 +234,7 @@ When duplicates are detected:
 |----------|----------------|----------------|---------------------|
 | Critical | 0–5 | Genuine maturity — verify depth before concluding | Fundamental issues |
 | High | 5–20 | Verify sub-agents examined specific files and cited line numbers before concluding | Significant quality gaps |
-| Medium | 20–55 | Verify sub-agents analyzed code paths, not just file headers | Exhaustive analysis |
+| Medium | 20–55 | Verify sub-agents analyzed code paths, not just file headers | Over-broad analysis pattern |
 | Low | 15–45 | Verify findings are substantive, not padded | Over-reporting |
 | Info | 10–30 | Missing strategic context | Appropriate depth |
 | **Total** | **50–155** | **Verify audit depth before finalizing** | **Thorough audit** |
@@ -239,6 +267,8 @@ Flag any finding matching these patterns and require the sub-agent to deepen:
 | Severity mismatch | The finding's real-world impact must match its severity definition. An "improvement opportunity" (Medium definition) classified as High, or a "polish item" (Low definition) classified as Medium, must be reclassified. When in doubt, classify conservatively (lower). |
 | True but irrelevant | The finding must describe a scenario that could realistically occur in normal or adversarial use. Edge cases requiring impossible inputs, deprecated platforms, or contrived conditions are Info at most. |
 | Disconnected citation | Web research must connect to hatch3r's specific context. Citing a general standard without explaining why it applies to hatch3r's specific usage pattern is insufficient. |
+| Missing rigor metadata | The finding lacks the YAML schema header (confidence, falsifiability, causal_chain, bias_check, counter_argument, sources). Re-write the finding with the schema header per [audit/templates/rigor-contract.md](audit/templates/rigor-contract.md). Placeholder values (e.g., `confidence_basis: "based on analysis"` without a named basis) are equivalent to missing. |
+| Single-source empirical claim | Add a second independent source per the Web Research Mandate; OR downgrade confidence one band. Single source is acceptable only if its trust tier is `official-docs` AND the claim is platform-specific (e.g., a vendor's only published API spec). |
 
 ---
 
@@ -251,7 +281,7 @@ The orchestrator spawns sub-agents per domain file. Each sub-agent:
 2. Applies the universal checklist below
 3. Conducts web research per the global directive
 4. Writes results to `.audit-workspace/D{N}-SA{M}.findings.md`
-5. Optionally includes an **Inconclusive Areas** section for areas examined where the sub-agent couldn't determine whether an issue exists, with explanation of what blocked determination. These do not count as findings and do not affect scores.
+5. Optionally includes an **Inconclusive Areas** section for areas examined where the sub-agent couldn't determine whether an issue exists, with explanation of what blocked determination. These do not count as findings and do not affect scores. **Mandatory for any domain producing fewer than 3 High findings:** an Inconclusive Areas section MUST be included to flag depth concerns. Empty Inconclusive Areas with `none` is acceptable only when accompanied by a 1-sentence rationale (e.g., "all checklist items examined to root cause"). Cycle 7 D4, D12, D14 would have benefited from explicit inconclusive tracking.
 
 ### Universal Audit Checklist (apply to ALL sub-agents)
 
@@ -264,6 +294,8 @@ The orchestrator spawns sub-agents per domain file. Each sub-agent:
 - [ ] Git history context — before flagging a design decision as a bug, check `git blame` and recent commit messages for intentional rationale. A deliberate architectural choice is not a finding.
 - [ ] Measurable acceptance criteria — where possible, findings should include quantifiable thresholds ("error messages include the failing file path in 100% of CLI errors" rather than "error messages should be more helpful")
 - [ ] Multi-stakeholder impact — consider how each finding affects: the end user experiencing the product, the developer maintaining the code, the team lead governing quality, and the ops team deploying. Findings that matter to only one stakeholder should note this.
+- [ ] Apply the Scientific Rigor Contract per [audit/templates/rigor-contract.md](audit/templates/rigor-contract.md) on every finding before writing it (six tests: falsifiability, triangulation, confidence with basis, ≥3-step causal chain, bias check, adversarial peer-review counter-argument)
+- [ ] Apply the Web Research Mandate citation format on every external claim (URL + access date + author/org + trust tier; ≥2 independent sources; recency window per source class)
 
 ### Sub-Agent Behavioral Charter
 

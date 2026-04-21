@@ -1,6 +1,8 @@
 ---
 id: hatch3r-migration-plan
 type: command
+orchestrator: true
+agentPipeline: [hatch3r-researcher, hatch3r-architect, hatch3r-docs-writer]
 description: Create a phased migration plan for a major dependency or framework upgrade. Analyzes breaking changes and produces an actionable plan with rollback procedures.
 tags: [planning, brownfield]
 quality_charter: agents/shared/quality-charter.md

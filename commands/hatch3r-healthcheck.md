@@ -1,7 +1,8 @@
 ---
 id: hatch3r-healthcheck
 type: command
-description: Create a full-product QA and testing audit epic with one sub-issue per project module
+orchestrator: false
+description: Open a QA and reliability epic surveying coverage gaps, flaky tests, and regression blind spots with one testing sub-issue per module plus cross-module wiring audit
 tags: [maintenance]
 quality_charter: agents/shared/quality-charter.md
 ---

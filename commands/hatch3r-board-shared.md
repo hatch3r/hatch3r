@@ -1,6 +1,7 @@
 ---
 id: hatch3r-board-shared
 type: shared-context
+orchestrator: false
 description: Shared context and procedures for all board commands. Provides platform-agnostic board config, label taxonomy, branch conventions, sync enforcement, and tooling directives. Platform-specific details are in commands/board/shared-{platform}.md.
 tags: [board, team]
 quality_charter: agents/shared/quality-charter.md
@@ -136,6 +137,9 @@ Board sync is **MANDATORY**, not optional. The following rules override any "ski
 5. **Fallback: never silently skip sync.** See platform sub-files for escalation paths. Silent skipping is prohibited.
 6. **Cross-reference: every epic/work item and sub-issue must have its board item ID tracked for subsequent updates.** After adding an item to the board, store the returned item ID in the run cache keyed by issue number.
 7. **`has-dependencies` label consistency:** Every issue with a non-empty `## Dependencies` section (containing at least one `Blocked by` or `Recommended after` reference) MUST have the `has-dependencies` label. Issues whose `## Dependencies` section contains only `None` MUST NOT have the label. Board commands enforce this during creation and update.
+8. **Retry-then-halt fallback policy.** When the Board Sync Procedure's full fallback chain (platform CLI -> MCP) fails for a single item, retry the full chain exactly twice with 2-second then 8-second backoffs. If the third attempt fails, halt that item (not the whole run), roll back only the specific status label this run added (snapshot the item's label set at start-of-sync; do not revert labels that pre-existed or were set concurrently by a human), surface the item to the user as a blocker, and record all three attempts with timestamps under `sync_results` in the run cache.
+9. **Null-option abort.** If any `board.statusOptions.*` key required by a planned sync mutation is null in `.agents/hatch.json`, halt the mutation before it fires with: "Cannot sync {status:label}: board.statusOptions.{key} is null in .agents/hatch.json. Run `hatch3r-board-init` to populate status option IDs." Do not proceed with remaining items in the batch.
+10. **Retry budget ceiling.** No more than 20% of items in a batch may enter retry (rule 8). If the ceiling is exceeded, halt the batch -- this pattern indicates systemic failure (auth expired, project moved, rate limit exceeded), not per-item noise. Record a single batch-level error in the run cache `errors` entry in addition to the per-item `sync_results`.
 
 ---
 
@@ -202,7 +206,7 @@ This situation is NOT automatically remediated because the correct target state 
 
 Every mutating board command (`board-fill`, `board-groom`, `board-pickup`) runs this procedure as its final step before the summary output. It catches silent failures and drift accumulated during the run.
 
-1. **Board sync verification:** Re-attempt sync for any issue where `sync_results` in the run cache shows a failure. Use the full **Board Sync Procedure** fallback chain. Record final status.
+1. **Board sync verification.** Re-attempt sync for any issue where `sync_results` shows a failure, using the full fallback chain with rule 8 retry semantics. If any item still fails after all retries, the command exits with non-zero status and emits the failing items as a list in the reconciliation report under `Errors:`. Do not suppress unresolved failures.
 2. **Sub-issue link verification:** Review `link_results` in the run cache. For links recorded as `advisory`, retry the platform-specific primary link method once to upgrade to `native`. Report all non-native links (`advisory` / `comment-only`) in the reconciliation output.
 3. **Label consistency:** Verify all created/updated issues have required labels (`type:*`, `priority:*`, `executor:*`) and correct `has-dependencies` state per rule 7 of Board Sync Enforcement. Fix any gaps.
 4. **PR linkage:** For issues transitioned to `status:in-progress` or `status:in-review`, verify any associated open PR body contains `Closes #N` for the addressed issues. Auto-fix if missing by updating the PR body.

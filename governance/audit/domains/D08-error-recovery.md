@@ -1,5 +1,9 @@
 # Domain 8: Error Recovery & Resilience
 
+> Last updated: 2026-04-19
+
+**Pillars served:** P2 (primary), P6 (supporting).
+
 **Scope:** How the framework handles failures across CLI, filesystem, and pipeline layers.
 **Sub-agents:** 4
 
@@ -9,6 +13,8 @@
 | 8.2 | Filesystem Resilience |
 | 8.3 | Pipeline Failure Modes |
 | 8.4 | Self-Healing Patterns |
+
+> Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
 
 ## Audit Checklists
 

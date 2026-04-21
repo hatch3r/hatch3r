@@ -1,5 +1,9 @@
 # Domain 10: User Experience & Documentation
 
+> Last updated: 2026-04-19
+
+**Pillars served:** P1 (primary), P4 (supporting).
+
 **Scope:** All user-facing documentation, CLI UX, first-run experience, adoption friction, and developer experience metrics. The gap between "code works correctly" and "user succeeds" — tracing user journeys to find where correct code creates confusion, surprise, or failure.
 **Sub-agents:** 8
 **Evaluation method:** Sub-agents 10.3-10.7 trace concrete user scenarios end-to-end through the codebase. Reference specific files, functions, output strings, and user-facing messages. Findings are about UX clarity and adoption friction, not code correctness.
@@ -14,6 +18,8 @@
 | 10.6 | Content Profile & Selection Impact |
 | 10.7 | Workflow Chain Viability |
 | 10.8 | Learning Curve & Adoption Metrics |
+
+> Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
 
 ## Audit Checklists
 

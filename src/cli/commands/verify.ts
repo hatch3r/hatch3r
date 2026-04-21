@@ -3,6 +3,23 @@ import chalk from "chalk";
 import { AGENTS_DIR, HatchError } from "../../types.js";
 import { readIntegrityManifest, verifyIntegrity } from "../../integrity/index.js";
 import {
+  createCircuitBreaker,
+  shouldAllowRequest,
+  recordSuccess,
+  recordFailure,
+  classifyFailure,
+  type CircuitBreakerState,
+} from "../../pipeline/circuitBreaker.js";
+import { executeWithPhaseTimeout } from "../../pipeline/phaseTimeout.js";
+import {
+  createPipelineExecution,
+  isPipelineTimedOut,
+  terminatePipeline,
+  DEFAULT_PIPELINE_TIMEOUT_MS,
+} from "../../pipeline/pipelineTimeout.js";
+import { compactPhaseOutput } from "../../pipeline/phaseOutputSchema.js";
+import { retryWithBackoff } from "../../pipeline/retryWithBackoff.js";
+import {
   printBanner,
   createSpinner,
   printBox,
@@ -92,6 +109,13 @@ const MAX_FIX_ATTEMPTS = 5;
 export async function verifyCommand(options: VerifyOptions = {}): Promise<void> {
   printBanner(true);
 
+  // Pipeline-level timeout: tracks overall verify duration so a long-running
+  // self-heal loop surfaces a warning rather than silently grinding.
+  const pipelineState = createPipelineExecution(
+    ["integrity"],
+    DEFAULT_PIPELINE_TIMEOUT_MS,
+  );
+
   const rootDir = process.cwd();
   const agentsDir = join(rootDir, AGENTS_DIR);
 
@@ -108,21 +132,41 @@ export async function verifyCommand(options: VerifyOptions = {}): Promise<void> 
 
   spinner.stop();
 
-  // First verification pass
-  let result = await runVerifyPass(agentsDir);
+  // First verification pass — wrapped in a phase timeout so a stuck disk
+  // I/O scan does not hang the command indefinitely.
+  const firstPassPhase = await executeWithPhaseTimeout("integrity", async () => {
+    return runVerifyPass(agentsDir);
+  });
+  if (!firstPassPhase.completed || !firstPassPhase.result) {
+    if (firstPassPhase.error) warn(firstPassPhase.error);
+    throw new HatchError(
+      firstPassPhase.error ?? "Integrity verification phase did not complete",
+      1,
+      "INTEGRITY_ERROR",
+    );
+  }
+  let result = firstPassPhase.result;
+
+  // Compact the integrity counts so a very large file inventory still
+  // produces a bounded summary on the way to printSummary.
+  const compactedCounts = compactPhaseOutput(result.counts);
 
   if (result.passed) {
-    if (result.counts.pass === 0) {
+    if (compactedCounts.pass === 0) {
       printBox("Integrity", [chalk.dim("No files to verify")], "info");
     } else {
-      printSummary(result.counts, "Integrity check passed", "success");
+      printSummary(compactedCounts, "Integrity check passed", "success");
+    }
+    if (isPipelineTimedOut(pipelineState)) {
+      const { report } = terminatePipeline(pipelineState);
+      warn(report.summary);
     }
     return;
   }
 
   // If --fix is not set, report failure and exit
   if (!options.fix) {
-    printSummary(result.counts, "Integrity check failed", "error");
+    printSummary(compactedCounts, "Integrity check failed", "error");
     if (result.hasTampered) {
       logError("Integrity manifest has been tampered with. Re-run `hatch3r update` to regenerate it.");
     }
@@ -139,15 +183,34 @@ export async function verifyCommand(options: VerifyOptions = {}): Promise<void> 
     MAX_FIX_ATTEMPTS,
   );
 
+  // Circuit breaker around the fix step: if `runRegenerate` fails repeatedly
+  // with transient errors, short-circuit further attempts during this run
+  // rather than retrying through the full attempt budget.
+  let fixBreaker: CircuitBreakerState = createCircuitBreaker({
+    serviceId: "verify:auto-fix",
+    failureThreshold: 2,
+    cooldownMs: 0,
+  });
+
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const allow = shouldAllowRequest(fixBreaker);
+    fixBreaker = allow.state;
+    if (!allow.allowed) {
+      warn(allow.reason ?? `Fix circuit open after attempt ${attempt - 1}`);
+      break;
+    }
+
     info(`\nFix attempt ${attempt}/${maxAttempts}: running hatch3r update to repair...`);
 
     const fixSpinner = createSpinner(`Fix attempt ${attempt}: updating canonical files...`);
     fixSpinner.start();
 
     try {
-      // Dynamically import to avoid circular dependency
-      const { runUpdate } = await import("./update.js");
+      // Dynamically import to avoid circular dependency.
+      // C7-H9 (D1): Use runRegenerate (no network) instead of runUpdate.
+      // Auto-fix repairs drift FROM the already-installed canonical content;
+      // it does not need to fetch a newer package version.
+      const { runRegenerate } = await import("./update.js");
       const { readManifest } = await import("../../manifest/hatchJson.js");
 
       const hatchManifest = await readManifest(rootDir);
@@ -156,10 +219,17 @@ export async function verifyCommand(options: VerifyOptions = {}): Promise<void> 
         throw new HatchError("Cannot auto-fix: no hatch.json manifest", 1, "CONFIG_ERROR");
       }
 
-      await runUpdate(rootDir, hatchManifest);
-      fixSpinner.succeed(`Fix attempt ${attempt}: update completed`);
+      // Retry the regenerate on transient failures (disk I/O hiccups, etc).
+      // Substantive failures propagate.
+      await retryWithBackoff(
+        () => runRegenerate(rootDir, hatchManifest),
+        { maxAttempts: 2, initialDelayMs: 500, maxDelayMs: 2_000 },
+      );
+      fixBreaker = recordSuccess(fixBreaker);
+      fixSpinner.succeed(`Fix attempt ${attempt}: regenerate completed`);
     } catch (err) {
       fixSpinner.fail(`Fix attempt ${attempt}: update failed`);
+      fixBreaker = recordFailure(fixBreaker, classifyFailure(err));
       if (err instanceof HatchError) throw err;
       throw new HatchError(
         `Auto-fix failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -168,14 +238,30 @@ export async function verifyCommand(options: VerifyOptions = {}): Promise<void> 
       );
     }
 
-    // Re-verify after fix
+    // Re-verify after fix — wrapped in phase timeout for the same reason
+    // as the first pass.
     const reVerifySpinner = createSpinner(`Re-verifying after fix attempt ${attempt}...`);
     reVerifySpinner.start();
-    result = await runVerifyPass(agentsDir);
+    const reVerifyPhase = await executeWithPhaseTimeout("integrity", async () => {
+      return runVerifyPass(agentsDir);
+    });
+    if (!reVerifyPhase.completed || !reVerifyPhase.result) {
+      reVerifySpinner.fail(`Re-verify phase did not complete: ${reVerifyPhase.error ?? "unknown"}`);
+      throw new HatchError(
+        reVerifyPhase.error ?? "Re-verification did not complete",
+        1,
+        "INTEGRITY_ERROR",
+      );
+    }
+    result = reVerifyPhase.result;
     reVerifySpinner.stop();
 
     if (result.passed) {
       printSummary(result.counts, `Integrity restored (fixed in ${attempt} attempt${attempt > 1 ? "s" : ""})`, "success");
+      if (isPipelineTimedOut(pipelineState)) {
+        const { report } = terminatePipeline(pipelineState);
+        warn(report.summary);
+      }
       return;
     }
 
@@ -185,6 +271,10 @@ export async function verifyCommand(options: VerifyOptions = {}): Promise<void> 
   // Exhausted all attempts
   printSummary(result.counts, `Integrity check failed after ${maxAttempts} fix attempt(s)`, "error");
   console.log();
+  if (isPipelineTimedOut(pipelineState)) {
+    const { report } = terminatePipeline(pipelineState);
+    warn(report.summary);
+  }
   throw new HatchError(
     `Integrity check failed after ${maxAttempts} fix attempt(s)`,
     1,

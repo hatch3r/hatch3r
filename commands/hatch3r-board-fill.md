@@ -1,6 +1,8 @@
 ---
 id: hatch3r-board-fill
 type: command
+orchestrator: true
+agentPipeline: [hatch3r-reviewer, hatch3r-fixer]
 description: Create epics and issues/work items from todo.md, reorganize the board with dependency analysis, readiness assessment, and implementation ordering. Supports GitHub, Azure DevOps, and GitLab.
 tags: [board, team]
 quality_charter: agents/shared/quality-charter.md
@@ -627,6 +629,99 @@ Standalone ratio: {count}/{total} ({percentage}%) — target <=10%
 
 ---
 
+### Step 7.9: Production-Readiness Review
+
+**This step is mandatory. Do not skip.**
+
+Review each issue created or updated during this run against production-readiness criteria. The lens: "If a cold-start implementer picks this up tomorrow, can they build it without asking follow-up questions?" This is distinct from Step 5.6 (structural + substantive readiness, evaluated before creation) -- it treats the issue body as a spec and verifies the spec is executable.
+
+#### 7.9a. Production-Readiness Checklist
+
+For every issue created or updated in this run, evaluate the six criteria below:
+
+1. **Reproducible starting state.** Bug/refactor issues name specific file paths, function names, or URLs an implementer can open now. Feature issues cite the user-facing entry point. Issues that describe behavior without a "start here" anchor fail this check.
+2. **AC is executable, not aspirational.** Every acceptance criterion names a concrete check (command, URL, input->output pair, test name) an implementer can run. Criteria like "works correctly", "is performant", "is documented" fail this check.
+3. **Bounded surface area.** Modified or touched files/modules are listed or derivable from the AC. Sub-issues whose body could touch anything in the repo fail this check.
+4. **External contracts named.** If the issue implies an API, CLI flag, config key, label, or schema change, the exact name and shape is specified. "Some flag" or "a new config option" fails this check.
+5. **Dependency closure.** Every `Blocked by #N` reference in `## Dependencies` still exists on the board and is not itself closed-without-done.
+6. **No conflicting sibling AC.** Within an epic, no two sub-issues have AC describing the same observable change.
+
+#### 7.9b. Reviewer Sub-Agent Pass
+
+Spawn one reviewer sub-agent per issue (batch of N issues = N parallel loops). Each sub-agent:
+
+1. Reads the issue body (fall back to MCP if CLI missing):
+   - **GitHub:** `gh issue view N --json title,body,labels` (fall back to `get_issue` MCP).
+   - **Azure DevOps:** `az boards work-item show --id N --output json` (fall back to `get_work_item` MCP).
+   - **GitLab:** `glab issue view N --output json`.
+2. Applies the six checklist items above.
+3. Outputs a verdict using the taxonomy from `agents/hatch3r-reviewer.md`: `APPROVE`, `REQUEST CHANGES`, or `DESIGN_OBJECTION`.
+4. For `REQUEST CHANGES`, produces a findings table with severity (Critical / Warning / Suggestion), confidence (high / medium / low), the specific checklist item violated, and a proposed refinement.
+
+**Scope note for the reviewer:** this pass reads issue bodies only. It does not validate AC against codebase truth. Codebase-truth validation happens at `hatch3r-board-pickup` time.
+
+#### 7.9c. Fixer + User Confirmation
+
+For issues where the reviewer returned `REQUEST CHANGES`:
+
+1. The fixer drafts a refined issue body addressing every Critical and Warning finding.
+2. Present all fixer drafts to the user in a single batch table (same UX pattern as Step 5.6 gap resolution):
+
+```
+| Issue | Findings | Proposed Changes | Fixer Diff Summary |
+|-------|----------|------------------|--------------------|
+| #N    | 2 Critical, 1 Warning | AC #1 made executable; added files list; contract name specified | ... |
+```
+
+3. **ASK:** "Confirm fixer drafts for these issues. Enter issue numbers to view the full refined body (e.g., '1, 3'), or confirm to apply all."
+4. On confirmation, apply the refined body using the **Board Sync Enforcement** rules (fall back to MCP if CLI missing):
+   - **GitHub:** `gh issue edit N --body "..."` (fall back to `issue_write` MCP).
+   - **Azure DevOps:** `az boards work-item update --id N --fields "System.Description=..."`.
+   - **GitLab:** `glab issue update N --description "..."`.
+   Record each mutation in the run cache under `updated_issues`.
+
+#### 7.9d. Loop Termination
+
+Per-issue loop, max 4 iterations. Loop semantics mirror `src/pipeline/reviewLoop.ts`:
+
+**Clean termination** (issue passes review):
+- Reviewer returns `APPROVE`, AND
+- Issue body contains at least one acceptance criterion matching regex `^- \[ \] .{8,}$`, AND
+- `gh issue view N` round-trips confirming the mutation landed.
+
+**Forced termination** (escalate to user, do not block the batch):
+- Iteration 4 reached without `APPROVE`.
+- `DESIGN_OBJECTION` verdict (the issue's intent itself is broken).
+- Oscillation detected: the set of Critical finding IDs has Jaccard similarity >0.8 across two consecutive iterations (the fixer is editing the wrong line).
+
+Issues that hit forced termination are reported in the Step 7.9 summary with the reviewer's last findings. They remain on the board but are flagged for user attention.
+
+#### 7.9e. Summary
+
+Before proceeding to Step 7.8, emit:
+
+```
+Production-Readiness Review:
+  Issues reviewed:  {N}
+  Clean on first pass:  {count}
+  Clean after fixer loop:  {count}
+  Forced termination:  {count} (list with last findings)
+  Iterations used:  avg {X}, max {Y}
+  Mutations applied:  {count}
+```
+
+If any mutations were applied, the subsequent Step 7.8 reconciliation re-validates board sync and label consistency, and Step 7.5 regenerates the dashboard with the final state.
+
+---
+
+### Step 7.8: End-of-Run Reconciliation
+
+**This step is mandatory. Do not skip.**
+
+Run the **End-of-Run Reconciliation Procedure** from `hatch3r-board-shared`. This verifies board sync, sub-issue links, label consistency, and PR linkage for all issues created or updated during this run. Output the reconciliation report before proceeding to Step 7.5.
+
+---
+
 ### Step 7.5: Refresh Board Dashboard
 
 **This step is mandatory. Do not skip.**
@@ -643,15 +738,7 @@ Standalone ratio: {count}/{total} ({percentage}%) — target <=10%
    - **Azure DevOps:** `az boards work-item create` with `meta:board-overview` tag.
    - **GitLab:** `glab issue create` with `meta:board-overview` label.
 
-Do NOT re-fetch all issues; use cached data.
-
----
-
-### Step 7.8: End-of-Run Reconciliation
-
-**This step is mandatory. Do not skip.**
-
-Run the **End-of-Run Reconciliation Procedure** from `hatch3r-board-shared`. This verifies board sync, sub-issue links, label consistency, and PR linkage for all issues created or updated during this run. Output the reconciliation report before proceeding to Step 8.
+Do NOT re-fetch all issues; use cached data. Then proceed to Step 8.
 
 ---
 

@@ -1,10 +1,10 @@
 ---
 id: hatch3r-component-conventions
 type: rule
-description: Rules for component development in web applications
+description: Component structure, styling tokens, loading/error/empty states, form validation timing, and accessible label patterns for Vue, React, and JSX
 scope: conditional
-globs: src/**/*.vue, src/**/*.tsx, src/**/*.jsx
-tags: [implementation]
+globs: "src/**/*.vue,src/**/*.tsx,src/**/*.jsx"
+tags: [implementation, lang:typescript]
 quality_charter: agents/shared/quality-charter.md
 ---
 # Component Conventions

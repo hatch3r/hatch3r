@@ -1,5 +1,9 @@
 # Domain 13: Human-AI Collaboration Quality
 
+> Last updated: 2026-04-19
+
+**Pillars served:** P2 (primary), P1 (supporting).
+
 **Scope:** How well the framework facilitates productive human-AI interaction.
 **Sub-agents:** 4
 
@@ -9,6 +13,8 @@
 | 13.2 | Trust Calibration |
 | 13.3 | Confidence Indication |
 | 13.4 | Feedback Loops & Educational Value |
+
+> Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
 
 ## Audit Checklists
 

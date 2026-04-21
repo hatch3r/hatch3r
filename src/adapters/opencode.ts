@@ -3,13 +3,19 @@ import { toPrefixedId } from "../types.js";
 import { resolveAgentModel, withProviderPrefix } from "../models/resolve.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
-import { readCanonicalFiles } from "./canonical.js";
+import { readCanonicalFiles, sortByPrecedence } from "./canonical.js";
 import { applyCustomization } from "./customization.js";
 import { transformEnvVarSyntax } from "./mcp-utils.js";
 import { HATCH3R_VERSION } from "../version.js";
 
 /**
- * OpenCode adapter.
+ * OpenCode adapter — targets sst/opencode (https://github.com/sst/opencode,
+ * 146k stars as of 2026-04-19), the successor to the archived opencode-ai org.
+ * Adapter output paths track the per-project conventions documented at
+ * https://opencode.ai/docs (accessed 2026-04-19):
+ *   - Agents:   `.opencode/agents/<name>.md`   (plural, per docs)
+ *   - Commands: `.opencode/commands/<name>.md` (plural, per docs)
+ *   - Skills:   `.opencode/skills/<name>/SKILL.md`
  *
  * #267 (D9-9.38): OpenCode loads instructions from both `opencode.json`
  * (via the `instructions` array) and individual `.opencode/` files.
@@ -28,7 +34,29 @@ export class OpenCodeAdapter extends BaseAdapter {
     // #267 (D9-9.38): instructions[] references canonical paths in .agents/ only.
     // Agent/skill/command files go in .opencode/ to avoid dual-loading.
     const instructions: string[] = [".agents/AGENTS.md"];
-    if (ctx.features.rules) instructions.push(".agents/rules/*.md");
+    // Wave B4 (task #12): expand the rules glob into an explicit,
+    // precedence-ordered list of file paths. OpenCode loads `instructions[]`
+    // entries in array order, so emitting concrete paths (rather than
+    // `.agents/rules/*.md`) captures the critical→high→normal→low load order
+    // in the JSON itself. The filesystem-ordered glob expansion was
+    // non-deterministic — filenames under `.agents/rules/` are NOT prefixed
+    // by precedence (canonical filenames stay `hatch3r-<id>.md`), so a glob
+    // would load rules alphabetically and ignore the precedence bucket.
+    if (ctx.features.rules) {
+      const rules = await readCanonicalFiles(ctx.agentsDir, "rules", this.warnings);
+      const sortedRules = sortByPrecedence(rules);
+      if (sortedRules.length > 0) {
+        for (const rule of sortedRules) {
+          instructions.push(`.agents/rules/${toPrefixedId(rule.id)}.md`);
+        }
+      } else {
+        // No canonical rules read (fixture-less test scenarios, empty
+        // projects). Fall back to the glob so OpenCode still discovers
+        // rules that may have been added after adapter generation — the
+        // ordering concern is moot when the set is empty.
+        instructions.push(".agents/rules/*.md");
+      }
+    }
     if (ctx.features.agents) instructions.push(".agents/agents/*.md");
     if (ctx.features.skills) instructions.push(".agents/skills/*/SKILL.md");
     if (ctx.features.commands) instructions.push(".agents/commands/*.md");
@@ -76,7 +104,7 @@ export class OpenCodeAdapter extends BaseAdapter {
     results.push(output("opencode.json", JSON.stringify(opencodeConfig, null, 2)));
 
     if (ctx.features.agents) {
-      const agents = await readCanonicalFiles(ctx.agentsDir, "agents");
+      const agents = await readCanonicalFiles(ctx.agentsDir, "agents", this.warnings);
       for (const agent of agents) {
         const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
         this.warnings.push(...warnings);
@@ -87,7 +115,7 @@ export class OpenCodeAdapter extends BaseAdapter {
         const lines = [`description: ${desc}`];
         if (model) lines.push(`model: ${withProviderPrefix(model)}`);
         const fm = `---\n${lines.join("\n")}\n---`;
-        results.push(output(`.opencode/agent/${agentId}.md`, `${fm}\n\n${wrapInManagedBlock(content)}`, content));
+        results.push(output(`.opencode/agents/${agentId}.md`, `${fm}\n\n${wrapInManagedBlock(content)}`, content));
       }
     }
 
@@ -96,7 +124,7 @@ export class OpenCodeAdapter extends BaseAdapter {
     );
 
     results.push(
-      ...await this.processCommandsRaw(ctx, (id) => `.opencode/command/${toPrefixedId(id)}.md`),
+      ...await this.processCommandsRaw(ctx, (id) => `.opencode/commands/${toPrefixedId(id)}.md`),
     );
 
     return results;

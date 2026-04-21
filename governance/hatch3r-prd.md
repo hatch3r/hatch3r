@@ -1,15 +1,18 @@
-# hatch3r — Product Requirements Document v4.1
+# hatch3r — Product Requirements Document v4.5
 
 **Product name:** hatch3r
 **Mascot:** a tiny T-rex hatchling peeking out of an egg
 **Primary slogan:** Crack the egg. Hatch better agents.
-**Doc version:** v4.1
-**Date:** 2026-04-10 (Europe/Berlin)
-**Supersedes:** hatch3r PRD v4.0 (2026-03-04)
+**Doc version:** v4.5
+**Date:** 2026-04-21 (Europe/Berlin)
+**Supersedes:** hatch3r PRD v4.4 (2026-04-20)
+**Last updated:** 2026-04-21
 
 ---
 
 ## 1. Executive Summary
+
+> **Posture (post Cycle 8, 2026-04-21):** Ship Ready — overall audit score 83.74/100, 0 Critical findings, 15 platform adapters wired, 19-domain governance audit cycle operational, resilience pipeline and trust-delegation per-adapter `tools:` emission landed in Cycle 7.5 W2B2 (H41/H44/H45/H46), Cycle 8 Wave 3 reached terminal status on all 40 targeted Medium findings (38 done + 1 partial by plan + 1 already-resolved; 3 initially-rolled-back findings re-landed in commit `0a03a92`) with the reviewer verdict upgraded to SHIP.
 
 hatch3r is an open-source CLI and Cursor plugin that installs a battle-tested, tool-agnostic agentic coding setup into any repository under `/.agents/`, then generates optimal native configuration for the developer's selected coding tool(s): Cursor, GitHub Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline/Roo Code, Aider, Kiro, Goose, Zed, Amazon Q, Antigravity, and a standalone AGENTS.md output.
 
@@ -23,7 +26,7 @@ The product solves the "great agent setups don't travel well" problem by making 
 - **Updatable** — `npx hatch3r update` pulls latest without overwriting customizations
 - **Learnable** — captures insights from issues, reviews, and decisions; compounds project knowledge over time
 - **Event-driven** — lifecycle hooks activate agents automatically on commits, merges, CI failures, and more
-- **Proven** — patterns extracted from a production agentic setup (16 agents, 26 skills, 26 rules, 34 commands, 6 hooks, 4 GitHub agents, 10 MCP servers)
+- **Proven** — patterns extracted from a production agentic setup; live counts in `governance/inventory.json` (auto-derived per cycle by `scripts/inventory.ts`); see also 10 MCP servers and 4 GitHub agents
 - **Multi-platform** — supports GitHub, Azure DevOps, and GitLab for board management and MCP integration
 
 hatch3r works equally well for greenfield products, existing codebases, and legacy systems. It includes dedicated commands for greenfield project specification, brownfield codebase analysis, and roadmap generation — providing a complete path from idea to board-managed delivery.
@@ -101,19 +104,11 @@ hatch3r packages these into a portable "agent pack" and compiles tool-specific a
 
 The agentic coding framework space has segmented into four tiers: full-lifecycle methodology frameworks, multi-agent orchestration runtimes (new in early 2026), autonomous coding agents, and IDE-native platforms. hatch3r uniquely straddles the first and fourth tiers — it is a methodology framework that generates native configurations for multiple IDE platforms.
 
-### Key Competitors (April 2026)
+### Key Competitors
 
-> **Updated April 2, 2026 (Cycle 4 audit findings #92 applied).** The competitive landscape has shifted dramatically since v4.0. Two seismic changes: GitHub Spec Kit emerged as a GitHub-backed direct competitor (~84k stars), and Superpowers v5.0 expanded to 6-tool support (~130k stars), eliminating its single-tool weakness. Multi-tool count alone is no longer a defensible differentiator.
-
-| Framework | Stars | Focus | Key Strength | hatch3r Differentiation |
-|-----------|-------|-------|-------------|------------------------|
-| Superpowers | **~130k** | Disciplined TDD workflow | Largest community, v5.0 with **6-tool support**, plugin marketplace | **Deeper native integration** (16 adapters with tool-specific features) + board management + learning loop |
-| GitHub Spec Kit | **~84k** | Multi-tool config generation | **GitHub-backed**, 20+ tool configurations, native GitHub integration | Multi-platform board management (not just GitHub) + learning loop + platform independence (Azure DevOps, GitLab) |
-| BMAD Method | ~41k | Full SDLC coverage | 28-tool claim (template-based), 110+ contributors | Deepest native integration (16 adapters with native configs) + board management + learning loop |
-| GSD | ~32k | Context rot prevention | 8 tools + CLI, 27 commands, cost tracking, auto-advance | Native config depth + board management + multi-platform support |
-| Ruflo | **~29k** | Multi-agent orchestration | 100+ agents, 215 MCP tools, enterprise-grade | Multi-tool adapter breadth + board management vs. Claude Code-only runtime |
-| Compound Engineering | ~10k | Learning loops | 12 tools, compounding knowledge, learnings researcher | Broader native tool support + board management |
-| OpenCode | ~114k | Agent rules via AGENTS.md | Open-source, direct AGENTS.md consumption | Full multi-tool adapter architecture (complementary, not competitive) |
+> **PRD pointer.** Per-framework star counts, focus areas, and strength tables are maintained in `governance/COMPETITIVE-ANALYSIS.md` and refreshed each audit cycle by D17 (Competition & Market Intelligence). The PRD intentionally does not duplicate the table to avoid the staleness pattern observed in v4.1 (Cycle 7 finding F18.1-H1: Superpowers PRD 130k vs live 160k, Spec Kit 84k vs 89.4k, OpenCode 114k vs 146k, Cline 60.5k absent). D17 outputs are the canonical, dated source.
+>
+> **D17 auto-refresh contract.** Every audit cycle re-verifies competitor stars via GitHub API and updates `COMPETITIVE-ANALYSIS.md` with access date + trust tier. Staleness >14 days is itself a finding per Cycle 7 evolution proposal #5.
 
 ### hatch3r Positioning
 
@@ -134,6 +129,27 @@ hatch3r occupies a unique position as the only framework combining: **deeply nat
 | MCP Server Cards (upcoming) | MCP June 2026 specification |
 
 **See [COMPETITIVE-ANALYSIS.md](COMPETITIVE-ANALYSIS.md) for detailed per-framework analysis, gap analysis, and strategic recommendations.**
+
+### Standards Alignment
+
+hatch3r's canonical-source-plus-adapter architecture aligns with the emerging Agentic AI Interoperability Format (AAIF) direction: a single `/.agents/` source maps to per-tool native configs (Cursor `.mdc`, Claude Code skills, Copilot instructions, AGENTS.md). hatch3r tracks AAIF and adjacent specifications (Anthropic Skills Library, AGENTS.md spec, MCP Server Cards June 2026) as inputs to adapter design — adopting standardized fields where they exist and contributing tool-specific extensions where they do not. Per Cycle 7 finding 17.3-C, explicit standards-alignment positioning differentiates hatch3r from template-only competitors.
+
+### 5.x AAIF/ACP Standards Alignment (Cycle 7.5 W2B2 H57)
+
+hatch3r emits AAIF-compatible artifacts today and monitors adjacent standards on a quarterly cadence defined in `governance/audit/domains/D17-competition.md`:
+
+| Standard | hatch3r Status | Monitoring Cadence | Evidence |
+|----------|---------------|--------------------|----------|
+| AAIF (Agentic AI Interoperability Format, AGENTS.md spec) | Active — `src/adapters/agentsmd.ts` emits AAIF-compliant `AGENTS.md`; AAIF row added to `docs/adapter-capability-matrix.md` in H34 | Each audit cycle (D17 live-baseline per CL-3 P2) | 60,000+ repositories consume AGENTS.md per AAIF-governance releases |
+| ACP (Agent Coordination Protocol) registry (JetBrains + Zed, launched 2026-01-28) | Monitoring — registry listing pending; no code blocker | Quarterly D17 sub-agent check | ACP registry endpoint at `jetbrains.com/help/ai-assistant/acp.html` |
+| Claude Plugin Marketplace | Submitted via C7-H16 (Partial) | Tracked in §22.Mx milestone (a) | Anthropic marketplace PR open |
+| MCP Server Cards (June 2026 spec) | Planned per §5 Standards Alignment paragraph | At spec finalization | See §22 M2 Cycle 4 Roadmap item 11 |
+
+Pre-emptive emission strategy: hatch3r adapters emit standards-compliant output before consumption is required, so adoption lag by tools does not block hatch3r users. Concrete example: AAIF `AGENTS.md` row landed in adapter capability matrix before the AAIF registry began auditing config distributors.
+
+### Comparison vs Ruler
+
+README.md carries a "How hatch3r differs from Ruler" section derived from `governance/COMPETITIVE-ANALYSIS.md`. Ruler is the closest architectural analogue to hatch3r's canonical-source-plus-adapter model. Measured differences: hatch3r has 16 native adapters vs Ruler's 32 rule-distribution targets (Ruler wider, hatch3r deeper); hatch3r ships skills/commands/hooks/MCP/board/learning-loop/audit-cycle content vs Ruler's rules-only distribution; hatch3r runs a 19-domain governance audit cycle with 106 sub-agents, Ruler ships none. PRD defers the table to README to avoid duplication per the D17 single-source-of-truth contract.
 
 ---
 
@@ -158,6 +174,8 @@ hatch3r occupies a unique position as the only framework combining: **deeply nat
 17. **Behavioral quality standards** (all content artifacts inherit from a shared quality charter (`agents/shared/quality-charter.md`) that defines measurable behavioral standards: confidence expression, root-cause orientation, stakeholder awareness, graceful failure, and measurable acceptance criteria — verified by the weekly audit)
 18. **Coverage infrastructure must reflect actual quality** (test coverage metrics must accurately measure real codebase coverage — no inflated percentages from misconfigured exclusions; coverage is a quality signal, not a vanity metric. Added from Cycle 4 finding D3-C1)
 19. **Architecture decisions are documented** (significant architectural choices are recorded as ADRs in `docs/decisions/`. ADR-001 documents the pipeline library-without-orchestrator pattern — hatch3r provides composable pipeline building blocks rather than a runtime orchestration engine. Added from Cycle 5 CL1-7)
+20. **Destructive commands expose `--dry-run`** (any CLI command that writes, updates, or removes files under a managed path supports a `--dry-run` flag that previews the full action set — created/modified/removed paths with per-file rationale — without mutating the working tree. Rationale: reduces fear-of-use for `update`, `clean`, `worktree-cleanup`, and future write-capable commands by letting users verify intent before committing to changes. Landed for `update` in Cycle 8 via finding C8-D12-M2. Added from Cycle 8 CL-1)
+21. **Not-yet-implemented is not a user error** (commands or subcommands whose canonical codepath is scaffolded but not wired — e.g., `hatch3r add <source>` pending full pack resolution — exit with code 0 and a "coming soon" message rather than exit 2 "usage error". Exit 2 is reserved for actual usage mistakes (unknown flag, missing required argument). Added from Cycle 8 finding C8-D1-M8)
 
 ### Audit Cycle as Product Feature
 
@@ -185,10 +203,10 @@ The audit produces a structured report (AUDIT-REPORT.md) with 19-domain coverage
 - `npx hatch3r status` — check sync state between canonical and generated files
 - `npx hatch3r validate` — validate `/.agents/` structure, frontmatter, and naming conventions
 - `npx hatch3r verify` — verify integrity of canonical files via SHA-256 hashing and HMAC-signed manifest
-- Tool adapters: Cursor, GitHub Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline/Roo Code, Aider, Kiro, Goose, Zed, Amazon Q, Antigravity, AGENTS.md (16 adapters)
+- Tool adapters: Cursor, GitHub Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline/Roo Code, Aider, Kiro, Goose, Zed, Amazon Q, Antigravity, AGENTS.md (per-cycle counts in `governance/inventory.json`)
 - Cursor plugin distribution via Marketplace
 - Canonical pack format under `/.agents/` including: agents, skills, rules, prompts, commands, hooks, learnings, MCP configuration, guardrails, GitHub agents
-- `default` preset with full content (16 agents, 26 skills, 26 rules, 34 commands, 6 hooks, 3 prompts, 4 GitHub agents)
+- `default` preset with full content; live counts in `governance/inventory.json` (auto-derived per cycle by `scripts/inventory.ts`)
 - 34 commands including: board management (init, fill, pickup, shared, refresh, groom), project analysis (project-spec, codebase-map, roadmap, feature-plan, bug-plan, refactor-plan, migration-plan, test-plan, api-spec), workflow (workflow, hooks, learn, onboard, quick-change, revision, debug), operations (healthcheck, security-audit, dep-audit, release, benchmark), monitoring (context-health, cost-tracking), automation (recipe, agent-customize, skill-customize, rule-customize, command-customize)
 - Community pack sourcing (`--pack git:<url>#<tag>` or `--pack ./local`)
 - Enhanced MCP config template with 10 servers (3 default + 7 opt-in)
@@ -1344,47 +1362,83 @@ Must track:
 - **Compatibility:** Node.js 22+ required; no native dependencies
 - **OSS:** MIT license; contribution guidelines; good templates
 
+### 20.1 Wiring Before Declaration (added Cycle 7, finding D16-SA16.1-1)
+
+A capability is "shipped" only when its production codepath invokes the implementation. Existence of source code, test-only invocation, or compliance verification based on file presence does not satisfy this principle. Cycle 7 D8-SA8.4-1 surfaced 5 of 7 resilience modules (`circuitBreaker`, `adapterTimeout`, `phaseTimeout`, `pipelineTimeout`, `phaseOutputSchema`) as implemented but unwired — `complianceVerification.ts` reported PASS based on module existence rather than runtime invocation. Enforcement: `scripts/verify-wired.ts` CI check (CL-2 P1) scans `src/cli/commands/` for every compliance-declared module and fails CI when a module exists but is not invoked. The 4-tuple feature-status taxonomy (implemented / wired / CLI-registered / tested) is recorded per finding in `finding-registry.json` (Cycle 7 evolution proposal #3). See also §22 status legend.
+
+### 20.2 Silent Failure Contract (added Cycle 7, finding D16-SA16.1-5)
+
+Catch blocks must emit to at least one diagnostic channel — `warnings[]`, `observability.ts`, or the failure log — before swallowing or skipping. Cycle 7 found 10+ call-sites across 5 layers (D1, D2, D5, D9, D19) violating this contract; the most visible case was the SessionStart hook reporting "Registry not found" every session, masking a Python type error against `finding-registry.json`. Enforcement: ESLint rule (CL-2 P2) flags catch blocks without a diagnostic-emission call. The contract is codified in `governance/CONSTITUTION.md` per Wave 2 H11; this PRD section is the framework-convention pointer.
+
+### 20.3 Trust Model Partitioning (added Cycle 7, finding D15 Overarching)
+
+Trust controls divide into two classes; the PRD does not claim the same enforcement strength for both:
+
+- **Runtime-enforced** — Controls invoked on every production codepath. Examples after Cycle 7 wiring work: `promptGuard` (500 KB input / 1 MB output limits + content safety patterns), `agentToolAllowlist` (deny-by-default per-agent capability restrictions), `safeWrite` (temp file plus atomic rename for all canonical writes), SHA-256 integrity verification at `init`/`update`.
+- **Delegated** — Controls whose enforcement depends on the host AI tool, the user's environment, or external infrastructure. Examples: MCP server review (the user vets third-party MCP sources), guardrail policy execution (the host shell or `safe-run` wrapper), prompt-injection resistance of the underlying model.
+
+Truthful per-control status (runtime-enforced vs delegated, plus current wiring state) is maintained in `SECURITY.md`. The PRD references but does not duplicate `SECURITY.md`; suggest the maintainer updates `SECURITY.md` with the per-control partition table referenced here.
+
+### 20.4 Inventory as Single Source of Truth (added Cycle 8, findings C8-D10-M1, C8-D19-M1)
+
+`governance/inventory.json` is the canonical source for every framework-wide content count surfaced in user-facing documentation: README.md inventory callouts, CLAUDE.md architecture tables, `.cursor-plugin/plugin.json` manifest summaries, the §1 Executive Summary "live counts" pointer, and the §22 status rows. The file is regenerated each cycle by `scripts/inventory.ts`. Enforcement: `scripts/inventory.ts --check-docs` (wired into CI) runs 11 drift probes comparing inventory-derived totals against literal digits in the tracked documents and fails the build on divergence. Rationale: Cycle 7 and Cycle 8 both surfaced rule-count and content-type drift in README / CLAUDE.md that would otherwise be caught only by manual audit; the drift guard eliminates a recurring finding class. Any new documentation surface that states framework-wide counts must cite `governance/inventory.json` and be added to the probe list in `scripts/inventory.ts`.
+
 ---
 
 ## 21. Success Metrics
 
-> **Calibration note (v4.0, April 2, 2026):** Targets below have been calibrated against D16 Compound System actual measurements from the Cycle 4 audit. Previous targets were aspirational without empirical basis; updated targets reflect realistic baselines with growth trajectories. The one-shot success metric was previously unmeasured (D10 finding 10.19) — measurement infrastructure is a prerequisite before setting a validated target.
+> **Partition (v4.2, 2026-04-19, Cycle 7 finding F18.1-M1).** Metrics below are split by whether a measurement infrastructure exists and whether there is an installed-user base large enough to produce non-trivial data. "Measured today" metrics have live data or a deterministic local test. "Deferred pending N users" metrics need an installed base before targets can be validated (Cycle 7 D17 baseline: 20 GitHub stars, 326 monthly npm downloads).
 
-| Metric | Target | Measurement | Calibration Note |
-|--------|--------|-------------|------------------|
-| **Activation** | >85% | % of installs that generate at least one tool adapter | Reduced from >90%; no empirical data yet; 85% accounts for aborted installs, CI-only runs, and evaluation usage |
-| **Tool breadth** | >1.5 | Average number of tools configured per repo | Unchanged; 16 adapters make multi-tool selection likely |
-| **Retention** | >20% | % of repos that run `sync` or `update` within 30 days | Reduced from >30%; OSS retention benchmarks suggest 15-25% is realistic for CLI tools |
-| **Drift reduction** | Decreasing | Manual edits inside `hatch3r-*` files (should trend to zero) | Unchanged; directional metric |
-| **Plugin adoption** | Tracked | Cursor plugin installs + Claude Code marketplace installs | Expanded to include Claude Code marketplace (distribution prerequisite) |
-| **Pack ecosystem** | >3 | Community packs published within 6 months | Reduced from >5; community must exist before pack ecosystem can grow |
-| **Time-to-first-value** | <90s | Time from `npx hatch3r init` to agent producing a correct change | Relaxed from <60s; includes init interactive flow (~30s) + first agent invocation (~60s) |
-| **One-shot success rate** | Baseline TBD | % of agent tasks completed correctly on first attempt without human intervention | NEW: Measurement infrastructure needed (D10-M19). Target to be set after 30 days of baseline data collection |
-| **Coverage accuracy** | >95% true coverage | Vitest coverage.all enabled, all source files instrumented | NEW: Addresses D3/D16 Critical finding — reported 90.66% was inflated to ~70-75% true coverage due to 24% invisible files. Fixed in v1.5.0; target reflects actual instrumented coverage |
-| **Adapter quality score** | >= 4.0/5.0 | Tool-specific feature utilization score from benchmark suite | NEW: Pending benchmark execution (see COMPETITIVE-ANALYSIS.md section 5.4). Target based on planned benchmark methodology |
+### 21.1 Measured Today
+
+| Metric | Target | Measurement |
+|--------|--------|-------------|
+| **Coverage accuracy** | >=95% true coverage | Vitest `coverage.all` enabled; all source files instrumented (resolved v1.5.0, previously inflated to 90.66% reported vs ~70-75% true) |
+| **Drift reduction** | Decreasing | Manual edits inside `hatch3r-*` files trend to zero (directional) |
+| **Time-to-first-value** | <90s | Deterministic local test: `npx hatch3r init` (~30s interactive flow) plus first agent invocation (~60s) |
+
+### 21.2 Deferred — Pending Installed-User Base
+
+| Metric | Target | Measurement | Unblock Condition |
+|--------|--------|-------------|-------------------|
+| **Activation** | >85% | % of installs that generate at least one tool adapter | Needs >=500 installs for non-trivial data; requires plugin marketplace submission (Cycle 7 Wave 1) |
+| **Tool breadth** | >1.5 | Average tools configured per repo | Same unblock as Activation |
+| **Retention** | >20% | % of repos running `sync` or `update` within 30 days | Needs >=100 repeat installs over a 30-day window |
+| **Plugin adoption** | Tracked | Cursor plugin installs + Claude Code marketplace installs | Blocked on Claude Code marketplace submission (see §22 M2) |
+| **Pack ecosystem** | >=3 | Community packs published within 6 months of public launch | Needs community contributor base |
+| **One-shot success rate** | Baseline TBD | % of agent tasks completed correctly on first attempt | D10-M19 measurement infrastructure; target set after 30 days of baseline data |
+| **Adapter quality score** | >=4.0/5.0 | Tool-specific feature utilization from benchmark suite | Benchmark suite execution pending (COMPETITIVE-ANALYSIS.md §5.4) |
 
 ---
 
 ## 22. Release Plan
 
-### Milestone 1 — MVP (Shipped, updated in v4.0)
+### Milestone 1 — MVP (Shipped, status legend below)
 
-All core functionality is implemented and functional:
+> **Feature-status taxonomy (added v4.2 Cycle 7, finding F18.1-H2 + D16-SA16.1-4).** Every shipped capability is reported against a 4-tuple: **implemented** (source code exists), **wired** (production codepath invokes it), **CLI-registered** (exposed via a CLI command surface where applicable), **tested** (covered by automated tests). A capability is "shipped" only when all four are true (where applicable to the capability). Cycle 7 D8-SA8.4-1 surfaced 5 of 7 resilience modules as implemented-but-unwired; this taxonomy prevents recurrence. Per-feature status is tracked in `governance/inventory.json` and `finding-registry.json`.
 
-- 11 CLI commands: `init`, `config`, `sync`, `update`, `status`, `validate` (with `--docs` CI gate), `verify`, `add` (stub), `clean`, `worktree-setup`, `worktree-cleanup`
-- 16 tool adapters: Cursor, Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline/Roo Code, Aider, Kiro, Goose, Zed, Amazon Q, Antigravity, AGENTS.md
-- `default` preset: 16 agents, 26 skills, 26 rules, 34 commands, 6 hooks, 3 prompts, 4 GitHub agents
-- 10 MCP servers (3 default: Filesystem, Context7, Playwright + 7 opt-in: GitHub, Brave Search, Sentry, Postgres, Linear, Azure DevOps, GitLab)
-- Hook system with 6 event types and adapter integration
-- Learning system with capture command and auto-consultation rule
-- Project analysis commands: project-spec, codebase-map, roadmap, feature-plan, bug-plan, refactor-plan, migration-plan, api-spec
-- Workflow commands: workflow, onboard, quick-change, revision, debug, benchmark
-- Board management: init, fill, pickup, shared, refresh, groom
-- Guardrails denylist + safe-run wrapper
-- Safe merge with naming convention + managed blocks + backups
-- Cursor plugin manifest
-- **Release quality gate (added from Cycle 4 findings D3-C1, D16-C1):** Every release must pass: (1) typecheck with zero errors, (2) all tests pass, (3) coverage metrics accurately reflect real codebase coverage (no inflated percentages from misconfigured exclusions), (4) no regressions from previous release. Coverage accuracy is a prerequisite for all other quality gates.
-- **v4.0 changes:** hatch3r-error-handling rule merged into hatch3r-code-standards; 5 new agents (architect, context-rules, devops, fixer, learnings-loader); 3 new skills (api-spec, ci-pipeline, migration); 5 new rules (accessibility-standards, ci-cd, data-classification, deep-context, secrets-management); 8 new commands; 4 new adapters (Aider, Kiro, Goose, Zed)
+Status legend per row: **[I/W/C/T]** = implemented / wired / CLI-registered / tested. `n/a` means not applicable for that feature class.
+
+- **CLI commands [I/W/C/T]** — `init`, `config`, `sync`, `update`, `status`, `validate` (with `--docs` CI gate), `verify`, `clean`, `worktree-setup`, `worktree-cleanup`. `add` is **[I/—/C/T]** (stub: CLI entry exists, full pack resolution not yet wired). Live count: see `governance/inventory.json` `cliCommands`.
+- **Tool adapters [I/W/n/a/T]** — Cursor, Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline/Roo Code, Aider, Kiro, Goose, Zed, Amazon Q, Antigravity, plus the AGENTS.md standalone adapter. Live count: see `governance/inventory.json` `adapters`.
+- **Canonical content [I/W/n/a/T]** — agents, skills, rules, commands, hooks, prompts, GitHub agents. Live counts and per-artifact filenames: `governance/inventory.json` (auto-derived per cycle by `scripts/inventory.ts`).
+- **MCP servers [I/W/n/a/T]** — 10 servers in canonical config (3 default: Filesystem, Context7, Playwright; 7 opt-in: GitHub, Brave Search, Sentry, Postgres, Linear, Azure DevOps, GitLab).
+- **Hook system [I/W/C/T]** — 6 event types with adapter integration.
+- **Learning system [I/W/C/T]** — `hatch3r-learn` capture command + `hatch3r-learning-consult` auto-consultation rule.
+- **Project analysis commands [I/W/C/T]** — project-spec, codebase-map, roadmap, feature-plan, bug-plan, refactor-plan, migration-plan, api-spec.
+- **Workflow commands [I/W/C/T]** — workflow, onboard, quick-change, revision, debug, benchmark.
+- **Board management [I/W/C/T]** — init, fill, pickup, shared, refresh, groom.
+- **Guardrails [I/W/n/a/T]** — denylist plus `safe-run` wrapper (delegated trust class per §20.3).
+- **Safe merge [I/W/n/a/T]** — naming convention + managed blocks + backups + atomic temp+rename via `safeWrite`.
+- **Cursor plugin manifest [I/n/a/n/a/n/a]** — present at repo root; marketplace submission tracked in M2.
+- **Resilience pipeline modules — wiring status (Cycle 7 + Cycle 7.5 W2B2).** `circuitBreaker`, `adapterTimeout`, `phaseTimeout`, `pipelineTimeout`, `phaseOutputSchema` were **[I/—/n/a/T]** at Cycle 7 Wave 1 wiring work; Cycle 7.5 W2B2 landed resilience wiring (C7-C1) and the modules below. Per-module wiring status maintained in `finding-registry.json` against finding D8-SA8.4-1.
+- **Trust-delegation per-adapter `tools:` emission [I/W/n/a/T]** — Cycle 7.5 W2B2 H41 landed; adapters that expose per-agent tool allowlists now emit `tools:` entries from canonical metadata (see `src/adapters/` and `src/pipeline/agentToolAllowlist.ts`).
+- **Adapter tool translator [I/W/n/a/T]** — Cycle 7.5 W2B2 H45 landed; `src/adapters/adapterToolTranslator.ts` translates canonical tool IDs into per-adapter tool names with deny-by-default semantics.
+- **MCP description scan [I/W/n/a/T]** — Cycle 7.5 W2B2 H46 landed; `src/pipeline/mcpDescriptionScan.ts` scans MCP server descriptions for prompt-injection patterns during generation.
+- **Allowlist denial observability [I/W/n/a/T]** — Cycle 7.5 W2B2 H44 landed; `allowlistDenialEvent` telemetry fires from `src/pipeline/agentToolAllowlist.ts` when a denied tool is attempted, enabling audit replay via `src/pipeline/observability.ts`.
+- **Cycle 8 security hardening layer [I/W/n/a/T]** — Five targeted Medium hardenings landed in Wave 3 (commit `34d2ba4`): (1) `DENY_PATTERNS` extended with 2026 injection variants P-PIPE-08..P-PIPE-12 covering Unicode tag chars, base64 directive overrides, homoglyphs, image-exfiltration URIs, and error-wrap exfiltration (C8-D15-M1); (2) deny-pattern normalization runs a 5-iteration cascade fixpoint preventing partial-replacement bypass (C8-D11-M1); (3) `validateToolPolicies` throws `HatchError(VALIDATION_ERROR)` with Levenshtein suggestion on unknown tool categories instead of warning and continuing (C8-D15-M3); (4) `worktree-setup` emits a CWE-552 blast-radius warning and interactive confirmation (with `--yes` bypass) when `.env.mcp` is detected, documenting credential-exposure risk (C8-D15-M2); (5) CI supply-chain job gates PRs via `actions/dependency-review-action@v4.9.0` SHA-pinned with `fail-on-severity:critical` (C8-D4-M1). All items covered by new tests (35 total across the 5 sub-findings).
+- **Release quality gate (Cycle 4 findings D3-C1, D16-C1):** Every release must pass (1) typecheck with zero errors, (2) all tests pass, (3) coverage metrics reflect real codebase coverage (no inflated percentages from misconfigured exclusions), (4) no regressions from previous release. Coverage accuracy is a prerequisite for the other gates.
+- **v4.0 historical changes:** `hatch3r-error-handling` merged into `hatch3r-code-standards`; 5 new agents (architect, context-rules, devops, fixer, learnings-loader); 3 new skills (api-spec, ci-pipeline, migration); 5 new rules (accessibility-standards, ci-cd, data-classification, deep-context, secrets-management); 8 new commands; 4 new adapters (Aider, Kiro, Goose, Zed).
 
 #### Resolved Blockers
 
@@ -1396,15 +1450,9 @@ All core functionality is implemented and functional:
 - ~~**Additional tool adapters:**~~ Aider, Kiro, Goose, Zed shipped in v4.0; Amazon Q and Antigravity shipped in v1.3.0. **Remaining:** Continue adapter.
 - **Preset packs:** `web-app`, `api-service`, `cli-tool`, `monorepo`, `legacy`, `security`
 - **Preset composability:** `--preset web-app,security` layering
-- **Distribution:** Claude Code plugin marketplace, Cursor marketplace formalization. **Quality gate:** marketplace distribution requires passing quality infrastructure prerequisites — accurate coverage metrics (resolved in v1.5.0), AGENTS.md generation from canonical source (resolved in v1.5.0), and all adapter parity checks passing. **Agent Teams implementation is a prerequisite for Claude Code marketplace** (see below).
-- **Claude Code Agent Teams integration** (D18-H15, finding #94): Implement Agent Teams support as a prerequisite for Claude Code marketplace distribution. Claude Code 2.0 shipped Agent Teams (research preview) — hatch3r must package its agent architecture as an Agent Teams-compatible configuration to be distributable through the Claude Code plugin marketplace. This involves:
-  1. Mapping hatch3r's 16 agents to Agent Teams roles and capabilities
-  2. Generating Agent Teams configuration from canonical `/.agents/` source
-  3. Implementing Team mode ($40/user/mo) compatibility in the Claude Code adapter
-  4. Enabling Claude Code's native multi-agent orchestration to work with hatch3r's agent definitions
-  5. Testing that hatch3r-generated Agent Teams configs work correctly in Claude Code's research preview
-  - **Effort:** Medium (3-4 weeks). **Priority:** P1 — blocks Claude Code marketplace distribution.
-  - **Dependencies:** Claude Code adapter must be updated for 2.0 features (persistent memory, multi-agent orchestration). Agent Teams API must be stable enough for production use.
+- **Distribution:** Claude Code plugin marketplace, Cursor marketplace formalization. **Quality gate:** marketplace distribution requires passing quality infrastructure prerequisites — accurate coverage metrics (resolved in v1.5.0), AGENTS.md generation from canonical source (resolved in v1.5.0), and all adapter parity checks passing.
+- **Claude Code plugin marketplace submission — P0, decoupled track (Cycle 7 finding F18.2-H1).** D17/D18 analysis confirms submission to `anthropics/claude-plugins-official/external_plugins` is a 1-day packaging exercise; hatch3r's canonical artifacts already match the plugin schema. **This track is independent of Agent Teams.** Cycle 7 sequence: Week 1 plugin marketplace submission (1 day) plus 6 preconditions totalling 4-5 eng days (AGENTS.md fixes, README/CLI repositioning, Show HN copy, vs-Ruler comparison). Cumulative ~5-6 eng days.
+- **Claude Code Agent Teams integration — separate P1 track (D18-H15, finding #94).** Agent Teams support is its own multi-week capability — **not** a marketplace submission prerequisite. Plan: (1) map hatch3r's agent inventory to Agent Teams roles and capabilities, (2) generate Agent Teams configuration from canonical `/.agents/` source, (3) implement Team-mode compatibility in the Claude Code adapter, (4) enable native multi-agent orchestration to work with hatch3r's agent definitions, (5) test hatch3r-generated Agent Teams configs against the Claude Code research preview. **Effort:** Medium (3-4 weeks). **Dependencies:** Claude Code adapter updates for 2.0 features (persistent memory, multi-agent orchestration); Agent Teams API stability. Marketplace submission proceeds without waiting for this track.
 - **Documentation site** (hatch3r.dev/docs): getting-started, architecture, reference, tutorials — *in progress*
 - **Landing page** (hatch3r.dev): value proposition, quick start, comparison, social proof
 - ~~**Pack ecosystem: authoring guide**~~ — completed (documented in CONTRIBUTING.md). **Remaining:** validation improvements, community sourcing.
@@ -1436,6 +1484,20 @@ All core functionality is implemented and functional:
 11. **MCP Server Cards support** — June 2026 MCP spec introduces Server Cards. Early adoption is a competitive differentiator. See COMPETITIVE-ANALYSIS.md section 3.2a. (D17-H10, Effort M)
 12. **Benchmark suite for native output quality** — Prove "deepest native integration" claim quantitatively. See COMPETITIVE-ANALYSIS.md section 5.4 for full specification. (D17-H13, Effort High)
 
+### Milestone 2a — Distribution Execution Sequence (Cycle 7.5 W2B2 H55)
+
+Five sequenced distribution milestones relative to Cycle 8 kickoff (W0). Each has a target week, a success metric, and a fallback plan. Cross-reference `governance/audit/domains/D17-competition.md` live-baseline npm/GitHub cadence (Cycle 7 CL-3 P2) — staleness >14 days is a D17 finding.
+
+| # | Milestone | Target Week | Success Metric | Fallback Plan |
+|---|-----------|-------------|----------------|---------------|
+| a | Anthropic Claude Plugin Marketplace PR merge | External (tracked via C7-H16 PARTIAL) | PR merged into `anthropics/claude-plugins-official/external_plugins` | If not merged by W2: execute milestones b-c regardless; resubmit after feedback |
+| b | Show HN post | W1 (post marketplace merge) | >=50 HN points in 24h, >=200 comments in 48h; title: "hatch3r v1.6 — tool-agnostic AI coding rule generator for Cursor/Claude/Copilot/Cline/Windsurf/Codex and 10 more" | If milestone (a) delayed past W2: post with "submitted to marketplace" framing instead of "in marketplace" |
+| c | r/ClaudeAI post | W2 | >=100 upvotes, cross-link to HN thread if live | If post downvoted under 10 upvotes within 2h: analyze feedback, revise framing, repost to r/LocalLLaMA or r/ChatGPTCoding in W3 |
+| d | docs.hatch3r.com launch | W3-W4 | Docusaurus site live at docs.hatch3r.com, getting-started + architecture + adapter matrix pages indexed by Google; relies on `docusaurus-generator` skill | If Docusaurus build blocks: ship minimal GitHub Pages fallback (README + inventory.json + adapter-capability-matrix.md) |
+| e | AAIF/ACP registry listing | W4-W6 | hatch3r listed in AAIF public registry OR ACP registry; per D17 quarterly standards-monitoring cadence | If neither registry accepts listing within W8: publish "why we are not in X registry" post documenting the gap; add issue to respective upstream registry repos |
+
+Execution invariants: (1) No milestone blocks on a later one; (2) each milestone has a named owner and a dated rollback condition; (3) week numbers are rescheduled (not deleted) if external dependencies slip. PRD §23 "Competitive traction gap" risk row covers mitigation if >=2 milestones slip past W+2.
+
 ### Milestone 3 — Ecosystem & Enterprise
 
 - Pack registry/discovery (optional hosted directory)
@@ -1464,8 +1526,9 @@ All core functionality is implemented and functional:
 | **Naming conflicts** | `hatch3r-` prefix is distinctive. Community packs use their own prefix. |
 | **Learning data quality** | Learnings may accumulate noise over time. Mitigation: structured frontmatter format with tags, periodic curation, and deduplication. |
 | **Hook security** | Event-driven agents could execute unintended actions. Mitigation: hooks are explicitly opt-in, condition guards (globs/labels/branches) scope activation, and guardrails policy applies to hook-triggered agents. |
-| **Competitive traction gap (EXISTENTIAL)** | No published star count vs. 332k+ combined competitor stars (Superpowers ~130k, GitHub Spec Kit ~84k, BMAD ~41k, GSD ~32k, Ruflo ~29k). Mitigation: immediate open-sourcing and npm publish, aggressive distribution (plugin marketplaces, documentation site, landing page), and focus on unique differentiators (native adapter depth, board management, learning loop, platform independence). Multi-tool count alone is no longer a differentiator. |
+| **Competitive traction gap** | Cycle 8 baseline (2026-04-20): GitHub public + npm publish complete — repo public, npm package `hatch3r` v1.5.1 published with OIDC and provenance, 20 GitHub stars and 432 monthly npm downloads (sources: `api.github.com/repos/hatch3r/hatch3r`, `api.npmjs.org/downloads/point/last-month/hatch3r`, accessed 2026-04-20). Live competitor totals: Superpowers 160k, OpenCode 146k, Spec Kit 89.4k, Cline 60.5k, BMAD ~41k, Ruler 2.6k as closest single-source-distribution analogue (per `governance/COMPETITIVE-ANALYSIS.md`). Distribution channel work is now incremental, not an existential prerequisite. Remaining (all tracked in §22 M2 / §22 M2a): Claude Code plugin marketplace submission, `docs.hatch3r.com` site, landing page. Additional mitigation: AGENTS.md adapter fixes targeting `sst/opencode` (146k), README/CLI repositioning, Show HN plus `r/ClaudeAI` launch, and vs-Ruler comparison content. Defensible moats (managed blocks, SHA-256 integrity, 19-domain governance, 15 adapters) verified unique vs top-5 competitors per Cycle 7 D17. |
 | **Context bloat** | Full content installations (110+ files) may degrade agent performance in tools with limited context windows. Research (Gloaguen et al. 2026) shows verbose context files harm agent effectiveness. Mitigation: tiered preset system (Minimal/Standard/Full/Custom) lets users control installed content volume; planned `--minimal` generation mode will produce compact configs; orchestration rule uses tiered rule inclusion to manage token budgets for subagent prompts. |
+| **Standards ecosystem drift** | AAIF (`AGENTS.md`) and ACP (Agent Coordination Protocol) are the two emerging multi-vendor standards for agent configuration distribution (§5.x). Drift risk: (1) hatch3r aligns with the wrong standard and invests in dead-end emission; (2) a dominant standard emerges that hatch3r lags on. Mitigation: pre-emptive AAIF emission already landed (`src/adapters/agentsmd.ts`, H34 adapter-capability-matrix row); quarterly D17 registry-check sub-agent monitors ACP registry listings (JetBrains + Zed, launched 2026-01-28) plus AAIF public registry; §22.Mx milestone (e) tracks AAIF/ACP listing as a named milestone with a W8 fallback post if neither registry accepts a listing. Tracked per C7.5-W2B2-H57. |
 
 ---
 
@@ -1475,14 +1538,16 @@ hatch3r's patterns are not theoretical — they are extracted from a production 
 
 ### Proven Inventory
 
-| Category | Count | Examples |
-|----------|-------|---------|
-| **Rules** | 22 | Code standards (includes error handling, merged in v4.0), testing, API design, observability, dependency management, feature flags, performance budgets, tooling hierarchy, migrations, component conventions, learning consultation, browser verification, git conventions, theming, i18n, security patterns, agent orchestration, deep context, accessibility standards, CI/CD, data classification, secrets management |
-| **Agents** | 16 | Code reviewer, test writer, lint fixer, security auditor, docs writer, a11y auditor, performance profiler, CI watcher, dependency auditor, implementer, researcher, architect, context-rules, devops, fixer, learnings-loader |
-| **Skills** | 25 | Bug fix, feature, refactor, logical refactor, visual refactor, PR creation, release, QA validation, incident response, a11y audit, performance audit, dependency audit, architecture review, issue workflow, GitHub agentic workflows, context health, cost tracking, recipe, agent customize, rule customize, skill customize, command customize, API spec, CI pipeline, migration |
-| **Commands** | 34 | Board init/fill/pickup/shared/refresh/groom, project-spec, codebase-map, roadmap, feature-plan, bug-plan, refactor-plan, migration-plan, test-plan, api-spec, workflow, learn, hooks, onboard, quick-change, revision, debug, healthcheck, security-audit, dep-audit, release, benchmark, context-health, cost-tracking, recipe, agent-customize, rule-customize, skill-customize, command-customize |
-| **GitHub Agents** | 4 | Docs, lint, security, test (simplified for Copilot/Codex) |
-| **MCP Servers** | 10 | Context7, Filesystem, Playwright (default); GitHub, Brave Search, Sentry, Postgres, Linear, Azure DevOps, GitLab (opt-in) |
+> **Counts deferred to derived inventory (Cycle 7 finding F18.1-H3 + F19.1.1/.2 + D16-SA16.1-2).** Per-cycle authoritative counts and full file lists for rules, agents, skills, commands, hooks, GitHub agents, and MCP servers are derived from the filesystem by `scripts/inventory.ts` and stored in `governance/inventory.json`. Hard-coded numbers were removed here to prevent the cross-surface drift pattern (CLAUDE.md tables, README badges, plugin.json, D5/D9 domain files) documented in Cycle 7 cross-domain finding #3.
+
+| Category | Source of truth | Examples |
+|----------|-----------------|---------|
+| **Rules** | `inventory.json` `rules` | Code standards, testing, API design, observability, dependency management, feature flags, performance budgets, tooling hierarchy, migrations, component conventions, learning consultation, browser verification, git conventions, theming, i18n, security patterns, agent orchestration, deep context, accessibility standards, CI/CD, data classification, secrets management |
+| **Agents** | `inventory.json` `agents` | Code reviewer, test writer, lint fixer, security auditor, docs writer, a11y auditor, performance profiler, CI watcher, dependency auditor, implementer, researcher, architect, context-rules, devops, fixer, learnings-loader |
+| **Skills** | `inventory.json` `skills` | Bug fix, feature, refactor, logical refactor, visual refactor, PR creation, release, QA validation, incident response, a11y audit, performance audit, dependency audit, architecture review, issue workflow, GitHub agentic workflows, context health, cost tracking, recipe, agent/rule/skill/command customize, API spec, CI pipeline, migration |
+| **Commands** | `inventory.json` `commands` | Board init/fill/pickup/shared/refresh/groom, project-spec, codebase-map, roadmap, feature-plan, bug-plan, refactor-plan, migration-plan, test-plan, api-spec, workflow, learn, hooks, onboard, quick-change, revision, debug, healthcheck, security-audit, dep-audit, release, benchmark, context-health, cost-tracking, recipe, agent/rule/skill/command-customize |
+| **GitHub Agents** | filesystem under `github-agents/` | Docs, lint, security, test (simplified for Copilot/Codex) |
+| **MCP Servers** | `mcp/mcp.json` | Context7, Filesystem, Playwright (default); GitHub, Brave Search, Sentry, Postgres, Linear, Azure DevOps, GitLab (opt-in) |
 
 ### Key Patterns Validated
 
@@ -1545,6 +1610,63 @@ A cute but capable "ops assistant" vibe:
 ---
 
 ## 27. Changelog
+
+### v4.5 (2026-04-21) — Cycle 8 Partial Phase 5 CL-1 PRD Evolution
+
+Applied 4 non-Vision-Review CL-1 candidates derived from the 36 eligible Cycle 8 partial findings (35 done + 1 partial; 3 rolled-back and 1 already-resolved excluded per the Phase 5 guardrail). Scope deliberately narrow — Cycle 8 was a cleanup cycle, not a vision shift. All 4 candidates slot into existing PRD structure; no restructuring.
+
+| ID | Change | Sections Updated | Source Finding(s) |
+|----|--------|-----------------|------------------|
+| CL1-1 | Inventory as Single Source of Truth principle — `governance/inventory.json` is canonical for README/CLAUDE.md/plugin.json content counts; `scripts/inventory.ts --check-docs` runs 11 drift probes in CI | §20.4 (new subsection) | C8-D10-M1-content-counts-reconcile, C8-D19-M1-inventory-rule-count-drift |
+| CL1-2 | Product Principle #20 — destructive CLI commands expose `--dry-run` preview (landed for `update` via C8-D12-M2) | §6 (new principle) | C8-D12-M2-update-dry-run |
+| CL1-3 | Product Principle #21 — "not-yet-implemented is not a user error": scaffolded-but-unwired commands exit 0 "coming soon", reserving exit 2 for real usage errors | §6 (new principle) | C8-D1-M8-add-command-exit-code |
+| CL1-4 | Cycle 8 security hardening layer enumerated in Shipped Surface: 2026 injection variants (P-PIPE-08..P-PIPE-12), deny-pattern cascade fixpoint, `validateToolPolicies` hard errors with Levenshtein suggestion, `.env.mcp` worktree CWE-552 warning, CI dependency-review-action gating | §22 (new Shipped Surface row); §1 posture line refreshed to post-Cycle-8 state | C8-D15-M1, C8-D15-M2, C8-D15-M3, C8-D11-M1, C8-D4-M1 |
+
+**Evaluation summary:** 36 eligible findings evaluated; 4 CL-1 candidates proposed and applied grouping 9 source findings; 0 pending Vision-Review; 26 findings declined for PRD text (principles already codified elsewhere — e.g., C8-D5-M1 orchestrator marker under §9 canonical content model, C8-D5-M2 injection-pattern extract under §20.3 trust partitioning, C8-D2-M3 CanonicalType extensions under §9, C8-D17-M1 Ruler comparison under §5 Comparison vs Ruler — or code-layer hardening without PRD signal). C8-D18-M1 is tracked in the v4.4 entry below; C8-D16-M1 (already-resolved) and the three rolled-back findings (C8-D1-M2, C8-D7-M1, C8-D13-M1) are excluded per the Phase 5 guardrail.
+
+Finding traceability: C8-D10-M1, C8-D19-M1, C8-D12-M2, C8-D1-M8, C8-D15-M1, C8-D15-M2, C8-D15-M3, C8-D11-M1, C8-D4-M1 transition `cl1_status: none -> applied`; the 26 declined findings transition `cl1_status: none -> declined` in `governance/audit/finding-registry.json`. C8-D18-M1 transitions `cl1_status: none -> applied` reflecting the v4.4 §23 update.
+
+### v4.4 (2026-04-20) — Cycle 8 Wave 3 D18-M1 §23 Shipped-Status Refresh
+
+Rewrote §23 "Competitive traction gap" row per Cycle 8 Wave 3 Medium finding `C8-D18-M1-prd-23-shipped-status`. Frames distribution as "GitHub public + npm publish complete" (shipped), lists explicit remaining items (plugin marketplace, `docs.hatch3r.com`, landing page), and refreshes npm monthly downloads from 326 (Cycle 7 snapshot) to 432 (2026-04-20 last-month window, `api.npmjs.org/downloads/point/last-month/hatch3r`). GitHub stars and npm version unchanged (20 stars, v1.5.1). No other sections modified.
+
+| ID | Change | Sections Updated | Source Finding |
+|----|--------|-----------------|----------------|
+| C8-D18-M1 | §23 existential-risk row rewritten to shipped framing with explicit "Remaining:" list and refreshed download count | §23 (competitive traction row) | C8-D18-M1-prd-23-shipped-status |
+
+### v4.3 (2026-04-20) — Cycle 7.5 W2B2 Phase 5 CL-1 PRD Evolution
+
+Applied 4 user-approved CL-1 candidates from the Cycle 7.5 Wave 2 Batch 2 audit (reviewer verdict SHIP). User pre-approved all 4 candidates (2 Vision Review + 2 Routine) in a single batch approval.
+
+| ID | Change | Sections Updated | Source Finding |
+|----|--------|-----------------|----------------|
+| CL1-1 | Distribution Execution Sequence: 5 milestones (marketplace merge, Show HN, r/ClaudeAI, docs.hatch3r.com, AAIF/ACP registry) with target weeks + success metrics + fallbacks | §22 (new Milestone 2a subsection) | C7.5-W2B2-H55 (Vision Review) |
+| CL1-2 | vs-Ruler positioning: PRD cross-reference to README.md "How hatch3r differs from Ruler" section + COMPETITIVE-ANALYSIS.md Ruler row | §5 (new Comparison vs Ruler subsection) | C7.5-W2B2-H56 (Routine) |
+| CL1-3 | AAIF/ACP Standards Alignment: monitoring cadence, pre-emptive emission strategy, tracked standards list; Standards ecosystem drift risk row | §5.x (new subsection), §23 (new risk row) | C7.5-W2B2-H57 (Vision Review) |
+| CL1-4 | README repositioning + Ship Ready posture: §1 tagline refresh (overall 81, 0 Criticals); §22 Shipped Surface [W] tags for H41/H44/H45/H46 resilience + trust-delegation landings | §1 (posture line), §22 (Shipped Surface [W] tags) | C7.5-W2B2-H58 (Routine) |
+
+Finding traceability: C7.5-W2B2-H55, H56, H57, H58 all transition `cl1_status: candidate -> applied` in `governance/audit/finding-registry.json`.
+
+**Note:** `src/cli/index.ts` description() string refresh is tracked as a Cycle 8 Medium-severity code follow-on per the candidate spec; it is NOT part of this PRD update.
+
+### v4.2 (2026-04-19) — Cycle 7 CL-1 PRD Evolution
+
+Applied 10 CL-1 candidates from the Cycle 7 audit (overall score 31 to 39; reviewer verdict SHIP). All candidates were eligible (D17/D18 retained per protocol; D15/D16 source findings resolved in Wave 2 H5/H6/H10/H11). User pre-approved batch application via plan approval ("Full sweep + closed-loop").
+
+| ID | Change | Sections Updated | Source Finding(s) |
+|----|--------|-----------------|------------------|
+| CL1-1 | Adopt 4-tuple feature-status taxonomy (implemented / wired / CLI-registered / tested) in §22 "Shipped" list | §22 (Milestone 1 status legend, per-row [I/W/C/T] markers, resilience module wiring caveat) | F18.1-H2, D16-SA16.1-4 |
+| CL1-2 | Replace §5 competitor table with pointer + D17 auto-refresh contract | §5 (Key Competitors) | F18.1-H1 |
+| CL1-3 | Rewrite §23 existential-risk row for shipped baseline (GitHub public, npm v1.5.1, OIDC, 20 stars / 326 monthly downloads) | §23 (competitive traction row) | F18.1-I3, F18.3-H2 |
+| CL1-4 | Prune §21 success metrics into "measured today" vs "deferred pending N users" | §21.1, §21.2 | F18.1-M1 |
+| CL1-5 | Decouple Agent Teams from Claude Code marketplace submission in §22 M2 (P0 marketplace track + separate P1 Agent Teams track) | §22 M2 | F18.2-H1 |
+| CL1-6 | Replace hard-coded content counts with derived-inventory pointer (`governance/inventory.json` via `scripts/inventory.ts`) | §1 (Executive Summary), §7 (In Scope MVP), §22 (Milestone 1), §24 (Proven Inventory) | F18.1-H3, F19.1.1, F19.1.2, D16-SA16.1-2 |
+| CL1-7 | Add "Wiring Before Declaration" architectural principle | §20.1 (new subsection) | D16-SA16.1-1 |
+| CL1-8 | Add "Silent Failure Contract" framework convention | §20.2 (new subsection) | D16-SA16.1-5 |
+| CL1-9 | Honestly partition trust-model controls (runtime-enforced vs delegated; SECURITY.md as truth) | §20.3 (new subsection) | D15 Overarching |
+| CL1-10 | AAIF standard alignment positioning | §5 (Standards Alignment subsection) | 17.3-C |
+
+**Domain re-scores (Cycle 7 post-execution, source for header bump):** D1 0→14, D2 0→9, D3 41→49, D5 0→9, D8 19→47, D9 0→15, D10 28→44, D11 58→66, D14 58→66, D15 0→11, D16 38→54, D17 0→3, D18 4→8, D19 54→62; overall 31→39.
 
 ### v4.1 (2026-04-10) — Cycle 5 CL-1 PRD Evolution
 

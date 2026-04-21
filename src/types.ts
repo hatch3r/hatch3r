@@ -86,6 +86,25 @@ export interface HatchManifest {
     localContent?: string[];
   };
   managedFiles: string[];
+  /**
+   * Per-adapter output paths from the most recent successful generation.
+   *
+   * Populated by `hatch3r init`, `hatch3r sync`, and `hatch3r update` after
+   * each adapter emits its outputs. Keyed by adapter tool name (matches
+   * `Tool` values, e.g. `"cursor"`, `"claude"`). Values are flat lists of
+   * repo-relative output paths (matches the shape used inside `managedFiles`).
+   *
+   * Consumed by {@link src/merge/orphanCleanup} to detect and remove files
+   * previously written by hatch3r but no longer emitted by the current
+   * adapter set — e.g. Wave B3's `NN-hatch3r-*.mdc` rename left old
+   * `hatch3r-*.mdc` rule files in place on repos upgrading from <1.5.0.
+   *
+   * Optional for backward compatibility: pre-feature manifests lack this
+   * field, in which case orphan cleanup is skipped (no history -> no
+   * inferrable orphans). First-run behaviour is "no-op cleanup, populate
+   * the record for next time."
+   */
+  managedFilesByAdapter?: Record<string, string[]>;
 }
 
 export interface WorktreeConfig {
@@ -158,9 +177,19 @@ export interface HooksConfig {
   enabled: boolean;
 }
 
+/**
+ * Rule precedence bucket. Optional frontmatter on rule `.md`/`.mdc` files;
+ * defaults to `"normal"` when absent. Consumers use {@link precedenceRank}
+ * and {@link sortByPrecedence} in `src/adapters/canonical.ts` to order
+ * rules so higher-priority buckets appear first in generated output.
+ *
+ * Enum order (priority): critical (100) > high (300) > normal (500) > low (700).
+ */
+export type RulePrecedence = "critical" | "high" | "normal" | "low";
+
 export interface CanonicalFile {
   id: string;
-  type: "rule" | "agent" | "skill" | "command" | "prompt" | "github-agent" | "hook";
+  type: "rule" | "agent" | "skill" | "command" | "prompt" | "github-agent" | "hook" | "check" | "policy" | "learning";
   description: string;
   scope?: string;
   model?: string;
@@ -170,6 +199,12 @@ export interface CanonicalFile {
   /** Agent runs in background without blocking the parent (Cursor v2.5+ async subagents). */
   background?: boolean;
   tags?: string[];
+  /**
+   * Optional rule precedence bucket (see {@link RulePrecedence}). When
+   * absent, consumers treat the rule as `"normal"`. Pass-through value —
+   * not interpreted here; sorting lives in `src/adapters/canonical.ts`.
+   */
+  precedence?: RulePrecedence;
   content: string;
   rawContent: string;
   sourcePath: string;
@@ -192,6 +227,8 @@ export interface CanonicalMetadata {
   /** Agent runs in background without blocking the parent (Cursor v2.5+ async subagents). */
   background?: boolean;
   tags?: string[];
+  /** Optional rule precedence bucket; see {@link RulePrecedence}. */
+  precedence?: RulePrecedence;
 }
 
 export interface ContentSelection {
@@ -217,6 +254,20 @@ export interface AdapterOutput {
   /** Inner content for the managed block (used for merge on update). */
   managedContent?: string;
   action: "create" | "update" | "skip";
+  /**
+   * C8-D12-M3: Per-output source provenance — the canonical files (by
+   * absolute `sourcePath`) that contributed content to this adapter output.
+   *
+   * Populated by {@link BaseAdapter.generate} when the adapter reads
+   * canonical files through the tracked reader. Empty or absent when the
+   * adapter output has no canonical inputs (e.g. a pure-config file like
+   * `.zed/mcp.json` assembled from `mcp.json`).
+   *
+   * Consumers (`sync` -> `.agents/.provenance.json`) use this to answer
+   * "which canonical files shaped this generated file?" so operators can
+   * trace drift back to the source artifact without re-running generation.
+   */
+  sourceFiles?: string[];
 }
 
 export interface MergeResult {
@@ -277,15 +328,44 @@ export type HatchErrorCode =
   | "ADAPTER_ERROR"
   | "NETWORK_ERROR"
   | "CLEAN_ERROR"
+  | "LOCK_TIMEOUT"
   | "UNKNOWN_ERROR";
 
+/**
+ * C8-D1-M5: Central mapping from HatchErrorCode to POSIX exit code. Keeps the
+ * "what kind of failure" (errorCode) and "how the CLI surfaces it" (exitCode)
+ * in one place so call sites can throw `new HatchError(msg, undefined, CODE)`
+ * without hand-picking an exit code. Explicit exitCode (incl. 0 for user
+ * cancellation, 2 for usage errors) always wins over this mapping.
+ */
+export const ERROR_CODE_TO_EXIT_CODE: Record<HatchErrorCode, number> = {
+  VALIDATION_ERROR: 1,
+  CONFIG_ERROR: 1,
+  FS_ERROR: 1,
+  INTEGRITY_ERROR: 1,
+  ADAPTER_ERROR: 1,
+  NETWORK_ERROR: 1,
+  CLEAN_ERROR: 1,
+  LOCK_TIMEOUT: 1,
+  UNKNOWN_ERROR: 1,
+};
+
+export function exitCodeForErrorCode(code: HatchErrorCode): number {
+  return ERROR_CODE_TO_EXIT_CODE[code];
+}
+
 export class HatchError extends Error {
+  public readonly exitCode: number;
+  public readonly errorCode: HatchErrorCode;
+
   constructor(
     message: string,
-    public readonly exitCode: number = 1,
-    public readonly errorCode: HatchErrorCode = "UNKNOWN_ERROR",
+    exitCode?: number,
+    errorCode: HatchErrorCode = "UNKNOWN_ERROR",
   ) {
     super(message);
+    this.errorCode = errorCode;
+    this.exitCode = exitCode ?? ERROR_CODE_TO_EXIT_CODE[errorCode];
     this.name = "HatchError";
   }
 }

@@ -43,6 +43,15 @@ describe("createProgram() command registration", () => {
     expect(optionFlags).toContain("--max-fix-attempts");
   });
 
+  it("registers --format option on validate (C8-D1-M10)", () => {
+    const validate = program.commands.find((cmd) => cmd.name() === "validate");
+    expect(validate).toBeDefined();
+    const optionFlags = validate!.options.map((o) => o.long);
+    expect(optionFlags).toContain("--format");
+    const formatOpt = validate!.options.find((o) => o.long === "--format");
+    expect(formatOpt?.defaultValue).toBe("human");
+  });
+
   it("each command has a description", () => {
     for (const cmd of program.commands) {
       expect(cmd.description()).toBeTruthy();

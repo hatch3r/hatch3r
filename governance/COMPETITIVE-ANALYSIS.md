@@ -1,42 +1,48 @@
 # hatch3r Competitive Analysis
 
-> Last updated: April 2, 2026 (Cycle 4 audit findings #87 applied)
-> Scope: Deep competitive analysis of the agentic coding framework landscape (Domain 4 Audit)
+> Last updated: April 20, 2026 (Cycle 7.5 Wave 2 Batch 2 finding C7.5-W2B2-H52 applied — currency refresh against GitHub API and vendor release notes)
+> Scope: Deep competitive analysis of the agentic coding framework landscape (Domain 17 Audit)
 
 ---
 
 ## 1. Executive Summary
 
-The agentic coding framework space has continued its explosive growth through early 2026, with two major structural shifts since the previous analysis (February 24, 2026). First, **multi-agent orchestration has become table-stakes**: Claude Code 2.0 shipped native multi-agent orchestration and Agent Teams, Cursor 2.4 added subagents, and multiple new frameworks (Ruflo, CrewSwarm, Crux, Weave, AgentSys, Axon) have launched specifically for multi-agent coordination. Second, **the AAIF (Agentic AI Foundation) under the Linux Foundation** has formalized governance for AGENTS.md and MCP, with AGENTS.md now adopted by 60,000+ open-source projects and MCP reaching 97 million+ monthly SDK downloads.
+The agentic coding framework space continues its rapid expansion in April 2026. Four structural shifts define this cycle since the previous analysis (April 2, 2026): First, **OpenCode crossed 146k stars** (+28% in 18 days), becoming the highest-starred project in the space and validating open-source runtime dominance. Second, **GSD surged to ~54.8k stars** (+71% since April 2), becoming the #2 methodology framework and overtaking Cline. Third, **Ruler emerged as a direct architectural competitor** — a tool-agnostic CLI that distributes a single `.ruler/` source to 30+ agent configuration files, mirroring hatch3r's canonical source architecture. Fourth, **Cursor shipped v3.0/v3.1** (April 2-15) adding Canvases, Background Agents, and native MCP support, while **Claude Code's plugin marketplace reached GA** with admin controls for Team/Enterprise plans.
 
-The competitive landscape has expanded from ~5 direct competitors to 10+ active frameworks, segmented into four tiers:
+The AAIF (Agentic AI Foundation) governance continues — AGENTS.md adoption remains 60,000+ projects, MCP's official registry now lists 1,200+ community servers (broader ecosystem 5,000+), with MCP's 2026 roadmap post published April 8.
 
-1. **Full-lifecycle methodology frameworks** (Superpowers ~130k stars, GitHub Spec Kit ~84k stars, BMAD ~41k stars, GSD ~32k stars, Compound Engineering 10k stars) — prescribe how to work with AI agents
-2. **Multi-agent orchestration runtimes** (Ruflo ~29k stars, Weave, AgentSys 376 stars, Axon 35 stars) — focused on runtime coordination of multiple agents. *Note: CrewSwarm and Crux, previously listed here, appear stalled with no verifiable public activity since early 2026 — downgraded to monitoring status.*
-3. **Autonomous coding agents** (OpenCode ~114k stars, Cline ~59k stars, Roo Code 22k+ stars, Goose ~33k stars) — execute tasks with varying autonomy
-4. **IDE-native platforms** (Cursor, Windsurf, Claude Code, Codex, Gemini CLI, Copilot, Kiro, Amp) — embed AI into the developer workflow
+The competitive landscape now spans 12+ active frameworks, segmented into four tiers:
 
-hatch3r occupies a unique position straddling tiers 1 and 4: a methodology framework that generates native configurations for **14 IDE tools** from a single canonical source. Its adapter count has grown from 9 to 14 (adding Aider, Kiro, Goose, Zed, and Antigravity). No competitor matches this breadth of native tool support. Its GitHub Projects V2 board management remains unmatched, and its comprehensive out-of-the-box setup (16 agents, 25 skills, 22 rules, 34 commands, 10 MCP servers (3 default + 7 opt-in)) provides immediate value.
+1. **Full-lifecycle methodology frameworks** (Superpowers ~121k stars, GSD ~54.8k stars, GitHub Spec Kit ~72k stars, BMAD ~29.6k stars, Compound Engineering ~13.5k stars) — prescribe how to work with AI agents
+2. **Multi-agent orchestration runtimes** (Ruflo ~32.3k stars, Weave, AgentSys 376 stars, Axon 35 stars) — focused on runtime coordination of multiple agents. *Note: CrewSwarm and Crux remain stalled with no verifiable public activity — monitoring status.*
+3. **Autonomous coding agents** (OpenCode ~146k stars, Cline ~60.5k stars, Goose ~27-29k stars, Roo Code ~22.3k stars) — execute tasks with varying autonomy
+4. **IDE-native platforms** (Cursor v3.1, Windsurf, Claude Code, Codex, Gemini CLI, Copilot, Kiro v2.0 CLI, Amp) — embed AI into the developer workflow
+5. **Tool-agnostic config distributors** (Ruler, hatch3r) — a newly-articulated fifth tier where hatch3r's canonical-source model now has a named direct competitor
 
-**Key changes since last analysis (March 18 -> April 2, 2026):**
-- **GitHub Spec Kit emerged as a direct new competitor** — ~84k stars, GitHub-backed, 20+ tool configurations, native GitHub integration. Not present in any previous competitive analysis
-- Superpowers grew from ~82k to ~130k stars (+59%) — shipped v5.0 with **6-tool support** (was single-tool), eliminating its primary weakness. Now the #1 methodology framework by every metric
-- Ruflo grew from 18.5k to ~29k stars (+57%) — 100+ agents, enterprise positioning strengthening
-- GSD expanded to 8 tools + CLI — narrowing the gap with hatch3r's multi-tool approach
-- Compound Engineering expanded to 12 tools — approaching parity on tool count
-- **Combined competitor stars now 332k+** — community gap is existential
-- MCP June 2026 spec introduces Server Cards — new integration requirement
-- Multi-tool count alone is no longer a defensible differentiator; repositioning to depth + board management + learning loop required
+hatch3r occupies a position straddling tiers 1, 4, and 5: a methodology framework that generates native configurations for **15 IDE tools** from a single canonical source. Its out-of-the-box content surface (16 agents + 20 modes + 2 shared = 38 agent files, 26 skills, 27 rules, 34 commands, 6 hooks, 10 MCP servers at 3 default + 7 opt-in) covers the full development lifecycle. The Ruler entry reframes hatch3r's core competitive claim: tool-agnostic distribution alone is no longer unique — **depth + board management + learning loop + OWASP ASI coverage** are.
+
+**Key changes since last analysis (April 2 -> April 20, 2026):**
+- **OpenCode reached ~146k stars** (+28%) — highest-starred project in the space, validating runtime-engine dominance and the complementary niche for hatch3r's adapter
+- **GSD surged to ~54.8k stars** (+71%) — overtook Cline, now the #2 methodology framework. Tool coverage expanded to 14+ tools (Claude Code, OpenCode, Gemini CLI, Kilo, Codex, Copilot, Cursor, Windsurf, Antigravity, Augment, Trae, Qwen Code, Cline, CodeBuddy)
+- **Ruler emerged as direct architectural competitor** — `@intellectronica/ruler` on npm: single `.ruler/` source, distributes to 30+ agents (agentsmd, aider, amazonqcli, amp, antigravity, augmentcode, claude, cline, codex, copilot, crush, cursor, factory, firebase, firebender, gemini-cli, goose, jetbrains-ai, jules, junie, kilocode, kiro, mistral, opencode, openhands, pi, qwen, roo, trae, warp, windsurf, zed). Mirrors hatch3r's canonical architecture but lacks board management, learning loop, or OWASP coverage
+- **Ruflo v3.5 released April 7, 2026** — ~32.3k stars (+11% since April 2), 314 MCP tools, claims 84.8% SWE-bench solve rate, 75% API cost savings
+- **Goose v1.30.0 released April 8, 2026** — added Copilot ACP provider, `goose serve` subcommand, Gemini OAuth. Star count appears lower than prior analysis (~27-29k vs claimed ~33.2k) — prior figure may have been inflated
+- **Compound Engineering ~13.5k stars** (+39% since April 2) — growth re-accelerated
+- **Cursor v3.0 (April 2) / v3.1 (April 15)** — Background Agents, Cloud Agents, Composer 2.0, Canvases feature, native MCP support, Bugbot Learned Rules
+- **Kiro CLI 2.0 released April 14, 2026** — headless mode, Windows support, refreshed UI
+- **Claude Code plugin marketplace GA** — admin controls, /tui fullscreen mode, mobile push notifications, Remote Control
+- **MCP 2026 roadmap published April 8** — no spec version bump since 2025-11-25, but maintainer team expanded; Server Cards still targeted for June 2026
+
+**Previous key changes (March 18 -> April 2, 2026):**
+- **GitHub Spec Kit emerged as a direct competitor** — ~72k stars (prior analysis estimated ~84k; revised down after direct GitHub check), GitHub-backed, 20+ tool configurations
+- Superpowers v5.0 expanded from single-tool to 6-tool support — eliminating its primary competitive weakness
+- Combined competitor stars crossed 300k threshold
 
 **Previous key changes (March 4 -> March 18, 2026):**
-- GSD grew from 23.1k to ~32k stars (+39%) — now v1.24.0 with `/gsd:quick --research` flag
-- Superpowers grew from ~71.2k to ~82k stars (+15%) — explosive viral growth, 1,800+ stars/day peaks
-- BMAD grew from ~38.5k to ~41.2k stars (+7%), shipped v6.2.0 with 28-tool claim (verified template-based)
-- Cline grew from ~52k to ~59.1k stars (+14%) — shipped CLI 2.0, v3.73.0, Plan/Act modes, ACP support
-- Goose grew from 30k+ to ~33.2k stars (+10%) — v1.27.2, ACP-compatible, ACP-over-HTTP transition in progress
-- Kiro added enterprise SSO (Okta, Entra ID) across IDE, CLI, and web (v0.9.40+)
-- CrewSwarm and Crux show no verifiable public activity — downgraded to monitoring
+- GSD v1.24.0 added `/gsd:quick --research` flag
+- BMAD v6.2.0 shipped with 28-tool claim (verified template-based)
 - Cline CLI 2.0 launched with `--acp` flag, making Cline an ACP-compliant agent
+- Kiro added enterprise SSO (Okta, Entra ID) across IDE, CLI, and web (v0.9.40+)
 - ACP Agent Registry launched (Jan 28, 2026) by JetBrains and Zed Industries
 
 ---
@@ -46,56 +52,50 @@ hatch3r occupies a unique position straddling tiers 1 and 4: a methodology frame
 ### 2.1 GSD (Get Shit Done)
 
 - Repository: https://github.com/gsd-build/get-shit-done
-- **Stars: ~32,000** (up from 23,100, +39%)
-- Contributors: 40+
-- **Latest release: v1.24.0** (March 15, 2026)
+- **Stars: ~54,800** (up from ~32,000, +71%) — Global Rank #347 per star-history
+- Contributors: 50+
+- **Latest release: v1.24.0+** (active throughout March-April 2026)
 - Install: `npx get-shit-done-cc@latest`
 - Trusted by: engineers at Amazon, Google, Shopify, Webflow
 
 **What changed since last analysis:**
 
-GSD has maintained its position as the fastest-growing methodology framework with another +39% star jump. Key additions in v1.22.1-v1.24.0 include:
-- `/gsd:quick --research` flag that spawns a focused research agent before planning (v1.24.0)
-- Codex changelog support (expanded tool coverage)
-- `/gsd:add-tests` command for post-phase test generation
-- YAML frontmatter sync to STATE.md for machine-readable status tracking
-- `gsd-tools` CLI with `scaffold` (template generation) and `requirements mark-complete` (per-plan requirement tracking)
-- ROADMAP.md and REQUIREMENTS.md auto-updating during executor operations
-- Community fork for Antigravity: `get-shit-done-for-antigravity`
+GSD's +71% star growth in 18 days is the largest relative jump of any tracked competitor in this cycle. It has overtaken Cline (~60.5k) as the #2 methodology framework and is the fastest-growing project in the space by percentage. GSD's README now lists **14 supported tools**: Claude Code, OpenCode, Gemini CLI, Kilo, Codex, Copilot, Cursor, Windsurf, Antigravity, Augment, Trae, Qwen Code, Cline, CodeBuddy — a 4x expansion from the 3-4 primary tools listed in the April 2 analysis. The `gsd-opencode` community fork (rokicool/gsd-opencode) is active.
 
-**Tool Support:** Primary: Claude Code, OpenCode, Gemini CLI. Community: Cursor (rmindel/gsd-for-cursor), Antigravity (toonight/get-shit-done-for-antigravity). No native Copilot, Windsurf, Amp, Codex, or Cline support.
+**Tool Support:** 14+ tools natively referenced. Native support claimed for most via meta-prompting / context engineering approach rather than adapter-specific feature utilization.
 
-**Competitive threat level: MEDIUM-HIGH (escalated).** GSD's sustained growth trajectory (17k -> 23k -> 32k in under a month) demonstrates strong product-market fit. Its tool support remains narrow (3-4 tools + community forks vs. hatch3r's 14), but community forks are expanding its reach. Its context rot prevention, auto-advance chains, and new research agent spawning remain differentiated.
+**Competitive threat level: HIGH (escalated from MEDIUM-HIGH).** GSD's +71% star jump and expansion from 3-4 to 14 tools narrows the multi-tool differentiation gap with hatch3r (15 native adapters). Integration depth comparison remains pending (see D17 benchmark specification in §5.4). GSD's context rot prevention, auto-advance chains, and research agent spawning remain differentiated features. Community fork pattern continues — `gsd-opencode` signals ecosystem traction.
 
 ---
 
 ### 2.2 Superpowers
 
 - Repository: https://github.com/obra/superpowers
-- **Stars: ~130,000** (up from ~82,000, +59%)
-- Contributors: 20+
-- **Latest release: v5.0** (March 2026)
-- Install: Claude Code plugin marketplace or MCP server
+- **Stars: ~121,000** (down from prior ~130k estimate — GitHub direct check; ClaudePluginHub shows higher aggregate)
+- Contributors: 25+
+- **Latest release: v5.x** (active through April 2026)
+- Install: Claude Code plugin marketplace (`/plugin install superpowers@claude-plugins-official`) or MCP server
 
 **What changed since last analysis:**
 
-Superpowers v5.0 represents a fundamental shift. The framework has expanded from a single-tool (Claude Code) focus to **6-tool support**, eliminating what was previously its primary competitive weakness. Stars have surged from ~82k to ~130k — the largest absolute growth of any competitor in this analysis cycle. Claude Code marketplace installs continue growing beyond 118.8k+. The framework enforces structured methodology: requirement understanding, design validation, detailed planning, execution through autonomous subagents, and TDD.
+Superpowers stars now directly verified on GitHub at ~121k (prior April 2 analysis estimated ~130k but may have aggregated marketplace install counts). Growth has decelerated from the March-April surge but remains the #1 trending methodology framework on GitHub in its category. Plugin remains available in the official Claude Code marketplace. Core methodology unchanged: requirement understanding, design validation, detailed planning, execution through autonomous subagents, TDD enforcement.
 
-The v5.0 multi-tool expansion means Superpowers now competes directly with hatch3r on tool breadth, though at 6 tools vs. hatch3r's 15, the gap remains significant. The quality and depth of Superpowers' 6-tool configurations relative to hatch3r's native adapter approach is an open question that requires benchmarking (see finding #90).
+Tool support is stable at 6 platforms (Claude Code primary plus 5 expansions). The quality and depth of Superpowers' 6-tool configurations relative to hatch3r's 15-adapter native approach remains an open question pending the D17 benchmark specification (§5.4).
 
-**Competitive threat level: CRITICAL (escalated from HIGH).** The combination of ~130k stars, v5.0's 6-tool expansion, and sustained viral growth makes Superpowers the most dangerous competitor. Its previous single-tool weakness has been eliminated. hatch3r's differentiation must now rest on **native integration depth** (15 adapters generating tool-specific configs vs. Superpowers' 6), **board management** (unique to hatch3r), and **learning loop** — not on multi-tool support alone. The community size moat (~130k stars) is likely insurmountable through technical merit alone; distribution and visibility are existential.
+**Competitive threat level: CRITICAL (sustained).** Superpowers remains the dominant methodology framework by star count and Claude Code marketplace penetration. hatch3r's differentiation rests on **native integration depth** (15 adapters vs 6), **board management**, **learning loop**, and **OWASP ASI coverage** — not on multi-tool count alone. The community size gap (~121k stars vs hatch3r's pre-launch state) remains existential; distribution and visibility are the critical path.
 
 ---
 
-### 2.2a GitHub Spec Kit (NEW — CRITICAL)
+### 2.2a GitHub Spec Kit (CRITICAL)
 
-- Repository: https://github.com/github/spec-kit (estimated)
-- **Stars: ~84,000**
+- Repository: https://github.com/github/spec-kit (verified)
+- **Stars: ~72,000** (revised down from April 2 estimate of ~84k after direct GitHub check)
 - Backing: **GitHub (Microsoft)**
 - Tool support: 20+ tool configurations
-- Integration: Native GitHub platform integration
+- Latest release: v0.5.1 → v0.7.3 (active April 2026)
+- Integration: Native GitHub platform integration (Spec-Driven Development toolkit)
 
-**Overview:** GitHub Spec Kit is a newly emerged competitor not present in any previous competitive analysis. Backed by GitHub (and by extension Microsoft), it provides configuration generation for 20+ AI coding tools with deep GitHub platform integration. Its rapid rise to ~84k stars reflects both the GitHub brand and genuine market demand for multi-tool agent configuration.
+**Overview:** GitHub Spec Kit provides configuration generation for 20+ AI coding tools with deep GitHub platform integration. The April 2 estimate of ~84k stars appears to have been inflated; the GitHub repository page currently shows ~72k stars. This remains the second-fastest-growing methodology framework behind GSD by absolute star count added in early 2026. Active release cadence with v0.5.1 → v0.7.3 across March-April 2026.
 
 **Key strengths:**
 - **GitHub backing** — corporate sponsorship from the world's largest code hosting platform provides distribution, trust, and integration advantages no independent framework can match
@@ -117,9 +117,9 @@ The v5.0 multi-tool expansion means Superpowers now competes directly with hatch
 ### 2.3 BMAD Method
 
 - Repository: https://github.com/bmad-code-org/BMAD-METHOD
-- **Stars: ~41,200** (up from ~38,500, +7%)
+- **Stars: ~29,600** (revised down — GitHub direct count differs from April 2 estimate of ~41.2k; previous figure may have aggregated fork stars)
 - Contributors: 110-120
-- **Latest release: v6.0.4** (March 1, 2026)
+- **Latest release: v6.0.4 stable** (March 1, 2026; v6-stable line remains current through April 2026)
 - Install: `npx bmad-method install`
 
 **What changed since last analysis:**
@@ -141,9 +141,9 @@ BMAD is expanding tool support and CI/CD integration. Its 110+ contributors give
 ### 2.4 Compound Engineering
 
 - Repository: https://github.com/EveryInc/compound-engineering-plugin
-- **Stars: ~9,700** (up from 9,280, +4%)
-- Contributors: 40
-- **Latest release: v2.33.0** (February 2026)
+- **Stars: ~13,500** (up from ~9,700, +39%)
+- Contributors: 40+
+- **Latest release: v2.33+** (active through April 2026)
 - Install: Claude Code plugin marketplace
 
 **What changed since last analysis:**
@@ -156,14 +156,15 @@ Minimal changes. v2.33.0 continues with configurable review agents, learnings re
 
 ### 2.5 OpenCode
 
-- Repository: https://github.com/sst/opencode (now github.com/anomalyco/opencode)
-- **Stars: ~114,000** (up from ~110,000, +4%)
-- Contributors: 460+
-- **Latest release: v1.2.15** (February 2026)
+- Repository: https://github.com/anomalyco/opencode (moved from sst/opencode)
+- **Stars: ~146,000** (up from ~114,000, +28%) — now the highest-starred project in the space
+- Contributors: 500+
+- **Latest release: v1.0.223+** (active April 2026)
+- Usage: 6.5M+ monthly developers per opencode.ai
 
 **What changed since last analysis:**
 
-OpenCode continues its dominant position as the highest-starred open-source coding agent. Note: the repository appears to have moved from `sst/opencode` to `anomalyco/opencode`. The Weave plugin (see 2.10) has emerged as the leading multi-agent orchestration layer for OpenCode, validating hatch3r's strategy of providing methodology on top of OpenCode's execution engine.
+OpenCode crossed 146k stars, overtaking Superpowers to become the highest-starred open-source project in the agentic coding space. Repository confirmed migrated to `anomalyco/opencode`. The Weave plugin continues as the leading multi-agent orchestration layer for OpenCode. The `gsd-opencode` fork (rokicool/gsd-opencode) demonstrates cross-framework validation of OpenCode as a methodology target.
 
 **Competitive threat level: LOW (complementary).** OpenCode is an execution engine, not a methodology framework. hatch3r's OpenCode adapter makes it complementary. The emergence of OpenCode-specific plugins (Weave) confirms the opportunity for hatch3r to serve OpenCode's massive user base.
 
@@ -255,27 +256,28 @@ SkillKit has integrated skills.sh as a first-class registry and added Chrome Web
 
 ---
 
-### 2.11 Ruflo / Claude Flow (NEW — SIGNIFICANT)
+### 2.11 Ruflo / Claude Flow
 
 - Repository: https://github.com/ruvnet/ruflo (formerly claude-flow)
-- **Stars: ~29,000** (up from 18,540, +57%)
-- Contributors: 20+
-- Latest release: v3.5.0+ (2026)
-- Releases: 1,456+
+- **Stars: ~32,300** (up from ~29,000, +11%)
+- Contributors: 25+
+- **Latest release: v3.5** (April 7, 2026)
+- Releases: 6,000+ commits
+- npm downloads: ~500,000 total, ~100,000 MAU across 80+ countries
 - License: MIT
 
-**Overview:** Ruflo (formerly Claude Flow) is an enterprise-grade multi-agent orchestration platform that has grown rapidly to ~29k stars. It now coordinates 100+ specialized agents across swarm topologies with 215 MCP tools.
+**Overview:** Ruflo v3.5 (released April 7, 2026) is a multi-agent orchestration platform for Claude Code / Codex integration. v3.5 expanded from 215 to **314 MCP tools**, 16 agent roles + custom types, 19 AgentDB controllers.
 
 **Key features:**
-- 60+ specialized agents using swarm coordination
+- 16 agent roles + custom types using swarm coordination
 - Hierarchical, mesh, ring, and star topologies
 - Distributed consensus protocols (Raft, Byzantine Fault Tolerance, CRDT)
 - Self-Optimizing Neural Architecture (SONA) for intelligent task routing
-- 215 MCP tools
-- Claims 2.5x Claude Code usage extension through tiered complexity routing
-- Self-learning memory system
+- **314 MCP tools** (up from 215 in prior analysis)
+- Claims **84.8% SWE-bench solve rate** and **75% API cost savings** vs direct Claude Code
+- Self-learning memory system, catastrophic forgetting prevention
 
-**Competitive threat level: HIGH (sustained).** Ruflo's continued rapid growth (~29k stars, +57% since last analysis) and enterprise-grade features make it a formidable competitor. Its 100+ agents dwarf most competitors. However, it remains Claude Code-specific, which limits cross-tool reach. hatch3r's multi-tool adapter approach remains differentiated. The key risk: if Ruflo adds multi-tool support, its feature depth + community size would be formidable.
+**Competitive threat level: HIGH (sustained).** Ruflo's measurable SWE-bench and cost metrics (published v3.5 claims) now provide competitive comparison signals. Ruflo remains Claude Code / Codex-specific, limiting cross-tool reach. hatch3r's 15-adapter multi-tool approach remains differentiated. Key risk: if Ruflo adds multi-tool support plus its SONA depth, the combined feature set would exceed hatch3r on orchestration sophistication.
 
 ---
 
@@ -314,24 +316,26 @@ SkillKit has integrated skills.sh as a first-class registry and added Chrome Web
 - Co-founded by Anthropic, Block, and OpenAI
 - Platinum members: AWS, Google, Microsoft, Bloomberg, Cloudflare
 - Three founding projects: MCP (Anthropic), goose (Block), AGENTS.md (OpenAI)
-- **Adopted by 60,000+ open-source projects** as of February 2026
-- Supported by 20+ AI tools
+- **Adopted by 60,000+ open-source projects** (stable per AAIF releases)
+- Supported by 20+ AI tools (Amp, Codex, Cursor, Devin, Factory, Gemini CLI, GitHub Copilot, Jules, VS Code, and others)
 - Functions as "greatest common denominator" standard — tool-specific files handle platform differences
 
-**Implication for hatch3r:** AGENTS.md is now the industry standard for agent instructions. hatch3r already generates AGENTS.md as a bridge file for OpenCode, Amp, and Codex. Its canonical `/.agents/AGENTS.md` aligns perfectly with this standard. The AAIF governance ensures long-term stability of this format.
+**Implication for hatch3r:** AGENTS.md remains the industry standard for agent instructions. hatch3r already generates AGENTS.md as a bridge file for OpenCode, Amp, and Codex. Its canonical `/.agents/AGENTS.md` aligns with this standard. AAIF governance provides long-term format stability.
 
 ### 3.2 MCP Protocol
 
-**Current spec: 2025-11-25** (date-based versioning, only increments on breaking changes)
+**Current spec: 2025-11-25** (no version bump through April 2026; next-version planning underway per MCP blog April 8, 2026 maintainer post)
 
 - 70+ client applications
-- **10,000+ active MCP servers**
-- **97 million+ monthly SDK downloads**
+- **1,200+ servers in official registry** (registry.modelcontextprotocol.io) — launched September 8, 2025
+- Broader ecosystem estimate: **5,000+ MCP servers** across non-registry sources
 - Governed by AAIF under Linux Foundation
 - Key features: structured tool output, resource links, elicitation, OAuth Resource Server classification
 - JSON-RPC 2.0 based
+- Registry API in freeze (v0.1) — stable for client integration
+- Maintainer team expanded April 8, 2026
 
-**Implication for hatch3r:** MCP has achieved massive adoption. hatch3r's MCP configuration template (10 servers, 3 default + 7 opt-in) is a competitive advantage. The ecosystem growth means more MCP servers for hatch3r to integrate.
+**Implication for hatch3r:** MCP has achieved broad adoption. hatch3r's MCP configuration template (10 servers, 3 default + 7 opt-in) remains competitive. The 1,200+ official registry enables hatch3r's MCP catalog integration directly from an AAIF-governed source.
 
 ### 3.2a MCP Server Cards (June 2026 Spec — NEW)
 
@@ -365,99 +369,109 @@ The MCP June 2026 specification introduces **Server Cards** — a standardized m
 
 | Tool | Latest Version | Key 2026 Changes |
 |------|---------------|-----------------|
-| **Cursor** | v2.4 | Subagents, Skills, Long-running agents (research preview), Image generation, Cursor Blame (Enterprise) |
-| **GitHub Copilot** | Jan 2026 release | Agent mode GA, Copilot Edits GA, Next Edit Suggestions, Vision, Project Padawan (autonomous SWE agent), Skills and orchestrations |
-| **Claude Code** | v2.1.63 | 2.0: Multi-agent orchestration, persistent memory, Team mode ($40/user/mo), Remote Control (phone), Agent Teams (research preview), Opus 4.6 (1M context beta) |
-| **OpenCode** | v1.2.15 | ~114k stars, repository moved to anomalyco/opencode |
+| **Cursor** | v3.1 (April 15, 2026) | v3.0 (April 2): Background Agents, Cloud Agents, Composer 2.0, new UI. v3.0 (April 8): Bugbot Learned Rules, native MCP support. v3.1 (April 13): Tiled Layout, Upgraded Voice Input. v3.1 (April 15): Canvases for interactive visual interfaces. Model lineup: GPT-5.4, Claude Opus 4.6, Gemini 3 Pro, Grok Code, Composer 2 |
+| **GitHub Copilot** | Jan 2026 release | Agent mode GA, Copilot Edits GA, Next Edit Suggestions, Vision, Project Padawan (autonomous SWE agent), Skills and orchestrations, Copilot ACP provider (via Goose v1.30.0) |
+| **Claude Code** | Active April 2026 | 2.0: Multi-agent orchestration, persistent memory, Team mode ($40/user/mo), Remote Control (phone), Agent Teams (research preview), Opus 4.6 (1M context beta). April 2026: `/tui` fullscreen mode, mobile push notifications, **plugin marketplace GA** with Team/Enterprise admin controls |
+| **OpenCode** | v1.0.223+ | **~146k stars** (+28% from April 2), 6.5M+ monthly developers, repo at anomalyco/opencode |
 | **Windsurf** | Wave 5+ | Flow feature, AST-based semantic search, voice input, GPT-5 and Gemini 3 Flash support, JetBrains support |
 | **Amp** | CLI-only | VS Code/Cursor extensions discontinued March 5, 2026. CLI-only focus. GPT-5.3-Codex deep mode |
 | **Codex CLI** | v0.107.0 | Sub-agent thread forking, configurable memories, multimodal custom tool outputs, realtime audio |
 | **Gemini CLI** | v0.31.0 | Plan mode enhancements, browser agent (experimental), policy engine expansion, Gemini 3.1 Pro Preview |
-| **Cline** | v3.73.0 (~59.1k stars) | Plan/Act modes, CLI 2.0 with `--acp` flag (ACP-compliant agent), SDK for embedding, 5M+ installs, multi-provider support |
-| **Roo Code** | v3.50.4 | 5 modes (Code, Architect, Debug, Ask, Custom), Boomerang Tasks, Cloud Agents ($5/hr), 22.3k+ stars |
-| **Kiro** | GA (v0.9.40+) | GovCloud availability, Kiro Powers (IAM Autopilot, Observability), property-based testing, Kiro CLI, team plans, **enterprise SSO** (Okta, Microsoft Entra ID, AWS IAM Identity Center) across IDE/CLI/web, agent hooks, SCIM provisioning, admin console with prompt logging and usage reports |
+| **Cline** | v3.73.0 (~60.5k stars) | Plan/Act modes, CLI 2.0 with `--acp` flag (ACP-compliant agent), SDK for embedding, 5M+ installs, multi-provider support |
+| **Roo Code** | v3.50.4 | 5 modes (Code, Architect, Debug, Ask, Custom), Boomerang Tasks, Cloud Agents ($5/hr), ~22.3k stars |
+| **Kiro** | CLI 2.0 (April 14, 2026) | **Kiro CLI 2.0**: headless mode, Windows support, refreshed UI. GovCloud availability, Kiro Powers (IAM Autopilot, Observability), property-based testing, team plans, **enterprise SSO** (Okta, Microsoft Entra ID, AWS IAM Identity Center) across IDE/CLI/web, agent hooks, SCIM provisioning, admin console with prompt logging |
+| **Goose** | v1.30.0 (April 8, 2026) | **Copilot ACP provider**, `goose serve` subcommand, Gemini OAuth provider, tab-expandable tool calls, independent text mode. ACP-compatible agent in JetBrains/Zed ACP Registry |
 
 **Critical tool ecosystem shifts:**
-1. **Amp abandoned IDE extensions** — validates CLI-first approaches but also means hatch3r's Amp adapter now targets CLI-only users
-2. **Claude Code 2.0 added native multi-agent orchestration** — hatch3r's agent orchestration rule must evolve to complement rather than replace this
-3. **Cursor subagents are now native** — hatch3r's sub-agentic architecture aligns well with Cursor's new capabilities
-4. **Kiro reached GA with CLI and enterprise SSO** — hatch3r's Kiro adapter is now serving a GA product with growing enterprise adoption. Kiro's Okta/Entra ID SSO does not affect configuration generation (SSO is transparent to steering files), but enterprise teams may require adapter-generated configs to be compatible with team-managed steering directories
-5. **Cline CLI 2.0 with ACP** — Cline's `--acp` flag makes it an ACP-compliant agent, and the SDK enables embedding. Plan/Act mode separation validates hatch3r's research-then-implement pipeline pattern
-6. **ACP Agent Registry launched** — JetBrains and Zed jointly launched the ACP Agent Registry (Jan 28, 2026), standardizing how agents integrate with editors. Goose and Cline are both ACP-compatible, validating adapter investment in both
-7. **Goose ACP-over-HTTP transition** — Goose is replacing its custom streaming API with ACP-over-HTTP for client portability. hatch3r's Goose adapter profile generation already includes ACP config
+1. **OpenCode became the highest-starred project** at ~146k stars — validates open-source runtime engine dominance and the complementary niche for hatch3r's adapter
+2. **Claude Code plugin marketplace reached GA** — admin controls for Team/Enterprise plans; hatch3r plugin submission remains an open distribution path
+3. **Cursor v3.0/v3.1 added Background Agents, Cloud Agents, Canvases, and native MCP** — hatch3r's Cursor adapter requires audit against v3.x features
+4. **Kiro CLI 2.0 headless mode + Windows support** — hatch3r's Kiro adapter must verify CLI 2.0 compatibility
+5. **Goose v1.30.0 Copilot ACP provider** — Goose can now route to GitHub Copilot via ACP; hatch3r's Goose adapter ACP config should document this capability
+6. **Amp abandoned IDE extensions** — validates CLI-first approaches
+7. **Ruler emerged as a tool-agnostic distributor** — the first named competitor to hatch3r's canonical source architecture
 
 ---
 
 ## 4. Feature Comparison
 
-### 4.1 Framework Capabilities Matrix (Updated March 18, 2026)
+### 4.1 Framework Capabilities Matrix (Updated April 20, 2026)
 
-*Note: Crux column retained for historical reference but project is stalled (see section 2.9).*
+*Note: Crux column retained for historical reference but project is stalled (see section 2.9). Ruler added as direct architectural competitor (see section 2.13).*
 
-| Feature | hatch3r | GSD | Superpowers | Compound Eng. | BMAD | Ruflo | AgentSys | ~~Crux~~ |
-|---------|---------|-----|-------------|---------------|------|-------|----------|------|
-| Agents | 16 | 11 | ~5 | 29 | 12+ | 60+ | 41 | ~~Plugin-based~~ |
-| Skills | 25 | N/A | 14+ | 19 | 34+ | N/A | 27 | ~~N/A~~ |
-| Rules/Standards | 22 | N/A | TDD rules | Configurable | Scale-adaptive | N/A | N/A | ~~N/A~~ |
-| Commands | 34 | 27+ | 4-5 | 22 | 34+ | N/A | 4 | ~~N/A~~ |
-| MCP Servers | 10 | N/A | MCP server | 1 | N/A | 215 | N/A | ~~N/A~~ |
-| **Tool Adapters** | **14 native** | 3 (+community) | 1 + MCP | 8 (conversion) | 28 (template-based) | 1 | 3 | ~~3~~ |
-| Sub-agent Support | Yes | Yes | Yes | Yes | No | Yes (swarm) | Yes | ~~Yes~~ |
-| Board/Project Mgmt | **Yes (GH Projects V2)** | Milestones | No | No | No | No | No | ~~No~~ |
-| Learning Loop | Yes | No | No | Yes | No | Yes (SONA) | No | Yes (3-layer) |
-| Event-Driven Hooks | Yes (6 hooks) | No | No | No | No | Yes | No | No |
-| TDD Support | Yes | Yes (post-phase) | Yes (core) | No | No | N/A | No | No |
-| Security Coverage | OWASP Top 10 | No | No | No | No | No | No | Yes (4-tier) |
-| Cost Tracking | Yes | Yes | No | No | No | No | No | No |
-| Context Health | Yes | Yes (core) | Discrete tasks | No | No | Yes | No | Yes |
-| Recipe System | Yes | No | No | No | No | No | No | No |
-| Persistent Memory | Yes (learnings) | STATE.md | No | Yes (compound) | No | Yes | Yes | Yes (3-layer) |
-| CI/CD Integration | Via GitHub agents | Git state | No | No | No | No | Yes | No |
+| Feature | hatch3r | GSD | Superpowers | Compound Eng. | BMAD | Ruflo | AgentSys | Ruler | ~~Crux~~ |
+|---------|---------|-----|-------------|---------------|------|-------|----------|-------|------|
+| Agents | 16+20 modes | 11+ | ~5 | 29 | 27 | 16 roles+types | 41 | None | ~~Plugin-based~~ |
+| Skills | 26 | N/A | 14+ | 19 | 34+ | N/A | 27 | N/A | ~~N/A~~ |
+| Rules/Standards | 27 | Meta-prompting | TDD rules | Configurable | Scale-adaptive | N/A | N/A | Markdown rules | ~~N/A~~ |
+| Commands | 34 | 27+ | 4-5 | 22 | 82 workflows | N/A | 4 | N/A | ~~N/A~~ |
+| MCP Servers | 10 | N/A | MCP server | 1 | N/A | **314** | N/A | N/A | ~~N/A~~ |
+| **Tool Adapters/Targets** | **15 native** | **14 (meta-prompt)** | 6 (v5.0) | 8 (conversion) | 28 (template) | 1+Codex | 3 | **32 (rule distribution)** | ~~3~~ |
+| Sub-agent Support | Yes | Yes | Yes | Yes | No | Yes (swarm) | Yes | No | ~~Yes~~ |
+| Board/Project Mgmt | **Yes (GH V2/Azure/GitLab)** | Milestones | No | No | No | No | No | No | ~~No~~ |
+| Learning Loop | Yes | No | No | Yes | No | Yes (SONA) | No | No | Yes (3-layer) |
+| Event-Driven Hooks | Yes (6 hooks) | No | No | No | No | Yes | No | No | No |
+| TDD Support | Yes | Yes (post-phase) | Yes (core) | No | TEA module | N/A | No | No | No |
+| Security Coverage | **OWASP ASI Top 10** | No | No | No | No | No | No | No | Yes (4-tier) |
+| Cost Tracking | Yes | Yes | No | No | No | **75% API savings claim** | No | No | No |
+| Context Health | Yes | Yes (core) | Discrete tasks | No | No | Yes | No | **Nested rule loading** | Yes |
+| Recipe System | Yes | No | No | No | No | No | No | No | No |
+| Persistent Memory | Yes (learnings) | STATE.md | No | Yes (compound) | No | Yes (AgentDB x19) | Yes | No | Yes (3-layer) |
+| CI/CD Integration | Via GitHub agents | Git state | No | No | No | No | Yes | No | No |
+| SWE-bench Score | Benchmark pending | N/A | N/A | N/A | N/A | **84.8% (claim)** | N/A | N/A | N/A |
 
-### 4.2 Tool/IDE Support Matrix (Updated March 2026)
+### 4.2 Tool/IDE Support Matrix (Updated April 20, 2026)
 
-| Tool | hatch3r | GSD | Superpowers | Compound Eng. | BMAD | Ruflo | AgentSys |
-|------|---------|-----|-------------|---------------|------|-------|----------|
-| Cursor | **Native adapter** | Community | MCP | Convert | Template | No | No |
-| Claude Code | **Native adapter** | Primary | Primary | Primary | Template | Primary | Primary |
-| GitHub Copilot | **Native adapter** | No | No | Convert | Custom installer | No | No |
-| OpenCode | **Native adapter** | Supported | Supported | Convert | Template | No | Supported |
-| Windsurf | **Native adapter** | No | MCP | No | Template | No | No |
-| Codex | **Native adapter** | No | Docs | Convert | Custom installer | No | Supported |
-| Gemini CLI | **Native adapter** | Supported | No | Convert | Template | No | No |
-| Cline/Roo Code | **Native adapter** | No | No | No | Template | No | No |
-| Amp | **Native adapter** | No | No | No | Template | No | No |
-| Aider | **Native adapter** | No | No | No | No | No | No |
-| Kiro | **Native adapter** | No | No | Convert | Template | No | No |
-| Goose | **Native adapter** | No | No | No | No | No | No |
-| Zed | **Native adapter** | No | No | No | No | No | No |
+| Tool | hatch3r | GSD | Superpowers | Compound Eng. | BMAD | Ruflo | AgentSys | Ruler |
+|------|---------|-----|-------------|---------------|------|-------|----------|-------|
+| Cursor | **Native adapter** | Claimed | MCP | Convert | Template | No | No | Rule distribution |
+| Claude Code | **Native adapter** | Primary | Primary | Primary | Template | Primary | Primary | Rule distribution |
+| GitHub Copilot | **Native adapter** | Claimed | No | Convert | Custom installer | Via Goose ACP | No | Rule distribution |
+| OpenCode | **Native adapter** | Supported | Supported | Convert | Template | No | Supported | Rule distribution |
+| Windsurf | **Native adapter** | Claimed | MCP | No | Template | No | No | Rule distribution |
+| Codex | **Native adapter** | Claimed | Docs | Convert | Custom installer | Yes | Supported | Rule distribution |
+| Gemini CLI | **Native adapter** | Claimed | No | Convert | Template | No | No | Rule distribution |
+| Cline/Roo Code | **Native adapter** | Claimed | No | No | Template | No | No | Rule distribution (cline, roo) |
+| Amp | **Native adapter** | No | No | No | Template | No | No | Rule distribution |
+| Aider | **Native adapter** | No | No | No | No | No | No | Rule distribution |
+| Kiro | **Native adapter** | No | No | Convert | Template | No | No | Rule distribution |
+| Goose | **Native adapter** | No | No | No | No | No | No | Rule distribution |
+| Zed | **Native adapter** | No | No | No | No | No | No | Rule distribution |
+| Antigravity | **Native adapter** | Claimed | No | No | Template | No | No | Rule distribution |
+| Amazon Q | **Native adapter** | No | No | No | No | No | No | Rule distribution (amazonqcli) |
 
-**hatch3r has the deepest native tool integration in the market at 15 adapters.** BMAD v6.2.0 claims 28 tool configurations, but these are template-based prompt file generation (verified March 18, 2026 — see section 2.3). hatch3r generates deeply native, tool-specific configurations that leverage each platform's unique features. The nearest native-depth competitor is Compound Engineering with 8 tools via conversion (not native generation).
+**hatch3r has the deepest native tool integration in the market at 15 adapters.** GSD claims 14 tool targets via meta-prompting (verified April 20, 2026 — narrower feature utilization than native adapters). BMAD v6.0.4 stable claims 28 tool configurations via template-based prompt file generation. Ruler distributes markdown rules to 32 agent configuration targets (verified April 20, 2026 — rule distribution only, no skills/commands/hooks/MCP depth). hatch3r generates tool-specific configurations that leverage each platform's unique features (Cursor `.mdc` with frontmatter scoping, Claude Code skills + hooks, Kiro steering format). The nearest native-depth competitor for adapter-level feature utilization is Compound Engineering with 8 tools via conversion.
 
-### 4.3 GitHub Stars Comparison (April 2, 2026)
+### 4.3 GitHub Stars Comparison (April 20, 2026)
 
-| Framework | Stars | Growth (since Mar 18) | Category |
-|-----------|-------|---------------------|----------|
-| Superpowers | **~130,000** | **+48,000 (+59%)** | Methodology |
-| OpenCode | ~114,000 | ~stable | Agent runtime |
-| **GitHub Spec Kit** | **~84,000** | **NEW** | **Methodology** |
-| Cline | ~59,100 | ~stable | IDE extension / Agent |
-| BMAD | ~41,200 | ~stable | Methodology |
-| awesome-cursorrules | 38,207 | ~stable | Curated list |
-| Goose | ~33,200 | ~stable | Agent runtime |
-| GSD | ~32,000 | ~stable | Methodology |
-| Ruflo | **~29,000** | **+10,460 (+57%)** | Orchestration |
-| Roo Code | 22,300+ | ~stable | IDE extension |
-| SWE-agent | 18,500+ | N/A | Academic |
-| Compound Eng. | ~9,700 | ~stable | Methodology |
-| SkillKit | 382 | ~stable | Distribution |
-| AgentSys | 376 | ~stable | Orchestration |
-| Axon | 35 | ~stable | K8s orchestration |
+| Framework | Stars | Growth (since April 2) | Category |
+|-----------|-------|----------------------|----------|
+| OpenCode | **~146,000** | **+32,000 (+28%)** | Agent runtime |
+| Superpowers | ~121,000 | ~stable (prior figure revised) | Methodology |
+| GitHub Spec Kit | ~72,000 | ~stable (prior figure revised) | Methodology |
+| Cline | ~60,500 | +1,400 (+2%) | IDE extension / Agent |
+| **GSD** | **~54,800** | **+22,800 (+71%)** | Methodology |
+| awesome-cursorrules | ~39,000 | ~stable | Curated list |
+| Ruflo | **~32,300** | **+3,300 (+11%)** | Orchestration |
+| BMAD | ~29,600 | ~stable (prior figure revised) | Methodology |
+| Goose | ~27-29,000 | Prior figure revised | Agent runtime |
+| Roo Code | ~22,300 | ~stable | IDE extension |
+| SWE-agent | ~18,500 | N/A | Academic |
+| Compound Eng. | ~13,500 | +3,800 (+39%) | Methodology |
+| Ruler | Not published | **NEW — architectural competitor** | Config distribution |
+| SkillKit | ~400 | ~stable | Distribution |
+| AgentSys | ~380 | ~stable | Orchestration |
+| Axon | ~35 | ~stable | K8s orchestration |
 | ~~CrewSwarm~~ | N/A | Stalled — no public presence | ~~Orchestration~~ |
 | ~~Crux~~ | N/A | Stalled — repo/site not found | ~~Orchestration~~ |
-| **hatch3r** | **N/A** | — | **Methodology + adapters** |
+| **hatch3r** | **Not published** | — | **Methodology + adapters + board** |
 
-**Combined competitor stars: 332k+** (Superpowers + Spec Kit + BMAD + GSD + Ruflo + Compound Eng. methodology frameworks only). This represents an existential community gap for hatch3r.
+**Combined competitor stars (methodology frameworks only):** Superpowers (~121k) + Spec Kit (~72k) + GSD (~54.8k) + BMAD (~29.6k) + Compound Eng. (~13.5k) = **~290k+** stars. Including Ruflo orchestration (~32.3k): ~323k+. The community gap remains existential for hatch3r.
+
+**Stars verification notes (April 20, 2026):**
+- Prior-cycle figures for Superpowers (~130k), Spec Kit (~84k), BMAD (~41.2k), and Goose (~33.2k) have been revised downward after direct-GitHub verification. The revisions are not stars "lost" — they are measurement corrections where prior estimates aggregated marketplace installs, fork stars, or used third-party aggregators.
+- Growth figures for GSD (+71%), OpenCode (+28%), Ruflo (+11%), Compound Eng. (+39%) are direct-GitHub deltas against the April 2 baseline.
+- SWE-bench and cost-savings claims (Ruflo 84.8%, 75% savings) are vendor-reported and await independent benchmark verification (§5.4).
 
 ---
 
@@ -560,30 +574,32 @@ The following gaps identified in the previous analysis remain closed:
 
 | Differentiator | Details | Nearest Competitor |
 |---------------|---------|-------------------|
-| **14 native tool adapters** | Cursor, Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex, Gemini, Cline, Aider, Kiro, Goose, Zed, Antigravity | Compound Eng. (8 via conversion) |
-| **GitHub Projects V2 board management** | board-init, board-fill, board-groom, board-pickup, board-refresh with dependency DAG, collision detection, sub-agent orchestration | GSD (milestones only) |
-| **Canonical source architecture** | Single `/.agents/` source of truth with adapter-based generation | SkillKit (auto-translate, but skill-only) |
-| **OWASP Agentic Top 10 security coverage** | Security patterns rule with AI/agentic-specific security | None active *(Crux had 4-tier permissions but project is stalled)* |
+| **15 native tool adapters with deep feature utilization** | Cursor, Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex, Gemini, Cline, Aider, Kiro, Goose, Zed, Antigravity, Amazon Q — generating tool-specific primitives (Cursor `.mdc` + frontmatter, Claude Code skills + hooks, Kiro steering format) | Compound Eng. (8 via conversion); Ruler (32 via markdown distribution only) |
+| **Multi-platform board management (GH Projects V2, Azure DevOps, GitLab)** | board-init, board-fill, board-groom, board-pickup, board-refresh with dependency DAG, collision detection, sub-agent orchestration | GSD (milestones only) |
+| **Canonical source + full content model** | Single `/.agents/` source with 16 agents + 20 modes, 26 skills, 27 rules, 34 commands, 6 hooks, 10 MCP servers | Ruler (rules distribution only — no skills/commands/hooks/MCP/board) |
+| **OWASP Agentic Top 10 security coverage** | Security patterns rule with 11 ASI controls (prompt injection, tool poisoning, memory poisoning, etc.) | None active *(Crux had 4-tier permissions but project is stalled)* |
 | **Recipe system** | Composable, shareable workflow templates | None |
 | **Board-to-PR pipeline** | End-to-end: issue → branch → implementation → review loop → PR → status sync | None |
-| **14-tool adapter + board + learning loop** | No competitor combines all three capabilities | None |
+| **Audit cycle governance** | 19 domains, 106 sub-agents, 4-wave execution, closed-loop PRD evolution | None |
+| **15-tool adapter + board + learning loop + audit cycle** | No competitor combines all four capabilities | None |
 
 ### 6.2 Where Competitors Lead
 
 | Feature | Leader | hatch3r Gap |
 |---------|--------|------------|
-| Community traction | Superpowers (~130k), OpenCode (114k), GitHub Spec Kit (~84k), Cline (~59k), BMAD (~41k), Goose (~33k), GSD (~32k), Ruflo (~29k) | No published star count; 332k+ combined competitor stars |
-| Tool breadth (count) | BMAD (28 template-based), GitHub Spec Kit (20+), Superpowers (6 native) | 15 native adapters (deeper integration) |
-| Agent count | Ruflo (100+), AgentSys (41) | 16 agents |
-| Multi-agent runtime | Ruflo (swarm), Weave (OpenCode plugin) | Advisory orchestration only. *(CrewSwarm and Crux stalled.)* |
-| MCP tool count | Ruflo (215) | 10 MCP servers |
+| Community traction | OpenCode (~146k), Superpowers (~121k), Spec Kit (~72k), Cline (~60.5k), GSD (~54.8k), Ruflo (~32.3k), BMAD (~29.6k), Goose (~27-29k) | No published star count; ~290k+ combined methodology-only competitor stars |
+| Tool breadth (count) | Ruler (32 rule-distribution targets), BMAD (28 template-based), GSD (14 meta-prompting), GitHub Spec Kit (20+) | 15 native adapters (deeper integration, full content model) |
+| Agent count | Ruflo (16 roles + custom types), AgentSys (41) | 16 agents + 20 modes |
+| Multi-agent runtime | Ruflo (swarm, SONA), Weave (OpenCode plugin) | Advisory orchestration only. *(CrewSwarm and Crux stalled.)* |
+| MCP tool count | Ruflo (314, up from 215) | 10 MCP servers |
 | Context rot prevention | GSD (architectural, fresh 200k windows) | Advisory only |
-| Plugin marketplace distribution | Superpowers, Compound Eng. (Claude Code marketplace) | No confirmed marketplace presence |
+| Plugin marketplace distribution | Superpowers, Compound Eng. (Claude Code marketplace; marketplace now GA with admin controls) | No confirmed marketplace presence |
 | Documentation site | BMAD (docs.bmad-method.org), GSD (gsd.build) | docs.hatch3r.com shipped; landing page and tutorials still missing |
-| Token efficiency | AgentSys (77% reduction), Ruflo (2.5x extension) | Cost tracking only, no active optimization |
-| Enterprise features | Roo Code (SOC 2), Kiro (GovCloud), Cursor (Blame), GitHub Spec Kit (GitHub-native) | None |
-| Persistent memory depth | Ruflo (SONA). *(Crux 3-layer was notable but project is stalled.)* | Markdown-only learnings |
-| GitHub-native integration | GitHub Spec Kit (deep platform integration) | GitHub via MCP only |
+| Token efficiency | AgentSys (77% reduction claim), Ruflo (75% API savings + 84.8% SWE-bench claim) | Cost tracking only, no active optimization |
+| Enterprise features | Roo Code (SOC 2), Kiro (GovCloud, SSO, CLI 2.0 headless), Cursor (Blame, v3.x Background Agents), GitHub Spec Kit (GitHub-native) | None |
+| Persistent memory depth | Ruflo (SONA + 19 AgentDB controllers). *(Crux 3-layer was notable but project is stalled.)* | Markdown-only learnings |
+| GitHub-native integration | GitHub Spec Kit (deep platform integration) | GitHub via MCP + workflows only |
+| Tool-agnostic distribution breadth | Ruler (32 agent targets via rule distribution) | 15 adapters with full-content model (deeper but fewer) |
 
 ---
 
@@ -612,6 +628,9 @@ The following gaps identified in the previous analysis remain closed:
 | 13 | **S4** | awesome-cursorrules | 38.2k stars for a curated rules list. This community resource drives Cursor rules adoption but isn't a framework competitor | Consider contributing hatch3r rules to awesome-cursorrules and awesome-cursor-rules-mdc (3.3k stars) for visibility. Cross-reference in documentation | Low (1-2 days) |
 | 14 | **S4** | Benchmark Suite | No progress on benchmarking. SWE-bench is standard for agent runtimes but no standard exists for methodology frameworks | Design a custom benchmark: measure time-to-first-PR, code quality metrics, and review iteration counts with vs. without hatch3r. Publish results | High (4-6 weeks) |
 | 15 | **S4** | Weave Competition in OpenCode | Weave is gaining traction as the de facto multi-agent plugin for OpenCode. If Weave adds board management or learning loops, it could directly compete for OpenCode users | Position hatch3r's OpenCode adapter as complementary to Weave (hatch3r provides methodology + board management, Weave provides runtime orchestration). Consider explicit Weave compatibility | Low (1 week) |
+| 16 | **S2** | Ruler Architectural Competition | Ruler (`@intellectronica/ruler`) directly competes on tool-agnostic configuration distribution, targeting 32 agents (vs hatch3r's 15). Rule distribution is markdown-only — no skills/commands/hooks/MCP/board/learning | Reposition from "canonical-source distribution" to "deepest native generation + full content model + board + learning + security." Update marketing and docs to contrast hatch3r's 26 skills + 34 commands + 6 hooks + 10 MCP servers + multi-platform board against Ruler's rule-only distribution | Low (1 week for messaging; Medium 3-4 weeks to exceed Ruler's target breadth) |
+| 17 | **S3** | OpenCode Overtaking as Most-Starred | OpenCode reached ~146k stars (+28% since April 2), overtaking Superpowers to become the highest-starred project in the space. hatch3r's OpenCode adapter serves a 6.5M+ monthly developer base | Prioritize OpenCode adapter depth. Consider OpenCode plugin distribution (position alongside Weave and gsd-opencode forks). Submit hatch3r canonical configs to OpenCode community marketplace | Medium (2-3 weeks) |
+| 18 | **S3** | GSD Growth Escalation | GSD surged to ~54.8k stars (+71% since April 2), overtaking Cline. Expanded from 3-4 to 14 tool targets via meta-prompting approach. Closing tool-breadth gap | Continue native-depth differentiation vs GSD's meta-prompting. Complete D17 benchmark (§5.4) to quantify integration-depth advantage. Monitor GSD's tool-target growth monthly | Low (ongoing monitoring) |
 
 ---
 
@@ -727,46 +746,49 @@ Three market signals validate the multi-tool adapter approach:
 
 ## 9. Conclusion
 
-The agentic coding framework market in early April 2026 has undergone its most significant structural shift since this analysis began. Two seismic changes define this cycle: **GitHub Spec Kit** emerged as a direct competitor with ~84k stars and GitHub corporate backing, and **Superpowers v5.0** expanded to 6-tool support with ~130k stars, eliminating its single-tool weakness. Combined competitor stars now exceed 332k. The multi-tool adapter count is no longer a unique differentiator — Spec Kit (20+ tools), BMAD (28 template-based), Superpowers (6 native), GSD (8 tools), and Compound Engineering (12 tools) all offer multi-tool support.
+The agentic coding framework market on April 20, 2026 has undergone three structural shifts since the April 2 analysis. First, **OpenCode overtook Superpowers as the highest-starred project** at ~146k stars (+28%), with 6.5M+ monthly developers. Second, **GSD surged +71%** to ~54.8k stars and expanded from 3-4 to 14 tool targets, narrowing the multi-tool gap. Third, **Ruler emerged as a direct architectural competitor** — a tool-agnostic CLI distributing a single `.ruler/` source to 32 agent configuration targets, mirroring hatch3r's canonical source model but with rule-only content.
 
-hatch3r's position remains technically differentiated but strategically vulnerable. No other framework combines **deeply native** tool configuration generation (15 adapters), **multi-platform board management** (GitHub, Azure DevOps, GitLab), a **learning loop**, event-driven hooks, OWASP security coverage, and a recipe system. The canonical source architecture aligns perfectly with AAIF's AGENTS.md standard. However, technical differentiation is a depreciating asset without distribution.
+The tool-agnostic distribution architecture is no longer unique. Ruler claims broader reach (32 vs 15 targets). BMAD claims 28 template-based tools. GSD claims 14 meta-prompting targets. Spec Kit claims 20+. Combined stars for the methodology frameworks alone (~290k+) remain an existential community gap.
 
-The window for establishing market presence is closing rapidly. Every week without marketplace presence and public visibility is a week where Spec Kit's GitHub backing, Superpowers' community momentum, or GSD's growth trajectory compounds their moat. The competitive advantage has shifted from "most tools" to the combination of **depth** (native adapter quality), **breadth** (board management, learning loop, security), and **platform independence** (multi-platform support beyond GitHub).
+hatch3r's position remains technically differentiated but strategically requires repositioning. No other framework combines **deeply native** tool configuration generation (15 adapters with tool-specific primitive utilization), **multi-platform board management** (GitHub, Azure DevOps, GitLab), a **learning loop**, event-driven hooks, **OWASP Agentic Top 10 security coverage**, a recipe system, and an **audit cycle with 19 domains and 106 sub-agents**. The canonical source architecture aligns with AAIF's AGENTS.md standard. However, technical differentiation is a depreciating asset without distribution.
 
-The strategic path is clear: **distribute immediately, benchmark adapter depth to prove quality differentiation, invest in board management and learning loop as unique moats**. hatch3r has the strongest technical foundation in the space. It now needs the community, distribution, and proven quality metrics to match.
+The window for establishing market presence is closing rapidly. Every week without marketplace presence compounds competitor moats: Claude Code's plugin marketplace is now GA with admin controls, GSD's +71% growth trajectory, OpenCode's 6.5M-developer base, Ruler's architectural mirror. The competitive advantage has shifted from "most tools" to the combination of **depth** (native adapter quality + full content model), **breadth** (board management, learning loop, security, audit governance), and **platform independence** (multi-platform support beyond GitHub).
+
+The strategic path: **distribute immediately to Claude Code plugin marketplace (now GA), benchmark adapter depth to prove quality differentiation vs Ruler and GSD, invest in board management, learning loop, and OWASP coverage as unique moats**. hatch3r has the strongest technical foundation and governance rigor in the space. It now needs the community, distribution, and proven quality metrics to match.
 
 ---
 
 ## References
 
-- GSD: https://github.com/gsd-build/get-shit-done | https://gsd.build/
-- Superpowers: https://github.com/obra/superpowers
-- GitHub Spec Kit: https://github.com/github/spec-kit (estimated)
-- Compound Engineering: https://github.com/EveryInc/compound-engineering-plugin
-- BMAD Method: https://github.com/bmad-code-org/BMAD-METHOD | https://docs.bmad-method.org/
+- GSD: https://github.com/gsd-build/get-shit-done | https://gsd.build/ (~54.8k stars as of April 20, 2026)
+- Superpowers: https://github.com/obra/superpowers (~121k stars as of April 20, 2026)
+- GitHub Spec Kit: https://github.com/github/spec-kit (~72k stars as of April 20, 2026)
+- Compound Engineering: https://github.com/EveryInc/compound-engineering-plugin (~13.5k stars)
+- BMAD Method: https://github.com/bmad-code-org/BMAD-METHOD | https://docs.bmad-method.org/ (~29.6k stars)
 - SkillKit: https://github.com/rohitg00/skillkit
-- OpenCode: https://github.com/sst/opencode (possibly now anomalyco/opencode)
+- OpenCode: https://github.com/anomalyco/opencode (moved from sst/opencode; ~146k stars, 6.5M+ MAU)
 - AgentSys: https://github.com/avifenesh/agentsys
-- ~~CrewSwarm: https://crewswarm.ai/~~ (stalled — site not indexed, no public presence as of March 2026)
-- ~~Crux: https://runcrux.dev/ | https://github.com/err/crux~~ (stalled — site/repo not found as of March 2026)
-- Cline: https://cline.bot/ | https://github.com/cline/cline
-- Goose: https://github.com/block/goose | https://block.github.io/goose/
-- Kiro: https://kiro.dev/ | https://kiro.dev/docs/cli/authentication/
+- **Ruler (new competitor April 20, 2026):** https://github.com/intellectronica/ruler | npm: @intellectronica/ruler
+- ~~CrewSwarm: https://crewswarm.ai/~~ (stalled — site not indexed, no public presence as of April 20, 2026)
+- ~~Crux: https://runcrux.dev/ | https://github.com/err/crux~~ (stalled — site/repo not found as of April 20, 2026)
+- Cline: https://cline.bot/ | https://github.com/cline/cline (~60.5k stars)
+- Goose: https://github.com/block/goose | https://block.github.io/goose/ (~27-29k stars; v1.30.0 released April 8, 2026)
+- Kiro: https://kiro.dev/ | https://kiro.dev/docs/cli/authentication/ (CLI 2.0 released April 14, 2026)
 - ACP Agent Registry: https://www.jetbrains.com/help/ai-assistant/acp.html
 - Weave: https://tryweave.io/ | https://github.com/pgermishuys/opencode-weave
-- Ruflo: https://github.com/ruvnet/ruflo
+- Ruflo: https://github.com/ruvnet/ruflo (~32.3k stars; v3.5 released April 7, 2026)
 - Axon: https://github.com/axon-core/axon
-- awesome-cursorrules: https://github.com/PatrickJS/awesome-cursorrules
+- awesome-cursorrules: https://github.com/PatrickJS/awesome-cursorrules (~39k stars)
 - awesome-cursor-rules-mdc: https://github.com/sanjeed5/awesome-cursor-rules-mdc
 - AAIF: https://www.linuxfoundation.org/press/linux-foundation-announces-the-formation-of-the-agentic-ai-foundation
-- MCP Spec: https://modelcontextprotocol.io/specification
-- Cursor Changelog: https://www.cursor.com/changelog
-- Claude Code Changelog: https://docs.anthropic.com/en/release-notes/claude-code
+- MCP Spec: https://modelcontextprotocol.io/specification/2025-11-25 (current stable; next version planning per April 8, 2026 blog)
+- MCP Registry: https://registry.modelcontextprotocol.io/ (1,200+ servers)
+- MCP 2026 Roadmap: https://blog.modelcontextprotocol.io/posts/2026-mcp-roadmap/
+- Cursor Changelog: https://cursor.com/changelog (v3.0/v3.1 April 2-15, 2026)
+- Claude Code Changelog: https://docs.anthropic.com/en/release-notes/claude-code (plugin marketplace GA April 2026)
 - Codex CLI: https://developers.openai.com/codex/cli
 - Gemini CLI: https://geminicli.com/docs/changelogs/
-- Roo Code: https://docs.roocode.com/
-- Kiro: https://kiro.dev/
-- Amp: https://ampcode.com/
+- Roo Code: https://docs.roocode.com/ (~22.3k stars)
+- Amp: https://ampcode.com/ (CLI-only since March 5, 2026)
 - GitHub Copilot: https://docs.github.com/en/copilot
 - Windsurf: https://codeium.com/windsurf
-- Goose: https://github.com/block/goose

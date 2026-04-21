@@ -176,6 +176,72 @@ describe("ClaudeAdapter", () => {
     expect(parsed.hooks.PreToolUse).toBeDefined();
   });
 
+  // C7-H17: Claude Code plugin-style hooks emission (D9, P3)
+  // Source: https://code.claude.com/docs/en/plugins (accessed 2026-04-19)
+  it("emits .claude/hooks/hatch3r-hooks.json with plugin-style hooks schema", async () => {
+    const manifest = makeManifest();
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const pluginHooks = outputs.find((o) => o.path === ".claude/hooks/hatch3r-hooks.json");
+    expect(pluginHooks).toBeDefined();
+
+    const parsed = JSON.parse(pluginHooks!.content);
+    expect(parsed.hooks).toBeDefined();
+    // hooks/hooks.json uses the same {hooks: {EVENT: [{matcher, hooks:[...]}]}} schema as settings.json
+    expect(parsed.hooks.PreToolUse).toBeDefined();
+    expect(parsed.hooks.PreToolUse[0].matcher).toBeDefined();
+    expect(Array.isArray(parsed.hooks.PreToolUse[0].hooks)).toBe(true);
+    expect(parsed.hooks.PreToolUse[0].hooks[0].type).toBe("command");
+
+    // Hatch3r metadata for managed-block tracking
+    expect(parsed._hatch3r).toBeDefined();
+    expect(parsed._hatch3r.managed).toBe(true);
+    expect(parsed._hatch3r.schema).toBe("claude-code/plugin-hooks/v2.1");
+  });
+
+  it("does not emit plugin-style hooks file when hooks feature is disabled", async () => {
+    const manifest = makeManifest({ features: { hooks: false } });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const pluginHooks = outputs.find((o) => o.path === ".claude/hooks/hatch3r-hooks.json");
+    expect(pluginHooks).toBeUndefined();
+  });
+
+  // C7.5-W2B2-H50 (D17-SA17.2-B, P3): Worktree events use Claude Code v2.1.x
+  // native lifecycle names (WorktreeCreate / WorktreeRemove) per
+  // code.claude.com/docs/en/plugins-reference (accessed 2026-04-19).
+  it("maps worktree-create / worktree-remove to Claude Code v2.1.x native events", async () => {
+    const manifest = makeManifest({
+      worktree: { enabled: true },
+    } as unknown as Parameters<typeof makeManifest>[0]);
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+    const settings = outputs.find((o) => o.path === ".claude/settings.json");
+    expect(settings).toBeDefined();
+    const parsed = JSON.parse(settings!.content);
+    // When worktree is enabled, the adapter emits a native WorktreeCreate handler
+    // in addition to the legacy PostToolUse+Bash fallback.
+    expect(parsed.hooks.WorktreeCreate).toBeDefined();
+    expect(Array.isArray(parsed.hooks.WorktreeCreate)).toBe(true);
+    expect(parsed.hooks.WorktreeCreate[0].hooks[0].command).toContain("hatch3r worktree-setup");
+  });
+
+  it("plugin-style hooks file mirrors settings.json hooks (additive, both emitted)", async () => {
+    const manifest = makeManifest();
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const pluginHooks = outputs.find((o) => o.path === ".claude/hooks/hatch3r-hooks.json");
+    const settings = outputs.find((o) => o.path === ".claude/settings.json");
+    expect(pluginHooks).toBeDefined();
+    expect(settings).toBeDefined();
+
+    const pluginParsed = JSON.parse(pluginHooks!.content);
+    const settingsParsed = JSON.parse(settings!.content);
+    // Same hook event keys appear in both files
+    const pluginEventKeys = Object.keys(pluginParsed.hooks).sort();
+    const settingsEventKeys = Object.keys(settingsParsed.hooks).sort();
+    expect(pluginEventKeys).toEqual(settingsEventKeys);
+  });
+
   it("generates skill files in .claude/skills/", async () => {
     const manifest = makeManifest();
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
@@ -508,5 +574,147 @@ You are a test agent.`,
     const claudeMd = outputs.find((o) => o.path === "CLAUDE.md");
     expect(claudeMd).toBeDefined();
     expect(claudeMd!.content).toContain("Hatch3r");
+  });
+
+  // Wave B3: precedence-based NN- filename prefix on .claude/rules/ outputs.
+  // Mapping: critical -> 10, high -> 30, normal -> 50, low -> 70. The
+  // per-file adapter prepends the rank to the canonical `hatch3r-` prefix so
+  // alphabetical load order reflects precedence.
+  it("emits NN- numeric prefix derived from rule precedence", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-claude-precedence-"));
+    try {
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "rules"), { recursive: true });
+      await writeFile(
+        join(agentsDir, "rules", "security.md"),
+        `---
+id: security
+type: rule
+description: Critical security rule
+scope: always
+precedence: critical
+---
+# Security
+
+Critical security rule body.
+`,
+        "utf-8",
+      );
+      await writeFile(
+        join(agentsDir, "rules", "testing.md"),
+        `---
+id: testing
+type: rule
+description: Normal testing rule
+scope: always
+precedence: normal
+---
+# Testing
+
+Normal precedence rule body.
+`,
+        "utf-8",
+      );
+      await writeFile(
+        join(agentsDir, "rules", "learning.md"),
+        `---
+id: learning
+type: rule
+description: Low priority learning rule
+scope: always
+precedence: low
+---
+# Learning
+
+Low priority rule body.
+`,
+        "utf-8",
+      );
+
+      const outputs = await adapter.generate(agentsDir, makeManifest());
+
+      const securityRule = outputs.find((o) => o.path === ".claude/rules/10-hatch3r-security.md");
+      const testingRule = outputs.find((o) => o.path === ".claude/rules/50-hatch3r-testing.md");
+      const learningRule = outputs.find((o) => o.path === ".claude/rules/70-hatch3r-learning.md");
+
+      expect(securityRule).toBeDefined();
+      expect(testingRule).toBeDefined();
+      expect(learningRule).toBeDefined();
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  // C7.5-W2B2-H41 (D15, P6): per-adapter `tools:` frontmatter emission.
+  // Verify the Claude Code adapter emits a policy-derived `tools:` field
+  // for canonical agents registered in AGENT_TOOL_POLICIES, and omits it
+  // for custom/unknown agents (preserving the upstream inherit-from-parent
+  // default).
+  describe("C7.5-W2B2-H41 tools: frontmatter emission", () => {
+    async function runWithAgent(
+      agentId: string,
+      body: string,
+    ): Promise<Awaited<ReturnType<typeof adapter.generate>>> {
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-claude-tools-"));
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "agents"), { recursive: true });
+      await writeFile(
+        join(agentsDir, "agents", `${agentId}.md`),
+        `---\nid: ${agentId}\ntype: agent\ndescription: ${agentId} description\n---\n${body}\n`,
+        "utf-8",
+      );
+      try {
+        return await adapter.generate(agentsDir, makeManifest());
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    }
+
+    it("emits tools: for hatch3r-reviewer restricted to Read/Grep/Glob", async () => {
+      const outputs = await runWithAgent("reviewer", "# Reviewer");
+      const file = outputs.find(
+        (o) => o.path === ".claude/agents/hatch3r-reviewer.md",
+      );
+      expect(file).toBeDefined();
+      expect(file!.content).toMatch(/^---\n[\s\S]*?tools: [\s\S]*?\n---/m);
+      expect(file!.content).toContain("Read");
+      expect(file!.content).toContain("Grep");
+      expect(file!.content).toContain("Glob");
+      // Monotonic privilege: reviewer is read+search only — no write, edit, bash.
+      const fmMatch = file!.content.match(/^---\n([\s\S]*?)\n---/);
+      expect(fmMatch).not.toBeNull();
+      const fm = fmMatch![1];
+      expect(fm).not.toContain("Write");
+      expect(fm).not.toContain("Edit");
+      expect(fm).not.toContain("Bash");
+    });
+
+    it("emits tools: for hatch3r-implementer including Write and Bash", async () => {
+      const outputs = await runWithAgent("implementer", "# Implementer");
+      const file = outputs.find(
+        (o) => o.path === ".claude/agents/hatch3r-implementer.md",
+      );
+      expect(file).toBeDefined();
+      const fmMatch = file!.content.match(/^---\n([\s\S]*?)\n---/);
+      expect(fmMatch).not.toBeNull();
+      const fm = fmMatch![1];
+      expect(fm).toContain("tools:");
+      expect(fm).toContain("Write");
+      expect(fm).toContain("Bash");
+      expect(fm).toContain("Edit");
+    });
+
+    it("omits tools: for custom agents without a registered policy", async () => {
+      const outputs = await runWithAgent("custom-agent", "# Custom");
+      const file = outputs.find(
+        (o) => o.path === ".claude/agents/hatch3r-custom-agent.md",
+      );
+      expect(file).toBeDefined();
+      const fmMatch = file!.content.match(/^---\n([\s\S]*?)\n---/);
+      expect(fmMatch).not.toBeNull();
+      const fm = fmMatch![1];
+      expect(fm).not.toContain("tools:");
+      expect(fm).toContain("description:");
+    });
   });
 });

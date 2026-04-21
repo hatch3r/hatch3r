@@ -23,37 +23,41 @@ Prepare a hatch3r framework release with full quality gates.
 
 ## Step 2: Update Version
 
-4. Update `package.json` version field
-5. Run `npm install` to refresh lockfile version
+4. Update `package.json` version field (single source of truth)
+5. Update `.claude-plugin/plugin.json` version field to the same semver
+6. Update the embedded manifest copy in `docs/marketplace-submission.md` (search for `"version":` inside the plugin-manifest JSON block) to the same semver
+7. Run `npm install` to refresh lockfile version
+8. Run `npm run inventory:check-docs` to verify no version drift (the version probes in `scripts/inventory.ts` compare `package.json` against the files above)
+9. `.cursor-plugin/plugin.json` version is tracked independently (Cursor plugin release cadence can diverge from hatch3r package cadence); bump only if the Cursor plugin changes
 
 ## Step 3: Quality Gates
 
 Run all gates — ALL must pass:
 
-6. `npm test` — 0 failed tests
-7. `npx tsc --noEmit` — 0 type errors
-8. `npm run lint` — 0 lint errors
-9. `npm run build` — build succeeds, output in `dist/`
-10. `npx hatch3r validate` — 0 validation errors
+10. `npm test` — 0 failed tests
+11. `npx tsc --noEmit` — 0 type errors
+12. `npm run lint` — 0 lint errors
+13. `npm run build` — build succeeds, output in `dist/`
+14. `npx hatch3r validate` — 0 validation errors
 
 ## Step 4: Adapter Verification
 
-11. Verify all 15 adapters are registered in `src/adapters/index.ts`
-12. Verify `ADAPTER_CAPABILITIES` matrix is complete (no undefined entries)
-13. Check that `package.json` `files` array includes all content directories:
+15. Verify all 15 adapters are registered in `src/adapters/index.ts`
+16. Verify `ADAPTER_CAPABILITIES` matrix is complete (no undefined entries)
+17. Check that `package.json` `files` array includes all content directories:
     - `agents/`, `checks/`, `commands/`, `rules/`, `skills/`, `prompts/`, `github-agents/`, `mcp/`, `hooks/`
 
 ## Step 5: Lockfile & Supply Chain
 
-14. Verify lockfile integrity: `npx lockfile-lint --type npm --allowed-schemes https: --path package-lock.json`
-15. Run security audit: `npm audit --audit-level=high --omit=dev`
+18. Verify lockfile integrity: `npx lockfile-lint --type npm --allowed-schemes https: --path package-lock.json`
+19. Run security audit: `npm audit --audit-level=high --omit=dev`
 
 ## Step 6: Changelog
 
-16. Generate CHANGELOG entries grouped by: Adapters, Content, CLI, Governance, Dependencies, Chore
-17. Verify version header matches package.json version
+20. Generate CHANGELOG entries grouped by: Adapters, Content, CLI, Governance, Dependencies, Chore
+21. Verify version header matches package.json version
 
 ## Step 7: Tag & Release
 
-18. Create annotated git tag: `git tag -a v{version} -m "hatch3r v{version}"`
-19. Ask user to confirm before pushing tag and creating GitHub release
+22. Create annotated git tag: `git tag -a v{version} -m "hatch3r v{version}"`
+23. Ask user to confirm before pushing tag and creating GitHub release

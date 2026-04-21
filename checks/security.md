@@ -5,6 +5,8 @@ description: Security review criteria covering vulnerability patterns, input val
 ---
 # Security Check
 
+> **Severity vocabulary:** see [governance/audit/templates/severity-mapping.md](../governance/audit/templates/severity-mapping.md) for canonical 5-column mapping.
+
 Review criteria for evaluating security posture in pull requests.
 
 ## Input Validation

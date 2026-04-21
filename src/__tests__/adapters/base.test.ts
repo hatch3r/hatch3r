@@ -268,4 +268,139 @@ describe("BaseAdapter", () => {
       expect(stripped).toBe("a\n\nb");
     });
   });
+
+  // ── C8-D12-M3: Per-output sourceFiles provenance ──────────────────
+  describe("sourceFiles provenance", () => {
+    it("populates sourceFiles on outputs when inlineRules reads canonical files", async () => {
+      class RulesAdapter extends BaseAdapter {
+        readonly name = "rules-only";
+        protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
+          const lines = await this.inlineRules(ctx);
+          return [output("rules-out.md", lines.join("\n") || "empty")];
+        }
+      }
+      const adapter = new RulesAdapter();
+      const outputs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      expect(outputs.length).toBe(1);
+      // Rules fixture directory contains scoped-rule.md and test-rule.md; the
+      // inlineRules helper goes through readTrackedCanonicalFiles so both
+      // absolute sourcePaths should appear on the output.
+      expect(outputs[0]?.sourceFiles).toBeDefined();
+      expect(outputs[0]?.sourceFiles?.length).toBeGreaterThan(0);
+      expect(outputs[0]?.sourceFiles?.some((s) => s.endsWith("test-rule.md"))).toBe(true);
+      expect(outputs[0]?.sourceFiles?.some((s) => s.endsWith("scoped-rule.md"))).toBe(true);
+    });
+
+    it("populates sourceFiles on outputs when inlineAgents reads canonical files", async () => {
+      class AgentsAdapter extends BaseAdapter {
+        readonly name = "agents-only";
+        protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
+          const lines = await this.inlineAgents(ctx);
+          return [output("agents-out.md", lines.join("\n") || "empty")];
+        }
+      }
+      const adapter = new AgentsAdapter();
+      const outputs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      expect(outputs[0]?.sourceFiles?.some((s) => s.endsWith("test-agent.md"))).toBe(true);
+    });
+
+    it("populates sourceFiles for multi-helper adapters that aggregate rules + agents", async () => {
+      class CombinedAdapter extends BaseAdapter {
+        readonly name = "combined";
+        protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
+          const rules = await this.inlineRules(ctx);
+          const agents = await this.inlineAgents(ctx);
+          return [output("combined.md", [...rules, ...agents].join("\n") || "empty")];
+        }
+      }
+      const adapter = new CombinedAdapter();
+      const outputs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      const sources = outputs[0]?.sourceFiles ?? [];
+      // Adapter read both rules and agents dirs — both groups should show up
+      // in the aggregate provenance list.
+      expect(sources.some((s) => s.endsWith("test-rule.md"))).toBe(true);
+      expect(sources.some((s) => s.endsWith("test-agent.md"))).toBe(true);
+      // Deterministic sort: the returned array is monotonically ordered so
+      // re-runs produce byte-identical `.provenance.json`.
+      const sorted = [...sources].sort();
+      expect(sources).toEqual(sorted);
+    });
+
+    it("populates sourceFiles for every output an adapter emits (shared tracked set)", async () => {
+      class MultiOutputAdapter extends BaseAdapter {
+        readonly name = "multi-output";
+        protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
+          await this.inlineRules(ctx);
+          // Emit two output files; both should receive the tracked sourceFiles.
+          return [
+            output("first.md", "first"),
+            output("second.md", "second"),
+          ];
+        }
+      }
+      const adapter = new MultiOutputAdapter();
+      const outputs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      expect(outputs.length).toBe(2);
+      expect(outputs[0]?.sourceFiles?.length).toBeGreaterThan(0);
+      expect(outputs[1]?.sourceFiles).toEqual(outputs[0]?.sourceFiles);
+    });
+
+    it("leaves sourceFiles undefined when no canonical files are read", async () => {
+      class NoCanonicalAdapter extends BaseAdapter {
+        readonly name = "no-canonical";
+        protected async doGenerate(_ctx: AdapterContext): Promise<AdapterOutput[]> {
+          return [output("config.json", JSON.stringify({ hello: "world" }))];
+        }
+      }
+      const adapter = new NoCanonicalAdapter();
+      const outputs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      // When no canonical files are read, the tracked set is empty and we
+      // should not fabricate a sourceFiles entry — absence is the signal.
+      expect(outputs[0]?.sourceFiles).toBeUndefined();
+    });
+
+    it("preserves sourceFiles when the adapter sets it explicitly", async () => {
+      class ExplicitAdapter extends BaseAdapter {
+        readonly name = "explicit";
+        protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
+          await this.inlineRules(ctx); // Will populate tracker
+          // Explicit sourceFiles on one output should NOT be overwritten by
+          // the adapter-wide tracked set.
+          return [
+            { path: "explicit.md", content: "c", sourceFiles: ["only/this.md"], action: "create" },
+            output("default.md", "d"),
+          ];
+        }
+      }
+      const adapter = new ExplicitAdapter();
+      const outputs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      expect(outputs[0]?.sourceFiles).toEqual(["only/this.md"]);
+      // Second output receives the tracked set (rules contributed paths).
+      expect(outputs[1]?.sourceFiles?.length).toBeGreaterThan(0);
+      expect(outputs[1]?.sourceFiles?.[0]).not.toBe("only/this.md");
+    });
+
+    it("resets the tracker between successive generate() calls", async () => {
+      class ResettingAdapter extends BaseAdapter {
+        readonly name = "resetting";
+        private readNext = true;
+        protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
+          if (this.readNext) {
+            await this.inlineRules(ctx);
+          }
+          // On the second call, readNext=false so nothing is tracked.
+          this.readNext = false;
+          return [output("out.md", "body")];
+        }
+      }
+      const adapter = new ResettingAdapter();
+      const first = await adapter.generate(FIXTURES_DIR, makeManifest());
+      const capturedFirst: string[] | undefined = first[0]?.sourceFiles;
+      const second = await adapter.generate(FIXTURES_DIR, makeManifest());
+      const capturedSecond: string[] | undefined = second[0]?.sourceFiles;
+      expect(capturedFirst?.length).toBeGreaterThan(0);
+      // Second run read no canonical files; tracker reset → sourceFiles absent.
+      expect(capturedSecond).toBeUndefined();
+    });
+  });
 });

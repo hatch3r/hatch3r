@@ -1,5 +1,9 @@
 # Domain 11: End-to-End Data Flow
 
+> Last updated: 2026-04-19
+
+**Pillars served:** P4 (primary), P2 (supporting).
+
 **Scope:** The full data flow from canonical source through adapters to tool-specific output.
 **Sub-agents:** 4
 
@@ -9,6 +13,12 @@
 | 11.2 | Managed Blocks & Safe Write |
 | 11.3 | MCP Propagation & Secrets |
 | 11.4 | Customization & CLI Lifecycle |
+
+> Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
+
+## Severity Discipline Cap
+
+D11 Medium findings are capped at **8 per cycle** absent explicit justification per finding above the cap. Cycle 6 D11 produced 25 Mediums; Cycle 7 triage reduced to 6 by removing items where the impact was below the Medium threshold definition. If the cap is exceeded, the orchestrator MUST tag each Medium beyond #8 with a `cap_exception_rationale` referencing a specific user-impact scenario.
 
 ## Audit Checklists
 

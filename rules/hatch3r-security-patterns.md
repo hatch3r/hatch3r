@@ -55,7 +55,7 @@ quality_charter: agents/shared/quality-charter.md
 ### ASI01 — Agent Goal Hijack
 
 - Separate system prompts from user input with clear delimiters. Never allow user content to override system instructions.
-- Implement input guardrails: scan user messages for injection patterns before LLM processing.
+- Implement input guardrails: scan user messages for injection patterns before LLM processing. Canonical pattern catalog: `agents/shared/injection-patterns.md` (Sections A, B, C enumerate pipeline, learnings-storage, and user-facing screening patterns respectively).
 - Enforce instruction hierarchy: system > developer > user. Reject attempts to redefine agent purpose.
 - Defend against indirect prompt injection: sanitize and tag content retrieved from external sources (RAG, web, files) before including in context.
 

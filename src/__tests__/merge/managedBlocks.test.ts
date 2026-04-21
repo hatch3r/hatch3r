@@ -6,6 +6,7 @@ import {
   hasManagedBlock,
   wrapInManagedBlock,
 } from "../../merge/managedBlocks.js";
+import { HatchError } from "../../types.js";
 
 describe("managedBlocks", () => {
   const START = "<!-- HATCH3R:BEGIN -->";
@@ -19,6 +20,30 @@ describe("managedBlocks", () => {
       expect(() => insertManagedBlock("", "Hello")).toThrow(
         "Content must contain managed block markers",
       );
+    });
+
+    // C7-H14: insertManagedBlock throws HatchError (not plain Error) so callers
+    // can recover programmatically from corrupted/missing markers.
+    it("throws HatchError with VALIDATION_ERROR code on missing markers", () => {
+      try {
+        insertManagedBlock("Custom content", "Managed content");
+        throw new Error("expected throw did not occur");
+      } catch (e) {
+        expect(e).toBeInstanceOf(HatchError);
+        expect((e as HatchError).errorCode).toBe("VALIDATION_ERROR");
+        expect((e as HatchError).exitCode).toBe(1);
+      }
+    });
+
+    it("throws HatchError with VALIDATION_ERROR code on duplicate start marker", () => {
+      const content = `${START}\nfirst\n${END}\n${START}\nsecond`;
+      try {
+        insertManagedBlock(content, "Managed content");
+        throw new Error("expected throw did not occur");
+      } catch (e) {
+        expect(e).toBeInstanceOf(HatchError);
+        expect((e as HatchError).errorCode).toBe("VALIDATION_ERROR");
+      }
     });
 
     it("replaces existing block while preserving custom content", () => {

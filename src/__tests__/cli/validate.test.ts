@@ -44,9 +44,11 @@ async function createMinimalAgentsDir(root: string): Promise<void> {
     "# AGENTS.md\n\nTest agents file.\n",
   );
 
+  // Description >=60 chars to pass the Wave C1 description-quality lint
+  // (promoted from warning to error in src/cli/commands/validate.ts).
   await writeFile(
     join(agentsDir, "rules", "hatch3r-test-rule.md"),
-    "---\nid: hatch3r-test-rule\ntype: rule\ndescription: A test rule\nscope: always\n---\n# Test Rule\n\nTest content.\n",
+    "---\nid: hatch3r-test-rule\ntype: rule\ndescription: Test fixture rule for exercising the validate command pipeline without triggering description-quality lint errors\nscope: always\n---\n# Test Rule\n\nTest content.\n",
   );
 }
 
@@ -56,6 +58,16 @@ describe("validate command", () => {
   let exitSpy: MockInstance;
   let consoleSpy: ReturnType<typeof vi.spyOn>;
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
+
+  // D12-M1: error()/warn() route to console.error (stderr), printBox/info/banner
+  // stay on console.log (stdout). Tests that assert on error/warn messages must
+  // capture both streams.
+  function combinedOutput(): string {
+    return [
+      ...consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])),
+      ...consoleErrorSpy.mock.calls.map((c: unknown[]) => String(c[0])),
+    ].join(" ");
+  }
 
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), "hatch3r-validate-"));
@@ -83,10 +95,7 @@ describe("validate command", () => {
     await expect(validateCommand()).rejects.toThrow(HatchError);
     try { await validateCommand(); } catch (e) { expect((e as HatchError).exitCode).toBe(1); }
 
-    const allOutput = consoleSpy.mock.calls
-      .map((c: unknown[]) => String(c[0]))
-      .join(" ");
-    expect(allOutput).toContain(".agents/ directory not found");
+    expect(combinedOutput()).toContain(".agents/ directory not found");
   });
 
   it("should pass validation for a valid structure", async () => {
@@ -109,8 +118,7 @@ describe("validate command", () => {
     await expect(validateCommand()).rejects.toThrow(HatchError);
     try { await validateCommand(); } catch (e) { expect((e as HatchError).exitCode).toBe(1); }
 
-    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
-    expect(allOutput).toContain("Missing .agents/hatch.json manifest");
+    expect(combinedOutput()).toContain("Missing .agents/hatch.json manifest");
   });
 
   it("should warn about missing frontmatter in canonical files", async () => {
@@ -122,10 +130,12 @@ describe("validate command", () => {
     );
 
     const { validateCommand } = await import("../../cli/commands/validate.js");
-    await validateCommand();
+    // Wave C1: a file with no frontmatter surfaces both the frontmatter warning
+    // and the description-quality lint error (description length 0 < 60), so
+    // validate now throws. The warning message still reaches the output stream.
+    await expect(validateCommand()).rejects.toThrow(HatchError);
 
-    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
-    expect(allOutput).toContain("Missing frontmatter");
+    expect(combinedOutput()).toContain("Missing frontmatter");
   });
 
   it("should warn about missing optional directories", async () => {
@@ -138,8 +148,7 @@ describe("validate command", () => {
     const { validateCommand } = await import("../../cli/commands/validate.js");
     await validateCommand();
 
-    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
-    expect(allOutput).toContain("Optional directory missing");
+    expect(combinedOutput()).toContain("Optional directory missing");
   });
 
   it("should report error for invalid frontmatter (no closing ---)", async () => {
@@ -153,8 +162,7 @@ describe("validate command", () => {
     const { validateCommand } = await import("../../cli/commands/validate.js");
     await expect(validateCommand()).rejects.toThrow(HatchError);
 
-    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
-    expect(allOutput).toContain("Invalid frontmatter (no closing ---)");
+    expect(combinedOutput()).toContain("Invalid frontmatter (no closing ---)");
   });
 
   it("should warn about missing id in frontmatter", async () => {
@@ -162,14 +170,13 @@ describe("validate command", () => {
 
     await writeFile(
       join(tempDir, AGENTS_DIR, "rules", "no-id.md"),
-      "---\ntype: rule\ndescription: no id\n---\n# No ID\n\nContent.\n",
+      "---\ntype: rule\ndescription: fixture exercising the missing-id-in-frontmatter warning path for validate\n---\n# No ID\n\nContent.\n",
     );
 
     const { validateCommand } = await import("../../cli/commands/validate.js");
     await validateCommand();
 
-    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
-    expect(allOutput).toContain("Missing 'id' in frontmatter");
+    expect(combinedOutput()).toContain("Missing 'id' in frontmatter");
   });
 
   it("should warn about missing type in frontmatter", async () => {
@@ -177,14 +184,112 @@ describe("validate command", () => {
 
     await writeFile(
       join(tempDir, AGENTS_DIR, "rules", "no-type.md"),
-      "---\nid: no-type\ndescription: no type\n---\n# No Type\n\nContent.\n",
+      "---\nid: no-type\ndescription: fixture exercising the missing-type-in-frontmatter warning path for validate\n---\n# No Type\n\nContent.\n",
     );
 
     const { validateCommand } = await import("../../cli/commands/validate.js");
     await validateCommand();
 
-    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
-    expect(allOutput).toContain("Missing 'type' in frontmatter");
+    expect(combinedOutput()).toContain("Missing 'type' in frontmatter");
+  });
+
+  // C8-D5-M1: orchestrator marker frontmatter contract on command files.
+  // Warnings/errors emit via ui.ts warn/error → console.error (stderr); success
+  // boxes emit via printBox → console.log. Capture both streams accordingly.
+  describe("command orchestrator frontmatter (C8-D5-M1)", () => {
+    function combinedOutput(): string {
+      const logs = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
+      const errs = consoleErrorSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
+      return `${logs} ${errs}`;
+    }
+
+    it("warns when a command is missing the orchestrator marker", async () => {
+      await createMinimalAgentsDir(tempDir);
+      await writeFile(
+        join(tempDir, AGENTS_DIR, "commands", "hatch3r-no-marker.md"),
+        "---\nid: hatch3r-no-marker\ntype: command\ndescription: fixture exercising the missing-orchestrator-marker warning path for validate\n---\n# No marker\n",
+      );
+
+      const { validateCommand } = await import("../../cli/commands/validate.js");
+      await validateCommand();
+
+      expect(combinedOutput()).toContain("Missing 'orchestrator' in frontmatter");
+    });
+
+    it("errors when orchestrator is true but agentPipeline is missing", async () => {
+      await createMinimalAgentsDir(tempDir);
+      await writeFile(
+        join(tempDir, AGENTS_DIR, "commands", "hatch3r-true-no-pipeline.md"),
+        "---\nid: hatch3r-true-no-pipeline\ntype: command\norchestrator: true\ndescription: no pipeline\n---\n# Missing pipeline\n",
+      );
+
+      const { validateCommand } = await import("../../cli/commands/validate.js");
+      await expect(validateCommand()).rejects.toThrow(HatchError);
+      expect(combinedOutput()).toContain("Missing 'agentPipeline'");
+    });
+
+    it("errors when orchestrator is true and agentPipeline is empty", async () => {
+      await createMinimalAgentsDir(tempDir);
+      await writeFile(
+        join(tempDir, AGENTS_DIR, "commands", "hatch3r-empty-pipeline.md"),
+        "---\nid: hatch3r-empty-pipeline\ntype: command\norchestrator: true\nagentPipeline: []\ndescription: empty pipeline\n---\n# Empty pipeline\n",
+      );
+
+      const { validateCommand } = await import("../../cli/commands/validate.js");
+      await expect(validateCommand()).rejects.toThrow(HatchError);
+      expect(combinedOutput()).toContain("Empty 'agentPipeline'");
+    });
+
+    it("errors when orchestrator is not a boolean", async () => {
+      await createMinimalAgentsDir(tempDir);
+      await writeFile(
+        join(tempDir, AGENTS_DIR, "commands", "hatch3r-bad-marker.md"),
+        "---\nid: hatch3r-bad-marker\ntype: command\norchestrator: \"maybe\"\ndescription: wrong type\n---\n# Bad marker\n",
+      );
+
+      const { validateCommand } = await import("../../cli/commands/validate.js");
+      await expect(validateCommand()).rejects.toThrow(HatchError);
+      expect(combinedOutput()).toContain("Invalid 'orchestrator' value");
+    });
+
+    it("passes when orchestrator is true with a populated agentPipeline", async () => {
+      await createMinimalAgentsDir(tempDir);
+      await writeFile(
+        join(tempDir, AGENTS_DIR, "commands", "hatch3r-orchestrator.md"),
+        "---\nid: hatch3r-orchestrator\ntype: command\norchestrator: true\nagentPipeline: [hatch3r-researcher, hatch3r-implementer]\ndescription: fixture exercising the orchestrator-true-with-pipeline happy path in validate\n---\n# Orchestrator ok\n",
+      );
+
+      const { validateCommand } = await import("../../cli/commands/validate.js");
+      await validateCommand();
+
+      const out = combinedOutput();
+      expect(out).not.toContain("Missing 'orchestrator'");
+      expect(out).not.toContain("Missing 'agentPipeline'");
+    });
+
+    it("passes when orchestrator is false without agentPipeline", async () => {
+      await createMinimalAgentsDir(tempDir);
+      await writeFile(
+        join(tempDir, AGENTS_DIR, "commands", "hatch3r-inline.md"),
+        "---\nid: hatch3r-inline\ntype: command\norchestrator: false\ndescription: fixture exercising the orchestrator-false-no-pipeline happy path in validate\n---\n# Inline ok\n",
+      );
+
+      const { validateCommand } = await import("../../cli/commands/validate.js");
+      await validateCommand();
+      expect(combinedOutput()).not.toContain("Missing 'orchestrator'");
+    });
+
+    it("warns when orchestrator is false but agentPipeline is populated", async () => {
+      await createMinimalAgentsDir(tempDir);
+      await writeFile(
+        join(tempDir, AGENTS_DIR, "commands", "hatch3r-unused-pipeline.md"),
+        "---\nid: hatch3r-unused-pipeline\ntype: command\norchestrator: false\nagentPipeline: [hatch3r-researcher]\ndescription: fixture exercising the unused-agentPipeline-on-inline-command warning path in validate\n---\n# Unused pipeline\n",
+      );
+
+      const { validateCommand } = await import("../../cli/commands/validate.js");
+      await validateCommand();
+      expect(combinedOutput()).toContain("Unused 'agentPipeline'");
+    });
   });
 
   it("should warn about skill directory missing SKILL.md", async () => {
@@ -197,8 +302,7 @@ describe("validate command", () => {
     const { validateCommand } = await import("../../cli/commands/validate.js");
     await validateCommand();
 
-    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
-    expect(allOutput).toContain("Skill directory missing SKILL.md");
+    expect(combinedOutput()).toContain("Skill directory missing SKILL.md");
   });
 
   it("should warn about managed file without hatch3r prefix", async () => {
@@ -214,8 +318,7 @@ describe("validate command", () => {
     const { validateCommand } = await import("../../cli/commands/validate.js");
     await validateCommand();
 
-    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
-    expect(allOutput).toContain("Managed file without hatch3r- prefix");
+    expect(combinedOutput()).toContain("Managed file without hatch3r- prefix");
   });
 
   it("should report error for invalid JSON in mcp.json", async () => {
@@ -235,8 +338,7 @@ describe("validate command", () => {
     const { validateCommand } = await import("../../cli/commands/validate.js");
     await expect(validateCommand()).rejects.toThrow(HatchError);
 
-    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
-    expect(allOutput).toContain("Invalid JSON in .agents/mcp/mcp.json");
+    expect(combinedOutput()).toContain("Invalid JSON in .agents/mcp/mcp.json");
   });
 
   it("should warn when learning files contain denied patterns", async () => {
@@ -252,8 +354,7 @@ describe("validate command", () => {
     const { validateCommand } = await import("../../cli/commands/validate.js");
     await validateCommand();
 
-    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
-    expect(allOutput).toContain('Learning "bad-learning.md" contains suspicious content');
+    expect(combinedOutput()).toContain('Learning "bad-learning.md" contains suspicious content');
   });
 
   it("should not warn for clean learning files", async () => {
@@ -304,12 +405,12 @@ describe("validate command", () => {
     const { validateCommand } = await import("../../cli/commands/validate.js");
     await validateCommand();
 
-    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
     // D15 Wave 3: integrity-signing-status compliance check emits a warning,
-    // so "All checks passed" is no longer expected — only "Validation passed"
-    expect(allOutput).toContain("Validation passed");
-    // The signing limitation warning should be present as an advisory
-    expect(allOutput).toContain("ASI-INTEGRITY");
+    // so "All checks passed" is no longer expected — only "Validation passed".
+    // D12-M1: "Validation passed" comes from printBox (stdout); ASI-INTEGRITY
+    // advisory comes from warn() (stderr). Capture both.
+    expect(combinedOutput()).toContain("Validation passed");
+    expect(combinedOutput()).toContain("ASI-INTEGRITY");
   });
 
   it("should warn when hooks feature is enabled but no hooks exist", async () => {
@@ -320,8 +421,7 @@ describe("validate command", () => {
     const { validateCommand } = await import("../../cli/commands/validate.js");
     await validateCommand();
 
-    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
-    expect(allOutput).toContain("Hooks feature enabled but no hook definitions found");
+    expect(combinedOutput()).toContain("Hooks feature enabled but no hook definitions found");
   });
 
   it("should warn when hooks directory is missing despite feature being enabled", async () => {
@@ -330,8 +430,7 @@ describe("validate command", () => {
     const { validateCommand } = await import("../../cli/commands/validate.js");
     await validateCommand();
 
-    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
-    expect(allOutput).toContain("Hooks feature enabled but .agents/hooks/ directory not found");
+    expect(combinedOutput()).toContain("Hooks feature enabled but .agents/hooks/ directory not found");
   });
 
   it("should warn about hook missing frontmatter", async () => {
@@ -346,8 +445,7 @@ describe("validate command", () => {
     const { validateCommand } = await import("../../cli/commands/validate.js");
     await validateCommand();
 
-    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
-    expect(allOutput).toContain("Hook missing frontmatter");
+    expect(combinedOutput()).toContain("Hook missing frontmatter");
   });
 
   it("should error when hook references non-existent agent", async () => {
@@ -362,8 +460,7 @@ describe("validate command", () => {
     const { validateCommand } = await import("../../cli/commands/validate.js");
     await expect(validateCommand()).rejects.toThrow(HatchError);
 
-    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
-    expect(allOutput).toContain('references agent "ghost-agent"');
+    expect(combinedOutput()).toContain('references agent "ghost-agent"');
   });
 
   it("should error when models.default is not a string", async () => {
@@ -376,8 +473,7 @@ describe("validate command", () => {
     const { validateCommand } = await import("../../cli/commands/validate.js");
     await expect(validateCommand()).rejects.toThrow(HatchError);
 
-    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
-    expect(allOutput).toContain("models.default must be a string");
+    expect(combinedOutput()).toContain("models.default must be a string");
   });
 
   it("should error when models.agents value is not a string", async () => {
@@ -390,8 +486,7 @@ describe("validate command", () => {
     const { validateCommand } = await import("../../cli/commands/validate.js");
     await expect(validateCommand()).rejects.toThrow(HatchError);
 
-    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
-    expect(allOutput).toContain("models.agents.coder must be a string");
+    expect(combinedOutput()).toContain("models.agents.coder must be a string");
   });
 
   it("should warn about customization file for non-existent agent", async () => {
@@ -406,8 +501,7 @@ describe("validate command", () => {
     const { validateCommand } = await import("../../cli/commands/validate.js");
     await validateCommand();
 
-    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
-    expect(allOutput).toContain("Customization file for non-existent agent");
+    expect(combinedOutput()).toContain("Customization file for non-existent agent");
   });
 
   it("should error when mcp.json is missing mcpServers key", async () => {
@@ -425,8 +519,7 @@ describe("validate command", () => {
     const { validateCommand } = await import("../../cli/commands/validate.js");
     await expect(validateCommand()).rejects.toThrow(HatchError);
 
-    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
-    expect(allOutput).toContain("MCP config missing 'mcpServers' key");
+    expect(combinedOutput()).toContain("MCP config missing 'mcpServers' key");
   });
 
   it("should warn when mcp.json is missing despite servers being configured", async () => {
@@ -440,8 +533,7 @@ describe("validate command", () => {
     const { validateCommand } = await import("../../cli/commands/validate.js");
     await validateCommand();
 
-    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
-    expect(allOutput).toContain("MCP servers configured but .agents/mcp/mcp.json not found");
+    expect(combinedOutput()).toContain("MCP servers configured but .agents/mcp/mcp.json not found");
   });
 
   it("should warn about missing managed files on disk", async () => {
@@ -454,7 +546,133 @@ describe("validate command", () => {
     const { validateCommand } = await import("../../cli/commands/validate.js");
     await validateCommand();
 
-    const allOutput = consoleSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(" ");
-    expect(allOutput).toContain("Managed file missing from disk: missing-file.md");
+    expect(combinedOutput()).toContain("Managed file missing from disk: missing-file.md");
+  });
+
+  describe("--format json (C8-D1-M10)", () => {
+    let stdoutSpy: ReturnType<typeof vi.spyOn>;
+    let stdoutChunks: string[];
+
+    beforeEach(() => {
+      stdoutChunks = [];
+      stdoutSpy = vi
+        .spyOn(process.stdout, "write")
+        .mockImplementation((chunk: unknown): boolean => {
+          stdoutChunks.push(typeof chunk === "string" ? chunk : String(chunk));
+          return true;
+        });
+    });
+
+    afterEach(() => {
+      stdoutSpy.mockRestore();
+    });
+
+    function parseJsonOutput(): {
+      errors: string[];
+      warnings: string[];
+      summary: {
+        status: "passed" | "failed";
+        errorCount: number;
+        warningCount: number;
+        docsMode: boolean;
+        hatch3rVersion: string;
+        timestamp: string;
+      };
+    } {
+      const joined = stdoutChunks.join("");
+      // Parse the first JSON line (the emitted payload)
+      const firstLine = joined.split("\n").find((l) => l.trim().startsWith("{"));
+      if (!firstLine) throw new Error(`No JSON line in stdout: ${JSON.stringify(joined)}`);
+      return JSON.parse(firstLine);
+    }
+
+    it("emits structured JSON on successful validation", async () => {
+      await createMinimalAgentsDir(tempDir);
+
+      const { validateCommand } = await import("../../cli/commands/validate.js");
+      await validateCommand({ format: "json" });
+
+      const payload = parseJsonOutput();
+      expect(payload.errors).toEqual([]);
+      expect(Array.isArray(payload.warnings)).toBe(true);
+      expect(payload.summary.status).toBe("passed");
+      expect(payload.summary.errorCount).toBe(0);
+      expect(payload.summary.docsMode).toBe(false);
+      expect(payload.summary.hatch3rVersion).toMatch(/^\d+\.\d+\.\d+/);
+      expect(payload.summary.timestamp).toMatch(
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
+      );
+    });
+
+    it("emits JSON and throws HatchError when validation fails", async () => {
+      // Missing .agents/ directory -> CONFIG_ERROR, exit 1
+      const { validateCommand } = await import("../../cli/commands/validate.js");
+      await expect(validateCommand({ format: "json" })).rejects.toThrow(HatchError);
+
+      const payload = parseJsonOutput();
+      expect(payload.summary.status).toBe("failed");
+      expect(payload.summary.errorCount).toBe(1);
+      expect(payload.errors[0]).toContain(".agents/ directory not found");
+    });
+
+    it("emits JSON with errors when manifest has a type violation", async () => {
+      await createMinimalAgentsDir(tempDir);
+      const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
+      const manifest = JSON.parse(await readFile(manifestPath, "utf-8"));
+      manifest.models = { default: 123 };
+      await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+
+      const { validateCommand } = await import("../../cli/commands/validate.js");
+      await expect(validateCommand({ format: "json" })).rejects.toThrow(HatchError);
+
+      const payload = parseJsonOutput();
+      expect(payload.summary.status).toBe("failed");
+      expect(payload.summary.errorCount).toBeGreaterThan(0);
+      expect(
+        payload.errors.some((e) => e.includes("models.default must be a string")),
+      ).toBe(true);
+    });
+
+    it("suppresses the banner and printBox output in JSON mode", async () => {
+      await createMinimalAgentsDir(tempDir);
+
+      const { validateCommand } = await import("../../cli/commands/validate.js");
+      await validateCommand({ format: "json" });
+
+      // console.log is used for banner and printBox. In json mode none of those
+      // should fire; only process.stdout.write receives the JSON payload.
+      const consoleOutput = consoleSpy.mock.calls
+        .map((c: unknown[]) => String(c[0]))
+        .join("\n");
+      expect(consoleOutput).not.toContain("hatch3r");
+      expect(consoleOutput).not.toContain("Validation");
+      expect(stdoutChunks.join("")).toMatch(/^\{/);
+    });
+
+    it("treats unknown --format value as human mode", async () => {
+      await createMinimalAgentsDir(tempDir);
+
+      const { validateCommand } = await import("../../cli/commands/validate.js");
+      // Any value other than "json" falls back to human rendering
+      await validateCommand({ format: "text" as unknown as "human" });
+
+      const allOutput = consoleSpy.mock.calls
+        .map((c: unknown[]) => String(c[0]))
+        .join(" ");
+      expect(allOutput).toContain("hatch3r");
+      // stdout.write should not have received a JSON payload
+      expect(stdoutChunks.filter((c) => c.trim().startsWith("{"))).toHaveLength(0);
+    });
+
+    it("emits JSON for --docs mode with passed status", async () => {
+      await createMinimalAgentsDir(tempDir);
+
+      const { validateCommand } = await import("../../cli/commands/validate.js");
+      await validateCommand({ docs: true, format: "json" });
+
+      const payload = parseJsonOutput();
+      expect(payload.summary.docsMode).toBe(true);
+      expect(payload.summary.status).toBe("passed");
+    });
   });
 });

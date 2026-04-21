@@ -1,7 +1,8 @@
 ---
 id: hatch3r-skill-customize
 type: command
-description: Configure per-skill customization including description overrides, enable/disable control, and project-specific markdown instructions
+orchestrator: false
+description: Rewrite skill dispatch descriptions for model auto-selection, gate per-preset exposure, and control slash-command surfacing via .hatch3r/skills/ YAML overrides
 tags: [customize]
 quality_charter: agents/shared/quality-charter.md
 ---

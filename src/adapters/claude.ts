@@ -2,10 +2,11 @@ import type { AdapterOutput } from "../types.js";
 import { toPrefixedId } from "../types.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
-import { readCanonicalFiles } from "./canonical.js";
+import { readCanonicalFiles, sortByPrecedence, precedenceRank } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
 import { applyCustomization } from "./customization.js";
 import { transformEnvVarSyntax } from "./mcp-utils.js";
+import { toClaudeToolsFrontmatter } from "../pipeline/adapterToolTranslator.js";
 import type { HookDefinition, HookEvent } from "../hooks/types.js";
 import { HATCH3R_VERSION } from "../version.js";
 
@@ -164,13 +165,21 @@ Each quality teammate owns distinct files to avoid conflicts.
 // Each hook fires on a Claude event (e.g. PreToolUse, PostToolUse, SessionStart)
 // paired with a tool matcher regex that scopes when the hook triggers.
 //
-// Mapping from hatch3r canonical hook events to Claude Code hook semantics:
-//   pre-commit   -> PreToolUse  + matcher "Bash"   (intercept before shell commands)
-//   post-merge   -> PostToolUse + matcher "Bash"   (react after shell commands)
-//   ci-failure   -> SubagentStart + matcher "Bash" (trigger on sub-agent launch)
-//   file-save    -> PostToolUse + matcher "Write"  (react after file writes)
+// Mapping from hatch3r canonical hook events to Claude Code hook semantics
+// (Claude Code v2.1.x schema per code.claude.com/docs/en/plugins-reference#hooks,
+// accessed 2026-04-19):
+//   pre-commit    -> PreToolUse  + matcher "Bash"   (intercept before shell commands)
+//   post-merge    -> PostToolUse + matcher "Bash"   (react after shell commands)
+//   ci-failure    -> SubagentStart + matcher "Bash" (trigger on sub-agent launch)
+//   file-save     -> PostToolUse + matcher "Write"  (react after file writes)
 //   session-start -> SessionStart + matcher ".*"   (fire on every session start)
-//   pre-push     -> PreToolUse  + matcher "Bash"   (intercept before shell commands)
+//   pre-push      -> PreToolUse  + matcher "Bash"   (intercept before shell commands)
+//   worktree-create -> WorktreeCreate + matcher ".*"  (native v2.1.x worktree lifecycle event)
+//   worktree-remove -> WorktreeRemove + matcher ".*"  (native v2.1.x worktree lifecycle event)
+// The two worktree events were added in Claude Code v2.1.x alongside isolation:
+// "worktree" agent frontmatter. Emitting them on the native events lets
+// WorktreeCreate hooks replace default git behavior (per docs) and lets
+// WorktreeRemove hooks fire on session exit or subagent finish.
 function mapToClaudeEvent(event: HookEvent): string {
   const mapping: Record<HookEvent, string> = {
     "pre-commit": "PreToolUse",
@@ -179,8 +188,8 @@ function mapToClaudeEvent(event: HookEvent): string {
     "file-save": "PostToolUse",
     "session-start": "SessionStart",
     "pre-push": "PreToolUse",
-    "worktree-create": "PostToolUse",
-    "worktree-remove": "PreToolUse",
+    "worktree-create": "WorktreeCreate",
+    "worktree-remove": "WorktreeRemove",
   };
   return mapping[event] || event;
 }
@@ -193,8 +202,9 @@ function getClaudeToolMatcher(hook: HookDefinition): string {
     "session-start": ".*",
     "pre-push": "Bash",
     "ci-failure": "Bash",
-    "worktree-create": "Bash",
-    "worktree-remove": "Bash",
+    // Worktree events are lifecycle-scoped, not tool-scoped; match any context.
+    "worktree-create": ".*",
+    "worktree-remove": ".*",
   };
   return eventToolMap[hook.event] || ".*";
 }
@@ -250,8 +260,12 @@ export class ClaudeAdapter extends BaseAdapter {
     results.push(output("CLAUDE.md", wrapInManagedBlock(innerContent), innerContent));
 
     if (ctx.features.rules) {
-      const rules = await readCanonicalFiles(ctx.agentsDir, "rules");
-      for (const rule of rules) {
+      const rules = await readCanonicalFiles(ctx.agentsDir, "rules", this.warnings);
+      // Wave B3: precedence-ordered emission + NN- numeric filename prefix on
+      // .claude/rules/. critical=10, high=30, normal=50, low=70. Claude Code
+      // loads rule files alphabetically; the prefix makes load order explicit.
+      const sortedRules = sortByPrecedence(rules);
+      for (const rule of sortedRules) {
         const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);
         this.warnings.push(...warnings);
         if (skip) continue;
@@ -259,12 +273,13 @@ export class ClaudeAdapter extends BaseAdapter {
         const body = minimal
           ? `# ${rule.id}\n\n${this.stripMinimal(content)}`
           : `# ${rule.id}\n\n${desc}\n\n${content}`;
-        results.push(output(`.claude/rules/${toPrefixedId(rule.id)}.md`, wrapInManagedBlock(body), body));
+        const nn = precedenceRank(rule.precedence) / 10;
+        results.push(output(`.claude/rules/${nn}-${toPrefixedId(rule.id)}.md`, wrapInManagedBlock(body), body));
       }
     }
 
     if (ctx.features.agents) {
-      const agents = await readCanonicalFiles(ctx.agentsDir, "agents");
+      const agents = await readCanonicalFiles(ctx.agentsDir, "agents", this.warnings);
       for (const agent of agents) {
         const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
         this.warnings.push(...warnings);
@@ -272,7 +287,16 @@ export class ClaudeAdapter extends BaseAdapter {
         const agentId = toPrefixedId(agent.id);
         const model = resolveAgentModel(agent.id, agent, ctx.manifest, overrides);
         const desc = overrides.description ?? agent.description;
-        const fm = `---\ndescription: ${desc}\n---`;
+        // C7.5-W2B2-H41/H45 (D15, P6): translate AGENT_TOOL_POLICIES to
+        // Claude Code `tools:` frontmatter so the monotonic-privilege
+        // trust invariant survives into the Claude Code runtime. When
+        // the policy is absent (non-canonical agent), we omit the
+        // field so Claude Code inherits from the parent — matching the
+        // upstream default documented at code.claude.com/docs/en/sub-agents.
+        const toolsFm = toClaudeToolsFrontmatter(agentId);
+        const fmLines = [`description: ${desc}`];
+        if (toolsFm) fmLines.push(`tools: ${toolsFm}`);
+        const fm = `---\n${fmLines.join("\n")}\n---`;
         if (minimal) {
           const modelNote = model ? `\nModel: \`${model}\`` : "";
           const body = `${this.stripMinimal(content)}${modelNote}`;
@@ -334,8 +358,22 @@ export class ClaudeAdapter extends BaseAdapter {
       hooks: [{ type: "command", command: "echo \"HATCH3R_PIPELINE_CHECK: Idle teammate detected. Check for pending Phase 4 quality tasks: hatch3r-test-writer, hatch3r-security-auditor, hatch3r-docs-writer, hatch3r-lint-fixer, hatch3r-a11y-auditor. If any are pending and within this teammate's scope, pick up the next task.\"" }],
     }];
 
-    // Worktree file isolation: detect `git worktree add` and sync gitignored files
+    // C7.5-W2B2-H50 (D17-SA17.2-B, P3): Worktree file isolation uses Claude Code
+    // v2.1.x native WorktreeCreate event (per code.claude.com/docs/en/plugins-reference,
+    // accessed 2026-04-19). The event fires when a worktree is being created via
+    // `--worktree` or agent isolation: "worktree" and replaces default git behavior.
+    // Fallback: also emit a PostToolUse+Bash hook that detects `git worktree add`
+    // commands executed by the agent, so users on older Claude Code versions
+    // (pre-v2.1.x) still get worktree setup triggered.
     if (ctx.manifest.worktree?.enabled) {
+      if (!hooksConfig.WorktreeCreate) hooksConfig.WorktreeCreate = [];
+      hooksConfig.WorktreeCreate.push({
+        matcher: ".*",
+        hooks: [{
+          type: "command",
+          command: 'bash -c \'WTDIR="${CLAUDE_WORKTREE_PATH:-${WORKTREE_PATH:-}}"; [ -n "$WTDIR" ] && npx hatch3r worktree-setup "$WTDIR" || true\'',
+        }],
+      });
       if (!hooksConfig.PostToolUse) hooksConfig.PostToolUse = [];
       hooksConfig.PostToolUse.push({
         matcher: "Bash",
@@ -359,6 +397,28 @@ export class ClaudeAdapter extends BaseAdapter {
       settingsObj.env = { CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1" };
     }
     results.push(output(".claude/settings.json", JSON.stringify(settingsObj, null, 2)));
+
+    // C7-H17 + C7.5-W2B2-H50 (D9, D17, P3): Emit Claude Code plugin-style hooks
+    // file alongside settings.json. Per code.claude.com/docs/en/plugins-reference
+    // (accessed 2026-04-19), plugins distribute hooks via `hooks/hooks.json` at
+    // the plugin root using the same {hooks: {EVENT: [{matcher, hooks: [...]}]}}
+    // schema as settings.json. This makes hatch3r's hook set portable as a
+    // plugin component and consumable by Claude Code's `/plugin install` flow
+    // without reading settings.json. The settings.json emission above is
+    // preserved (additive); plugin consumers prefer the standalone file.
+    // Schema tag `claude-code/plugin-hooks/v2.1` tracks Claude Code v2.1.x
+    // which added WorktreeCreate/WorktreeRemove lifecycle events.
+    if (ctx.features.hooks) {
+      const pluginHooksObj = {
+        _hatch3r: {
+          version: HATCH3R_VERSION,
+          managed: true,
+          schema: "claude-code/plugin-hooks/v2.1",
+        },
+        hooks: hooksConfig,
+      };
+      results.push(output(".claude/hooks/hatch3r-hooks.json", JSON.stringify(pluginHooksObj, null, 2)));
+    }
 
     results.push(
       ...await this.processSkillsRaw(ctx, (id) => `.claude/skills/${toPrefixedId(id)}/SKILL.md`),

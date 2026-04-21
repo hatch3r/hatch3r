@@ -2,7 +2,7 @@ import type { AdapterOutput } from "../types.js";
 import { toPrefixedId } from "../types.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
-import { readCanonicalFiles } from "./canonical.js";
+import { readCanonicalFiles, sortByPrecedence, precedenceRank } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
 import { applyCustomization } from "./customization.js";
 import { transformEnvVarSyntax } from "./mcp-utils.js";
@@ -25,7 +25,7 @@ export class ClineAdapter extends BaseAdapter {
 
     const customModes: ClineCustomMode[] = [];
     if (ctx.features.agents) {
-      const agents = await readCanonicalFiles(ctx.agentsDir, "agents");
+      const agents = await readCanonicalFiles(ctx.agentsDir, "agents", this.warnings);
       for (const agent of agents) {
         const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
         this.warnings.push(...warnings);
@@ -59,14 +59,20 @@ export class ClineAdapter extends BaseAdapter {
     );
 
     if (ctx.features.rules) {
-      const rules = await readCanonicalFiles(ctx.agentsDir, "rules");
-      for (const rule of rules) {
+      const rules = await readCanonicalFiles(ctx.agentsDir, "rules", this.warnings);
+      // Wave B3: precedence-ordered emission + NN- numeric filename prefix on
+      // .roo/rules/. critical=10, high=30, normal=50, low=70. Roo Code loads
+      // rule files alphabetically; the prefix establishes deterministic load
+      // order at the filesystem level.
+      const sortedRules = sortByPrecedence(rules);
+      for (const rule of sortedRules) {
         const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);
         this.warnings.push(...warnings);
         if (skip) continue;
         const desc = overrides.description ?? rule.description;
         const body = `# ${rule.id}\n\n${desc}\n\n${content}`;
-        results.push(output(`.roo/rules/${toPrefixedId(rule.id)}.md`, wrapInManagedBlock(body), body));
+        const nn = precedenceRank(rule.precedence) / 10;
+        results.push(output(`.roo/rules/${nn}-${toPrefixedId(rule.id)}.md`, wrapInManagedBlock(body), body));
       }
     }
 

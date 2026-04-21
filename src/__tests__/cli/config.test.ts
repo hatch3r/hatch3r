@@ -2,9 +2,28 @@ import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } fr
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { HatchError, DEFAULT_FEATURES, type HatchManifest, type Features, type ContentSelection } from "../../types.js";
+import { HatchError, DEFAULT_FEATURES, type HatchManifest } from "../../types.js";
+import {
+  makeManifest,
+  makeContentSelection,
+  applyDefaultConfigMocks,
+  setupStandardPrompts as queueStandardPrompts,
+  primeConfig as primeConfigBase,
+  primeContent as primeContentBase,
+  stubContentIdsTransition,
+  stubResolveSelectionAgents,
+  getConfigUpdatedBox,
+  getCurrentConfigBox,
+  getWrittenManifest,
+  expectSummaryLine,
+  type PromptOverrides,
+} from "../helpers/configHelpers.js";
 
 // ── Mock all dependencies before imports ──────────────────────
+//
+// Note: vi.mock() calls are module-hoisted and cannot live in a helper.
+// Default implementations are re-applied via applyDefaultConfigMocks() in
+// beforeEach (after vi.clearAllMocks). See src/__tests__/helpers/configHelpers.ts.
 
 vi.mock("inquirer", () => ({
   default: { prompt: vi.fn() },
@@ -17,6 +36,8 @@ vi.mock("../../manifest/hatchJson.js", () => ({
 
 vi.mock("../../cli/commands/update.js", () => ({
   runUpdate: vi.fn(),
+  runRegenerate: vi.fn(),
+  runPackageUpdate: vi.fn(),
 }));
 
 vi.mock("../../archive/index.js", () => ({
@@ -29,10 +50,10 @@ vi.mock("../../content/index.js", () => ({
   getAvailableItems: vi.fn(),
   addContentItem: vi.fn(),
   removeContentItem: vi.fn(),
-  countSelectionItems: vi.fn().mockReturnValue(0),
-  selectionSummary: vi.fn().mockReturnValue(""),
-  extractContentReferences: vi.fn().mockReturnValue([]),
-  validateOrchestrationDependencies: vi.fn().mockReturnValue([]),
+  countSelectionItems: vi.fn(),
+  selectionSummary: vi.fn(),
+  extractContentReferences: vi.fn(),
+  validateOrchestrationDependencies: vi.fn(),
   TYPE_TO_SELECTION_KEY: {
     agent: "agents",
     skill: "skills",
@@ -62,8 +83,8 @@ vi.mock("../../content/presets.js", () => ({
 }));
 
 vi.mock("../../cli/shared/agentsContent.js", () => ({
-  generateCanonicalAgentsMd: vi.fn().mockResolvedValue("# AGENTS.md content"),
-  generateRootAgentsMd: vi.fn().mockResolvedValue({ full: "<!-- HATCH3R:BEGIN -->\n# Root AGENTS.md\n<!-- HATCH3R:END -->\n", inner: "# Root AGENTS.md" }),
+  generateCanonicalAgentsMd: vi.fn(),
+  generateRootAgentsMd: vi.fn(),
 }));
 
 vi.mock("../../merge/safeWrite.js", () => ({
@@ -71,22 +92,22 @@ vi.mock("../../merge/safeWrite.js", () => ({
 }));
 
 vi.mock("../../env/mcpEnv.js", () => ({
-  ensureEnvMcp: vi.fn().mockResolvedValue({ action: "skipped", path: ".env.mcp", newVars: [] }),
+  ensureEnvMcp: vi.fn(),
   ensureGitignoreEntry: vi.fn(),
-  getSourceEnvMcpCommand: vi.fn().mockReturnValue("source .env.mcp"),
+  getSourceEnvMcpCommand: vi.fn(),
 }));
 
 vi.mock("../../cli/shared/paths.js", () => ({
-  findPackageRoot: vi.fn().mockReturnValue("/fake/package/root"),
+  findPackageRoot: vi.fn(),
 }));
 
 vi.mock("../../workspace/detect.js", () => ({
-  detectWorkspaceContext: vi.fn().mockResolvedValue({ type: "standalone" }),
+  detectWorkspaceContext: vi.fn(),
   detectSubRepos: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock("../../workspace/manifest.js", () => ({
-  readWorkspaceManifest: vi.fn().mockResolvedValue(null),
+  readWorkspaceManifest: vi.fn(),
   writeWorkspaceManifest: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -100,12 +121,12 @@ vi.mock("../../workspace/git.js", () => ({
 
 vi.mock("../../cli/shared/ui.js", () => ({
   printBanner: vi.fn(),
-  createSpinner: vi.fn().mockReturnValue({ start: vi.fn(), succeed: vi.fn(), fail: vi.fn() }),
+  createSpinner: vi.fn(),
   printBox: vi.fn(),
   info: vi.fn(),
   error: vi.fn(),
-  step: vi.fn().mockImplementation((n: number, total: number, msg: string) => `[${n}/${total}] ${msg}`),
-  label: vi.fn().mockImplementation((name: string, value: string) => `${name}: ${value}`),
+  step: vi.fn(),
+  label: vi.fn(),
   warn: vi.fn(),
 }));
 
@@ -113,7 +134,7 @@ vi.mock("../../cli/shared/ui.js", () => ({
 
 import inquirer from "inquirer";
 import { readManifest, writeManifest } from "../../manifest/hatchJson.js";
-import { runUpdate } from "../../cli/commands/update.js";
+import { runRegenerate } from "../../cli/commands/update.js";
 import { archiveToolOutputs, removeManagedFilesForPaths } from "../../archive/index.js";
 import {
   buildContentIndex,
@@ -126,191 +147,92 @@ import {
   resolveSelection,
   getAllContentIds,
 } from "../../content/index.js";
-import { getPreset } from "../../content/presets.js";
 import { generateCanonicalAgentsMd, generateRootAgentsMd } from "../../cli/shared/agentsContent.js";
 import { safeWriteFile } from "../../merge/safeWrite.js";
 import { ensureEnvMcp, ensureGitignoreEntry, getSourceEnvMcpCommand } from "../../env/mcpEnv.js";
-import { printBox, info, error as logError, warn } from "../../cli/shared/ui.js";
+import { findPackageRoot } from "../../cli/shared/paths.js";
+import { printBox, info, error as logError, warn, createSpinner, step, label } from "../../cli/shared/ui.js";
 import { detectWorkspaceContext } from "../../workspace/detect.js";
 import { readWorkspaceManifest, writeWorkspaceManifest } from "../../workspace/manifest.js";
+import { syncWorkspaceRepos } from "../../workspace/sync.js";
 
-// ── Helpers ────────────────────────────────────────────────────
+// ── Local test helpers (thin wrappers around shared harness) ──
 
-function makeManifest(overrides: Partial<HatchManifest> = {}): HatchManifest {
-  return {
-    version: "2.0.0",
-    hatch3rVersion: "1.1.0",
-    platform: "github",
-    owner: "test-org",
-    repo: "test-repo",
-    namespace: "test-org",
-    project: "test-repo",
-    tools: ["cursor"],
-    features: { ...DEFAULT_FEATURES },
-    mcp: { servers: ["github"] },
-    board: {
-      owner: "test-org",
-      repo: "test-repo",
-      defaultBranch: "main",
-      projectNumber: null,
-      statusFieldId: null,
-      statusOptions: { backlog: null, ready: null, inProgress: null, inReview: null, done: null },
-      labels: {
-        types: ["type:bug"],
-        executors: ["executor:agent"],
-        statuses: ["status:triage"],
-        meta: ["meta:board-overview"],
-      },
-      branchConvention: "{type}/{short-description}",
-      areas: [],
-    },
-    managedFiles: [],
-    ...overrides,
-  };
-}
-
-function makeContentSelection(overrides: Partial<ContentSelection> = {}): ContentSelection {
-  return {
-    preset: "full",
-    projectType: "brownfield",
-    teamSize: "team",
-    items: {
-      agents: [],
-      skills: [],
-      rules: [],
-      commands: [],
-      prompts: [],
-      hooks: [],
-      githubAgents: [],
-    },
-    ...overrides,
-  };
+/**
+ * Queue the standard configCommand prompt sequence via the shared helper,
+ * binding the inquirer mock once so individual tests stay concise.
+ */
+function setupStandardPrompts(manifest: HatchManifest, overrides: PromptOverrides = {}): void {
+  queueStandardPrompts(vi.mocked(inquirer) as unknown as { prompt: MockInstance }, manifest, overrides);
 }
 
 /**
- * Set up the standard prompt sequence for configCommand:
- * platform -> repo identity -> branch -> tools -> features -> mcp -> content preset [-> custom items]
+ * Prime readManifest + the standard prompt sequence in one call.
+ * Covers the two-line boilerplate present in ~80 tests.
  */
-function setupStandardPrompts(
-  manifest: HatchManifest,
-  overrides: {
-    platform?: string;
-    repoAnswers?: Record<string, string>;
-    branch?: string;
-    tools?: string[];
-    features?: (keyof Features)[];
-    mcpServers?: string[];
-    contentPreset?: string;
-    contentItems?: string[];
-  } = {},
-): void {
-  const inquirerMock = vi.mocked(inquirer);
-  const platform = overrides.platform ?? manifest.platform ?? "github";
+function primeConfig(manifest: HatchManifest, overrides: PromptOverrides = {}): HatchManifest {
+  return primeConfigBase(
+    readManifest,
+    vi.mocked(inquirer) as unknown as { prompt: MockInstance },
+    manifest,
+    overrides,
+  );
+}
 
-  // 1. Platform prompt
-  inquirerMock.prompt.mockResolvedValueOnce({ platform });
+/**
+ * Prime a content-management test: readManifest + content index + prompts.
+ * `agentIds` seeds both the content index and the selectionSummary count.
+ */
+function primeContent(manifest: HatchManifest, agentIds: string[], overrides: PromptOverrides = {}): void {
+  primeContentBase(
+    { readManifest, countSelectionItems, selectionSummary, buildContentIndex },
+    vi.mocked(inquirer) as unknown as { prompt: MockInstance },
+    manifest,
+    agentIds,
+    overrides,
+  );
+}
 
-  // 2. Repo identity prompt (varies by platform)
-  if (platform === "azure-devops") {
-    inquirerMock.prompt.mockResolvedValueOnce(
-      overrides.repoAnswers ?? { org: manifest.owner, project: manifest.project, repo: manifest.repo },
-    );
-  } else if (platform === "gitlab") {
-    inquirerMock.prompt.mockResolvedValueOnce(
-      overrides.repoAnswers ?? { namespace: manifest.namespace, project: manifest.project },
-    );
-  } else {
-    inquirerMock.prompt.mockResolvedValueOnce(
-      overrides.repoAnswers ?? { owner: manifest.owner, repo: manifest.repo },
-    );
-  }
-
-  // 3. Default branch prompt
-  inquirerMock.prompt.mockResolvedValueOnce({
-    defaultBranch: overrides.branch ?? manifest.board?.defaultBranch ?? "main",
-  });
-
-  // 4. Tools prompt
-  inquirerMock.prompt.mockResolvedValueOnce({
-    tools: overrides.tools ?? manifest.tools,
-  });
-
-  // 5. Features prompt
-  const currentFeatureKeys = overrides.features ?? (Object.keys(DEFAULT_FEATURES) as (keyof Features)[])
-    .filter((k) => manifest.features[k]);
-  inquirerMock.prompt.mockResolvedValueOnce({ features: currentFeatureKeys });
-
-  // 6. MCP servers prompt (only if mcp feature enabled)
-  const featureSet = new Set(currentFeatureKeys);
-  if (featureSet.has("mcp")) {
-    inquirerMock.prompt.mockResolvedValueOnce({
-      mcp: overrides.mcpServers ?? manifest.mcp.servers,
-    });
-  }
-
-  // 6b. Worktree prompt (only if tools include a worktree-capable tool)
-  const selectedTools = overrides.tools ?? manifest.tools;
-  if (selectedTools.some((t: string) => t === "claude")) {
-    inquirerMock.prompt.mockResolvedValueOnce({
-      enabled: manifest.worktree?.enabled ?? true,
-    });
-  }
-
-  // 7. Content preset selection prompt (only if manifest has content)
-  if (manifest.content) {
-    inquirerMock.prompt.mockResolvedValueOnce({
-      preset: overrides.contentPreset ?? manifest.content.preset ?? "full",
-    });
-
-    // 8. Custom items prompt (only if preset is "custom")
-    if (overrides.contentPreset === "custom") {
-      inquirerMock.prompt.mockResolvedValueOnce({
-        items: overrides.contentItems ?? [],
-      });
-    }
-  }
+/** Import configCommand (lazy -- after vi.mock hoists, before each test needs it). */
+async function importConfigCommand(): Promise<typeof import("../../cli/commands/config.js")["configCommand"]> {
+  return (await import("../../cli/commands/config.js")).configCommand;
 }
 
 describe("config command", () => {
   let tempDir: string;
-  let originalCwd: string;
-  let consoleSpy: MockInstance;
-  let consoleErrorSpy: MockInstance;
 
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), "hatch3r-config-"));
-    originalCwd = process.cwd();
     vi.spyOn(process, "cwd").mockReturnValue(tempDir);
-    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    // Silence console noise from configCommand UI; restored by restoreAllMocks.
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
     vi.clearAllMocks();
+    // Also reset inquirer's prompt queue: clearAllMocks does NOT clear
+    // `.mockResolvedValueOnce(...)` queues, and tests that throw early leave
+    // unconsumed responses that would leak into the next test's prompt stream.
+    vi.mocked(inquirer.prompt).mockReset();
 
-    // Re-apply default mock implementations after clearAllMocks
-    vi.mocked(countSelectionItems).mockReturnValue(0);
-    vi.mocked(selectionSummary).mockReturnValue("");
-    vi.mocked(extractContentReferences).mockReturnValue([]);
-    vi.mocked(validateOrchestrationDependencies).mockReturnValue([]);
-    vi.mocked(generateCanonicalAgentsMd).mockResolvedValue("# AGENTS.md content");
-    vi.mocked(generateRootAgentsMd).mockResolvedValue({ full: "<!-- HATCH3R:BEGIN -->\n# Root AGENTS.md\n<!-- HATCH3R:END -->\n", inner: "# Root AGENTS.md" });
-    vi.mocked(ensureEnvMcp).mockResolvedValue({ action: "skipped", path: ".env.mcp", newVars: [] });
-    vi.mocked(getSourceEnvMcpCommand).mockReturnValue("source .env.mcp");
-    vi.mocked(runUpdate).mockResolvedValue({ copiedFiles: 10, syncedTools: 1, failedTools: 0, version: "1.1.0" });
-    vi.mocked(archiveToolOutputs).mockResolvedValue({ archivedFiles: [], migrations: [] });
-    vi.mocked(writeManifest).mockResolvedValue(undefined);
-
-    // Re-apply workspace mocks
-    vi.mocked(detectWorkspaceContext).mockResolvedValue({ type: "standalone" });
-    vi.mocked(readWorkspaceManifest).mockResolvedValue(null);
-
-    // Re-apply findPackageRoot mock
-    const pathsMod = await import("../../cli/shared/paths.js");
-    vi.mocked(pathsMod.findPackageRoot).mockReturnValue("/fake/package/root");
-
-    // Re-apply UI mocks
-    const uiMod = await import("../../cli/shared/ui.js");
-    vi.mocked(uiMod.createSpinner).mockReturnValue({ start: vi.fn(), succeed: vi.fn(), fail: vi.fn() } as any);
-    vi.mocked(uiMod.step).mockImplementation((n: number, total: number, msg: string) => `[${n}/${total}] ${msg}`);
-    vi.mocked(uiMod.label).mockImplementation((name: string, value: string) => `${name}: ${value}`);
+    // Re-apply default mock implementations after clearAllMocks via shared harness
+    applyDefaultConfigMocks({
+      countSelectionItems,
+      selectionSummary,
+      extractContentReferences,
+      validateOrchestrationDependencies,
+      generateCanonicalAgentsMd,
+      generateRootAgentsMd,
+      ensureEnvMcp,
+      getSourceEnvMcpCommand,
+      runRegenerate,
+      archiveToolOutputs,
+      writeManifest,
+      detectWorkspaceContext,
+      readWorkspaceManifest,
+      findPackageRoot,
+      createSpinner,
+      step,
+      label,
+    });
   });
 
   afterEach(async () => {
@@ -323,15 +245,13 @@ describe("config command", () => {
   describe("no manifest", () => {
     it("should throw HatchError when no manifest found", async () => {
       vi.mocked(readManifest).mockResolvedValue(null);
-
-      const { configCommand } = await import("../../cli/commands/config.js");
+      const configCommand = await importConfigCommand();
       await expect(configCommand()).rejects.toThrow(HatchError);
     });
 
     it("should show error message about missing hatch.json", async () => {
       vi.mocked(readManifest).mockResolvedValue(null);
-
-      const { configCommand } = await import("../../cli/commands/config.js");
+      const configCommand = await importConfigCommand();
       try { await configCommand(); } catch { /* expected */ }
 
       expect(vi.mocked(logError)).toHaveBeenCalledWith(expect.stringContaining("No .agents/hatch.json found"));
@@ -339,8 +259,7 @@ describe("config command", () => {
 
     it("should throw with exit code 1", async () => {
       vi.mocked(readManifest).mockResolvedValue(null);
-
-      const { configCommand } = await import("../../cli/commands/config.js");
+      const configCommand = await importConfigCommand();
       try {
         await configCommand();
       } catch (e) {
@@ -355,11 +274,9 @@ describe("config command", () => {
   describe("platform flows", () => {
     it("should prompt for owner and repo on GitHub platform", async () => {
       const manifest = makeManifest();
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, { platform: "github" });
+      primeConfig(manifest, { platform: "github" });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       const promptCalls = vi.mocked(inquirer.prompt).mock.calls;
       const repoPrompt = promptCalls[1][0] as any[];
@@ -369,14 +286,12 @@ describe("config command", () => {
 
     it("should prompt for org, project, and repo on Azure DevOps platform", async () => {
       const manifest = makeManifest({ platform: "azure-devops" });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, {
+      primeConfig(manifest, {
         platform: "azure-devops",
         repoAnswers: { org: "my-org", project: "my-proj", repo: "my-repo" },
       });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       const promptCalls = vi.mocked(inquirer.prompt).mock.calls;
       const repoPrompt = promptCalls[1][0] as any[];
@@ -387,14 +302,12 @@ describe("config command", () => {
 
     it("should prompt for namespace and project on GitLab platform", async () => {
       const manifest = makeManifest({ platform: "gitlab" });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, {
+      primeConfig(manifest, {
         platform: "gitlab",
         repoAnswers: { namespace: "my-group", project: "my-proj" },
       });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       const promptCalls = vi.mocked(inquirer.prompt).mock.calls;
       const repoPrompt = promptCalls[1][0] as any[];
@@ -404,34 +317,28 @@ describe("config command", () => {
 
     it("should set namespace and project to owner and repo for GitHub", async () => {
       const manifest = makeManifest();
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, {
+      primeConfig(manifest, {
         platform: "github",
         repoAnswers: { owner: "gh-owner", repo: "gh-repo" },
       });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
-      const writeCall = vi.mocked(writeManifest).mock.calls[0];
-      const writtenManifest = writeCall[1] as HatchManifest;
+      const writtenManifest = getWrittenManifest(writeManifest);
       expect(writtenManifest.namespace).toBe("gh-owner");
       expect(writtenManifest.project).toBe("gh-repo");
     });
 
     it("should set namespace to org and project for Azure DevOps", async () => {
       const manifest = makeManifest({ platform: "azure-devops" });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, {
+      primeConfig(manifest, {
         platform: "azure-devops",
         repoAnswers: { org: "ado-org", project: "ado-project", repo: "ado-repo" },
       });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
-      const writeCall = vi.mocked(writeManifest).mock.calls[0];
-      const writtenManifest = writeCall[1] as HatchManifest;
+      const writtenManifest = getWrittenManifest(writeManifest);
       expect(writtenManifest.owner).toBe("ado-org");
       expect(writtenManifest.namespace).toBe("ado-org");
       expect(writtenManifest.project).toBe("ado-project");
@@ -440,17 +347,14 @@ describe("config command", () => {
 
     it("should set namespace and project for GitLab", async () => {
       const manifest = makeManifest({ platform: "gitlab" });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, {
+      primeConfig(manifest, {
         platform: "gitlab",
         repoAnswers: { namespace: "gl-group", project: "gl-project" },
       });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
-      const writeCall = vi.mocked(writeManifest).mock.calls[0];
-      const writtenManifest = writeCall[1] as HatchManifest;
+      const writtenManifest = getWrittenManifest(writeManifest);
       expect(writtenManifest.owner).toBe("gl-group");
       expect(writtenManifest.repo).toBe("gl-project");
       expect(writtenManifest.namespace).toBe("gl-group");
@@ -463,29 +367,15 @@ describe("config command", () => {
   describe("tool selection", () => {
     it("should throw HatchError when no tools selected", async () => {
       const manifest = makeManifest();
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-
-      const inquirerMock = vi.mocked(inquirer);
-      inquirerMock.prompt.mockResolvedValueOnce({ platform: "github" });
-      inquirerMock.prompt.mockResolvedValueOnce({ owner: "test-org", repo: "test-repo" });
-      inquirerMock.prompt.mockResolvedValueOnce({ defaultBranch: "main" });
-      inquirerMock.prompt.mockResolvedValueOnce({ tools: [] });
-
-      const { configCommand } = await import("../../cli/commands/config.js");
+      primeConfig(manifest, { tools: [] });
+      const configCommand = await importConfigCommand();
       await expect(configCommand()).rejects.toThrow(HatchError);
     });
 
     it("should throw with message about at least one tool required", async () => {
       const manifest = makeManifest();
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-
-      const inquirerMock = vi.mocked(inquirer);
-      inquirerMock.prompt.mockResolvedValueOnce({ platform: "github" });
-      inquirerMock.prompt.mockResolvedValueOnce({ owner: "test-org", repo: "test-repo" });
-      inquirerMock.prompt.mockResolvedValueOnce({ defaultBranch: "main" });
-      inquirerMock.prompt.mockResolvedValueOnce({ tools: [] });
-
-      const { configCommand } = await import("../../cli/commands/config.js");
+      primeConfig(manifest, { tools: [] });
+      const configCommand = await importConfigCommand();
       try {
         await configCommand();
       } catch (e) {
@@ -496,38 +386,32 @@ describe("config command", () => {
 
     it("should preserve existing tools when unchanged", async () => {
       const manifest = makeManifest({ tools: ["cursor", "claude"] });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, { tools: ["cursor", "claude"] });
+      primeConfig(manifest, { tools: ["cursor", "claude"] });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       expect(vi.mocked(info)).toHaveBeenCalledWith(expect.stringContaining("No changes detected"));
     });
 
     it("should detect added tools in diff and update manifest", async () => {
       const manifest = makeManifest({ tools: ["cursor"] });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, { tools: ["cursor", "claude"] });
+      primeConfig(manifest, { tools: ["cursor", "claude"] });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       expect(vi.mocked(writeManifest)).toHaveBeenCalled();
-      const writtenManifest = vi.mocked(writeManifest).mock.calls[0][1] as HatchManifest;
+      const writtenManifest = getWrittenManifest(writeManifest);
       expect(writtenManifest.tools).toContain("claude");
     });
 
     it("should detect removed tools in diff", async () => {
       const manifest = makeManifest({ tools: ["cursor", "claude"] });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, { tools: ["cursor"] });
+      primeConfig(manifest, { tools: ["cursor"] });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       expect(vi.mocked(writeManifest)).toHaveBeenCalled();
-      const writtenManifest = vi.mocked(writeManifest).mock.calls[0][1] as HatchManifest;
+      const writtenManifest = getWrittenManifest(writeManifest);
       expect(writtenManifest.tools).toEqual(["cursor"]);
       expect(writtenManifest.tools).not.toContain("claude");
     });
@@ -538,11 +422,9 @@ describe("config command", () => {
   describe("feature selection", () => {
     it("should preserve existing features when unchanged", async () => {
       const manifest = makeManifest();
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest);
+      primeConfig(manifest);
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       expect(vi.mocked(info)).toHaveBeenCalledWith(expect.stringContaining("No changes detected"));
     });
@@ -551,31 +433,27 @@ describe("config command", () => {
       const manifest = makeManifest({
         features: { ...DEFAULT_FEATURES, hooks: false },
       });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, {
+      primeConfig(manifest, {
         features: ["agents", "skills", "rules", "prompts", "commands", "mcp", "githubAgents", "hooks"],
       });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       expect(vi.mocked(writeManifest)).toHaveBeenCalled();
-      const writtenManifest = vi.mocked(writeManifest).mock.calls[0][1] as HatchManifest;
+      const writtenManifest = getWrittenManifest(writeManifest);
       expect(writtenManifest.features.hooks).toBe(true);
     });
 
     it("should detect disabled features in diff", async () => {
       const manifest = makeManifest();
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, {
+      primeConfig(manifest, {
         features: ["agents", "skills", "rules", "prompts", "commands", "githubAgents"],
       });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       expect(vi.mocked(writeManifest)).toHaveBeenCalled();
-      const writtenManifest = vi.mocked(writeManifest).mock.calls[0][1] as HatchManifest;
+      const writtenManifest = getWrittenManifest(writeManifest);
       expect(writtenManifest.features.hooks).toBe(false);
       expect(writtenManifest.features.mcp).toBe(false);
     });
@@ -586,14 +464,12 @@ describe("config command", () => {
   describe("MCP servers", () => {
     it("should show MCP prompts when mcp feature enabled", async () => {
       const manifest = makeManifest();
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, {
+      primeConfig(manifest, {
         features: ["agents", "skills", "rules", "prompts", "commands", "mcp", "githubAgents", "hooks"],
         mcpServers: ["github", "context7"],
       });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       const promptCalls = vi.mocked(inquirer.prompt).mock.calls;
       const mcpCall = promptCalls.find((call) => {
@@ -608,13 +484,11 @@ describe("config command", () => {
         features: { ...DEFAULT_FEATURES, mcp: false },
         mcp: { servers: [] },
       });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, {
+      primeConfig(manifest, {
         features: ["agents", "skills", "rules", "prompts", "commands", "githubAgents", "hooks"],
       });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       const promptCalls = vi.mocked(inquirer.prompt).mock.calls;
       const mcpCall = promptCalls.find((call) => {
@@ -626,32 +500,28 @@ describe("config command", () => {
 
     it("should auto-add platform MCP server if missing from selection", async () => {
       const manifest = makeManifest({ mcp: { servers: ["context7"] } });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, {
+      primeConfig(manifest, {
         mcpServers: ["context7"],
       });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       expect(vi.mocked(writeManifest)).toHaveBeenCalled();
-      const writtenManifest = vi.mocked(writeManifest).mock.calls[0][1] as HatchManifest;
+      const writtenManifest = getWrittenManifest(writeManifest);
       expect(writtenManifest.mcp.servers).toContain("github");
       expect(writtenManifest.mcp.servers).toContain("context7");
     });
 
     it("should detect added and removed MCP in diff", async () => {
       const manifest = makeManifest({ mcp: { servers: ["github", "context7"] } });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, {
+      primeConfig(manifest, {
         mcpServers: ["github", "brave-search"],
       });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       expect(vi.mocked(writeManifest)).toHaveBeenCalled();
-      const writtenManifest = vi.mocked(writeManifest).mock.calls[0][1] as HatchManifest;
+      const writtenManifest = getWrittenManifest(writeManifest);
       expect(writtenManifest.mcp.servers).toContain("brave-search");
       expect(writtenManifest.mcp.servers).not.toContain("context7");
     });
@@ -666,29 +536,12 @@ describe("config command", () => {
           items: { agents: ["hatch3r-implementer"], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
         }),
       });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      vi.mocked(countSelectionItems).mockReturnValue(1);
-      vi.mocked(selectionSummary).mockReturnValue("1 agents");
-
-      const mockIndex = {
-        items: [
-          { id: "hatch3r-implementer", type: "agent", description: "Implementer", tags: [], relativePath: "agents/hatch3r-implementer.md" },
-        ],
-        byType: {},
-        byId: new Map([
-          ["hatch3r-implementer", { id: "hatch3r-implementer", type: "agent", description: "Implementer", tags: [], relativePath: "agents/hatch3r-implementer.md" }],
-        ]),
-      };
-      vi.mocked(buildContentIndex).mockResolvedValue(mockIndex as any);
+      primeContent(manifest, ["hatch3r-implementer"]);
       vi.mocked(getAllContentIds).mockReturnValue(new Set(["hatch3r-implementer"]));
-      vi.mocked(resolveSelection).mockReturnValue(makeContentSelection({
-        items: { agents: ["hatch3r-implementer"], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
-      }));
+      stubResolveSelectionAgents(resolveSelection, ["hatch3r-implementer"]);
 
-      setupStandardPrompts(manifest);
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       expect(vi.mocked(buildContentIndex)).toHaveBeenCalled();
       expect(vi.mocked(resolveSelection)).toHaveBeenCalled();
@@ -699,38 +552,14 @@ describe("config command", () => {
         items: { agents: ["hatch3r-implementer"], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
       });
       const manifest = makeManifest({ content: contentItems });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      vi.mocked(countSelectionItems).mockReturnValue(1);
-      vi.mocked(selectionSummary).mockReturnValue("1 agents");
-
-      const mockIndex = {
-        items: [
-          { id: "hatch3r-implementer", type: "agent", description: "Implementer", tags: [], relativePath: "agents/hatch3r-implementer.md" },
-          { id: "hatch3r-reviewer", type: "agent", description: "Reviewer", tags: [], relativePath: "agents/hatch3r-reviewer.md" },
-        ],
-        byType: {},
-        byId: new Map([
-          ["hatch3r-implementer", { id: "hatch3r-implementer", type: "agent", description: "Implementer", tags: [], relativePath: "agents/hatch3r-implementer.md" }],
-          ["hatch3r-reviewer", { id: "hatch3r-reviewer", type: "agent", description: "Reviewer", tags: [], relativePath: "agents/hatch3r-reviewer.md" }],
-        ]),
-      };
-      vi.mocked(buildContentIndex).mockResolvedValue(mockIndex as any);
+      primeContent(manifest, ["hatch3r-implementer", "hatch3r-reviewer"]);
 
       // Old selection has implementer, new selection adds reviewer
-      let callCount = 0;
-      vi.mocked(getAllContentIds).mockImplementation(() => {
-        callCount++;
-        if (callCount === 1) return new Set(["hatch3r-implementer"]); // old
-        return new Set(["hatch3r-implementer", "hatch3r-reviewer"]); // new
-      });
-      vi.mocked(resolveSelection).mockReturnValue(makeContentSelection({
-        items: { agents: ["hatch3r-implementer", "hatch3r-reviewer"], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
-      }));
+      stubContentIdsTransition(getAllContentIds, ["hatch3r-implementer"], ["hatch3r-implementer", "hatch3r-reviewer"]);
+      stubResolveSelectionAgents(resolveSelection, ["hatch3r-implementer", "hatch3r-reviewer"]);
 
-      setupStandardPrompts(manifest);
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       expect(vi.mocked(addContentItem)).toHaveBeenCalledWith(
         "/fake/package/root",
@@ -744,39 +573,15 @@ describe("config command", () => {
         items: { agents: ["hatch3r-implementer", "hatch3r-reviewer"], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
       });
       const manifest = makeManifest({ content: contentItems });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      vi.mocked(countSelectionItems).mockReturnValue(2);
-      vi.mocked(selectionSummary).mockReturnValue("2 agents");
-
-      const mockIndex = {
-        items: [
-          { id: "hatch3r-implementer", type: "agent", description: "Implementer", tags: [], relativePath: "agents/hatch3r-implementer.md" },
-          { id: "hatch3r-reviewer", type: "agent", description: "Reviewer", tags: [], relativePath: "agents/hatch3r-reviewer.md" },
-        ],
-        byType: {},
-        byId: new Map([
-          ["hatch3r-implementer", { id: "hatch3r-implementer", type: "agent", description: "Implementer", tags: [], relativePath: "agents/hatch3r-implementer.md" }],
-          ["hatch3r-reviewer", { id: "hatch3r-reviewer", type: "agent", description: "Reviewer", tags: [], relativePath: "agents/hatch3r-reviewer.md" }],
-        ]),
-      };
-      vi.mocked(buildContentIndex).mockResolvedValue(mockIndex as any);
+      primeContent(manifest, ["hatch3r-implementer", "hatch3r-reviewer"]);
 
       // Old has both, new only has implementer
-      let callCount = 0;
-      vi.mocked(getAllContentIds).mockImplementation(() => {
-        callCount++;
-        if (callCount === 1) return new Set(["hatch3r-implementer", "hatch3r-reviewer"]); // old
-        return new Set(["hatch3r-implementer"]); // new
-      });
-      vi.mocked(resolveSelection).mockReturnValue(makeContentSelection({
-        preset: "minimal",
-        items: { agents: ["hatch3r-implementer"], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
-      }));
+      stubContentIdsTransition(getAllContentIds, ["hatch3r-implementer", "hatch3r-reviewer"], ["hatch3r-implementer"]);
+      stubResolveSelectionAgents(resolveSelection, ["hatch3r-implementer"], "minimal");
 
       setupStandardPrompts(manifest, { contentPreset: "minimal" });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       expect(vi.mocked(removeContentItem)).toHaveBeenCalledWith(
         expect.stringContaining(".agents"),
@@ -790,41 +595,19 @@ describe("config command", () => {
         items: { agents: ["hatch3r-implementer"], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
       });
       const manifest = makeManifest({ content: contentItems });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      vi.mocked(countSelectionItems).mockReturnValue(1);
-      vi.mocked(selectionSummary).mockReturnValue("1 agents");
-
-      const mockIndex = {
-        items: [
-          { id: "hatch3r-implementer", type: "agent", description: "Implementer", tags: [], relativePath: "agents/hatch3r-implementer.md" },
-          { id: "hatch3r-test-writer", type: "agent", description: "Test writer", tags: [], relativePath: "agents/hatch3r-test-writer.md" },
-        ],
-        byType: {},
-        byId: new Map([
-          ["hatch3r-implementer", { id: "hatch3r-implementer", type: "agent", description: "Implementer", tags: [], relativePath: "agents/hatch3r-implementer.md" }],
-          ["hatch3r-test-writer", { id: "hatch3r-test-writer", type: "agent", description: "Test writer", tags: [], relativePath: "agents/hatch3r-test-writer.md" }],
-        ]),
-      };
-      vi.mocked(buildContentIndex).mockResolvedValue(mockIndex as any);
+      primeContent(manifest, ["hatch3r-implementer", "hatch3r-test-writer"]);
 
       const newSelection = makeContentSelection({
         items: { agents: ["hatch3r-implementer", "hatch3r-test-writer"], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
       });
-      let callCount = 0;
-      vi.mocked(getAllContentIds).mockImplementation(() => {
-        callCount++;
-        if (callCount === 1) return new Set(["hatch3r-implementer"]); // old
-        return new Set(["hatch3r-implementer", "hatch3r-test-writer"]); // new
-      });
+      stubContentIdsTransition(getAllContentIds, ["hatch3r-implementer"], ["hatch3r-implementer", "hatch3r-test-writer"]);
       vi.mocked(resolveSelection).mockReturnValue(newSelection);
 
-      setupStandardPrompts(manifest);
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       expect(vi.mocked(writeManifest)).toHaveBeenCalled();
-      const writtenManifest = vi.mocked(writeManifest).mock.calls[0][1] as HatchManifest;
+      const writtenManifest = getWrittenManifest(writeManifest);
       expect(writtenManifest.content?.items.agents).toContain("hatch3r-implementer");
       expect(writtenManifest.content?.items.agents).toContain("hatch3r-test-writer");
     });
@@ -834,37 +617,13 @@ describe("config command", () => {
         items: { agents: ["hatch3r-implementer"], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
       });
       const manifest = makeManifest({ content: contentItems });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      vi.mocked(countSelectionItems).mockReturnValue(1);
-      vi.mocked(selectionSummary).mockReturnValue("1 agents");
+      primeContent(manifest, ["hatch3r-implementer", "hatch3r-reviewer"]);
 
-      const mockIndex = {
-        items: [
-          { id: "hatch3r-implementer", type: "agent", description: "Implementer", tags: [], relativePath: "agents/hatch3r-implementer.md" },
-          { id: "hatch3r-reviewer", type: "agent", description: "Reviewer", tags: [], relativePath: "agents/hatch3r-reviewer.md" },
-        ],
-        byType: {},
-        byId: new Map([
-          ["hatch3r-implementer", { id: "hatch3r-implementer", type: "agent", description: "Implementer", tags: [], relativePath: "agents/hatch3r-implementer.md" }],
-          ["hatch3r-reviewer", { id: "hatch3r-reviewer", type: "agent", description: "Reviewer", tags: [], relativePath: "agents/hatch3r-reviewer.md" }],
-        ]),
-      };
-      vi.mocked(buildContentIndex).mockResolvedValue(mockIndex as any);
+      stubContentIdsTransition(getAllContentIds, ["hatch3r-implementer"], ["hatch3r-implementer", "hatch3r-reviewer"]);
+      stubResolveSelectionAgents(resolveSelection, ["hatch3r-implementer", "hatch3r-reviewer"]);
 
-      let callCount = 0;
-      vi.mocked(getAllContentIds).mockImplementation(() => {
-        callCount++;
-        if (callCount === 1) return new Set(["hatch3r-implementer"]); // old
-        return new Set(["hatch3r-implementer", "hatch3r-reviewer"]); // new
-      });
-      vi.mocked(resolveSelection).mockReturnValue(makeContentSelection({
-        items: { agents: ["hatch3r-implementer", "hatch3r-reviewer"], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
-      }));
 
-      setupStandardPrompts(manifest);
-
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       expect(vi.mocked(generateCanonicalAgentsMd)).toHaveBeenCalled();
       expect(vi.mocked(safeWriteFile)).toHaveBeenCalledWith(
@@ -878,31 +637,14 @@ describe("config command", () => {
         items: { agents: ["hatch3r-implementer"], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
       });
       const manifest = makeManifest({ content: contentItems });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      vi.mocked(countSelectionItems).mockReturnValue(1);
-      vi.mocked(selectionSummary).mockReturnValue("1 agents");
-
-      const mockIndex = {
-        items: [
-          { id: "hatch3r-implementer", type: "agent", description: "Implementer", tags: [], relativePath: "agents/hatch3r-implementer.md" },
-        ],
-        byType: {},
-        byId: new Map([
-          ["hatch3r-implementer", { id: "hatch3r-implementer", type: "agent", description: "Implementer", tags: [], relativePath: "agents/hatch3r-implementer.md" }],
-        ]),
-      };
-      vi.mocked(buildContentIndex).mockResolvedValue(mockIndex as any);
+      primeContent(manifest, ["hatch3r-implementer"]);
 
       // Both old and new resolve to the same set — no changes
       vi.mocked(getAllContentIds).mockReturnValue(new Set(["hatch3r-implementer"]));
-      vi.mocked(resolveSelection).mockReturnValue(makeContentSelection({
-        items: { agents: ["hatch3r-implementer"], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
-      }));
+      stubResolveSelectionAgents(resolveSelection, ["hatch3r-implementer"]);
 
-      setupStandardPrompts(manifest);
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       expect(vi.mocked(generateCanonicalAgentsMd)).not.toHaveBeenCalled();
     });
@@ -913,25 +655,21 @@ describe("config command", () => {
   describe("no changes", () => {
     it("should print 'No changes detected' when diff is empty", async () => {
       const manifest = makeManifest();
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest);
+      primeConfig(manifest);
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       expect(vi.mocked(info)).toHaveBeenCalledWith(expect.stringContaining("No changes detected"));
     });
 
-    it("should return without calling writeManifest or runUpdate", async () => {
+    it("should return without calling writeManifest or runRegenerate", async () => {
       const manifest = makeManifest();
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest);
+      primeConfig(manifest);
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       expect(vi.mocked(writeManifest)).not.toHaveBeenCalled();
-      expect(vi.mocked(runUpdate)).not.toHaveBeenCalled();
+      expect(vi.mocked(runRegenerate)).not.toHaveBeenCalled();
     });
   });
 
@@ -947,8 +685,7 @@ describe("config command", () => {
       });
       setupStandardPrompts(manifest, { tools: ["cursor"] });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       expect(vi.mocked(archiveToolOutputs)).toHaveBeenCalledWith(tempDir, "claude");
     });
@@ -962,17 +699,11 @@ describe("config command", () => {
       });
       setupStandardPrompts(manifest, { tools: ["cursor"] });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       expect(vi.mocked(printBox)).toHaveBeenCalled();
-      const boxCall = vi.mocked(printBox).mock.calls.find(
-        (call) => call[0] === "Config updated",
-      );
-      expect(boxCall).toBeDefined();
-      const lines = boxCall![1] as string[];
-      const archiveLine = lines.find((l) => typeof l === "string" && l.includes("Archived"));
-      expect(archiveLine).toBeDefined();
+      const lines = getConfigUpdatedBox(printBox);
+      expectSummaryLine(lines, "Archived");
     });
 
     it("should call removeManagedFilesForPaths for archived files", async () => {
@@ -984,8 +715,7 @@ describe("config command", () => {
       });
       setupStandardPrompts(manifest, { tools: ["cursor"] });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       expect(vi.mocked(removeManagedFilesForPaths)).toHaveBeenCalledWith(
         manifest,
@@ -997,26 +727,22 @@ describe("config command", () => {
   // ── Update + env ─────────────────────────────────────────────
 
   describe("update and env", () => {
-    it("should call runUpdate after manifest changes", async () => {
+    it("should call runRegenerate after manifest changes", async () => {
       const manifest = makeManifest({ tools: ["cursor"] });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, { tools: ["cursor", "claude"] });
+      primeConfig(manifest, { tools: ["cursor", "claude"] });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
-      expect(vi.mocked(runUpdate)).toHaveBeenCalledWith(tempDir, expect.objectContaining({ tools: ["cursor", "claude"] }));
+      expect(vi.mocked(runRegenerate)).toHaveBeenCalledWith(tempDir, expect.objectContaining({ tools: ["cursor", "claude"] }));
     });
 
     it("should call ensureEnvMcp for MCP servers when mcp feature enabled", async () => {
       const manifest = makeManifest({ mcp: { servers: ["github"] } });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, {
+      primeConfig(manifest, {
         mcpServers: ["github", "brave-search"],
       });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       expect(vi.mocked(ensureEnvMcp)).toHaveBeenCalledWith(
         tempDir,
@@ -1037,8 +763,7 @@ describe("config command", () => {
         mcpServers: ["github", "brave-search"],
       });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       expect(vi.mocked(warn)).toHaveBeenCalledWith(expect.stringContaining("BRAVE_API_KEY"));
     });
@@ -1048,14 +773,12 @@ describe("config command", () => {
         features: { ...DEFAULT_FEATURES, mcp: false },
         mcp: { servers: [] },
       });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, {
+      primeConfig(manifest, {
         features: ["agents", "skills", "rules", "prompts", "commands", "githubAgents", "hooks"],
         tools: ["cursor", "claude"],
       });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       expect(vi.mocked(ensureEnvMcp)).not.toHaveBeenCalled();
     });
@@ -1068,8 +791,7 @@ describe("config command", () => {
         mcpServers: ["github", "brave-search"],
       });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       expect(vi.mocked(warn)).toHaveBeenCalledWith(expect.stringContaining("Could not update .env.mcp"));
     });
@@ -1080,21 +802,13 @@ describe("config command", () => {
   describe("summary output", () => {
     it("should show added tools in summary", async () => {
       const manifest = makeManifest({ tools: ["cursor"] });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, { tools: ["cursor", "claude"] });
+      primeConfig(manifest, { tools: ["cursor", "claude"] });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       expect(vi.mocked(printBox)).toHaveBeenCalled();
-      const boxCall = vi.mocked(printBox).mock.calls.find(
-        (call) => call[0] === "Config updated",
-      );
-      expect(boxCall).toBeDefined();
-      const lines = boxCall![1] as string[];
-      const addedLine = lines.find((l) => typeof l === "string" && l.includes("Tools added"));
-      expect(addedLine).toBeDefined();
-      expect(addedLine).toContain("Claude Code");
+      const lines = getConfigUpdatedBox(printBox);
+      expectSummaryLine(lines, "Tools added", "Claude Code");
     });
 
     it("should show removed tools in summary", async () => {
@@ -1103,38 +817,24 @@ describe("config command", () => {
       vi.mocked(archiveToolOutputs).mockResolvedValue({ archivedFiles: [], migrations: [] });
       setupStandardPrompts(manifest, { tools: ["cursor"] });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
-      const boxCall = vi.mocked(printBox).mock.calls.find(
-        (call) => call[0] === "Config updated",
-      );
-      expect(boxCall).toBeDefined();
-      const lines = boxCall![1] as string[];
-      const removedLine = lines.find((l) => typeof l === "string" && l.includes("Tools removed"));
-      expect(removedLine).toBeDefined();
-      expect(removedLine).toContain("Claude Code");
+      const lines = getConfigUpdatedBox(printBox);
+      expectSummaryLine(lines, "Tools removed", "Claude Code");
     });
 
     it("should show platform change in summary", async () => {
       const manifest = makeManifest({ platform: "github" });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, {
+      primeConfig(manifest, {
         platform: "gitlab",
         repoAnswers: { namespace: "gl-group", project: "gl-project" },
         mcpServers: ["gitlab"],
       });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
-      const boxCall = vi.mocked(printBox).mock.calls.find(
-        (call) => call[0] === "Config updated",
-      );
-      expect(boxCall).toBeDefined();
-      const lines = boxCall![1] as string[];
-      const platformLine = lines.find((l) => typeof l === "string" && l.includes("Platform"));
-      expect(platformLine).toBeDefined();
+      const lines = getConfigUpdatedBox(printBox);
+      expectSummaryLine(lines, "Platform");
     });
 
     it("should show content changes in summary", async () => {
@@ -1142,80 +842,39 @@ describe("config command", () => {
         items: { agents: ["hatch3r-implementer"], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
       });
       const manifest = makeManifest({ content: contentItems });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      vi.mocked(countSelectionItems).mockReturnValue(1);
-      vi.mocked(selectionSummary).mockReturnValue("1 agents");
+      primeContent(manifest, ["hatch3r-implementer", "hatch3r-reviewer"]);
 
-      const mockIndex = {
-        items: [
-          { id: "hatch3r-implementer", type: "agent", description: "Implementer", tags: [], relativePath: "agents/hatch3r-implementer.md" },
-          { id: "hatch3r-reviewer", type: "agent", description: "Reviewer", tags: [], relativePath: "agents/hatch3r-reviewer.md" },
-        ],
-        byType: {},
-        byId: new Map([
-          ["hatch3r-implementer", { id: "hatch3r-implementer", type: "agent", description: "Implementer", tags: [], relativePath: "agents/hatch3r-implementer.md" }],
-          ["hatch3r-reviewer", { id: "hatch3r-reviewer", type: "agent", description: "Reviewer", tags: [], relativePath: "agents/hatch3r-reviewer.md" }],
-        ]),
-      };
-      vi.mocked(buildContentIndex).mockResolvedValue(mockIndex as any);
+      stubContentIdsTransition(getAllContentIds, ["hatch3r-implementer"], ["hatch3r-implementer", "hatch3r-reviewer"]);
+      stubResolveSelectionAgents(resolveSelection, ["hatch3r-implementer", "hatch3r-reviewer"]);
 
-      let callCount = 0;
-      vi.mocked(getAllContentIds).mockImplementation(() => {
-        callCount++;
-        if (callCount === 1) return new Set(["hatch3r-implementer"]);
-        return new Set(["hatch3r-implementer", "hatch3r-reviewer"]);
-      });
-      vi.mocked(resolveSelection).mockReturnValue(makeContentSelection({
-        items: { agents: ["hatch3r-implementer", "hatch3r-reviewer"], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
-      }));
 
-      setupStandardPrompts(manifest);
+      await (await importConfigCommand())();
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
-
-      const boxCall = vi.mocked(printBox).mock.calls.find(
-        (call) => call[0] === "Config updated",
-      );
-      expect(boxCall).toBeDefined();
-      const lines = boxCall![1] as string[];
-      const contentLine = lines.find((l) => typeof l === "string" && l.includes("Content added"));
-      expect(contentLine).toBeDefined();
+      const lines = getConfigUpdatedBox(printBox);
+      expectSummaryLine(lines, "Content added");
     });
 
     it("should show version in summary", async () => {
       const manifest = makeManifest({ tools: ["cursor"] });
       vi.mocked(readManifest).mockResolvedValue(manifest);
-      vi.mocked(runUpdate).mockResolvedValue({ copiedFiles: 10, syncedTools: 2, failedTools: 0, version: "1.1.0" });
+      vi.mocked(runRegenerate).mockResolvedValue({ copiedFiles: 10, syncedTools: 2, failedTools: 0, version: "1.1.0" });
       setupStandardPrompts(manifest, { tools: ["cursor", "claude"] });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
-      const boxCall = vi.mocked(printBox).mock.calls.find(
-        (call) => call[0] === "Config updated",
-      );
-      expect(boxCall).toBeDefined();
-      const lines = boxCall![1] as string[];
-      const versionLine = lines.find((l) => typeof l === "string" && l.includes("Version"));
-      expect(versionLine).toBeDefined();
-      expect(versionLine).toContain("1.1.0");
+      const lines = getConfigUpdatedBox(printBox);
+      expectSummaryLine(lines, "Version", "1.1.0");
     });
 
     it("should show files and tools count in summary", async () => {
       const manifest = makeManifest({ tools: ["cursor"] });
       vi.mocked(readManifest).mockResolvedValue(manifest);
-      vi.mocked(runUpdate).mockResolvedValue({ copiedFiles: 15, syncedTools: 2, failedTools: 0, version: "1.1.0" });
+      vi.mocked(runRegenerate).mockResolvedValue({ copiedFiles: 15, syncedTools: 2, failedTools: 0, version: "1.1.0" });
       setupStandardPrompts(manifest, { tools: ["cursor", "claude"] });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
-      const boxCall = vi.mocked(printBox).mock.calls.find(
-        (call) => call[0] === "Config updated",
-      );
-      expect(boxCall).toBeDefined();
-      const lines = boxCall![1] as string[];
+      const lines = getConfigUpdatedBox(printBox);
       const filesLine = lines.find((l) => typeof l === "string" && l.includes("Files"));
       const toolsLine = lines.find((l) => typeof l === "string" && l.includes("Tools") && l.includes("synced"));
       expect(filesLine).toContain("15");
@@ -1224,120 +883,74 @@ describe("config command", () => {
 
     it("should show MCP added in summary", async () => {
       const manifest = makeManifest({ mcp: { servers: ["github"] } });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, {
+      primeConfig(manifest, {
         mcpServers: ["github", "context7"],
       });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
-      const boxCall = vi.mocked(printBox).mock.calls.find(
-        (call) => call[0] === "Config updated",
-      );
-      expect(boxCall).toBeDefined();
-      const lines = boxCall![1] as string[];
-      const mcpLine = lines.find((l) => typeof l === "string" && l.includes("MCP added"));
-      expect(mcpLine).toBeDefined();
-      expect(mcpLine).toContain("context7");
+      const lines = getConfigUpdatedBox(printBox);
+      expectSummaryLine(lines, "MCP added", "context7");
     });
 
     it("should show MCP removed in summary", async () => {
       const manifest = makeManifest({ mcp: { servers: ["github", "context7"] } });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, {
+      primeConfig(manifest, {
         mcpServers: ["github"],
       });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
-      const boxCall = vi.mocked(printBox).mock.calls.find(
-        (call) => call[0] === "Config updated",
-      );
-      expect(boxCall).toBeDefined();
-      const lines = boxCall![1] as string[];
-      const mcpLine = lines.find((l) => typeof l === "string" && l.includes("MCP removed"));
-      expect(mcpLine).toBeDefined();
-      expect(mcpLine).toContain("context7");
+      const lines = getConfigUpdatedBox(printBox);
+      expectSummaryLine(lines, "MCP removed", "context7");
     });
 
     it("should show enabled features in summary", async () => {
       const manifest = makeManifest({
         features: { ...DEFAULT_FEATURES, hooks: false },
       });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, {
+      primeConfig(manifest, {
         features: ["agents", "skills", "rules", "prompts", "commands", "mcp", "githubAgents", "hooks"],
       });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
-      const boxCall = vi.mocked(printBox).mock.calls.find(
-        (call) => call[0] === "Config updated",
-      );
-      expect(boxCall).toBeDefined();
-      const lines = boxCall![1] as string[];
-      const featureLine = lines.find((l) => typeof l === "string" && l.includes("Features enabled"));
-      expect(featureLine).toBeDefined();
-      expect(featureLine).toContain("hooks");
+      const lines = getConfigUpdatedBox(printBox);
+      expectSummaryLine(lines, "Features enabled", "hooks");
     });
 
     it("should show disabled features in summary", async () => {
       const manifest = makeManifest();
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, {
+      primeConfig(manifest, {
         features: ["agents", "skills", "rules", "prompts", "commands", "githubAgents"],
       });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
-      const boxCall = vi.mocked(printBox).mock.calls.find(
-        (call) => call[0] === "Config updated",
-      );
-      expect(boxCall).toBeDefined();
-      const lines = boxCall![1] as string[];
-      const featureLine = lines.find((l) => typeof l === "string" && l.includes("Features disabled"));
-      expect(featureLine).toBeDefined();
+      const lines = getConfigUpdatedBox(printBox);
+      expectSummaryLine(lines, "Features disabled");
     });
 
     it("should show repo change in summary", async () => {
       const manifest = makeManifest({ owner: "old-org", repo: "old-repo" });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, {
+      primeConfig(manifest, {
         repoAnswers: { owner: "new-org", repo: "new-repo" },
       });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
-      const boxCall = vi.mocked(printBox).mock.calls.find(
-        (call) => call[0] === "Config updated",
-      );
-      expect(boxCall).toBeDefined();
-      const lines = boxCall![1] as string[];
-      const repoLine = lines.find((l) => typeof l === "string" && l.includes("Repo"));
-      expect(repoLine).toBeDefined();
+      const lines = getConfigUpdatedBox(printBox);
+      expectSummaryLine(lines, "Repo");
     });
 
     it("should show default branch change in summary", async () => {
       const manifest = makeManifest();
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, { branch: "develop" });
+      primeConfig(manifest, { branch: "develop" });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
-      const boxCall = vi.mocked(printBox).mock.calls.find(
-        (call) => call[0] === "Config updated",
-      );
-      expect(boxCall).toBeDefined();
-      const lines = boxCall![1] as string[];
-      const branchLine = lines.find((l) => typeof l === "string" && l.includes("Default branch"));
-      expect(branchLine).toBeDefined();
-      expect(branchLine).toContain("develop");
+      const lines = getConfigUpdatedBox(printBox);
+      expectSummaryLine(lines, "Default branch", "develop");
     });
 
     it("should show content removed in summary", async () => {
@@ -1345,46 +958,17 @@ describe("config command", () => {
         items: { agents: ["hatch3r-implementer", "hatch3r-reviewer"], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
       });
       const manifest = makeManifest({ content: contentItems });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      vi.mocked(countSelectionItems).mockReturnValue(2);
-      vi.mocked(selectionSummary).mockReturnValue("2 agents");
+      primeContent(manifest, ["hatch3r-implementer", "hatch3r-reviewer"]);
 
-      const mockIndex = {
-        items: [
-          { id: "hatch3r-implementer", type: "agent", description: "Implementer", tags: [], relativePath: "agents/hatch3r-implementer.md" },
-          { id: "hatch3r-reviewer", type: "agent", description: "Reviewer", tags: [], relativePath: "agents/hatch3r-reviewer.md" },
-        ],
-        byType: {},
-        byId: new Map([
-          ["hatch3r-implementer", { id: "hatch3r-implementer", type: "agent", description: "Implementer", tags: [], relativePath: "agents/hatch3r-implementer.md" }],
-          ["hatch3r-reviewer", { id: "hatch3r-reviewer", type: "agent", description: "Reviewer", tags: [], relativePath: "agents/hatch3r-reviewer.md" }],
-        ]),
-      };
-      vi.mocked(buildContentIndex).mockResolvedValue(mockIndex as any);
-
-      let callCount = 0;
-      vi.mocked(getAllContentIds).mockImplementation(() => {
-        callCount++;
-        if (callCount === 1) return new Set(["hatch3r-implementer", "hatch3r-reviewer"]);
-        return new Set(["hatch3r-implementer"]);
-      });
-      vi.mocked(resolveSelection).mockReturnValue(makeContentSelection({
-        preset: "minimal",
-        items: { agents: ["hatch3r-implementer"], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
-      }));
+      stubContentIdsTransition(getAllContentIds, ["hatch3r-implementer", "hatch3r-reviewer"], ["hatch3r-implementer"]);
+      stubResolveSelectionAgents(resolveSelection, ["hatch3r-implementer"], "minimal");
 
       setupStandardPrompts(manifest, { contentPreset: "minimal" });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
-      const boxCall = vi.mocked(printBox).mock.calls.find(
-        (call) => call[0] === "Config updated",
-      );
-      expect(boxCall).toBeDefined();
-      const lines = boxCall![1] as string[];
-      const removedLine = lines.find((l) => typeof l === "string" && l.includes("Content removed"));
-      expect(removedLine).toBeDefined();
+      const lines = getConfigUpdatedBox(printBox);
+      expectSummaryLine(lines, "Content removed");
     });
 
     it("should show migrations when present", async () => {
@@ -1396,8 +980,7 @@ describe("config command", () => {
       });
       setupStandardPrompts(manifest, { tools: ["cursor"] });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       expect(vi.mocked(info)).toHaveBeenCalledWith(expect.stringContaining("Customizations migrated"));
     });
@@ -1408,43 +991,37 @@ describe("config command", () => {
   describe("manifest update", () => {
     it("should apply platform to manifest", async () => {
       const manifest = makeManifest({ platform: "github" });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, {
+      primeConfig(manifest, {
         platform: "gitlab",
         repoAnswers: { namespace: "gl-ns", project: "gl-proj" },
         mcpServers: ["gitlab"],
       });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
-      const writtenManifest = vi.mocked(writeManifest).mock.calls[0][1] as HatchManifest;
+      const writtenManifest = getWrittenManifest(writeManifest);
       expect(writtenManifest.platform).toBe("gitlab");
     });
 
     it("should apply tools to manifest", async () => {
       const manifest = makeManifest({ tools: ["cursor"] });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, { tools: ["cursor", "claude", "copilot"] });
+      primeConfig(manifest, { tools: ["cursor", "claude", "copilot"] });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
-      const writtenManifest = vi.mocked(writeManifest).mock.calls[0][1] as HatchManifest;
+      const writtenManifest = getWrittenManifest(writeManifest);
       expect(writtenManifest.tools).toEqual(["cursor", "claude", "copilot"]);
     });
 
     it("should apply features to manifest", async () => {
       const manifest = makeManifest();
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, {
+      primeConfig(manifest, {
         features: ["agents", "rules"],
       });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
-      const writtenManifest = vi.mocked(writeManifest).mock.calls[0][1] as HatchManifest;
+      const writtenManifest = getWrittenManifest(writeManifest);
       expect(writtenManifest.features.agents).toBe(true);
       expect(writtenManifest.features.rules).toBe(true);
       expect(writtenManifest.features.skills).toBe(false);
@@ -1453,30 +1030,26 @@ describe("config command", () => {
 
     it("should apply MCP servers to manifest", async () => {
       const manifest = makeManifest({ mcp: { servers: ["github"] } });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, {
+      primeConfig(manifest, {
         mcpServers: ["github", "context7", "playwright"],
       });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
-      const writtenManifest = vi.mocked(writeManifest).mock.calls[0][1] as HatchManifest;
+      const writtenManifest = getWrittenManifest(writeManifest);
       expect(writtenManifest.mcp.servers).toEqual(expect.arrayContaining(["github", "context7", "playwright"]));
     });
 
     it("should update board when board exists", async () => {
       const manifest = makeManifest();
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, {
+      primeConfig(manifest, {
         repoAnswers: { owner: "new-owner", repo: "new-repo" },
         branch: "develop",
       });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
-      const writtenManifest = vi.mocked(writeManifest).mock.calls[0][1] as HatchManifest;
+      const writtenManifest = getWrittenManifest(writeManifest);
       expect(writtenManifest.board?.owner).toBe("new-owner");
       expect(writtenManifest.board?.repo).toBe("new-repo");
       expect(writtenManifest.board?.defaultBranch).toBe("develop");
@@ -1484,13 +1057,11 @@ describe("config command", () => {
 
     it("should create board when it does not exist and branch differs from main", async () => {
       const manifest = makeManifest({ board: undefined });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, { branch: "develop" });
+      primeConfig(manifest, { branch: "develop" });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
-      const writtenManifest = vi.mocked(writeManifest).mock.calls[0][1] as HatchManifest;
+      const writtenManifest = getWrittenManifest(writeManifest);
       expect(writtenManifest.board).toBeDefined();
       expect(writtenManifest.board?.defaultBranch).toBe("develop");
       expect(writtenManifest.board?.branchConvention).toBe("{type}/{short-description}");
@@ -1498,25 +1069,21 @@ describe("config command", () => {
 
     it("should set MCP servers to empty when mcp feature disabled", async () => {
       const manifest = makeManifest();
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, {
+      primeConfig(manifest, {
         features: ["agents", "skills", "rules", "prompts", "commands", "githubAgents", "hooks"],
       });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
-      const writtenManifest = vi.mocked(writeManifest).mock.calls[0][1] as HatchManifest;
+      const writtenManifest = getWrittenManifest(writeManifest);
       expect(writtenManifest.mcp.servers).toEqual([]);
     });
 
     it("should write manifest to rootDir", async () => {
       const manifest = makeManifest({ tools: ["cursor"] });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, { tools: ["cursor", "claude"] });
+      primeConfig(manifest, { tools: ["cursor", "claude"] });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       expect(vi.mocked(writeManifest)).toHaveBeenCalledWith(tempDir, expect.any(Object));
     });
@@ -1527,11 +1094,9 @@ describe("config command", () => {
   describe("helper functions via orchestration", () => {
     it("computeDiff: detects no tool changes", async () => {
       const manifest = makeManifest({ tools: ["cursor"] });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest);
+      primeConfig(manifest);
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       expect(vi.mocked(info)).toHaveBeenCalledWith(expect.stringContaining("No changes detected"));
       expect(vi.mocked(writeManifest)).not.toHaveBeenCalled();
@@ -1539,15 +1104,12 @@ describe("config command", () => {
 
     it("computeDiff: detects tool additions", async () => {
       const manifest = makeManifest({ tools: ["cursor"] });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, { tools: ["cursor", "windsurf"] });
+      primeConfig(manifest, { tools: ["cursor", "windsurf"] });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       expect(vi.mocked(writeManifest)).toHaveBeenCalled();
-      const boxCall = vi.mocked(printBox).mock.calls.find((c) => c[0] === "Config updated");
-      const lines = boxCall![1] as string[];
+      const lines = getConfigUpdatedBox(printBox);
       expect(lines.some((l) => typeof l === "string" && l.includes("Tools added"))).toBe(true);
     });
 
@@ -1557,126 +1119,102 @@ describe("config command", () => {
       vi.mocked(archiveToolOutputs).mockResolvedValue({ archivedFiles: [], migrations: [] });
       setupStandardPrompts(manifest, { tools: ["cursor"] });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
-      const boxCall = vi.mocked(printBox).mock.calls.find((c) => c[0] === "Config updated");
-      const lines = boxCall![1] as string[];
+      const lines = getConfigUpdatedBox(printBox);
       expect(lines.some((l) => typeof l === "string" && l.includes("Tools removed"))).toBe(true);
     });
 
     it("computeDiff: detects platform change", async () => {
       const manifest = makeManifest({ platform: "github" });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, {
+      primeConfig(manifest, {
         platform: "azure-devops",
         repoAnswers: { org: "my-org", project: "my-proj", repo: "my-repo" },
         mcpServers: ["azure-devops"],
       });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
-      const boxCall = vi.mocked(printBox).mock.calls.find((c) => c[0] === "Config updated");
-      const lines = boxCall![1] as string[];
+      const lines = getConfigUpdatedBox(printBox);
       expect(lines.some((l) => typeof l === "string" && l.includes("Platform"))).toBe(true);
     });
 
     it("computeDiff: detects repo change", async () => {
       const manifest = makeManifest({ owner: "old", repo: "old-repo" });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, {
+      primeConfig(manifest, {
         repoAnswers: { owner: "new-org", repo: "new-repo" },
       });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
-      const boxCall = vi.mocked(printBox).mock.calls.find((c) => c[0] === "Config updated");
-      const lines = boxCall![1] as string[];
+      const lines = getConfigUpdatedBox(printBox);
       expect(lines.some((l) => typeof l === "string" && l.includes("Repo"))).toBe(true);
     });
 
     it("computeDiff: detects MCP additions", async () => {
       const manifest = makeManifest({ mcp: { servers: ["github"] } });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, {
+      primeConfig(manifest, {
         mcpServers: ["github", "playwright"],
       });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
-      const boxCall = vi.mocked(printBox).mock.calls.find((c) => c[0] === "Config updated");
-      const lines = boxCall![1] as string[];
+      const lines = getConfigUpdatedBox(printBox);
       expect(lines.some((l) => typeof l === "string" && l.includes("MCP added"))).toBe(true);
     });
 
     it("computeDiff: detects MCP removals", async () => {
       const manifest = makeManifest({ mcp: { servers: ["github", "context7"] } });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, {
+      primeConfig(manifest, {
         mcpServers: ["github"],
       });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
-      const boxCall = vi.mocked(printBox).mock.calls.find((c) => c[0] === "Config updated");
-      const lines = boxCall![1] as string[];
+      const lines = getConfigUpdatedBox(printBox);
       expect(lines.some((l) => typeof l === "string" && l.includes("MCP removed"))).toBe(true);
     });
 
     it("computeDiff: detects feature enables", async () => {
       const manifest = makeManifest({ features: { ...DEFAULT_FEATURES, hooks: false, mcp: false } });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, {
+      primeConfig(manifest, {
         features: ["agents", "skills", "rules", "prompts", "commands", "mcp", "githubAgents", "hooks"],
       });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
-      const boxCall = vi.mocked(printBox).mock.calls.find((c) => c[0] === "Config updated");
-      const lines = boxCall![1] as string[];
+      const lines = getConfigUpdatedBox(printBox);
       expect(lines.some((l) => typeof l === "string" && l.includes("Features enabled"))).toBe(true);
     });
 
     it("computeDiff: detects feature disables", async () => {
       const manifest = makeManifest();
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, {
+      primeConfig(manifest, {
         features: ["agents", "skills", "rules"],
       });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
-      const boxCall = vi.mocked(printBox).mock.calls.find((c) => c[0] === "Config updated");
-      const lines = boxCall![1] as string[];
+      const lines = getConfigUpdatedBox(printBox);
       expect(lines.some((l) => typeof l === "string" && l.includes("Features disabled"))).toBe(true);
     });
 
     it("isDiffEmpty: returns true when nothing changed", async () => {
       const manifest = makeManifest();
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest);
+      primeConfig(manifest);
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       expect(vi.mocked(info)).toHaveBeenCalledWith(expect.stringContaining("No changes detected"));
       expect(vi.mocked(writeManifest)).not.toHaveBeenCalled();
-      expect(vi.mocked(runUpdate)).not.toHaveBeenCalled();
+      expect(vi.mocked(runRegenerate)).not.toHaveBeenCalled();
     });
 
     it("isDiffEmpty: returns false when only branch changed", async () => {
       const manifest = makeManifest();
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, { branch: "release" });
+      primeConfig(manifest, { branch: "release" });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       expect(vi.mocked(writeManifest)).toHaveBeenCalled();
     });
@@ -1687,8 +1225,7 @@ describe("config command", () => {
       vi.mocked(countSelectionItems).mockReturnValue(0);
       setupStandardPrompts(manifest);
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       expect(vi.mocked(printBox)).toHaveBeenCalledWith(
         "Current configuration",
@@ -1707,30 +1244,20 @@ describe("config command", () => {
       vi.mocked(selectionSummary).mockReturnValue("2 agents, 1 rules");
       setupStandardPrompts(manifest);
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
-      const configBoxCall = vi.mocked(printBox).mock.calls.find(
-        (call) => call[0] === "Current configuration",
-      );
-      expect(configBoxCall).toBeDefined();
-      const lines = configBoxCall![1] as string[];
-      const contentLine = lines.find((l) => typeof l === "string" && l.includes("Content"));
-      expect(contentLine).toBeDefined();
+      const lines = getCurrentConfigBox(printBox);
+      expectSummaryLine(lines, "Content");
     });
 
     it("printCurrentConfig: handles missing platform", async () => {
       const manifest = makeManifest({ platform: undefined as any });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, { platform: "github" });
+      primeConfig(manifest, { platform: "github" });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
-      const configBoxCall = vi.mocked(printBox).mock.calls.find(
-        (call) => call[0] === "Current configuration",
-      );
-      expect(configBoxCall).toBeDefined();
+      // Helper throws if the box is missing -- assertion is implicit.
+      getCurrentConfigBox(printBox);
     });
   });
 
@@ -1739,24 +1266,20 @@ describe("config command", () => {
   describe("edge cases", () => {
     it("should handle manifest without board", async () => {
       const manifest = makeManifest({ board: undefined });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, { tools: ["cursor", "claude"] });
+      primeConfig(manifest, { tools: ["cursor", "claude"] });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       expect(vi.mocked(writeManifest)).toHaveBeenCalled();
-      const writtenManifest = vi.mocked(writeManifest).mock.calls[0][1] as HatchManifest;
+      const writtenManifest = getWrittenManifest(writeManifest);
       expect(writtenManifest.board).toBeDefined();
     });
 
     it("should handle manifest without content", async () => {
       const manifest = makeManifest({ content: undefined });
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, { tools: ["cursor", "claude"] });
+      primeConfig(manifest, { tools: ["cursor", "claude"] });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       const promptCalls = vi.mocked(inquirer.prompt).mock.calls;
       const contentCall = promptCalls.find((call) => {
@@ -1768,26 +1291,22 @@ describe("config command", () => {
 
     it("should handle empty branch input by falling back to current branch", async () => {
       const manifest = makeManifest();
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, { branch: "" });
+      primeConfig(manifest, { branch: "" });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       expect(vi.mocked(info)).toHaveBeenCalledWith(expect.stringContaining("No changes detected"));
     });
 
     it("should sanitize user inputs for repo identity", async () => {
       const manifest = makeManifest();
-      vi.mocked(readManifest).mockResolvedValue(manifest);
-      setupStandardPrompts(manifest, {
+      primeConfig(manifest, {
         repoAnswers: { owner: "test/org@bad", repo: "test repo!" },
       });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
-      const writtenManifest = vi.mocked(writeManifest).mock.calls[0][1] as HatchManifest;
+      const writtenManifest = getWrittenManifest(writeManifest);
       expect(writtenManifest.owner).not.toContain("/");
       expect(writtenManifest.owner).not.toContain("@");
       expect(writtenManifest.repo).not.toContain("!");
@@ -1800,31 +1319,29 @@ describe("config command", () => {
       vi.mocked(archiveToolOutputs).mockResolvedValue({ archivedFiles: ["file1.md"], migrations: [] });
       setupStandardPrompts(manifest, { tools: ["cursor"] });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       expect(vi.mocked(archiveToolOutputs)).toHaveBeenCalledTimes(2);
       expect(vi.mocked(archiveToolOutputs)).toHaveBeenCalledWith(tempDir, "claude");
       expect(vi.mocked(archiveToolOutputs)).toHaveBeenCalledWith(tempDir, "copilot");
     });
 
-    it("should call writeManifest before runUpdate", async () => {
+    it("should call writeManifest before runRegenerate", async () => {
       const manifest = makeManifest({ tools: ["cursor"] });
       vi.mocked(readManifest).mockResolvedValue(manifest);
 
       const callOrder: string[] = [];
       vi.mocked(writeManifest).mockImplementation(async () => { callOrder.push("writeManifest"); });
-      vi.mocked(runUpdate).mockImplementation(async () => {
-        callOrder.push("runUpdate");
+      vi.mocked(runRegenerate).mockImplementation(async () => {
+        callOrder.push("runRegenerate");
         return { copiedFiles: 10, syncedTools: 1, failedTools: 0, version: "1.1.0" };
       });
 
       setupStandardPrompts(manifest, { tools: ["cursor", "claude"] });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
-      expect(callOrder).toEqual(["writeManifest", "runUpdate"]);
+      expect(callOrder).toEqual(["writeManifest", "runRegenerate"]);
     });
   });
 
@@ -1843,8 +1360,7 @@ describe("config command", () => {
       // User chooses to switch to workspace root
       vi.mocked(inquirer.prompt).mockResolvedValueOnce({ action: "workspace" });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       expect(vi.mocked(warn)).toHaveBeenCalledWith(
         expect.stringContaining("managed by workspace"),
@@ -1870,8 +1386,7 @@ describe("config command", () => {
       inquirerMock.prompt.mockResolvedValueOnce({ action: "local" });
       setupStandardPrompts(manifest);
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       // Should still warn but proceed
       expect(vi.mocked(warn)).toHaveBeenCalledWith(
@@ -1909,8 +1424,7 @@ describe("config command", () => {
       // Add the workspace management prompt (decline to manage)
       vi.mocked(inquirer.prompt).mockResolvedValueOnce({ manageWorkspace: false });
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       // Should show workspace-aware header box
       expect(vi.mocked(printBox)).toHaveBeenCalledWith(
@@ -1929,14 +1443,135 @@ describe("config command", () => {
 
       setupStandardPrompts(manifest);
 
-      const { configCommand } = await import("../../cli/commands/config.js");
-      await configCommand();
+      await (await importConfigCommand())();
 
       // Should not show workspace header or member warning
       expect(vi.mocked(warn)).not.toHaveBeenCalledWith(
         expect.stringContaining("managed by workspace"),
       );
       expect(vi.mocked(writeWorkspaceManifest)).not.toHaveBeenCalled();
+    });
+
+    // C8-D1-M7 (D1 Medium): Workspace manifest-write + sync-now atomicity.
+    // sync-now must run BEFORE writeWorkspaceManifest so the persisted
+    // manifest reflects the last state that successfully propagated to
+    // sub-repos (or, on failure, surfaces the partial state to the user).
+    describe("manifest-write + sync atomicity (C8-D1-M7)", () => {
+      function queueManageWorkspacePrompts(manifest: HatchManifest, syncNow: boolean): void {
+        // Tool change ensures diff is non-empty and config proceeds.
+        setupStandardPrompts(manifest, { tools: ["cursor", "claude"] });
+        // manageWorkspace = true
+        vi.mocked(inquirer.prompt).mockResolvedValueOnce({ manageWorkspace: true });
+        // syncRepos: keep repo-a synced
+        vi.mocked(inquirer.prompt).mockResolvedValueOnce({ syncRepos: ["repo-a"] });
+        // editIdentity: keep current
+        vi.mocked(inquirer.prompt).mockResolvedValueOnce({ editIdentity: "keep" });
+        // strategy: manual
+        vi.mocked(inquirer.prompt).mockResolvedValueOnce({ strategy: "manual" });
+        // syncNow prompt
+        vi.mocked(inquirer.prompt).mockResolvedValueOnce({ syncNow });
+      }
+
+      function primeWorkspaceRoot(): HatchManifest {
+        const manifest = makeManifest({ tools: ["cursor"] });
+        vi.mocked(readManifest).mockResolvedValue(manifest);
+        vi.mocked(detectWorkspaceContext).mockResolvedValue({
+          type: "workspace-root",
+          workspaceRoot: "/path/to/workspace",
+        });
+        vi.mocked(readWorkspaceManifest).mockResolvedValue({
+          version: "1.0.0",
+          hatch3rVersion: "1.5.0",
+          name: "my-workspace",
+          repos: [{ path: "repo-a", name: "repo-a", sync: true }],
+          defaults: {
+            tools: ["cursor"],
+            features: { ...DEFAULT_FEATURES },
+            mcp: { servers: ["github"] },
+            content: makeContentSelection(),
+          },
+          syncStrategy: "manual",
+        } as any);
+        return manifest;
+      }
+
+      it("should call syncWorkspaceRepos BEFORE writeWorkspaceManifest when user opts to sync", async () => {
+        const manifest = primeWorkspaceRoot();
+        queueManageWorkspacePrompts(manifest, /* syncNow */ true);
+
+        const callOrder: string[] = [];
+        vi.mocked(syncWorkspaceRepos).mockImplementation(async () => {
+          callOrder.push("sync");
+          return { repos: [{ path: "repo-a", added: [], removed: [], toolsSynced: ["cursor"], action: "synced" }] };
+        });
+        vi.mocked(writeWorkspaceManifest).mockImplementation(async () => {
+          callOrder.push("write");
+        });
+
+        await (await importConfigCommand())();
+
+        // First observed event must be sync (before any manifest write),
+        // last observed event must be write (after sync resolves).
+        expect(callOrder[0]).toBe("sync");
+        expect(callOrder[callOrder.length - 1]).toBe("write");
+      });
+
+      it("should still persist manifest and warn when syncWorkspaceRepos rejects", async () => {
+        const manifest = primeWorkspaceRoot();
+        queueManageWorkspacePrompts(manifest, /* syncNow */ true);
+
+        vi.mocked(syncWorkspaceRepos).mockRejectedValueOnce(new Error("network down"));
+
+        await (await importConfigCommand())();
+
+        // Manifest IS still persisted so the user's in-memory selections
+        // (strategy + repo sync flags) are not silently discarded.
+        expect(vi.mocked(writeWorkspaceManifest)).toHaveBeenCalled();
+        // User is warned that the on-disk manifest now references un-synced
+        // state that must be reconciled with `hatch3r sync`.
+        expect(vi.mocked(warn)).toHaveBeenCalledWith(
+          expect.stringContaining("Workspace manifest persisted"),
+        );
+      });
+
+      it("should persist manifest once without warning when user declines syncNow", async () => {
+        const manifest = primeWorkspaceRoot();
+        queueManageWorkspacePrompts(manifest, /* syncNow */ false);
+
+        await (await importConfigCommand())();
+
+        // Sync is NOT attempted
+        expect(vi.mocked(syncWorkspaceRepos)).not.toHaveBeenCalled();
+        // Manifest persisted exactly once (no redundant second write)
+        expect(vi.mocked(writeWorkspaceManifest)).toHaveBeenCalledTimes(1);
+        // No atomicity warning when sync never ran
+        expect(vi.mocked(warn)).not.toHaveBeenCalledWith(
+          expect.stringContaining("Workspace manifest persisted"),
+        );
+      });
+
+      it("should warn and still persist manifest when syncWorkspaceRepos reports per-repo errors", async () => {
+        const manifest = primeWorkspaceRoot();
+        queueManageWorkspacePrompts(manifest, /* syncNow */ true);
+
+        vi.mocked(syncWorkspaceRepos).mockResolvedValueOnce({
+          repos: [{
+            path: "repo-a",
+            added: [],
+            removed: [],
+            toolsSynced: [],
+            action: "error",
+            error: "Directory not found: repo-a",
+          }],
+        });
+
+        await (await importConfigCommand())();
+
+        expect(vi.mocked(writeWorkspaceManifest)).toHaveBeenCalled();
+        expect(vi.mocked(warn)).toHaveBeenCalledWith(
+          expect.stringContaining("Workspace manifest persisted"),
+        );
+      });
     });
   });
 });

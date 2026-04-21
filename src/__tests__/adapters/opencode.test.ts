@@ -65,7 +65,14 @@ describe("OpenCodeAdapter", () => {
     expect(parsed.instructions).toBeDefined();
     expect(Array.isArray(parsed.instructions)).toBe(true);
     expect(parsed.instructions).toContain(".agents/AGENTS.md");
-    expect(parsed.instructions).toContain(".agents/rules/*.md");
+    // Wave B4 (task #12): rules are expanded from a glob into explicit
+    // precedence-ordered paths, so the glob is replaced by concrete
+    // `.agents/rules/hatch3r-<id>.md` entries. The test fixtures contain
+    // scoped-rule and test-rule (no precedence → both rank as normal),
+    // tie-broken lexicographically by id.
+    expect(parsed.instructions).toContain(".agents/rules/hatch3r-scoped-rule.md");
+    expect(parsed.instructions).toContain(".agents/rules/hatch3r-test-rule.md");
+    expect(parsed.instructions).not.toContain(".agents/rules/*.md");
     expect(parsed.instructions).toContain(".agents/agents/*.md");
     expect(parsed.instructions).toContain(".agents/skills/*/SKILL.md");
   });
@@ -92,14 +99,14 @@ describe("OpenCodeAdapter", () => {
     expect(parsed.mcp).toBeUndefined();
   });
 
-  it("generates agent files in .opencode/agent/", async () => {
+  it("generates agent files in .opencode/agents/", async () => {
     const manifest = makeManifest();
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
-    const agents = outputs.filter((o) => o.path.startsWith(".opencode/agent/"));
+    const agents = outputs.filter((o) => o.path.startsWith(".opencode/agents/"));
     expect(agents.length).toBe(2);
 
-    const agent = agents.find((o) => o.path === ".opencode/agent/hatch3r-test-agent.md")!;
+    const agent = agents.find((o) => o.path === ".opencode/agents/hatch3r-test-agent.md")!;
     expect(agent).toBeDefined();
     expect(agent.content).toContain("description: A test agent for unit testing");
     expect(agent.content).toContain("You are a test agent");
@@ -110,7 +117,7 @@ describe("OpenCodeAdapter", () => {
     const manifest = makeManifest({ features: { agents: false } });
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
-    const agents = outputs.filter((o) => o.path.startsWith(".opencode/agent/"));
+    const agents = outputs.filter((o) => o.path.startsWith(".opencode/agents/"));
     expect(agents.length).toBe(0);
   });
 
@@ -125,7 +132,7 @@ describe("OpenCodeAdapter", () => {
     expect(skills[0]!.path).toContain("hatch3r-");
     expect(skills[0]!.path).toMatch(/SKILL\.md$/);
 
-    const commands = outputs.filter((o) => o.path.startsWith(".opencode/command/"));
+    const commands = outputs.filter((o) => o.path.startsWith(".opencode/commands/"));
     expect(commands.length).toBe(1);
     expect(commands[0]!.path).toContain("hatch3r-");
     expect(commands[0]!.path).toMatch(/\.md$/);
@@ -135,7 +142,7 @@ describe("OpenCodeAdapter", () => {
     const manifest = makeManifest();
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
-    const agentFile = outputs.find((o) => o.path === ".opencode/agent/hatch3r-test-agent.md");
+    const agentFile = outputs.find((o) => o.path === ".opencode/agents/hatch3r-test-agent.md");
     expect(agentFile).toBeDefined();
     expect(agentFile!.content).toContain("model: anthropic/claude-sonnet-4-6");
   });
@@ -162,7 +169,7 @@ You are a test agent.`,
       });
       const outputs = await adapter.generate(agentsDir, manifest);
 
-      const agentFile = outputs.find((o) => o.path === ".opencode/agent/hatch3r-test-agent.md");
+      const agentFile = outputs.find((o) => o.path === ".opencode/agents/hatch3r-test-agent.md");
       expect(agentFile).toBeDefined();
       expect(agentFile!.content).toContain("model: openai/gpt-4");
     } finally {
@@ -208,6 +215,12 @@ You are a test agent.`,
     const parsed = JSON.parse(opencodeJson.content);
     expect(parsed.instructions).toContain(".agents/AGENTS.md");
     expect(parsed.instructions).not.toContain(".agents/rules/*.md");
+    // Wave B4 (task #12): when rules feature is disabled, no explicit rule
+    // paths should appear either.
+    const ruleEntries = (parsed.instructions as string[]).filter((p) =>
+      p.startsWith(".agents/rules/"),
+    );
+    expect(ruleEntries.length).toBe(0);
     expect(parsed.instructions).not.toContain(".agents/agents/*.md");
     expect(parsed.instructions).not.toContain(".agents/skills/*/SKILL.md");
     expect(parsed.instructions).not.toContain(".agents/commands/*.md");
@@ -225,7 +238,7 @@ You are a test agent.`,
     const manifest = makeManifest({ features: { commands: false } });
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
-    const commands = outputs.filter((o) => o.path.startsWith(".opencode/command/"));
+    const commands = outputs.filter((o) => o.path.startsWith(".opencode/commands/"));
     expect(commands.length).toBe(0);
   });
 
@@ -238,6 +251,106 @@ You are a test agent.`,
 
     expect(outputs.length).toBe(1);
     expect(outputs[0]!.path).toBe("opencode.json");
+  });
+
+  // ── Wave B4 (task #12): precedence-ordered instructions[] ──────
+  describe("rule precedence ordering in opencode.json instructions[]", () => {
+    let precedenceDir: string;
+
+    beforeAll(async () => {
+      // Build a dedicated fixture with three rules carrying distinct
+      // precedence buckets (critical/normal/low) so the ordering assertion
+      // cannot be satisfied by alphabetic filesystem order alone.
+      precedenceDir = await mkdtemp(join(tmpdir(), "hatch3r-opencode-prec-"));
+      const rulesDir = join(precedenceDir, "rules");
+      await mkdir(rulesDir, { recursive: true });
+      await writeFile(
+        join(rulesDir, "zzz-low-rule.md"),
+        `---
+id: zzz-low-rule
+type: rule
+description: A low-precedence rule (alphabetically last so the test distinguishes filesystem order from precedence order)
+precedence: low
+---
+# Low rule
+`,
+        "utf-8",
+      );
+      await writeFile(
+        join(rulesDir, "aaa-normal-rule.md"),
+        `---
+id: aaa-normal-rule
+type: rule
+description: A normal-precedence rule (alphabetically first so filesystem order would put it ahead of critical)
+precedence: normal
+---
+# Normal rule
+`,
+        "utf-8",
+      );
+      await writeFile(
+        join(rulesDir, "mmm-critical-rule.md"),
+        `---
+id: mmm-critical-rule
+type: rule
+description: A critical-precedence rule (alphabetically in the middle, must appear first in instructions order)
+precedence: critical
+---
+# Critical rule
+`,
+        "utf-8",
+      );
+      // Required companion directories — agents/ and skills/ are declared in
+      // instructions when the feature flag is on; make them empty so the
+      // adapter does not emit per-file outputs for them.
+      await mkdir(join(precedenceDir, "agents"), { recursive: true });
+      await mkdir(join(precedenceDir, "skills"), { recursive: true });
+      await mkdir(join(precedenceDir, "commands"), { recursive: true });
+    });
+
+    afterAll(async () => {
+      await rm(precedenceDir, { recursive: true, force: true });
+    });
+
+    it("orders rules critical → normal → low in instructions[]", async () => {
+      const manifest = makeManifest();
+      const outputs = await adapter.generate(precedenceDir, manifest);
+
+      const opencodeJson = outputs.find((o) => o.path === "opencode.json")!;
+      const parsed = JSON.parse(opencodeJson.content);
+      const ruleEntries = (parsed.instructions as string[]).filter((p) =>
+        p.startsWith(".agents/rules/"),
+      );
+
+      // Expect exactly three explicit rule paths — the glob must NOT appear.
+      expect(ruleEntries).toEqual([
+        ".agents/rules/hatch3r-mmm-critical-rule.md",
+        ".agents/rules/hatch3r-aaa-normal-rule.md",
+        ".agents/rules/hatch3r-zzz-low-rule.md",
+      ]);
+      expect(parsed.instructions).not.toContain(".agents/rules/*.md");
+    });
+
+    it("falls back to glob when no canonical rules are present", async () => {
+      // Rules feature on, but the rules directory is empty.
+      const emptyDir = await mkdtemp(join(tmpdir(), "hatch3r-opencode-empty-"));
+      try {
+        await mkdir(join(emptyDir, "rules"), { recursive: true });
+        await mkdir(join(emptyDir, "agents"), { recursive: true });
+        await mkdir(join(emptyDir, "skills"), { recursive: true });
+        await mkdir(join(emptyDir, "commands"), { recursive: true });
+        const manifest = makeManifest();
+        const outputs = await adapter.generate(emptyDir, manifest);
+
+        const opencodeJson = outputs.find((o) => o.path === "opencode.json")!;
+        const parsed = JSON.parse(opencodeJson.content);
+        // With zero canonical rules, the glob fallback preserves discoverability
+        // for rules added after adapter generation.
+        expect(parsed.instructions).toContain(".agents/rules/*.md");
+      } finally {
+        await rm(emptyDir, { recursive: true, force: true });
+      }
+    });
   });
 
   describe("extended MCP scenarios", () => {

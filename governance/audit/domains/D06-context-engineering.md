@@ -1,5 +1,9 @@
 # Domain 6: Context Engineering & Token Economics
 
+> Last updated: 2026-04-19
+
+**Pillars served:** P4 (primary), P2 (supporting).
+
 **Scope:** How the framework manages context windows, instruction density, and token costs across the agent pipeline.
 **Sub-agents:** 4
 
@@ -11,6 +15,8 @@
 | 6.2 | Instruction Density & Redundancy |
 | 6.3 | Cost Modeling |
 | 6.4 | Context Integrity & Isolation |
+
+> Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
 
 ## Audit Checklists
 

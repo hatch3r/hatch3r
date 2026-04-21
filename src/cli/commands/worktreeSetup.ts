@@ -1,7 +1,8 @@
 import { join } from "node:path";
-import { readFile } from "node:fs/promises";
+import { readFile, access } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import chalk from "chalk";
+import inquirer from "inquirer";
 import {
   WORKTREE_INCLUDE_FILE,
   HatchError,
@@ -24,9 +25,79 @@ import {
   label,
 } from "../shared/ui.js";
 
+/**
+ * C8-D15-M2 (CWE-552, https://cwe.mitre.org/data/definitions/552.html):
+ * When .env.mcp (or any .env.*) is scheduled to propagate into a worktree,
+ * surface a prominent blast-radius warning before duplicating plaintext secrets.
+ *
+ * Blast radius concerns for ephemeral / shared worktrees:
+ *   - Worktree paths shared across users (e.g. /tmp mounts, shared network drives,
+ *     devcontainer volumes) expose copied secrets to every actor with read access.
+ *   - .env.* uses "copy" strategy (src/worktree/index.ts), so credentials leave
+ *     the main repo directory and must be cleaned up individually per worktree.
+ *   - Ephemeral worktree farms (per-branch CI sandboxes, AI agent scratch dirs)
+ *     multiply the exposure surface: N worktrees = N plaintext credential copies.
+ */
+async function detectSecretEnvFiles(
+  root: string,
+  entries: ReadonlyArray<{ pattern: string; strategy: "copy" | "symlink" }>,
+): Promise<string[]> {
+  const candidates = new Set<string>();
+  for (const e of entries) {
+    if (e.strategy !== "copy") continue;
+    if (e.pattern === ".env" || e.pattern === ".env.mcp") {
+      candidates.add(e.pattern);
+    } else if (e.pattern === ".env.*") {
+      // Expand the known secret-bearing variant(s); only .env.mcp is canonical today.
+      candidates.add(".env.mcp");
+    }
+  }
+  const present: string[] = [];
+  for (const name of candidates) {
+    // access() is a presence probe; ENOENT is the happy path (no secret = no
+    // warning needed). Use stat via a then/catch chain to keep the catch body
+    // non-empty for the silent-failure lint.
+    const exists = await access(join(root, name))
+      .then(() => true)
+      .catch(() => false);
+    if (exists) present.push(name);
+  }
+  return present.sort();
+}
+
+function printSecretPropagationWarning(
+  files: string[],
+  mainRoot: string,
+  targetRoot: string,
+): void {
+  const fileList = files.map((f) => chalk.red.bold(f)).join(", ");
+  printBox(
+    "Secret propagation warning",
+    [
+      chalk.yellow.bold(`${fileList} will be copied into the worktree.`),
+      "",
+      `${chalk.bold("Source:")} ${chalk.dim(mainRoot)}`,
+      `${chalk.bold("Target:")} ${chalk.dim(targetRoot)}`,
+      "",
+      chalk.bold("Blast radius (CWE-552):"),
+      "  - Plaintext credentials leave the main repo and land in the worktree.",
+      "  - Anyone with read access to the worktree path can read the secrets.",
+      "  - Shared paths (/tmp mounts, network drives, devcontainer volumes) expose",
+      "    secrets beyond your user account.",
+      "  - Ephemeral worktree farms multiply the exposure: N worktrees = N copies.",
+      "",
+      chalk.bold("Before continuing:"),
+      "  - Confirm the worktree path is private to you.",
+      "  - Rotate credentials if the worktree was ever shared.",
+      "  - Run `hatch3r worktree-cleanup` when finished to remove the copies.",
+    ],
+    "error",
+  );
+}
+
 export async function worktreeSetupCommand(
   worktreePath?: string,
-  opts: { from?: string; dryRun?: boolean; force?: boolean } = {},
+  opts: { from?: string; dryRun?: boolean; force?: boolean; yes?: boolean } = {},
 ): Promise<void> {
   printBanner(true);
 
@@ -62,9 +133,33 @@ export async function worktreeSetupCommand(
     throw err;
   }
 
+  // Secret propagation check (C8-D15-M2): warn before copying .env.mcp / .env into worktree.
+  const parsedEntries = parseWorktreeInclude(includeContent);
+  const secretFiles = await detectSecretEnvFiles(mainRoot, parsedEntries);
+  if (secretFiles.length > 0) {
+    printSecretPropagationWarning(secretFiles, mainRoot, targetRoot);
+    if (!opts.dryRun && !opts.yes && process.stdin.isTTY) {
+      const { proceed } = await inquirer.prompt<{ proceed: boolean }>([
+        {
+          type: "confirm",
+          name: "proceed",
+          message: "Copy secrets into this worktree?",
+          default: false,
+        },
+      ]);
+      if (!proceed) {
+        info("Worktree setup cancelled. No files were copied.");
+        throw new HatchError("Worktree setup cancelled by user.", 0);
+      }
+    } else if (!opts.dryRun && !opts.yes) {
+      // Non-interactive context (e.g. PostToolUse hook, CI) — proceed but make the risk loud.
+      warn("Non-interactive session detected — proceeding. Pass --yes to silence this notice.");
+    }
+  }
+
   if (opts.dryRun) {
     info("Dry run — no changes will be made.\n");
-    const entries = parseWorktreeInclude(includeContent);
+    const entries = parsedEntries;
     const summaryLines = entries.map((e) => {
       const icon = e.strategy === "symlink" ? chalk.cyan("→") : chalk.green("+");
       return `  ${icon} ${e.pattern} ${chalk.dim(`(${e.strategy})`)}`;

@@ -11,7 +11,7 @@
  * - D19: User journey (UI helpers)
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
 // ── D15: Agentic Security ──────────────────────────────────────────
 
@@ -113,7 +113,7 @@ describe("D15: Enhanced secret detection", () => {
 describe("D15: Compliance verification additions", () => {
   it("should include MCP input boundary check", async () => {
     const { runComplianceChecks } = await import("../../pipeline/complianceVerification.js");
-    const report = runComplianceChecks();
+    const report = await runComplianceChecks();
     const mcpCheck = report.checks.find(c => c.id === "mcp-input-boundary");
     expect(mcpCheck).toBeDefined();
     expect(mcpCheck!.status).toBe("pass");
@@ -121,7 +121,7 @@ describe("D15: Compliance verification additions", () => {
 
   it("should include content safety patterns check", async () => {
     const { runComplianceChecks } = await import("../../pipeline/complianceVerification.js");
-    const report = runComplianceChecks();
+    const report = await runComplianceChecks();
     const safetyCheck = report.checks.find(c => c.id === "content-safety-patterns");
     expect(safetyCheck).toBeDefined();
     expect(safetyCheck!.status).toBe("pass");
@@ -523,7 +523,7 @@ describe("D15 Wave 3: MCP timeout configuration", () => {
 describe("D15 Wave 3: Compliance checks for MCP integrity and signing", () => {
   it("should include MCP integrity coverage check", async () => {
     const { runComplianceChecks } = await import("../../pipeline/complianceVerification.js");
-    const report = runComplianceChecks();
+    const report = await runComplianceChecks();
     const check = report.checks.find((c) => c.id === "mcp-integrity-coverage");
     expect(check).toBeDefined();
     expect(check!.status).toBe("pass");
@@ -531,7 +531,7 @@ describe("D15 Wave 3: Compliance checks for MCP integrity and signing", () => {
 
   it("should include integrity signing status warning", async () => {
     const { runComplianceChecks } = await import("../../pipeline/complianceVerification.js");
-    const report = runComplianceChecks();
+    const report = await runComplianceChecks();
     const check = report.checks.find((c) => c.id === "integrity-signing-status");
     expect(check).toBeDefined();
     expect(check!.status).toBe("warn");
@@ -551,5 +551,51 @@ describe("D14 Wave 3: analyzeRepo includes linters, test frameworks, CI", () => 
     type HasLinters = Awaited<ReturnType<typeof analyzeRepo>>["linters"];
     const _typeCheck: HasLinters = ["eslint"];
     expect(_typeCheck).toBeDefined();
+  });
+});
+
+// ── D12 Wave 3 Medium: stdout/stderr separation (C8-D12-M1) ──────
+
+describe("D12 Wave 3: error/warn route to stderr, info stays on stdout", () => {
+  it("error() writes to stderr via console.error", async () => {
+    const { error } = await import("../../cli/shared/ui.js");
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      error("boom");
+      expect(errSpy).toHaveBeenCalledTimes(1);
+      expect(logSpy).not.toHaveBeenCalled();
+    } finally {
+      logSpy.mockRestore();
+      errSpy.mockRestore();
+    }
+  });
+
+  it("warn() writes to stderr via console.error", async () => {
+    const { warn } = await import("../../cli/shared/ui.js");
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      warn("careful");
+      expect(errSpy).toHaveBeenCalledTimes(1);
+      expect(logSpy).not.toHaveBeenCalled();
+    } finally {
+      logSpy.mockRestore();
+      errSpy.mockRestore();
+    }
+  });
+
+  it("info() writes to stdout via console.log", async () => {
+    const { info } = await import("../../cli/shared/ui.js");
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      info("fyi");
+      expect(logSpy).toHaveBeenCalledTimes(1);
+      expect(errSpy).not.toHaveBeenCalled();
+    } finally {
+      logSpy.mockRestore();
+      errSpy.mockRestore();
+    }
   });
 });

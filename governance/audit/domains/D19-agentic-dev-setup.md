@@ -1,8 +1,11 @@
 # Domain 19: Agentic Development Self-Governance
 
+> Last updated: 2026-04-21
+
+**Pillars served:** P5 (primary), P2 (supporting).
+
 **Scope:** The agentic development environment used to develop hatch3r itself — CLAUDE.md, `.claude/` configuration (rules, skills, hooks, settings). Audits whether this setup correctly reflects the governance system it enforces.
 **Sub-agents:** 4
-**Pillars:** P5 (primary), P2 (supporting)
 
 ## Sub-Agent Decomposition
 
@@ -12,6 +15,8 @@
 | 19.2 | Rule-Governance Alignment |
 | 19.3 | Skill & Command Completeness |
 | 19.4 | Hook Reliability & Self-Coherence |
+
+> Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
 
 ## Audit Checklists
 
@@ -45,6 +50,7 @@
 - [ ] Claude Code API currency — web-research current Claude Code documentation to verify hook events, matcher syntax, and settings schema have not changed
 - [ ] Performance impact — hooks that fire frequently (PostToolUse on Write, PreToolUse on Bash) complete in under 2 seconds
 - [ ] Cross-artifact coherence — hooks, rules, skills, and CLAUDE.md form a consistent system with no broken reference chains
+- [ ] Hook cost accounting — each hook justifies per-invocation cost. SessionStart / UserPromptSubmit: justify against user friction. SubagentStart / PreToolUse / PostToolUse: measure tokens-emitted × invocations-per-cycle; flag any hook whose emission > 100 tokens × invocations unless each emission surfaces actionable novel state (e.g., SessionStart pending-audit count is novel per session; a static SubagentStart banner is a candidate to fold into SessionStart or fire once-per-wave).
 
 ## Domain Boundary
 

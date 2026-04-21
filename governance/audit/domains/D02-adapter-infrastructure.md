@@ -1,5 +1,9 @@
 # Domain 2: Adapter Infrastructure
 
+> Last updated: 2026-04-19
+
+**Pillars served:** P3 (primary), P2 (supporting).
+
 **Scope:** All adapter support code — the base contract, canonical reader, customization pipeline, utilities, registry, content system, and integrity/archive systems. Does NOT cover per-adapter implementations (those are Domain 9).
 **Sub-agents:** 7
 
@@ -14,6 +18,8 @@
 | 2.5 | Adapter Index & Registry | `src/adapters/index.ts` |
 | 2.6 | Content System | `src/content/index.ts` (686 LOC), `src/content/tags.ts` (91 LOC), `src/content/presets.ts` (48 LOC) |
 | 2.7 | Integrity & Archive Systems | `src/integrity/index.ts`, `src/archive/index.ts` (263 LOC) |
+
+> Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
 
 ## Audit Checklists
 

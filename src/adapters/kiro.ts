@@ -11,21 +11,24 @@ function steeringFrontmatter(globs?: string): string {
   return `---\ninclusion: fileMatch\nfileMatchPattern: "${globs}"\n---\n\n`;
 }
 
-// Map hatch3r hook events to Kiro native hook trigger types.
-// Kiro supports hooks via .kiro/hooks/ directory with per-hook files
-// containing YAML frontmatter specifying trigger and conditions.
+// Map hatch3r hook events to Kiro 2026 native hook trigger identifiers.
+// Kiro supports 10 trigger types documented at https://kiro.dev/docs/hooks/types/
+// (accessed 2026-04-20): prompt-submit, agent-stop, pre-tool-use, post-tool-use,
+// file-create, file-save, file-delete, pre-task-execution, post-task-execution,
+// manual-trigger. Hatch3r events that lack a direct Kiro equivalent fall back
+// to manual-trigger so users can wire them up themselves.
 function mapToKiroTrigger(event: HookEvent): string {
   const mapping: Record<HookEvent, string> = {
-    "pre-commit": "beforeCommit",
-    "post-merge": "afterMerge",
-    "ci-failure": "onCIFailure",
-    "file-save": "onFileSave",
-    "session-start": "onSessionStart",
-    "pre-push": "beforePush",
-    "worktree-create": "onWorktreeCreate",
-    "worktree-remove": "onWorktreeRemove",
+    "pre-commit": "pre-tool-use",
+    "post-merge": "post-tool-use",
+    "ci-failure": "manual-trigger",
+    "file-save": "file-save",
+    "session-start": "prompt-submit",
+    "pre-push": "pre-tool-use",
+    "worktree-create": "manual-trigger",
+    "worktree-remove": "manual-trigger",
   };
-  return mapping[event] || event;
+  return mapping[event] || "manual-trigger";
 }
 
 export class KiroAdapter extends BaseAdapter {
@@ -35,8 +38,17 @@ export class KiroAdapter extends BaseAdapter {
     const results: AdapterOutput[] = [];
     const lines = [...await this.bridgeHeader(ctx)];
 
+    // Kiro Powers (2026): users can package hatch3r-generated steering + hooks + MCP
+    // as a reusable Power bundle. See https://kiro.dev/blog/introducing-powers/
+    if (!this.isMinimal(ctx)) {
+      lines.push(
+        "> Kiro Powers: the steering, hooks, and MCP files emitted here can be bundled as a Kiro Power for cross-project reuse.",
+        "",
+      );
+    }
+
     if (ctx.features.rules) {
-      const rules = await readCanonicalFiles(ctx.agentsDir, "rules");
+      const rules = await readCanonicalFiles(ctx.agentsDir, "rules", this.warnings);
       for (const rule of rules) {
         const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);
         this.warnings.push(...warnings);

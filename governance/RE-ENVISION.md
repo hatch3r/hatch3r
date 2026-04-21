@@ -1,5 +1,7 @@
 # hatch3r — Re-Envision Prompt
 
+> Last updated: 2026-04-19
+
 ## Purpose
 
 Capture or refine the framework vision through a structured dialog with the framework owner. The output is a `VISION.md` document — the stable north-star that the PRD, audit, and all content derive from.

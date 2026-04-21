@@ -2,6 +2,70 @@
 
 All notable changes to hatch3r are documented in this file.
 
+## [1.6.0] - 2026-04-21
+
+### Added
+
+- **Rule precedence system**: Optional `precedence: critical|high|normal|low` field in canonical frontmatter (default `normal`) with deterministic ordering across all adapters — `sortByPrecedence()` helper in `src/adapters/canonical.ts`, per-file adapters (cursor, windsurf, copilot, claude, cline) emit `NN-hatch3r-*` numeric filename prefixes, inline adapters (gemini, aider, amp, goose, zed, antigravity, amazonq, codex) sort before concatenation, OpenCode emits an explicit precedence-ordered `instructions[]` list. Parity-validated via `scripts/validate-rule-parity.ts`
+- **Description quality lint**: `src/cli/commands/validate.ts` fails validation when a description is under 60 characters or collides within its tag cluster (cosine similarity ≥ 0.55). 27 offending descriptions rewritten across rules, customize family, planning, and maintenance commands
+- **Mode tag backfill**: 16 subject modes under `agents/modes/` dual-tagged `[core, ...]` to preserve minimal preset membership; 4 meta-modes (current-state, library-docs, prior-art, similar-implementation) remain untagged by design
+- **Task-type routing table**: `buildTaskRouterModel()` in `src/cli/shared/agentsContent.ts` emits 11 workflow+domain routing rows (agent/command/skill fallback with `/slash` and `_(skill)_` kind hints) inherited by the Claude, Cursor, Windsurf, and Copilot adapters
+- **Orphan cleanup on sync**: `src/merge/orphanCleanup.ts` unlinks files previously emitted but no longer produced, tracked via manifest `managedFilesByAdapter`. Four safety refusals — user-wrapped content, paths outside adapter roots, non-`hatch3r-` basenames, and no-history first-run no-op
+- **Board sync production-readiness review**: `board-init` adds programmatic workflow verification via GitHub GraphQL with a `--resume` flag and persists `board.workflows.{itemClosedEnabled,pullRequestMergedEnabled}` in `hatch.json`; `board-fill` Step 7.9 adds a reviewer/fixer loop that treats issue bodies as specs (6-criteria checklist, 4-iteration cap, oscillation detection); `pickup-post-impl` Step 9c adds terminal-state verification (label flip + V2 board state) after PR merge; `shared-github` mandates per-sync verification plus an option-mapping race rule and halts when both `gh` and MCP are unavailable; `board-shared` Board Sync Enforcement rules 8–10 add retry-then-halt with rollback, null-option abort, and a 20% batch retry-budget ceiling
+- **Inventory and drift-gate scripts**: `scripts/inventory.ts` (tsx) derives `governance/inventory.json` from the filesystem and ships 11 count probes plus 2 `VERSION_PROBES` against `package.json` as single source of truth; `scripts/validate-rule-parity.ts` diffs body content across every `rules/hatch3r-*.md` ↔ `.mdc` pair. Wired as CI drift gates and surfaced via `npm run inventory`, `npm run inventory:check-docs`, `npm run validate:rule-parity`
+- **Marketplace submission package**: `docs/marketplace-submission.md` and `.claude-plugin/plugin.json` prepared for submission to `anthropics/claude-plugins-official`; Claude adapter emits `.claude/hooks/hatch3r-hooks.json` alongside `settings.json`
+- **Severity mapping template**: `governance/audit/templates/severity-mapping.md` (51 lines) with a 5-column canonical map across reviewer verdicts, reviewer levels, security-auditor severity, check tags, and audit severity, cross-referenced from reviewer, fixer, security-auditor, `checks/code-quality.md`, and both audit prompts
+- **Resilience wiring across CLI**: `src/pipeline/retryWithBackoff.ts` (122 lines) plus circuitBreaker, adapterTimeout, phaseTimeout, pipelineTimeout, and phaseOutputSchema wired into the sync, update, and verify commands. `complianceVerification.ts` now verifies import-presence via 6 `resilience-*` ASI-RESILIENCE checks
+- **EVOLVE proposal batch**: 15 EVOLVE proposals from the 2026-04-19 self-check run applied — aggressive one-sub-agent-per-finding fan-out, Scientific Rigor Contract elevated to core audit methodology, plus Cycle 7 CL-3 P1–P10 audit-self-evolution items (D16 18-file synthesis methodology, D18 live distribution baseline, `feature_status` taxonomy, D11 Medium severity cap at 8, per-adapter currency citations, home-domain redundancy rejection, Wave 4 systemic-patterns wave, domain orchestrator bundling, Inconclusive Areas MUST for <3 High domains, pre-audit inventory validation gate)
+
+### Changed
+
+- **Audit methodology rewrite**: Web research and the Scientific Rigor Contract (falsifiability, ≥2 independent sources with trust tier, confidence with basis, ≥3-step causal chain, bias check, adversarial peer review) are now required for every audit sub-agent in `governance/AUDIT.md` and `governance/AUDIT-EXECUTE.md` rather than optional rigor add-ons
+- **Audit execution fan-out**: One sub-agent per finding replaces the prior severity-wave batching; same-file findings group into file-lock sub-agents, same-wave dependency chains serialize, and sub-agents write to `.audit-workspace/wave-{N}/{finding_id}.results.md` per the new Context Management Protocol with the orchestrator reading only `SUMMARY.md`
+- **CLI entry point slimmed**: `src/cli/index.ts` refactored 209 → 67 lines, delegating to `src/cli/program.ts` (150 → 155 lines). `createProgram()` is the canonical builder; `index.ts` is a thin orchestrator for signal handling, error banner, and exit codes. All 11 commands plus `verify --fix` preserved (net −137 lines of duplication)
+- **Update command split**: `runUpdate` now decomposes into `runPackageUpdate` + `runRegenerate`; `config` and `verify --fix` call `runRegenerate` only, avoiding the 30-second npm fetch penalty
+- **HatchError migration**: 18 `throw new Error` sites across 11 production files converted to `throw new HatchError(message, exitCode, errorCode)` with codes from the existing `HatchErrorCode` union. A custom `hatch-error/use-hatch-error` ESLint plugin (severity warn) flags future regressions in `src/` outside tests
+- **Silent-failure contract**: New `silent-failure/no-silent-catch` ESLint flat-config plugin surfaces empty or logging-only `catch` blocks (severity warn, does not break builds). Contract codified as a subsection under `governance/CONSTITUTION.md` §2 P5
+- **Canonical read result shape**: `src/adapters/canonical.ts` now returns `CanonicalReadResult { file, content?, frontmatter?, body?, error? }` with an `error.code` enum (NOT_FOUND, PERMISSION_DENIED, UTF8_DECODE_ERROR, YAML_PARSE_ERROR, UNKNOWN) and an optional `warnings?: string[]` channel surfaced through 14 adapter files. `readCanonicalFiles()` keeps its backward-compatible 2-arg signature; `readCanonicalFilesDetailed` exported for strict consumers
+- **Init write-order hardening**: `writeManifest` now deferred in `init.ts` until after adapter generation succeeds, preventing partial-state manifests when every adapter fails. Equivalent integrity-manifest contingency added to `update.ts:304` and `workspace/sync.ts:340`
+- **Sync/update/add preflight integrity**: `verifyIntegrity()` runs before sync, update, and add with a `--force` escape hatch (`HatchError INTEGRITY_ERROR` on drift)
+- **Language-aware content selection**: `projectLanguages` now threads through 5 `resolveSelection()` sites in `init.ts` plus 2 `estimatePresetItemCount` sites. `resolveLanguageTags` + `filterByLanguages` extracted into `src/content/tags.ts`; 3 language-specific rules (component-conventions, i18n, theming) tagged `lang:typescript` (covers JS via the TypeScript alias)
+- **Confusables coverage widened**: `HOMOGLYPH_MAP` in `customization.ts` extended with 30 Coptic + 16 Deseret + 10 Osage confusables per UAX #39; `normalizeHomoglyphs` switched from NFKC to NFKD with `/[̀-ͯ]/g` combining-mark strip so Latin Extended Additional decomposes (for example ḅ → b). Supplementary-plane scripts handled via `/gu` regex flag
+- **MCP version-pin check**: `checkVersionPin` helper in `mcp-utils.ts` wired into `validateMcpEntry` flags unpinned `npx @scope/pkg` patterns and `@latest` tags as supply-chain risk per Palo Alto Networks' 2025 npm supply-chain attack report and OWASP ASI 2026
+- **Review confidence gate**: `evaluateReviewGate` in `src/pipeline/reviewLoop.ts` with an optional `confidence` field on `ReviewResult` routes low-confidence clean verdicts into `second_pass` or escalation rather than silent auto-pass
+- **Amazon Q hook event names**: Fixed to the AWS canonical schema — `agentSpawn`, `userPromptSubmit`, `preToolUse`, `postToolUse`, `stop` — per `aws.github.io/amazon-q-developer-cli/agent-format.html`
+- **Antigravity skills path**: Corrected `.antigravity/skills/` → `.agent/skills/` per Google's documentation
+- **Kiro adapter**: Picked up Kiro Powers coverage (cycle 8 D9 Medium) per live platform documentation
+- **Zed adapter**: Picked up `spawn_agent` coverage (cycle 8 D9 Medium) per live platform documentation
+- **Parallel safety guidance**: `rules/hatch3r-agent-orchestration.md` (+ `.mdc`) documents 4 parallel-safe patterns, 5 not-parallel-safe patterns, and a three-conditions-to-parallelize gate
+
+### Fixed
+
+- **Cursor Bugbot PR #54 findings (8 resolved)**: Pipeline module count drift in `docs/marketplace-submission.md` (15 → 17, now matches `governance/inventory.json`); `board-fill` Step 7.8 now routes to Step 7.5 before Step 8 (dashboard refresh no longer skipped); Step 7.9b/c gain Azure DevOps and GitLab variants alongside the `gh` CLI; `board-fill` frontmatter flipped to `orchestrator: true` with `agentPipeline: [hatch3r-reviewer, hatch3r-fixer]` reflecting Task-tool delegation; version bumped across `package.json`, `package-lock.json`, `.claude-plugin/plugin.json`, and the embedded copy in `docs/marketplace-submission.md` with `VERSION_PROBES` guarding future drift; `.claude/settings.json` SessionStart hook restores `2>/dev/null` and the "Registry not found" graceful fallback; `.claude-plugin/plugin.json` removes the stale `hooks` key that pointed at a non-existent `hooks/hooks.json`; SessionStart cycle filter generalized to `execution_status=="pending"` (was hardcoded `cycle==7`, misreported on the 315-entry registry)
+- **`writeManifest` schema revalidation**: New `validateManifest` guard in `src/manifest/hatchJson.ts` prevents in-memory invalid manifests from persisting; throws `HatchError(CONFIG_ERROR)` on schema failure
+- **Verify command flag registration**: `--fix` and `--max-fix-attempts` now registered on the `verify` command in `src/cli/index.ts` (previously present in `program.ts` only)
+
+### Tests
+
+- Test suite grew from 1,734 at v1.5.1 to 2,594 passing across 100 files at release (+860, +50%)
+- 13 new test files under `src/__tests__/`: `adapters/capability-matrix`, `cli/agentsContent`, `cli/errorClassification`, `helpers/configHelpers`, `importers/cursor`, `integrity/provenance`, `merge/orphanCleanup`, `merge/safeWrite.fileLock`, `pipeline/adapterToolTranslator`, `pipeline/injectionPatternsSync`, `pipeline/mcpDescriptionScan`, `pipeline/retryWithBackoff`, `types`
+- 51 existing test files extended — heaviest deltas in `cli/config.test.ts` (rewritten against shared helpers), `cli/init.test.ts` (+1,193 lines across validation flags, partial adapter failure, re-init cleanup, worktree generation, language detection, and interactive flows), `cli/sync.test.ts` (+366), `adapters/canonical.test.ts` (+510), and `adapters/customization.test.ts` (+356)
+- Aggregate test-directory diff: 64 files changed, 11,082 insertions, 1,244 deletions
+
+### Documentation
+
+- **PRD evolution through the cycle**: `governance/hatch3r-prd.md` updated in three increments — Cycle 7 CL-1, Cycle 7.5 Wave 2 Batch 2 CL-1 (v4.3), and Cycle 8 partial CL-1 (v4.5)
+- **Audit report**: `governance/AUDIT-REPORT.md` extended with post-execution reports for Cycles 7, 7.5 Wave 2 Batch 2, and Cycle 8 partial. Cycle 8 verdict upgraded from PARTIAL-SHIP to SHIP after Wave 3 fix landed 3 rolled-back findings
+- **Finding registry**: `governance/audit/finding-registry.json` extended with Cycle 7, 7.5, and 8 finding resolution tracking and per-wave execution telemetry
+- **Marketplace submission manifest**: `docs/marketplace-submission.md` updated to 1.6.0 with the full `VERSION_PROBES` file map
+- **`release-prep` skill** expanded with every version-file location so future bumps stay in sync
+
+### Dependencies
+
+- Add `proper-lockfile ^4.1.2` (production) — powers safe-write file locking
+- Add `@types/proper-lockfile ^4.1.4` (dev)
+- Add `tsx ^4.21.0` (dev) — runs `scripts/inventory.ts` and `scripts/validate-rule-parity.ts` for the new CI drift gates
+
 ## [1.5.1] - 2026-04-19
 
 ### Added

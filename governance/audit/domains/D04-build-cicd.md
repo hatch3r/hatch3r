@@ -1,5 +1,9 @@
 # Domain 4: Build, CI/CD & Dependencies
 
+> Last updated: 2026-04-19
+
+**Pillars served:** P4 (primary), P2 (supporting).
+
 **Scope:** Build tooling, dependency health, CI workflows, release pipeline, and community readiness for open-source distribution.
 **Sub-agents:** 5
 
@@ -12,6 +16,8 @@
 | 4.3 | CI Workflows | `.github/workflows/` (4 workflows: `ci.yml`, `pr-checks.yml`, `release.yml`, `deploy-docs.yml`). Note: `generate-docusaurus-docs.lock.yml` is a lock file, not an active workflow. |
 | 4.4 | Release Pipeline & OIDC | `.github/workflows/release.yml`, npm provenance, OIDC signing |
 | 4.5 | Community & OSS Readiness | `CONTRIBUTING.md`, issue templates, PR template, CoC, dependabot, license |
+
+> Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
 
 ## Audit Checklists
 

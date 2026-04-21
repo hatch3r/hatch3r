@@ -1,5 +1,9 @@
 # Domain 14: Cross-Project Adaptability & Scalability
 
+> Last updated: 2026-04-19
+
+**Pillars served:** P4 (primary), P3 (supporting).
+
 **Scope:** How well the framework works across different project types, sizes, and team configurations.
 **Sub-agents:** 4
 
@@ -9,6 +13,8 @@
 | 14.2 | Monorepo & Enterprise |
 | 14.3 | Team Scalability |
 | 14.4 | Convention Self-Discovery |
+
+> Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
 
 ## Audit Checklists
 

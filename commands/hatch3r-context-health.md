@@ -1,6 +1,7 @@
 ---
 id: hatch3r-context-health
 type: command
+orchestrator: false
 description: Monitor conversation context health, detect degradation, and auto-suggest fresh context or sub-agent delegation
 tags: [maintenance]
 quality_charter: agents/shared/quality-charter.md

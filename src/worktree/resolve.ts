@@ -3,6 +3,7 @@ import { statSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { randomBytes } from "node:crypto";
+import { HatchError } from "../types.js";
 
 /**
  * Writes the given gitignore-style patterns to a temp file, then runs
@@ -74,8 +75,10 @@ export function findMainWorktree(worktreeDir: string): string {
 
   const match = content.match(/^gitdir:\s*(.+)$/m);
   if (!match) {
-    throw new Error(
+    throw new HatchError(
       `Unable to parse .git file in ${worktreeDir}: expected "gitdir: <path>"`,
+      1,
+      "FS_ERROR",
     );
   }
 

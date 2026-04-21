@@ -87,6 +87,7 @@ The TypeScript implementation of this schema with runtime validation is in `src/
 | Phase 2 (Implementation) | Build/test failure | Attempt self-fix (max 2 iterations). Escalate to user if unresolved. |
 | Phase 2 (Implementation) | Scope creep detected | Halt. Surface deviation to user. Resume only with approval. |
 | Phase 3 (Review) | Max iterations (3) | Surface unresolved findings to user. Do not merge. |
+| Phase 3 (Review) | DESIGN_OBJECTION verdict | Terminate review loop immediately. Surface the objection and alternative approaches to the user for an architectural decision. Do not spawn fixer. |
 | Phase 3 (Review) | Fixer introduces regressions | Revert fixer changes. Surface original findings + regression to user. |
 | Phase 4 (Quality) | Specialist timeout | Log timeout. Continue with available results. Flag in output. |
 | Phase 4 (Quality) | Validation pass fails | Spawn fixer (max 2 attempts). Surface if unresolved. |

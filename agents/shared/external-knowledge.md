@@ -5,11 +5,11 @@ description: Shared external knowledge reference for all agents — tooling hier
 ---
 ## External Knowledge
 
-Follow the tooling hierarchy (specs > codebase > Context7 MCP > web research). Use the project's configured platform CLI (check `platform` in `.agents/hatch.json`):
-- **GitHub:** `gh` CLI
-- **Azure DevOps:** `az devops` / `az boards` / `az repos` CLI
-- **GitLab:** `glab` CLI
-- **Fallback** to platform MCP only for operations not covered by the CLI (e.g., sub-issue management, project field mutations).
+See [Tooling Hierarchy](../../rules/hatch3r-tooling-hierarchy.md) for the canonical reference (Platform MCP-first, documentation MCP, web research, browser verification, knowledge augmentation priority). Summary:
+
+- Follow the tooling hierarchy (specs > codebase > Context7 MCP > web research).
+- Use the project's configured platform CLI (check `platform` in `.agents/hatch.json`): GitHub (`gh`), Azure DevOps (`az devops` / `az boards` / `az repos`), GitLab (`glab`).
+- Fall back to platform MCP only for operations not covered by the CLI (e.g., sub-issue management, project field mutations).
 
 ## Context7 MCP Protocol
 

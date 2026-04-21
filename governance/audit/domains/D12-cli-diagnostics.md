@@ -1,5 +1,9 @@
 # Domain 12: CLI Diagnostics & Traceability
 
+> Last updated: 2026-04-19
+
+**Pillars served:** P1 (primary), P4 (supporting).
+
 **Scope:** Can users understand what hatch3r did, diagnose problems, and trace generated output back to its source? This domain evaluates the framework's diagnostic and traceability capabilities appropriate for a setup-time CLI configuration generator.
 **Sub-agents:** 4
 
@@ -9,6 +13,8 @@
 | 12.2 | Configuration Audit Trails |
 | 12.3 | Agent Instruction Debugging |
 | 12.4 | Content Traceability |
+
+> Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
 
 ## Audit Checklists
 

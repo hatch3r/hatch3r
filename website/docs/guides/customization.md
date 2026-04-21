@@ -92,3 +92,13 @@ Hooks trigger agents on specific lifecycle events (e.g., post-commit, pre-push, 
 ## Presets
 
 hatch3r ships with 4 content presets: **Minimal** (core only), **Standard** (full dev lifecycle), **Full** (recommended, everything), and **Custom** (pick exactly what you need). Select during `hatch3r init` or change later with `hatch3r config`.
+
+## Task-Type Routing
+
+`hatch3r sync` emits a `## Task Type → Routing` table into `.agents/AGENTS.md` (inherited by Claude, Cursor, Windsurf, and Copilot bridges). Each row maps a workflow or domain tag (planning, implementation, review, devops, maintenance, board, security-review, accessibility, performance, customize, core-workflow) to:
+
+- **Primary** — the best-matching agent, slash-command, or skill for that task type
+- **Fallback Agents** — other agents carrying the same tag
+- **Skills** and **Rules** — relevant supporting content
+
+The table is rebuilt from the selected content on every `sync`: customizing your content selection (adding or removing agents/skills/commands/rules) changes which rows and fallbacks appear. Rows are built by `buildTaskRouterModel()` in `src/cli/shared/agentsContent.ts`.

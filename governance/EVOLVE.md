@@ -62,33 +62,17 @@ Before any assessment begins, the executing agent accepts this contract.
 
 **File-path exception.** Strings inside backticks that name files in this repository (e.g., adapter-output filenames whose names happen to be derived from vendor or product identifiers) are factual references to repository files, not self-identification by the executing agent. They are exempt from the name-ban in this contract.
 
+**Platform-scope exception.** Factual references to the framework's committed adapter-target platforms by name (the set registered in `src/adapters/index.ts`) in scope statements — for example, `VISION.md` §Supported Platforms or `AUDIT.md` Canonical Source ↔ Adapter Outputs — are factual adapter-target references, not executing-agent self-identification. They are exempt from the brand/vendor name-ban.
+
+**External-currency exception.** Directives referencing current external research or platform documentation (e.g., "current documentation", "published research") in checklist items or sub-agent prompts, where the subject is external artefacts and not the executing agent's capability tier, are exempt from the generation-word ban. The cited source and its access date must accompany the directive.
+
 The report artefact is `governance/EVOLVE-REPORT.md`. The prompt writes no other file.
 
-### Web Research Mandate
+### Web Research Mandate & Scientific Rigor Contract
 
-The executing agent performs targeted web research before proposal generation. Required topics:
+Both apply unmodified per the canonical [audit/templates/rigor-contract.md](audit/templates/rigor-contract.md). Every finding and every proposal in this prompt satisfies the six tests (falsifiability, triangulation, confidence with basis, ≥3-step causal chain, bias check, adversarial peer-review counter-argument) and the Web Research Mandate citation profile (≥2 independent sources, URL + access date + author/org + trust tier, recency windows). Missing any disqualifies the finding from inclusion.
 
-- Leading agentic-coding framework practice (what changed since the prior EVOLVE run)
-- Prompt-engineering and agent-orchestration research — published literature, vendor technical notes, independent benchmarks
-- Platform documentation for the 15 adapters hatch3r ships — freshness versus the adapter source files
-- Security baselines — OWASP ASI current revision, supply-chain threat reports, agentic-security advisories
-- Industry UI and UX patterns for developer tools — CLI, IDE-integrated assistants, and review surfaces
-- Performance and cost benchmarks relevant to agentic workflows at the scales the framework targets
-
-**Rigor requirements.** (1) At least 2 independent sources per topic. (2) Citation format: URL + access date + author/organisation + trust tier, where trust tier is one of (highest to lowest): official-docs, peer-reviewed, vendor-note, independent-analysis, blog-post. (3) Recency windows: technology and platform-documentation claims ≤12 months; published research ≤36 months. (4) Paywalled sources: accepted only if a public summary or secondary citation is available; otherwise the dependent claim downgrades to Low confidence. (5) Withdrawn / 404 sources: trigger a re-research pass before the run completes. A proposal invoking current practice without citations meeting the above is rejected before inclusion.
-
-### Scientific Rigor Contract
-
-Every finding and every proposal satisfies six tests drawn from established empirical practice:
-
-1. **Falsifiability (Popper).** Record the observation that would disprove the finding. A non-falsifiable claim is rejected.
-2. **Citation and triangulation.** Every empirical claim references a source — file path plus line, URL plus access date, or a named principle. Where the claim depends on external state, triangulate across at least two independent sources.
-3. **Confidence expression.** Express as High / Medium / Low with the basis — direct measurement, sampled observation, inference from analogue. Overclaiming confidence is itself a finding.
-4. **Root-cause orientation.** Distinguish symptom from systemic driver using at minimum a three-step causal chain. Symptomatic fixes ship as Info; the systemic driver is the Medium-or-higher finding.
-5. **Bias check.** Name the specific bias risks that apply to the finding — confirmation, availability, anchoring — and flag any finding that depends on prior EVOLVE-report framing. A finding that cannot pass this check is downgraded one severity band.
-6. **Adversarial peer-review pass.** Before inclusion, re-read each finding as a sceptic and record one genuine counter-argument; resolution of the counter-argument appears in the finding body.
-
-A finding or proposal missing any of the six tests is rejected before inclusion.
+Per-EVOLVE topic targets (drawn from `audit/templates/rigor-contract.md` §Per-Domain Source Targets, plus EVOLVE-specific): leading agentic-coding framework practice, prompt-engineering and agent-orchestration research, platform documentation for the 15 adapters hatch3r ships, security baselines (OWASP ASI, supply-chain reports), industry UI/UX patterns for developer tools, performance/cost benchmarks for agentic workflows.
 
 ---
 
