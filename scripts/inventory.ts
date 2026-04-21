@@ -291,6 +291,64 @@ interface DriftResult {
   found: number | null;
 }
 
+/**
+ * Version-drift probes (bugbot C1-PR54-5).
+ *
+ * Cross-checks that manifest files outside `package.json` stay pinned to the
+ * same semver string. `package.json.version` is the single source of truth;
+ * release-prep bumps it and this probe catches drift in downstream copies.
+ */
+interface VersionProbe {
+  file: string;
+  label: string;
+  regex: RegExp;
+}
+
+const VERSION_PROBES: VersionProbe[] = [
+  {
+    file: ".claude-plugin/plugin.json",
+    label: "Claude plugin manifest version",
+    regex: /"version":\s*"([^"]+)"/,
+  },
+  {
+    file: "docs/marketplace-submission.md",
+    label: "Marketplace-submission embedded manifest version",
+    regex: /"version":\s*"([^"]+)"/,
+  },
+];
+
+interface VersionDriftResult {
+  file: string;
+  label: string;
+  expected: string;
+  found: string | null;
+}
+
+async function checkVersionDrift(): Promise<VersionDriftResult[]> {
+  const pkgPath = join(ROOT, "package.json");
+  const pkg = JSON.parse(await readFile(pkgPath, "utf-8")) as {
+    version: string;
+  };
+  const expected = pkg.version;
+  const drifts: VersionDriftResult[] = [];
+  for (const probe of VERSION_PROBES) {
+    const absPath = join(ROOT, probe.file);
+    let contents: string;
+    try {
+      contents = await readFile(absPath, "utf-8");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw err;
+    }
+    const match = contents.match(probe.regex);
+    const found = match ? match[1] : null;
+    if (found !== expected) {
+      drifts.push({ file: probe.file, label: probe.label, expected, found });
+    }
+  }
+  return drifts;
+}
+
 async function checkDocDrift(
   counts: InventoryCounts,
 ): Promise<DriftResult[]> {
@@ -341,23 +399,39 @@ async function main(): Promise<void> {
   if (!checkDocs) return;
 
   const drifts = await checkDocDrift(inventory.counts);
-  if (drifts.length === 0) {
+  const versionDrifts = await checkVersionDrift();
+  if (drifts.length === 0 && versionDrifts.length === 0) {
     // eslint-disable-next-line no-console
     console.log(
-      `inventory: doc-drift check PASS — ${DRIFT_PROBES.length} probes, 0 drifts`,
+      `inventory: doc-drift check PASS — ${DRIFT_PROBES.length} count probes + ${VERSION_PROBES.length} version probes, 0 drifts`,
     );
     return;
   }
-  // eslint-disable-next-line no-console
-  console.error(
-    `inventory: doc-drift check FAIL — ${drifts.length} of ${DRIFT_PROBES.length} probes report drift:`,
-  );
-  for (const d of drifts) {
+  if (drifts.length > 0) {
     // eslint-disable-next-line no-console
     console.error(
-      `  - ${d.file} [${d.label}]: expected ${d.expected}, ` +
-        `found ${d.found === null ? "<no match>" : d.found}`,
+      `inventory: count-drift FAIL — ${drifts.length} of ${DRIFT_PROBES.length} probes report drift:`,
     );
+    for (const d of drifts) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `  - ${d.file} [${d.label}]: expected ${d.expected}, ` +
+          `found ${d.found === null ? "<no match>" : d.found}`,
+      );
+    }
+  }
+  if (versionDrifts.length > 0) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `inventory: version-drift FAIL — ${versionDrifts.length} of ${VERSION_PROBES.length} probes report drift:`,
+    );
+    for (const d of versionDrifts) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `  - ${d.file} [${d.label}]: expected ${d.expected}, ` +
+          `found ${d.found === null ? "<no match>" : d.found}`,
+      );
+    }
   }
   process.exit(1);
 }

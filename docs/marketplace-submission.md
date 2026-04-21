@@ -58,7 +58,7 @@ Or, after marketplace listing:
 - [x] Skills (26 — listed under `skills/`)
 - [x] Agents (16 — listed under `agents/`)
 - [x] Commands (34 — listed under `commands/`)
-- [x] Hooks (6 — defined in `hooks/hooks.json`, see also `.claude/hooks/hatch3r-hooks.json` generated for Claude Code targets)
+- [x] Hooks (6 — installed into `.claude/hooks/hatch3r-hooks.json` on Claude Code targets at `npx hatch3r init` time)
 - [x] MCP servers (10 — 3 default, 7 opt-in, configured in `.mcp.json`)
 - [ ] LSP servers
 - [ ] Background monitors
@@ -77,7 +77,7 @@ The submission requires a valid `.claude-plugin/plugin.json`. The current manife
 {
   "name": "hatch3r",
   "description": "Battle-tested agentic coding setup: 16 agents, 26 skills, 27 rules, 34 commands, 6 hooks, and MCP integrations. Counts derived from governance/inventory.json.",
-  "version": "1.5.1",
+  "version": "1.6.0",
   "author": {
     "name": "hatch3r",
     "email": "support@hatch3r.com"
@@ -89,7 +89,6 @@ The submission requires a valid `.claude-plugin/plugin.json`. The current manife
   "skills": "skills/",
   "agents": "agents/",
   "commands": "commands/",
-  "hooks": "hooks/hooks.json",
   "mcpServers": ".mcp.json"
 }
 ```
@@ -174,7 +173,7 @@ adapters=15
 cliCommands=11
 commands=34
 hooks=6
-pipeline=15
+pipeline=17
 rules=27
 rulesMdc=27
 skills=26" | sort)

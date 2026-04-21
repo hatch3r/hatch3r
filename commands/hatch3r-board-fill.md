@@ -1,7 +1,8 @@
 ---
 id: hatch3r-board-fill
 type: command
-orchestrator: false
+orchestrator: true
+agentPipeline: [hatch3r-reviewer, hatch3r-fixer]
 description: Create epics and issues/work items from todo.md, reorganize the board with dependency analysis, readiness assessment, and implementation ordering. Supports GitHub, Azure DevOps, and GitLab.
 tags: [board, team]
 quality_charter: agents/shared/quality-charter.md
@@ -649,7 +650,10 @@ For every issue created or updated in this run, evaluate the six criteria below:
 
 Spawn one reviewer sub-agent per issue (batch of N issues = N parallel loops). Each sub-agent:
 
-1. Reads the issue body via `gh issue view N --json title,body,labels`.
+1. Reads the issue body (fall back to MCP if CLI missing):
+   - **GitHub:** `gh issue view N --json title,body,labels` (fall back to `get_issue` MCP).
+   - **Azure DevOps:** `az boards work-item show --id N --output json` (fall back to `get_work_item` MCP).
+   - **GitLab:** `glab issue view N --output json`.
 2. Applies the six checklist items above.
 3. Outputs a verdict using the taxonomy from `agents/hatch3r-reviewer.md`: `APPROVE`, `REQUEST CHANGES`, or `DESIGN_OBJECTION`.
 4. For `REQUEST CHANGES`, produces a findings table with severity (Critical / Warning / Suggestion), confidence (high / medium / low), the specific checklist item violated, and a proposed refinement.
@@ -670,7 +674,11 @@ For issues where the reviewer returned `REQUEST CHANGES`:
 ```
 
 3. **ASK:** "Confirm fixer drafts for these issues. Enter issue numbers to view the full refined body (e.g., '1, 3'), or confirm to apply all."
-4. On confirmation, apply via `gh issue edit N --body "..."` using the **Board Sync Enforcement** rules. Record each mutation in the run cache under `updated_issues`.
+4. On confirmation, apply the refined body using the **Board Sync Enforcement** rules (fall back to MCP if CLI missing):
+   - **GitHub:** `gh issue edit N --body "..."` (fall back to `issue_write` MCP).
+   - **Azure DevOps:** `az boards work-item update --id N --fields "System.Description=..."`.
+   - **GitLab:** `glab issue update N --description "..."`.
+   Record each mutation in the run cache under `updated_issues`.
 
 #### 7.9d. Loop Termination
 
@@ -710,7 +718,7 @@ If any mutations were applied, the subsequent Step 7.8 reconciliation re-validat
 
 **This step is mandatory. Do not skip.**
 
-Run the **End-of-Run Reconciliation Procedure** from `hatch3r-board-shared`. This verifies board sync, sub-issue links, label consistency, and PR linkage for all issues created or updated during this run. Output the reconciliation report before proceeding to Step 8.
+Run the **End-of-Run Reconciliation Procedure** from `hatch3r-board-shared`. This verifies board sync, sub-issue links, label consistency, and PR linkage for all issues created or updated during this run. Output the reconciliation report before proceeding to Step 7.5.
 
 ---
 
@@ -730,7 +738,7 @@ Run the **End-of-Run Reconciliation Procedure** from `hatch3r-board-shared`. Thi
    - **Azure DevOps:** `az boards work-item create` with `meta:board-overview` tag.
    - **GitLab:** `glab issue create` with `meta:board-overview` label.
 
-Do NOT re-fetch all issues; use cached data.
+Do NOT re-fetch all issues; use cached data. Then proceed to Step 8.
 
 ---
 

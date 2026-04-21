@@ -21,7 +21,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "head -90 governance/CONSTITUTION.md && echo '---' && python3 -c \"import json; data=json.load(open('governance/audit/finding-registry.json')); pending=[e for e in data if e.get('cycle')==7 and e.get('execution_status')=='pending']; print(f'Pending audit findings: {len(pending)}' if pending else 'Pending audit findings: Registry empty')\""
+            "command": "head -90 governance/CONSTITUTION.md 2>/dev/null && echo '---' && (python3 -c \"import json; data=json.load(open('governance/audit/finding-registry.json')); pending=[e for e in data if e.get('execution_status')=='pending']; print(f'Pending audit findings: {len(pending)}')\" 2>/dev/null || echo '  Registry not found')"
           }
         ]
       }
