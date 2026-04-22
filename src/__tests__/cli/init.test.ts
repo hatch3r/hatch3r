@@ -69,7 +69,7 @@ describe("init command", () => {
     const manifest = JSON.parse(raw);
 
     expect(manifest.version).toBe("2.0.0");
-    expect(manifest.hatch3rVersion).toBe("1.6.1");
+    expect(manifest.hatch3rVersion).toBe("1.6.2");
     expect(manifest.platform).toBe("github");
     expect(Array.isArray(manifest.tools)).toBe(true);
     expect(manifest.tools.length).toBeGreaterThan(0);
@@ -240,7 +240,7 @@ describe("init command", () => {
     await initCommand({ yes: true });
 
     const manifest = JSON.parse(await readFile(join(agentsDir, "hatch.json"), "utf-8"));
-    expect(manifest.hatch3rVersion).toBe("1.6.1");
+    expect(manifest.hatch3rVersion).toBe("1.6.2");
   });
 
   it("should include AGENTS.md in managedFiles", async () => {

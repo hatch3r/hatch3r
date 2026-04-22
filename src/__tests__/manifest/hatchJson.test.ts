@@ -12,7 +12,7 @@ describe("hatchJson", () => {
         tools: ["cursor"],
       });
       expect(manifest.version).toBe("2.0.0");
-      expect(manifest.hatch3rVersion).toBe("1.6.1");
+      expect(manifest.hatch3rVersion).toBe("1.6.2");
       expect(manifest.platform).toBe("github");
       expect(manifest.tools).toEqual(["cursor"]);
       expect(manifest.features.agents).toBe(true);
