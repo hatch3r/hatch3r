@@ -77,7 +77,7 @@ The submission requires a valid `.claude-plugin/plugin.json`. The current manife
 {
   "name": "hatch3r",
   "description": "Battle-tested agentic coding setup: 16 agents, 26 skills, 27 rules, 34 commands, 6 hooks, and MCP integrations. Counts derived from governance/inventory.json.",
-  "version": "1.6.1",
+  "version": "1.6.2",
   "author": {
     "name": "hatch3r",
     "email": "support@hatch3r.com"
