@@ -52,6 +52,44 @@ export function sortByPrecedence<T extends { precedence?: string; id: string }>(
   });
 }
 
+/**
+ * Filter canonical files down to those that should appear as user-invocable
+ * entries in a tool's command/agent picker (e.g. `.claude/commands/`,
+ * `.cursor/commands/`, `.claude/agents/`).
+ *
+ * Two orthogonal signals combined with AND:
+ * 1. Top-level-only: the file's path relative to `baseDir` must not contain
+ *    a path separator. This excludes companion subdirectories such as
+ *    `commands/board/`, `commands/revision/`, `agents/modes/`, and
+ *    `agents/shared/` whose contents are sub-workflows or shared reference
+ *    material invoked by parent commands/agents, not directly by users.
+ * 2. Frontmatter-type whitelist: `frontmatterType` must be either absent
+ *    (legacy files lacking the field load unchanged) or equal to
+ *    `expectedFrontmatterType`. This catches the rare case of a top-level
+ *    companion file such as `commands/hatch3r-board-shared.md`
+ *    (`type: shared-context`) that sits next to the real commands but must
+ *    not be invocable.
+ *
+ * Canonical `.agents/` content (populated by `src/content/index.ts`)
+ * remains unfiltered, so parent commands can continue referencing
+ * companion files by name — this helper only gates per-tool adapter
+ * emission.
+ */
+export function filterUserFacing(
+  files: CanonicalFile[],
+  expectedFrontmatterType: "command" | "agent",
+  baseDir: string,
+): CanonicalFile[] {
+  const normalizedBase = baseDir.endsWith("/") ? baseDir : `${baseDir}/`;
+  return files.filter((file) => {
+    if (!file.sourcePath.startsWith(normalizedBase)) return true;
+    const relative = file.sourcePath.slice(normalizedBase.length);
+    if (relative.includes("/")) return false;
+    if (file.frontmatterType && file.frontmatterType !== expectedFrontmatterType) return false;
+    return true;
+  });
+}
+
 const FRONTMATTER_REGEX = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n([\s\S]*))?$/;
 
 /**
@@ -189,6 +227,14 @@ export function parseFrontmatter(
 ): {
   metadata: CanonicalMetadata;
   content: string;
+  /**
+   * The author-declared `type:` value from frontmatter, or `undefined` when
+   * the field is absent or was a non-string. Distinct from `metadata.type`,
+   * which falls back to `"rule"` when absent — callers that need to
+   * distinguish "user declared type" from "parser default" (e.g. the
+   * adapter filter at {@link filterUserFacing}) should read this field.
+   */
+  rawType?: string;
 } {
   const match = rawContent.match(FRONTMATTER_REGEX);
   if (!match) {
@@ -205,6 +251,7 @@ export function parseFrontmatter(
     type: "rule",
     description: "",
   };
+  let rawType: string | undefined;
 
   if (parsed && typeof parsed === "object") {
     // C7.5-W2B2-H8: enforce type contract on security-relevant identity
@@ -218,6 +265,7 @@ export function parseFrontmatter(
       if (raw === undefined) continue;
       if (typeof raw === "string") {
         metadata[field] = raw;
+        if (field === "type") rawType = raw;
       } else if (typeMismatches) {
         typeMismatches.push(
           `${field} field must be a string, got ${describeYamlType(raw)} (value: ${JSON.stringify(raw)})`,
@@ -261,7 +309,7 @@ export function parseFrontmatter(
   metadata.type = metadata.type ?? "rule";
   metadata.description = metadata.description ?? "";
 
-  return { metadata, content: content ?? "" };
+  return { metadata, content: content ?? "", rawType };
 }
 
 /**
@@ -363,11 +411,19 @@ async function readSingleMd(
     return errorResult;
   }
 
-  const { metadata, content } = parsed;
+  const { metadata, content, rawType } = parsed;
   const id = metadata.id || metadata.name || fallbackId;
   const canonical: CanonicalFile = {
     id,
     type: fileType,
+    // Preserve the author-declared frontmatter `type` alongside the reader
+    // bucket so downstream filters (see `filterUserFacing`) can distinguish
+    // user-invocable commands/agents from companion content
+    // (`shared-context`, `reference`, `mode`) within the same directory.
+    // `rawType` is undefined when the author omitted `type:`, so files
+    // without an explicit declaration fall through the filter's
+    // back-compat path and are kept.
+    frontmatterType: rawType,
     description: metadata.description ?? "",
     scope: metadata.scope,
     model: metadata.model,

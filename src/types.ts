@@ -190,6 +190,16 @@ export type RulePrecedence = "critical" | "high" | "normal" | "low";
 export interface CanonicalFile {
   id: string;
   type: "rule" | "agent" | "skill" | "command" | "prompt" | "github-agent" | "hook" | "check" | "policy" | "learning";
+  /**
+   * Raw frontmatter `type:` value as declared by the author. Distinct from
+   * `type` above, which is the reader-category bucket set from the directory
+   * the file lives in. Used by adapter emission filters (see
+   * `filterUserFacing` in `src/adapters/canonical.ts`) to distinguish
+   * user-invocable commands/agents from companion content like
+   * `shared-context`, `reference`, and `mode` that lives in the same
+   * directory tree but must not appear in tool command/agent pickers.
+   */
+  frontmatterType?: string;
   description: string;
   scope?: string;
   model?: string;

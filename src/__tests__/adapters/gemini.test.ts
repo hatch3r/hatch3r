@@ -246,6 +246,22 @@ describe("GeminiAdapter", () => {
     expect(commands.length).toBe(0);
   });
 
+  it("filters companion command content from .gemini/commands/ output", async () => {
+    const manifest = makeManifest();
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const commandPaths = outputs
+      .filter((o) => o.path.startsWith(".gemini/commands/"))
+      .map((o) => o.path);
+
+    // Top-level primary command survives
+    expect(commandPaths.some((p) => p.includes("test-command"))).toBe(true);
+    // Sub-workflow file under commands/board/ is dropped
+    expect(commandPaths.some((p) => p.includes("pickup-fake"))).toBe(false);
+    // Top-level shared-context file is dropped by frontmatter-type check
+    expect(commandPaths.some((p) => p.includes("fake-shared"))).toBe(false);
+  });
+
   // ── Wave B4: rule precedence ordering ──
   describe("rule precedence ordering", () => {
     let precedenceDir: string;
