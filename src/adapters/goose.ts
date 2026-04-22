@@ -39,7 +39,7 @@ export class GooseAdapter extends BaseAdapter {
     // #123: Read agents once and reuse for both inline content and profile generation
     // to avoid double readCanonicalFiles + double applyCustomization.
     const agents = ctx.features.agents
-      ? await readCanonicalFiles(ctx.agentsDir, "agents", this.warnings)
+      ? await this.readUserFacingCanonicalFiles(ctx.agentsDir, "agents")
       : [];
 
     const lines = [

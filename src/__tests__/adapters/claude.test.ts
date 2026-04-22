@@ -89,6 +89,30 @@ describe("ClaudeAdapter", () => {
     expect(agent.managedContent).toBeDefined();
   });
 
+  it("filters companion agent content (modes/shared) and command content (subdirectory/shared-context) from per-tool output", async () => {
+    const manifest = makeManifest();
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const agentPaths = outputs
+      .filter((o) => o.path.startsWith(".claude/agents/"))
+      .map((o) => o.path);
+    const commandPaths = outputs
+      .filter((o) => o.path.startsWith(".claude/commands/"))
+      .map((o) => o.path);
+
+    // Top-level primary fixtures survive
+    expect(agentPaths.some((p) => p.includes("test-agent"))).toBe(true);
+    expect(commandPaths.some((p) => p.includes("test-command"))).toBe(true);
+
+    // Subdirectory companion fixtures are excluded from pickers
+    expect(agentPaths.some((p) => p.includes("fake-mode"))).toBe(false);
+    expect(agentPaths.some((p) => p.includes("fake-reference"))).toBe(false);
+    expect(commandPaths.some((p) => p.includes("pickup-fake"))).toBe(false);
+
+    // Top-level file with non-primary frontmatter type is excluded
+    expect(commandPaths.some((p) => p.includes("fake-shared"))).toBe(false);
+  });
+
   it("includes Agent Teams section in CLAUDE.md", async () => {
     const manifest = makeManifest();
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);

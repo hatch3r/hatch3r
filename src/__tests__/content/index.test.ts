@@ -520,8 +520,8 @@ describe("content/index", () => {
       expect(allIds.has("bf-cmd")).toBe(true);
     });
 
-    it("solo teamSize removes items with only team/board tags", () => {
-      const preset = getPreset("full");
+    it("solo teamSize removes items with only team/board tags when preset is not 'full'", () => {
+      const preset = getPreset("standard");
       const selection = resolveSelection(preset, "brownfield", "solo", index);
 
       const allIds = getAllContentIds(selection);
@@ -591,15 +591,15 @@ describe("content/index", () => {
       expect(selection.teamSize).toBe("solo");
     });
 
-    it("full preset with greenfield+solo applies both context filters", () => {
+    it("full preset with greenfield+solo still applies projectType filter but not team filter", () => {
       const preset = getPreset("full");
       const selection = resolveSelection(preset, "greenfield", "solo", index);
 
       const allIds = getAllContentIds(selection);
-      // Brownfield-only removed
+      // Brownfield-only removed — projectType is a technical compatibility filter, still applies
       expect(allIds.has("bf-cmd")).toBe(false);
-      // Team-only removed
-      expect(allIds.has("team-only")).toBe(false);
+      // Team-only survives — full preset bypasses preference-based team-size filter
+      expect(allIds.has("team-only")).toBe(true);
       // Core agent survives both filters
       expect(allIds.has("core-agent")).toBe(true);
     });
@@ -676,7 +676,7 @@ describe("content/index", () => {
         relativePath: "commands/team-only-item.md",
       });
       const soloIndex = makeIndex([teamOnlyItem]);
-      const preset = getPreset("full");
+      const preset = getPreset("standard");
 
       const selection = resolveSelection(preset, "brownfield", "solo", soloIndex);
       expect(getAllContentIds(selection).has("team-only-item")).toBe(false);
@@ -825,6 +825,48 @@ describe("content/index", () => {
 
       const selection = resolveSelection(preset, "brownfield", "team", langIndex, undefined, []);
       expect(getAllContentIds(selection).has("ts-rule-empty")).toBe(true);
+    });
+
+    // ── Full preset opt-in: bypasses preference-based team-size narrowing ──
+
+    it("full preset + solo keeps team-only items (regression: board and onboard commands)", () => {
+      const preset = getPreset("full");
+      const selection = resolveSelection(preset, "brownfield", "solo", index);
+      const allIds = getAllContentIds(selection);
+      // team-only has tags ["team"] — under the fix, full preset rescues it
+      expect(allIds.has("team-only")).toBe(true);
+    });
+
+    it("full preset + solo keeps board+team items", () => {
+      const preset = getPreset("full");
+      const selection = resolveSelection(preset, "brownfield", "solo", index);
+      const allIds = getAllContentIds(selection);
+      // board-cmd has tags ["board", "team"] — under the fix, full preset rescues it
+      expect(allIds.has("board-cmd")).toBe(true);
+    });
+
+    it("full preset + greenfield + solo still removes brownfield-only items", () => {
+      const preset = getPreset("full");
+      const selection = resolveSelection(preset, "greenfield", "solo", index);
+      const allIds = getAllContentIds(selection);
+      // projectType filter is a technical compatibility filter and still applies under full
+      expect(allIds.has("bf-cmd")).toBe(false);
+    });
+
+    it("standard preset + solo still removes team-only items (scope check: fix is full-only)", () => {
+      const preset = getPreset("standard");
+      const selection = resolveSelection(preset, "brownfield", "solo", index);
+      const allIds = getAllContentIds(selection);
+      // standard + solo should still filter team-only items — fix is scoped to full
+      expect(allIds.has("team-only")).toBe(false);
+    });
+
+    it("full preset + solo with skipContextFilters=true keeps team items (config.ts path unchanged)", () => {
+      const preset = getPreset("full");
+      const selection = resolveSelection(preset, "brownfield", "solo", index, undefined, undefined, { skipContextFilters: true });
+      const allIds = getAllContentIds(selection);
+      expect(allIds.has("team-only")).toBe(true);
+      expect(allIds.has("board-cmd")).toBe(true);
     });
   });
 

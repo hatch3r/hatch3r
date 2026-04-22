@@ -2,7 +2,6 @@ import type { AdapterOutput } from "../types.js";
 import { toPrefixedId } from "../types.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
-import { readCanonicalFiles } from "./canonical.js";
 import { applyCustomization } from "./customization.js";
 import type { HookEvent } from "../hooks/types.js";
 
@@ -80,7 +79,7 @@ export class AmazonQAdapter extends BaseAdapter {
     // Generate native Amazon Q custom agent descriptors in .amazonq/cli-agents/.
     // Each canonical agent maps to a JSON descriptor that Amazon Q discovers natively.
     if (ctx.features.agents) {
-      const agents = await readCanonicalFiles(ctx.agentsDir, "agents", this.warnings);
+      const agents = await this.readUserFacingCanonicalFiles(ctx.agentsDir, "agents");
       for (const agent of agents) {
         const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
         this.warnings.push(...warnings);

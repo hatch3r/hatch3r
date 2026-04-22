@@ -378,10 +378,10 @@ describe("agentToolAllowlist", () => {
       checkToolAccess("unknown-agent", "read", (e) => events.push(e));
       const entry = toFailureLogEntry(events[0], {
         correlationId: "run-123",
-        version: "1.6.0",
+        version: "1.6.1",
       });
       expect(entry.correlationId).toBe("run-123");
-      expect(entry.version).toBe("1.6.0");
+      expect(entry.version).toBe("1.6.1");
     });
 
     it("produces an entry that round-trips through formatLogEntry + parseFailureLog", () => {

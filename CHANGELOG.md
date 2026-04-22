@@ -2,6 +2,32 @@
 
 All notable changes to hatch3r are documented in this file.
 
+## [1.6.2] - 2026-04-22
+
+### Fixed
+
+- **Companion content no longer clutters the tool command/agent picker**: `hatch3r init` / `hatch3r sync` previously emitted every `.md` file under `commands/` and `agents/` as a user-invocable entry in each tool's picker — including ~40 companion files (5 `type: shared-context`, 20 `agents/modes/*` with `type: mode`, 4 `agents/shared/*` with `type: reference`, 11 sub-workflow files under `commands/board/pickup-*` and `commands/revision/*`) that exist only to be referenced by parent commands/agents, not invoked directly. The recursive `readGlobMd()` (`src/adapters/canonical.ts:460`) still reads the full tree so cross-references continue to resolve, but a new `filterUserFacing()` helper gates per-adapter emission on two signals: the file's path relative to its content-type baseDir must have no subdirectory separator, **and** its frontmatter `type:` must match the reader bucket (`command` / `agent`) or be absent. Applied to `processCommandsRaw` and a new `readUserFacingCanonicalFiles` wrapper in `src/adapters/base.ts`, plus direct call sites in `gemini.ts` and each of the 10 agent-emitting adapters (claude, cursor, copilot, opencode, codex, amazonq, goose, windsurf, cline, agentsmd). The `.agents/` canonical mirror in `src/content/index.ts` is unchanged, so parent commands that read shared context by name keep working.
+- **`parseFrontmatter` now surfaces the author-declared type separately from the parser default**: `parseFrontmatter()` returns an additional `rawType?: string` that is `undefined` when `type:` is absent from frontmatter, distinct from `metadata.type` which falls back to `"rule"`. `CanonicalFile.frontmatterType` is populated from `rawType`, letting the adapter filter distinguish "user chose `type: command`" from "parser defaulted to rule" — a distinction the previous shape could not express.
+
+### Tests
+
+- 7 new unit tests for `filterUserFacing` in `src/__tests__/adapters/canonical.test.ts` covering top-level pass, subdirectory drop, frontmatter-type whitelist, both-signals-AND for agents, legacy back-compat for files without frontmatter `type:`, safe default when `sourcePath` lies outside `baseDir`, and trailing-slash tolerance on `baseDir`.
+- 2 new adapter-level filter tests (claude, gemini) asserting that subdirectory fixtures (`pickup-fake`, `fake-mode`, `fake-reference`) and top-level `type: shared-context` fixture (`hatch3r-fake-shared`) are absent from `.claude/commands/`, `.claude/agents/`, and `.gemini/commands/` output while the primary `test-agent` / `test-command` fixtures survive.
+- 4 new fixture files under `src/__tests__/fixtures/agents/` (`agents/modes/fake-mode.md`, `agents/shared/fake-reference.md`, `commands/board/pickup-fake.md`, `commands/hatch3r-fake-shared.md`) exercise both filter signals.
+- 2 existing `readCanonicalFiles` tests adjusted to reflect the now-intentionally-larger fixture set (the raw reader sees all files; filtering happens at the emission layer). Test count 2,604 → 2,613.
+
+## [1.6.1] - 2026-04-22
+
+### Fixed
+
+- **`full` preset now actually installs everything**: the default `hatch3r init` profile silently dropped the 6 `hatch3r-board-*` commands (pickup, groom, refresh, init, fill, shared) and `hatch3r-onboard` because the solo team-size filter ran unconditionally over the resolved selection, even when the user's chosen preset explicitly promised "Everything including board management". The filter now scopes to non-`full` presets — users who opt into `full` receive the full catalog regardless of `teamSize`. Project-type and language filters continue to apply (they are technical compatibility filters, not preferences). Fix: `src/content/index.ts::resolveSelection` guard at line 436.
+- **Worktree support now explicitly configurable in `init`**: previously `hatch3r init` auto-enabled worktree file isolation without prompting whenever a worktree-capable tool (currently `claude`) was selected, while `hatch3r config` did prompt — an asymmetric UX that hid a side-effect from interactive users. Init now mirrors the config prompt after tools selection and adds `--worktree` / `--no-worktree` CLI flags for headless callers. `--yes` without the flag preserves today's auto-enable behavior for CI compatibility. Fix: `src/cli/commands/init.ts` interactive and workspace branches; `src/cli/program.ts` flag registration; `src/manifest/hatchJson.ts::createManifest` honors explicit `worktreeEnabled` option. `src/cli/commands/clean.ts` reinit path threaded through the new option to keep `RunInitOptions` consistent.
+
+### Tests
+
+- 3 existing `resolveSelection` tests updated to reflect the new preset-aware semantic; 5 new tests cover `full + solo` behavior (keeps team/board items, still applies projectType filter, `standard + solo` unchanged as scope check, `skipContextFilters` path unchanged).
+- 5 new `init.test.ts` cases cover the worktree prompt paths (interactive accept, interactive decline, `--no-worktree` override, `--worktree` force-enable, no prompt when no worktree-capable tool). 13 existing interactive init tests updated to queue the new prompt where applicable. Test count 2,594 → 2,604.
+
 ## [1.6.0] - 2026-04-21
 
 ### Added

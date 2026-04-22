@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
 import { HatchError } from "../../types.js";
+import { HATCH3R_VERSION } from "../../version.js";
 
 vi.mock("node:child_process", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:child_process")>();
@@ -116,7 +117,7 @@ describe("update command", () => {
     const manifest = JSON.parse(
       await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"),
     );
-    expect(manifest.hatch3rVersion).toBe("1.6.0");
+    expect(manifest.hatch3rVersion).toBe(HATCH3R_VERSION);
   });
 
   it("should copy hatch3r-prefixed files from pack", async () => {
@@ -168,7 +169,7 @@ describe("update command", () => {
   });
 
   it("should note when already at latest version", async () => {
-    await createTestProject(tempDir, { hatch3rVersion: "1.6.0" });
+    await createTestProject(tempDir, { hatch3rVersion: HATCH3R_VERSION });
 
     const { updateCommand } = await import("../../cli/commands/update.js");
     await updateCommand({ backup: false });
