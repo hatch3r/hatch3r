@@ -146,7 +146,7 @@ interface ObservedCapabilityRow {
 function declaredSupport(tool: string, feature: keyof Features): boolean {
   const manifest: HatchManifest = {
     version: "2.0.0",
-    hatch3rVersion: "1.6.0",
+    hatch3rVersion: "1.6.1",
     platform: "github",
     owner: "",
     repo: "",
