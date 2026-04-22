@@ -55,6 +55,8 @@ export function createProgram(): Command {
     .option("--preset <preset>", "Content preset: minimal, standard, full (default: full)")
     .option("--project-type <type>", "Project type: greenfield, brownfield")
     .option("--team-size <size>", "Team size: solo, team")
+    .option("--worktree", "Enable git worktree file isolation (overrides tool auto-detect)")
+    .option("--no-worktree", "Disable git worktree file isolation")
     .option("--workspace", "Initialize as a multi-repo workspace")
     .action(initCommand);
 

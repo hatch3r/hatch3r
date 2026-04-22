@@ -27,6 +27,7 @@ interface CapturedConfig {
   features: Features;
   mcpServers: string[];
   contentSelection: ContentSelection;
+  worktreeEnabled: boolean;
 }
 
 function captureConfig(manifest: NonNullable<CleanInventory["manifest"]>): CapturedConfig {
@@ -46,6 +47,7 @@ function captureConfig(manifest: NonNullable<CleanInventory["manifest"]>): Captu
       teamSize: "solo",
       items: { agents: [], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
     },
+    worktreeEnabled: manifest.worktree?.enabled ?? false,
   };
 }
 
@@ -224,6 +226,7 @@ export async function cleanCommand(
           mcpServers: config.mcpServers,
           repoInfo,
           contentSelection: config.contentSelection,
+          worktreeEnabled: config.worktreeEnabled,
         };
 
         await runInit(initOpts);

@@ -78,6 +78,7 @@ export function createManifest(options: {
   mcpServers?: string[];
   content?: ContentSelection;
   languages?: string[];
+  worktreeEnabled?: boolean;
 }): HatchManifest {
   const platform = options.platform ?? "github";
   const owner = options.owner ?? "";
@@ -106,7 +107,9 @@ export function createManifest(options: {
   if (options.defaultBranch) {
     manifest.board = createMinimalBoardConfig(owner, repo, options.defaultBranch);
   }
-  if (options.tools.some(t => WORKTREE_CAPABLE_TOOLS.has(t))) {
+  const autoEnable = options.tools.some(t => WORKTREE_CAPABLE_TOOLS.has(t));
+  const shouldEnable = options.worktreeEnabled ?? autoEnable;
+  if (shouldEnable) {
     manifest.worktree = { enabled: true };
   }
   return manifest;

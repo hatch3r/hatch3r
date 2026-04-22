@@ -739,7 +739,7 @@ describe("init re-init: stale content cleanup", () => {
 });
 
 describe("init worktree generation (claude tool present)", () => {
-  let initCommand: (opts?: { tools?: string; yes?: boolean }) => Promise<void>;
+  let initCommand: (opts?: { tools?: string; yes?: boolean; worktree?: boolean }) => Promise<void>;
   let tempDir: string;
   let cwdSpy: MockInstance;
   let exitSpy: MockInstance;
@@ -760,6 +760,7 @@ describe("init worktree generation (claude tool present)", () => {
       }) as never);
     consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(inquirer.prompt).mockReset();
   });
 
   afterEach(async () => {
@@ -790,6 +791,62 @@ describe("init worktree generation (claude tool present)", () => {
     await expect(
       access(join(tempDir, ".worktreeinclude")),
     ).rejects.toThrow();
+  });
+
+  // v1.6.1 Fix 2: --worktree / --no-worktree flags + interactive prompt.
+  // Queue the interactive single-repo prompt sequence for tests that rely on it.
+  function queueInteractiveWithWorktree(opts: { tools?: string[]; worktree?: boolean } = {}): void {
+    const inq = vi.mocked(inquirer.prompt);
+    const tools = opts.tools ?? ["claude"];
+    inq.mockResolvedValueOnce({ platform: "github" });
+    inq.mockResolvedValueOnce({ owner: "test-owner", repo: "test-repo" });
+    inq.mockResolvedValueOnce({ defaultBranch: "main" });
+    inq.mockResolvedValueOnce({ projectType: "brownfield" });
+    inq.mockResolvedValueOnce({ teamSize: "solo" });
+    inq.mockResolvedValueOnce({ preset: "minimal" });
+    inq.mockResolvedValueOnce({ tools });
+    if (tools.includes("claude") && opts.worktree !== undefined) {
+      inq.mockResolvedValueOnce({ enabled: opts.worktree });
+    } else if (tools.includes("claude")) {
+      inq.mockResolvedValueOnce({ enabled: true });
+    }
+    inq.mockResolvedValueOnce({ features: ["agents"] });
+  }
+
+  it("interactive init prompts for worktree when a worktree-capable tool is selected", async () => {
+    queueInteractiveWithWorktree({ tools: ["claude"], worktree: true });
+    await initCommand();
+    const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
+    expect(manifest.worktree?.enabled).toBe(true);
+    await expect(access(join(tempDir, ".worktreeinclude"))).resolves.toBeUndefined();
+  });
+
+  it("interactive init respects declining worktree prompt", async () => {
+    queueInteractiveWithWorktree({ tools: ["claude"], worktree: false });
+    await initCommand();
+    const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
+    expect(manifest.worktree).toBeUndefined();
+    await expect(access(join(tempDir, ".worktreeinclude"))).rejects.toThrow();
+  });
+
+  it("--yes --no-worktree disables worktree even when claude is selected", async () => {
+    await initCommand({ yes: true, tools: "claude", worktree: false });
+    const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
+    expect(manifest.worktree).toBeUndefined();
+    await expect(access(join(tempDir, ".worktreeinclude"))).rejects.toThrow();
+  });
+
+  it("--yes --worktree enables worktree even when no worktree-capable tool is selected", async () => {
+    await initCommand({ yes: true, tools: "amp", worktree: true });
+    const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
+    expect(manifest.worktree?.enabled).toBe(true);
+  });
+
+  it("interactive init does not prompt for worktree when no worktree-capable tool is selected", async () => {
+    queueInteractiveWithWorktree({ tools: ["amp"] });
+    await initCommand();
+    const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
+    expect(manifest.worktree).toBeUndefined();
   });
 });
 
@@ -908,7 +965,10 @@ describe("init interactive single-repo flow", () => {
 
   /**
    * Queue prompt responses for the interactive single-repo flow.
-   * Order matches the prompts in initCommand() lines 500-707.
+   * Prompt order: platform -> owner/repo -> defaultBranch -> projectType ->
+   * teamSize -> preset -> [custom items] -> tools -> [worktree] -> features -> [mcp].
+   * The worktree prompt fires only when a worktree-capable tool (e.g. claude)
+   * is in the selected tools list.
    */
   function setupGithubInteractive(opts: {
     preset?: "minimal" | "standard" | "full" | "custom";
@@ -918,8 +978,10 @@ describe("init interactive single-repo flow", () => {
     features?: string[];
     mcpServers?: string[];
     customItems?: string[];
+    worktree?: boolean;
   } = {}): void {
     const inq = vi.mocked(inquirer.prompt);
+    const tools = opts.tools ?? ["claude"];
     inq.mockResolvedValueOnce({ platform: "github" });
     inq.mockResolvedValueOnce({ owner: "test-owner", repo: "test-repo" });
     inq.mockResolvedValueOnce({ defaultBranch: "main" });
@@ -929,7 +991,12 @@ describe("init interactive single-repo flow", () => {
     if (opts.preset === "custom") {
       inq.mockResolvedValueOnce({ items: opts.customItems ?? [] });
     }
-    inq.mockResolvedValueOnce({ tools: opts.tools ?? ["claude"] });
+    inq.mockResolvedValueOnce({ tools });
+    // Worktree prompt fires only when a worktree-capable tool is selected.
+    // WORKTREE_CAPABLE_TOOLS currently = new Set(["claude"]).
+    if (tools.includes("claude")) {
+      inq.mockResolvedValueOnce({ enabled: opts.worktree ?? true });
+    }
     inq.mockResolvedValueOnce({
       features: opts.features ?? ["agents", "skills", "rules", "prompts", "commands", "mcp", "githubAgents", "hooks"],
     });
@@ -976,6 +1043,7 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ teamSize: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
+    inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt
     inq.mockResolvedValueOnce({ features: ["agents"] });
 
     await initCommand({});
@@ -997,6 +1065,7 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ teamSize: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
+    inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt
     inq.mockResolvedValueOnce({ features: ["agents"] });
 
     await initCommand({});
@@ -1018,8 +1087,10 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ projectType: "brownfield" });
     inq.mockResolvedValueOnce({ teamSize: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
-    // Empty tool selection -> falls back to DEFAULT_TOOLS
+    // Empty tool selection -> falls back to DEFAULT_TOOLS (= ["claude"])
     inq.mockResolvedValueOnce({ tools: [] });
+    // tools fall-through to ["claude"] triggers the worktree prompt
+    inq.mockResolvedValueOnce({ enabled: true });
     inq.mockResolvedValueOnce({ features: ["agents"] });
 
     await initCommand({});
@@ -1057,6 +1128,7 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ teamSize: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
+    inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt (claude selected)
     inq.mockResolvedValueOnce({ features: ["agents"] });
     // The checkExisting prompt — accept overwrite
     inq.mockResolvedValueOnce({ proceed: true });
@@ -1084,6 +1156,7 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ teamSize: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
+    inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt (claude selected)
     inq.mockResolvedValueOnce({ features: ["agents"] });
     // Reject overwrite
     inq.mockResolvedValueOnce({ proceed: false });
@@ -1148,6 +1221,8 @@ describe("init interactive workspace flow", () => {
     inq.mockResolvedValueOnce({ preset: "minimal" });
     // 6) Tools
     inq.mockResolvedValueOnce({ tools: ["claude"] });
+    // 6b) Worktree prompt (claude selected)
+    inq.mockResolvedValueOnce({ enabled: true });
     // 7) Features
     inq.mockResolvedValueOnce({ features: ["agents"] });
     // 8) Repo selection for sync
@@ -1174,6 +1249,7 @@ describe("init interactive workspace flow", () => {
     inq.mockResolvedValueOnce({ teamSize: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
+    inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt (claude selected)
     inq.mockResolvedValueOnce({ features: ["agents"] });
 
     await initCommand({});
@@ -1205,6 +1281,8 @@ describe("init interactive workspace flow", () => {
     inq.mockResolvedValueOnce({ preset: "minimal" });
     // 7) Tools
     inq.mockResolvedValueOnce({ tools: ["claude"] });
+    // 7b) Worktree prompt (claude selected)
+    inq.mockResolvedValueOnce({ enabled: true });
     // 8) Features
     inq.mockResolvedValueOnce({ features: ["agents"] });
     // 9) Repo sync selection
@@ -1383,6 +1461,7 @@ describe("init eager flag validation (C8-D1-M4)", () => {
     inq.mockResolvedValueOnce({ teamSize: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
+    inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt (claude selected)
     inq.mockResolvedValueOnce({ features: ["agents"] });
 
     await initCommand({ preset: "minimal" });
@@ -1453,6 +1532,7 @@ describe("init runInit idempotency guard (C8-D1-M3)", () => {
       mcpServers: [],
       repoInfo,
       contentSelection,
+      worktreeEnabled: false,
     };
 
     // Fire two concurrent runInit calls. The second should reject with the
@@ -1531,6 +1611,7 @@ describe("init workspace conflict guard (C8-D1-M3)", () => {
     inq.mockResolvedValueOnce({ teamSize: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
+    inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt (claude selected)
     inq.mockResolvedValueOnce({ features: ["agents"] });
     // Select the repo with existing hatch3r for sync (triggers conflict prompt)
     inq.mockResolvedValueOnce({ syncRepos: ["api"] });
@@ -1556,6 +1637,7 @@ describe("init workspace conflict guard (C8-D1-M3)", () => {
     inq.mockResolvedValueOnce({ teamSize: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
+    inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt (claude selected)
     inq.mockResolvedValueOnce({ features: ["agents"] });
     inq.mockResolvedValueOnce({ syncRepos: ["api"] });
     inq.mockResolvedValueOnce({ confirmConflict: true });
@@ -1577,6 +1659,7 @@ describe("init workspace conflict guard (C8-D1-M3)", () => {
     inq.mockResolvedValueOnce({ teamSize: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
+    inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt (claude selected)
     inq.mockResolvedValueOnce({ features: ["agents"] });
     inq.mockResolvedValueOnce({ syncRepos: ["api"] });
     // NO confirmConflict prompt expected here
