@@ -1,4 +1,4 @@
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import type {
   AdapterOutput,
   CanonicalFile,
@@ -9,7 +9,7 @@ import type {
 import { resolveAgentModel } from "../models/resolve.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
 import { generateBridgeOrchestration } from "../cli/shared/agentsContent.js";
-import { readCanonicalFiles, sortByPrecedence, type CanonicalType } from "./canonical.js";
+import { filterUserFacing, readCanonicalFiles, sortByPrecedence, type CanonicalType } from "./canonical.js";
 import { applyCustomization, applyCustomizationRaw } from "./customization.js";
 import { readMcpConfig, transformEnvVarSyntax, type McpServerEntry } from "./mcp-utils.js";
 import { readHookDefinitions } from "../hooks/index.js";
@@ -173,6 +173,31 @@ export abstract class BaseAdapter implements Adapter {
     return files;
   }
 
+  /**
+   * Read canonical commands or agents and filter to only those that should
+   * appear in a tool's user-facing command/agent picker. Wraps
+   * {@link readCanonicalFiles} + {@link filterUserFacing} and applies
+   * provenance tracking only to the surviving files, so filtered-out
+   * companion content does not pollute the adapter's source-file manifest.
+   *
+   * Filter rules are documented on {@link filterUserFacing}: files in
+   * support subdirectories (`commands/board/`, `agents/modes/`, etc.) and
+   * top-level files with a non-primary frontmatter `type:` (e.g.
+   * `shared-context`, `reference`, `mode`) are excluded.
+   */
+  protected async readUserFacingCanonicalFiles(
+    agentsDir: string,
+    type: "commands" | "agents",
+  ): Promise<CanonicalFile[]> {
+    const files = await readCanonicalFiles(agentsDir, type, this.warnings);
+    const expectedType = type === "commands" ? "command" : "agent";
+    const filtered = filterUserFacing(files, expectedType, join(agentsDir, type));
+    for (const f of filtered) {
+      if (f.sourcePath) this._trackedSourceFiles.add(f.sourcePath);
+    }
+    return filtered;
+  }
+
   protected abstract doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]>;
 
   /**
@@ -243,7 +268,7 @@ export abstract class BaseAdapter implements Adapter {
   ): Promise<string[]> {
     if (!ctx.features.agents) return [];
     const lines: string[] = [];
-    const agents = await this.readTrackedCanonicalFiles(ctx.agentsDir, "agents");
+    const agents = await this.readUserFacingCanonicalFiles(ctx.agentsDir, "agents");
     const minimal = this.isMinimal(ctx);
     for (const agent of agents) {
       const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
@@ -308,7 +333,10 @@ export abstract class BaseAdapter implements Adapter {
   ): Promise<AdapterOutput[]> {
     if (!ctx.features.commands) return [];
     const results: AdapterOutput[] = [];
-    const commands = await this.readTrackedCanonicalFiles(ctx.agentsDir, "commands");
+    // Filter out companion/reference content (shared-context, subdirectory
+    // workflow steps like commands/board/pickup-*) so they do not appear
+    // as user-invocable entries in the tool's command picker.
+    const commands = await this.readUserFacingCanonicalFiles(ctx.agentsDir, "commands");
     for (const cmd of commands) {
       const { content, skip, warnings } = await applyCustomizationRaw(ctx.projectRoot, cmd);
       this.warnings.push(...warnings);
