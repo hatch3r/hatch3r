@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createManifest, addManagedFile, removeManagedFile, migrateManifest, readManifest, writeManifest } from "../../manifest/hatchJson.js";
 import { HatchError } from "../../types.js";
+import { HATCH3R_VERSION } from "../../version.js";
 
 describe("hatchJson", () => {
   describe("createManifest", () => {
@@ -12,7 +13,7 @@ describe("hatchJson", () => {
         tools: ["cursor"],
       });
       expect(manifest.version).toBe("2.0.0");
-      expect(manifest.hatch3rVersion).toBe("1.6.2");
+      expect(manifest.hatch3rVersion).toBe(HATCH3R_VERSION);
       expect(manifest.platform).toBe("github");
       expect(manifest.tools).toEqual(["cursor"]);
       expect(manifest.features.agents).toBe(true);

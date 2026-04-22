@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
 import { HatchError } from "../../types.js";
+import { HATCH3R_VERSION } from "../../version.js";
 
 // Mock child_process to prevent actual git/npx calls from update command
 vi.mock("node:child_process", async (importOriginal) => {
@@ -91,7 +92,7 @@ describe("init -> sync -> update lifecycle", { timeout: 60_000 }, () => {
     // Verify update refreshed the manifest version
     const updatedManifestRaw = await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8");
     const updatedManifest = JSON.parse(updatedManifestRaw);
-    expect(updatedManifest.hatch3rVersion).toBe("1.6.2");
+    expect(updatedManifest.hatch3rVersion).toBe(HATCH3R_VERSION);
 
     // Verify adapter output was regenerated
     const updatedBridge = await readFile(bridgePath, "utf-8").catch(() => null);

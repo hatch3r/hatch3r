@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { HatchError, DEFAULT_FEATURES, type HatchManifest, type ContentSelection } from "../../types.js";
+import { HATCH3R_VERSION } from "../../version.js";
 
 // ── Mock dependencies before imports ───────────────────────────
 
@@ -273,7 +274,7 @@ describe("migration checkpoints", () => {
   describe("fully migrated manifest", () => {
     it("should trigger no checkpoints when manifest is complete", async () => {
       await createTestProject(tempDir, {
-        hatch3rVersion: "1.6.2",
+        hatch3rVersion: HATCH3R_VERSION,
         platform: "github",
         content: makeContentSelection(),
       });
@@ -445,7 +446,7 @@ describe("migration checkpoints", () => {
 
       const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
       const updated = JSON.parse(await readFile(manifestPath, "utf-8"));
-      expect(updated.hatch3rVersion).toBe("1.6.2");
+      expect(updated.hatch3rVersion).toBe(HATCH3R_VERSION);
 
       const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
       expect(allOutput).toContain("Update complete");
@@ -456,7 +457,7 @@ describe("migration checkpoints", () => {
   describe("update flow when manifest is already up-to-date", () => {
     it("should note already at latest version and still complete update", async () => {
       await createTestProject(tempDir, {
-        hatch3rVersion: "1.6.2",
+        hatch3rVersion: HATCH3R_VERSION,
         platform: "github",
         content: makeContentSelection(),
       });
