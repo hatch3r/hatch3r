@@ -59,7 +59,7 @@ export class WindsurfAdapter extends BaseAdapter {
    */
   private async windsurfAgentToolPolicies(ctx: AdapterContext): Promise<string[]> {
     if (!ctx.features.agents) return [];
-    const agents = await readCanonicalFiles(ctx.agentsDir, "agents", this.warnings);
+    const agents = await this.readUserFacingCanonicalFiles(ctx.agentsDir, "agents");
     const rows: string[] = [];
     for (const agent of agents) {
       const { skip } = await applyCustomization(ctx.projectRoot, agent);

@@ -356,7 +356,10 @@ export const TYPE_TO_SELECTION_KEY: Record<string, keyof ContentSelection["items
  * 3. If preset has excludeTags, remove items matching ANY of those tags
  * 4. If projectType is "greenfield", remove items tagged ONLY with "brownfield"
  * 5. If projectType is "brownfield", remove items tagged ONLY with "greenfield"
- * 6. If teamSize is "solo", remove items whose ONLY tags are "team" / "board"
+ * 6. If teamSize is "solo" AND preset.id !== "full", remove items whose ONLY tags are "team" / "board".
+ *    The "full" preset is an explicit opt-in that disables this preference-based narrowing; the
+ *    projectType filter and language filter still apply under full (they are technical
+ *    compatibility filters, not preferences).
  * 7. Items with protected: true are always included
  * 8. For "custom" preset, use customSelections as explicit ID list
  * 9. Language filtering (Finding #71): items with language tags (lang:*) are only
@@ -430,7 +433,10 @@ export function resolveSelection(
       }
 
       // Context filtering: team size
-      if (teamSize === "solo") {
+      // "full" preset is an explicit opt-in that bypasses preference-based narrowing.
+      // projectType and language filters remain active even under full — they are
+      // technical compatibility filters, not preferences.
+      if (teamSize === "solo" && preset.id !== "full") {
         // Remove items whose tags are exclusively team/board (no other workflow/domain tags)
         selected = selected.filter((item) => {
           if (item.protected) return true;
@@ -533,6 +539,11 @@ export function countProjectTypeExclusions(
 
 /**
  * Count how many items the team size filter would remove from a pre-filtered set.
+ *
+ * Preset-unaware approximation: the "full" preset rescues all such items at selection
+ * time (see resolveSelection), but this helper has no visibility into preset choice
+ * because callers use it for pre-prompt UX hints before the preset is known. Treat
+ * the returned count as an upper bound.
  */
 export function countTeamSizeExclusions(
   teamSize: "solo" | "team",

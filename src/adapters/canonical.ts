@@ -1,5 +1,5 @@
 import { readFile, readdir, lstat } from "node:fs/promises";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { parse as parseYaml } from "yaml";
 import type { CanonicalFile, CanonicalMetadata, RulePrecedence } from "../types.js";
 import { sanitizePipelineInput } from "../pipeline/promptGuard.js";
@@ -49,6 +49,60 @@ export function sortByPrecedence<T extends { precedence?: string; id: string }>(
     const rankDiff = precedenceRank(a.precedence) - precedenceRank(b.precedence);
     if (rankDiff !== 0) return rankDiff;
     return a.id.localeCompare(b.id);
+  });
+}
+
+/**
+ * Filter canonical files down to those that should appear as user-invocable
+ * entries in a tool's command/agent picker (e.g. `.claude/commands/`,
+ * `.cursor/commands/`, `.claude/agents/`).
+ *
+ * Two orthogonal signals combined with AND:
+ * 1. Top-level-only: the file's path relative to `baseDir` must not contain
+ *    a path separator. This excludes companion subdirectories such as
+ *    `commands/board/`, `commands/revision/`, `agents/modes/`, and
+ *    `agents/shared/` whose contents are sub-workflows or shared reference
+ *    material invoked by parent commands/agents, not directly by users.
+ * 2. Frontmatter-type whitelist: `frontmatterType` must be either absent
+ *    (legacy files lacking the field load unchanged) or equal to
+ *    `expectedFrontmatterType`. This catches the rare case of a top-level
+ *    companion file such as `commands/hatch3r-board-shared.md`
+ *    (`type: shared-context`) that sits next to the real commands but must
+ *    not be invocable.
+ *
+ * Canonical `.agents/` content (populated by `src/content/index.ts`)
+ * remains unfiltered, so parent commands can continue referencing
+ * companion files by name — this helper only gates per-tool adapter
+ * emission.
+ *
+ * Cross-platform: uses `path.relative` to normalise the pair of absolute
+ * paths before the subdirectory check, because on Windows `sourcePath` and
+ * `baseDir` arrive backslash-separated (from `node:path.join` / `readdir`).
+ * The relative-path check then looks for either separator so mixed inputs
+ * (POSIX paths synthesised in tests, Windows paths emitted by `readdir`)
+ * all land on the same outcome.
+ */
+export function filterUserFacing(
+  files: CanonicalFile[],
+  expectedFrontmatterType: "command" | "agent",
+  baseDir: string,
+): CanonicalFile[] {
+  return files.filter((file) => {
+    const rel = relative(baseDir, file.sourcePath);
+    // Safe default when `sourcePath` lies outside `baseDir`: `path.relative`
+    // returns a `..`-prefixed path (or a cross-drive absolute path on
+    // Windows). Keep the file — filtering is a picker-visibility concern,
+    // not a scoping guard.
+    if (rel === "" || rel.startsWith("..")) return true;
+    // Windows cross-drive absolute: path.relative returns the second path
+    // verbatim when it cannot express a relative traversal.
+    if (/^[A-Za-z]:[\\/]/.test(rel)) return true;
+    // Subdirectory check: accept either separator because tests may feed
+    // POSIX-style paths through on Windows, and `readdir` on Windows
+    // returns native backslashes.
+    if (rel.includes("/") || rel.includes("\\")) return false;
+    if (file.frontmatterType && file.frontmatterType !== expectedFrontmatterType) return false;
+    return true;
   });
 }
 
@@ -189,6 +243,14 @@ export function parseFrontmatter(
 ): {
   metadata: CanonicalMetadata;
   content: string;
+  /**
+   * The author-declared `type:` value from frontmatter, or `undefined` when
+   * the field is absent or was a non-string. Distinct from `metadata.type`,
+   * which falls back to `"rule"` when absent — callers that need to
+   * distinguish "user declared type" from "parser default" (e.g. the
+   * adapter filter at {@link filterUserFacing}) should read this field.
+   */
+  rawType?: string;
 } {
   const match = rawContent.match(FRONTMATTER_REGEX);
   if (!match) {
@@ -205,6 +267,7 @@ export function parseFrontmatter(
     type: "rule",
     description: "",
   };
+  let rawType: string | undefined;
 
   if (parsed && typeof parsed === "object") {
     // C7.5-W2B2-H8: enforce type contract on security-relevant identity
@@ -218,6 +281,7 @@ export function parseFrontmatter(
       if (raw === undefined) continue;
       if (typeof raw === "string") {
         metadata[field] = raw;
+        if (field === "type") rawType = raw;
       } else if (typeMismatches) {
         typeMismatches.push(
           `${field} field must be a string, got ${describeYamlType(raw)} (value: ${JSON.stringify(raw)})`,
@@ -261,7 +325,7 @@ export function parseFrontmatter(
   metadata.type = metadata.type ?? "rule";
   metadata.description = metadata.description ?? "";
 
-  return { metadata, content: content ?? "" };
+  return { metadata, content: content ?? "", rawType };
 }
 
 /**
@@ -363,11 +427,19 @@ async function readSingleMd(
     return errorResult;
   }
 
-  const { metadata, content } = parsed;
+  const { metadata, content, rawType } = parsed;
   const id = metadata.id || metadata.name || fallbackId;
   const canonical: CanonicalFile = {
     id,
     type: fileType,
+    // Preserve the author-declared frontmatter `type` alongside the reader
+    // bucket so downstream filters (see `filterUserFacing`) can distinguish
+    // user-invocable commands/agents from companion content
+    // (`shared-context`, `reference`, `mode`) within the same directory.
+    // `rawType` is undefined when the author omitted `type:`, so files
+    // without an explicit declaration fall through the filter's
+    // back-compat path and are kept.
+    frontmatterType: rawType,
     description: metadata.description ?? "",
     scope: metadata.scope,
     model: metadata.model,

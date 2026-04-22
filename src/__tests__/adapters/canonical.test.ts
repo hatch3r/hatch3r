@@ -3,11 +3,13 @@ import { mkdtemp, mkdir, writeFile, rm, chmod } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
+  filterUserFacing,
   readCanonicalFiles,
   readCanonicalFilesDetailed,
   precedenceRank,
   sortByPrecedence,
 } from "../../adapters/canonical.js";
+import type { CanonicalFile } from "../../types.js";
 import { resolveTestPath } from "../fixtures.js";
 
 const FIXTURES_DIR = resolveTestPath(import.meta.url, "../fixtures/agents");
@@ -97,13 +99,18 @@ describe("readCanonicalFiles", () => {
   });
 
   describe("agents", () => {
-    it("should read agents from agents/ directory", async () => {
+    it("should read agents from agents/ directory (including subdirectories)", async () => {
       const results = await readCanonicalFiles(FIXTURES_DIR, "agents");
 
-      expect(results.length).toBe(2);
+      // The raw read is recursive by design so subdirectory companion
+      // content (modes, shared reference) remains readable by parent
+      // commands. Adapter filtering (`filterUserFacing`) happens later
+      // at the emission layer.
       const ids = results.map((r) => r.id);
       expect(ids).toContain("test-agent");
       expect(ids).toContain("readonly-agent");
+      expect(ids).toContain("fake-mode");
+      expect(ids).toContain("fake-reference");
       for (const r of results) {
         expect(r.type).toBe("agent");
       }
@@ -178,13 +185,20 @@ describe("readCanonicalFiles", () => {
   });
 
   describe("commands", () => {
-    it("should read commands from commands/ directory", async () => {
+    it("should read commands from commands/ directory (including subdirectories)", async () => {
       const results = await readCanonicalFiles(FIXTURES_DIR, "commands");
 
-      expect(results.length).toBe(1);
-      expect(results[0]!.id).toBe("test-command");
-      expect(results[0]!.type).toBe("command");
-      expect(results[0]!.description).toBe("A test command for unit testing");
+      // The raw read is recursive by design. The filter fixtures
+      // (`pickup-fake` in a subdir, `hatch3r-fake-shared` with type
+      // `shared-context`) appear here but are stripped by the per-adapter
+      // `filterUserFacing` step.
+      const ids = results.map((r) => r.id);
+      expect(ids).toContain("test-command");
+      expect(ids).toContain("pickup-fake");
+      expect(ids).toContain("hatch3r-fake-shared");
+      const primary = results.find((r) => r.id === "test-command")!;
+      expect(primary.type).toBe("command");
+      expect(primary.description).toBe("A test command for unit testing");
     });
 
     it("should handle empty commands directory", async () => {
@@ -841,5 +855,105 @@ describe("parseFrontmatter precedence field", () => {
     const results = await readCanonicalFiles(tempDir, "rules");
     expect(results).toHaveLength(1);
     expect(results[0]!.precedence).toBeUndefined();
+  });
+});
+
+describe("filterUserFacing", () => {
+  const BASE = "/fake/agents/commands";
+
+  function makeFile(
+    overrides: Partial<CanonicalFile> & Pick<CanonicalFile, "id" | "sourcePath">,
+  ): CanonicalFile {
+    return {
+      type: "command",
+      description: "",
+      content: "",
+      rawContent: "",
+      ...overrides,
+    };
+  }
+
+  it("keeps top-level files whose frontmatter type matches the expected bucket", () => {
+    const files = [
+      makeFile({ id: "a", sourcePath: `${BASE}/hatch3r-a.md`, frontmatterType: "command" }),
+      makeFile({ id: "b", sourcePath: `${BASE}/hatch3r-b.md`, frontmatterType: "command" }),
+    ];
+    const result = filterUserFacing(files, "command", BASE);
+    expect(result.map((f) => f.id)).toEqual(["a", "b"]);
+  });
+
+  it("drops files whose relative path contains a subdirectory separator", () => {
+    const files = [
+      makeFile({ id: "top", sourcePath: `${BASE}/hatch3r-top.md`, frontmatterType: "command" }),
+      makeFile({ id: "sub", sourcePath: `${BASE}/board/pickup-sub.md`, frontmatterType: "command" }),
+      makeFile({ id: "deep", sourcePath: `${BASE}/board/nested/deep.md`, frontmatterType: "command" }),
+    ];
+    const result = filterUserFacing(files, "command", BASE);
+    expect(result.map((f) => f.id)).toEqual(["top"]);
+  });
+
+  it("drops top-level files with a non-matching frontmatter type", () => {
+    const files = [
+      makeFile({ id: "cmd", sourcePath: `${BASE}/hatch3r-cmd.md`, frontmatterType: "command" }),
+      makeFile({ id: "shared", sourcePath: `${BASE}/hatch3r-shared.md`, frontmatterType: "shared-context" }),
+      makeFile({ id: "ref", sourcePath: `${BASE}/hatch3r-ref.md`, frontmatterType: "reference" }),
+    ];
+    const result = filterUserFacing(files, "command", BASE);
+    expect(result.map((f) => f.id)).toEqual(["cmd"]);
+  });
+
+  it("applies both signals to the agents bucket", () => {
+    const agentsBase = "/fake/agents/agents";
+    const files = [
+      makeFile({ id: "agent", type: "agent", sourcePath: `${agentsBase}/hatch3r-agent.md`, frontmatterType: "agent" }),
+      makeFile({ id: "mode", type: "agent", sourcePath: `${agentsBase}/modes/fake-mode.md`, frontmatterType: "mode" }),
+      makeFile({ id: "shared", type: "agent", sourcePath: `${agentsBase}/shared/fake-ref.md`, frontmatterType: "reference" }),
+      makeFile({ id: "top-ref", type: "agent", sourcePath: `${agentsBase}/hatch3r-ref.md`, frontmatterType: "reference" }),
+    ];
+    const result = filterUserFacing(files, "agent", agentsBase);
+    expect(result.map((f) => f.id)).toEqual(["agent"]);
+  });
+
+  it("keeps legacy top-level files that lack a frontmatterType", () => {
+    const files = [
+      makeFile({ id: "legacy", sourcePath: `${BASE}/hatch3r-legacy.md` }),
+    ];
+    const result = filterUserFacing(files, "command", BASE);
+    expect(result.map((f) => f.id)).toEqual(["legacy"]);
+  });
+
+  it("keeps files whose sourcePath lies outside the baseDir (safe default)", () => {
+    const files = [
+      makeFile({ id: "outside", sourcePath: "/somewhere/else/hatch3r-outside.md", frontmatterType: "command" }),
+    ];
+    const result = filterUserFacing(files, "command", BASE);
+    expect(result.map((f) => f.id)).toEqual(["outside"]);
+  });
+
+  it("accepts a baseDir passed with or without a trailing slash", () => {
+    const files = [
+      makeFile({ id: "top", sourcePath: `${BASE}/hatch3r-top.md`, frontmatterType: "command" }),
+      makeFile({ id: "sub", sourcePath: `${BASE}/board/pickup.md`, frontmatterType: "command" }),
+    ];
+    expect(filterUserFacing(files, "command", BASE).map((f) => f.id)).toEqual(["top"]);
+    expect(filterUserFacing(files, "command", `${BASE}/`).map((f) => f.id)).toEqual(["top"]);
+  });
+
+  it("drops files whose relative path contains a backslash (Windows separator)", () => {
+    // Regression guard: on Windows, `node:path.relative` returns a
+    // backslash-separated string. Earlier versions of this helper only
+    // checked `/`, which meant every subdirectory companion file slipped
+    // through and leaked into the user-facing picker on Windows CI runs.
+    // We validate the separator-agnostic logic by placing a synthetic
+    // backslash-separated path under a baseDir that resolves to the same
+    // directory on POSIX, so `path.relative` returns the raw basename
+    // and the `\\` stays inside the file name (which the filter treats
+    // as a subdirectory marker).
+    const files = [
+      makeFile({ id: "top", sourcePath: `${BASE}/hatch3r-top.md`, frontmatterType: "command" }),
+      makeFile({ id: "winsub", sourcePath: `${BASE}/board\\pickup.md`, frontmatterType: "command" }),
+    ];
+    const result = filterUserFacing(files, "command", BASE);
+    expect(result.map((f) => f.id)).toEqual(["top"]);
   });
 });

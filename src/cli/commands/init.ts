@@ -163,6 +163,7 @@ export interface RunInitOptions {
   mcpServers: string[];
   repoInfo: RepoInfo;
   contentSelection: ContentSelection;
+  worktreeEnabled: boolean;
 }
 
 // C8-D1-M3: Guard against a double `runInit` on the same target directory.
@@ -195,7 +196,7 @@ export async function runInit(options: RunInitOptions): Promise<void> {
 }
 
 async function runInitInner(options: RunInitOptions): Promise<void> {
-  const { rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection } = options;
+  const { rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled } = options;
   const agentsDir = join(rootDir, AGENTS_DIR);
   const totalSteps = 4;
 
@@ -273,7 +274,7 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   // never reached disk if all adapters fail (line 215 throw below).
   const s2 = createSpinner(step(2, totalSteps, "Preparing manifest..."));
   s2.start();
-  const manifest = createManifest({ platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, content: contentSelection, languages: repoInfo.languages });
+  const manifest = createManifest({ platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, content: contentSelection, languages: repoInfo.languages, worktreeEnabled });
   s2.succeed(step(2, totalSteps, "Manifest prepared"));
 
   const s3 = createSpinner(
@@ -337,11 +338,9 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     }
   }
 
-  // Generate .worktreeinclude for worktree-capable tools
-  const hasWorktreeTool = tools.some(t => WORKTREE_CAPABLE_TOOLS.has(t));
-  if (hasWorktreeTool) {
-    manifest.worktree = manifest.worktree ?? { enabled: true };
-  }
+  // Generate .worktreeinclude when manifest.worktree.enabled is true.
+  // createManifest sets this based on the worktreeEnabled option (honored when
+  // defined) or auto-detection of worktree-capable tools (back-compat fallback).
   if (manifest.worktree?.enabled) {
     const wtContent = await generateWorktreeInclude(manifest, rootDir);
     const wtManaged = extractManagedContent(wtContent);
@@ -480,6 +479,7 @@ export async function initCommand(
     projectType?: string;
     teamSize?: string;
     workspace?: boolean;
+    worktree?: boolean;
     quick?: boolean;
     default?: boolean;
   } = {},
@@ -585,6 +585,10 @@ export async function initCommand(
       tools = DEFAULT_TOOLS;
     }
 
+    // Worktree: honor explicit --worktree/--no-worktree, else auto-enable for
+    // worktree-capable tools (preserves pre-1.6.1 --yes behavior for CI callers).
+    const worktreeEnabled = opts.worktree ?? tools.some(t => WORKTREE_CAPABLE_TOOLS.has(t));
+
     const features = { ...DEFAULT_FEATURES };
     const platformMcp = PLATFORM_MCP_SERVER[platform];
     const mcpServers = features.mcp
@@ -613,7 +617,7 @@ export async function initCommand(
     warnBoardPrerequisites(contentSelection);
 
     await checkExisting(rootDir, true, contentSelection);
-    await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection });
+    await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled });
     return;
   }
 
@@ -794,6 +798,25 @@ export async function initCommand(
   ]);
   const tools = toolAnswers.tools.length > 0 ? toolAnswers.tools : DEFAULT_TOOLS;
 
+  // Worktree file isolation: mirrors config.ts prompt. Honor explicit
+  // --worktree/--no-worktree flag. Else prompt when a worktree-capable tool
+  // is selected, else disable. Prompt order: tools -> worktree -> features.
+  const hasWorktreeTool = tools.some(t => WORKTREE_CAPABLE_TOOLS.has(t));
+  let worktreeEnabled: boolean;
+  if (opts.worktree !== undefined) {
+    worktreeEnabled = opts.worktree;
+  } else if (hasWorktreeTool) {
+    const wtAnswer = await inquirer.prompt<{ enabled: boolean }>([{
+      type: "confirm",
+      name: "enabled",
+      message: "Enable worktree file isolation (for parallel agent sessions)?",
+      default: true,
+    }]);
+    worktreeEnabled = wtAnswer.enabled;
+  } else {
+    worktreeEnabled = false;
+  }
+
   // #143 (D19-14): Streamline MCP onboarding — surface secret notes inline
   const secretNotes = tools.map((t) => TOOL_SECRET_NOTES[t]).filter(Boolean);
   if (secretNotes.length > 0) {
@@ -851,7 +874,7 @@ export async function initCommand(
   warnBoardPrerequisites(contentSelection);
 
   await checkExisting(rootDir, false, contentSelection);
-  await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection });
+  await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled });
 }
 
 // ── Workspace initialization ──────────────────────────────────────
@@ -860,7 +883,7 @@ async function runWorkspaceInit(
   rootDir: string,
   detectedRepos: Awaited<ReturnType<typeof detectSubRepos>>,
   repoInfo: RepoInfo,
-  opts: { tools?: string; yes?: boolean; preset?: string; projectType?: string; teamSize?: string },
+  opts: { tools?: string; yes?: boolean; preset?: string; projectType?: string; teamSize?: string; worktree?: boolean },
 ): Promise<void> {
   const headless = !!opts.yes;
 
@@ -963,9 +986,13 @@ async function runWorkspaceInit(
   let features: Features;
   let mcpServers: string[];
   let contentSelection: ContentSelection;
+  let worktreeEnabled: boolean;
 
   if (headless) {
     tools = resolveToolsFromOpts(opts.tools, repoInfo);
+    // Worktree: honor explicit --worktree/--no-worktree, else auto-enable for
+    // worktree-capable tools (preserves pre-1.6.1 --yes behavior).
+    worktreeEnabled = opts.worktree ?? tools.some(t => WORKTREE_CAPABLE_TOOLS.has(t));
     features = { ...DEFAULT_FEATURES };
     const platformMcp = PLATFORM_MCP_SERVER[platform];
     mcpServers = features.mcp
@@ -1082,6 +1109,24 @@ async function runWorkspaceInit(
     ]);
     tools = toolAnswers.tools.length > 0 ? toolAnswers.tools : DEFAULT_TOOLS;
 
+    // Worktree file isolation: mirrors config.ts prompt. Honor explicit
+    // --worktree/--no-worktree flag. Else prompt when a worktree-capable tool
+    // is selected, else disable.
+    const wsHasWorktreeTool = tools.some(t => WORKTREE_CAPABLE_TOOLS.has(t));
+    if (opts.worktree !== undefined) {
+      worktreeEnabled = opts.worktree;
+    } else if (wsHasWorktreeTool) {
+      const wsWtAnswer = await inquirer.prompt<{ enabled: boolean }>([{
+        type: "confirm",
+        name: "enabled",
+        message: "Enable worktree file isolation (for parallel agent sessions)?",
+        default: true,
+      }]);
+      worktreeEnabled = wsWtAnswer.enabled;
+    } else {
+      worktreeEnabled = false;
+    }
+
     // Surface per-editor secret loading notes
     const wsSecretNotes = tools.map((t) => TOOL_SECRET_NOTES[t]).filter(Boolean);
     if (wsSecretNotes.length > 0) {
@@ -1153,6 +1198,7 @@ async function runWorkspaceInit(
     mcpServers,
     repoInfo,
     contentSelection,
+    worktreeEnabled,
   });
 
   // Step 7: Build repo entries and select which to sync
