@@ -1,5 +1,5 @@
 import { readFile, readdir, lstat } from "node:fs/promises";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { parse as parseYaml } from "yaml";
 import type { CanonicalFile, CanonicalMetadata, RulePrecedence } from "../types.js";
 import { sanitizePipelineInput } from "../pipeline/promptGuard.js";
@@ -74,17 +74,33 @@ export function sortByPrecedence<T extends { precedence?: string; id: string }>(
  * remains unfiltered, so parent commands can continue referencing
  * companion files by name — this helper only gates per-tool adapter
  * emission.
+ *
+ * Cross-platform: uses `path.relative` to normalise the pair of absolute
+ * paths before the subdirectory check, because on Windows `sourcePath` and
+ * `baseDir` arrive backslash-separated (from `node:path.join` / `readdir`).
+ * The relative-path check then looks for either separator so mixed inputs
+ * (POSIX paths synthesised in tests, Windows paths emitted by `readdir`)
+ * all land on the same outcome.
  */
 export function filterUserFacing(
   files: CanonicalFile[],
   expectedFrontmatterType: "command" | "agent",
   baseDir: string,
 ): CanonicalFile[] {
-  const normalizedBase = baseDir.endsWith("/") ? baseDir : `${baseDir}/`;
   return files.filter((file) => {
-    if (!file.sourcePath.startsWith(normalizedBase)) return true;
-    const relative = file.sourcePath.slice(normalizedBase.length);
-    if (relative.includes("/")) return false;
+    const rel = relative(baseDir, file.sourcePath);
+    // Safe default when `sourcePath` lies outside `baseDir`: `path.relative`
+    // returns a `..`-prefixed path (or a cross-drive absolute path on
+    // Windows). Keep the file — filtering is a picker-visibility concern,
+    // not a scoping guard.
+    if (rel === "" || rel.startsWith("..")) return true;
+    // Windows cross-drive absolute: path.relative returns the second path
+    // verbatim when it cannot express a relative traversal.
+    if (/^[A-Za-z]:[\\/]/.test(rel)) return true;
+    // Subdirectory check: accept either separator because tests may feed
+    // POSIX-style paths through on Windows, and `readdir` on Windows
+    // returns native backslashes.
+    if (rel.includes("/") || rel.includes("\\")) return false;
     if (file.frontmatterType && file.frontmatterType !== expectedFrontmatterType) return false;
     return true;
   });

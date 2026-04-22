@@ -938,4 +938,22 @@ describe("filterUserFacing", () => {
     expect(filterUserFacing(files, "command", BASE).map((f) => f.id)).toEqual(["top"]);
     expect(filterUserFacing(files, "command", `${BASE}/`).map((f) => f.id)).toEqual(["top"]);
   });
+
+  it("drops files whose relative path contains a backslash (Windows separator)", () => {
+    // Regression guard: on Windows, `node:path.relative` returns a
+    // backslash-separated string. Earlier versions of this helper only
+    // checked `/`, which meant every subdirectory companion file slipped
+    // through and leaked into the user-facing picker on Windows CI runs.
+    // We validate the separator-agnostic logic by placing a synthetic
+    // backslash-separated path under a baseDir that resolves to the same
+    // directory on POSIX, so `path.relative` returns the raw basename
+    // and the `\\` stays inside the file name (which the filter treats
+    // as a subdirectory marker).
+    const files = [
+      makeFile({ id: "top", sourcePath: `${BASE}/hatch3r-top.md`, frontmatterType: "command" }),
+      makeFile({ id: "winsub", sourcePath: `${BASE}/board\\pickup.md`, frontmatterType: "command" }),
+    ];
+    const result = filterUserFacing(files, "command", BASE);
+    expect(result.map((f) => f.id)).toEqual(["top"]);
+  });
 });
