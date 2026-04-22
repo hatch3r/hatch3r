@@ -2,6 +2,18 @@
 
 All notable changes to hatch3r are documented in this file.
 
+## [1.6.1] - 2026-04-22
+
+### Fixed
+
+- **`full` preset now actually installs everything**: the default `hatch3r init` profile silently dropped the 6 `hatch3r-board-*` commands (pickup, groom, refresh, init, fill, shared) and `hatch3r-onboard` because the solo team-size filter ran unconditionally over the resolved selection, even when the user's chosen preset explicitly promised "Everything including board management". The filter now scopes to non-`full` presets — users who opt into `full` receive the full catalog regardless of `teamSize`. Project-type and language filters continue to apply (they are technical compatibility filters, not preferences). Fix: `src/content/index.ts::resolveSelection` guard at line 436.
+- **Worktree support now explicitly configurable in `init`**: previously `hatch3r init` auto-enabled worktree file isolation without prompting whenever a worktree-capable tool (currently `claude`) was selected, while `hatch3r config` did prompt — an asymmetric UX that hid a side-effect from interactive users. Init now mirrors the config prompt after tools selection and adds `--worktree` / `--no-worktree` CLI flags for headless callers. `--yes` without the flag preserves today's auto-enable behavior for CI compatibility. Fix: `src/cli/commands/init.ts` interactive and workspace branches; `src/cli/program.ts` flag registration; `src/manifest/hatchJson.ts::createManifest` honors explicit `worktreeEnabled` option. `src/cli/commands/clean.ts` reinit path threaded through the new option to keep `RunInitOptions` consistent.
+
+### Tests
+
+- 3 existing `resolveSelection` tests updated to reflect the new preset-aware semantic; 5 new tests cover `full + solo` behavior (keeps team/board items, still applies projectType filter, `standard + solo` unchanged as scope check, `skipContextFilters` path unchanged).
+- 5 new `init.test.ts` cases cover the worktree prompt paths (interactive accept, interactive decline, `--no-worktree` override, `--worktree` force-enable, no prompt when no worktree-capable tool). 13 existing interactive init tests updated to queue the new prompt where applicable. Test count 2,594 → 2,604.
+
 ## [1.6.0] - 2026-04-21
 
 ### Added
