@@ -1,7 +1,7 @@
 import { appendFile, cp, mkdir, readFile, readdir, stat } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { dirname, join, sep } from "node:path";
 import chalk from "chalk";
 import inquirer from "inquirer";
 import { readManifest, writeManifest, addManagedFile } from "../../manifest/hatchJson.js";
@@ -123,6 +123,21 @@ async function copyHatch3rFiles(
   insideHatch3rDir = false,
   selectedIds?: Set<string>,
 ): Promise<string[]> {
+  // D20 invariant: package source must never contain a `/user/` subtree.
+  // User-authored content is project-side under `.agents/user/`, never
+  // package-side. This defensive assertion guarantees `hatch3r update` can
+  // never overwrite user content because it never reads from a `user/`
+  // package directory in the first place. No-op at runtime today (the
+  // canonical package layout has no `user/` directory) — this cements the
+  // contract for future contributors who might mistakenly add one.
+  if (srcDir.includes(sep + "user" + sep) || srcDir.endsWith(sep + "user")) {
+    throw new HatchError(
+      `Invariant violation: package source path '${srcDir}' contains a 'user/' segment. User content must live project-side under .agents/user/, not in the package.`,
+      1,
+      "FS_ERROR",
+    );
+  }
+
   const copied: string[] = [];
   let entries: { name: string; isDirectory: () => boolean }[];
   try {

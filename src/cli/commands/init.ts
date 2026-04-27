@@ -164,6 +164,13 @@ export interface RunInitOptions {
   repoInfo: RepoInfo;
   contentSelection: ContentSelection;
   worktreeEnabled: boolean;
+  /**
+   * Suppress all interactive prompts emitted by `runInit` itself (e.g. the
+   * post-init "create your first user artifact?" prompt). When true, runInit
+   * never reads stdin. Defaults to false. Set by callers that already
+   * exhausted stdin (e.g. `--yes`, CI workflows, tests).
+   */
+  yes?: boolean;
 }
 
 // C8-D1-M3: Guard against a double `runInit` on the same target directory.
@@ -197,6 +204,7 @@ export async function runInit(options: RunInitOptions): Promise<void> {
 
 async function runInitInner(options: RunInitOptions): Promise<void> {
   const { rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled } = options;
+  const skipInitPrompts = options.yes === true;
   const agentsDir = join(rootDir, AGENTS_DIR);
   const totalSteps = 4;
 
@@ -417,6 +425,24 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   }
 
   printBox("Hatch complete", summaryLines, "success");
+
+  // D20: post-init "create your first user artifact?" prompt. Skipped when
+  // the caller passed `yes: true` (CI / `--yes` flow / tests) so the
+  // non-interactive contract is preserved. Interactive callers see one of
+  // two short hints depending on whether they accept or decline.
+  if (!skipInitPrompts) {
+    const { create } = await inquirer.prompt<{ create: boolean }>([{
+      type: "confirm",
+      name: "create",
+      message: "Would you like to create your first custom artifact now?",
+      default: false,
+    }]);
+    if (create) {
+      info(`Run /hatch3r-create in your AI tool to start authoring. The slash command is now installed under your tool's commands directory.`);
+    } else {
+      info(`Tip: Run /hatch3r-create anytime to author your own agents, skills, rules, commands, or hooks.`);
+    }
+  }
 }
 
 async function checkExisting(rootDir: string, skipPrompt: boolean, newSelection?: ContentSelection): Promise<void> {
@@ -617,7 +643,7 @@ export async function initCommand(
     warnBoardPrerequisites(contentSelection);
 
     await checkExisting(rootDir, true, contentSelection);
-    await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled });
+    await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, yes: true });
     return;
   }
 
@@ -874,7 +900,7 @@ export async function initCommand(
   warnBoardPrerequisites(contentSelection);
 
   await checkExisting(rootDir, false, contentSelection);
-  await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled });
+  await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, yes: false });
 }
 
 // ── Workspace initialization ──────────────────────────────────────
@@ -1199,6 +1225,7 @@ async function runWorkspaceInit(
     repoInfo,
     contentSelection,
     worktreeEnabled,
+    yes: headless,
   });
 
   // Step 7: Build repo entries and select which to sync

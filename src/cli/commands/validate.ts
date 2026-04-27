@@ -1,4 +1,4 @@
-import { readdir, readFile, access } from "node:fs/promises";
+import { readdir, readFile, access, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, join, posix } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,7 +10,7 @@ import { AGENTS_DIR, HATCH3R_PREFIX, HatchError } from "../../types.js";
 import type { HatchManifest } from "../../types.js";
 import { HATCH3R_VERSION } from "../../version.js";
 import { scanForDeniedPatterns } from "../../adapters/customization.js";
-import { buildContentIndex, validateCrossReferences, validateOrchestrationDependencies } from "../../content/index.js";
+import { buildContentIndex, validateCrossReferences, validateOrchestrationDependencies, resolveUserContentRoot } from "../../content/index.js";
 import type { CatalogItem, ContentIndex } from "../../content/index.js";
 import { findPackageRoot } from "../shared/paths.js";
 import { validateLearningsDirectory } from "../../content/learningsValidation.js";
@@ -572,6 +572,265 @@ async function validateContentConsistency(
   }
 }
 
+// ── D20 user-content gates (strict + gentle) ───────────────────
+
+/**
+ * D20 gentle-gate anti-slop wordlist for user-authored content. Mirrors the
+ * 12-entry list in src/content/userContent.ts. Hits emit warnings only —
+ * users may override with measurable rationale per CLAUDE.md banned-phrase
+ * table. Case-insensitive substring match.
+ */
+const USER_CONTENT_ANTI_SLOP: readonly string[] = [
+  "best possible",
+  "best-in-class",
+  "world-class",
+  "comprehensive and thorough",
+  "exhaustive",
+  "robust and resilient",
+  "high-quality",
+  "ensure",
+  "properly",
+  "correctly",
+  "as needed",
+  "scalable",
+];
+
+/** Body line count above this threshold is a gentle "lean" warning. */
+const USER_CONTENT_LEAN_LINE_THRESHOLD = 120;
+
+/** User-authored composed file size cap (bytes). */
+const USER_CONTENT_MAX_BYTES = 10_240;
+
+/** Minimum description length (matches userContent.ts strict gate). */
+const USER_CONTENT_MIN_DESCRIPTION = 60;
+
+/** Slug regex shared with userContent.ts (lowercase kebab, leading [a-z]). */
+const USER_CONTENT_SLUG_REGEX = /^[a-z][a-z0-9-]*$/;
+
+/**
+ * Map a user content item's `type` (canonical category) to the directory
+ * name it must live under inside `.agents/user/`. Used by the type/dir
+ * mismatch strict gate.
+ */
+const USER_CONTENT_TYPE_DIRS: Record<string, string> = {
+  agent: "agents",
+  skill: "skills",
+  rule: "rules",
+  command: "commands",
+  hook: "hooks",
+};
+
+/**
+ * D20 strict + gentle validation gates for user-authored content under
+ * `.agents/user/`. Strict failures push to `result.errors`; gentle failures
+ * push to `result.warnings`. Reuses `scanForDeniedPatterns`,
+ * `validateCommandOrchestratorFrontmatter`, and `isValidHookEvent` so the
+ * gate logic does not diverge from canonical-content checks.
+ *
+ * Pillars served: P5 (Governance Self-Quality — gates enforce charter),
+ * P6 (Security & Trust — deny-pattern scan + size cap), P4 (Lean Coverage
+ * — gentle warnings on bloat / anti-slop / missing pillar declarations).
+ */
+async function validateUserContent(
+  rootDir: string,
+  agentsDir: string,
+  result: ValidationResult,
+  index: ContentIndex,
+): Promise<void> {
+  const userRoot = resolveUserContentRoot(rootDir);
+  try {
+    await stat(userRoot);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw err;
+  }
+
+  const userItems = index.items.filter((i) => i.source === "user");
+  if (userItems.length === 0) return;
+
+  for (const item of userItems) {
+    const fileLabel = `.agents/user/${item.relativePath}`;
+
+    // Resolve the on-disk path and read the body.
+    const absPath =
+      item.type === "skill"
+        ? join(userRoot, item.relativePath, "SKILL.md")
+        : join(userRoot, item.relativePath);
+
+    let raw: string;
+    try {
+      raw = await readFile(absPath, "utf-8");
+    } catch (err) {
+      result.errors.push(
+        `User content unreadable: ${fileLabel} (${err instanceof Error ? err.message : String(err)})`,
+      );
+      continue;
+    }
+
+    // Strict gate: composed file size cap.
+    if (Buffer.byteLength(raw, "utf-8") > USER_CONTENT_MAX_BYTES) {
+      result.errors.push(
+        `${fileLabel}: file exceeds ${USER_CONTENT_MAX_BYTES}-byte size cap — split or compress the artifact`,
+      );
+    }
+
+    // Parse frontmatter; treat missing/malformed frontmatter as strict failure.
+    if (!raw.startsWith("---")) {
+      result.errors.push(`${fileLabel}: missing YAML frontmatter (must start with '---')`);
+      continue;
+    }
+    const fmEnd = raw.indexOf("---", 3);
+    if (fmEnd === -1) {
+      result.errors.push(`${fileLabel}: invalid frontmatter (no closing '---')`);
+      continue;
+    }
+    const fmRaw = raw.slice(3, fmEnd).trim();
+    let fm: Record<string, unknown> | null;
+    try {
+      fm = parseYaml(fmRaw) as Record<string, unknown> | null;
+    } catch (err) {
+      result.errors.push(
+        `${fileLabel}: YAML parse error in frontmatter — ${err instanceof Error ? err.message : String(err)}`,
+      );
+      continue;
+    }
+    if (!fm || typeof fm !== "object") {
+      result.errors.push(`${fileLabel}: frontmatter is empty or not an object`);
+      continue;
+    }
+    const body = raw.slice(fmEnd + 3).replace(/^\n/, "");
+
+    // Strict gate: id present, kebab-case, no `hatch3r-` prefix.
+    const id = typeof fm.id === "string" ? fm.id : undefined;
+    if (!id) {
+      result.errors.push(`${fileLabel}: frontmatter missing 'id' field`);
+    } else if (!USER_CONTENT_SLUG_REGEX.test(id)) {
+      result.errors.push(
+        `${fileLabel}: id "${id}" must match ${USER_CONTENT_SLUG_REGEX.source} (lowercase kebab-case starting with [a-z])`,
+      );
+    } else if (id.startsWith("hatch3r-")) {
+      result.errors.push(
+        `${fileLabel}: id "${id}" must not start with 'hatch3r-' (reserved for canonical artifacts)`,
+      );
+    }
+
+    // Strict gate: description present and ≥60 chars.
+    const description = typeof fm.description === "string" ? fm.description.trim() : "";
+    if (!description) {
+      result.errors.push(`${fileLabel}: frontmatter missing 'description' field`);
+    } else if (description.length < USER_CONTENT_MIN_DESCRIPTION) {
+      result.errors.push(
+        `${fileLabel}: description is ${description.length} chars (minimum ${USER_CONTENT_MIN_DESCRIPTION} for disambiguation)`,
+      );
+    }
+
+    // Strict gate: type matches the directory the file lives under.
+    const expectedDir = USER_CONTENT_TYPE_DIRS[item.type];
+    if (expectedDir && !item.relativePath.startsWith(expectedDir + "/") && item.relativePath !== expectedDir) {
+      result.errors.push(
+        `${fileLabel}: artifact type '${item.type}' does not match its directory (expected under '${expectedDir}/')`,
+      );
+    }
+    // Frontmatter `type` should also match the directory category (when present).
+    const fmType = typeof fm.type === "string" ? fm.type : undefined;
+    if (fmType && fmType !== item.type) {
+      result.errors.push(
+        `${fileLabel}: frontmatter type '${fmType}' does not match directory category '${item.type}'`,
+      );
+    }
+
+    // Strict gate: ID collision against canonical artifacts. The
+    // user-shadow-canonical collisions populated by buildContentIndex are
+    // surfaced here as errors with both file paths.
+    for (const collision of index.collisions) {
+      if (collision.kind !== "user-shadow-canonical") continue;
+      // Match either the existing OR duplicate path against this user item
+      // so the error fires once per colliding pair regardless of scan order.
+      if (collision.duplicatePath === item.relativePath || collision.existingPath === item.relativePath) {
+        const canonicalSide = collision.duplicatePath === item.relativePath
+          ? `${collision.existingType} ${collision.existingPath}`
+          : `${collision.duplicateType} ${collision.duplicatePath}`;
+        result.errors.push(
+          `${fileLabel}: id "${collision.id}" collides with canonical ${canonicalSide} — choose a different name`,
+        );
+      }
+    }
+
+    // Strict gate: deny-pattern scan on body content.
+    const denyHits = scanForDeniedPatterns(body);
+    for (const hit of denyHits) {
+      result.errors.push(`${fileLabel}: body contains denied pattern — ${hit}`);
+    }
+
+    // Strict gate: rule .md/.mdc parity.
+    if (item.type === "rule") {
+      const mdcPath = absPath.replace(/\.md$/, ".mdc");
+      try {
+        await stat(mdcPath);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+          result.errors.push(
+            `${fileLabel}: rule missing paired .mdc companion at ${mdcPath.replace(rootDir + "/", "")} — regenerate via /hatch3r-create`,
+          );
+        } else {
+          throw err;
+        }
+      }
+    }
+
+    // Strict gate: command orchestrator/agentPipeline contract (reuses helper).
+    if (item.type === "command") {
+      validateCommandOrchestratorFrontmatter(fm, fileLabel, result);
+    }
+
+    // Strict gate: hook event enum.
+    if (item.type === "hook") {
+      const event = typeof fm.event === "string" ? fm.event : undefined;
+      if (!event) {
+        result.errors.push(
+          `${fileLabel}: hook missing 'event' field — declare one of pre-commit, post-merge, ci-failure, file-save, session-start, pre-push, worktree-create, worktree-remove`,
+        );
+      } else if (!isValidHookEvent(event)) {
+        result.errors.push(
+          `${fileLabel}: hook has invalid event "${event}" — valid: pre-commit, post-merge, ci-failure, file-save, session-start, pre-push, worktree-create, worktree-remove`,
+        );
+      }
+    }
+
+    // ── Gentle gates (warn but accept) ─────────────────────────
+    const lowerBody = body.toLowerCase();
+    for (const phrase of USER_CONTENT_ANTI_SLOP) {
+      if (lowerBody.includes(phrase)) {
+        result.warnings.push(
+          `${fileLabel}: anti-slop phrase '${phrase}' detected — replace with measurable criterion`,
+        );
+      }
+    }
+
+    const lineCount = body.split(/\r?\n/).length;
+    if (lineCount > USER_CONTENT_LEAN_LINE_THRESHOLD) {
+      result.warnings.push(
+        `${fileLabel}: body has ${lineCount} lines (lean threshold: ${USER_CONTENT_LEAN_LINE_THRESHOLD}) — consider compressing`,
+      );
+    }
+
+    if (!("quality_charter" in fm) && !/quality[_-]charter/i.test(body)) {
+      result.warnings.push(
+        `${fileLabel}: missing quality_charter reference — add 'quality_charter: agents/shared/quality-charter.md' to frontmatter or reference it in the body`,
+      );
+    }
+
+    const hasPillarFm = Array.isArray(fm.pillars) && fm.pillars.length > 0;
+    const hasPillarBody = /(^|\n)\s*##\s*Pillar/i.test(body) ||
+      /\*\*Pillars?:\*\*/i.test(body);
+    if (!hasPillarFm && !hasPillarBody) {
+      result.warnings.push(
+        `${fileLabel}: missing pillar declaration — add 'pillars: [P1...P6]' to frontmatter or a '**Pillars:**' line in the body`,
+      );
+    }
+  }
+}
+
 // ── Description quality lint (Wave A2 → Wave C1) ────────────────
 //
 // Wave A2 introduced these checks as warnings; Wave B1 rewrote the 28
@@ -995,7 +1254,12 @@ export async function validateCommand(opts?: {
 
     // Cross-reference validation: check that installed content doesn't have broken references
     try {
-      const index = await buildContentIndex(agentsDir);
+      // Build the index with the user-content subtree included so the D20
+      // validator and collision detector see user artifacts. The userRoot
+      // option no-ops when the .agents/user/ directory does not exist.
+      const index = await buildContentIndex(agentsDir, {
+        userRoot: resolveUserContentRoot(rootDir),
+      });
       if (index.items.length > 0) {
         const crossRefResult = await validateCrossReferences(agentsDir, index);
         for (const w of crossRefResult.warnings) {
@@ -1007,6 +1271,10 @@ export async function validateCommand(opts?: {
         runDescriptionQualityChecks(index, result);
         descriptionLintRan = true;
       }
+      // D20: strict + gentle gates for user-authored content. No-op when
+      // .agents/user/ does not exist or has no items.
+      verbose("Checking user content (D20 gates)...");
+      await validateUserContent(rootDir, agentsDir, result, index);
 
       // Content ID collision validation
       // Expected: command/skill cross-type pairs (by design, commands and skills share IDs)

@@ -45,6 +45,7 @@ import {
 } from "../../pipeline/pipelineTimeout.js";
 import { compactPhaseOutput } from "../../pipeline/phaseOutputSchema.js";
 import { retryWithBackoff } from "../../pipeline/retryWithBackoff.js";
+import { discoverUserContent } from "../../content/userContent.js";
 import {
   printBanner,
   createSpinner,
@@ -194,6 +195,20 @@ export async function syncCommand(
   const m = manifest;
 
   verbose(`Manifest loaded: ${m.tools.length} tool(s), ${Object.keys(m.features).filter(k => m.features[k as keyof typeof m.features]).length} feature(s)`);
+
+  // D20: user-content discovery is informational here — adapters already
+  // pick up `.agents/user/` items via readCanonicalFiles. Surface the count
+  // so operators know whether their user artifacts are part of the run.
+  try {
+    const userArtifacts = await discoverUserContent(rootDir);
+    if (userArtifacts.length > 0) {
+      verbose(`User content: ${userArtifacts.length} artifact(s) discovered under .agents/user/`);
+    }
+  } catch (err) {
+    // Discovery failure must not break sync; log via verbose so the
+    // diagnostic is available without polluting the default summary.
+    verbose(`User content discovery skipped: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
   // C7-H5 (D15, OWASP ASI 2026): Preflight integrity check. If canonical
   // files have drifted (modified, missing, or tampered manifest) we refuse

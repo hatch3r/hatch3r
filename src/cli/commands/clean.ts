@@ -58,7 +58,11 @@ function printInventory(inventory: CleanInventory): void {
     sections.push(`  ${chalk.red("×")} ${inventory.adapterFiles.length} adapter output file(s)`);
   }
   if (inventory.canonicalDir) {
-    sections.push(`  ${chalk.red("×")} .agents/ canonical directory`);
+    if ((inventory.userContentCount ?? 0) > 0) {
+      sections.push(`  ${chalk.red("×")} .agents/ canonical directory ${chalk.dim("(.agents/user/ preserved)")}`);
+    } else {
+      sections.push(`  ${chalk.red("×")} .agents/ canonical directory`);
+    }
   }
   if (inventory.worktreeInclude) {
     sections.push(`  ${chalk.red("×")} .worktreeinclude`);
@@ -73,6 +77,12 @@ function printInventory(inventory: CleanInventory): void {
   }
   if (inventory.customizeDir) {
     sections.push(`  ${chalk.green("✓")} .hatch3r/ ${chalk.dim("(kept — customizations)")}`);
+  }
+  // D20: user-authored content is always preserved.
+  if ((inventory.userContentCount ?? 0) > 0) {
+    sections.push(
+      `  ${chalk.green("✓")} .agents/user/ ${chalk.dim(`(${inventory.userContentCount} user artifact(s) — kept, user-authored)`)}`,
+    );
   }
   if (inventory.learnings.length > 0) {
     sections.push(`  ${chalk.green("✓")} ${inventory.learnings.length} learning(s) ${chalk.dim("(backed up for reinit)")}`);
@@ -227,6 +237,9 @@ export async function cleanCommand(
           repoInfo,
           contentSelection: config.contentSelection,
           worktreeEnabled: config.worktreeEnabled,
+          // Reinit-after-clean already prompted the user; suppress runInit's
+          // own post-init create-prompt so we do not stack two confirmations.
+          yes: true,
         };
 
         await runInit(initOpts);
