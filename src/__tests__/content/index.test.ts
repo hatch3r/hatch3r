@@ -146,6 +146,7 @@ function makeCatalogItem(overrides: Partial<CatalogItem> = {}): CatalogItem {
     description: "A test item",
     tags: ["core"],
     relativePath: "agents/test-item.md",
+    source: "canonical",
     ...overrides,
   };
 }
@@ -1023,6 +1024,7 @@ describe("content/index", () => {
         description: "bad",
         tags: [],
         relativePath: "../../../etc/passwd",
+        source: "canonical",
       };
       const index = makeIndex([maliciousItem]);
       const selection = emptySelection({
@@ -1280,6 +1282,7 @@ describe("content/index", () => {
         description: "Does not exist",
         tags: [],
         relativePath: "agents/nonexistent.md",
+        source: "canonical",
       };
 
       await expect(
@@ -1305,6 +1308,7 @@ describe("content/index", () => {
         description: "Path traversal attempt",
         tags: [],
         relativePath: "../../../etc/passwd",
+        source: "canonical",
       };
 
       await expect(
@@ -1326,6 +1330,7 @@ describe("content/index", () => {
         description: "Will be removed",
         tags: [],
         relativePath: "agents/to-remove.md",
+        source: "canonical",
       };
 
       await removeContentItem(agentsDir, item);
@@ -1346,6 +1351,7 @@ describe("content/index", () => {
         description: "Skill to remove",
         tags: [],
         relativePath: "skills/my-skill",
+        source: "canonical",
       };
 
       await removeContentItem(agentsDir, item);
@@ -1368,6 +1374,7 @@ describe("content/index", () => {
         tags: [],
         relativePath: "rules/my-rule.md",
         companionPath: "rules/my-rule.mdc",
+        source: "canonical",
       };
 
       await removeContentItem(agentsDir, item);
@@ -1396,6 +1403,7 @@ describe("content/index", () => {
         description: "Agent with customize files",
         tags: [],
         relativePath: "agents/my-agent.md",
+        source: "canonical",
       };
 
       await removeContentItem(agentsDir, item, { rootDir });
@@ -1423,6 +1431,7 @@ describe("content/index", () => {
         description: "Command with prefixed id",
         tags: [],
         relativePath: "commands/hatch3r-board-init.md",
+        source: "canonical",
       };
 
       await removeContentItem(agentsDir, item, { rootDir });
@@ -1440,6 +1449,7 @@ describe("content/index", () => {
         description: "Path traversal attempt",
         tags: [],
         relativePath: "../../../etc/passwd",
+        source: "canonical",
       };
 
       await expect(removeContentItem(dir, maliciousItem)).rejects.toThrow(HatchError);
@@ -1456,6 +1466,7 @@ describe("content/index", () => {
         description: "Already removed",
         tags: [],
         relativePath: "agents/gone.md",
+        source: "canonical",
       };
 
       // rm with { force: true } should not throw

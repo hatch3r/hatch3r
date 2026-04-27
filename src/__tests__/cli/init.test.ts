@@ -812,6 +812,9 @@ describe("init worktree generation (claude tool present)", () => {
       inq.mockResolvedValueOnce({ enabled: true });
     }
     inq.mockResolvedValueOnce({ features: ["agents"] });
+    // D20: post-init "create your first user artifact?" prompt — decline so
+    // the rest of the test logic remains unchanged.
+    inq.mockResolvedValueOnce({ create: false });
   }
 
   it("interactive init prompts for worktree when a worktree-capable tool is selected", async () => {
@@ -1004,6 +1007,9 @@ describe("init interactive single-repo flow", () => {
     if ((opts.features ?? ["mcp"]).includes("mcp")) {
       inq.mockResolvedValueOnce({ mcp: opts.mcpServers ?? ["github", "playwright", "context7"] });
     }
+    // D20: post-init "create your first user artifact?" prompt — decline so
+    // the rest of the test logic remains unchanged.
+    inq.mockResolvedValueOnce({ create: false });
   }
 
   it("runs the GitHub interactive flow end-to-end", async () => {
@@ -1046,6 +1052,7 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt
     inq.mockResolvedValueOnce({ features: ["agents"] });
+    inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
 
     await initCommand({});
 
@@ -1068,6 +1075,7 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt
     inq.mockResolvedValueOnce({ features: ["agents"] });
+    inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
 
     await initCommand({});
 
@@ -1093,6 +1101,7 @@ describe("init interactive single-repo flow", () => {
     // tools fall-through to ["claude"] triggers the worktree prompt
     inq.mockResolvedValueOnce({ enabled: true });
     inq.mockResolvedValueOnce({ features: ["agents"] });
+    inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
 
     await initCommand({});
 
@@ -1133,6 +1142,7 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ features: ["agents"] });
     // The checkExisting prompt — accept overwrite
     inq.mockResolvedValueOnce({ proceed: true });
+    inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
 
     await initCommand({});
 
@@ -1226,6 +1236,9 @@ describe("init interactive workspace flow", () => {
     inq.mockResolvedValueOnce({ enabled: true });
     // 7) Features
     inq.mockResolvedValueOnce({ features: ["agents"] });
+    // 7b) D20 post-init "create your first user artifact?" prompt fired by
+    // runInit at the workspace root before workspace-level sync prompts.
+    inq.mockResolvedValueOnce({ create: false });
     // 8) Repo selection for sync
     inq.mockResolvedValueOnce({ syncRepos: [] });
 
@@ -1252,6 +1265,7 @@ describe("init interactive workspace flow", () => {
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt (claude selected)
     inq.mockResolvedValueOnce({ features: ["agents"] });
+    inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
 
     await initCommand({});
 
@@ -1286,6 +1300,9 @@ describe("init interactive workspace flow", () => {
     inq.mockResolvedValueOnce({ enabled: true });
     // 8) Features
     inq.mockResolvedValueOnce({ features: ["agents"] });
+    // 8b) D20 post-init "create your first user artifact?" prompt fired by
+    // runInit at the workspace root before workspace-level sync prompts.
+    inq.mockResolvedValueOnce({ create: false });
     // 9) Repo sync selection
     inq.mockResolvedValueOnce({ syncRepos: [] });
 
@@ -1464,6 +1481,7 @@ describe("init eager flag validation (C8-D1-M4)", () => {
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt (claude selected)
     inq.mockResolvedValueOnce({ features: ["agents"] });
+    inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
 
     await initCommand({ preset: "minimal" });
 
@@ -1534,6 +1552,10 @@ describe("init runInit idempotency guard (C8-D1-M3)", () => {
       repoInfo,
       contentSelection,
       worktreeEnabled: false,
+      // D20: pass `yes: true` so runInit skips the post-init "create your
+      // first user artifact?" prompt — this test focuses on idempotency, not
+      // interactive UX.
+      yes: true,
     };
 
     // Fire two concurrent runInit calls. The second should reject with the
@@ -1614,6 +1636,7 @@ describe("init workspace conflict guard (C8-D1-M3)", () => {
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt (claude selected)
     inq.mockResolvedValueOnce({ features: ["agents"] });
+    inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
     // Select the repo with existing hatch3r for sync (triggers conflict prompt)
     inq.mockResolvedValueOnce({ syncRepos: ["api"] });
     // Decline the overwrite
@@ -1640,6 +1663,7 @@ describe("init workspace conflict guard (C8-D1-M3)", () => {
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt (claude selected)
     inq.mockResolvedValueOnce({ features: ["agents"] });
+    inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
     inq.mockResolvedValueOnce({ syncRepos: ["api"] });
     inq.mockResolvedValueOnce({ confirmConflict: true });
 
@@ -1662,6 +1686,7 @@ describe("init workspace conflict guard (C8-D1-M3)", () => {
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt (claude selected)
     inq.mockResolvedValueOnce({ features: ["agents"] });
+    inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
     inq.mockResolvedValueOnce({ syncRepos: ["api"] });
     // NO confirmConflict prompt expected here
 

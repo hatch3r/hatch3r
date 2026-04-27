@@ -27,13 +27,13 @@ function makeIndex(items: CatalogItem[]): ContentIndex {
 }
 
 function agent(id: string, tags: string[]): CatalogItem {
-  return { id, type: "agent", description: `agent ${id}`, tags, relativePath: `agents/${id}.md` };
+  return { id, type: "agent", description: `agent ${id}`, tags, relativePath: `agents/${id}.md`, source: "canonical" };
 }
 function skill(id: string, tags: string[]): CatalogItem {
-  return { id, type: "skill", description: `skill ${id}`, tags, relativePath: `skills/${id}` };
+  return { id, type: "skill", description: `skill ${id}`, tags, relativePath: `skills/${id}`, source: "canonical" };
 }
 function rule(id: string, tags: string[]): CatalogItem {
-  return { id, type: "rule", description: `rule ${id}`, tags, relativePath: `rules/${id}.md` };
+  return { id, type: "rule", description: `rule ${id}`, tags, relativePath: `rules/${id}.md`, source: "canonical" };
 }
 /**
  * Commands live in the content index under the `cmd-` prefix applied by
@@ -48,6 +48,7 @@ function command(id: string, tags: string[]): CatalogItem {
     description: `command ${id}`,
     tags,
     relativePath: `commands/${id}.md`,
+    source: "canonical",
   };
 }
 
@@ -377,8 +378,9 @@ describe("buildTaskRouterModel against canonical content", () => {
 
     // Board has no agent owner so the primary must be a command.
     expect(byTag.get("board")!.primary.kind).toBe("command");
-    // Customize has commands and skills but no agent — command wins the
-    // priority order (agent → command → skill).
-    expect(byTag.get("customize")!.primary.kind).toBe("command");
+    // Customize now has an agent owner (hatch3r-creator, added in v1.7.0
+    // for the /hatch3r-create flow) so the primary resolves to that agent
+    // under the priority order (agent → command → skill).
+    expect(byTag.get("customize")!.primary.kind).toBe("agent");
   });
 });
