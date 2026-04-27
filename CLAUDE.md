@@ -41,7 +41,7 @@ Commits: Conventional Commits (`feat|fix|refactor|test|docs|chore|audit(scope): 
 
 ---
 
-## The 6 Binding Pillars
+## The 7 Binding Pillars
 
 Every change must serve at least one pillar. Full definitions: `governance/CONSTITUTION.md`.
 
@@ -53,6 +53,7 @@ Every change must serve at least one pillar. Full definitions: `governance/CONST
 | P4 | Comprehensive Lean Coverage | No bloat, no duplication, single-source-of-truth, every file earns existence | D5,D16 |
 | P5 | Governance Self-Quality | Governance passes its own tests, anti-slop, lean thresholds | D16,D18,D19 |
 | P6 | Security & Trust Governance | OWASP ASI compliance, trust delegation, prompt injection guards | D15 |
+| P7 | Speed & Token Efficiency | Static-first prompts, parallel tools, triage-first orchestration | D06 |
 
 **Pillar Compliance Test** (required for governance/content changes):
 1. Which pillar(s) does this change serve? If none → reject.

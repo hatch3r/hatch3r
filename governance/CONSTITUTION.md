@@ -11,7 +11,7 @@ hatch3r is an open-source CLI that installs tool-agnostic agentic coding setups 
 
 ---
 
-## 2. The 6 Binding Pillars
+## 2. The 7 Binding Pillars
 
 Every governance file, audit domain, and enhancement decision must serve at least one pillar. These are the constitutional heart of the governance system.
 
@@ -54,12 +54,16 @@ Governance and audit cycles apply the same quality standards, anti-slop, and ant
 
 | Metric | Limit | Calibration |
 |--------|-------|-------------|
-| CONSTITUTION.md | <=200 lines | Stable unless new pillars added |
+| CONSTITUTION.md | <=225 lines | +25 per binding pillar added |
 | VISION.md | <=250 lines | Stable; add principles rarely |
 | AUDIT.md | <=600 lines | ±4 lines per domain count delta |
 | AUDIT-EXECUTE.md | <=700 lines | ±50 lines per execution phase delta |
 | RE-ENVISION.md | <=350 lines | ±20 lines per theme-block delta |
 | EVOLVE.md | <=400 lines | ±20 lines per assessment-dimension delta |
+| Static-first prompt structure | required for `orchestrator: true` and `agents/*.md` | scripts/validate-efficiency-invariants.ts |
+| Parallel-tool-by-default directive | required when artifact uses ≥2 independent tool calls | Body-text scan |
+| Triage-first orchestrator | required when `orchestrator: true` | Frontmatter `triage_tiers` array |
+| Anti-cache patterns | 0 per artifact | No volatile tokens above static frame |
 | Domain file (SA ≤5) | 30-80 lines | Limit authoritative |
 | Domain file (SA >5) | SA × 15 lines | Calibration supersedes Limit |
 | Template file | 80-200 lines | Role-specific; bounded by role scope |
@@ -71,12 +75,12 @@ Governance and audit cycles apply the same quality standards, anti-slop, and ant
 
 #### Anti-Bloat Principles
 
-1. **Single Source of Truth:** Every concept defined in exactly one file. Others reference it.
-2. **Earn Your Existence:** Every file, section, row serves at least one pillar. If none, remove.
-3. **Compression Over Verbosity:** Tables over prose. References over repetition.
-4. **Proportional Depth:** File size proportional to governed complexity.
-5. **Anti-Slop:** No filler phrases without measurable criteria. See anti-slop wordlist in AUDIT-EXECUTE.md regression gates.
-6. **Currency transparency:** Every governance prompt or template file MUST carry `> Last updated: YYYY-MM-DD` as the second or third content line. Absence is Low; staleness >180 days is Medium. Verified by AUDIT-EXECUTE.md regression gates.
+1. **Single Source of Truth:** every concept defined in exactly one file; others reference it.
+2. **Earn Your Existence:** every file, section, row serves at least one pillar — if none, remove.
+3. **Compression Over Verbosity:** tables over prose; references over repetition.
+4. **Proportional Depth:** file size proportional to governed complexity.
+5. **Anti-Slop:** no filler phrases without measurable criteria (wordlist in AUDIT-EXECUTE.md regression gates).
+6. **Currency transparency:** every governance prompt/template carries `> Last updated: YYYY-MM-DD` as line 2 or 3; absence Low, >180-day staleness Medium (verified by AUDIT-EXECUTE.md regression gates).
 
 #### Silent Failure Contract
 
@@ -91,14 +95,18 @@ Security and trust are first-class governance concerns integrated into every tie
 **Measurement:** Trust control coverage percentage, time to security finding resolution, ASI control compliance rate.
 **Governance refs:** D15 (Agentic Security & Trust Model, including trust delegation chain and compliance mapping in Part B).
 
+### P7. Speed & Token Efficiency (end-user runtime)
+
+End-user agentic flows (commands, agents, skills consumed in `npx hatch3r`-installed projects) are tuned for token economy and latency, using only zero-quality-loss techniques established in published LLM literature: static-first prompt structure for cross-provider cache friendliness, parallel-tool-by-default, triage-first orchestration with auto-tiered depth (Light/Standard/Deep), plan/act split, structured outputs over prose, lazy loading via reference-by-pointer, and conditional sub-agent invocation. Aggressive compression that risks quality is rejected. The audit cycle (AUDIT.md, AUDIT-EXECUTE.md, RE-ENVISION.md, audit commands) is exempt — depth there is non-negotiable.
+
+**Measurement:** static-first ordering compliance (100% of orchestrator commands), parallel-tool directive presence (100% of multi-tool agents), triage-first directive on `orchestrator: true` commands (required), passive token/latency telemetry deltas in `src/pipeline/observability.ts` cycle-over-cycle (informational).
+**Governance refs:** AUDIT.md D06 (extended), charter directive 14 (Speed & Token Efficiency Awareness), lean thresholds below (efficiency rows).
+
 ### Pillar Compliance Test
 
-For any proposed governance change, answer:
-1. Which pillar(s) does this change serve?
-2. What measurable improvement does it produce?
-3. Does it increase or decrease governance total size?
+For any proposed governance change, answer: (1) which pillar(s) it serves, (2) what measurable improvement it produces, (3) whether it increases or decreases governance total size, (4) whether it degrades end-user runtime efficiency.
 
-If (1) is "none", the change is rejected. If (3) is "increase", the change must justify net value exceeding the size cost.
+If (1) is "none", the change is rejected. If (3) is "increase", justify net value exceeding the size cost. If (4) is "yes", reject or document the offsetting gain.
 
 ---
 
@@ -112,9 +120,10 @@ If (1) is "none", the change is rejected. If (3) is "increase", the change must 
 | P4 Lean | S | P | P | P | — | S | — | D5,D16, D20 | — |
 | P5 Governance | P | S | P | P | S | P | S | D16,D18,D19, D20 | — |
 | P6 Security | P | — | S | S | — | — | — | D15, D20.2 | P |
+| P7 Speed & Tokens | S | — | S | S | — | — | — | D6 | — |
 
 P=primary, S=supporting, —=gap or acceptable. Columns: A-EXEC=AUDIT-EXECUTE.md · RE-ENV=RE-ENVISION.md · TMPL=audit/templates · Domains=audit/domains · Trust=D15 Part B.
-**Known gap:** P6 ↔ VISION.md — add via RE-ENVISION.md workflow.
+**Known gaps:** P6 ↔ VISION.md and P7 ↔ VISION.md — add via RE-ENVISION.md workflow.
 
 ---
 
@@ -125,7 +134,7 @@ The audit system operates on three layers so findings meet senior-engineer-level
 | Layer | Purpose | Concept Count | Canonical Location |
 |-------|---------|:------------:|-------------------|
 | 1. Audit System Mechanics | Structural completeness of the audit process | 16 | AUDIT.md §Execution Model |
-| 2. Senior Human Parity | Behavioral traits matching expert judgment | 5 | AUDIT.md §Behavioral Charter |
+| 2. Senior Human Parity | Behavioral traits matching expert judgment | 6 | AUDIT.md §Behavioral Charter |
 | 3. Content Mirroring | Quality standards for audited content itself | 8 | agents/shared/quality-charter.md |
 
 Layer 1 prevents mechanical gaps (missed domains, broken dependencies). Layer 2 prevents cognitive gaps (confirmation bias, shallow analysis). Layer 3 prevents output gaps (content that passes audit but fails users). All three must align for a finding to be valid.
