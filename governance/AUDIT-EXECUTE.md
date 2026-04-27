@@ -405,7 +405,7 @@ After fan-out completes:
 
 ## Regression Gates
 
-After each wave commit, run 15-check gate comparing against Phase 0 baseline (NOT a shifted baseline).
+After each wave commit, run 17-check gate comparing against Phase 0 baseline (NOT a shifted baseline).
 
 ### Gate Checks
 
@@ -426,6 +426,10 @@ After each wave commit, run 15-check gate comparing against Phase 0 baseline (NO
 | Governance currency | `> Last updated: YYYY-MM-DD` on modified EVOLVE-in-scope files | Header missing or older than commit date |
 | Doc accuracy | Documented counts vs filesystem actuals | Any stated count diverges from `ls` / `find` |
 | Cross-domain dedup | Current-wave findings vs remaining-wave findings | Same root cause + file not merged during Phase 1 dedup |
+| 16. Triage-first | `tsx scripts/validate-efficiency-invariants.ts --triage-first` | Any `orchestrator: true` command lacks `triage_tiers` array OR a triage step in body |
+| 17. Static-first ordering | `tsx scripts/validate-efficiency-invariants.ts --static-first` | Any orchestrator command or agent places volatile token (timestamp, run-ID, session-counter) above the role/system block |
+
+> Gates 16 and 17 hard-exempt the audit-cycle file list: `governance/AUDIT.md`, `governance/AUDIT-EXECUTE.md`, `governance/RE-ENVISION.md`, and `commands/hatch3r-audit*.md`. The validator script `scripts/validate-efficiency-invariants.ts` enforces this exemption — depth in the audit cycle is non-negotiable per pillar P7.
 
 Report each check PASS/FAIL with baseline delta. Overall PASS = all checks pass. On FAIL: name the check, the delta, and whether it is a true regression or a pre-existing baseline condition.
 
