@@ -70,6 +70,19 @@ export interface HatchManifest {
     paths: string[];
     lastGenerated?: string;
   };
+  /**
+   * User-content authoring counters surfaced by `hatch3r status`. Populated by
+   * `saveUserContent` in `src/content/userContent.ts` after each save. Older
+   * hatch3r versions tolerate absence (treated as zero counts).
+   */
+  userContent?: {
+    /** Total user-authored artifacts on disk under `.agents/user/`. */
+    count: number;
+    /** ISO-8601 timestamp of the most recent successful save. */
+    lastModified: string;
+    /** Per-type counts (agent/skill/rule/command/hook). */
+    types: Record<string, number>;
+  };
   /** Present when this repo is managed by a workspace. */
   workspace?: {
     /** Relative path from this repo back to workspace root. */
@@ -218,6 +231,19 @@ export interface CanonicalFile {
   content: string;
   rawContent: string;
   sourcePath: string;
+  /**
+   * Provenance of the canonical file. Defaults to "canonical" everywhere;
+   * "user" only when the file was loaded from the project-local
+   * `.agents/user/` subtree (D20 user-content authoring).
+   */
+  source?: "canonical" | "user";
+  /**
+   * When present, restricts which platform adapters emit this artifact.
+   * Empty / omitted means full parity (all adapters emit it). Used by
+   * adapter filters to honour `adapters: [claude, cursor]` frontmatter
+   * declared on user-tier artifacts.
+   */
+  adapters?: string[];
 }
 
 export interface CanonicalMetadata {
@@ -239,6 +265,16 @@ export interface CanonicalMetadata {
   tags?: string[];
   /** Optional rule precedence bucket; see {@link RulePrecedence}. */
   precedence?: RulePrecedence;
+  /**
+   * Provenance of the metadata source. Defaults to "canonical"; "user" only
+   * when loaded from `.agents/user/` (D20 user-content authoring).
+   */
+  source?: "canonical" | "user";
+  /**
+   * When present, restricts adapter emission. Empty / omitted = full parity.
+   * Mirrors {@link CanonicalFile.adapters}.
+   */
+  adapters?: string[];
 }
 
 export interface ContentSelection {

@@ -246,6 +246,19 @@ function validateManifest(data: unknown): data is HatchManifest {
     }
   }
 
+  // D20 user-content counters (optional). Older manifests omit this field.
+  if (obj.userContent !== undefined) {
+    if (typeof obj.userContent !== "object" || obj.userContent === null) return false;
+    const uc = obj.userContent as Record<string, unknown>;
+    if (typeof uc.count !== "number") return false;
+    if (typeof uc.lastModified !== "string") return false;
+    if (typeof uc.types !== "object" || uc.types === null) return false;
+    for (const [k, v] of Object.entries(uc.types as Record<string, unknown>)) {
+      if (typeof k !== "string") return false;
+      if (typeof v !== "number") return false;
+    }
+  }
+
   return true;
 }
 
