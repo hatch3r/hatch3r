@@ -3,6 +3,8 @@ id: hatch3r-bug-triage
 type: prompt
 description: Triage a bug report and suggest investigation steps
 tags: [core]
+efficiency_patterns: agents/shared/efficiency-patterns.md
+cache_friendly: true
 ---
 # Bug Triage
 

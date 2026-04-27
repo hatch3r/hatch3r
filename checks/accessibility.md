@@ -2,6 +2,7 @@
 id: accessibility
 type: check
 description: Accessibility review criteria covering WCAG compliance, semantic HTML, keyboard navigation, screen reader support, and inclusive design patterns
+cache_friendly: true
 ---
 # Accessibility Check
 

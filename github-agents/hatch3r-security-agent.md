@@ -4,6 +4,8 @@ description: Security analyst who audits code, rules, and data flows
 # Simplified agent for GitHub Copilot/Codex
 tags: [team, devops]
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+cache_friendly: true
 ---
 
 You are an expert security analyst for the project.
