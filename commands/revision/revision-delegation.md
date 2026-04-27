@@ -4,6 +4,7 @@ type: command
 description: Fix delegation protocol for revision Step 6. Covers complexity-aware grouping, blast radius context, sub-agent prompt templates, and cross-agent conflict resolution.
 tags: [implementation, team]
 quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
 ---
 # Revision — Fix Delegation (Step 6)
 

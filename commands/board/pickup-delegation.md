@@ -4,6 +4,7 @@ type: command
 description: Single-issue sub-agent delegation protocol for board-pickup Step 6a. Covers research, implementation, and quality pipeline for standalone issues.
 tags: [board, team]
 quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
 ---
 # Board Pickup — Single-Issue Delegation (Step 6a)
 
