@@ -519,9 +519,9 @@ Track false positive rate per domain: `false_positives_in_domain / total_finding
 
 **Phase 5 execution logic:** Filter candidates whose source findings have `execution_status: "failed"` or `rollback_level: not null`; present remaining for batch approval (Vision Review items individually); apply approved changes to `governance/hatch3r-prd.md`; update PRD version, date, changelog; commit separately from execution wave commits.
 
-**Phase 6 execution logic:** Priority filter — P1 (full specs for artifacts blocking user success), P2 (outline specs for quality improvements), P3 (list only for nice-to-haves); scan existing content for conventions, frontmatter patterns, naming standards; output to `.audit-workspace/content-specs/` organized by priority tier.
+**Phase 6 execution logic:** Priority filter — P1 (full specs for artifacts blocking user success), P2 (outline specs for quality improvements), P3 (list only for nice-to-haves); scan existing content for conventions, frontmatter patterns, naming standards; output to `.audit-workspace/content-specs/` organized by priority tier. User-content adoption signals (frequently re-authored project-local artifacts surfaced via D20.2 findings, ≥3 instances across cycles) flow into Phase 6 as P2 promotion candidates: a project-local pattern that ≥3 user projects independently re-implement is a Content Gap signal that should be specced as a canonical artifact.
 
-**Phase 7 execution logic:** Present each proposal individually to user (never batch-approve); for accepted proposals, apply changes to AUDIT.md and/or domain files; run invariant checks after each accepted proposal — Tier weight totals (A=0.308, B=0.348, C=0.266, D=0.078), sub-agent count consistency between AUDIT.md summary table and domain files, all domain file references in AUDIT.md have corresponding files.
+**Phase 7 execution logic:** Present each proposal individually to user (never batch-approve); for accepted proposals, apply changes to AUDIT.md and/or domain files; run invariant checks after each accepted proposal — Tier weight totals (A=0.308, B=0.348, C=0.266 split across D11–D16+D20 at 0.038 each, D=0.078), sub-agent count consistency between AUDIT.md summary table and domain files, all domain file references in AUDIT.md have corresponding files.
 
 ---
 

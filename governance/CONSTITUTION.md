@@ -40,8 +40,8 @@ Every adapter and MCP server stays current through audit cycles. Each cycle mand
 
 Commands and shared resources cover every end-to-end stage of production software at every scale. Content stays lean: no bloat, no duplication, single-source-of-truth, every file earns its existence.
 
-**Measurement:** Lifecycle phase coverage percentage, content-to-purpose ratio, duplication index, artifact-level redundancy candidates surfaced per cycle, governance total line count (target <=3000).
-**Governance refs:** AUDIT.md D16 (Cross-Domain Synthesis), CL-2 (Content Gap Identification), charter directive 13 (duplication awareness).
+**Measurement:** Lifecycle phase coverage percentage, content-to-purpose ratio, duplication index, artifact-level redundancy candidates surfaced per cycle, user-content authoring tool quality, governance total line count (target <=3000).
+**Governance refs:** AUDIT.md D16 (Cross-Domain Synthesis), CL-2 (Content Gap Identification), charter directive 13 (duplication awareness), D20 (User-Content Authoring).
 
 ### P5. Governance Self-Quality
 
@@ -106,12 +106,12 @@ If (1) is "none", the change is rejected. If (3) is "increase", the change must 
 
 | Pillar | CONST | VISION | AUDIT | A-EXEC | RE-ENV | EVOLVE | TMPL | Domains | Trust |
 |--------|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
-| P1 CLI UX | S | P | S | S | S | S | — | D10 | — |
+| P1 CLI UX | S | P | S | S | S | S | — | D10, D20.1 | — |
 | P2 Quality | P | P | P | S | S | S | P | D1,D5,D7,D13 | — |
 | P3 Currency | S | P | P | S | — | S | — | D2,D9 | S |
-| P4 Lean | S | P | P | P | — | S | — | D5,D16 | — |
-| P5 Governance | P | S | P | P | S | P | S | D16,D18,D19 | — |
-| P6 Security | P | — | S | S | — | — | — | D15 | P |
+| P4 Lean | S | P | P | P | — | S | — | D5,D16, D20 | — |
+| P5 Governance | P | S | P | P | S | P | S | D16,D18,D19, D20 | — |
+| P6 Security | P | — | S | S | — | — | — | D15, D20.2 | P |
 
 P=primary, S=supporting, —=gap or acceptable. Columns: A-EXEC=AUDIT-EXECUTE.md · RE-ENV=RE-ENVISION.md · TMPL=audit/templates · Domains=audit/domains · Trust=D15 Part B.
 **Known gap:** P6 ↔ VISION.md — add via RE-ENVISION.md workflow.

@@ -46,6 +46,8 @@ Larger features (reusable components, styling consistency, i18n keys, complex wi
 
 The revision loop — human tests as user, provides targeted feedback, agent fixes efficiently — works well. Optimize it, don't rethink it. Minimize the number of revision cycles needed, but make each cycle fast and effective when it happens.
 
+User-authored artifacts produced via /hatch3r-create are held to the same one-shot success standard as canonical content; D20 enforces this via hybrid gates (creator-tool gates at write time, artifact-compliance gates at audit time).
+
 ---
 
 ## Up-to-Date Information
@@ -85,6 +87,10 @@ The PRD evolves automatically from audit findings. Vision changes flow down thro
 ## Content Maintenance Model
 
 Content is ONLY maintained through the weekly audit cycle or in-between agentic work triggered by the framework owner. There is no separate maintenance process, no ad-hoc editing, no drift. Maximum end quality is the only metric that matters.
+
+### Canonical Content vs Project-Local Content
+
+Canonical content (under `agents/`, `skills/`, `rules/`, `commands/`, `hooks/` in the framework repository) is maintained ONLY through the weekly audit cycle and framework-owner agentic work. **Project-local content** — agents, skills, rules, commands, and hooks authored by an end-user via `/hatch3r-create` and stored under their project's `.agents/user/` — is held to the same one-shot success standard via Domain 20 (D20.1 audits the creator tool, D20.2 audits the artifacts). Project-local artifacts are not maintained by the framework owner; they are maintained by their project owner. Both bodies of content are subject to the shared quality charter and the lean thresholds in CONSTITUTION.md §2 P5.
 
 ### Seven Content Types
 

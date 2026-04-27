@@ -1,6 +1,6 @@
 ---
 name: audit-cycle
-description: Execute a full 19-domain audit cycle using the governance audit prompt. Deploys 106 sub-agents across 4 tiers with synthesis gates and produces a structured audit report.
+description: Execute a full 19-domain audit cycle using the governance audit prompt. Deploys 109 sub-agents across 4 tiers with synthesis gates and produces a structured audit report.
 effort: max
 allowed-tools: Read Grep Glob Bash(*) Write Agent WebSearch WebFetch
 ---
@@ -45,12 +45,13 @@ Execute the full hatch3r audit cycle defined in `governance/AUDIT.md`.
     - D09.16 (Emerging Platforms) — wait for D09.1-D09.14
 13. Produce synthesis per domain. Release findings from context
 
-## Tier C — System-Level (6 domains, 24 sub-agents)
+## Tier C — System-Level (7 domains, 27 sub-agents)
 
-14. Read domain files: `governance/audit/domains/D11-data-flow.md` through `D16-compound-system.md`
+14. Read domain files: `governance/audit/domains/D11-data-flow.md` through `D16-compound-system.md`, and `D20-user-content-authoring.md`
 15. Launch sub-agents in parallel, except:
     - D16.1 (Cross-Domain Pattern Synthesis) — wait for D05, D07, D09 synthesis
     - D16.2 (Coverage Gap Analysis) — wait for D05, D09 synthesis
+    - D20.2 (User-Authored Artifact Compliance) — wait for D20.1, D05, D15 synthesis
 16. Run Cross-Domain Discovery after Tier C synthesis
 17. Produce synthesis per domain. Release findings from context
 
