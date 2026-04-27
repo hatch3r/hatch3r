@@ -148,12 +148,46 @@ export abstract class BaseAdapter implements Adapter {
   private _trackedSourceFiles: Set<string> = new Set<string>();
 
   /**
+   * D20 user-content authoring: filter user-tier files by their optional
+   * `adapters: [...]` frontmatter against the current adapter's `name`.
+   *
+   * Rules (matches the adapter-scope semantics declared in the user-content
+   * authoring plan):
+   * - Canonical files (`source` undefined or `"canonical"`) are always
+   *   emitted regardless of any `adapters` value — `adapters` is a
+   *   user-tier-only signal.
+   * - User files with no `adapters` list (omitted or empty) emit on every
+   *   adapter — full parity is the default.
+   * - User files with a non-empty `adapters` list emit only on adapters
+   *   whose `name` is in the list. Adapter ids must match the values in
+   *   `Tool` (`src/types.ts`).
+   *
+   * Centralised so both the tracked and user-facing read wrappers below
+   * apply identical filter rules, keeping the user-tier scope contract in
+   * one place.
+   */
+  private filterByAdapterScope(files: CanonicalFile[]): CanonicalFile[] {
+    return files.filter((f) => {
+      if (f.source !== "user") return true;
+      const adapters = f.adapters;
+      if (!adapters || adapters.length === 0) return true;
+      return adapters.includes(this.name);
+    });
+  }
+
+  /**
    * C8-D12-M3: Canonical-file read wrapper that records provenance.
    *
    * Delegates to {@link readCanonicalFiles} and additionally pushes every
    * returned file's `sourcePath` into the per-invocation tracker. Helpers
    * on this class use this wrapper so every adapter automatically gets
    * source-file provenance without individual adapters needing to change.
+   *
+   * D20: After the read, files are filtered through
+   * {@link filterByAdapterScope} so user-tier artifacts that opt out of
+   * this adapter (via `adapters: [...]` frontmatter) are dropped before
+   * provenance tracking — keeping `sourceFiles` aligned with the actually
+   * emitted set.
    *
    * External callers (outside BaseAdapter) should prefer calling
    * `readCanonicalFiles` directly; this wrapper is the BaseAdapter-internal
@@ -164,13 +198,14 @@ export abstract class BaseAdapter implements Adapter {
     type: CanonicalType,
   ): Promise<CanonicalFile[]> {
     const files = await readCanonicalFiles(agentsDir, type, this.warnings);
-    for (const f of files) {
+    const filtered = this.filterByAdapterScope(files);
+    for (const f of filtered) {
       // `sourcePath` is an absolute filesystem path to the canonical file;
       // guarded against the rare test-fixture case where a synthesised
       // CanonicalFile may have an empty path.
       if (f.sourcePath) this._trackedSourceFiles.add(f.sourcePath);
     }
-    return files;
+    return filtered;
   }
 
   /**
@@ -184,6 +219,10 @@ export abstract class BaseAdapter implements Adapter {
    * support subdirectories (`commands/board/`, `agents/modes/`, etc.) and
    * top-level files with a non-primary frontmatter `type:` (e.g.
    * `shared-context`, `reference`, `mode`) are excluded.
+   *
+   * D20: User-tier artifacts additionally pass through
+   * {@link filterByAdapterScope} so a user agent declaring
+   * `adapters: [claude]` is dropped from every adapter except `claude`.
    */
   protected async readUserFacingCanonicalFiles(
     agentsDir: string,
@@ -191,7 +230,15 @@ export abstract class BaseAdapter implements Adapter {
   ): Promise<CanonicalFile[]> {
     const files = await readCanonicalFiles(agentsDir, type, this.warnings);
     const expectedType = type === "commands" ? "command" : "agent";
-    const filtered = filterUserFacing(files, expectedType, join(agentsDir, type));
+    // `filterUserFacing` is keyed off `${agentsDir}/${type}` as the
+    // base directory. User-tier files (under `${agentsDir}/user/${type}/`)
+    // resolve to a relative path beginning with `..` so the helper's
+    // safe-default keep branch lets them through unchanged — only canonical
+    // companion subdirectories like `commands/board/` and `agents/modes/`
+    // are filtered out. User files then run through {@link filterByAdapterScope}
+    // for the `adapters: [...]` opt-out.
+    const userFacing = filterUserFacing(files, expectedType, join(agentsDir, type));
+    const filtered = this.filterByAdapterScope(userFacing);
     for (const f of filtered) {
       if (f.sourcePath) this._trackedSourceFiles.add(f.sourcePath);
     }
