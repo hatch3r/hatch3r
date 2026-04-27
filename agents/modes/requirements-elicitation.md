@@ -5,6 +5,9 @@ description: Detect ambiguities and missing requirements, generate structured qu
 tags: [core, planning]
 parent: hatch3r-researcher
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+efficiency_tier: standard
+cache_friendly: true
 ---
 ### Mode: `requirements-elicitation`
 

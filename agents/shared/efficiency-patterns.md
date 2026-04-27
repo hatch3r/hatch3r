@@ -3,6 +3,7 @@ id: shared-efficiency-patterns
 type: reference
 description: Portable, model-agnostic patterns for token efficiency and runtime speed in end-user agentic flows. Referenced by agents and orchestrators via `efficiency_patterns:` frontmatter.
 tags: [shared, efficiency, p7]
+cache_friendly: true
 ---
 
 ## Efficiency Patterns

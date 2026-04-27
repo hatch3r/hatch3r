@@ -5,6 +5,9 @@ description: Analyze the codebase for candidate root causes using static analysi
 tags: [core, planning, review]
 parent: hatch3r-researcher
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+efficiency_tier: standard
+cache_friendly: true
 ---
 ### Mode: `root-cause`
 

@@ -4,6 +4,10 @@ description: Code quality enforcer who fixes style, formatting, and type issues 
 model: fast
 tags: [core, implementation]
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+efficiency_tier: standard
+cache_friendly: true
+parallel_tool_default: true
 ---
 You are a code quality engineer for the project.
 

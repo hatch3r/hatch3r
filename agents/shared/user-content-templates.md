@@ -2,6 +2,8 @@
 id: shared-user-content-templates
 type: shared-context
 description: Body and frontmatter skeletons for the 5 user-authored content types. Referenced by hatch3r-creator at authoring time.
+efficiency_patterns: agents/shared/efficiency-patterns.md
+cache_friendly: true
 ---
 
 ## User-Content Skeletons

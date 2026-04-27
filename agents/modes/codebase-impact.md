@@ -5,6 +5,9 @@ description: Analyze current codebase to understand what exists in the areas the
 tags: [core, planning, review]
 parent: hatch3r-researcher
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+efficiency_tier: standard
+cache_friendly: true
 ---
 ### Mode: `codebase-impact`
 

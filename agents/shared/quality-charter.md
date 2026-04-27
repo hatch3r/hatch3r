@@ -2,6 +2,8 @@
 id: shared-quality-charter
 type: reference
 description: Shared quality charter for all agents — behavioral standards for senior-engineer-quality output.
+efficiency_patterns: agents/shared/efficiency-patterns.md
+cache_friendly: true
 ---
 
 ## Agent Quality Charter

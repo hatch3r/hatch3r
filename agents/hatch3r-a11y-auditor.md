@@ -4,6 +4,10 @@ description: Accessibility specialist who audits for WCAG AA compliance. Use whe
 model: standard
 tags: [review, a11y]
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+efficiency_tier: standard
+cache_friendly: true
+parallel_tool_default: true
 ---
 > **Severity vocabulary:** see [governance/audit/templates/severity-mapping.md](../governance/audit/templates/severity-mapping.md) for canonical 5-column mapping. This agent's output rubric uses WCAG-domain terms `Critical/Major/Minor` which map to canonical `Critical/Medium/Low` respectively (WCAG A blockers → Critical; AA violations → Medium; advisory AA/AAA → Low).
 

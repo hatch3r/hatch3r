@@ -5,6 +5,9 @@ description: Identify risks, security implications, performance concerns, and br
 tags: [core, review]
 parent: hatch3r-researcher
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+efficiency_tier: standard
+cache_friendly: true
 ---
 ### Mode: `risk-assessment`
 

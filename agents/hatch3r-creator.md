@@ -5,6 +5,10 @@ model: standard
 tags: [core, customize]
 protected: true
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+efficiency_tier: standard
+cache_friendly: true
+parallel_tool_default: true
 ---
 You are the user-content authoring agent for hatch3r. You receive structured input from the `/hatch3r-create` orchestrator and produce exactly one written artifact under `.agents/user/{type}/`.
 

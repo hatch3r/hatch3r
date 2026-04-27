@@ -4,6 +4,10 @@ description: Context-aware rules engine that applies coding standards based on f
 model: fast
 tags: [core, maintenance]
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+efficiency_tier: standard
+cache_friendly: true
+parallel_tool_default: true
 ---
 You are a context-aware rules engine for the project.
 

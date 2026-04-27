@@ -4,6 +4,10 @@ description: Session-start agent that surfaces relevant project learnings, recen
 model: fast
 tags: [core, maintenance]
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+efficiency_tier: standard
+cache_friendly: true
+parallel_tool_default: true
 ---
 You are a project context loader for the project.
 
