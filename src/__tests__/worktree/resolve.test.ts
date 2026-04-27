@@ -4,6 +4,7 @@ import {
   writeFileSync,
   mkdirSync,
   rmSync,
+  realpathSync,
 } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join, relative } from "node:path";
@@ -14,18 +15,28 @@ import {
   isInsideWorktree,
   findMainWorktree,
   isGitIgnored,
+  listWorktrees,
+  getWorktreeStatus,
 } from "../../worktree/resolve.js";
 import {
   parseWorktreeInclude,
   extractManagedContent,
+  addGitWorktree,
+  removeGitWorktree,
+  ensureWorktreesIgnored,
+  isValidBranchName,
+  WORKTREES_DIR,
 } from "../../worktree/index.js";
+import { readFileSync, existsSync } from "node:fs";
 import { MANAGED_BLOCK_START, MANAGED_BLOCK_END } from "../../types.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Creates a temp directory with `git init` and returns its path. */
+/** Creates a temp directory with `git init` and returns its canonical path.
+ *  realpath normalizes /var/... → /private/var/... on macOS so comparisons
+ *  against git's output (which canonicalizes) succeed. */
 function makeTempGitRepo(): string {
-  const dir = mkdtempSync(join(tmpdir(), "hatch3r-resolve-test-"));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "hatch3r-resolve-test-")));
   execFileSync("git", ["init", "--initial-branch=main"], {
     cwd: dir,
     stdio: "ignore",
@@ -339,6 +350,186 @@ describe("parseWorktreeInclude", () => {
 });
 
 // ─── extractManagedContent ────────────────────────────────────────────────────
+
+// ─── listWorktrees / getWorktreeStatus / git wrappers ────────────────────────
+
+function commitInitial(repoDir: string): void {
+  writeFileSync(join(repoDir, "README.md"), "init\n", "utf-8");
+  execFileSync("git", ["add", "README.md"], { cwd: repoDir, stdio: "ignore" });
+  execFileSync("git", ["commit", "-m", "init"], { cwd: repoDir, stdio: "ignore" });
+}
+
+describe("listWorktrees", () => {
+  let mainRoot: string;
+
+  beforeEach(() => {
+    mainRoot = makeTempGitRepo();
+    commitInitial(mainRoot);
+  });
+
+  afterEach(() => {
+    rmSync(mainRoot, { recursive: true, force: true });
+  });
+
+  it("returns the main worktree when no others exist", () => {
+    const entries = listWorktrees(mainRoot);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].path).toBe(mainRoot);
+    expect(entries[0].branch).toBe("refs/heads/main");
+    expect(entries[0].locked).toBe(false);
+    expect(entries[0].prunable).toBe(false);
+  });
+
+  it("enumerates an added worktree", () => {
+    const wtPath = join(mainRoot, WORKTREES_DIR, "feat-x");
+    addGitWorktree(mainRoot, "feat-x", wtPath);
+
+    const entries = listWorktrees(mainRoot);
+    expect(entries).toHaveLength(2);
+    const wt = entries.find((e) => e.path === wtPath);
+    expect(wt).toBeDefined();
+    expect(wt!.branch).toBe("refs/heads/feat-x");
+    expect(wt!.detached).toBe(false);
+  });
+
+  it("flags locked worktrees", () => {
+    const wtPath = join(mainRoot, WORKTREES_DIR, "feat-y");
+    addGitWorktree(mainRoot, "feat-y", wtPath);
+    execFileSync("git", ["-C", mainRoot, "worktree", "lock", wtPath], { stdio: "ignore" });
+
+    const entries = listWorktrees(mainRoot);
+    const wt = entries.find((e) => e.path === wtPath);
+    expect(wt?.locked).toBe(true);
+  });
+
+  it("throws on git failure (non-repo)", () => {
+    expect(() => listWorktrees("/nonexistent-dir-xyz")).toThrow();
+  });
+});
+
+describe("getWorktreeStatus", () => {
+  let mainRoot: string;
+
+  beforeEach(() => {
+    mainRoot = makeTempGitRepo();
+    commitInitial(mainRoot);
+  });
+
+  afterEach(() => {
+    rmSync(mainRoot, { recursive: true, force: true });
+  });
+
+  it("returns zeros for a clean worktree", () => {
+    const s = getWorktreeStatus(mainRoot);
+    expect(s).toEqual({ modified: 0, untracked: 0, stashes: 0 });
+  });
+
+  it("counts modified and untracked files", () => {
+    writeFileSync(join(mainRoot, "README.md"), "changed\n", "utf-8");
+    writeFileSync(join(mainRoot, "newfile.txt"), "hi\n", "utf-8");
+
+    const s = getWorktreeStatus(mainRoot);
+    expect(s.modified).toBe(1);
+    expect(s.untracked).toBe(1);
+  });
+
+  it("counts stashes", () => {
+    writeFileSync(join(mainRoot, "README.md"), "changed\n", "utf-8");
+    execFileSync("git", ["-C", mainRoot, "stash", "push", "-m", "wip"], { stdio: "ignore" });
+    const s = getWorktreeStatus(mainRoot);
+    expect(s.stashes).toBe(1);
+  });
+
+  it("returns zeros (no throw) on missing path", () => {
+    const s = getWorktreeStatus("/nonexistent-dir-xyz");
+    expect(s).toEqual({ modified: 0, untracked: 0, stashes: 0 });
+  });
+});
+
+describe("addGitWorktree / removeGitWorktree", () => {
+  let mainRoot: string;
+
+  beforeEach(() => {
+    mainRoot = makeTempGitRepo();
+    commitInitial(mainRoot);
+  });
+
+  afterEach(() => {
+    rmSync(mainRoot, { recursive: true, force: true });
+  });
+
+  it("creates a worktree on a new branch", () => {
+    const wtPath = join(mainRoot, WORKTREES_DIR, "feat-add");
+    addGitWorktree(mainRoot, "feat-add", wtPath);
+    expect(existsSync(wtPath)).toBe(true);
+    const branches = execFileSync("git", ["-C", mainRoot, "branch", "--list", "feat-add"], {
+      encoding: "utf-8",
+    });
+    expect(branches).toContain("feat-add");
+  });
+
+  it("throws VALIDATION_ERROR on existing-branch collision", () => {
+    execFileSync("git", ["-C", mainRoot, "branch", "dup"], { stdio: "ignore" });
+    const wtPath = join(mainRoot, WORKTREES_DIR, "dup");
+    expect(() => addGitWorktree(mainRoot, "dup", wtPath)).toThrow(/already exists/i);
+  });
+
+  it("removes a worktree and preserves the branch", () => {
+    const wtPath = join(mainRoot, WORKTREES_DIR, "feat-rm");
+    addGitWorktree(mainRoot, "feat-rm", wtPath);
+    removeGitWorktree(mainRoot, wtPath, { force: true });
+    expect(existsSync(wtPath)).toBe(false);
+    const branches = execFileSync("git", ["-C", mainRoot, "branch", "--list", "feat-rm"], {
+      encoding: "utf-8",
+    });
+    expect(branches).toContain("feat-rm");
+  });
+});
+
+describe("isValidBranchName", () => {
+  it("accepts simple names", () => {
+    expect(isValidBranchName("feat-x")).toBe(true);
+    expect(isValidBranchName("release/1.7.0")).toBe(true);
+    expect(isValidBranchName("hotfix.urgent")).toBe(true);
+  });
+
+  it("rejects empty / invalid names", () => {
+    expect(isValidBranchName("")).toBe(false);
+    expect(isValidBranchName("..")).toBe(false);
+    expect(isValidBranchName("-leading-dash")).toBe(false);
+    expect(isValidBranchName("with space")).toBe(false);
+    expect(isValidBranchName("with..double")).toBe(false);
+  });
+});
+
+describe("ensureWorktreesIgnored", () => {
+  let mainRoot: string;
+
+  beforeEach(() => {
+    mainRoot = makeTempGitRepo();
+  });
+
+  afterEach(() => {
+    rmSync(mainRoot, { recursive: true, force: true });
+  });
+
+  it("appends a managed block on first call", async () => {
+    const added = await ensureWorktreesIgnored(mainRoot);
+    expect(added).toBe(true);
+    const exclude = readFileSync(join(mainRoot, ".git", "info", "exclude"), "utf-8");
+    expect(exclude).toContain("HATCH3R:BEGIN");
+    expect(exclude).toContain(`${WORKTREES_DIR}/`);
+    expect(exclude).toContain("HATCH3R:END");
+  });
+
+  it("is idempotent on second call", async () => {
+    await ensureWorktreesIgnored(mainRoot);
+    const added2 = await ensureWorktreesIgnored(mainRoot);
+    expect(added2).toBe(false);
+    const exclude = readFileSync(join(mainRoot, ".git", "info", "exclude"), "utf-8");
+    expect(exclude.match(/HATCH3R:BEGIN/g)?.length).toBe(1);
+  });
+});
 
 describe("extractManagedContent", () => {
   it("extracts content between managed block markers", () => {

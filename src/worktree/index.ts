@@ -1,13 +1,24 @@
-import { readFile, mkdir, copyFile, symlink, lstat, unlink } from "node:fs/promises";
+import { readFile, mkdir, copyFile, symlink, lstat, unlink, writeFile, appendFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
 import { join, relative, dirname } from "node:path";
 import {
   MANAGED_BLOCK_START,
   MANAGED_BLOCK_END,
   WORKTREE_INCLUDE_FILE,
+  HatchError,
   type HatchManifest,
 } from "../types.js";
 import type { WorktreeEntry, WorktreeSetupResult } from "./types.js";
 import { resolvePatterns, findMainWorktree } from "./resolve.js";
+
+// Gitignore-syntax managed-block markers for .git/info/exclude. Distinct from
+// MANAGED_BLOCK_{START,END} (which are HTML-comment-style and would parse as
+// literal ignore patterns here).
+const EXCLUDE_BLOCK_START = "# HATCH3R:BEGIN — managed by `hatch3r worktree-setup`";
+const EXCLUDE_BLOCK_END = "# HATCH3R:END";
+
+/** Subdirectory of the main repo where hatch3r-managed worktrees live. */
+export const WORKTREES_DIR = ".worktrees";
 
 // ─── Adapter worktree patterns ───────────────────────────────────────────────
 
@@ -388,6 +399,138 @@ export async function cleanupWorktree(worktreeRoot: string): Promise<void> {
       // Path doesn't exist or can't be stat'd — skip
     }
   }
+}
+
+// ─── Git worktree wrappers ───────────────────────────────────────────────────
+
+/**
+ * Runs `git -C <mainRoot> worktree add -b <name> <targetPath>` to create a new
+ * worktree on a fresh branch off the current HEAD of the main repo.
+ *
+ * Throws HatchError(VALIDATION_ERROR) on existing-branch collision so the CLI
+ * can offer a name change; throws FS_ERROR for any other git failure (path
+ * collision, missing parent, permission, etc.) with git's stderr verbatim.
+ */
+export function addGitWorktree(
+  mainRoot: string,
+  name: string,
+  targetPath: string,
+): void {
+  try {
+    execFileSync(
+      "git",
+      ["-C", mainRoot, "worktree", "add", "-b", name, targetPath],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException & { stderr?: Buffer };
+    const stderr = e.stderr?.toString() ?? "";
+    if (/already exists/i.test(stderr) && /branch/i.test(stderr)) {
+      throw new HatchError(
+        `Branch '${name}' already exists. Pick a different name or delete the branch first.`,
+        1,
+        "VALIDATION_ERROR",
+      );
+    }
+    throw new HatchError(
+      `git worktree add failed: ${stderr.trim() || (err as Error).message}`,
+      1,
+      "FS_ERROR",
+    );
+  }
+}
+
+/**
+ * Runs `git -C <mainRoot> worktree remove [--force] <path>` to detach a
+ * worktree from git and remove its directory. Branch is preserved.
+ *
+ * Pass `prune: true` instead for worktrees flagged `prunable` by
+ * `git worktree list --porcelain`; that runs `git worktree prune` which is the
+ * correct verb for stale worktree records.
+ */
+export function removeGitWorktree(
+  mainRoot: string,
+  worktreePath: string,
+  options: { force?: boolean; prune?: boolean } = {},
+): void {
+  try {
+    if (options.prune) {
+      execFileSync("git", ["-C", mainRoot, "worktree", "prune"], {
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      return;
+    }
+    const args = ["-C", mainRoot, "worktree", "remove"];
+    if (options.force) args.push("--force");
+    args.push(worktreePath);
+    execFileSync("git", args, { stdio: ["ignore", "pipe", "pipe"] });
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException & { stderr?: Buffer };
+    const stderr = e.stderr?.toString() ?? "";
+    throw new HatchError(
+      `git worktree remove failed for ${worktreePath}: ${stderr.trim() || (err as Error).message}`,
+      1,
+      "FS_ERROR",
+    );
+  }
+}
+
+/**
+ * Validates a name as a git ref via `git check-ref-format --branch <name>`.
+ * Returns true on valid, false on invalid. Does not throw.
+ */
+export function isValidBranchName(name: string): boolean {
+  if (!name || name.length === 0) return false;
+  let valid = false;
+  try {
+    execFileSync("git", ["check-ref-format", "--branch", name], {
+      stdio: "ignore",
+    });
+    valid = true;
+  } catch {
+    // Non-zero exit IS the validation signal — `git check-ref-format` exits
+    // non-zero precisely when the name is malformed. The caller renders an
+    // actionable error from the boolean return; no diagnostic is dropped.
+    valid = false;
+  }
+  return valid;
+}
+
+// ─── .git/info/exclude management ────────────────────────────────────────────
+
+/**
+ * Idempotently appends a managed block to `<mainRoot>/.git/info/exclude` that
+ * adds `<WORKTREES_DIR>/` to the per-clone exclude list. Per-clone (untracked,
+ * not committed), so no PR diff and no team coordination needed.
+ *
+ * If the managed block is already present, returns false; otherwise appends
+ * and returns true. Caller can use the return value to decide whether to log.
+ */
+export async function ensureWorktreesIgnored(mainRoot: string): Promise<boolean> {
+  const excludePath = join(mainRoot, ".git", "info", "exclude");
+  let existing = "";
+  try {
+    existing = await readFile(excludePath, "utf-8");
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== "ENOENT") throw err;
+    // No exclude file yet — git creates it on `git init` by default, but bare
+    // repos or oddly-initialized clones may lack it. Create with empty body.
+    await mkdir(dirname(excludePath), { recursive: true });
+    await writeFile(excludePath, "", "utf-8");
+  }
+
+  if (existing.includes(EXCLUDE_BLOCK_START)) return false;
+
+  const block = [
+    "",
+    EXCLUDE_BLOCK_START,
+    `${WORKTREES_DIR}/`,
+    EXCLUDE_BLOCK_END,
+    "",
+  ].join("\n");
+  await appendFile(excludePath, block, "utf-8");
+  return true;
 }
 
 // ─── Managed content ─────────────────────────────────────────────────────────

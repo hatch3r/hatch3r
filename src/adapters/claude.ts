@@ -371,7 +371,7 @@ export class ClaudeAdapter extends BaseAdapter {
         matcher: ".*",
         hooks: [{
           type: "command",
-          command: 'bash -c \'WTDIR="${CLAUDE_WORKTREE_PATH:-${WORKTREE_PATH:-}}"; [ -n "$WTDIR" ] && npx hatch3r worktree-setup "$WTDIR" || true\'',
+          command: 'bash -c \'WTDIR="${CLAUDE_WORKTREE_PATH:-${WORKTREE_PATH:-}}"; [ -n "$WTDIR" ] && npx hatch3r worktree-setup --from-path "$WTDIR" || true\'',
         }],
       });
       if (!hooksConfig.PostToolUse) hooksConfig.PostToolUse = [];
@@ -379,7 +379,7 @@ export class ClaudeAdapter extends BaseAdapter {
         matcher: "Bash",
         hooks: [{
           type: "command",
-          command: 'bash -c \'CMD="${TOOL_INPUT:-}"; if echo "$CMD" | grep -q "git worktree add"; then ARGS="${CMD#*git worktree add}"; WTDIR=""; SKIP=false; for w in $ARGS; do if $SKIP; then SKIP=false; continue; fi; case "$w" in -b|-B|--reason) SKIP=true;; -*) ;; *) WTDIR="$w"; break;; esac; done; [ -n "$WTDIR" ] && npx hatch3r worktree-setup "$WTDIR" || true; fi\'',
+          command: 'bash -c \'CMD="${TOOL_INPUT:-}"; if echo "$CMD" | grep -q "git worktree add"; then ARGS="${CMD#*git worktree add}"; WTDIR=""; SKIP=false; for w in $ARGS; do if $SKIP; then SKIP=false; continue; fi; case "$w" in -b|-B|--reason) SKIP=true;; -*) ;; *) WTDIR="$w"; break;; esac; done; [ -n "$WTDIR" ] && npx hatch3r worktree-setup --from-path "$WTDIR" || true; fi\'',
         }],
       });
     }
@@ -406,14 +406,17 @@ export class ClaudeAdapter extends BaseAdapter {
     // plugin component and consumable by Claude Code's `/plugin install` flow
     // without reading settings.json. The settings.json emission above is
     // preserved (additive); plugin consumers prefer the standalone file.
-    // Schema tag `claude-code/plugin-hooks/v2.1` tracks Claude Code v2.1.x
-    // which added WorktreeCreate/WorktreeRemove lifecycle events.
+    // Schema tag `claude-code/plugin-hooks/v2.2` tracks Claude Code v2.1.x's
+    // WorktreeCreate/WorktreeRemove lifecycle events plus the `--from-path`
+    // contract for `hatch3r worktree-setup` (hatch3r >=1.7.0). v2.1 consumers
+    // calling `worktree-setup <path>` will fail name-validation; v2.2 emits the
+    // explicit `--from-path` flag for legacy populate.
     if (ctx.features.hooks) {
       const pluginHooksObj = {
         _hatch3r: {
           version: HATCH3R_VERSION,
           managed: true,
-          schema: "claude-code/plugin-hooks/v2.1",
+          schema: "claude-code/plugin-hooks/v2.2",
         },
         hooks: hooksConfig,
       };

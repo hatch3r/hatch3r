@@ -143,17 +143,22 @@ export function createProgram(): Command {
     .action(addCommand);
 
   program
-    .command("worktree-setup [worktree-path]")
-    .description("Set up gitignored files in a git worktree")
+    .command("worktree-setup [name]")
+    .description("Create a git worktree by name and populate hatch3r files (auto-resolved to .worktrees/<name>)")
     .option("--from <path>", "Main repo path (auto-detected by default)")
+    .option("--from-path <path>", "Legacy mode: populate an existing worktree at <path> (skips git worktree add). Used by editor hooks.")
     .option("--dry-run", "Show what would be done without changes")
     .option("--force", "Overwrite existing files in the worktree")
+    .option("--yes", "Skip the secret-propagation confirmation prompt")
     .action(worktreeSetupCommand);
 
   program
     .command("worktree-cleanup")
-    .description("Remove symlinks and copied files created by worktree-setup")
+    .description("Discover hatch3r-managed worktrees from the main repo, then clean files and remove the selected worktree(s)")
     .option("--dry-run", "Show what would be done without changes")
+    .option("--all", "Skip the all/specific prompt and clean every hatch3r-managed worktree")
+    .option("--yes", "Skip selection and confirmation prompts (implies --all unless paths are filtered upstream)")
+    .option("--files-only", "Remove hatch3r-managed files only; keep the git worktree and its directory")
     .action(worktreeCleanupCommand);
 
   // Catch-all for unknown commands -- redirect agent commands to the editor
