@@ -134,6 +134,13 @@ async function validateFrontmatter(
               if (dir === "commands" && parsedFm && typeof parsedFm === "object") {
                 validateCommandOrchestratorFrontmatter(parsedFm, `.agents/${dir}/${entry.name}`, result);
               }
+              // P7: Recognize and type-check the five new optional efficiency
+              // frontmatter fields. Unknown values produce warnings only; the
+              // hard `triage_tiers` requirement on orchestrator commands is
+              // enforced separately by scripts/validate-efficiency-invariants.ts.
+              if (parsedFm && typeof parsedFm === "object") {
+                validateEfficiencyFrontmatter(parsedFm, `.agents/${dir}/${entry.name}`, dir, result);
+              }
             }
           }
         } else if (entry.isDirectory()) {
@@ -220,6 +227,79 @@ function validateCommandOrchestratorFrontmatter(
     result.warnings.push(
       `Unused 'agentPipeline' in ${fileLabel}: command declares orchestrator: false but lists sub-agents; either set orchestrator: true or remove the agentPipeline field`,
     );
+  }
+}
+
+/**
+ * P7: Soft-validate the five new optional efficiency frontmatter fields:
+ *   - efficiency_patterns (string ending in .md)
+ *   - efficiency_tier (enum: light | standard | deep) — agents only
+ *   - cache_friendly (boolean)
+ *   - parallel_tool_default (boolean)
+ *   - triage_tiers (array of integers in [1,2,3])
+ *
+ * All checks are warning-level. The hard `triage_tiers` requirement on
+ * orchestrator commands lives in scripts/validate-efficiency-invariants.ts.
+ * Missing fields are not flagged here — they are optional. Unknown fields are
+ * not flagged either; the existing frontmatter validator does not maintain an
+ * allowlist, so this helper only type-checks the five fields when present.
+ */
+const EFFICIENCY_TIER_VALUES = new Set(["light", "standard", "deep"]);
+
+function validateEfficiencyFrontmatter(
+  parsedFm: Record<string, unknown>,
+  fileLabel: string,
+  dir: string,
+  result: ValidationResult,
+): void {
+  if ("efficiency_patterns" in parsedFm) {
+    const ep = parsedFm.efficiency_patterns;
+    if (typeof ep !== "string" || !ep.endsWith(".md")) {
+      result.warnings.push(
+        `Invalid 'efficiency_patterns' in ${fileLabel}: expected string path ending in .md, got ${typeof ep === "string" ? `"${ep}"` : typeof ep}`,
+      );
+    }
+  }
+
+  if ("efficiency_tier" in parsedFm) {
+    const tier = parsedFm.efficiency_tier;
+    if (typeof tier !== "string" || !EFFICIENCY_TIER_VALUES.has(tier)) {
+      result.warnings.push(
+        `Invalid 'efficiency_tier' in ${fileLabel}: expected one of light|standard|deep, got ${typeof tier === "string" ? `"${tier}"` : typeof tier}`,
+      );
+    } else if (dir !== "agents") {
+      result.warnings.push(
+        `Unexpected 'efficiency_tier' in ${fileLabel}: field applies to agents/*.md only`,
+      );
+    }
+  }
+
+  if ("cache_friendly" in parsedFm && typeof parsedFm.cache_friendly !== "boolean") {
+    result.warnings.push(
+      `Invalid 'cache_friendly' in ${fileLabel}: expected boolean (true|false), got ${typeof parsedFm.cache_friendly}`,
+    );
+  }
+
+  if ("parallel_tool_default" in parsedFm && typeof parsedFm.parallel_tool_default !== "boolean") {
+    result.warnings.push(
+      `Invalid 'parallel_tool_default' in ${fileLabel}: expected boolean (true|false), got ${typeof parsedFm.parallel_tool_default}`,
+    );
+  }
+
+  if ("triage_tiers" in parsedFm) {
+    const tt = parsedFm.triage_tiers;
+    if (!Array.isArray(tt)) {
+      result.warnings.push(
+        `Invalid 'triage_tiers' in ${fileLabel}: expected array of integers from [1,2,3], got ${typeof tt}`,
+      );
+    } else {
+      const invalid = tt.filter((n) => !Number.isInteger(n) || (n !== 1 && n !== 2 && n !== 3));
+      if (invalid.length > 0) {
+        result.warnings.push(
+          `Invalid 'triage_tiers' entries in ${fileLabel}: expected integers from [1,2,3], got ${JSON.stringify(invalid)}`,
+        );
+      }
+    }
   }
 }
 

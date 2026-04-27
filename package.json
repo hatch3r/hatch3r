@@ -23,6 +23,8 @@
     "inventory": "tsx scripts/inventory.ts",
     "inventory:check-docs": "tsx scripts/inventory.ts --check-docs",
     "validate:rule-parity": "tsx scripts/validate-rule-parity.ts",
+    "validate:efficiency": "tsx scripts/validate-efficiency-invariants.ts",
+    "validate": "npm run validate:rule-parity && npm run validate:efficiency",
     "lockfile:check": "lockfile-lint --path package-lock.json --type npm --allowed-hosts npm --validate-https"
   },
   "keywords": [

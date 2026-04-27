@@ -292,6 +292,99 @@ describe("validate command", () => {
     });
   });
 
+  // P7: efficiency frontmatter fields (efficiency_patterns, efficiency_tier,
+  // cache_friendly, parallel_tool_default, triage_tiers). All checks are
+  // warning-level; the hard triage_tiers requirement is enforced by
+  // scripts/validate-efficiency-invariants.ts (separate validator).
+  describe("P7 efficiency frontmatter fields", () => {
+    it("accepts a rule with all 5 new fields at legal values", async () => {
+      await createMinimalAgentsDir(tempDir);
+      await writeFile(
+        join(tempDir, AGENTS_DIR, "rules", "hatch3r-eff-ok.md"),
+        "---\nid: hatch3r-eff-ok\ntype: rule\ndescription: P7 fixture exercising all five efficiency frontmatter fields with legal values across the matrix\nscope: always\nefficiency_patterns: agents/shared/efficiency.md\ncache_friendly: true\nparallel_tool_default: false\ntriage_tiers: [1, 2, 3]\n---\n# OK\n",
+      );
+
+      const { validateCommand } = await import("../../cli/commands/validate.js");
+      await validateCommand();
+
+      const out = combinedOutput();
+      expect(out).not.toContain("Invalid 'efficiency_patterns'");
+      expect(out).not.toContain("Invalid 'cache_friendly'");
+      expect(out).not.toContain("Invalid 'parallel_tool_default'");
+      expect(out).not.toContain("Invalid 'triage_tiers'");
+    });
+
+    it("accepts efficiency_tier: deep on an agent", async () => {
+      await createMinimalAgentsDir(tempDir);
+      await writeFile(
+        join(tempDir, AGENTS_DIR, "agents", "hatch3r-deep-agent.md"),
+        "---\nid: hatch3r-deep-agent\ntype: agent\ndescription: P7 fixture exercising the efficiency_tier deep tier value on an agent file with no other warnings\nefficiency_tier: deep\n---\n# Deep tier agent\n",
+      );
+
+      const { validateCommand } = await import("../../cli/commands/validate.js");
+      await validateCommand();
+
+      const out = combinedOutput();
+      expect(out).not.toContain("Invalid 'efficiency_tier'");
+      expect(out).not.toContain("Unexpected 'efficiency_tier'");
+    });
+
+    it("warns when efficiency_tier is an unknown value", async () => {
+      await createMinimalAgentsDir(tempDir);
+      await writeFile(
+        join(tempDir, AGENTS_DIR, "agents", "hatch3r-bad-tier.md"),
+        "---\nid: hatch3r-bad-tier\ntype: agent\ndescription: P7 fixture exercising the efficiency_tier invalid-enum warning path with an out-of-domain value\nefficiency_tier: turbo\n---\n# Bad tier\n",
+      );
+
+      const { validateCommand } = await import("../../cli/commands/validate.js");
+      await validateCommand();
+
+      expect(combinedOutput()).toContain("Invalid 'efficiency_tier'");
+    });
+
+    it("warns when cache_friendly is a string instead of boolean", async () => {
+      await createMinimalAgentsDir(tempDir);
+      await writeFile(
+        join(tempDir, AGENTS_DIR, "rules", "hatch3r-bad-cache.md"),
+        "---\nid: hatch3r-bad-cache\ntype: rule\ndescription: P7 fixture exercising the cache_friendly type-mismatch warning path with a string value instead of bool\nscope: always\ncache_friendly: \"yes\"\n---\n# Bad cache\n",
+      );
+
+      const { validateCommand } = await import("../../cli/commands/validate.js");
+      await validateCommand();
+
+      expect(combinedOutput()).toContain("Invalid 'cache_friendly'");
+    });
+
+    it("warns when triage_tiers contains out-of-range values", async () => {
+      await createMinimalAgentsDir(tempDir);
+      await writeFile(
+        join(tempDir, AGENTS_DIR, "commands", "hatch3r-bad-tiers.md"),
+        "---\nid: hatch3r-bad-tiers\ntype: command\norchestrator: true\nagentPipeline: [hatch3r-researcher]\ndescription: P7 fixture exercising the triage_tiers out-of-range warning path with values 4 and 5 in the array\ntriage_tiers: [4, 5]\n---\n# Bad tiers\n",
+      );
+
+      const { validateCommand } = await import("../../cli/commands/validate.js");
+      await validateCommand();
+
+      expect(combinedOutput()).toContain("Invalid 'triage_tiers' entries");
+    });
+
+    it("backward compat: an artifact with no new fields still passes", async () => {
+      await createMinimalAgentsDir(tempDir);
+      // The minimal fixture rule (created by createMinimalAgentsDir) carries
+      // no P7 fields. Validation must complete without surfacing any of the
+      // new soft warnings.
+      const { validateCommand } = await import("../../cli/commands/validate.js");
+      await validateCommand();
+
+      const out = combinedOutput();
+      expect(out).not.toContain("Invalid 'efficiency_patterns'");
+      expect(out).not.toContain("Invalid 'efficiency_tier'");
+      expect(out).not.toContain("Invalid 'cache_friendly'");
+      expect(out).not.toContain("Invalid 'parallel_tool_default'");
+      expect(out).not.toContain("Invalid 'triage_tiers'");
+    });
+  });
+
   it("should warn about skill directory missing SKILL.md", async () => {
     await createMinimalAgentsDir(tempDir);
 
