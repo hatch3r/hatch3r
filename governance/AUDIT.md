@@ -298,10 +298,11 @@ The orchestrator spawns sub-agents per domain file. Each sub-agent:
 - [ ] Multi-stakeholder impact — consider how each finding affects: the end user experiencing the product, the developer maintaining the code, the team lead governing quality, and the ops team deploying. Findings that matter to only one stakeholder should note this.
 - [ ] Apply the Scientific Rigor Contract per [audit/templates/rigor-contract.md](audit/templates/rigor-contract.md) on every finding before writing it (six tests: falsifiability, triangulation, confidence with basis, ≥3-step causal chain, bias check, adversarial peer-review counter-argument)
 - [ ] Apply the Web Research Mandate citation format on every external claim (URL + access date + author/org + trust tier; ≥2 independent sources; recency window per source class)
+- [ ] For end-user runtime artifacts (not audit prompts/commands): efficiency invariants per D06 — static-first ordering, parallel-tool default, triage-first if orchestrator
 
 ### Sub-Agent Behavioral Charter
 
-> **Canonical definition:** [CONSTITUTION.md](CONSTITUTION.md) §2 P2 defines the charter's governance role. The 13 directives below are the authoritative behavioral specification for audit sub-agents.
+> **Canonical definition:** [CONSTITUTION.md](CONSTITUTION.md) §2 P2 defines the charter's governance role. The 14 directives below are the authoritative behavioral specification for audit sub-agents (directive count grew from 13 to 14 with the addition of Speed & Token Efficiency Awareness for P7).
 
 Every audit sub-agent must internalize these behavioral directives. These govern HOW you think, not just WHAT you check. The checklists define scope; the charter defines mindset.
 
@@ -330,6 +331,8 @@ Every audit sub-agent must internalize these behavioral directives. These govern
 12. **Currency verification** — For any finding involving adapters or MCP servers, verify against the platform's latest official documentation. Cite the documentation version and date. A finding based on stale documentation is itself a finding.
 
 13. **Duplication awareness** — Before flagging a missing content artifact (agent, skill, rule, command), search existing artifacts for overlapping coverage. A proposal for content that already exists is a false positive, not a finding.
+
+14. **Speed & Token Efficiency Awareness** — When auditing end-user runtime artifacts (commands, agents, skills, rules consumed in installed projects), evaluate whether they apply zero-quality-loss efficiency techniques: static-first prompt ordering, parallel-tool-by-default, triage-first auto-tiering, plan/act split, structured outputs, lazy reference-by-pointer. Findings about runtime efficiency belong in D06. Do NOT apply this lens to AUDIT.md, AUDIT-EXECUTE.md, RE-ENVISION.md, or `commands/hatch3r-audit*.md` — those are explicitly exempt from efficiency optimization (depth over speed).
 
 ### Domain File Quality Standard
 
