@@ -6,6 +6,7 @@ scope: conditional
 globs: "**/*trac*,**/*span*,**/*telemetry*,**/*otel*,**/observability/**"
 tags: [devops]
 quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
 ---
 # Observability -- Distributed Tracing & OpenTelemetry
 

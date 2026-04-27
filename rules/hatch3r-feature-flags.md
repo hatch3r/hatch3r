@@ -6,6 +6,7 @@ scope: conditional
 globs: "**/*feature-flag*,**/*featureFlag*,**/*feature_flag*,**/config/**"
 tags: [implementation]
 quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
 ---
 # Feature Flags
 

@@ -5,6 +5,7 @@ description: Consult .agents/learnings/ for pitfalls, patterns, and past decisio
 scope: "**/.agents/learnings/**,**/learnings/**"
 tags: [core]
 quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
 ---
 # Learning Consultation
 

@@ -5,6 +5,7 @@ description: Mandatory agent delegation, skill loading, and subagent usage direc
 scope: always
 tags: [core]
 quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
 ---
 # Agent Orchestration
 

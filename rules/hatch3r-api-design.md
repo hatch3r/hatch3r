@@ -5,6 +5,7 @@ description: REST, GraphQL, and gRPC contract patterns covering versioning, auth
 scope: "**/api/**,**/routes/**,**/controllers/**,**/endpoints/**,**/*route*,**/*controller*,**/*endpoint*,**/*handler*,**/graphql/**,**/trpc/**"
 tags: [planning]
 quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
 ---
 # API Design
 

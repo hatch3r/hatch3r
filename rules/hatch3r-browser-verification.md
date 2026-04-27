@@ -6,6 +6,7 @@ scope: conditional
 globs: "**/*.vue,**/*.jsx,**/*.tsx,**/*.svelte,**/components/**,**/*.html,**/*.css,**/*.scss"
 tags: [review]
 quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
 ---
 # Browser Verification
 

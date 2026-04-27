@@ -5,6 +5,7 @@ description: Coverage thresholds, mocking strategy, property-based testing, muta
 scope: "**/*.test.*,**/*.spec.*,**/__tests__/**,**/tests/**,**/test/**,**/*.cy.*,**/playwright/**,**/vitest.config.*,**/jest.config.*,**/cypress.config.*"
 tags: [core]
 quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
 ---
 # Testing Standards
 

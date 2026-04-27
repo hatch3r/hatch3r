@@ -5,6 +5,7 @@ description: Database migration and schema change patterns for the project
 scope: "**/migrations/**,**/*migration*,**/migrate/**,**/seeds/**,**/seeders/**,**/prisma/migrations/**,**/drizzle/**,**/knex/**"
 tags: [implementation, brownfield]
 quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
 ---
 # Migrations
 

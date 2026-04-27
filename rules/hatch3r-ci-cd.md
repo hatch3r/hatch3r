@@ -5,6 +5,7 @@ description: CI/CD pipeline standards covering stage gates, deployment strategie
 scope: "**/.github/workflows/**,**/Dockerfile*,**/docker-compose*,**/.gitlab-ci*,**/Jenkinsfile,**/azure-pipelines*,**/.circleci/**,**/deploy/**,**/*pipeline*"
 tags: [devops]
 quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
 ---
 # CI/CD Standards
 
