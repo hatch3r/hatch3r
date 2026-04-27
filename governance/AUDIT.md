@@ -1,12 +1,12 @@
 # hatch3r — Full Framework Audit Prompt
 
-> Last updated: 2026-04-19
+> Last updated: 2026-04-27
 
 ## Purpose
 
 Perform a deep, end-to-end audit of every area, aspect, and line of code or content in the hatch3r framework. The goal: verify this framework is production-ready and open-sourceable by applying the 19-domain checklist across code, content, and adapter implementations — enabling end users to build winning software products at scale.
 
-This audit covers **19 domains** organized across **4 tiers**, deploying **106 sub-agents** for maximum depth. Every domain requires web research for current market context. The final deliverable is a structured audit report with severity-tagged findings, weighted domain scores, and prioritized action items using 3-tier progressive disclosure.
+This audit covers **19 domains** organized across **4 tiers**, deploying **107 sub-agents** for maximum depth. Every domain requires web research for current market context. The final deliverable is a structured audit report with severity-tagged findings, weighted domain scores, and prioritized action items using 3-tier progressive disclosure.
 
 > **Path Convention:** All file paths in this document are relative to the **repository root**. Governance files live under `governance/`. The ephemeral `.audit-workspace/` directory is created at repository root.
 
@@ -54,7 +54,7 @@ Not all domains require equal audit depth every cycle. To prevent diminishing re
 
 ### Sub-Agent Strategy
 
-Spawn **106 sub-agents** across 19 audit domains organized in 4 tiers. Each domain decomposes into multiple focused sub-agents for maximum depth. Sub-agents within the same domain run in parallel unless a sequential dependency is noted. Domain-level synthesis sub-agents run only after their prerequisite sub-agents complete. Inherit your LLM model to every sub-agent — do not downgrade. Each sub-agent MUST use web research. **Never optimize for token efficiency — optimize for audit quality and depth.**
+Spawn **107 sub-agents** across 19 audit domains organized in 4 tiers. Each domain decomposes into multiple focused sub-agents for maximum depth. Sub-agents within the same domain run in parallel unless a sequential dependency is noted. Domain-level synthesis sub-agents run only after their prerequisite sub-agents complete. Inherit your LLM model to every sub-agent — do not downgrade. Each sub-agent MUST use web research. **Never optimize for token efficiency — optimize for audit quality and depth.**
 
 #### Optional Domain Orchestrator Bundling
 
@@ -77,6 +77,7 @@ The following sub-agents have sequential dependencies and MUST NOT launch until 
 | 9.16 (Emerging Platforms) | 9.1–9.14 | Requires understanding of current adapter landscape |
 | 16.1 (Cross-Domain Pattern Synthesis) | D5, D7, D9 | Requires prompt, orchestration, and adapter findings |
 | 16.2 (Coverage Gap Analysis) | D5, D9 | Requires content and adapter findings |
+| 16.3 (Artifact Inventory & Redundancy) | D5, D14, pre-audit inventory | Requires per-artifact quality findings and verified artifact inventory |
 | 17.3 (Market Positioning & Strategy) | 17.1, 17.2 | Requires competitor and ecosystem data |
 | 18.1 (PRD Alignment) | D16, D17 | Requires cross-domain synthesis and competitive findings |
 | 18.2 (Roadmap Reprioritization) | D16, D17 | Requires cross-domain synthesis and competitive findings |
@@ -84,12 +85,12 @@ The following sub-agents have sequential dependencies and MUST NOT launch until 
 
 ### Concurrency Model
 
-Of the 106 total sub-agents, **97 launch immediately** in parallel. The remaining **9 sub-agents** launch sequentially after their dependencies complete:
+Of the 107 total sub-agents, **98 launch immediately** in parallel. The remaining **9 sub-agents** launch sequentially after their dependencies complete:
 
 | Tier | Sequential Sub-Agents |
 |------|----------------------|
 | B | 9.15, 9.16 |
-| C | 16.1, 16.2 |
+| C | 16.1, 16.2, 16.3 |
 | D | 17.3, 18.1, 18.2, 18.3 |
 
 ### Web Research & Scientific Rigor
@@ -115,10 +116,10 @@ Execute by tier with synthesis between tiers:
 |------|---------|--------|--------|
 | A | D1–D4 | 27 | Launch → synthesize → release from context |
 | B | D5–D10,D19 | 49 | Launch → synthesize → release from context |
-| C | D11–D16 | 24 | Launch → synthesize → release from context |
+| C | D11–D16 | 25 | Launch → synthesize → release from context |
 | D | D17–D18 | 6 | Launch → synthesize → final assembly |
 
-Peak context: 49 sub-agent results (Tier B), not 106.
+Peak context: 49 sub-agent results (Tier B), not 107.
 
 ### Pre-Audit Questions
 
@@ -244,7 +245,7 @@ If total findings fall below 50, the orchestrating agent MUST verify depth by ch
 ### Quality Checklist
 
 - [ ] All 19 domains were examined (no domain was skipped). Domains with zero findings must include a clean-domain justification citing: specific files examined, verification methods used, and web research performed. A clean domain is acceptable; a skipped domain is not.
-- [ ] All 106 sub-agents produced output (no silent failures)
+- [ ] All 107 sub-agents produced output (no silent failures)
 - [ ] Every Critical and High finding has a specific, actionable recommendation
 - [ ] Every finding references specific files, line numbers, or artifacts
 - [ ] Web research was performed for every domain (cite sources)
@@ -358,10 +359,10 @@ Each domain file (`governance/audit/domains/D{NN}-{name}.md`) must meet these mi
 | C | 13: Human-AI Collaboration Quality | 4 | 4 | 0 |
 | C | 14: Cross-Project Adaptability & Scalability | 4 | 4 | 0 |
 | C | 15: Agentic Security & Trust Model | 6 | 6 | 0 |
-| C | 16: Cross-Domain Synthesis | 2 | 0 | 2 |
+| C | 16: Cross-Domain Synthesis | 3 | 0 | 3 |
 | D | 17: Competition & Market Intelligence | 3 | 2 | 1 |
 | D | 18: PRD, Roadmap & Distribution | 3 | 0 | 3 |
-| **Total** | | **106** | **98** | **8** |
+| **Total** | | **107** | **98** | **9** |
 
 > **Note:** Sub-agent counts and domain list may evolve across audit cycles via the self-evolution process (Phase CL-3). The table above reflects the current baseline. Any changes require explicit user consent.
 

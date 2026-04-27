@@ -2,7 +2,21 @@
 
 All notable changes to hatch3r are documented in this file.
 
-## [1.6.2] - 2026-04-22
+## [1.7.0] - 2026-04-27
+
+### Added
+
+- **Audit sub-agent 16.3 (Artifact Inventory & Redundancy)**: New cross-domain synthesis sub-agent that audits the canonical content corpus (16 agents + 26 skills + 27 rules + 34 commands + 6 hooks plus companions under `agents/modes/`, `agents/shared/`, `commands/board/`, `commands/revision/`, `checks/`) for whole-artifact redundancy. Closes the asymmetry where Phase CL-2 specs net-new artifacts but no audit channel surfaced removal/merge candidates — `governance/audit/domains/D16-compound-system.md` previously held only 16.1 (cross-domain contradictions) and 16.2 (closed-loop effectiveness), both flagging missing-or-broken state without ever asking "should this artifact still exist?" The new sub-agent runs sequentially after Tier A+B, applies the Scientific Rigor Contract, and uses a 7-item checklist: cross-artifact functional overlap (within-type pairwise comparison), skill↔command redundancy (same workflow packaged twice), pillar coverage tally (P1–P6 over-/under-served signals), removal-candidate threshold (zero unique value AND ≤1 cross-reference AND no orchestrator dependency in any `agentPipeline:` — fail any one and it's a merge candidate at most), add-vs-remove bias check (default to consolidation), companion content scope drift (support files that became standalone artifacts), and severity discipline (merge=Medium max, removal=High max).
+
+### Changed
+
+- **`governance/AUDIT.md` audit baseline incremented 106 → 107**: Updates Purpose statement (line 9), Sub-Agent Strategy (line 57), Concurrency Model (line 87), Tier C launch row (line 118), Peak Context note (line 121), Quality Checklist (line 248), Summary Table D16 row (line 361 from `2|0|2` to `3|0|3`), and Summary Table totals (line 364 from `106|98|8` to `107|98|9`). Concurrency Model also corrected a pre-existing off-by-one — the prior wording said "97 immediate + 9 sequential = 106" while the table summed `98 + 8 = 106`; both numerators now align at "98 + 9 = 107". Dependency Graph adds a 16.3 entry depending on `D5, D14, pre-audit inventory`.
+
+- **`governance/CONSTITUTION.md` P4 measurement extended**: Added `artifact-level redundancy candidates surfaced per cycle` to the Comprehensive Lean Coverage measurement line. Previous measurement bound P4 only to governance duplication index (<5%) and total line count (<=3000); the new measurement extends "every file earns its existence" to canonical content via the new D16.3 sub-agent.
+
+- **`governance/audit/domains/D16-compound-system.md` sub-agent count 2 → 3**: Adds 16.3 to the table and a new checklist section. Stays within the 30–80-line domain-file lean threshold (file grows from 52 to ~64 lines).
+
+
 
 ### Fixed
 

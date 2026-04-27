@@ -40,7 +40,7 @@ Every adapter and MCP server stays current through audit cycles. Each cycle mand
 
 Commands and shared resources cover every end-to-end stage of production software at every scale. Content stays lean: no bloat, no duplication, single-source-of-truth, every file earns its existence.
 
-**Measurement:** Lifecycle phase coverage percentage, content-to-purpose ratio, duplication index, governance total line count (target <=3000).
+**Measurement:** Lifecycle phase coverage percentage, content-to-purpose ratio, duplication index, artifact-level redundancy candidates surfaced per cycle, governance total line count (target <=3000).
 **Governance refs:** AUDIT.md D16 (Cross-Domain Synthesis), CL-2 (Content Gap Identification), charter directive 13 (duplication awareness).
 
 ### P5. Governance Self-Quality

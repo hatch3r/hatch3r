@@ -1,11 +1,11 @@
 # Domain 16: Cross-Domain Synthesis
 
-> Last updated: 2026-04-19
+> Last updated: 2026-04-27
 
 **Pillars served:** P4 (primary), P5 (supporting).
 
 **Scope:** Cross-domain insights that no single domain can produce. This domain synthesizes findings from all other domains to identify contradictions, systemic patterns, and closed-loop effectiveness. Explicitly NOT re-auditing scope covered by home domains.
-**Sub-agents:** 2
+**Sub-agents:** 3
 
 ALL sub-agents are **sequential** — run only after all Tier A and B domains complete.
 
@@ -13,6 +13,7 @@ ALL sub-agents are **sequential** — run only after all Tier A and B domains co
 |----|-------|-----------|
 | 16.1 | Cross-Domain Contradiction Detection | All Tier A+B |
 | 16.2 | Closed-Loop Effectiveness | D18 (previous cycle) |
+| 16.3 | Artifact Inventory & Redundancy | All Tier A+B |
 
 ## Synthesis Methodology
 
@@ -50,3 +51,12 @@ If yes to either: log as "cross-domain confirmation of D{N} #{ID}" without creat
 - [ ] Diminishing returns: are scores improving? Is improvement rate slowing (healthy maturity) or stalling (broken loop)?
 - [ ] Learning system integration: are findings captured as learnings in `/.agents/learnings/`?
 - [ ] Two-speed detection: are tactical fixes (wave 1-2) progressing while strategic items (CL phases 5-7) remain stalled? Flag if CL phases have 0 executions for 2+ cycles
+
+### 16.3 Artifact Inventory & Redundancy
+- [ ] Cross-artifact functional overlap: for each pair of artifacts within the same type (agent×agent under `agents/`, skill×skill under `skills/`, rule×rule under `rules/`, command×command under `commands/`, hook×hook under `hooks/`), compare frontmatter `description` plus body purpose. Flag pairs with substantially overlapping scope as merge candidates with a 3-sentence rationale (what each uniquely contributes, what is duplicated, proposed consolidation path)
+- [ ] Skill↔command redundancy: for each command in `commands/hatch3r-*.md` with `orchestrator: false`, check whether the same workflow is also packaged as a skill in `skills/hatch3r-*/SKILL.md`. Flag matching trigger conditions where users must choose between artifacts with no clear distinction
+- [ ] Pillar coverage tally: count artifacts citing each pillar (P1–P6) in `tags` or body. Flag pillars over-served (>30 artifacts) or under-served (<3 artifacts) as scope imbalance signals
+- [ ] Removal candidate threshold: an artifact qualifies as removal candidate only when ALL hold — (a) zero unique value beyond an existing artifact, (b) ≤1 cross-reference from other artifacts, (c) no orchestrator dependency in any `commands/hatch3r-*.md` `agentPipeline:`. Anything failing this bar is at most a merge candidate
+- [ ] Add-vs-remove bias check: when overlap is detected, default recommendation is consolidation (merge two artifacts into one), not removal. Removal requires the threshold above; document the rejected merge alternative when proposing removal
+- [ ] Companion content scope drift: scan `agents/modes/*`, `agents/shared/*`, `commands/board/*`, `commands/revision/*`, `checks/*` for files whose stated purpose has drifted from "support material referenced by parent" to "standalone artifact in disguise". Flag any companion file with no inbound reference from its parent as a removal candidate
+- [ ] Severity discipline: merge-candidate findings are at most Medium; removal-candidate findings are at most High. Functional overlap with unclear consolidation path is Low or Info. Per-finding severity must cite which threshold it crosses
