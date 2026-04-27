@@ -6,6 +6,10 @@ agentPipeline: [hatch3r-researcher, hatch3r-implementer, hatch3r-reviewer, hatch
 description: Pick up one or more epics/issues from the project board for development. Handles dependency-aware selection, collision detection, branching, parallel sub-agent delegation, and batch execution. Supports GitHub, Azure DevOps, and GitLab. Platform-specific details are in commands/board/pickup-{platform}.md.
 tags: [board, team]
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+cache_friendly: true
+parallel_tool_default: true
+triage_tiers: [1, 2, 3]
 ---
 # Board Pickup -- Develop Issues from the Project Board
 
@@ -70,6 +74,18 @@ Downstream propagation: every ASK checkpoint that reports verification quality, 
 ## Workflow
 
 Execute these steps in order. **Do not skip any step.** Ask the user at every checkpoint marked with ASK.
+
+## Step 0: Triage
+
+Classify the pickup request before delegating:
+
+- **Tier 1 (trivial)**: single sub-issue, isolated change, clear acceptance criteria; standard pipeline but with `quick` researcher depth and no parallel batch.
+- **Tier 2 (standard)**: single epic with sub-issues, or 2–3 independent issues in a batch; standard pipeline with researcher per issue and parallel implementer fanout.
+- **Tier 3 (deep)**: cross-cutting epic, contract change, multi-module batch, or audit epic; full pipeline with deep research, confirm sub-issue selection with the user, and serialize work that touches overlapping files.
+
+If Tier 1, run the standard delegation path (Step 6a) with reduced research depth. If Tier 2, run the standard pipeline below with parallel fanout where dependencies allow. If Tier 3, run the full pipeline with deep research and confirm batch composition with the user before branching.
+
+---
 
 ### Step 1: List Available Work (Dependency-Aware)
 

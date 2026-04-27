@@ -5,6 +5,9 @@ orchestrator: false
 description: Override agent persona, model selection, preset enablement, and repo-file apply-scope via YAML plus markdown injection under .hatch3r/agents/
 tags: [customize]
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+cache_friendly: true
+parallel_tool_default: true
 ---
 
 ## Agent Pipeline

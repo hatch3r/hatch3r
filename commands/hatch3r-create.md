@@ -6,6 +6,10 @@ agentPipeline: [hatch3r-creator]
 description: Author a custom user-tier artifact (agent, skill, rule, command, or hook) for this project. Generates frontmatter and body skeleton, applies strict + gentle quality gates, writes to .agents/user/{type}/, and offers to sync to all enabled adapters.
 tags: [core, customize]
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+cache_friendly: true
+parallel_tool_default: true
+triage_tiers: [1, 2, 3]
 ---
 
 ## Agent Pipeline
@@ -23,6 +27,18 @@ The 5 supported types: **agent** (sub-agent invokable from orchestrators), **ski
 ## Workflow
 
 The command runs in three phases. Phase 1 collects every input upfront. Phase 2 delegates to `hatch3r-creator`. Phase 3 verifies and reports. No file is written until the user confirms the plan in Step 1.7.
+
+## Step 0: Triage
+
+Classify the artifact-authoring request before delegating:
+
+- **Tier 1 (trivial)**: small rule, snippet command, or single-event hook with clear scope; inline frontmatter assembly with minimal type-specific prompts.
+- **Tier 2 (standard)**: standard agent, skill, or orchestrator command with frontmatter and body skeleton; standard pipeline with `hatch3r-creator` delegation and full strict-gate funnel.
+- **Tier 3 (deep)**: artifact with cross-cutting tool allowlists, custom adapters, or pipeline integration; full pipeline with `hatch3r-creator` and confirm the plan with the user before writing.
+
+If Tier 1, run Phase 1 with reduced prompts (skip optional dimensions). If Tier 2, run the standard pipeline below. If Tier 3, expand Phase 1 dimension probing and confirm the plan summary explicitly with the user before delegating.
+
+**Parallel-dispatch directive:** When two or more steps below are independent (no shared files, no data dependency), issue all tool calls or sub-agent spawns in a single turn. Sequential dispatch of independent work is a finding under P7 (efficiency charter §P2).
 
 ---
 

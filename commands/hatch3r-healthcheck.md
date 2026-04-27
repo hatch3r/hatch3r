@@ -5,6 +5,9 @@ orchestrator: false
 description: Open a QA and reliability epic surveying coverage gaps, flaky tests, and regression blind spots with one testing sub-issue per module plus cross-module wiring audit
 tags: [maintenance]
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+cache_friendly: true
+parallel_tool_default: true
 ---
 
 ## Agent Pipeline

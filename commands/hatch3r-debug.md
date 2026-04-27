@@ -6,6 +6,10 @@ agentPipeline: [hatch3r-researcher, hatch3r-implementer, hatch3r-reviewer, hatch
 description: Standalone debug-and-fix workflow — add strategic debug logging, collect runtime logs from the user, perform root cause analysis, implement the fix, and clean up all debug artifacts.
 tags: [core, implementation]
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+cache_friendly: true
+parallel_tool_default: true
+triage_tiers: [1, 2, 3]
 ---
 # Debug — Instrument, Diagnose, and Fix from Runtime Evidence
 
@@ -82,6 +86,18 @@ If the user declines, skip all browser steps. Do not ask again during the sessio
 ## Workflow
 
 Execute these stages in order. **Do not skip any stage.** Ask the user at every checkpoint marked with ASK.
+
+## Triage
+
+Classify the debug request before delegating:
+
+- **Tier 1 (trivial)**: single-file bug with one obvious instrumentation point and known reproduction; reduced researcher depth (`quick`) and minimal logging.
+- **Tier 2 (standard)**: bug spanning 2–4 files with multiple instrumentation points; standard pipeline with researcher (`symptom-trace`) and implementer for logging and fix.
+- **Tier 3 (deep)**: cross-module or intermittent bug requiring deep root-cause analysis; full pipeline with `deep` researcher depth and confirm fix approach with the user before mutating files.
+
+If Tier 1, run the standard stages with reduced researcher depth. If Tier 2, run the full pipeline below. If Tier 3, expand researcher modes (add `regression` if relevant) and confirm the diagnosis with the user before Stage 5.
+
+---
 
 ### Stage 1: Gather Bug Context
 
