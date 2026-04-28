@@ -5,6 +5,7 @@ description: Accessibility standards covering WCAG 2.2 AA compliance, keyboard n
 scope: "**/*.vue,**/*.jsx,**/*.tsx,**/*.svelte,**/components/**,**/*.html,**/*a11y*,**/*accessibility*"
 tags: [a11y]
 quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
 ---
 # Accessibility Standards
 

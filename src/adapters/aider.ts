@@ -18,7 +18,7 @@ export class AiderAdapter extends BaseAdapter {
       ...await this.bridgeHeader(ctx),
       ...await this.inlineRules(ctx),
       ...await this.inlineAgents(ctx),
-    ].join("\n");
+    ].join("\n").trim();
 
     const results: AdapterOutput[] = [
       output("CONVENTIONS.md", wrapInManagedBlock(inner), inner),

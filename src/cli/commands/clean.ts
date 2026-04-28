@@ -11,7 +11,7 @@ import {
   step,
   label,
 } from "../shared/ui.js";
-import { HatchError, type ContentSelection, type Features, type Platform, type Tool } from "../../types.js";
+import { HatchError, type ContentSelection, type CustomizationManifest, type Features, type Platform, type Tool } from "../../types.js";
 import { inventoryArtifacts, executeClean, backupLearnings, restoreLearnings, type CleanInventory } from "../../clean/index.js";
 import { runInit, type RunInitOptions } from "./init.js";
 import { analyzeRepo } from "../../detect/repoAnalyzer.js";
@@ -28,6 +28,13 @@ interface CapturedConfig {
   mcpServers: string[];
   contentSelection: ContentSelection;
   worktreeEnabled: boolean;
+  /**
+   * Customization payload carried forward from the pre-clean manifest so a
+   * `clean` -> reinit cycle preserves integration config (e.g. GitHub project
+   * IDs) and per-artifact overrides when the project-side
+   * `.hatch3r/*.customize.yaml` files are absent.
+   */
+  customization?: CustomizationManifest;
 }
 
 function captureConfig(manifest: NonNullable<CleanInventory["manifest"]>): CapturedConfig {
@@ -48,6 +55,7 @@ function captureConfig(manifest: NonNullable<CleanInventory["manifest"]>): Captu
       items: { agents: [], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
     },
     worktreeEnabled: manifest.worktree?.enabled ?? false,
+    customization: manifest.customization,
   };
 }
 
@@ -58,7 +66,11 @@ function printInventory(inventory: CleanInventory): void {
     sections.push(`  ${chalk.red("×")} ${inventory.adapterFiles.length} adapter output file(s)`);
   }
   if (inventory.canonicalDir) {
-    sections.push(`  ${chalk.red("×")} .agents/ canonical directory`);
+    if ((inventory.userContentCount ?? 0) > 0) {
+      sections.push(`  ${chalk.red("×")} .agents/ canonical directory ${chalk.dim("(.agents/user/ preserved)")}`);
+    } else {
+      sections.push(`  ${chalk.red("×")} .agents/ canonical directory`);
+    }
   }
   if (inventory.worktreeInclude) {
     sections.push(`  ${chalk.red("×")} .worktreeinclude`);
@@ -73,6 +85,12 @@ function printInventory(inventory: CleanInventory): void {
   }
   if (inventory.customizeDir) {
     sections.push(`  ${chalk.green("✓")} .hatch3r/ ${chalk.dim("(kept — customizations)")}`);
+  }
+  // D20: user-authored content is always preserved.
+  if ((inventory.userContentCount ?? 0) > 0) {
+    sections.push(
+      `  ${chalk.green("✓")} .agents/user/ ${chalk.dim(`(${inventory.userContentCount} user artifact(s) — kept, user-authored)`)}`,
+    );
   }
   if (inventory.learnings.length > 0) {
     sections.push(`  ${chalk.green("✓")} ${inventory.learnings.length} learning(s) ${chalk.dim("(backed up for reinit)")}`);
@@ -227,6 +245,13 @@ export async function cleanCommand(
           repoInfo,
           contentSelection: config.contentSelection,
           worktreeEnabled: config.worktreeEnabled,
+          // 1.7.0 (Phase D): carry customization forward so the rebuilt
+          // manifest preserves integration config and per-artifact overrides
+          // across a clean -> reinit cycle.
+          customization: config.customization,
+          // Reinit-after-clean already prompted the user; suppress runInit's
+          // own post-init create-prompt so we do not stack two confirmations.
+          yes: true,
         };
 
         await runInit(initOpts);

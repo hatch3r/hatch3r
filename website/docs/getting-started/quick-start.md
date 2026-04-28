@@ -5,145 +5,265 @@ title: Quick Start
 
 # Quick Start
 
-Get hatch3r running in your project in under a minute.
+A copy-paste-runnable walkthrough that takes a project from empty to released using hatch3r. The path is the same for greenfield and brownfield work — only the second step branches.
 
-## Install
+:::info Last verified
+2026-04-28 against hatch3r 1.7.0. URLs and credential flows reverified each audit cycle (P3 — Adapter & MCP Currency).
+:::
+
+## Prerequisites
+
+- **Node.js 22 or later** — the only hard prerequisite. Check with `node --version`.
+- **A git repository** at the working directory, OR a non-git folder containing one or more git subdirectories (workspace mode is auto-detected).
+- **One of the [supported tools](./supported-tools)** — Cursor, Claude Code, Copilot, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline / Roo, Aider, Kiro, Goose, Zed, Amazon Q, or Antigravity.
+
+That is it. No global install, no preflight setup.
+
+---
+
+## Step 1 — Initialize hatch3r
 
 ```bash
 npx hatch3r init
 ```
 
-That's it. hatch3r detects your repo, asks which tools you use, and generates everything.
+Interactive flow (~2 minutes). hatch3r asks 9 questions, in this order:
 
-## What happens during init
+1. **Platform** — GitHub, Azure DevOps, or GitLab. Auto-detected from your git remote; press Enter to accept.
+2. **Repo identity** — owner / org / repo name. Auto-filled from git remote where possible.
+3. **Default branch** — used by board, PR, and release commands.
+4. **Project type** — `greenfield` (new) or `brownfield` (existing). Filters out content irrelevant to your situation.
+5. **Team size** — `solo` or `team`. Solo skips board-management content.
+6. **Content profile** — `minimal`, `standard`, `full` (recommended), or `custom`. See the [profile table](#content-profiles) below.
+7. **Tools** — multi-select from the 15 supported adapters.
+8. **Worktree isolation** — only asked if you selected a worktree-capable tool.
+9. **MCP servers** — multi-select from 10 servers (3 default, 7 opt-in). Platform-aware: the GitHub / ADO / GitLab MCP that matches your platform is pre-selected.
 
-1. **Detects your repository** -- reads `git remote` for owner/repo info
-2. **Asks about your platform** -- GitHub, Azure DevOps, or GitLab (auto-detected)
-3. **Asks about your project** -- greenfield (new) or brownfield (existing), solo or team
-4. **Asks which content profile** -- Minimal, Standard, Full (recommended, default), or Custom
-5. **Asks which tools** -- select from Cursor, Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline, Aider, Kiro, Goose, Zed, Amazon Q, Antigravity
-6. **Asks about MCP servers** -- choose from 10 servers: Playwright, Context7, Filesystem (default); GitHub, Azure DevOps, GitLab, Brave Search, Sentry, Postgres, Linear (opt-in)
-7. **Generates canonical source** -- creates `.agents/` with only the selected agents, skills, rules, and commands
-8. **Generates tool configs** -- adapts canonical source to native formats for each selected tool
-9. **Creates `.env.mcp`** -- secret placeholder file (gitignored) for MCP server credentials
+For headless / CI use, pass `--yes` with optional flags:
+
+```bash
+npx hatch3r init --yes --preset standard --tools claude --project-type brownfield --team-size team
+```
+
+### What gets created
+
+| Path | Purpose |
+|------|---------|
+| `.agents/` | Canonical, tool-agnostic source (agents, skills, rules, commands, mcp/) |
+| `.agents/hatch.json` | Manifest with content selection, tool list, MCP servers, integrity checksums |
+| `.agents/AGENTS.md` | Generated index of installed content |
+| `AGENTS.md` (repo root) | Rich agent roster with skill and command links |
+| Tool-specific outputs | `.cursor/`, `CLAUDE.md`, `.windsurfrules`, `.clinerules`, `GEMINI.md`, etc. — one per selected tool |
+| `.env.mcp` | Secret placeholder file (gitignored) — only created if you enabled MCP |
+| `.gitignore` | Updated to exclude `.env.mcp` |
+| `.worktreeinclude` | Created only if a worktree-capable tool is selected |
 
 ### Content profiles
 
-| Profile | Description |
-|---------|-------------|
-| **Minimal** | Core agents and workflows only |
-| **Standard** | Full development lifecycle without niche audits (board, a11y, performance, customize excluded) |
-| **Full** (recommended, default) | Everything including board management and all audits |
-| **Custom** | Interactive picker — choose exactly what you need |
+| Profile | What's included | Best for |
+|---------|----------------|----------|
+| **Minimal** | Core agents and core rules only (`core` tag) | Quick setup, minimal footprint |
+| **Standard** | Full development lifecycle without niche audits | Most projects |
+| **Full** (recommended) | Everything including board management and all audits | Large teams, full coverage |
+| **Custom** | Interactive picker per artifact type | Fine-grained control |
 
-The profile is combined with context filters: greenfield projects skip brownfield-only content (e.g., `codebase-map`, `onboard`), solo developers skip team-only content (e.g., board commands, `revision`). Use `hatch3r config` to add or remove items after init.
+The profile is combined with greenfield/brownfield and solo/team filters, so a `solo + greenfield + standard` install carries materially less content than `team + brownfield + full`.
 
-## Next steps after init
+---
 
-| Starting point | Command | What it does |
-|----------------|---------|-------------|
-| New project | `project-spec` | Generate documentation from your project vision |
-| Existing codebase | `codebase-map` | Analyze and reverse-engineer specifications |
-| Single feature | `feature-plan` | Plan one feature in depth |
-| Complex bug | `bug-plan` | Investigate and plan a fix |
-| Any project | `roadmap` | Create a phased roadmap from specs |
+## Step 2 — Add MCP credentials
 
-After planning, the typical flow is:
+Skip this step if you did not enable any credential-requiring MCP server. The 3 default servers (Playwright, Context7, Filesystem) need nothing.
 
-```
-board-init → todo.md → board-fill → board-pickup → release
-```
-
-Review is handled automatically: the `board-pickup` workflow spawns the `hatch3r-reviewer` agent as part of its review loop, so there is no separate `review` CLI command.
-
-See the [Workflow guide](../guides/workflow) for the full lifecycle.
-
-## CLI Commands
+The 7 opt-in servers each need an API key or token. Open `.env.mcp` and fill the placeholder values:
 
 ```bash
-npx hatch3r init          # Interactive setup (with content profile selection)
-npx hatch3r config        # Reconfigure tools, features, and content items
-npx hatch3r sync          # Re-generate from canonical state
-npx hatch3r update        # Pull latest templates (safe merge)
-npx hatch3r status        # Check sync status
-npx hatch3r validate      # Validate .agents/ structure
-npx hatch3r verify        # Verify file integrity checksums
-npx hatch3r clean         # Remove all hatch3r artifacts
-npx hatch3r add <pack>    # Install a community pack (coming soon)
+# .env.mcp — generated by hatch3r init (gitignored)
+GITHUB_PAT=ghp_xxxxxxxxxxxx
+BRAVE_API_KEY=BSA_xxxxxxxx
+# ... and any others your selected servers need
 ```
+
+### Where to obtain each credential
+
+| Server | Env var | Where to obtain | Required scopes / notes |
+|--------|---------|-----------------|-------------------------|
+| **GitHub** | `GITHUB_PAT` | [github.com/settings/tokens/new](https://github.com/settings/tokens/new) | Classic PAT: `repo`, `read:org`, `project`. Fine-grained PATs still cannot access **user-owned** Projects V2 as of 2026 — for board commands on user-owned projects, classic is required. |
+| **Brave Search** | `BRAVE_API_KEY` | [api-dashboard.search.brave.com/register](https://api-dashboard.search.brave.com/register) | Brave retired the free tier in 2026. New users get $5/month in credits (~1,000 queries); legacy free-plan users grandfathered to 2,000/month. Credit card required. |
+| **Sentry** | `SENTRY_AUTH_TOKEN` | [sentry.io/settings/account/api/auth-tokens/](https://sentry.io/settings/account/api/auth-tokens/) | User token for personal MCP. Org-scoped tokens (Org Settings → Auth Tokens) are preferred for shared / CI use. |
+| **Postgres** | `POSTGRES_URL` | Your database provider | Format: `postgresql://user:pass@host:5432/db`. Treat as a secret. |
+| **Linear** | `LINEAR_API_KEY` | [linear.app/settings/api](https://linear.app/settings/api) | Personal API keys are still supported. OAuth 2.0 is preferred for shared installations. |
+| **Azure DevOps** | `AZURE_DEVOPS_PAT`, `AZURE_DEVOPS_ORG` | [Microsoft Learn — Use PATs](https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/use-personal-access-tokens-to-authenticate) | Scopes: Work Items (R/W), Code (R/W), Build (R), Project and Team (R). Microsoft now recommends Entra ID over PATs; PATs still work for hatch3r MCP, but Entra-backed orgs require sign-in every 90 days to keep PATs active. |
+| **GitLab** | `GITLAB_TOKEN` | [gitlab.com/-/user_settings/personal_access_tokens](https://gitlab.com/-/user_settings/personal_access_tokens) | Scope: `api`. For automation contexts, consider Project Access Tokens or Group Access Tokens instead of personal PATs. Self-hosted: also set `GITLAB_HOST=https://gitlab.example.com`. |
+
+For deeper guidance — fine-grained PAT permission tables, Claude Code permission opinions, custom MCP server registration — see the [MCP Setup guide](../guides/mcp-setup).
+
+### Loading secrets into your editor
+
+Two patterns, depending on the tool:
+
+**Auto-loaded** — VS Code / Copilot read env vars from the `env` object hatch3r writes into `.vscode/mcp.json`. No sourcing needed; just fill `.env.mcp` and let the adapter regenerate the per-tool config on the next `sync`.
+
+**Source-and-launch** — Cursor, Claude Code, Windsurf, Amp, Codex, Gemini, Cline / Roo, Kiro all expect env vars to be present in the process that launches the editor:
+
+```bash
+# macOS / Linux (zsh, bash)
+set -a && source .env.mcp && set +a && cursor .          # or: claude / windsurf / etc.
+```
+
+```powershell
+# Windows (PowerShell)
+Get-Content .env.mcp | ForEach-Object {
+  if ($_ -match '^\s*([^#][^=]+)=(.*)$') {
+    [Environment]::SetEnvironmentVariable($matches[1].Trim(), $matches[2].Trim(), 'Process')
+  }
+}
+cursor .
+```
+
+Persist tokens by adding the `set -a; source .env.mcp; set +a` lines to `~/.zshrc` / `~/.bashrc`, or paste them into Cursor's per-server pencil-icon UI.
+
+---
+
+## Step 3 — Restart your editor
+
+MCP configs are read on editor launch. Close and reopen so the new `.cursor/mcp.json` / `.mcp.json` / etc. takes effect.
+
+Verify connection: most editors show MCP status in their Tools / Settings panel. In Cursor, Settings → Tools & MCP — each enabled server should show a green dot and its tools should appear in the Available Tools list inside chat.
+
+---
+
+## Step 4 — Define scope
+
+Pick the path that matches the work in front of you.
+
+### Greenfield (new project)
+
+```
+/hatch3r-project-spec   # Generate specs from your project vision
+/hatch3r-roadmap        # Phased plan with epics, broken into milestones
+```
+
+### Brownfield (existing codebase)
+
+```
+/hatch3r-codebase-map   # Reverse-engineer specs from the current code
+/hatch3r-roadmap        # Plan improvements off the analysis
+```
+
+### Single feature (no full project)
+
+```
+/hatch3r-feature-plan   # Plan one feature in depth — no board needed
+```
+
+### Tiny change (typo / config tweak / one-file refactor)
+
+```
+/hatch3r-quick-change   # Skip everything below; this is a complete one-shot flow
+```
+
+If you took the tiny-change path, you are done — jump to [Step 8](#step-8--maintain-canonical-state).
+
+---
+
+## Step 5 — Set up the board
+
+Run inside your editor:
+
+```
+/hatch3r-board-init
+```
+
+This creates or connects a project board on your detected platform — a GitHub Projects V2 board, an Azure DevOps board, or a GitLab Issues board. It writes back the resolved board owner / project number / area labels into `hatch.json` so subsequent commands target the correct board.
+
+Skip this step for the single-feature path.
+
+---
+
+## Step 6 — Fill the board
+
+Write a `todo.md` at the project root with one line per work item:
+
+```markdown
+- Add OIDC login support for the customer portal
+- Migrate analytics events to the new schema
+- Replace Stripe webhook polling with idempotent event ingestion
+```
+
+Then run:
+
+```
+/hatch3r-board-fill
+```
+
+`board-fill` parses `todo.md`, classifies each item (feature / bug / refactor / migration / test), groups items into epics, builds a dependency DAG, and marks ready items as `status:ready` on the board.
+
+For backlog hygiene later: `/hatch3r-board-groom` surfaces stale items, priority imbalances, and decomposition candidates.
+
+---
+
+## Step 7 — Pick up work
+
+```
+/hatch3r-board-pickup
+```
+
+`board-pickup` selects the next `status:ready` issue by dependency order and priority, creates a feature branch, and runs the four-phase agent pipeline: research → implement → review loop (reviewer + fixer, max 3 iterations) → final quality gates (test-writer + security-auditor). When the loop converges clean, it opens a PR.
+
+The reviewer + fixer loop is automatic — there is no separate `review` command.
+
+Repeat this step until the board drains.
+
+---
+
+## Step 8 — Maintain canonical state
+
+Day-to-day commands you will run as you edit `.agents/` content or rotate tools:
+
+| Command | When to run |
+|---------|-------------|
+| `npx hatch3r sync` | After editing anything inside `.agents/`. Re-generates all tool outputs from the canonical state. |
+| `npx hatch3r status` | Drift check — does any generated file differ from what canonical would produce? |
+| `npx hatch3r validate` | Pre-commit / CI structural check — frontmatter, cross-references, content compliance. Exit 0 means clean. |
+| `npx hatch3r verify` | SHA-256 + manifest integrity check. `--fix` auto-runs `update` to heal drift. |
+| `npx hatch3r config` | Reconfigure platform, tools, MCP servers, features, or content selection — fully interactive. |
+| `npx hatch3r update` | Pull the latest hatch3r templates, safe-merging into your customizations. Use `--offline` to skip the npm fetch. |
+| `npx hatch3r clean` | Remove all hatch3r-managed artifacts. |
+
+---
+
+## Step 9 — Release
+
+```
+/hatch3r-release
+```
+
+`release` reads the conventional-commit history since the last tag, decides the semver bump (patch / minor / major), generates a changelog entry, tags, and publishes per your project's release config.
+
+That closes the loop: init → spec → board → pickup → release.
+
+---
 
 ## Multi-Repo Workspace
 
-If you have multiple git repos in a single directory, hatch3r can manage them as a workspace.
+If your working directory is a non-git folder containing multiple git subdirectories (e.g. `frontend/`, `backend/`, `infra/`), hatch3r auto-detects workspace mode. Force it explicitly with `--workspace`:
 
 ```bash
-cd ~/projects/my-platform     # contains frontend/, backend/, infra/
-npx hatch3r init              # auto-detects workspace layout
-# or force it:
 npx hatch3r init --workspace
+npx hatch3r sync                          # cascade to all repos
+npx hatch3r sync --repos frontend         # sync only frontend/
+npx hatch3r sync --dry-run                # preview without writing
+npx hatch3r config                        # add or remove repos, change sync strategy
 ```
 
-Init creates a shared `.agents/` at the workspace root. Sync cascades content into each sub-repo:
+The shared `.agents/` lives at the workspace root; each sub-repo gets independent copies of the generated files (not symlinks), with optional per-repo overrides for tools, features, and content. See the [Workspace guide](../guides/workspace) for details.
 
-```bash
-npx hatch3r sync                         # sync all repos
-npx hatch3r sync --repos frontend        # sync one repo
-npx hatch3r config                       # add/remove repos, change sync strategy
-```
+---
 
-Each sub-repo gets independent copies of the generated files, with optional per-repo overrides for tools, features, and content. See the [Workspace guide](../guides/workspace) for details.
+## Where to read next
 
-## MCP Setup
-
-If you selected MCP servers during init, fill in your API keys:
-
-```bash
-# .env.mcp (generated by hatch3r init)
-GITHUB_PAT=ghp_xxxxxxxxxxxx
-BRAVE_API_KEY=xxxxxxxx
-```
-
-How secrets are loaded depends on your editor:
-
-- **VS Code / Copilot** -- Env vars passed via `env` object in `.vscode/mcp.json`; source `.env.mcp` or set vars manually
-- **Cursor / Claude Code / others** -- Source before launching:
-
-```bash
-# macOS/Linux
-set -a && source .env.mcp && set +a && cursor .
-
-# Windows (PowerShell)
-Get-Content .env.mcp | ForEach-Object { if ($_ -match '^\s*([^#][^=]+)=(.*)$') { [Environment]::SetEnvironmentVariable($matches[1].Trim(), $matches[2].Trim(), 'Process') } }
-```
-
-See [MCP Setup](../guides/mcp-setup) for full details.
-
-## First Workflow
-
-After initialization, choose your starting point:
-
-### New project (greenfield)
-
-```
-hatch3r-project-spec   → Generate specs from your project vision
-hatch3r-roadmap        → Create a phased plan with epics
-hatch3r-board-init     → Set up a GitHub Projects V2 board
-hatch3r-board-fill     → Turn todo.md into GitHub issues
-```
-
-### Existing project (brownfield)
-
-```
-hatch3r-codebase-map   → Analyze your codebase structure
-hatch3r-roadmap        → Plan improvements from the analysis
-hatch3r-board-init     → Set up a GitHub Projects V2 board
-hatch3r-board-fill     → Turn todo.md into GitHub issues
-```
-
-### Quick tasks (no board needed)
-
-```
-hatch3r-quick-change   → Typo fixes, config tweaks, small refactors
-hatch3r-workflow       → Guided 4-phase development lifecycle
-hatch3r-debug          → Standalone debug-and-fix
-```
+- [MCP Setup](../guides/mcp-setup) — full per-server configuration, PAT scope tables, custom MCP servers, Claude Code permissions
+- [Workflow guide](../guides/workflow) — the deeper view of the four-phase pipeline and review loop
+- [Adapter Capability Matrix](../reference/adapter-capability-matrix) — which adapters emit MCP, hooks, skills, etc.
+- [Troubleshooting](../troubleshooting) — common init / sync / MCP errors and fixes

@@ -6,6 +6,7 @@ scope: conditional
 globs: "src/**/*.vue,src/**/*.tsx,src/**/*.jsx,src/**/*.ts,**/locales/**,**/i18n/**,**/*i18n*,**/*locale*"
 tags: [implementation, lang:typescript]
 quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
 ---
 # Internationalization & RTL
 

@@ -3,6 +3,8 @@ id: hatch3r-gh-agentic-workflows
 description: Set up CI/CD agentic workflows for continuous AI-powered repository automation (GitHub Actions, Azure Pipelines, GitLab CI)
 tags: [devops, team]
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+cache_friendly: true
 ---
 # CI/CD Agentic Workflows Integration
 

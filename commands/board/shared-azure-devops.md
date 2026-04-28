@@ -4,6 +4,7 @@ type: shared-context
 description: Azure DevOps-specific platform details for board shared context. Covers Work Items, Azure Boards, az CLI, and MCP tools.
 tags: [board, team, azure-devops]
 quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
 ---
 # Board Shared Reference — Azure DevOps Platform Details
 

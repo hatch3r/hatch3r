@@ -6,6 +6,10 @@ agentPipeline: [hatch3r-researcher, hatch3r-docs-writer]
 description: Plan a comprehensive test strategy -- spawn parallel researchers, produce test plan spec with coverage targets, priority ordering, test case outlines, and structured todo.md entries for board-fill.
 tags: [core, planning]
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+cache_friendly: true
+parallel_tool_default: true
+triage_tiers: [1, 2, 3]
 ---
 
 ## Agent Pipeline
@@ -37,6 +41,18 @@ Take a test planning scope (feature, module, or codebase area) and produce a com
 ## Workflow
 
 Execute these steps in order. **Do not skip any step.** Ask the user at every checkpoint marked with ASK.
+
+## Step 0: Triage
+
+Classify the test-planning request before delegating:
+
+- **Tier 1 (trivial)**: tests for a single feature or single module with existing test infrastructure; reduced fanout (1–2 researchers: coverage-analysis, risk-prioritization) and produce a single-task todo entry.
+- **Tier 2 (standard)**: feature-scoped or module-coverage audit with mixed test types; standard pipeline with all 5 parallel researcher modes.
+- **Tier 3 (deep)**: full-suite restructure, mutation-testing rollout, contract testing, or coverage uplift across the whole codebase; full pipeline with deep research and confirm test plan scope with the user before writing files.
+
+If Tier 1, run the reduced researcher set and skip Step 6 (ADRs). If Tier 2, run the standard pipeline below. If Tier 3, run the full pipeline including ADR generation for testing infrastructure decisions and confirm scope with the user before writing files.
+
+---
 
 ### Step 1: Gather Test Planning Scope
 

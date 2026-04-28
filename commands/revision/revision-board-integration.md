@@ -4,6 +4,7 @@ type: command
 description: Board integration for revision. Covers run cache schema, post-commit PR updates, dashboard refresh (Step 9a), and lightweight reconciliation (Step 9b).
 tags: [implementation, team]
 quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
 ---
 # Revision — Board Integration
 

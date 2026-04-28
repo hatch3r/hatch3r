@@ -3,6 +3,8 @@ id: hatch3r-code-review
 type: prompt
 description: Review code changes for quality, security, and correctness
 tags: [core]
+efficiency_patterns: agents/shared/efficiency-patterns.md
+cache_friendly: true
 ---
 # Code Review
 

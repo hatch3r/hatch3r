@@ -58,7 +58,7 @@ export class GooseAdapter extends BaseAdapter {
       }
     }
 
-    const inner = lines.join("\n");
+    const inner = lines.join("\n").trim();
     const results: AdapterOutput[] = [output(".goosehints", wrapInManagedBlock(inner), inner)];
 
     // MCP servers are configured as extensions within the Goose profile.

@@ -5,6 +5,7 @@ description: TypeScript typing discipline, naming, file size caps, Result types,
 scope: always
 tags: [core, lang:typescript]
 quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
 ---
 # Code Standards
 

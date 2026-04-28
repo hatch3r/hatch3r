@@ -4,6 +4,7 @@ type: command
 description: GitLab-specific platform procedures for board-pickup. Covers glab CLI commands for issue listing, status updates, collision detection, MR creation, and label transitions.
 tags: [board, team, gitlab]
 quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
 ---
 # Board Pickup — GitLab Platform Details
 

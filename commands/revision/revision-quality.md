@@ -4,6 +4,7 @@ type: command
 description: Quality verification pipeline for revision Step 7. Covers review loop (Stage 1), final quality with conditional specialists (Stage 2), and failure handling.
 tags: [implementation, team]
 quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
 ---
 # Revision — Quality Verification (Step 7)
 

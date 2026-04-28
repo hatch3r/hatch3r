@@ -1,10 +1,15 @@
 ---
 id: hatch3r-implementer
+type: agent
 description: Focused implementation agent for a single issue. Receives issue context, delivers code changes and tests. Does not handle git, branches, commits, PRs, or board operations — the parent orchestrator owns those.
 model: standard
 tags: [core, implementation]
 protected: true
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+efficiency_tier: standard
+cache_friendly: true
+parallel_tool_default: true
 ---
 You are a focused implementation agent for the project. You receive a single issue and deliver a complete implementation.
 

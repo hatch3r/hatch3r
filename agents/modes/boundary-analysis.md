@@ -5,6 +5,9 @@ description: Map integration boundaries, external dependencies, and data flow se
 tags: [core, planning, review]
 parent: hatch3r-researcher
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+efficiency_tier: standard
+cache_friendly: true
 ---
 ### Mode: `boundary-analysis`
 

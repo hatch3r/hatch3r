@@ -55,7 +55,7 @@ export class ZedAdapter extends BaseAdapter {
       ...this.zedPlatformCapabilities(),
       ...await this.inlineRules(ctx),
       ...await this.inlineAgents(ctx),
-    ].join("\n");
+    ].join("\n").trim();
     results.push(output(".rules", wrapInManagedBlock(inner), inner));
 
     // Zed supports project-level MCP configuration via .zed/mcp.json

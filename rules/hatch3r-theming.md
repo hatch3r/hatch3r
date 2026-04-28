@@ -6,6 +6,7 @@ scope: conditional
 globs: "src/**/*.vue,src/**/*.tsx,src/**/*.jsx,src/**/*.css,src/**/*.scss,**/*theme*,**/*color*"
 tags: [implementation, lang:typescript]
 quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
 ---
 # Theming & Dark Mode
 

@@ -4,6 +4,7 @@ type: shared-context
 description: GitHub-specific platform details for board shared context. Covers GitHub Issues, Projects V2, gh CLI, and MCP tools.
 tags: [board, team, github]
 quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
 ---
 # Board Shared Reference — GitHub Platform Details
 

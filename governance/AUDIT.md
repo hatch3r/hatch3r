@@ -1,12 +1,12 @@
 # hatch3r — Full Framework Audit Prompt
 
-> Last updated: 2026-04-19
+> Last updated: 2026-04-27
 
 ## Purpose
 
 Perform a deep, end-to-end audit of every area, aspect, and line of code or content in the hatch3r framework. The goal: verify this framework is production-ready and open-sourceable by applying the 19-domain checklist across code, content, and adapter implementations — enabling end users to build winning software products at scale.
 
-This audit covers **19 domains** organized across **4 tiers**, deploying **106 sub-agents** for maximum depth. Every domain requires web research for current market context. The final deliverable is a structured audit report with severity-tagged findings, weighted domain scores, and prioritized action items using 3-tier progressive disclosure.
+This audit covers **19 domains** organized across **4 tiers**, deploying **111 sub-agents** for maximum depth. Every domain requires web research for current market context. The final deliverable is a structured audit report with severity-tagged findings, weighted domain scores, and prioritized action items using 3-tier progressive disclosure.
 
 > **Path Convention:** All file paths in this document are relative to the **repository root**. Governance files live under `governance/`. The ephemeral `.audit-workspace/` directory is created at repository root.
 
@@ -54,7 +54,7 @@ Not all domains require equal audit depth every cycle. To prevent diminishing re
 
 ### Sub-Agent Strategy
 
-Spawn **106 sub-agents** across 19 audit domains organized in 4 tiers. Each domain decomposes into multiple focused sub-agents for maximum depth. Sub-agents within the same domain run in parallel unless a sequential dependency is noted. Domain-level synthesis sub-agents run only after their prerequisite sub-agents complete. Inherit your LLM model to every sub-agent — do not downgrade. Each sub-agent MUST use web research. **Never optimize for token efficiency — optimize for audit quality and depth.**
+Spawn **111 sub-agents** across 19 audit domains organized in 4 tiers. Each domain decomposes into multiple focused sub-agents for maximum depth. Sub-agents within the same domain run in parallel unless a sequential dependency is noted. Domain-level synthesis sub-agents run only after their prerequisite sub-agents complete. Inherit your LLM model to every sub-agent — do not downgrade. Each sub-agent MUST use web research. **Never optimize for token efficiency — optimize for audit quality and depth.**
 
 #### Optional Domain Orchestrator Bundling
 
@@ -77,6 +77,8 @@ The following sub-agents have sequential dependencies and MUST NOT launch until 
 | 9.16 (Emerging Platforms) | 9.1–9.14 | Requires understanding of current adapter landscape |
 | 16.1 (Cross-Domain Pattern Synthesis) | D5, D7, D9 | Requires prompt, orchestration, and adapter findings |
 | 16.2 (Coverage Gap Analysis) | D5, D9 | Requires content and adapter findings |
+| 16.3 (Artifact Inventory & Redundancy) | D5, D14, pre-audit inventory | Requires per-artifact quality findings and verified artifact inventory |
+| 20.2 (User-Authored Artifact Compliance) | 20.1, D5, D15 | Requires creator-tool baseline plus charter and security inheritance |
 | 17.3 (Market Positioning & Strategy) | 17.1, 17.2 | Requires competitor and ecosystem data |
 | 18.1 (PRD Alignment) | D16, D17 | Requires cross-domain synthesis and competitive findings |
 | 18.2 (Roadmap Reprioritization) | D16, D17 | Requires cross-domain synthesis and competitive findings |
@@ -84,12 +86,12 @@ The following sub-agents have sequential dependencies and MUST NOT launch until 
 
 ### Concurrency Model
 
-Of the 106 total sub-agents, **97 launch immediately** in parallel. The remaining **9 sub-agents** launch sequentially after their dependencies complete:
+Of the 111 total sub-agents, **101 launch immediately** in parallel. The remaining **10 sub-agents** launch sequentially after their dependencies complete:
 
 | Tier | Sequential Sub-Agents |
 |------|----------------------|
 | B | 9.15, 9.16 |
-| C | 16.1, 16.2 |
+| C | 16.1, 16.2, 16.3, 20.2 |
 | D | 17.3, 18.1, 18.2, 18.3 |
 
 ### Web Research & Scientific Rigor
@@ -103,7 +105,7 @@ Sub-agent results MUST be file-based to prevent context overflow:
 1. Each sub-agent writes findings to: `.audit-workspace/D{N}-SA{M}.findings.md`. Each finding MUST begin with the YAML-style rigor schema header per [audit/templates/rigor-contract.md](audit/templates/rigor-contract.md) §Required Finding Output Schema (confidence, confidence_basis, falsifiability, causal_chain, bias_check, counter_argument, sources).
 2. After each domain completes, orchestrator reads domain results, produces synthesis (`.audit-workspace/D{N}-synthesis.md`), then releases individual results from context.
 3. Report assembled from synthesis files, not accumulated context.
-4. Create `.audit-workspace/` at repository root at execution start. Clean per-run artifacts (findings, synthesis files) at the start of each new audit cycle, but preserve cross-cycle files (`execution-insights.json`).
+4. Create `.audit-workspace/` at repository root at execution start. Run `npm run audit:reset --check` at Phase 0 entry; HALT on stale markers unless `--auto` is passed. Preserve list (enforced by `scripts/clean-audit-workspace.ts`): `registry-anchor-log.jsonl`, `verified-inventory.json`, `current-insights.json`. Cross-cycle promotion of `current-insights.json` into the ring buffer at `governance/audit/execution-insights.json::history[]` happens via `npm run audit:archive`.
 5. Each synthesis file must include a **"Key Findings for Downstream Domains"** section listing findings that later tiers might need, with domain tags (e.g., "Relevant to D7, D9"). This prevents information loss across tier boundaries.
 6. Later-tier sub-agents may request specific earlier findings by referencing "D{N}-SA{M}". The orchestrator retrieves the relevant finding from the appropriate synthesis file and provides it as additional context.
 
@@ -114,11 +116,11 @@ Execute by tier with synthesis between tiers:
 | Tier | Domains | Agents | Action |
 |------|---------|--------|--------|
 | A | D1–D4 | 27 | Launch → synthesize → release from context |
-| B | D5–D10,D19 | 49 | Launch → synthesize → release from context |
-| C | D11–D16 | 24 | Launch → synthesize → release from context |
+| B | D5–D10,D19 | 51 | Launch → synthesize → release from context |
+| C | D11–D16, D20 | 27 | Launch → synthesize → release from context |
 | D | D17–D18 | 6 | Launch → synthesize → final assembly |
 
-Peak context: 49 sub-agent results (Tier B), not 106.
+Peak context: 51 sub-agent results (Tier B), not 111.
 
 ### Pre-Audit Questions
 
@@ -147,7 +149,7 @@ D03 domain file claimed 47 test files when filesystem held 88 (Cycle 7 sub-agent
 |------|---------|-------------------|------------|
 | A — Foundational | D1–D4 | 0.077 | 0.308 |
 | B — Quality | D5–D10,D19 | 0.0497 | 0.348 |
-| C — System-Level | D11–D16 | 0.0443 | 0.266 |
+| C — System-Level | D11–D16, D20 | 0.038 | 0.266 |
 | D — Strategic | D17–D18 | 0.039 | 0.078 |
 | **Total** | | | **1.00** |
 
@@ -244,7 +246,7 @@ If total findings fall below 50, the orchestrating agent MUST verify depth by ch
 ### Quality Checklist
 
 - [ ] All 19 domains were examined (no domain was skipped). Domains with zero findings must include a clean-domain justification citing: specific files examined, verification methods used, and web research performed. A clean domain is acceptable; a skipped domain is not.
-- [ ] All 106 sub-agents produced output (no silent failures)
+- [ ] All 111 sub-agents produced output (no silent failures)
 - [ ] Every Critical and High finding has a specific, actionable recommendation
 - [ ] Every finding references specific files, line numbers, or artifacts
 - [ ] Web research was performed for every domain (cite sources)
@@ -296,10 +298,11 @@ The orchestrator spawns sub-agents per domain file. Each sub-agent:
 - [ ] Multi-stakeholder impact — consider how each finding affects: the end user experiencing the product, the developer maintaining the code, the team lead governing quality, and the ops team deploying. Findings that matter to only one stakeholder should note this.
 - [ ] Apply the Scientific Rigor Contract per [audit/templates/rigor-contract.md](audit/templates/rigor-contract.md) on every finding before writing it (six tests: falsifiability, triangulation, confidence with basis, ≥3-step causal chain, bias check, adversarial peer-review counter-argument)
 - [ ] Apply the Web Research Mandate citation format on every external claim (URL + access date + author/org + trust tier; ≥2 independent sources; recency window per source class)
+- [ ] For end-user runtime artifacts (not audit prompts/commands): efficiency invariants per D06 — static-first ordering, parallel-tool default, triage-first if orchestrator
 
 ### Sub-Agent Behavioral Charter
 
-> **Canonical definition:** [CONSTITUTION.md](CONSTITUTION.md) §2 P2 defines the charter's governance role. The 13 directives below are the authoritative behavioral specification for audit sub-agents.
+> **Canonical definition:** [CONSTITUTION.md](CONSTITUTION.md) §2 P2 defines the charter's governance role. The 14 directives below are the authoritative behavioral specification for audit sub-agents (directive count grew from 13 to 14 with the addition of Speed & Token Efficiency Awareness for P7).
 
 Every audit sub-agent must internalize these behavioral directives. These govern HOW you think, not just WHAT you check. The checklists define scope; the charter defines mindset.
 
@@ -329,6 +332,8 @@ Every audit sub-agent must internalize these behavioral directives. These govern
 
 13. **Duplication awareness** — Before flagging a missing content artifact (agent, skill, rule, command), search existing artifacts for overlapping coverage. A proposal for content that already exists is a false positive, not a finding.
 
+14. **Speed & Token Efficiency Awareness** — When auditing end-user runtime artifacts (commands, agents, skills, rules consumed in installed projects), evaluate whether they apply zero-quality-loss efficiency techniques: static-first prompt ordering, parallel-tool-by-default, triage-first auto-tiering, plan/act split, structured outputs, lazy reference-by-pointer. Findings about runtime efficiency belong in D06. Do NOT apply this lens to AUDIT.md, AUDIT-EXECUTE.md, RE-ENVISION.md, or `commands/hatch3r-audit*.md` — those are explicitly exempt from efficiency optimization (depth over speed).
+
 ### Domain File Quality Standard
 
 Each domain file (`governance/audit/domains/D{NN}-{name}.md`) must meet these minimum quality standards. CL-3 may propose domain file improvements when standards are not met.
@@ -347,7 +352,7 @@ Each domain file (`governance/audit/domains/D{NN}-{name}.md`) must meet these mi
 | A | 3: Test Infrastructure | 5 | 5 | 0 |
 | A | 4: Build, CI/CD & Dependencies | 5 | 5 | 0 |
 | B | 5: Prompt Engineering Quality | 8 | 8 | 0 |
-| B | 6: Context Engineering & Token Economics | 4 | 4 | 0 |
+| B | 6: Context Engineering & Token Economics | 6 | 6 | 0 |
 | B | 7: Agent Orchestration Optimization | 5 | 5 | 0 |
 | B | 8: Error Recovery & Resilience | 4 | 4 | 0 |
 | B | 9: Platform Adapters | 16 | 14 | 2 |
@@ -358,10 +363,11 @@ Each domain file (`governance/audit/domains/D{NN}-{name}.md`) must meet these mi
 | C | 13: Human-AI Collaboration Quality | 4 | 4 | 0 |
 | C | 14: Cross-Project Adaptability & Scalability | 4 | 4 | 0 |
 | C | 15: Agentic Security & Trust Model | 6 | 6 | 0 |
-| C | 16: Cross-Domain Synthesis | 2 | 0 | 2 |
+| C | 16: Cross-Domain Synthesis | 3 | 0 | 3 |
+| C | 20: User-Content Authoring & Governance | 2 | 1 | 1 |
 | D | 17: Competition & Market Intelligence | 3 | 2 | 1 |
 | D | 18: PRD, Roadmap & Distribution | 3 | 0 | 3 |
-| **Total** | | **106** | **98** | **8** |
+| **Total** | | **111** | **101** | **10** |
 
 > **Note:** Sub-agent counts and domain list may evolve across audit cycles via the self-evolution process (Phase CL-3). The table above reflects the current baseline. Any changes require explicit user consent.
 

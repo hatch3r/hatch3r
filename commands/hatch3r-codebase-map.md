@@ -6,6 +6,10 @@ agentPipeline: [hatch3r-researcher, hatch3r-docs-writer]
 description: Reverse-engineer a brownfield codebase into current-state module boundaries, integration-point inventory, tech-debt register, and dependency graph via static analysis
 tags: [planning, brownfield]
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+cache_friendly: true
+parallel_tool_default: true
+triage_tiers: [1, 2, 3]
 ---
 # Codebase Map — Brownfield Codebase Analysis & Spec Generation
 
@@ -37,6 +41,18 @@ Analyze an existing codebase to reverse-engineer project documentation across **
 ## Workflow
 
 Execute these steps in order. **Do not skip any step.** Ask the user at every checkpoint marked with ASK. When in doubt, **ASK** — it is better to ask one question too many than to make one wrong assumption. Discovery questions are never wasted.
+
+## Step 0: Triage
+
+Classify the codebase analysis request before delegating:
+
+- **Tier 1 (trivial)**: single-module spec or scoped reverse-engineering of one subsystem; reduced fanout (1–2 analyzers), no AGENTS.md regeneration unless requested.
+- **Tier 2 (standard)**: standard scope (full repo, < 5K files) with both technical and business specs; standard pipeline with all 6 parallel analyzers and AGENTS.md generation.
+- **Tier 3 (deep)**: monorepo, very large codebase (>10K files), or full production-readiness audit; full pipeline with all analyzers and confirm scope with the user before writing files.
+
+If Tier 1, run the reduced analyzer set and skip Step 5 (ADRs) unless decisions are obvious. If Tier 2, run the standard pipeline below. If Tier 3, run the full pipeline including the production-readiness scorecard and confirm scope with the user before file writes.
+
+---
 
 ### Step 1: Initial Scan, Scope & Discovery
 

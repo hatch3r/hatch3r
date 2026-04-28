@@ -10,6 +10,10 @@ import {
 import {
   setupWorktree,
   parseWorktreeInclude,
+  addGitWorktree,
+  ensureWorktreesIgnored,
+  isValidBranchName,
+  WORKTREES_DIR,
 } from "../../worktree/index.js";
 import {
   isInsideWorktree,
@@ -24,6 +28,7 @@ import {
   warn,
   label,
 } from "../shared/ui.js";
+import { copyToClipboard } from "../shared/clipboard.js";
 
 /**
  * C8-D15-M2 (CWE-552, https://cwe.mitre.org/data/definitions/552.html):
@@ -48,15 +53,11 @@ async function detectSecretEnvFiles(
     if (e.pattern === ".env" || e.pattern === ".env.mcp") {
       candidates.add(e.pattern);
     } else if (e.pattern === ".env.*") {
-      // Expand the known secret-bearing variant(s); only .env.mcp is canonical today.
       candidates.add(".env.mcp");
     }
   }
   const present: string[] = [];
   for (const name of candidates) {
-    // access() is a presence probe; ENOENT is the happy path (no secret = no
-    // warning needed). Use stat via a then/catch chain to keep the catch body
-    // non-empty for the silent-failure lint.
     const exists = await access(join(root, name))
       .then(() => true)
       .catch(() => false);
@@ -95,35 +96,22 @@ function printSecretPropagationWarning(
   );
 }
 
-export async function worktreeSetupCommand(
-  worktreePath?: string,
-  opts: { from?: string; dryRun?: boolean; force?: boolean; yes?: boolean } = {},
-): Promise<void> {
-  printBanner(true);
+async function pathExists(p: string): Promise<boolean> {
+  return access(p).then(() => true).catch(() => false);
+}
 
-  const cwd = process.cwd();
-  let mainRoot: string;
-  let targetRoot: string;
+interface SetupOptions {
+  from?: string;
+  dryRun?: boolean;
+  force?: boolean;
+  yes?: boolean;
+  fromPath?: string;
+}
 
-  if (isInsideWorktree(cwd)) {
-    mainRoot = opts.from ?? findMainWorktree(cwd);
-    targetRoot = worktreePath ? join(cwd, worktreePath) : cwd;
-    info(`Detected worktree. Main repo: ${chalk.dim(mainRoot)}`);
-  } else {
-    mainRoot = opts.from ?? cwd;
-    if (!worktreePath) {
-      logError("Worktree path is required when running from the main repo.");
-      console.log(chalk.dim("  Usage: hatch3r worktree-setup <worktree-path>"));
-      console.log(chalk.dim("  Or run this command from inside a worktree.\n"));
-      throw new HatchError("Missing worktree path", 1, "VALIDATION_ERROR");
-    }
-    targetRoot = join(cwd, worktreePath);
-  }
-
+async function readIncludeOrThrow(mainRoot: string): Promise<string> {
   const includePath = join(mainRoot, WORKTREE_INCLUDE_FILE);
-  let includeContent: string;
   try {
-    includeContent = await readFile(includePath, "utf-8");
+    return await readFile(includePath, "utf-8");
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
       logError(`No ${WORKTREE_INCLUDE_FILE} found in ${mainRoot}`);
@@ -132,92 +120,225 @@ export async function worktreeSetupCommand(
     }
     throw err;
   }
+}
 
-  // Secret propagation check (C8-D15-M2): warn before copying .env.mcp / .env into worktree.
+async function confirmSecretsOrAbort(
+  includeContent: string,
+  mainRoot: string,
+  targetRoot: string,
+  opts: SetupOptions,
+): Promise<void> {
   const parsedEntries = parseWorktreeInclude(includeContent);
   const secretFiles = await detectSecretEnvFiles(mainRoot, parsedEntries);
-  if (secretFiles.length > 0) {
-    printSecretPropagationWarning(secretFiles, mainRoot, targetRoot);
-    if (!opts.dryRun && !opts.yes && process.stdin.isTTY) {
-      const { proceed } = await inquirer.prompt<{ proceed: boolean }>([
-        {
-          type: "confirm",
-          name: "proceed",
-          message: "Copy secrets into this worktree?",
-          default: false,
-        },
-      ]);
-      if (!proceed) {
-        info("Worktree setup cancelled. No files were copied.");
-        throw new HatchError("Worktree setup cancelled by user.", 0);
-      }
-    } else if (!opts.dryRun && !opts.yes) {
-      // Non-interactive context (e.g. PostToolUse hook, CI) — proceed but make the risk loud.
-      warn("Non-interactive session detected — proceeding. Pass --yes to silence this notice.");
-    }
+  if (secretFiles.length === 0) return;
+
+  printSecretPropagationWarning(secretFiles, mainRoot, targetRoot);
+  if (opts.dryRun || opts.yes) return;
+  if (!process.stdin.isTTY) {
+    warn("Non-interactive session detected — proceeding. Pass --yes to silence this notice.");
+    return;
+  }
+  const { proceed } = await inquirer.prompt<{ proceed: boolean }>([
+    {
+      type: "confirm",
+      name: "proceed",
+      message: "Copy secrets into this worktree?",
+      default: false,
+    },
+  ]);
+  if (!proceed) {
+    info("Worktree setup cancelled. No files were copied.");
+    throw new HatchError("Worktree setup cancelled by user.", 0);
+  }
+}
+
+function printDryRun(
+  includeContent: string,
+  mainRoot: string,
+  targetRoot: string,
+  mode: "name" | "from-path",
+  name?: string,
+): void {
+  const entries = parseWorktreeInclude(includeContent);
+  const summaryLines = entries.map((e) => {
+    const icon = e.strategy === "symlink" ? chalk.cyan("→") : chalk.green("+");
+    return `  ${icon} ${e.pattern} ${chalk.dim(`(${e.strategy})`)}`;
+  });
+  const header: string[] = [
+    label("Mode", mode === "name" ? `name (${name})` : "from-path (legacy)"),
+    label("Source", mainRoot),
+    label("Target", targetRoot),
+  ];
+  if (mode === "name") {
+    header.push(label("Action", `git worktree add -b ${name} <target>`));
+  }
+  header.push(label("Entries", `${entries.length}`), "");
+  printBox("Worktree setup (dry run)", [...header, ...summaryLines], "info");
+}
+
+function syncWorktree(targetRoot: string): { ok: boolean; output: string } {
+  try {
+    const out = execFileSync("npx", ["hatch3r", "sync"], {
+      cwd: targetRoot,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    return { ok: true, output: out.toString() };
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException & { stderr?: Buffer; stdout?: Buffer };
+    const merged = (e.stdout?.toString() ?? "") + (e.stderr?.toString() ?? "");
+    return { ok: false, output: merged.trim() || (err as Error).message };
+  }
+}
+
+function printSetupSuccessBox(
+  targetRoot: string,
+  result: { copied: string[]; symlinked: string[]; skipped: string[]; errors: string[] },
+  syncOk: boolean,
+  syncOutput: string,
+  clipboardTool: string | null,
+): void {
+  const cdLine = `cd ${targetRoot}`;
+  const lines: string[] = [
+    chalk.bold("Worktree ready:"),
+    `  ${chalk.cyan(targetRoot)}`,
+    "",
+    chalk.bold("Get to work:"),
+    `  ${chalk.green(cdLine)}${clipboardTool ? chalk.dim(`   (copied to clipboard via ${clipboardTool})`) : ""}`,
+    "",
+  ];
+  if (result.copied.length || result.symlinked.length || result.skipped.length) {
+    lines.push(chalk.bold("Files:"));
+    if (result.copied.length) lines.push(`  ${chalk.green("+")} copied: ${result.copied.length}`);
+    if (result.symlinked.length) lines.push(`  ${chalk.cyan("→")} symlinked: ${result.symlinked.length}`);
+    if (result.skipped.length) lines.push(`  ${chalk.dim("·")} skipped: ${result.skipped.length}`);
+  }
+  if (!syncOk) {
+    lines.push(
+      "",
+      chalk.yellow.bold("Adapter output sync FAILED inside the worktree."),
+      chalk.yellow("  Run `hatch3r sync` inside the worktree before starting work."),
+      ...(syncOutput ? [chalk.dim(`  ${syncOutput.split("\n").slice(0, 5).join("\n  ")}`)] : []),
+    );
+  }
+  printBox("Worktree setup", lines, syncOk ? "success" : "error");
+}
+
+// ─── Mode 1: --from-path (legacy hook flow) ──────────────────────────────────
+
+async function runFromPath(targetPath: string, opts: SetupOptions): Promise<void> {
+  const mainRoot = opts.from ?? (isInsideWorktree(targetPath) ? findMainWorktree(targetPath) : process.cwd());
+  if (!(await pathExists(targetPath))) {
+    logError(`--from-path target does not exist: ${targetPath}`);
+    console.log(chalk.dim("  Did you run `git worktree add` first?\n"));
+    throw new HatchError("from-path target missing", 1, "FS_ERROR");
   }
 
+  const includeContent = await readIncludeOrThrow(mainRoot);
+  await confirmSecretsOrAbort(includeContent, mainRoot, targetPath, opts);
+
   if (opts.dryRun) {
-    info("Dry run — no changes will be made.\n");
-    const entries = parsedEntries;
-    const summaryLines = entries.map((e) => {
-      const icon = e.strategy === "symlink" ? chalk.cyan("→") : chalk.green("+");
-      return `  ${icon} ${e.pattern} ${chalk.dim(`(${e.strategy})`)}`;
-    });
-    printBox("Worktree setup (dry run)", [
-      label("Source", mainRoot),
-      label("Target", targetRoot),
-      label("Entries", `${entries.length}`),
-      "",
-      ...summaryLines,
-    ], "info");
+    printDryRun(includeContent, mainRoot, targetPath, "from-path");
     return;
   }
 
-  const s = createSpinner("Setting up worktree files...");
+  const s = createSpinner("Populating worktree files...");
   s.start();
+  const result = await setupWorktree(mainRoot, targetPath, { force: opts.force });
+  s.succeed("Worktree files populated");
 
-  const result = await setupWorktree(mainRoot, targetRoot, { force: opts.force });
+  for (const e of result.errors) warn(e);
 
-  s.succeed("Worktree files set up");
+  const sync = syncWorktree(targetPath);
+  const cdLine = `cd ${targetPath}`;
+  const tool = copyToClipboard(cdLine);
+  printSetupSuccessBox(targetPath, result, sync.ok, sync.output, tool);
 
-  const summaryLines: string[] = [];
-  if (result.copied.length > 0) {
-    summaryLines.push(label("Copied", `${result.copied.length} file(s)`));
-    for (const f of result.copied) {
-      summaryLines.push(`  ${chalk.green("+")} ${f}`);
-    }
+  if (!sync.ok) {
+    throw new HatchError("Adapter sync failed inside the new worktree.", 1, "FS_ERROR");
   }
-  if (result.symlinked.length > 0) {
-    summaryLines.push(label("Symlinked", `${result.symlinked.length} path(s)`));
-    for (const f of result.symlinked) {
-      summaryLines.push(`  ${chalk.cyan("→")} ${f}`);
-    }
-  }
-  if (result.skipped.length > 0) {
-    summaryLines.push(label("Skipped", `${result.skipped.length} path(s)`));
-  }
-  if (result.errors.length > 0) {
-    for (const e of result.errors) {
-      warn(e);
-    }
-  }
+}
 
-  if (summaryLines.length > 0) {
-    printBox("Worktree setup", summaryLines, "success");
-  } else {
-    info("No files to set up (all patterns already satisfied or source files missing).");
+// ─── Mode 2: <name> (new full flow) ──────────────────────────────────────────
+
+async function runByName(name: string, opts: SetupOptions): Promise<void> {
+  const cwd = process.cwd();
+  const mainRoot = opts.from ?? (isInsideWorktree(cwd) ? findMainWorktree(cwd) : cwd);
+
+  if (!isValidBranchName(name)) {
+    logError(`Invalid worktree name: '${name}'`);
+    console.log(chalk.dim("  Names must be valid git branch names (no spaces, no '..', no leading '-').\n"));
+    throw new HatchError("Invalid worktree name", 1, "VALIDATION_ERROR");
   }
 
-  // Auto-sync adapter output in the worktree so CLAUDE.md, .claude/, etc. are fresh
+  const targetRoot = join(mainRoot, WORKTREES_DIR, name);
+
+  if (await pathExists(targetRoot)) {
+    logError(`Target path already exists: ${targetRoot}`);
+    console.log(chalk.dim("  Pick a different name, or run `hatch3r worktree-cleanup` to remove the existing worktree first.\n"));
+    throw new HatchError("Target path exists", 1, "FS_ERROR");
+  }
+
+  const includeContent = await readIncludeOrThrow(mainRoot);
+  await confirmSecretsOrAbort(includeContent, mainRoot, targetRoot, opts);
+
+  if (opts.dryRun) {
+    printDryRun(includeContent, mainRoot, targetRoot, "name", name);
+    return;
+  }
+
+  // Per-clone gitignore so .worktrees/ doesn't appear in the main repo's
+  // `git status`. No tracked file change, no PR diff.
+  const added = await ensureWorktreesIgnored(mainRoot);
+  if (added) info(`Added ${WORKTREES_DIR}/ to ${chalk.dim(".git/info/exclude")} (per-clone)`);
+
+  const sCreate = createSpinner(`Creating worktree on new branch '${name}'...`);
+  sCreate.start();
   try {
-    info("Syncing adapter output in worktree...");
-    execFileSync("npx", ["hatch3r", "sync"], {
-      cwd: targetRoot,
-      stdio: "pipe",
-    });
-    info("Adapter output synced in worktree");
-  } catch {
-    warn("Could not auto-sync adapter output. Run `hatch3r sync` in the worktree manually.");
+    addGitWorktree(mainRoot, name, targetRoot);
+    sCreate.succeed(`Created worktree: ${chalk.dim(targetRoot)}`);
+  } catch (err) {
+    sCreate.fail("git worktree add failed");
+    throw err;
   }
+
+  const sPop = createSpinner("Populating worktree files...");
+  sPop.start();
+  const result = await setupWorktree(mainRoot, targetRoot, { force: opts.force });
+  sPop.succeed("Worktree files populated");
+
+  for (const e of result.errors) warn(e);
+
+  const sync = syncWorktree(targetRoot);
+  const cdLine = `cd ${targetRoot}`;
+  const tool = copyToClipboard(cdLine);
+  printSetupSuccessBox(targetRoot, result, sync.ok, sync.output, tool);
+
+  if (!sync.ok) {
+    throw new HatchError("Adapter sync failed inside the new worktree.", 1, "FS_ERROR");
+  }
+}
+
+// ─── Entry ───────────────────────────────────────────────────────────────────
+
+export async function worktreeSetupCommand(
+  nameOrUndefined?: string,
+  opts: SetupOptions = {},
+): Promise<void> {
+  printBanner(true);
+
+  if (opts.fromPath) {
+    if (nameOrUndefined) {
+      warn("Both <name> positional and --from-path supplied; using --from-path.");
+    }
+    return runFromPath(opts.fromPath, opts);
+  }
+
+  if (!nameOrUndefined) {
+    logError("Worktree name is required.");
+    console.log(chalk.dim("  Usage: hatch3r worktree-setup <name>"));
+    console.log(chalk.dim("         hatch3r worktree-setup --from-path <existing-worktree-path>\n"));
+    throw new HatchError("Missing worktree name", 1, "VALIDATION_ERROR");
+  }
+
+  return runByName(nameOrUndefined, opts);
 }

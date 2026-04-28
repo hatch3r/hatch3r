@@ -1,11 +1,11 @@
 # Domain 6: Context Engineering & Token Economics
 
-> Last updated: 2026-04-19
+> Last updated: 2026-04-27
 
-**Pillars served:** P4 (primary), P2 (supporting).
+**Pillars served:** P4 (primary), P7 (primary), P2 (supporting).
 
-**Scope:** How the framework manages context windows, instruction density, and token costs across the agent pipeline.
-**Sub-agents:** 4
+**Scope:** How the framework manages context windows, instruction density, token costs, and end-user runtime efficiency across the agent pipeline.
+**Sub-agents:** 6
 
 ## Sub-Agent Decomposition
 
@@ -15,6 +15,8 @@
 | 6.2 | Instruction Density & Redundancy |
 | 6.3 | Cost Modeling |
 | 6.4 | Context Integrity & Isolation |
+| 6.5 | End-User Runtime Efficiency |
+| 6.6 | Cross-Adapter Efficiency Consistency |
 
 > Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
 
@@ -45,6 +47,25 @@
 - [ ] Session isolation — does corrupted context from one session persist and affect subsequent sessions?
 - [ ] Memory safety boundaries — are there limits on what learnings can contain?
 
+### 6.5 End-User Runtime Efficiency
+- [ ] Static-first ordering — every `commands/*.md` with `orchestrator: true` and every `agents/*.md` places stable system/role content above volatile turn data; no run-ID, timestamp, or session counter precedes the static prompt frame
+- [ ] Parallel-tool-by-default — agents performing >=2 independent tool calls (read multiple files, run lint+tests, fetch separate URLs) explicitly instruct parallel invocation; serialized-by-default patterns are findings
+- [ ] Triage-first orchestrator — every `orchestrator: true` command has a triage step before delegation (Tier 1/2/3 model from `commands/hatch3r-quick-change.md`)
+- [ ] Plan/act split — non-trivial commands separate planning sub-agent from execution sub-agent; bundled plan+act in one prompt is a Medium finding
+- [ ] Structured outputs over prose — multi-step pipelines emit machine-parseable handoff (YAML/JSON tables) between phases; free-form prose handoff is a finding
+- [ ] Lazy loading / reference-by-pointer — bulky context (board state, learnings corpus, AGENTS.md) is loaded conditionally with a token budget rather than eagerly inlined
+- [ ] Conditional sub-agent invocation — Phase 4 specialists (a11y-auditor, perf-profiler, dep-auditor) are dispatch-gated; unconditional invocation across trivial tasks is a finding
+
+### 6.6 Cross-Adapter Efficiency Consistency
+- [ ] All 15 adapter outputs preserve static-first ordering after canonical-to-adapter transformation; no adapter rewrites the prompt frame to inject volatile metadata at the top
+- [ ] Provider-specific cache hints (Anthropic prompt caching, OpenAI Responses caching) are surfaced where supported but graceful when absent — model-agnostic claim
+- [ ] Adapter-specific frontmatter transforms preserve `triage_tiers`, `efficiency_tier`, `cache_friendly`, `parallel_tool_default`, and `efficiency_patterns` signals end-to-end
+- [ ] Cross-adapter parity check — same canonical artifact yields semantically equivalent efficiency-relevant prompt structure across all 15 adapters
+
+## Universal Checklist
+- [ ] Every published artifact passes static-first ordering; no anti-cache patterns (mid-prompt timestamps, ephemeral counters, per-run UUIDs above stable frames)
+- [ ] Efficiency claims are model-agnostic — provider-specific optimizations (e.g., Anthropic `cache_control`) are advisory, not required
+
 ## Domain Boundary
 
-> D06 audits context engineering quality under normal operation: context window overflow handling, session state isolation, format validation, and token economics. D15 audits context security under adversarial conditions: poisoning attacks, injection via learnings, weaponization of user-controlled files. If a finding involves intentional malicious input, it belongs in D15.
+> D06 audits context engineering, token economics, and end-user runtime efficiency under normal operation. **Versus D05** (prompt engineering quality): D05 = "is the instruction clear and complete?"; D06 = "is the prompt structured for cache and tokens?" If a finding is about meaning/clarity → D05; if about ordering/structure/tool-call patterns → D06. **Versus D07** (orchestration optimization): D07 = pipeline-level architecture (phase ordering, review-loop convergence); D06 = per-prompt token mechanics within those phases. **Versus D15** (security): adversarial input → D15; normal-operation token/cache → D06.

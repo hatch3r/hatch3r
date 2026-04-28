@@ -5,6 +5,9 @@ orchestrator: false
 description: Execute shareable workflow recipes that compose agents, skills, and commands into guided sequences for common development scenarios
 tags: [core]
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+cache_friendly: true
+parallel_tool_default: true
 ---
 
 ## Agent Pipeline

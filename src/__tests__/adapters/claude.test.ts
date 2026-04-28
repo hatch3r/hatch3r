@@ -220,7 +220,7 @@ describe("ClaudeAdapter", () => {
     // Hatch3r metadata for managed-block tracking
     expect(parsed._hatch3r).toBeDefined();
     expect(parsed._hatch3r.managed).toBe(true);
-    expect(parsed._hatch3r.schema).toBe("claude-code/plugin-hooks/v2.1");
+    expect(parsed._hatch3r.schema).toBe("claude-code/plugin-hooks/v2.2");
   });
 
   it("does not emit plugin-style hooks file when hooks feature is disabled", async () => {
@@ -246,7 +246,7 @@ describe("ClaudeAdapter", () => {
     // in addition to the legacy PostToolUse+Bash fallback.
     expect(parsed.hooks.WorktreeCreate).toBeDefined();
     expect(Array.isArray(parsed.hooks.WorktreeCreate)).toBe(true);
-    expect(parsed.hooks.WorktreeCreate[0].hooks[0].command).toContain("hatch3r worktree-setup");
+    expect(parsed.hooks.WorktreeCreate[0].hooks[0].command).toContain("hatch3r worktree-setup --from-path");
   });
 
   it("plugin-style hooks file mirrors settings.json hooks (additive, both emitted)", async () => {

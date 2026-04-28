@@ -22,6 +22,10 @@
  * format (e.g. `PhaseTokenEstimate`, `PipelineTokenSummary`, `CostEstimate`).
  */
 
+import { appendFileSync, mkdirSync } from "node:fs";
+import { dirname, join } from "node:path";
+
+import { createFailureLogEntry, formatLogEntry, FAILURE_LOG_FILE } from "./failureLog.js";
 import type { PhaseName } from "./phaseTimeout.js";
 
 // ── Reasoning Block Persistence (Finding #63) ────────────────────
@@ -479,4 +483,63 @@ export function formatReplayGuidance(guidance: ReplayGuidance): string {
   }
 
   return lines.join("\n");
+}
+
+// ─── Efficiency telemetry (opt-in via HATCH3R_EFFICIENCY_TELEMETRY=1) ───
+// Pillar P7. Records token-level and latency telemetry for end-user agentic
+// flows. Disabled by default; failures are reported to the failureLog channel
+// per the Silent Failure Contract (CONSTITUTION.md §2 P5).
+
+export interface EfficiencyEvent {
+  artifactId: string;       // canonical artifact ID, e.g. "hatch3r-quick-change"
+  phase: string;            // "triage" | "plan" | "act" | "review" | <custom>
+  tokensIn: number;
+  tokensOut: number;
+  latencyMs: number;
+  modelHint?: string;       // free-form, e.g. "claude-opus-4-7", optional
+  cacheHit?: boolean;       // optional, provider-specific, never required
+}
+
+const EFFICIENCY_TELEMETRY_ENV = "HATCH3R_EFFICIENCY_TELEMETRY";
+const EFFICIENCY_LOG_RELATIVE = ".hatch3r/efficiency-events.jsonl";
+
+export function isEfficiencyTelemetryEnabled(): boolean {
+  return process.env[EFFICIENCY_TELEMETRY_ENV] === "1";
+}
+
+/**
+ * Append a single EfficiencyEvent as a JSONL line under
+ * `<projectRoot>/.hatch3r/efficiency-events.jsonl`. No-op when the env var
+ * gate is unset. Never throws — I/O failures are routed through the
+ * failureLog channel per the Silent Failure Contract.
+ *
+ * `projectRoot` defaults to `process.cwd()`, matching the convention used
+ * by sync.ts and update.ts. It is exposed for tests so the JSONL path can
+ * be redirected to a temp directory.
+ */
+export function recordEfficiencyEvent(
+  e: EfficiencyEvent,
+  projectRoot: string = process.cwd(),
+): void {
+  if (!isEfficiencyTelemetryEnabled()) return;
+  const logPath = join(projectRoot, EFFICIENCY_LOG_RELATIVE);
+  const line = JSON.stringify(e) + "\n";
+  try {
+    mkdirSync(dirname(logPath), { recursive: true });
+    appendFileSync(logPath, line);
+  } catch (err) {
+    // silent-failure: routed to failureLog (Silent Failure Contract — CONSTITUTION.md §2 P5)
+    try {
+      const entry = createFailureLogEntry("efficiency-telemetry", err, {
+        tool: e.artifactId,
+      });
+      const failureLine = formatLogEntry(entry) + "\n";
+      const failurePath = join(projectRoot, ".hatch3r", FAILURE_LOG_FILE);
+      mkdirSync(dirname(failurePath), { recursive: true });
+      appendFileSync(failurePath, failureLine);
+    } catch {
+      // silent-failure: routed to failureLog (Silent Failure Contract — CONSTITUTION.md §2 P5)
+      void err;
+    }
+  }
 }

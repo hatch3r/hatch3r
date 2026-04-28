@@ -12,6 +12,7 @@ Capture or refine the framework vision through a structured dialog with the fram
 - After a strategic shift in direction or scope
 - Periodically to validate that implementation still aligns with intent
 - When audit findings reveal vision-level gaps (D17 competitive positioning, D18 PRD alignment)
+- After a content-scope expansion (e.g., user-authored content scope added in cycle that introduced D20) — next refresh validates whether end-user adoption metrics warrant further vision adjustment
 
 **This is a framework-owner prompt, not a user-facing command.** It lives alongside AUDIT.md and AUDIT-EXECUTE.md at the project root.
 

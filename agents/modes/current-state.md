@@ -4,6 +4,9 @@ type: mode
 description: Map the current state of code being analyzed — complexity, coupling, cohesion, coverage.
 parent: hatch3r-researcher
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+efficiency_tier: standard
+cache_friendly: true
 ---
 ### Mode: `current-state`
 

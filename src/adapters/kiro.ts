@@ -68,7 +68,7 @@ export class KiroAdapter extends BaseAdapter {
     }
 
     lines.push(...await this.inlineAgents(ctx));
-    const inner = lines.join("\n");
+    const inner = lines.join("\n").trim();
     results.push(output(".kiro/steering/hatch3r-agents.md", wrapInManagedBlock(inner), inner));
 
     results.push(

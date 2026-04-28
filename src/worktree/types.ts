@@ -10,3 +10,19 @@ export interface WorktreeSetupResult {
   skipped: string[];
   errors: string[];
 }
+
+export interface WorktreeListEntry {
+  path: string;
+  head?: string;
+  branch?: string;
+  detached: boolean;
+  bare: boolean;
+  locked: boolean;
+  prunable: boolean;
+}
+
+export interface WorktreeStatus {
+  modified: number;
+  untracked: number;
+  stashes: number;
+}

@@ -2,6 +2,8 @@
 id: shared-external-knowledge
 type: reference
 description: Shared external knowledge reference for all agents — tooling hierarchy, platform CLI, Context7 MCP, and web research guidance.
+efficiency_patterns: agents/shared/efficiency-patterns.md
+cache_friendly: true
 ---
 ## External Knowledge
 

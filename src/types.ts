@@ -40,6 +40,30 @@ export interface CostTrackingConfig {
   hardStop?: boolean;
 }
 
+/**
+ * Versioned, additive customization payload persisted in `hatch.json`.
+ *
+ * Two-tier model:
+ *   - Per-content overrides (agents/skills/rules/commands) mirror the
+ *     `.hatch3r/<dir>/*.customize.yaml` keying so manifest-level rehydration
+ *     survives `clean` -> reinit cycles when the YAML files are absent.
+ *   - `integrations` is the free-form escape hatch for scalar config that
+ *     does not fit the per-artifact YAML model (GitHub project IDs, board
+ *     overrides, organisation-level toggles).
+ *
+ * `schemaVersion` is independent from `HatchManifest.version` and gates
+ * forward migration of the customization payload itself without forcing
+ * a manifest-level version bump.
+ */
+export interface CustomizationManifest {
+  schemaVersion: 1;
+  agents?: Record<string, Record<string, unknown>>;
+  skills?: Record<string, Record<string, unknown>>;
+  rules?: Record<string, Record<string, unknown>>;
+  commands?: Record<string, Record<string, unknown>>;
+  integrations?: Record<string, unknown>;
+}
+
 export interface HatchManifest {
   version: string;
   hatch3rVersion: string;
@@ -59,6 +83,13 @@ export interface HatchManifest {
   claude?: ClaudeConfig;
   /** Token usage and cost tracking configuration. */
   costTracking?: CostTrackingConfig;
+  /**
+   * Optional customization payload that round-trips through
+   * `clean` -> reinit so integration config (e.g. GitHub project IDs) and
+   * per-artifact overrides survive when the project-side
+   * `.hatch3r/*.customize.yaml` files are absent.
+   */
+  customization?: CustomizationManifest;
   /** Content selection from init. undefined = legacy "full" (backward compat). */
   content?: ContentSelection;
   /** Detected project languages from repo analysis. */
@@ -69,6 +100,19 @@ export interface HatchManifest {
   specs?: {
     paths: string[];
     lastGenerated?: string;
+  };
+  /**
+   * User-content authoring counters surfaced by `hatch3r status`. Populated by
+   * `saveUserContent` in `src/content/userContent.ts` after each save. Older
+   * hatch3r versions tolerate absence (treated as zero counts).
+   */
+  userContent?: {
+    /** Total user-authored artifacts on disk under `.agents/user/`. */
+    count: number;
+    /** ISO-8601 timestamp of the most recent successful save. */
+    lastModified: string;
+    /** Per-type counts (agent/skill/rule/command/hook). */
+    types: Record<string, number>;
   };
   /** Present when this repo is managed by a workspace. */
   workspace?: {
@@ -115,7 +159,7 @@ export interface WorktreeConfig {
   nodeModules?: "symlink" | "skip";
 }
 
-export const TOOLS = ["cursor", "copilot", "claude", "opencode", "windsurf", "amp", "codex", "gemini", "cline", "aider", "kiro", "goose", "zed", "amazon-q", "antigravity", "agents-md"] as const;
+export const TOOLS = ["cursor", "copilot", "claude", "opencode", "windsurf", "amp", "codex", "gemini", "cline", "aider", "kiro", "goose", "zed", "amazon-q", "antigravity"] as const;
 export type Tool = (typeof TOOLS)[number];
 export const VALID_TOOLS = new Set<string>(TOOLS);
 export const TOOL_CHOICES = TOOLS.join(", ");
@@ -218,6 +262,19 @@ export interface CanonicalFile {
   content: string;
   rawContent: string;
   sourcePath: string;
+  /**
+   * Provenance of the canonical file. Defaults to "canonical" everywhere;
+   * "user" only when the file was loaded from the project-local
+   * `.agents/user/` subtree (D20 user-content authoring).
+   */
+  source?: "canonical" | "user";
+  /**
+   * When present, restricts which platform adapters emit this artifact.
+   * Empty / omitted means full parity (all adapters emit it). Used by
+   * adapter filters to honour `adapters: [claude, cursor]` frontmatter
+   * declared on user-tier artifacts.
+   */
+  adapters?: string[];
 }
 
 export interface CanonicalMetadata {
@@ -239,6 +296,16 @@ export interface CanonicalMetadata {
   tags?: string[];
   /** Optional rule precedence bucket; see {@link RulePrecedence}. */
   precedence?: RulePrecedence;
+  /**
+   * Provenance of the metadata source. Defaults to "canonical"; "user" only
+   * when loaded from `.agents/user/` (D20 user-content authoring).
+   */
+  source?: "canonical" | "user";
+  /**
+   * When present, restricts adapter emission. Empty / omitted = full parity.
+   * Mirrors {@link CanonicalFile.adapters}.
+   */
+  adapters?: string[];
 }
 
 export interface ContentSelection {
@@ -282,7 +349,7 @@ export interface AdapterOutput {
 
 export interface MergeResult {
   path: string;
-  action: "created" | "updated" | "skipped";
+  action: "created" | "updated" | "skipped" | "unchanged";
   warning?: string;
 }
 

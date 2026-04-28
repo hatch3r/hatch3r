@@ -5,6 +5,9 @@ orchestrator: false
 description: Open an OWASP ASI security epic reviewing auth boundaries, input validation, and supply-chain risks with one hardening sub-issue per module plus trust-boundary audit
 tags: [maintenance, security]
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+cache_friendly: true
+parallel_tool_default: true
 ---
 
 ## Agent Pipeline

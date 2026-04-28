@@ -1,0 +1,6 @@
+---
+description: A valid user-tier rule fixture exercising the .md side of the .md/.mdc paired-write contract for D20 user-content tests.
+alwaysApply: true
+---
+
+Use TypeScript strict mode for all new files in this fixture path.

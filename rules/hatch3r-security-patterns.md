@@ -5,6 +5,7 @@ description: Security patterns including input validation, auth enforcement, and
 scope: "**/auth/**,**/security/**,**/middleware/**,**/*auth*,**/*guard*,**/*policy*,**/*permission*,**/*sanitiz*,**/*validat*"
 tags: [security]
 quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
 ---
 # Security Patterns
 

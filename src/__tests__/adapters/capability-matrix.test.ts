@@ -55,7 +55,7 @@ import { resolveTestPath } from "../fixtures.js";
 
 const FIXTURES_DIR = resolveTestPath(import.meta.url, "../fixtures/agents");
 
-// All 16 registered tools (must stay in lockstep with TOOLS / adapter factory
+// All 15 registered tools (must stay in lockstep with TOOLS / adapter factory
 // map in src/adapters/index.ts). Test will fail-fast if a new tool is added
 // to TOOLS without being added here, because the length mismatch surfaces in
 // the assertion below.
@@ -75,7 +75,6 @@ const TOOLS_UNDER_TEST: Tool[] = [
   "zed",
   "amazon-q",
   "antigravity",
-  "agents-md",
 ];
 
 // Keys of Features that the matrix declares per-column.
@@ -200,7 +199,7 @@ describe("ADAPTER_CAPABILITIES drift detection (C7.5-W2B2-H6)", () => {
     // Guard: if someone adds a tool to TOOLS without adding it to
     // TOOLS_UNDER_TEST, this assertion surfaces the gap before the per-tool
     // tests run. Keep in lockstep with src/types.ts `TOOLS`.
-    const expectedCount = 16;
+    const expectedCount = 15;
     expect(TOOLS_UNDER_TEST.length).toBe(expectedCount);
   });
 

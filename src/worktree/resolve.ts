@@ -1,9 +1,10 @@
 import { execFileSync } from "node:child_process";
-import { statSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
-import { join, resolve, dirname } from "node:path";
+import { statSync, readFileSync, writeFileSync, unlinkSync, realpathSync } from "node:fs";
+import { join, resolve, dirname, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { randomBytes } from "node:crypto";
 import { HatchError } from "../types.js";
+import type { WorktreeListEntry, WorktreeStatus } from "./types.js";
 
 /**
  * Writes the given gitignore-style patterns to a temp file, then runs
@@ -106,4 +107,133 @@ export function isGitIgnored(rootDir: string, filePath: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Enumerates all git worktrees attached to the repo at `mainRoot` by parsing
+ * `git worktree list --porcelain`. The porcelain format is record-per-blank-line
+ * with `worktree`, `HEAD`, `branch`, and zero or more flag lines (`detached`,
+ * `bare`, `locked`, `prunable`).
+ *
+ * The first record is always the main worktree.
+ */
+export function listWorktrees(mainRoot: string): WorktreeListEntry[] {
+  let raw: string;
+  try {
+    raw = execFileSync("git", ["worktree", "list", "--porcelain"], {
+      cwd: mainRoot,
+      encoding: "utf-8",
+      maxBuffer: 10 * 1024 * 1024,
+    });
+  } catch (err) {
+    throw new HatchError(
+      `git worktree list failed in ${mainRoot}: ${(err as Error).message}`,
+      1,
+      "FS_ERROR",
+    );
+  }
+
+  const entries: WorktreeListEntry[] = [];
+  let current: Partial<WorktreeListEntry> | null = null;
+
+  const flush = () => {
+    if (current && current.path) {
+      entries.push({
+        path: current.path,
+        head: current.head,
+        branch: current.branch,
+        detached: current.detached ?? false,
+        bare: current.bare ?? false,
+        locked: current.locked ?? false,
+        prunable: current.prunable ?? false,
+      });
+    }
+    current = null;
+  };
+
+  for (const line of raw.split("\n")) {
+    if (line === "") {
+      flush();
+      continue;
+    }
+    if (line.startsWith("worktree ")) {
+      flush();
+      let pathStr = line.slice("worktree ".length).trim();
+      // Git porcelain emits forward-slash paths (and on Windows, the long
+      // form `C:/Users/runneradmin/...`). Canonicalise via the native
+      // realpath (libuv → GetFinalPathNameByHandleW on Windows) so a
+      // short-form 8.3 path (`C:\\Users\\RUNNER~1\\...` from os.tmpdir)
+      // and the long form returned by git both resolve to the same string.
+      // Plain `realpathSync` (the JS impl) preserves whichever form it
+      // received, so it would NOT collapse the two — only `.native` does.
+      try {
+        pathStr = realpathSync.native(pathStr);
+      } catch {
+        // Prunable worktree — path may not exist on disk anymore.
+        // Best-effort: normalise separators only so downstream string
+        // comparisons against platform-native paths still align.
+        pathStr = pathStr.split("/").join(sep);
+      }
+      current = { path: pathStr };
+    } else if (!current) {
+      continue;
+    } else if (line.startsWith("HEAD ")) {
+      current.head = line.slice("HEAD ".length).trim();
+    } else if (line.startsWith("branch ")) {
+      current.branch = line.slice("branch ".length).trim();
+    } else if (line === "detached") {
+      current.detached = true;
+    } else if (line === "bare") {
+      current.bare = true;
+    } else if (line === "locked" || line.startsWith("locked ")) {
+      current.locked = true;
+    } else if (line === "prunable" || line.startsWith("prunable ")) {
+      current.prunable = true;
+    }
+  }
+  flush();
+
+  return entries;
+}
+
+/**
+ * Reports counts of modified, untracked, and stashed entries inside a worktree.
+ * Used by `worktree-cleanup` to badge candidates so the user knows what they're
+ * about to destroy with `git worktree remove --force`.
+ *
+ * Returns zeros (with no throw) when git can't read the path — the caller
+ * already knows the path exists from `listWorktrees`; this is a soft probe.
+ */
+export function getWorktreeStatus(worktreePath: string): WorktreeStatus {
+  let status: WorktreeStatus = { modified: 0, untracked: 0, stashes: 0 };
+  try {
+    const out = execFileSync("git", ["-C", worktreePath, "status", "--porcelain"], {
+      encoding: "utf-8",
+      maxBuffer: 10 * 1024 * 1024,
+    });
+    for (const line of out.split("\n")) {
+      if (!line) continue;
+      if (line.startsWith("?? ")) status.untracked += 1;
+      else status.modified += 1;
+    }
+  } catch {
+    // Soft probe: a missing or broken worktree returns zero counts so the caller
+    // can still render the badge; the subsequent `git worktree remove` will
+    // surface the real error.
+    status = { modified: 0, untracked: 0, stashes: 0 };
+  }
+  try {
+    const out = execFileSync("git", ["-C", worktreePath, "stash", "list"], {
+      encoding: "utf-8",
+      maxBuffer: 10 * 1024 * 1024,
+    });
+    status.stashes = out.split("\n").filter((l) => l.length > 0).length;
+  } catch {
+    // Soft probe: a failed `git stash list` is masked because the destructive
+    // path (`removeGitWorktree`) surfaces the real git error with stderr when
+    // it runs. Status badges are advisory only — assigning to 0 keeps the
+    // catch body non-empty per the silent-failure contract.
+    status.stashes = 0;
+  }
+  return status;
 }

@@ -2,6 +2,7 @@
 id: security
 type: check
 description: Security review criteria covering vulnerability patterns, input validation, authentication, secrets handling, and dependency safety
+cache_friendly: true
 ---
 # Security Check
 

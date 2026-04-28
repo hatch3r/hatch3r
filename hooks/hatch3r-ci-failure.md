@@ -6,6 +6,7 @@ agent: ci-watcher
 description: Diagnose CI pipeline failures
 tags: [core]
 quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
 ---
 # Hook: ci-failure → ci-watcher
 

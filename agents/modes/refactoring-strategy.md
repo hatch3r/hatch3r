@@ -5,6 +5,9 @@ description: Design the refactoring approach with transformations, invariants, a
 tags: [core, planning, implementation]
 parent: hatch3r-researcher
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+efficiency_tier: standard
+cache_friendly: true
 ---
 ### Mode: `refactoring-strategy`
 

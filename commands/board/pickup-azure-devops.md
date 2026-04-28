@@ -4,6 +4,7 @@ type: command
 description: Azure DevOps-specific platform procedures for board-pickup. Covers az CLI commands for work item listing, status updates, collision detection, PR creation, and state transitions.
 tags: [board, team, azure-devops]
 quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
 ---
 # Board Pickup — Azure DevOps Platform Details
 

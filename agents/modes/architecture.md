@@ -5,6 +5,9 @@ description: Design the architectural approach with data model changes, API cont
 tags: [core, planning, implementation]
 parent: hatch3r-researcher
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+efficiency_tier: standard
+cache_friendly: true
 ---
 ### Mode: `architecture`
 

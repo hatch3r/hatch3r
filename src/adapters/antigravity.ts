@@ -23,7 +23,7 @@ export class AntigravityAdapter extends BaseAdapter {
       ...await this.bridgeHeader(ctx, ".agents/AGENTS.md"),
       ...await this.inlineRules(ctx),
       ...await this.inlineAgents(ctx),
-    ].join("\n");
+    ].join("\n").trim();
     results.push(output(".antigravity/rules.md", wrapInManagedBlock(inner), inner));
 
     results.push(

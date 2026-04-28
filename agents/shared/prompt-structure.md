@@ -2,6 +2,8 @@
 id: shared-prompt-structure
 type: reference
 description: XML-tag structuring pattern for agent prompts — reduces misinterpretation of instructions vs context vs rules per Anthropic Claude 4.x 2026 guidance.
+efficiency_patterns: agents/shared/efficiency-patterns.md
+cache_friendly: true
 ---
 
 ## Prompt Structure Pattern

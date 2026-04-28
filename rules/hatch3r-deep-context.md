@@ -5,6 +5,7 @@ description: Adaptive pre-implementation analysis — complexity scoring, requir
 scope: always
 tags: [core]
 quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
 ---
 # Deep Context Analysis
 

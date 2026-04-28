@@ -51,6 +51,16 @@ export interface GenerateIntegrityManifestOptions {
   expectedAdapters?: string[];
   /** Adapters that produced output successfully during this sync. */
   successfulAdapters?: string[];
+  /**
+   * G4: When supplied, the previous on-disk manifest is consulted so a
+   * regeneration that would produce an identical content fingerprint
+   * (same `files` map, same `expectedAdapters`, same `successfulAdapters`)
+   * preserves the previous `generated` timestamp instead of stamping a
+   * fresh one. This makes `status ↔ sync` idempotent: redundant syncs no
+   * longer mask drift on subsequent status runs by overwriting the seal
+   * timestamp with a no-op write.
+   */
+  previousManifest?: IntegrityManifest;
 }
 
 export interface VerifyResult {
@@ -123,6 +133,32 @@ export async function generateIntegrityManifest(
     .update(JSON.stringify(files))
     .digest("hex");
 
+  const expectedAdapters = options.expectedAdapters
+    ? [...options.expectedAdapters].sort()
+    : undefined;
+  const successfulAdapters = options.successfulAdapters
+    ? [...options.successfulAdapters].sort()
+    : undefined;
+
+  // G4: When the new content fingerprint matches the previous manifest's
+  // fingerprint exactly (same files map by relative path + hash, same
+  // expected/successful adapter sets, same hatchVersion), return the
+  // previous manifest unchanged so the `generated` timestamp survives.
+  // This prevents a redundant sync from masking drift on the next status
+  // run by stamping a fresh seal time on identical content.
+  if (options.previousManifest) {
+    const prev = options.previousManifest;
+    if (
+      prev.checksum === checksum &&
+      prev.hatchVersion === hatchVersion &&
+      adapterSetsEqual(prev.expectedAdapters, expectedAdapters) &&
+      adapterSetsEqual(prev.successfulAdapters, successfulAdapters) &&
+      filesMapEqual(prev.files, files)
+    ) {
+      return prev;
+    }
+  }
+
   const manifest: IntegrityManifest = {
     version: 1,
     generated: new Date().toISOString(),
@@ -132,16 +168,44 @@ export async function generateIntegrityManifest(
     checksum,
   };
 
-  if (options.expectedAdapters) {
+  if (expectedAdapters) {
     // Deterministic sort so semantically-equivalent syncs produce identical
     // manifests (aids diffing and test assertions).
-    manifest.expectedAdapters = [...options.expectedAdapters].sort();
+    manifest.expectedAdapters = expectedAdapters;
   }
-  if (options.successfulAdapters) {
-    manifest.successfulAdapters = [...options.successfulAdapters].sort();
+  if (successfulAdapters) {
+    manifest.successfulAdapters = successfulAdapters;
   }
 
   return manifest;
+}
+
+/** True when two optional sorted string arrays denote the same set. */
+function adapterSetsEqual(
+  a: string[] | undefined,
+  b: string[] | undefined,
+): boolean {
+  if (a === undefined && b === undefined) return true;
+  if (a === undefined || b === undefined) return false;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+/** True when two relative-path -> hash maps have identical entries. */
+function filesMapEqual(
+  a: Record<string, string>,
+  b: Record<string, string>,
+): boolean {
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) return false;
+  for (const key of aKeys) {
+    if (a[key] !== b[key]) return false;
+  }
+  return true;
 }
 
 /** Atomically write the integrity manifest to `.agents/.integrity.json`. */

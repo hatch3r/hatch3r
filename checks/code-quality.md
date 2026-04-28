@@ -2,6 +2,7 @@
 id: code-quality
 type: check
 description: Code quality review criteria covering standards compliance, complexity, maintainability, and architectural patterns
+cache_friendly: true
 ---
 # Code Quality Check
 

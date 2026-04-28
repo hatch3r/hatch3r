@@ -6,6 +6,10 @@ agentPipeline: [hatch3r-researcher, hatch3r-docs-writer]
 description: Translate a greenfield vision into future-state design artifacts -- ADRs, domain model, API contracts, per-module technical specs, and a board-ready todo.md
 tags: [planning, greenfield]
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+cache_friendly: true
+parallel_tool_default: true
+triage_tiers: [1, 2, 3]
 ---
 # Project Spec — Greenfield Project Specification from Vision to Docs
 
@@ -36,6 +40,18 @@ Take a project idea or vision and produce complete project documentation across 
 ## Workflow
 
 Execute these steps in order. **Do not skip any step.** Ask the user at every checkpoint marked with ASK. When in doubt, **ASK** — it is better to ask one question too many than to make one wrong assumption. Discovery questions are never wasted.
+
+## Step 0: Triage
+
+Classify the project-spec request before delegating:
+
+- **Tier 1 (trivial)**: small greenfield project with focused scope, single platform, no compliance burden; reduced fanout (3–4 researchers) and skip the production-blueprint sub-agent.
+- **Tier 2 (standard)**: standard greenfield with business and technical lenses; standard pipeline with all 7 parallel researchers and ADR generation.
+- **Tier 3 (deep)**: enterprise-scale, multi-platform, or regulated greenfield (HIPAA/PCI/FedRAMP); full pipeline with all researchers, deep web research for compliance, and confirm spec scope with the user before file writes.
+
+If Tier 1, run the reduced researcher set and skip Sub-Agents 6–7 unless the user opts in. If Tier 2, run the standard pipeline below. If Tier 3, run the full pipeline including the production-blueprint and confirm scope with the user before generating ADRs.
+
+---
 
 ### Step 1: Gather Project Vision & Business Context
 

@@ -6,6 +6,7 @@ scope: conditional
 globs: "**/*perf*,**/*benchmark*,**/*budget*,**/lighthouse*,**/*.perf.*"
 tags: [performance]
 quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
 ---
 # Performance Budgets
 

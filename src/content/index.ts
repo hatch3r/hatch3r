@@ -1,6 +1,6 @@
 import { readFile, readdir, cp, mkdir, rm, stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { join, dirname, normalize, isAbsolute } from "node:path";
+import { join, dirname, normalize, isAbsolute, posix } from "node:path";
 import { parseFrontmatter } from "../adapters/canonical.js";
 import { atomicWriteFile } from "../merge/safeWrite.js";
 import { HatchError } from "../types.js";
@@ -32,6 +32,13 @@ export function assertSafePath(relativePath: string, label: string): void {
 /**
  * Extract hatch3r content IDs referenced in markdown content.
  * Looks for backtick-quoted `hatch3r-{name}` patterns.
+ *
+ * Conservative scope: only matches the `hatch3r-`/`cmd-hatch3r-` namespace.
+ * Broadening this regex to plain kebab-case identifiers would generate false
+ * positives across the canonical corpus (every backticked CLI flag, package
+ * name, etc.). User-tier artifacts use a separate, opt-in scanner — see
+ * {@link extractUserContentReferences} — applied only to user bodies during
+ * D20 cross-reference checks.
  */
 export function extractContentReferences(content: string): string[] {
   const refs = new Set<string>();
@@ -39,6 +46,32 @@ export function extractContentReferences(content: string): string[] {
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(content)) !== null) {
     refs.add(match[1]);
+  }
+  return [...refs];
+}
+
+/**
+ * D20 user-tier reference scanner. Picks up plain kebab-case identifiers
+ * inside `[[wikilinks]]` or fenced ``` ``` ``` code blocks ONLY — never the
+ * full body text — to keep the false-positive rate near zero on natural
+ * prose. Used by validation when checking that a user artifact's
+ * cross-references resolve in the merged canonical+user index.
+ *
+ * Includes canonical hatch3r-* / cmd-hatch3r-* IDs as well so a user
+ * artifact that depends on a canonical agent surfaces in the same
+ * dependency graph.
+ */
+export function extractUserContentReferences(content: string): string[] {
+  const refs = new Set<string>();
+  // Wikilinks: [[my-id]] or [[my-id|label]]
+  const wiki = /\[\[([a-z][a-z0-9-]*)(?:\|[^\]]*)?\]\]/g;
+  let m: RegExpExecArray | null;
+  while ((m = wiki.exec(content)) !== null) {
+    refs.add(m[1]);
+  }
+  // Backticked canonical IDs (same as extractContentReferences).
+  for (const ref of extractContentReferences(content)) {
+    refs.add(ref);
   }
   return [...refs];
 }
@@ -133,11 +166,22 @@ export interface CatalogItem {
   relativePath: string;
   /** For rules: companion .mdc file path, if it exists */
   companionPath?: string;
+  /**
+   * Provenance of the catalog item. Always set: "canonical" for items scanned
+   * from the package content root, "user" for items scanned from
+   * `.agents/user/` (D20 user-content authoring).
+   */
+  source: "canonical" | "user";
+  /**
+   * When present, restricts which platform adapters emit this artifact. Only
+   * meaningful for source: "user" items; empty / omitted = full parity.
+   */
+  adapters?: string[];
 }
 
 export interface ContentCollision {
   id: string;
-  kind: "cross-type" | "same-type";
+  kind: "cross-type" | "same-type" | "user-shadow-canonical";
   existingType: CatalogItem["type"];
   existingPath: string;
   duplicateType: CatalogItem["type"];
@@ -212,13 +256,26 @@ const CONTENT_TYPE_CONFIGS: ContentTypeConfig[] = [
 // ── Build content index ────────────────────────────────────────
 
 /**
- * Scan package content dirs, parse frontmatter, return indexed catalog.
+ * Scan one content root (canonical or user) according to CONTENT_TYPE_CONFIGS
+ * and append discovered items to `items`. Tags every appended item with the
+ * supplied `source` provenance.
+ *
+ * For user-tier items the optional frontmatter `adapters: [...]` array is
+ * captured on `item.adapters` so adapter filters can honour parity opt-outs.
  */
-export async function buildContentIndex(contentRoot: string): Promise<ContentIndex> {
-  const items: CatalogItem[] = [];
-
+async function scanContentRoot(
+  rootPath: string,
+  source: "canonical" | "user",
+  items: CatalogItem[],
+): Promise<void> {
   for (const config of CONTENT_TYPE_CONFIGS) {
-    const dirPath = join(contentRoot, config.dir);
+    // User-tier scan only covers the 5 authoring types (agent/skill/rule/
+    // command/hook). Prompts and github-agents are framework-only.
+    if (source === "user" && config.type !== "agent" && config.type !== "skill" && config.type !== "rule" && config.type !== "command" && config.type !== "hook") {
+      continue;
+    }
+
+    const dirPath = join(rootPath, config.dir);
 
     if (config.strategy === "subdirectory") {
       // Skills: each subdirectory has a SKILL.md
@@ -238,14 +295,20 @@ export async function buildContentIndex(contentRoot: string): Promise<ContentInd
           const { metadata } = parseFrontmatter(raw);
           const rawId = metadata.id || metadata.name || dirent.name;
           const id = applyCommandPrefix(rawId, config.type);
-          items.push({
+          const item: CatalogItem = {
             id,
             type: config.type,
             description: metadata.description ?? "",
             tags: metadata.tags ?? [],
             protected: metadata.protected,
-            relativePath: join(config.dir, dirent.name),
-          });
+            relativePath: posix.join(config.dir, dirent.name),
+            source,
+          };
+          if (source === "user") {
+            const adapters = parseAdaptersFrontmatter(raw);
+            if (adapters) item.adapters = adapters;
+          }
+          items.push(item);
         } catch (err) {
           if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
         }
@@ -274,7 +337,8 @@ export async function buildContentIndex(contentRoot: string): Promise<ContentInd
           description: metadata.description ?? "",
           tags: metadata.tags ?? [],
           protected: metadata.protected,
-          relativePath: join(config.dir, file),
+          relativePath: posix.join(config.dir, file),
+          source,
         };
 
         // For rules, check for companion .mdc file
@@ -282,14 +346,94 @@ export async function buildContentIndex(contentRoot: string): Promise<ContentInd
           const mdcFile = file.replace(/\.md$/, ".mdc");
           try {
             await readFile(join(dirPath, mdcFile), "utf-8");
-            item.companionPath = join(config.dir, mdcFile);
+            item.companionPath = posix.join(config.dir, mdcFile);
           } catch {
             // No companion file
           }
         }
 
+        if (source === "user") {
+          const adapters = parseAdaptersFrontmatter(raw);
+          if (adapters) item.adapters = adapters;
+        }
+
         items.push(item);
       }
+    }
+  }
+}
+
+/**
+ * Parse the optional `adapters: [tool, tool, ...]` array from raw frontmatter.
+ * Returns the parsed array (filtered to strings) when present, or null when
+ * the field is absent / malformed. Used only for user-tier items so that the
+ * canonical corpus never silently inherits an adapters filter.
+ *
+ * Implemented as a tiny line scan rather than a full YAML re-parse because
+ * the canonical `parseFrontmatter` does not surface the `adapters` field on
+ * `CanonicalMetadata` — we'd otherwise need a second YAML parse here.
+ */
+function parseAdaptersFrontmatter(raw: string): string[] | null {
+  const match = raw.match(/^---\n([\s\S]*?)\n---/);
+  if (!match) return null;
+  const block = match[1] ?? "";
+  // Inline form: `adapters: [a, b, c]`
+  const inline = block.match(/^adapters\s*:\s*\[([^\]]*)\]/m);
+  if (inline) {
+    return inline[1]
+      .split(",")
+      .map((s) => s.trim().replace(/^["']|["']$/g, ""))
+      .filter((s) => s.length > 0);
+  }
+  // Block form:
+  //   adapters:
+  //     - a
+  //     - b
+  const blockHeader = block.match(/^adapters\s*:\s*$([\s\S]*?)(?=^\S|\Z)/m);
+  if (blockHeader) {
+    const result: string[] = [];
+    for (const line of (blockHeader[1] ?? "").split("\n")) {
+      const m = line.match(/^\s+-\s+(.+?)\s*$/);
+      if (m) result.push(m[1].replace(/^["']|["']$/g, ""));
+    }
+    return result.length > 0 ? result : null;
+  }
+  return null;
+}
+
+/**
+ * Scan package content dirs, parse frontmatter, return indexed catalog.
+ *
+ * When `options.userRoot` is provided and that directory exists, the user
+ * subtree (`{userRoot}/{type}/`) is scanned with the same dual glob /
+ * subdirectory strategy as canonical content. User items are tagged with
+ * `source: "user"` and may carry an `adapters[]` filter parsed from their
+ * frontmatter; canonical items are tagged `source: "canonical"`.
+ *
+ * Existing call sites that pass only `contentRoot` keep their current
+ * behaviour — the user scan is opt-in via the second argument.
+ */
+export async function buildContentIndex(
+  contentRoot: string,
+  options?: { userRoot?: string },
+): Promise<ContentIndex> {
+  const items: CatalogItem[] = [];
+
+  await scanContentRoot(contentRoot, "canonical", items);
+
+  if (options?.userRoot) {
+    let userRootExists = true;
+    try {
+      await stat(options.userRoot);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        userRootExists = false;
+      } else {
+        throw err;
+      }
+    }
+    if (userRootExists) {
+      await scanContentRoot(options.userRoot, "user", items);
     }
   }
 
@@ -308,7 +452,17 @@ export async function buildContentIndex(contentRoot: string): Promise<ContentInd
 
     const existing = byId.get(item.id);
     if (existing) {
-      const kind: ContentCollision["kind"] = existing.type !== item.type ? "cross-type" : "same-type";
+      // D20: user-shadow-canonical takes precedence over the existing kinds
+      // when a user-tier item collides with a canonical item — the framework
+      // namespace is reserved and shadowing it must surface as an error.
+      let kind: ContentCollision["kind"];
+      if (existing.source !== item.source) {
+        kind = "user-shadow-canonical";
+      } else if (existing.type !== item.type) {
+        kind = "cross-type";
+      } else {
+        kind = "same-type";
+      }
       collisions.push({
         id: item.id,
         kind,
@@ -317,7 +471,11 @@ export async function buildContentIndex(contentRoot: string): Promise<ContentInd
         duplicateType: item.type,
         duplicatePath: item.relativePath,
       });
-      if (kind === "cross-type") {
+      if (kind === "user-shadow-canonical") {
+        console.warn(
+          `[hatch3r] User content "${item.id}" shadows a canonical artifact (${existing.type} at ${existing.relativePath}). User IDs must not collide with the hatch3r-* / cmd-hatch3r-* canonical namespace.`,
+        );
+      } else if (kind === "cross-type") {
         console.warn(
           `[hatch3r] Content ID collision: "${item.id}" exists as both ${existing.type} (${existing.relativePath}) and ${item.type} (${item.relativePath}). Use index.byTypeAndId for collision-safe lookup.`,
         );
@@ -1012,6 +1170,25 @@ function cursorCompanionFrontmatter(description: string, scope?: string): string
   }
   return `---\n${lines.join("\n")}\n---`;
 }
+
+/**
+ * Resolve the absolute path to the user-content subtree under a project root.
+ * D20: user-tier artifacts live at `<rootDir>/.agents/user/{type}/...`.
+ *
+ * Always returns the path; callers stat the directory to decide whether the
+ * subtree exists yet (it is created lazily by the first `saveUserContent`).
+ */
+export function resolveUserContentRoot(rootDir: string): string {
+  return join(rootDir, ".agents", "user");
+}
+
+/**
+ * Export the cursor companion frontmatter generator for `userContent.ts` so
+ * user-authored rule artifacts produce a parity-compliant `.mdc` companion
+ * via the same scope→`alwaysApply`/`globs` mapping the canonical pipeline
+ * uses.
+ */
+export { cursorCompanionFrontmatter };
 
 /**
  * Generate .mdc companion files for all .md rule files in a directory.
