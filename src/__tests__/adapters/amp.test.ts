@@ -34,21 +34,22 @@ describe("AmpAdapter", () => {
     expect(outputs.find((o) => o.path === "AGENTS.md")).toBeUndefined();
   });
 
-  it("generates skill files in .amp/skills/", async () => {
+  // Amp reads skills natively from `.agents/skills/` (populated once by
+  // copyHatch3rFiles during init/update). The adapter must NOT re-emit them:
+  // doing so re-targets the canonical mirror and corrupts SKILL.md
+  // frontmatter via the managed-block wrap on safeWriteFile's
+  // appendIfNoBlock branch.
+  it("does not emit skills (canonical mirror is populated by copyHatch3rFiles)", async () => {
     const manifest = createManifest({
       tools: ["amp"],
 
     });
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
-    const skills = outputs.filter((o) => o.path.startsWith(".agents/skills/"));
-    expect(skills.length).toBe(1);
-
-    const skill = skills[0]!;
-    expect(skill.path).toContain("hatch3r-");
-    expect(skill.path).toMatch(/SKILL\.md$/);
-    expect(skill.content).toContain("test-skill");
-    expect(skill.managedContent).toBeDefined();
+    const skills = outputs.filter(
+      (o) => o.path.startsWith(".agents/skills/") || o.path.startsWith(".amp/skills/"),
+    );
+    expect(skills.length).toBe(0);
   });
 
   it("generates .amp/settings.json with MCP config when servers configured", async () => {
@@ -88,7 +89,9 @@ describe("AmpAdapter", () => {
     });
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
-    const skills = outputs.filter((o) => o.path.startsWith(".agents/skills/"));
+    const skills = outputs.filter(
+      (o) => o.path.startsWith(".agents/skills/") || o.path.startsWith(".amp/skills/"),
+    );
     expect(skills.length).toBe(0);
   });
 

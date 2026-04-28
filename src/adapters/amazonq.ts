@@ -55,7 +55,7 @@ export class AmazonQAdapter extends BaseAdapter {
       ...await this.bridgeHeader(ctx),
       ...await this.inlineRules(ctx),
       ...await this.inlineAgents(ctx),
-    ].join("\n");
+    ].join("\n").trim();
     results.push(output(".amazonq/rules/hatch3r-agents.md", wrapInManagedBlock(inner), inner));
 
     results.push(

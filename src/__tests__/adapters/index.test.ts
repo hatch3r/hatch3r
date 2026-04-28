@@ -142,14 +142,21 @@ describe("getUnsupportedFeatureWarnings", () => {
     expect(warnings.some((w) => w.includes("GitHub agents"))).toBe(true);
   });
 
-  it("returns multiple warnings when several features are unsupported", () => {
+  it("groups multiple unsupported features into a single combined warning", () => {
     const manifest = makeManifest({ hooks: true, mcp: true, commands: true });
-    // aider lacks hooks, mcp, and commands
+    // aider lacks hooks, mcp, and commands — grouped into one line
     const warnings = getUnsupportedFeatureWarnings("aider", manifest);
-    expect(warnings.length).toBeGreaterThanOrEqual(3);
-    expect(warnings.some((w) => w.includes("hooks"))).toBe(true);
-    expect(warnings.some((w) => w.includes("MCP"))).toBe(true);
-    expect(warnings.some((w) => w.includes("commands"))).toBe(true);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("aider: features enabled but not supported by this adapter:");
+    expect(warnings[0]).toContain("hooks");
+    expect(warnings[0]).toContain("MCP");
+    expect(warnings[0]).toContain("commands");
+  });
+
+  it("uses singular noun when exactly one feature is unsupported", () => {
+    const manifest = makeManifest({ hooks: true });
+    const warnings = getUnsupportedFeatureWarnings("aider", manifest);
+    expect(warnings).toEqual(["aider: feature enabled but not supported by this adapter: hooks"]);
   });
 
   it("returns empty for tools that support all enabled features", () => {

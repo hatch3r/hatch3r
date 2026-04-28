@@ -319,7 +319,14 @@ async function validateManagedFilePrefixes(
     const fileName = posix.basename(managedFile) || "";
     const dir = posix.dirname(managedFile);
     const parentDir = posix.basename(dir) || "";
-    const isSharedFile = ["AGENTS.md", "CLAUDE.md", "copilot-instructions.md", ".windsurfrules", "mcp.json", "opencode.json", ".mcp.json", "copilot-setup-steps.yml", "settings.json"].some(
+    const isSharedFile = [
+      "AGENTS.md", "CLAUDE.md", "copilot-instructions.md", ".windsurfrules",
+      "mcp.json", "opencode.json", ".mcp.json", "copilot-setup-steps.yml", "settings.json",
+      // Platform-required filenames (verbatim per tool convention).
+      "GEMINI.md", "CONVENTIONS.md",
+      ".codex/config.toml", ".cursor/environment.json", ".windsurf/hooks.json",
+      ".goose/profiles/hatch3r.yaml", ".antigravity/rules.md",
+    ].some(
       (sf) => fileName === sf || managedFile.endsWith(sf),
     );
     const isExempt =
@@ -599,6 +606,87 @@ async function validateCustomizations(
   }
 }
 
+/**
+ * Locate the on-disk file backing a manifest content id. Handles two
+ * sources of mismatch between manifest ids and filenames:
+ *   1. Type prefixes — commands carry a `cmd-` prefix in the manifest
+ *      (applied by `applyCommandPrefix` in src/content/index.ts) but
+ *      not in filenames.
+ *   2. Subdirectory layout — `commands/` has `board/` and `revision/`
+ *      subdirs that the legacy flat-join check did not recurse into.
+ *   3. Frontmatter-derived ids — hooks store ids like
+ *      `ci-failure-ci-watcher` in frontmatter while the file is
+ *      `hatch3r-ci-failure.md`. We walk the directory and parse
+ *      frontmatter `id` to match in this case.
+ *
+ * Returns the absolute path of the matching file, or null if no
+ * match is found.
+ */
+async function findContentFile(
+  agentsDir: string,
+  cfg: { dir: string; strategy: "glob" | "subdir" },
+  id: string,
+): Promise<string | null> {
+  // Strip command type prefix when computing the candidate filename.
+  const baseId = id.startsWith("cmd-") ? id.slice(4) : id;
+
+  if (cfg.strategy === "subdir") {
+    const path = join(agentsDir, cfg.dir, baseId, "SKILL.md");
+    try {
+      await access(path);
+      return path;
+    } catch {
+      return null;
+    }
+  }
+
+  // Glob: walk subdirectories matching by filename first (cheap), then
+  // fall back to frontmatter `id` lookup for cases where the manifest
+  // id is derived from frontmatter rather than the filename.
+  const root = join(agentsDir, cfg.dir);
+  const stack: string[] = [root];
+  const mdFiles: string[] = [];
+  while (stack.length > 0) {
+    const dir = stack.pop()!;
+    let entries: { name: string; isDirectory: () => boolean; isFile: () => boolean }[];
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(full);
+      } else if (entry.isFile() && entry.name.endsWith(".md")) {
+        if (entry.name === `${baseId}.md`) {
+          return full;
+        }
+        mdFiles.push(full);
+      }
+    }
+  }
+
+  // Frontmatter id fallback: parse each .md file's `id:` and match.
+  for (const file of mdFiles) {
+    try {
+      const raw = await readFile(file, "utf-8");
+      if (!raw.startsWith("---")) continue;
+      const endIdx = raw.indexOf("---", 3);
+      if (endIdx === -1) continue;
+      const fm = parseYaml(raw.slice(3, endIdx).trim()) as Record<string, unknown> | null;
+      const fmId = fm && typeof fm === "object" && typeof fm.id === "string" ? fm.id : null;
+      if (fmId && (fmId === id || fmId === baseId)) {
+        return file;
+      }
+    } catch {
+      // Unreadable file — skip.
+    }
+  }
+
+  return null;
+}
+
 async function validateContentConsistency(
   rootDir: string,
   agentsDir: string,
@@ -619,15 +707,8 @@ async function validateContentConsistency(
     for (const [key, cfg] of Object.entries(contentDirs)) {
       const ids = manifest.content.items[key as keyof typeof manifest.content.items];
       for (const id of ids) {
-        const checkPath = cfg.strategy === "subdir"
-          ? join(agentsDir, cfg.dir, id, "SKILL.md")
-          : join(agentsDir, cfg.dir, `${id}.md`);
-        try {
-          await access(checkPath);
-        } catch {
-          // Pre-existing ID-format mismatch (manifest stores e.g. "cmd-hatch3r-X"
-          // while files use "hatch3r-X") produces false positives here. Keep as
-          // a warning until the manifest⇄disk ID matching is fixed.
+        const found = await findContentFile(agentsDir, cfg, id);
+        if (!found) {
           result.warnings.push(`Content "${id}" (${key}) in manifest but missing from .agents/${cfg.dir}/`);
         }
       }

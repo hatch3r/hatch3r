@@ -93,8 +93,11 @@ const ADAPTER_CAPABILITIES: Record<Tool, AdapterCapability> = {
   // Hatch3r emits `.windsurf/hooks.json` per docs.windsurf.com/windsurf/cascade/hooks.md.
   windsurf: { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false, worktree: true,  customization: true,  modelOverride: true  },
   // Amp reads AGENTS.md natively; the root file is written by generateRootAgentsMd()
-  // in init/update, not by this adapter. doGenerate() emits skills + MCP only.
-  amp:      { agents: false, skills: true, rules: false, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true  },
+  // in init/update, not by this adapter. Amp also reads skills natively from
+  // `.agents/skills/` — populated by copyHatch3rFiles, not re-emitted by this
+  // adapter (re-emission corrupts SKILL.md frontmatter via managed-block wrap).
+  // doGenerate() emits MCP settings only.
+  amp:      { agents: false, skills: false, rules: false, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true  },
   kiro:     { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true  },
   aider:    { agents: true, skills: true, rules: true, hooks: false, mcp: false, commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true  },
   goose:    { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true  },
@@ -105,12 +108,19 @@ const ADAPTER_CAPABILITIES: Record<Tool, AdapterCapability> = {
 /**
  * Return warnings for features enabled in the manifest but not supported
  * by the given tool's adapter. Used during sync to surface capability gaps.
+ *
+ * Returns at most one combined warning per adapter listing all unsupported
+ * features (e.g. `"amp: features enabled but not supported by this adapter:
+ * agents, rules, hooks, commands, prompts, GitHub agents"`). When the
+ * adapter supports every enabled feature, returns `[]`. This grouping keeps
+ * the console output readable when many adapters and many features are
+ * enabled (otherwise the cross-product produces ~42 lines for a full
+ * 15-adapter / 8-feature run).
  */
 export function getUnsupportedFeatureWarnings(tool: string, manifest: HatchManifest): string[] {
   const caps = ADAPTER_CAPABILITIES[tool as Tool];
   if (!caps) return [];
 
-  const warnings: string[] = [];
   const featureLabels: Array<{ key: keyof AdapterCapability; label: string }> = [
     { key: "agents", label: "agents" },
     { key: "skills", label: "skills" },
@@ -122,12 +132,16 @@ export function getUnsupportedFeatureWarnings(tool: string, manifest: HatchManif
     { key: "githubAgents", label: "GitHub agents" },
   ];
 
+  const unsupported: string[] = [];
   for (const { key, label } of featureLabels) {
     if (manifest.features[key as keyof typeof manifest.features] && !caps[key]) {
-      warnings.push(`${tool}: ${label} are enabled but not supported by this adapter`);
+      unsupported.push(label);
     }
   }
-  return warnings;
+  if (unsupported.length === 0) return [];
+
+  const noun = unsupported.length === 1 ? "feature" : "features";
+  return [`${tool}: ${noun} enabled but not supported by this adapter: ${unsupported.join(", ")}`];
 }
 
 export { AiderAdapter } from "./aider.js";
