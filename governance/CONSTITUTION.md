@@ -63,6 +63,7 @@ Governance and audit cycles apply the same quality standards, anti-slop, and ant
 | Static-first prompt structure | required for `orchestrator: true` and `agents/*.md` | scripts/validate-efficiency-invariants.ts |
 | Parallel-tool-by-default directive | required when artifact uses ≥2 independent tool calls | Body-text scan |
 | Triage-first orchestrator | required when `orchestrator: true` | Frontmatter `triage_tiers` array |
+| Audit-execute tier classifier | closed `tier1_pattern` enum is authoritative | AUDIT-EXECUTE.md §Tier Classification — Tier 1 batch sub-agent groups Low/Info, effort=S, single-file, mechanical findings by pattern (≤30 per batch); orchestrator never edits |
 | Anti-cache patterns | 0 per artifact | No volatile tokens above static frame |
 | Domain file (SA ≤5) | 30-80 lines | Limit authoritative |
 | Domain file (SA >5) | SA × 15 lines | Calibration supersedes Limit |
@@ -97,7 +98,7 @@ Security and trust are first-class governance concerns integrated into every tie
 
 ### P7. Speed & Token Efficiency (end-user runtime)
 
-End-user agentic flows (commands, agents, skills consumed in `npx hatch3r`-installed projects) are tuned for token economy and latency, using only zero-quality-loss techniques established in published LLM literature: static-first prompt structure for cross-provider cache friendliness, parallel-tool-by-default, triage-first orchestration with auto-tiered depth (Light/Standard/Deep), plan/act split, structured outputs over prose, lazy loading via reference-by-pointer, and conditional sub-agent invocation. Aggressive compression that risks quality is rejected. The audit cycle (AUDIT.md, AUDIT-EXECUTE.md, RE-ENVISION.md, audit commands) is exempt — depth there is non-negotiable.
+End-user agentic flows (commands, agents, skills consumed in `npx hatch3r`-installed projects) are tuned for token economy and latency, using only zero-quality-loss techniques established in published LLM literature: static-first prompt structure for cross-provider cache friendliness, parallel-tool-by-default, triage-first orchestration with auto-tiered depth (Light/Standard/Deep), plan/act split, structured outputs over prose, lazy loading via reference-by-pointer, and conditional sub-agent invocation. Aggressive compression that risks quality is rejected. The audit-cycle prompt itself (AUDIT.md, RE-ENVISION.md, `hatch3r-audit-cycle*.md`) is exempt — depth there is non-negotiable. AUDIT-EXECUTE.md is no longer exempt as of Cycle 9: it carries `triage_tiers` and groups Low/Info trivial findings sharing a closed `tier1_pattern` into batch sub-agents (≤30 per batch), preserving the rule that the orchestrator never edits files itself.
 
 **Measurement:** static-first ordering compliance (100% of orchestrator commands), parallel-tool directive presence (100% of multi-tool agents), triage-first directive on `orchestrator: true` commands (required), passive token/latency telemetry deltas in `src/pipeline/observability.ts` cycle-over-cycle (informational).
 **Governance refs:** AUDIT.md D06 (extended), charter directive 14 (Speed & Token Efficiency Awareness), lean thresholds below (efficiency rows).

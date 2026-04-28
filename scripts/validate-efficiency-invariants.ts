@@ -2,20 +2,24 @@
 /**
  * scripts/validate-efficiency-invariants.ts — Pillar P7 (Efficiency-First)
  *
- * Three flag-mode invariants over canonical agent + command artifacts:
+ * Three flag-mode invariants over canonical agent + command artifacts and
+ * the governance audit-execute prompt:
  *
- *   --triage-first   Orchestrator commands declare a `triage_tiers` array
- *                    (subset of [1,2,3]) and contain a Triage/Tier/Scale
- *                    heading.
- *   --static-first   Orchestrator commands and agents do not reference
- *                    volatile tokens (timestamp, now, run-id,
+ *   --triage-first   Orchestrator commands (and `governance/AUDIT-EXECUTE.md`)
+ *                    declare a `triage_tiers` array (subset of [1,2,3]) and
+ *                    contain a Triage/Tier/Scale heading.
+ *   --static-first   Orchestrator commands, agents, and AUDIT-EXECUTE.md do
+ *                    not reference volatile tokens (timestamp, now, run-id,
  *                    session-counter, "today is") before their first `##`
  *                    heading.
  *   --parallel-tool  Files with >=2 tool/sub-agent mentions include a
  *                    parallel-execution directive (warning only).
  *
  * No flags → all three modes run. Exit 0 unless >=1 error-level finding;
- * warnings never block. Audit-cycle files are hard-exempt throughout.
+ * warnings never block. The audit-cycle prompt (`governance/AUDIT.md`,
+ * `governance/RE-ENVISION.md`, `commands/hatch3r-audit-cycle*.md`) remains
+ * hard-exempt; `governance/AUDIT-EXECUTE.md` is no longer exempt as of
+ * 2026-04 — it carries `triage_tiers` and is checked alongside commands.
  *
  * Pillars: P7 (Efficiency-First), P5 (Governance Self-Quality).
  *
@@ -31,17 +35,17 @@ const __dirname = dirname(__filename);
 const ROOT = resolve(__dirname, "..");
 const COMMANDS_DIR = join(ROOT, "commands");
 const AGENTS_DIR = join(ROOT, "agents");
+const AUDIT_EXECUTE_REL = "governance/AUDIT-EXECUTE.md";
 
 // ── Audit-cycle exempt list (hard-coded) ──────────────────────────
 
 const AUDIT_EXEMPT_PATHS: readonly string[] = [
   "governance/AUDIT.md",
-  "governance/AUDIT-EXECUTE.md",
   "governance/RE-ENVISION.md",
 ];
 
 const AUDIT_EXEMPT_GLOBS: readonly string[] = [
-  "commands/hatch3r-audit*.md",
+  "commands/hatch3r-audit-cycle*.md",
 ];
 
 // ── Types ─────────────────────────────────────────────────────────
@@ -75,6 +79,14 @@ interface RunOptions {
   flags: ModeFlags;
   commandsDir?: string;
   agentsDir?: string;
+  /**
+   * Absolute paths to extra orchestrator-style files outside `commandsDir` /
+   * `agentsDir` (typically `governance/AUDIT-EXECUTE.md`). Each is loaded as
+   * a command file: triage-first / static-first / parallel-tool checks all
+   * apply when its frontmatter has `orchestrator: true`. Missing files are
+   * silently skipped so tests don't need to seed them.
+   */
+  extraOrchestratorFiles?: string[];
 }
 
 interface RunResult {
@@ -256,6 +268,28 @@ async function loadDir(dir: string, baseDir: string, sink: Finding[]): Promise<P
   return out;
 }
 
+async function loadExtraFile(absPath: string, baseDir: string, sink: Finding[]): Promise<ParsedFile | null> {
+  try {
+    const f = await loadFile(absPath, baseDir);
+    if (isAuditExempt(f.relPath)) return null;
+    if (f.fmParseFailed) {
+      sink.push({
+        level: "warning", code: "P7-FM-PARSE", file: f.relPath,
+        message: "frontmatter YAML parse failed; skipping further checks for this file",
+      });
+      return null;
+    }
+    return f;
+    // Missing extra files are silently skipped — the caller (production main
+    // or tests) decides which paths to seed; absence is informational, not an
+    // error. No diagnostic channel applies because the validator is
+    // explicitly tolerant of unseeded paths.
+    // eslint-disable-next-line silent-failure/no-silent-catch
+  } catch {
+    return null;
+  }
+}
+
 export async function runValidator(opts: RunOptions): Promise<RunResult> {
   const cmdDir = opts.commandsDir ?? COMMANDS_DIR;
   const agtDir = opts.agentsDir ?? AGENTS_DIR;
@@ -268,6 +302,15 @@ export async function runValidator(opts: RunOptions): Promise<RunResult> {
   const findings: Finding[] = [];
   const commandFiles = await loadDir(cmdDir, cmdBase, findings);
   const agentFiles = await loadDir(agtDir, agtBase, findings);
+
+  for (const abs of opts.extraOrchestratorFiles ?? []) {
+    // baseDir is two levels up from the file (e.g., parent of `governance/`),
+    // so relPath comes out as `governance/AUDIT-EXECUTE.md` — the same shape
+    // the audit-exempt list expects.
+    const baseDir = resolve(abs, "../..");
+    const extra = await loadExtraFile(abs, baseDir, findings);
+    if (extra) commandFiles.push(extra);
+  }
 
   if (opts.flags.triageFirst) {
     for (const f of commandFiles) findings.push(...checkTriageFirst(f));
@@ -303,7 +346,10 @@ export function formatFinding(f: Finding): string {
 
 async function main(): Promise<void> {
   const flags = parseArgs(process.argv.slice(2));
-  const { findings, errorCount, warningCount } = await runValidator({ flags });
+  const { findings, errorCount, warningCount } = await runValidator({
+    flags,
+    extraOrchestratorFiles: [join(ROOT, AUDIT_EXECUTE_REL)],
+  });
   for (const f of findings) {
     const line = formatFinding(f);
     // eslint-disable-next-line no-console

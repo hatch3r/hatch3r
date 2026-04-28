@@ -201,6 +201,85 @@ You can issue tool calls one at a time.
     expect(warningCount).toBeGreaterThanOrEqual(1);
   });
 
+  // ── extraOrchestratorFiles (governance/AUDIT-EXECUTE.md path) ───
+
+  it("extraOrchestratorFiles: ERRORs on AUDIT-EXECUTE.md missing triage_tiers", async () => {
+    const govDir = join(fx.rootDir, "governance");
+    await mkdir(govDir, { recursive: true });
+    const auditExec = join(govDir, "AUDIT-EXECUTE.md");
+    await writeArtifact(
+      auditExec,
+      `id: governance-audit-execute
+type: governance-prompt
+description: Audit execution prompt
+orchestrator: true`,
+      `# Audit Execute
+
+## Phase 0: Baseline
+
+Capture state.
+`,
+    );
+
+    const { findings, errorCount } = await runValidator({
+      flags: { triageFirst: true, staticFirst: false, parallelTool: false },
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+      extraOrchestratorFiles: [auditExec],
+    });
+
+    const triageMisses = findings.filter((f) => f.code === "P7-TRIAGE-MISS");
+    expect(triageMisses.length).toBeGreaterThanOrEqual(1);
+    expect(triageMisses.some((f) => /AUDIT-EXECUTE\.md/.test(f.file))).toBe(true);
+    expect(errorCount).toBeGreaterThanOrEqual(1);
+  });
+
+  it("extraOrchestratorFiles: PASSes when AUDIT-EXECUTE.md has triage_tiers and Tier heading", async () => {
+    const govDir = join(fx.rootDir, "governance");
+    await mkdir(govDir, { recursive: true });
+    const auditExec = join(govDir, "AUDIT-EXECUTE.md");
+    await writeArtifact(
+      auditExec,
+      `id: governance-audit-execute
+type: governance-prompt
+description: Audit execution prompt
+orchestrator: true
+triage_tiers: [1, 2, 3]`,
+      `# Audit Execute
+
+## Phase 0: Baseline
+
+Capture state.
+
+## Tier Classification
+
+Sort findings by execution tier.
+`,
+    );
+
+    const { findings, errorCount } = await runValidator({
+      flags: { triageFirst: true, staticFirst: true, parallelTool: false },
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+      extraOrchestratorFiles: [auditExec],
+    });
+
+    expect(findings).toHaveLength(0);
+    expect(errorCount).toBe(0);
+  });
+
+  it("extraOrchestratorFiles: missing file is silently skipped", async () => {
+    const { findings, errorCount } = await runValidator({
+      flags: ALL_FLAGS,
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+      extraOrchestratorFiles: [join(fx.rootDir, "governance/DOES-NOT-EXIST.md")],
+    });
+
+    expect(findings).toHaveLength(0);
+    expect(errorCount).toBe(0);
+  });
+
   // ── Audit-exempt list ───────────────────────────────────────────
 
   it("Audit exempt: commands/hatch3r-audit-cycle.md does NOT trigger any check", async () => {

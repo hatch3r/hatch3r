@@ -1,6 +1,17 @@
+---
+id: governance-audit-execute
+type: governance-prompt
+orchestrator: true
+description: 4-wave audit execution with tiered sub-agent allocation, regression gates, and closed-loop phases.
+triage_tiers: [1, 2, 3]
+cache_friendly: true
+parallel_tool_default: true
+efficiency_patterns: agents/shared/efficiency-patterns.md
+---
+
 # hatch3r — Audit Execution Prompt
 
-> Last updated: 2026-04-21
+> Last updated: 2026-04-28
 
 ## Purpose
 
@@ -44,15 +55,7 @@ Apply exclusions immediately with rationale notes.
 
 ### Pre-Analysis
 
-After user answers, before Phase 0 — automated, no user input required.
-
-**B1. Conflict Detection** — Build file-to-findings map. Flag files touched by multiple findings.
-
-**B2. Dependency Ordering** — Topological sort using `Depends On` column. Detect circular dependencies.
-
-**B3. Effort Estimation** — Sum per-wave totals (S=0.5h, M=2h, L=4h, XL=8h).
-
-**Pre-Analysis output:** Present conflict count, dependency chains, circular dependencies, and per-wave effort estimates. Wait for user acknowledgment before proceeding.
+After user answers, before Phase 0 — automated. Compute: (B1) file-to-findings conflict map, (B2) topological dependency order with cycle detection, (B3) per-wave effort sum (S=0.5h, M=2h, L=4h, XL=8h). Present results; wait for user acknowledgment before proceeding.
 
 ---
 
@@ -75,19 +78,7 @@ Before any modifications, capture the immutable baseline. This is the comparison
 
 3. **Record domain health scores:** Extract from Tier 2 — Domain Summaries (all audit domains).
 
-4. **Store structured baseline:** Follow the schema in `governance/audit/baseline.json`. Capture: commit SHA, timestamp, test results (total/passed/failed/skipped), typecheck errors, lint warnings/errors, build status, content errors, and per-domain scores.
-
-   **Finding counts with source labels.** Capture BOTH `preDedup` and `postDedup` blocks under `findingCounts`, each with an explicit `source` field. Also capture `cycleNResolved`, `cycleNTarget`, and `cycleNPlusRollover` blocks so Phase 1+ consumers never re-derive numbers. Schema:
-
-   ```
-   "findingCounts": {
-     "preDedup":  { "source": "AUDIT-REPORT.md Tier 3 raw sub-agent output", "critical": N, "high": N, "medium": N, "low": N, "info": N, "total": N },
-     "postDedup": { "source": "AUDIT-REPORT.md Executive Dashboard (after AUDIT.md §Deduplication Protocol)", "critical": N, "high": N, "medium": N, "low": N, "info": N, "total": N },
-     "cycleNResolved":     { "source": "governance/audit/execution-insights.json cycle N", ... },
-     "cycleNTarget":       { "source": "Phase 1 Triage output", ... },
-     "cycleNPlusRollover": { "source": "Phase 1 Triage output, findings marked deferred", ... }
-   }
-   ```
+4. **Store structured baseline:** Follow the schema in `governance/audit/baseline.json`. Capture commit SHA, timestamp, test results, typecheck/lint/build/content errors, per-domain scores, and `findingCounts` with `preDedup`, `postDedup`, `cycleNResolved`, `cycleNTarget`, `cycleNPlusRollover` blocks (each carries `source` and per-severity counts {critical, high, medium, low, info, total}).
 
    Phase 1 Triage MUST size the target set against `postDedup.total` (not `preDedup.total`). Phase 5/6/7 summaries MUST cite the `source` field when reporting counts. Backward compat: absent `source` on pre-existing Cycle 7 entries is treated as post-dedup Executive Dashboard.
 
@@ -194,6 +185,53 @@ Record decomposition in registry. Trivial agent portion → implement inline. In
 
 ---
 
+## Tier Classification
+
+Set during Phase 1 triage; consumed by Phase 2 allocation. Every targeted finding receives an `execution_tier` field (1, 2, or 3) on the registry, governing how it is grouped into a sub-agent. The orchestrator never edits files itself — every tier routes through a sub-agent.
+
+### Tier 1 — Batch sub-agent (mechanical fixes grouped by pattern)
+
+Multiple findings sharing one `tier1_pattern` are grouped into a single batch sub-agent that applies the same mechanical fix-shape across many files. **Eligibility — ALL must hold:**
+
+1. `severity ∈ {Low, Info}` AND `effort = S`
+2. Exactly one file; not under `src/` or `src/__tests__/`
+3. File appears in no other wave finding's `files` (else demote to Tier 2)
+4. `tier1_pattern` matches one of the closed enum below
+5. Causal chain depth ≥3 recorded in the batch results file (rigor contract preserved)
+
+**Closed `tier1_pattern` enum:**
+
+| Pattern | Definition |
+|---------|------------|
+| `anti_slop_swap` | wordlist replacement per `governance/CONSTITUTION.md` §2 P5 |
+| `currency_header_add` | add or refresh `> Last updated: YYYY-MM-DD` |
+| `doc_count_update` | replace stated count with `ls` / `find` actual |
+| `frontmatter_field_add` | add a single declared frontmatter key |
+| `typo_fix` | single-word doc edit |
+| `version_bump` | semver bump in `package.json` / `hatch.json` |
+| `lint_disable_removal` | remove `// eslint-disable-next-line` once the rule passes |
+
+If any eligibility check fails → fall through to Tier 2 (if same-file conflict) or Tier 3. **Default on ambiguity is Tier 3.** Never silently downgrade rigor for speed.
+
+### Tier 2 — File-lock sub-agent (unchanged from Cycle 8)
+
+≥2 findings touch the same file in the same wave → one sub-agent per file-lock group, ≤6 findings per group. See Phase 2 Allocation Algorithm.
+
+### Tier 3 — Dedicated sub-agent (unchanged from Cycle 8)
+
+1:1 sub-agent per finding. Always covers Critical/High; covers any Medium/Low ineligible for Tiers 1 or 2.
+
+### Severity routing default
+
+| Severity | Default Tier |
+|----------|--------------|
+| Critical | 3 (always) |
+| High | 3 (always) |
+| Medium | 2 if file-lock group; else 3 |
+| Low / Info | 1 if classifier matches; else 2/3 |
+
+---
+
 ## Finding Registry
 
 Central manifest tracking every finding through its lifecycle. Store as `governance/audit/finding-registry.json`. Update in-place per phase. Read full registry only at checkpoints. For wave execution, load only the current wave's entries. The file is the source of truth.
@@ -215,7 +253,9 @@ Central manifest tracking every finding through its lifecycle. Store as `governa
 | `dedup_rationale` | Phase 1 | Why the dedup decision was made |
 | `disposition` | Phase 1 | `targeted` / `excluded` / `human_only` / `deferred` / `already_resolved` |
 | `central_path` | Phase 1 | Boolean. `true` if the finding's primary file is central-path per §Central-Path Classification. When `true`, Phase 4 reviewer Pass 1.5 requires an explicit test-audit line in the results file. |
-| `work_unit` | Phase 2 | `finding_id` when 1:1 (default). `"file-lock:<filename>"` when grouped by same-file rule. `"chain:<root_finding_id>"` when grouped by Depends On chain. |
+| `execution_tier` | Phase 1 | `1` / `2` / `3`. Determines sub-agent grouping for Phase 4 wave fan-out (Tier 1 batch by `tier1_pattern`, Tier 2 file-lock, Tier 3 dedicated). Set by §Tier Classification during triage. Absent on pre-Cycle-9 entries → treat as `3` for backward compat. |
+| `tier1_pattern` | Phase 1 | One of the closed `tier1_pattern` enum values (Tier Classification §Tier 1) when `execution_tier=1`; null otherwise. Used by reviewer Pass 1.5 to spot-check batch execution against the pattern spec. |
+| `work_unit` | Phase 2 | `finding_id` when 1:1 (default, Tier 3). `"file-lock:<filename>"` when Tier 2 file-lock group. `"chain:<root_finding_id>"` when grouped by Depends On chain. `"tier1-batch:<pattern>:<batch_index>"` when Tier 1 batched by `tier1_pattern`. |
 | `wave` | Phase 2 | Wave number (1–4) |
 | `sub_wave_batch` | Phase 2 | Batch number within wave. Vestigial since aggressive fan-out adoption — nullable for new registries, preserved for backward compatibility. |
 | `execution_status` | Phase 4 | `pending` → `done` / `partial` / `failed` / `rolled_back` / `never_attempted` |
@@ -239,6 +279,7 @@ These MUST hold at their respective checkpoints. Violation is a HALT condition.
 4. **Wave Coverage**: After Phase 2, every `targeted` finding has a `wave`.
 5. **Terminal Status**: After execution, no `targeted` finding remains `pending`.
 6. **Registry Anchor**: After each Phase writes `governance/audit/finding-registry.json`, compute `sha256sum` and append `{phase, timestamp, sha256, entry_count}` to `.audit-workspace/registry-anchor-log.jsonl`. Before the next Phase, verify the current file's sha256 matches the last logged anchor. MISMATCH = HALT; present the diff between anchor-expected state (from git log of the registry file) and current state to the user for manual resolution. Same rule applies to `governance/audit/baseline.json` once Phase 0 writes it; baseline anchor is verified at every checkpoint. Rotate the log across cycles: keep the last 3 cycles' anchors, archive older.
+7. **Tier Coverage**: After Phase 1 triage, every `targeted` finding has `execution_tier ∈ {1, 2, 3}`. Every entry with `execution_tier == 1` has a non-null `tier1_pattern` matching the closed enum (Tier Classification §Tier 1). Violations HALT before Phase 2.
 
 ### Checkpoints
 
@@ -253,13 +294,21 @@ These MUST hold at their respective checkpoints. Violation is a HALT condition.
 
 ## Phase 2: Sub-Agent Allocation
 
-Default rule: **1 finding = 1 sub-agent**. No numeric concurrency cap. Concurrency is bounded only by Phase 3 file-lock serialization and dependency graph edges.
+Allocates sub-agents for all three tiers. The orchestrator never edits files — every finding belongs to exactly one sub-agent. No numeric concurrency cap on the wave fan-out. Concurrency is bounded only by Phase 3 file-lock serialization and dependency graph edges.
 
 ### Allocation Algorithm
 
-1. If finding shares a primary modified file with any other in same wave → merge into the same sub-agent (file-lock group).
+For each finding with `execution_tier == 1`:
+
+- Group by `tier1_pattern`. Within each pattern group, split into batch sub-agents of ≤30 findings each (`work_unit = "tier1-batch:<pattern>:<batch_index>"`). Different `tier1_pattern` groups never merge — each sub-agent applies one mechanical fix-shape across many files.
+
+For each finding with `execution_tier ∈ {2, 3}`:
+
+1. If finding shares a primary modified file with any other Tier-2/3 finding in same wave → merge into the same sub-agent (file-lock group, Tier 2).
 2. Else if finding has `Depends On: <id>` AND `<id>` is same wave → merge into the same sub-agent OR sequence them (see Phase 3).
-3. Else → standalone sub-agent (1 finding = 1 work_unit = 1 sub-agent).
+3. Else → standalone sub-agent (1 finding = 1 work_unit = 1 sub-agent, Tier 3).
+
+**Tier 1 conflict handling:** If a Tier 1 candidate's file is shared with any Tier 2 or Tier 3 finding in the same wave, the classifier (Tier Classification §Tier 1 rule 3) demotes the candidate to the file-lock group at allocation time. By construction, files inside a Tier 1 batch sub-agent never overlap with any other sub-agent's files.
 
 **Cross-wave constraint:** Sub-agents NEVER cross wave boundaries.
 
@@ -267,11 +316,12 @@ Default rule: **1 finding = 1 sub-agent**. No numeric concurrency cap. Concurren
 
 | Mode | Findings per sub-agent | Trigger |
 |------|------------------------|---------|
-| Default (1:1) | 1 | No file/dep conflict |
-| File-lock group | 2–N | ≥2 findings touch same file |
-| Dependency chain | 2–N | Same-wave Depends On chain |
+| Tier 3 standalone (1:1) | 1 | Critical/High; or Medium/Low with no batchable affinity |
+| Tier 2 file-lock group | 2–6 | ≥2 findings touch same file |
+| Tier 2 dependency chain | 2–6 | Same-wave Depends On chain |
+| Tier 1 pattern batch | 1–30 | Same `tier1_pattern`; mechanical Low/Info fixes |
 
-**Hard ceiling:** A sub-agent SHOULD handle ≤6 findings. If a file-lock group exceeds 6, split logically and serialize per Phase 3.
+**Hard ceilings:** Tier 2 sub-agents SHOULD handle ≤6 findings (split logically and serialize per Phase 3 if exceeded). Tier 1 batches cap at 30 findings; spill into a second batch sub-agent for the same pattern, run in parallel.
 
 #### Governance Size Check
 Flag any work unit that increases total governance line count. These require explicit justification that the added content serves a pillar and the net value exceeds the size cost.
@@ -338,6 +388,8 @@ Execute findings in severity-based waves. Each wave is atomic: passes its gate a
 
 **Wave 4 systemic-pattern allocation:** D16 findings flagged as cross-domain patterns (spanning 3+ domains, per the Deduplication Protocol's qualification rule in `governance/AUDIT.md`) are routed to Wave 4 even when their severity would otherwise place them in Wave 1–3. Rationale: systemic fixes touch multiple files across domains and benefit from Wave 1–3 stabilizing the per-domain code first. Cycle 7 produced 3 D16 Highs spanning 5+ domains each.
 
+**Tier 1 batch allocation:** Sub-Agent counts in the table above are pre-tier-classification, assuming 1:1 sub-agent per finding. After Tier Classification routes eligible Low/Info findings to Tier 1 batch sub-agents (≤30 findings per batch, grouped by `tier1_pattern`), Wave 4 sub-agent counts typically drop by 70–90% (Cycle 7 rollover scenario: 224 deferred Low/Info → ~150 Tier 1 in 5–10 batch sub-agents, 74 Tier 3). Critical/High waves are unchanged (always Tier 3, 1:1).
+
 **Empty Wave Protocol:** If a wave has 0 targeted findings after triage (e.g., 0 Critical findings), skip the wave entirely. Log: "Wave N ([Severity]): 0 targeted findings — skipped." Proceed to next wave. Do not run a regression gate for empty waves.
 
 ### Wave Fan-Out
@@ -348,7 +400,7 @@ Orchestrator spawns ALL sub-agents for the wave in a single parallel dispatch (o
 
 ```
 1.  Record pre-wave commit: git rev-parse HEAD → PRE_WAVE_COMMIT
-2.  Spawn sub-agents per Wave Fan-Out (single parallel dispatch). Each sub-agent writes results to `.audit-workspace/wave-{N}/{finding_id}.results.md`.
+2.  Spawn ALL sub-agents for the wave in a single parallel dispatch — Tier 1 batch sub-agents, Tier 2 file-lock sub-agents, and Tier 3 dedicated sub-agents alike. Each sub-agent writes results to `.audit-workspace/wave-{N}/{finding_id}.results.md` (one results file per finding, even when multiple findings share a batch sub-agent).
 3.  Wait for all sub-agents to report completion (file presence + summary line).
 3a. If `.audit-workspace/wave-{N}/*.results.md` count is less than spawned sub-agent count, identify missing finding_ids, mark each as `failed` with reason "no result file", do NOT block the gate.
 3b. Diff-Backed Status Verification (MANDATORY). For each finding whose `{id}.results.md` reports Status `done` or `partial`: parse the `Files modified:` line; run `git diff --name-only PRE_WAVE_COMMIT..HEAD -- <claimed_files>`; if any claimed-modified file returns empty, downgrade status to `rolled_back` with `rollback_reason: "concurrent-edit clobber — result file claim not in wave diff"` and re-dispatch in an isolated retry batch (no other same-file finding concurrent, max 1 retry; beyond that mark `failed`).
@@ -484,7 +536,9 @@ Flag any domain whose score decreased — indicates cross-domain side effects.
 
 ### Implementation Sub-Agents
 
-Read and adapt `governance/audit/templates/implementation-sub-agent.md` for each work unit. Replace placeholders (`[Wave]`, `[Work Unit]`, `[findings]`) with registry values.
+For Tier 2 and Tier 3 work units: read and adapt `governance/audit/templates/implementation-sub-agent.md`. Replace placeholders (`[Wave]`, `[Work Unit]`, `[findings]`) with registry values.
+
+For Tier 1 batch work units: read and adapt `governance/audit/templates/tier1-batch-sub-agent.md`. The sub-agent receives a list of findings sharing one `tier1_pattern` and applies the mechanical fix to each file independently, writing one results file per finding.
 
 ### Final Reviewer
 
@@ -575,43 +629,20 @@ Record after full execution. Fields: total_time, waves_completed/N, waves_rolled
 
 ## Execution Learning
 
-After each complete execution cycle, produce an Execution Insights summary to inform the next cycle's triage and planning. This creates a compounding knowledge loop where each cycle improves the next.
+After each cycle, write an Execution Insights summary to `governance/audit/execution-insights.json` (persistent across cycles). Phase 1 "Previous Cycle Insights" reads it on the next run.
 
 ### Tracked Patterns
 
-1. **Fix success rate by finding type:** Categorize findings as code/content/config/documentation and track first-attempt vs retry vs rolled-back rates per category to surface which types need different execution strategies.
-2. **Work unit sizing accuracy:** Compare audit-report effort (S/M/L/XL) against actual execution duration to flag systematic over-estimates (wasted parallelism) or under-estimates (cascading delays).
-3. **Recurring failure patterns:** Flag any file/module causing rollbacks across multiple cycles as a structural issue requiring architectural intervention rather than incremental fixes.
-4. **Fix-type effectiveness:** Track which approaches (refactor, add validation, update content, restructure architecture, add tests) have the highest first-attempt success rates to guide future fix strategy selection.
-5. **False positive patterns:** Aggregate reviewer false-positive data across cycles to identify domain-level patterns (e.g., "D9 adapter findings frequently turn out to be intentional platform differences").
+- **Fix success rate by finding type** (code/content/config/docs): first-attempt / retry / rolled-back per category.
+- **Work unit sizing accuracy:** audit effort vs actual duration; flag systematic over- or under-estimates.
+- **Recurring failure patterns:** files/modules causing rollbacks across multiple cycles signal a structural issue, not an incremental one.
+- **Fix-type effectiveness:** refactor / validation / content / architecture / tests — first-attempt success rates.
+- **False positive patterns:** domain-level (e.g., "D9 adapter findings often intentional platform differences").
+- **Tier 1 batch accuracy:** `tier1_pattern_mismatch` rate per `tier1_pattern` value; flag patterns >10% mismatch as classifier drift requiring CL-3 evolution.
 
-### Output
+### Output schema
 
-Write to `governance/audit/execution-insights.json` (persistent — survives across audit cycles):
-
-```json
-{
-  "cycle_date": "YYYY-MM-DD",
-  "fix_success_rate": {
-    "code": { "first_attempt": 0, "retry": 0, "rolled_back": 0 },
-    "content": { "first_attempt": 0, "retry": 0, "rolled_back": 0 },
-    "config": { "first_attempt": 0, "retry": 0, "rolled_back": 0 },
-    "docs": { "first_attempt": 0, "retry": 0, "rolled_back": 0 }
-  },
-  "sizing_accuracy": {
-    "over_estimated": 0,
-    "under_estimated": 0,
-    "accurate": 0
-  },
-  "recurring_failures": [],
-  "false_positive_rate_by_domain": {},
-  "top_insights": []
-}
-```
-
-### Consumption
-
-See Phase 1 "Previous Cycle Insights" for adjustment rules.
+`{cycle_date, fix_success_rate.{code,content,config,docs}.{first_attempt,retry,rolled_back}, sizing_accuracy.{over_estimated,under_estimated,accurate}, recurring_failures: [], false_positive_rate_by_domain: {}, tier1_mismatch_rate_by_pattern: {}, top_insights: []}`
 
 ---
 
@@ -633,6 +664,8 @@ See Phase 1 "Previous Cycle Insights" for adjustment rules.
 14. **PRD changes require user approval.** Phase 5 must present all PRD change candidates for user selection before applying.
 15. **Content specs are specifications, not implementations.** Phase 6 produces specs only. Actual content creation is a separate task.
 16. **Audit evolution requires per-proposal consent.** Phase 7 must present each proposal individually. No batch approval for audit infrastructure changes.
+17. **Never downgrade rigor for speed.** Tier 1 batch sub-agents are restricted to the closed `tier1_pattern` enum (Tier Classification §Tier 1). Findings outside the enum default to Tier 3. Critical and High findings always route to Tier 3 regardless of fix-shape — never to a Tier 1 batch.
+18. **Orchestrator never edits.** The execution orchestrator only spawns sub-agents, builds SUMMARY.md, runs gates, and performs administrative git ops (add/commit/tag/reset). All file modifications flow through sub-agents via the Task tool — Tier 1, Tier 2, and Tier 3 alike.
 
 ---
 
