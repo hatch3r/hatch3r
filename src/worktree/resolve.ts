@@ -160,11 +160,14 @@ export function listWorktrees(mainRoot: string): WorktreeListEntry[] {
       flush();
       let pathStr = line.slice("worktree ".length).trim();
       // Git porcelain emits forward-slash paths (and on Windows, the long
-      // form `C:/Users/runneradmin/...`). Canonicalise to whatever
-      // realpathSync returns so callers comparing against
-      // `realpathSync(<dir>)` get a string-equal result.
+      // form `C:/Users/runneradmin/...`). Canonicalise via the native
+      // realpath (libuv → GetFinalPathNameByHandleW on Windows) so a
+      // short-form 8.3 path (`C:\\Users\\RUNNER~1\\...` from os.tmpdir)
+      // and the long form returned by git both resolve to the same string.
+      // Plain `realpathSync` (the JS impl) preserves whichever form it
+      // received, so it would NOT collapse the two — only `.native` does.
       try {
-        pathStr = realpathSync(pathStr);
+        pathStr = realpathSync.native(pathStr);
       } catch {
         // Prunable worktree — path may not exist on disk anymore.
         // Best-effort: normalise separators only so downstream string

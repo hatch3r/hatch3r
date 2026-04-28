@@ -33,10 +33,13 @@ import { MANAGED_BLOCK_START, MANAGED_BLOCK_END } from "../../types.js";
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /** Creates a temp directory with `git init` and returns its canonical path.
- *  realpath normalizes /var/... → /private/var/... on macOS so comparisons
- *  against git's output (which canonicalizes) succeed. */
+ *  Uses `realpathSync.native` so on macOS `/var/...` → `/private/var/...`
+ *  (symlink resolution) AND on Windows the 8.3 short form returned by
+ *  `os.tmpdir()` (`C:\\Users\\RUNNER~1\\...`) is upgraded to the long form
+ *  via `GetFinalPathNameByHandleW`. listWorktrees uses the same native
+ *  realpath, so the two strings can be compared directly. */
 function makeTempGitRepo(): string {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), "hatch3r-resolve-test-")));
+  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), "hatch3r-resolve-test-")));
   execFileSync("git", ["init", "--initial-branch=main"], {
     cwd: dir,
     stdio: "ignore",
