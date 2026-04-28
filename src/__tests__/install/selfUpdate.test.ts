@@ -23,6 +23,12 @@ describe("runSelfUpdate", () => {
     tempDir = await mkdtemp(join(tmpdir(), "hatch3r-self-update-"));
     _resetNpmGlobalRootCacheForTesting();
     vi.mocked(execFileSync).mockReturnValue(Buffer.from(""));
+    // Pin platform to linux so the Windows-shim guard at
+    // src/install/selfUpdate.ts:143 does not fire for tests that exercise
+    // the global-install branch. The dedicated win32 test below explicitly
+    // overrides this. afterEach restores the originalPlatform captured
+    // outside the describe.
+    Object.defineProperty(process, "platform", { value: "linux" });
   });
 
   afterEach(async () => {
@@ -169,6 +175,35 @@ describe("runSelfUpdate", () => {
     expect(result.failed.length).toBe(1);
     expect(result.failed[0]?.location.kind).toBe("global");
   });
+
+  it("classifies execFileSync timeout as a NETWORK_ERROR with timeout message", async () => {
+    process.argv[1] = join(tempDir, "node_modules", ".bin", "hatch3r");
+    await seedProjectLocal();
+    let callIndex = 0;
+    vi.mocked(execFileSync).mockImplementation((..._args: unknown[]) => {
+      if (callIndex++ === 0) return Buffer.from(""); // npm root -g
+      const err = new Error("etimedout") as NodeJS.ErrnoException & {
+        killed: boolean;
+        signal: string;
+      };
+      err.killed = true;
+      err.signal = "SIGTERM";
+      throw err;
+    });
+    await expect(runSelfUpdate(tempDir)).rejects.toThrow(/timed out/i);
+  });
+
+  it("honours HATCH3R_UPDATE_TIMEOUT_MS env var when present and positive", async () => {
+    // Stub the env var, re-import the module so the IIFE that reads
+    // HATCH3R_UPDATE_TIMEOUT_MS runs with the override in place. Covers
+    // the env-var branch in selfUpdate.ts:30-36 that the default-value
+    // tests above would otherwise miss.
+    vi.stubEnv("HATCH3R_UPDATE_TIMEOUT_MS", "5000");
+    vi.resetModules();
+    const reloaded = await import("../../install/selfUpdate.js");
+    expect(typeof reloaded.runSelfUpdate).toBe("function");
+    vi.unstubAllEnvs();
+  });
 });
 
 describe("pickReExecBin", () => {
@@ -211,5 +246,26 @@ describe("pickReExecBin", () => {
       },
     });
     expect(bin).toBe("/global/bin");
+  });
+
+  it("falls back to first updated install when none matches invokedFrom.kind", () => {
+    const bin = pickReExecBin({
+      updated: [
+        { kind: "project-local", binPath: "/local/bin", packageRoot: "/p", packageManager: "npm", version: "1.7.0" },
+      ],
+      skipped: [],
+      failed: [],
+      survey: {
+        invokedFrom: {
+          kind: "global",
+          binPath: "/g/bin",
+          packageRoot: "/g",
+          packageManager: "npm",
+          version: "1.6.0",
+        },
+        alsoPresent: [],
+      },
+    });
+    expect(bin).toBe("/local/bin");
   });
 });

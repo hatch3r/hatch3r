@@ -127,7 +127,11 @@ describe("worktreeCleanupCommand", () => {
 
   it("refuses when cwd is inside a candidate worktree", async () => {
     listWorktrees.mockReturnValue([entry(MAIN, "main"), entry(W1, "feat-a")]);
-    vi.spyOn(process, "cwd").mockReturnValue(join(W1, "src"));
+    // Use a forward-slash literal to match the MAIN/W1 fixture shape.
+    // `path.join` would produce backslashes on Windows and break the
+    // `cwd.startsWith(worktreePath + sep)` prefix match against the
+    // forward-slash mock paths.
+    vi.spyOn(process, "cwd").mockReturnValue(`${W1}/src`);
 
     await expect(worktreeCleanupCommand()).rejects.toThrow("inside");
     expect(cleanupWorktree).not.toHaveBeenCalled();
