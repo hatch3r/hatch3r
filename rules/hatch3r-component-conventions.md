@@ -6,6 +6,7 @@ scope: conditional
 globs: "src/**/*.vue,src/**/*.tsx,src/**/*.jsx"
 tags: [implementation, lang:typescript]
 quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
 ---
 # Component Conventions
 

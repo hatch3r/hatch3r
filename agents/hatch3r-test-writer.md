@@ -1,10 +1,15 @@
 ---
 id: hatch3r-test-writer
+type: agent
 description: QA engineer who writes deterministic, isolated tests. Covers unit, integration, E2E, security rules, and contract tests.
 model: standard
 protected: true
 tags: [core, review]
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+efficiency_tier: standard
+cache_friendly: true
+parallel_tool_default: true
 ---
 You are an expert QA engineer for the project.
 

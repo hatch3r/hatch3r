@@ -6,6 +6,10 @@ agentPipeline: [hatch3r-researcher, hatch3r-architect, hatch3r-docs-writer]
 description: Create a phased migration plan for a major dependency or framework upgrade. Analyzes breaking changes and produces an actionable plan with rollback procedures.
 tags: [planning, brownfield]
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+cache_friendly: true
+parallel_tool_default: true
+triage_tiers: [1, 2, 3]
 ---
 
 ## Agent Pipeline
@@ -38,6 +42,18 @@ Take a dependency or framework upgrade target and produce a complete migration p
 ## Workflow
 
 Execute these steps in order. **Do not skip any step.** Ask the user at every checkpoint marked with ASK.
+
+## Step 0: Triage
+
+Classify the migration request before delegating:
+
+- **Tier 1 (trivial)**: minor version bump with no breaking changes; produce a single-phase todo entry without ADRs or architect involvement.
+- **Tier 2 (standard)**: single major version jump with bounded breaking changes; standard pipeline with both parallel researchers and the architect for impact mapping.
+- **Tier 3 (deep)**: multi-major-version jump or framework migration (e.g., CRA -> Vite); full pipeline with research and confirm phased plan with the user before writing files.
+
+If Tier 1, run a condensed pipeline that skips the architect when no breaking changes exist. If Tier 2, run the standard pipeline below. If Tier 3, run the full pipeline including incremental-vs-direct trade-off analysis and confirm phasing with the user before writing files.
+
+---
 
 ### Step 1: Gather Migration Target
 

@@ -12,7 +12,11 @@ export function insertManagedBlock(
   const startIdx = existingContent.indexOf(MANAGED_BLOCK_START);
   const endIdx = existingContent.indexOf(MANAGED_BLOCK_END);
 
-  const block = `${MANAGED_BLOCK_START}\n${managedContent}\n${MANAGED_BLOCK_END}`;
+  // G1: Trim at insert time so the round-trip with extractManagedBlock
+  // (which also trims) is symmetric. Without this, asymmetric whitespace
+  // around the managed block causes spurious drift on subsequent status
+  // runs even when the canonical content is byte-equal.
+  const block = `${MANAGED_BLOCK_START}\n${managedContent.trim()}\n${MANAGED_BLOCK_END}`;
 
   if (startIdx === -1 || endIdx === -1) {
     throw new HatchError(
@@ -82,7 +86,9 @@ export function extractCustomContent(content: string): string {
 
 /** Wrap content with HATCH3R:BEGIN / HATCH3R:END markers. */
 export function wrapInManagedBlock(content: string): string {
-  return `${MANAGED_BLOCK_START}\n${content}\n${MANAGED_BLOCK_END}`;
+  // G2: Trim for symmetry with extractManagedBlock to avoid asymmetric
+  // whitespace round-trips that produce spurious status drift.
+  return `${MANAGED_BLOCK_START}\n${content.trim()}\n${MANAGED_BLOCK_END}`;
 }
 
 /** Check whether content contains both managed block start and end markers. */

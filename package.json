@@ -1,6 +1,6 @@
 {
   "name": "hatch3r",
-  "version": "1.6.2",
+  "version": "1.7.0",
   "description": "Battle-tested agentic coding setup framework. One command to hatch your agent stack -- agents, skills, rules, commands, and MCP for every major AI coding tool.",
   "type": "module",
   "exports": {
@@ -23,6 +23,13 @@
     "inventory": "tsx scripts/inventory.ts",
     "inventory:check-docs": "tsx scripts/inventory.ts --check-docs",
     "validate:rule-parity": "tsx scripts/validate-rule-parity.ts",
+    "validate:efficiency": "tsx scripts/validate-efficiency-invariants.ts",
+    "validate": "npm run validate:rule-parity && npm run validate:efficiency",
+    "audit:validate-registry": "tsx scripts/validate-finding-registry.ts",
+    "audit:migrate": "tsx scripts/migrate-finding-registry.ts",
+    "audit:archive": "tsx scripts/audit-archive.ts",
+    "audit:find": "tsx scripts/audit-find.ts",
+    "audit:reset": "tsx scripts/clean-audit-workspace.ts",
     "lockfile:check": "lockfile-lint --path package-lock.json --type npm --allowed-hosts npm --validate-https"
   },
   "keywords": [
@@ -82,11 +89,13 @@
     "inquirer": "^13.3.2",
     "ora": "^9.3.0",
     "proper-lockfile": "^4.1.2",
+    "update-notifier": "^7.3.1",
     "yaml": "^2.8.3"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
     "@types/proper-lockfile": "^4.1.4",
+    "@types/update-notifier": "^6.0.8",
     "@vitest/coverage-v8": "^4.1.2",
     "eslint": "^10.1.0",
     "lockfile-lint": "^5.0.0",

@@ -1,4 +1,4 @@
-import { access, mkdir, readFile } from "node:fs/promises";
+import { access, mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { basename, dirname, join } from "node:path";
 import chalk from "chalk";
@@ -11,6 +11,7 @@ import {
   addManagedFile,
   isValidGitBranchName,
 } from "../../manifest/hatchJson.js";
+import { filterMcpJsonOnDisk } from "../../manifest/mcpFilter.js";
 import { safeWriteFile } from "../../merge/safeWrite.js";
 import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
 import {
@@ -21,6 +22,7 @@ import {
   WORKTREE_CAPABLE_TOOLS,
   WORKTREE_INCLUDE_FILE,
   type ContentSelection,
+  type CustomizationManifest,
   type Features,
   type Platform,
   type RepoInfo,
@@ -164,6 +166,20 @@ export interface RunInitOptions {
   repoInfo: RepoInfo;
   contentSelection: ContentSelection;
   worktreeEnabled: boolean;
+  /**
+   * 1.7.0 (Phase D): optional customization payload forwarded to
+   * `createManifest`. Set by `clean` -> reinit so integration config and
+   * per-artifact overrides survive when `.hatch3r/*.customize.yaml` files
+   * are absent. Omitted on first init.
+   */
+  customization?: CustomizationManifest;
+  /**
+   * Suppress all interactive prompts emitted by `runInit` itself (e.g. the
+   * post-init "create your first user artifact?" prompt). When true, runInit
+   * never reads stdin. Defaults to false. Set by callers that already
+   * exhausted stdin (e.g. `--yes`, CI workflows, tests).
+   */
+  yes?: boolean;
 }
 
 // C8-D1-M3: Guard against a double `runInit` on the same target directory.
@@ -196,7 +212,8 @@ export async function runInit(options: RunInitOptions): Promise<void> {
 }
 
 async function runInitInner(options: RunInitOptions): Promise<void> {
-  const { rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled } = options;
+  const { rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, customization } = options;
+  const skipInitPrompts = options.yes === true;
   const agentsDir = join(rootDir, AGENTS_DIR);
   const totalSteps = 4;
 
@@ -239,28 +256,7 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   }
 
   const mcpPath = join(agentsDir, "mcp", "mcp.json");
-  try {
-    const mcpRaw = await readFile(mcpPath, "utf-8");
-    const mcpParsed = JSON.parse(mcpRaw) as { mcpServers?: Record<string, Record<string, unknown>> };
-    if (mcpParsed.mcpServers) {
-      const selected = new Set(mcpServers);
-      const filtered: Record<string, Record<string, unknown>> = {};
-      for (const [name, server] of Object.entries(mcpParsed.mcpServers)) {
-        if (!selected.has(name)) continue;
-        const entry = { ...server };
-        delete entry._disabled;
-        filtered[name] = entry;
-      }
-      await safeWriteFile(
-        mcpPath,
-        JSON.stringify({ mcpServers: filtered }, null, 2) + "\n",
-        { force: true },
-      );
-    }
-  } catch (err) {
-    const isExpected = (err as NodeJS.ErrnoException).code === 'ENOENT' || err instanceof SyntaxError;
-    if (!isExpected) throw err;
-  }
+  await filterMcpJsonOnDisk(mcpPath, new Set(mcpServers));
 
   // Generate dynamic AGENTS.md based on what's actually installed
   const canonicalAgentsMd = await generateCanonicalAgentsMd(agentsDir);
@@ -274,7 +270,7 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   // never reached disk if all adapters fail (line 215 throw below).
   const s2 = createSpinner(step(2, totalSteps, "Preparing manifest..."));
   s2.start();
-  const manifest = createManifest({ platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, content: contentSelection, languages: repoInfo.languages, worktreeEnabled });
+  const manifest = createManifest({ platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, content: contentSelection, languages: repoInfo.languages, worktreeEnabled, customization });
   s2.succeed(step(2, totalSteps, "Manifest prepared"));
 
   const s3 = createSpinner(
@@ -417,6 +413,24 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   }
 
   printBox("Hatch complete", summaryLines, "success");
+
+  // D20: post-init "create your first user artifact?" prompt. Skipped when
+  // the caller passed `yes: true` (CI / `--yes` flow / tests) so the
+  // non-interactive contract is preserved. Interactive callers see one of
+  // two short hints depending on whether they accept or decline.
+  if (!skipInitPrompts) {
+    const { create } = await inquirer.prompt<{ create: boolean }>([{
+      type: "confirm",
+      name: "create",
+      message: "Would you like to create your first custom artifact now?",
+      default: false,
+    }]);
+    if (create) {
+      info(`Run /hatch3r-create in your AI tool to start authoring. The slash command is now installed under your tool's commands directory.`);
+    } else {
+      info(`Tip: Run /hatch3r-create anytime to author your own agents, skills, rules, commands, or hooks.`);
+    }
+  }
 }
 
 async function checkExisting(rootDir: string, skipPrompt: boolean, newSelection?: ContentSelection): Promise<void> {
@@ -617,7 +631,7 @@ export async function initCommand(
     warnBoardPrerequisites(contentSelection);
 
     await checkExisting(rootDir, true, contentSelection);
-    await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled });
+    await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, yes: true });
     return;
   }
 
@@ -874,7 +888,7 @@ export async function initCommand(
   warnBoardPrerequisites(contentSelection);
 
   await checkExisting(rootDir, false, contentSelection);
-  await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled });
+  await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, yes: false });
 }
 
 // ── Workspace initialization ──────────────────────────────────────
@@ -1199,6 +1213,7 @@ async function runWorkspaceInit(
     repoInfo,
     contentSelection,
     worktreeEnabled,
+    yes: headless,
   });
 
   // Step 7: Build repo entries and select which to sync

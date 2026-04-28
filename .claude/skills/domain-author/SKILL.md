@@ -28,7 +28,7 @@ Create or modify an audit domain definition in `governance/audit/domains/`.
 4. Determine tier placement:
    - **Tier A (Foundational):** Core infrastructure everything depends on
    - **Tier B (Quality):** Content and operational quality assurance
-   - **Tier C (System-Level):** Cross-cutting behavior and patterns
+   - **Tier C (System-Level):** Cross-cutting behavior and patterns. Hosts both D05 (canonical content quality) and D20 (user-authored content quality) — split canonical vs project-local audit scope between them
    - **Tier D (Strategic):** Market and roadmap alignment
 5. Calculate domain weight: tier total must remain constant. New domain splits weight equally with tier peers
 6. Define sub-agents (target: 4-6 per domain, each focused on a distinct scope)

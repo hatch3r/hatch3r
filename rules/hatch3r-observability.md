@@ -6,6 +6,7 @@ scope: conditional
 tags: [devops]
 quality_charter: agents/shared/quality-charter.md
 deprecated: true
+cache_friendly: true
 ---
 # Observability (Deprecated Redirect)
 

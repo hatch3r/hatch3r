@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { mkdtemp, mkdir, writeFile, readFile, rm, readdir } from "node:fs/promises";
-import { join } from "node:path";
+import { join, posix } from "node:path";
 import { tmpdir } from "node:os";
 import { HatchError } from "../../types.js";
 import type { ContentSelection } from "../../types.js";
@@ -146,6 +146,7 @@ function makeCatalogItem(overrides: Partial<CatalogItem> = {}): CatalogItem {
     description: "A test item",
     tags: ["core"],
     relativePath: "agents/test-item.md",
+    source: "canonical",
     ...overrides,
   };
 }
@@ -301,7 +302,9 @@ describe("content/index", () => {
 
       const rule = index.byId.get("hatch3r-code-standards");
       expect(rule).toBeDefined();
-      expect(rule!.companionPath).toBe(join("rules", "hatch3r-code-standards.mdc"));
+      // relativePath/companionPath are POSIX-canonical (forward slashes)
+      // regardless of platform — see CatalogItem.relativePath in src/content/index.ts.
+      expect(rule!.companionPath).toBe(posix.join("rules", "hatch3r-code-standards.mdc"));
     });
 
     it("does not set companionPath when no .mdc exists", async () => {
@@ -404,10 +407,10 @@ describe("content/index", () => {
       const index = await buildContentIndex(contentRoot);
 
       const agent = index.byId.get("hatch3r-implementer");
-      expect(agent!.relativePath).toBe(join("agents", "hatch3r-implementer.md"));
+      expect(agent!.relativePath).toBe(posix.join("agents", "hatch3r-implementer.md"));
 
       const skill = index.byId.get("hatch3r-feature");
-      expect(skill!.relativePath).toBe(join("skills", "hatch3r-feature"));
+      expect(skill!.relativePath).toBe(posix.join("skills", "hatch3r-feature"));
     });
   });
 
@@ -887,7 +890,8 @@ describe("content/index", () => {
       });
 
       const copied = await copySelectedContent(contentRoot, agentsDir, selection, index);
-      expect(copied).toContain(join("agents", "hatch3r-implementer.md"));
+      // copied paths echo CatalogItem.relativePath (POSIX) — see B.2 in PR 64.
+      expect(copied).toContain(posix.join("agents", "hatch3r-implementer.md"));
 
       const content = await readFile(join(agentsDir, "agents", "hatch3r-implementer.md"), "utf-8");
       expect(content).toContain("hatch3r-implementer");
@@ -906,7 +910,7 @@ describe("content/index", () => {
       });
 
       const copied = await copySelectedContent(contentRoot, agentsDir, selection, index);
-      expect(copied).toContain(join("skills", "hatch3r-refactor"));
+      expect(copied).toContain(posix.join("skills", "hatch3r-refactor"));
 
       // Check that the extra file inside the skill dir was also copied
       const helper = await readFile(join(agentsDir, "skills", "hatch3r-refactor", "helper.md"), "utf-8");
@@ -926,8 +930,8 @@ describe("content/index", () => {
       });
 
       const copied = await copySelectedContent(contentRoot, agentsDir, selection, index);
-      expect(copied).toContain(join("rules", "hatch3r-code-standards.md"));
-      expect(copied).toContain(join("rules", "hatch3r-code-standards.mdc"));
+      expect(copied).toContain(posix.join("rules", "hatch3r-code-standards.md"));
+      expect(copied).toContain(posix.join("rules", "hatch3r-code-standards.mdc"));
 
       const mdcContent = await readFile(join(agentsDir, "rules", "hatch3r-code-standards.mdc"), "utf-8");
       expect(mdcContent).toBe("companion mdc content");
@@ -1007,9 +1011,9 @@ describe("content/index", () => {
       });
 
       const copied = await copySelectedContent(contentRoot, agentsDir, selection, index);
-      expect(copied).toContain(join("agents", "hatch3r-implementer.md"));
-      expect(copied).toContain(join("agents", "hatch3r-reviewer.md"));
-      expect(copied).toContain(join("skills", "hatch3r-feature"));
+      expect(copied).toContain(posix.join("agents", "hatch3r-implementer.md"));
+      expect(copied).toContain(posix.join("agents", "hatch3r-reviewer.md"));
+      expect(copied).toContain(posix.join("skills", "hatch3r-feature"));
     });
 
     it("throws HatchError for path traversal in relativePath", async () => {
@@ -1023,6 +1027,7 @@ describe("content/index", () => {
         description: "bad",
         tags: [],
         relativePath: "../../../etc/passwd",
+        source: "canonical",
       };
       const index = makeIndex([maliciousItem]);
       const selection = emptySelection({
@@ -1280,6 +1285,7 @@ describe("content/index", () => {
         description: "Does not exist",
         tags: [],
         relativePath: "agents/nonexistent.md",
+        source: "canonical",
       };
 
       await expect(
@@ -1305,6 +1311,7 @@ describe("content/index", () => {
         description: "Path traversal attempt",
         tags: [],
         relativePath: "../../../etc/passwd",
+        source: "canonical",
       };
 
       await expect(
@@ -1326,6 +1333,7 @@ describe("content/index", () => {
         description: "Will be removed",
         tags: [],
         relativePath: "agents/to-remove.md",
+        source: "canonical",
       };
 
       await removeContentItem(agentsDir, item);
@@ -1346,6 +1354,7 @@ describe("content/index", () => {
         description: "Skill to remove",
         tags: [],
         relativePath: "skills/my-skill",
+        source: "canonical",
       };
 
       await removeContentItem(agentsDir, item);
@@ -1368,6 +1377,7 @@ describe("content/index", () => {
         tags: [],
         relativePath: "rules/my-rule.md",
         companionPath: "rules/my-rule.mdc",
+        source: "canonical",
       };
 
       await removeContentItem(agentsDir, item);
@@ -1396,6 +1406,7 @@ describe("content/index", () => {
         description: "Agent with customize files",
         tags: [],
         relativePath: "agents/my-agent.md",
+        source: "canonical",
       };
 
       await removeContentItem(agentsDir, item, { rootDir });
@@ -1423,6 +1434,7 @@ describe("content/index", () => {
         description: "Command with prefixed id",
         tags: [],
         relativePath: "commands/hatch3r-board-init.md",
+        source: "canonical",
       };
 
       await removeContentItem(agentsDir, item, { rootDir });
@@ -1440,6 +1452,7 @@ describe("content/index", () => {
         description: "Path traversal attempt",
         tags: [],
         relativePath: "../../../etc/passwd",
+        source: "canonical",
       };
 
       await expect(removeContentItem(dir, maliciousItem)).rejects.toThrow(HatchError);
@@ -1456,6 +1469,7 @@ describe("content/index", () => {
         description: "Already removed",
         tags: [],
         relativePath: "agents/gone.md",
+        source: "canonical",
       };
 
       // rm with { force: true } should not throw

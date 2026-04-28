@@ -5,6 +5,9 @@ orchestrator: false
 description: Track and report token usage and estimated costs across agent workflows and board operations
 tags: [maintenance]
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+cache_friendly: true
+parallel_tool_default: true
 ---
 ## Agent Pipeline
 

@@ -4,6 +4,7 @@ type: command
 description: Auto-advance mode, safety guardrails, error handling, and session report for revision. Covers --auto operation, never-skip rules, platform-aware error recovery, and end-of-session summary.
 tags: [implementation, team]
 quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
 ---
 # Revision — Modes, Guardrails, and Error Handling
 

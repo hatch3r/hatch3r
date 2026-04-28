@@ -6,6 +6,10 @@ agentPipeline: [hatch3r-researcher, hatch3r-docs-writer]
 description: Generate a comprehensive onboarding guide for a new developer joining the project -- spawn parallel researchers to analyze codebase structure, architecture, and conventions, then produce a tailored onboarding document with setup instructions, architecture walkthrough, coding conventions, key workflows, tribal knowledge, and a quick-reference cheat sheet.
 tags: [brownfield, team]
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+cache_friendly: true
+parallel_tool_default: true
+triage_tiers: [1, 2, 3]
 ---
 
 ## Agent Pipeline
@@ -37,6 +41,18 @@ Take a new developer's role, experience level, and focus areas and produce a com
 ## Workflow
 
 Execute these steps in order. **Do not skip any step.** Ask the user at every checkpoint marked with ASK.
+
+## Step 0: Triage
+
+Classify the onboarding-guide request before delegating:
+
+- **Tier 1 (trivial)**: small project (<500 files) or condensed guide for a single role; reduced fanout (1 researcher: codebase-overview), abbreviated guide.
+- **Tier 2 (standard)**: standard project with both technical and team context; standard pipeline with all 3 parallel researchers (codebase-overview, architecture, conventions).
+- **Tier 3 (deep)**: large monorepo or staff-level guide covering system architecture, integration boundaries, and scaling considerations; full pipeline with deep researcher depth and confirm sections with the user.
+
+If Tier 1, run the reduced researcher set and skip experience-level depth tailoring. If Tier 2, run the standard pipeline below. If Tier 3, expand researcher depth and confirm guide sections with the user before generating the document.
+
+---
 
 ### Step 1: Gather Context
 

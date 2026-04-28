@@ -4,6 +4,7 @@ type: command
 description: Multi-issue sub-agent delegation protocols for board-pickup Steps 6b (epics) and 6c (batch). Covers level-by-level parallel execution, shared context, and quality pipelines.
 tags: [board, team]
 quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
 ---
 # Board Pickup — Multi-Issue Delegation (Steps 6b, 6c)
 

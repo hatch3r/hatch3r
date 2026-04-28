@@ -13,7 +13,7 @@
     ],
     "deny": []
   },
-  "teammateMode": "tool-using",
+  "teammateMode": "auto",
   "hooks": {
     "SessionStart": [
       {

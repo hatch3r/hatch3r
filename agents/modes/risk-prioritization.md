@@ -5,6 +5,9 @@ description: Risk-ranked prioritization of testing effort by business impact and
 tags: [core, review]
 parent: hatch3r-researcher
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+efficiency_tier: standard
+cache_friendly: true
 ---
 ### Mode: `risk-prioritization`
 

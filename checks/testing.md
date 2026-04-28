@@ -2,6 +2,7 @@
 id: testing
 type: check
 description: Test coverage review criteria covering test quality, regression testing, test isolation, and coverage requirements
+cache_friendly: true
 ---
 # Testing Check
 

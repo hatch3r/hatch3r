@@ -3,6 +3,8 @@ id: hatch3r-architecture-review
 description: Evaluate architectural decisions and produce ADRs following the project template. Use when making architectural decisions, evaluating trade-offs, or creating ADRs.
 tags: [review]
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+cache_friendly: true
 ---
 # Architecture Review Workflow
 

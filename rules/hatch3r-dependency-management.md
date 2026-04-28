@@ -5,6 +5,7 @@ description: Lockfile discipline, CVE scanning, transitive dependency audits, ma
 scope: "**/package.json,**/package-lock.json,**/yarn.lock,**/pnpm-lock.yaml,**/Cargo.toml,**/Cargo.lock,**/requirements*.txt,**/pyproject.toml,**/go.mod,**/go.sum,**/Gemfile*"
 tags: [maintenance]
 quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
 ---
 # Dependency Management
 

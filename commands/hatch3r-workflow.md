@@ -6,6 +6,10 @@ agentPipeline: [hatch3r-researcher, hatch3r-implementer, hatch3r-reviewer, hatch
 description: Guided development lifecycle with 4 phases (Analyze, Plan, Implement, Review) and scale-adaptive Quick Mode for small tasks.
 tags: [core, implementation]
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+cache_friendly: true
+parallel_tool_default: true
+triage_tiers: [1, 2, 3]
 ---
 # Development Workflow -- Guided Lifecycle for Structured Implementation
 
@@ -59,11 +63,23 @@ Downstream propagation: every ASK checkpoint that reports verification quality, 
 
 ---
 
+## Triage
+
+Classify the development task before delegating. Detailed mode classification runs in Step 0 (Triage / Scale-Adaptive Mode Selection); this section summarizes the routing:
+
+- **Tier 1 (trivial)**: single-line edit, typo, or trivial config change; Quick Mode skips most ASK checkpoints and runs the streamlined 3-step path.
+- **Tier 2 (standard)**: bug fix or small feature in 1–3 files; Quick Mode with full sub-agent delegation (researcher, implementer, reviewer, fixer, test-writer, security-auditor).
+- **Tier 3 (deep)**: multi-module feature, architectural change, or cross-cutting refactor; Full Mode with all 4 phases (Analyze, Plan, Implement, Review) and deep research before mutating files.
+
+If Tier 1, take Quick Mode with reduced sub-agent prompts. If Tier 2, take Quick Mode below. If Tier 3, switch to Full Mode and confirm the plan with the user before implementation.
+
+---
+
 ## Workflow
 
 Execute these steps in order. **Do not skip any step.** Ask the user at every checkpoint marked with ASK.
 
-### Step 0: Mode Selection (Scale-Adaptive)
+### Step 0: Triage (Scale-Adaptive Mode Selection)
 
 Assess the task to recommend a mode.
 

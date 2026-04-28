@@ -4,6 +4,8 @@ type: skill
 description: Generate and validate OpenAPI specifications from codebase. Covers endpoint design, schema validation, and documentation generation.
 tags: [planning]
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+cache_friendly: true
 ---
 
 # API Specification Workflow

@@ -6,6 +6,7 @@ scope: conditional
 globs: "**/*metric*,**/*slo*,**/*sli*,**/*alert*,**/*dashboard*,**/observability/**"
 tags: [devops]
 quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
 ---
 # Observability -- Metrics, SLOs & Alerting
 

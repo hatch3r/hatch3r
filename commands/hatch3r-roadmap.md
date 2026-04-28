@@ -6,6 +6,10 @@ agentPipeline: [hatch3r-researcher, hatch3r-docs-writer]
 description: Sequence delivery phases over time into a dependency-ordered milestone plan with business and technical lenses, emitting a todo.md rollout schedule rather than design docs
 tags: [planning, greenfield]
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+cache_friendly: true
+parallel_tool_default: true
+triage_tiers: [1, 2, 3]
 ---
 # Roadmap — Generate Phased Roadmap from Specs & Vision
 
@@ -34,6 +38,18 @@ Follow the **Token-Saving Directives** in `hatch3r-board-shared`.
 ## Workflow
 
 Execute these steps in order. **Do not skip any step.** Ask the user at every checkpoint marked with ASK. When in doubt, **ASK** — it is better to ask one question too many than to make one wrong assumption. Discovery questions are never wasted.
+
+## Step 0: Triage
+
+Classify the roadmap request before delegating:
+
+- **Tier 1 (trivial)**: small project with focused scope (under 20 backlog items), single dimension (technical only); reduced fanout (1 researcher: Technical Readiness) and condensed todo.md output.
+- **Tier 2 (standard)**: standard dual-lens roadmap (business + technical) with both researchers; standard pipeline with parallel research and AGENTS.md generation.
+- **Tier 3 (deep)**: enterprise/scale company with regulatory deadlines, multi-quarter horizon, or 50+ backlog items; full pipeline with deep web research and confirm milestones with the user before writing files.
+
+If Tier 1, run the reduced researcher set and skip Step 7 (AGENTS.md) unless requested. If Tier 2, run the standard pipeline below. If Tier 3, run the full pipeline with deep research, surface market-timing intelligence, and confirm phased plan with the user before file writes.
+
+---
 
 ### Step 1: Load Project Context & Business Discovery
 

@@ -1,9 +1,14 @@
 ---
 id: hatch3r-ci-watcher
+type: agent
 description: CI/CD specialist who monitors CI pipeline runs, diagnoses failures, and suggests fixes. Use when CI fails, when waiting for CI results, or when investigating flaky tests.
 model: fast
 tags: [devops]
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+efficiency_tier: standard
+cache_friendly: true
+parallel_tool_default: true
 ---
 You are a CI/CD specialist for the project.
 

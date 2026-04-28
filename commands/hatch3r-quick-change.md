@@ -6,6 +6,10 @@ agentPipeline: [hatch3r-implementer, hatch3r-lint-fixer, hatch3r-reviewer, hatch
 description: Lightweight command for small changes not worth tracking on the board. Adaptive ceremony with inline or sub-agent implementation, batch support, and soft scope guards.
 tags: [core, implementation]
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+cache_friendly: true
+parallel_tool_default: true
+triage_tiers: [1, 2, 3]
 ---
 
 ## Agent Pipeline
@@ -77,6 +81,18 @@ Downstream propagation: every ASK checkpoint that reports verification quality, 
 
 ---
 
+## Triage
+
+Classify the change request before delegating. Detailed tier scoring runs in Step 2 (Tier Assessment); this section summarizes the routing:
+
+- **Tier 1 (trivial)**: single-file edit, config tweak, typo, or constant rename; inline implementation in Step 4a, no researcher, no review loop.
+- **Tier 2 (standard)**: multi-file change or new function with bounded scope; standard pipeline with `hatch3r-implementer` and lightweight researcher (`similar-implementation` at `quick` depth).
+- **Tier 3 (deep)**: hard-blocked here — quick-change does not provide research depth for Tier 3 work. Step 2b routes Tier 3 to `hatch3r-workflow`.
+
+If Tier 1, run inline. If Tier 2, run the implementer-only pipeline below. If Tier 3, exit and recommend `hatch3r-workflow`.
+
+---
+
 ## Workflow
 
 Execute these steps in order. **Do not skip any step.** Ask the user at every checkpoint marked with ASK.
@@ -94,7 +110,7 @@ Parse the user's description into discrete change items.
 
 ---
 
-### Step 2: Scale Assessment (Soft Guard)
+### Step 2: Tier Assessment (Soft Guard)
 
 Evaluate whether the described changes fit the quick-change scope.
 

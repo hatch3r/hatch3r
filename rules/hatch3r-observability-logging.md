@@ -6,6 +6,7 @@ scope: conditional
 globs: "**/*log*,**/*logger*,**/*logging*,**/*error*,**/observability/**"
 tags: [devops]
 quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
 ---
 # Observability -- Logging & Error Reporting
 

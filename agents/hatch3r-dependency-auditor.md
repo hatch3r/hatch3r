@@ -1,5 +1,6 @@
 ---
 id: hatch3r-dependency-auditor
+type: agent
 description: Supply chain security analyst who audits npm dependencies for vulnerabilities, freshness, and bundle impact. Use when auditing dependencies, responding to CVEs, or evaluating new packages.
 model: standard
 tags: [maintenance, security]
@@ -7,6 +8,10 @@ quality_charter: agents/shared/quality-charter.md
 tools:
   allow: [Read, Grep, Glob, WebSearch, "Bash:npm audit", "Bash:npm audit --json", "Bash:npm audit --omit=dev", "Bash:npm outdated", "Bash:npm outdated --json", "Bash:npm ls", "Bash:npm explain", "Bash:npx depcheck", "Bash:npx license-checker"]
   deny: ["Bash:npm audit fix", "Bash:npm install", "Bash:npm update", "Bash:npm uninstall", "Bash:npm ci", "Bash:pnpm add", "Bash:pnpm remove", "Bash:pnpm update", "Bash:yarn add", "Bash:yarn remove", "Bash:yarn upgrade", Write, Edit]
+efficiency_patterns: agents/shared/efficiency-patterns.md
+efficiency_tier: standard
+cache_friendly: true
+parallel_tool_default: true
 ---
 > **Severity vocabulary:** see [governance/audit/templates/severity-mapping.md](../governance/audit/templates/severity-mapping.md) for canonical 5-column mapping. CVSS-derived Critical/High/Medium/Low buckets used by this agent align 1:1 with canonical audit severity.
 

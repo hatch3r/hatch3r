@@ -4,6 +4,7 @@ type: shared-context
 description: GitLab-specific platform details for board shared context. Covers GitLab Issues, Issue Boards, glab CLI, and label-based sync.
 tags: [board, team, gitlab]
 quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
 ---
 # Board Shared Reference — GitLab Platform Details
 

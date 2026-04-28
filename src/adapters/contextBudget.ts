@@ -39,7 +39,6 @@ export const CONTEXT_BUDGET_TOKENS: Record<Tool, number> = {
   zed: 64_000,
   "amazon-q": 128_000,
   antigravity: 128_000,
-  "agents-md": 200_000,
 };
 
 /**

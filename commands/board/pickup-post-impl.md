@@ -4,6 +4,7 @@ type: command
 description: Post-implementation steps for board-pickup (Steps 7-10). Covers quality verification, commit/push, PR/MR creation, label transitions, board sync, dashboard refresh, reconciliation, and learnings capture.
 tags: [board, team]
 quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
 ---
 # Board Pickup — Post-Implementation Steps (7-10)
 

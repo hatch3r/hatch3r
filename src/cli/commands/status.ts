@@ -6,6 +6,7 @@ import { getAdapter } from "../../adapters/index.js";
 import { AGENTS_DIR, HatchError, type HatchManifest } from "../../types.js";
 import { extractManagedBlock } from "../../merge/managedBlocks.js";
 import { readIntegrityManifest } from "../../integrity/index.js";
+import { discoverUserContent } from "../../content/userContent.js";
 import {
   printBanner,
   createSpinner,
@@ -235,6 +236,51 @@ export async function statusCommand(opts?: { verbose?: boolean; deep?: boolean }
   if (stats.drifted > 0 || stats.missing > 0) {
     info(`Run ${chalk.bold("hatch3r sync")} to regenerate drifted/missing files.`);
     console.log();
+  }
+
+  // ── User content (D20) ─────────────────────────────────────
+  // Prefer the manifest's userContent counters (kept current by
+  // `saveUserContent`) and fall back to a live disk scan when the manifest
+  // has not yet recorded any user content. The fallback exists because
+  // older hatch3r versions do not write the field; a user who manually
+  // created files under `.agents/user/` should still see them in status.
+  let userTypes: Record<string, number> | null = null;
+  let userTotal = 0;
+  let userLastModified: string | null = null;
+  if (manifest.userContent && manifest.userContent.count > 0) {
+    userTypes = manifest.userContent.types;
+    userTotal = manifest.userContent.count;
+    userLastModified = manifest.userContent.lastModified;
+  } else {
+    try {
+      const discovered = await discoverUserContent(rootDir);
+      if (discovered.length > 0) {
+        const types: Record<string, number> = {};
+        for (const e of discovered) {
+          types[e.type] = (types[e.type] ?? 0) + 1;
+        }
+        userTypes = types;
+        userTotal = discovered.length;
+      }
+    } catch (err) {
+      // Discovery is best-effort — surface via verbose so operators can
+      // diagnose without breaking the status command.
+      verbose(`User content discovery skipped: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  if (userTypes && userTotal > 0) {
+    const userLines: string[] = [];
+    for (const [type, count] of Object.entries(userTypes)) {
+      if (count > 0) {
+        userLines.push(`${type}:`.padEnd(12) + String(count));
+      }
+    }
+    if (userLastModified) {
+      userLines.push(`${"Total:".padEnd(12)}${userTotal} item(s), last modified ${userLastModified}`);
+    } else {
+      userLines.push(`${"Total:".padEnd(12)}${userTotal} item(s)`);
+    }
+    printBox("User content", userLines, "info");
   }
 
   // ── Codex precedence-chain warning (C7.5-W2B2-H36 / D9-SA9.5.1) ──

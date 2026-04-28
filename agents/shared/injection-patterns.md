@@ -2,6 +2,8 @@
 id: shared-injection-patterns
 type: reference
 description: Canonical prompt-injection screening patterns — single source of truth for pipeline input sanitization, learnings validation, and user-facing injection screening guidance.
+efficiency_patterns: agents/shared/efficiency-patterns.md
+cache_friendly: true
 ---
 
 ## Injection Patterns Catalog

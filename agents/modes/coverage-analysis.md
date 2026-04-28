@@ -5,6 +5,9 @@ description: Map existing test coverage, identify gaps, and surface critical unt
 tags: [core, review]
 parent: hatch3r-researcher
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+efficiency_tier: standard
+cache_friendly: true
 ---
 ### Mode: `coverage-analysis`
 

@@ -6,6 +6,7 @@ agent: security-auditor
 description: Scan for secrets and security issues before push
 tags: [core]
 quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
 ---
 # Hook: pre-push → security-auditor
 

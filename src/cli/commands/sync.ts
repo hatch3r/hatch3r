@@ -14,7 +14,7 @@ import { readWorkspaceManifest } from "../../workspace/manifest.js";
 import { detectWorkspaceContext } from "../../workspace/detect.js";
 import { syncWorkspaceRepos } from "../../workspace/sync.js";
 import { generateCanonicalAgentsMd, generateRootAgentsMd } from "../shared/agentsContent.js";
-import { verifyIntegrity, generateIntegrityManifest, writeIntegrityManifest } from "../../integrity/index.js";
+import { verifyIntegrity, generateIntegrityManifest, readIntegrityManifest, writeIntegrityManifest } from "../../integrity/index.js";
 import { buildProvenanceManifest, writeProvenanceManifest } from "../../integrity/provenance.js";
 import { pruneArchives } from "../../archive/index.js";
 import { HATCH3R_VERSION } from "../../version.js";
@@ -45,6 +45,7 @@ import {
 } from "../../pipeline/pipelineTimeout.js";
 import { compactPhaseOutput } from "../../pipeline/phaseOutputSchema.js";
 import { retryWithBackoff } from "../../pipeline/retryWithBackoff.js";
+import { discoverUserContent } from "../../content/userContent.js";
 import {
   printBanner,
   createSpinner,
@@ -194,6 +195,20 @@ export async function syncCommand(
   const m = manifest;
 
   verbose(`Manifest loaded: ${m.tools.length} tool(s), ${Object.keys(m.features).filter(k => m.features[k as keyof typeof m.features]).length} feature(s)`);
+
+  // D20: user-content discovery is informational here — adapters already
+  // pick up `.agents/user/` items via readCanonicalFiles. Surface the count
+  // so operators know whether their user artifacts are part of the run.
+  try {
+    const userArtifacts = await discoverUserContent(rootDir);
+    if (userArtifacts.length > 0) {
+      verbose(`User content: ${userArtifacts.length} artifact(s) discovered under .agents/user/`);
+    }
+  } catch (err) {
+    // Discovery failure must not break sync; log via verbose so the
+    // diagnostic is available without polluting the default summary.
+    verbose(`User content discovery skipped: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
   // C7-H5 (D15, OWASP ASI 2026): Preflight integrity check. If canonical
   // files have drifted (modified, missing, or tampered manifest) we refuse
@@ -552,15 +567,26 @@ export async function syncCommand(
     const successfulAdapters = m.tools.filter(
       (t) => !adapterFailures.some((f) => f.tool === t),
     );
+    // G5: Pass the previous manifest so a redundant sync (identical canonical
+    // content + same adapter sets) preserves its `generated` timestamp instead
+    // of stamping a fresh one. This makes status ↔ sync idempotent.
+    const previousIntegrityManifest = await readIntegrityManifest(agentsDir);
     const integrityManifest = await generateIntegrityManifest(
       agentsDir,
       HATCH3R_VERSION,
       {
         expectedAdapters: m.tools,
         successfulAdapters,
+        previousManifest: previousIntegrityManifest ?? undefined,
       },
     );
-    await writeIntegrityManifest(agentsDir, integrityManifest);
+    // Only write when we did not reuse the previous manifest verbatim. Both
+    // checksum equality and reference equality are sufficient discriminators
+    // — generateIntegrityManifest returns the previous object identity when
+    // the fingerprint matches.
+    if (integrityManifest !== previousIntegrityManifest) {
+      await writeIntegrityManifest(agentsDir, integrityManifest);
+    }
     if (adapterFailures.length > 0) {
       warn(
         `Integrity manifest regenerated with ${successfulAdapters.length}/${m.tools.length} adapters successful. ` +
@@ -639,6 +665,11 @@ export async function syncCommand(
   const icons: Record<string, string> = {
     created: chalk.green("+"),
     updated: chalk.yellow("~"),
+    // G5: "unchanged" is a no-op action returned by safeWriteFile when the
+    // computed bytes match the file on disk. We render it the same as
+    // "skipped" (dim "=") so the human summary remains readable while still
+    // signalling that nothing changed.
+    unchanged: chalk.dim("="),
     skipped: chalk.dim("="),
     "dry-run": chalk.cyan("?"),
   };

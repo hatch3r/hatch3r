@@ -5,6 +5,9 @@ description: Investigate when an issue was introduced by analyzing git history a
 tags: [core, planning, review]
 parent: hatch3r-researcher
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+efficiency_tier: standard
+cache_friendly: true
 ---
 ### Mode: `regression`
 

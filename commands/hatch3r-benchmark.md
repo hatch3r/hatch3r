@@ -6,6 +6,10 @@ agentPipeline: [hatch3r-researcher, hatch3r-perf-profiler, hatch3r-docs-writer]
 description: Run and analyze performance benchmarks. Compare results against baselines, identify regressions, and produce performance reports.
 tags: [review, performance]
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+cache_friendly: true
+parallel_tool_default: true
+triage_tiers: [1, 2, 3]
 ---
 
 ## Agent Pipeline
@@ -39,6 +43,18 @@ Run performance benchmarks against a target (file, function, endpoint, or full s
 ## Workflow
 
 Execute these steps in order. **Do not skip any step.** Ask the user at every checkpoint marked with ASK.
+
+## Step 0: Triage
+
+Classify the benchmark request before delegating:
+
+- **Tier 1 (trivial)**: single benchmark with `none` baseline or quick re-run of an existing suite; inline execution, no `hatch3r-perf-profiler` fanout.
+- **Tier 2 (standard)**: standard suite with `previous-run` or git-ref baseline; standard pipeline including statistical analysis and reporting.
+- **Tier 3 (deep)**: full-suite cross-environment benchmark with regression triage and root-cause tracing; full pipeline with research and confirm scope with the user before saving results.
+
+If Tier 1, complete inline and skip the analysis fanout. If Tier 2, run the standard pipeline below. If Tier 3, run the full pipeline with research and confirm scope with the user before saving results.
+
+---
 
 ### Step 1: Gather Benchmark Context
 

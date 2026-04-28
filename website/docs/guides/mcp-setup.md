@@ -7,6 +7,10 @@ title: MCP Setup
 
 How to connect hatch3r's MCP servers and manage secrets securely.
 
+:::info Last verified
+2026-04-28. Credential acquisition URLs and provider scope models reverified each audit cycle (P3 — Adapter & MCP Currency).
+:::
+
 ## Overview
 
 hatch3r ships with 10 MCP servers: 3 enabled by default (no env vars required) and 7 opt-in servers (GitHub, Brave Search, Sentry, Postgres, Linear, Azure DevOps, GitLab). All secrets are centralized in a single `.env.mcp` file at the project root (gitignored by default). MCP configs use `${env:VAR}` placeholders so you never commit secrets.
@@ -126,17 +130,17 @@ set -a && source .env.mcp && set +a && claude
 | Server | Env var | How to get it |
 |--------|---------|---------------|
 | **GitHub** | `GITHUB_PAT` | [Create a PAT](https://github.com/settings/tokens/new) -- see [GitHub PAT scopes](#github-pat-scopes) |
-| **Brave Search** | `BRAVE_API_KEY` | [Brave Search API](https://brave.com/search/api/) -- free tier: 2,000 queries/month |
+| **Brave Search** | `BRAVE_API_KEY` | [api-dashboard.search.brave.com/register](https://api-dashboard.search.brave.com/register) -- see [Brave Search pricing notes](#brave-search-pricing-notes) |
 
 #### Opt-in servers (enable during init)
 
 | Server | Env var | How to get it |
 |--------|---------|---------------|
-| Sentry | `SENTRY_AUTH_TOKEN` | [Sentry Auth Tokens](https://sentry.io/settings/account/api/auth-tokens/) |
+| Sentry | `SENTRY_AUTH_TOKEN` | [Sentry Auth Tokens](https://sentry.io/settings/account/api/auth-tokens/) -- see [Sentry token types](#sentry-token-types) |
 | Postgres | `POSTGRES_URL` | Your PostgreSQL connection string |
-| Linear | `LINEAR_API_KEY` | [Linear API keys](https://linear.app/settings/api) |
-| Azure DevOps | `AZURE_DEVOPS_PAT`, `AZURE_DEVOPS_ORG` | [Create a PAT](https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/use-personal-access-tokens-to-authenticate) |
-| GitLab | `GITLAB_TOKEN` | [Create a PAT](https://docs.gitlab.com/ee/user/profile/personal_access_tokens.html) |
+| Linear | `LINEAR_API_KEY` | [Linear API keys](https://linear.app/settings/api) -- OAuth 2.0 also supported, see [Linear authentication](#linear-authentication) |
+| Azure DevOps | `AZURE_DEVOPS_PAT`, `AZURE_DEVOPS_ORG` | [Create a PAT](https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/use-personal-access-tokens-to-authenticate) -- see [Azure DevOps authentication notes](#azure-devops-authentication-notes) |
+| GitLab | `GITLAB_TOKEN` | [Create a PAT](https://docs.gitlab.com/ee/user/profile/personal_access_tokens.html) -- see [GitLab token alternatives](#gitlab-token-alternatives) |
 
 ### GitHub PAT scopes {#github-pat-scopes}
 
@@ -159,6 +163,55 @@ set -a && source .env.mcp && set +a && claude
 Fine-grained tokens have [limitations](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#fine-grained-personal-access-tokens-limitations) (e.g. user-owned Projects V2 may require classic PATs).
 
 **Note:** If board commands fail with GraphQL permission errors, the most likely cause is a missing `project` scope. For classic PATs, add the `project` scope. For fine-grained PATs, ensure Projects has read and write access. You can also run `gh auth refresh -s project` if using the GitHub CLI.
+
+**User-owned Projects V2 caveat:** As of 2026, fine-grained PATs still cannot access Projects V2 owned by a user account (only org-owned projects). For board commands targeting a user-owned project, use a classic PAT with the `project` scope.
+
+### Brave Search pricing notes {#brave-search-pricing-notes}
+
+Brave retired the free tier of its Search API in 2026 and moved every account onto credit-based billing.
+
+- **New users** receive $5 in credits each month (~1,000 web search queries at $5 / 1,000 requests). A credit card is required at sign-up as an anti-fraud measure even for credit-only usage.
+- **Legacy users** who were on the original 2,000 queries / month free plan are grandfathered to that allowance.
+- Sign up at [api-dashboard.search.brave.com/register](https://api-dashboard.search.brave.com/register). The older `brave.com/search/api/` URL still works but redirects to the dashboard for key creation.
+- Paid tiers: Basic ($5 / 20k queries), Starter ($20 / 100k), Standard ($40 / 500k), Enterprise (custom).
+
+### Sentry token types {#sentry-token-types}
+
+Sentry supports two auth-token types:
+
+- **User Auth Tokens** ([sentry.io/settings/account/api/auth-tokens/](https://sentry.io/settings/account/api/auth-tokens/)) — tied to your personal account. Best for individual MCP use.
+- **Organization Auth Tokens** (Org Settings → Auth Tokens) — tied to the org rather than a single user. Recommended for shared / CI / production use because they survive personnel changes.
+
+For MCP, set `SENTRY_AUTH_TOKEN` to whichever token matches your scope. Read scopes (`org:read`, `project:read`, `event:read`) are sufficient for the read-only error / performance views the Sentry MCP server exposes.
+
+### Linear authentication {#linear-authentication}
+
+Linear supports two auth methods for the API used by the MCP server:
+
+- **Personal API keys** ([linear.app/settings/api](https://linear.app/settings/api)) — quickest to set up, good for individual / single-user MCP. Set `LINEAR_API_KEY` to the generated key.
+- **OAuth 2.0** — recommended for shared installations, multi-user products, or anything that needs to act on behalf of multiple Linear accounts. Use `OAuth actor authorization` for integration scenarios.
+
+For the typical single-developer MCP setup, the personal API key is the right call.
+
+### Azure DevOps authentication notes {#azure-devops-authentication-notes}
+
+Microsoft now actively recommends Microsoft Entra ID tokens, managed identities, or service principals over PATs (PATs are flagged in the Microsoft Learn docs as "long-lived credentials [that] can be leaked, stolen, or misused"). PATs still work for hatch3r MCP today, but be aware:
+
+- For Microsoft Entra-backed organizations, you must sign in to Azure DevOps via the full auth flow at least every 90 days for your PAT to remain active.
+- Tokens are 84 characters long and include a fixed `AZDO` signature at positions 76–80 — useful for secret-scanning rules.
+- Microsoft also publishes an Azure DevOps MCP Server (`/azure/devops/mcp-server/mcp-server-overview`); hatch3r ships the `@tiberriver256/mcp-server-azure-devops` STDIO server today, but the official server is an alternative if you prefer Microsoft-maintained tooling.
+
+For least-privilege automation, see Microsoft's guidance on [reducing PAT usage](https://devblogs.microsoft.com/devops/reducing-pat-usage-across-azure-devops/).
+
+### GitLab token alternatives {#gitlab-token-alternatives}
+
+Personal access tokens are the simplest path for individual MCP use, but for automation contexts GitLab offers narrower-scope alternatives:
+
+- **Project Access Tokens** — bound to a single project, no human user account needed; preferred for project-specific automation.
+- **Group Access Tokens** — same idea at the group level.
+- **CI/CD Job Tokens** — fine-grained permissions scoped to a pipeline run; preferred for pipeline-driven workflows.
+
+For self-hosted GitLab, also set `GITLAB_HOST=https://gitlab.example.com` in `.env.mcp`.
 
 ### Verifying connection
 

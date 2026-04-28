@@ -9,6 +9,7 @@ import {
   DEFAULT_FEATURES,
   type BoardConfig,
   type ContentSelection,
+  type CustomizationManifest,
   type HatchManifest,
   type Platform,
   type Tool,
@@ -79,6 +80,7 @@ export function createManifest(options: {
   content?: ContentSelection;
   languages?: string[];
   worktreeEnabled?: boolean;
+  customization?: CustomizationManifest;
 }): HatchManifest {
   const platform = options.platform ?? "github";
   const owner = options.owner ?? "";
@@ -100,6 +102,9 @@ export function createManifest(options: {
   };
   if (options.content) {
     manifest.content = options.content;
+  }
+  if (options.customization) {
+    manifest.customization = options.customization;
   }
   if (options.languages && options.languages.length > 0 && options.languages[0] !== "unknown") {
     manifest.languages = options.languages;
@@ -134,6 +139,16 @@ export function migrateManifest(raw: Record<string, unknown>): Record<string, un
 
   if (migrated.version === "1.0.0") {
     migrated.version = "2.0.0";
+  }
+
+  // 1.7.0: `agents-md` is no longer a selectable tool. AGENTS.md is emitted
+  // unconditionally by init/update via generateRootAgentsMd; the standalone
+  // adapter caused duplicate writes (managed-block nesting, 8000-line growth)
+  // when combined with the amp adapter that targeted the same path.
+  if (Array.isArray(migrated.tools)) {
+    migrated.tools = (migrated.tools as unknown[]).filter(
+      (t) => typeof t !== "string" || t !== "agents-md",
+    );
   }
 
   return migrated;
@@ -212,6 +227,24 @@ function validateManifest(data: unknown): data is HatchManifest {
     if (ct.hardStop !== undefined && typeof ct.hardStop !== "boolean") return false;
   }
 
+  if (obj.customization !== undefined) {
+    if (typeof obj.customization !== "object" || obj.customization === null) return false;
+    const cu = obj.customization as Record<string, unknown>;
+    if (cu.schemaVersion !== 1) return false;
+    const perTypeKeys = ["agents", "skills", "rules", "commands"] as const;
+    for (const key of perTypeKeys) {
+      const v = cu[key];
+      if (v === undefined) continue;
+      if (typeof v !== "object" || v === null || Array.isArray(v)) return false;
+      for (const inner of Object.values(v as Record<string, unknown>)) {
+        if (typeof inner !== "object" || inner === null || Array.isArray(inner)) return false;
+      }
+    }
+    if (cu.integrations !== undefined) {
+      if (typeof cu.integrations !== "object" || cu.integrations === null || Array.isArray(cu.integrations)) return false;
+    }
+  }
+
   if (obj.specs !== undefined) {
     if (typeof obj.specs !== "object" || obj.specs === null) return false;
     const specs = obj.specs as Record<string, unknown>;
@@ -243,6 +276,19 @@ function validateManifest(data: unknown): data is HatchManifest {
       if (typeof k !== "string") return false;
       if (!Array.isArray(v)) return false;
       if (!(v as unknown[]).every((p) => typeof p === "string")) return false;
+    }
+  }
+
+  // D20 user-content counters (optional). Older manifests omit this field.
+  if (obj.userContent !== undefined) {
+    if (typeof obj.userContent !== "object" || obj.userContent === null) return false;
+    const uc = obj.userContent as Record<string, unknown>;
+    if (typeof uc.count !== "number") return false;
+    if (typeof uc.lastModified !== "string") return false;
+    if (typeof uc.types !== "object" || uc.types === null) return false;
+    for (const [k, v] of Object.entries(uc.types as Record<string, unknown>)) {
+      if (typeof k !== "string") return false;
+      if (typeof v !== "number") return false;
     }
   }
 

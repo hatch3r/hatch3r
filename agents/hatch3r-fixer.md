@@ -1,10 +1,15 @@
 ---
 id: hatch3r-fixer
+type: agent
 description: Targeted fix agent that takes structured reviewer output and implements fixes for Critical and Warning findings. Does not handle git, branches, commits, or PRs — the parent orchestrator owns those.
 model: fast
 tags: [core, implementation]
 protected: true
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+efficiency_tier: standard
+cache_friendly: true
+parallel_tool_default: true
 ---
 > **Severity vocabulary:** see [governance/audit/templates/severity-mapping.md](../governance/audit/templates/severity-mapping.md) for canonical 5-column mapping.
 

@@ -1,4 +1,8 @@
-import { describe, it, expect } from "vitest";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { afterEach, beforeEach, describe, it, expect } from "vitest";
 import {
   // Finding #63 — Reasoning block persistence
   createPhaseReasoning,
@@ -22,6 +26,11 @@ import {
   formatReplayGuidance,
   type ReplayGuidance,
   type ReplayStep,
+
+  // P7 — Efficiency telemetry
+  isEfficiencyTelemetryEnabled,
+  recordEfficiencyEvent,
+  type EfficiencyEvent,
 } from "../../pipeline/observability.js";
 
 // ── Reasoning Block Persistence (Finding #63) ────────────────────
@@ -413,5 +422,83 @@ describe("formatReplayGuidance", () => {
     const formatted = formatReplayGuidance(guidance);
     // The default steps have expectedOutcome values
     expect(formatted).toContain("->");
+  });
+});
+
+// ── Efficiency telemetry (P7) ────────────────────────────────────
+
+describe("recordEfficiencyEvent", () => {
+  const ENV_KEY = "HATCH3R_EFFICIENCY_TELEMETRY";
+  let tmpRoot: string;
+  let originalEnv: string | undefined;
+
+  beforeEach(() => {
+    tmpRoot = mkdtempSync(join(tmpdir(), "hatch3r-eff-"));
+    originalEnv = process.env[ENV_KEY];
+    delete process.env[ENV_KEY];
+  });
+
+  afterEach(() => {
+    if (originalEnv === undefined) {
+      delete process.env[ENV_KEY];
+    } else {
+      process.env[ENV_KEY] = originalEnv;
+    }
+    rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  const sampleEvent: EfficiencyEvent = {
+    artifactId: "hatch3r-quick-change",
+    phase: "triage",
+    tokensIn: 1200,
+    tokensOut: 350,
+    latencyMs: 4200,
+    modelHint: "claude-opus-4-7",
+    cacheHit: true,
+  };
+
+  it("is a no-op when HATCH3R_EFFICIENCY_TELEMETRY is unset", () => {
+    expect(isEfficiencyTelemetryEnabled()).toBe(false);
+    recordEfficiencyEvent(sampleEvent, tmpRoot);
+    const logPath = join(tmpRoot, ".hatch3r", "efficiency-events.jsonl");
+    expect(existsSync(logPath)).toBe(false);
+  });
+
+  it("appends a JSONL line per event when telemetry is enabled", () => {
+    process.env[ENV_KEY] = "1";
+    expect(isEfficiencyTelemetryEnabled()).toBe(true);
+
+    recordEfficiencyEvent(sampleEvent, tmpRoot);
+    recordEfficiencyEvent(
+      { ...sampleEvent, phase: "act", tokensIn: 800, tokensOut: 120 },
+      tmpRoot,
+    );
+
+    const logPath = join(tmpRoot, ".hatch3r", "efficiency-events.jsonl");
+    expect(existsSync(logPath)).toBe(true);
+    const lines = readFileSync(logPath, "utf-8").split("\n").filter(Boolean);
+    expect(lines).toHaveLength(2);
+
+    const first = JSON.parse(lines[0]) as EfficiencyEvent;
+    expect(first.artifactId).toBe("hatch3r-quick-change");
+    expect(first.phase).toBe("triage");
+    expect(first.tokensIn).toBe(1200);
+    expect(first.tokensOut).toBe(350);
+    expect(first.latencyMs).toBe(4200);
+    expect(first.modelHint).toBe("claude-opus-4-7");
+    expect(first.cacheHit).toBe(true);
+
+    const second = JSON.parse(lines[1]) as EfficiencyEvent;
+    expect(second.phase).toBe("act");
+    expect(second.tokensIn).toBe(800);
+  });
+
+  it("does not throw when the project root is unwritable", () => {
+    process.env[ENV_KEY] = "1";
+    // /dev/null is not a directory and cannot host a .hatch3r/ subtree, so
+    // mkdirSync + appendFileSync inside recordEfficiencyEvent will fail.
+    // The Silent Failure Contract requires we swallow without re-throwing.
+    const unwritableRoot = "/dev/null/definitely-not-a-directory";
+    expect(() => recordEfficiencyEvent(sampleEvent, unwritableRoot)).not.toThrow();
   });
 });

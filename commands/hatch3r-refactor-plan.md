@@ -6,6 +6,10 @@ agentPipeline: [hatch3r-researcher, hatch3r-docs-writer]
 description: Plan a refactoring or migration effort -- spawn parallel researchers, produce refactoring spec, ADR(s), and phased todo.md entries for board-fill.
 tags: [planning]
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+cache_friendly: true
+parallel_tool_default: true
+triage_tiers: [1, 2, 3]
 ---
 
 ## Agent Pipeline
@@ -46,6 +50,18 @@ The command produces phased todo.md entries that map to the appropriate executio
 ## Workflow
 
 Execute these steps in order. **Do not skip any step.** Ask the user at every checkpoint marked with ASK.
+
+## Step 0: Triage
+
+Classify the refactor-planning request before delegating:
+
+- **Tier 1 (trivial)**: localized refactoring scoped to a single module with strong test coverage; reduced fanout (1–2 researchers) and produce a single-phase todo entry.
+- **Tier 2 (standard)**: standard refactor across 2–4 modules or a single dimension (structural or logical or visual); standard pipeline with all 5 parallel researcher modes.
+- **Tier 3 (deep)**: cross-cutting refactor (architectural shift, framework swap, or mixed-dimension); full pipeline with deep research and confirm phased plan with the user before file writes.
+
+If Tier 1, run the reduced researcher set and skip ADR generation unless decisions are obvious. If Tier 2, run the standard pipeline below. If Tier 3, run the full pipeline including ADR generation and confirm phasing with the user before writing files.
+
+---
 
 ### Step 1: Gather Refactoring Goal
 

@@ -6,6 +6,10 @@ agentPipeline: [hatch3r-researcher, hatch3r-docs-writer, hatch3r-reviewer]
 description: Generate or validate an OpenAPI specification from the codebase. Scans route definitions, extracts schemas, and produces a complete API spec.
 tags: [planning]
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+cache_friendly: true
+parallel_tool_default: true
+triage_tiers: [1, 2, 3]
 ---
 
 ## Agent Pipeline
@@ -41,6 +45,18 @@ Take a codebase with HTTP or RPC endpoints and produce a complete OpenAPI 3.1 sp
 ## Workflow
 
 Execute these steps in order. **Do not skip any step.** Ask the user at every checkpoint marked with ASK.
+
+## Step 0: Triage
+
+Classify the request before delegating:
+
+- **Tier 1 (trivial)**: single-endpoint documentation update or schema tweak; inline execution, no sub-agent fanout.
+- **Tier 2 (standard)**: feature-scoped spec generation or validate mode for an existing API; standard pipeline including review loop.
+- **Tier 3 (deep)**: full codebase scan, multi-framework detection, or breaking-change drift; full pipeline with research and confirm with the user before mutating files.
+
+If Tier 1, complete inline and skip the parallel researcher fanout. If Tier 2, run the standard pipeline below. If Tier 3, run the full pipeline with research and confirm scope with the user before writing the spec.
+
+---
 
 ### Step 1: Gather API Context
 

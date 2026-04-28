@@ -6,6 +6,7 @@ scope: conditional
 globs: "**/.agents/**,**/pipeline/**,**/*orchestrat*,**/*agent*"
 tags: [core]
 quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
 ---
 # Agent Orchestration — Extended Reference
 

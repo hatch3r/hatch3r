@@ -43,6 +43,12 @@ export default defineConfig({
           functions: 90,
           lines: 90,
         },
+        "src/install/**": {
+          statements: 85,
+          branches: 75,
+          functions: 85,
+          lines: 85,
+        },
         "src/adapters/customization.ts": {
           statements: 85,
           branches: 75,
@@ -52,6 +58,12 @@ export default defineConfig({
         "src/content/**": {
           statements: 85,
           branches: 70,
+          functions: 85,
+          lines: 85,
+        },
+        "src/audit/**": {
+          statements: 85,
+          branches: 75,
           functions: 85,
           lines: 85,
         },

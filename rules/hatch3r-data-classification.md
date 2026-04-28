@@ -5,6 +5,7 @@ description: Data classification standards covering PII handling, encryption, re
 scope: "**/models/**,**/schemas/**,**/schema*,**/database/**,**/db/**,**/*model*,**/*entity*,**/prisma/**,**/drizzle/**,**/*migration*"
 tags: [security]
 quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
 ---
 # Data Classification Standards
 

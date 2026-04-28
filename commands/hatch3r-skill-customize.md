@@ -5,6 +5,9 @@ orchestrator: false
 description: Rewrite skill dispatch descriptions for model auto-selection, gate per-preset exposure, and control slash-command surfacing via .hatch3r/skills/ YAML overrides
 tags: [customize]
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+cache_friendly: true
+parallel_tool_default: true
 ---
 
 ## Agent Pipeline

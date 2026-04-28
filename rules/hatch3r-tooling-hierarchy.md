@@ -5,6 +5,7 @@ description: Platform MCP-first priority, documentation MCP for library APIs, we
 scope: "**/.agents/**,**/mcp/**,**/mcp.json,**/.cursor/**,**/.github/copilot*,**/.windsurf/**,**/hatch.json,**/.claude/**"
 tags: [core]
 quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
 ---
 # Tooling Hierarchy
 

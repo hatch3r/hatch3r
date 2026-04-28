@@ -6,6 +6,10 @@ agentPipeline: [hatch3r-implementer, hatch3r-lint-fixer, hatch3r-test-writer, ha
 description: User-guided revision of agent-implemented code in a fresh context window. Reconstructs what was done, interviews the user for feedback, fixes issues, cleans up leftovers, and drives toward merge readiness. Delegation, quality pipeline, modes, and board integration details are in commands/revision/.
 tags: [implementation, team]
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+cache_friendly: true
+parallel_tool_default: true
+triage_tiers: [1, 2, 3]
 ---
 
 ## Agent Pipeline
@@ -74,6 +78,18 @@ Initialize the run cache at the start of the workflow. See `commands/revision/re
 ## Workflow
 
 Execute these steps in order. **Do not skip any step.** Ask the user at every checkpoint marked with ASK.
+
+## Step 0: Triage
+
+Classify the revision request before delegating:
+
+- **Tier 1 (trivial)**: cleanup-only revision or 1–3 minor leftovers; reduced pipeline (Steps 1–2, 4–5, 8) with inline fixes and skip the full review loop in Step 7.
+- **Tier 2 (standard)**: standard user feedback with a mix of critical/important/cleanup findings; standard pipeline with sub-agent delegation (Step 6) and the review loop (Step 7a).
+- **Tier 3 (deep)**: deep revision with critical findings, architectural concerns, or board-deferred follow-ups; full pipeline including the parallel quality specialists in Step 7b and the merge-readiness gate in Step 9.
+
+If Tier 1, run the reduced pipeline. If Tier 2, run the standard pipeline below. If Tier 3, run the full pipeline including all quality specialists and confirm merge readiness with the user before commit.
+
+---
 
 ### Step 1: Context Reconstruction
 

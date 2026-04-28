@@ -3,6 +3,8 @@ id: hatch3r-rule-customize
 description: Redirect to adjust glob patterns, always-on triggers, and precedence tiers under .hatch3r/rules/ -- use when narrowing or reprioritizing a canonical lint rule
 tags: [customize]
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+cache_friendly: true
 ---
 # Rule Customization
 

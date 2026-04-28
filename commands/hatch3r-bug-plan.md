@@ -6,6 +6,10 @@ agentPipeline: [hatch3r-researcher, hatch3r-docs-writer]
 description: Diagnose a complex incident -- reproduce the symptom, rank root-cause hypotheses, design the fix path, and emit regression coverage items as a board-ready investigation
 tags: [core, planning]
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+cache_friendly: true
+parallel_tool_default: true
+triage_tiers: [1, 2, 3]
 ---
 
 ## Agent Pipeline
@@ -42,6 +46,18 @@ Take a complex or ambiguous bug report and produce a structured investigation re
 ## Workflow
 
 Execute these steps in order. **Do not skip any step.** Ask the user at every checkpoint marked with ASK.
+
+## Step 0: Triage
+
+Classify the bug investigation before delegating:
+
+- **Tier 1 (trivial)**: clear root cause, single module, reproduction known; route to `hatch3r-bug-fix` skill instead of running this full investigation.
+- **Tier 2 (standard)**: ambiguous symptoms across one subsystem with 2–3 plausible hypotheses; standard pipeline with the 5 parallel researcher modes.
+- **Tier 3 (deep)**: multi-module, intermittent, lingering bug requiring ADRs and phased fixes; full pipeline with deep research and confirm scope with the user before generating fix items.
+
+If Tier 1, recommend the `hatch3r-bug-fix` skill and exit. If Tier 2, run the standard parallel-researcher pipeline below. If Tier 3, run the full pipeline including ADR generation in Step 6 and confirm fix phases with the user before writing files.
+
+---
 
 ### Step 1: Gather Bug Report
 

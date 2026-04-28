@@ -5,6 +5,9 @@ orchestrator: false
 description: Capture learnings from development sessions into reusable knowledge files for future consultation.
 tags: [core, maintenance]
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+cache_friendly: true
+parallel_tool_default: true
 ---
 
 ## Agent Pipeline

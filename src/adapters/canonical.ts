@@ -305,6 +305,19 @@ export function parseFrontmatter(
         `tags field must be an array of strings, got ${describeYamlType(parsed.tags)} (value: ${JSON.stringify(parsed.tags)})`,
       );
     }
+    // D20 user-content authoring: optional `adapters: [...]` array on user
+    // tier artifacts restricts which platform adapters emit the artifact.
+    // Empty / omitted means full parity (handled by the adapter-side filter).
+    // Parsed unconditionally — canonical content does not declare this field
+    // so the parse is a harmless no-op; storing it on `CanonicalMetadata`
+    // keeps the downstream filter (in `BaseAdapter`) source-agnostic.
+    if (Array.isArray(parsed.adapters)) {
+      metadata.adapters = parsed.adapters.filter((a: unknown) => typeof a === "string");
+    } else if (parsed.adapters !== undefined && typeMismatches) {
+      typeMismatches.push(
+        `adapters field must be an array of strings, got ${describeYamlType(parsed.adapters)} (value: ${JSON.stringify(parsed.adapters)})`,
+      );
+    }
     // Wave A1: optional rule precedence bucket. Validated by
     // scripts/validate-rule-parity.ts (enum check + pass-through parity).
     // The parser accepts the value only when it is a string matching the
@@ -448,6 +461,12 @@ async function readSingleMd(
     background: metadata.background,
     tags: metadata.tags,
     precedence: metadata.precedence,
+    // D20: pass through the optional `adapters: [...]` filter declared on
+    // user-tier frontmatter. Canonical content omits this field so the
+    // value is `undefined` for canonical reads — the adapter-side filter
+    // treats absence as "full parity" (emit unconditionally), so canonical
+    // emission is unchanged.
+    adapters: metadata.adapters,
     content,
     rawContent,
     sourcePath: fullPath,
@@ -600,6 +619,45 @@ async function readCanonicalResults(
 }
 
 /**
+ * D20 user-content authoring: read user-tier artifacts of a given type from
+ * `${agentsDir}/user/${dir}/`. Reuses {@link readGlobMd} and
+ * {@link readSkillSubdirs} so the user subtree gets identical YAML, symlink,
+ * UTF-8, and structural-injection treatment as canonical content (the
+ * {@link scanCanonicalInjectionTokens} pass inside {@link readSingleMd}
+ * applies uniformly to every canonical OR user file routed through these
+ * helpers).
+ *
+ * Each successfully-loaded result has its `canonical.source` tagged
+ * `"user"` so downstream consumers (the adapter-side filter in
+ * `BaseAdapter.readTrackedCanonicalFiles` /
+ * `readUserFacingCanonicalFiles`) can distinguish user from canonical.
+ *
+ * Silently returns an empty list when `${agentsDir}/user/${dir}` is absent
+ * — this is the common case for projects that have not yet authored any
+ * user content. Permission and YAML errors surface via the same
+ * {@link CanonicalReadResult.error} channel as canonical reads.
+ */
+async function readUserCanonicalResults(
+  agentsDir: string,
+  type: CanonicalType,
+): Promise<CanonicalReadResult[]> {
+  const config = READER_CONFIGS[type];
+  // Layout: `.agents/user/{plural-dir}` mirrors the canonical layout under
+  // `.agents/{plural-dir}`. Matches `userTypeDir()` in
+  // `src/content/userContent.ts` so discovery and read paths agree.
+  const baseDir = join(agentsDir, "user", config.dir);
+  const results = config.strategy === "subdirectory"
+    ? await readSkillSubdirs(baseDir)
+    : await readGlobMd(baseDir, config.type);
+  for (const r of results) {
+    if (r.canonical) {
+      r.canonical.source = "user";
+    }
+  }
+  return results;
+}
+
+/**
  * Read all canonical files of a given type from the `.agents/` directory.
  *
  * Returns parsed `CanonicalFile` objects for every successful read. Failed
@@ -613,13 +671,30 @@ async function readCanonicalResults(
  * YAML errors, permission denied, and decode failures from users. Pass a
  * `warnings: string[]` (typically `this.warnings` on a BaseAdapter) to
  * receive a `[canonical] CODE: file: message` line per non-skip failure.
+ *
+ * D20 user-content authoring: when `includeUser` is `true` (default), the
+ * user subtree at `${agentsDir}/user/${dir}/` is also scanned and its
+ * results appended *after* the canonical results. User-tier files have
+ * `canonical.source === "user"`; canonical files have `source` undefined
+ * (treated as `"canonical"` by consumers). Pass `includeUser = false` to
+ * preserve the legacy canonical-only behaviour at call sites that read the
+ * package source tree (e.g. `hatch3r update`'s package-side scan must not
+ * reach into a project's user directory).
  */
 export async function readCanonicalFiles(
   agentsDir: string,
   type: CanonicalType,
   warnings?: string[],
+  includeUser = true,
 ): Promise<CanonicalFile[]> {
-  const results = await readCanonicalResults(agentsDir, type);
+  const canonical = await readCanonicalResults(agentsDir, type);
+  const user = includeUser ? await readUserCanonicalResults(agentsDir, type) : [];
+  // Order: canonical first, user second. Predictable for downstream
+  // consumers (sortByPrecedence is stable on equal precedence and
+  // tie-breaks on `id`, so user content with the same precedence as a
+  // canonical entry interleaves alphabetically without losing the
+  // canonical/user split for adapters that emit unsorted lists).
+  const results = [...canonical, ...user];
   const files: CanonicalFile[] = [];
   for (const r of results) {
     if (r.canonical) {
@@ -647,10 +722,18 @@ export async function readCanonicalFiles(
  * validate command surfacing every YAML parse error or a CI gate that
  * fails when N>0 canonical reads error out. Most adapters should prefer
  * `readCanonicalFiles(dir, type, this.warnings)`.
+ *
+ * D20: see {@link readCanonicalFiles} for `includeUser` semantics — the
+ * user subtree results are appended after canonical, with each user-tier
+ * `CanonicalReadResult.canonical.source === "user"`.
  */
 export async function readCanonicalFilesDetailed(
   agentsDir: string,
   type: CanonicalType,
+  includeUser = true,
 ): Promise<CanonicalReadResult[]> {
-  return readCanonicalResults(agentsDir, type);
+  const canonical = await readCanonicalResults(agentsDir, type);
+  if (!includeUser) return canonical;
+  const user = await readUserCanonicalResults(agentsDir, type);
+  return [...canonical, ...user];
 }

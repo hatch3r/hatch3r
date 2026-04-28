@@ -6,6 +6,10 @@ agentPipeline: [hatch3r-researcher, hatch3r-docs-writer]
 description: Design a new capability -- draft user stories, acceptance criteria, data model, API surface, and sub-issue breakdown as an epic-shaped todo.md for greenfield features
 tags: [core, planning]
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+cache_friendly: true
+parallel_tool_default: true
+triage_tiers: [1, 2, 3]
 ---
 
 ## Agent Pipeline
@@ -37,6 +41,18 @@ Take a single feature idea and produce a complete feature specification (`docs/s
 ## Workflow
 
 Execute these steps in order. **Do not skip any step.** Ask the user at every checkpoint marked with ASK.
+
+## Step 0: Triage
+
+Classify the feature-planning request before delegating:
+
+- **Tier 1 (trivial)**: small feature scoped to one module with clear AC; reduced fanout (1–2 researchers), produce a single standalone todo entry instead of an epic.
+- **Tier 2 (standard)**: standard feature touching 2–5 modules with sub-tasks; standard pipeline with all 5 parallel researcher modes and ADR generation if architectural decisions arise.
+- **Tier 3 (deep)**: cross-cutting feature with new architecture, multiple integrations, or breaking changes; full pipeline with deep research and confirm spec scope with the user before writing files.
+
+If Tier 1, run the reduced researcher set and skip Step 6 (ADRs). If Tier 2, run the standard pipeline below. If Tier 3, run the full pipeline including ADR generation and confirm spec scope explicitly before writing files.
+
+---
 
 ### Step 1: Gather Feature Description
 

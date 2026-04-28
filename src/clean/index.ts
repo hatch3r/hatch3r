@@ -6,6 +6,7 @@ import { extractCustomContent, hasManagedBlock } from "../merge/managedBlocks.js
 import { readManifest } from "../manifest/hatchJson.js";
 import { AGENTS_DIR, ARCHIVE_DIR, CUSTOMIZE_DIR, TOOLS, WORKTREE_INCLUDE_FILE, type HatchManifest, type Tool } from "../types.js";
 import { detectWorkspaceContext } from "../workspace/detect.js";
+import { discoverUserContent } from "../content/userContent.js";
 
 export interface CleanInventory {
   adapterFiles: string[];
@@ -16,6 +17,14 @@ export interface CleanInventory {
   envMcp: boolean;
   agentsMdHasUserContent: boolean;
   learnings: string[];
+  /**
+   * Count of user-authored artifacts under `.agents/user/`. Always preserved
+   * by clean — never deleted, regardless of `--yes`. Reported in the
+   * inventory as a "kept" item so the user knows their work is safe.
+   * Optional for backward compatibility with pre-D20 callers building
+   * inventories programmatically; treat absence as 0.
+   */
+  userContentCount?: number;
   isWorkspaceRoot: boolean;
   isWorkspaceMember: boolean;
   workspaceRootPath: string | null;
@@ -80,6 +89,19 @@ export async function inventoryArtifacts(rootDir: string): Promise<CleanInventor
     }
   }
 
+  // 1.7.0 (Phase E): sweep sibling `.bak` files left behind by the
+  // safeWriteFile auto-repair path (managed-block corruption recovery in
+  // src/merge/safeWrite.ts ~L398). These pile up across runs and are not
+  // tracked in the manifest, so without this sweep they survive `clean`.
+  // We only enqueue `<adapter-file>.bak` when both the adapter file path
+  // is in our inventory AND the `.bak` file actually exists on disk.
+  for (const f of [...adapterFiles]) {
+    const bakRel = f + ".bak";
+    if (await fileExists(join(rootDir, bakRel))) {
+      adapterFiles.push(bakRel);
+    }
+  }
+
   // Check root AGENTS.md for user content
   let agentsMdHasUserContent = false;
   const agentsMdPath = join(rootDir, "AGENTS.md");
@@ -99,6 +121,21 @@ export async function inventoryArtifacts(rootDir: string): Promise<CleanInventor
   const learningsDir = join(rootDir, AGENTS_DIR, "learnings");
   const learnings = await dirEntries(learningsDir);
 
+  // D20: count user-authored artifacts so the inventory can surface them as
+  // a kept item before the destructive operations. Discovery is best-effort
+  // — a failure here must not block a legitimate clean of canonical state.
+  let userContentCount = 0;
+  try {
+    const discovered = await discoverUserContent(rootDir);
+    userContentCount = discovered.length;
+  } catch (err) {
+    // Surface via console.warn so the failure is visible but does not
+    // block the clean. The kept-set still includes `.agents/user/` below.
+    console.warn(
+      `[hatch3r] inventoryArtifacts: user-content scan skipped: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
   // Check workspace context
   const wsContext = await detectWorkspaceContext(rootDir);
 
@@ -111,6 +148,7 @@ export async function inventoryArtifacts(rootDir: string): Promise<CleanInventor
     envMcp: await fileExists(join(rootDir, ".env.mcp")),
     agentsMdHasUserContent,
     learnings,
+    userContentCount,
     isWorkspaceRoot: wsContext.type === "workspace-root",
     isWorkspaceMember: wsContext.type === "workspace-member",
     workspaceRootPath: wsContext.type === "workspace-member" ? wsContext.rootPath ?? null : null,
@@ -137,6 +175,9 @@ export async function executeClean(
     if (inventory.archiveDir) removed.push(`${ARCHIVE_DIR}/`);
     if (inventory.envMcp) kept.push(".env.mcp (contains secrets)");
     if (inventory.customizeDir) kept.push(`${CUSTOMIZE_DIR}/ (customizations)`);
+    if ((inventory.userContentCount ?? 0) > 0) {
+      kept.push(`${AGENTS_DIR}/user/ (${inventory.userContentCount} user artifact(s) — preserved)`);
+    }
     return { removed, kept, errors };
   }
 
@@ -180,11 +221,33 @@ export async function executeClean(
     }
   }
 
-  // 3. Remove .agents/ directory
+  // 3. Remove .agents/ directory — preserving the user/ subtree (D20).
+  // When user content is present we walk the .agents/ children and unlink
+  // each one except `user/`, leaving `.agents/user/` and the `.agents/`
+  // directory itself in place. When no user content is present we fall
+  // through to the simple recursive remove.
   if (inventory.canonicalDir) {
+    const agentsAbs = join(rootDir, AGENTS_DIR);
     try {
-      await rm(join(rootDir, AGENTS_DIR), { recursive: true, force: true });
-      removed.push(`${AGENTS_DIR}/`);
+      if ((inventory.userContentCount ?? 0) > 0) {
+        const children = await readdir(agentsAbs);
+        let removedAny = false;
+        for (const child of children) {
+          if (child === "user") continue; // preserve user-authored content
+          try {
+            await rm(join(agentsAbs, child), { recursive: true, force: true });
+            removedAny = true;
+          } catch (err) {
+            errors.push(`${AGENTS_DIR}/${child}: ${(err as Error).message}`);
+          }
+        }
+        if (removedAny) {
+          removed.push(`${AGENTS_DIR}/ (preserved ${AGENTS_DIR}/user/)`);
+        }
+      } else {
+        await rm(agentsAbs, { recursive: true, force: true });
+        removed.push(`${AGENTS_DIR}/`);
+      }
     } catch (err) {
       errors.push(`${AGENTS_DIR}/: ${(err as Error).message}`);
     }
@@ -218,6 +281,14 @@ export async function executeClean(
   // 7. .env.mcp — always preserved
   if (inventory.envMcp) {
     kept.push(".env.mcp (contains secrets — remove manually if needed)");
+  }
+
+  // 8. .agents/user/ — always preserved (D20). User-authored artifacts are
+  // never owned by hatch3r and never appear in canonical or adapter sweeps.
+  if ((inventory.userContentCount ?? 0) > 0) {
+    kept.push(
+      `${AGENTS_DIR}/user/ (${inventory.userContentCount} user artifact(s) — user-authored content preserved)`,
+    );
   }
 
   return { removed, kept, errors };

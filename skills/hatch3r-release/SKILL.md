@@ -3,6 +3,8 @@ id: hatch3r-release
 description: Cut a release with version bump, changelog, tagging, and deploy verification. Use when preparing a release, cutting a version, or deploying to production.
 tags: [devops]
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+cache_friendly: true
 ---
 > **Note:** Commands below use `npm` as an example. Substitute with your project's package manager (`yarn`, `pnpm`, `bun`) or build tool when your project uses a different package manager.
 

@@ -6,6 +6,10 @@ agentPipeline: [hatch3r-reviewer, hatch3r-fixer]
 description: Create epics and issues/work items from todo.md, reorganize the board with dependency analysis, readiness assessment, and implementation ordering. Supports GitHub, Azure DevOps, and GitLab.
 tags: [board, team]
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+cache_friendly: true
+parallel_tool_default: true
+triage_tiers: [1, 2, 3]
 ---
 
 ## Agent Pipeline
@@ -52,6 +56,18 @@ Follow the **Token-Saving Directives** in `hatch3r-board-shared`.
 ## Workflow
 
 Execute these steps in order. **Do not skip any step.** Ask the user at every checkpoint marked with ASK.
+
+## Step 0: Triage
+
+Classify the board-fill request before delegating:
+
+- **Tier 1 (trivial)**: 1–3 todo items, all clear scope, no decomposition needed; inline issue creation with minimal triage questioning.
+- **Tier 2 (standard)**: standard batch (4–15 items) with mixed clarity and grouping decisions; standard pipeline with item-level triage (Step 2.5) and full readiness assessment.
+- **Tier 3 (deep)**: large board reorganization, vision-driven greenfield batching, or 15+ items with decomposition; full pipeline with deep triage and confirm scope with the user before any GitHub mutations.
+
+If Tier 1, run only Steps 1–3, 5–6, and 7 (skip the heavy production-readiness review). If Tier 2, run the standard pipeline below. If Tier 3, run the full pipeline including Steps 5.5, 5.6, and 7.9, and confirm batch composition with the user before executing.
+
+---
 
 ### Step 1: Read and Parse todo.md
 

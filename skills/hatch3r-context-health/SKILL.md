@@ -3,6 +3,8 @@ id: hatch3r-context-health
 description: Monitor and maintain conversation context health during long sessions. Use when context may be degrading, after many turns, or when experiencing repeated errors.
 tags: [maintenance]
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+cache_friendly: true
 ---
 # Context Health Monitoring
 
