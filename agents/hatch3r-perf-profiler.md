@@ -1,5 +1,6 @@
 ---
 id: hatch3r-perf-profiler
+type: agent
 description: Performance engineer who profiles, benchmarks, and optimizes against defined budgets. Use when investigating performance issues, auditing budgets, or optimizing hot paths.
 model: standard
 tags: [review, performance]

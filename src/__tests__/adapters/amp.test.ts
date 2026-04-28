@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { AmpAdapter } from "../../adapters/amp.js";
 import { createManifest } from "../../manifest/hatchJson.js";
-import { MANAGED_BLOCK_START, MANAGED_BLOCK_END } from "../../types.js";
 import { resolveTestPath } from "../fixtures.js";
 
 const FIXTURES_DIR = resolveTestPath(import.meta.url, "../fixtures/agents");
@@ -13,38 +12,26 @@ describe("AmpAdapter", () => {
     expect(adapter.name).toBe("amp");
   });
 
-  it("generates .amp/AGENTS.md bridge with rules and agents", async () => {
+  // Root AGENTS.md is now written exclusively by generateRootAgentsMd() in
+  // init/update. The amp adapter no longer emits it (multi-adapter installs
+  // were producing duplicate writes).
+  it("does not emit AGENTS.md (written by generateRootAgentsMd)", async () => {
     const manifest = createManifest({
       tools: ["amp"],
     });
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
-    const bridge = outputs.find((o) => o.path === "AGENTS.md");
-    expect(bridge).toBeDefined();
-    expect(bridge!.content).toContain(MANAGED_BLOCK_START);
-    expect(bridge!.content).toContain(MANAGED_BLOCK_END);
-    expect(bridge!.content).toContain("Hatch3r Agent Instructions");
-    expect(bridge!.content).toContain("Mandatory Behaviors");
-    expect(bridge!.content).toContain("Agent Quick Reference");
-    expect(bridge!.content).toContain("test-rule");
-    expect(bridge!.content).toContain("A test rule for unit testing");
-    expect(bridge!.content).toContain("Agent: test-agent");
-    expect(bridge!.content).toContain("A test agent for unit testing");
-    expect(bridge!.managedContent).toBeDefined();
+    expect(outputs.find((o) => o.path === "AGENTS.md")).toBeUndefined();
   });
 
-  it("still generates .amp/AGENTS.md with orchestration when rules and agents are disabled", async () => {
+  it("does not emit AGENTS.md when rules and agents are disabled either", async () => {
     const manifest = createManifest({
       tools: ["amp"],
       features: { rules: false, agents: false },
     });
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
-    const bridge = outputs.find((o) => o.path === "AGENTS.md");
-    expect(bridge).toBeDefined();
-    expect(bridge!.content).toContain("Mandatory Behaviors");
-    expect(bridge!.content).not.toContain("Agent: test-agent");
-    expect(bridge!.content).not.toContain("test-rule");
+    expect(outputs.find((o) => o.path === "AGENTS.md")).toBeUndefined();
   });
 
   it("generates skill files in .amp/skills/", async () => {
@@ -105,7 +92,7 @@ describe("AmpAdapter", () => {
     expect(skills.length).toBe(0);
   });
 
-  it("returns only bridge when all features are disabled and no MCP", async () => {
+  it("returns no outputs when all features are disabled and no MCP", async () => {
     const manifest = createManifest({
       tools: ["amp"],
 
@@ -114,9 +101,9 @@ describe("AmpAdapter", () => {
     });
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
-    expect(outputs.length).toBe(1);
-    expect(outputs[0]!.path).toBe("AGENTS.md");
-    expect(outputs[0]!.content).toContain("Mandatory Behaviors");
+    // With AGENTS.md no longer emitted by amp, no skills, and no MCP servers,
+    // the adapter has nothing to write.
+    expect(outputs.length).toBe(0);
   });
 
   it("all outputs have action 'create'", async () => {
@@ -130,20 +117,6 @@ describe("AmpAdapter", () => {
     for (const o of outputs) {
       expect(o.action).toBe("create");
     }
-  });
-
-  // ── Finding 3.17: model resolution assertion ──
-  it("includes model annotation in AGENTS.md when agent has model configured", async () => {
-    const manifest = createManifest({
-      tools: ["amp"],
-    });
-    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
-
-    const bridge = outputs.find((o) => o.path === "AGENTS.md");
-    expect(bridge).toBeDefined();
-    // test-agent fixture has model: sonnet -> resolves to claude-sonnet-4-6
-    expect(bridge!.content).toContain("Recommended model:");
-    expect(bridge!.content).toContain("claude-sonnet-4-6");
   });
 
   // ── Finding 3.16: no empty content assertion ──

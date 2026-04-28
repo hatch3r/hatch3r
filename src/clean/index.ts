@@ -89,6 +89,19 @@ export async function inventoryArtifacts(rootDir: string): Promise<CleanInventor
     }
   }
 
+  // 1.7.0 (Phase E): sweep sibling `.bak` files left behind by the
+  // safeWriteFile auto-repair path (managed-block corruption recovery in
+  // src/merge/safeWrite.ts ~L398). These pile up across runs and are not
+  // tracked in the manifest, so without this sweep they survive `clean`.
+  // We only enqueue `<adapter-file>.bak` when both the adapter file path
+  // is in our inventory AND the `.bak` file actually exists on disk.
+  for (const f of [...adapterFiles]) {
+    const bakRel = f + ".bak";
+    if (await fileExists(join(rootDir, bakRel))) {
+      adapterFiles.push(bakRel);
+    }
+  }
+
   // Check root AGENTS.md for user content
   let agentsMdHasUserContent = false;
   const agentsMdPath = join(rootDir, "AGENTS.md");

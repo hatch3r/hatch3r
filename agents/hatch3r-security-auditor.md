@@ -1,5 +1,6 @@
 ---
 id: hatch3r-security-auditor
+type: agent
 description: Security analyst who audits database rules, cloud functions, event metadata, and data flows. Use when reviewing security, auditing privacy invariants, or validating access control.
 protected: true
 model: standard

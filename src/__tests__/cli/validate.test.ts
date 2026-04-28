@@ -146,7 +146,8 @@ describe("validate command", () => {
     });
 
     const { validateCommand } = await import("../../cli/commands/validate.js");
-    await validateCommand();
+    // Phase H: optional-directory warnings demoted to verbose-only.
+    await validateCommand({ verbose: true });
 
     expect(combinedOutput()).toContain("Optional directory missing");
   });
@@ -337,7 +338,8 @@ describe("validate command", () => {
       );
 
       const { validateCommand } = await import("../../cli/commands/validate.js");
-      await validateCommand();
+      // Phase H: P7 efficiency frontmatter type warnings demoted to verbose-only.
+      await validateCommand({ verbose: true });
 
       expect(combinedOutput()).toContain("Invalid 'efficiency_tier'");
     });
@@ -350,7 +352,8 @@ describe("validate command", () => {
       );
 
       const { validateCommand } = await import("../../cli/commands/validate.js");
-      await validateCommand();
+      // Phase H: P7 efficiency frontmatter type warnings demoted to verbose-only.
+      await validateCommand({ verbose: true });
 
       expect(combinedOutput()).toContain("Invalid 'cache_friendly'");
     });
@@ -363,7 +366,8 @@ describe("validate command", () => {
       );
 
       const { validateCommand } = await import("../../cli/commands/validate.js");
-      await validateCommand();
+      // Phase H: P7 efficiency frontmatter type warnings demoted to verbose-only.
+      await validateCommand({ verbose: true });
 
       expect(combinedOutput()).toContain("Invalid 'triage_tiers' entries");
     });

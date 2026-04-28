@@ -1,5 +1,6 @@
 ---
 id: hatch3r-learnings-loader
+type: agent
 description: Session-start agent that surfaces relevant project learnings, recent decisions, and context from previous sessions. Use at the beginning of a coding session to get up to speed.
 model: fast
 tags: [core, maintenance]

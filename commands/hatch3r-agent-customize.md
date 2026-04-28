@@ -95,8 +95,10 @@ PostgreSQL for persistence, Redis for caching.
 
 ### Resulting Adapter Output
 
+The adapter wraps the result in hatch3r-managed block comments (literal markers omitted here so this file itself stays valid):
+
 ```markdown
-<!-- HATCH3R:BEGIN -->
+[managed-block-start]
 {canonical agent content}
 
 ---
@@ -104,8 +106,10 @@ PostgreSQL for persistence, Redis for caching.
 ## Project Customizations
 
 {content from .customize.md}
-<!-- HATCH3R:END -->
+[managed-block-end]
 ```
+
+Replace `[managed-block-start]` / `[managed-block-end]` with the actual `<!-- HATCH3R\:BEGIN -->` / `<!-- HATCH3R\:END -->` markers in real adapter output.
 
 Content placed **outside** the managed block markers by directly editing adapter output files is always preserved.
 

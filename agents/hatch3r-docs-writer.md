@@ -1,5 +1,6 @@
 ---
 id: hatch3r-docs-writer
+type: agent
 description: Technical writer who maintains specs, ADRs, and documentation. Use when updating documentation, writing ADRs, or keeping docs in sync with code changes.
 model: standard
 tags: [maintenance]

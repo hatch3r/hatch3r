@@ -1,6 +1,5 @@
 import { HatchError, type HatchManifest, type Tool } from "../types.js";
 import type { Adapter } from "./base.js";
-import { AgentsMdAdapter } from "./agentsmd.js";
 import { AiderAdapter } from "./aider.js";
 import { AmazonQAdapter } from "./amazonq.js";
 import { AmpAdapter } from "./amp.js";
@@ -35,7 +34,6 @@ const adapterFactories: Record<Tool, () => Adapter> = {
   zed: () => new ZedAdapter(),
   "amazon-q": () => new AmazonQAdapter(),
   antigravity: () => new AntigravityAdapter(),
-  "agents-md": () => new AgentsMdAdapter(),
 };
 
 const adapterCache = new Map<Tool, Adapter>();
@@ -94,13 +92,14 @@ const ADAPTER_CAPABILITIES: Record<Tool, AdapterCapability> = {
   // C7.5-W2B2-H31 (D9-SA9.7.1): Windsurf shipped Cascade Hooks in v1.13.12 (2026-01-25).
   // Hatch3r emits `.windsurf/hooks.json` per docs.windsurf.com/windsurf/cascade/hooks.md.
   windsurf: { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false, worktree: true,  customization: true,  modelOverride: true  },
-  amp:      { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true  },
+  // Amp reads AGENTS.md natively; the root file is written by generateRootAgentsMd()
+  // in init/update, not by this adapter. doGenerate() emits skills + MCP only.
+  amp:      { agents: false, skills: true, rules: false, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true  },
   kiro:     { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true  },
   aider:    { agents: true, skills: true, rules: true, hooks: false, mcp: false, commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true  },
   goose:    { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true  },
   zed:      { agents: true, skills: false, rules: true, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: false, modelOverride: false },
   antigravity: { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true  },
-  "agents-md": { agents: true, skills: true, rules: true, hooks: false, mcp: false, commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true  },
 };
 
 /**
@@ -131,7 +130,6 @@ export function getUnsupportedFeatureWarnings(tool: string, manifest: HatchManif
   return warnings;
 }
 
-export { AgentsMdAdapter } from "./agentsmd.js";
 export { AiderAdapter } from "./aider.js";
 export { AmazonQAdapter } from "./amazonq.js";
 export { AmpAdapter } from "./amp.js";

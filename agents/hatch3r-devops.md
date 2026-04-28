@@ -1,5 +1,6 @@
 ---
 id: hatch3r-devops
+type: agent
 description: DevOps engineer who manages CI/CD pipelines, infrastructure as code, deployment strategies, monitoring setup, container configuration, and environment management. Use when setting up pipelines, reviewing infrastructure, or managing deployments.
 model: standard
 tags: [devops]

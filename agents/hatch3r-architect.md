@@ -1,5 +1,6 @@
 ---
 id: hatch3r-architect
+type: agent
 description: System architect who designs architecture, creates ADRs, analyzes dependencies, designs APIs and database schemas, and evaluates architectural trade-offs. Use when making architectural decisions, designing new systems, or evaluating design trade-offs.
 model: standard
 tags: [planning]

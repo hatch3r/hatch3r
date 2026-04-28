@@ -1,5 +1,6 @@
 ---
 id: hatch3r-a11y-auditor
+type: agent
 description: Accessibility specialist who audits for WCAG AA compliance. Use when auditing accessibility, reviewing UI components, or fixing a11y issues.
 model: standard
 tags: [review, a11y]

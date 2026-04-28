@@ -42,7 +42,6 @@ export const TOOL_PATH_PREFIXES: Record<Tool, string[]> = {
   zed: [".rules", ".zed/"],
   "amazon-q": [".amazonq/"],
   antigravity: [".antigravity/"],
-  "agents-md": ["AGENTS.md"],
 };
 
 const PATH_PATTERNS: Array<{ pattern: RegExp; type: CustomizableType }> = [

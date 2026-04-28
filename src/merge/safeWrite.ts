@@ -343,8 +343,18 @@ export async function safeWriteFile(
     appendIfNoBlock?: boolean;
     /** When true, always write through regardless of filename prefix. */
     force?: boolean;
+    /**
+     * G3: When true (default), skip the underlying atomic write when the
+     * computed/merged bytes are identical to what is already on disk.
+     * Returns `{ action: "unchanged" }` instead of `"updated"`. This makes
+     * `status` ↔ `sync` idempotent: a redundant sync no longer bumps mtimes
+     * (or, downstream, the integrity manifest's `generated` timestamp) when
+     * nothing actually changed.
+     */
+    skipIfUnchanged?: boolean;
   } = {},
 ): Promise<MergeResult> {
+  const skipIfUnchanged = options.skipIfUnchanged ?? true;
   await mkdir(dirname(filePath), { recursive: true });
 
   const exists = await fileExists(filePath);
@@ -360,6 +370,9 @@ export async function safeWriteFile(
     if (!hasManagedBlock(existingContent)) {
       if (options.appendIfNoBlock) {
         const prepended = [content.trim(), "", existingContent.trimStart()].join("\n");
+        if (skipIfUnchanged && prepended === existingContent) {
+          return { path: filePath, action: "unchanged" };
+        }
         await atomicWriteFile(filePath, prepended);
         return { path: filePath, action: "updated" };
       }
@@ -379,6 +392,9 @@ export async function safeWriteFile(
       // Managed block is corrupted (duplicate markers, wrong order, etc.).
       // Create a .bak backup before overwriting so user content is not lost.
       // #242 (D8-8.9): Verify backup integrity before proceeding with overwrite.
+      // Auto-repair always writes through — skipIfUnchanged does not apply
+      // here because the file shape on disk is broken even when bytes
+      // happen to match.
       const bakPath = filePath + ".bak";
       await copyFile(filePath, bakPath);
       const srcStat = await stat(filePath);
@@ -398,6 +414,13 @@ export async function safeWriteFile(
         warning: `Auto-repaired corrupted managed block in ${filePath} (backup saved to ${bakPath})`,
       };
     }
+    if (skipIfUnchanged && merged === existingContent) {
+      const result: MergeResult = { path: filePath, action: "unchanged" };
+      if (deniedFindings.length > 0) {
+        result.warning = `Content outside managed block in ${filePath} contains suspicious patterns: ${deniedFindings.join("; ")}`;
+      }
+      return result;
+    }
     await atomicWriteFile(filePath, merged);
     const result: MergeResult = { path: filePath, action: "updated" };
     if (deniedFindings.length > 0) {
@@ -410,6 +433,9 @@ export async function safeWriteFile(
   const isManagedFile = isManagedFileName(fileName);
 
   if (isManagedFile || options.force) {
+    if (skipIfUnchanged && content === existingContent) {
+      return { path: filePath, action: "unchanged" };
+    }
     await atomicWriteFile(filePath, content);
     return { path: filePath, action: "updated" };
   }

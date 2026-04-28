@@ -5,6 +5,7 @@ import { dirname, join, sep } from "node:path";
 import chalk from "chalk";
 import inquirer from "inquirer";
 import { readManifest, writeManifest, addManagedFile } from "../../manifest/hatchJson.js";
+import { filterMcpJsonOnDisk } from "../../manifest/mcpFilter.js";
 import { getApplicableCheckpoints } from "../../version/checkpoints.js";
 import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
 import { safeWriteFile } from "../../merge/safeWrite.js";
@@ -297,6 +298,16 @@ export async function runRegenerate(
     }
   }
 
+  // Re-apply MCP filter: copyHatch3rFiles ships the unfiltered package mcp.json
+  // (every adapter MCP entry, including ones the user did not select). Without
+  // this step, `update` would silently re-introduce all MCP servers that
+  // `init` had previously pruned. The filter is idempotent and safe to run
+  // even when no servers are selected.
+  await filterMcpJsonOnDisk(
+    join(agentsDir, "mcp", "mcp.json"),
+    new Set(manifest.mcp.servers),
+  );
+
   // Generate dynamic AGENTS.md based on what's on disk
   const canonicalAgentsMd = await generateCanonicalAgentsMd(agentsDir);
   await safeWriteFile(join(agentsDir, "AGENTS.md"), canonicalAgentsMd);
@@ -305,6 +316,12 @@ export async function runRegenerate(
   await safeWriteFile(join(rootDir, "AGENTS.md"), rootAgentsMd.full, {
     managedContent: rootAgentsMd.inner,
   });
+  // 1.7.0 (Phase F): register root AGENTS.md so subsequent `clean` runs and
+  // status diagnostics see it. Init does this at the parallel call site;
+  // update was previously missing it, leaving AGENTS.md absent from
+  // `managedFiles` after a fresh `init` -> `update` cycle if init's entry
+  // had been pruned. addManagedFile is idempotent — duplicates are dropped.
+  addManagedFile(manifest, "AGENTS.md");
   s1.succeed(step(offset + 1, total, `Updated ${copied.length} canonical files`));
 
   // --diff: track file snapshots before and after generation

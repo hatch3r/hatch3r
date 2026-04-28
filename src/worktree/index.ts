@@ -96,9 +96,6 @@ export const ADAPTER_WORKTREE_PATTERNS: Record<
   antigravity: [
     { pattern: ".antigravity/", strategy: "copy", reason: "Antigravity adapter output (rules, skills, settings)" },
   ],
-  "agents-md": [
-    { pattern: "AGENTS.md", strategy: "copy", reason: "AGENTS.md agent instructions" },
-  ],
 };
 
 // ─── Generate ────────────────────────────────────────────────────────────────

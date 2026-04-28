@@ -43,6 +43,14 @@ interface ValidationResult {
   warnings: string[];
 }
 
+// Phase H: verbose-only warning channel. Mirrors verbose() in shared/ui.ts
+// to demote over-zealous validators without losing signal under --verbose.
+let verboseWarnEnabled = false;
+function setVerboseWarnEnabled(enabled: boolean): void { verboseWarnEnabled = enabled; }
+function verboseWarn(result: ValidationResult, message: string): void {
+  if (verboseWarnEnabled) result.warnings.push(message);
+}
+
 const CUSTOMIZATION_TYPES = [
   { dir: "agents", canonical: "agents" },
   { dir: "commands", canonical: "commands" },
@@ -93,7 +101,7 @@ async function validateDirectories(
       await access(join(agentsDir, dir));
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-      result.warnings.push(`Optional directory missing: .agents/${dir}/`);
+      verboseWarn(result, `Optional directory missing: .agents/${dir}/`);
     }
   }
 }
@@ -122,8 +130,10 @@ async function validateFrontmatter(
             } else {
               const frontmatter = content.slice(3, endIdx).trim();
               const parsedFm = parseYaml(frontmatter) as Record<string, unknown> | null;
-              if (!parsedFm || typeof parsedFm !== "object" || !parsedFm.id) {
-                result.warnings.push(`Missing 'id' in frontmatter: .agents/${dir}/${entry.name}`);
+              // github-agents use `name:` as their identifier; everything else uses `id:`.
+              const idField = dir === "github-agents" ? "name" : "id";
+              if (!parsedFm || typeof parsedFm !== "object" || !parsedFm[idField]) {
+                result.warnings.push(`Missing '${idField}' in frontmatter: .agents/${dir}/${entry.name}`);
               }
               if (!parsedFm || typeof parsedFm !== "object" || !parsedFm.type) {
                 result.warnings.push(`Missing 'type' in frontmatter: .agents/${dir}/${entry.name}`);
@@ -144,6 +154,10 @@ async function validateFrontmatter(
             }
           }
         } else if (entry.isDirectory()) {
+          // SKILL.md is only the convention under skills/. Other dirs have their
+          // own substructure (agents/modes/, agents/shared/, commands/board/,
+          // commands/revision/) that doesn't carry SKILL.md.
+          if (dir !== "skills") continue;
           const skillPath = join(dirPath, entry.name, "SKILL.md");
           try {
             await access(skillPath);
@@ -255,49 +269,35 @@ function validateEfficiencyFrontmatter(
   if ("efficiency_patterns" in parsedFm) {
     const ep = parsedFm.efficiency_patterns;
     if (typeof ep !== "string" || !ep.endsWith(".md")) {
-      result.warnings.push(
-        `Invalid 'efficiency_patterns' in ${fileLabel}: expected string path ending in .md, got ${typeof ep === "string" ? `"${ep}"` : typeof ep}`,
-      );
+      verboseWarn(result, `Invalid 'efficiency_patterns' in ${fileLabel}: expected string path ending in .md, got ${typeof ep === "string" ? `"${ep}"` : typeof ep}`);
     }
   }
 
   if ("efficiency_tier" in parsedFm) {
     const tier = parsedFm.efficiency_tier;
     if (typeof tier !== "string" || !EFFICIENCY_TIER_VALUES.has(tier)) {
-      result.warnings.push(
-        `Invalid 'efficiency_tier' in ${fileLabel}: expected one of light|standard|deep, got ${typeof tier === "string" ? `"${tier}"` : typeof tier}`,
-      );
+      verboseWarn(result, `Invalid 'efficiency_tier' in ${fileLabel}: expected one of light|standard|deep, got ${typeof tier === "string" ? `"${tier}"` : typeof tier}`);
     } else if (dir !== "agents") {
-      result.warnings.push(
-        `Unexpected 'efficiency_tier' in ${fileLabel}: field applies to agents/*.md only`,
-      );
+      verboseWarn(result, `Unexpected 'efficiency_tier' in ${fileLabel}: field applies to agents/*.md only`);
     }
   }
 
   if ("cache_friendly" in parsedFm && typeof parsedFm.cache_friendly !== "boolean") {
-    result.warnings.push(
-      `Invalid 'cache_friendly' in ${fileLabel}: expected boolean (true|false), got ${typeof parsedFm.cache_friendly}`,
-    );
+    verboseWarn(result, `Invalid 'cache_friendly' in ${fileLabel}: expected boolean (true|false), got ${typeof parsedFm.cache_friendly}`);
   }
 
   if ("parallel_tool_default" in parsedFm && typeof parsedFm.parallel_tool_default !== "boolean") {
-    result.warnings.push(
-      `Invalid 'parallel_tool_default' in ${fileLabel}: expected boolean (true|false), got ${typeof parsedFm.parallel_tool_default}`,
-    );
+    verboseWarn(result, `Invalid 'parallel_tool_default' in ${fileLabel}: expected boolean (true|false), got ${typeof parsedFm.parallel_tool_default}`);
   }
 
   if ("triage_tiers" in parsedFm) {
     const tt = parsedFm.triage_tiers;
     if (!Array.isArray(tt)) {
-      result.warnings.push(
-        `Invalid 'triage_tiers' in ${fileLabel}: expected array of integers from [1,2,3], got ${typeof tt}`,
-      );
+      verboseWarn(result, `Invalid 'triage_tiers' in ${fileLabel}: expected array of integers from [1,2,3], got ${typeof tt}`);
     } else {
       const invalid = tt.filter((n) => !Number.isInteger(n) || (n !== 1 && n !== 2 && n !== 3));
       if (invalid.length > 0) {
-        result.warnings.push(
-          `Invalid 'triage_tiers' entries in ${fileLabel}: expected integers from [1,2,3], got ${JSON.stringify(invalid)}`,
-        );
+        verboseWarn(result, `Invalid 'triage_tiers' entries in ${fileLabel}: expected integers from [1,2,3], got ${JSON.stringify(invalid)}`);
       }
     }
   }
@@ -310,15 +310,25 @@ async function validateManagedFilePrefixes(
   // Wave B3: accept both the legacy `hatch3r-*` shape and the new
   // `NN-hatch3r-*` shape (precedence-prefixed rule outputs from cursor /
   // windsurf / copilot-scoped / claude / cline adapters).
+  // Phase H: also exempt .agents/policy/* and mcp.json siblings (files
+  // co-located with mcp.json under .agents/mcp/), plus files inside
+  // hatch3r-prefixed parent directories (e.g. SKILL.md under
+  // .claude/skills/hatch3r-X/ where the directory carries the prefix).
   const NN_HATCH3R_PREFIX_RE = /^\d{2}-hatch3r-/;
   for (const managedFile of manifest.managedFiles ?? []) {
     const fileName = posix.basename(managedFile) || "";
+    const dir = posix.dirname(managedFile);
+    const parentDir = posix.basename(dir) || "";
     const isSharedFile = ["AGENTS.md", "CLAUDE.md", "copilot-instructions.md", ".windsurfrules", "mcp.json", "opencode.json", ".mcp.json", "copilot-setup-steps.yml", "settings.json"].some(
       (sf) => fileName === sf || managedFile.endsWith(sf),
     );
+    const isExempt =
+      dir.endsWith("/policy") || dir.includes("/policy/") ||
+      dir.endsWith("/mcp") || dir.includes("/mcp/") ||
+      parentDir.startsWith(HATCH3R_PREFIX) || NN_HATCH3R_PREFIX_RE.test(parentDir);
     const hasHatch3rPrefix =
       fileName.startsWith(HATCH3R_PREFIX) || NN_HATCH3R_PREFIX_RE.test(fileName);
-    if (!isSharedFile && !hasHatch3rPrefix && !fileName.startsWith(".")) {
+    if (!isSharedFile && !isExempt && !hasHatch3rPrefix && !fileName.startsWith(".")) {
       result.warnings.push(`Managed file without hatch3r- prefix: ${managedFile}`);
     }
   }
@@ -433,18 +443,18 @@ async function validateCostTracking(
 
   const ct = manifest.costTracking;
   if (ct.sessionBudget !== undefined && ct.sessionBudget <= 0) {
-    result.warnings.push("hatch.json: costTracking.sessionBudget should be a positive number");
+    result.errors.push("hatch.json: costTracking.sessionBudget must be a positive number");
   }
   if (ct.issueBudget !== undefined && ct.issueBudget <= 0) {
-    result.warnings.push("hatch.json: costTracking.issueBudget should be a positive number");
+    result.errors.push("hatch.json: costTracking.issueBudget must be a positive number");
   }
   if (ct.epicBudget !== undefined && ct.epicBudget <= 0) {
-    result.warnings.push("hatch.json: costTracking.epicBudget should be a positive number");
+    result.errors.push("hatch.json: costTracking.epicBudget must be a positive number");
   }
   if (ct.warningThresholds) {
     for (const t of ct.warningThresholds) {
       if (t < 0 || t > 1) {
-        result.warnings.push(`hatch.json: costTracking.warningThresholds values should be between 0 and 1, got ${t}`);
+        result.errors.push(`hatch.json: costTracking.warningThresholds values must be between 0 and 1, got ${t}`);
       }
     }
   }
@@ -615,6 +625,9 @@ async function validateContentConsistency(
         try {
           await access(checkPath);
         } catch {
+          // Pre-existing ID-format mismatch (manifest stores e.g. "cmd-hatch3r-X"
+          // while files use "hatch3r-X") produces false positives here. Keep as
+          // a warning until the manifest⇄disk ID matching is fixed.
           result.warnings.push(`Content "${id}" (${key}) in manifest but missing from .agents/${cfg.dir}/`);
         }
       }
@@ -878,13 +891,17 @@ async function validateUserContent(
     }
 
     // ── Gentle gates (warn but accept) ─────────────────────────
+    // Phase H: dedupe — emit ONE warning per file naming all matched phrases.
     const lowerBody = body.toLowerCase();
+    const matched = new Set<string>();
     for (const phrase of USER_CONTENT_ANTI_SLOP) {
-      if (lowerBody.includes(phrase)) {
-        result.warnings.push(
-          `${fileLabel}: anti-slop phrase '${phrase}' detected — replace with measurable criterion`,
-        );
-      }
+      if (lowerBody.includes(phrase)) matched.add(phrase);
+    }
+    if (matched.size > 0) {
+      const phraseList = [...matched].map((p) => `'${p}'`).join(", ");
+      result.warnings.push(
+        `${fileLabel}: anti-slop phrases — replace with measurable criteria: ${phraseList}`,
+      );
     }
 
     const lineCount = body.split(/\r?\n/).length;
@@ -1066,7 +1083,7 @@ export async function validateDocsCounts(rootDir: string): Promise<{ mismatches:
 
   const actual: Record<string, number> = {};
   const dirs: [string, string, (e: string) => boolean][] = [
-    ["adapters", join(rootDir, "src/adapters"), (e) => e.endsWith(".ts") && !["base.ts", "index.ts", "canonical.ts", "customization.ts", "types.ts", "mcp-utils.ts", "toml-utils.ts", "contextBudget.ts", "agentsmd.ts"].includes(e)],
+    ["adapters", join(rootDir, "src/adapters"), (e) => e.endsWith(".ts") && !["base.ts", "index.ts", "canonical.ts", "customization.ts", "types.ts", "mcp-utils.ts", "toml-utils.ts", "contextBudget.ts"].includes(e)],
     ["commands", join(rootDir, "src/cli/commands"), (e) => e.endsWith(".ts")],
     ["agents", join(rootDir, "agents"), (e) => e.endsWith(".md")],
     ["skills", join(rootDir, "skills"), (e) => true],
@@ -1147,6 +1164,7 @@ export async function validateCommand(opts?: {
   // banner, which would corrupt the machine-readable output. Errors/warnings
   // still reach the final JSON object via the ValidationResult aggregator.
   setVerbose(jsonMode ? false : !!opts?.verbose);
+  setVerboseWarnEnabled(jsonMode ? false : !!opts?.verbose);
   if (!jsonMode) printBanner(true);
 
   const rootDir = process.cwd();
@@ -1562,7 +1580,9 @@ async function validateCanonicalDescriptionQuality(
  */
 async function validateSecurityCompliance(result: ValidationResult): Promise<void> {
   const report = await runComplianceChecks();
-
+  // Phase H: failures emit per-control; warnings collapse to one summary
+  // unless --verbose, where per-control detail is preserved.
+  const warnChecks: typeof report.checks = [];
   for (const check of report.checks) {
     if (check.status === "fail") {
       result.errors.push(
@@ -1570,11 +1590,22 @@ async function validateSecurityCompliance(result: ValidationResult): Promise<voi
         (check.detail ? ` — ${check.detail}` : ""),
       );
     } else if (check.status === "warn") {
+      warnChecks.push(check);
+    }
+  }
+  if (warnChecks.length === 0) return;
+  if (verboseWarnEnabled) {
+    for (const check of warnChecks) {
       result.warnings.push(
         `Security compliance [${check.controlRef}]: ${check.description}` +
         (check.detail ? ` — ${check.detail}` : ""),
       );
     }
+  } else {
+    const refs = warnChecks.map((c) => c.controlRef).join(", ");
+    result.warnings.push(
+      `Security compliance: ${warnChecks.length} control(s) with warnings (${refs}) — re-run with --verbose for per-control detail`,
+    );
   }
 }
 
