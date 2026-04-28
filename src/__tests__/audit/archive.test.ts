@@ -518,6 +518,141 @@ describe("pruneArchives", () => {
   });
 });
 
+describe("archiveCycle — insights ring-buffer integration (Phase 4)", () => {
+  let fx: Fixture;
+
+  beforeEach(async () => {
+    fx = await makeFixture();
+  });
+
+  afterEach(async () => {
+    await cleanupFixture(fx);
+  });
+
+  it("calls promoteToHistory when insights paths are wired and currentFile exists", async () => {
+    const insightsFile = join(
+      fx.dir,
+      "governance",
+      "audit",
+      "execution-insights.json",
+    );
+    const currentInsightsFile = join(
+      fx.dir,
+      ".audit-workspace",
+      "current-insights.json",
+    );
+
+    // Pre-existing legacy snapshot (one-cycle shape) — promotion should
+    // re-parse it as history[0] and append the just-finished cycle.
+    await writeFile(
+      insightsFile,
+      JSON.stringify({ cycle_number: 7, cycle_date: "2026-04-19" }, null, 2),
+    );
+    await writeFile(
+      currentInsightsFile,
+      JSON.stringify({ cycle_number: 8, cycle_date: FIXED_DATE }),
+    );
+
+    const reg = v2Registry([
+      modernEntry({ finding_id: "C5-D1-M1", cycle: 5, execution_status: "done" }),
+      modernEntry({ finding_id: "C8-D1-M1", cycle: 8, execution_status: "done" }),
+    ]);
+    await writeRegistry(fx.paths.registry, reg);
+
+    const result = await archiveCycle({
+      paths: { ...fx.paths, insightsFile, currentInsightsFile },
+      cycle: 8,
+      generatedAt: FIXED_DATE,
+    });
+
+    expect(result.insightsPromoted).toBe(true);
+    const ring = JSON.parse(await readFile(insightsFile, "utf-8"));
+    expect(ring.schema_version).toBe("2.0.0");
+    expect(ring.history).toHaveLength(2);
+    expect(ring.history[0].cycle_number).toBe(7);
+    expect(ring.history[1].cycle_number).toBe(8);
+    expect(ring.current).toBeNull();
+  });
+
+  it("skips promotion when insights paths are not wired (backward-compat)", async () => {
+    const reg = v2Registry([
+      modernEntry({ finding_id: "C5-D1-M1", cycle: 5, execution_status: "done" }),
+    ]);
+    await writeRegistry(fx.paths.registry, reg);
+
+    // No insightsFile/currentInsightsFile in the paths — happy-path archive
+    // call should record insightsPromoted as undefined and not try to read
+    // any insights files.
+    const result = await archiveCycle({
+      paths: fx.paths,
+      cycle: 8,
+      generatedAt: FIXED_DATE,
+    });
+    expect(result.insightsPromoted).toBeUndefined();
+    expect(result.warnings).toBeUndefined();
+  });
+
+  it("does NOT call promoteToHistory in dryRun mode even when insights paths are wired", async () => {
+    const insightsFile = join(
+      fx.dir,
+      "governance",
+      "audit",
+      "execution-insights.json",
+    );
+    const currentInsightsFile = join(
+      fx.dir,
+      ".audit-workspace",
+      "current-insights.json",
+    );
+    await writeFile(
+      currentInsightsFile,
+      JSON.stringify({ cycle_number: 8, cycle_date: FIXED_DATE }),
+    );
+
+    const reg = v2Registry([
+      modernEntry({ finding_id: "C5-D1-M1", cycle: 5, execution_status: "done" }),
+    ]);
+    await writeRegistry(fx.paths.registry, reg);
+
+    const result = await archiveCycle({
+      paths: { ...fx.paths, insightsFile, currentInsightsFile },
+      cycle: 8,
+      dryRun: true,
+      generatedAt: FIXED_DATE,
+    });
+    expect(result.insightsPromoted).toBeUndefined();
+    expect(await fileExists(insightsFile)).toBe(false);
+  });
+
+  it("records promoted=false (and no warnings) when currentFile is absent", async () => {
+    const insightsFile = join(
+      fx.dir,
+      "governance",
+      "audit",
+      "execution-insights.json",
+    );
+    const currentInsightsFile = join(
+      fx.dir,
+      ".audit-workspace",
+      "current-insights.json",
+    );
+    // Neither insights file nor currentFile exists — promoteToHistory's
+    // documented no-op branch.
+    const reg = v2Registry([
+      modernEntry({ finding_id: "C5-D1-M1", cycle: 5, execution_status: "done" }),
+    ]);
+    await writeRegistry(fx.paths.registry, reg);
+
+    const result = await archiveCycle({
+      paths: { ...fx.paths, insightsFile, currentInsightsFile },
+      cycle: 8,
+      generatedAt: FIXED_DATE,
+    });
+    expect(result.insightsPromoted).toBe(false);
+    expect(result.warnings).toBeUndefined();
+  });
+});
+
 describe("archive + finder round-trip", () => {
   let fx: Fixture;
 

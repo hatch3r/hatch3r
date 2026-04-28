@@ -23,6 +23,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, open } from "node:fs/promises";
 import { dirname, join, basename } from "node:path";
 import { atomicWriteFile } from "../merge/safeWrite.js";
+import { promoteToHistory } from "./insights.js";
 import {
   CURRENT_REGISTRY_VERSION,
   parseRegistry,
@@ -42,6 +43,20 @@ export interface ArchivePaths {
   anchorLog: string;
   /** Directory where rotated anchor logs land. Typically equals `archiveDir`. */
   anchorArchiveDir: string;
+  /**
+   * Optional path to the on-disk insights ring buffer. When set together with
+   * `currentInsightsFile`, `archiveCycle` calls `promoteToHistory` after the
+   * registry split lands. Omitting either is the documented opt-out (used by
+   * unit tests that don't care about insights, and by callers that drive the
+   * promotion separately).
+   */
+  insightsFile?: string;
+  /**
+   * Optional path to the ephemeral current-cycle insights file. When absent
+   * at promotion time, `archiveCycle` records `insightsPromoted: false` and
+   * leaves the ring buffer unchanged.
+   */
+  currentInsightsFile?: string;
 }
 
 export interface ArchiveCycleOptions {
@@ -79,6 +94,20 @@ export interface ArchiveCycleResult {
   liveSha256: string;
   archivedEntries: Finding[];
   livedEntries: Finding[];
+  /**
+   * True when `archiveCycle` called `promoteToHistory` and it successfully
+   * pushed a finished-cycle snapshot into the insights ring. False when:
+   *   - `dryRun` was true (no I/O performed),
+   *   - `insightsFile` or `currentInsightsFile` was not set on `ArchivePaths`,
+   *   - the ephemeral current-cycle insights file did not exist on disk,
+   *   - or promotion threw and the failure was captured in `warnings`.
+   */
+  insightsPromoted?: boolean;
+  /**
+   * Diagnostics surfaced by side-effect steps that do not gate the registry
+   * split (currently: insights promotion). Empty/absent on the happy path.
+   */
+  warnings?: string[];
 }
 
 export class ArchiveError extends Error {
@@ -336,6 +365,34 @@ export async function archiveCycle(
     paths.archiveIndex,
     JSON.stringify(index, null, 2) + "\n",
   );
+
+  // 7. Insights ring-buffer promotion. Skip in dry-run mode (handled by the
+  // earlier early-return). Skip when the caller didn't wire either path —
+  // unit tests typically omit them, and CLI callers that drive promotion
+  // out-of-band do too. Failures are non-fatal: the archive split has
+  // already landed atomically, so a promotion error is recorded as a
+  // warning but does not roll back the archive.
+  if (paths.insightsFile && paths.currentInsightsFile) {
+    // The registry split has already landed atomically before we reach this
+    // point; surfacing promotion failures via `warnings` (rather than throwing)
+    // keeps archive state consistent even when the insights module is
+    // misconfigured. Failures push to `result.warnings` per the Silent Failure
+    // Contract — they are diagnosed, not swallowed.
+    try {
+      const promo = await promoteToHistory({
+        insightsFile: paths.insightsFile,
+        currentFile: paths.currentInsightsFile,
+      });
+      result.insightsPromoted = promo.promoted;
+    } catch (err) {
+      result.insightsPromoted = false;
+      const msg = err instanceof Error ? err.message : String(err);
+      result.warnings = [
+        ...(result.warnings ?? []),
+        `insights promotion failed: ${msg}`,
+      ];
+    }
+  }
 
   return result;
 }
