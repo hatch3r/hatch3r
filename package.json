@@ -29,6 +29,7 @@
     "audit:migrate": "tsx scripts/migrate-finding-registry.ts",
     "audit:archive": "tsx scripts/audit-archive.ts",
     "audit:find": "tsx scripts/audit-find.ts",
+    "audit:reset": "tsx scripts/clean-audit-workspace.ts",
     "lockfile:check": "lockfile-lint --path package-lock.json --type npm --allowed-hosts npm --validate-https"
   },
   "keywords": [
