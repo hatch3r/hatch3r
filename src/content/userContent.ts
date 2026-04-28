@@ -27,7 +27,8 @@
  */
 
 import { readdir, mkdir, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { stringify as yamlStringify } from "yaml";
 import { atomicWriteFile } from "../merge/safeWrite.js";
 import { scanForDeniedPatterns } from "../adapters/customization.js";
@@ -57,7 +58,14 @@ export interface UserContentArtifact {
   frontmatter: Record<string, unknown>;
   /** Optional adapter restriction (empty / omitted = full parity). */
   adapters?: string[];
-  /** For type=rule: scope value (`always`, `conditional`, or CSV glob string). */
+  /**
+   * For type=rule: scope value. This single field is overloaded to encode
+   * either a scope keyword (`always` | `conditional`) OR a CSV glob string
+   * (e.g. `"src/**\/*.ts,test/**"`). The `.md → .mdc` transform table in
+   * `.claude/rules/content-authoring.md` defines how each shape is rendered
+   * in the `.mdc` companion. A future iteration may split this into separate
+   * `ruleScope` (keyword) + `ruleGlobs` (string[]) fields.
+   */
   ruleScope?: string;
   /** For type=rule: precedence bucket. Defaults to `normal` when omitted. */
   rulePrecedence?: "critical" | "high" | "normal" | "low";
@@ -612,17 +620,13 @@ async function resolvePackageContentRoot(): Promise<string> {
   //
   // import.meta.url: file:///.../dist/content/userContent.js (installed)
   //                  file:///.../src/content/userContent.ts (test)
-  const here = new URL(import.meta.url);
-  const filePath = decodeURIComponent(here.pathname);
+  //
+  // Use fileURLToPath rather than URL.pathname because on Windows the
+  // pathname is `/D:/...` (leading slash before drive letter), which is
+  // not a valid Windows path and breaks subsequent `fs` reads. fileURLToPath
+  // returns proper platform-native paths.
+  const filePath = fileURLToPath(import.meta.url);
   // Walk up: .../{src|dist}/content/userContent.{ts|js} → package root
-  // (two parent levels above the file).
-  const up = (p: string, n: number): string => {
-    let out = p;
-    for (let i = 0; i < n; i++) {
-      const idx = out.lastIndexOf("/");
-      out = idx === -1 ? out : out.substring(0, idx);
-    }
-    return out;
-  };
-  return up(filePath, 3);
+  // (three parent levels above the file).
+  return dirname(dirname(dirname(filePath)));
 }

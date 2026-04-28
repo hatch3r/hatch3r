@@ -1,6 +1,6 @@
 import { readFile, readdir, cp, mkdir, rm, stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { join, dirname, normalize, isAbsolute } from "node:path";
+import { join, dirname, normalize, isAbsolute, posix } from "node:path";
 import { parseFrontmatter } from "../adapters/canonical.js";
 import { atomicWriteFile } from "../merge/safeWrite.js";
 import { HatchError } from "../types.js";
@@ -301,7 +301,7 @@ async function scanContentRoot(
             description: metadata.description ?? "",
             tags: metadata.tags ?? [],
             protected: metadata.protected,
-            relativePath: join(config.dir, dirent.name),
+            relativePath: posix.join(config.dir, dirent.name),
             source,
           };
           if (source === "user") {
@@ -337,7 +337,7 @@ async function scanContentRoot(
           description: metadata.description ?? "",
           tags: metadata.tags ?? [],
           protected: metadata.protected,
-          relativePath: join(config.dir, file),
+          relativePath: posix.join(config.dir, file),
           source,
         };
 
@@ -346,7 +346,7 @@ async function scanContentRoot(
           const mdcFile = file.replace(/\.md$/, ".mdc");
           try {
             await readFile(join(dirPath, mdcFile), "utf-8");
-            item.companionPath = join(config.dir, mdcFile);
+            item.companionPath = posix.join(config.dir, mdcFile);
           } catch {
             // No companion file
           }

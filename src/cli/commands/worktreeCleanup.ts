@@ -1,4 +1,3 @@
-import { sep } from "node:path";
 import chalk from "chalk";
 import inquirer from "inquirer";
 import {
@@ -38,20 +37,33 @@ interface Candidate {
   status: WorktreeStatus;
 }
 
+/** Normalise both Windows backslashes and POSIX forward slashes to `/` so
+ * prefix comparisons work regardless of which form the path arrived in
+ * (git porcelain emits `/`; process.cwd / path.join emit native). */
+function toPosix(p: string): string {
+  return p.replace(/\\/g, "/");
+}
+
 function isUnderManagedDir(worktreePath: string, mainRoot: string): boolean {
-  const prefix = mainRoot.endsWith(sep) ? mainRoot : mainRoot + sep;
-  return worktreePath.startsWith(prefix + WORKTREES_DIR + sep);
+  const wt = toPosix(worktreePath);
+  const root = toPosix(mainRoot);
+  const prefix = root.endsWith("/") ? root : root + "/";
+  return wt.startsWith(prefix + WORKTREES_DIR + "/");
 }
 
 function isCwdInside(worktreePath: string, cwd: string): boolean {
-  const prefix = worktreePath.endsWith(sep) ? worktreePath : worktreePath + sep;
-  return cwd === worktreePath || cwd.startsWith(prefix);
+  const wt = toPosix(worktreePath);
+  const c = toPosix(cwd);
+  const prefix = wt.endsWith("/") ? wt : wt + "/";
+  return c === wt || c.startsWith(prefix);
 }
 
 function shortPath(p: string, mainRoot: string): string {
   if (p === mainRoot) return ".";
-  const prefix = mainRoot.endsWith(sep) ? mainRoot : mainRoot + sep;
-  return p.startsWith(prefix) ? p.slice(prefix.length) : p;
+  const pp = toPosix(p);
+  const root = toPosix(mainRoot);
+  const prefix = root.endsWith("/") ? root : root + "/";
+  return pp.startsWith(prefix) ? pp.slice(prefix.length) : p;
 }
 
 function statusBadge(s: WorktreeStatus): string {

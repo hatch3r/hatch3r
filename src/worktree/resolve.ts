@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { statSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
-import { join, resolve, dirname } from "node:path";
+import { statSync, readFileSync, writeFileSync, unlinkSync, realpathSync } from "node:fs";
+import { join, resolve, dirname, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { randomBytes } from "node:crypto";
 import { HatchError } from "../types.js";
@@ -158,7 +158,20 @@ export function listWorktrees(mainRoot: string): WorktreeListEntry[] {
     }
     if (line.startsWith("worktree ")) {
       flush();
-      current = { path: line.slice("worktree ".length).trim() };
+      let pathStr = line.slice("worktree ".length).trim();
+      // Git porcelain emits forward-slash paths (and on Windows, the long
+      // form `C:/Users/runneradmin/...`). Canonicalise to whatever
+      // realpathSync returns so callers comparing against
+      // `realpathSync(<dir>)` get a string-equal result.
+      try {
+        pathStr = realpathSync(pathStr);
+      } catch {
+        // Prunable worktree — path may not exist on disk anymore.
+        // Best-effort: normalise separators only so downstream string
+        // comparisons against platform-native paths still align.
+        pathStr = pathStr.split("/").join(sep);
+      }
+      current = { path: pathStr };
     } else if (!current) {
       continue;
     } else if (line.startsWith("HEAD ")) {
