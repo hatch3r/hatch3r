@@ -128,3 +128,12 @@ jobs:
       - name: Rule parity drift check
         if: matrix.os == 'ubuntu-latest' && matrix.node-version == 22
         run: npm run validate:rule-parity
+
+      # Audit-state hygiene Phase 1 (warn-only): finding-registry shape +
+      # invariants 1-7 from AUDIT-EXECUTE.md §Finding Registry. Drift is
+      # surfaced but does not fail CI until Phase 3 (post-migration) lands.
+      # Tracked via plan-implementing-a-sofficticated-ancient-penguin.md.
+      - name: Finding registry drift check (warn-only)
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 22
+        continue-on-error: true
+        run: npm run audit:validate-registry

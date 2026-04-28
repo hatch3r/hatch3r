@@ -55,6 +55,12 @@ export default defineConfig({
           functions: 85,
           lines: 85,
         },
+        "src/audit/**": {
+          statements: 85,
+          branches: 75,
+          functions: 85,
+          lines: 85,
+        },
       },
     },
   },
