@@ -156,7 +156,7 @@ When the audit report references code not present in the previous audit baseline
 Only merge Tier 3–4 when: root cause is identical, fix is identical, merge loses no severity/effort/attribution. Record all decisions in the Finding Registry.
 
 #### Pillar Justification Filter
-Every finding must cite at least one Binding Pillar (P1-P6) it serves. Findings serving zero pillars are rejected during triage as out-of-scope.
+Every finding must cite at least one Binding Pillar (P1-P7) it serves. Findings serving zero pillars are rejected during triage as out-of-scope.
 
 ### Merge Strategy
 
