@@ -3,6 +3,7 @@
 
 import { createProgram } from "./program.js";
 import { classifyCliError } from "./errorClassification.js";
+import { checkForUpdates } from "./shared/updateNotifier.js";
 import { HatchError } from "../types.js";
 
 const nodeVersion = parseInt(process.version.slice(1), 10);
@@ -37,6 +38,22 @@ process.on("unhandledRejection", (reason) => {
   }
   process.exit(1);
 });
+
+// --no-update-check: a quiet global flag that maps to HATCH3R_NO_UPDATE_CHECK=1
+// for the lifetime of the run. Stripped from argv before the program parses
+// so commander does not flag it as unknown when individual commands haven't
+// declared it.
+const argvNoCheck = process.argv.indexOf("--no-update-check");
+if (argvNoCheck !== -1) {
+  process.env.HATCH3R_NO_UPDATE_CHECK = "1";
+  process.argv.splice(argvNoCheck, 1);
+}
+
+// Queue the registry probe BEFORE parsing so notify({ defer: true }) attaches
+// its 'exit' handler in time to run after the command's own output. The probe
+// itself runs in a detached child process (cached for 24h), so this call is
+// non-blocking even on a cold first run.
+checkForUpdates();
 
 const program = createProgram();
 

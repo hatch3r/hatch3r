@@ -2,13 +2,14 @@ import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } fr
 import { mkdtemp, mkdir, writeFile, readFile, rm, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { HatchError } from "../../types.js";
 import { HATCH3R_VERSION } from "../../version.js";
+import { _resetNpmGlobalRootCacheForTesting } from "../../detect/installContext.js";
 
 vi.mock("node:child_process", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:child_process")>();
-  return { ...actual, execFileSync: vi.fn() };
+  return { ...actual, execFileSync: vi.fn(), spawnSync: vi.fn() };
 });
 
 const AGENTS_DIR = ".agents";
@@ -84,6 +85,15 @@ describe("update command", () => {
     consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.mocked(execFileSync).mockReturnValue(Buffer.from(""));
+    vi.mocked(spawnSync).mockReturnValue({
+      pid: 1,
+      output: [],
+      stdout: Buffer.from(""),
+      stderr: Buffer.from(""),
+      status: 0,
+      signal: null,
+    } as unknown as ReturnType<typeof spawnSync>);
+    _resetNpmGlobalRootCacheForTesting();
   });
 
   afterEach(async () => {
@@ -380,6 +390,73 @@ describe("update command", () => {
       const result = await runUpdateDryRun(tempDir, manifest!);
       expect(result.canonicalCandidates.length).toBeGreaterThan(0);
       expect(result.adapterChanges.size).toBe(manifest!.tools.length);
+    });
+  });
+
+  // Multi-install self-update + re-exec into the freshly installed binary.
+  // The re-exec is what makes `hatch3r update` reliably refresh the CLI in
+  // one shot instead of regenerating with stale module-cache code.
+  describe("re-exec into freshly updated binary", () => {
+    it("HATCH3R_RE_EXEC=1 short-circuits the self-update path (no re-exec, no second install)", async () => {
+      await createTestProject(tempDir);
+      vi.mocked(execFileSync).mockClear();
+      vi.mocked(spawnSync).mockClear();
+      const prevReExec = process.env.HATCH3R_RE_EXEC;
+      process.env.HATCH3R_RE_EXEC = "1";
+      try {
+        const { updateCommand } = await import("../../cli/commands/update.js");
+        // With HATCH3R_RE_EXEC set, the inner call MUST also pass --skip-fetch
+        // (the parent always sets it). Mirror that here.
+        await updateCommand({ skipFetch: true });
+        expect(vi.mocked(spawnSync)).not.toHaveBeenCalled();
+      } finally {
+        if (prevReExec === undefined) delete process.env.HATCH3R_RE_EXEC;
+        else process.env.HATCH3R_RE_EXEC = prevReExec;
+      }
+    });
+
+    it("does NOT spawn a re-exec child when no install was actually updated", async () => {
+      await createTestProject(tempDir);
+      vi.mocked(spawnSync).mockClear();
+
+      const { updateCommand } = await import("../../cli/commands/update.js");
+      // In the test sandbox there is no node_modules/hatch3r and no detected
+      // global install (npm root -g returns "" via the mock), so runSelfUpdate
+      // skips dev-source, finds nothing else, and the regenerate phase runs
+      // in-process without a re-exec.
+      await updateCommand({});
+      expect(vi.mocked(spawnSync)).not.toHaveBeenCalled();
+    });
+
+    it("spawns a re-exec child with --skip-fetch + HATCH3R_RE_EXEC=1 when an install gets updated", async () => {
+      await createTestProject(tempDir);
+
+      // Seed a project-local install fixture so surveyInstalls finds a target.
+      await mkdir(join(tempDir, "node_modules", "hatch3r"), { recursive: true });
+      await writeFile(
+        join(tempDir, "node_modules", "hatch3r", "package.json"),
+        JSON.stringify({ name: "hatch3r", version: "1.0.0" }),
+      );
+
+      // Pretend the test runs from inside that install so it counts as
+      // invokedFrom=project-local (otherwise dev-source skips and no update
+      // happens).
+      const prevArgv1 = process.argv[1];
+      process.argv[1] = join(tempDir, "node_modules", ".bin", "hatch3r");
+      vi.mocked(spawnSync).mockClear();
+
+      try {
+        const { updateCommand } = await import("../../cli/commands/update.js");
+        await expect(updateCommand({})).rejects.toThrow(/process.exit/);
+        expect(vi.mocked(spawnSync)).toHaveBeenCalledTimes(1);
+        const [bin, args, opts] = vi.mocked(spawnSync).mock.calls[0]!;
+        expect(typeof bin).toBe("string");
+        expect(args).toEqual(expect.arrayContaining(["update", "--skip-fetch"]));
+        const env = (opts as { env: Record<string, string> }).env;
+        expect(env.HATCH3R_RE_EXEC).toBe("1");
+      } finally {
+        process.argv[1] = prevArgv1;
+      }
     });
   });
 

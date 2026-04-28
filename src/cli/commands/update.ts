@@ -1,5 +1,5 @@
 import { appendFile, cp, mkdir, readFile, readdir, stat } from "node:fs/promises";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join, sep } from "node:path";
 import chalk from "chalk";
@@ -53,7 +53,7 @@ import {
   label,
 } from "../shared/ui.js";
 import { findPackageRoot } from "../shared/paths.js";
-import { detectPackageManager } from "../../detect/packageManager.js";
+import { runSelfUpdate, pickReExecBin } from "../../install/selfUpdate.js";
 import { generateIntegrityManifest, writeIntegrityManifest, verifyIntegrity } from "../../integrity/index.js";
 import { pruneArchives } from "../../archive/index.js";
 import { buildSelectionsFromDisk } from "../../content/index.js";
@@ -63,17 +63,23 @@ const CONTENT_DIRS = ["agents", "commands", "rules", "skills", "prompts", "githu
 const ALWAYS_COPY_FILES = new Set(["mcp.json"]);
 
 /**
- * Package update timeout in milliseconds.
- * Override with HATCH3R_UPDATE_TIMEOUT_MS env var (default: 30000).
+ * Translate updateCommand options back into CLI args for the re-exec child.
+ * `--skip-fetch` is added by the caller; `--offline` is its alias and is
+ * intentionally omitted to keep one canonical flag in the child's argv.
  */
-const UPDATE_TIMEOUT_MS = (() => {
-  const envVal = process.env.HATCH3R_UPDATE_TIMEOUT_MS;
-  if (envVal) {
-    const parsed = parseInt(envVal, 10);
-    if (!Number.isNaN(parsed) && parsed > 0) return parsed;
-  }
-  return 30_000;
-})();
+function buildReExecPassThroughArgs(opts?: {
+  yes?: boolean;
+  diff?: boolean;
+  force?: boolean;
+  dryRun?: boolean;
+}): string[] {
+  const args: string[] = [];
+  if (opts?.yes) args.push("--yes");
+  if (opts?.diff) args.push("--diff");
+  if (opts?.force) args.push("--force");
+  if (opts?.dryRun) args.push("--dry-run");
+  return args;
+}
 
 /**
  * Read a file's content, returning null if the file does not exist.
@@ -197,56 +203,18 @@ export interface UpdateResult {
  * regenerate output from already-installed canonical content (config,
  * verify --fix) can skip the 30s network step.
  *
- * Step numbering: occupies `stepOffset + 1` of `totalSteps`. When called
- * standalone with default options the step renders as `[1/1]`.
+ * Now a thin wrapper around `runSelfUpdate` (`src/install/selfUpdate.ts`)
+ * which extends the original single-target behavior to refresh every
+ * reachable hatch3r install (project-local + global) in one pass while
+ * preserving the same step numbering and error semantics. Kept as an
+ * exported function for back-compat with existing callers (`runUpdate`,
+ * tests, mocks).
  */
 export async function runPackageUpdate(
   rootDir: string,
   options: { stepOffset?: number; totalSteps?: number } = {},
 ): Promise<void> {
-  const offset = options.stepOffset ?? 0;
-  const total = options.totalSteps ?? 1;
-
-  const pm = await detectPackageManager(rootDir);
-  const s0 = createSpinner(step(offset + 1, total, "Updating package..."));
-  s0.start();
-  try {
-    const cmd = process.platform === "win32" && pm.name !== "bun"
-      ? `${pm.updateCmd}.cmd`
-      : pm.updateCmd;
-    // Retry the package update on transient network failures (ECONNRESET,
-    // 503, EAI_AGAIN, etc.). Substantive failures (auth, missing package)
-    // throw on the first attempt without further retries.
-    await retryWithBackoff(
-      async () => {
-        execFileSync(cmd, pm.updateArgs, { stdio: "pipe", timeout: UPDATE_TIMEOUT_MS, killSignal: "SIGTERM" });
-      },
-      { maxAttempts: 2, initialDelayMs: 500, maxDelayMs: 2_000 },
-    );
-  } catch (err) {
-    const isTimeout = err && typeof err === "object" && ("killed" in err || "signal" in err);
-    // C7.5-W2B2-H28 (D8): classify non-timeout failures so the error
-    // surfaces dependency-aware recovery guidance (package-manager vs
-    // network vs auth) instead of a bare vendor string.
-    let msg: string;
-    let errorCode: "NETWORK_ERROR" | "UNKNOWN_ERROR" = "UNKNOWN_ERROR";
-    if (isTimeout) {
-      msg = `Package update timed out after ${UPDATE_TIMEOUT_MS / 1000}s. Check network connectivity and retry, or set HATCH3R_UPDATE_TIMEOUT_MS to increase the timeout.`;
-      errorCode = "NETWORK_ERROR";
-    } else {
-      const raw = err instanceof Error ? err.message : String(err);
-      const depClass = classifyDependency(err);
-      const failType = classifyFailure(err);
-      const guidance = getRecoveryGuidance(depClass, failType);
-      msg = `${raw}. ${guidance}`;
-      // Map dependency class -> canonical HatchErrorCode.
-      if (depClass === "network") errorCode = "NETWORK_ERROR";
-    }
-    s0.fail(step(offset + 1, total, "Failed to update package"));
-    logError(msg);
-    throw new HatchError(msg, 1, errorCode);
-  }
-  s0.succeed(step(offset + 1, total, "Package updated"));
+  await runSelfUpdate(rootDir, options);
 }
 
 /**
@@ -967,12 +935,46 @@ export async function updateCommand(
     return;
   }
 
-  // C8-D1-M6: --offline / --skip-fetch skips runPackageUpdate and invokes
-  // runRegenerate directly, so update can still repair drifted output
-  // without network access (e.g. air-gapped CI, slow/offline networks).
-  const result = offlineMode
-    ? await runRegenerate(rootDir, m, { diff: !!_opts?.diff })
-    : await runUpdate(rootDir, m, { diff: !!_opts?.diff });
+  // HATCH3R_RE_EXEC: set by a parent hatch3r process that just self-updated
+  // the package on disk. The parent re-execs us with --skip-fetch (which
+  // implies offlineMode here) so the regenerate phase uses freshly installed
+  // code instead of the stale module cache the parent had already loaded.
+  const isReExec = process.env.HATCH3R_RE_EXEC === "1";
+  if (isReExec) {
+    info(`Continuing with freshly installed hatch3r v${HATCH3R_VERSION} for regenerate.`);
+  }
+
+  let result: UpdateResult;
+  if (offlineMode) {
+    // C8-D1-M6: --offline / --skip-fetch skips the network + self-update
+    // and invokes runRegenerate directly, so update can still repair
+    // drifted output without network access (e.g. air-gapped CI, slow/offline
+    // networks). Re-exec children also take this branch.
+    result = await runRegenerate(rootDir, m, { diff: !!_opts?.diff });
+  } else {
+    // Multi-install self-update: refreshes the running install plus any
+    // other hatch3r install reachable on the system (project-local +
+    // global). On success, re-exec into the newly installed binary so
+    // the regenerate phase runs with the latest code — running it
+    // in-process would use the stale module cache the current process
+    // loaded before the package got replaced on disk.
+    const selfUpdate = await runSelfUpdate(rootDir, { stepOffset: 0, totalSteps: 4 });
+    const reExecBin = !isReExec ? pickReExecBin(selfUpdate) : null;
+    if (reExecBin) {
+      const childArgs = ["update", "--skip-fetch", ...buildReExecPassThroughArgs(_opts)];
+      info(`Re-running with freshly installed hatch3r (${reExecBin})`);
+      const child = spawnSync(reExecBin, childArgs, {
+        stdio: "inherit",
+        env: { ...process.env, HATCH3R_RE_EXEC: "1" },
+      });
+      process.exit(child.status ?? 1);
+    }
+    result = await runRegenerate(rootDir, m, {
+      stepOffset: 1,
+      totalSteps: 4,
+      diff: !!_opts?.diff,
+    });
+  }
 
   // Version checkpoint advisory: detect if a clean reinit is recommended
   const versionCheckpoints = getApplicableCheckpoints(m.hatch3rVersion, HATCH3R_VERSION);
