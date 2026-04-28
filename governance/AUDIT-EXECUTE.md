@@ -92,12 +92,12 @@ Parse every action item from the Enhanced Action Items table.
 
 ### Previous Cycle Insights
 
-If `governance/audit/execution-insights.json` exists from a previous execution cycle, read it and apply adjustments:
-- Use fix success rates to adjust work unit concurrency — unreliable finding types (high rolled-back rate) get serialized work units rather than parallel.
-- Use sizing accuracy data to calibrate effort estimates — if a category consistently under-estimates, adjust upward.
-- Flag recurring failure files as "high-risk" work units requiring extra review attention.
+`governance/audit/execution-insights.json` is a `{schema_version, current, history[]}` ring buffer (parsed by `src/audit/insights.ts`). Read `history[]` (oldest→newest, length 0–3) and apply:
+- Fix success rates → adjust work-unit concurrency (high rolled-back rate → serialized).
+- Sizing accuracy → calibrate effort estimates per category.
+- Recurring failure patterns → flag as "high-risk" work units.
 
-If the file does not exist (first cycle), skip this step.
+If `history.length === 0` (first cycle): skip. Multi-cycle heuristics that need ≥3 cycles use `history.length >= 3`; otherwise log "insufficient history" and skip the heuristic.
 
 ### Table Completeness Validation
 
@@ -236,6 +236,8 @@ If any eligibility check fails → fall through to Tier 2 (if same-file conflict
 
 Central manifest tracking every finding through its lifecycle. Store as `governance/audit/finding-registry.json`. Update in-place per phase. Read full registry only at checkpoints. For wave execution, load only the current wave's entries. The file is the source of truth.
 
+Live file holds open + last-cycle terminals + active rollovers; older cycle terminals archived under `governance/audit/archive/cycle-{N}-finding-registry.json` (immutable, sha256-anchored via `governance/audit/archive/index.json`). Schema version + invariants 1-7 enforced by `npm run audit:validate-registry` (CI gate). Cross-cycle ID lookup via `npm run audit:find <finding_id>`.
+
 ### Registry Fields
 
 | Field | Set During | Description |
@@ -278,7 +280,7 @@ These MUST hold at their respective checkpoints. Violation is a HALT condition.
 3. **Assignment Coverage**: After Phase 2, every `targeted` finding has a `work_unit`.
 4. **Wave Coverage**: After Phase 2, every `targeted` finding has a `wave`.
 5. **Terminal Status**: After execution, no `targeted` finding remains `pending`.
-6. **Registry Anchor**: After each Phase writes `governance/audit/finding-registry.json`, compute `sha256sum` and append `{phase, timestamp, sha256, entry_count}` to `.audit-workspace/registry-anchor-log.jsonl`. Before the next Phase, verify the current file's sha256 matches the last logged anchor. MISMATCH = HALT; present the diff between anchor-expected state (from git log of the registry file) and current state to the user for manual resolution. Same rule applies to `governance/audit/baseline.json` once Phase 0 writes it; baseline anchor is verified at every checkpoint. Rotate the log across cycles: keep the last 3 cycles' anchors, archive older.
+6. **Registry Anchor**: After each Phase writes `governance/audit/finding-registry.json`, compute `sha256sum` and append `{phase, timestamp, sha256, entry_count}` to `.audit-workspace/registry-anchor-log.jsonl`. Before the next Phase, verify the current file's sha256 matches the last logged anchor. MISMATCH = HALT; present the diff between anchor-expected state (from git log of the registry file) and current state to the user for manual resolution. Same rule applies to `governance/audit/baseline.json` once Phase 0 writes it; baseline anchor is verified at every checkpoint. Rotation enforced by `npm run audit:archive` (`src/audit/archive.ts::rotateAnchorLog`): keeps last 3 cycles in the live log, copies older entries to `governance/audit/archive/anchor-log-cycle-{N..M}.jsonl`.
 7. **Tier Coverage**: After Phase 1 triage, every `targeted` finding has `execution_tier ∈ {1, 2, 3}`. Every entry with `execution_tier == 1` has a non-null `tier1_pattern` matching the closed enum (Tier Classification §Tier 1). Violations HALT before Phase 2.
 
 ### Checkpoints
@@ -623,13 +625,13 @@ Record after full execution. Fields: total_time, waves_completed/N, waves_rolled
 
 **Rollback Detail Log columns:** `Event | Wave | Level | Trigger | Work Unit | Findings Affected | Resolution`.
 
-**File-Lock Group Telemetry** (per Phase 2 sizing): Append to `governance/audit/execution-insights.json` under `file_lock_groups`: `[{wave, file, size, ceiling_hit, retries, rolled_back, cycle}]`. Calibration: if ≥2 size=6 groups show ≥1 retry each across one cycle → consider ceiling reduction to 5 via CL-3; if zero size=6 retries across 3 cycles → consider lift to 7.
+**File-Lock Group Telemetry** (per Phase 2 sizing): Append to `current.file_lock_groups` in `.audit-workspace/current-insights.json` (promoted to `history[N]` on cycle close): `[{wave, file, size, ceiling_hit, retries, rolled_back, cycle}]`. Calibration reads `history[]`: if `history[history.length-1]` shows ≥2 size=6 groups with ≥1 retry → consider ceiling reduction to 5 via CL-3; if `history.length >= 3` AND zero size=6 retries across all three → consider lift to 7. Heuristics needing 3-cycle history are skipped (with a logged note) when `history.length < 3`.
 
 ---
 
 ## Execution Learning
 
-After each cycle, write an Execution Insights summary to `governance/audit/execution-insights.json` (persistent across cycles). Phase 1 "Previous Cycle Insights" reads it on the next run.
+During the cycle, accumulate insights in `.audit-workspace/current-insights.json`. After Final Review, `npm run audit:archive` promotes that file into the `history[]` of `governance/audit/execution-insights.json` (oldest evicted at length 3) via `src/audit/insights.ts::promoteToHistory`. Phase 1 "Previous Cycle Insights" reads `history[]` on the next run. The envelope is `{schema_version: "2.0.0", current, history}`.
 
 ### Tracked Patterns
 

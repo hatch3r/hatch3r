@@ -21,6 +21,8 @@ Execute findings from an audit report using `governance/AUDIT-EXECUTE.md`.
 
 ## Phase 0 — Baseline
 
+> **Workspace cleanup gate (audit-state hygiene v1).** Run `npm run audit:reset --check` before reading any audit state. If exit code is non-zero, run `npm run audit:reset --auto` to clear stale-cycle markers, or pass `--strict` for a clean-room baseline. The preserve list (`registry-anchor-log.jsonl`, `verified-inventory.json`, `current-insights.json`) is hard-coded.
+
 4. Capture immutable baseline:
    ```
    npm test                  → record pass/fail counts
@@ -74,6 +76,8 @@ For each wave (1 through 4):
 22. **Phase 5 (PRD Update):** Filter CL-1 candidates by execution results. Apply approved changes to `governance/hatch3r-prd.md`
 23. **Phase 6 (Content Spec):** Generate content specifications from CL-2 artifacts. Specs only — no implementation
 24. **Phase 7 (Audit Evolution):** Apply CL-3 proposals individually. Each requires explicit user consent. Verify tier weight invariants after each
+
+> **End-of-cycle archival (audit-state hygiene v1).** After Final Review approves the cycle, run `npm run audit:archive --in-place --cycle <N>`. This: (1) splits the live finding-registry into open + cycle {N, N-1} terminals + rollovers (kept) and older terminals (archived to `governance/audit/archive/cycle-{N}-finding-registry.json`); (2) updates `governance/audit/archive/index.json` with sha256 manifest entry; (3) promotes `.audit-workspace/current-insights.json` into `governance/audit/execution-insights.json::history[]` (oldest evicted at length 3); (4) rotates `registry-anchor-log.jsonl` keeping last 3 cycles. All writes atomic via `safeWrite.ts::atomicWriteFile`.
 
 ## Tracking
 
