@@ -1,6 +1,6 @@
 # Domain 10: User Experience & Documentation
 
-> Last updated: 2026-04-19
+> Last updated: 2026-04-28
 
 **Pillars served:** P1 (primary), P4 (supporting).
 
@@ -36,6 +36,7 @@
 - [ ] Output formatting (boxen, chalk) — readable, accessible in high-contrast, screen readers, CI
 - [ ] Error actionability — clear next steps for every error; severity levels visually distinct
 - [ ] Agent and review output — structured, parseable, actionable; users understand findings
+- [ ] Iteration summary contract — `rules/hatch3r-iteration-summary.md` exists with `scope: always`, rule-parity passes, the 5-field block (Status, Outcome, Done, Not Done, Open Questions, Confidence) reaches every adapter output
 ### 10.3 First-Run to First-Value Journey
 Trace init to first useful agent output. Ref: `src/cli/commands/init.ts`, generated rules files, `quick-start.md`
 - [ ] Zero-to-working in under 5 min — per-preset end-to-end test (default, minimal, full, custom)

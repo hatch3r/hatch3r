@@ -96,3 +96,11 @@ When modifying code that is consumed by other modules, agents, or external syste
 - Verify existing consumers before changing function signatures, type shapes, event schemas, or API responses.
 - If a contract change is necessary, document it explicitly in the structured output and flag for reviewer attention.
 - Prefer additive changes (new optional fields, overloaded signatures) over breaking changes.
+
+### 10. Standardized Iteration Summary
+
+Every user-facing iteration ends with the canonical Iteration Summary block defined in `rules/hatch3r-iteration-summary.md`.
+
+Required fields: Status (closed enum: SUCCESS | PARTIAL | FAILED | BLOCKED), Outcome (one sentence), Done, Not Done / Deferred / Unverified, Open Questions / Blockers, Confidence + basis. Optional sections (Artifacts Touched, Verifications Run, Earliest Failure Point, Suggested Next Action) are appended only when they carry information.
+
+Never substitute a prose paragraph for the block. Never silently skip Not Done — if scope was fully completed, write `None — full scope completed`. Never inflate confidence — if you did not verify, say medium and name the unknown.
