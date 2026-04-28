@@ -17,6 +17,7 @@ Canonical reference for the body and frontmatter shapes `hatch3r-creator` produc
 ```yaml
 ---
 id: <NAME>
+type: agent
 description: <DESCRIPTION>
 model: <MODEL>
 tags: [<TAG-1>, <TAG-2>]
@@ -63,6 +64,7 @@ Prompt structure follows `agents/shared/prompt-structure.md` — `<task>`, `<con
 ```yaml
 ---
 id: <NAME>
+type: skill
 description: <DESCRIPTION>
 tags: [<TAG-1>, <TAG-2>]
 quality_charter: agents/shared/quality-charter.md
