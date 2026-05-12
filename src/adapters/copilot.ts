@@ -84,7 +84,7 @@ jobs:
         run: ${build}`;
     results.push(output(
       ".github/workflows/copilot-setup-steps.yml",
-      wrapInManagedBlock(copilotSetupStepsInner) + "\n",
+      wrapInManagedBlock(copilotSetupStepsInner),
       copilotSetupStepsInner,
     ));
 

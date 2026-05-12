@@ -1,10 +1,41 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from "vitest";
 import { mkdtemp, mkdir, writeFile, readFile, rm, access, readdir } from "node:fs/promises";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { tmpdir } from "node:os";
+import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { HatchError } from "../../types.js";
 import { HATCH3R_VERSION } from "../../version.js";
+
+/**
+ * G6 (v1.7.1): recursively SHA-256 every regular file under `root` and
+ * return a `relPath -> hash` map. Used by the sync-idempotency test to
+ * compare project state between successive syncs and catch regressions
+ * where any adapter output drifts by even one byte. Skips `.git/` and
+ * `node_modules/` (irrelevant + slow), and orphan `.tmp.<hex>` files
+ * (atomic-write tmpfiles that may exist transiently).
+ */
+async function snapshotProject(root: string): Promise<Map<string, string>> {
+  const snapshot = new Map<string, string>();
+  async function walk(dir: string): Promise<void> {
+    const entries = await readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === ".git" || entry.name === "node_modules") continue;
+        await walk(full);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      if (/\.tmp\.[0-9a-f]{8}$/.test(entry.name)) continue;
+      const buf = await readFile(full);
+      const hash = createHash("sha256").update(buf).digest("hex");
+      snapshot.set(relative(root, full), hash);
+    }
+  }
+  await walk(root);
+  return snapshot;
+}
 
 // Mock child_process to prevent actual git/npx calls from update command
 vi.mock("node:child_process", async (importOriginal) => {
@@ -102,7 +133,7 @@ describe("init -> sync -> update lifecycle", { timeout: 60_000 }, () => {
     expect(updateOutput).toContain("Update complete");
   });
 
-  it("sync is idempotent: re-sync after init produces consistent results", async () => {
+  it("sync is idempotent: re-sync after init produces byte-identical files", async () => {
     const { initCommand } = await import("../../cli/commands/init.js");
     await initCommand({ yes: true, tools: "cursor" });
 
@@ -110,18 +141,20 @@ describe("init -> sync -> update lifecycle", { timeout: 60_000 }, () => {
 
     // First sync
     await syncCommand();
-    const agentsMd1 = await readFile(join(tempDir, "AGENTS.md"), "utf-8");
+    const snapshot1 = await snapshotProject(tempDir);
 
-    // Second sync (should be idempotent)
+    // Second sync (must be byte-identical — every adapter output, every
+    // managed file, every wrap/insert round-trip. The previous version of
+    // this test only compared AGENTS.md, which missed the v1.7.0 worktree-
+    // setup symptom where adapter outputs drifted by trailing-newline bytes
+    // between syncs.)
     consoleSpy.mockClear();
     await syncCommand();
-    const agentsMd2 = await readFile(join(tempDir, "AGENTS.md"), "utf-8");
+    const snapshot2 = await snapshotProject(tempDir);
 
-    // Content should be the same after re-sync
-    expect(agentsMd1).toBe(agentsMd2);
+    expect(snapshot2).toEqual(snapshot1);
 
     const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
-    // On re-sync, some files may be skipped (already up to date)
     expect(output).toContain("Sync complete");
   });
 

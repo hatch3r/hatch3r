@@ -137,7 +137,7 @@ describe("managedBlocks", () => {
   describe("wrapInManagedBlock", () => {
     it("wraps content with start and end markers", () => {
       const result = wrapInManagedBlock("Hello world");
-      expect(result).toBe(`${START}\nHello world\n${END}`);
+      expect(result).toBe(`${START}\nHello world\n${END}\n`);
     });
 
     it("produces content that hasManagedBlock detects", () => {
@@ -148,6 +148,37 @@ describe("managedBlocks", () => {
     it("produces content that extractManagedBlock can extract", () => {
       const result = wrapInManagedBlock("inner content");
       expect(extractManagedBlock(result)).toBe("inner content");
+    });
+
+    // G6 (v1.7.1): wrap output ends with \n so the file written by an
+    // adapter is POSIX-final-newline compliant. Without this, every
+    // editor/formatter that appends a trailing \n on save creates drift
+    // that the next hatch3r sync rewrites — the worktree-setup symptom.
+    it("emits a POSIX final newline", () => {
+      expect(wrapInManagedBlock("body").endsWith("\n")).toBe(true);
+    });
+  });
+
+  // G6 (v1.7.1): insertManagedBlock output is also guaranteed to end with
+  // \n. Both helpers must converge on the same POSIX-final-newline contract
+  // or files round-trip differently depending on which path safeWriteFile
+  // takes (new-file vs merge-existing), and the result is non-idempotent.
+  describe("POSIX final newline guarantee (G6)", () => {
+    it("insertManagedBlock result ends with \\n when after is empty", () => {
+      const existing = `${START}\nold\n${END}`;
+      expect(insertManagedBlock(existing, "new").endsWith("\n")).toBe(true);
+    });
+
+    it("insertManagedBlock preserves an already-terminating \\n", () => {
+      const existing = `${START}\nold\n${END}\n`;
+      expect(insertManagedBlock(existing, "new")).toBe(`${START}\nnew\n${END}\n`);
+    });
+
+    it("insertManagedBlock is idempotent across repeated wraps with same content", () => {
+      const existing = `header\n\n${START}\nold\n${END}\n\nfooter\n`;
+      const once = insertManagedBlock(existing, "managed body");
+      const twice = insertManagedBlock(once, "managed body");
+      expect(twice).toBe(once);
     });
   });
 

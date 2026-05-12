@@ -450,7 +450,7 @@ export const AGENTS_MD_INNER = [
   "- Commands: `/.agents/commands/`",
 ].join("\n");
 
-export const AGENTS_MD_FULL = `${wrapInManagedBlock(AGENTS_MD_INNER)}\n`;
+export const AGENTS_MD_FULL = wrapInManagedBlock(AGENTS_MD_INNER);
 
 /**
  * Generate a rich root-level AGENTS.md from what's on disk.
@@ -535,7 +535,7 @@ export async function generateRootAgentsMd(agentsDir: string): Promise<{ full: s
   }
 
   const inner = sections.join("\n");
-  const full = `${wrapInManagedBlock(inner)}\n`;
+  const full = wrapInManagedBlock(inner);
   return { full, inner };
 }
 

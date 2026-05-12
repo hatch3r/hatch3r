@@ -79,6 +79,7 @@ export function buildProvenanceManifest(
   hatchVersion: string,
   rootDir: string,
   perAdapterOutputs: Array<{ adapter: string; outputs: AdapterOutput[] }>,
+  previousManifest?: ProvenanceManifest | null,
 ): ProvenanceManifest {
   const entries: ProvenanceEntry[] = [];
   for (const { adapter, outputs } of perAdapterOutputs) {
@@ -98,12 +99,43 @@ export function buildProvenanceManifest(
     if (byAdapter !== 0) return byAdapter;
     return a.path.localeCompare(b.path);
   });
+
+  // G6 (v1.7.1): mirror the integrity-manifest G4 idempotency invariant.
+  // When the new entries are byte-equivalent to the previous manifest's
+  // entries (and hatchVersion matches), preserve the previous `generated`
+  // timestamp so a redundant sync does not bump the timestamp. Without
+  // this, `.provenance.json` always drifts between syncs and users who
+  // commit it (or run worktree-setup) see spurious diffs.
+  if (
+    previousManifest &&
+    previousManifest.hatchVersion === hatchVersion &&
+    provenanceEntriesEqual(previousManifest.entries, entries)
+  ) {
+    return previousManifest;
+  }
+
   return {
     version: 1,
     generated: new Date().toISOString(),
     hatchVersion,
     entries,
   };
+}
+
+/** Deep equality on sorted ProvenanceEntry arrays. */
+function provenanceEntriesEqual(a: ProvenanceEntry[], b: ProvenanceEntry[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const ea = a[i];
+    const eb = b[i];
+    if (ea.adapter !== eb.adapter) return false;
+    if (ea.path !== eb.path) return false;
+    if (ea.sourceFiles.length !== eb.sourceFiles.length) return false;
+    for (let j = 0; j < ea.sourceFiles.length; j++) {
+      if (ea.sourceFiles[j] !== eb.sourceFiles[j]) return false;
+    }
+  }
+  return true;
 }
 
 /** Atomically write the provenance manifest to `.agents/.provenance.json`. */

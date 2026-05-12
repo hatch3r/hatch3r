@@ -2,6 +2,16 @@
 
 All notable changes to hatch3r are documented in this file.
 
+## [1.7.1] - 2026-05-12
+
+### Fixed
+
+- **Worktree-setup drift on freshly-created worktrees (G6)**: `npx hatch3r worktree-setup <name>` now produces a worktree whose `git status` is clean immediately after creation. Previously, sync inside the new worktree could rewrite many tracked files with trailing-newline-only diffs because the merge layer did not enforce a POSIX final newline on managed-block output. `src/merge/managedBlocks.ts::wrapInManagedBlock` and `src/merge/managedBlocks.ts::insertManagedBlock` now both guarantee a trailing `\n` on every returned string; the three callers that previously compensated with `+ "\n"` (`src/adapters/copilot.ts:87`, `src/cli/shared/agentsContent.ts:453,538`) had their compensations removed so the result is no longer a double newline. Regression guards added: per-helper trailing-newline + idempotency tests in `src/__tests__/merge/managedBlocks.test.ts`; second-write-returns-unchanged invariant across all four `safeWriteFile` paths in `src/__tests__/merge/safeWrite.test.ts`; whole-project SHA-256 snapshot comparison across two consecutive syncs in `src/__tests__/cli/lifecycle.test.ts`; end-to-end real-git worktree round-trip assertion in `src/__tests__/worktree/setupCleanup.test.ts`.
+
+### Upgrade notes
+
+- The first `hatch3r sync` after upgrading from 1.7.0 will rewrite every previously-managed hatch3r-* file by exactly one byte — a trailing `\n` appended. Run sync in your project root, review the diff, and commit it before invoking `hatch3r worktree-setup`. After this one-time migration, subsequent syncs are byte-stable and worktree-setup leaves a clean tree.
+
 ## [1.7.0] - 2026-04-27
 
 ### Added
