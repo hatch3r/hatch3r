@@ -39,4 +39,5 @@ governance/AUDIT-REPORT.md
 governance/EVOLVE-REPORT.md
 .audit-workspace/
 .agents/
+.hatch3r/
 skills-lock.json

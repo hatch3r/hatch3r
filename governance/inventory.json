@@ -6,7 +6,7 @@
     "skills": 26,
     "rules": 28,
     "rulesMdc": 28,
-    "commands": 36,
+    "commands": 37,
     "hooks": 6,
     "pipeline": 17,
     "cliCommands": 11
@@ -166,6 +166,7 @@
       "hatch3r-recipe.md",
       "hatch3r-refactor-plan.md",
       "hatch3r-release.md",
+      "hatch3r-report.md",
       "hatch3r-revision.md",
       "hatch3r-roadmap.md",
       "hatch3r-rule-customize.md",
