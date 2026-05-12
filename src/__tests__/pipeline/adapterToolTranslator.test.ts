@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
+  PLATFORM_TOOL_MARKER,
+  buildAskUserPlatformTable,
+  getAskUserToolEntry,
+  substituteCanonicalPlatformMarker,
+  toAskUserPlatformNote,
   toClaudeToolsFrontmatter,
   toCopilotToolsFrontmatter,
   toCursorReadonlyFrontmatter,
@@ -155,5 +160,103 @@ describe("adapterToolTranslator", () => {
         expect(toCursorReadonlyFrontmatter(id), `${id} Cursor readonly`).toBe(true);
       }
     });
+  });
+});
+
+describe("ASK_USER_TOOLS + toAskUserPlatformNote", () => {
+  const KNOWN_ADAPTERS = [
+    "claude", "cursor", "copilot", "windsurf", "codex", "cline",
+    "opencode", "amp", "aider", "kiro", "goose", "zed",
+    "amazon-q", "gemini", "antigravity",
+  ];
+
+  it("returns an entry or null for every known adapter", () => {
+    for (const a of KNOWN_ADAPTERS) {
+      const entry = getAskUserToolEntry(a);
+      if (entry !== null) {
+        expect(entry.name.length).toBeGreaterThan(0);
+        expect(entry.name.length).toBeLessThanOrEqual(30);
+        expect(entry.name).not.toMatch(/\s/);
+      }
+    }
+  });
+
+  it("returns a populated entry for claude", () => {
+    const entry = getAskUserToolEntry("claude");
+    expect(entry).not.toBeNull();
+    expect(entry!.name).toBe("AskUserQuestion");
+  });
+
+  it("returns null for unknown adapter names (deny-by-default)", () => {
+    expect(getAskUserToolEntry("does-not-exist")).toBeNull();
+  });
+
+  it("toAskUserPlatformNote returns native-case prose for claude", () => {
+    const note = toAskUserPlatformNote("claude");
+    expect(note).toContain("AskUserQuestion");
+    expect(note).toContain("ASK checkpoint");
+  });
+
+  it("toAskUserPlatformNote returns fallback prose for gemini", () => {
+    const note = toAskUserPlatformNote("gemini");
+    expect(note.toLowerCase()).toContain("no documented native");
+    expect(note).toContain("Plain-Text Fallback Template");
+  });
+
+  it("toAskUserPlatformNote returns fallback prose for unknown adapter", () => {
+    const note = toAskUserPlatformNote("does-not-exist");
+    expect(note.toLowerCase()).toContain("no documented native");
+  });
+
+  it("native-case prose contains a code-fenced tool name", () => {
+    const note = toAskUserPlatformNote("claude");
+    expect(note).toMatch(/`[A-Za-z0-9_]+`/);
+  });
+});
+
+describe("buildAskUserPlatformTable + substituteCanonicalPlatformMarker", () => {
+  it("renders a markdown table with header and one row per known adapter", () => {
+    const table = buildAskUserPlatformTable();
+    expect(table.split("\n")[0]).toBe("| Adapter | Platform-Native Question Tool |");
+    expect(table.split("\n")[1]).toBe("|---------|-------------------------------|");
+    const rowLines = table.split("\n").slice(2);
+    expect(rowLines.length).toBe(15);
+  });
+
+  it("table cites AskUserQuestion in the claude row", () => {
+    const table = buildAskUserPlatformTable();
+    expect(table).toMatch(/\| `claude` \| Invoke the `AskUserQuestion` tool/);
+  });
+
+  it("table uses fallback prose for adapters with null entries", () => {
+    const table = buildAskUserPlatformTable();
+    expect(table).toMatch(/\| `gemini` \| _No documented native tool/);
+    expect(table).toMatch(/\| `aider` \| _No documented native tool/);
+  });
+
+  it("substituteCanonicalPlatformMarker replaces the marker with the table", () => {
+    const before = `before\n${PLATFORM_TOOL_MARKER}\nafter`;
+    const after = substituteCanonicalPlatformMarker(before);
+    expect(after).not.toContain(PLATFORM_TOOL_MARKER);
+    expect(after).toContain("| Adapter | Platform-Native Question Tool |");
+    expect(after.startsWith("before\n")).toBe(true);
+    expect(after.endsWith("\nafter")).toBe(true);
+  });
+
+  it("substituteCanonicalPlatformMarker is a no-op when the marker is absent", () => {
+    const input = "no marker here\njust prose";
+    expect(substituteCanonicalPlatformMarker(input)).toBe(input);
+  });
+
+  it("substituteCanonicalPlatformMarker handles multiple marker occurrences", () => {
+    const input = `${PLATFORM_TOOL_MARKER}\n---\n${PLATFORM_TOOL_MARKER}`;
+    const result = substituteCanonicalPlatformMarker(input);
+    expect(result).not.toContain(PLATFORM_TOOL_MARKER);
+    const matches = result.match(/Platform-Native Question Tool/g);
+    expect(matches?.length).toBe(2);
+  });
+
+  it("PLATFORM_TOOL_MARKER is the documented HTML comment token", () => {
+    expect(PLATFORM_TOOL_MARKER).toBe("<!-- HATCH3R:PLATFORM-TOOL -->");
   });
 });

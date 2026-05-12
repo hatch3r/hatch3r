@@ -1,6 +1,6 @@
 # Domain 9: Platform Adapters
 
-> Last updated: 2026-04-21
+> Last updated: 2026-05-12
 
 **Pillars served:** P3 (primary), P4 (supporting).
 
@@ -43,7 +43,6 @@ Each adapter sub-agent MUST:
 2. Read the corresponding test file (`src/__tests__/adapters/{name}.test.ts`)
 3. Per-cycle currency research (mandatory): write a `**Last web-research date:** YYYY-MM-DD` line at the top of `.audit-workspace/D9-SA9.{N}.findings.md` citing the platform's official documentation URL, access date, author/org, and trust tier per `governance/audit/templates/rigor-contract.md`. Compare this date against the prior cycle's date recorded in `governance/audit/execution-insights.json` under `d9_adapter_research_dates.{adapter_name}`. If the prior date is within 90 days AND the platform's public changelog has no new entries since that date, the sub-agent MAY cite the prior research and add ≤2 spot-check URLs to confirm no regression. Otherwise full re-research is mandatory. Omitting either the date line or the prior-cycle comparison is itself a Medium finding.
 4. Verify against the following checklist:
-
 - [ ] Output file paths match the capability matrix documentation
 - [ ] Output format matches what the platform actually expects (current docs, not assumptions)
 - [ ] Feature flag behavior: capabilities the adapter doesn't support are correctly skipped
@@ -53,6 +52,7 @@ Each adapter sub-agent MUST:
 - [ ] Secret management: verify secret loading method per adapter
 - [ ] Hook format: verify hook/event mapping is correct for this platform
 - [ ] New platform features: has the platform added capabilities not yet supported by the adapter?
+- [ ] User-question tool: verify the platform's current native question/triage tool name and invocation via official documentation. Confirm `ASK_USER_TOOLS[adapter]` in src/pipeline/adapterToolTranslator.ts and the `nativeQuestionTool` flag in src/adapters/index.ts agree (both populated, or both null/false). Cite URL + access date.
 - [ ] Test coverage: does the test file adequately cover the adapter's output paths?
 
 ### 9.14 Amazon Q — Additional Notes

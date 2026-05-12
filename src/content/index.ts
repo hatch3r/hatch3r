@@ -3,6 +3,10 @@ import { createHash } from "node:crypto";
 import { join, dirname, normalize, isAbsolute, posix } from "node:path";
 import { parseFrontmatter } from "../adapters/canonical.js";
 import { atomicWriteFile } from "../merge/safeWrite.js";
+import {
+  PLATFORM_TOOL_MARKER,
+  substituteCanonicalPlatformMarker,
+} from "../pipeline/adapterToolTranslator.js";
 import { HatchError } from "../types.js";
 import type { ContentSelection } from "../types.js";
 import type { ContentPreset } from "./presets.js";
@@ -885,7 +889,41 @@ export async function copySelectedContent(
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
   }
 
+  // Substitute the platform-tool marker in shared canonical files so every
+  // platform's agent reads a populated enumeration table instead of the raw
+  // marker. Adapter-agnostic — the table lists all known adapter→tool
+  // mappings and the runtime agent looks up its own row. See
+  // `src/pipeline/adapterToolTranslator.ts::buildAskUserPlatformTable`.
+  await substitutePlatformToolMarker(agentsDir);
+
   return copied;
+}
+
+/**
+ * Walk `agents/shared/` under the canonical destination and replace the
+ * platform-tool marker in any .md file that contains it. Idempotent;
+ * no-op when no file has the marker.
+ *
+ * Scoped to `agents/shared/` because that is the canonical home of the
+ * user-question protocol (the only file that ships the marker today).
+ * Broaden the search if future shared files introduce the marker.
+ */
+async function substitutePlatformToolMarker(agentsDir: string): Promise<void> {
+  const sharedDir = join(agentsDir, "agents", "shared");
+  let entries;
+  try {
+    entries = await readdir(sharedDir, { withFileTypes: true });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw err;
+  }
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
+    const filePath = join(sharedDir, entry.name);
+    const content = await readFile(filePath, "utf-8");
+    if (!content.includes(PLATFORM_TOOL_MARKER)) continue;
+    await atomicWriteFile(filePath, substituteCanonicalPlatformMarker(content));
+  }
 }
 
 // ── Available items ────────────────────────────────────────────

@@ -170,7 +170,7 @@ Every finding must include:
 ## Boundaries
 
 - **Always:** Follow the tooling hierarchy (project docs -> codebase -> Context7 -> web research). Use the platform CLI (check `platform` in `.agents/hatch.json`). Stay within the research brief's scope. Produce structured output matching the mode's specification. Report BLOCKED if the brief is ambiguous or contradictory.
-- **Ask first:** If the brief's scope is unclear, if contradictions are found between sources, or if critical context is missing.
+- **Ask first:** If the brief's scope is unclear, if contradictions are found between sources, or if critical context is missing. When surfacing a question to the user, follow `agents/shared/user-question-protocol.md` (native tool preferred; structured plain-text fallback).
 - **Never:** Create files. Modify code. Create branches, commits, or PRs. Modify board status. Expand scope beyond the research brief. Invent findings not supported by evidence.
 
 </rules>

@@ -46,9 +46,11 @@
 import { describe, it, expect } from "vitest";
 import { createHash } from "node:crypto";
 import {
+  ADAPTER_CAPABILITIES,
   getAdapter,
   getUnsupportedFeatureWarnings,
 } from "../../adapters/index.js";
+import { getAskUserToolEntry } from "../../pipeline/adapterToolTranslator.js";
 import { createManifest } from "../../manifest/hatchJson.js";
 import type { Features, HatchManifest, Tool } from "../../types.js";
 import { resolveTestPath } from "../fixtures.js";
@@ -201,6 +203,17 @@ describe("ADAPTER_CAPABILITIES drift detection (C7.5-W2B2-H6)", () => {
     // tests run. Keep in lockstep with src/types.ts `TOOLS`.
     const expectedCount = 15;
     expect(TOOLS_UNDER_TEST.length).toBe(expectedCount);
+  });
+
+  it("nativeQuestionTool flag agrees with ASK_USER_TOOLS map", () => {
+    for (const [adapter, caps] of Object.entries(ADAPTER_CAPABILITIES)) {
+      const entry = getAskUserToolEntry(adapter);
+      if (caps.nativeQuestionTool) {
+        expect(entry, `${adapter}: nativeQuestionTool=true requires ASK_USER_TOOLS entry`).not.toBeNull();
+      } else {
+        expect(entry, `${adapter}: nativeQuestionTool=false requires ASK_USER_TOOLS null`).toBeNull();
+      }
+    }
   });
 
   for (const tool of TOOLS_UNDER_TEST) {
