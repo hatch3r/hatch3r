@@ -55,6 +55,10 @@ Living reference for framework capabilities vs. adapter implementations. This do
 | **antigravity** | B | B | Y | -- | -- | Y | -- | -- | -- | Y | -- |
 | **agents-md** | B | B | B | -- | -- | -- | -- | -- | -- | Y | -- |
 
+#### Hook-surface notes
+
+- **copilot** carries `hooks: --` because GitHub Copilot Chat exposes no `PreToolUse` / pre-edit hook, no transcript access for external processes, and no tool-refusal API (verified against [GitHub Copilot Chat docs](https://docs.github.com/en/copilot/customizing-copilot/about-customizing-github-copilot-chat-responses) on 2026-05-12). Hatch3r enforces pipeline orchestration on Copilot via instructional rules only — the `## Copilot Enforcement Model (no hook surface)` section emitted into `.github/copilot-instructions.md` by `src/adapters/copilot.ts` documents the trust-based model and self-detectable drift indicators. See [hatch3r issue #73](https://github.com/hatch3r-dev/hatch3r/issues/73).
+
 ### Agent Model Customization
 
 All adapters emit model preferences when configured via `hatch.json`, agent frontmatter, or `.hatch3r/agents/{id}.customize.yaml`. Resolution order: customization file > manifest per-agent > agent frontmatter > manifest default. See [model-selection.md](model-selection.md) for configuration, aliases, and platform behavior. Use the `hatch3r-agent-customize` command for per-agent overrides.

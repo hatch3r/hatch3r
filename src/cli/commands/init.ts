@@ -109,6 +109,62 @@ tags: [<tag>, ...]
 The loader agent applies content-security and integrity checks to every
 entry; see \`hatch3r-learnings-loader\` for the full protocol.
 
+## Recommended First Learning — Pipeline Drift
+
+Copy the markdown block below into \`.agents/learnings/pipeline-drift-rule-73.md\`
+to prime your AI tool against the bypass pattern reported in hatch3r
+issue #73 (GitHub Copilot Chat skipping the four-phase sub-agent
+pipeline on Tier-3 epics). The \`hatch3r-learnings-loader\` agent will
+surface it on session start.
+
+\`\`\`markdown
+---
+id: pipeline-drift-rule-73
+category: pitfall
+area: orchestration
+recorded: 2026-05-12
+source: manual
+confidence: high
+author: human
+tags: [orchestration, copilot, drift]
+---
+
+## Learning
+
+The hatch3r four-phase sub-agent pipeline (Research -> Implement ->
+Review -> Quality) is trust-based on Copilot Chat — Copilot has
+\`hooks: false\` in \`src/adapters/index.ts\`, exposes no PreToolUse /
+pre-edit hook, and does not surface its chat transcript to external
+processes. Drift is invisible by default: Copilot can call
+\`multi_replace_string_in_file\` / \`create_file\` inline on a Tier-3
+task and the build can still pass.
+
+Self-detectable signals:
+
+- The orchestrator's reply does NOT start with the
+  \`[hatch3r-pipeline: phase N | last: ... | next: ...]\` header on
+  a tracked Tier 2+ task -> halt and re-ground.
+- A code-writing tool was called before the user confirmed the
+  Pre-Implementation Summary on a Tier 3 task -> bypass mode.
+- An \`Edit\` / \`Write\` / equivalent fired from the orchestrator
+  turn rather than from inside a \`hatch3r-implementer\` Task
+  sub-agent -> bypass mode.
+
+## Evidence
+
+- Issue: https://github.com/hatch3r-dev/hatch3r/issues/73
+- Rules: \`rules/hatch3r-agent-orchestration.md\` (Per-Turn
+  Pipeline-State Header, Mandatory Delegation Directive);
+  \`rules/hatch3r-deep-context.md\` (Tier 3 — Deep hard gate).
+- Adapter capability: \`src/adapters/index.ts\` — \`copilot\` is the
+  only adapter with \`hooks: false\`.
+\`\`\`
+
+Customize the \`recorded\` date and \`tags\` to match your setup.
+Adapters other than Copilot also benefit from this learning when
+the bypass pattern is plausible on their host (e.g., long-context
+sessions on any adapter).
+
 Delete this README once you have authored real learnings.
 `;
 

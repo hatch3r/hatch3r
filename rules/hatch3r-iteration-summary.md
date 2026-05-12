@@ -16,6 +16,8 @@ Every iteration with the user ends with the canonical block defined below — no
 
 Every user-facing iteration, regardless of size — multi-step coding tasks, single-file edits, read-only answers, failed or blocked attempts. No exceptions.
 
+The per-turn pipeline-state header (defined in `hatch3r-agent-orchestration` → Per-Turn Pipeline-State Header) is a separate start-of-turn artifact and does not replace this end-of-turn block.
+
 ## The Required Block
 
 Use this exact shape with these exact field names:

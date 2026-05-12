@@ -11,6 +11,36 @@ import { applyCustomization } from "./customization.js";
 import { detectPackageManager } from "../detect/packageManager.js";
 import { toCopilotToolsFrontmatter } from "../pipeline/adapterToolTranslator.js";
 
+// Issue #73 — Copilot has `hooks: false` in ADAPTER_CAPABILITIES (no
+// PreToolUse hook, no transcript access for external processes, no
+// tool-refusal API). Pipeline enforcement is therefore trust-based;
+// this addendum surfaces the constraint to the model on every turn
+// and names the self-detectable drift indicators.
+const COPILOT_ENFORCEMENT_ADDENDUM = `## Copilot Enforcement Model (no hook surface)
+
+GitHub Copilot Chat does not expose a PreToolUse or pre-edit hook
+(see \`src/adapters/index.ts\` — \`copilot\` is the only adapter with
+\`hooks: false\` in \`ADAPTER_CAPABILITIES\`). Hatch3r cannot block
+code-writing tool calls server-side for Copilot. Enforcement is
+therefore trust-based — the directives in this file and in
+\`.github/instructions/\` are normative, not advisory.
+
+Self-detectable drift indicators (halt the current turn if any appear):
+
+- Missing pipeline-state header on a tracked Tier 2+ task (see
+  \`hatch3r-agent-orchestration\` → Per-Turn Pipeline-State Header).
+- A call to \`replace_string_in_file\`, \`multi_replace_string_in_file\`,
+  \`create_file\`, or any code-writing tool before the user has
+  confirmed the Pre-Implementation Summary on a Tier 3 task (see
+  \`hatch3r-deep-context\` → Tier 3 — Deep).
+- An \`Edit\` / \`Write\` invocation from the orchestrator turn that
+  did not immediately follow a SUCCESS report from \`hatch3r-implementer\`
+  via the \`Task\` tool.
+
+On any drift, halt and re-delegate via \`hatch3r-implementer\` (Phase 2)
+or \`hatch3r-fixer\` (Phase 3). The only carve-out is \`hatch3r-quick-change\`
+Tier 1 trivial single-line edits per its declared scope.`;
+
 export class CopilotAdapter extends BaseAdapter {
   readonly name = "copilot";
 
@@ -49,6 +79,8 @@ export class CopilotAdapter extends BaseAdapter {
       "Full canonical agent instructions are at `/.agents/AGENTS.md`.",
       "",
       bridgeOrchestration,
+      "",
+      COPILOT_ENFORCEMENT_ADDENDUM,
       "",
       "## Hatch3r Rules",
       "",
