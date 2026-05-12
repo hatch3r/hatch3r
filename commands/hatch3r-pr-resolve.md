@@ -518,7 +518,7 @@ All reply bodies are signed with a trailing line: `_— hatch3r-pr-resolve (conf
 #### 8b. Per-Platform Endpoints
 
 **GitHub:**
-- Inline reply (to a thread): `gh api repos/{owner}/{repo}/pulls/{N}/comments -X POST -f in_reply_to={comment_id} -f body=@{tmp_file}`
+- Inline reply (to a thread): `gh api repos/{owner}/{repo}/pulls/{N}/comments -X POST -F in_reply_to={comment_id} -f body=@{tmp_file}`
 - General discussion reply: `gh api repos/{owner}/{repo}/issues/{N}/comments -X POST -f body=@{tmp_file}`
 - Review-summary reply: post as general discussion, quote the summary's first 200 characters at the top of the reply body.
 
@@ -531,6 +531,8 @@ All reply bodies are signed with a trailing line: `_— hatch3r-pr-resolve (conf
 - General discussion (new note, no thread): `glab api '/projects/{project_id}/merge_requests/{iid}/notes' -X POST -f body=@{tmp_file}`
 
 Reply bodies are written to a `mktemp` file and passed with `-f body=@{file}` (GitHub/GitLab) or via the JSON `--body` argument (Azure); this avoids shell-quoting issues with markdown content.
+
+**Field typing for `gh api`:** Integer-typed fields like `in_reply_to` require `-F` (capital); string fields like `body` use `-f` (lowercase). Mixing them returns HTTP 422 and the reply silently fails into the retry/backoff path. See `commands/board/shared-github.md` → GitHub CLI Field-Typing Notes for the full table. **Pager:** Every `gh api` invocation from this command must run with `GH_PAGER=cat` and `PAGER=cat` set; see `commands/hatch3r-board-shared.md` → Pager-Bypass Directive.
 
 #### 8c. Resilience
 

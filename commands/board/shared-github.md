@@ -170,7 +170,7 @@ After linking, verify via `issue_read` with `method: get_sub_issues` on the pare
 | Read PR review summaries | `gh api repos/{owner}/{repo}/pulls/{N}/reviews --paginate`                                              | `pull_request_read`                                 |
 | Read PR discussion   | `gh api repos/{owner}/{repo}/issues/{N}/comments --paginate`                                                | `pull_request_read`                                 |
 | Read PR thread resolution | `gh api graphql -f query='{repository(owner:"o",name:"r"){pullRequest(number:N){reviewThreads(first:100){nodes{id,isResolved}}}}}'` | N/A                                |
-| Reply to inline comment | `gh api repos/{owner}/{repo}/pulls/{N}/comments -X POST -f in_reply_to={comment_id} -f body=@{file}`     | N/A                                                 |
+| Reply to inline comment | `gh api repos/{owner}/{repo}/pulls/{N}/comments -X POST -F in_reply_to={comment_id} -f body=@{file}`     | N/A                                                 |
 | Comment on PR thread | `gh api repos/{owner}/{repo}/issues/{N}/comments -X POST -f body=@{file}`                                   | `add_issue_comment`                                 |
 | Manage labels        | `gh label create` / `gh label list`                                                                         | `issue_write` (with labels)                         |
 | Projects v2          | `gh project item-add`, `gh project item-edit`, `gh project item-list`, `gh project field-list`, `gh project view` | `projects_write` / `projects_get` / `projects_list` |
@@ -178,3 +178,14 @@ After linking, verify via `issue_read` with `method: get_sub_issues` on the pare
 | Releases             | `gh release create`                                                                                         | N/A                                                 |
 
 Fallback to MCP only for operations the `gh` CLI cannot handle: sub-issue management (`sub_issue_write`).
+
+### GitHub CLI Field-Typing Notes
+
+`gh api` field flags differ by type. Pass the wrong one and the GitHub REST API returns `HTTP 422: not of type {integer|boolean}`.
+
+| Flag | Type sent | Use for |
+|------|-----------|---------|
+| `-f key=value` | string (URL-encoded form) | `body`, `title`, `commit_message`, `query`, `state`, `event` |
+| `-F key=value` | integer / boolean (auto-typed) — also `@file` for file contents | numeric IDs: `sub_issue_id`, `in_reply_to`, `parent_issue_id`, `issue_number`, `pull_number`, `team_id`, `user_id`, `milestone_number`; booleans: `draft`, `merged`, `auto_merge` |
+
+Sub-issue linking via `POST /repos/{owner}/{repo}/issues/{N}/sub_issues` requires `-F sub_issue_id={child_numeric_id}` — `-f` returns 422. When the `sub_issue_write` MCP is unavailable, write the hand-rolled `gh api` call with `-F`, never `-f`. The same rule applies to PR review-reply (`in_reply_to`), milestone assignment (`milestone_number`), and team membership (`team_id` / `user_id`).

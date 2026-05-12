@@ -273,6 +273,27 @@ During **board-fill Step 4c** (external research) and **board-pickup Step 6** (i
 2. Use **web research** for novel technical challenges, current best practices, security advisories, or breaking changes not covered by Context7 or local docs.
 3. Follow the project's tooling hierarchy for knowledge augmentation priority.
 
+### Agent-Synthesized Wrapper Scripts
+
+Board commands instruct the agent to invoke individual CLI / MCP calls; the agent harness already batches them. If the agent synthesises a wrapper shell script anyway, the script MUST be portable across the user's installed shells. macOS ships `bash 3.2` as `/bin/bash` and many users default to `zsh` — bash-4-only features fail loudly on both.
+
+1. **Default to individual tool calls.** Do not wrap `gh issue create`, `gh issue edit`, `gh project item-add`, `az boards work-item create`, or `glab issue create` loops in a synthesised bash script unless the user explicitly asks for a script artifact. The harness's parallel tool dispatch is cheaper than spawning a sub-shell and avoids the portability problem entirely.
+2. **If a wrapper is required, target `bash 3.2` (macOS system default).** Banned constructs: `declare -A` (associative arrays), `${!ARR[@]}` (associative-array key expansion), `mapfile`, `readarray`. Use parallel indexed arrays (`KEYS=()`, `VALUES=()`) with integer indices, or rewrite the batching logic in Python / Node. `zsh` is not a drop-in substitute — `${!ARR[@]}` semantics differ; `bad substitution` is the symptom.
+3. **Pin the shell explicitly.** Start every synthesised script with `#!/usr/bin/env bash` and guard any bash-4+ feature behind `[[ ${BASH_VERSINFO[0]} -ge 4 ]] || { echo "bash 4+ required, found ${BASH_VERSION}"; exit 64; }` so the failure mode is loud, not silent.
+
+### Pager-Bypass Directive
+
+Every `gh api`, `gh pr view`, `gh issue view`, `gh project item-list`, `az pipelines run`, and `glab api` invocation from an agent-driven terminal MUST run with `GH_PAGER=cat` and `PAGER=cat` set. The default GitHub CLI pager (`less`) opens the alternate screen buffer, which returns empty captured output in non-TTY contexts — the call appears to succeed but its `--jq` output is lost. Piping to `| cat` does not bypass the alternate-buffer behaviour; the environment variables are the only reliable workaround.
+
+Set once at the start of every board / PR command run, before the first CLI invocation:
+
+```bash
+export GH_PAGER=cat
+export PAGER=cat
+```
+
+The export is idempotent and safe to re-set. `GH_PAGER` is scoped to `gh`; `PAGER` covers downstream `git`, `az`, or `glab` invocations. This directive applies to every command in this directory tree.
+
 ---
 
 ## Formatting Rules
