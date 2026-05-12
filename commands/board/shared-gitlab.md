@@ -146,6 +146,10 @@ After linking, verify via `glab api projects/{project_id}/issues/{epic_iid}/link
 | Add comments         | `glab issue note N -R {namespace}/{project}`                  | N/A            |
 | Create MRs           | `glab mr create -R {namespace}/{project}`                     | N/A            |
 | Read MR details      | `glab mr view N -R {namespace}/{project}`                     | N/A            |
+| Read MR discussions  | `glab api '/projects/{project_id}/merge_requests/{iid}/discussions?per_page=100' --paginate` | N/A |
+| Read MR notes        | `glab api '/projects/{project_id}/merge_requests/{iid}/notes?per_page=100' --paginate`       | N/A |
+| Reply to discussion  | `glab api '/projects/{project_id}/merge_requests/{iid}/discussions/{discussion_id}/notes' -X POST -f body=@{file}` | N/A |
+| Add MR note          | `glab api '/projects/{project_id}/merge_requests/{iid}/notes' -X POST -f body=@{file}`       | N/A |
 | Manage labels        | `glab label create` / `glab label list`                       | N/A            |
 | Board sync           | Label updates (automatic board list placement)                | N/A            |
 | CI/Pipelines         | `glab ci list` / `glab ci view`                               | N/A            |

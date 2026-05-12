@@ -166,6 +166,12 @@ After linking, verify via `issue_read` with `method: get_sub_issues` on the pare
 | Add comments         | `gh issue comment`                                                                                          | `add_issue_comment`                                 |
 | Create PRs           | `gh pr create`                                                                                              | `create_pull_request`                               |
 | Read PR details      | `gh pr view`                                                                                                | `pull_request_read`                                 |
+| Read PR inline comments | `gh api repos/{owner}/{repo}/pulls/{N}/comments --paginate`                                              | `pull_request_read`                                 |
+| Read PR review summaries | `gh api repos/{owner}/{repo}/pulls/{N}/reviews --paginate`                                              | `pull_request_read`                                 |
+| Read PR discussion   | `gh api repos/{owner}/{repo}/issues/{N}/comments --paginate`                                                | `pull_request_read`                                 |
+| Read PR thread resolution | `gh api graphql -f query='{repository(owner:"o",name:"r"){pullRequest(number:N){reviewThreads(first:100){nodes{id,isResolved}}}}}'` | N/A                                |
+| Reply to inline comment | `gh api repos/{owner}/{repo}/pulls/{N}/comments -X POST -f in_reply_to={comment_id} -f body=@{file}`     | N/A                                                 |
+| Comment on PR thread | `gh api repos/{owner}/{repo}/issues/{N}/comments -X POST -f body=@{file}`                                   | `add_issue_comment`                                 |
 | Manage labels        | `gh label create` / `gh label list`                                                                         | `issue_write` (with labels)                         |
 | Projects v2          | `gh project item-add`, `gh project item-edit`, `gh project item-list`, `gh project field-list`, `gh project view` | `projects_write` / `projects_get` / `projects_list` |
 | CI/Actions           | `gh run list` / `gh run view`                                                                               | N/A                                                 |
