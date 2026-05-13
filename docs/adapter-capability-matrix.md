@@ -1,6 +1,6 @@
 # Adapter Capability Matrix
 
-> **Last verified**: 2026-04-22 | **hatch3r version**: 1.6.1
+> **Last verified**: 2026-05-13 | **hatch3r version**: 1.7.1
 
 Living reference for framework capabilities vs. adapter implementations. This document tracks what each adapter emits, what each platform supports natively, and where gaps remain.
 
@@ -81,6 +81,30 @@ All adapters emit model preferences when configured via `hatch.json`, agent fron
 | **amazon-q** | Guidance | Text in .amazonq/rules/hatch3r-agents.md |
 | **antigravity** | Guidance | Text in .antigravity/rules.md |
 | **agents-md** | Guidance | `**Model:** \`id\`` annotation per agent in AGENTS.md |
+
+### Native User-Question / Triage Tool
+
+Added in 1.7.1. Tracks whether the adapter exposes a documented platform-native question/triage tool (vs. the plain-text fallback). Source of truth: `ASK_USER_TOOLS` in `src/pipeline/adapterToolTranslator.ts` and the `nativeQuestionTool` column in `ADAPTER_CAPABILITIES` (`src/adapters/index.ts`). Capability-matrix invariant test: `src/__tests__/adapters/capability-matrix.test.ts`. At canonical-write time, the `<!-- HATCH3R:PLATFORM-TOOL -->` marker is replaced with a per-adapter row table by `copySelectedContent` in `src/content/index.ts`.
+
+| Adapter | Native question tool | Notes |
+|---------|:--------------------:|-------|
+| **claude** | Y | `AskUserQuestion` tool |
+| **cursor** | -- | Pending per-cycle web-research verification by adapter author |
+| **copilot** | -- | Pending per-cycle web-research verification by adapter author |
+| **windsurf** | -- | Pending per-cycle web-research verification by adapter author |
+| **codex** | -- | Pending per-cycle web-research verification by adapter author |
+| **cline** | -- | Pending per-cycle web-research verification by adapter author |
+| **opencode** | -- | Pending per-cycle web-research verification by adapter author |
+| **amp** | -- | Pending per-cycle web-research verification by adapter author |
+| **aider** | -- | Pending per-cycle web-research verification by adapter author |
+| **kiro** | -- | Pending per-cycle web-research verification by adapter author |
+| **goose** | -- | Pending per-cycle web-research verification by adapter author |
+| **zed** | -- | Pending per-cycle web-research verification by adapter author |
+| **amazon-q** | -- | Pending per-cycle web-research verification by adapter author |
+| **gemini** | -- | Pending per-cycle web-research verification by adapter author |
+| **antigravity** | -- | Pending per-cycle web-research verification by adapter author |
+
+When `nativeQuestionTool: false` (deny-by-default) the agent uses the plain-text numbered-options fallback per `agents/shared/user-question-protocol.md`.
 
 ---
 

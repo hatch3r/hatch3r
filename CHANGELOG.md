@@ -24,6 +24,10 @@ All notable changes to hatch3r are documented in this file.
 
 - The first `hatch3r sync` after upgrading from 1.7.0 will rewrite every previously-managed hatch3r-* file by exactly one byte — a trailing `\n` appended. Run sync in your project root, review the diff, and commit it before invoking `hatch3r worktree-setup`. After this one-time migration, subsequent syncs are byte-stable and worktree-setup leaves a clean tree.
 
+### Chore
+
+- Dependency and CI-action bumps merged into the release branch (no runtime behavior change, no API surface change): production deps group (#68), development deps group with 6 updates (#69), `github/gh-aw` 0.68.1 → 0.73.0 (#67), `actions/setup-node` 6.3.0 → 6.4.0 (#62), `actions/github-script` 8.0.0 → 9.0.0 (#50), `actions/upload-pages-artifact` 4.0.0 → 5.0.0 (#49). The release PR itself is #74.
+
 ## [1.7.0] - 2026-04-27
 
 ### Added
