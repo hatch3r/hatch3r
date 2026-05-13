@@ -28,6 +28,8 @@ import {
   setupWorktree,
   cleanupWorktree,
 } from "../../worktree/index.js";
+import { wrapInManagedBlock } from "../../merge/managedBlocks.js";
+import { safeWriteFile } from "../../merge/safeWrite.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -43,6 +45,19 @@ function makeTempGitRepo(): string {
     stdio: "ignore",
   });
   execFileSync("git", ["config", "user.name", "Test"], {
+    cwd: dir,
+    stdio: "ignore",
+  });
+  // Isolate the test fixture from the host's git line-ending policy.
+  // Windows runners default to core.autocrlf=true, which would CRLF-ize
+  // files on checkout and turn the G6 round-trip test into a line-ending
+  // assertion. The unit under test is safeWriteFile's byte-equality
+  // contract, not git's eol behavior.
+  execFileSync("git", ["config", "core.autocrlf", "false"], {
+    cwd: dir,
+    stdio: "ignore",
+  });
+  execFileSync("git", ["config", "core.eol", "lf"], {
     cwd: dir,
     stdio: "ignore",
   });
@@ -246,6 +261,68 @@ describe("setupWorktree", () => {
     const result2 = await setupWorktree(mainRepo, worktreeDir);
     expect(result2.skipped).toContain(".env");
     expect(result2.copied).not.toContain(".env");
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // G6 (v1.7.1) — End-to-end regression guard for the worktree-setup
+  // "many local git changes" symptom. Simulates the exact sequence that
+  // worktree-setup runs: a hatch3r-managed file is written + committed in
+  // main, then a real `git worktree add` checks it out into a fresh
+  // worktree, then we re-run the same merge-layer write inside the
+  // worktree (as syncWorktree would). The worktree's `git status` MUST
+  // be empty — that is the user-facing contract this release restores.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  it("worktree round-trip after commit shows no git drift (G6 v1.7.1)", async () => {
+    // Adapter-style write in main: wrapInManagedBlock + safeWriteFile is
+    // the same path every adapter uses for pure managed-block outputs.
+    const body = "rule body line 1\nrule body line 2";
+    const content = wrapInManagedBlock(body);
+    const mainFile = join(mainRepo, "hatch3r-roundtrip-test.md");
+    await safeWriteFile(mainFile, content);
+
+    // Commit on main so the worktree checks out the committed bytes.
+    execFileSync("git", ["add", "."], { cwd: mainRepo, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "add managed file"], {
+      cwd: mainRepo,
+      stdio: "ignore",
+    });
+
+    // Real git worktree on a new branch — exactly what hatch3r
+    // worktree-setup does via addGitWorktree.
+    const wtPath = mkdtempSync(join(tmpdir(), "hatch3r-wt-roundtrip-"));
+    rmSync(wtPath, { recursive: true, force: true });
+    try {
+      execFileSync(
+        "git",
+        ["worktree", "add", "-b", "feat-roundtrip-test", wtPath],
+        { cwd: mainRepo, stdio: "ignore" },
+      );
+
+      // Re-run the same managed-block write inside the worktree
+      // (simulates `npx hatch3r sync` inside the new worktree).
+      const wtFile = join(wtPath, "hatch3r-roundtrip-test.md");
+      const result = await safeWriteFile(wtFile, content);
+      expect(result.action).toBe("unchanged");
+
+      // The user-facing contract: the new worktree's git status is clean.
+      const status = execFileSync("git", ["status", "--porcelain"], {
+        cwd: wtPath,
+      }).toString();
+      expect(status).toBe("");
+    } finally {
+      // Detach the worktree so git's state stays consistent for other tests.
+      try {
+        execFileSync(
+          "git",
+          ["worktree", "remove", "--force", wtPath],
+          { cwd: mainRepo, stdio: "ignore" },
+        );
+      } catch {
+        // Worktree may already be gone if the test threw before `add` ran.
+      }
+      rmSync(wtPath, { recursive: true, force: true });
+    }
   });
 });
 

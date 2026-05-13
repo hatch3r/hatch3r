@@ -13,6 +13,7 @@ import { filterUserFacing, readCanonicalFiles, sortByPrecedence, type CanonicalT
 import { applyCustomization, applyCustomizationRaw } from "./customization.js";
 import { readMcpConfig, transformEnvVarSyntax, type McpServerEntry } from "./mcp-utils.js";
 import { readHookDefinitions } from "../hooks/index.js";
+import { PLATFORM_TOOL_MARKER, toAskUserPlatformNote } from "../pipeline/adapterToolTranslator.js";
 
 export interface Adapter {
   name: string;
@@ -295,9 +296,10 @@ export abstract class BaseAdapter implements Adapter {
     );
     const minimal = this.isMinimal(ctx);
     for (const rule of rules) {
-      const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);
+      const { content: raw, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);
       this.warnings.push(...warnings);
       if (skip) continue;
+      const content = this.substituteAskUserMarker(raw);
       const desc = overrides.description ?? rule.description;
       if (minimal) {
         lines.push(`## ${rule.id}`, "", this.stripMinimal(content), "");
@@ -318,9 +320,10 @@ export abstract class BaseAdapter implements Adapter {
     const agents = await this.readUserFacingCanonicalFiles(ctx.agentsDir, "agents");
     const minimal = this.isMinimal(ctx);
     for (const agent of agents) {
-      const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
+      const { content: raw, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
       this.warnings.push(...warnings);
       if (skip) continue;
+      const content = this.substituteAskUserMarker(raw);
       const model = resolveAgentModel(agent.id, agent, ctx.manifest, overrides);
       const desc = overrides.description ?? agent.description;
       const fmt = model ? (formatModel ?? defaultModelFormat)(model) : undefined;
@@ -346,9 +349,10 @@ export abstract class BaseAdapter implements Adapter {
     const results: AdapterOutput[] = [];
     const skills = await this.readTrackedCanonicalFiles(ctx.agentsDir, "skills");
     for (const skill of skills) {
-      const { content, skip, warnings } = await applyCustomizationRaw(ctx.projectRoot, skill);
+      const { content: raw, skip, warnings } = await applyCustomizationRaw(ctx.projectRoot, skill);
       this.warnings.push(...warnings);
       if (skip) continue;
+      const content = this.substituteAskUserMarker(raw);
       results.push(output(pathFn(skill.id), wrapInManagedBlock(content), content));
     }
     return results;
@@ -363,9 +367,10 @@ export abstract class BaseAdapter implements Adapter {
     const results: AdapterOutput[] = [];
     const skills = await this.readTrackedCanonicalFiles(ctx.agentsDir, "skills");
     for (const skill of skills) {
-      const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, skill);
+      const { content: raw, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, skill);
       this.warnings.push(...warnings);
       if (skip) continue;
+      const content = this.substituteAskUserMarker(raw);
       const desc = overrides.description ?? skill.description;
       const fm = `---\nname: ${skill.id}\ndescription: ${desc}\n---`;
       results.push(output(pathFn(skill.id), `${fm}\n\n${wrapInManagedBlock(content)}`, content));
@@ -385,9 +390,10 @@ export abstract class BaseAdapter implements Adapter {
     // as user-invocable entries in the tool's command picker.
     const commands = await this.readUserFacingCanonicalFiles(ctx.agentsDir, "commands");
     for (const cmd of commands) {
-      const { content, skip, warnings } = await applyCustomizationRaw(ctx.projectRoot, cmd);
+      const { content: raw, skip, warnings } = await applyCustomizationRaw(ctx.projectRoot, cmd);
       this.warnings.push(...warnings);
       if (skip) continue;
+      const content = this.substituteAskUserMarker(raw);
       results.push(output(pathFn(cmd.id), wrapInManagedBlock(content), content));
     }
     return results;
@@ -453,6 +459,19 @@ export abstract class BaseAdapter implements Adapter {
   /** Returns true when the adapter is running in minimal generation mode. */
   protected isMinimal(ctx: AdapterContext): boolean {
     return ctx.generationMode === "minimal";
+  }
+
+  /**
+   * Replace the `<!-- HATCH3R:PLATFORM-TOOL -->` marker in canonical content
+   * with the per-adapter platform-note paragraph. Idempotent and a no-op
+   * when the marker is absent.
+   *
+   * See agents/shared/user-question-protocol.md and
+   * src/pipeline/adapterToolTranslator.ts::toAskUserPlatformNote.
+   */
+  protected substituteAskUserMarker(content: string): string {
+    if (!content.includes(PLATFORM_TOOL_MARKER)) return content;
+    return content.split(PLATFORM_TOOL_MARKER).join(toAskUserPlatformNote(this.name));
   }
 
   /**

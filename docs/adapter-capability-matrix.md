@@ -1,6 +1,6 @@
 # Adapter Capability Matrix
 
-> **Last verified**: 2026-04-22 | **hatch3r version**: 1.6.1
+> **Last verified**: 2026-05-13 | **hatch3r version**: 1.7.1
 
 Living reference for framework capabilities vs. adapter implementations. This document tracks what each adapter emits, what each platform supports natively, and where gaps remain.
 
@@ -55,6 +55,10 @@ Living reference for framework capabilities vs. adapter implementations. This do
 | **antigravity** | B | B | Y | -- | -- | Y | -- | -- | -- | Y | -- |
 | **agents-md** | B | B | B | -- | -- | -- | -- | -- | -- | Y | -- |
 
+#### Hook-surface notes
+
+- **copilot** carries `hooks: --` because GitHub Copilot Chat exposes no `PreToolUse` / pre-edit hook, no transcript access for external processes, and no tool-refusal API (verified against [GitHub Copilot Chat docs](https://docs.github.com/en/copilot/customizing-copilot/about-customizing-github-copilot-chat-responses) on 2026-05-12). Hatch3r enforces pipeline orchestration on Copilot via instructional rules only — the `## Copilot Enforcement Model (no hook surface)` section emitted into `.github/copilot-instructions.md` by `src/adapters/copilot.ts` documents the trust-based model and self-detectable drift indicators. See [hatch3r issue #73](https://github.com/hatch3r-dev/hatch3r/issues/73).
+
 ### Agent Model Customization
 
 All adapters emit model preferences when configured via `hatch.json`, agent frontmatter, or `.hatch3r/agents/{id}.customize.yaml`. Resolution order: customization file > manifest per-agent > agent frontmatter > manifest default. See [model-selection.md](model-selection.md) for configuration, aliases, and platform behavior. Use the `hatch3r-agent-customize` command for per-agent overrides.
@@ -77,6 +81,30 @@ All adapters emit model preferences when configured via `hatch.json`, agent fron
 | **amazon-q** | Guidance | Text in .amazonq/rules/hatch3r-agents.md |
 | **antigravity** | Guidance | Text in .antigravity/rules.md |
 | **agents-md** | Guidance | `**Model:** \`id\`` annotation per agent in AGENTS.md |
+
+### Native User-Question / Triage Tool
+
+Added in 1.7.1. Tracks whether the adapter exposes a documented platform-native question/triage tool (vs. the plain-text fallback). Source of truth: `ASK_USER_TOOLS` in `src/pipeline/adapterToolTranslator.ts` and the `nativeQuestionTool` column in `ADAPTER_CAPABILITIES` (`src/adapters/index.ts`). Capability-matrix invariant test: `src/__tests__/adapters/capability-matrix.test.ts`. At canonical-write time, the `<!-- HATCH3R:PLATFORM-TOOL -->` marker is replaced with a per-adapter row table by `copySelectedContent` in `src/content/index.ts`.
+
+| Adapter | Native question tool | Notes |
+|---------|:--------------------:|-------|
+| **claude** | Y | `AskUserQuestion` tool |
+| **cursor** | -- | Pending per-cycle web-research verification by adapter author |
+| **copilot** | -- | Pending per-cycle web-research verification by adapter author |
+| **windsurf** | -- | Pending per-cycle web-research verification by adapter author |
+| **codex** | -- | Pending per-cycle web-research verification by adapter author |
+| **cline** | -- | Pending per-cycle web-research verification by adapter author |
+| **opencode** | -- | Pending per-cycle web-research verification by adapter author |
+| **amp** | -- | Pending per-cycle web-research verification by adapter author |
+| **aider** | -- | Pending per-cycle web-research verification by adapter author |
+| **kiro** | -- | Pending per-cycle web-research verification by adapter author |
+| **goose** | -- | Pending per-cycle web-research verification by adapter author |
+| **zed** | -- | Pending per-cycle web-research verification by adapter author |
+| **amazon-q** | -- | Pending per-cycle web-research verification by adapter author |
+| **gemini** | -- | Pending per-cycle web-research verification by adapter author |
+| **antigravity** | -- | Pending per-cycle web-research verification by adapter author |
+
+When `nativeQuestionTool: false` (deny-by-default) the agent uses the plain-text numbered-options fallback per `agents/shared/user-question-protocol.md`.
 
 ---
 

@@ -38,6 +38,7 @@ Before building anything, verify that the requirements are clear and well-founde
 - If a requirement is ambiguous, ask for clarification rather than guessing.
 - If a requirement seems misguided (solving the wrong problem, using an inappropriate pattern), raise the concern before implementing. Building the wrong thing well is worse than asking a clarifying question.
 - Frame challenges constructively: "Before I implement this, I want to confirm the approach because [specific concern]."
+- When asking, use the platform-native question tool documented in `agents/shared/user-question-protocol.md` rather than free-form prose.
 
 ### 4. Report Root Causes
 

@@ -156,6 +156,8 @@ After linking, verify via `az boards work-item relation list --id {epic}` and ch
 | Add comments         | `az boards work-item update --id N --discussion "..."`                                         | N/A                    |
 | Create PRs           | `az repos pr create --title "..." --source-branch "..." --target-branch "..."`                 | `create_pull_request`  |
 | Read PR details      | `az repos pr show --id N`                                                                      | N/A                    |
+| Read PR comment threads | `az rest -m GET --url 'https://dev.azure.com/{org}/{project}/_apis/git/repositories/{repo}/pullRequests/{N}/threads?api-version=7.1-preview.1'` | N/A |
+| Reply to PR thread   | `az rest -m POST --url '.../pullRequests/{N}/threads/{threadId}/comments?api-version=7.1-preview.1' --body '{"parentCommentId":1,"content":"...","commentType":"text"}'` | N/A |
 | Manage tags          | `az boards work-item update --id N --fields "System.Tags=tag1; tag2"`                          | N/A                    |
 | Board sync           | Work Item State updates (automatic board placement)                                             | N/A                    |
 | CI/Pipelines         | `az pipelines run list` / `az pipelines run show`                                              | N/A                    |

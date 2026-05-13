@@ -5,11 +5,14 @@ import chalk from "chalk";
 import inquirer from "inquirer";
 import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
 import {
+  applyPreservedManifestFields,
   createManifest,
+  extractPreservedManifestFields,
   readManifest,
   writeManifest,
   addManagedFile,
   isValidGitBranchName,
+  type PreservedManifestFields,
 } from "../../manifest/hatchJson.js";
 import { filterMcpJsonOnDisk } from "../../manifest/mcpFilter.js";
 import { safeWriteFile } from "../../merge/safeWrite.js";
@@ -106,6 +109,62 @@ tags: [<tag>, ...]
 The loader agent applies content-security and integrity checks to every
 entry; see \`hatch3r-learnings-loader\` for the full protocol.
 
+## Recommended First Learning — Pipeline Drift
+
+Copy the markdown block below into \`.agents/learnings/pipeline-drift-rule-73.md\`
+to prime your AI tool against the bypass pattern reported in hatch3r
+issue #73 (GitHub Copilot Chat skipping the four-phase sub-agent
+pipeline on Tier-3 epics). The \`hatch3r-learnings-loader\` agent will
+surface it on session start.
+
+\`\`\`markdown
+---
+id: pipeline-drift-rule-73
+category: pitfall
+area: orchestration
+recorded: 2026-05-12
+source: manual
+confidence: high
+author: human
+tags: [orchestration, copilot, drift]
+---
+
+## Learning
+
+The hatch3r four-phase sub-agent pipeline (Research -> Implement ->
+Review -> Quality) is trust-based on Copilot Chat — Copilot has
+\`hooks: false\` in \`src/adapters/index.ts\`, exposes no PreToolUse /
+pre-edit hook, and does not surface its chat transcript to external
+processes. Drift is invisible by default: Copilot can call
+\`multi_replace_string_in_file\` / \`create_file\` inline on a Tier-3
+task and the build can still pass.
+
+Self-detectable signals:
+
+- The orchestrator's reply does NOT start with the
+  \`[hatch3r-pipeline: phase N | last: ... | next: ...]\` header on
+  a tracked Tier 2+ task -> halt and re-ground.
+- A code-writing tool was called before the user confirmed the
+  Pre-Implementation Summary on a Tier 3 task -> bypass mode.
+- An \`Edit\` / \`Write\` / equivalent fired from the orchestrator
+  turn rather than from inside a \`hatch3r-implementer\` Task
+  sub-agent -> bypass mode.
+
+## Evidence
+
+- Issue: https://github.com/hatch3r-dev/hatch3r/issues/73
+- Rules: \`rules/hatch3r-agent-orchestration.md\` (Per-Turn
+  Pipeline-State Header, Mandatory Delegation Directive);
+  \`rules/hatch3r-deep-context.md\` (Tier 3 — Deep hard gate).
+- Adapter capability: \`src/adapters/index.ts\` — \`copilot\` is the
+  only adapter with \`hooks: false\`.
+\`\`\`
+
+Customize the \`recorded\` date and \`tags\` to match your setup.
+Adapters other than Copilot also benefit from this learning when
+the bypass pattern is plausible on their host (e.g., long-context
+sessions on any adapter).
+
 Delete this README once you have authored real learnings.
 `;
 
@@ -173,6 +232,16 @@ export interface RunInitOptions {
    * are absent. Omitted on first init.
    */
   customization?: CustomizationManifest;
+  /**
+   * 1.7.1: platform/user-specific manifest fields (GitHub Projects v2 IDs,
+   * costTracking, specs, extension config, worktree extras, workspace state)
+   * forwarded from `clean` -> reinit. When omitted, `runInit` falls back to
+   * extracting the same fields from an existing `.agents/hatch.json` if
+   * present, so a plain `hatch3r init` over an existing repo also preserves
+   * them. Init-supplied owner/repo/defaultBranch always win over the
+   * preserved board's identity fields (matches `hatch3r config` semantics).
+   */
+  preservedManifestFields?: PreservedManifestFields;
   /**
    * Suppress all interactive prompts emitted by `runInit` itself (e.g. the
    * post-init "create your first user artifact?" prompt). When true, runInit
@@ -270,7 +339,24 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   // never reached disk if all adapters fail (line 215 throw below).
   const s2 = createSpinner(step(2, totalSteps, "Preparing manifest..."));
   s2.start();
-  const manifest = createManifest({ platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, content: contentSelection, languages: repoInfo.languages, worktreeEnabled, customization });
+  // 1.7.1: when re-initing over an existing manifest without an explicit
+  // `options.customization` (e.g. plain `hatch3r init`), fall back to the
+  // existing manifest's customization so it survives. Clean -> reinit
+  // already supplies `options.customization` directly via captureConfig.
+  const effectiveCustomization = customization ?? existingManifest?.customization;
+  const manifest = createManifest({ platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, content: contentSelection, languages: repoInfo.languages, worktreeEnabled, customization: effectiveCustomization });
+  // 1.7.1: reapply platform/user state so a `clean` -> reinit (explicit
+  // `preservedManifestFields`) and a plain `hatch3r init` over an existing
+  // `.agents/hatch.json` (fallback to existingManifest extraction) both
+  // preserve fields like board.projectNumber, costTracking, specs, hooks,
+  // models, claude, repos, packages, workspace, and worktree extras —
+  // instead of resetting them to defaults from `createManifest`.
+  const preservedFields =
+    options.preservedManifestFields
+    ?? (existingManifest ? extractPreservedManifestFields(existingManifest) : undefined);
+  if (preservedFields) {
+    applyPreservedManifestFields(manifest, preservedFields);
+  }
   s2.succeed(step(2, totalSteps, "Manifest prepared"));
 
   const s3 = createSpinner(

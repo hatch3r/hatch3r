@@ -15,7 +15,7 @@ import { detectWorkspaceContext } from "../../workspace/detect.js";
 import { syncWorkspaceRepos } from "../../workspace/sync.js";
 import { generateCanonicalAgentsMd, generateRootAgentsMd } from "../shared/agentsContent.js";
 import { verifyIntegrity, generateIntegrityManifest, readIntegrityManifest, writeIntegrityManifest } from "../../integrity/index.js";
-import { buildProvenanceManifest, writeProvenanceManifest } from "../../integrity/provenance.js";
+import { buildProvenanceManifest, readProvenanceManifest, writeProvenanceManifest } from "../../integrity/provenance.js";
 import { pruneArchives } from "../../archive/index.js";
 import { HATCH3R_VERSION } from "../../version.js";
 import {
@@ -600,12 +600,22 @@ export async function syncCommand(
     // regenerated after a sync that reached this point (even under partial
     // adapter failure) — stale entries for failed adapters are omitted
     // because only successful generations push into `perAdapterOutputs`.
+    // G6 (v1.7.1): pass the previous manifest so a redundant sync over the
+    // same canonical+adapter inputs preserves `generated` rather than
+    // stamping a fresh timestamp on byte-equivalent entries.
+    const previousProvenanceManifest = await readProvenanceManifest(agentsDir);
     const provenanceManifest = buildProvenanceManifest(
       HATCH3R_VERSION,
       rootDir,
       perAdapterOutputs,
+      previousProvenanceManifest,
     );
-    await writeProvenanceManifest(agentsDir, provenanceManifest);
+    // Mirror the integrity-manifest pattern above: buildProvenanceManifest
+    // returns the previous object identity when entries are byte-equivalent,
+    // so skip the atomic write on redundant sync.
+    if (provenanceManifest !== previousProvenanceManifest) {
+      await writeProvenanceManifest(agentsDir, provenanceManifest);
+    }
 
     // Task #11 orphan-cleanup: emit an aggregated diagnostic for every
     // orphan candidate we inspected this run. `unlinked` entries are

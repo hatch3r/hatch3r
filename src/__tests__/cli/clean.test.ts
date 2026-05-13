@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from "vitest";
-import { HatchError } from "../../types.js";
+import { HatchError, type HatchManifest } from "../../types.js";
 
 // ── Mock all external dependencies before imports ─────────────
 
@@ -264,6 +264,73 @@ describe("cleanCommand", () => {
         repo: "test-repo",
         tools: ["cursor"],
         repoInfo,
+      }),
+    );
+  });
+
+  // 1.7.1: clean -> reinit must carry forward GitHub Projects v2 IDs and other
+  // user/platform-specific manifest fields. Before this fix, captureConfig
+  // discarded board.projectNumber/statusFieldId/statusOptions and the rebuilt
+  // manifest reset them to null.
+  it("forwards preservedManifestFields (board IDs, costTracking, etc.) into runInit on reinit", async () => {
+    // Populate manifest with real platform-specific state captured by /board-init
+    // plus user-set costTracking and specs that must survive clean -> reinit.
+    const manifest = makeManifest() as unknown as HatchManifest;
+    manifest.board = {
+      ...manifest.board!,
+      projectNumber: 42,
+      statusFieldId: 99,
+      statusOptions: {
+        backlog: "PVTSSF_backlog",
+        ready: "PVTSSF_ready",
+        inProgress: "PVTSSF_in_progress",
+        inReview: "PVTSSF_in_review",
+        done: "PVTSSF_done",
+      },
+      areas: ["api", "ui"],
+    };
+    manifest.costTracking = { sessionBudget: 5, currency: "USD", hardStop: true };
+    manifest.specs = { paths: ["docs/api.md"], lastGenerated: "2026-05-01" };
+
+    const inv = makeInventory({
+      adapterFiles: [".cursor/rules/hatch3r-test.mdc"],
+      canonicalDir: true,
+      manifest,
+    });
+
+    vi.mocked(inventoryArtifacts).mockResolvedValue(inv);
+    vi.mocked(executeClean).mockResolvedValue({ removed: [".cursor/rules/hatch3r-test.mdc"], kept: [], errors: [] });
+    vi.mocked(analyzeRepo).mockResolvedValue(makeRepoInfo());
+    vi.mocked(runInit).mockResolvedValue(undefined);
+
+    vi.mocked(inquirer.prompt)
+      .mockResolvedValueOnce({ proceed: true })
+      .mockResolvedValueOnce({ reinit: true });
+
+    await cleanCommand();
+
+    expect(runInit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        preservedManifestFields: expect.objectContaining({
+          board: expect.objectContaining({
+            projectNumber: 42,
+            statusFieldId: 99,
+            statusOptions: expect.objectContaining({
+              backlog: "PVTSSF_backlog",
+              done: "PVTSSF_done",
+            }),
+            areas: ["api", "ui"],
+          }),
+          costTracking: expect.objectContaining({
+            sessionBudget: 5,
+            currency: "USD",
+            hardStop: true,
+          }),
+          specs: expect.objectContaining({
+            paths: ["docs/api.md"],
+            lastGenerated: "2026-05-01",
+          }),
+        }),
       }),
     );
   });

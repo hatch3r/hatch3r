@@ -77,7 +77,7 @@ If Tier 1, take Quick Mode with reduced sub-agent prompts. If Tier 2, take Quick
 
 ## Workflow
 
-Execute these steps in order. **Do not skip any step.** Ask the user at every checkpoint marked with ASK.
+Execute these steps in order. **Do not skip any step.** Ask the user at every checkpoint marked with ASK. For every ASK checkpoint, use the platform-native question tool per `agents/shared/user-question-protocol.md`.
 
 ### Step 0: Triage (Scale-Adaptive Mode Selection)
 

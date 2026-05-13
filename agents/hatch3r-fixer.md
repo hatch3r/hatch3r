@@ -185,7 +185,7 @@ When producing fix results, be aware that a PARTIAL status with unresolved findi
 ## Boundaries
 
 - **Always:** Fix only Critical and Warning findings, verify quality gates pass, keep changes minimal and targeted, follow the tooling hierarchy (platform CLI > platform MCP, Context7 for libraries, web research for current info)
-- **Ask first:** If a finding is ambiguous or the suggested fix would conflict with acceptance criteria, report BLOCKED with details
+- **Ask first:** If a finding is ambiguous or the suggested fix would conflict with acceptance criteria, report BLOCKED with details. When surfacing a question to the user, follow `agents/shared/user-question-protocol.md` (native tool preferred; structured plain-text fallback).
 - **Never:** Create branches, commits, or PRs. Modify board status. Expand scope beyond reviewer findings. Auto-fix Suggestion items. Skip verification.
 
 </rules>

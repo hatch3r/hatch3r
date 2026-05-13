@@ -8,10 +8,16 @@ import {
   WORKTREE_CAPABLE_TOOLS,
   DEFAULT_FEATURES,
   type BoardConfig,
+  type ClaudeConfig,
   type ContentSelection,
+  type CostTrackingConfig,
   type CustomizationManifest,
   type HatchManifest,
+  type HooksConfig,
+  type ModelConfig,
+  type PackageEntry,
   type Platform,
+  type RepoEntry,
   type Tool,
 } from "../types.js";
 import { HATCH3R_VERSION } from "../version.js";
@@ -365,4 +371,115 @@ export function removeManagedFile(
   filePath: string,
 ): void {
   manifest.managedFiles = manifest.managedFiles.filter((f) => f !== filePath);
+}
+
+/**
+ * Subset of {@link HatchManifest} that carries user- and platform-specific state
+ * which must survive `hatch3r clean` -> reinit and plain `hatch3r init` over an
+ * existing `.agents/hatch.json`. Init options (platform, owner, repo, tools,
+ * features, content, mcp) are intentionally excluded — those are user-confirmed
+ * each run and must win over preserved values.
+ *
+ * `worktreeExtras` is split out so applying preserved extras never toggles
+ * `manifest.worktree.enabled` on a user who opted out of worktrees on re-init.
+ */
+export interface PreservedManifestFields {
+  board?: BoardConfig;
+  costTracking?: CostTrackingConfig;
+  specs?: HatchManifest["specs"];
+  userContent?: HatchManifest["userContent"];
+  hooks?: HooksConfig;
+  models?: ModelConfig;
+  claude?: ClaudeConfig;
+  repos?: RepoEntry[];
+  packages?: PackageEntry[];
+  workspace?: HatchManifest["workspace"];
+  worktreeExtras?: {
+    extraPatterns?: string[];
+    nodeModules?: "symlink" | "skip";
+  };
+}
+
+export function extractPreservedManifestFields(
+  manifest: HatchManifest,
+): PreservedManifestFields {
+  const out: PreservedManifestFields = {};
+  if (manifest.board) out.board = manifest.board;
+  if (manifest.costTracking) out.costTracking = manifest.costTracking;
+  if (manifest.specs) out.specs = manifest.specs;
+  if (manifest.userContent) out.userContent = manifest.userContent;
+  if (manifest.hooks) out.hooks = manifest.hooks;
+  if (manifest.models) out.models = manifest.models;
+  if (manifest.claude) out.claude = manifest.claude;
+  if (manifest.repos) out.repos = manifest.repos;
+  if (manifest.packages) out.packages = manifest.packages;
+  if (manifest.workspace) out.workspace = manifest.workspace;
+  if (
+    manifest.worktree?.extraPatterns !== undefined ||
+    manifest.worktree?.nodeModules !== undefined
+  ) {
+    out.worktreeExtras = {};
+    if (manifest.worktree.extraPatterns !== undefined) {
+      out.worktreeExtras.extraPatterns = manifest.worktree.extraPatterns;
+    }
+    if (manifest.worktree.nodeModules !== undefined) {
+      out.worktreeExtras.nodeModules = manifest.worktree.nodeModules;
+    }
+  }
+  return out;
+}
+
+/**
+ * Mutate `manifest` in place, applying fields from `preserved`. Init-supplied
+ * board owner/repo/defaultBranch always win — the user may be re-pointing the
+ * project at a different repo while keeping their GitHub Projects v2 IDs (the
+ * same semantics as `hatch3r config` at src/cli/commands/config.ts:557-560).
+ *
+ * Worktree extras only apply when the new manifest enables worktrees, so a
+ * user who turned worktrees off during re-init does not end up with a
+ * disabled config carrying stale `extraPatterns`.
+ */
+export function applyPreservedManifestFields(
+  manifest: HatchManifest,
+  preserved: PreservedManifestFields,
+): void {
+  if (preserved.board) {
+    if (manifest.board) {
+      manifest.board = {
+        ...preserved.board,
+        owner: manifest.board.owner,
+        repo: manifest.board.repo,
+        defaultBranch: manifest.board.defaultBranch ?? preserved.board.defaultBranch,
+      };
+    } else {
+      // No new init-supplied board, but top-level manifest.owner/repo carry
+      // the init-supplied identity (createManifest sets them unconditionally).
+      // Override the preserved board's owner/repo so a re-init that re-points
+      // the project does not leave manifest.board.{owner,repo} disagreeing
+      // with manifest.{owner,repo}. Fall back to preserved values when the
+      // new manifest has no identity set.
+      manifest.board = {
+        ...preserved.board,
+        owner: manifest.owner || preserved.board.owner,
+        repo: manifest.repo || preserved.board.repo,
+      };
+    }
+  }
+  if (preserved.costTracking) manifest.costTracking = preserved.costTracking;
+  if (preserved.specs) manifest.specs = preserved.specs;
+  if (preserved.userContent) manifest.userContent = preserved.userContent;
+  if (preserved.hooks) manifest.hooks = preserved.hooks;
+  if (preserved.models) manifest.models = preserved.models;
+  if (preserved.claude) manifest.claude = preserved.claude;
+  if (preserved.repos) manifest.repos = preserved.repos;
+  if (preserved.packages) manifest.packages = preserved.packages;
+  if (preserved.workspace) manifest.workspace = preserved.workspace;
+  if (preserved.worktreeExtras && manifest.worktree?.enabled) {
+    if (preserved.worktreeExtras.extraPatterns !== undefined) {
+      manifest.worktree.extraPatterns = preserved.worktreeExtras.extraPatterns;
+    }
+    if (preserved.worktreeExtras.nodeModules !== undefined) {
+      manifest.worktree.nodeModules = preserved.worktreeExtras.nodeModules;
+    }
+  }
 }

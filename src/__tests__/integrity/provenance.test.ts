@@ -125,6 +125,140 @@ describe("provenance (C8-D12-M3)", () => {
         manifest.entries.find((e) => e.adapter === "claude")?.sourceFiles[0],
       ).toBe(".agents/agents/b.md");
     });
+
+    // G6 (v1.7.1) idempotency: when a previous manifest is supplied and the
+    // newly-built entries are byte-equivalent, return the previous object
+    // identity so `sync` can skip the atomic write.
+    it("returns the previous manifest reference when entries are byte-equivalent (G6)", () => {
+      const inputs = [
+        {
+          adapter: "cursor",
+          outputs: [
+            {
+              path: ".cursor/rules/r.mdc",
+              content: "body",
+              action: "create" as const,
+              sourceFiles: [join(agentsDir, "rules", "x.md")],
+            },
+          ],
+        },
+      ];
+      const first = buildProvenanceManifest("1.6.0", rootDir, inputs);
+      const second = buildProvenanceManifest("1.6.0", rootDir, inputs, first);
+      expect(second).toBe(first);
+    });
+
+    it("does NOT reuse the previous manifest when hatchVersion changes (G6)", () => {
+      const inputs = [
+        {
+          adapter: "cursor",
+          outputs: [
+            {
+              path: "r.mdc",
+              content: "body",
+              action: "create" as const,
+              sourceFiles: [],
+            },
+          ],
+        },
+      ];
+      const first = buildProvenanceManifest("1.6.0", rootDir, inputs);
+      const second = buildProvenanceManifest("1.7.0", rootDir, inputs, first);
+      expect(second).not.toBe(first);
+      expect(second.hatchVersion).toBe("1.7.0");
+    });
+
+    it("does NOT reuse the previous manifest when entries differ (G6)", () => {
+      const inputsA = [
+        {
+          adapter: "cursor",
+          outputs: [
+            {
+              path: "a.mdc",
+              content: "a",
+              action: "create" as const,
+              sourceFiles: [join(agentsDir, "rules", "x.md")],
+            },
+          ],
+        },
+      ];
+      const inputsB = [
+        {
+          adapter: "cursor",
+          outputs: [
+            {
+              path: "b.mdc",
+              content: "b",
+              action: "create" as const,
+              sourceFiles: [join(agentsDir, "rules", "y.md")],
+            },
+          ],
+        },
+      ];
+      const first = buildProvenanceManifest("1.6.0", rootDir, inputsA);
+      const second = buildProvenanceManifest("1.6.0", rootDir, inputsB, first);
+      expect(second).not.toBe(first);
+      expect(second.entries[0]?.path).toBe("b.mdc");
+    });
+
+    it("does NOT reuse the previous manifest when sourceFiles count differs (G6)", () => {
+      const inputsA = [
+        {
+          adapter: "cursor",
+          outputs: [
+            {
+              path: "r.mdc",
+              content: "r",
+              action: "create" as const,
+              sourceFiles: [join(agentsDir, "rules", "x.md")],
+            },
+          ],
+        },
+      ];
+      const inputsB = [
+        {
+          adapter: "cursor",
+          outputs: [
+            {
+              path: "r.mdc",
+              content: "r",
+              action: "create" as const,
+              sourceFiles: [
+                join(agentsDir, "rules", "x.md"),
+                join(agentsDir, "rules", "y.md"),
+              ],
+            },
+          ],
+        },
+      ];
+      const first = buildProvenanceManifest("1.6.0", rootDir, inputsA);
+      const second = buildProvenanceManifest("1.6.0", rootDir, inputsB, first);
+      expect(second).not.toBe(first);
+    });
+
+    it("does NOT reuse the previous manifest when entry count differs (G6)", () => {
+      const inputsA = [
+        {
+          adapter: "cursor",
+          outputs: [
+            { path: "a.mdc", content: "a", action: "create" as const, sourceFiles: [] },
+          ],
+        },
+      ];
+      const inputsB = [
+        {
+          adapter: "cursor",
+          outputs: [
+            { path: "a.mdc", content: "a", action: "create" as const, sourceFiles: [] },
+            { path: "b.mdc", content: "b", action: "create" as const, sourceFiles: [] },
+          ],
+        },
+      ];
+      const first = buildProvenanceManifest("1.6.0", rootDir, inputsA);
+      const second = buildProvenanceManifest("1.6.0", rootDir, inputsB, first);
+      expect(second).not.toBe(first);
+      expect(second.entries.length).toBe(2);
+    });
   });
 
   describe("write / read round trip", () => {
@@ -186,6 +320,32 @@ describe("provenance (C8-D12-M3)", () => {
       );
       const onDisk = await readProvenanceManifest(agentsDir);
       expect(onDisk).toBeNull();
+    });
+
+    it("propagates non-ENOENT read errors (e.g., target is a directory)", async () => {
+      // Create a directory at the manifest path so the readFile call surfaces
+      // EISDIR — a non-ENOENT error that MUST propagate rather than be
+      // swallowed into a null return. Mirrors the integrity manifest reader.
+      await mkdir(join(agentsDir, ".provenance.json"), { recursive: true });
+      await expect(readProvenanceManifest(agentsDir)).rejects.toThrow();
+    });
+
+    it("propagates non-SyntaxError JSON.parse failures", async () => {
+      // JSON.parse with a TypeError-producing argument is not directly
+      // reachable through readFile, but we can drive the same branch by
+      // stubbing JSON.parse globally for one tick. The contract: only
+      // SyntaxError collapses to null; anything else re-throws.
+      await writeFile(join(agentsDir, ".provenance.json"), "{}");
+      const realParse = JSON.parse;
+      const sentinel = new RangeError("simulated non-syntax parse failure");
+      JSON.parse = () => {
+        throw sentinel;
+      };
+      try {
+        await expect(readProvenanceManifest(agentsDir)).rejects.toBe(sentinel);
+      } finally {
+        JSON.parse = realParse;
+      }
     });
   });
 });

@@ -71,7 +71,7 @@ Pre-Implementation Summary:
   Cross-cutting concerns: {list with status}
 ```
 
-Do NOT proceed to implementation until all unresolved questions are answered by the user.
+**Hard gate, not advisory.** Do NOT proceed to implementation until all unresolved questions are answered by the user AND the user has explicitly confirmed the Pre-Implementation Summary (a reply matching "proceed", "confirmed", "yes — implement", or an equivalent affirmation in context). Until that confirmation arrives, the orchestrator MUST NOT call `Edit`, `Write`, `MultiEdit`, `NotebookEdit`, `replace_string_in_file`, `multi_replace_string_in_file`, `create_file`, `str_replace_based_edit_tool`, `apply_patch`, or any platform-equivalent code-writing tool, AND MUST NOT spawn `hatch3r-implementer` or `hatch3r-fixer`. Read-only and reasoning tools (`Read`, `Grep`, `Glob`, `Bash` for read-only commands, `WebFetch`, `WebSearch`, `Task` with researcher-only sub-agents) remain available so the orchestrator can answer follow-up clarifying questions without breaching the gate.
 
 ## Passing Context to Implementer
 
