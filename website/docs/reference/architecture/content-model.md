@@ -6,7 +6,7 @@ title: Content Model
 
 All hatch3r content lives in the `.agents/` directory. This is the single source of truth -- tool-specific outputs are generated from it.
 
-During `hatch3r init`, only the content matching your selected profile and context is copied. The full catalog has 16 agents, 26 skills, 27 rules, 34 commands, 3 prompts, 6 hooks, and 4 GitHub agents — but a typical project uses a subset.
+During `hatch3r init`, only the content matching your selected profile and context is copied. The full catalog has 17 agents, 26 skills, 28 rules, 35 commands, 3 prompts, 6 hooks, and 4 GitHub agents — but a typical project uses a subset.
 
 ```
 .agents/

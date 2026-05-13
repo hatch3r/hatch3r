@@ -580,7 +580,7 @@ The following gaps identified in the previous analysis remain closed:
 | **OWASP Agentic Top 10 security coverage** | Security patterns rule with 11 ASI controls (prompt injection, tool poisoning, memory poisoning, etc.) | None active *(Crux had 4-tier permissions but project is stalled)* |
 | **Recipe system** | Composable, shareable workflow templates | None |
 | **Board-to-PR pipeline** | End-to-end: issue → branch → implementation → review loop → PR → status sync | None |
-| **Audit cycle governance** | 19 domains, 106 sub-agents, 4-wave execution, closed-loop PRD evolution | None |
+| **Audit cycle governance** | 20 domains, 111 sub-agents, 4-wave execution, closed-loop PRD evolution | None |
 | **15-tool adapter + board + learning loop + audit cycle** | No competitor combines all four capabilities | None |
 
 ### 6.2 Where Competitors Lead
@@ -750,7 +750,7 @@ The agentic coding framework market on April 20, 2026 has undergone three struct
 
 The tool-agnostic distribution architecture is no longer unique. Ruler claims broader reach (32 vs 15 targets). BMAD claims 28 template-based tools. GSD claims 14 meta-prompting targets. Spec Kit claims 20+. Combined stars for the methodology frameworks alone (~290k+) remain an existential community gap.
 
-hatch3r's position remains technically differentiated but strategically requires repositioning. No other framework combines **deeply native** tool configuration generation (15 adapters with tool-specific primitive utilization), **multi-platform board management** (GitHub, Azure DevOps, GitLab), a **learning loop**, event-driven hooks, **OWASP Agentic Top 10 security coverage**, a recipe system, and an **audit cycle with 19 domains and 106 sub-agents**. The canonical source architecture aligns with AAIF's AGENTS.md standard. However, technical differentiation is a depreciating asset without distribution.
+hatch3r's position remains technically differentiated but strategically requires repositioning. No other framework combines **deeply native** tool configuration generation (15 adapters with tool-specific primitive utilization), **multi-platform board management** (GitHub, Azure DevOps, GitLab), a **learning loop**, event-driven hooks, **OWASP Agentic Top 10 security coverage**, a recipe system, and an **audit cycle with 20 domains and 111 sub-agents**. The canonical source architecture aligns with AAIF's AGENTS.md standard. However, technical differentiation is a depreciating asset without distribution.
 
 The window for establishing market presence is closing rapidly. Every week without marketplace presence compounds competitor moats: Claude Code's plugin marketplace is now GA with admin controls, GSD's +71% growth trajectory, OpenCode's 6.5M-developer base, Ruler's architectural mirror. The competitive advantage has shifted from "most tools" to the combination of **depth** (native adapter quality + full content model), **breadth** (board management, learning loop, security, audit governance), and **platform independence** (multi-platform support beyond GitHub).
 

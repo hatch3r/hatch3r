@@ -1,6 +1,6 @@
 ---
 name: audit-cycle
-description: Execute a full 19-domain audit cycle using the governance audit prompt. Deploys 109 sub-agents across 4 tiers with synthesis gates and produces a structured audit report.
+description: Execute a full 20-domain audit cycle using the governance audit prompt. Deploys 111 sub-agents across 4 tiers with synthesis gates and produces a structured audit report.
 effort: max
 allowed-tools: Read Grep Glob Bash(*) Write Agent WebSearch WebFetch
 ---
@@ -16,7 +16,7 @@ Execute the full hatch3r audit cycle defined in `governance/AUDIT.md`.
    - Specific areas of concern to prioritize
    - Any domains to skip or deprioritize
 2. Read `governance/AUDIT.md` fully — this is the authoritative audit protocol
-3. Read `governance/CONSTITUTION.md` §2 for the 6 Binding Pillars
+3. Read `governance/CONSTITUTION.md` §2 for the 7 Binding Pillars
 
 ## Setup
 

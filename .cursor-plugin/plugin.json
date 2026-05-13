@@ -2,7 +2,7 @@
   "name": "hatch3r",
   "displayName": "Hatch3r",
   "description": "Battle-tested agentic coding setup: 17 agents, 26 skills, 28 rules, 35 commands, and MCP integrations -- in one plugin. Counts derived from governance/inventory.json.",
-  "version": "1.2.0",
+  "version": "1.7.0",
   "author": {
     "name": "hatch3r"
   },

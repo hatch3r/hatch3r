@@ -29,12 +29,12 @@
 - [ ] Staleness detection — run Dynamic Verification Protocol counts and compare against CLAUDE.md claims. Flag divergences as Medium findings
 
 ### 19.2 Rule-Governance Alignment
-- [ ] Pillar coverage — for each pillar (P1-P6) in CONSTITUTION.md, at least one rule in `.claude/rules/` enforces or supports it
+- [ ] Pillar coverage — for each pillar (P1-P7) in CONSTITUTION.md, at least one rule in `.claude/rules/` enforces or supports it
 - [ ] No contradictions — no rule contradicts any governance document (rule says X, governance says not-X)
 - [ ] File references current — all file paths, function names, and module references in rules exist in the codebase
-- [ ] Behavioral charter alignment — rules reflect the 13 behavioral charter directives from AUDIT.md
+- [ ] Behavioral charter alignment — rules reflect the 14 behavioral charter directives from AUDIT.md
 - [ ] Anti-slop — rules themselves pass the anti-slop wordlist check (zero hits). Wordlist matches AUDIT-EXECUTE.md regression gate 10 exactly
-- [ ] Pillar attribution — each rule documents which pillar(s) it serves (P1-P6)
+- [ ] Pillar attribution — each rule documents which pillar(s) it serves (P1-P7)
 
 ### 19.3 Skill & Command Completeness
 - [ ] Lifecycle coverage — skill set covers the key development workflows (audit, execution, adapter authoring, content authoring, governance checking, release)

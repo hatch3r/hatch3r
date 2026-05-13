@@ -149,7 +149,7 @@ Pre-emptive emission strategy: hatch3r adapters emit standards-compliant output 
 
 ### Comparison vs Ruler
 
-README.md carries a "How hatch3r differs from Ruler" section derived from `governance/COMPETITIVE-ANALYSIS.md`. Ruler is the closest architectural analogue to hatch3r's canonical-source-plus-adapter model. Measured differences: hatch3r has 16 native adapters vs Ruler's 32 rule-distribution targets (Ruler wider, hatch3r deeper); hatch3r ships skills/commands/hooks/MCP/board/learning-loop/audit-cycle content vs Ruler's rules-only distribution; hatch3r runs a 19-domain governance audit cycle with 106 sub-agents, Ruler ships none. PRD defers the table to README to avoid duplication per the D17 single-source-of-truth contract.
+README.md carries a "How hatch3r differs from Ruler" section derived from `governance/COMPETITIVE-ANALYSIS.md`. Ruler is the closest architectural analogue to hatch3r's canonical-source-plus-adapter model. Measured differences: hatch3r has 15 native adapters vs Ruler's 32 rule-distribution targets (Ruler wider, hatch3r deeper); hatch3r ships skills/commands/hooks/MCP/board/learning-loop/audit-cycle content vs Ruler's rules-only distribution; hatch3r runs a 20-domain governance audit cycle with 111 sub-agents, Ruler ships none. PRD defers the table to README to avoid duplication per the D17 single-source-of-truth contract.
 
 ---
 
