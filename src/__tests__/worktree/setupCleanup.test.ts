@@ -48,6 +48,19 @@ function makeTempGitRepo(): string {
     cwd: dir,
     stdio: "ignore",
   });
+  // Isolate the test fixture from the host's git line-ending policy.
+  // Windows runners default to core.autocrlf=true, which would CRLF-ize
+  // files on checkout and turn the G6 round-trip test into a line-ending
+  // assertion. The unit under test is safeWriteFile's byte-equality
+  // contract, not git's eol behavior.
+  execFileSync("git", ["config", "core.autocrlf", "false"], {
+    cwd: dir,
+    stdio: "ignore",
+  });
+  execFileSync("git", ["config", "core.eol", "lf"], {
+    cwd: dir,
+    stdio: "ignore",
+  });
   return dir;
 }
 
