@@ -13,7 +13,7 @@ import { filterUserFacing, readCanonicalFiles, sortByPrecedence, type CanonicalT
 import { applyCustomization, applyCustomizationRaw } from "./customization.js";
 import { readMcpConfig, transformEnvVarSyntax, type McpServerEntry } from "./mcp-utils.js";
 import { readHookDefinitions } from "../hooks/index.js";
-import { toAskUserPlatformNote } from "../pipeline/adapterToolTranslator.js";
+import { PLATFORM_TOOL_MARKER, toAskUserPlatformNote } from "../pipeline/adapterToolTranslator.js";
 
 export interface Adapter {
   name: string;
@@ -470,9 +470,8 @@ export abstract class BaseAdapter implements Adapter {
    * src/pipeline/adapterToolTranslator.ts::toAskUserPlatformNote.
    */
   protected substituteAskUserMarker(content: string): string {
-    const MARKER = "<!-- HATCH3R:PLATFORM-TOOL -->";
-    if (!content.includes(MARKER)) return content;
-    return content.split(MARKER).join(toAskUserPlatformNote(this.name));
+    if (!content.includes(PLATFORM_TOOL_MARKER)) return content;
+    return content.split(PLATFORM_TOOL_MARKER).join(toAskUserPlatformNote(this.name));
   }
 
   /**

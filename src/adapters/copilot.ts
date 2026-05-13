@@ -59,9 +59,13 @@ export class CopilotAdapter extends BaseAdapter {
       // order. Scoped-rules get a NN- filename prefix on their per-file path.
       const sortedRules = sortByPrecedence(rules);
       for (const rule of sortedRules) {
-        const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);
+        const { content: rawContent, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);
         this.warnings.push(...warnings);
         if (skip) continue;
+        // Parity with BaseAdapter.inlineRules: substitute the platform-tool
+        // marker so copilot's custom rule loop stays consistent with the
+        // 14 other adapters that go through the base class.
+        const content = this.substituteAskUserMarker(rawContent);
         const scope = overrides.scope ?? rule.scope;
         if (scope && scope !== "always") {
           scopedRules.push({ rule: { ...rule, description: overrides.description ?? rule.description }, content, scope });
@@ -141,9 +145,13 @@ jobs:
     if (ctx.features.agents) {
       const agents = await this.readUserFacingCanonicalFiles(ctx.agentsDir, "agents");
       for (const agent of agents) {
-        const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
+        const { content: rawContent, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
         this.warnings.push(...warnings);
         if (skip) continue;
+        // Parity with BaseAdapter.inlineAgents: substitute the platform-tool
+        // marker so copilot's custom agent loop stays consistent with the
+        // 14 other adapters that go through the base class.
+        const content = this.substituteAskUserMarker(rawContent);
         const model = resolveAgentModel(agent.id, agent, ctx.manifest, overrides);
         const desc = overrides.description ?? agent.description;
         const prefixedId = toPrefixedId(agent.id);

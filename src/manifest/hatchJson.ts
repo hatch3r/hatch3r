@@ -452,7 +452,17 @@ export function applyPreservedManifestFields(
         defaultBranch: manifest.board.defaultBranch ?? preserved.board.defaultBranch,
       };
     } else {
-      manifest.board = preserved.board;
+      // No new init-supplied board, but top-level manifest.owner/repo carry
+      // the init-supplied identity (createManifest sets them unconditionally).
+      // Override the preserved board's owner/repo so a re-init that re-points
+      // the project does not leave manifest.board.{owner,repo} disagreeing
+      // with manifest.{owner,repo}. Fall back to preserved values when the
+      // new manifest has no identity set.
+      manifest.board = {
+        ...preserved.board,
+        owner: manifest.owner || preserved.board.owner,
+        repo: manifest.repo || preserved.board.repo,
+      };
     }
   }
   if (preserved.costTracking) manifest.costTracking = preserved.costTracking;

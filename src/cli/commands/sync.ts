@@ -610,7 +610,12 @@ export async function syncCommand(
       perAdapterOutputs,
       previousProvenanceManifest,
     );
-    await writeProvenanceManifest(agentsDir, provenanceManifest);
+    // Mirror the integrity-manifest pattern above: buildProvenanceManifest
+    // returns the previous object identity when entries are byte-equivalent,
+    // so skip the atomic write on redundant sync.
+    if (provenanceManifest !== previousProvenanceManifest) {
+      await writeProvenanceManifest(agentsDir, provenanceManifest);
+    }
 
     // Task #11 orphan-cleanup: emit an aggregated diagnostic for every
     // orphan candidate we inspected this run. `unlinked` entries are

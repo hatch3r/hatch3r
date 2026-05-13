@@ -43,6 +43,7 @@ jq -s '
   def tu: [.[] | select(.message.content?) | .message.content[] | select(.type=="tool_use")];
   def tr: [.[] | select(.message.content?) | .message.content[] | select(.type=="tool_result")];
   def asst_turns: [.[] | select(.type=="assistant" and (.message.content?))];
+  def thinks: [.[] | select(.message.content?) | .message.content[] | select(.type=="thinking") | .text];
   {
     sessionId: .[0].sessionId, firstTs: .[0].timestamp, lastTs: .[-1].timestamp,
     cwd: .[0].cwd, gitBranch: .[0].gitBranch, records: length,
@@ -53,10 +54,13 @@ jq -s '
     agentCalls: (tu | map(select(.name=="Agent") | {sub: (.input.subagent_type // "general-purpose"), prompt: (.input.prompt[:80] // "")})),
     bashCmds: (tu | map(select(.name=="Bash") | .input.command)),
     turnLens: [asst_turns[] | (.message.content | map(select(.type=="tool_use")) | length)],
+    thinkingChars: ([thinks[] | length] | add // 0),
     errorResults: (tr | map(select((.content | tostring) | test("error|failed"; "i"))) | length),
     totalResults: (tr | length)
   }' "$JSONL"
 ```
+
+`thinkingChars` is the summed length of every `thinking` block's text — required input for D-LOOP-01 (`thinking chars ÷ (tool_use count + 1) > 1200`).
 
 The LLM reads the resulting JSON, computes derived metrics (parallel-batch count = turns with ≥2 tool_use; sequential count = turns with exactly 1), and builds the rendered tables.
 
