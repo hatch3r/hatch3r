@@ -85,7 +85,7 @@ All adapters emit model preferences when configured via `hatch.json`, agent fron
 All adapters that emit bridge files (Cursor, Claude, Copilot, Gemini, Windsurf, Amp, AGENTS.md) now include **inline orchestration content** from a shared constant (`BRIDGE_ORCHESTRATION` in `src/cli/shared/agentsContent.ts`). This content comprises:
 
 - **Mandatory Behaviors** — 6 directives (load skill, spawn researcher, spawn specialists, use Task tool, propagate rules, consult learnings)
-- **Agent Quick Reference** — Table of 16 agents with "When to Use"
+- **Agent Quick Reference** — Table of 17 agents with "When to Use"
 - **Canonical Structure** — Paths for rules, agents, skills, commands, MCP, policy
 
 Previously only the Cursor adapter inlined this content; others merely referenced `.agents/AGENTS.md`. Inlining ensures every platform receives orchestration guidance directly in context, improving instruction-following reliability. Codex and OpenCode reference `.agents/AGENTS.md` via config and do not emit bridge markdown files.

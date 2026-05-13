@@ -16,10 +16,10 @@ hatch3r maintains a **single canonical source** of agent configuration in `.agen
 
 ```
 .agents/                <- Canonical source (tool-agnostic)
-  ├── agents/           # Agent definitions (16 agents)
-  ├── rules/            # Rule files (27 rules)
+  ├── agents/           # Agent definitions (17 agents)
+  ├── rules/            # Rule files (28 rules)
   ├── skills/           # Skill directories (26 skills)
-  ├── commands/         # Slash commands (34 commands)
+  ├── commands/         # Slash commands (35 commands)
   ├── mcp/              # MCP server config
   ├── hooks/            # Event hooks (commit, merge, CI failure, etc.)
   ├── AGENTS.md         # Canonical agent instructions

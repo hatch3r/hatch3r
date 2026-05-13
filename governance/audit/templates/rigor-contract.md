@@ -6,7 +6,7 @@
 
 ## Purpose
 
-Single source of truth for the rigor every governance prompt and audit sub-agent applies before recording a finding. AUDIT.md, EVOLVE.md, and all 19 audit domain files reference this file rather than restating it (Anti-Bloat Principle 1: Single Source of Truth, per `governance/CONSTITUTION.md` §2 P5).
+Single source of truth for the rigor every governance prompt and audit sub-agent applies before recording a finding. AUDIT.md, EVOLVE.md, and all 20 audit domain files reference this file rather than restating it (Anti-Bloat Principle 1: Single Source of Truth, per `governance/CONSTITUTION.md` §2 P5).
 
 ---
 

@@ -22,11 +22,11 @@ The `external_plugins/` PR convention referenced in the original C7-H16 finding 
 
 ### One-line description
 
-Battle-tested agentic coding setup: 16 agents, 26 skills, 27 rules, 34 commands, 6 hooks, and MCP integrations for Claude Code.
+Battle-tested agentic coding setup: 17 agents, 26 skills, 28 rules, 35 commands, 6 hooks, and MCP integrations for Claude Code.
 
 ### Long description
 
-hatch3r is an open-source CLI and Claude Code plugin that installs a tool-agnostic agentic coding setup into any repository. One command installs 16 agents, 26 skills, 27 rules, 34 commands, 6 lifecycle hooks, and MCP integrations. Selective install lets users choose only what their project needs (greenfield vs brownfield, solo vs team, minimal/standard/full presets).
+hatch3r is an open-source CLI and Claude Code plugin that installs a tool-agnostic agentic coding setup into any repository. One command installs 17 agents, 26 skills, 28 rules, 35 commands, 6 lifecycle hooks, and MCP integrations. Selective install lets users choose only what their project needs (greenfield vs brownfield, solo vs team, minimal/standard/full presets).
 
 The plugin packages a 4-phase sub-agent pipeline (Research → Implement → Review → Quality) that maps directly to Claude Code Agent Teams, board-management commands for GitHub/Azure DevOps/GitLab, security-audit and accessibility-audit skills, and customization via `.hatch3r/{type}/{id}.customize.yaml` without editing managed files.
 
@@ -56,8 +56,8 @@ Or, after marketplace listing:
 ### Capabilities checkboxes
 
 - [x] Skills (26 — listed under `skills/`)
-- [x] Agents (16 — listed under `agents/`)
-- [x] Commands (34 — listed under `commands/`)
+- [x] Agents (17 — listed under `agents/`)
+- [x] Commands (35 — listed under `commands/`)
 - [x] Hooks (6 — installed into `.claude/hooks/hatch3r-hooks.json` on Claude Code targets at `npx hatch3r init` time)
 - [x] MCP servers (10 — 3 default, 7 opt-in, configured in `.mcp.json`)
 - [ ] LSP servers
@@ -76,7 +76,7 @@ The submission requires a valid `.claude-plugin/plugin.json`. The current manife
 ```json
 {
   "name": "hatch3r",
-  "description": "Battle-tested agentic coding setup: 16 agents, 26 skills, 27 rules, 34 commands, 6 hooks, and MCP integrations. Counts derived from governance/inventory.json.",
+  "description": "Battle-tested agentic coding setup: 17 agents, 26 skills, 28 rules, 35 commands, 6 hooks, and MCP integrations. Counts derived from governance/inventory.json.",
   "version": "1.7.0",
   "author": {
     "name": "hatch3r",
@@ -118,7 +118,7 @@ If the marketplace later requires a PR to `anthropics/claude-plugins-official/ex
 ```markdown
 ## hatch3r
 
-**Description:** Battle-tested agentic coding setup framework. One command installs 16 agents, 26 skills, 27 rules, 34 commands, 6 hooks, and MCP integrations into any repo.
+**Description:** Battle-tested agentic coding setup framework. One command installs 17 agents, 26 skills, 28 rules, 35 commands, 6 hooks, and MCP integrations into any repo.
 
 **License:** MIT
 **Repository:** https://github.com/hatch3r/hatch3r
@@ -126,10 +126,10 @@ If the marketplace later requires a PR to `anthropics/claude-plugins-official/ex
 **Install:** `npx hatch3r init` or `/plugin install hatch3r@claude-plugins-official`
 
 ### Capabilities
-- 16 sub-agents (researcher, implementer, reviewer, fixer, test-writer, security-auditor, etc.)
+- 17 sub-agents (researcher, implementer, reviewer, fixer, test-writer, security-auditor, creator, etc.)
 - 26 skills covering bug-fix, feature, release, incident-response, customization, and more
-- 27 rules (code standards, testing, observability, security patterns, agent orchestration)
-- 34 commands (board management, planning, workflow, operations)
+- 28 rules (code standards, testing, observability, security patterns, agent orchestration)
+- 35 commands (board management, planning, workflow, operations)
 - 6 lifecycle hooks (pre-commit, post-merge, ci-failure, file-save, session-start, pre-push)
 - 10 MCP servers (3 default, 7 opt-in)
 - Claude Code Agent Teams compatibility (4-phase pipeline → teammate roles)
@@ -143,7 +143,7 @@ If the marketplace later requires a PR to `anthropics/claude-plugins-official/ex
 ### Quality bar
 - Test suite: 2048+ tests passing (vitest), coverage thresholds at 78/65/80/80 statements/branches/functions/lines globally with critical-module floors of 90/80/90/90 for `src/merge/` and `src/integrity/`.
 - Security: OWASP ASI01-10 controls (`governance/audit/domains/D15-agentic-security.md`), atomic file writes, prompt injection guards, tool allowlists per agent.
-- Governance: 6 Binding Pillars (`governance/CONSTITUTION.md`), 19 audit domains, closed-loop self-evolution audits.
+- Governance: 7 Binding Pillars (`governance/CONSTITUTION.md`), 20 audit domains, closed-loop self-evolution audits.
 - License: MIT, DCO sign-off enforced on commits.
 
 ### Cross-platform
@@ -168,13 +168,13 @@ claude plugin validate .
 cat .claude/hooks/hatch3r-hooks.json | jq .
 
 # Confirm inventory counts match plugin.json description
-npm run inventory && diff <(jq -r '.counts | to_entries[] | "\(.key)=\(.value)"' governance/inventory.json | sort) <(echo "agents=16
+npm run inventory && diff <(jq -r '.counts | to_entries[] | "\(.key)=\(.value)"' governance/inventory.json | sort) <(echo "agents=17
 adapters=15
 cliCommands=11
-commands=34
+commands=35
 hooks=6
 pipeline=17
-rules=27
-rulesMdc=27
+rules=28
+rulesMdc=28
 skills=26" | sort)
 ```
