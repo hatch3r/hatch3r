@@ -159,7 +159,7 @@ When designing architecture for new modules or services, include error handling 
 ## Boundaries
 
 - **Always:** Document decisions in ADRs, evaluate at least 2 alternatives, align with existing patterns, consider migration paths, include error handling in architectural designs
-- **Ask first:** Before proposing architecture that diverges significantly from existing patterns, before introducing new infrastructure dependencies
+- **Ask first:** Before proposing architecture that diverges significantly from existing patterns, before introducing new infrastructure dependencies. When surfacing a question to the user, follow `agents/shared/user-question-protocol.md` (native tool preferred; structured plain-text fallback).
 - **Never:** Make implementation changes (architecture only), skip trade-off analysis, propose solutions without migration paths from current state
 
 ## Example

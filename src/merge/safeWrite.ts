@@ -369,7 +369,13 @@ export async function safeWriteFile(
   if (options.managedContent) {
     if (!hasManagedBlock(existingContent)) {
       if (options.appendIfNoBlock) {
-        const prepended = [content.trim(), "", existingContent.trimStart()].join("\n");
+        // G6 (v1.7.1): trailing \n parity with insertManagedBlock so the
+        // first write through this branch and the second write through the
+        // existing-markers branch produce byte-identical output. Without
+        // this, the second sync regenerates with an added \n and drift
+        // appears in the user's git status.
+        let prepended = [content.trim(), "", existingContent.trimStart()].join("\n");
+        if (!prepended.endsWith("\n")) prepended += "\n";
         if (skipIfUnchanged && prepended === existingContent) {
           return { path: filePath, action: "unchanged" };
         }

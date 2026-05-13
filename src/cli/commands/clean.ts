@@ -15,6 +15,7 @@ import { HatchError, type ContentSelection, type CustomizationManifest, type Fea
 import { inventoryArtifacts, executeClean, backupLearnings, restoreLearnings, type CleanInventory } from "../../clean/index.js";
 import { runInit, type RunInitOptions } from "./init.js";
 import { analyzeRepo } from "../../detect/repoAnalyzer.js";
+import { extractPreservedManifestFields, type PreservedManifestFields } from "../../manifest/hatchJson.js";
 
 interface CapturedConfig {
   platform: Platform;
@@ -35,6 +36,14 @@ interface CapturedConfig {
    * `.hatch3r/*.customize.yaml` files are absent.
    */
   customization?: CustomizationManifest;
+  /**
+   * Platform- and user-specific manifest state (GitHub Projects v2 IDs,
+   * costTracking budgets, specs paths, extension config, worktree extras,
+   * etc.) captured before clean removes `.agents/hatch.json`. Handed to
+   * runInit so reinit reapplies these instead of resetting them to defaults.
+   * See {@link extractPreservedManifestFields} for the exact field set.
+   */
+  preservedFields?: PreservedManifestFields;
 }
 
 function captureConfig(manifest: NonNullable<CleanInventory["manifest"]>): CapturedConfig {
@@ -56,6 +65,7 @@ function captureConfig(manifest: NonNullable<CleanInventory["manifest"]>): Captu
     },
     worktreeEnabled: manifest.worktree?.enabled ?? false,
     customization: manifest.customization,
+    preservedFields: extractPreservedManifestFields(manifest),
   };
 }
 
@@ -249,6 +259,10 @@ export async function cleanCommand(
           // manifest preserves integration config and per-artifact overrides
           // across a clean -> reinit cycle.
           customization: config.customization,
+          // 1.7.1: carry full platform/user manifest state (board IDs,
+          // costTracking, specs, extension config, worktree extras) forward
+          // so a clean -> reinit cycle no longer wipes them.
+          preservedManifestFields: config.preservedFields,
           // Reinit-after-clean already prompted the user; suppress runInit's
           // own post-init create-prompt so we do not stack two confirmations.
           yes: true,

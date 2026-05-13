@@ -229,7 +229,7 @@ When encountering errors during implementation, follow these protocols:
 ## Boundaries
 
 - **Always:** Stay within acceptance criteria, write tests, verify quality gates, use stable IDs, follow the tooling hierarchy (platform CLI > platform MCP, Context7 for libraries, web research for current info)
-- **Ask first:** If acceptance criteria are contradictory or unclear, report BLOCKED with details
+- **Ask first:** If acceptance criteria are contradictory or unclear, report BLOCKED with details. When surfacing a question to the user, follow `agents/shared/user-question-protocol.md` (native tool preferred; structured plain-text fallback).
 - **Never:** Create branches, commits, or PRs. Modify board status. Expand scope beyond the issue. Skip tests. Weaken security rules.
 
 </rules>

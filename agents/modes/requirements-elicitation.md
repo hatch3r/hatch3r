@@ -15,6 +15,7 @@ Analyze the task description against the codebase to detect ambiguities, unstate
 
 **Protocol:**
 
+0. Render each elicited question per the format in `agents/shared/user-question-protocol.md` (native tool preferred; structured plain-text fallback otherwise).
 1. Parse the task description for vague language ("improve", "better", "proper", "handle", "support", "clean up", "fix", "update") and flag each instance.
 2. Identify unstated assumptions by comparing the task against the codebase structure — what does the task imply but not state explicitly?
 3. For each of the 10 dimensions below, determine if the task description addresses it. If not, generate a targeted question.

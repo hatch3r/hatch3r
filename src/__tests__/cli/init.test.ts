@@ -244,6 +244,57 @@ describe("init command", () => {
     expect(manifest.hatch3rVersion).toBe(HATCH3R_VERSION);
   });
 
+  // 1.7.1: re-init over an existing `.agents/hatch.json` must defensively
+  // preserve GitHub Projects v2 IDs (board.projectNumber, statusFieldId,
+  // statusOptions, areas) plus other user-set state (costTracking, specs).
+  // Before this fix `createManifest` reset board IDs to null on every init.
+  it("preserves board.projectNumber, statusOptions, areas across re-init", async () => {
+    await initCommand({ yes: true });
+
+    const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
+    const baseline = JSON.parse(await readFile(manifestPath, "utf-8"));
+    baseline.board = {
+      ...baseline.board,
+      projectNumber: 42,
+      statusFieldId: 99,
+      statusOptions: {
+        backlog: "PVTSSF_backlog",
+        ready: "PVTSSF_ready",
+        inProgress: "PVTSSF_in_progress",
+        inReview: "PVTSSF_in_review",
+        done: "PVTSSF_done",
+      },
+      areas: ["api", "ui"],
+    };
+    await writeFile(manifestPath, JSON.stringify(baseline, null, 2));
+
+    await initCommand({ yes: true });
+
+    const after = JSON.parse(await readFile(manifestPath, "utf-8"));
+    expect(after.board.projectNumber).toBe(42);
+    expect(after.board.statusFieldId).toBe(99);
+    expect(after.board.statusOptions.backlog).toBe("PVTSSF_backlog");
+    expect(after.board.statusOptions.done).toBe("PVTSSF_done");
+    expect(after.board.areas).toEqual(["api", "ui"]);
+  });
+
+  it("preserves costTracking budgets and specs paths across re-init", async () => {
+    await initCommand({ yes: true });
+
+    const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
+    const baseline = JSON.parse(await readFile(manifestPath, "utf-8"));
+    baseline.costTracking = { sessionBudget: 5, currency: "USD", hardStop: true };
+    baseline.specs = { paths: ["docs/api.md", "docs/architecture.md"], lastGenerated: "2026-05-01" };
+    await writeFile(manifestPath, JSON.stringify(baseline, null, 2));
+
+    await initCommand({ yes: true });
+
+    const after = JSON.parse(await readFile(manifestPath, "utf-8"));
+    expect(after.costTracking).toEqual({ sessionBudget: 5, currency: "USD", hardStop: true });
+    expect(after.specs.paths).toEqual(["docs/api.md", "docs/architecture.md"]);
+    expect(after.specs.lastGenerated).toBe("2026-05-01");
+  });
+
   it("should include AGENTS.md in managedFiles", async () => {
     await initCommand({ yes: true });
 

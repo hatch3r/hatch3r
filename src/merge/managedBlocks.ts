@@ -53,7 +53,13 @@ export function insertManagedBlock(
 
   const before = existingContent.substring(0, startIdx);
   const after = existingContent.substring(endIdx + MANAGED_BLOCK_END.length);
-  return `${before}${block}${after}`;
+  // G6 (v1.7.1): guarantee POSIX final newline so the round-trip
+  // sync→commit→sync is byte-stable. Without it, every external tool
+  // that appends a trailing \n on save (editors, prettier, EditorConfig
+  // insert_final_newline=true) creates drift that the next sync rewrites,
+  // producing the worktree-setup "many local git changes" symptom.
+  const result = `${before}${block}${after}`;
+  return result.endsWith("\n") ? result : result + "\n";
 }
 
 /** Extract the text between HATCH3R:BEGIN and HATCH3R:END markers, or null if absent. */
@@ -88,7 +94,8 @@ export function extractCustomContent(content: string): string {
 export function wrapInManagedBlock(content: string): string {
   // G2: Trim for symmetry with extractManagedBlock to avoid asymmetric
   // whitespace round-trips that produce spurious status drift.
-  return `${MANAGED_BLOCK_START}\n${content.trim()}\n${MANAGED_BLOCK_END}`;
+  // G6 (v1.7.1): trailing \n is POSIX-final-newline; see insertManagedBlock G6.
+  return `${MANAGED_BLOCK_START}\n${content.trim()}\n${MANAGED_BLOCK_END}\n`;
 }
 
 /** Check whether content contains both managed block start and end markers. */

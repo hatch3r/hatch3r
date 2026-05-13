@@ -145,7 +145,7 @@ Revision Context:
 
 **ASK:** "Is this the work you want to revise? Any additional context I should know about? (yes / provide context / wrong branch)"
 
-If the user provides additional context (e.g., a different issue number, clarifications, or scope adjustments), incorporate it before proceeding.
+When asking, use the platform-native question tool per `agents/shared/user-question-protocol.md`. If the user provides additional context (e.g., a different issue number, clarifications, or scope adjustments), incorporate it before proceeding.
 
 ---
 

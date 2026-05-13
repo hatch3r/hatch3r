@@ -1,12 +1,12 @@
 {
-  "lastUpdated": "2026-04-28",
+  "lastUpdated": "2026-05-13",
   "counts": {
     "adapters": 15,
     "agents": 17,
     "skills": 26,
     "rules": 28,
     "rulesMdc": 28,
-    "commands": 35,
+    "commands": 37,
     "hooks": 6,
     "pipeline": 17,
     "cliCommands": 11
@@ -160,11 +160,13 @@
       "hatch3r-learn.md",
       "hatch3r-migration-plan.md",
       "hatch3r-onboard.md",
+      "hatch3r-pr-resolve.md",
       "hatch3r-project-spec.md",
       "hatch3r-quick-change.md",
       "hatch3r-recipe.md",
       "hatch3r-refactor-plan.md",
       "hatch3r-release.md",
+      "hatch3r-report.md",
       "hatch3r-revision.md",
       "hatch3r-roadmap.md",
       "hatch3r-rule-customize.md",

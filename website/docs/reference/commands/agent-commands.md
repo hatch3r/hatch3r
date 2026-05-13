@@ -135,11 +135,19 @@ Interactive hook management for event-driven agent activation. View, add, remove
 
 Capture learnings from completed issues, code reviews, and architectural decisions into reusable knowledge files.
 
+### pr-resolve
+
+Read all open PR comments (inline + review summary + general discussion) across GitHub, Azure DevOps, and GitLab; evaluate each against current code via the rigor contract; implement accepted findings through the standard agent pipeline; and reply per comment with rationale. Auto-detects the PR from the current branch or accepts an explicit PR number.
+
 ## Monitoring Commands
 
 ### context-health
 
 Monitor conversation context health and detect degradation during long sessions. Provides token usage metrics and recommendations.
+
+### report
+
+In-chat session report: every tool call, sub-agent delegation, file edit, and hook event from the active or named transcript, with diagnostics for missed parallelism, redundant work, and over-serialization. Defaults to the current session and an executive summary; flags extend scope and depth.
 
 ### cost-tracking
 

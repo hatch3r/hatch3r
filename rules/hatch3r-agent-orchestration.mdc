@@ -14,6 +14,8 @@ Hatch3r's orchestration uses a **phase-gated pipeline** (Research, Implement, Re
 
 This rule applies to EVERY context without exception: board-pickup (epic, sub-issue, standalone, batch), workflow command (full/quick), plain chat, issue references, and natural language requests. The full sub-agent pipeline is mandatory — never implement code inline without sub-agents.
 
+**"Inline implementation" defined.** Inline implementation means calling any code-writing tool — `Edit`, `Write`, `MultiEdit`, `NotebookEdit`, `replace_string_in_file`, `multi_replace_string_in_file`, `create_file`, `str_replace_based_edit_tool`, `apply_patch`, or any platform equivalent — from the orchestrator turn itself, rather than from inside a spawned `hatch3r-implementer` (Phase 2) or `hatch3r-fixer` (Phase 3) sub-agent. The only carve-out is `hatch3r-quick-change` for Tier 1 single-line trivial edits per its declared scope.
+
 ## Universal Sub-Agent Pipeline
 
 Every task MUST follow this four-phase pipeline: **Phase 1 — Research** (`hatch3r-researcher`), **Phase 2 — Implement** (`hatch3r-implementer`), **Phase 3 — Review Loop** (`hatch3r-reviewer` + `hatch3r-fixer`), **Phase 4 — Final Quality** (parallel specialists). See Mandatory Delegation Directives below.
@@ -78,6 +80,27 @@ Spawn `hatch3r-implementer` via Task tool for ALL code changes. Never implement 
 - **Batch**: Group by dependency level, one implementer per issue, shared branch + combined PR.
 
 **Implementer prompt enrichment (Tier 2+):** Include `similar-implementation` findings as "Reference Conventions", resolved `requirements-elicitation` answers as "Resolved Requirements", and blast radius data (Tier 3 only).
+
+### Per-Turn Pipeline-State Header
+
+Whenever a tracked task is active at Tier 2 or Tier 3 (deep-context score >= 3), the orchestrator MUST emit a single-line pipeline-state header at the very start of every assistant turn that touches the task. Format:
+
+```
+[hatch3r-pipeline: phase {1|2|3|4} | last: {agent} → {SUCCESS|PARTIAL|FAILED|BLOCKED|n/a} | next: {agent or "user-confirmation" or "complete"}]
+```
+
+Examples:
+
+- `[hatch3r-pipeline: phase 1 | last: n/a | next: hatch3r-researcher]`
+- `[hatch3r-pipeline: phase 2 | last: hatch3r-researcher → SUCCESS | next: hatch3r-implementer]`
+- `[hatch3r-pipeline: phase 3 | last: hatch3r-reviewer → PARTIAL | next: hatch3r-fixer]`
+- `[hatch3r-pipeline: phase 3 | last: hatch3r-implementer → SUCCESS | next: user-confirmation]`
+
+A missing header on a tracked Tier >= 2 task is a self-detectable drift signal — the user may halt the turn and request re-grounding. The header also functions as a per-reply cache prime: rendering it forces the orchestrator to re-resolve which phase it is in before choosing tools. Tier 1 tasks, read-only answers, and chat-only iterations do NOT require the header.
+
+### Mandatory Delegation Directive (No Inline Implementation)
+
+Restating with maximum clarity for sub-agent prompt inclusion: the orchestrator MUST NOT call `Edit`, `Write`, `MultiEdit`, `NotebookEdit`, `replace_string_in_file`, `multi_replace_string_in_file`, `create_file`, `str_replace_based_edit_tool`, `apply_patch`, or any platform-equivalent code-writing tool from its own turn. The only path for code mutation is the Task tool spawning `hatch3r-implementer` (Phase 2) or `hatch3r-fixer` (Phase 3). Carve-out: `hatch3r-quick-change` Tier 1 trivial items per its declared scope. No other carve-out exists. Violations are bypass mode (see issue #73) — surface them by halting the turn and re-delegating.
 
 ### Mid-Implementation Research Gap Checkpoint
 

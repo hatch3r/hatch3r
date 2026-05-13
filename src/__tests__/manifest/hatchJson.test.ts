@@ -2,8 +2,17 @@ import { describe, it, expect, afterEach } from "vitest";
 import { mkdtemp, mkdir, writeFile, readFile, rm, access } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createManifest, addManagedFile, removeManagedFile, migrateManifest, readManifest, writeManifest } from "../../manifest/hatchJson.js";
-import { HatchError } from "../../types.js";
+import {
+  createManifest,
+  addManagedFile,
+  removeManagedFile,
+  migrateManifest,
+  readManifest,
+  writeManifest,
+  extractPreservedManifestFields,
+  applyPreservedManifestFields,
+} from "../../manifest/hatchJson.js";
+import { HatchError, type BoardConfig, type HatchManifest } from "../../types.js";
 import { HATCH3R_VERSION } from "../../version.js";
 
 describe("hatchJson", () => {
@@ -820,6 +829,279 @@ describe("hatchJson", () => {
       const result = await readManifest(rootDir);
       expect(result).not.toBeNull();
       expect(result!.worktree?.extraPatterns).toEqual([".custom-dir/"]);
+    });
+  });
+
+  // 1.7.1: Bug fix for clean+reinit losing GitHub Projects v2 IDs and other
+  // user/platform-specific manifest fields. Helpers below are the centralized
+  // extract/apply pair called from src/cli/commands/clean.ts (capture path)
+  // and src/cli/commands/init.ts (apply path, with existingManifest fallback).
+  describe("extractPreservedManifestFields", () => {
+    function makeBoard(overrides: Partial<BoardConfig> = {}): BoardConfig {
+      return {
+        owner: "acme",
+        repo: "app",
+        defaultBranch: "main",
+        projectNumber: 42,
+        statusFieldId: 99,
+        statusOptions: {
+          backlog: "PVTSSF_backlog",
+          ready: "PVTSSF_ready",
+          inProgress: "PVTSSF_in_progress",
+          inReview: "PVTSSF_in_review",
+          done: "PVTSSF_done",
+        },
+        labels: {
+          types: ["type:bug"],
+          executors: ["executor:agent"],
+          statuses: ["status:triage"],
+          meta: ["meta:board-overview"],
+        },
+        branchConvention: "{type}/{short-description}",
+        areas: ["api", "ui"],
+        ...overrides,
+      };
+    }
+
+    function makeManifest(overrides: Partial<HatchManifest> = {}): HatchManifest {
+      const base = createManifest({ tools: ["cursor"], owner: "acme", repo: "app" });
+      return { ...base, ...overrides };
+    }
+
+    it("returns empty object for a minimal manifest without any preservable fields", () => {
+      const manifest = makeManifest();
+      expect(extractPreservedManifestFields(manifest)).toEqual({});
+    });
+
+    it("extracts board with full GitHub Projects v2 state", () => {
+      const board = makeBoard();
+      const manifest = makeManifest({ board });
+      const result = extractPreservedManifestFields(manifest);
+      expect(result.board).toEqual(board);
+      expect(result.board?.projectNumber).toBe(42);
+      expect(result.board?.statusFieldId).toBe(99);
+      expect(result.board?.statusOptions.backlog).toBe("PVTSSF_backlog");
+      expect(result.board?.areas).toEqual(["api", "ui"]);
+    });
+
+    it("extracts costTracking budgets", () => {
+      const manifest = makeManifest({
+        costTracking: { sessionBudget: 5, issueBudget: 25, currency: "USD", hardStop: true },
+      });
+      const result = extractPreservedManifestFields(manifest);
+      expect(result.costTracking).toEqual({
+        sessionBudget: 5,
+        issueBudget: 25,
+        currency: "USD",
+        hardStop: true,
+      });
+    });
+
+    it("extracts specs paths and lastGenerated", () => {
+      const manifest = makeManifest({
+        specs: { paths: ["docs/api.md", "docs/architecture.md"], lastGenerated: "2026-05-01" },
+      });
+      const result = extractPreservedManifestFields(manifest);
+      expect(result.specs?.paths).toEqual(["docs/api.md", "docs/architecture.md"]);
+      expect(result.specs?.lastGenerated).toBe("2026-05-01");
+    });
+
+    it("extracts userContent counters", () => {
+      const manifest = makeManifest({
+        userContent: { count: 3, lastModified: "2026-05-12T10:00:00Z", types: { agent: 1, skill: 2 } },
+      });
+      const result = extractPreservedManifestFields(manifest);
+      expect(result.userContent?.count).toBe(3);
+      expect(result.userContent?.types).toEqual({ agent: 1, skill: 2 });
+    });
+
+    it("extracts hooks, models, and claude extension config", () => {
+      const manifest = makeManifest({
+        hooks: { enabled: true },
+        models: { default: "sonnet", agents: { researcher: "opus" } },
+        claude: { permissions: { allow: ["Bash"] }, teammateMode: "auto" },
+      });
+      const result = extractPreservedManifestFields(manifest);
+      expect(result.hooks).toEqual({ enabled: true });
+      expect(result.models?.default).toBe("sonnet");
+      expect(result.claude?.permissions?.allow).toEqual(["Bash"]);
+    });
+
+    it("extracts repos and packages workspace state", () => {
+      const manifest = makeManifest({
+        repos: [{ owner: "acme", repo: "lib", name: "shared-lib" }],
+        packages: [{ name: "core", path: "packages/core" }],
+      });
+      const result = extractPreservedManifestFields(manifest);
+      expect(result.repos).toHaveLength(1);
+      expect(result.repos?.[0]?.repo).toBe("lib");
+      expect(result.packages?.[0]?.name).toBe("core");
+    });
+
+    it("extracts workspace metadata", () => {
+      const manifest = makeManifest({
+        workspace: {
+          rootPath: "..",
+          lastSync: "2026-05-12T10:00:00Z",
+          syncVersion: "1.7.0",
+          workspaceChecksum: "sha256:abc",
+          excludedContent: ["hatch3r-foo"],
+        },
+      });
+      const result = extractPreservedManifestFields(manifest);
+      expect(result.workspace?.rootPath).toBe("..");
+      expect(result.workspace?.excludedContent).toEqual(["hatch3r-foo"]);
+    });
+
+    it("extracts worktree extras (extraPatterns + nodeModules) into a dedicated shape", () => {
+      const manifest = makeManifest({
+        worktree: { enabled: true, extraPatterns: [".custom/"], nodeModules: "skip" },
+      });
+      const result = extractPreservedManifestFields(manifest);
+      expect(result.worktreeExtras).toEqual({
+        extraPatterns: [".custom/"],
+        nodeModules: "skip",
+      });
+    });
+
+    it("omits worktreeExtras when worktree has only `enabled` set", () => {
+      const manifest = makeManifest({ worktree: { enabled: true } });
+      const result = extractPreservedManifestFields(manifest);
+      expect(result.worktreeExtras).toBeUndefined();
+    });
+  });
+
+  describe("applyPreservedManifestFields", () => {
+    function makeBoard(overrides: Partial<BoardConfig> = {}): BoardConfig {
+      return {
+        owner: "acme",
+        repo: "app",
+        defaultBranch: "main",
+        projectNumber: 42,
+        statusFieldId: 99,
+        statusOptions: {
+          backlog: "PVTSSF_backlog",
+          ready: null,
+          inProgress: null,
+          inReview: null,
+          done: null,
+        },
+        labels: { types: [], executors: [], statuses: [], meta: [] },
+        branchConvention: "{type}/{short-description}",
+        areas: [],
+        ...overrides,
+      };
+    }
+
+    it("is a no-op when preserved is empty", () => {
+      const manifest = createManifest({ tools: ["cursor"] });
+      const before = JSON.stringify(manifest);
+      applyPreservedManifestFields(manifest, {});
+      expect(JSON.stringify(manifest)).toBe(before);
+    });
+
+    it("preserves board.projectNumber, statusFieldId, statusOptions when no board exists yet", () => {
+      const manifest = createManifest({ tools: ["cursor"] });
+      const preserved = makeBoard();
+      applyPreservedManifestFields(manifest, { board: preserved });
+      expect(manifest.board?.projectNumber).toBe(42);
+      expect(manifest.board?.statusFieldId).toBe(99);
+      expect(manifest.board?.statusOptions.backlog).toBe("PVTSSF_backlog");
+    });
+
+    it("lets init-supplied board.owner/repo/defaultBranch win over preserved values", () => {
+      const manifest = createManifest({ tools: ["cursor"], owner: "new-owner", repo: "new-repo", defaultBranch: "develop" });
+      const preserved = makeBoard({ owner: "old-owner", repo: "old-repo", defaultBranch: "main", projectNumber: 42 });
+      applyPreservedManifestFields(manifest, { board: preserved });
+      expect(manifest.board?.owner).toBe("new-owner");
+      expect(manifest.board?.repo).toBe("new-repo");
+      expect(manifest.board?.defaultBranch).toBe("develop");
+      // But projectNumber, statusOptions etc. are preserved
+      expect(manifest.board?.projectNumber).toBe(42);
+      expect(manifest.board?.statusOptions.backlog).toBe("PVTSSF_backlog");
+    });
+
+    it("preserves board.areas and branchConvention", () => {
+      const manifest = createManifest({ tools: ["cursor"], owner: "acme", repo: "app", defaultBranch: "main" });
+      const preserved = makeBoard({ areas: ["api", "ui"], branchConvention: "{type}/{name}" });
+      applyPreservedManifestFields(manifest, { board: preserved });
+      expect(manifest.board?.areas).toEqual(["api", "ui"]);
+      expect(manifest.board?.branchConvention).toBe("{type}/{name}");
+    });
+
+    it("preserves costTracking budgets", () => {
+      const manifest = createManifest({ tools: ["cursor"] });
+      applyPreservedManifestFields(manifest, {
+        costTracking: { sessionBudget: 10, currency: "EUR" },
+      });
+      expect(manifest.costTracking?.sessionBudget).toBe(10);
+      expect(manifest.costTracking?.currency).toBe("EUR");
+    });
+
+    it("preserves specs, userContent, hooks, models, claude", () => {
+      const manifest = createManifest({ tools: ["cursor"] });
+      applyPreservedManifestFields(manifest, {
+        specs: { paths: ["docs/api.md"] },
+        userContent: { count: 2, lastModified: "2026-05-12", types: { agent: 2 } },
+        hooks: { enabled: true },
+        models: { default: "opus" },
+        claude: { teammateMode: "tmux" },
+      });
+      expect(manifest.specs?.paths).toEqual(["docs/api.md"]);
+      expect(manifest.userContent?.count).toBe(2);
+      expect(manifest.hooks?.enabled).toBe(true);
+      expect(manifest.models?.default).toBe("opus");
+      expect(manifest.claude?.teammateMode).toBe("tmux");
+    });
+
+    it("preserves repos, packages, workspace metadata", () => {
+      const manifest = createManifest({ tools: ["cursor"] });
+      applyPreservedManifestFields(manifest, {
+        repos: [{ owner: "acme", repo: "lib" }],
+        packages: [{ name: "core", path: "packages/core" }],
+        workspace: {
+          rootPath: "..",
+          lastSync: "2026-05-12T10:00:00Z",
+          syncVersion: "1.7.0",
+          workspaceChecksum: "sha256:abc",
+        },
+      });
+      expect(manifest.repos).toHaveLength(1);
+      expect(manifest.packages?.[0]?.name).toBe("core");
+      expect(manifest.workspace?.rootPath).toBe("..");
+    });
+
+    it("applies worktree extras only when manifest.worktree.enabled is true", () => {
+      // Worktree enabled: extras get applied.
+      const enabled = createManifest({ tools: ["claude"], worktreeEnabled: true });
+      applyPreservedManifestFields(enabled, {
+        worktreeExtras: { extraPatterns: [".custom/"], nodeModules: "skip" },
+      });
+      expect(enabled.worktree?.extraPatterns).toEqual([".custom/"]);
+      expect(enabled.worktree?.nodeModules).toBe("skip");
+
+      // Worktree disabled (or absent): extras dropped, worktree config not materialized.
+      const disabled = createManifest({ tools: ["cursor"], worktreeEnabled: false });
+      applyPreservedManifestFields(disabled, {
+        worktreeExtras: { extraPatterns: [".custom/"], nodeModules: "skip" },
+      });
+      expect(disabled.worktree).toBeUndefined();
+    });
+
+    it("round-trip: extract then apply reproduces the preserved subset", () => {
+      const source: HatchManifest = {
+        ...createManifest({ tools: ["claude"], owner: "acme", repo: "app", defaultBranch: "main", worktreeEnabled: true }),
+        board: makeBoard({ projectNumber: 7, areas: ["a"] }),
+        costTracking: { sessionBudget: 3 },
+        specs: { paths: ["a.md"] },
+      };
+      const preserved = extractPreservedManifestFields(source);
+      const target = createManifest({ tools: ["claude"], owner: "acme", repo: "app", defaultBranch: "main", worktreeEnabled: true });
+      applyPreservedManifestFields(target, preserved);
+      expect(target.board?.projectNumber).toBe(7);
+      expect(target.board?.areas).toEqual(["a"]);
+      expect(target.costTracking?.sessionBudget).toBe(3);
+      expect(target.specs?.paths).toEqual(["a.md"]);
     });
   });
 });

@@ -65,9 +65,29 @@ jobs:
       - name: Publish to npm (with provenance)
         run: npm publish --access public --provenance
 
+      # Extract the CHANGELOG section matching this tag and use it as the
+      # GitHub release body. The release-prep skill (Step 6) writes a
+      # Keep-a-Changelog section per release; this step is the single source
+      # of release notes (no GitHub auto-generation), so CHANGELOG.md and the
+      # GitHub release page cannot diverge.
+      - name: Extract CHANGELOG section for release notes
+        run: |
+          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+          awk -v ver="$TAG_VERSION" '
+            $0 ~ "^## \\["ver"\\]" { capture=1; print; next }
+            capture && /^## \[/ { exit }
+            capture { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "::error::No CHANGELOG entry found for v$TAG_VERSION (expected header: ## [$TAG_VERSION])"
+            exit 1
+          fi
+          echo "Release notes ($(wc -l < release-notes.md) lines):"
+          head -5 release-notes.md
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v2
         with:
-          generate_release_notes: true
+          body_path: release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
