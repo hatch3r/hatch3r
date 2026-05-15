@@ -11,6 +11,7 @@ const sidebars: SidebarsConfig = {
         'getting-started/quick-start',
         'getting-started/what-you-get',
         'getting-started/supported-tools',
+        'getting-started/cli-tools',
       ],
     },
     {

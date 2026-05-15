@@ -77,4 +77,58 @@ MCP server config location varies by tool:
 | Copilot / VS Code | `.vscode/mcp.json` |
 | Cline / Roo | `.roo/mcp.json` |
 
-See the [MCP Setup guide](../guides/mcp-setup) for connecting servers and managing secrets.
+Since 1.7.2 MCP is opt-in (default No during `init`). See the [MCP Setup guide](../guides/mcp-setup) for connecting servers and managing secrets.
+
+## CLI Tools
+
+Since 1.7.2, hatch3r ships a 29-tool CLI surface area as the token-efficient alternative to MCP. Each selected tool emits a per-tool skill to the 13 skill-capable adapters (Cursor, Claude Code, Copilot, Cline, OpenCode, Codex, Gemini, Windsurf, Kiro, Aider, Goose, Amazon Q, Antigravity) plus the `hatch3r-cli-overview` decision-tree skill.
+
+### Tier-1 (default-on, 10 tools)
+
+| Tool | Probe | Purpose |
+|------|-------|---------|
+| ripgrep | `rg` | Fast recursive grep with sane defaults and gitignore awareness |
+| fd | `fd` | User-friendly find replacement, gitignore-aware |
+| jq | `jq` | JSON processor and query language |
+| yq | `yq` | YAML processor (mikefarah Go implementation) |
+| gh | `gh` | GitHub CLI — repos, issues, PRs, releases, gists |
+| delta | `delta` | Syntax-highlighting git diff pager |
+| bat | `bat` | cat clone with syntax highlighting and git integration |
+| sd | `sd` | Intuitive sed replacement with literal string patterns |
+| ast-grep | `sg` | Structural search and rewrite for code via AST patterns |
+| zstd | `zstd` | Fast lossless compression with high ratio |
+
+### Tier-2 (conditional, 11 tools)
+
+Pre-checked when the matching trigger holds against the active project.
+
+| Tool | Trigger | Purpose |
+|------|---------|---------|
+| Playwright | `web-project` | Browser automation, web testing, and UI interaction |
+| duckdb | `data-project` | Embedded analytical database with first-class CSV/Parquet |
+| xsv | `data-project` | Fast CSV toolkit (slice, search, join, stats) |
+| taplo | `rust-project` / `python-project` | TOML toolkit (format, lint, query) |
+| glab | `gitlab-remote` | GitLab CLI — merge requests, issues, pipelines |
+| az-devops | `azure-remote` | Azure DevOps work items, repos, pipelines via az CLI extension |
+| Docker | `docker-detected` | Container runtime and CLI |
+| llm | `ci-llm-project` | simonw/llm — invoke LLMs from the command line |
+| fzf | `interactive-tty` | Interactive fuzzy finder for TTY pickers |
+| lazygit | `interactive-tty` | Terminal UI for git with keyboard-driven workflows |
+| difftastic | `interactive-tty` | Structural diff that understands syntax |
+
+### Tier-3 (opt-in advanced, 8 tools)
+
+Never pre-checked — opt in informed.
+
+| Tool | Probe | Purpose |
+|------|-------|---------|
+| RTK | `rtk` | CLI output-compression proxy (⚠ pipe-output corruption — see skill) |
+| Stagehand | `stagehand` | Browserbase Stagehand — AI-driven browser automation |
+| aichat | `aichat` | Multi-provider LLM chat CLI with RAG and session memory |
+| mods | `mods` | Charm mods — Unix-friendly LLM pipeline tool |
+| Comby | `comby` | Structural search and replace across languages |
+| miller | `mlr` | awk/sed/cut/join for CSV/TSV/JSON/Parquet streams |
+| csvkit | `csvlook` | Python CSV toolkit (csvlook, csvsql, csvjoin, csvstat) |
+| Podman | `podman` | Daemonless container engine, rootless by default |
+
+See [CLI Tools](./cli-tools) for the decision tree, install commands per OS, and the trade-off discussion vs MCP.
