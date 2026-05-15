@@ -15,6 +15,23 @@ import {
   TAG_A11Y,
   TAG_PERFORMANCE,
   TAG_CUSTOMIZE,
+  TAG_CLI_TOOLS,
+  TAG_OPT_IN,
+  TAG_CAVEAT,
+  TAG_REFERENCE,
+  TAG_CAT_SEARCH,
+  TAG_CAT_JSON,
+  TAG_CAT_YAML,
+  TAG_CAT_GIT,
+  TAG_CAT_VIEW,
+  TAG_CAT_EDIT,
+  TAG_CAT_ARCHIVE,
+  TAG_CAT_DATA,
+  TAG_CAT_FORGE,
+  TAG_CAT_BROWSER,
+  TAG_CAT_CONTAINER,
+  TAG_CAT_AI,
+  TAG_CAT_INTERACTIVE,
   TAG_LANG_TYPESCRIPT,
   TAG_LANG_PYTHON,
   TAG_LANG_GO,
@@ -25,6 +42,7 @@ import {
   WORKFLOW_TAGS,
   CONTEXT_TAGS,
   DOMAIN_TAGS,
+  CLI_TOOL_TAGS,
   LANGUAGE_TAGS,
   LANGUAGE_TO_TAG,
   isLanguageTag,
@@ -95,8 +113,10 @@ describe("tag constants", () => {
 });
 
 describe("ALL_TAGS", () => {
-  it("contains exactly 21 elements", () => {
-    expect(ALL_TAGS).toHaveLength(21);
+  // 21 base tags (workflow + context + domain + language) + 17 CLI tool
+  // tags (marker + 3 tier classifiers + 13 category tags) added in 1.7.x.
+  it("contains exactly 38 elements", () => {
+    expect(ALL_TAGS).toHaveLength(38);
   });
 
   it("contains every individual tag constant", () => {
@@ -116,6 +136,23 @@ describe("ALL_TAGS", () => {
       TAG_A11Y,
       TAG_PERFORMANCE,
       TAG_CUSTOMIZE,
+      TAG_CLI_TOOLS,
+      TAG_OPT_IN,
+      TAG_CAVEAT,
+      TAG_REFERENCE,
+      TAG_CAT_SEARCH,
+      TAG_CAT_JSON,
+      TAG_CAT_YAML,
+      TAG_CAT_GIT,
+      TAG_CAT_VIEW,
+      TAG_CAT_EDIT,
+      TAG_CAT_ARCHIVE,
+      TAG_CAT_DATA,
+      TAG_CAT_FORGE,
+      TAG_CAT_BROWSER,
+      TAG_CAT_CONTAINER,
+      TAG_CAT_AI,
+      TAG_CAT_INTERACTIVE,
       TAG_LANG_TYPESCRIPT,
       TAG_LANG_PYTHON,
       TAG_LANG_GO,
@@ -131,6 +168,35 @@ describe("ALL_TAGS", () => {
   it("has no duplicate values", () => {
     const unique = new Set(ALL_TAGS);
     expect(unique.size).toBe(ALL_TAGS.length);
+  });
+});
+
+describe("CLI_TOOL_TAGS", () => {
+  it("has exactly 17 elements", () => {
+    expect(CLI_TOOL_TAGS).toHaveLength(17);
+  });
+
+  it("contains the marker tag and tier classifiers", () => {
+    expect(CLI_TOOL_TAGS).toContain(TAG_CLI_TOOLS);
+    expect(CLI_TOOL_TAGS).toContain(TAG_OPT_IN);
+    expect(CLI_TOOL_TAGS).toContain(TAG_CAVEAT);
+    expect(CLI_TOOL_TAGS).toContain(TAG_REFERENCE);
+  });
+
+  it("contains the 13 category tags mirroring CliToolMeta.category", () => {
+    expect(CLI_TOOL_TAGS).toContain(TAG_CAT_SEARCH);
+    expect(CLI_TOOL_TAGS).toContain(TAG_CAT_JSON);
+    expect(CLI_TOOL_TAGS).toContain(TAG_CAT_YAML);
+    expect(CLI_TOOL_TAGS).toContain(TAG_CAT_GIT);
+    expect(CLI_TOOL_TAGS).toContain(TAG_CAT_VIEW);
+    expect(CLI_TOOL_TAGS).toContain(TAG_CAT_EDIT);
+    expect(CLI_TOOL_TAGS).toContain(TAG_CAT_ARCHIVE);
+    expect(CLI_TOOL_TAGS).toContain(TAG_CAT_DATA);
+    expect(CLI_TOOL_TAGS).toContain(TAG_CAT_FORGE);
+    expect(CLI_TOOL_TAGS).toContain(TAG_CAT_BROWSER);
+    expect(CLI_TOOL_TAGS).toContain(TAG_CAT_CONTAINER);
+    expect(CLI_TOOL_TAGS).toContain(TAG_CAT_AI);
+    expect(CLI_TOOL_TAGS).toContain(TAG_CAT_INTERACTIVE);
   });
 });
 
@@ -250,8 +316,14 @@ describe("isLanguageTag", () => {
 });
 
 describe("tag group completeness", () => {
-  it("ALL_TAGS equals the union of WORKFLOW_TAGS, CONTEXT_TAGS, DOMAIN_TAGS, and LANGUAGE_TAGS", () => {
-    const combined = [...WORKFLOW_TAGS, ...CONTEXT_TAGS, ...DOMAIN_TAGS, ...LANGUAGE_TAGS];
+  it("ALL_TAGS equals the union of WORKFLOW_TAGS, CONTEXT_TAGS, DOMAIN_TAGS, CLI_TOOL_TAGS, and LANGUAGE_TAGS", () => {
+    const combined = [
+      ...WORKFLOW_TAGS,
+      ...CONTEXT_TAGS,
+      ...DOMAIN_TAGS,
+      ...CLI_TOOL_TAGS,
+      ...LANGUAGE_TAGS,
+    ];
     expect(ALL_TAGS).toEqual(combined);
   });
 });
