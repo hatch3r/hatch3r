@@ -197,7 +197,7 @@ jobs:
     }
 
     results.push(
-      ...await this.processSkillsWithFm(ctx, (id) => `.github/skills/${toPrefixedId(id)}/SKILL.md`),
+      ...await this.processSkillsWithFmCliFiltered(ctx, (id) => `.github/skills/${toPrefixedId(id)}/SKILL.md`),
     );
 
     const mcp = await this.readFilteredMcp(ctx);

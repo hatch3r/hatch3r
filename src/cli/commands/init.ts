@@ -24,6 +24,8 @@ import {
   VALID_TOOLS,
   WORKTREE_CAPABLE_TOOLS,
   WORKTREE_INCLUDE_FILE,
+  type CliToolId,
+  type CliToolsConfig,
   type ContentSelection,
   type CustomizationManifest,
   type Features,
@@ -47,6 +49,16 @@ import {
 import { findPackageRoot } from "../shared/paths.js";
 import { buildTagGroupedCustomContentChoices } from "../shared/customContentChoices.js";
 import { TOOL_DISPLAY_NAMES, TOOL_PROMPT_CHOICES, FEATURE_CHOICES, MCP_CHOICES, PLATFORM_DISPLAY_NAMES, PLATFORM_MCP_SERVER, sanitizeInput, isWSL, formatCommandHint, TOOL_SECRET_NOTES } from "../shared/constants.js";
+import { pickCliTools, pickMcpServers, confirmMcpGate } from "../shared/pickers.js";
+import {
+  AVAILABLE_CLI_TOOLS,
+  CLI_TOOL_SECRET_NOTES,
+  DEFAULT_CLI_TOOLS,
+  TIER1_CLI_TOOLS,
+} from "../../cliTools/registry.js";
+import { findMissingCliTools } from "../../cliTools/detect.js";
+import { offerInstaller } from "../../cliTools/install.js";
+import { applyPlatformTriggers, evaluateTier2Triggers } from "../../cliTools/triggers.js";
 import { generateIntegrityManifest, writeIntegrityManifest } from "../../integrity/index.js";
 import { HATCH3R_VERSION } from "../../version.js";
 import { buildContentIndex, resolveSelection, copySelectedContent, countSelectionItems, selectionSummary, getAllContentIds, removeContentItem, validateOrchestrationDependencies, countPresetExclusions, countProjectTypeExclusions, countTeamSizeExclusions, estimatePresetItemCount } from "../../content/index.js";
@@ -226,6 +238,14 @@ export interface RunInitOptions {
   contentSelection: ContentSelection;
   worktreeEnabled: boolean;
   /**
+   * CLI-tooling pivot (1.7.2 / plan §4.3). When omitted, runInit treats
+   * the project as having no CLI-tools opt-in (`{enabled: false,
+   * selected: []}`) — matching the manifest default for pre-1.7.2 repos.
+   * Threaded through to `createManifest` so the manifest carries the
+   * selection across `clean` -> reinit cycles.
+   */
+  cliTools?: CliToolsConfig;
+  /**
    * 1.7.0 (Phase D): optional customization payload forwarded to
    * `createManifest`. Set by `clean` -> reinit so integration config and
    * per-artifact overrides survive when `.hatch3r/*.customize.yaml` files
@@ -281,7 +301,7 @@ export async function runInit(options: RunInitOptions): Promise<void> {
 }
 
 async function runInitInner(options: RunInitOptions): Promise<void> {
-  const { rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, customization } = options;
+  const { rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, customization, cliTools } = options;
   const skipInitPrompts = options.yes === true;
   const agentsDir = join(rootDir, AGENTS_DIR);
   const totalSteps = 4;
@@ -344,7 +364,7 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   // existing manifest's customization so it survives. Clean -> reinit
   // already supplies `options.customization` directly via captureConfig.
   const effectiveCustomization = customization ?? existingManifest?.customization;
-  const manifest = createManifest({ platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, content: contentSelection, languages: repoInfo.languages, worktreeEnabled, customization: effectiveCustomization });
+  const manifest = createManifest({ platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, content: contentSelection, languages: repoInfo.languages, worktreeEnabled, customization: effectiveCustomization, cliTools });
   // 1.7.1: reapply platform/user state so a `clean` -> reinit (explicit
   // `preservedManifestFields`) and a plain `hatch3r init` over an existing
   // `.agents/hatch.json` (fallback to existingManifest extraction) both
@@ -582,6 +602,20 @@ export async function initCommand(
     worktree?: boolean;
     quick?: boolean;
     default?: boolean;
+    /**
+     * CLI-tools selection for `--yes` non-interactive init (plan §4.3).
+     * Accepts `"tier1"`, `"all"`, or a comma-separated list of registry
+     * ids (e.g. `"ripgrep,jq,gh"`). When omitted on a `--yes` run, the
+     * default tier-1 + triggered-tier-2 selection is applied.
+     */
+    cliTools?: string;
+    /** Disable CLI tools entirely on `--yes` (plan §4.3). */
+    noCliTools?: boolean;
+    /**
+     * Re-opt-in to MCP on `--yes`. Default is now off — the pivot moved
+     * MCP behind a Yes/No gate (plan §4.3 step 8 / §2 decision row).
+     */
+    mcp?: boolean;
   } = {},
 ): Promise<void> {
   printBanner();
@@ -690,10 +724,29 @@ export async function initCommand(
     const worktreeEnabled = opts.worktree ?? tools.some(t => WORKTREE_CAPABLE_TOOLS.has(t));
 
     const features = { ...DEFAULT_FEATURES };
+    // CLI-tooling pivot (plan §4.3): MCP is now opt-in on `--yes`. Users
+    // who still want MCP defaults pass `--mcp` explicitly. Without that
+    // flag, MCP server list stays empty and no .env.mcp is generated.
     const platformMcp = PLATFORM_MCP_SERVER[platform];
-    const mcpServers = features.mcp
+    const mcpServers = features.mcp && opts.mcp
       ? Array.from(new Set([platformMcp, ...DEFAULT_MCP.filter((s) => s !== "github")]))
       : [];
+
+    // CLI-tooling pivot (plan §4.3 `--yes` path): default to tier-1 +
+    // triggered-tier-2 unless the user passed `--no-cli-tools`. Explicit
+    // `--cli-tools` selections always override the default.
+    let cliToolsConfig: CliToolsConfig;
+    if (opts.noCliTools) {
+      cliToolsConfig = { enabled: false, selected: [] };
+    } else {
+      const explicit = resolveCliToolsFlag(opts.cliTools, repoInfo, platform);
+      const selected = explicit ?? Array.from(new Set([
+        ...DEFAULT_CLI_TOOLS,
+        ...applyPlatformTriggers(platform, evaluateTier2Triggers(repoInfo)),
+      ]));
+      cliToolsConfig = { enabled: selected.length > 0, selected };
+    }
+
     const defaultBranch = parseGitDefaultBranch();
 
     // Use CLI flags with validation, falling back to auto-detect / defaults
@@ -717,7 +770,7 @@ export async function initCommand(
     warnBoardPrerequisites(contentSelection);
 
     await checkExisting(rootDir, true, contentSelection);
-    await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, yes: true });
+    await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: true });
     return;
   }
 
@@ -900,7 +953,7 @@ export async function initCommand(
 
   // Worktree file isolation: mirrors config.ts prompt. Honor explicit
   // --worktree/--no-worktree flag. Else prompt when a worktree-capable tool
-  // is selected, else disable. Prompt order: tools -> worktree -> features.
+  // is selected, else disable. Prompt order: tools -> worktree -> CLI tools -> features -> MCP.
   const hasWorktreeTool = tools.some(t => WORKTREE_CAPABLE_TOOLS.has(t));
   let worktreeEnabled: boolean;
   if (opts.worktree !== undefined) {
@@ -916,6 +969,47 @@ export async function initCommand(
   } else {
     worktreeEnabled = false;
   }
+
+  // CLI-tooling pivot (plan §4.3 steps 2-5): pick CLI tools, run a
+  // detection sweep, and surface install-pending commands for missing
+  // binaries. The picker pre-checks tier-1 and project-triggered tier-2.
+  const tier2Suggested = Array.from(new Set([
+    ...evaluateTier2Triggers(repoInfo),
+    ...applyPlatformTriggers(platform, []),
+  ]));
+  const selectedCliTools = await pickCliTools({
+    tier2Suggested,
+    wslTheme,
+  });
+  if (selectedCliTools.length > 0) {
+    const detectSpinner = createSpinner(`Detecting ${selectedCliTools.length} CLI tool(s)...`);
+    detectSpinner.start();
+    const missing = await findMissingCliTools(selectedCliTools);
+    if (missing.length === 0) {
+      detectSpinner.succeed(`All ${selectedCliTools.length} CLI tool(s) detected on PATH`);
+    } else {
+      detectSpinner.warn(`${selectedCliTools.length - missing.length}/${selectedCliTools.length} CLI tool(s) detected; ${missing.length} missing`);
+      await offerInstaller(missing, { interactive: true });
+    }
+    // Surface CLI_TOOL_SECRET_NOTES for selected tools (plan §4.3 step 5)
+    const cliEnvVars: string[] = [];
+    for (const id of selectedCliTools) {
+      const notes = CLI_TOOL_SECRET_NOTES[id];
+      if (notes && notes.length > 0) {
+        cliEnvVars.push(`${id}: ${notes.join(", ")}`);
+      }
+    }
+    if (cliEnvVars.length > 0) {
+      info(chalk.dim("CLI tool environment variables required:"));
+      for (const note of cliEnvVars) {
+        info(chalk.dim(`  ${note}`));
+      }
+    }
+  }
+  const cliToolsConfig: CliToolsConfig = {
+    enabled: selectedCliTools.length > 0,
+    selected: selectedCliTools,
+  };
 
   // #143 (D19-14): Streamline MCP onboarding — surface secret notes inline
   const secretNotes = tools.map((t) => TOOL_SECRET_NOTES[t]).filter(Boolean);
@@ -942,25 +1036,15 @@ export async function initCommand(
     features[k] = selectedFeatures.includes(k);
   }
 
+  // CLI-tooling pivot (plan §4.3 step 8): MCP is now behind a Yes/No
+  // gate that defaults to No. Users opt in explicitly and only then see
+  // the server picker. `hatch3r mcp setup` exists as a side-door for
+  // users who skipped here and changed their mind later.
   let mcpServers: string[] = [];
   if (features.mcp) {
-    const platformMcp = PLATFORM_MCP_SERVER[platform];
-    const defaultMcpForPlatform = Array.from(
-      new Set([platformMcp, ...DEFAULT_MCP.filter((s) => s !== "github")]),
-    );
-    const mcpAnswers = await inquirer.prompt<{ mcp: string[] }>([
-      {
-        type: "checkbox",
-        name: "mcp",
-        message: "Select MCP servers:",
-        choices: MCP_CHOICES,
-        default: defaultMcpForPlatform,
-        ...(wslTheme && { theme: wslTheme }),
-      },
-    ]);
-    mcpServers = mcpAnswers.mcp ?? [];
-    if (!mcpServers.includes(platformMcp)) {
-      mcpServers.unshift(platformMcp);
+    const proceedMcp = await confirmMcpGate({ hasExisting: false, defaultYes: false });
+    if (proceedMcp) {
+      mcpServers = await pickMcpServers({ platform, wslTheme });
     }
   }
 
@@ -974,7 +1058,7 @@ export async function initCommand(
   warnBoardPrerequisites(contentSelection);
 
   await checkExisting(rootDir, false, contentSelection);
-  await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, yes: false });
+  await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: false });
 }
 
 // ── Workspace initialization ──────────────────────────────────────
@@ -983,7 +1067,7 @@ async function runWorkspaceInit(
   rootDir: string,
   detectedRepos: Awaited<ReturnType<typeof detectSubRepos>>,
   repoInfo: RepoInfo,
-  opts: { tools?: string; yes?: boolean; preset?: string; projectType?: string; teamSize?: string; worktree?: boolean },
+  opts: { tools?: string; yes?: boolean; preset?: string; projectType?: string; teamSize?: string; worktree?: boolean; cliTools?: string; noCliTools?: boolean; mcp?: boolean },
 ): Promise<void> {
   const headless = !!opts.yes;
 
@@ -998,16 +1082,27 @@ async function runWorkspaceInit(
     const platform: Platform = "github";
     const tools: Tool[] = resolveToolsFromOpts(opts.tools, repoInfo);
     const features = { ...DEFAULT_FEATURES };
+    // CLI-tooling pivot: MCP opt-in via --mcp on `--yes`. Defaults empty.
     const platformMcp = PLATFORM_MCP_SERVER[platform];
-    const mcpServers = features.mcp
+    const mcpServers = features.mcp && opts.mcp
       ? Array.from(new Set([platformMcp, ...DEFAULT_MCP.filter((s) => s !== "github")]))
       : [];
+    const cliToolsBase = opts.noCliTools
+      ? { enabled: false, selected: [] as CliToolId[] }
+      : ((): CliToolsConfig => {
+          const explicit = resolveCliToolsFlag(opts.cliTools, repoInfo, platform);
+          const selected = explicit ?? Array.from(new Set([
+            ...DEFAULT_CLI_TOOLS,
+            ...applyPlatformTriggers(platform, evaluateTier2Triggers(repoInfo)),
+          ]));
+          return { enabled: selected.length > 0, selected };
+        })();
     const index = await buildContentIndex(CONTENT_ROOT);
     const projectLanguages = languagesForSelection(repoInfo);
     const contentSelection = resolveSelection(getPreset("full"), "brownfield", "solo", index, undefined, projectLanguages);
     const wsManifest = createWorkspaceManifest(
       basename(rootDir) || "workspace",
-      { platform, tools, features, mcp: { servers: mcpServers }, content: contentSelection },
+      { platform, tools, features, mcp: { servers: mcpServers }, cliTools: cliToolsBase, content: contentSelection },
       [],
       "manual",
     );
@@ -1087,6 +1182,7 @@ async function runWorkspaceInit(
   let mcpServers: string[];
   let contentSelection: ContentSelection;
   let worktreeEnabled: boolean;
+  let wsCliTools: CliToolsConfig;
 
   if (headless) {
     tools = resolveToolsFromOpts(opts.tools, repoInfo);
@@ -1094,10 +1190,22 @@ async function runWorkspaceInit(
     // worktree-capable tools (preserves pre-1.6.1 --yes behavior).
     worktreeEnabled = opts.worktree ?? tools.some(t => WORKTREE_CAPABLE_TOOLS.has(t));
     features = { ...DEFAULT_FEATURES };
+    // CLI-tooling pivot (plan §4.3): MCP is opt-in on `--yes`; default to
+    // empty server list unless `--mcp` is set. Mirrors single-repo flow.
     const platformMcp = PLATFORM_MCP_SERVER[platform];
-    mcpServers = features.mcp
+    mcpServers = features.mcp && opts.mcp
       ? Array.from(new Set([platformMcp, ...DEFAULT_MCP.filter((s) => s !== "github")]))
       : [];
+    if (opts.noCliTools) {
+      wsCliTools = { enabled: false, selected: [] };
+    } else {
+      const explicit = resolveCliToolsFlag(opts.cliTools, repoInfo, platform);
+      const selected = explicit ?? Array.from(new Set([
+        ...DEFAULT_CLI_TOOLS,
+        ...applyPlatformTriggers(platform, evaluateTier2Triggers(repoInfo)),
+      ]));
+      wsCliTools = { enabled: selected.length > 0, selected };
+    }
     const isGreenfield =
       repoInfo.languages.length === 1 &&
       repoInfo.languages[0] === "unknown" &&
@@ -1227,6 +1335,33 @@ async function runWorkspaceInit(
       worktreeEnabled = false;
     }
 
+    // CLI-tooling pivot (plan §4.3 + §4.8 workspace parity): pick CLI
+    // tools at workspace creation so the workspace defaults carry a
+    // baseline tier-1 selection to all members.
+    const wsTier2Suggested = Array.from(new Set([
+      ...evaluateTier2Triggers(repoInfo),
+      ...applyPlatformTriggers(platform, []),
+    ]));
+    const wsSelectedCliTools = await pickCliTools({
+      tier2Suggested: wsTier2Suggested,
+      wslTheme,
+    });
+    if (wsSelectedCliTools.length > 0) {
+      const wsDetectSpinner = createSpinner(`Detecting ${wsSelectedCliTools.length} CLI tool(s)...`);
+      wsDetectSpinner.start();
+      const wsMissing = await findMissingCliTools(wsSelectedCliTools);
+      if (wsMissing.length === 0) {
+        wsDetectSpinner.succeed(`All ${wsSelectedCliTools.length} CLI tool(s) detected on PATH`);
+      } else {
+        wsDetectSpinner.warn(`${wsSelectedCliTools.length - wsMissing.length}/${wsSelectedCliTools.length} CLI tool(s) detected; ${wsMissing.length} missing`);
+        await offerInstaller(wsMissing, { interactive: true });
+      }
+    }
+    wsCliTools = {
+      enabled: wsSelectedCliTools.length > 0,
+      selected: wsSelectedCliTools,
+    };
+
     // Surface per-editor secret loading notes
     const wsSecretNotes = tools.map((t) => TOOL_SECRET_NOTES[t]).filter(Boolean);
     if (wsSecretNotes.length > 0) {
@@ -1252,25 +1387,14 @@ async function runWorkspaceInit(
       features[k] = selectedFeatures.includes(k);
     }
 
+    // CLI-tooling pivot: MCP picker is behind a Yes/No gate (plan §4.3
+    // step 8 / §4.4). Default No on first init, Yes on re-run with
+    // existing servers (workspace root has no manifest, so default No).
     mcpServers = [];
     if (features.mcp) {
-      const platformMcp = PLATFORM_MCP_SERVER[platform];
-      const defaultMcpForPlatform = Array.from(
-        new Set([platformMcp, ...DEFAULT_MCP.filter((s) => s !== "github")]),
-      );
-      const mcpAnswers = await inquirer.prompt<{ mcp: string[] }>([
-        {
-          type: "checkbox",
-          name: "mcp",
-          message: "Select MCP servers:",
-          choices: MCP_CHOICES,
-          default: defaultMcpForPlatform,
-          ...(wslTheme && { theme: wslTheme }),
-        },
-      ]);
-      mcpServers = mcpAnswers.mcp ?? [];
-      if (!mcpServers.includes(platformMcp)) {
-        mcpServers.unshift(platformMcp);
+      const wsProceedMcp = await confirmMcpGate({ hasExisting: false, defaultYes: false });
+      if (wsProceedMcp) {
+        mcpServers = await pickMcpServers({ platform, wslTheme });
       }
     }
 
@@ -1299,6 +1423,7 @@ async function runWorkspaceInit(
     repoInfo,
     contentSelection,
     worktreeEnabled,
+    cliTools: wsCliTools,
     yes: headless,
   });
 
@@ -1383,7 +1508,7 @@ async function runWorkspaceInit(
   const dirName = basename(rootDir) || "workspace";
   const wsManifest = createWorkspaceManifest(
     dirName,
-    { platform, tools, features, mcp: { servers: mcpServers }, content: contentSelection },
+    { platform, tools, features, mcp: { servers: mcpServers }, cliTools: wsCliTools, content: contentSelection },
     repoEntries,
     "manual",
   );
@@ -1434,4 +1559,35 @@ function resolveToolsFromOpts(toolsFlag: string | undefined, repoInfo: RepoInfo)
   }
   if (repoInfo.existingTools.length > 0) return repoInfo.existingTools;
   return DEFAULT_TOOLS;
+}
+
+/**
+ * Resolve the `--cli-tools <ids|tier1|all>` flag (plan §4.3 / §7 item 15)
+ * to a list of CLI-tool ids. Accepts:
+ *   - `"tier1"` → `TIER1_CLI_TOOLS` verbatim.
+ *   - `"all"` → every id in `AVAILABLE_CLI_TOOLS`.
+ *   - comma-separated id list → validated against the registry.
+ *
+ * Returns `undefined` when `flag` is empty (caller falls back to the
+ * default tier-1 + triggered-tier-2 selection).
+ */
+function resolveCliToolsFlag(
+  flag: string | undefined,
+  _repoInfo: RepoInfo,
+  _platform: Platform,
+): CliToolId[] | undefined {
+  if (!flag) return undefined;
+  const trimmed = flag.trim();
+  if (trimmed === "") return undefined;
+  if (trimmed === "tier1") return [...TIER1_CLI_TOOLS];
+  if (trimmed === "all") return Object.keys(AVAILABLE_CLI_TOOLS);
+  const rawIds = trimmed.split(",").map((t) => t.trim()).filter((t) => t.length > 0);
+  const valid = new Set(Object.keys(AVAILABLE_CLI_TOOLS));
+  const invalid = rawIds.filter((id) => !valid.has(id));
+  if (invalid.length > 0) {
+    logError(`Invalid CLI tool(s): ${invalid.join(", ")}`);
+    console.log(chalk.dim(`  Valid ids: ${[...valid].join(", ")}`));
+    throw new HatchError(`Invalid CLI tool(s): ${invalid.join(", ")}`, 1, "VALIDATION_ERROR");
+  }
+  return rawIds;
 }

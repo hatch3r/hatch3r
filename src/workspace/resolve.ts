@@ -1,5 +1,5 @@
 import { getAllContentIds, TYPE_TO_SELECTION_KEY } from "../content/index.js";
-import type { ContentSelection, Features, McpConfig, ModelConfig, Platform, Tool } from "../types.js";
+import type { CliToolId, CliToolsConfig, ContentSelection, Features, McpConfig, ModelConfig, Platform, Tool } from "../types.js";
 import type { WorkspaceDefaults, WorkspaceRepoOverrides } from "./types.js";
 
 export interface ResolvedRepoConfig {
@@ -14,6 +14,12 @@ export interface ResolvedRepoConfig {
   excludedContent: string[];
   /** Content IDs added by the repo override. */
   addedContent: string[];
+  /**
+   * Effective CLI tools after applying workspace defaults plus per-member
+   * `localCliTools` / `excludedCliTools`. Absent when the workspace has no
+   * `defaults.cliTools` configured.
+   */
+  cliTools?: CliToolsConfig;
 }
 
 /**
@@ -76,7 +82,41 @@ export function resolveRepoConfig(
     }
   }
 
-  return { platform, tools, features, mcp, models, contentIds, excludedContent, addedContent };
+  return {
+    platform,
+    tools,
+    features,
+    mcp,
+    models,
+    contentIds,
+    excludedContent,
+    addedContent,
+    cliTools: defaults.cliTools,
+  };
+}
+
+/**
+ * Apply workspace `defaults.cliTools` to a member's effective selection,
+ * honouring member-local `localCliTools` (added) and `excludedCliTools`
+ * (removed). Mirrors the content `localContent` / `excludedContent`
+ * semantics: exclusion wins (consistent with plan §4.8).
+ */
+export function applyMemberCliToolsOverrides(
+  workspaceDefault: CliToolsConfig | undefined,
+  memberLocal: CliToolId[] | undefined,
+  memberExcluded: CliToolId[] | undefined,
+): CliToolsConfig | undefined {
+  if (!workspaceDefault && (!memberLocal || memberLocal.length === 0)) {
+    return undefined;
+  }
+  const base = new Set<CliToolId>(workspaceDefault?.selected ?? []);
+  for (const id of memberLocal ?? []) base.add(id);
+  for (const id of memberExcluded ?? []) base.delete(id);
+  const selected = [...base];
+  return {
+    enabled: selected.length > 0,
+    selected,
+  };
 }
 
 /**

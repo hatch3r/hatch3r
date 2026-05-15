@@ -424,7 +424,7 @@ export class ClaudeAdapter extends BaseAdapter {
     }
 
     results.push(
-      ...await this.processSkillsRaw(ctx, (id) => `.claude/skills/${toPrefixedId(id)}/SKILL.md`),
+      ...await this.processSkillsRawCliFiltered(ctx, (id) => `.claude/skills/${toPrefixedId(id)}/SKILL.md`),
     );
 
     results.push(

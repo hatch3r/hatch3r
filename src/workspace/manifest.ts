@@ -50,6 +50,17 @@ function validateWorkspaceManifest(data: unknown): data is WorkspaceManifest {
     if (!content.items || typeof content.items !== "object") return false;
   }
 
+  // Validate CLI tools config if present (plan §4.8 workspace parity)
+  if (defaults.cliTools !== undefined) {
+    if (typeof defaults.cliTools !== "object" || defaults.cliTools === null) return false;
+    const cli = defaults.cliTools as Record<string, unknown>;
+    if (typeof cli.enabled !== "boolean") return false;
+    if (!Array.isArray(cli.selected)) return false;
+    for (const id of cli.selected) {
+      if (typeof id !== "string") return false;
+    }
+  }
+
   for (const repo of obj.repos as unknown[]) {
     if (!repo || typeof repo !== "object") return false;
     const r = repo as Record<string, unknown>;

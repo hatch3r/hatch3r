@@ -26,7 +26,7 @@ import { dirname } from "node:path";
 import { analyzeRepo } from "../detect/repoAnalyzer.js";
 import { ensureEnvMcp, ensureGitignoreEntry } from "../env/mcpEnv.js";
 import { readWorkspaceManifest, writeWorkspaceManifest } from "./manifest.js";
-import { resolveRepoConfig, buildSelectionFromIds } from "./resolve.js";
+import { resolveRepoConfig, buildSelectionFromIds, applyMemberCliToolsOverrides } from "./resolve.js";
 import { detectRepoGitIdentity } from "./git.js";
 import { CHARS_PER_TOKEN } from "../pipeline/observability.js";
 import type { WorkspaceManifest, WorkspaceRepoEntry, WorkspaceSyncResult, WorkspaceRepoSyncResult } from "./types.js";
@@ -283,6 +283,16 @@ async function syncSingleRepo(
 
   if (!gitBranch) gitBranch = "main";
 
+  // CLI-tooling pivot (plan §4.8): apply workspace defaults + member
+  // local/excluded overrides so a member who excludes `rtk` keeps its
+  // exclusion across syncs. Local + excluded lists ride on the member
+  // manifest's `workspace.localCliTools` / `workspace.excludedCliTools`.
+  const effectiveCliTools = applyMemberCliToolsOverrides(
+    resolved.cliTools,
+    existingManifest?.workspace?.localCliTools,
+    existingManifest?.workspace?.excludedCliTools,
+  );
+
   const manifest = createManifest({
     platform: gitPlatform ?? resolved.platform,
     owner: gitOwner,
@@ -295,6 +305,7 @@ async function syncSingleRepo(
     mcpServers: resolved.mcp.servers,
     content: effectiveSelection,
     languages: repoInfo.languages,
+    cliTools: effectiveCliTools,
   });
 
   // Add workspace provenance
@@ -305,6 +316,8 @@ async function syncSingleRepo(
     workspaceChecksum: wsChecksum,
     excludedContent: resolved.excludedContent.length > 0 ? resolved.excludedContent : undefined,
     localContent: existingManifest?.workspace?.localContent,
+    localCliTools: existingManifest?.workspace?.localCliTools,
+    excludedCliTools: existingManifest?.workspace?.excludedCliTools,
   };
 
   if (resolved.models) {

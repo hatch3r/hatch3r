@@ -27,7 +27,7 @@ export class AntigravityAdapter extends BaseAdapter {
     results.push(output(".antigravity/rules.md", wrapInManagedBlock(inner), inner));
 
     results.push(
-      ...await this.processSkillsRaw(ctx, (id) => `.agent/skills/${toPrefixedId(id)}/SKILL.md`),
+      ...await this.processSkillsRawCliFiltered(ctx, (id) => `.agent/skills/${toPrefixedId(id)}/SKILL.md`),
     );
 
     const mcp = await this.readFilteredMcp(ctx);

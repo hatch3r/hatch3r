@@ -96,6 +96,13 @@ export interface OrphanCleanupEntry {
 /**
  * Compute set difference: paths recorded by the previous sync that the
  * current adapter run did NOT re-emit. Returned paths are repo-relative.
+ *
+ * CLI-tooling pivot (plan §4.7 / Wave 3 item 21): when a user deselects
+ * a CLI tool, the adapter's `readCliFilteredSkills` returns a smaller
+ * skill set, so the next sync emits a smaller `managedFilesByAdapter`
+ * list. The diff against the previous (larger) list naturally surfaces
+ * the dropped `hatch3r-cli-{id}` skill paths as orphans — no special
+ * case is needed here.
  */
 export function diffOrphanCandidates(
   previousPaths: string[] | undefined,

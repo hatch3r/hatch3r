@@ -120,7 +120,7 @@ export class OpenCodeAdapter extends BaseAdapter {
     }
 
     results.push(
-      ...await this.processSkillsRaw(ctx, (id) => `.opencode/skills/${toPrefixedId(id)}/SKILL.md`),
+      ...await this.processSkillsRawCliFiltered(ctx, (id) => `.opencode/skills/${toPrefixedId(id)}/SKILL.md`),
     );
 
     results.push(

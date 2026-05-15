@@ -19,6 +19,7 @@ import type { CustomizableType } from "../../models/customize.js";
 import { parseEnvFile } from "../../env/mcpEnv.js";
 import { detectSecrets } from "../../env/secretDetection.js";
 import { runComplianceChecks, formatComplianceReport } from "../../pipeline/complianceVerification.js";
+import { detectCliTools } from "../../cliTools/detect.js";
 import {
   printBanner,
   createSpinner,
@@ -420,6 +421,28 @@ async function validateMcp(
       result.errors.push("Invalid JSON in .agents/mcp/mcp.json");
     } else {
       result.warnings.push("MCP servers configured but .agents/mcp/mcp.json not found");
+    }
+  }
+}
+
+/**
+ * Validate CLI tool selection (plan §4.7). Each tool the user opted in
+ * to that is missing from PATH yields a warning (not an error) — the
+ * tool may simply not be installed yet. Run with `cliTools.enabled` off
+ * is a no-op.
+ */
+async function validateCliTools(
+  manifest: HatchManifest,
+  result: ValidationResult,
+): Promise<void> {
+  const cli = manifest.cliTools;
+  if (!cli?.enabled || cli.selected.length === 0) return;
+  const detection = await detectCliTools(cli.selected);
+  for (const r of detection) {
+    if (!r.installed) {
+      result.warnings.push(
+        `CLI tool '${r.id}' not found on PATH — run \`npx hatch3r cli-tools install\``,
+      );
     }
   }
 }
@@ -1421,6 +1444,8 @@ export async function validateCommand(opts?: {
     await validateHooks(agentsDir, manifest, result);
     verbose("Checking MCP configuration...");
     await validateMcp(agentsDir, manifest, result);
+    verbose("Checking CLI tools...");
+    await validateCliTools(manifest, result);
     verbose("Checking model configuration...");
     await validateModels(manifest, result);
     verbose("Checking cost tracking...");

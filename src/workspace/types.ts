@@ -1,4 +1,4 @@
-import type { ContentSelection, Features, McpConfig, ModelConfig, Platform, Tool } from "../types.js";
+import type { CliToolsConfig, ContentSelection, Features, McpConfig, ModelConfig, Platform, Tool } from "../types.js";
 
 // ── Workspace Manifest ──────────────────────────────────────────
 
@@ -24,6 +24,13 @@ export interface WorkspaceDefaults {
   mcp: McpConfig;
   content: ContentSelection;
   models?: ModelConfig;
+  /**
+   * CLI-tooling pivot (1.7.2 / plan §4.8 workspace parity). Defaults applied
+   * to every member at workspace sync time, subject to per-member
+   * `localCliTools` / `excludedCliTools` overrides. Optional — pre-1.7.2
+   * workspace manifests omit it and members fall back to their own selection.
+   */
+  cliTools?: CliToolsConfig;
 }
 
 // ── Repo Entries ────────────────────────────────────────────────

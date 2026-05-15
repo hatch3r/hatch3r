@@ -10,6 +10,18 @@ import { updateCommand } from "./commands/update.js";
 import { validateCommand } from "./commands/validate.js";
 import { verifyCommand } from "./commands/verify.js";
 import { statusCommand } from "./commands/status.js";
+import {
+  mcpSetupCommand,
+  mcpListCommand,
+  mcpRemoveCommand,
+  mcpEnvCheckCommand,
+} from "./commands/mcp.js";
+import {
+  cliToolsCommand,
+  cliToolsListCommand,
+  cliToolsInstallCommand,
+  cliToolsDetectCommand,
+} from "./commands/cliTools.js";
 import { HATCH3R_VERSION } from "../version.js";
 import { TOOL_CHOICES } from "../types.js";
 
@@ -58,6 +70,9 @@ export function createProgram(): Command {
     .option("--worktree", "Enable git worktree file isolation (overrides tool auto-detect)")
     .option("--no-worktree", "Disable git worktree file isolation")
     .option("--workspace", "Initialize as a multi-repo workspace")
+    .option("--cli-tools <ids>", "CLI tools to opt in on --yes: 'tier1', 'all', or comma-separated ids (default: tier-1 + triggered tier-2)")
+    .option("--no-cli-tools", "Skip the CLI-tools opt-in on --yes")
+    .option("--mcp", "Re-opt-in to MCP servers on --yes (MCP is now opt-in by default)")
     .action(initCommand);
 
   program
@@ -160,6 +175,46 @@ export function createProgram(): Command {
     .option("--yes", "Skip selection and confirmation prompts (implies --all unless paths are filtered upstream)")
     .option("--files-only", "Remove hatch3r-managed files only; keep the git worktree and its directory")
     .action(worktreeCleanupCommand);
+
+  // CLI-tooling pivot (plan §4.5): side-door commands for MCP and CLI tools.
+  // `hatch3r init` no longer opens the MCP picker by default; users opt in
+  // via the Yes/No gate during init or run `hatch3r mcp setup` later.
+  const mcpCmd = program
+    .command("mcp")
+    .description("Manage MCP servers (now opt-in; CLI tools are the default)");
+  mcpCmd
+    .command("setup")
+    .description("Open the MCP server picker and update the manifest + .env.mcp")
+    .action(mcpSetupCommand);
+  mcpCmd
+    .command("list")
+    .description("Show current MCP server configuration plus .env.mcp status")
+    .action(mcpListCommand);
+  mcpCmd
+    .command("remove <id>")
+    .description("Remove an MCP server by id")
+    .action(mcpRemoveCommand);
+  mcpCmd
+    .command("env-check")
+    .description("Audit .env.mcp for missing required environment variables")
+    .action(mcpEnvCheckCommand);
+
+  const cliCmd = program
+    .command("cli-tools")
+    .description("Manage CLI tool integrations (ripgrep, jq, gh, …)")
+    .action(cliToolsCommand);
+  cliCmd
+    .command("list")
+    .description("Show current CLI tool selection plus detection status")
+    .action(cliToolsListCommand);
+  cliCmd
+    .command("install")
+    .description("Print install commands for any selected CLI tools missing on PATH")
+    .action(cliToolsInstallCommand);
+  cliCmd
+    .command("detect")
+    .description("Read-only detection report for the current CLI tool selection")
+    .action(cliToolsDetectCommand);
 
   // Catch-all for unknown commands -- redirect agent commands to the editor
   program.on("command:*", (operands: string[]) => {

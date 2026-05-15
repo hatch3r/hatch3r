@@ -14,10 +14,12 @@ import {
   error as logError,
   info,
   warn,
+  label,
   setVerbose,
   verbose,
 } from "../shared/ui.js";
 import { readWorkspaceManifest } from "../../workspace/manifest.js";
+import { detectCliTools } from "../../cliTools/detect.js";
 
 /** Recursively sum the byte size of all files under a directory. */
 async function dirCharCount(dir: string): Promise<number> {
@@ -236,6 +238,28 @@ export async function statusCommand(opts?: { verbose?: boolean; deep?: boolean }
   if (stats.drifted > 0 || stats.missing > 0) {
     info(`Run ${chalk.bold("hatch3r sync")} to regenerate drifted/missing files.`);
     console.log();
+  }
+
+  // ── CLI tools (plan §4.7 status touchpoint) ────────────────
+  // Informational only — does not affect exit code. Reports N/M
+  // installed and lists missing tools so users can run
+  // `npx hatch3r cli-tools install` to see install commands.
+  const cliSelected = manifest.cliTools?.selected ?? [];
+  if (manifest.cliTools?.enabled && cliSelected.length > 0) {
+    const cliResults = await detectCliTools(cliSelected);
+    const installed = cliResults.filter((r) => r.installed).length;
+    const cliLines: string[] = [];
+    cliLines.push(label("Installed", `${installed}/${cliResults.length}`));
+    const missing = cliResults.filter((r) => !r.installed);
+    if (missing.length > 0) {
+      cliLines.push("");
+      for (const r of missing) {
+        cliLines.push(`  ${chalk.yellow("✗")} ${r.id} not on PATH`);
+      }
+      cliLines.push("");
+      cliLines.push(chalk.dim(`Run \`npx hatch3r cli-tools install\` to see install commands.`));
+    }
+    printBox("CLI tools", cliLines, missing.length === 0 ? "success" : "info");
   }
 
   // ── User content (D20) ─────────────────────────────────────

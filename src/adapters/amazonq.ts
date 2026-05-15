@@ -59,7 +59,7 @@ export class AmazonQAdapter extends BaseAdapter {
     results.push(output(".amazonq/rules/hatch3r-agents.md", wrapInManagedBlock(inner), inner));
 
     results.push(
-      ...await this.processSkillsRaw(ctx, (id) => `.amazonq/rules/hatch3r-skill-${id}.md`),
+      ...await this.processSkillsRawCliFiltered(ctx, (id) => `.amazonq/rules/hatch3r-skill-${id}.md`),
     );
 
     const mcp = await this.readFilteredMcp(ctx);
