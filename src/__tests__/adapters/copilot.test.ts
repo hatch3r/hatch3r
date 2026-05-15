@@ -5,7 +5,12 @@ import { tmpdir } from "node:os";
 import { CopilotAdapter } from "../../adapters/copilot.js";
 import { createManifest } from "../../manifest/hatchJson.js";
 import type { HatchManifest } from "../../types.js";
-import { MANAGED_BLOCK_START, MANAGED_BLOCK_END } from "../../types.js";
+import {
+  MANAGED_BLOCK_START,
+  MANAGED_BLOCK_END,
+  MANAGED_BLOCK_START_YAML,
+  MANAGED_BLOCK_END_YAML,
+} from "../../types.js";
 import { resolveTestPath } from "../fixtures.js";
 
 const FIXTURES_DIR = resolveTestPath(import.meta.url, "../fixtures/agents");
@@ -77,14 +82,23 @@ describe("CopilotAdapter", () => {
     expect(agentsMd).toBeUndefined();
   });
 
-  it("generates copilot-setup-steps.yml with managed blocks", async () => {
+  it("generates copilot-setup-steps.yml with YAML-syntax managed-block markers (issue #76)", async () => {
     const manifest = makeManifest();
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
     const setupSteps = outputs.find((o) => o.path === ".github/workflows/copilot-setup-steps.yml");
     expect(setupSteps).toBeDefined();
-    expect(setupSteps!.content).toContain(MANAGED_BLOCK_START);
-    expect(setupSteps!.content).toContain(MANAGED_BLOCK_END);
+    // Issue #76: HTML markers inside a YAML file produced
+    // "Invalid workflow file ... line 2" in GitHub Actions. The workflow
+    // file must use YAML `#`-prefixed markers so the file parses as YAML.
+    expect(setupSteps!.content).toContain(MANAGED_BLOCK_START_YAML);
+    expect(setupSteps!.content).toContain(MANAGED_BLOCK_END_YAML);
+    expect(setupSteps!.content).not.toContain(MANAGED_BLOCK_START);
+    expect(setupSteps!.content).not.toContain(MANAGED_BLOCK_END);
+    expect(setupSteps!.content).not.toContain("<!--");
+    // The first non-comment line must be the YAML payload, not a marker.
+    const firstLine = setupSteps!.content.split("\n", 1)[0];
+    expect(firstLine).toBe(MANAGED_BLOCK_START_YAML);
     expect(setupSteps!.content).toContain("jobs:");
     expect(setupSteps!.content).toContain("npm install");
     expect(setupSteps!.content).toContain("npm run build");

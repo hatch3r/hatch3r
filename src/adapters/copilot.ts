@@ -118,9 +118,13 @@ jobs:
         run: ${install}
       - name: Build
         run: ${build}`;
+    // Issue #76: pass the workflow path so wrapInManagedBlock emits
+    // YAML `#`-prefixed markers instead of HTML `<!-- -->` markers,
+    // which GitHub Actions rejects as a YAML syntax error on line 2.
+    const copilotSetupStepsPath = ".github/workflows/copilot-setup-steps.yml";
     results.push(output(
-      ".github/workflows/copilot-setup-steps.yml",
-      wrapInManagedBlock(copilotSetupStepsInner),
+      copilotSetupStepsPath,
+      wrapInManagedBlock(copilotSetupStepsInner, copilotSetupStepsPath),
       copilotSetupStepsInner,
     ));
 

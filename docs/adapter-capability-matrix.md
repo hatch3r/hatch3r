@@ -1,6 +1,6 @@
 # Adapter Capability Matrix
 
-> **Last verified**: 2026-05-13 | **hatch3r version**: 1.7.1
+> **Last verified**: 2026-05-13 | **hatch3r version**: 1.7.2
 
 Living reference for framework capabilities vs. adapter implementations. This document tracks what each adapter emits, what each platform supports natively, and where gaps remain.
 

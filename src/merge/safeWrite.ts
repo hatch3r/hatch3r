@@ -393,7 +393,7 @@ export async function safeWriteFile(
     const deniedFindings = customContent ? scanForDeniedPatterns(customContent) : [];
     let merged: string;
     try {
-      merged = insertManagedBlock(existingContent, options.managedContent);
+      merged = insertManagedBlock(existingContent, options.managedContent, filePath);
     } catch {
       // Managed block is corrupted (duplicate markers, wrong order, etc.).
       // Create a .bak backup before overwriting so user content is not lost.
