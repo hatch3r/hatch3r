@@ -4,9 +4,9 @@
 
 ## Purpose
 
-Perform a deep, end-to-end audit of every area, aspect, and line of code or content in the hatch3r framework. The goal: verify this framework is production-ready and open-sourceable by applying the 19-domain checklist across code, content, and adapter implementations — enabling end users to build winning software products at scale.
+Perform a deep, end-to-end audit of every area, aspect, and line of code or content in the hatch3r framework. The goal: verify this framework is production-ready and open-sourceable by applying the 21-domain checklist across code, content, and adapter implementations — enabling end users to build winning software products at scale.
 
-This audit covers **20 domains** organized across **4 tiers**, deploying **111 sub-agents** for maximum depth. Every domain requires web research for current market context. The final deliverable is a structured audit report with severity-tagged findings, weighted domain scores, and prioritized action items using 3-tier progressive disclosure.
+This audit covers **21 domains** organized across **4 tiers**, deploying **119 sub-agents** for maximum depth. Every domain requires web research for current market context. The final deliverable is a structured audit report with severity-tagged findings, weighted domain scores, and prioritized action items using 3-tier progressive disclosure.
 
 > **Path Convention:** All file paths in this document are relative to the **repository root**. Governance files live under `governance/`. The ephemeral `.audit-workspace/` directory is created at repository root.
 
@@ -54,7 +54,7 @@ Not all domains require equal audit depth every cycle. To prevent diminishing re
 
 ### Sub-Agent Strategy
 
-Spawn **111 sub-agents** across 20 audit domains organized in 4 tiers. Each domain decomposes into multiple focused sub-agents for maximum depth. Sub-agents within the same domain run in parallel unless a sequential dependency is noted. Domain-level synthesis sub-agents run only after their prerequisite sub-agents complete. Inherit your LLM model to every sub-agent — do not downgrade. Each sub-agent MUST use web research. **Never optimize for token efficiency — optimize for audit quality and depth.**
+Spawn **119 sub-agents** across 21 audit domains organized in 4 tiers. Each domain decomposes into multiple focused sub-agents for maximum depth. Sub-agents within the same domain run in parallel unless a sequential dependency is noted. Domain-level synthesis sub-agents run only after their prerequisite sub-agents complete. Inherit your LLM model to every sub-agent — do not downgrade. Each sub-agent MUST use web research. **Never optimize for token efficiency — optimize for audit quality and depth.**
 
 #### Optional Domain Orchestrator Bundling
 
@@ -79,6 +79,7 @@ The following sub-agents have sequential dependencies and MUST NOT launch until 
 | 16.2 (Coverage Gap Analysis) | D5, D9 | Requires content and adapter findings |
 | 16.3 (Artifact Inventory & Redundancy) | D5, D14, pre-audit inventory | Requires per-artifact quality findings and verified artifact inventory |
 | 20.2 (User-Authored Artifact Compliance) | 20.1, D5, D15 | Requires creator-tool baseline plus charter and security inheritance |
+| 21.7 (CLI Tool Capability Matrix + Synthesis) | 21.1–21.6 | Requires all per-category CLI tool currency findings |
 | 17.3 (Market Positioning & Strategy) | 17.1, 17.2 | Requires competitor and ecosystem data |
 | 18.1 (PRD Alignment) | D16, D17 | Requires cross-domain synthesis and competitive findings |
 | 18.2 (Roadmap Reprioritization) | D16, D17 | Requires cross-domain synthesis and competitive findings |
@@ -86,12 +87,12 @@ The following sub-agents have sequential dependencies and MUST NOT launch until 
 
 ### Concurrency Model
 
-Of the 111 total sub-agents, **101 launch immediately** in parallel. The remaining **10 sub-agents** launch sequentially after their dependencies complete:
+Of the 119 total sub-agents, **108 launch immediately** in parallel. The remaining **11 sub-agents** launch sequentially after their dependencies complete:
 
 | Tier | Sequential Sub-Agents |
 |------|----------------------|
 | B | 9.15, 9.16 |
-| C | 16.1, 16.2, 16.3, 20.2 |
+| C | 16.1, 16.2, 16.3, 20.2, 21.7 |
 | D | 17.3, 18.1, 18.2, 18.3 |
 
 ### Web Research & Scientific Rigor
@@ -117,10 +118,10 @@ Execute by tier with synthesis between tiers:
 |------|---------|--------|--------|
 | A | D1–D4 | 27 | Launch → synthesize → release from context |
 | B | D5–D10,D19 | 51 | Launch → synthesize → release from context |
-| C | D11–D16, D20 | 27 | Launch → synthesize → release from context |
+| C | D11–D16, D20–D21 | 35 | Launch → synthesize → release from context |
 | D | D17–D18 | 6 | Launch → synthesize → final assembly |
 
-Peak context: 51 sub-agent results (Tier B), not 111.
+Peak context: 51 sub-agent results (Tier B), not 119.
 
 ### Pre-Audit Questions
 
@@ -149,8 +150,8 @@ D03 domain file claimed 47 test files when filesystem held 88 (Cycle 7 sub-agent
 |------|---------|-------------------|------------|
 | A — Foundational | D1–D4 | 0.077 | 0.308 |
 | B — Quality | D5–D10,D19 | 0.0497 | 0.348 |
-| C — System-Level | D11–D16, D20 | 0.038 | 0.266 |
-| D — Strategic | D17–D18 | 0.039 | 0.078 |
+| C — System-Level | D11–D16, D20–D21 | 0.038 | 0.304 |
+| D — Strategic | D17–D18 | 0.020 | 0.040 |
 | **Total** | | | **1.00** |
 
 ### Weighted Score Formula
@@ -245,8 +246,8 @@ If total findings fall below 50, the orchestrating agent MUST verify depth by ch
 
 ### Quality Checklist
 
-- [ ] All 20 domains were examined (no domain was skipped). Domains with zero findings must include a clean-domain justification citing: specific files examined, verification methods used, and web research performed. A clean domain is acceptable; a skipped domain is not.
-- [ ] All 111 sub-agents produced output (no silent failures)
+- [ ] All 21 domains were examined (no domain was skipped). Domains with zero findings must include a clean-domain justification citing: specific files examined, verification methods used, and web research performed. A clean domain is acceptable; a skipped domain is not.
+- [ ] All 119 sub-agents produced output (no silent failures)
 - [ ] Every Critical and High finding has a specific, actionable recommendation
 - [ ] Every finding references specific files, line numbers, or artifacts
 - [ ] Web research was performed for every domain (cite sources)
@@ -276,7 +277,7 @@ Flag any finding matching these patterns and require the sub-agent to deepen:
 
 ## Audit Domains
 
-20 domains across 4 tiers. Each domain's full scope, sub-agent decomposition, and audit checklists are in the corresponding file under `governance/audit/domains/`.
+21 domains across 4 tiers. Each domain's full scope, sub-agent decomposition, and audit checklists are in the corresponding file under `governance/audit/domains/`.
 
 The orchestrator spawns sub-agents per domain file. Each sub-agent:
 1. Reads its domain file (`governance/audit/domains/D{NN}-{name}.md`)
@@ -328,7 +329,7 @@ Every audit sub-agent must internalize these behavioral directives. These govern
 
 11. **User-facing perspective** — For any finding affecting CLI output, error messages, or user-visible behavior, evaluate from the perspective of a first-time user running `npx hatch3r init`, not from the developer maintaining the code.
 
-12. **Currency verification** — For any finding involving adapters or MCP servers, verify against the platform's latest official documentation. Cite the documentation version and date. A finding based on stale documentation is itself a finding.
+12. **Currency verification** — For any finding involving adapters, CLI tools recommended by hatch3r (D21), or MCP servers, verify against the latest official documentation, vendor release notes ≤90 days old, and (for security claims) CVE feeds ≤90 days old. Cite the documentation version and date. A finding based on stale documentation is itself a finding.
 
 13. **Duplication awareness** — Before flagging a missing content artifact (agent, skill, rule, command), search existing artifacts for overlapping coverage. A proposal for content that already exists is a false positive, not a finding.
 
@@ -339,7 +340,7 @@ Every audit sub-agent must internalize these behavioral directives. These govern
 Each domain file (`governance/audit/domains/D{NN}-{name}.md`) must meet these minimum quality standards. CL-3 may propose domain file improvements when standards are not met.
 
 - **Minimum depth:** At least 4 checklist items per sub-agent. Domains with fewer items likely have insufficient audit coverage.
-- **Scenario-based items:** Checklist items should be scenario-based where possible ("What happens when the MCP server is unreachable?") rather than only question-based ("Is MCP handling good?"). Scenario-based items produce more specific, actionable findings.
+- **Scenario-based items:** Checklist items should be scenario-based where possible ("What happens when the MCP server is unreachable?", "What happens when a recommended CLI tool is not installed?") rather than only question-based ("Is MCP handling good?"). Scenario-based items produce more specific, actionable findings.
 - **File references:** Items should reference specific files or code paths to examine, not just abstract concepts. This grounds the audit in the actual codebase.
 - **Testability:** Each item should have a clear pass/fail criterion. If an item cannot be objectively evaluated, it should be split or made more specific.
 
@@ -362,12 +363,13 @@ Each domain file (`governance/audit/domains/D{NN}-{name}.md`) must meet these mi
 | C | 12: CLI Diagnostics & Traceability | 4 | 4 | 0 |
 | C | 13: Human-AI Collaboration Quality | 4 | 4 | 0 |
 | C | 14: Cross-Project Adaptability & Scalability | 4 | 4 | 0 |
-| C | 15: Agentic Security & Trust Model | 6 | 6 | 0 |
+| C | 15: Agentic Security & Trust Model | 7 | 7 | 0 |
 | C | 16: Cross-Domain Synthesis | 3 | 0 | 3 |
 | C | 20: User-Content Authoring & Governance | 2 | 1 | 1 |
+| C | 21: CLI Tool Currency | 7 | 6 | 1 |
 | D | 17: Competition & Market Intelligence | 3 | 2 | 1 |
 | D | 18: PRD, Roadmap & Distribution | 3 | 0 | 3 |
-| **Total** | | **111** | **101** | **10** |
+| **Total** | | **119** | **108** | **11** |
 
 > **Note:** Sub-agent counts and domain list may evolve across audit cycles via the self-evolution process (Phase CL-3). The table above reflects the current baseline. Any changes require explicit user consent.
 
@@ -521,7 +523,7 @@ These phases run after report assembly. They produce structured output appended 
 **Constraints:**
 - Maximum 10 proposals per cycle
 - Per-proposal user consent required (never batch-approve)
-- Weight changes must preserve tier totals (A=0.308, B=0.348, C=0.266, D=0.078)
+- Weight changes must preserve tier totals (A=0.308, B=0.348, C=0.304, D=0.040)
 - Never remove domains without replacement
 - Sub-agent count changes require corresponding domain file updates
 **Process detail:** See `governance/audit/templates/closed-loop-agents.md` Phase 7 agent.

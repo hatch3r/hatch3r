@@ -8,7 +8,7 @@
 
 This is a distinct concern from Domain 1 (source code quality) and Domain 4 (production security). hatch3r generates instructions that guide AI agents with broad code-writing capabilities. The trust model of that system requires dedicated scrutiny.
 
-**Sub-agents:** 6
+**Sub-agents:** 7
 
 | SA | Focus |
 |----|-------|
@@ -18,6 +18,7 @@ This is a distinct concern from Domain 1 (source code quality) and Domain 4 (pro
 | 15.4 | Supply Chain of Agent Definitions |
 | 15.5 | MCP Trust Model |
 | 15.6 | Agentic Trust Framework Compliance |
+| 15.7 | CLI Tool Supply-Chain Trust |
 
 ## Domain Boundary
 
@@ -83,5 +84,12 @@ Apply every category from the official OWASP Top 10 for Agentic Applications (AS
 - [ ] Trust verification — how is agent behavior verified against expected behavior?
 - [ ] Trust revocation — can trust be revoked for misbehaving agents?
 - [ ] Verify trust reference against current implementation in `src/pipeline/` (see [D15-trust-reference.md](D15-trust-reference.md))
+
+### 15.7 CLI Tool Supply-Chain Trust
+- [ ] **Installer chain integrity** — `hatch3r-cli-{id}` skill install recipes resolve to vendor-signed channels (brew bottles, apt signed-by, scoop manifests, winget manifests, cargo crates registry, npm). Unsigned install paths are a High finding.
+- [ ] **Version pinning** — `## Detection / Install` body pins a tested-against version per OS channel; floating `latest` recommendations for tier-1 tools are a Medium finding per CONSTITUTION.md §2 P3.
+- [ ] **CVE check window** — every tier-1 tool has a NVD + GitHub Security Advisory scan ≤90 days from cycle date (D21 owns the scan; D15.7 verifies the audit trail). Missing CVE check is High.
+- [ ] **Tool provenance** — vendor, source-code repository URL, and license recorded in `src/cliTools/registry.ts` entry; provenance gaps are a Medium finding.
+- [ ] **Sandbox escape surface** — for browser/sandbox tools (playwright, docker, container-use), verify the recommended invocation pattern in the skill body does not expose the host filesystem or credentials beyond the documented scope; over-broad mount or credential pass-through is a High finding.
 
 > Trust delegation chain and compliance mapping have moved to [D15-trust-reference.md](D15-trust-reference.md) (governed appendix).

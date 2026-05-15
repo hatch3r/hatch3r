@@ -1,6 +1,25 @@
 {
   "schema_version": "2.0.0",
   "generated_at": "2026-04-28T19:22:29.371Z",
+  "pillar_revisions": {
+    "P3": [
+      {
+        "revision_id": "P3-r1",
+        "name": "Adapter & MCP Currency",
+        "effective_cycles": "<=9",
+        "governance_refs": ["AUDIT.md D9", "AUDIT.md D2", "charter directive 12"],
+        "deprecated_at": "2026-05-15"
+      },
+      {
+        "revision_id": "P3-r2",
+        "name": "Adapter & External Tool Currency",
+        "effective_cycles": ">=10",
+        "governance_refs": ["AUDIT.md D9", "AUDIT.md D21", "AUDIT.md D2.4", "charter directive 12", "AUDIT.md D15.5", "AUDIT.md D15.7"],
+        "effective_at": "2026-05-15",
+        "retag_policy": "retag-on-touch: only when a cycle-<=9 finding is reopened does P3-r2 attach"
+      }
+    ]
+  },
   "entries": [
     {
       "finding_id": "#1",

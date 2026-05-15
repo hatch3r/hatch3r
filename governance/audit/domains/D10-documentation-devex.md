@@ -42,7 +42,7 @@ Trace init to first useful agent output. Ref: `src/cli/commands/init.ts`, genera
 - [ ] Zero-to-working in under 5 min — per-preset end-to-end test (default, minimal, full, custom)
 - [ ] Decision count and default quality — choices per preset; Enter-through produces good setup
 - [ ] Post-init message clarity — distinguishes CLI vs agent slash commands; adapts for greenfield/brownfield
-- [ ] MCP setup guidance — `.env.mcp` flow explained at the right moment, not discovered on failure
+- [ ] External tool setup guidance — CLI tool installer recommendations (brew/cargo/npm/release tarball) shown at the right moment with pinned-version commands; .env.mcp flow explained at the right moment when MCP servers are part of the selected preset; neither discovered on failure.
 - [ ] First agent invocation — user reaches `/project-spec` or `/codebase-map` without external docs
 - [ ] Common misstep errors — slash commands in terminal, missing env vars, unsourced `.env.mcp`
 - [ ] Time-to-first-value and in-IDE discoverability — total steps to first output; intuitive discovery in each tool

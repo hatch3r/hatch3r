@@ -52,7 +52,7 @@ User-authored artifacts produced via /hatch3r-create are held to the same one-sh
 
 ## Up-to-Date Information
 
-Agents must ALWAYS ground their work in current information. Web search, Context7 MCP, official documentation, project-specific context — never rely solely on training data.
+Agents must ALWAYS ground their work in current information. Sources: web search, official documentation, CLI tools that wrap live data (search, file, http, forge, browser), Context7 or other MCP servers when CLI access is not practical, and project-specific context. Never rely solely on training data.
 
 This is not a feature of specific agents or skills. It is a general principle baked into how all content instructs agents. Every agent, every skill, every prompt assumes access to current information and instructs the AI to use it.
 
@@ -190,17 +190,19 @@ Stable and aspirational. These do not change week-to-week.
 
 8. **Up-to-date information always** — Web search, Context7, official docs. Never rely on stale training data.
 
-9. **One-shot success as the north star** — Every content change is measured against: does this make first-attempt success more likely?
+9. **CLI-first agent tooling** — Agents prefer terminal-native CLI tools (search, file ops, data, http, forge, browser, sandbox, archive) over wrapped protocols. CLI tools are battle-tested, portable across hosts, and produce structured stdout that any agent can parse. MCP servers are recommended only where no CLI equivalent exists or where the protocol's stateful affordances are required (e.g., long-running indices, push notifications).
 
-10. **Equal adapter parity across all platforms** — No first-class or second-class citizens. Every supported platform gets the full capability set.
+10. **One-shot success as the north star** — Every content change is measured against: does this make first-attempt success more likely?
 
-11. **Incremental adoption** — Legacy-friendly, non-destructive. Works with what exists, does not demand a rewrite.
+11. **Equal adapter parity across all platforms** — No first-class or second-class citizens. Every supported platform gets the full capability set.
 
-12. **Sub-agentic by design** — Implementer delegation, structured workflows, parallel execution. Complex tasks decompose into focused sub-tasks.
+12. **Incremental adoption** — Legacy-friendly, non-destructive. Works with what exists, does not demand a rewrite.
 
-13. **Quality through measurable standards** — Content quality is verified weekly against the shared quality charter (`agents/shared/quality-charter.md`). Agents think like senior engineers: question assumptions, consider multiple stakeholders, express uncertainty honestly, and ground every recommendation in current information.
+13. **Sub-agentic by design** — Implementer delegation, structured workflows, parallel execution. Complex tasks decompose into focused sub-tasks.
 
-14. **Behavioral charter governs agent conduct** — Agent behavioral standards are defined once and inherited everywhere. Audit sub-agents follow the audit behavioral charter (in AUDIT.md); end-user agents follow the shared quality charter. Both charters are living documents that evolve through the weekly audit cycle.
+14. **Quality through measurable standards** — Content quality is verified weekly against the shared quality charter (`agents/shared/quality-charter.md`). Agents think like senior engineers: question assumptions, consider multiple stakeholders, express uncertainty honestly, and ground every recommendation in current information.
+
+15. **Behavioral charter governs agent conduct** — Agent behavioral standards are defined once and inherited everywhere. Audit sub-agents follow the audit behavioral charter (in AUDIT.md); end-user agents follow the shared quality charter. Both charters are living documents that evolve through the weekly audit cycle.
 
 ---
 

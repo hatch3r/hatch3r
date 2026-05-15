@@ -14,7 +14,7 @@
 | 2.1 | Base Adapter Contract | `src/adapters/base.ts` |
 | 2.2 | Canonical Reader | `src/adapters/canonical.ts` |
 | 2.3 | Customization Pipeline | `src/adapters/customization.ts` |
-| 2.4 | MCP & TOML Utilities | `src/adapters/mcp-utils.ts`, `src/adapters/toml-utils.ts` |
+| 2.4 | External Tool Config Utilities | `src/adapters/mcp-utils.ts`, `src/adapters/toml-utils.ts`, `src/pipeline/agentToolAllowlist.ts`, `src/pipeline/adapterToolTranslator.ts` |
 | 2.5 | Adapter Index & Registry | `src/adapters/index.ts` |
 | 2.6 | Content System | `src/content/index.ts` (686 LOC), `src/content/tags.ts` (91 LOC), `src/content/presets.ts` (48 LOC) |
 | 2.7 | Integrity & Archive Systems | `src/integrity/index.ts`, `src/archive/index.ts` (263 LOC) |
@@ -41,11 +41,12 @@
 - [ ] Merge correctness — customizations merge with canonical content without corruption
 - [ ] Override precedence — when multiple overrides apply, precedence is well-defined and documented
 
-### 2.4 MCP & TOML Utilities
-- [ ] MCP config transformation correctness — `mcp.json` transformed per adapter format
-- [ ] Per-adapter MCP format handling — each adapter receives its expected MCP schema
+### 2.4 External Tool Config Utilities
+- [ ] MCP config transformation correctness — `mcp.json` transformed per adapter format, per-adapter MCP schema delivered
 - [ ] TOML generation — codex adapter TOML output is valid and correct
-- [ ] Utility robustness — edge cases, malformed input, missing fields
+- [ ] CLI tool allowlist translation — `src/pipeline/agentToolAllowlist.ts` correctly maps canonical tool capabilities to per-agent allow/deny sets, with 0 false-allows in the per-agent vector
+- [ ] Adapter tool-name translation — `src/pipeline/adapterToolTranslator.ts` maps canonical tool identifiers to each platform's native tool name with the `nativeQuestionTool` and `ASK_USER_TOOLS` invariants holding (both populated or both null per adapter)
+- [ ] Utility robustness — edge cases, malformed input, missing fields across MCP, TOML, allowlist, and translator paths
 
 ### 2.5 Adapter Index & Registry
 - [ ] Registry completeness — all 15 adapters registered and discoverable

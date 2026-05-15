@@ -29,12 +29,12 @@ Content is of verifiable, real-world-applicable quality. Findings carry the Scie
 **Measurement:** Behavioral charter compliance rate, one-shot success rate (see [VISION.md](VISION.md) §Quality Bar), finding root-cause depth (symptom vs. systemic).
 **Governance refs:** [AUDIT.md §Sub-Agent Behavioral Charter](AUDIT.md) (13 directives, authoritative location), Audit Quality Architecture (3 layers), D1/D5/D7/D13.
 
-### P3. Adapter & MCP Currency
+### P3. Adapter & External Tool Currency
 
-Every adapter and MCP server stays current through audit cycles. Each cycle mandates live web research against latest platform documentation. Staleness is a finding.
+Every adapter, end-user-recommended CLI tool, and MCP server stays current through audit cycles. Each cycle mandates live web research against latest official documentation, vendor changelogs ≤12 months old, and CVE feeds ≤90 days old. Staleness >90 days for any tier-1 tool is a Medium finding; missing CVE check is High.
 
-**Measurement:** Platform documentation date vs. audit date delta, feature gap count per adapter, adapter test coverage.
-**Governance refs:** AUDIT.md D9 (Platform Adapters, web research mandate), charter directive 12 (currency verification), D2.
+**Measurement:** Platform documentation date vs. audit date delta (per adapter and per CLI tool), feature gap count per adapter, adapter test coverage, CLI tool currency delta (last vendor release vs cycle date, target ≤90 days), CVE advisory acknowledgement count per cycle.
+**Governance refs:** AUDIT.md D9 (Platform Adapters, web research mandate), D21 (CLI Tool Currency), D2.4 (External Tool Config Utilities), charter directive 12 (currency verification), D15.5 + D15.7 (MCP and CLI supply-chain trust).
 
 ### P4. Comprehensive Lean Coverage
 
@@ -117,7 +117,7 @@ If (1) is "none", the change is rejected. If (3) is "increase", justify net valu
 |--------|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
 | P1 CLI UX | S | P | S | S | S | S | — | D10, D20.1 | — |
 | P2 Quality | P | P | P | S | S | S | P | D1,D5,D7,D13 | — |
-| P3 Currency | S | P | P | S | — | S | — | D2,D9 | S |
+| P3 Currency | S | P | P | S | — | S | — | D2,D9,D21 | P |
 | P4 Lean | S | P | P | P | — | S | — | D5,D16, D20 | — |
 | P5 Governance | P | S | P | P | S | P | S | D16,D18,D19, D20 | — |
 | P6 Security | P | — | S | S | — | — | — | D15, D20.2 | P |
