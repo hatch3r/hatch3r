@@ -9,6 +9,7 @@ import {
   DEFAULT_FEATURES,
   type BoardConfig,
   type ClaudeConfig,
+  type CliToolsConfig,
   type ContentSelection,
   type CostTrackingConfig,
   type CustomizationManifest,
@@ -87,6 +88,14 @@ export function createManifest(options: {
   languages?: string[];
   worktreeEnabled?: boolean;
   customization?: CustomizationManifest;
+  /**
+   * CLI-tooling pivot (1.7.2 / plan §4.2). When omitted the manifest is
+   * left without a `cliTools` field — pre-1.7.2 manifest shape. When
+   * supplied the field is written verbatim and consumers should read it
+   * via {@link readCliToolsConfig} so absence still maps to
+   * `{enabled: false, selected: []}`.
+   */
+  cliTools?: CliToolsConfig;
 }): HatchManifest {
   const platform = options.platform ?? "github";
   const owner = options.owner ?? "";
@@ -111,6 +120,9 @@ export function createManifest(options: {
   }
   if (options.customization) {
     manifest.customization = options.customization;
+  }
+  if (options.cliTools) {
+    manifest.cliTools = options.cliTools;
   }
   if (options.languages && options.languages.length > 0 && options.languages[0] !== "unknown") {
     manifest.languages = options.languages;
@@ -394,6 +406,13 @@ export interface PreservedManifestFields {
   repos?: RepoEntry[];
   packages?: PackageEntry[];
   workspace?: HatchManifest["workspace"];
+  /**
+   * CLI-tooling pivot selection (added in 1.7.2). Preserved across `clean`
+   * -> reinit so a user who opted in to ripgrep+jq does not have to re-pick
+   * after running `hatch3r clean`. New init may override (init-supplied
+   * selections always win over preserved, mirroring the board-config rule).
+   */
+  cliTools?: CliToolsConfig;
   worktreeExtras?: {
     extraPatterns?: string[];
     nodeModules?: "symlink" | "skip";
@@ -414,6 +433,7 @@ export function extractPreservedManifestFields(
   if (manifest.repos) out.repos = manifest.repos;
   if (manifest.packages) out.packages = manifest.packages;
   if (manifest.workspace) out.workspace = manifest.workspace;
+  if (manifest.cliTools) out.cliTools = manifest.cliTools;
   if (
     manifest.worktree?.extraPatterns !== undefined ||
     manifest.worktree?.nodeModules !== undefined
@@ -474,6 +494,11 @@ export function applyPreservedManifestFields(
   if (preserved.repos) manifest.repos = preserved.repos;
   if (preserved.packages) manifest.packages = preserved.packages;
   if (preserved.workspace) manifest.workspace = preserved.workspace;
+  // init-supplied cliTools always wins (mirrors features / mcp re-confirmation
+  // semantics); preserve only when re-init did not supply its own selection.
+  if (preserved.cliTools && manifest.cliTools === undefined) {
+    manifest.cliTools = preserved.cliTools;
+  }
   if (preserved.worktreeExtras && manifest.worktree?.enabled) {
     if (preserved.worktreeExtras.extraPatterns !== undefined) {
       manifest.worktree.extraPatterns = preserved.worktreeExtras.extraPatterns;
@@ -482,4 +507,15 @@ export function applyPreservedManifestFields(
       manifest.worktree.nodeModules = preserved.worktreeExtras.nodeModules;
     }
   }
+}
+
+/**
+ * Read the manifest's CLI-tooling pivot config, falling back to the
+ * `{enabled: false, selected: []}` default when absent. Plan §4.2 — keeps
+ * pre-1.7.2 manifests valid (no version bump required) by returning a
+ * disabled-config sentinel rather than `undefined`. Centralises the
+ * default so adapters and CLI commands do not duplicate the literal.
+ */
+export function readCliToolsConfig(m: HatchManifest): CliToolsConfig {
+  return m.cliTools ?? { enabled: false, selected: [] };
 }

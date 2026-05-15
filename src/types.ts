@@ -75,6 +75,13 @@ export interface HatchManifest {
   tools: Tool[];
   features: Features;
   mcp: McpConfig;
+  /**
+   * CLI-tooling pivot (added in 1.7.2 as an additive optional field — no
+   * manifest version bump). Absence is equivalent to `{ enabled: false,
+   * selected: [] }`. Read via
+   * `src/manifest/hatchJson.ts::readCliToolsConfig`.
+   */
+  cliTools?: CliToolsConfig;
   board?: BoardConfig;
   repos?: RepoEntry[];
   packages?: PackageEntry[];
@@ -128,6 +135,18 @@ export interface HatchManifest {
     excludedContent?: string[];
     /** Content IDs added locally (not from workspace). */
     localContent?: string[];
+    /**
+     * CLI tools added at this member only (plan §4.8). Mirrors
+     * `localContent` for content. Workspace `defaults.cliTools.selected`
+     * is the baseline; this list extends it for this member.
+     */
+    localCliTools?: CliToolId[];
+    /**
+     * CLI tools the member opts out of even though the workspace
+     * defaults include them (plan §4.8). Exclusion wins (matches
+     * `excludedContent` semantics).
+     */
+    excludedCliTools?: CliToolId[];
   };
   managedFiles: string[];
   /**
@@ -215,6 +234,31 @@ export interface Features {
 
 export interface McpConfig {
   servers: string[];
+}
+
+/**
+ * Identifier for a CLI tool entry in `AVAILABLE_CLI_TOOLS`
+ * (`src/cliTools/registry.ts`). Free-form string for forward compatibility
+ * with future tools added by maintainers; runtime validation lives in
+ * `src/cliTools/registry.ts`.
+ */
+export type CliToolId = string;
+
+/**
+ * Manifest payload that captures the CLI-tooling pivot: a master enable
+ * switch plus the selected tool ids. `overrides` lets a project disable a
+ * tool that came from a workspace or preset default without removing the
+ * id from `selected` (matching the per-content override pattern used by
+ * `customization`).
+ *
+ * Absent on pre-1.7.2 manifests; consumers must treat absence as
+ * `{ enabled: false, selected: [] }` (see
+ * `src/manifest/hatchJson.ts::readCliToolsConfig`).
+ */
+export interface CliToolsConfig {
+  enabled: boolean;
+  selected: CliToolId[];
+  overrides?: Record<CliToolId, { disabled?: boolean; note?: string }>;
 }
 
 export interface HooksConfig {

@@ -378,6 +378,81 @@ export abstract class BaseAdapter implements Adapter {
     return results;
   }
 
+  /**
+   * Read canonical skills with the CLI-tooling pivot filter applied.
+   *
+   * Filter rules (plan §4.6):
+   *  - Skills whose id does NOT start with `hatch3r-cli-` pass through
+   *    unchanged (every adapter still emits the non-CLI skill catalogue).
+   *  - When `manifest.cliTools` is absent or `enabled: false`, drop every
+   *    `hatch3r-cli-*` skill (master switch off).
+   *  - When `cliTools.enabled` is true, keep only those whose suffix
+   *    (after stripping `hatch3r-cli-`) appears in `cliTools.selected`.
+   *
+   * Wave 3 swaps each adapter's `processSkillsWithFm` /
+   * `processSkillsRaw` call to the `*CliFiltered` variants below; the
+   * filter helper is exposed protected so adapters with custom skill
+   * pipelines can reuse it directly.
+   */
+  protected async readCliFilteredSkills(ctx: AdapterContext): Promise<CanonicalFile[]> {
+    const all = await this.readTrackedCanonicalFiles(ctx.agentsDir, "skills");
+    const cliCfg = ctx.manifest.cliTools ?? { enabled: false, selected: [] as string[] };
+    const selected = new Set(cliCfg.selected ?? []);
+    return all.filter((skill) => {
+      if (!skill.id.startsWith("hatch3r-cli-")) return true;
+      if (!cliCfg.enabled) return false;
+      const cliId = skill.id.replace(/^hatch3r-cli-/, "");
+      return selected.has(cliId);
+    });
+  }
+
+  /**
+   * CLI-filtered twin of {@link processSkillsRaw}. Adapters that emit
+   * skills as raw managed-block files (no YAML frontmatter) call this
+   * after Wave 3 instead of `processSkillsRaw` to honour
+   * `manifest.cliTools.selected`.
+   */
+  protected async processSkillsRawCliFiltered(
+    ctx: AdapterContext,
+    pathFn: (id: string) => string,
+  ): Promise<AdapterOutput[]> {
+    if (!ctx.features.skills) return [];
+    const results: AdapterOutput[] = [];
+    const skills = await this.readCliFilteredSkills(ctx);
+    for (const skill of skills) {
+      const { content: raw, skip, warnings } = await applyCustomizationRaw(ctx.projectRoot, skill);
+      this.warnings.push(...warnings);
+      if (skip) continue;
+      const content = this.substituteAskUserMarker(raw);
+      results.push(output(pathFn(skill.id), wrapInManagedBlock(content), content));
+    }
+    return results;
+  }
+
+  /**
+   * CLI-filtered twin of {@link processSkillsWithFm}. Adapters that emit
+   * skills as managed-block files prefixed with a `name: + description:`
+   * YAML stub call this after Wave 3 instead of `processSkillsWithFm`.
+   */
+  protected async processSkillsWithFmCliFiltered(
+    ctx: AdapterContext,
+    pathFn: (id: string) => string,
+  ): Promise<AdapterOutput[]> {
+    if (!ctx.features.skills) return [];
+    const results: AdapterOutput[] = [];
+    const skills = await this.readCliFilteredSkills(ctx);
+    for (const skill of skills) {
+      const { content: raw, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, skill);
+      this.warnings.push(...warnings);
+      if (skip) continue;
+      const content = this.substituteAskUserMarker(raw);
+      const desc = overrides.description ?? skill.description;
+      const fm = `---\nname: ${skill.id}\ndescription: ${desc}\n---`;
+      results.push(output(pathFn(skill.id), `${fm}\n\n${wrapInManagedBlock(content)}`, content));
+    }
+    return results;
+  }
+
   /** Process commands and output each as a raw managed-block file at the path returned by `pathFn`. */
   protected async processCommandsRaw(
     ctx: AdapterContext,
