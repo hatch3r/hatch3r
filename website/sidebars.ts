@@ -44,6 +44,7 @@ const sidebars: SidebarsConfig = {
         'reference/agents',
         'reference/skills',
         'reference/rules',
+        'reference/hooks',
         {
           type: 'category',
           label: 'Commands',
@@ -52,6 +53,7 @@ const sidebars: SidebarsConfig = {
             'reference/commands/agent-commands',
           ],
         },
+        'reference/auxiliary-artifacts',
         'reference/adapter-capability-matrix',
       ],
     },

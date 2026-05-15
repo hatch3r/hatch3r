@@ -159,6 +159,14 @@ Track token usage and estimated costs across agent workflows. Per-command and pe
 
 Create and manage composable workflow recipes that chain commands and skills.
 
+### create
+
+Author a new user-tier artifact (agent, skill, rule, command, or hook) for this project. Collects type, name, description, tags, adapter scope, and type-specific fields, then delegates to `hatch3r-creator` to compose frontmatter + body skeleton, run the strict + gentle gate funnel, and atomic-write the file under `.agents/user/{type}/`.
+
+When to use: you need a project-specific artifact that does not exist in the canonical hatch3r corpus, and you want it preserved across `hatch3r update` and `hatch3r clean`.
+
+Outputs: one new file under `.agents/user/{type}/{name}.md` (rules also write a paired `.mdc`; skills create a `{name}/SKILL.md` subdirectory). Run `hatch3r sync` afterward to propagate the artifact to all enabled adapter outputs.
+
 ### agent-customize
 
 Configure per-agent customization via `.customize.yaml` files.

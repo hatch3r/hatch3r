@@ -156,11 +156,11 @@ These commands are invoked inside your coding tool (e.g., as Cursor commands).
 
 **Planning:** `project-spec`, `codebase-map`, `roadmap`, `feature-plan`, `bug-plan`, `refactor-plan`, `migration-plan`, `test-plan`, `api-spec`
 
-**Workflow:** `workflow`, `quick-change`, `revision`, `debug`, `onboard`, `benchmark`, `hooks`, `learn`, `recipe`
+**Workflow:** `workflow`, `quick-change`, `revision`, `debug`, `onboard`, `benchmark`, `hooks`, `learn`, `recipe`, `pr-resolve`
 
-**Operations:** `healthcheck`, `security-audit`, `dep-audit`, `release`, `context-health`, `cost-tracking`
+**Operations:** `healthcheck`, `security-audit`, `dep-audit`, `release`, `context-health`, `cost-tracking`, `report`
 
-**Customization:** `agent-customize`, `command-customize`, `skill-customize`, `rule-customize`
+**Customization:** `create`, `agent-customize`, `command-customize`, `skill-customize`, `rule-customize`
 
 All commands are prefixed with `hatch3r-` (e.g., `hatch3r-board-fill`). See the [CLI Commands reference](https://docs.hatch3r.com/docs/reference/commands/cli-commands) and [Agent Commands reference](https://docs.hatch3r.com/docs/reference/commands/agent-commands) for full details.
 

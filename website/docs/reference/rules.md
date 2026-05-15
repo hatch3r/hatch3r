@@ -25,12 +25,14 @@ Persistent instructions (coding standards, conventions, patterns) that are alway
 | **feature-flags** | Flag naming (`FF_AREA_FEATURE`), storage, evaluation, gradual rollout, dependencies, kill switches, 30-day cleanup deadlines, and audit. |
 | **git-conventions** | Git workflow, branch naming, commit message conventions, and merge strategy. |
 | **i18n** | Internationalization, RTL support, locale management, and ICU message format. |
+| **iteration-summary** | Every user-facing iteration ends with the canonical Iteration Summary block -- a 5-field contract exposing status, gaps, and confidence at a glance. |
 | **learning-consult** | When and how to consult project learnings during development. |
 | **migrations** | Backward-compatible schema changes, idempotent scripts, rollback plans, and deploy-then-migrate ordering. |
 | **observability** | Structured JSON logging, OpenTelemetry, SLO/SLI, distributed tracing, alerting, dashboards, and no PII in logs. |
 | **observability-logging** | Structured logging and error reporting conventions for the project. |
 | **observability-metrics** | Metrics, SLO/SLI definitions, alerting, and dashboard conventions for the project. |
 | **observability-tracing** | Distributed tracing, OpenTelemetry semantic conventions, AI agent instrumentation, and correlation ID conventions. |
+| **observability-tracing-detail** | Extended tracing reference -- AI agent instrumentation, tool call audit trails, LLM request tracing, and correlation ID patterns. |
 | **performance-budgets** | Core Web Vitals, API latency, database query budgets, bundle size, and enforcement mechanisms. |
 | **secrets-management** | Secret management, rotation, and secure handling patterns for the project. |
 | **security-patterns** | Input validation, output encoding, auth enforcement, AI/agentic security, and OWASP alignment. |

@@ -87,6 +87,21 @@ command: hatch3r-board-fill
 
 Use the `command-customize` command for interactive setup.
 
+## Authoring New User-Tier Artifacts
+
+The `*-customize` commands above adjust hatch3r's stock content. To author a brand-new project-specific artifact that hatch3r does not ship, use the `create` command.
+
+`/hatch3r-create` walks you through type selection (agent, skill, rule, command, or hook), name, description, tags, adapter scope, and type-specific fields. It then delegates to the `hatch3r-creator` sub-agent, which composes the frontmatter and body skeleton, runs the same strict frontmatter/security/structural gates the framework uses on canonical content (block on failure) plus style/lean checks as warnings, and atomic-writes the file.
+
+Outputs land under `.agents/user/{type}/{name}.md`:
+
+- Rule artifacts also receive a paired `.mdc` companion via the `.md → .mdc` scope transform.
+- Skill artifacts create a `{name}/SKILL.md` subdirectory.
+
+Files under `.agents/user/` are preserved across `hatch3r update` and `hatch3r clean`. Names beginning with `hatch3r-` are reserved for canonical framework content and rejected at validation. Run `hatch3r sync` after creation to propagate the artifact to all enabled adapter outputs.
+
+See the [create command reference](../reference/commands/agent-commands#create) for the full input contract and gate behavior.
+
 ## Composable Recipes
 
 Recipes are reusable workflow templates that chain multiple commands and skills into repeatable sequences. Use the `recipe` command to create and manage them.
