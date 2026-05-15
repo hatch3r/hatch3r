@@ -350,4 +350,48 @@ You are a test agent.`,
       expect(fmMatch![1]).not.toContain("tools:");
     });
   });
+
+  // ── Wave 5 (CLI-tooling pivot, plan §4.6) ───────────────────────
+  //
+  // Copilot's skills surface is filtered by `manifest.cliTools.selected` via
+  // `readCliFilteredSkills` on BaseAdapter. Output path:
+  // `.github/skills/hatch3r-cli-{id}/SKILL.md`.
+  describe("CLI tools filter (Wave 5 plan §4.6)", () => {
+    it("emits only the selected CLI skills when cliTools is enabled", async () => {
+      const manifest: HatchManifest = {
+        ...makeManifest(),
+        cliTools: { enabled: true, selected: ["ripgrep", "jq"] },
+      };
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const cliSkills = outputs.filter((o) =>
+        o.path.startsWith(".github/skills/hatch3r-cli-"),
+      );
+      const paths = cliSkills.map((o) => o.path);
+      expect(paths).toContain(".github/skills/hatch3r-cli-ripgrep/SKILL.md");
+      expect(paths).toContain(".github/skills/hatch3r-cli-jq/SKILL.md");
+      expect(paths.some((p) => p.includes("hatch3r-cli-fd"))).toBe(false);
+    });
+
+    it("emits zero CLI skill files when cliTools.enabled is false", async () => {
+      const manifest: HatchManifest = {
+        ...makeManifest(),
+        cliTools: { enabled: false, selected: ["ripgrep", "jq"] },
+      };
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      expect(
+        outputs.filter((o) => o.path.startsWith(".github/skills/hatch3r-cli-")),
+      ).toEqual([]);
+    });
+
+    it("emits zero CLI skill files when cliTools.selected is empty", async () => {
+      const manifest: HatchManifest = {
+        ...makeManifest(),
+        cliTools: { enabled: true, selected: [] },
+      };
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      expect(
+        outputs.filter((o) => o.path.startsWith(".github/skills/hatch3r-cli-")),
+      ).toEqual([]);
+    });
+  });
 });

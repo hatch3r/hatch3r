@@ -403,4 +403,116 @@ describe("BaseAdapter", () => {
       expect(capturedSecond).toBeUndefined();
     });
   });
+
+  // ── Wave 5 (CLI-tooling pivot, plan §4.6) ───────────────────────
+  //
+  // `readCliFilteredSkills` is the BaseAdapter helper that implements the
+  // plan §4.6 filter truth table:
+  //
+  //   manifest.cliTools | skill id prefix       | result
+  //   ------------------+-----------------------+----------------------
+  //   absent            | hatch3r-cli-*         | DROP
+  //   absent            | other (e.g. test-*)   | KEEP
+  //   {enabled:false}   | hatch3r-cli-*         | DROP
+  //   {enabled:false}   | other                 | KEEP
+  //   {enabled:true,    | hatch3r-cli-<X>       | KEEP iff X in selected
+  //    selected:[X,Y]}  | other                 | KEEP
+  //
+  // This test reaches `readCliFilteredSkills` via a thin BaseAdapter subclass
+  // (the helper is `protected` so the subclass exposes it as a public
+  // wrapper). The fixture skills directory contains:
+  //   - test-skill (non-CLI; always passes through)
+  //   - hatch3r-cli-ripgrep (Wave 5 fixture)
+  //   - hatch3r-cli-jq (Wave 5 fixture)
+  //   - hatch3r-cli-fd (Wave 5 fixture)
+  describe("readCliFilteredSkills (Wave 5 plan §4.6)", () => {
+    /**
+     * Subclass that exposes `readCliFilteredSkills` directly so we can test
+     * the filter behaviour without going through the full doGenerate path.
+     */
+    class FilterProbe extends BaseAdapter {
+      readonly name = "filter-probe";
+      protected async doGenerate(): Promise<AdapterOutput[]> {
+        return [output("probe.md", "x")];
+      }
+      // Public wrapper for testing.
+      async filterSkills(ctx: AdapterContext): Promise<{ id: string }[]> {
+        const skills = await this.readCliFilteredSkills(ctx);
+        return skills.map((s) => ({ id: s.id }));
+      }
+    }
+
+    function makeCtx(manifest: HatchManifest): AdapterContext {
+      return {
+        agentsDir: FIXTURES_DIR,
+        manifest,
+        features: manifest.features,
+        projectRoot: "/fake/root",
+        generationMode: "standard",
+      };
+    }
+
+    it("drops every hatch3r-cli-* skill when manifest.cliTools is absent", async () => {
+      const probe = new FilterProbe();
+      const ctx = makeCtx(makeManifest());
+      const ids = (await probe.filterSkills(ctx)).map((s) => s.id);
+
+      // Non-CLI fixture passes through.
+      expect(ids).toContain("test-skill");
+      // All hatch3r-cli-* fixtures are dropped.
+      expect(ids.some((i) => i.startsWith("hatch3r-cli-"))).toBe(false);
+    });
+
+    it("drops every hatch3r-cli-* skill when cliTools.enabled is false", async () => {
+      const probe = new FilterProbe();
+      const ctx = makeCtx({
+        ...makeManifest(),
+        cliTools: { enabled: false, selected: ["ripgrep", "jq"] },
+      });
+      const ids = (await probe.filterSkills(ctx)).map((s) => s.id);
+
+      expect(ids).toContain("test-skill");
+      expect(ids.some((i) => i.startsWith("hatch3r-cli-"))).toBe(false);
+    });
+
+    it("keeps only selected hatch3r-cli-* skills when enabled=true", async () => {
+      const probe = new FilterProbe();
+      const ctx = makeCtx({
+        ...makeManifest(),
+        cliTools: { enabled: true, selected: ["ripgrep", "jq"] },
+      });
+      const ids = (await probe.filterSkills(ctx)).map((s) => s.id);
+
+      expect(ids).toContain("test-skill"); // non-CLI passes
+      expect(ids).toContain("hatch3r-cli-ripgrep");
+      expect(ids).toContain("hatch3r-cli-jq");
+      expect(ids).not.toContain("hatch3r-cli-fd"); // not in selected
+    });
+
+    it("keeps all non-CLI skills when cliTools.selected is empty (enabled=true)", async () => {
+      const probe = new FilterProbe();
+      const ctx = makeCtx({
+        ...makeManifest(),
+        cliTools: { enabled: true, selected: [] },
+      });
+      const ids = (await probe.filterSkills(ctx)).map((s) => s.id);
+
+      // Non-CLI skill passes; no CLI skills emit (empty selection).
+      expect(ids).toContain("test-skill");
+      expect(ids.some((i) => i.startsWith("hatch3r-cli-"))).toBe(false);
+    });
+
+    it("treats unknown selected ids as no-match (does NOT throw)", async () => {
+      const probe = new FilterProbe();
+      const ctx = makeCtx({
+        ...makeManifest(),
+        cliTools: { enabled: true, selected: ["never-existed-tool"] },
+      });
+      const ids = (await probe.filterSkills(ctx)).map((s) => s.id);
+
+      expect(ids).toContain("test-skill");
+      // No CLI skill matches the unknown selection.
+      expect(ids.some((i) => i.startsWith("hatch3r-cli-"))).toBe(false);
+    });
+  });
 });
