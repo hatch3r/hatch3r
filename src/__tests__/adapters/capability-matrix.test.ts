@@ -101,6 +101,7 @@ function maximalFeatures(): Features {
     commands: true,
     prompts: true,
     githubAgents: true,
+    handoffs: true,
   };
 }
 
@@ -136,6 +137,7 @@ interface ObservedCapabilityRow {
   commands: boolean;
   prompts: boolean;
   githubAgents: boolean;
+  handoffs: boolean;
 }
 
 /**
@@ -163,6 +165,7 @@ function declaredSupport(tool: string, feature: keyof Features): boolean {
       mcp: false,
       githubAgents: false,
       hooks: false,
+      handoffs: false,
       [feature]: true,
     },
     mcp: { servers: [] },

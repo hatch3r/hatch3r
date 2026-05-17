@@ -14,6 +14,7 @@ import { buildContentIndex, validateCrossReferences, validateOrchestrationDepend
 import type { CatalogItem, ContentIndex } from "../../content/index.js";
 import { findPackageRoot } from "../shared/paths.js";
 import { validateLearningsDirectory } from "../../content/learningsValidation.js";
+import { validateHandoffsDirectory } from "../../content/handoffs/index.js";
 import { readCustomizationWithWarnings } from "../../models/customize.js";
 import type { CustomizableType } from "../../models/customize.js";
 import { parseEnvFile } from "../../env/mcpEnv.js";
@@ -35,6 +36,7 @@ import {
 const DEFAULT_KNOWN_AGENTS = new Set([
   "hatch3r-a11y-auditor", "hatch3r-architect", "hatch3r-ci-watcher", "hatch3r-context-rules",
   "hatch3r-dependency-auditor", "hatch3r-devops", "hatch3r-docs-writer", "hatch3r-fixer",
+  "hatch3r-handoff-loader", "hatch3r-handoff-preparer",
   "hatch3r-implementer", "hatch3r-learnings-loader", "hatch3r-lint-fixer", "hatch3r-perf-profiler",
   "hatch3r-researcher", "hatch3r-reviewer", "hatch3r-security-auditor", "hatch3r-test-writer",
 ]);
@@ -765,6 +767,19 @@ async function validateContentConsistency(
     result.errors.push(e);
   }
   for (const w of learningsResult.warnings) {
+    result.warnings.push(w);
+  }
+
+  // Validate handoffs: schema, size, integrity, expiry, git_ref drift
+  const handoffsActiveDir = join(agentsDir, "handoffs", "active");
+  const handoffsArchivedDir = join(agentsDir, "handoffs", "archived");
+  const handoffsResult = await validateHandoffsDirectory(handoffsActiveDir, {
+    archivedDir: handoffsArchivedDir,
+  });
+  for (const e of handoffsResult.errors) {
+    result.errors.push(e);
+  }
+  for (const w of handoffsResult.warnings) {
     result.warnings.push(w);
   }
 }

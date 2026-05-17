@@ -95,6 +95,7 @@ function makeManifest() {
       mcp: true,
       githubAgents: true,
       hooks: true,
+      handoffs: true,
     },
     mcp: { servers: ["github"] },
     board: {

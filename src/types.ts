@@ -230,6 +230,12 @@ export interface Features {
   mcp: boolean;
   githubAgents: boolean;
   hooks: boolean;
+  /**
+   * Controls whether adapter outputs surface active handoff documents from
+   * `.agents/handoffs/active/` in their primary tool-context file. Default
+   * `true`. Absent on pre-1.8.0 manifests; consumers treat absence as `true`.
+   */
+  handoffs: boolean;
 }
 
 export interface McpConfig {
@@ -566,6 +572,7 @@ export const DEFAULT_FEATURES: Features = {
   mcp: true,
   githubAgents: true,
   hooks: true,
+  handoffs: true,
 };
 
 export interface McpServerMeta {

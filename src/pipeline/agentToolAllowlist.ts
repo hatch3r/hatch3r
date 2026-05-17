@@ -109,6 +109,16 @@ export const AGENT_TOOL_POLICIES: readonly AgentToolPolicy[] = [
     description: "Code implementation: file read/write, code search, command execution (tests, linters). No git, board, or web.",
   },
   {
+    agentId: "hatch3r-handoff-preparer",
+    allowedTools: ["read", "search", "write"],
+    description: "Handoff preparation: read session state, search git/files for context, write canonical handoff to .agents/handoffs/active/. No execute (filesystem-only).",
+  },
+  {
+    agentId: "hatch3r-handoff-loader",
+    allowedTools: ["read", "search"],
+    description: "Session-start loader: read .agents/handoffs/active/ and search git for branch context to surface active handoffs. No write, execute, or external IO.",
+  },
+  {
     agentId: "hatch3r-reviewer",
     allowedTools: ["read", "search"],
     description: "Code review: file reading and code search only. No write, execute, git, or board.",

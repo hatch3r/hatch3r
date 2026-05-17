@@ -76,6 +76,86 @@ const DEFAULT_TOOLS: Tool[] = ["claude"];
 const DEFAULT_FEATURE_KEYS = Object.keys(DEFAULT_FEATURES) as (keyof Features)[];
 const DEFAULT_MCP: string[] = ["playwright", "github", "context7"];
 
+// Seed content for `.agents/handoffs/README.md`. Documents the schema so
+// `hatch3r-handoff-loader` and `/hatch3r-handoff resume` have a single
+// on-disk source of truth.
+const HANDOFFS_README_SEED = `# Project Handoffs
+
+This directory holds active and archived handoff documents surfaced by the
+\`hatch3r-handoff-loader\` agent at session start and consumed by
+\`/hatch3r-handoff resume\`.
+
+## Layout
+
+- \`active/<id>.md\` — handoffs in any non-terminal status (open, in-progress, blocked, handed-off, resumed)
+- \`archived/<id>.md\` — handoffs in terminal status (completed, expired, superseded)
+
+## ID scheme
+
+\`<YYYY-MM-DD>_T<HHmm>_<5hex>_<kebab-slug>\` — chronologically sortable, collision-safe.
+
+Example: \`2026-05-17_T1430_a3f2c_issue-42-cache-refactor.md\`.
+
+## Lifecycle
+
+- Created by \`/hatch3r-handoff prepare\` or the \`on-context-switch\` hook.
+- Loaded at session start by \`hatch3r-handoff-loader\`.
+- Resumed via \`/hatch3r-handoff resume [<id>]\` (lists actives if no id given).
+- Default \`expires_after\`: 30 days from \`created\`.
+- Archived (never deleted by hatch3r) on completion or expiry.
+
+## Required frontmatter
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| \`id\` | string | Filename without \`.md\` |
+| \`type\` | literal \`handoff\` | |
+| \`created\` | ISO-8601 | Immutable |
+| \`updated\` | ISO-8601 | Re-stamped on status change |
+| \`status\` | enum | open \\| in-progress \\| blocked \\| handed-off \\| resumed \\| completed \\| archived |
+| \`source_agent\` | string | Tool/role that prepared the handoff |
+| \`target_agent\` | string | \`any\` allowed but warned (avoids handoff loops) |
+| \`git_ref\` | string | \`branch@sha7\` — staleness signal |
+| \`branch\` | string | |
+| \`confidence\` | 0..1 | |
+| \`completeness\` | 0..1 | |
+| \`integrity\` | string | \`sha256:<hex>\` — SHA-256 of body |
+
+Optional: \`work_item\` (platform-prefixed: \`gh:owner/repo#42\`, \`ado:org/project:work-item/123\`, \`gl:owner/repo!42\`), \`expires_after\`, \`summary\` (≤200 chars), \`requirements\`, \`compaction_count\`, \`hatch3r_version\`, \`tags\`, \`superseded_by\`, \`parent_handoff\`.
+
+## Body sections (required, in order)
+
+Wrap the body in user-tier instruction-hierarchy markers:
+
+\`\`\`markdown
+--- BEGIN USER-TIER CONTENT: handoff ---
+
+## Problem            (1-3 paragraphs)
+## Decisions          (bullet list)
+## Work Done          (from end-of-session Iteration Summary)
+## Work Remaining
+## Blockers
+## Next Steps         (ordered list)
+## Build & Test Status (table: Check | Status | Notes)
+## File Manifest      (table: Path | Status | Last action)
+
+--- END USER-TIER CONTENT: handoff ---
+\`\`\`
+
+## Caps and validation
+
+- Body ≤ 50 KB, total file ≤ 60 KB.
+- Soft cap 25 active handoffs per repo (warn at 20, refuse briefing at 50).
+- Injection-pattern scan (P-LEARN-01..05) at write and read; reuses learnings catalog.
+- Integrity hash mismatch downgrades confidence to low; included with warning.
+
+## Cross-tool portability
+
+Handoffs are plain Markdown — readable by humans and any AI tool. Tool-specific adapters (Cursor, Claude, Copilot, etc.) surface active handoffs in their native context file on session-start so a handoff written from one tool resumes cleanly in another.
+
+See \`agents/hatch3r-handoff-loader.md\`, \`skills/hatch3r-handoff-resume/SKILL.md\`, and \`rules/hatch3r-handoff-readiness.md\` for the full protocols.
+`;
+
 // D5-SA5.3-H1: Seed content for `.agents/learnings/README.md`. Explains the
 // directory's purpose so `hatch3r-learnings-loader` surfaces an actionable
 // starting point on first session instead of silently skipping when empty.
@@ -339,6 +419,21 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
       await safeWriteFile(learningsReadmePath, LEARNINGS_README_SEED);
+    } else {
+      throw err;
+    }
+  }
+
+  // Seed handoffs/ directory tree and README. Mirrors the learnings idempotent
+  // seed: directory always created, README only on fresh init.
+  await mkdir(join(agentsDir, "handoffs", "active"), { recursive: true });
+  await mkdir(join(agentsDir, "handoffs", "archived"), { recursive: true });
+  const handoffsReadmePath = join(agentsDir, "handoffs", "README.md");
+  try {
+    await access(handoffsReadmePath);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      await safeWriteFile(handoffsReadmePath, HANDOFFS_README_SEED);
     } else {
       throw err;
     }

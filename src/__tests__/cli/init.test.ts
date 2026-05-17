@@ -1679,6 +1679,7 @@ describe("init runInit idempotency guard (C8-D1-M3)", () => {
         mcp: false,
         hooks: false,
         githubAgents: false,
+        handoffs: true,
       },
       mcpServers: [],
       repoInfo,

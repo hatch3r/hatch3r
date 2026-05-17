@@ -28,6 +28,7 @@ function manifest(
       mcp: false,
       githubAgents: false,
       hooks: false,
+      handoffs: true,
     },
     mcp: { servers: [] },
     managedFiles: [],
