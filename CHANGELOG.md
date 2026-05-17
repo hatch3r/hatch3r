@@ -2,7 +2,7 @@
 
 All notable changes to hatch3r are documented in this file.
 
-## [1.7.2] - 2026-05-15
+## [1.7.5] - 2026-05-17
 
 ### Fixed
 

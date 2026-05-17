@@ -89,8 +89,8 @@ export function createManifest(options: {
   worktreeEnabled?: boolean;
   customization?: CustomizationManifest;
   /**
-   * CLI-tooling pivot (1.7.2 / plan §4.2). When omitted the manifest is
-   * left without a `cliTools` field — pre-1.7.2 manifest shape. When
+   * CLI-tooling pivot (1.7.5 / plan §4.2). When omitted the manifest is
+   * left without a `cliTools` field — pre-1.7.5 manifest shape. When
    * supplied the field is written verbatim and consumers should read it
    * via {@link readCliToolsConfig} so absence still maps to
    * `{enabled: false, selected: []}`.
@@ -407,7 +407,7 @@ export interface PreservedManifestFields {
   packages?: PackageEntry[];
   workspace?: HatchManifest["workspace"];
   /**
-   * CLI-tooling pivot selection (added in 1.7.2). Preserved across `clean`
+   * CLI-tooling pivot selection (added in 1.7.5). Preserved across `clean`
    * -> reinit so a user who opted in to ripgrep+jq does not have to re-pick
    * after running `hatch3r clean`. New init may override (init-supplied
    * selections always win over preserved, mirroring the board-config rule).
@@ -512,7 +512,7 @@ export function applyPreservedManifestFields(
 /**
  * Read the manifest's CLI-tooling pivot config, falling back to the
  * `{enabled: false, selected: []}` default when absent. Plan §4.2 — keeps
- * pre-1.7.2 manifests valid (no version bump required) by returning a
+ * pre-1.7.5 manifests valid (no version bump required) by returning a
  * disabled-config sentinel rather than `undefined`. Centralises the
  * default so adapters and CLI commands do not duplicate the literal.
  */

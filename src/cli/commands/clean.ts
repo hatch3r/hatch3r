@@ -30,7 +30,7 @@ interface CapturedConfig {
   contentSelection: ContentSelection;
   worktreeEnabled: boolean;
   /**
-   * CLI-tooling pivot (1.7.2 / plan §4.7 clean touchpoint): captured so
+   * CLI-tooling pivot (1.7.5 / plan §4.7 clean touchpoint): captured so
    * reinit re-applies the same selection without forcing the picker
    * again. Falls back through `preservedFields.cliTools` when absent.
    */
@@ -266,7 +266,7 @@ export async function cleanCommand(
           // manifest preserves integration config and per-artifact overrides
           // across a clean -> reinit cycle.
           customization: config.customization,
-          // 1.7.2 (CLI-tooling pivot): carry the previous CLI-tools
+          // 1.7.5 (CLI-tooling pivot): carry the previous CLI-tools
           // selection forward so clean -> reinit does not silently
           // re-pick from the default.
           cliTools: config.cliTools,

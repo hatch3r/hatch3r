@@ -238,9 +238,9 @@ export interface RunInitOptions {
   contentSelection: ContentSelection;
   worktreeEnabled: boolean;
   /**
-   * CLI-tooling pivot (1.7.2 / plan §4.3). When omitted, runInit treats
+   * CLI-tooling pivot (1.7.5 / plan §4.3). When omitted, runInit treats
    * the project as having no CLI-tools opt-in (`{enabled: false,
-   * selected: []}`) — matching the manifest default for pre-1.7.2 repos.
+   * selected: []}`) — matching the manifest default for pre-1.7.5 repos.
    * Threaded through to `createManifest` so the manifest carries the
    * selection across `clean` -> reinit cycles.
    */

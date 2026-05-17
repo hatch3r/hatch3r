@@ -34,7 +34,7 @@ yq '.spec.containers[].image' k8s/deployment.yml
 Project every container image across multi-doc Kubernetes manifests — same path syntax as `jq`.
 
 ```bash
-yq -i '.version = "1.7.2"' .agents/hatch.json
+yq -i '.version = "1.7.5"' .agents/hatch.json
 ```
 In-place edit (`-i`) — single-shot version bumps without shelling out to a templating step.
 

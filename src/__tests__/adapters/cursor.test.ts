@@ -476,8 +476,8 @@ Low priority rule body.
       expect(cliSkills).toEqual([]);
     });
 
-    it("emits zero CLI skill files when manifest.cliTools is absent (pre-1.7.2 manifest)", async () => {
-      // Absent cliTools should behave like enabled:false (pre-1.7.2 manifest
+    it("emits zero CLI skill files when manifest.cliTools is absent (pre-1.7.5 manifest)", async () => {
+      // Absent cliTools should behave like enabled:false (pre-1.7.5 manifest
       // remains valid per plan §4.2 — no version bump required).
       const manifest = makeManifest();
       const outputs = await adapter.generate(FIXTURES_DIR, manifest);

@@ -25,9 +25,9 @@ export interface WorkspaceDefaults {
   content: ContentSelection;
   models?: ModelConfig;
   /**
-   * CLI-tooling pivot (1.7.2 / plan §4.8 workspace parity). Defaults applied
+   * CLI-tooling pivot (1.7.5 / plan §4.8 workspace parity). Defaults applied
    * to every member at workspace sync time, subject to per-member
-   * `localCliTools` / `excludedCliTools` overrides. Optional — pre-1.7.2
+   * `localCliTools` / `excludedCliTools` overrides. Optional — pre-1.7.5
    * workspace manifests omit it and members fall back to their own selection.
    */
   cliTools?: CliToolsConfig;

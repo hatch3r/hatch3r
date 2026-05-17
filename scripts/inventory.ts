@@ -42,7 +42,7 @@ interface InventoryCounts {
   skills: number;
   /**
    * Subset of `skills` whose id starts with `hatch3r-cli-` (CLI-tooling
-   * pivot, plan §5). Added in 1.7.2 alongside the cliTools manifest field;
+   * pivot, plan §5). Added in 1.7.5 alongside the cliTools manifest field;
    * `cliSkills <= skills` always.
    */
   cliSkills: number;

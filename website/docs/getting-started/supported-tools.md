@@ -77,11 +77,11 @@ MCP server config location varies by tool:
 | Copilot / VS Code | `.vscode/mcp.json` |
 | Cline / Roo | `.roo/mcp.json` |
 
-Since 1.7.2 MCP is opt-in (default No during `init`). See the [MCP Setup guide](../guides/mcp-setup) for connecting servers and managing secrets.
+Since 1.7.5 MCP is opt-in (default No during `init`). See the [MCP Setup guide](../guides/mcp-setup) for connecting servers and managing secrets.
 
 ## CLI Tools
 
-Since 1.7.2, hatch3r ships a 29-tool CLI surface area as the token-efficient alternative to MCP. Each selected tool emits a per-tool skill to the 13 skill-capable adapters (Cursor, Claude Code, Copilot, Cline, OpenCode, Codex, Gemini, Windsurf, Kiro, Aider, Goose, Amazon Q, Antigravity) plus the `hatch3r-cli-overview` decision-tree skill.
+Since 1.7.5, hatch3r ships a 29-tool CLI surface area as the token-efficient alternative to MCP. Each selected tool emits a per-tool skill to the 13 skill-capable adapters (Cursor, Claude Code, Copilot, Cline, OpenCode, Codex, Gemini, Windsurf, Kiro, Aider, Goose, Amazon Q, Antigravity) plus the `hatch3r-cli-overview` decision-tree skill.
 
 ### Tier-1 (default-on, 10 tools)
 

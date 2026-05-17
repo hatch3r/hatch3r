@@ -17,7 +17,7 @@ describe("createProgram() command registration", () => {
     "add",
     "worktree-setup",
     "worktree-cleanup",
-    // CLI-tooling pivot (1.7.2 Wave 3): mcp + cli-tools side-door commands
+    // CLI-tooling pivot (1.7.5 Wave 3): mcp + cli-tools side-door commands
     "mcp",
     "cli-tools",
   ] as const;

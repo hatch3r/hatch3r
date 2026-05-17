@@ -5,7 +5,7 @@ title: CLI Tools
 
 # CLI Tools
 
-Since 1.7.2, hatch3r ships a first-class CLI-tools surface area as the token-efficient default for agentic coding. MCP is demoted to opt-in.
+Since 1.7.5, hatch3r ships a first-class CLI-tools surface area as the token-efficient default for agentic coding. MCP is demoted to opt-in.
 
 ## Why the pivot
 
@@ -134,7 +134,7 @@ Selection is recorded in `hatch.json` under `cliTools.selected` and survives `np
 
 ## Upgrading from 1.7.1 or earlier
 
-The CLI tooling pivot lands in 1.7.2. Two upgrade considerations:
+The CLI tooling pivot lands in 1.7.5. Two upgrade considerations:
 
 - **`--yes` non-interactive MCP default flipped**: `npx hatch3r init --yes` no longer auto-configures MCP. CI scripts must pass `--mcp` to opt back in.
 - **Opt-in flow on existing projects**: Run `npx hatch3r cli-tools` to open the picker. Tier-1 plus matching tier-2 are pre-checked; detection runs against `PATH` and the installer offers per-OS commands.

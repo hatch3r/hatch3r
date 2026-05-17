@@ -311,7 +311,7 @@ describe("init command", () => {
     expect(after.specs.lastGenerated).toBe("2026-05-01");
   });
 
-  // 1.7.2 (Wave 5, CLI-tooling pivot plan §4.7): cliTools selection survives
+  // 1.7.5 (Wave 5, CLI-tooling pivot plan §4.7): cliTools selection survives
   // a re-init. Init-supplied cliTools wins over preserved per the
   // applyPreservedManifestFields rule, but the explicit flag path mirrors
   // the previous selection — this test pins the bonus round-trip surface.

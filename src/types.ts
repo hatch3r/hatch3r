@@ -76,7 +76,7 @@ export interface HatchManifest {
   features: Features;
   mcp: McpConfig;
   /**
-   * CLI-tooling pivot (added in 1.7.2 as an additive optional field — no
+   * CLI-tooling pivot (added in 1.7.5 as an additive optional field — no
    * manifest version bump). Absence is equivalent to `{ enabled: false,
    * selected: [] }`. Read via
    * `src/manifest/hatchJson.ts::readCliToolsConfig`.
@@ -251,7 +251,7 @@ export type CliToolId = string;
  * id from `selected` (matching the per-content override pattern used by
  * `customization`).
  *
- * Absent on pre-1.7.2 manifests; consumers must treat absence as
+ * Absent on pre-1.7.5 manifests; consumers must treat absence as
  * `{ enabled: false, selected: [] }` (see
  * `src/manifest/hatchJson.ts::readCliToolsConfig`).
  */

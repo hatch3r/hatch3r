@@ -49,7 +49,7 @@ gh run watch
 Blocks until the most recent CI run finishes — pairs with PR creation flows so the agent doesn't poll.
 
 ```bash
-gh release create v1.7.2 --notes-from-tag --target release/1.7.2
+gh release create v1.7.5 --notes-from-tag --target release/1.7.5
 ```
 Cuts a release using annotated-tag notes; deterministic input avoids hand-edited release bodies.
 
