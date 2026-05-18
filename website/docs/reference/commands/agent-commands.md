@@ -139,6 +139,22 @@ Capture learnings from completed issues, code reviews, and architectural decisio
 
 Read all open PR comments (inline + review summary + general discussion) across GitHub, Azure DevOps, and GitLab; evaluate each against current code via the rigor contract; implement accepted findings through the standard agent pipeline; and reply per comment with rationale. Auto-detects the PR from the current branch or accepts an explicit PR number.
 
+### handoff
+
+Added in 1.7.5 (Slice 1 of 3). Capture mid-work session state into a tool-agnostic handoff artifact under `.agents/handoffs/active/<id>.md` so any of the 15 supported coding tools can resume the work cleanly later — same tool, different tool, same developer, different developer.
+
+```
+/hatch3r-handoff prepare           # capture current session state into a new handoff
+/hatch3r-handoff resume [id]       # load + validate a prior handoff; transitions to "resumed"
+/hatch3r-handoff list [--archived] # show active (and optionally archived) handoffs
+/hatch3r-handoff complete <id>     # transition handoff to "completed" and archive atomically
+/hatch3r-handoff prune [--dry-run] # auto-archive expired actives; delete archives older than 90 days
+```
+
+`prepare` delegates to `hatch3r-handoff-preparer` to capture state via the 10-criterion readiness gate (`rules/hatch3r-handoff-readiness.md`) — body ≤ 50 KB, all 8 required sections present (Problem, Decisions, Work Done, Work Remaining, Blockers, Next Steps, Build & Test Status, File Manifest), `git_ref` matches HEAD, integrity hash computed, injection-pattern scan clean. `resume` validates schema + integrity + `git_ref` drift + expiry before surfacing content under user-tier instruction-hierarchy markers. The frontmatter shape is mapped 1:1 to the 2026 cross-framework consensus payload (OpenAI Agents SDK, Microsoft Agent Framework, softaworks/agent-toolkit) so non-hatch3r tools can consume hatch3r handoffs via the bi-directional `payloadAdapter` (`src/content/handoffs/payloadAdapter.ts`).
+
+A session-start sibling agent `hatch3r-handoff-loader` surfaces active handoffs ranked by work-item match, recency, and status priority. Manifest gate: `features.handoffs: boolean` (default `true`).
+
 ## Monitoring Commands
 
 ### context-health
