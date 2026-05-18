@@ -1,5 +1,6 @@
 ---
 description: "[Deprecated] Observability conventions -- split into hatch3r-observability-logging, hatch3r-observability-metrics, and hatch3r-observability-tracing"
+globs: ["**/routes/**", "**/handlers/**", "**/services/**", "**/api/**", "**/middleware/**", "**/controllers/**", "**/lib/**", "**/observability/**"]
 alwaysApply: false
 ---
 # Observability (Deprecated Redirect)

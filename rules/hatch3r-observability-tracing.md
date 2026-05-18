@@ -3,7 +3,7 @@ id: hatch3r-observability-tracing
 type: rule
 description: Distributed tracing and OpenTelemetry core conventions for the project
 scope: conditional
-globs: "**/*trac*,**/*span*,**/*telemetry*,**/*otel*,**/observability/**"
+globs: "**/*trac*,**/*span*,**/*telemetry*,**/*otel*,**/observability/**,**/routes/**,**/handlers/**,**/services/**,**/api/**,**/middleware/**,**/controllers/**,**/lib/**"
 tags: [devops]
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true
