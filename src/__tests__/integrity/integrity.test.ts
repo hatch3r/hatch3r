@@ -205,9 +205,18 @@ describe("integrity", () => {
   });
 
   describe("verifyIntegrity", () => {
-    it("should return empty array when no manifest exists", async () => {
-      const results = await verifyIntegrity(agentsDir);
-      expect(results).toEqual([]);
+    // C9-M16: verifyIntegrity now returns the {ok, manifest, drift} | {ok,
+    // errors, drift} discriminated union. Tests read per-file rows from
+    // the `drift` array (always populated) and assert on `ok`/`errors`
+    // where the partitioned drift state is the assertion target.
+
+    it("returns ok=true with null manifest when no manifest exists", async () => {
+      const result = await verifyIntegrity(agentsDir);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.manifest).toBeNull();
+        expect(result.drift).toEqual([]);
+      }
     });
 
     it("should report PASS for unmodified files", async () => {
@@ -218,8 +227,9 @@ describe("integrity", () => {
       const manifest = await generateIntegrityManifest(agentsDir, "1.0.0");
       await writeIntegrityManifest(agentsDir, manifest);
 
-      const results = await verifyIntegrity(agentsDir);
-      const reviewerResult = results.find((r) => r.file === "agents/hatch3r-reviewer.md");
+      const result = await verifyIntegrity(agentsDir);
+      expect(result.ok).toBe(true);
+      const reviewerResult = result.drift.find((r) => r.file === "agents/hatch3r-reviewer.md");
 
       expect(reviewerResult).toBeDefined();
       expect(reviewerResult!.status).toBe("pass");
@@ -236,8 +246,13 @@ describe("integrity", () => {
       const tampered = "# Agent\nTampered content with malicious instructions.\n";
       await writeFile(join(agentsDir, "agents", "hatch3r-reviewer.md"), tampered);
 
-      const results = await verifyIntegrity(agentsDir);
-      const reviewerResult = results.find((r) => r.file === "agents/hatch3r-reviewer.md");
+      const result = await verifyIntegrity(agentsDir);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.errors.modified).toHaveLength(1);
+        expect(result.errors.modified[0].file).toBe("agents/hatch3r-reviewer.md");
+      }
+      const reviewerResult = result.drift.find((r) => r.file === "agents/hatch3r-reviewer.md");
 
       expect(reviewerResult).toBeDefined();
       expect(reviewerResult!.status).toBe("modified");
@@ -255,8 +270,13 @@ describe("integrity", () => {
 
       await unlink(join(agentsDir, "agents", "hatch3r-reviewer.md"));
 
-      const results = await verifyIntegrity(agentsDir);
-      const reviewerResult = results.find((r) => r.file === "agents/hatch3r-reviewer.md");
+      const result = await verifyIntegrity(agentsDir);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.errors.missing).toHaveLength(1);
+        expect(result.errors.missing[0].file).toBe("agents/hatch3r-reviewer.md");
+      }
+      const reviewerResult = result.drift.find((r) => r.file === "agents/hatch3r-reviewer.md");
 
       expect(reviewerResult).toBeDefined();
       expect(reviewerResult!.status).toBe("missing");
@@ -274,8 +294,10 @@ describe("integrity", () => {
       const newContent = "# New Agent\nUnknown file.\n";
       await writeFile(join(agentsDir, "agents", "unknown-agent.md"), newContent);
 
-      const results = await verifyIntegrity(agentsDir);
-      const newResult = results.find((r) => r.file === "agents/unknown-agent.md");
+      const result = await verifyIntegrity(agentsDir);
+      // C9-M16: `new` rows are advisory and do not flip `ok` to false.
+      expect(result.ok).toBe(true);
+      const newResult = result.drift.find((r) => r.file === "agents/unknown-agent.md");
 
       expect(newResult).toBeDefined();
       expect(newResult!.status).toBe("new");
@@ -292,10 +314,18 @@ describe("integrity", () => {
       manifest.checksum = "tampered-checksum-value";
       await writeIntegrityManifest(agentsDir, manifest);
 
-      const results = await verifyIntegrity(agentsDir);
-      expect(results).toHaveLength(1);
-      expect(results[0].file).toBe(".integrity.json");
-      expect(results[0].status).toBe("tampered");
+      const result = await verifyIntegrity(agentsDir);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.errors.tampered).toHaveLength(1);
+        expect(result.errors.tampered[0].file).toBe(".integrity.json");
+        expect(result.errors.tampered[0].status).toBe("tampered");
+      }
+      // Drift array carries the tampered row (and only that row — when the
+      // manifest itself is tampered, per-file verification is skipped).
+      expect(result.drift).toHaveLength(1);
+      expect(result.drift[0].file).toBe(".integrity.json");
+      expect(result.drift[0].status).toBe("tampered");
     });
 
     it("should handle mixed statuses across multiple files", async () => {
@@ -317,9 +347,10 @@ describe("integrity", () => {
       await unlink(join(agentsDir, "rules", "hatch3r-deleted.md"));
       await writeFile(join(agentsDir, "agents", "brand-new.md"), "# New\n");
 
-      const results = await verifyIntegrity(agentsDir);
+      const result = await verifyIntegrity(agentsDir);
+      expect(result.ok).toBe(false);
 
-      const statuses = Object.fromEntries(results.map((r) => [r.file, r.status]));
+      const statuses = Object.fromEntries(result.drift.map((r) => [r.file, r.status]));
       expect(statuses["agents/hatch3r-reviewer.md"]).toBe("pass");
       expect(statuses["rules/hatch3r-code-standards.md"]).toBe("modified");
       expect(statuses["rules/hatch3r-deleted.md"]).toBe("missing");
@@ -355,10 +386,68 @@ describe("integrity", () => {
       const manifest = await generateIntegrityManifest(agentsDir, "1.0.0");
       await writeIntegrityManifest(agentsDir, manifest);
 
-      const results = await verifyIntegrity(agentsDir);
-      expect(results.length).toBeGreaterThanOrEqual(2);
-      for (let i = 1; i < results.length; i++) {
-        expect(results[i].file.localeCompare(results[i - 1].file)).toBeGreaterThanOrEqual(0);
+      const result = await verifyIntegrity(agentsDir);
+      expect(result.drift.length).toBeGreaterThanOrEqual(2);
+      for (let i = 1; i < result.drift.length; i++) {
+        expect(result.drift[i].file.localeCompare(result.drift[i - 1].file)).toBeGreaterThanOrEqual(0);
+      }
+    });
+
+    // C9-M16: explicit coverage for the discriminated-union shape.
+    it("ok=true carries the verified manifest when no drift is detected", async () => {
+      await mkdir(join(agentsDir, "agents"), { recursive: true });
+      const content = "# Agent\nClean.\n";
+      await writeFile(join(agentsDir, "agents", "hatch3r-clean.md"), content);
+
+      const manifest = await generateIntegrityManifest(agentsDir, "1.0.0");
+      await writeIntegrityManifest(agentsDir, manifest);
+
+      const result = await verifyIntegrity(agentsDir);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        // Non-null manifest distinguishes "no manifest" from "manifest passed".
+        expect(result.manifest).not.toBeNull();
+        expect(result.manifest!.checksum).toBe(manifest.checksum);
+      }
+    });
+
+    it("ok=false partitions modified and missing into separate error buckets", async () => {
+      await mkdir(join(agentsDir, "agents"), { recursive: true });
+      await mkdir(join(agentsDir, "rules"), { recursive: true });
+      await writeFile(join(agentsDir, "agents", "hatch3r-a.md"), "# A\n");
+      await writeFile(join(agentsDir, "rules", "hatch3r-b.md"), "# B\n");
+      const manifest = await generateIntegrityManifest(agentsDir, "1.0.0");
+      await writeIntegrityManifest(agentsDir, manifest);
+
+      await writeFile(join(agentsDir, "agents", "hatch3r-a.md"), "# A — modified\n");
+      await unlink(join(agentsDir, "rules", "hatch3r-b.md"));
+
+      const result = await verifyIntegrity(agentsDir);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.errors.modified.map((r) => r.file)).toEqual([
+          "agents/hatch3r-a.md",
+        ]);
+        expect(result.errors.missing.map((r) => r.file)).toEqual([
+          "rules/hatch3r-b.md",
+        ]);
+        expect(result.errors.tampered).toEqual([]);
+      }
+    });
+
+    it("ok=false on tampered manifest leaves modified and missing buckets empty", async () => {
+      await mkdir(join(agentsDir, "agents"), { recursive: true });
+      await writeFile(join(agentsDir, "agents", "hatch3r-t.md"), "# T\n");
+      const manifest = await generateIntegrityManifest(agentsDir, "1.0.0");
+      manifest.checksum = "tampered";
+      await writeIntegrityManifest(agentsDir, manifest);
+
+      const result = await verifyIntegrity(agentsDir);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.errors.modified).toEqual([]);
+        expect(result.errors.missing).toEqual([]);
+        expect(result.errors.tampered).toHaveLength(1);
       }
     });
   });
@@ -730,8 +819,11 @@ describe("integrity", () => {
 
       // Mutate after seal — verify must surface a `modified` row.
       await writeFile(join(agentsDir, "policy", "p.md"), "# policy v2\n");
-      const results = await verifyIntegrity(agentsDir);
-      const row = results.find((r) => r.file === "policy/p.md");
+      const result = await verifyIntegrity(agentsDir);
+      // C9-M16: read per-file rows from `drift`; the modified row also
+      // appears in `errors.modified` on the ok=false branch.
+      expect(result.ok).toBe(false);
+      const row = result.drift.find((r) => r.file === "policy/p.md");
       expect(row).toBeDefined();
       expect(row?.status).toBe("modified");
     });

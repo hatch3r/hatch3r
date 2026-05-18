@@ -596,4 +596,117 @@ describe("sync command", () => {
       }
     });
   });
+
+  // C9-M26 (D11-SA11.4-01): orphan-file scan reports + optionally removes
+  // files in `.agents/<canonical-subdir>/` that do not match the canonical
+  // naming convention (`hatch3r-` prefix / `hatch3r-*/` parent / `mcp.json`).
+  describe("orphan-file scan (C9-M26)", () => {
+    it("reports orphan files in canonical subdirs as informational only by default", async () => {
+      await createTestProject(tempDir);
+
+      // Seed two orphan files in canonical subdirs.
+      await writeFile(
+        join(tempDir, AGENTS_DIR, "agents", "stray-note.md"),
+        "# stray\n",
+      );
+      await writeFile(
+        join(tempDir, AGENTS_DIR, "commands", "scratch.md"),
+        "# scratch\n",
+      );
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand();
+
+      const combined = [
+        ...consoleSpy.mock.calls.map((c) => String(c[0])),
+        ...consoleErrorSpy.mock.calls.map((c) => String(c[0])),
+      ].join("\n");
+      expect(combined).toMatch(/orphan file/);
+      expect(combined).toContain(".agents/agents/stray-note.md");
+      expect(combined).toContain(".agents/commands/scratch.md");
+      expect(combined).toContain("--clean-orphans");
+
+      // Default mode: files MUST still be on disk.
+      const stray1 = await readFile(
+        join(tempDir, AGENTS_DIR, "agents", "stray-note.md"),
+        "utf-8",
+      ).catch(() => null);
+      const stray2 = await readFile(
+        join(tempDir, AGENTS_DIR, "commands", "scratch.md"),
+        "utf-8",
+      ).catch(() => null);
+      expect(stray1).not.toBeNull();
+      expect(stray2).not.toBeNull();
+    });
+
+    it("removes orphans when --clean-orphans is set", async () => {
+      await createTestProject(tempDir);
+
+      await writeFile(
+        join(tempDir, AGENTS_DIR, "agents", "stray-note.md"),
+        "# stray\n",
+      );
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand({ cleanOrphans: true });
+
+      // Orphan must be unlinked.
+      const stray = await readFile(
+        join(tempDir, AGENTS_DIR, "agents", "stray-note.md"),
+        "utf-8",
+      ).catch(() => null);
+      expect(stray).toBeNull();
+
+      // hatch3r- canonical fixture is preserved.
+      const canonical = await readFile(
+        join(tempDir, AGENTS_DIR, "rules", "hatch3r-test.md"),
+        "utf-8",
+      ).catch(() => null);
+      expect(canonical).not.toBeNull();
+    });
+
+    it("never flags files under .agents/user/ even when --clean-orphans is set", async () => {
+      await createTestProject(tempDir);
+
+      // Seed user content with NO hatch3r- prefix — must NOT be flagged.
+      const userDir = join(tempDir, AGENTS_DIR, "user", "agents");
+      await mkdir(userDir, { recursive: true });
+      const userPath = join(userDir, "my-agent.md");
+      await writeFile(userPath, "# user agent\n");
+
+      // Also seed a real orphan to verify the scan still runs.
+      await writeFile(
+        join(tempDir, AGENTS_DIR, "agents", "stray.md"),
+        "# stray\n",
+      );
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand({ cleanOrphans: true });
+
+      const userStill = await readFile(userPath, "utf-8").catch(() => null);
+      expect(userStill).not.toBeNull();
+      const strayGone = await readFile(
+        join(tempDir, AGENTS_DIR, "agents", "stray.md"),
+        "utf-8",
+      ).catch(() => null);
+      expect(strayGone).toBeNull();
+    });
+
+    it("never flags files inside a hatch3r-* parent directory (skill dirs)", async () => {
+      await createTestProject(tempDir);
+
+      // Seed a fake skill directory with an inner SKILL.md (no hatch3r- prefix
+      // on the file itself). The hatch3r- parent dir marks it canonical.
+      const skillDir = join(tempDir, AGENTS_DIR, "skills", "hatch3r-fake-skill");
+      await mkdir(skillDir, { recursive: true });
+      const skillFile = join(skillDir, "SKILL.md");
+      await writeFile(skillFile, "# fake skill\n");
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand({ cleanOrphans: true });
+
+      const stillThere = await readFile(skillFile, "utf-8").catch(() => null);
+      expect(stillThere).not.toBeNull();
+    });
+  });
 });

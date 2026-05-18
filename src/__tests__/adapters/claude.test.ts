@@ -2,7 +2,12 @@ import { describe, it, expect } from "vitest";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { ClaudeAdapter } from "../../adapters/claude.js";
+import {
+  ClaudeAdapter,
+  CACHE_BREAKPOINT_SENTINEL,
+  CACHE_BREAKPOINT_SENTINEL_START,
+  CACHE_BREAKPOINT_SENTINEL_END,
+} from "../../adapters/claude.js";
 import { createManifest } from "../../manifest/hatchJson.js";
 import type { HatchManifest } from "../../types.js";
 import { MANAGED_BLOCK_START, MANAGED_BLOCK_END } from "../../types.js";
@@ -883,6 +888,154 @@ Low priority rule body.
       expect(
         outputs.filter((o) => o.path.startsWith(".claude/skills/hatch3r-cli-")),
       ).toEqual([]);
+    });
+  });
+
+  // C9-M47 (D6-SA6.4, P7): cache-breakpoint sentinel coverage. The Claude
+  // adapter emits a paired sentinel (`<!-- HATCH3R-CACHE-BREAKPOINT-START -->` /
+  // `<!-- HATCH3R-CACHE-BREAKPOINT-END -->`) inside every managed block so
+  // the Claude Code prompt-cache layer can fingerprint the deterministic
+  // hatch3r-managed prefix across syncs. The cases below pin the sentinel
+  // emission contract for each managed-block-bearing output the adapter
+  // produces and prove the constants are exported for downstream tooling.
+  describe("cache-breakpoint sentinel (C9-M47)", () => {
+    it("exports a balanced sentinel-name family", () => {
+      expect(CACHE_BREAKPOINT_SENTINEL).toBe("<!-- HATCH3R-CACHE-BREAKPOINT -->");
+      expect(CACHE_BREAKPOINT_SENTINEL_START).toBe("<!-- HATCH3R-CACHE-BREAKPOINT-START -->");
+      expect(CACHE_BREAKPOINT_SENTINEL_END).toBe("<!-- HATCH3R-CACHE-BREAKPOINT-END -->");
+    });
+
+    it("emits start + end sentinels inside CLAUDE.md managed block", async () => {
+      const manifest = makeManifest();
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const claudeMd = outputs.find((o) => o.path === "CLAUDE.md");
+      expect(claudeMd).toBeDefined();
+      expect(claudeMd!.content).toContain(CACHE_BREAKPOINT_SENTINEL_START);
+      expect(claudeMd!.content).toContain(CACHE_BREAKPOINT_SENTINEL_END);
+      // Sentinels live inside the managed block.
+      const startIdx = claudeMd!.content.indexOf(MANAGED_BLOCK_START);
+      const endIdx = claudeMd!.content.indexOf(MANAGED_BLOCK_END);
+      const sentStartIdx = claudeMd!.content.indexOf(CACHE_BREAKPOINT_SENTINEL_START);
+      const sentEndIdx = claudeMd!.content.indexOf(CACHE_BREAKPOINT_SENTINEL_END);
+      expect(startIdx).toBeLessThan(sentStartIdx);
+      expect(sentStartIdx).toBeLessThan(sentEndIdx);
+      expect(sentEndIdx).toBeLessThan(endIdx);
+      // managedContent (the inner payload) also carries the sentinels.
+      expect(claudeMd!.managedContent).toContain(CACHE_BREAKPOINT_SENTINEL_START);
+      expect(claudeMd!.managedContent).toContain(CACHE_BREAKPOINT_SENTINEL_END);
+    });
+
+    it("emits sentinels in every .claude/rules/ output", async () => {
+      const manifest = makeManifest();
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const rules = outputs.filter((o) => o.path.startsWith(".claude/rules/"));
+      expect(rules.length).toBeGreaterThan(0);
+      for (const rule of rules) {
+        expect(rule.content).toContain(CACHE_BREAKPOINT_SENTINEL_START);
+        expect(rule.content).toContain(CACHE_BREAKPOINT_SENTINEL_END);
+        expect(rule.managedContent).toContain(CACHE_BREAKPOINT_SENTINEL_START);
+        expect(rule.managedContent).toContain(CACHE_BREAKPOINT_SENTINEL_END);
+      }
+    });
+
+    it("emits sentinels in every .claude/agents/ output (standard mode)", async () => {
+      const manifest = makeManifest();
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const agents = outputs.filter((o) => o.path.startsWith(".claude/agents/"));
+      expect(agents.length).toBeGreaterThan(0);
+      for (const agent of agents) {
+        expect(agent.content).toContain(CACHE_BREAKPOINT_SENTINEL_START);
+        expect(agent.content).toContain(CACHE_BREAKPOINT_SENTINEL_END);
+        // The agent file format is `---FM---\n\n<managed block>` so the
+        // sentinels must sit inside the managed block, not in the frontmatter.
+        const fmEndIdx = agent.content.indexOf("---\n\n");
+        const sentIdx = agent.content.indexOf(CACHE_BREAKPOINT_SENTINEL_START);
+        expect(sentIdx).toBeGreaterThan(fmEndIdx);
+      }
+    });
+
+    it("emits sentinels in every .claude/agents/ output (minimal mode)", async () => {
+      const manifest = makeManifest();
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest, "minimal");
+      const agents = outputs.filter((o) => o.path.startsWith(".claude/agents/"));
+      expect(agents.length).toBeGreaterThan(0);
+      for (const agent of agents) {
+        expect(agent.content).toContain(CACHE_BREAKPOINT_SENTINEL_START);
+        expect(agent.content).toContain(CACHE_BREAKPOINT_SENTINEL_END);
+      }
+    });
+
+    it("emits sentinels in skill SKILL.md outputs", async () => {
+      const manifest = makeManifest();
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const skills = outputs.filter((o) => o.path.startsWith(".claude/skills/"));
+      expect(skills.length).toBeGreaterThan(0);
+      for (const skill of skills) {
+        expect(skill.content).toContain(CACHE_BREAKPOINT_SENTINEL_START);
+        expect(skill.content).toContain(CACHE_BREAKPOINT_SENTINEL_END);
+        expect(skill.managedContent).toContain(CACHE_BREAKPOINT_SENTINEL_START);
+        expect(skill.managedContent).toContain(CACHE_BREAKPOINT_SENTINEL_END);
+      }
+    });
+
+    it("emits sentinels in .claude/commands/ outputs", async () => {
+      const manifest = makeManifest();
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const commands = outputs.filter((o) => o.path.startsWith(".claude/commands/"));
+      expect(commands.length).toBeGreaterThan(0);
+      for (const cmd of commands) {
+        expect(cmd.content).toContain(CACHE_BREAKPOINT_SENTINEL_START);
+        expect(cmd.content).toContain(CACHE_BREAKPOINT_SENTINEL_END);
+        expect(cmd.managedContent).toContain(CACHE_BREAKPOINT_SENTINEL_START);
+        expect(cmd.managedContent).toContain(CACHE_BREAKPOINT_SENTINEL_END);
+      }
+    });
+
+    it("emits sentinels in hatch3r-agent-team.md", async () => {
+      const manifest = makeManifest();
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const agentTeam = outputs.find(
+        (o) => o.path === ".claude/commands/hatch3r-agent-team.md",
+      );
+      expect(agentTeam).toBeDefined();
+      expect(agentTeam!.content).toContain(CACHE_BREAKPOINT_SENTINEL_START);
+      expect(agentTeam!.content).toContain(CACHE_BREAKPOINT_SENTINEL_END);
+      expect(agentTeam!.managedContent).toContain(CACHE_BREAKPOINT_SENTINEL_START);
+      expect(agentTeam!.managedContent).toContain(CACHE_BREAKPOINT_SENTINEL_END);
+    });
+
+    it("does not duplicate sentinels on re-emission (idempotent helper)", async () => {
+      // Same adapter instance, two sequential generates → sentinels must
+      // appear exactly once per managed block (no double-wrap from nested
+      // calls or from `processSkillsRawCliFiltered` -> `rewrapWithCacheBreakpoints`).
+      const manifest = makeManifest();
+      await adapter.generate(FIXTURES_DIR, manifest);
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      for (const out of outputs) {
+        if (!out.managedContent) continue;
+        const startMatches = out.content.match(
+          new RegExp(CACHE_BREAKPOINT_SENTINEL_START.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&"), "g"),
+        );
+        const endMatches = out.content.match(
+          new RegExp(CACHE_BREAKPOINT_SENTINEL_END.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&"), "g"),
+        );
+        expect(startMatches?.length ?? 0).toBe(1);
+        expect(endMatches?.length ?? 0).toBe(1);
+      }
+    });
+
+    it("preserves managedContent-is-substring-of-content invariant", async () => {
+      // The BaseAdapter Output-invariant gate (C9-H4 in base.ts) drops any
+      // output whose `managedContent` is not a substring of `content`.
+      // Confirm the sentinel-bearing managedContent still satisfies that
+      // invariant — otherwise outputs would silently disappear from sync.
+      const manifest = makeManifest();
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const managed = outputs.filter((o) => o.managedContent);
+      expect(managed.length).toBeGreaterThan(0);
+      for (const out of managed) {
+        expect(out.content.includes(out.managedContent!.trim())).toBe(true);
+      }
     });
   });
 });

@@ -366,16 +366,115 @@ describe("saveUserContent — gentle gate warnings", () => {
     expect(result.gentleWarnings.some((w) => /best possible/.test(w))).toBe(true);
   });
 
-  it("warns on a body exceeding the 120-line lean threshold but still writes", async () => {
+  it("warns on a body exceeding the per-type lean threshold but still writes", async () => {
+    // Agent threshold is 350 lines (C9-M45). 360 lines clears the warning bar.
     const longBody =
-      "**Pillars:** P5\n" + Array.from({ length: 130 }, (_, i) => `line ${i}`).join("\n");
+      "**Pillars:** P5\n" + Array.from({ length: 360 }, (_, i) => `line ${i}`).join("\n");
     const result = await saveUserContent(
       tempDir,
       makeArtifact({ body: longBody }),
     );
     expect(result.strictFailures).toEqual([]);
     expect(result.written).toHaveLength(1);
-    expect(result.gentleWarnings.some((w) => /lean threshold/.test(w))).toBe(true);
+    expect(result.gentleWarnings.some((w) => /lean threshold for agent: 350/.test(w))).toBe(true);
+  });
+
+  it("does NOT warn on an agent body within the 350-line threshold (C9-M45)", async () => {
+    // 200 lines is well above the legacy 120 cap but under the new agent
+    // ceiling — must not surface a lean warning for type=agent.
+    const body =
+      "**Pillars:** P4\n" + Array.from({ length: 200 }, (_, i) => `line ${i}`).join("\n");
+    const result = await saveUserContent(
+      tempDir,
+      makeArtifact({ body }),
+    );
+    expect(result.strictFailures).toEqual([]);
+    expect(result.written).toHaveLength(1);
+    expect(result.gentleWarnings.some((w) => /lean threshold/.test(w))).toBe(false);
+  });
+
+  it("warns on a rule body exceeding the per-type lean threshold (100 lines, C9-M45)", async () => {
+    // Rule threshold is 100 lines. 110 lines clears the warning bar.
+    const longBody =
+      "**Pillars:** P5\n" + Array.from({ length: 110 }, (_, i) => `line ${i}`).join("\n");
+    const result = await saveUserContent(
+      tempDir,
+      makeArtifact({
+        type: "rule",
+        name: "lean-rule",
+        body: longBody,
+        ruleScope: "always",
+      }),
+    );
+    expect(result.strictFailures).toEqual([]);
+    expect(result.gentleWarnings.some((w) => /lean threshold for rule: 100/.test(w))).toBe(true);
+  });
+
+  it("warns on a skill body exceeding the per-type lean threshold (200 lines, C9-M45)", async () => {
+    // Skill threshold is 200 lines. 210 lines clears the warning bar.
+    const longBody =
+      "**Pillars:** P4\n" + Array.from({ length: 210 }, (_, i) => `line ${i}`).join("\n");
+    const result = await saveUserContent(
+      tempDir,
+      makeArtifact({
+        type: "skill",
+        name: "lean-skill",
+        body: longBody,
+      }),
+    );
+    expect(result.strictFailures).toEqual([]);
+    expect(result.gentleWarnings.some((w) => /lean threshold for skill: 200/.test(w))).toBe(true);
+  });
+
+  it("warns on a command body exceeding the per-type lean threshold (200 lines, C9-M45)", async () => {
+    // Command threshold is 200 lines.
+    const longBody =
+      "**Pillars:** P4\n" + Array.from({ length: 220 }, (_, i) => `line ${i}`).join("\n");
+    const result = await saveUserContent(
+      tempDir,
+      makeArtifact({
+        type: "command",
+        name: "lean-cmd",
+        body: longBody,
+        isOrchestrator: false,
+      }),
+    );
+    expect(result.strictFailures).toEqual([]);
+    expect(result.gentleWarnings.some((w) => /lean threshold for command: 200/.test(w))).toBe(true);
+  });
+
+  it("warns on a hook body exceeding the per-type lean threshold (100 lines, C9-M45)", async () => {
+    // Hook threshold is 100 lines.
+    const longBody =
+      "**Pillars:** P5\n" + Array.from({ length: 110 }, (_, i) => `line ${i}`).join("\n");
+    const result = await saveUserContent(
+      tempDir,
+      makeArtifact({
+        type: "hook",
+        name: "lean-hook",
+        body: longBody,
+        hookEvent: "pre-commit",
+      }),
+    );
+    expect(result.strictFailures).toEqual([]);
+    expect(result.gentleWarnings.some((w) => /lean threshold for hook: 100/.test(w))).toBe(true);
+  });
+
+  it("does NOT warn on a 50-line rule body (well under the 100-line ceiling, C9-M45)", async () => {
+    // A rule body at half the threshold must not raise a lean warning.
+    const body =
+      "**Pillars:** P5\n" + Array.from({ length: 50 }, (_, i) => `line ${i}`).join("\n");
+    const result = await saveUserContent(
+      tempDir,
+      makeArtifact({
+        type: "rule",
+        name: "compact-rule",
+        body,
+        ruleScope: "always",
+      }),
+    );
+    expect(result.strictFailures).toEqual([]);
+    expect(result.gentleWarnings.some((w) => /lean threshold/.test(w))).toBe(false);
   });
 
 });
@@ -632,6 +731,170 @@ describe("saveUserContent — structured tools field (C9-H81, D20-F20.1.3)", () 
     );
     expect(result.strictFailures).toEqual([]);
     expect(result.written).toHaveLength(1);
+  });
+});
+
+describe("saveUserContent — ID-collision regression (C9-M46)", () => {
+  // C9-M46: regression coverage for id-collision detection. The strict gate
+  // at runUserContentGates() must reject every shape of collision:
+  //   (a) collision with a canonical artifact (e.g. hatch3r-implementer)
+  //   (b) collision with an existing user artifact of the same type
+  //   (c) case-variant slugs that would shadow canonical via the lowercase
+  //       expectedId — the SLUG_REGEX is the first line of defence and must
+  //       reject uppercase input *before* the collision check runs, so a
+  //       differently-cased candidate cannot bypass byId.has() (which is
+  //       case-sensitive).
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-uc-collision-"));
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  // ── (a) collision with canonical ────────────────────────────────
+  it("rejects when the derived id collides with a canonical agent (hatch3r-researcher)", async () => {
+    const result = await saveUserContent(
+      tempDir,
+      makeArtifact({ name: "researcher" }),
+    );
+    expect(result.written).toEqual([]);
+    // The strict failure message must surface the collision reason explicitly,
+    // pointing to the canonical artifact so the author can choose a new name.
+    const msg = result.strictFailures.find((s) => /collides with canonical/.test(s));
+    expect(msg).toBeDefined();
+    expect(msg).toMatch(/hatch3r-researcher/);
+    expect(msg).toMatch(/agent/);
+  });
+
+  it("rejects when the derived id collides with a canonical skill (hatch3r-bug-fix)", async () => {
+    // For type=skill the expectedId is `hatch3r-${name}`. Pick a known
+    // canonical skill name to exercise the canonical-collision branch on
+    // the skill side of the index (the byId map indexes every canonical
+    // type, not just agents).
+    const result = await saveUserContent(
+      tempDir,
+      makeArtifact({
+        type: "skill",
+        name: "bug-fix",
+      }),
+    );
+    expect(result.written).toEqual([]);
+    expect(
+      result.strictFailures.some((s) => /collides with canonical/.test(s)),
+    ).toBe(true);
+  });
+
+  // ── (b) collision with existing user artifact ───────────────────
+  it("rejects a second save with the same name (user-vs-user collision)", async () => {
+    // First save lands on disk; second save with the same name must hit the
+    // same-tree collision branch in runUserContentGates (items loop, source
+    // === "user") and short-circuit before any write.
+    const first = await saveUserContent(
+      tempDir,
+      makeArtifact({ name: "dup-name" }),
+    );
+    expect(first.strictFailures).toEqual([]);
+    expect(first.written).toHaveLength(1);
+
+    const second = await saveUserContent(
+      tempDir,
+      makeArtifact({
+        name: "dup-name",
+        body: "**Pillars:** P4\n\nA different body for the duplicate save.\n",
+      }),
+    );
+    expect(second.written).toEqual([]);
+    expect(
+      second.strictFailures.some((s) => /already exists/.test(s)),
+    ).toBe(true);
+
+    // The first artifact's body must remain intact — the failed second save
+    // must not corrupt or overwrite it.
+    const firstPath = first.written[0];
+    const firstContent = await readFile(firstPath, "utf-8");
+    expect(firstContent).not.toContain("A different body for the duplicate save");
+  });
+
+  it("permits two user artifacts with the same slug across DIFFERENT types", async () => {
+    // The same-tree collision branch only triggers when type matches —
+    // user/agents/foo.md and user/skills/foo/SKILL.md occupy disjoint
+    // namespaces in the on-disk tree, so both saves must succeed.
+    const asAgent = await saveUserContent(
+      tempDir,
+      makeArtifact({ type: "agent", name: "shared-slug" }),
+    );
+    expect(asAgent.strictFailures).toEqual([]);
+    expect(asAgent.written).toHaveLength(1);
+
+    const asSkill = await saveUserContent(
+      tempDir,
+      makeArtifact({ type: "skill", name: "shared-slug" }),
+    );
+    expect(asSkill.strictFailures).toEqual([]);
+    expect(asSkill.written).toHaveLength(1);
+  });
+
+  // ── (c) case-insensitive collision detection ───────────────────
+  it("rejects an UpperCase name that would collide with canonical after normalisation", async () => {
+    // The slug regex (^[a-z][a-z0-9-]*$) is the first defence: uppercase
+    // input must be rejected outright so a differently-cased "Implementer"
+    // cannot slip past the case-sensitive byId.has() lookup and shadow
+    // canonical hatch3r-implementer. This guards against case-variant
+    // bypass of the collision check.
+    const result = await saveUserContent(
+      tempDir,
+      makeArtifact({ name: "Implementer" }),
+    );
+    expect(result.written).toEqual([]);
+    expect(
+      result.strictFailures.some((s) => /Invalid name/.test(s)),
+    ).toBe(true);
+  });
+
+  it("rejects a MixedCase name that would shadow an existing user artifact", async () => {
+    // First, seed a user artifact under a lowercase slug. Then attempt a
+    // second save with the same slug in mixed case. The slug regex must
+    // reject the second save before any case-folding bypass can occur.
+    const first = await saveUserContent(
+      tempDir,
+      makeArtifact({ name: "case-target" }),
+    );
+    expect(first.strictFailures).toEqual([]);
+    expect(first.written).toHaveLength(1);
+
+    const second = await saveUserContent(
+      tempDir,
+      makeArtifact({ name: "Case-Target" }),
+    );
+    expect(second.written).toEqual([]);
+    // The slug regex strict gate fires first — uppercase is invalid before
+    // collision detection runs.
+    expect(
+      second.strictFailures.some((s) => /Invalid name/.test(s)),
+    ).toBe(true);
+  });
+
+  it("rejects an ALL-CAPS name that would collide with canonical", async () => {
+    // Belt-and-suspenders: an all-caps name targeting a canonical artifact
+    // must fail the slug regex BEFORE collision detection — proving that no
+    // case-variant of a canonical id can be authored via the user gate.
+    const result = await saveUserContent(
+      tempDir,
+      makeArtifact({ name: "RESEARCHER" }),
+    );
+    expect(result.written).toEqual([]);
+    expect(
+      result.strictFailures.some((s) => /Invalid name/.test(s)),
+    ).toBe(true);
+    // The canonical-collision message must NOT appear: the slug regex
+    // short-circuits before the collision check, so the failure surface is
+    // the regex, not the byId lookup. This documents the layered defence.
+    expect(
+      result.strictFailures.some((s) => /collides with canonical/.test(s)),
+    ).toBe(false);
   });
 });
 

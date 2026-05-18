@@ -117,8 +117,34 @@ const MAX_USER_FILE_BYTES = 10_240;
 /** Description must be at least this long (strict gate). */
 const MIN_DESCRIPTION_LENGTH = 60;
 
-/** Body line count above this triggers a gentle "lean" warning. */
-const LEAN_LINE_THRESHOLD = 120;
+/**
+ * Per-type body line thresholds for the gentle "lean" warning (C9-M45,
+ * D20-F20.1 lean coverage refinement).
+ *
+ * Each canonical artifact type has a structural floor below which compression
+ * is meaningful — collapsing a 30-line agent prompt loses value, but a
+ * 400-line agent prompt has measurable redundancy. The values track the
+ * canonical content distribution observed at Cycle 9 baseline:
+ *
+ *   - agent  (350): chat-style prompts with role + workflow + examples.
+ *   - rule   (100): short, declarative, single-pillar enforcement notes.
+ *   - skill  (200): Quick Start + step pattern (medium-length prose).
+ *   - command (200): orchestrator prompts with pipeline + arg parsing.
+ *   - hook   (100): event handlers with terse trigger + action body.
+ *
+ * Falls back to {@link LEAN_LINE_THRESHOLD_DEFAULT} when the type is not in
+ * the map (defensive — every value of {@link UserArtifactType} is keyed).
+ */
+const LEAN_LINE_THRESHOLDS: Record<UserArtifactType, number> = {
+  agent: 350,
+  rule: 100,
+  skill: 200,
+  command: 200,
+  hook: 100,
+};
+
+/** Fallback used when the artifact type is not in {@link LEAN_LINE_THRESHOLDS}. */
+const LEAN_LINE_THRESHOLD_DEFAULT = 120;
 
 /** Slug regex: lowercase kebab-case, must start with [a-z]. */
 const SLUG_REGEX = /^[a-z][a-z0-9-]*$/;
@@ -510,11 +536,15 @@ async function runUserContentGates(
     }
   }
 
-  // Lean line threshold.
+  // Lean line threshold (per-type, C9-M45). Falls back to the default cap
+  // when the artifact type is missing from the registry — defensive only;
+  // every value of UserArtifactType is keyed.
   const lineCount = artifact.body.split(/\r?\n/).length;
-  if (lineCount > LEAN_LINE_THRESHOLD) {
+  const typedThreshold =
+    LEAN_LINE_THRESHOLDS[artifact.type] ?? LEAN_LINE_THRESHOLD_DEFAULT;
+  if (lineCount > typedThreshold) {
     gentle.push(
-      `Body has ${lineCount} lines (lean threshold: ${LEAN_LINE_THRESHOLD}) — consider compressing`,
+      `Body has ${lineCount} lines (lean threshold for ${artifact.type}: ${typedThreshold}) — consider compressing`,
     );
   }
 

@@ -79,7 +79,7 @@ Never under-fan-out to save tokens. Token cost is dominated by quality and compl
 Applies only when the feature calls an LLM or runs an agent:
 
 - GenAI semconv span on every LLM call carrying `gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `gen_ai.response.finish_reasons`. Cache-hit flag emitted as a span attribute when the provider returns one.
-- Tools invoked by the agent emit `tool.{name}.execute` spans per `rules/hatch3r-observability-tracing-detail.md`. Each tool span carries `tool.name`, `tool.input_hash`, `tool.output_status`, `tool.duration_ms`.
+- Tools invoked by the agent emit `tool.{name}.execute` spans per `rules/hatch3r-observability-tracing.md` § "AI Agent Instrumentation". Each tool span carries `tool.name`, `tool.input_hash`, `tool.output_status`, `tool.duration_ms`.
 - Cost telemetry per request: a metric counter `gen_ai.tokens_total{direction, model, agent_name}` and a histogram `gen_ai.request_duration_ms`.
 - GenAI spans sampled at 50-100% in production — higher than general spans because volume is low and per-call cost is high.
 
@@ -119,8 +119,7 @@ The orchestrator running this skill emits a single-line verdict per gate (`GATE_
 - `rules/hatch3r-observability.md`
 - `rules/hatch3r-observability-logging.md`
 - `rules/hatch3r-observability-metrics.md`
-- `rules/hatch3r-observability-tracing.md`
-- `rules/hatch3r-observability-tracing-detail.md`
+- `rules/hatch3r-observability-tracing.md` (includes AI agent instrumentation; was previously split as `-detail`)
 
 ## References
 

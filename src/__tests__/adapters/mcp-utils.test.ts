@@ -6,6 +6,7 @@ import {
   checkVersionPin,
   detectFetchLauncher,
   findLauncherPackageArg,
+  validateMcpHttpEndpoint,
   ON_DEMAND_FETCH_LAUNCHERS,
   DEFAULT_TRANSFORM_MAX_DEPTH,
 } from "../../adapters/mcp-utils.js";
@@ -75,36 +76,46 @@ describe("validateMcpEntry", () => {
     expect(warnings[0]).toContain("/tmp/malware");
   });
 
-  it("returns no warnings for valid http URL", () => {
-    const entry: McpServerEntry = { url: "http://localhost:3000/mcp" };
+  it("returns no warnings for valid http URL with SHA-256 pin", () => {
+    // C9-M34: HTTP transport requires _pinned_sha256 or _trust_bypass.
+    const entry: McpServerEntry = {
+      url: "http://localhost:3000/mcp",
+      _pinned_sha256: "a".repeat(64),
+    };
     expect(validateMcpEntry("local", entry)).toEqual([]);
   });
 
-  it("returns no warnings for valid https URL", () => {
-    const entry: McpServerEntry = { url: "https://mcp.example.com/v1" };
+  it("returns no warnings for valid https URL with SHA-256 pin", () => {
+    // C9-M34: HTTP transport requires _pinned_sha256 or _trust_bypass.
+    const entry: McpServerEntry = {
+      url: "https://mcp.example.com/v1",
+      _pinned_sha256: "sha256:" + "b".repeat(64),
+    };
     expect(validateMcpEntry("remote", entry)).toEqual([]);
   });
 
   it("warns on unsupported URL scheme", () => {
+    // C9-M34: With no command, this is an HTTP-transport entry —
+    // missing-pin warning fires alongside the scheme warning. Both must
+    // be present; the scheme warning remains the primary signal.
     const entry: McpServerEntry = { url: "ftp://evil.com/exfil" };
     const warnings = validateMcpEntry("bad-scheme", entry);
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toContain("unsupported URL scheme");
-    expect(warnings[0]).toContain("ftp:");
+    expect(warnings.some((w) => w.includes("unsupported URL scheme"))).toBe(true);
+    expect(warnings.some((w) => w.includes("ftp:"))).toBe(true);
   });
 
   it("warns on file:// URL scheme", () => {
     const entry: McpServerEntry = { url: "file:///etc/passwd" };
     const warnings = validateMcpEntry("file-access", entry);
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toContain("unsupported URL scheme");
+    expect(warnings.some((w) => w.includes("unsupported URL scheme"))).toBe(true);
   });
 
   it("warns on invalid URL", () => {
+    // C9-M34: invalid-URL warning still emitted; missing-pin warning also
+    // present since the entry has url + no command.
     const entry: McpServerEntry = { url: "not a valid url" };
     const warnings = validateMcpEntry("broken", entry);
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toContain("invalid URL");
+    expect(warnings.some((w) => w.includes("invalid URL"))).toBe(true);
   });
 
   it("warns when neither command nor url is set", () => {
@@ -372,12 +383,14 @@ describe("transformEnvVarSyntax", () => {
 
 describe("McpServerEntry headers field", () => {
   it("accepts entries with headers", () => {
+    // C9-M34: HTTP transport requires _pinned_sha256 or _trust_bypass.
     const entry: McpServerEntry = {
       url: "https://api.example.com/mcp/",
       headers: {
         Authorization: "Bearer ${env:API_TOKEN}",
         "X-Custom": "static-value",
       },
+      _pinned_sha256: "c".repeat(64),
     };
     const warnings = validateMcpEntry("example", entry);
     expect(warnings).toEqual([]);
@@ -941,5 +954,279 @@ describe("validateMcpEntry multi-launcher version-pin (C9-H53)", () => {
     };
     const warnings = validateMcpEntry("uvx-no-y", entry);
     expect(warnings.some((w) => w.includes("unpinned"))).toBe(false);
+  });
+});
+
+// ── C9-M34 (D15 / Pillar P6): HTTP-endpoint SHA-256 pin policy ───────
+// HTTP-transport MCP servers (url set, command absent) must carry an
+// immutable SHA-256 pin of the remote endpoint OR an explicit
+// _trust_bypass: true opt-out. Unpinned HTTP transports inherit any
+// upstream compromise — server takeover, DNS hijack, malicious update —
+// so generation must refuse on policy violation.
+
+const VALID_PIN = "a".repeat(64);
+const VALID_PIN_WITH_PREFIX = "sha256:" + "b".repeat(64);
+
+describe("validateMcpHttpEndpoint (C9-M34)", () => {
+  // ── Out of scope (non-HTTP transports) ────────────────────────────
+  it("returns ok for command-only entries (stdio transport)", () => {
+    const entry: McpServerEntry = {
+      command: "npx",
+      args: ["@scope/pkg@1.0.0"],
+    };
+    expect(validateMcpHttpEndpoint(entry)).toEqual({ ok: true });
+  });
+
+  it("returns ok for entries with both command and url (stdio precedence)", () => {
+    // When command is present, the entry is launched as a process, not
+    // dialed over HTTP. The endpoint policy does not apply.
+    const entry: McpServerEntry = {
+      command: "node",
+      url: "https://example.com/mcp",
+    };
+    expect(validateMcpHttpEndpoint(entry)).toEqual({ ok: true });
+  });
+
+  it("returns ok for empty entries (validated elsewhere)", () => {
+    // Empty entries fail the "neither command nor url" check in
+    // validateMcpEntry — endpoint policy stays silent so the error
+    // surface remains scoped.
+    expect(validateMcpHttpEndpoint({})).toEqual({ ok: true });
+  });
+
+  // ── Pinned path ──────────────────────────────────────────────────
+  it("returns ok for HTTP entry with 64-char hex pin", () => {
+    const entry: McpServerEntry = {
+      url: "https://mcp.example.com/v1",
+      _pinned_sha256: VALID_PIN,
+    };
+    expect(validateMcpHttpEndpoint(entry)).toEqual({ ok: true });
+  });
+
+  it("returns ok for HTTP entry with sha256: prefixed pin", () => {
+    const entry: McpServerEntry = {
+      url: "https://mcp.example.com/v1",
+      _pinned_sha256: VALID_PIN_WITH_PREFIX,
+    };
+    expect(validateMcpHttpEndpoint(entry)).toEqual({ ok: true });
+  });
+
+  it("returns ok for http (insecure) URL with pin", () => {
+    // Endpoint policy does not duplicate the scheme allowlist. Scheme
+    // validation lives in the existing URL-scheme check; here we only
+    // check the pin-or-bypass invariant.
+    const entry: McpServerEntry = {
+      url: "http://localhost:3000/mcp",
+      _pinned_sha256: VALID_PIN,
+    };
+    expect(validateMcpHttpEndpoint(entry)).toEqual({ ok: true });
+  });
+
+  // ── Unpinned path (policy violation) ─────────────────────────────
+  it("refuses HTTP entry with no pin and no bypass", () => {
+    const entry: McpServerEntry = {
+      url: "https://mcp.example.com/v1",
+    };
+    const result = validateMcpHttpEndpoint(entry);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain("missing _pinned_sha256");
+    expect(result.reason).toContain("HTTP transports require");
+    expect(result.reason).toContain("_trust_bypass: true");
+  });
+
+  it("refuses HTTP entry with empty-string pin", () => {
+    const entry: McpServerEntry = {
+      url: "https://mcp.example.com/v1",
+      _pinned_sha256: "",
+    };
+    const result = validateMcpHttpEndpoint(entry);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain("malformed _pinned_sha256");
+  });
+
+  it("refuses HTTP entry with pin shorter than 64 chars", () => {
+    const entry: McpServerEntry = {
+      url: "https://mcp.example.com/v1",
+      _pinned_sha256: "abc123",
+    };
+    const result = validateMcpHttpEndpoint(entry);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain("malformed _pinned_sha256");
+  });
+
+  it("refuses HTTP entry with pin containing uppercase hex", () => {
+    // Pattern requires lowercase hex to keep parsing/comparison
+    // deterministic and to match the handoff-integrity convention.
+    const entry: McpServerEntry = {
+      url: "https://mcp.example.com/v1",
+      _pinned_sha256: "A".repeat(64),
+    };
+    const result = validateMcpHttpEndpoint(entry);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain("malformed _pinned_sha256");
+  });
+
+  it("refuses HTTP entry with pin containing non-hex chars", () => {
+    const entry: McpServerEntry = {
+      url: "https://mcp.example.com/v1",
+      _pinned_sha256: "g".repeat(64),
+    };
+    const result = validateMcpHttpEndpoint(entry);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain("malformed _pinned_sha256");
+  });
+
+  it("refuses HTTP entry with non-string pin (type-coercion guard)", () => {
+    const entry = {
+      url: "https://mcp.example.com/v1",
+      _pinned_sha256: 12345 as unknown as string,
+    } as McpServerEntry;
+    const result = validateMcpHttpEndpoint(entry);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain("malformed _pinned_sha256");
+  });
+
+  // ── Trust bypass path ────────────────────────────────────────────
+  it("returns ok for HTTP entry with _trust_bypass: true", () => {
+    const entry: McpServerEntry = {
+      url: "https://mcp.example.com/v1",
+      _trust_bypass: true,
+    };
+    expect(validateMcpHttpEndpoint(entry)).toEqual({ ok: true });
+  });
+
+  it("treats _trust_bypass: false as requiring a pin", () => {
+    const entry: McpServerEntry = {
+      url: "https://mcp.example.com/v1",
+      _trust_bypass: false,
+    };
+    const result = validateMcpHttpEndpoint(entry);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain("missing _pinned_sha256");
+  });
+
+  it("refuses _trust_bypass with non-boolean value (type-coercion guard)", () => {
+    // Strings, numbers, etc. must NOT be silently coerced — they
+    // indicate a misconfiguration that could mask the policy gate.
+    const entry = {
+      url: "https://mcp.example.com/v1",
+      _trust_bypass: "true" as unknown as boolean,
+    } as McpServerEntry;
+    const result = validateMcpHttpEndpoint(entry);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain("invalid _trust_bypass");
+  });
+
+  it("refuses _trust_bypass with numeric truthy value", () => {
+    const entry = {
+      url: "https://mcp.example.com/v1",
+      _trust_bypass: 1 as unknown as boolean,
+    } as McpServerEntry;
+    const result = validateMcpHttpEndpoint(entry);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain("invalid _trust_bypass");
+  });
+
+  // ── Precedence: bypass beats missing pin ─────────────────────────
+  it("trust_bypass: true overrides missing pin", () => {
+    const entry: McpServerEntry = {
+      url: "https://mcp.example.com/v1",
+      _trust_bypass: true,
+      // No _pinned_sha256 — bypass alone is sufficient.
+    };
+    expect(validateMcpHttpEndpoint(entry)).toEqual({ ok: true });
+  });
+
+  it("trust_bypass: true coexists with valid pin (no conflict)", () => {
+    // Both set is unusual but not a misconfiguration — bypass wins
+    // because the operator has explicitly opted out of the gate.
+    const entry: McpServerEntry = {
+      url: "https://mcp.example.com/v1",
+      _trust_bypass: true,
+      _pinned_sha256: VALID_PIN,
+    };
+    expect(validateMcpHttpEndpoint(entry)).toEqual({ ok: true });
+  });
+});
+
+describe("validateMcpEntry HTTP-pin integration (C9-M34)", () => {
+  // ── Warning surface ──────────────────────────────────────────────
+  it("emits no missing-pin warning for HTTP entry with valid pin", () => {
+    const entry: McpServerEntry = {
+      url: "https://mcp.example.com/v1",
+      _pinned_sha256: VALID_PIN,
+    };
+    const warnings = validateMcpEntry("pinned", entry);
+    expect(warnings.some((w) => w.includes("_pinned_sha256"))).toBe(false);
+  });
+
+  it("emits missing-pin warning for HTTP entry without pin or bypass", () => {
+    const entry: McpServerEntry = {
+      url: "https://mcp.example.com/v1",
+    };
+    const warnings = validateMcpEntry("unpinned", entry);
+    expect(warnings.some((w) => w.includes("missing _pinned_sha256"))).toBe(true);
+  });
+
+  it("emits bypass-acknowledgement warning when _trust_bypass: true", () => {
+    // Bypass is allowed but auditable — operators see the opt-out in
+    // CI logs and review trails.
+    const entry: McpServerEntry = {
+      url: "https://mcp.example.com/v1",
+      _trust_bypass: true,
+    };
+    const warnings = validateMcpEntry("bypassed", entry);
+    expect(warnings.some((w) => w.includes("pinning bypassed"))).toBe(true);
+    expect(warnings.some((w) => w.includes("upstream-compromise risk"))).toBe(true);
+  });
+
+  it("emits no HTTP-pin warning for stdio entries (command set)", () => {
+    const entry: McpServerEntry = {
+      command: "npx",
+      args: ["-y", "@scope/pkg@1.0.0"],
+    };
+    const warnings = validateMcpEntry("stdio", entry);
+    expect(warnings.some((w) => w.includes("_pinned_sha256"))).toBe(false);
+    expect(warnings.some((w) => w.includes("pinning bypassed"))).toBe(false);
+  });
+
+  it("emits no HTTP-pin warning for command+url combos (stdio precedence)", () => {
+    const entry: McpServerEntry = {
+      command: "node",
+      args: ["server.js"],
+      url: "https://example.com/mcp",
+      // No pin, no bypass — policy still permits because command takes
+      // precedence over url.
+    };
+    const warnings = validateMcpEntry("dual-transport", entry);
+    expect(warnings.some((w) => w.includes("_pinned_sha256"))).toBe(false);
+  });
+
+  it("emits malformed-pin warning for HTTP entry with bad pin format", () => {
+    const entry: McpServerEntry = {
+      url: "https://mcp.example.com/v1",
+      _pinned_sha256: "not-a-real-sha256-pin",
+    };
+    const warnings = validateMcpEntry("badpin", entry);
+    expect(warnings.some((w) => w.includes("malformed _pinned_sha256"))).toBe(true);
+  });
+
+  it("emits invalid-bypass warning for non-boolean _trust_bypass", () => {
+    const entry = {
+      url: "https://mcp.example.com/v1",
+      _trust_bypass: "yes" as unknown as boolean,
+    } as McpServerEntry;
+    const warnings = validateMcpEntry("badbypass", entry);
+    expect(warnings.some((w) => w.includes("invalid _trust_bypass"))).toBe(true);
+  });
+
+  // ── Pin-accepted path silences both warning kinds ────────────────
+  it("accepts entry pinned with sha256: prefix variant", () => {
+    const entry: McpServerEntry = {
+      url: "https://mcp.example.com/v1",
+      _pinned_sha256: VALID_PIN_WITH_PREFIX,
+    };
+    const warnings = validateMcpEntry("prefixed", entry);
+    expect(warnings).toEqual([]);
   });
 });

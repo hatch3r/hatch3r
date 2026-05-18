@@ -172,11 +172,18 @@ export async function syncWorkspaceRepos(
 
   // D15 Medium (#15.24): Pre-sync integrity check — warn if workspace
   // canonical content has been tampered with before propagating to sub-repos.
+  //
+  // C9-M16: consume the discriminated-union return from `verifyIntegrity`.
+  // Workspace sync historically warns on both `modified` and `tampered`
+  // rows, so we union those two error buckets into a single warning list.
   const wsAgentsDir = join(workspaceRoot, AGENTS_DIR);
-  const integrityResults = await verifyIntegrity(wsAgentsDir);
-  const tampered = integrityResults.filter(
-    (r) => r.status === "modified" || r.status === "tampered",
-  );
+  const wsVerification = await verifyIntegrity(wsAgentsDir);
+  const tampered = wsVerification.ok
+    ? []
+    : [
+        ...wsVerification.errors.modified,
+        ...wsVerification.errors.tampered,
+      ];
   if (tampered.length > 0 && !options.force) {
     for (const r of tampered) {
       options.onWarn?.(

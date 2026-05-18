@@ -2,6 +2,7 @@ import { readFile, readdir, cp, mkdir, rm, stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { join, dirname, normalize, isAbsolute, posix } from "node:path";
 import { parseFrontmatter } from "../adapters/canonical.js";
+import { extractAdaptersFrontmatter } from "./frontmatter.js";
 import { atomicWriteFile } from "../merge/safeWrite.js";
 import {
   PLATFORM_TOOL_MARKER,
@@ -322,7 +323,7 @@ async function scanContentRoot(
             source,
           };
           if (source === "user") {
-            const adapters = parseAdaptersFrontmatter(raw);
+            const adapters = extractAdaptersFrontmatter(raw);
             if (adapters) item.adapters = adapters;
           }
           items.push(item);
@@ -373,7 +374,7 @@ async function scanContentRoot(
         }
 
         if (source === "user") {
-          const adapters = parseAdaptersFrontmatter(raw);
+          const adapters = extractAdaptersFrontmatter(raw);
           if (adapters) item.adapters = adapters;
         }
 
@@ -381,44 +382,6 @@ async function scanContentRoot(
       }
     }
   }
-}
-
-/**
- * Parse the optional `adapters: [tool, tool, ...]` array from raw frontmatter.
- * Returns the parsed array (filtered to strings) when present, or null when
- * the field is absent / malformed. Used only for user-tier items so that the
- * canonical corpus never silently inherits an adapters filter.
- *
- * Implemented as a tiny line scan rather than a full YAML re-parse because
- * the canonical `parseFrontmatter` does not surface the `adapters` field on
- * `CanonicalMetadata` — we'd otherwise need a second YAML parse here.
- */
-function parseAdaptersFrontmatter(raw: string): string[] | null {
-  const match = raw.match(/^---\n([\s\S]*?)\n---/);
-  if (!match) return null;
-  const block = match[1] ?? "";
-  // Inline form: `adapters: [a, b, c]`
-  const inline = block.match(/^adapters\s*:\s*\[([^\]]*)\]/m);
-  if (inline) {
-    return inline[1]
-      .split(",")
-      .map((s) => s.trim().replace(/^["']|["']$/g, ""))
-      .filter((s) => s.length > 0);
-  }
-  // Block form:
-  //   adapters:
-  //     - a
-  //     - b
-  const blockHeader = block.match(/^adapters\s*:\s*$([\s\S]*?)(?=^\S|\Z)/m);
-  if (blockHeader) {
-    const result: string[] = [];
-    for (const line of (blockHeader[1] ?? "").split("\n")) {
-      const m = line.match(/^\s+-\s+(.+?)\s*$/);
-      if (m) result.push(m[1].replace(/^["']|["']$/g, ""));
-    }
-    return result.length > 0 ? result : null;
-  }
-  return null;
 }
 
 /**

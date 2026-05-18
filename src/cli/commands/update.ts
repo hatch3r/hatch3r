@@ -58,6 +58,7 @@ import { runSelfUpdate, pickReExecBin } from "../../install/selfUpdate.js";
 import { generateIntegrityManifest, writeIntegrityManifest, verifyIntegrity } from "../../integrity/index.js";
 import { pruneArchives } from "../../archive/index.js";
 import { buildSelectionsFromDisk } from "../../content/index.js";
+import { scanOrphanFiles, formatOrphanScanDiagnostic } from "../../content/orphanScan.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONTENT_DIRS = ["agents", "commands", "rules", "skills", "prompts", "github-agents", "mcp", "hooks"];
@@ -871,6 +872,14 @@ export async function updateCommand(
      * package out-of-band. Emits a visible warning every time.
      */
     skipAuditSignatures?: boolean;
+    /**
+     * C9-M26 (D11-SA11.4-01): When true, the orphan-file scan unlinks every
+     * file it flags in `.agents/<canonical-subdir>/` that does not match the
+     * canonical-inventory naming convention. Default is informational
+     * reporting only (no removal). User-tier (`.agents/user/`) and
+     * project-only (`policy`, `learnings`) subtrees are never visited.
+     */
+    cleanOrphans?: boolean;
   },
 ): Promise<void> {
   printBanner(true);
@@ -905,12 +914,16 @@ export async function updateCommand(
   // would overwrite the drifted files in-place, silently destroying any
   // legitimate edits that were not yet integrated through `hatch3r config`
   // or a `.customize.yaml` file.
+  //
+  // C9-M16: consume the discriminated-union return from `verifyIntegrity`.
+  // The `ok: false` branch already partitions the actionable drift rows by
+  // status, so we no longer post-filter the flat results array.
   const agentsDir = join(rootDir, AGENTS_DIR);
-  const integrityResults = await verifyIntegrity(agentsDir);
-  const modified = integrityResults.filter((r) => r.status === "modified");
-  const missing = integrityResults.filter((r) => r.status === "missing");
-  const tampered = integrityResults.filter((r) => r.status === "tampered");
-  const driftDetected = modified.length > 0 || missing.length > 0 || tampered.length > 0;
+  const integrityVerification = await verifyIntegrity(agentsDir);
+  const modified = integrityVerification.ok ? [] : integrityVerification.errors.modified;
+  const missing = integrityVerification.ok ? [] : integrityVerification.errors.missing;
+  const tampered = integrityVerification.ok ? [] : integrityVerification.errors.tampered;
+  const driftDetected = !integrityVerification.ok;
   if (driftDetected) {
     warn("Integrity issues detected before update:");
     for (const r of tampered) { warn(`  TAMPERED: ${r.file}`); }
@@ -1015,6 +1028,26 @@ export async function updateCommand(
       totalSteps: 4,
       diff: !!_opts?.diff,
     });
+  }
+
+  // C9-M26 (D11-SA11.4-01): Orphan-file scan across the canonical
+  // .agents/<canonical-subdir>/ subtree. Reports files that do not match
+  // the canonical-inventory naming convention (no `hatch3r-` prefix, not
+  // under a `hatch3r-*` parent, and not in ALWAYS_CANONICAL_BASENAMES).
+  // Walks only the nine canonical subdirs — never visits .agents/user/,
+  // .agents/policy/, .agents/learnings/ — so user-authored content is
+  // never flagged. Default emission is info(); --clean-orphans unlinks
+  // the offending files after a containment check. Skipped on dry-run
+  // (the function returns earlier above).
+  try {
+    const orphanScan = await scanOrphanFiles(agentsDir, { cleanOrphans: !!_opts?.cleanOrphans });
+    const diag = formatOrphanScanDiagnostic(orphanScan, { cleanOrphans: !!_opts?.cleanOrphans });
+    if (diag) info(diag);
+  } catch (err) {
+    // Scan failure must not break update. Surface via verbose so persistent
+    // failures still get attention from operators.
+    const message = err instanceof Error ? err.message : String(err);
+    verbose(`update: orphan-file scan skipped — ${message}`);
   }
 
   // Version checkpoint advisory: detect if a clean reinit is recommended

@@ -70,6 +70,65 @@ export interface VerifyResult {
   actual?: string;
 }
 
+/**
+ * C9-M16: Discriminated union return shape for {@link verifyIntegrity}.
+ *
+ * Replaces the legacy `VerifyResult[]` ad-hoc shape with two explicit
+ * branches so callers cannot conflate "no manifest" (an empty array under
+ * the legacy shape) with "manifest passed" (also a zero-failure array).
+ *
+ * Branches:
+ * - `ok: true` — the manifest exists (or is intentionally absent — see
+ *   `manifest === null` case below) and no actionable drift was detected.
+ *   `drift` carries the full per-file `VerifyResult[]` so callers that
+ *   want to render PASS/NEW rows still have the data.
+ * - `ok: false` — actionable drift (modified, missing, or tampered) was
+ *   detected. `errors` holds only the actionable rows partitioned by
+ *   status; `drift` holds the complete per-file `VerifyResult[]` so
+ *   callers can render the full report.
+ *
+ * `manifest` on the `ok: true` branch is `null` when no `.integrity.json`
+ * exists on disk. This preserves the legacy "empty array on no manifest"
+ * semantics while making the case explicit at the type level — callers
+ * like `add.ts` that intentionally short-circuit on "no manifest" can do
+ * so by checking `manifest === null` instead of `results.length === 0`.
+ */
+export type VerifyIntegrityResult =
+  | {
+      ok: true;
+      /**
+       * The manifest that was verified. `null` when no `.integrity.json`
+       * exists on disk (treated as a no-op pass for callers that ran
+       * `verifyIntegrity` before init/update has sealed the project).
+       */
+      manifest: IntegrityManifest | null;
+      /**
+       * Full per-file results. Empty when `manifest === null`. Otherwise
+       * carries one entry per file in the manifest (status `pass`) and
+       * one entry per new file on disk (status `new`).
+       */
+      drift: VerifyResult[];
+    }
+  | {
+      ok: false;
+      /**
+       * Actionable drift rows partitioned by status. A row appears in
+       * exactly one of these arrays. `tampered` covers the manifest-level
+       * checksum mismatch (single row, file = `.integrity.json`).
+       */
+      errors: {
+        modified: VerifyResult[];
+        missing: VerifyResult[];
+        tampered: VerifyResult[];
+      };
+      /**
+       * Full per-file results, including `pass` and `new` rows alongside
+       * the actionable drift. Callers that want to render a complete
+       * report (e.g. `hatch3r verify` printing every row) read from here.
+       */
+      drift: VerifyResult[];
+    };
+
 const INTEGRITY_FILE = ".integrity.json";
 /**
  * Directories scanned for canonical content hashing.
@@ -316,29 +375,41 @@ export async function readIntegrityManifest(
 /**
  * Verify integrity of all canonical files against the stored manifest.
  *
- * Returns an array of per-file results: `pass`, `modified`, `missing`,
- * `new` (file on disk but not in manifest), or `tampered` (manifest
- * checksum mismatch). Returns an empty array if no manifest exists.
+ * C9-M16: Returns a {@link VerifyIntegrityResult} discriminated union so
+ * callers cannot conflate "no manifest" with "manifest passed". The
+ * `ok: true` branch carries the verified manifest (or `null` when no
+ * manifest exists on disk) and the full per-file `drift` array; the
+ * `ok: false` branch partitions the actionable drift rows (`modified`,
+ * `missing`, `tampered`) under `errors` while preserving the complete
+ * per-file report under `drift`.
+ *
+ * Per-file row statuses: `pass`, `modified`, `missing`, `new`, or
+ * `tampered`. A tampered manifest is reported as a single row on the
+ * `.integrity.json` path with `status === "tampered"`.
  */
 export async function verifyIntegrity(
   agentsDir: string,
-): Promise<VerifyResult[]> {
+): Promise<VerifyIntegrityResult> {
   const manifest = await readIntegrityManifest(agentsDir);
   if (!manifest) {
-    return [];
+    return { ok: true, manifest: null, drift: [] };
   }
-
-  const results: VerifyResult[] = [];
 
   // C9-H3: Recompute with the same canonical (sorted-key) stringifier so
   // verifyIntegrity stays cross-OS reproducible.
-  const expected = createHash("sha256")
+  const expectedChecksum = createHash("sha256")
     .update(canonicalStringify(manifest.files))
     .digest("hex");
-  if (manifest.checksum !== expected) {
-    results.push({ file: INTEGRITY_FILE, status: "tampered" });
-    return results;
+  if (manifest.checksum !== expectedChecksum) {
+    const tamperedRow: VerifyResult = { file: INTEGRITY_FILE, status: "tampered" };
+    return {
+      ok: false,
+      errors: { modified: [], missing: [], tampered: [tamperedRow] },
+      drift: [tamperedRow],
+    };
   }
+
+  const results: VerifyResult[] = [];
   const manifestFiles = new Set(Object.keys(manifest.files));
 
   for (const [filePath, expectedHash] of Object.entries(manifest.files)) {
@@ -385,5 +456,21 @@ export async function verifyIntegrity(
   }
 
   results.sort((a, b) => a.file.localeCompare(b.file));
-  return results;
+
+  // C9-M16: Partition actionable drift rows so callers can branch on
+  // `ok: false` without re-filtering. `new` rows are advisory (a fresh
+  // canonical file appeared on disk) and do not count as drift.
+  const modified = results.filter((r) => r.status === "modified");
+  const missing = results.filter((r) => r.status === "missing");
+  const hasDrift = modified.length > 0 || missing.length > 0;
+
+  if (!hasDrift) {
+    return { ok: true, manifest, drift: results };
+  }
+
+  return {
+    ok: false,
+    errors: { modified, missing, tampered: [] },
+    drift: results,
+  };
 }

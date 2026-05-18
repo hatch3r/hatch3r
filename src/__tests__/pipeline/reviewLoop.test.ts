@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, it, expect } from "vitest";
 import {
   createReviewLoop,
@@ -227,6 +229,29 @@ describe("reviewLoop", () => {
       // be able to configure it.
       const state = createReviewLoop(3);
       expect(state.maxIterations).toBe(3);
+    });
+
+    it("rules/hatch3r-agent-orchestration.{md,mdc} declare the same default as DEFAULT_MAX_REVIEW_ITERATIONS", () => {
+      // Finding C9-M48 (D16-F16.1, Medium): the code constant and the rule
+      // directive at rules/hatch3r-agent-orchestration.md Phase 3 step 3
+      // must reference the same iteration cap. Without this assertion, the
+      // rule and the code drift silently (the original rule said "max 3"
+      // while the code default was 4 after C7.5-W2B2-H26 raised it).
+      // The regex is anchored to the Phase 3 step-3 line which is the
+      // canonical statement of the default, and matches both the .md
+      // canonical and the .mdc Cursor parity copy.
+      const repoRoot = process.cwd();
+      const pattern = /max\s+(\d+)\s+iterations\s+\(matches\s+`DEFAULT_MAX_REVIEW_ITERATIONS`/;
+      for (const relPath of [
+        "rules/hatch3r-agent-orchestration.md",
+        "rules/hatch3r-agent-orchestration.mdc",
+      ]) {
+        const body = readFileSync(join(repoRoot, relPath), "utf-8");
+        const match = body.match(pattern);
+        expect(match, `${relPath} must contain "max <N> iterations (matches \`DEFAULT_MAX_REVIEW_ITERATIONS\`...)" at Phase 3 step 3`).not.toBeNull();
+        const declared = Number(match![1]);
+        expect(declared, `${relPath} declared "max ${declared} iterations" but code has DEFAULT_MAX_REVIEW_ITERATIONS=${DEFAULT_MAX_REVIEW_ITERATIONS}`).toBe(DEFAULT_MAX_REVIEW_ITERATIONS);
+      }
     });
   });
 

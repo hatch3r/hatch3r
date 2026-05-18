@@ -88,6 +88,7 @@ export function createProgram(): Command {
     .option("--force", "Overwrite locally modified files in sub-repos")
     .option("--minimal", "Generate stripped-down output (no comments, minimal formatting) to reduce token usage")
     .option("--strict-budget", "Fail sync if any adapter's generated output exceeds its context budget (default: warn)")
+    .option("--clean-orphans", "Remove files in .agents/<canonical-subdir>/ that do not match canonical-inventory naming (no hatch3r- prefix). Default is informational only.")
     .option("--verbose", "Show detailed output for each file processed")
     .action(syncCommand);
 
@@ -107,6 +108,7 @@ export function createProgram(): Command {
     .option("--offline, --skip-fetch", "Skip the package fetch step; regenerate only from already-installed canonical content")
     .option("--dry-run", "Preview what would change (added/modified/unchanged per adapter) without writing files")
     .option("--skip-audit-signatures", "EMERGENCY OVERRIDE: skip `npm audit signatures` verification on the freshly-fetched package. Default is to refuse update on signature failure.")
+    .option("--clean-orphans", "Remove files in .agents/<canonical-subdir>/ that do not match canonical-inventory naming (no hatch3r- prefix). Default is informational only.")
     .action(updateCommand);
 
   program
@@ -117,6 +119,10 @@ export function createProgram(): Command {
       "--format <format>",
       "Output format for CI consumers: human (default) or json",
       "human",
+    )
+    .option(
+      "--strict-content",
+      "Escalate content-body lint (anti-slop wordlist + missing pillar references) from warnings to errors",
     )
     .action(validateCommand);
 

@@ -389,6 +389,109 @@ describe("validate command", () => {
     });
   });
 
+  // C9-M29: content-body lint — anti-slop wordlist hits + missing pillar refs.
+  // Default emission is warnings; --strict-content escalates to errors.
+  describe("content-body lint (C9-M29)", () => {
+    it("warns about anti-slop wordlist hits in canonical content", async () => {
+      await createMinimalAgentsDir(tempDir);
+      await writeFile(
+        join(tempDir, AGENTS_DIR, "rules", "hatch3r-sloppy.md"),
+        "---\nid: hatch3r-sloppy\ntype: rule\ndescription: fixture exercising anti-slop wordlist detection in content body via the validate command pipeline\nscope: always\npillars: [P5]\n---\n# Sloppy\n\nThis is a world-class system that handles everything carefully.\n",
+      );
+
+      const { validateCommand } = await import("../../cli/commands/validate.js");
+      // Warnings only — validate must not throw.
+      await validateCommand();
+
+      const out = combinedOutput();
+      expect(out).toContain("anti-slop");
+      expect(out).toContain("world-class");
+    });
+
+    it("ignores anti-slop hits paired with a measurable qualifier in 8-word window", async () => {
+      await createMinimalAgentsDir(tempDir);
+      await writeFile(
+        join(tempDir, AGENTS_DIR, "rules", "hatch3r-measured.md"),
+        "---\nid: hatch3r-measured\ntype: rule\ndescription: fixture exercising the measurable-qualifier exemption path in the content-body lint for validate\nscope: always\npillars: [P5]\n---\n# Measured\n\nResponse time stays under 200ms — high-quality under 95th percentile load.\n",
+      );
+
+      const { validateCommand } = await import("../../cli/commands/validate.js");
+      await validateCommand();
+
+      const out = combinedOutput();
+      // The phrase "high-quality" is followed by a measurable qualifier
+      // ("95th percentile") within 8 words, so the lint must NOT flag it.
+      expect(out).not.toContain("anti-slop \"high-quality\"");
+    });
+
+    it("warns when a canonical artifact lacks a pillar reference", async () => {
+      await createMinimalAgentsDir(tempDir);
+      await writeFile(
+        join(tempDir, AGENTS_DIR, "rules", "hatch3r-no-pillar.md"),
+        "---\nid: hatch3r-no-pillar\ntype: rule\ndescription: fixture exercising the missing-pillar-reference warning path in the content-body lint for validate\nscope: always\n---\n# No pillar\n\nBody content with no pillar mention at all.\n",
+      );
+
+      const { validateCommand } = await import("../../cli/commands/validate.js");
+      await validateCommand();
+
+      expect(combinedOutput()).toContain("missing pillar reference");
+    });
+
+    it("accepts pillar reference declared via frontmatter pillars array", async () => {
+      await createMinimalAgentsDir(tempDir);
+      await writeFile(
+        join(tempDir, AGENTS_DIR, "rules", "hatch3r-fm-pillar.md"),
+        "---\nid: hatch3r-fm-pillar\ntype: rule\ndescription: fixture exercising the pillar-reference-via-frontmatter happy path in the content-body lint for validate\nscope: always\npillars: [P1, P4]\n---\n# OK\n\nBody content without an inline P mention.\n",
+      );
+
+      const { validateCommand } = await import("../../cli/commands/validate.js");
+      await validateCommand();
+
+      const out = combinedOutput();
+      expect(out).not.toContain("hatch3r-fm-pillar.md: missing pillar reference");
+    });
+
+    it("accepts pillar reference declared via body **Pillars:** line", async () => {
+      await createMinimalAgentsDir(tempDir);
+      await writeFile(
+        join(tempDir, AGENTS_DIR, "rules", "hatch3r-body-pillar.md"),
+        "---\nid: hatch3r-body-pillar\ntype: rule\ndescription: fixture exercising the pillar-reference-via-body-line happy path in the content-body lint for validate\nscope: always\n---\n# Body pillar\n\n**Pillars:** P2, P5\n\nBody content.\n",
+      );
+
+      const { validateCommand } = await import("../../cli/commands/validate.js");
+      await validateCommand();
+
+      const out = combinedOutput();
+      expect(out).not.toContain("hatch3r-body-pillar.md: missing pillar reference");
+    });
+
+    it("escalates anti-slop hits to errors with --strict-content", async () => {
+      await createMinimalAgentsDir(tempDir);
+      await writeFile(
+        join(tempDir, AGENTS_DIR, "rules", "hatch3r-strict-slop.md"),
+        "---\nid: hatch3r-strict-slop\ntype: rule\ndescription: fixture exercising the --strict-content escalation path so anti-slop findings raise errors instead of warnings\nscope: always\npillars: [P5]\n---\n# Strict slop\n\nWe must build robust and resilient services that handle every case.\n",
+      );
+
+      const { validateCommand } = await import("../../cli/commands/validate.js");
+      await expect(validateCommand({ strictContent: true })).rejects.toThrow(HatchError);
+
+      expect(combinedOutput()).toContain("robust and resilient");
+    });
+
+    it("escalates missing pillar reference to error with --strict-content", async () => {
+      await createMinimalAgentsDir(tempDir);
+      await writeFile(
+        join(tempDir, AGENTS_DIR, "rules", "hatch3r-strict-pillar.md"),
+        "---\nid: hatch3r-strict-pillar\ntype: rule\ndescription: fixture exercising the --strict-content escalation path so missing-pillar-reference findings raise errors instead of warnings\nscope: always\n---\n# Strict pillar\n\nBody content with no pillar mention.\n",
+      );
+
+      const { validateCommand } = await import("../../cli/commands/validate.js");
+      await expect(validateCommand({ strictContent: true })).rejects.toThrow(HatchError);
+
+      expect(combinedOutput()).toContain("missing pillar reference");
+    });
+  });
+
   it("should warn about skill directory missing SKILL.md", async () => {
     await createMinimalAgentsDir(tempDir);
 

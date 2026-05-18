@@ -46,6 +46,7 @@ import {
 import { compactPhaseOutput } from "../../pipeline/phaseOutputSchema.js";
 import { retryWithBackoff } from "../../pipeline/retryWithBackoff.js";
 import { discoverUserContent, validateContentBody } from "../../content/userContent.js";
+import { scanOrphanFiles, formatOrphanScanDiagnostic } from "../../content/orphanScan.js";
 import {
   printBanner,
   createSpinner,
@@ -174,6 +175,14 @@ export async function syncCommand(
     minimal?: boolean;
     verbose?: boolean;
     strictBudget?: boolean;
+    /**
+     * C9-M26 (D11-SA11.4-01): When true, the orphan-file scan unlinks every
+     * file it flags in `.agents/<canonical-subdir>/` that does not match the
+     * canonical-inventory naming convention. Default is informational
+     * reporting only (no removal). User-tier (`.agents/user/`) and
+     * project-only (`policy`, `learnings`) subtrees are never visited.
+     */
+    cleanOrphans?: boolean;
   } = {},
 ): Promise<void> {
   setVerbose(!!opts.verbose);
@@ -264,11 +273,14 @@ export async function syncCommand(
   // the mutation operation unless the user explicitly opts in with --force.
   // This stops sync from amplifying unauthorized edits to every adapter
   // output silently.
-  const integrityResults = await verifyIntegrity(agentsDir);
-  const modified = integrityResults.filter((r) => r.status === "modified");
-  const missing = integrityResults.filter((r) => r.status === "missing");
-  const tampered = integrityResults.filter((r) => r.status === "tampered");
-  const driftDetected = modified.length > 0 || missing.length > 0 || tampered.length > 0;
+  // C9-M16: consume the discriminated-union return from `verifyIntegrity`.
+  // The `ok: false` branch already partitions the actionable drift rows by
+  // status, so no post-filter pass is needed.
+  const integrityVerification = await verifyIntegrity(agentsDir);
+  const modified = integrityVerification.ok ? [] : integrityVerification.errors.modified;
+  const missing = integrityVerification.ok ? [] : integrityVerification.errors.missing;
+  const tampered = integrityVerification.ok ? [] : integrityVerification.errors.tampered;
+  const driftDetected = !integrityVerification.ok;
   if (driftDetected) {
     warn("Integrity issues detected in canonical files:");
     for (const r of tampered) {
@@ -719,6 +731,25 @@ export async function syncCommand(
           verbose(`sync: orphan-customize scan readdir(.hatch3r/${dir}) skipped — ${message}`);
         }
       }
+    }
+
+    // C9-M26 (D11-SA11.4-01): Orphan-file scan across the canonical
+    // .agents/<canonical-subdir>/ subtree. Reports files that do not match
+    // the canonical-inventory naming convention (no `hatch3r-` prefix, not
+    // under a `hatch3r-*` parent, and not in ALWAYS_CANONICAL_BASENAMES).
+    // Walks only the nine canonical subdirs — never visits .agents/user/,
+    // .agents/policy/, .agents/learnings/ — so user-authored content is
+    // never flagged. Default emission is info(); --clean-orphans unlinks
+    // the offending files after a containment check.
+    try {
+      const orphanScan = await scanOrphanFiles(agentsDir, { cleanOrphans: !!opts.cleanOrphans });
+      const diag = formatOrphanScanDiagnostic(orphanScan, { cleanOrphans: !!opts.cleanOrphans });
+      if (diag) info(diag);
+    } catch (err) {
+      // Scan failure must not break sync. Surface via verbose so persistent
+      // failures still get attention from operators.
+      const message = err instanceof Error ? err.message : String(err);
+      verbose(`sync: orphan-file scan skipped — ${message}`);
     }
   }
 

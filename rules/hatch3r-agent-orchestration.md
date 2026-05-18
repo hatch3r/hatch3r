@@ -4,6 +4,7 @@ type: rule
 description: Mandatory agent delegation, skill loading, and subagent usage directives for ALL tasks in ALL contexts
 scope: always
 tags: [core]
+precedence: high
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true
 ---
@@ -132,7 +133,7 @@ For multi-sub-task implementations, the implementer performs a lightweight mini-
 
 1. Spawn `hatch3r-reviewer` with diff and acceptance criteria. Reviewer includes blast radius summary.
 2. Critical/Warning findings: spawn `hatch3r-fixer` with full reviewer output.
-3. Re-review after fixes. Repeat until 0 Critical + 0 Warning, or max 3 iterations.
+3. Re-review after fixes. Repeat until 0 Critical + 0 Warning, or max 4 iterations (matches `DEFAULT_MAX_REVIEW_ITERATIONS` in `src/pipeline/reviewLoop.ts`; raised from 3 to 4 in Cycle 7.5 W2B2 finding H26 so the oscillation detector becomes reachable in default config). The rule default and the code constant are kept in sync by `src/__tests__/pipeline/reviewLoop.test.ts` (CI-enforced).
 4. **Confirmation pass** after clean review: lightweight re-review for fix-driven regressions and acceptance criteria completeness. The confirmation pass checks only: (a) no new test failures compared to Phase 2 baseline, (b) no type errors introduced, (c) acceptance criteria from the issue are still met. It does not re-run the full review checklist.
 5. Max iterations reached: surface to user with a structured summary: iteration count, remaining Critical findings (with file:line), remaining Warning findings, and a recommendation (fix manually vs. accept risk). Never present raw reviewer output without summarization.
 6. **Review gate confidence signal:** When the review loop exits with a clean verdict, record the iteration count in `PipelineContext.reviewResult.iterations`. Clean-on-first-pass (iteration 1) signals higher confidence than clean-after-multiple-iterations (iteration 2-3). Phase 4 specialists and the orchestrator should factor this into their risk assessment.

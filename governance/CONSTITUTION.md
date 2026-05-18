@@ -87,6 +87,7 @@ Governance and audit cycles apply the same quality standards, anti-slop, and ant
 | Checklist items/SA | 4-8 | <4 shallow, >8 too broad |
 | Ambiguity-detection gate coverage (agents/skills/commands) | 100% | §0/Step 0 references `agents/shared/user-question-protocol.md` |
 | Sub-agent count emission on delegating artifacts | 100% | First-class output field with rationale per P8 |
+| Detail-rule frontmatter declaration (`rules/*-detail.{md,mdc}`) | required: `detail_rule: true` + `consumed_by: <parent-rule-id>` on both `.md` and `.mdc` | C9-M4 / D16-F16.3.3 — documents justified rule+detail pairings as the alternative to merge; absence reverts the pair to merge-candidate per D16.3 add-vs-remove bias. Currently authorised: `hatch3r-agent-orchestration-detail`, `hatch3r-observability-tracing-detail`. New `*-detail` pairs require a queued §8 amendment proposal. |
 
 #### Anti-Bloat Principles
 

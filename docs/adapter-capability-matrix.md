@@ -1,6 +1,6 @@
 # Adapter Capability Matrix
 
-> **Last verified**: 2026-05-13 | **hatch3r version**: 1.7.5
+> **Last verified**: 2026-05-19 | **hatch3r version**: 1.7.5
 
 Living reference for framework capabilities vs. adapter implementations. This document tracks what each adapter emits, what each platform supports natively, and where gaps remain.
 
@@ -45,7 +45,7 @@ Living reference for framework capabilities vs. adapter implementations. This do
 | **codex** | B | B | Y | -- | -- | Y | -- | -- | Y | Y | -- |
 | **gemini** | B | B | Y | -- | Y | Y | -- | -- | Y | Y | -- |
 | **windsurf** | Y | B | Y | -- | Y | Y | -- | -- | -- | Y | -- |
-| **amp** | B | B | Y | -- | ~ | Y | -- | -- | -- | Y | -- |
+| **amp** | B | B | ~ | -- | -- | Y | -- | -- | -- | Y | -- |
 | **opencode** | Y | Y | Y | -- | Y | Y | -- | -- | -- | Y | -- |
 | **aider** | B | B | Y | -- | -- | -- | -- | -- | -- | Y | -- |
 | **kiro** | Y | B | Y | -- | -- | Y | -- | -- | Y | Y | -- |
@@ -134,13 +134,13 @@ When `cliTools: false` the user can still select CLI tools during init / `hatch3
 
 ## Bridge Orchestration
 
-All adapters that emit bridge files (Cursor, Claude, Copilot, Gemini, Windsurf, Amp, AGENTS.md) now include **inline orchestration content** from a shared constant (`BRIDGE_ORCHESTRATION` in `src/cli/shared/agentsContent.ts`). This content comprises:
+All adapters that emit bridge files (Cursor, Claude, Copilot, Gemini, Windsurf, AGENTS.md) now include **inline orchestration content** from a shared constant (`BRIDGE_ORCHESTRATION` in `src/cli/shared/agentsContent.ts`). This content comprises:
 
 - **Mandatory Behaviors** — 6 directives (load skill, spawn researcher, spawn specialists, use Task tool, propagate rules, consult learnings)
 - **Agent Quick Reference** — Table of 17 agents with "When to Use"
 - **Canonical Structure** — Paths for rules, agents, skills, commands, MCP, policy
 
-Previously only the Cursor adapter inlined this content; others merely referenced `.agents/AGENTS.md`. Inlining ensures every platform receives orchestration guidance directly in context, improving instruction-following reliability. Codex and OpenCode reference `.agents/AGENTS.md` via config and do not emit bridge markdown files.
+Previously only the Cursor adapter inlined this content; others merely referenced `.agents/AGENTS.md`. Inlining ensures every platform receives orchestration guidance directly in context, improving instruction-following reliability. Codex and OpenCode reference `.agents/AGENTS.md` via config and do not emit bridge markdown files. **Amp** reads the shared root `AGENTS.md` written by `generateRootAgentsMd()` (with bridge orchestration inlined), so the Amp adapter does not emit a per-platform bridge file.
 
 ---
 
@@ -261,14 +261,15 @@ When omitted, the adapter falls back to sensible defaults so existing projects c
 
 ### Amp
 
+The Amp adapter's `doGenerate()` emits **only** `.amp/settings.json` (when MCP servers are configured). Rules, agents, and skills reach Amp through the shared root `AGENTS.md` bridge (written by `generateRootAgentsMd()` in init/update — not by this adapter) and through the canonical `.agents/` tree (populated by `copyHatch3rFiles()`); re-emitting via the adapter would corrupt SKILL.md frontmatter through the managed-block wrap (`safeWriteFile`'s `appendIfNoBlock` branch).
+
 | Capability | Output Path | Format |
 |------------|-------------|--------|
-| rules | `.amp/AGENTS.md` | Inlined into managed block (bridge) |
-| agents | `.amp/AGENTS.md` | Inlined into managed block (bridge) |
-| bridge | `.amp/AGENTS.md` | Inline orchestration (mandatory behaviors, agent roster, canonical structure) + canonical reference, above rules/agents |
-| skills | `.amp/skills/hatch3r-{id}/SKILL.md` | Raw content |
+| rules | `AGENTS.md` (root) | Inlined into managed block in the shared bridge (`generateRootAgentsMd`); adapter emits nothing. |
+| agents | `AGENTS.md` (root) | Inlined into managed block in the shared bridge (`generateRootAgentsMd`); adapter emits nothing. |
+| skills | `.agents/skills/hatch3r-{id}/SKILL.md` | Raw content in the canonical mirror (populated by `copyHatch3rFiles`); adapter emits nothing. |
 | commands | *(not emitted)* | Amp deprecated custom slash commands on 2026-01-29; skills are the documented replacement (see `https://ampcode.com/news/slashing-custom-commands`). |
-| mcp | `.amp/settings.json` | JSON `amp.mcpServers` object |
+| mcp | `.amp/settings.json` | JSON `amp.mcpServers` object — the **only** file the Amp adapter writes. |
 
 ### OpenCode
 
@@ -360,7 +361,7 @@ Some platforms natively read from `.agents/` paths, making adapter output unnece
 
 | Platform | Path | Notes |
 |----------|------|-------|
-| **Amp** | `.agents/skills/` | Amp discovers skills in `.agents/skills/` by convention. The adapter also writes to `.amp/skills/` for explicit registration. Skills are also Amp's replacement for custom slash commands (deprecated 2026-01-29). |
+| **Amp** | `.agents/skills/` | Amp discovers skills in `.agents/skills/` by convention; the canonical mirror is populated once by `copyHatch3rFiles()` during init/update. The adapter does not re-emit to `.amp/skills/` — re-emission would corrupt SKILL.md frontmatter via `safeWriteFile`'s `appendIfNoBlock` managed-block wrap. Skills are also Amp's replacement for custom slash commands (deprecated 2026-01-29). |
 | **Codex** | `AGENTS.md` (root) | Codex 2026 discovery precedence per scope: `AGENTS.override.md` -> `AGENTS.md` -> filenames in `project_doc_fallback_filenames`. hatch3r writes root `AGENTS.md` and registers `TEAM_GUIDE.md`, `.agents.md` as fallbacks in `.codex/config.toml`. `hatch3r status` warns when project-level `AGENTS.override.md` exists (it silently overrides hatch3r's AGENTS.md). |
 | **Windsurf** | `.agents/skills/` | Windsurf natively discovers skills in `.agents/skills/` for skill auto-discovery. The adapter also writes to `.windsurf/skills/` for explicit registration. |
 | **All** | `AGENTS.md` (root) | hatch3r generates a root `AGENTS.md` with managed blocks. Platforms that discover AGENTS.md (Amp, Codex, Windsurf, Cline) automatically read it. |

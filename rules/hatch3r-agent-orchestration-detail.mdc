@@ -2,6 +2,9 @@
 description: Extended orchestration reference — PipelineContext schemas, resilience protocols, observability integration, and auto-mode guardrails
 globs: ["**/.agents/**", "**/pipeline/**", "**/*orchestrat*", "**/*agent*"]
 alwaysApply: false
+precedence: normal
+detail_rule: true
+consumed_by: hatch3r-agent-orchestration
 ---
 # Agent Orchestration — Extended Reference
 

@@ -12,7 +12,7 @@ hatch3r is an open-source CLI (TypeScript, Commander.js) that generates tool-agn
 |-----------|----------|
 | `src/cli/commands/` | 14 CLI commands: init, sync, status, update, validate, verify, config, clean, add, worktree-setup, worktree-cleanup, cliTools, mcp, explain <!-- count auto-derived; see governance/inventory.json (cliCommands) --> |
 | `src/adapters/` | 15 platform adapters: cursor, claude, copilot, cline, windsurf, gemini, codex, opencode, amp, aider, kiro, goose, zed, amazonq, antigravity <!-- count auto-derived; see governance/inventory.json (adapters) --> |
-| `src/pipeline/` | 17 pipeline modules: adapterTimeout, adapterToolTranslator, agentIdentity, agentToolAllowlist, circuitBreaker, complianceVerification, diffHash, failureLog, mcpDescriptionScan, observability, phaseOutputSchema, phaseTimeout, pipelineContext, pipelineTimeout, promptGuard, retryWithBackoff, reviewLoop <!-- count auto-derived; see governance/inventory.json (pipeline) --> |
+| `src/pipeline/` | 18 pipeline modules: adapterTimeout, adapterToolTranslator, agentIdentity, agentToolAllowlist, circuitBreaker, complianceVerification, diffHash, failureLog, mcpDescriptionScan, observability, phaseOutputSchema, phaseTimeout, pipelineContext, pipelineTimeout, promptGuard, repoSubstitution, retryWithBackoff, reviewLoop <!-- count auto-derived; see governance/inventory.json (pipeline) --> |
 | `src/content/` | Content indexing, presets (minimal/standard/full), tag system |
 | `src/merge/` | Safe write (temp+rename atomic), managed block tracking |
 | `src/integrity/` | SHA-256 file integrity, manifest-level checksum |
@@ -68,11 +68,14 @@ Every change must serve at least one pillar. Full definitions: `governance/CONST
 | File | Purpose |
 |------|---------|
 | `governance/VISION.md` | North star: identity, audience, quality bar, principles |
-| `governance/CONSTITUTION.md` | Design rationale: 7 pillars, traceability matrix, lean thresholds |
+| `governance/CONSTITUTION.md` | Design rationale: 8 pillars (P1-P8), traceability matrix, lean thresholds |
 | `governance/AUDIT.md` | Audit prompt: 21 domains, 121 sub-agents, behavioral charter |
 | `governance/AUDIT-EXECUTE.md` | Execution: 4-wave model, regression gates, closed-loop phases |
 | `governance/RE-ENVISION.md` | Holistic governance sparring engine — 10 parallel layer SAs + 20-theme dialog; hybrid edit authority (direct-edit / CL-3 / §8 amendment) |
+| `governance/EVOLVE.md` | Cross-cycle assessment + prompt mechanics refinement |
+| `governance/pack-trust-model.md` | Trust tiers + signing methods for distributed packs (referenced from D15) |
 | `governance/audit/domains/D01-D21` | Domain definitions with sub-agent checklists |
+| `governance/audit/templates/` | Sub-agent role templates + `calibration-protocol.md` for finding scoring |
 
 Content fixes flow through the audit cycle (AUDIT.md then AUDIT-EXECUTE.md). No ad-hoc governance edits.
 
@@ -114,13 +117,18 @@ From `governance/CONSTITUTION.md` §2 P5:
 
 | Metric | Limit |
 |--------|-------|
-| CONSTITUTION.md | <=225 lines |
+| CONSTITUTION.md | <=250 lines (+25 per binding pillar; P8 baseline) |
+| VISION.md | <=250 lines |
 | AUDIT.md | <=600 lines |
 | AUDIT-EXECUTE.md | <=700 lines |
-| Domain file | 30-80 lines |
+| RE-ENVISION.md | <=550 lines |
+| EVOLVE.md | <=400 lines |
+| pack-trust-model.md | <=300 lines |
+| Domain file | 30-80 lines (SA ≤5); SA × 15 lines (SA >5) |
 | Cross-file duplication | <5% |
 | Anti-slop phrases | 0 per file |
 | Checklist items/sub-agent | 4-8 |
+| Governance total | <=3000 lines |
 
 ---
 

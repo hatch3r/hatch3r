@@ -172,6 +172,16 @@ jobs:
         if: matrix.os == 'ubuntu-latest' && matrix.node-version == 22
         run: npm run validate:rule-parity
 
+      # Cycle 9 C9-H75 (D18-F18.2.4 -> D16-F16.1.1 wiring sweep): every `*.ts`
+      # module under `src/pipeline/` and `src/integrity/` must be imported by
+      # at least one non-test file in `src/`, or declare the JSDoc tag
+      # `@library_export_only` in its leading block comment. Blocks the
+      # implemented-but-unwired pattern (D6/D7/D8/D12 cross-cut) from reaching
+      # main. Validator: `scripts/validate-wiring.ts`.
+      - name: Wiring drift check
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 22
+        run: npm run validate:wiring
+
       # Audit-state hygiene: finding-registry shape + invariants 1-7 from
       # AUDIT-EXECUTE.md §Finding Registry. Blocking once Phase 3 archival
       # tooling lands (plan-implementing-a-sofficticated-ancient-penguin.md).

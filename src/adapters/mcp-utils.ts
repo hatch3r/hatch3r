@@ -12,6 +12,24 @@ export interface McpServerEntry {
   _disabled?: boolean;
   /** D15 Medium (#15.44): Per-server timeout in milliseconds (default: 30000). */
   _timeout?: number;
+  /**
+   * C9-M34 (D15 / Pillar P6): SHA-256 hash of the expected remote endpoint
+   * artifact (response body, manifest, or TOFU-on-first-contact certificate
+   * SPKI hash, depending on operator policy). Required on HTTP transports
+   * (`url` is set, `command` is not) unless `_trust_bypass: true` is also
+   * set. Format: 64 lowercase hex chars, optionally prefixed with
+   * `"sha256:"`. See {@link validateMcpHttpEndpoint}.
+   */
+  _pinned_sha256?: string;
+  /**
+   * C9-M34 (D15 / Pillar P6): Explicit operator opt-out from HTTP-endpoint
+   * pinning. When set to literal `true`, {@link validateMcpHttpEndpoint}
+   * accepts the entry but {@link validateMcpEntry} emits a warning so the
+   * bypass is auditable. Use only when pinning is impossible (e.g., a
+   * server with rotating content) and the operator accepts the upstream
+   * compromise risk.
+   */
+  _trust_bypass?: boolean;
 }
 
 /** Default MCP server request timeout in milliseconds. */
@@ -352,6 +370,22 @@ export function validateMcpEntry(
     }
   }
 
+  // C9-M34 (D15 / Pillar P6): Enforce SHA-256 pin or explicit trust-bypass
+  // on HTTP-transport entries. Policy violations surface as warnings on the
+  // standard validation path; adapters can also call validateMcpHttpEndpoint
+  // directly to refuse generation. Bypassed entries get an audit warning so
+  // operators see the opt-out in CI logs.
+  const httpPolicy = validateMcpHttpEndpoint(entry);
+  if (!httpPolicy.ok && httpPolicy.reason) {
+    warnings.push(`MCP server "${name}" ${httpPolicy.reason}`);
+  } else if (entry._trust_bypass === true && entry.url && !entry.command) {
+    warnings.push(
+      `MCP server "${name}" HTTP endpoint "${entry.url}" pinning bypassed ` +
+        `via _trust_bypass: true. Endpoint is trusted on faith — operator ` +
+        `accepts upstream-compromise risk.`,
+    );
+  }
+
   // D15 Medium (#15.44): Validate timeout if specified
   if (entry._timeout !== undefined) {
     if (typeof entry._timeout !== "number" || entry._timeout <= 0) {
@@ -422,6 +456,113 @@ export function checkVersionPin(
   return null;
 }
 
+/**
+ * Pattern for a valid SHA-256 pin value: 64 lowercase hex chars, optionally
+ * prefixed with `sha256:`. Mirrors the handoff integrity format used in
+ * `src/content/handoffs/validation.ts` for consistency across the codebase.
+ *
+ * Origin: C9-M34 (D15 / Pillar P6).
+ */
+const VALID_SHA256_PIN = /^(?:sha256:)?[0-9a-f]{64}$/;
+
+/**
+ * Result of an HTTP-endpoint policy check.
+ *
+ * `ok: true` means the entry passes the policy and generation may proceed.
+ * `ok: false` carries a `reason` string suitable for surfacing to operators
+ * via warnings or error messages. Adapters that consume MCP entries must
+ * refuse to emit a server config whose endpoint policy returns `ok: false`.
+ *
+ * Origin: C9-M34 (D15 / Pillar P6).
+ */
+export interface McpHttpEndpointResult {
+  ok: boolean;
+  reason?: string;
+}
+
+/**
+ * Enforce SHA-256 pinning policy for MCP servers using an HTTP transport.
+ *
+ * An HTTP-transport entry is one where `url` is set and `command` is not
+ * — these are remote endpoints reached over the network rather than
+ * locally-spawned processes. Without pinning, the agent talks to whatever
+ * the URL resolves to on each invocation, inheriting any upstream
+ * compromise (server takeover, DNS hijack, malicious update push).
+ *
+ * Policy (returns `{ ok: true }` iff one holds):
+ * 1. Entry is not HTTP transport (has a `command`, or has no `url`).
+ * 2. Entry has `_pinned_sha256` matching {@link VALID_SHA256_PIN}.
+ * 3. Entry has `_trust_bypass: true` (explicit operator opt-out).
+ *
+ * All other shapes return `{ ok: false, reason }` and adapters must refuse
+ * to generate output for the server. `_pinned_sha256` set to a malformed
+ * value is rejected — silently accepting it would defeat the pin.
+ * `_trust_bypass` set to any value other than literal `true` is rejected
+ * — `false`/`undefined` mean pinning is required; non-boolean is a
+ * misconfiguration.
+ *
+ * Origin: C9-M34 (D15 / Pillar P6). The 2025 npm maintainer-account
+ * incidents and OWASP Top 10 for Agentic Apps 2026 document that
+ * unauthenticated remote artifact fetching is the dominant supply-chain
+ * vector for agent runtimes; pinning at the endpoint layer is the
+ * remote-transport analog of the version-pin gate already enforced for
+ * on-demand fetch launchers (C9-H53).
+ */
+export function validateMcpHttpEndpoint(
+  server: McpServerEntry,
+): McpHttpEndpointResult {
+  // Non-HTTP entries (command-based stdio transports, or empty entries
+  // that will fail elsewhere) are out of scope for endpoint pinning.
+  const isHttpTransport = !!server.url && !server.command;
+  if (!isHttpTransport) {
+    return { ok: true };
+  }
+
+  // Explicit operator opt-out. Strict literal `true` — any other value
+  // (string "true", number 1, etc.) is treated as a misconfiguration and
+  // rejected so silent type coercion cannot bypass the policy.
+  if (server._trust_bypass === true) {
+    return { ok: true };
+  }
+  if (
+    server._trust_bypass !== undefined &&
+    server._trust_bypass !== false
+  ) {
+    return {
+      ok: false,
+      reason:
+        `has invalid _trust_bypass value. ` +
+        `Must be boolean true (explicit opt-out) or false/omitted (require pin).`,
+    };
+  }
+
+  // Pinning path: _pinned_sha256 must be present AND well-formed.
+  if (server._pinned_sha256 === undefined) {
+    return {
+      ok: false,
+      reason:
+        `HTTP endpoint "${server.url}" missing _pinned_sha256. ` +
+        `HTTP transports require an immutable SHA-256 pin of the remote ` +
+        `endpoint to defend against upstream compromise, or _trust_bypass: true ` +
+        `to explicitly opt out. See C9-M34 (Pillar P6).`,
+    };
+  }
+  if (
+    typeof server._pinned_sha256 !== "string" ||
+    !VALID_SHA256_PIN.test(server._pinned_sha256)
+  ) {
+    return {
+      ok: false,
+      reason:
+        `HTTP endpoint "${server.url}" has malformed _pinned_sha256: ` +
+        `"${String(server._pinned_sha256)}". Expected 64 lowercase hex ` +
+        `chars, optionally prefixed with "sha256:".`,
+    };
+  }
+
+  return { ok: true };
+}
+
 // Env var keys must follow POSIX convention: letters, digits, and underscores.
 // Keys with other characters are rejected to prevent injection.
 const VALID_ENV_KEY = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -430,6 +571,37 @@ const VALID_ENV_KEY = /^[A-Za-z_][A-Za-z0-9_]*$/;
 // Names with other special characters are rejected to prevent path traversal,
 // injection, or config key manipulation.
 const VALID_SERVER_NAME = /^[a-zA-Z0-9_-]+$/;
+
+/**
+ * Characters that are unsafe in an MCP server `args[]` token.
+ *
+ * Origin: C9-M31 (D15 / Pillar P6). The existing `SHELL_METACHAR` check inside
+ * {@link validateMcpEntry} only **warns** on `|;&`+backtick`$()`. That is
+ * adequate for human-review surfaces but does not stop the generation step,
+ * so a malformed MCP config can still emit an adapter artifact whose
+ * launcher-level shell will expand the metacharacters at child-process
+ * spawn time. C9-M31 adds a stricter, refusal-grade scan covering:
+ *
+ *   - The original shell-metacharacter set: `| ; & ` $ ( )`
+ *   - Redirection / quoting that survives most shells: `< > \ ' "`
+ *   - Newline / carriage-return that lets a single arg become multiple
+ *     shell tokens or break out of a quoted context: `\n \r`
+ *   - All other ASCII control characters `\x00-\x1f` and DEL `\x7f`, which
+ *     no legitimate MCP arg needs and which routinely appear in
+ *     adversarial inputs that probe argv parsers.
+ *
+ * Any hit causes {@link validateMcpServerArgs} to return a refusal message;
+ * {@link readMcpConfig} then **drops** the server entry (parallel to the
+ * `validateServerName` reject path) rather than emitting a warning-only
+ * adapter artifact.
+ *
+ * Source basis (D15 trust tier ≥2):
+ *   - Bash reference manual §3.1.2 "Quoting" — control-flow metacharacters.
+ *   - OWASP "Command Injection Prevention Cheat Sheet" (2024) — neutralized
+ *     character classes for spawn-based command construction.
+ */
+export const DANGEROUS_ARG_CHARS =
+  /[ -|;&`$()<>\\'"]/;
 
 /**
  * Validate an MCP server name. Returns a warning string if invalid, or null if valid.

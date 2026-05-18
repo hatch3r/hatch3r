@@ -13,14 +13,16 @@ import { verifyIntegrity } from "../../integrity/index.js";
  */
 async function preflightIntegrityCheck(rootDir: string, force: boolean): Promise<void> {
   const agentsDir = join(rootDir, AGENTS_DIR);
-  const results = await verifyIntegrity(agentsDir);
-  if (results.length === 0) return; // No manifest yet — nothing to verify.
+  // C9-M16: discriminated-union return — `ok: true` covers both "no
+  // manifest yet" (manifest=null) and "manifest verified clean", so a
+  // single short-circuit on `verification.ok` replaces the prior
+  // length-zero + post-filter pair.
+  const verification = await verifyIntegrity(agentsDir);
+  if (verification.ok) return; // No manifest yet OR no drift — nothing to gate on.
 
-  const modified = results.filter((r) => r.status === "modified");
-  const missing = results.filter((r) => r.status === "missing");
-  const tampered = results.filter((r) => r.status === "tampered");
-  const driftDetected = modified.length > 0 || missing.length > 0 || tampered.length > 0;
-  if (!driftDetected) return;
+  const modified = verification.errors.modified;
+  const missing = verification.errors.missing;
+  const tampered = verification.errors.tampered;
 
   warn("Integrity issues detected before add:");
   for (const r of tampered) warn(`  TAMPERED: ${r.file}`);
