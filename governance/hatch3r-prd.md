@@ -1,18 +1,20 @@
-# hatch3r — Product Requirements Document v4.5
+# hatch3r — Product Requirements Document v4.6
 
 **Product name:** hatch3r
 **Mascot:** a tiny T-rex hatchling peeking out of an egg
 **Primary slogan:** Crack the egg. Hatch better agents.
-**Doc version:** v4.5
-**Date:** 2026-04-21 (Europe/Berlin)
-**Supersedes:** hatch3r PRD v4.4 (2026-04-20)
-**Last updated:** 2026-04-21
+**Doc version:** v4.6
+**Date:** 2026-05-18 (Europe/Berlin)
+**Supersedes:** hatch3r PRD v4.5 (2026-04-21)
+**Last updated:** 2026-05-18
 
 ---
 
 ## 1. Executive Summary
 
-> **Posture (post Cycle 8, 2026-04-21):** Ship Ready — overall audit score 83.74/100, 0 Critical findings, 15 platform adapters wired, 19-domain governance audit cycle operational, resilience pipeline and trust-delegation per-adapter `tools:` emission landed in Cycle 7.5 W2B2 (H41/H44/H45/H46), Cycle 8 Wave 3 reached terminal status on all 40 targeted Medium findings (38 done + 1 partial by plan + 1 already-resolved; 3 initially-rolled-back findings re-landed in commit `0a03a92`) with the reviewer verdict upgraded to SHIP.
+> **Posture (Cycle 9 close, 2026-05-18):** Not Ready (distribution); Ship Ready (technical foundation). Cycle 9 audit (21 domains, 121 sub-agents) surfaced 538 post-dedup findings: 8 Critical, 89 High, 228 Medium, 155 Low, 58 Info. Overall formula score 25.3/100 (21-domain weighted); Score Band = Not Ready because the 8 Criticals trigger the severity-ceiling cap regardless of formula score. Critical clusters: D17 strategic positioning (4), D21 operational currency (2), D2 trust delegation (1), D18 PRD self-consistency (1). Wave 1 (Critical) outcomes as of this rewrite: 4 of 8 Criticals resolved by agent execution — C9-C1 (D2 ASI02) added explicit `hatch3r-creator` denylist policy and CI parity test; C9-C7 (D21) replaced archived `xsv` with maintained `qsv` across `cliTools.ts` registry and adapter outputs; C9-C8 (D21) added jq CVE-2026-32316 securityNote with mitigation guidance; C9-C6 (this rewrite, D18 F18.1.1) closes the PRD-vs-audit self-contradiction flagged under AUDIT.md Behavioral Charter directive 5. 4 human-only Criticals remain open and route outside this wave: C9-C2 P9 pillar amendment via `/h4tcher-re-envision` (CONSTITUTION §8 framework-owner edit), C9-C3 AAIF/MCP-registry outreach (split emission-acceptance vs engagement metrics), C9-C4 positioning rewrite vs Cursor / Copilot / Roo Code, C9-C5 90-day distribution sequencing plan. Technical foundation holds: 3162/3162 tests passing, 86.45% statement coverage, atomic temp+rename write contract intact, OWASP ASI01–10 compliance restored after C9-C1. Per D17 holistic note: Ship Ready on technical quality; Not Distribution Ready until the 7 preconditions clear.
+>
+> **Distribution recommendation:** GO-WITH-CONDITIONS — 7 preconditions must close in the 90-day window before unconditional GO (C9-C5 sequencing plan owns the schedule).
 
 hatch3r is an open-source CLI and Cursor plugin that installs a battle-tested, tool-agnostic agentic coding setup into any repository under `/.agents/`, then generates optimal native configuration for the developer's selected coding tool(s): Cursor, GitHub Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline/Roo Code, Aider, Kiro, Goose, Zed, Amazon Q, Antigravity, and a standalone AGENTS.md output.
 

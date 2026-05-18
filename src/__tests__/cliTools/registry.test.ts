@@ -63,16 +63,42 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
         "mods",
         "playwright",
         "podman",
+        "qsv",
         "ripgrep",
         "rtk",
         "sd",
         "stagehand",
         "taplo",
-        "xsv",
         "yq",
         "zstd",
       ]
     ` );
+  });
+
+  it("registry replaces archived xsv with active qsv fork (D21-SA21.3-F01)", () => {
+    // BurntSushi/xsv was archived 2025-04-24; jqnatividad/qsv is the active
+    // successor with a superset of xsv's command set. The registry must not
+    // ship the archived id.
+    const keys = Object.keys(AVAILABLE_CLI_TOOLS);
+    expect(keys).toContain("qsv");
+    expect(keys).not.toContain("xsv");
+
+    const qsv = (AVAILABLE_CLI_TOOLS as Record<string, CliToolMeta | undefined>).qsv;
+    expect(qsv).toBeDefined();
+    expect(qsv!.id).toBe("qsv");
+    expect(qsv!.tier).toBe(2);
+    expect(qsv!.trigger).toBe("data-project");
+    expect(qsv!.homepage).toContain("jqnatividad/qsv");
+  });
+
+  it("jq entry carries a securityNote citing CVE-2026-32316 (D21-SA21.3-F02)", () => {
+    // jq 1.8.1 ships with CVE-2026-32316 (heap buffer overflow) plus six
+    // additional CVEs disclosed 2026-04-15 with no tagged release yet. The
+    // registry surfaces this via securityNote so the picker/installer/skill
+    // generator can warn downstream consumers.
+    const jq = AVAILABLE_CLI_TOOLS.jq;
+    expect(jq.securityNote).toBeDefined();
+    expect(jq.securityNote).toContain("CVE-2026-32316");
   });
 
   it("every entry has id/probe/description/category/tier/install/homepage", () => {

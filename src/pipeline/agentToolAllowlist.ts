@@ -188,6 +188,11 @@ export const AGENT_TOOL_POLICIES: readonly AgentToolPolicy[] = [
     allowedTools: ["read", "search"],
     description: "Learnings loading: file reading and code search only. No write, execute, git, board, or web.",
   },
+  {
+    agentId: "hatch3r-creator",
+    allowedTools: ["read", "search", "write", "execute"],
+    description: "User-content authoring: read templates, search for ID collisions, write artifacts under .agents/user/, execute mkdir -p for directory creation. No git, board, web, or mcp — external research is out of scope per the agent's documented tool allowlist (agents/hatch3r-creator.md §Tool Allowlist). Closes finding C9-C1 (ASI02 privilege-escalation gap).",
+  },
 ] as const;
 
 // ── Lookup helpers ───────────────────────────────────────────────

@@ -36,7 +36,7 @@ Count rows across a Parquet glob — no schema declaration, no import step.
 ```bash
 duckdb -c "COPY (SELECT * FROM 'in.csv' WHERE active) TO 'out.parquet' (FORMAT PARQUET)"
 ```
-Filter a CSV and emit columnar Parquet in one pass; ideal for downstream `xsv`/`jq` chains.
+Filter a CSV and emit columnar Parquet in one pass; ideal for downstream `qsv`/`jq` chains.
 
 ```bash
 duckdb -c "ATTACH 'app.sqlite' AS sqlite; SELECT * FROM sqlite.users LIMIT 10"
@@ -55,7 +55,7 @@ Aggregate over a CSV directory; DuckDB streams the read so memory stays bounded.
 
 ## Wrong Choice When
 
-- The CSV has <10k rows and you only need to slice/select columns — `xsv` (Tier 2 sibling) starts faster and has no install dependency in many environments.
+- The CSV has <10k rows and you only need to slice/select columns — `qsv` (Tier 2 sibling) starts faster and has no install dependency in many environments.
 - The workload is transactional (writes from multiple clients, ACID across rows) — use SQLite or Postgres; DuckDB is read-optimized OLAP.
 - A single `jq` filter would do the job (the data is already JSON, the operation is field extraction) — skip the SQL detour.
 
@@ -63,7 +63,7 @@ Aggregate over a CSV directory; DuckDB streams the read so memory stays bounded.
 
 | Tool | When to prefer |
 |------|----------------|
-| `xsv` | Single CSV file, <100MB, just need slice/select/sort. |
+| `qsv` | Single CSV file, <100MB, just need slice/select/sort. |
 | `sqlite3` | Need OLTP writes or row-level updates rather than analytics. |
 | `python -m pandas` | Already in a Python script and the data fits in memory. |
 

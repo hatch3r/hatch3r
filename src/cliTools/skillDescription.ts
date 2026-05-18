@@ -42,7 +42,7 @@ export const TOOL_TRIGGERS: Record<string, string> = {
   zstd: "high-ratio compression with single-digit-millisecond decompress speeds",
   playwright: "end-to-end browser test execution capturing screenshots and traces",
   duckdb: "ad-hoc analytical SQL over local Parquet, CSV, and JSON files",
-  xsv: "slicing huge CSV documents by row range or column without materialising the dataset",
+  qsv: "slicing huge CSV documents by row range or column without materialising the dataset",
   taplo: "formatting and linting pyproject.toml or Cargo.toml manifests",
   glab: "GitLab merge-request review, pipeline retries, and issue triage",
   "az-devops": "Azure DevOps work-item edits, repo pushes, and pipeline runs",

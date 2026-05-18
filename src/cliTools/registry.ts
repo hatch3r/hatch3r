@@ -60,6 +60,13 @@ export interface CliToolMeta {
   trigger?: Tier2Trigger;
   /** Free-form caveat string (e.g. RTK pipe-output corruption). */
   caveat?: string;
+  /**
+   * Security advisory note — populated when the upstream tool has an active
+   * CVE that ships in the recommended install version. Surfaced verbatim by
+   * the picker/installer and embedded in the generated skill's Known Issues
+   * section. Format: `CVE-YYYY-NNNNN: <one-line impact summary>`.
+   */
+  securityNote?: string;
   homepage: string;
 }
 
@@ -108,6 +115,11 @@ export const AVAILABLE_CLI_TOOLS = {
       linux: [{ manager: "apt", command: "sudo apt install jq" }],
       win: [{ manager: "scoop", command: "scoop install jq" }],
     },
+    // Release-watch: monitor jqlang/jq releases for a tagged build past 1.8.1
+    // that includes the upstream patches for CVE-2026-32316 et al; remove the
+    // securityNote once the recommended install version is on a patched tag.
+    securityNote:
+      "CVE-2026-32316: jq 1.8.1 ships with a heap buffer overflow in expression evaluation; six additional CVEs disclosed 2026-04-15 are patched on main but no tagged release yet. Avoid invoking on untrusted JSON inputs until the next jq tagged release supersedes 1.8.1.",
     homepage: "https://github.com/jqlang/jq",
   },
   yq: {
@@ -232,19 +244,19 @@ export const AVAILABLE_CLI_TOOLS = {
     },
     homepage: "https://duckdb.org/",
   },
-  xsv: {
-    id: "xsv",
-    probe: "xsv",
-    description: "Fast CSV toolkit (slice, search, join, stats)",
+  qsv: {
+    id: "qsv",
+    probe: "qsv",
+    description: "Fast CSV toolkit (slice, search, join, stats, 80+ commands) — actively-maintained xsv successor",
     category: "data",
     tier: 2,
     trigger: "data-project",
     install: {
-      mac: [{ manager: "brew", command: "brew install xsv" }],
-      linux: [{ manager: "cargo", command: "cargo install xsv" }],
-      win: [{ manager: "scoop", command: "scoop install xsv" }],
+      mac: [{ manager: "brew", command: "brew install qsv" }],
+      linux: [{ manager: "cargo", command: "cargo install qsv --locked --features all_features" }],
+      win: [{ manager: "cargo", command: "cargo install qsv --locked --features all_features" }],
     },
-    homepage: "https://github.com/BurntSushi/xsv",
+    homepage: "https://github.com/jqnatividad/qsv",
   },
   taplo: {
     id: "taplo",
@@ -490,7 +502,7 @@ export const TIER1_CLI_TOOLS: readonly CliToolId[] = [
  */
 export const TIER2_CLI_TOOLS_BY_TRIGGER: Readonly<Record<Tier2Trigger, readonly CliToolId[]>> = {
   "web-project": ["playwright"],
-  "data-project": ["duckdb", "xsv"],
+  "data-project": ["duckdb", "qsv"],
   "rust-project": ["taplo"],
   "python-project": ["taplo"],
   "docker-detected": ["docker"],

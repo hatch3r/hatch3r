@@ -7,14 +7,25 @@
         "revision_id": "P3-r1",
         "name": "Adapter & MCP Currency",
         "effective_cycles": "<=9",
-        "governance_refs": ["AUDIT.md D9", "AUDIT.md D2", "charter directive 12"],
+        "governance_refs": [
+          "AUDIT.md D9",
+          "AUDIT.md D2",
+          "charter directive 12"
+        ],
         "deprecated_at": "2026-05-15"
       },
       {
         "revision_id": "P3-r2",
         "name": "Adapter & External Tool Currency",
         "effective_cycles": ">=10",
-        "governance_refs": ["AUDIT.md D9", "AUDIT.md D21", "AUDIT.md D2.4", "charter directive 12", "AUDIT.md D15.5", "AUDIT.md D15.7"],
+        "governance_refs": [
+          "AUDIT.md D9",
+          "AUDIT.md D21",
+          "AUDIT.md D2.4",
+          "charter directive 12",
+          "AUDIT.md D15.5",
+          "AUDIT.md D15.7"
+        ],
         "effective_at": "2026-05-15",
         "retag_policy": "retag-on-touch: only when a cycle-<=9 finding is reopened does P3-r2 attach"
       }
@@ -13174,6 +13185,414 @@
       "execution_tier": 3,
       "central_path": false,
       "false_positive": false
+    },
+    {
+      "finding_id": "C9-C1",
+      "source_id": "D2-SA2.4-01",
+      "cycle": 9,
+      "domain": "D2: Adapter Infrastructure",
+      "severity": "Critical",
+      "description": "hatch3r-creator missing from AGENT_TOOL_POLICIES; getAgentToolPolicy returns undefined; Claude Code documented behavior on omission inherits all tools — full privilege escalation on a content-authoring agent. ASI02 mitigation gap. Add policy + regression test.",
+      "effort": "S",
+      "owner": "Agent",
+      "depends_on": null,
+      "dedup_action": "keep",
+      "dedup_tier": null,
+      "dedup_rationale": null,
+      "disposition": "targeted",
+      "pillar": [
+        "P6",
+        "P3"
+      ],
+      "pillar_revision_id": "P3-r1",
+      "finding_type": "code",
+      "files": [
+        "src/pipeline/agentToolAllowlist.ts",
+        "src/__tests__/pipeline/agentToolAllowlist.test.ts"
+      ],
+      "work_unit": "C9-C1",
+      "wave": 1,
+      "sub_wave_batch": null,
+      "execution_status": "done",
+      "commit_sha": null,
+      "rollback_reason": null,
+      "rollback_level": null,
+      "reviewer_verdict": null,
+      "reviewer_notes": null,
+      "false_positive": false,
+      "confidence": "high",
+      "causal_chain_depth": 4,
+      "sources": [
+        {
+          "url": "https://docs.claude.com/en/docs/claude-code/sub-agents",
+          "accessed": "2026-05-18",
+          "author": "Anthropic",
+          "trust_tier": "tier-1"
+        }
+      ],
+      "execution_tier": 3,
+      "tier1_pattern": null,
+      "central_path": false,
+      "feature_status": {
+        "implemented": true,
+        "wired": false,
+        "cli_registered": true,
+        "tested": false
+      }
+    },
+    {
+      "finding_id": "C9-C2",
+      "source_id": "D17-F17.1.1",
+      "cycle": 9,
+      "domain": "D17: Competition & Market",
+      "severity": "Critical",
+      "description": "Strategic-positioning gap unowned by any Binding Pillar; CL-3 P9 'Distribution & Adoption Discipline' or explicit P3 clause needed; route via /h4tcher-re-envision.",
+      "effort": "L",
+      "owner": "Human",
+      "depends_on": null,
+      "dedup_action": "keep",
+      "dedup_tier": null,
+      "dedup_rationale": null,
+      "disposition": "human_only",
+      "pillar": [
+        "P4",
+        "P5"
+      ],
+      "finding_type": "governance",
+      "files": [
+        "governance/CONSTITUTION.md",
+        "governance/VISION.md"
+      ],
+      "work_unit": null,
+      "wave": null,
+      "sub_wave_batch": null,
+      "execution_status": "never_attempted",
+      "commit_sha": null,
+      "rollback_reason": null,
+      "rollback_level": null,
+      "reviewer_verdict": null,
+      "reviewer_notes": "Human-only: pillar amendment requires framework-owner direct edit via /h4tcher-re-envision per CONSTITUTION §8",
+      "false_positive": false,
+      "confidence": "high",
+      "causal_chain_depth": 5,
+      "sources": [],
+      "execution_tier": 3,
+      "tier1_pattern": null,
+      "central_path": false,
+      "feature_status": {
+        "implemented": false,
+        "wired": false,
+        "cli_registered": false,
+        "tested": false
+      }
+    },
+    {
+      "finding_id": "C9-C3",
+      "source_id": "D17-F17.2.1",
+      "cycle": 9,
+      "domain": "D17: Competition & Market",
+      "severity": "Critical",
+      "description": "AAIF + MCP working-group subscription; AGNTCon talk proposal; Silver-tier eval.",
+      "effort": "S+M",
+      "owner": "Human",
+      "depends_on": null,
+      "dedup_action": "keep",
+      "dedup_tier": null,
+      "dedup_rationale": null,
+      "disposition": "human_only",
+      "pillar": [
+        "P5"
+      ],
+      "finding_type": "outreach",
+      "files": [],
+      "work_unit": null,
+      "wave": null,
+      "sub_wave_batch": null,
+      "execution_status": "never_attempted",
+      "commit_sha": null,
+      "rollback_reason": null,
+      "rollback_level": null,
+      "reviewer_verdict": null,
+      "reviewer_notes": "Human-only: external outreach to AAIF/MCP standards bodies",
+      "false_positive": false,
+      "confidence": "high",
+      "causal_chain_depth": 3,
+      "sources": [],
+      "execution_tier": 3,
+      "tier1_pattern": null,
+      "central_path": false,
+      "feature_status": {
+        "implemented": false,
+        "wired": false,
+        "cli_registered": false,
+        "tested": false
+      }
+    },
+    {
+      "finding_id": "C9-C4",
+      "source_id": "D17-F17.3.1",
+      "cycle": 9,
+      "domain": "D17: Competition & Market",
+      "severity": "Critical",
+      "description": "Rewrite README + npm description + website tagline; author docs/positioning.md + docs/comparison.md.",
+      "effort": "M",
+      "owner": "Human",
+      "depends_on": null,
+      "dedup_action": "keep",
+      "dedup_tier": null,
+      "dedup_rationale": null,
+      "disposition": "human_only",
+      "pillar": [
+        "P1",
+        "P4"
+      ],
+      "finding_type": "docs",
+      "files": [
+        "README.md",
+        "package.json",
+        "docs/positioning.md",
+        "docs/comparison.md"
+      ],
+      "work_unit": null,
+      "wave": null,
+      "sub_wave_batch": null,
+      "execution_status": "never_attempted",
+      "commit_sha": null,
+      "rollback_reason": null,
+      "rollback_level": null,
+      "reviewer_verdict": null,
+      "reviewer_notes": "Human-only: strategic positioning rewrite",
+      "false_positive": false,
+      "confidence": "high",
+      "causal_chain_depth": 4,
+      "sources": [],
+      "execution_tier": 3,
+      "tier1_pattern": null,
+      "central_path": false,
+      "feature_status": {
+        "implemented": false,
+        "wired": false,
+        "cli_registered": false,
+        "tested": false
+      }
+    },
+    {
+      "finding_id": "C9-C5",
+      "source_id": "D17-F17.3.2",
+      "cycle": 9,
+      "domain": "D17: Competition & Market",
+      "severity": "Critical",
+      "description": "90-day distribution sequencing: positioning → pack-trust-model → Anthropic marketplace → Cursor marketplace → AGNTCon talk.",
+      "effort": "Multi-cycle",
+      "owner": "Human",
+      "depends_on": [
+        "C9-C4",
+        "C9-C7"
+      ],
+      "dedup_action": "keep",
+      "dedup_tier": null,
+      "dedup_rationale": null,
+      "disposition": "human_only",
+      "pillar": [
+        "P4",
+        "P5"
+      ],
+      "finding_type": "planning",
+      "files": [],
+      "work_unit": null,
+      "wave": null,
+      "sub_wave_batch": null,
+      "execution_status": "never_attempted",
+      "commit_sha": null,
+      "rollback_reason": null,
+      "rollback_level": null,
+      "reviewer_verdict": null,
+      "reviewer_notes": "Human-only: multi-cycle distribution plan",
+      "false_positive": false,
+      "confidence": "high",
+      "causal_chain_depth": 4,
+      "sources": [],
+      "execution_tier": 3,
+      "tier1_pattern": null,
+      "central_path": false,
+      "feature_status": {
+        "implemented": false,
+        "wired": false,
+        "cli_registered": false,
+        "tested": false
+      }
+    },
+    {
+      "finding_id": "C9-C6",
+      "source_id": "D18-F18.1.1",
+      "cycle": 9,
+      "domain": "D18: PRD, Roadmap & Distribution",
+      "severity": "Critical",
+      "description": "PRD §1 Executive Summary asserts 'Ship Ready, 0 Critical findings' from Cycle 8 close (2026-04-21); Cycle 9 enumerates 8 Criticals; PRD self-description contradicts audit reality. Rewrite §1 at Cycle 9 close reflecting current state (8 Criticals, post-execution updated state).",
+      "effort": "S",
+      "owner": "Agent",
+      "depends_on": [
+        "C9-C1",
+        "C9-C7",
+        "C9-C8"
+      ],
+      "dedup_action": "keep",
+      "dedup_tier": null,
+      "dedup_rationale": null,
+      "disposition": "targeted",
+      "pillar": [
+        "P5",
+        "P4"
+      ],
+      "finding_type": "docs",
+      "files": [
+        "governance/hatch3r-prd.md"
+      ],
+      "work_unit": "C9-C6",
+      "wave": 1,
+      "sub_wave_batch": null,
+      "execution_status": "done",
+      "commit_sha": null,
+      "rollback_reason": null,
+      "rollback_level": null,
+      "reviewer_verdict": null,
+      "reviewer_notes": null,
+      "false_positive": false,
+      "confidence": "high",
+      "causal_chain_depth": 3,
+      "sources": [],
+      "execution_tier": 3,
+      "tier1_pattern": null,
+      "central_path": false,
+      "feature_status": {
+        "implemented": true,
+        "wired": true,
+        "cli_registered": false,
+        "tested": false
+      }
+    },
+    {
+      "finding_id": "C9-C7",
+      "source_id": "D21-SA21.3-F01",
+      "cycle": 9,
+      "domain": "D21: CLI Tool Currency",
+      "severity": "Critical",
+      "description": "xsv archived 2025-04-24 (BurntSushi/xsv) yet shipped as tier-2 default-on; replace with qsv (jqnatividad/qsv, active fork with 80+ commands). Update registry.ts entry + skill body + alternatives-table updates in miller/duckdb skills.",
+      "effort": "M",
+      "owner": "Agent",
+      "depends_on": null,
+      "dedup_action": "keep",
+      "dedup_tier": null,
+      "dedup_rationale": null,
+      "disposition": "targeted",
+      "pillar": [
+        "P3"
+      ],
+      "pillar_revision_id": "P3-r1",
+      "finding_type": "code",
+      "files": [
+        "src/cliTools/registry.ts",
+        "skills/hatch3r-xsv/SKILL.md",
+        "skills/hatch3r-miller/SKILL.md",
+        "skills/hatch3r-duckdb/SKILL.md",
+        "src/__tests__/cliTools/registry.test.ts"
+      ],
+      "work_unit": "file-lock:src/cliTools/registry.ts",
+      "wave": 1,
+      "sub_wave_batch": null,
+      "execution_status": "done",
+      "commit_sha": null,
+      "rollback_reason": null,
+      "rollback_level": null,
+      "reviewer_verdict": null,
+      "reviewer_notes": null,
+      "false_positive": false,
+      "confidence": "high",
+      "causal_chain_depth": 4,
+      "sources": [
+        {
+          "url": "https://github.com/BurntSushi/xsv",
+          "accessed": "2026-05-18",
+          "author": "BurntSushi",
+          "trust_tier": "tier-1"
+        },
+        {
+          "url": "https://github.com/jqnatividad/qsv",
+          "accessed": "2026-05-18",
+          "author": "jqnatividad",
+          "trust_tier": "tier-1"
+        }
+      ],
+      "execution_tier": 3,
+      "tier1_pattern": null,
+      "central_path": false,
+      "feature_status": {
+        "implemented": true,
+        "wired": true,
+        "cli_registered": true,
+        "tested": true
+      }
+    },
+    {
+      "finding_id": "C9-C8",
+      "source_id": "D21-SA21.3-F02",
+      "cycle": 9,
+      "domain": "D21: CLI Tool Currency",
+      "severity": "Critical",
+      "description": "jq 1.8.1 ships with CVE-2026-32316 heap buffer overflow (plus 6 additional jq CVEs disclosed 2026-04-15) — patches committed but no tagged release. Add securityNote to jq registry entry citing CVE-2026-32316; skill SKILL.md Known Issues section; release-watch automation. Bundle 6 additional jq CVEs (CVE-2026-40612 et al) per C9-H87.",
+      "effort": "S+M",
+      "owner": "Agent",
+      "depends_on": null,
+      "dedup_action": "keep",
+      "dedup_tier": null,
+      "dedup_rationale": null,
+      "disposition": "targeted",
+      "pillar": [
+        "P3",
+        "P6"
+      ],
+      "pillar_revision_id": "P3-r1",
+      "finding_type": "code",
+      "files": [
+        "src/cliTools/registry.ts",
+        "skills/hatch3r-jq/SKILL.md",
+        "src/__tests__/cliTools/registry.test.ts"
+      ],
+      "work_unit": "file-lock:src/cliTools/registry.ts",
+      "wave": 1,
+      "sub_wave_batch": null,
+      "execution_status": "done",
+      "commit_sha": null,
+      "rollback_reason": null,
+      "rollback_level": null,
+      "reviewer_verdict": null,
+      "reviewer_notes": null,
+      "false_positive": false,
+      "confidence": "high",
+      "causal_chain_depth": 4,
+      "sources": [
+        {
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-32316",
+          "accessed": "2026-05-18",
+          "author": "NIST NVD",
+          "trust_tier": "tier-1"
+        },
+        {
+          "url": "https://github.com/jqlang/jq/security",
+          "accessed": "2026-05-18",
+          "author": "jqlang",
+          "trust_tier": "tier-1"
+        }
+      ],
+      "execution_tier": 3,
+      "tier1_pattern": null,
+      "central_path": false,
+      "feature_status": {
+        "implemented": true,
+        "wired": true,
+        "cli_registered": true,
+        "tested": true
+      }
     }
   ]
 }
