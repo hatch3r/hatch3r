@@ -1,5 +1,5 @@
 ---
-name: domain-author
+name: h4tcher-domain-author
 description: Create or modify an audit domain file with sub-agent decomposition, scenario-based checklists, and governance invariant verification.
 effort: high
 allowed-tools: Read Grep Glob Bash(*) Write Edit

@@ -1,5 +1,5 @@
 ---
-name: pr-resolve
+name: h4tcher-pr-resolve
 description: Resolve PR comments on the hatch3r repo — invoke the canonical hatch3r-pr-resolve workflow, then apply hatch3r-specific quality gates (validate, rule parity, efficiency invariants, lean thresholds, anti-slop, inventory, pillar compliance) and stop before commit for human review.
 effort: high
 allowed-tools: Read Grep Glob Bash(*) Write Edit Task

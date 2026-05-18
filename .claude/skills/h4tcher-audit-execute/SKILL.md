@@ -1,5 +1,5 @@
 ---
-name: audit-execute
+name: h4tcher-audit-execute
 description: Execute audit findings using the 4-wave progressive model with regression gates, finding registry tracking, and closed-loop phases.
 effort: max
 allowed-tools: Read Grep Glob Bash(*) Write Edit Agent WebSearch

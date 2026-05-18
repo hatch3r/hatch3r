@@ -1,5 +1,5 @@
 ---
-name: governance-check
+name: h4tcher-governance-check
 description: Validate governance system health — lean thresholds, anti-slop compliance, invariant consistency, and pillar coverage. Pre-audit health check.
 effort: medium
 allowed-tools: Read Grep Glob Bash(*)

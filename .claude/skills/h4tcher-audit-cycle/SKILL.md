@@ -1,5 +1,5 @@
 ---
-name: audit-cycle
+name: h4tcher-audit-cycle
 description: Execute a full 20-domain audit cycle using the governance audit prompt. Deploys 111 sub-agents across 4 tiers with synthesis gates and produces a structured audit report.
 effort: max
 allowed-tools: Read Grep Glob Bash(*) Write Agent WebSearch WebFetch

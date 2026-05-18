@@ -1,5 +1,5 @@
 ---
-name: adapter-author
+name: h4tcher-adapter-author
 description: Create or modify a platform adapter with web research, implementation, testing, and D09 checklist verification.
 effort: high
 allowed-tools: Read Grep Glob Bash(*) Write Edit WebSearch WebFetch

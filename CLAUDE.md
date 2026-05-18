@@ -126,5 +126,10 @@ From `governance/CONSTITUTION.md` §2 P5:
 ## Rules & Skills
 
 - **Rules:** `.claude/rules/` — Loaded automatically each session. Enforce pillar-specific constraints.
-- **Skills:** `.claude/skills/` — Invokable as `/skill-name`. Development workflow automation.
+- **Skills:** `.claude/skills/h4tcher-*/` — Invokable as `/h4tcher-<name>`. The `h4tcher-` prefix marks framework-internal slash commands so they are visually distinct in Claude Code's slash-command picker. Capability lifecycle presets:
+  - `/h4tcher-capability-discover` — pre-flight artifact scan
+  - `/h4tcher-capability-add` — author a new artifact (delegates to `h4tcher-content/adapter/domain-author`)
+  - `/h4tcher-capability-refactor` — rename/split/merge/restructure with cross-reference scrubbing
+  - `/h4tcher-capability-remove` — phase out with migration notes and reference cleanup
+  - `/h4tcher-scoped-audit` — bounded focused audit of a maintainer-described slice (read-only, in-chat report)
 - **Hooks:** `.claude/settings.json` — SessionStart loads governance context, Pre/PostToolUse inject reminders.

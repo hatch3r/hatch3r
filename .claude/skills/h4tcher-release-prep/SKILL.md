@@ -1,5 +1,5 @@
 ---
-name: release-prep
+name: h4tcher-release-prep
 description: Prepare a hatch3r release — version bump, changelog completeness + sync, repo + website docs currency, quality gates, adapter output verification, and release-notes reconciliation with CI.
 effort: high
 allowed-tools: Read Grep Glob Bash(*) Write Edit
