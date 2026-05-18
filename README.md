@@ -249,7 +249,7 @@ Ruler (`@intellectronica/ruler`) is the closest architectural analogue to hatch3
 | Canonical content model | 6 artifact types (agents, skills, rules, commands, hooks, MCP servers) plus board workflows and learning loop, indexed in `hatch.json` | 1 artifact type (rules) |
 | Managed blocks | `<!-- HATCH3R:BEGIN -->` / `<!-- HATCH3R:END -->` markers on every bridge file preserve user content across updates (`src/merge/managedBlocks.ts`) | Full-file replacement semantics |
 | Integrity manifest | SHA-256 per-file + manifest-level checksum in `hatch.json`; safe merge via temp file + atomic rename (`src/merge/safeWrite.ts`, `src/integrity/index.ts`) | None |
-| Governance audit cycle | 20-domain audit cycle with 111 sub-agents, 4-wave execution, closed-loop PRD evolution (`governance/AUDIT.md`, `governance/AUDIT-EXECUTE.md`) | None |
+| Governance audit cycle | 21-domain audit cycle with 121 sub-agents, 4-wave execution, closed-loop PRD evolution (`governance/AUDIT.md`, `governance/AUDIT-EXECUTE.md`) | None |
 | Supply-chain provenance | npm OIDC trusted publishing + `--provenance` attestations via `.github/workflows/release.yml` (SLSA-level provenance) | Not published with OIDC trusted publishing |
 | Security | OWASP Agentic Top 10 coverage via `src/pipeline/agentToolAllowlist.ts` + `src/pipeline/mcpDescriptionScan.ts` + `src/pipeline/promptGuard.ts` (500KB input / 1MB output limits) | Rule distribution only |
 

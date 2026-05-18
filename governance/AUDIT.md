@@ -6,7 +6,7 @@
 
 Perform a deep, end-to-end audit of every area, aspect, and line of code or content in the hatch3r framework. The goal: verify this framework is production-ready and open-sourceable by applying the 21-domain checklist across code, content, and adapter implementations — enabling end users to build winning software products at scale.
 
-This audit covers **21 domains** organized across **4 tiers**, deploying **119 sub-agents** for maximum depth. Every domain requires web research for current market context. The final deliverable is a structured audit report with severity-tagged findings, weighted domain scores, and prioritized action items using 3-tier progressive disclosure.
+This audit covers **21 domains** organized across **4 tiers**, deploying **121 sub-agents** for maximum depth. Every domain requires web research for current market context. The final deliverable is a structured audit report with severity-tagged findings, weighted domain scores, and prioritized action items using 3-tier progressive disclosure.
 
 > **Path Convention:** All file paths in this document are relative to the **repository root**. Governance files live under `governance/`. The ephemeral `.audit-workspace/` directory is created at repository root.
 
@@ -54,7 +54,7 @@ Not all domains require equal audit depth every cycle. To prevent diminishing re
 
 ### Sub-Agent Strategy
 
-Spawn **119 sub-agents** across 21 audit domains organized in 4 tiers. Each domain decomposes into multiple focused sub-agents for maximum depth. Sub-agents within the same domain run in parallel unless a sequential dependency is noted. Domain-level synthesis sub-agents run only after their prerequisite sub-agents complete. Inherit your LLM model to every sub-agent — do not downgrade. Each sub-agent MUST use web research. **Never optimize for token efficiency — optimize for audit quality and depth.**
+Spawn **121 sub-agents** across 21 audit domains organized in 4 tiers. Each domain decomposes into multiple focused sub-agents for maximum depth. Sub-agents within the same domain run in parallel unless a sequential dependency is noted. Domain-level synthesis sub-agents run only after their prerequisite sub-agents complete. Inherit your LLM model to every sub-agent — do not downgrade. Each sub-agent MUST use web research. **Never optimize for token efficiency — optimize for audit quality and depth.**
 
 #### Optional Domain Orchestrator Bundling
 
@@ -87,7 +87,7 @@ The following sub-agents have sequential dependencies and MUST NOT launch until 
 
 ### Concurrency Model
 
-Of the 119 total sub-agents, **108 launch immediately** in parallel. The remaining **11 sub-agents** launch sequentially after their dependencies complete:
+Of the 121 total sub-agents, **110 launch immediately** in parallel. The remaining **11 sub-agents** launch sequentially after their dependencies complete:
 
 | Tier | Sequential Sub-Agents |
 |------|----------------------|
@@ -117,11 +117,11 @@ Execute by tier with synthesis between tiers:
 | Tier | Domains | Agents | Action |
 |------|---------|--------|--------|
 | A | D1–D4 | 27 | Launch → synthesize → release from context |
-| B | D5–D10,D19 | 51 | Launch → synthesize → release from context |
-| C | D11–D16, D20–D21 | 35 | Launch → synthesize → release from context |
+| B | D5–D10,D19 | 52 | Launch → synthesize → release from context |
+| C | D11–D16, D20–D21 | 36 | Launch → synthesize → release from context |
 | D | D17–D18 | 6 | Launch → synthesize → final assembly |
 
-Peak context: 51 sub-agent results (Tier B), not 119.
+Peak context: 52 sub-agent results (Tier B), not 121.
 
 ### Pre-Audit Questions
 
@@ -247,7 +247,7 @@ If total findings fall below 50, the orchestrating agent MUST verify depth by ch
 ### Quality Checklist
 
 - [ ] All 21 domains were examined (no domain was skipped). Domains with zero findings must include a clean-domain justification citing: specific files examined, verification methods used, and web research performed. A clean domain is acceptable; a skipped domain is not.
-- [ ] All 119 sub-agents produced output (no silent failures)
+- [ ] All 121 sub-agents produced output (no silent failures)
 - [ ] Every Critical and High finding has a specific, actionable recommendation
 - [ ] Every finding references specific files, line numbers, or artifacts
 - [ ] Web research was performed for every domain (cite sources)
@@ -303,7 +303,7 @@ The orchestrator spawns sub-agents per domain file. Each sub-agent:
 
 ### Sub-Agent Behavioral Charter
 
-> **Canonical definition:** [CONSTITUTION.md](CONSTITUTION.md) §2 P2 defines the charter's governance role. The 14 directives below are the authoritative behavioral specification for audit sub-agents (directive count grew from 13 to 14 with the addition of Speed & Token Efficiency Awareness for P7).
+> **Canonical definition:** [CONSTITUTION.md](CONSTITUTION.md) §2 P2 defines the charter's governance role. The 16 directives below are the authoritative behavioral specification for audit sub-agents (directive count grew from 15 to 16 with the addition of production-readiness evaluation for end-user runtime artifacts spanning observability, migrations, API, AI features, testing depth, supply-chain, reliability, and auth; audited under D10 SA10.9, D15 SA15.8, and a forthcoming D22 CL-3 proposal).
 
 Every audit sub-agent must internalize these behavioral directives. These govern HOW you think, not just WHAT you check. The checklists define scope; the charter defines mindset.
 
@@ -335,6 +335,10 @@ Every audit sub-agent must internalize these behavioral directives. These govern
 
 14. **Speed & Token Efficiency Awareness** — When auditing end-user runtime artifacts (commands, agents, skills, rules consumed in installed projects), evaluate whether they apply zero-quality-loss efficiency techniques: static-first prompt ordering, parallel-tool-by-default, triage-first auto-tiering, plan/act split, structured outputs, lazy reference-by-pointer. Findings about runtime efficiency belong in D06. Do NOT apply this lens to AUDIT.md, AUDIT-EXECUTE.md, RE-ENVISION.md, or `commands/hatch3r-audit*.md` — those are explicitly exempt from efficiency optimization (depth over speed).
 
+15. **UI/UX evaluation for end-user runtime artifacts** — When auditing commands, agents, skills, and rules that ship into installed user projects, evaluate whether they mandate: WCAG 2.2 AA conformance (SC 2.5.8 24x24 target + 24px spacing, SC 2.4.11 focus not obscured, SC 2.5.7 drag has tap alternative); design-token + component-library reuse (DTCG 2025.10 `tokens.json`, Tailwind v4 `@theme`, shadcn `components.json`, Radix Primitives) before authoring new primitives; the four-state surface contract (loading skeleton + empty with CTA + error with cause and retry + partial with banner); AI-UX patterns where applicable (streaming via Vercel AI SDK UI / AI Elements, tool-call cards, human-approval gates for side-effectful tools, cancel/abort/undo, span-grounded citations); 2026 Core Web Vitals thresholds at p75 (LCP ≤2.5s, INP ≤200ms, CLS ≤0.1). This directive operationalizes CONSTITUTION P2 measurement extensions and is audited under D10 SA10.9.
+
+16. **Production-readiness evaluation for end-user runtime artifacts** — When auditing commands/agents/skills/rules that ship into installed user projects and produce executable code, evaluate whether they mandate: (a) observability — OTel spans on request path, structured logs with trace_id, RED+USE metrics, SLO with multi-window multi-burn-rate alerts, error tracker with PII scrubbing + source maps + release tag; (b) data integrity — expand-contract migrations, online DDL, reversibility, replica-lag awareness, event-schema compatibility modes (Avro/Protobuf/JSON-schema registry); (c) API quality — RFC 9457 errors, RFC 9745 Deprecation + RFC 8594 Sunset, Idempotency-Key header, OpenAPI 3.1 + AsyncAPI 3.1.0, oasdiff/buf breaking CI gate, consumer-driven + spec-driven contract tests (Pact + Schemathesis); (d) AI feature quality — eval harness mandate, prompt versioning, cost telemetry per request, prompt caching, model fallback chain, hallucination-as-SLI, OTel GenAI semconv; (e) testing depth — property + mutation + fuzz + contract per per-feature mandate map, determinism contract, flake hunting protocol; (f) supply-chain floor — npm provenance (OIDC trusted publishing), SBOM (CycloneDX 1.6 / SPDX 3.0.1), SLSA v1.0+, malicious-package detection beyond `npm audit`, SHA-pinned GitHub Actions, cosign-signed digest-pinned container images; (g) reliability — circuit breaker + retry with decorrelated jitter + timeouts with deadline propagation + idempotency keys + bulkheads, liveness/readiness/startup probes, graceful shutdown with preStop hook, runbook URL on every alert, staged canary rollout with auto-rollback on SLO burn; (h) auth depth — OAuth 2.1 with PKCE + refresh rotation + reuse detection, OIDC validation (iss/aud/azp/exp/nonce/sig), DPoP for browser tokens, JWT BCP (RFC 8725), cookie flags (`__Host-` + HttpOnly + Secure + SameSite + Partitioned), MFA per NIST 800-63B-4 AAL, RBAC/ABAC/ReBAC rubric, WebAuthn server-side ceremony. This directive operationalizes CONSTITUTION P2 production-readiness measurements and is audited under D10 SA10.9, the new D15 SA15.8 (supply-chain end-user floor), and a forthcoming D22 domain (CL-3 proposal for end-user output quality across observability/migrations/API/AI/testing/reliability/auth).
+
 ### Domain File Quality Standard
 
 Each domain file (`governance/audit/domains/D{NN}-{name}.md`) must meet these minimum quality standards. CL-3 may propose domain file improvements when standards are not met.
@@ -357,19 +361,19 @@ Each domain file (`governance/audit/domains/D{NN}-{name}.md`) must meet these mi
 | B | 7: Agent Orchestration Optimization | 5 | 5 | 0 |
 | B | 8: Error Recovery & Resilience | 4 | 4 | 0 |
 | B | 9: Platform Adapters | 16 | 14 | 2 |
-| B | 10: User Experience & Documentation | 8 | 8 | 0 |
+| B | 10: User Experience & Documentation | 9 | 9 | 0 |
 | B | 19: Agentic Development Self-Governance | 4 | 4 | 0 |
 | C | 11: End-to-End Data Flow | 4 | 4 | 0 |
 | C | 12: CLI Diagnostics & Traceability | 4 | 4 | 0 |
 | C | 13: Human-AI Collaboration Quality | 4 | 4 | 0 |
 | C | 14: Cross-Project Adaptability & Scalability | 4 | 4 | 0 |
-| C | 15: Agentic Security & Trust Model | 7 | 7 | 0 |
+| C | 15: Agentic Security & Trust Model | 8 | 8 | 0 |
 | C | 16: Cross-Domain Synthesis | 3 | 0 | 3 |
 | C | 20: User-Content Authoring & Governance | 2 | 1 | 1 |
 | C | 21: CLI Tool Currency | 7 | 6 | 1 |
 | D | 17: Competition & Market Intelligence | 3 | 2 | 1 |
 | D | 18: PRD, Roadmap & Distribution | 3 | 0 | 3 |
-| **Total** | | **119** | **108** | **11** |
+| **Total** | | **121** | **110** | **11** |
 
 > **Note:** Sub-agent counts and domain list may evolve across audit cycles via the self-evolution process (Phase CL-3). The table above reflects the current baseline. Any changes require explicit user consent.
 

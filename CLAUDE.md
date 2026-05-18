@@ -68,7 +68,7 @@ Every change must serve at least one pillar. Full definitions: `governance/CONST
 |------|---------|
 | `governance/VISION.md` | North star: identity, audience, quality bar, principles |
 | `governance/CONSTITUTION.md` | Design rationale: 7 pillars, traceability matrix, lean thresholds |
-| `governance/AUDIT.md` | Audit prompt: 21 domains, 119 sub-agents, behavioral charter |
+| `governance/AUDIT.md` | Audit prompt: 21 domains, 121 sub-agents, behavioral charter |
 | `governance/AUDIT-EXECUTE.md` | Execution: 4-wave model, regression gates, closed-loop phases |
 | `governance/RE-ENVISION.md` | Vision capture/refinement prompt |
 | `governance/audit/domains/D01-D21` | Domain definitions with sub-agent checklists |

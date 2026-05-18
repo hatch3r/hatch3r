@@ -26,7 +26,7 @@ Every lifecycle stage (init through release) delivers the best achievable CLI in
 
 Content is of verifiable, real-world-applicable quality. Findings carry the Scientific Rigor Contract — falsifiability, triangulated citations, confidence with basis, ≥3-step causal chain, bias check, peer-review counter-argument — defined in [audit/templates/rigor-contract.md](audit/templates/rigor-contract.md) and operationalised by the Behavioral Charter.
 
-**Measurement:** Behavioral charter compliance rate, one-shot success rate (see [VISION.md](VISION.md) §Quality Bar), finding root-cause depth (symptom vs. systemic).
+**Measurement:** Behavioral charter compliance rate, one-shot success rate (see [VISION.md](VISION.md) §Quality Bar), finding root-cause depth (symptom vs. systemic). Agent-produced UI/UX measurement: WCAG 2.2 AA conformance via axe-core (0 serious/critical violations per route and per component), design-token adoption rate ≥95% on color and spacing in generated code, four-state surface contract coverage on async views (loading + empty + error + partial = 100%), agent-produced one-shot UI/UX acceptance rate cycle-over-cycle. Production-readiness metrics extend P2 to agent-produced services: instrumented-route ratio (observability) = 100%; expand-contract conformance on schema changes (migrations) = 100%; API breaking-change events per release on stable endpoints = 0; AI feature eval coverage with hallucination-as-SLI defined = 100%; per-feature-mandate-map coverage on test classes (testing depth) = 100%; SBOM + npm provenance + SHA-pinned actions (supply chain) = 100%; SLO defined on user-facing services (reliability) = 100%; OAuth 2.1 + passkey-server + RBAC-or-better authorization (auth depth) = 100%.
 **Governance refs:** [AUDIT.md §Sub-Agent Behavioral Charter](AUDIT.md) (13 directives, authoritative location), Audit Quality Architecture (3 layers), D1/D5/D7/D13.
 
 ### P3. Adapter & External Tool Currency
@@ -71,6 +71,17 @@ Governance and audit cycles apply the same quality standards, anti-slop, and ant
 | Cross-file duplication | <5% | 0% ideal; audit per cycle |
 | Finding inflation | <2.0x pre-dedup/post-triage | Source-level dedup improvement |
 | Governance total | <=3000 lines | Increasing across cycles = bloat signal |
+| Generated UI a11y violations (axe-core, serious/critical) | 0 | Per-component, per-route, applies to agent-produced output |
+| Design-token adoption in generated code (color, spacing, typography) | >=95% | Hard-coded values count against; semantic tokens count toward |
+| Four-state surface contract coverage on generated async views | 100% | Loading + empty + error + partial; missing any state is a regression |
+| Generated-service OTel instrumentation on request path | 100% | Per route, per service, agent-produced |
+| Migration expand-contract conformance | 100% | Schema changes follow 3- or 4-deploy expand/migrate/contract; reversibility documented |
+| API breaking-change events on stable endpoints | 0 per release | Verified by oasdiff / buf breaking / graphql-inspector CI gate |
+| AI feature eval coverage | 100% | Every AI feature has automated eval set + hallucination-as-SLI |
+| Per-feature test-class mandate compliance | 100% | Per `rules/hatch3r-testing.md` mandate-map: parser→fuzz, payment→mutation, RPC→contract |
+| Supply-chain floor coverage | 100% | npm provenance + SBOM + SHA-pinned actions + cosign-verified containers |
+| User-facing service SLO defined | 100% | Per service: availability + latency p95/p99 + burn-rate alert |
+| Auth depth coverage | 100% | OAuth 2.1 + OIDC validation + DPoP + WebAuthn server-side + RBAC/ABAC/ReBAC rubric applied |
 | Anti-slop phrases | 0 per file | Pattern match per cycle |
 | Checklist items/SA | 4-8 | <4 shallow, >8 too broad |
 
