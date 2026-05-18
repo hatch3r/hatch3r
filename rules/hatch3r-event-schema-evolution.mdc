@@ -1,0 +1,86 @@
+---
+description: Event and message schema evolution patterns for Kafka / Kinesis / Pub-Sub / event store — backward + forward + full compatibility modes, schema registry, consumer-side defaults
+globs: ["**/events/**", "**/schemas/**", "**/*.avsc", "**/*.proto", "**/messaging/**", "**/kafka/**", "**/pubsub/**"]
+alwaysApply: false
+---
+# Event Schema Evolution
+
+Schemas for events, messages, and stream records evolve independently of producer and consumer deploy order. Every change must declare an explicit compatibility mode and pass a registry compatibility check before merge.
+
+## Compatibility Modes
+
+A registry compatibility mode constrains the diff between adjacent schema versions. Pick the mode that matches the deploy-order guarantee available in the target system.
+
+- **`BACKWARD`** — a consumer using the new schema reads data written with the old schema. Allowed diffs: delete a field, add a field that has a default value. Deploy consumers first. Default for evolving consumer code.
+- **`FORWARD`** — a consumer using the old schema reads data written with the new schema. Allowed diffs: add a field, delete a field that had a default value. Deploy producers first. Default for evolving producer code.
+- **`FULL`** — both directions. Required when producer and consumer deploy order cannot be controlled (e.g., split across teams or platforms).
+- **`*_TRANSITIVE`** variants (BACKWARD_TRANSITIVE, FORWARD_TRANSITIVE, FULL_TRANSITIVE) — the constraint holds against every prior schema version, not just the immediately preceding one. Required when consumers may replay from offset zero or read a historical archive.
+- **`NONE`** — disables compatibility checking; breaking changes accepted. Permitted only on a dedicated `*-v2` subject during a planned migration window with a dated deprecation plan in the migration ticket.
+
+Default recommendation when in doubt: `BACKWARD_TRANSITIVE` — consumers can deploy first and replay from offset zero.
+
+## Schema Registry Mandate
+
+- Every event topic / stream / subscription has a registered schema in Confluent Schema Registry, Apicurio Registry, AWS Glue Schema Registry, or Karapace. No in-tree schema-only repos without a registry binding.
+- Subject naming strategy is declared per topic: `TopicNameStrategy` (one schema per topic — default), `RecordNameStrategy` (one schema per record type across topics), or `TopicRecordNameStrategy` (multiple record types per topic). Mixing strategies inside the same topic is forbidden.
+- Compatibility mode is set per subject in the registry and asserted in CI. Changing the mode requires a registry-admin role and a logged justification.
+- Schemas are versioned by the registry; the producer pins the schema ID it serialized with, and the consumer fetches by ID — never by name + "latest".
+
+## Avro Evolution Rules
+
+- Adding a field requires a `default` value to remain backward-compatible — a consumer using the new schema reads old data by substituting the default for the absent field.
+- Removing a field requires the field to have had a `default` value to remain forward-compatible — an old consumer reads new data and the missing field falls back to its declared default.
+- Use a union with `null` (e.g., `["null", "string"]` with `default: null`) to express an optional field. Place `null` first in the union so the default is unambiguously the null branch.
+- Never rename a field — add a new field and register an `aliases: ["old_name"]` entry on the new field so old data deserializes against the new schema.
+- Never change a field's type. To replace a type, add a new field of the new type, dual-write during the migration window, and remove the old field only after consumer migration completes.
+
+## Protobuf Evolution Rules
+
+- Use `proto3` for new schemas. Field numbers are immutable identifiers — never reuse a tag number, never renumber, never reorder by tag.
+- When removing a field, add a `reserved` clause for both the tag number and the field name so future authors cannot resurrect the removed field with a different type and produce silent data corruption.
+- Field type widening is constrained: int32 / uint32 / int64 / uint64 / bool are mutually wire-compatible; sint32 ↔ sint64 are compatible; fixed32 ↔ sfixed32 are compatible; `string` ↔ `bytes` are compatible when bytes are valid UTF-8. Other type changes are breaking.
+- Use `optional` (proto3 since 3.15) for clear presence semantics on scalar fields. Without `optional`, unset and default-valued fields are indistinguishable on the wire.
+- Never remove an enum value — mark it `[deprecated = true]` and leave it in place. Removing an enum value breaks consumers that have it pinned.
+- New message types are not forward-compatible — old producers/consumers do not know about them. Prefer `BACKWARD_TRANSITIVE` for protobuf subjects.
+
+## JSON Schema Evolution
+
+- Default policy: additive only. New optional properties may be added; required properties may not be added to an existing record type.
+- `additionalProperties: false` blocks forward compatibility (a consumer using the old strict schema rejects new fields). Choose explicitly: set `false` only when the consumer must reject unknown fields for security reasons; set `true` (or omit) to allow forward-compatible evolution.
+- Version the schema identifier with semver (e.g., `$id: "https://example.com/schemas/event/v1.3.0.json"`). Patch and minor bumps must be additive; major bumps signal an incompatible change and require a new subject.
+- For shared envelope shapes (e.g., CloudEvents), pin the envelope spec version and version only the `data` payload schema.
+
+## Consumer-Side Defaults and Tolerance
+
+- Every optional field deserializes to an explicit default value in consumer code (zero-value, `None`, empty string, empty list — declared, not implicit).
+- Consumers never panic, crash, or fail-stop on a missing field. Missing → default. Unknown field → log at `info`, increment `event.schema.unknown_field` counter, continue processing.
+- Emit `event.schema.version` and `event.subject` as attributes on every consumer-side trace span and metric label, so observability dashboards surface version distribution and detect stuck consumers on the old schema.
+- Consumers validate against the schema fetched by ID at deserialization time; never validate against a hard-coded in-process schema literal.
+
+## Dual-Publish During Migration
+
+- When the shape change exceeds what the registry compatibility mode permits, dual-publish: write the same logical event in both old and new shapes — either to two topics (`orders.v1`, `orders.v2`) or to one topic with a union schema discriminated by a `schema_version` field.
+- Keep dual-publish active until every consumer has been confirmed migrated to the new shape (poll consumer-group offsets against both topics; alert on lag on the new shape; alert on consumption from the old shape from any non-allowlisted consumer group).
+- Deprecate the old shape only after the consumer-migration confirmation report is logged in the migration ticket. Default deprecation window: 1 full release cycle plus 1 on-call rotation past zero consumption.
+
+## Outbox and Idempotency
+
+- Every event carries a unique `event_id`. Prefer UUIDv7 over UUIDv4 — UUIDv7 is time-sortable, which simplifies dedup and ordering checks.
+- Consumers deduplicate by `event_id` over a sliding window sized to the maximum reprocessing horizon (typically 24–72 hours).
+- Producers that write to a transactional database publish events via the transactional outbox pattern: append the event row to an `outbox` table in the same DB transaction as the business write; a separate relay process drains the outbox to the broker with at-least-once semantics. This avoids the dual-write inconsistency between DB and broker.
+- Every consumer is idempotent at the business-logic layer — receiving the same `event_id` twice produces the same end-state.
+
+## Verification
+
+- CI runs a registry compatibility check on every PR that touches a schema file: `confluent-schema-registry-maven-plugin` test-compatibility goal, the REST `/compatibility/subjects/<subject>/versions/latest` endpoint, or `buf breaking` for protobuf. PR fails on incompatible diff.
+- `buf breaking --against '.git#branch=main'` runs on every protobuf change to detect tag-reuse, type-narrowing, and enum-value removal.
+- Generated client code from schemas is regenerated and committed in the same PR as the schema change; CI fails on drift between schema and generated code.
+- A schema-evolution test fixture replays a representative set of historical messages against the new schema and asserts deserialization success.
+
+## References
+
+- Confluent Schema Registry — Schema Evolution and Compatibility: https://docs.confluent.io/platform/current/schema-registry/fundamentals/schema-evolution.html
+- Apache Avro Specification — Schema Resolution: https://avro.apache.org/docs/current/specification/#schema-resolution
+- Protocol Buffers Language Guide (proto3) — Updating a Message Type: https://protobuf.dev/programming-guides/proto3/#updating
+- `buf breaking` — protobuf breaking-change detector: https://buf.build/docs/breaking/overview
+- CloudEvents specification: https://github.com/cloudevents/spec
