@@ -8,10 +8,10 @@ alwaysApply: false
 - Use consistent request/response schemas. Document in spec files.
 - All endpoints versioned (URL prefix or header). Backward-compatible changes only.
 - Additive changes only: add fields, never rename or remove without migration.
-- Error responses follow standard shape: `{ code, message, details? }`.
-- Idempotency keys for mutation endpoints. Reject duplicate requests.
+- Error responses follow RFC 9457 Problem Details (`application/problem+json`) — see "Error Envelope" below.
+- Idempotency keys for mutation endpoints. See `rules/hatch3r-api-versioning.md` for header name, TTL, and replay semantics.
 - Request validation at the boundary: validate and sanitize before processing.
-- List endpoints return envelopes: `{ data, pagination }`. Never raw arrays.
+- List endpoints return cursor-paginated envelopes — see "Pagination Standards" below for the exact shape.
 - Rate limiting enforced server-side. Return 429 with `Retry-After` when exceeded.
 - API contracts documented in project specs. Update on schema changes.
 
@@ -20,7 +20,7 @@ alwaysApply: false
 - Validate JWT signature, expiration (`exp`), audience (`aud`), and issuer (`iss`) on every request.
 - Enforce algorithm in server config (`RS256` for asymmetric, `HS256` for symmetric). Reject `alg: none`.
 - Access tokens short-lived (15–60 min). Use opaque refresh tokens with rotation and revocation.
-- OAuth 2.0 with PKCE for SPAs and mobile clients. Never use implicit flow.
+- OAuth 2.1 (draft-ietf-oauth-v2-1) with mandatory PKCE for SPAs, mobile, and confidential clients. Implicit + password grants removed. Detail in `rules/hatch3r-api-versioning.md`; cross-reference `rules/hatch3r-auth-patterns.md`.
 - API keys identify applications, not users. Scope keys to specific services and rotate on schedule.
 - Authorization middleware checks permissions before handler execution. Fail closed on missing claims.
 - Apply principle of least privilege: scope tokens to the minimum required permissions.
@@ -47,13 +47,12 @@ alwaysApply: false
 
 ## Pagination Standards
 
-- Default to cursor-based pagination for ordered data with high write frequency or deep traversal.
-- Use offset-based pagination only for small, stable datasets where total count is cheap.
+- Default to cursor-based pagination with a stable composite sort key (e.g., `(created_at, id)` using ULID/UUIDv7 as deterministic tiebreaker).
+- Use offset-based pagination only for small, bounded, append-immutable datasets (e.g., admin reports) where total count is cheap.
 - Enforce a maximum page size server-side (e.g., 100 items). Ignore client requests exceeding the limit.
-- Return `nextCursor` (or `null`) in the envelope. Clients must not construct cursors—they are opaque.
-- Total count is optional: provide it only when the query cost is bounded. Use `hasMore` boolean otherwise.
+- Cursors are opaque base64 strings. Clients must not parse or construct them.
 - Reject deep offset pagination beyond a threshold (e.g., offset > 10000) to protect database performance.
-- Include pagination metadata in the envelope: `{ data, pagination: { nextCursor, hasMore, pageSize } }`.
+- Standard envelope: `{ data, page_info: { has_next_page, end_cursor }, links: { next } }`. Add `has_previous_page` + `start_cursor` for bidirectional cursor navigation (Relay-style). Total count is optional — provide only when the query cost is bounded.
 
 ## Request Security
 
@@ -175,3 +174,62 @@ Follow the IETF draft standard (`draft-ietf-httpapi-ratelimit-headers`) for rate
 - When the rate limit is exceeded, return HTTP `429 Too Many Requests` with `Retry-After` header.
 - Document rate limits per endpoint tier in the API specification (e.g., auth endpoints: 100/min, read endpoints: 1000/min, write endpoints: 500/min).
 - Apply rate limiting by authenticated identity (API key, user token) as the primary key. Fall back to IP-based limiting for unauthenticated endpoints.
+
+## Spec Floor: OpenAPI 3.1 / 3.2 and AsyncAPI 3.1.0
+
+- **OpenAPI 3.1** is the 2026 floor for REST APIs. OpenAPI 3.2.0 (Sep 2025) is emerging — use only when its features (deeper webhook coverage, `pathItems`) are required; tooling lag is real.
+- **AsyncAPI 3.1.0** (Jan 2026, non-breaking over 3.0) is the canonical spec for event-driven and webhook APIs. Define every event channel, message schema, and binding (Kafka/AMQP/MQTT/WebSocket/HTTP) in an AsyncAPI document.
+- Generate code, mocks, and reference docs from the spec — never hand-write client SDKs or hand-roll mocks when a spec exists. Use Prism (Stoplight) for OAS-driven mock servers.
+
+## Error Envelope: RFC 9457 Problem Details
+
+Every error response uses `Content-Type: application/problem+json` and the RFC 9457 shape, superseding any local `{code, message, details?}` convention:
+
+| Field | Required | Purpose |
+|-------|----------|---------|
+| `type` | yes | URI identifying the error class (e.g., `https://errors.example.com/validation`). Stable across versions. |
+| `title` | yes | Short human-readable summary. Constant per `type`. |
+| `status` | yes | HTTP status code as integer. Mirrors the response status. |
+| `detail` | yes | Human-readable explanation specific to this occurrence. May include user input. |
+| `instance` | yes | URI reference identifying this specific occurrence (e.g., a log/trace URL). |
+| `trace_id` (extension) | recommended | W3C Trace Context trace ID for observability correlation. Alternative: propagate via `traceparent` response header. |
+
+- Extension fields are allowed for machine-readable detail (e.g., `errors: [{ field, code }]` for validation).
+- Frameworks emitting Problem Details by default (Spring 6, ASP.NET 8, Hono): keep the default — do not override with a custom shape.
+
+## GraphQL: Trusted Documents
+
+- Production GraphQL endpoints accept **only** registered query IDs (Apollo Persisted Queries, Relay Persisted Queries, or Hive). Reject ad-hoc queries from web clients. Apollo's APQ is performance-only — use pre-registered trusted documents for security parity.
+- Annotate fields with `@cost` (per-field cost) and lists with `@listSize` (assumed size, slicing args, `requireOneSlicingArgument: true`) for query-cost analysis. Block requests exceeding the global cost budget.
+- Federation v2 (`@key`, `@shareable`, `@external`, `@inaccessible`, `@override`) is the floor — Federation 1.0 supergraphs are deprecated in GraphOS.
+
+## gRPC / Connect-RPC
+
+- **Connect-RPC** (`buf/connect-go|web|swift|kotlin`) is the 2026 recommendation for web-facing gRPC — replaces gRPC-Web; supports HTTP/1.1, HTTP/2, and the Connect protocol.
+- **REST transcoding:** add `google.api.http` annotations per AIP-127 to map RPC to HTTP/JSON; expose via Envoy `grpc_json_transcoder` or grpc-gateway.
+- **Removed fields:** reserve both the tag and the field name (`reserved 4; reserved "password";`) to block accidental reuse.
+- Mark deprecated fields/methods with `[deprecated = true]` and `// Deprecated:` comments; consumers see the deprecation in generated code.
+
+## tRPC / Hono RPC
+
+- Choose tRPC v11 or Hono RPC **only** when both ends are TypeScript in a closed monorepo with no external consumers. Types flow via TS inference — no codegen, no cross-language interop.
+- The moment a non-TS consumer or public SDK is required, switch to OpenAPI emission. **oRPC** bridges tRPC ergonomics with OpenAPI for cross-language use (Standard Schema: Zod/Valibot/ArkType).
+- All tRPC routers use Zod (or Standard Schema) for input/output validation and a structured error formatter mapping errors to RFC 9457 Problem Details on the HTTP boundary.
+
+## Breaking-Change CI Gate
+
+Every PR that touches an API contract runs the matching diff tool against the last shipped tag. Breaking changes block merge unless paired with an RFC 9745 Deprecation + RFC 8594 Sunset lifecycle (see `rules/hatch3r-api-versioning.md`) or a major-version bump.
+
+| Contract type | Path glob | Tool | Action |
+|---------------|-----------|------|--------|
+| OpenAPI | `**/openapi.{yaml,yml,json}`, `**/openapi/**` | `oasdiff breaking` (450+ rules, OAS 3.0 + 3.1) | PR comment + fail on `breaking` exit |
+| Protobuf | `**/*.proto` | `buf breaking` (default `FILE` rule set) | PR comment + fail on wire/source incompatibility |
+| GraphQL | `**/*.graphql`, `**/*.gql` | `graphql-inspector diff` | PR comment + fail on breaking-classified changes |
+
+The reviewer agent (`agents/hatch3r-reviewer.md` item 11 "Contract preservation") invokes the matching tool on every PR touching `**/api/**`, `**/proto/**`, or schema files — verifies both in-repo and cross-repo consumers.
+
+## Cross-References
+
+- Versioning, deprecation, idempotency, OAuth 2.1, webhook signing: `rules/hatch3r-api-versioning.md`.
+- Pact / Schemathesis / `can-i-deploy` gate: `rules/hatch3r-contract-testing.md`.
+- OAuth 2.1, DPoP, Resource Indicators, mTLS: `rules/hatch3r-auth-patterns.md`.

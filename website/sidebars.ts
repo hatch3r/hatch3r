@@ -11,6 +11,7 @@ const sidebars: SidebarsConfig = {
         'getting-started/quick-start',
         'getting-started/what-you-get',
         'getting-started/supported-tools',
+        'getting-started/cli-tools',
       ],
     },
     {
@@ -44,6 +45,7 @@ const sidebars: SidebarsConfig = {
         'reference/agents',
         'reference/skills',
         'reference/rules',
+        'reference/hooks',
         {
           type: 'category',
           label: 'Commands',
@@ -52,6 +54,7 @@ const sidebars: SidebarsConfig = {
             'reference/commands/agent-commands',
           ],
         },
+        'reference/auxiliary-artifacts',
         'reference/adapter-capability-matrix',
       ],
     },

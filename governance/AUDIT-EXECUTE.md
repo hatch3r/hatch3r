@@ -82,6 +82,8 @@ Before any modifications, capture the immutable baseline. This is the comparison
 
    Phase 1 Triage MUST size the target set against `postDedup.total` (not `preDedup.total`). Phase 5/6/7 summaries MUST cite the `source` field when reporting counts. Backward compat: absent `source` on pre-existing Cycle 7 entries is treated as post-dedup Executive Dashboard.
 
+5. **Verify P8 gate coverage in scope:** B1 ambiguity-detection gates present on edited agents/skills/commands; sub-agent count + rationale emitted on delegating artifacts. Findings emitted at Medium+ per Behavioral Charter directive 17.
+
 Pre-existing failures are NOT regressions.
 
 ---
@@ -282,6 +284,7 @@ These MUST hold at their respective checkpoints. Violation is a HALT condition.
 5. **Terminal Status**: After execution, no `targeted` finding remains `pending`.
 6. **Registry Anchor**: After each Phase writes `governance/audit/finding-registry.json`, compute `sha256sum` and append `{phase, timestamp, sha256, entry_count}` to `.audit-workspace/registry-anchor-log.jsonl`. Before the next Phase, verify the current file's sha256 matches the last logged anchor. MISMATCH = HALT; present the diff between anchor-expected state (from git log of the registry file) and current state to the user for manual resolution. Same rule applies to `governance/audit/baseline.json` once Phase 0 writes it; baseline anchor is verified at every checkpoint. Rotation enforced by `npm run audit:archive` (`src/audit/archive.ts::rotateAnchorLog`): keeps last 3 cycles in the live log, copies older entries to `governance/audit/archive/anchor-log-cycle-{N..M}.jsonl`.
 7. **Tier Coverage**: After Phase 1 triage, every `targeted` finding has `execution_tier ∈ {1, 2, 3}`. Every entry with `execution_tier == 1` has a non-null `tier1_pattern` matching the closed enum (Tier Classification §Tier 1). Violations HALT before Phase 2.
+8. **Pillar-Revision Linkage**: After Phase 1 triage, every `targeted` finding whose `pillar` array contains `"P3"` and whose source audit cycle predates the P3 rewrite recorded in `governance/audit/finding-registry.json::pillar_revisions` carries a `pillar_revision_id` field referencing the applicable revision entry. Findings from cycles ≥10 carry the post-rewrite revision ID; findings from cycles ≤9 retain the pre-rewrite revision ID unless explicitly retagged on reopen. Violations HALT before Phase 2.
 
 ### Checkpoints
 
@@ -459,7 +462,7 @@ After fan-out completes:
 
 ## Regression Gates
 
-After each wave commit, run 17-check gate comparing against Phase 0 baseline (NOT a shifted baseline).
+After each wave commit, run 18-check gate comparing against Phase 0 baseline (NOT a shifted baseline).
 
 ### Gate Checks
 
@@ -478,6 +481,7 @@ After each wave commit, run 17-check gate comparing against Phase 0 baseline (NO
 | Anti-slop | Two-pass wordlist scan (CONSTITUTION.md §2 P5) | Hits lacking a measurable qualifier within 8 words |
 | Severity Vocab | grep across modified `.md` in `agents/`, `checks/`, `governance/` | Off-canonical severity term without mapping reference |
 | Governance currency | `> Last updated: YYYY-MM-DD` on modified EVOLVE-in-scope files | Header missing or older than commit date |
+| CLI tool currency | `governance/audit/execution-insights.json::d21_tool_research_dates` | Any tier-1 tool research date >120 days from cycle start |
 | Doc accuracy | Documented counts vs filesystem actuals | Any stated count diverges from `ls` / `find` |
 | Cross-domain dedup | Current-wave findings vs remaining-wave findings | Same root cause + file not merged during Phase 1 dedup |
 | 16. Triage-first | `tsx scripts/validate-efficiency-invariants.ts --triage-first` | Any `orchestrator: true` command lacks `triage_tiers` array OR a triage step in body |
@@ -581,7 +585,7 @@ Track false positive rate per domain: `false_positives_in_domain / total_finding
 
 **Phase 6 execution logic:** Priority filter — P1 (full specs for artifacts blocking user success), P2 (outline specs for quality improvements), P3 (list only for nice-to-haves); scan existing content for conventions, frontmatter patterns, naming standards; output to `.audit-workspace/content-specs/` organized by priority tier. User-content adoption signals (frequently re-authored project-local artifacts surfaced via D20.2 findings, ≥3 instances across cycles) flow into Phase 6 as P2 promotion candidates: a project-local pattern that ≥3 user projects independently re-implement is a Content Gap signal that should be specced as a canonical artifact.
 
-**Phase 7 execution logic:** Present each proposal individually to user (never batch-approve); for accepted proposals, apply changes to AUDIT.md and/or domain files; run invariant checks after each accepted proposal — Tier weight totals (A=0.308, B=0.348, C=0.266 split across D11–D16+D20 at 0.038 each, D=0.078), sub-agent count consistency between AUDIT.md summary table and domain files, all domain file references in AUDIT.md have corresponding files.
+**Phase 7 execution logic:** Present each proposal individually to user (never batch-approve); for accepted proposals, apply changes to AUDIT.md and/or domain files; run invariant checks after each accepted proposal — Tier weight totals (A=0.308, B=0.348, C=0.304 split across D11–D16+D20–D21 at 0.038 each, D=0.040), sub-agent count consistency between AUDIT.md summary table and domain files, all domain file references in AUDIT.md have corresponding files.
 
 ---
 

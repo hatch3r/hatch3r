@@ -136,13 +136,24 @@ describe("readCanonicalFiles", () => {
 
   describe("skills", () => {
     it("should read skills from skills/ subdirectories with SKILL.md", async () => {
+      // Wave 5 (CLI-tooling pivot) added hatch3r-cli-{ripgrep,jq,fd} skill
+      // fixtures alongside the original test-skill. The reader returns every
+      // SKILL.md it finds — assert the original entry survives and the new
+      // CLI skill fixtures are also present (the cliTools filter applies
+      // downstream in `readCliFilteredSkills`, not in `readCanonicalFiles`).
       const results = await readCanonicalFiles(FIXTURES_DIR, "skills");
 
-      expect(results.length).toBe(1);
-      expect(results[0]!.id).toBe("test-skill");
-      expect(results[0]!.type).toBe("skill");
-      expect(results[0]!.description).toBe("A test skill for unit testing");
-      expect(results[0]!.content).toContain("test skill workflow");
+      const ids = results.map((r) => r.id).sort();
+      expect(ids).toEqual([
+        "hatch3r-cli-fd",
+        "hatch3r-cli-jq",
+        "hatch3r-cli-ripgrep",
+        "test-skill",
+      ]);
+      const testSkill = results.find((r) => r.id === "test-skill")!;
+      expect(testSkill.type).toBe("skill");
+      expect(testSkill.description).toBe("A test skill for unit testing");
+      expect(testSkill.content).toContain("test skill workflow");
     });
 
     it("should skip non-directory entries in skills/", async () => {

@@ -16,5 +16,9 @@ Before modifying any governance file, check `wc -l` against these limits from `g
 | Parallel-tool-by-default (P7) | required when artifact uses ≥2 independent tool calls |
 | Triage-first orchestrator (P7) | required when `orchestrator: true` (frontmatter `triage_tiers`) |
 | Anti-cache patterns (P7) | 0 per artifact |
+| Ambiguity-detection gate (P8 B1) | required on agents, skills, commands that mutate artifacts |
+| Sub-agent count emission (P8 B2) | required on delegating artifacts (first-class output field) |
 
 If a modification pushes a file over its limit: compress elsewhere in the file to stay within bounds, or provide a pillar-backed rationale for the overage per the Pillar Compliance Test.
+
+Parallelism is not a lean-coverage trade-off. P4 (Lean Coverage) governs file-level bloat and duplication; P8 (Clarification & Fan-out Discipline) governs fan-out width. Do not serialize independent work to satisfy P4.

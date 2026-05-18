@@ -1,0 +1,166 @@
+---
+description: Authentication and authorization patterns for end-user apps — OAuth 2.1, OIDC, DPoP, JWT rotation, cookie security, RBAC vs ABAC vs ReBAC rubric
+globs: ["**/auth/**", "**/login/**", "**/session/**", "**/oauth/**", "**/oidc/**", "**/jwt/**", "**/permissions/**", "**/policies/**", "**/middleware/**"]
+alwaysApply: false
+---
+# Authentication & Authorization Patterns
+
+Backend-side identity stack for end-user apps. Pairs with `rules/hatch3r-passkey-server.md` (WebAuthn server ceremony) and the frontend rules `rules/hatch3r-ux-states-and-flows.md` + `rules/hatch3r-ai-ux-patterns.md` (identifier-first login, passkey Conditional UI).
+
+## OAuth 2.1 (Name It)
+
+Adopt OAuth 2.1 (`draft-ietf-oauth-v2-1`, draft-15 Mar 2026) over OAuth 2.0. Reference RFC 9700 (OAuth Security BCP, Jan 2025) as the operative compliance bar.
+
+- PKCE required on every public client (web SPA, mobile, desktop) AND every confidential client.
+- Implicit grant REMOVED. Resource Owner Password Credentials (ROPC) grant REMOVED. Never use either.
+- Exact redirect-URI string matching. No wildcards, no substring match, no prefix match.
+- Refresh-token rotation with reuse detection: on detected reuse, revoke the entire refresh-token family and force re-authentication.
+- Access-token TTL 5-15 min; refresh-token TTL bounded (8-72h sliding for SPAs, longer for native).
+- Authorization Code grant + PKCE is the only public-client grant. Client Credentials for service-to-service.
+
+## OIDC ID-Token Validation
+
+Every ID token received from an OIDC provider must validate ALL of the following before a session is created:
+
+| Check | Rule |
+|-------|------|
+| `iss` | Equal to the expected issuer URL (string match) |
+| `aud` | Contains this client's `client_id` |
+| `azp` | Equals `client_id` when present and when `aud` has multiple values |
+| `exp` | Now < `exp` |
+| `iat` | `now - iat` within tolerable skew (default 5 min) |
+| `auth_time` | Sanity-checked against session policy (max-age, prompt=login) |
+| `nonce` | Equals the nonce generated for this authorization request (replay defense) |
+| Signature | Verified against the issuer's JWKS; `kid` selects the current key |
+
+Logout: implement BOTH RP-initiated logout (`end_session_endpoint` per OIDC RP-Initiated Logout 1.0) AND back-channel logout (server-to-server session-invalidation callback) for SSO sessions. ID-token-only state has no server invalidation path — pair with a server-side session record.
+
+## DPoP — Sender-Constrained Tokens (RFC 9449)
+
+For browser-resident or public-client access tokens, bind tokens to a client-held key with DPoP. Replaces mTLS for clients that cannot manage certificates.
+
+- Client generates an ECDSA or RSA keypair, stored non-extractable (WebCrypto `extractable: false`).
+- Every protected request carries a `DPoP` header — a signed JWT with claims `htm` (HTTP method), `htu` (full URL), `iat`, `jti` (replay-cache key), and the public JWK in `jwk` header.
+- Access token contains a `cnf.jkt` claim — SHA-256 JWK thumbprint of the bound key. Server verifies the DPoP-proof JWK thumbprint matches the access token's `cnf.jkt`.
+- Server replay cache stores `jti` for the proof's `iat` window (default 60s skew + 5 min retention).
+- Service-to-service: prefer mTLS (`x5t#S256` cnf claim) where the certificate chain is manageable; DPoP for browser/mobile.
+
+## JWT Pitfalls (RFC 8725 BCP)
+
+- Reject `alg: none` always. Reject `alg: HS*` when the verification key is public (RS256/ES256 key-confusion attack).
+- Pin the expected `alg` per issuer. Server config names the algorithm — never trust the `alg` header without an allowlist.
+- JWKS endpoint cache TTL 1-24 hours. `kid` selects the current key. Rotation supported by publishing N+1 before retiring N (overlap window >= 2 * cache TTL).
+- Audience binding mandatory. Each service has its own `aud` value and rejects tokens not minted for it.
+- Revocation strategy: short access-TTL + periodic refresh OR introspection (RFC 7662) OR a revocation list for long-TTL tokens. Never assume tokens are revocable without one of these.
+- No PII, no sensitive data in JWT payload. JWT payloads are base64-readable by anyone holding the token.
+
+## Cookie Security
+
+Every auth-bearing cookie must set:
+
+- `__Host-` prefix — implies `Path=/`, `Secure`, no `Domain` attribute. The prefix blocks subdomain shadowing.
+- `HttpOnly` — blocks JS read.
+- `Secure` — TLS-only transmission.
+- `SameSite=Strict` for primary session cookies. Use `Lax` only when cross-site GET reads are required.
+- `SameSite=None` REQUIRES `Partitioned` per CHIPS. Chrome's 2026 enforcement plan treats unpartitioned third-party cookies as deprecated.
+- Short expiry (8-72h sliding); rolling refresh on activity.
+
+CSRF defense ordering: `SameSite=Strict` is the primary defense for session cookies. Add a double-submit token (Origin/Cookie pair) for state-changing requests reachable from `SameSite=Lax` cookies. Validate `Origin` and `Sec-Fetch-Site` headers on high-value mutations.
+
+## MFA and NIST 800-63B-4 AAL Mapping
+
+NIST SP 800-63B-4 (finalized mid-2025) demoted SMS to a restricted authenticator. Email OTP is deprecated. Map operations to AAL:
+
+| Level | Authenticators | Use Case |
+|-------|---------------|----------|
+| AAL1 | Single factor — password OR WebAuthn UV | Low-risk reads, public-facing content |
+| AAL2 | Two factor — password + TOTP, OR passkey (WebAuthn) with UV | Account access, settings changes |
+| AAL3 | Hardware-bound multi-factor — WebAuthn UV with hardware-backed key | Admin actions, financial transfers, key rotation |
+
+Step-up auth pattern: when a session is AAL1 and a sensitive op is requested (delete account, change email, change password, transfer funds, rotate API key, change billing), re-prompt the user for a fresh authentication. Issue a short-lived step-up token (5-15 min) carrying the AAL upgrade, scoped to the operation.
+
+## Authorization Model Rubric
+
+Pick the model per app complexity. Document the choice in the project spec.
+
+| Model | Use When | Engines |
+|-------|----------|---------|
+| **RBAC** (roles to permissions) | Flat-org tools, role count <20, permissions don't depend on resource attributes | App-layer; CASL; Pundit |
+| **ABAC** (attributes to policy) | Access depends on user/resource attributes — department, region, classification, time-of-day | OPA (Rego), AWS Cedar |
+| **ReBAC** (relationships to permissions) | Collaboration apps with sharing graphs — "user can edit doc if member of folder shared with team" | SpiceDB, OpenFGA, Permify, AuthZed |
+
+ReBAC reference: Google Zanzibar paper (USENIX ATC 2019). For new collaboration apps, default to ReBAC over hand-rolled per-resource ACL tables.
+
+**AuthZEN Authorization API 1.0** (OIDF Final, Jan 2026) — engine-neutral PEP-to-PDP wire format. Adopt for service architectures where authorization is centralized.
+
+## Multi-Tenancy Isolation
+
+- Every tenant-scoped table carries a `tenant_id` column.
+- Postgres Row-Level Security policies enforce isolation at the DB layer: `CREATE POLICY tenant_isolation ON {table} USING (tenant_id = current_setting('app.tenant_id')::uuid)`.
+- Per-tenant signing keys for sensitive crypto operations (BYOK pattern for Level 4 data per `rules/hatch3r-data-classification.md`).
+- Cross-tenant access attempts return 404, not 403 — never confirm tenant existence to unauthorized callers.
+- Integration tests assert cross-tenant access returns 404 on every tenant-scoped endpoint.
+
+## Token Storage on Client
+
+- Web: never `localStorage` or `sessionStorage` for tokens. Use `HttpOnly` `__Host-` cookies for sessions, OR in-memory access token + `HttpOnly` refresh cookie (BFF / silent-refresh pattern).
+- Mobile iOS: Keychain Services with `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`.
+- Mobile Android: EncryptedSharedPreferences backed by Android Keystore.
+- Never log full tokens. Log the `jti` (token ID) only for audit correlation.
+
+## Secret Rotation Cadence
+
+- Automated via HashiCorp Vault / AWS Secrets Manager / GCP Secret Manager — never manual.
+- Rotation cadence per secret type — see `rules/hatch3r-secrets-management.md`.
+- Zero-downtime rotation pattern: publish N+1, wait >= 2 * cache TTL, switch signing to N+1, retire N after refresh-token max-age.
+
+## Auth Provider 2026 Landscape — Roll vs Buy
+
+Decision rubric: managed for B2B + SSO/SAML/SCIM requirements; self-host when compliance forbids third-party identity OR when cost crosses break-even at scale.
+
+| Provider | Sweet Spot |
+|----------|-----------|
+| Clerk | Best DX for React/Next.js consumer apps |
+| Supabase Auth | Postgres-native + RLS-integrated stacks |
+| WorkOS | Enterprise SSO + SCIM + Directory Sync |
+| Auth0 / Okta | Enterprise B2B with mature compliance |
+| Stytch | Passwordless + WebAuthn focus |
+| Better Auth | OSS framework-agnostic, full control |
+| Auth.js (NextAuth.js) | Next.js with minimal external dependency |
+| FusionAuth / Keycloak / Ory | Self-host with full IdP capability |
+
+## API Key Design
+
+- Prefix convention for secret-scanner detection (`sk_live_*`, `pk_live_*`).
+- Hash-only storage server-side (Argon2id or SHA-256 with per-key salt); never store plaintext.
+- Per-key scope grants (resource + method allowlist).
+- Per-key rate limit; per-key usage analytics with last-used timestamp.
+- Revocation API; rotate quarterly; never log the full key value.
+- For human users, replace API keys with passkeys + short-lived tokens.
+
+## Audit Logging for Auth Events
+
+Every auth event logged with `actor` (user_id), `target` (resource_id), `ip`, `user_agent`, `result` (success/failure/code), `timestamp`, and `trace_id` for SIEM correlation. Tamper-resistant append-only store; 1-year retention minimum.
+
+Required event set: login success, login failure, MFA challenge issued, MFA verified, MFA failed, password reset requested, password reset completed, email change, role/scope grant, role/scope revoke, token issued, token revoked, session terminated, passkey added, passkey removed, step-up auth challenge, step-up auth verified.
+
+## Cross-References
+
+- `rules/hatch3r-passkey-server.md` — server-side WebAuthn ceremony (paired companion).
+- `rules/hatch3r-ux-states-and-flows.md` — frontend identifier-first login + Conditional UI.
+- `rules/hatch3r-ai-ux-patterns.md` — frontend WebAuthn UX patterns.
+- `rules/hatch3r-api-versioning.md` — OAuth 2.1 in the API-versioning context.
+- `rules/hatch3r-secrets-management.md` — JWT signing key + OAuth client secret rotation cadence.
+- `rules/hatch3r-data-classification.md` — multi-tenant data isolation + BYOK.
+
+## References
+
+- RFC 9700 — OAuth 2.0 Security Best Current Practice (Jan 2025).
+- RFC 9449 — OAuth 2.0 Demonstrating Proof of Possession (DPoP).
+- RFC 8725 — JSON Web Token Best Current Practice.
+- `draft-ietf-oauth-v2-1` — The OAuth 2.1 Authorization Framework.
+- OpenID Connect Core 1.0 + RP-Initiated Logout 1.0 + Back-Channel Logout 1.0.
+- NIST SP 800-63B-4 — Digital Identity Guidelines: Authentication and Authenticator Management.
+- FAPI 2.0 Final (Feb 2025) — Financial-grade API profiles.
+- AuthZEN Authorization API 1.0 Final (OpenID Foundation, Jan 2026).
+- Google Zanzibar — Consistent, Global Authorization (USENIX ATC 2019).

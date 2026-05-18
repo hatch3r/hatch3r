@@ -14,6 +14,7 @@ When assigned an issue or work item (GitHub Issue, Azure DevOps Work Item, or Gi
 
 ```
 Task Progress:
+- [ ] Step 0: Detect ambiguity (P8 B1)
 - [ ] Step 1: Parse the issue
 - [ ] Step 2: Load the issue-type skill
 - [ ] Step 3: Read relevant specs
@@ -24,6 +25,10 @@ Task Progress:
 - [ ] Step 7: Open PR
 - [ ] Step 8: Address review
 ```
+
+## Step 0 — Detect Ambiguity (P8 B1)
+
+Before any work, scan the invocation for unresolved questions in scope, intent, acceptance criteria, target environment, or irreversibility. If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md`. Do not proceed under silent assumption. Default path, not an exception. This upgrades the existing Escalation block from exception to default. Triggers for THIS skill: issue type unclear (bug vs feature vs refactor), acceptance criteria missing or contradictory, scope boundary undefined, irreversible operation in path (schema change, public API rename), and target branch / merge policy ambiguous.
 
 ## Step 1: Parse the Issue
 

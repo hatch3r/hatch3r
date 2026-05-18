@@ -1,6 +1,6 @@
 # Adapter Capability Matrix
 
-> **Last verified**: 2026-05-13 | **hatch3r version**: 1.7.1
+> **Last verified**: 2026-05-13 | **hatch3r version**: 1.7.5
 
 Living reference for framework capabilities vs. adapter implementations. This document tracks what each adapter emits, what each platform supports natively, and where gaps remain.
 
@@ -105,6 +105,30 @@ Added in 1.7.1. Tracks whether the adapter exposes a documented platform-native 
 | **antigravity** | -- | Pending per-cycle web-research verification by adapter author |
 
 When `nativeQuestionTool: false` (deny-by-default) the agent uses the plain-text numbered-options fallback per `agents/shared/user-question-protocol.md`.
+
+### CLI Tools (Agent-Tooling Surface)
+
+Added in 1.7.5. Tracks whether the adapter emits per-tool CLI skills from `skills/hatch3r-cli-*` (the CLI-tooling pivot positions OS-native CLI tools as the token-efficient agent-tooling story; MCP is opt-in). Source of truth: the `cliTools` column in `ADAPTER_CAPABILITIES` (`src/adapters/index.ts`). Adapters with `cliTools: true` opt in to `processSkillsRawCliFiltered` / `processSkillsWithFmCliFiltered` filtering pipelines per `BaseAdapter.readCliFilteredSkills`. Picker UX, detection (POSIX `command -v` / Windows `where`, 2s timeout, fail-open), and the post-flow missing-tools disclaimer with one-liner installer live in `src/cliTools/`. Capability-matrix invariant test: `src/__tests__/adapters/capability-matrix.test.ts`.
+
+| Adapter | CLI tools | Notes |
+|---------|:---------:|-------|
+| **cursor** | Y | |
+| **claude** | Y | |
+| **gemini** | Y | |
+| **cline** | Y | |
+| **codex** | Y | |
+| **amazon-q** | Y | |
+| **copilot** | Y | |
+| **opencode** | Y | |
+| **windsurf** | Y | |
+| **amp** | -- | Reads canonical `skills/` natively; no filter pipeline needed |
+| **kiro** | Y | |
+| **aider** | Y | |
+| **goose** | Y | |
+| **zed** | -- | `skills: false`; CLI tools surface as a follow-up reference inline |
+| **antigravity** | Y | |
+
+When `cliTools: false` the user can still select CLI tools during init / `hatch3r cli-tools`; the manifest still records the selection and detection still runs, but no per-tool skill files are emitted for that adapter.
 
 ---
 

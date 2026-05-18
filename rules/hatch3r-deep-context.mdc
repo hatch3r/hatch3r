@@ -46,6 +46,8 @@ Multi-file changes with clear scope. Run these researcher modes at `quick` depth
 
 Present findings to the user inline. Proceed after answers are received — no separate confirmation checkpoint required.
 
+**Tier 2 confirmation gate.** Before invoking Phase 2, the orchestrator lists any unresolved scope, acceptance, or constraint questions and asks the user to confirm or answer via the platform-native question tool (`agents/shared/user-question-protocol.md`). The orchestrator does not proceed under default-if-no-response for Tier 2 unless the question is single-option-reversible.
+
 ### Tier 3 — Deep
 
 Cross-module features, architectural changes, multi-layer implementations, or tasks with high ambiguity. Run these researcher modes at `deep` depth:

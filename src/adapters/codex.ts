@@ -163,7 +163,7 @@ export class CodexAdapter extends BaseAdapter {
     results.push(output(".codex/config.toml", configLines.join("\n")));
 
     results.push(
-      ...await this.processSkillsRaw(ctx, (id) => `.codex/skills/${toPrefixedId(id)}/SKILL.md`),
+      ...await this.processSkillsRawCliFiltered(ctx, (id) => `.codex/skills/${toPrefixedId(id)}/SKILL.md`),
     );
 
     return results;

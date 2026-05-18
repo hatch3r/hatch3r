@@ -40,6 +40,12 @@ interface InventoryCounts {
   adapters: number;
   agents: number;
   skills: number;
+  /**
+   * Subset of `skills` whose id starts with `hatch3r-cli-` (CLI-tooling
+   * pivot, plan §5). Added in 1.7.5 alongside the cliTools manifest field;
+   * `cliSkills <= skills` always.
+   */
+  cliSkills: number;
   rules: number;
   rulesMdc: number;
   commands: number;
@@ -52,6 +58,8 @@ interface InventoryFiles {
   adapters: string[];
   agents: string[];
   skills: string[];
+  /** File list backing `counts.cliSkills`. */
+  cliSkills: string[];
   rules: string[];
   rulesMdc: string[];
   commands: string[];
@@ -134,6 +142,15 @@ async function listSkills(): Promise<string[]> {
   return results;
 }
 
+/**
+ * Subset of `listSkills()` filtered to CLI-tool skills (the `hatch3r-cli-`
+ * prefix introduced in plan §5). Caller passes the full skill list so this
+ * remains a pure filter — no extra filesystem reads.
+ */
+function listCliSkills(allSkills: readonly string[]): string[] {
+  return allSkills.filter((name) => name.startsWith("hatch3r-cli-"));
+}
+
 async function listSrcDirTs(relDir: string): Promise<string[]> {
   const dir = join(ROOT, relDir);
   const entries = await listEntries(dir);
@@ -169,12 +186,15 @@ async function buildInventory(): Promise<InventoryDocument> {
   // and the CI drift check does not flap on every CI execution.
   const today = new Date().toISOString().slice(0, 10);
 
+  const cliSkills = listCliSkills(skills);
+
   return {
     lastUpdated: today,
     counts: {
       adapters: adapters.length,
       agents: agents.length,
       skills: skills.length,
+      cliSkills: cliSkills.length,
       rules: rules.length,
       rulesMdc: rulesMdc.length,
       commands: commands.length,
@@ -186,6 +206,7 @@ async function buildInventory(): Promise<InventoryDocument> {
       adapters,
       agents,
       skills,
+      cliSkills,
       rules,
       rulesMdc,
       commands,
@@ -390,7 +411,8 @@ async function main(): Promise<void> {
   // eslint-disable-next-line no-console
   console.log(
     `inventory: wrote ${outPath} — ${inventory.counts.adapters} adapters, ` +
-      `${inventory.counts.agents} agents, ${inventory.counts.skills} skills, ` +
+      `${inventory.counts.agents} agents, ${inventory.counts.skills} skills ` +
+      `(${inventory.counts.cliSkills} CLI), ` +
       `${inventory.counts.rules} rules (.md) / ${inventory.counts.rulesMdc} (.mdc), ` +
       `${inventory.counts.commands} commands, ${inventory.counts.hooks} hooks, ` +
       `${inventory.counts.pipeline} pipeline modules, ${inventory.counts.cliCommands} CLI commands`,

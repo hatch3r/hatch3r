@@ -190,4 +190,32 @@ describe("ZedAdapter", () => {
       expect(rules!.content).toContain("OAuth");
     });
   });
+
+  // ── Wave 5 (CLI-tooling pivot, plan §4.6) ───────────────────────
+  //
+  // zed has `cliTools: false` in ADAPTER_CAPABILITIES because zed's skills
+  // capability is also false (no SKILL.md surface in the .zed config). The
+  // adapter MUST emit zero `hatch3r-cli-*` files regardless of
+  // `manifest.cliTools` state.
+  describe("CLI tools filter (Wave 5 plan §4.6)", () => {
+    it("emits no CLI skill files even when cliTools is enabled", async () => {
+      const manifest = createManifest({
+        tools: ["zed"],
+        cliTools: { enabled: true, selected: ["ripgrep", "jq", "fd"] },
+      });
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const cliSkills = outputs.filter((o) => o.path.includes("hatch3r-cli-"));
+      expect(cliSkills).toEqual([]);
+    });
+
+    it("emits no CLI skill files when cliTools is disabled", async () => {
+      const manifest = createManifest({
+        tools: ["zed"],
+        cliTools: { enabled: false, selected: [] },
+      });
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const cliSkills = outputs.filter((o) => o.path.includes("hatch3r-cli-"));
+      expect(cliSkills).toEqual([]);
+    });
+  });
 });

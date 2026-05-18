@@ -3,7 +3,7 @@ id: hatch3r-dependency-management
 type: rule
 description: Lockfile discipline, CVE scanning, transitive dependency audits, major version upgrade protocol, and bundle-size impact gates for package manifests
 scope: "**/package.json,**/package-lock.json,**/yarn.lock,**/pnpm-lock.yaml,**/Cargo.toml,**/Cargo.lock,**/requirements*.txt,**/pyproject.toml,**/go.mod,**/go.sum,**/Gemfile*"
-tags: [maintenance]
+tags: [maintenance, security]
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true
 ---
@@ -30,3 +30,75 @@ cache_friendly: true
 - Review changelogs and migration guides before upgrading major versions. Never blindly bump major versions and assume backward compatibility.
 - Run the full test suite after any dependency upgrade, including integration tests. A passing unit test suite does not guarantee compatibility with upgraded peer dependencies.
 - When upgrading a shared dependency used across multiple modules, upgrade all consumers in the same PR to avoid version skew within the monorepo or project.
+
+## npm Trusted Publishing (OIDC)
+
+For libraries published to npm, configure an npm Trusted Publisher with GitHub OIDC. The publishing workflow exchanges a per-run JWT for short-lived publish credentials — no long-lived `NPM_TOKEN` in secrets. Provenance attestations are auto-generated and signed by Sigstore Fulcio with the inclusion record in Rekor.
+
+- Requirements: npm CLI >=11.5.1, Node >=22.14.0, `repository` field set in `package.json` (provenance validation fails without it).
+- Workflow grants `id-token: write` permission at the job level.
+- Remove `NPM_TOKEN` from repository and organization secrets after migrating to trusted publishing.
+- PyPI, crates.io, and RubyGems offer equivalent OIDC trusted publishing — migrate at least one ecosystem per release pipeline.
+
+## Provenance Flag for Non-Trusted Publishing
+
+When trusted publishing is not yet enabled, publish with `npm publish --provenance`. The flag activates Sigstore-signed provenance even with token auth.
+
+- Verify provenance: `npm view <pkg> --json | jq .dist.attestations` returns Sigstore attestation URLs; the npm package page renders a Provenance section.
+- Consumers verify on install: `npm audit signatures` walks the attestation chain and confirms Rekor inclusion.
+
+## SBOM Generation
+
+Every release artifact ships a CycloneDX 1.6 or SPDX 3.0.1 SBOM, committed as a release asset and signed with the same Sigstore identity that signed the artifact. CycloneDX 1.6 is ECMA-424 ratified and broadly supported (Syft, Trivy, cdxgen, GitLab native). SPDX 3.0.1 is the BSI TR-03183-2 / EU CRA baseline.
+
+- Tooling baseline: `npm sbom --sbom-format=cyclonedx` (npm 10+), `cdxgen` (broad ecosystem coverage including Python, Java, Rust, Go), `syft` (containers + source repos).
+- CI step generates SBOM on every release tag and uploads as a release asset.
+- PR-time SBOM diff (`cyclonedx-cli diff` or `syft diff`) blocks PRs that introduce unexpected new transitive dependencies; reviewer approves the diff alongside the source diff.
+
+## SLSA v1.0 / v1.1 Build Provenance
+
+Target SLSA Build L3 for production release artifacts: ephemeral hosted runner, isolated builder identity, signed in-toto provenance, transparency log inclusion. SLSA v1.1 (April 2025) is incremental on the Build track — v1.0 L3 artifacts also meet v1.1 L3.
+
+- GitHub Actions implementation: `slsa-framework/slsa-github-generator` (language-agnostic generators for npm, container, generic artifact).
+- Deploy-time verification: `slsa-verifier` CLI confirms provenance, builder identity allow-list, and source-repo match before the artifact is consumed.
+- Pin the generator action to a 40-char commit SHA per the action-pinning policy below.
+
+## Malicious-Package Detection Beyond `npm audit`
+
+`npm audit` only flags published CVEs. The 2025-2026 incident class — Shai-Hulud (Sep-Nov 2025), Axios 1.14.1 maintainer hijack (Mar 2026), Mini-Shai-Hulud (May 2026), DevTap typosquat (Apr-May 2026) — never reaches a CVE filing. Layer install-time behavioral detection on top of `npm audit`:
+
+- Pre-install behavioral scan: `socket.dev`, `snyk`, or `osv-scanner` against the lockfile in CI. `npq` adds a pre-install gate at the developer workstation.
+- pnpm `minimumReleaseAge: 72` (3 days, raise to 7 for high-trust projects) blocks consumption of brand-new versions until the typosquat / maintainer-hijack window closes.
+- Disable lifecycle scripts in CI: `.npmrc` sets `ignore-scripts=true`; pnpm uses `strictDepBuilds: true` plus `allowBuilds: [explicit-list]`.
+- GitHub `dependency-review-action` on every PR blocks new dependencies with known advisories or disallowed licenses.
+
+## Lockfile Policy
+
+- Lockfile committed to the repository: `package-lock.json`, `yarn.lock`, or `pnpm-lock.yaml`. Multi-language repos commit the per-ecosystem lockfile (`Cargo.lock`, `poetry.lock`, `go.sum`, `Gemfile.lock`).
+- CI installs from the lockfile only: `npm ci`, `yarn install --frozen-lockfile`, `pnpm install --frozen-lockfile`, `cargo build --locked`. Drift fails the build.
+- `lockfile-lint` enforces registry allow-list and integrity-hash presence on every entry. Run in CI alongside install.
+- Lockfile diffs receive the same review scrutiny as source diffs — reviewers inspect new transitive entries and version jumps.
+- Renovate or Dependabot configured with grouped weekly updates: one PR per ecosystem per week for non-security updates; security updates open immediately.
+
+## License Compliance
+
+- Allow-list (default): MIT, Apache-2.0, ISC, BSD-2-Clause, BSD-3-Clause, MPL-2.0, CC0-1.0. Project policy may extend.
+- Deny-list (default): GPL-2.0, GPL-3.0, AGPL-3.0, AGPL-3.0-or-later, SSPL-1.0, Commons Clause. AGPL triggers copyleft on network use — it is the SaaS landmine.
+- Override requires documented business justification in the PR description plus security/legal sign-off.
+- CI gate per ecosystem: `license-checker --onlyAllow "MIT;Apache-2.0;ISC;BSD-2-Clause;BSD-3-Clause;MPL-2.0;CC0-1.0"` (Node), `pip-licenses --allow-only` (Python), `cargo-license` (Rust). CI fails on detection of a denied license in direct or transitive deps.
+
+## Pinned GitHub Action SHAs
+
+Every action `uses:` line references a 40-character commit SHA, never a tag (`@v3`, `@main`, `@v44.5.1`). Tags are mutable; SHAs are not.
+
+- CVE-2025-30066 (tj-actions/changed-files, March 2025) compromised 23,000+ repositories — the attacker mutated existing version tags to point to a malicious commit that dumped secrets to workflow logs. Root cause: compromised PAT on `reviewdog/action-setup` (CVE-2025-30154). Tag pinning would not have prevented this; SHA pinning would have.
+- Annotate the SHA with the version: `uses: actions/checkout@<40-char-sha> # v4.2.2`.
+- Dependabot configured with `package-ecosystem: github-actions` updates SHAs while preserving the version comment. Renovate equivalent: `pinDigests: true`.
+- CI rejects PRs that introduce tag references via a linter step (e.g., `pinact` or a custom regex check).
+
+## OSV.dev and GHSA Feeds
+
+- `osv-scanner` runs on every PR and nightly against the lockfile. OSV.dev (Google) is the polyglot 2026 aggregator: npm, PyPI, crates.io, Maven, Go modules, RubyGems, Packagist, NuGet — single schema across all.
+- GitHub Security Advisories (GHSA) remain the npm-ecosystem authoritative feed; `npm audit` and OSV both consume GHSA.
+- NVD provides CPE-keyed CVE records for OS and language-stdlib vulnerabilities.
+- Renovate `vulnerabilityAlerts: { enabled: true }` plus `osvVulnerabilityAlerts: true` produce auto-PRs that force-update to fixed versions and bypass the normal cooldown for security fixes. Pair with auto-merge for patch-level fixes when tests pass.

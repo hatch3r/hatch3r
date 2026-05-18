@@ -5,8 +5,8 @@
 **Pillars served:** P1 (primary), P4 (supporting).
 
 **Scope:** All user-facing documentation, CLI UX, first-run experience, adoption friction, and developer experience metrics. The gap between "code works correctly" and "user succeeds" — tracing user journeys to find where correct code creates confusion, surprise, or failure.
-**Sub-agents:** 8
-**Evaluation method:** Sub-agents 10.3-10.7 trace concrete user scenarios end-to-end through the codebase. Reference specific files, functions, output strings, and user-facing messages. Findings are about UX clarity and adoption friction, not code correctness.
+**Sub-agents:** 9
+**Evaluation method:** Sub-agents 10.3-10.7 trace concrete user scenarios end-to-end through the codebase. SA 10.9 traces agent-generated UI/UX output through verification gates (axe-core, keyboard trace, state coverage). Reference specific files, functions, output strings, and user-facing messages. Findings are about UX clarity and adoption friction, not code correctness.
 
 | SA | Focus |
 |----|-------|
@@ -18,6 +18,7 @@
 | 10.6 | Content Profile & Selection Impact |
 | 10.7 | Workflow Chain Viability |
 | 10.8 | Learning Curve & Adoption Metrics |
+| 10.9 | Agent-Generated UI/UX Output Quality |
 
 > Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
 
@@ -42,7 +43,7 @@ Trace init to first useful agent output. Ref: `src/cli/commands/init.ts`, genera
 - [ ] Zero-to-working in under 5 min — per-preset end-to-end test (default, minimal, full, custom)
 - [ ] Decision count and default quality — choices per preset; Enter-through produces good setup
 - [ ] Post-init message clarity — distinguishes CLI vs agent slash commands; adapts for greenfield/brownfield
-- [ ] MCP setup guidance — `.env.mcp` flow explained at the right moment, not discovered on failure
+- [ ] External tool setup guidance — CLI tool installer recommendations (brew/cargo/npm/release tarball) shown at the right moment with pinned-version commands; .env.mcp flow explained at the right moment when MCP servers are part of the selected preset; neither discovered on failure.
 - [ ] First agent invocation — user reaches `/project-spec` or `/codebase-map` without external docs
 - [ ] Common misstep errors — slash commands in terminal, missing env vars, unsourced `.env.mcp`
 - [ ] Time-to-first-value and in-IDE discoverability — total steps to first output; intuitive discovery in each tool
@@ -85,3 +86,15 @@ SPACE framework and learning curve assessment:
 - [ ] **Efficiency** — impact on flow state and productivity
 - [ ] Learning curve — time to proficiency; concepts to learn; complexity revealed gradually
 - [ ] Documentation-to-action ratio — reading required before productive use
+### 10.9 Agent-Generated UI/UX Output Quality
+Trace one end-to-end agent invocation that produces UI code (e.g., `/implementer`, `/architect`, `/board-pickup`) and audit the generated artifact against the 2026 floor.
+- [ ] WCAG 2.2 AA conformance on generated components verified via axe-core through Playwright: 0 serious/critical violations; SC 2.5.8 (≥24×24 target + 24px spacing), SC 2.4.11 (focus not obscured), SC 2.5.7 (drag has tap alternative) explicit
+- [ ] Design-token + component-library reuse: did the agent detect existing `tokens.json` (DTCG 2025.10) / Tailwind `@theme` / shadcn `components.json` / Radix primitives BEFORE authoring new components? Reuse > extend > create
+- [ ] Four-state surface contract: every async view renders loading (skeleton matching final dimensions to prevent CLS) + empty (with CTA + reason) + error (cause + retry) + partial (banner + degraded data)
+- [ ] AI-UX patterns where the artifact uses AI services: streaming via AI SDK UI hooks + AI Elements, tool-call UI cards, human-approval for side-effects, cancel/abort/undo, span-grounded citations
+- [ ] 2026 Core Web Vitals at p75: LCP ≤2.5s, INP ≤200ms, CLS ≤0.1; `aspect-ratio`, explicit `width`/`height`, `fetchpriority` on LCP image, deferred non-critical JS
+- [ ] Mobile/touch: 44pt iOS / 48dp Material target sizes supersede WCAG 24px on touch surfaces; `safe-area-inset` on full-bleed; Dynamic Type / `rem` text scaling intact at 200% and 400%
+- [ ] Microcopy + tone: plain language, second person, corrective verb on errors, no jargon (no "FIDO2", "WebAuthn", "500", "null"); ICU MessageFormat with named placeholders, never string concatenation
+- [ ] Verification gate: axe-core (0 serious) + scripted keyboard trace + accessibility-tree snapshot + state-coverage check + visual-regression baseline + one human screen-reader pass per release
+
+Operationalized rules: `rules/hatch3r-accessibility-standards.md`, `rules/hatch3r-theming.md`, `rules/hatch3r-component-conventions.md`, `rules/hatch3r-design-system-detection.md` (new, Slice 3), `rules/hatch3r-ux-states-and-flows.md` (new, Slice 4), `rules/hatch3r-ai-ux-patterns.md` (new, Slice 5).

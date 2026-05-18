@@ -8,7 +8,7 @@
 
 This is a distinct concern from Domain 1 (source code quality) and Domain 4 (production security). hatch3r generates instructions that guide AI agents with broad code-writing capabilities. The trust model of that system requires dedicated scrutiny.
 
-**Sub-agents:** 6
+**Sub-agents:** 8
 
 | SA | Focus |
 |----|-------|
@@ -18,6 +18,8 @@ This is a distinct concern from Domain 1 (source code quality) and Domain 4 (pro
 | 15.4 | Supply Chain of Agent Definitions |
 | 15.5 | MCP Trust Model |
 | 15.6 | Agentic Trust Framework Compliance |
+| 15.7 | CLI Tool Supply-Chain Trust |
+| 15.8 | End-User Supply-Chain Floor Guidance Coverage |
 
 ## Domain Boundary
 
@@ -83,5 +85,27 @@ Apply every category from the official OWASP Top 10 for Agentic Applications (AS
 - [ ] Trust verification — how is agent behavior verified against expected behavior?
 - [ ] Trust revocation — can trust be revoked for misbehaving agents?
 - [ ] Verify trust reference against current implementation in `src/pipeline/` (see [D15-trust-reference.md](D15-trust-reference.md))
+
+### 15.7 CLI Tool Supply-Chain Trust
+- [ ] **Installer chain integrity** — `hatch3r-cli-{id}` skill install recipes resolve to vendor-signed channels (brew bottles, apt signed-by, scoop manifests, winget manifests, cargo crates registry, npm). Unsigned install paths are a High finding.
+- [ ] **Version pinning** — `## Detection / Install` body pins a tested-against version per OS channel; floating `latest` recommendations for tier-1 tools are a Medium finding per CONSTITUTION.md §2 P3.
+- [ ] **CVE check window** — every tier-1 tool has a NVD + GitHub Security Advisory scan ≤90 days from cycle date (D21 owns the scan; D15.7 verifies the audit trail). Missing CVE check is High.
+- [ ] **Tool provenance** — vendor, source-code repository URL, and license recorded in `src/cliTools/registry.ts` entry; provenance gaps are a Medium finding.
+- [ ] **Sandbox escape surface** — for browser/sandbox tools (playwright, docker, container-use), verify the recommended invocation pattern in the skill body does not expose the host filesystem or credentials beyond the documented scope; over-broad mount or credential pass-through is a High finding.
+
+### 15.8 End-User Supply-Chain Floor Guidance Coverage
+
+Scope: whether hatch3r's end-user content (rules, skills, commands, agents) teaches the 2026 supply-chain floor — distinct from SA15.7 (hatch3r's own recommended CLI tools).
+
+- [ ] **npm provenance** — end-user content mandates `npm publish --provenance` or Trusted Publishing OIDC for libraries published from user repositories. Missing mandate is a High finding.
+- [ ] **SBOM generation** — end-user content mandates CycloneDX 1.6 or SPDX 3.0.1 SBOMs on releases with named tooling (`npm sbom`, `cdxgen`, `syft`). Missing tooling reference is a High finding.
+- [ ] **SLSA build provenance** — end-user content mandates SLSA v1.0+ Build L3 via `slsa-github-generator` or equivalent for release pipelines. Missing mandate is a High finding.
+- [ ] **Malicious-package detection** — end-user content mandates a layer beyond `npm audit` (socket.dev / Snyk / OSV-Scanner) plus pnpm `minimumReleaseAge` config or equivalent. Missing layered defense is a High finding.
+- [ ] **Pinned Action SHAs** — end-user content mandates 40-character commit SHA pinning on every `uses:` line, with Renovate / Dependabot auto-update; cites CVE-2025-30066 (tj-actions) as the lesson. Tag-only references are a High finding.
+- [ ] **Container hardening** — end-user content mandates Wolfi/Chainguard or distroless base, digest pinning, non-root user, cosign signing, SBOM-in-image. Missing any control is a Medium finding; missing signing or digest pinning is High.
+- [ ] **OIDC cloud auth** — end-user content mandates OIDC trusted federation for CI cloud auth with no long-lived secrets. Long-lived-secret guidance is a High finding.
+- [ ] **License allow-list** — end-user content mandates SPDX allow-list (MIT, Apache-2.0, ISC, BSD-2/3-Clause, MPL-2.0, CC0-1.0) and denies copyleft (GPL, AGPL, SSPL) unless justified, enforced via `license-checker` or equivalent CI gate. Missing allow-list is a Medium finding.
+
+Cross-references: `rules/hatch3r-dependency-management.md`, `rules/hatch3r-secrets-management.md`, `rules/hatch3r-container-hardening.md`, `rules/hatch3r-ci-cd.md`.
 
 > Trust delegation chain and compliance mapping have moved to [D15-trust-reference.md](D15-trust-reference.md) (governed appendix).

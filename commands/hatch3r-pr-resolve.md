@@ -337,6 +337,8 @@ After Step 4 completes, recompute Step 0's tier using the now-known severities. 
 
 ## Step 5: Triage Routing + ASK Checkpoint (only mutation gate)
 
+**Tier-3 specialist mandate (P8 B2).** For Tier 3 PRs (6+ findings OR any Critical severity), the post-fix specialist pass (`hatch3r-test-writer`, `hatch3r-security-auditor`, `hatch3r-docs-writer`) MUST run in parallel. Specialists may NOT be deferred via "Needs your call" for cost reasons. Cost-dominance principle applies: token cost of specialist sub-agents is dominated by the quality gain of catching defects pre-merge.
+
 #### 5a. Apply Routing Heuristics
 
 | Severity | Confidence | Default Route |
@@ -380,6 +382,8 @@ NEEDS_CLARIFICATION ({n}):
 
 Needs your call ({n}):
   [7] @bob   • inline src/cache.ts:88 • Important/Low → may be intentional eviction
+
+Escalation for low-confidence accepted findings: trigger a mandatory `hatch3r-security-auditor` pass if any are security-adjacent (auth, crypto, input validation, access control, secret handling); otherwise flag in commit message for elevated reviewer attention.
 
 DEFER (cosmetic, with reply) ({n}):
   [8] @eve   • inline src/auth.ts:55 • Cosmetic/Medium → naming nitpick

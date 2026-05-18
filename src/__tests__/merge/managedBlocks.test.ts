@@ -216,4 +216,119 @@ describe("managedBlocks", () => {
       expect(custom).not.toContain("Managed only");
     });
   });
+
+  // Issue #76: managed-block markers must adopt the host file's comment
+  // syntax. HTML markers inside a YAML file produce a parse error on
+  // line 2 ("Invalid workflow file ... line 2"). Adapters that emit YAML
+  // pass the file path so wrap/insert/extract pick the right marker
+  // variant, and read-side helpers accept either variant so existing
+  // broken files written by v1.7.0/v1.7.1 are auto-repaired on sync.
+  describe("issue #76 — per-file-type marker variants", () => {
+    const YAML_START = "# HATCH3R:BEGIN";
+    const YAML_END = "# HATCH3R:END";
+
+    describe("wrapInManagedBlock", () => {
+      it("emits HTML markers when no path provided (default)", () => {
+        expect(wrapInManagedBlock("body")).toBe(`${START}\nbody\n${END}\n`);
+      });
+
+      it("emits HTML markers for a markdown path", () => {
+        const wrapped = wrapInManagedBlock("body", "AGENTS.md");
+        expect(wrapped).toContain(START);
+        expect(wrapped).not.toContain(YAML_START);
+      });
+
+      it("emits YAML markers for a .yml path", () => {
+        const wrapped = wrapInManagedBlock("name: foo", ".github/workflows/copilot-setup-steps.yml");
+        expect(wrapped).toBe(`${YAML_START}\nname: foo\n${YAML_END}\n`);
+        expect(wrapped).not.toContain("<!--");
+      });
+
+      it("emits YAML markers for a .yaml path", () => {
+        const wrapped = wrapInManagedBlock("foo: bar", "config.yaml");
+        expect(wrapped.startsWith(YAML_START)).toBe(true);
+      });
+
+      it("is case-insensitive on the extension", () => {
+        const wrapped = wrapInManagedBlock("foo: bar", "Workflow.YML");
+        expect(wrapped.startsWith(YAML_START)).toBe(true);
+      });
+    });
+
+    describe("hasManagedBlock / extractManagedBlock / extractCustomContent across variants", () => {
+      it("detects YAML markers", () => {
+        const yaml = `${YAML_START}\nname: foo\n${YAML_END}\n`;
+        expect(hasManagedBlock(yaml)).toBe(true);
+        expect(extractManagedBlock(yaml)).toBe("name: foo");
+      });
+
+      it("returns false when only one YAML marker is present", () => {
+        expect(hasManagedBlock(`${YAML_START}\nname: foo\n`)).toBe(false);
+        expect(hasManagedBlock(`name: foo\n${YAML_END}\n`)).toBe(false);
+      });
+
+      it("preserves user content outside YAML markers", () => {
+        const content = [
+          "# user comment",
+          YAML_START,
+          "managed: value",
+          YAML_END,
+          "trailing: user",
+        ].join("\n");
+        const custom = extractCustomContent(content);
+        expect(custom).toContain("# user comment");
+        expect(custom).toContain("trailing: user");
+        expect(custom).not.toContain("managed: value");
+      });
+    });
+
+    describe("insertManagedBlock auto-repair across variants", () => {
+      it("uses YAML output markers when filePath is a .yml file", () => {
+        const existing = `${YAML_START}\nold: value\n${YAML_END}\n`;
+        const result = insertManagedBlock(existing, "new: value", "x.yml");
+        expect(result).toBe(`${YAML_START}\nnew: value\n${YAML_END}\n`);
+      });
+
+      // The v1.7.0/v1.7.1 bug: a YAML workflow file ended up with HTML
+      // markers. The next sync must detect the (wrong-variant) markers,
+      // strip them, and emit YAML markers so the file becomes valid YAML.
+      it("auto-repairs HTML markers in a .yml file to YAML markers", () => {
+        const broken = `${START}\nold: value\n${END}\n`;
+        const repaired = insertManagedBlock(broken, "new: value", "x.yml");
+        expect(repaired).toBe(`${YAML_START}\nnew: value\n${YAML_END}\n`);
+        expect(repaired).not.toContain("<!--");
+      });
+
+      it("auto-repair preserves user content outside the broken HTML block", () => {
+        const broken = [
+          "# user header",
+          START,
+          "old: value",
+          END,
+          "user_footer: yes",
+        ].join("\n");
+        const repaired = insertManagedBlock(broken, "new: value", "x.yml");
+        expect(repaired).toContain("# user header");
+        expect(repaired).toContain("user_footer: yes");
+        expect(repaired).toContain(YAML_START);
+        expect(repaired).toContain(YAML_END);
+        expect(repaired).not.toContain("<!--");
+        expect(repaired).not.toContain("old: value");
+        expect(repaired).toContain("new: value");
+      });
+
+      it("is idempotent after auto-repair (second sync writes nothing new)", () => {
+        const broken = `${START}\nold: value\n${END}\n`;
+        const once = insertManagedBlock(broken, "new: value", "x.yml");
+        const twice = insertManagedBlock(once, "new: value", "x.yml");
+        expect(twice).toBe(once);
+      });
+
+      it("leaves markdown files on HTML markers by default", () => {
+        const existing = `${START}\nold\n${END}\n`;
+        const result = insertManagedBlock(existing, "new", "AGENTS.md");
+        expect(result).toBe(`${START}\nnew\n${END}\n`);
+      });
+    });
+  });
 });

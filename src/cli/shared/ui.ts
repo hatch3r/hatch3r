@@ -84,12 +84,13 @@ export function createSpinner(text: string): Ora {
 export function printBox(
   title: string,
   lines: string[],
-  style: "success" | "info" | "error" = "info",
+  style: "success" | "info" | "error" | "warning" = "info",
 ): void {
   const colors = {
     success: "#10b981" as const,
     info: "#06b6d4" as const,
     error: "#ef4444" as const,
+    warning: "#f59e0b" as const,
   };
   const content = lines.join("\n");
   console.log(

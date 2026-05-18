@@ -101,6 +101,7 @@ function maximalFeatures(): Features {
     commands: true,
     prompts: true,
     githubAgents: true,
+    handoffs: true,
   };
 }
 
@@ -136,6 +137,7 @@ interface ObservedCapabilityRow {
   commands: boolean;
   prompts: boolean;
   githubAgents: boolean;
+  handoffs: boolean;
 }
 
 /**
@@ -163,6 +165,7 @@ function declaredSupport(tool: string, feature: keyof Features): boolean {
       mcp: false,
       githubAgents: false,
       hooks: false,
+      handoffs: false,
       [feature]: true,
     },
     mcp: { servers: [] },
@@ -214,6 +217,77 @@ describe("ADAPTER_CAPABILITIES drift detection (C7.5-W2B2-H6)", () => {
         expect(entry, `${adapter}: nativeQuestionTool=false requires ASK_USER_TOOLS null`).toBeNull();
       }
     }
+  });
+
+  // ── Wave 5 (CLI-tooling pivot, plan §4.6) ───────────────────────
+  //
+  // ADAPTER_CAPABILITIES.cliTools must be `true` for the 13 adapters with
+  // skills surfaces (cursor, claude, gemini, cline, codex, amazon-q,
+  // copilot, opencode, windsurf, kiro, aider, goose, antigravity) and
+  // `false` for amp (reads canonical skills natively) and zed (no skills
+  // surface). The matrix drives the runtime warning emitted by
+  // `getUnsupportedFeatureWarnings` for users who select CLI tools on an
+  // adapter that doesn't render them.
+  describe("cliTools capability (Wave 5 plan §4.6)", () => {
+    const CLI_TOOLS_TRUE: ReadonlyArray<Tool> = [
+      "cursor",
+      "claude",
+      "gemini",
+      "cline",
+      "codex",
+      "amazon-q",
+      "copilot",
+      "opencode",
+      "windsurf",
+      "kiro",
+      "aider",
+      "goose",
+      "antigravity",
+    ];
+    const CLI_TOOLS_FALSE: ReadonlyArray<Tool> = ["amp", "zed"];
+
+    it("declares cliTools: true for adapters with skills surfaces", () => {
+      for (const tool of CLI_TOOLS_TRUE) {
+        const caps = ADAPTER_CAPABILITIES[tool];
+        expect(caps, `${tool}: ADAPTER_CAPABILITIES entry missing`).toBeDefined();
+        expect(
+          caps.cliTools,
+          `${tool}: expected cliTools=true (Wave 5 plan §4.6)`,
+        ).toBe(true);
+      }
+    });
+
+    it("declares cliTools: false for amp and zed (no per-tool skill surface)", () => {
+      for (const tool of CLI_TOOLS_FALSE) {
+        const caps = ADAPTER_CAPABILITIES[tool];
+        expect(caps, `${tool}: ADAPTER_CAPABILITIES entry missing`).toBeDefined();
+        expect(
+          caps.cliTools,
+          `${tool}: expected cliTools=false (Wave 5 plan §4.6)`,
+        ).toBe(false);
+      }
+    });
+
+    it("every registered adapter has a cliTools field of boolean type", () => {
+      for (const [adapter, caps] of Object.entries(ADAPTER_CAPABILITIES)) {
+        expect(
+          typeof caps.cliTools,
+          `${adapter}: cliTools must be a boolean`,
+        ).toBe("boolean");
+      }
+    });
+
+    it("cliTools capability count matches the truth table partition", () => {
+      const total = Object.values(ADAPTER_CAPABILITIES).length;
+      const trueCount = Object.values(ADAPTER_CAPABILITIES).filter(
+        (c) => c.cliTools,
+      ).length;
+      const falseCount = total - trueCount;
+      // 13 true + 2 false = 15 (the full adapter matrix).
+      expect(total).toBe(15);
+      expect(trueCount).toBe(13);
+      expect(falseCount).toBe(2);
+    });
   });
 
   for (const tool of TOOLS_UNDER_TEST) {

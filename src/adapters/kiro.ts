@@ -72,7 +72,7 @@ export class KiroAdapter extends BaseAdapter {
     results.push(output(".kiro/steering/hatch3r-agents.md", wrapInManagedBlock(inner), inner));
 
     results.push(
-      ...await this.processSkillsRaw(ctx, (id) => `.kiro/steering/hatch3r-skill-${id}.md`),
+      ...await this.processSkillsRawCliFiltered(ctx, (id) => `.kiro/steering/hatch3r-skill-${id}.md`),
     );
 
     // Generate native Kiro hooks in .kiro/hooks/ directory.

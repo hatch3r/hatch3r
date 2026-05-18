@@ -43,7 +43,7 @@
 import { access, readFile, unlink } from "node:fs/promises";
 import { basename, dirname, relative, resolve } from "node:path";
 import { HATCH3R_PREFIX } from "../types.js";
-import { hasManagedBlock } from "./managedBlocks.js";
+import { extractCustomContent, hasManagedBlock } from "./managedBlocks.js";
 import { TOOL_PATH_PREFIXES } from "../archive/index.js";
 
 /**
@@ -96,6 +96,13 @@ export interface OrphanCleanupEntry {
 /**
  * Compute set difference: paths recorded by the previous sync that the
  * current adapter run did NOT re-emit. Returned paths are repo-relative.
+ *
+ * CLI-tooling pivot (plan §4.7 / Wave 3 item 21): when a user deselects
+ * a CLI tool, the adapter's `readCliFilteredSkills` returns a smaller
+ * skill set, so the next sync emits a smaller `managedFilesByAdapter`
+ * list. The diff against the previous (larger) list naturally surfaces
+ * the dropped `hatch3r-cli-{id}` skill paths as orphans — no special
+ * case is needed here.
  */
 export function diffOrphanCandidates(
   previousPaths: string[] | undefined,
@@ -160,14 +167,11 @@ async function fileIsUserWrapped(
       return { wrapped: false };
     }
     // Block present. If anything outside the block is non-whitespace, it
-    // is user-authored content we must not touch.
-    const before = content.slice(0, content.indexOf("<!-- HATCH3R:BEGIN -->"));
-    const endMarker = "<!-- HATCH3R:END -->";
-    const endIdx = content.indexOf(endMarker);
-    const after = endIdx === -1 ? "" : content.slice(endIdx + endMarker.length);
-    const userBefore = before.trim();
-    const userAfter = after.trim();
-    return { wrapped: userBefore.length > 0 || userAfter.length > 0 };
+    // is user-authored content we must not touch. `extractCustomContent`
+    // handles any known marker variant (issue #76: YAML `#` markers in
+    // `.github/workflows/*.yml`), so we don't hard-code HTML markers here.
+    const userOutside = extractCustomContent(content).trim();
+    return { wrapped: userOutside.length > 0 };
   } catch (err) {
     return { wrapped: false, error: err instanceof Error ? err.message : String(err) };
   }

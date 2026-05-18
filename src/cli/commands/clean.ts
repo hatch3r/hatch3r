@@ -11,7 +11,7 @@ import {
   step,
   label,
 } from "../shared/ui.js";
-import { HatchError, type ContentSelection, type CustomizationManifest, type Features, type Platform, type Tool } from "../../types.js";
+import { HatchError, type CliToolsConfig, type ContentSelection, type CustomizationManifest, type Features, type Platform, type Tool } from "../../types.js";
 import { inventoryArtifacts, executeClean, backupLearnings, restoreLearnings, type CleanInventory } from "../../clean/index.js";
 import { runInit, type RunInitOptions } from "./init.js";
 import { analyzeRepo } from "../../detect/repoAnalyzer.js";
@@ -29,6 +29,12 @@ interface CapturedConfig {
   mcpServers: string[];
   contentSelection: ContentSelection;
   worktreeEnabled: boolean;
+  /**
+   * CLI-tooling pivot (1.7.5 / plan §4.7 clean touchpoint): captured so
+   * reinit re-applies the same selection without forcing the picker
+   * again. Falls back through `preservedFields.cliTools` when absent.
+   */
+  cliTools?: CliToolsConfig;
   /**
    * Customization payload carried forward from the pre-clean manifest so a
    * `clean` -> reinit cycle preserves integration config (e.g. GitHub project
@@ -65,6 +71,7 @@ function captureConfig(manifest: NonNullable<CleanInventory["manifest"]>): Captu
     },
     worktreeEnabled: manifest.worktree?.enabled ?? false,
     customization: manifest.customization,
+    cliTools: manifest.cliTools,
     preservedFields: extractPreservedManifestFields(manifest),
   };
 }
@@ -259,6 +266,10 @@ export async function cleanCommand(
           // manifest preserves integration config and per-artifact overrides
           // across a clean -> reinit cycle.
           customization: config.customization,
+          // 1.7.5 (CLI-tooling pivot): carry the previous CLI-tools
+          // selection forward so clean -> reinit does not silently
+          // re-pick from the default.
+          cliTools: config.cliTools,
           // 1.7.1: carry full platform/user manifest state (board IDs,
           // costTracking, specs, extension config, worktree extras) forward
           // so a clean -> reinit cycle no longer wipes them.

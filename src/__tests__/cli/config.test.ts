@@ -25,9 +25,22 @@ import {
 // Default implementations are re-applied via applyDefaultConfigMocks() in
 // beforeEach (after vi.clearAllMocks). See src/__tests__/helpers/configHelpers.ts.
 
-vi.mock("inquirer", () => ({
-  default: { prompt: vi.fn() },
-}));
+vi.mock("inquirer", () => {
+  // Wave 3 CLI-tooling pivot: `pickCliTools` in src/cli/shared/pickers.ts
+  // builds tier headers via `new inquirer.Separator(label)`. The mocked
+  // default must expose a Separator constructor or the picker throws
+  // `default.Separator is not a constructor` before any inquirer.prompt is
+  // reached. The shape here matches the real inquirer.Separator API.
+  class Separator {
+    constructor(public readonly line: string) {}
+  }
+  return {
+    default: {
+      prompt: vi.fn(),
+      Separator,
+    },
+  };
+});
 
 vi.mock("../../manifest/hatchJson.js", () => ({
   readManifest: vi.fn(),
@@ -130,6 +143,26 @@ vi.mock("../../cli/shared/ui.js", () => ({
   warn: vi.fn(),
 }));
 
+// Wave 5 CLI-tooling pivot: the cliTools section in configCommand calls
+// findMissingCliTools (real PATH probe) and offerInstaller (inquirer.prompt).
+// Without these mocks, offerInstaller consumes the queued features answer
+// from setupStandardPrompts, leaving selectedFeatures undefined at
+// config.ts:371. Default to "nothing missing" so offerInstaller is never
+// invoked; tests that exercise install flow can override per-test.
+vi.mock("../../cliTools/detect.js", () => ({
+  findMissingCliTools: vi.fn().mockResolvedValue([]),
+  detectCliTool: vi.fn(),
+  detectCliTools: vi.fn().mockResolvedValue([]),
+  probeBin: vi.fn().mockResolvedValue(""),
+}));
+
+vi.mock("../../cliTools/install.js", () => ({
+  offerInstaller: vi.fn().mockResolvedValue(true),
+  buildInstallPlan: vi.fn().mockReturnValue([]),
+  currentOsKey: vi.fn().mockReturnValue("mac"),
+  printMissingCliToolsDisclaimer: vi.fn(),
+}));
+
 // ── Import mocked modules ─────────────────────────────────────
 
 import inquirer from "inquirer";
@@ -155,6 +188,8 @@ import { printBox, info, error as logError, warn, createSpinner, step, label } f
 import { detectWorkspaceContext } from "../../workspace/detect.js";
 import { readWorkspaceManifest, writeWorkspaceManifest } from "../../workspace/manifest.js";
 import { syncWorkspaceRepos } from "../../workspace/sync.js";
+import { findMissingCliTools } from "../../cliTools/detect.js";
+import { printMissingCliToolsDisclaimer } from "../../cliTools/install.js";
 
 // ── Local test helpers (thin wrappers around shared harness) ──
 
@@ -1067,7 +1102,12 @@ describe("config command", () => {
       expect(writtenManifest.board?.branchConvention).toBe("{type}/{short-description}");
     });
 
-    it("should set MCP servers to empty when mcp feature disabled", async () => {
+    it("preserves existing MCP servers when mcp feature is disabled (Wave 3 plan §4.4)", async () => {
+      // Wave 3 (CLI-tooling pivot, plan §4.4): disabling the mcp feature no
+      // longer wipes the server list — the user may toggle the feature off
+      // temporarily and expects their setup intact when toggling back on.
+      // The gate runs only when features.mcp is true; otherwise mcpServers
+      // is initialised from the existing manifest entry and passed through.
       const manifest = makeManifest();
       primeConfig(manifest, {
         features: ["agents", "skills", "rules", "prompts", "commands", "githubAgents", "hooks"],
@@ -1076,7 +1116,8 @@ describe("config command", () => {
       await (await importConfigCommand())();
 
       const writtenManifest = getWrittenManifest(writeManifest);
-      expect(writtenManifest.mcp.servers).toEqual([]);
+      // Existing manifest.mcp.servers = ["github"] is preserved.
+      expect(writtenManifest.mcp.servers).toEqual(["github"]);
     });
 
     it("should write manifest to rootDir", async () => {
@@ -1572,6 +1613,129 @@ describe("config command", () => {
           expect.stringContaining("Workspace manifest persisted"),
         );
       });
+    });
+  });
+
+  // ── Wave 5 (CLI-tooling pivot, plan §4.4) ──────────────────────
+  //
+  // Coverage for the new CLI tools section in configCommand and the
+  // Yes/No MCP gate:
+  //  - CLI tools picker appears between tools and features.
+  //  - The diff surfaces addedCliTools / removedCliTools correctly.
+  //  - MCP gate defaults Yes when existing servers are configured, No when
+  //    the manifest has none.
+  describe("CLI tools section (Wave 5 plan §4.4)", () => {
+    it("persists the CLI tools selection into manifest.cliTools", async () => {
+      const manifest = makeManifest();
+      primeConfig(manifest, { cliTools: ["ripgrep", "jq"] });
+
+      await (await importConfigCommand())();
+
+      const writtenManifest = getWrittenManifest(writeManifest);
+      expect(writtenManifest.cliTools).toBeDefined();
+      expect(writtenManifest.cliTools?.enabled).toBe(true);
+      expect(writtenManifest.cliTools?.selected).toEqual(["ripgrep", "jq"]);
+    });
+
+    it("disables cliTools when the picker returns an empty list and manifest had none", async () => {
+      // No prior cliTools in manifest + empty picker selection -> diff is empty
+      // along the CLI-tools axis, but we still need to surface a side change to
+      // force writeManifest. Trigger a feature change so the manifest writes.
+      const manifest = makeManifest({
+        cliTools: { enabled: true, selected: ["jq"] },
+      });
+      primeConfig(manifest, { cliTools: [] });
+
+      await (await importConfigCommand())();
+
+      const writtenManifest = getWrittenManifest(writeManifest);
+      expect(writtenManifest.cliTools?.enabled).toBe(false);
+      expect(writtenManifest.cliTools?.selected).toEqual([]);
+    });
+
+    it("computes addedCliTools when the picker adds an id not present before", async () => {
+      const manifest = makeManifest({
+        cliTools: { enabled: true, selected: ["ripgrep"] },
+      });
+      primeConfig(manifest, { cliTools: ["ripgrep", "jq"] });
+
+      await (await importConfigCommand())();
+
+      // The summary box surfaces "+jq" under "CLI tools" — check the rendered
+      // line set rather than re-deriving the diff struct.
+      const summary = getConfigUpdatedBox(printBox).join("\n");
+      // Plan §4.4: diff lines mention added/removed CLI tools by id.
+      expect(summary).toContain("jq");
+    });
+
+    it("computes removedCliTools when the picker drops an id present before", async () => {
+      const manifest = makeManifest({
+        cliTools: { enabled: true, selected: ["ripgrep", "jq"] },
+      });
+      primeConfig(manifest, { cliTools: ["ripgrep"] });
+
+      await (await importConfigCommand())();
+
+      const summary = getConfigUpdatedBox(printBox).join("\n");
+      // The removed id surfaces in the diff output.
+      expect(summary).toContain("jq");
+    });
+
+    it("invokes printMissingCliToolsDisclaimer when a final detection pass reports missing tools", async () => {
+      const manifest = makeManifest();
+      primeConfig(manifest, { cliTools: ["ripgrep", "jq"] });
+      vi.mocked(findMissingCliTools).mockResolvedValueOnce([]).mockResolvedValueOnce(["jq"]);
+
+      await (await importConfigCommand())();
+
+      expect(vi.mocked(printMissingCliToolsDisclaimer)).toHaveBeenCalledWith(["jq"], 2);
+    });
+
+    it("does not invoke printMissingCliToolsDisclaimer when no CLI tools are selected", async () => {
+      const manifest = makeManifest({
+        tools: ["cursor"],
+        cliTools: { enabled: false, selected: [] },
+      });
+      primeConfig(manifest, { tools: ["cursor", "claude"], cliTools: [] });
+
+      await (await importConfigCommand())();
+
+      expect(vi.mocked(printMissingCliToolsDisclaimer)).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("MCP Yes/No gate (Wave 5 plan §4.4)", () => {
+    it("gate defaults Yes when manifest already has MCP servers (servers survive a same-diff run)", async () => {
+      // Existing servers -> gate proceeds by default -> picker runs and the
+      // server list survives. Force a side-channel change (add a tool) so
+      // writeManifest is invoked and we can inspect the persisted shape.
+      const manifest = makeManifest({
+        tools: ["cursor"],
+        mcp: { servers: ["github"] },
+      });
+      primeConfig(manifest, { tools: ["cursor", "claude"] });
+
+      await (await importConfigCommand())();
+
+      const writtenManifest = getWrittenManifest(writeManifest);
+      expect(writtenManifest.mcp.servers).toContain("github");
+    });
+
+    it("gate defaults No when manifest has no MCP servers (Wave 3 default-off)", async () => {
+      // Empty servers + features.mcp true -> gate defaults No -> picker does
+      // NOT run -> servers remain empty. Force a side-channel change to
+      // produce a non-empty diff so writeManifest is invoked.
+      const manifest = makeManifest({
+        tools: ["cursor"],
+        mcp: { servers: [] },
+      });
+      primeConfig(manifest, { tools: ["cursor", "claude"] });
+
+      await (await importConfigCommand())();
+
+      const writtenManifest = getWrittenManifest(writeManifest);
+      // No servers were picked because the gate defaulted to No.
+      expect(writtenManifest.mcp.servers).toEqual([]);
     });
   });
 });

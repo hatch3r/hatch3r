@@ -1,0 +1,150 @@
+---
+description: Resilience patterns in user code — circuit breakers, retry with decorrelated jitter, timeouts with deadline propagation, idempotency keys, bulkheads, hedged requests
+globs: ["**/services/**", "**/handlers/**", "**/clients/**", "**/integrations/**", "**/api/**", "**/middleware/**", "**/circuit*", "**/retry*", "**/resilience*"]
+alwaysApply: false
+---
+# Resilience Patterns
+
+## Scope
+
+This rule applies to every outbound call (database, cache, queue, external HTTP, external RPC) and every service entry point in user code. The rule governs user application code; hatch3r's own pipeline implementations (`src/pipeline/circuitBreaker.ts`, `src/pipeline/retryWithBackoff.ts`) are the reference implementations — copy their semantics, including the transient-vs-substantive failure classification.
+
+## Circuit Breakers — Per Ecosystem
+
+Use the maintained library for the project's runtime. The Hystrix project entered maintenance in 2018; new services use resilience4j or its peers below.
+
+- **Node / TypeScript:** `opossum` 9.x or `cockatiel`. `opossum` wraps the operation in a breaker instance with explicit timeout, error threshold, and reset interval.
+- **JVM (Java / Kotlin):** `resilience4j` 2.x — succeeds Hystrix; integrates with Reactor, RxJava 3, Spring Boot 3. Configure per-dependency `CircuitBreakerConfig` and register metrics with Micrometer.
+- **.NET:** `Polly` 8.x — pipeline-style API; chain `AddCircuitBreaker`, `AddRetry`, `AddTimeout` for layered resilience.
+- **Go:** `gobreaker` (sony/gobreaker) — synchronous wrapper around the call; counts consecutive failures and rolls over per `Interval` window.
+- **Python:** `pybreaker` (sync) or `circuitbreaker` (async via decorator); pair with `tenacity` for retry composition.
+
+Concrete configuration baseline:
+
+- Failure threshold: 50% over a 10-request rolling window.
+- Cooldown: 30s before a half-open trial request.
+- Half-open: 1 trial request; success closes the breaker, failure reopens for the next 30s.
+- Minimum request volume before threshold evaluation: 20 requests within the window — below that the breaker stays closed regardless of failure rate (avoids false trips on cold traffic).
+- Failure classification distinguishes transient (network blip, 5xx, timeout) from substantive (4xx validation, auth failure). Only transient failures trip the breaker. Reference `src/pipeline/circuitBreaker.ts` for the classification taxonomy.
+
+Emit a metric on every state transition (closed → open, open → half-open, half-open → closed|open) and alert when a per-dependency breaker stays open for more than 5 minutes — that is a sustained-outage signal, not transient.
+
+## Retry With Decorrelated Jitter
+
+The canonical AWS Architecture Blog (2015) pattern, used by AWS SDK retries since:
+
+```
+sleep = min(cap, random_between(base, prev_sleep * 3))
+```
+
+- Base: 100ms.
+- Cap: 30s.
+- Maximum retries: 3 attempts beyond the initial call.
+
+Never use `min(cap, base * 2 ** attempt)` (pure exponential backoff) without jitter — synchronized clients produce thundering-herd retry storms on recovery. Never use full random jitter (`random_between(0, cap)`) — it discards the prior delay signal and converges slower.
+
+**Retry budget:** cap retry traffic at 10% of base request traffic per service. Exceeding the budget signals a sustained outage; circuit breaker should already be open.
+
+Retry only on transient failures (see classification below). Never retry on substantive failures — they will fail again and waste budget. The library should expose a `shouldRetry(error)` predicate that returns `false` for 4xx (except 408 and 429), validation errors, and authentication failures.
+
+Respect `Retry-After` headers on 429 and 503 — the server has told the client how long to wait. Ignoring it adds load to a struggling dependency.
+
+## Idempotency-Key on Retries
+
+Any retried request that is not naturally idempotent (POST, PATCH, non-idempotent RPC) must carry an `Idempotency-Key` header. Server stores key+response for 24h and replays the stored response on duplicate key. Cross-reference `rules/hatch3r-api-versioning.md` (Slice 4) for the wire-format contract.
+
+GET / HEAD / PUT / DELETE are idempotent by HTTP semantics — no key required, but verify handlers honor the contract (no side effects on GET; PUT replaces full resource state; DELETE on already-deleted resource returns 204 not 404).
+
+Generate keys as UUIDv4 or ULID at the call site, not at the retry layer — the key must remain stable across all retry attempts of the same logical operation. Reusing a key across logically distinct operations is a correctness bug; the server returns the cached prior response.
+
+## Timeouts + Deadline Propagation
+
+Every external call has an explicit timeout. Nested timeout budgets propagate from the parent deadline:
+
+- **Go:** `context.WithDeadline` / `context.WithTimeout`.
+- **Web / Node:** chained `AbortSignal` via `AbortSignal.timeout(ms)` and `AbortSignal.any([...])`.
+- **gRPC:** `Deadline` propagated via metadata.
+- **JVM:** `CompletableFuture.orTimeout` or `Resilience4j.TimeLimiter`.
+
+Downstream timeout = remaining-budget − propagation-overhead (typically 50ms reserved). Default budgets:
+
+- Service-call timeout: 5s.
+- Database call: 2s.
+- Cache call: 200ms.
+- Health-probe call (cross-reference `rules/hatch3r-operability.md`): 1s.
+
+A call that exceeds its budget is cancelled, not allowed to complete past the deadline. Caller surfaces the cancellation as a transient failure to the retry layer; if the parent deadline is already exhausted, no retry is attempted (no budget remains).
+
+## Hedged Requests
+
+For tail-latency-sensitive reads, send a second request after p99 latency elapses; the first response wins, the second is cancelled. The Google SRE workbook (Reducing Tail Latency chapter) measures p99.9 reduction of approximately 96% at approximately 2% extra request traffic.
+
+- **gRPC:** built-in via service-config `hedgingPolicy` (`maxAttempts`, `hedgingDelay`).
+- **Application-level:** issue duplicate request via `Promise.race` (Node) or equivalent; cancel the loser via `AbortController`.
+
+Apply only to idempotent reads. Never hedge writes — the duplicate could double-apply. Cap hedge traffic at 5% of total request volume; above that, the dependency is overloaded and hedging compounds the problem.
+
+## Bulkheads + Load Shedding
+
+Bound concurrent calls per dependency to prevent one slow downstream from saturating all worker threads:
+
+- 50 concurrent DB connections per service instance (per pool).
+- 20 concurrent external HTTP calls per remote dependency.
+- 10 concurrent cache calls per dependency (cache is usually fast — a queue depth above 10 means cache is itself a bottleneck).
+- Reject excess with HTTP 503 + `Retry-After: 1` header at the service entry; do not block the request worker waiting for a slot.
+
+- **JVM:** `resilience4j.Bulkhead` (semaphore or fixed thread pool).
+- **Node / TypeScript:** semaphore via `p-limit` or `async-sema`.
+- **Go:** buffered channel as semaphore.
+
+Hystrix `commandPoolSize` archived since 2018 — use resilience4j on the JVM.
+
+## Failure Classification
+
+Every call result classifies into one of three buckets:
+
+- **Transient** — retryable: connection refused, timeout, 502/503/504, ECONNRESET, EAI_AGAIN, gRPC `UNAVAILABLE`/`DEADLINE_EXCEEDED`.
+- **Substantive** — non-retryable: 400/401/403/404/422, validation error, business-rule rejection, gRPC `INVALID_ARGUMENT`/`NOT_FOUND`/`PERMISSION_DENIED`.
+- **Unknown** — treated as transient with reduced retry budget (max 1 attempt). Includes unexpected exceptions and unmapped error codes.
+
+Only transient failures trip the breaker and get retried. Substantive failures return immediately to the caller. Reference `src/pipeline/circuitBreaker.ts` for the canonical classification function.
+
+429 Too Many Requests is transient but special — respect `Retry-After`; do not exponential-backoff past it. 408 Request Timeout is transient and retryable. 401 is substantive at the resilience layer (auth refresh is a separate concern handled by the auth client, not the breaker).
+
+## Graceful Degradation / Fallback
+
+Every circuit-broken call has a fallback path:
+
+- Cached value (from the cache layer, even if stale-while-revalidate is in effect).
+- Static response (sensible default; e.g. empty list, feature-flagged-off behavior).
+- Degraded feature (skip non-critical enrichment; render the page without the personalization block).
+
+Never let a non-critical dependency take down the request path. A recommendation service outage must not 500 the product page; the page renders without recommendations. Document the per-feature degradation strategy in `docs/runbooks/<service>.md` so the on-call can verify the fallback actually fires when the upstream breaker is open.
+
+## Composition Order
+
+Stack the patterns in the order below — outermost first; reversing the order changes the failure semantics.
+
+1. **Bulkhead** (outermost) — reject if concurrency cap exceeded; protects the worker pool.
+2. **Circuit breaker** — fail-fast if breaker is open; protects the dependency.
+3. **Retry** — on transient failure; bounded by retry budget.
+4. **Timeout** (innermost, per attempt) — cancel the in-flight call.
+
+Wrong order example: retry around timeout around breaker would retry on breaker-open exceptions and amplify load against the failing dependency. Right order: retry sits inside breaker, so a tripped breaker short-circuits before any retry attempt fires.
+
+## Cross-References
+
+- `rules/hatch3r-operability.md` — probes, graceful shutdown, kill switches.
+- `rules/hatch3r-observability-metrics.md` — RED metrics emit on retries and circuit-state changes; SLO alerts trigger on retry-budget exhaustion.
+- `rules/hatch3r-api-versioning.md` — `Idempotency-Key` header contract.
+- `rules/hatch3r-progressive-delivery.md` — circuit-broken dependency triggers staged-rollout abort.
+
+## References
+
+- opossum (Node) — `github.com/nodeshift/opossum`
+- resilience4j 2.x (JVM) — `resilience4j.readme.io`
+- Polly 8.x (.NET) — `pollydocs.org`
+- gobreaker (Go) — `github.com/sony/gobreaker`
+- AWS Architecture Blog, "Exponential Backoff and Jitter" (2015) — `aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter`
+- Google SRE workbook, "Reducing Tail Latency" chapter — `sre.google/workbook`
+- 2024–2026 outage postmortems: CrowdStrike Jul 2024, AWS us-east-1 Oct 2025, Azure East-US2 Sep 2025, Cloudflare Nov 2025.

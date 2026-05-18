@@ -14,6 +14,7 @@ cache_friendly: true
 
 ```
 Task Progress:
+- [ ] Step 0: Detect ambiguity (P8 B1)
 - [ ] Step 1: Read the issue and relevant specs
 - [ ] Step 2: Produce a diagnosis plan
 - [ ] Step 2b: Browser reproduction (if UI bug)
@@ -24,6 +25,10 @@ Task Progress:
 - [ ] Step 5b: Browser verification (if UI bug)
 - [ ] Step 6: Open PR
 ```
+
+## Step 0 — Detect Ambiguity (P8 B1)
+
+Before any work, scan the invocation for unresolved questions in scope, intent, acceptance criteria, target environment, or irreversibility. If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md`. Do not proceed under silent assumption. Default path, not an exception. Triggers for THIS skill: reproduction steps incomplete, expected vs actual behavior unstated, severity unclear (P0/P1 vs P2/P3), affected environment unknown (staging vs prod), or fix may require schema/API change with downstream consumers.
 
 ## Step 1: Read Inputs
 

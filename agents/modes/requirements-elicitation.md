@@ -26,7 +26,10 @@ Analyze the task description against the codebase to detect ambiguities, unstate
 
 1. **Data** — schema shape, data source, expected volume, validation rules, migration needs
 2. **Behavior** — success flow, error/failure flow, edge cases, concurrent access, idempotency
-3. **UI/UX** — loading states, empty states, error states, responsive behavior, accessibility, animations
+3. **UI/UX** — loading states, empty states, error states, responsive behavior, accessibility, animations, design-system context, user flows. UI/UX sub-probes to render when this dimension is unaddressed:
+   - "Does the project use a component library (shadcn / Radix / MUI / Chakra / custom)? If yes, which version? Source: `package.json` + `components.json` + `src/components/ui/*`."
+   - "What is the design-token source (DTCG `tokens.json`, Tailwind v4 `@theme` block, CSS custom properties)? Color space (OKLCH preferred for 2026, Display-P3, hex)?"
+   - "What are the three user flows (Happy / Alternative / Error-Recovery) for this feature? If unknown, run `agents/modes/user-flows.md` first."
 4. **Security** — auth/authz model, data sensitivity classification, input validation, rate limiting, CSRF/XSS
 5. **Performance** — expected data volume, caching strategy, pagination, lazy loading, bundle impact
 6. **Integration** — existing features this interacts with, shared state, event chains, API consumers

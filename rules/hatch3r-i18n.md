@@ -93,3 +93,16 @@ ICU MessageFormat 2.0 reached Final Candidate status in CLDR 46.1 (January 2025)
 - **Migration strategy:** New translation keys should use MF2 syntax. Existing MF1 keys can be migrated incrementally — both syntaxes can coexist during transition.
 - **Tooling:** Verify that your translation management system (TMS) supports MF2 syntax before migrating. Test with a small key set first.
 - **Stability:** The MF2 specification has stability guarantees post-approval (mid-2025). Syntax and semantics will not change incompatibly after that point.
+
+## Microcopy and Tone
+
+Translation strings are user-facing copy — write them as product copy, not as technical labels.
+
+- Use plain language. Default to second person ("you", "your") for end-user surfaces.
+- Use a corrective verb in error messages: "Try again", "Reconnect", "Enter a valid email" — not "Error" or "Oops".
+- Never expose to end users: protocol acronyms ("FIDO2", "WebAuthn"), raw HTTP status codes ("500", "401"), language sentinel values (`null`, `undefined`), or internal record/ID strings. Translate these into a user-visible cause + recovery.
+- CTA labels are action-oriented and specific: "Save changes" beats "Submit"; "Delete project" beats "Confirm"; "Send invite" beats "OK".
+- Error tone explains the cause and offers a recovery path. Do not blame the user. Replace "You entered an invalid value" with "This field needs a valid email address — for example, name@example.com".
+- Use ICU MessageFormat (1.0 or 2.0 per the MF2 section above) for every plural, gender, and select pattern. Never concatenate translated fragments to build a sentence — each complete sentence is a single translation key with its own placeholders.
+- Tone source-of-truth: the GOV.UK Design System content style guide (https://design-system.service.gov.uk/styles/) and IBM Carbon Design System voice and tone guidance (https://carbondesignsystem.com/guidelines/content/general/) — cite both when reviewing tone or training a translator.
+- Cross-reference `rules/hatch3r-ux-states-and-flows.md` Microcopy subsection for the state-driven copy patterns (loading, empty, error, partial) that share this tone contract.

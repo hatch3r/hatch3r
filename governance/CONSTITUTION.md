@@ -1,6 +1,6 @@
 # hatch3r — Constitution
 
-> Established: 2026-03-25 | Restructured: 2026-04-09 (Cycle 5 Reaudit)
+> Established: 2026-03-25 | Restructured: 2026-04-09 (Cycle 5 Reaudit) | Amended: 2026-05-18 (RE-ENVISION redesigned as holistic governance sparring engine — §2 P5 lean-threshold row recalibrated, §3 traceability cells updated, §6 Decision #11 added, §8 authorizes RE-ENVISION as direct-edit path for permitted layers)
 > Design rationale for the hatch3r governance system. VISION.md defines what we aspire to. This Constitution defines why we made these choices and how the governance system holds itself accountable.
 
 ---
@@ -11,7 +11,7 @@ hatch3r is an open-source CLI that installs tool-agnostic agentic coding setups 
 
 ---
 
-## 2. The 7 Binding Pillars
+## 2. The 8 Binding Pillars
 
 Every governance file, audit domain, and enhancement decision must serve at least one pillar. These are the constitutional heart of the governance system.
 
@@ -26,15 +26,15 @@ Every lifecycle stage (init through release) delivers the best achievable CLI in
 
 Content is of verifiable, real-world-applicable quality. Findings carry the Scientific Rigor Contract — falsifiability, triangulated citations, confidence with basis, ≥3-step causal chain, bias check, peer-review counter-argument — defined in [audit/templates/rigor-contract.md](audit/templates/rigor-contract.md) and operationalised by the Behavioral Charter.
 
-**Measurement:** Behavioral charter compliance rate, one-shot success rate (see [VISION.md](VISION.md) §Quality Bar), finding root-cause depth (symptom vs. systemic).
-**Governance refs:** [AUDIT.md §Sub-Agent Behavioral Charter](AUDIT.md) (13 directives, authoritative location), Audit Quality Architecture (3 layers), D1/D5/D7/D13.
+**Measurement:** Behavioral charter compliance rate, one-shot success rate (see [VISION.md](VISION.md) §Quality Bar), finding root-cause depth (symptom vs. systemic). Agent-produced UI/UX measurement: WCAG 2.2 AA conformance via axe-core (0 serious/critical violations per route and per component), design-token adoption rate ≥95% on color and spacing in generated code, four-state surface contract coverage on async views (loading + empty + error + partial = 100%), agent-produced one-shot UI/UX acceptance rate cycle-over-cycle. Production-readiness metrics extend P2 to agent-produced services: instrumented-route ratio (observability) = 100%; expand-contract conformance on schema changes (migrations) = 100%; API breaking-change events per release on stable endpoints = 0; AI feature eval coverage with hallucination-as-SLI defined = 100%; per-feature-mandate-map coverage on test classes (testing depth) = 100%; SBOM + npm provenance + SHA-pinned actions (supply chain) = 100%; SLO defined on user-facing services (reliability) = 100%; OAuth 2.1 + passkey-server + RBAC-or-better authorization (auth depth) = 100%.
+**Governance refs:** [AUDIT.md §Sub-Agent Behavioral Charter](AUDIT.md) (17 directives, authoritative location), Audit Quality Architecture (3 layers), D1/D5/D7/D13.
 
-### P3. Adapter & MCP Currency
+### P3. Adapter & External Tool Currency
 
-Every adapter and MCP server stays current through audit cycles. Each cycle mandates live web research against latest platform documentation. Staleness is a finding.
+Every adapter, end-user-recommended CLI tool, and MCP server stays current through audit cycles. Each cycle mandates live web research against latest official documentation, vendor changelogs ≤12 months old, and CVE feeds ≤90 days old. Staleness >90 days for any tier-1 tool is a Medium finding; missing CVE check is High.
 
-**Measurement:** Platform documentation date vs. audit date delta, feature gap count per adapter, adapter test coverage.
-**Governance refs:** AUDIT.md D9 (Platform Adapters, web research mandate), charter directive 12 (currency verification), D2.
+**Measurement:** Platform documentation date vs. audit date delta (per adapter and per CLI tool), feature gap count per adapter, adapter test coverage, CLI tool currency delta (last vendor release vs cycle date, target ≤90 days), CVE advisory acknowledgement count per cycle.
+**Governance refs:** AUDIT.md D9 (Platform Adapters, web research mandate), D21 (CLI Tool Currency), D2.4 (External Tool Config Utilities), charter directive 12 (currency verification), D15.5 + D15.7 (MCP and CLI supply-chain trust).
 
 ### P4. Comprehensive Lean Coverage
 
@@ -54,11 +54,11 @@ Governance and audit cycles apply the same quality standards, anti-slop, and ant
 
 | Metric | Limit | Calibration |
 |--------|-------|-------------|
-| CONSTITUTION.md | <=225 lines | +25 per binding pillar added |
+| CONSTITUTION.md | <=250 lines | +25 per binding pillar added (P8 baseline) |
 | VISION.md | <=250 lines | Stable; add principles rarely |
 | AUDIT.md | <=600 lines | ±4 lines per domain count delta |
 | AUDIT-EXECUTE.md | <=700 lines | ±50 lines per execution phase delta |
-| RE-ENVISION.md | <=350 lines | ±20 lines per theme-block delta |
+| RE-ENVISION.md | <=550 lines | ±25 lines per theme-block delta (10 vision themes + 10 governance-layer sparring themes; recalibrated 2026-05-18 with redesign as holistic sparring engine) |
 | EVOLVE.md | <=400 lines | ±20 lines per assessment-dimension delta |
 | Static-first prompt structure | required for `orchestrator: true` and `agents/*.md` | scripts/validate-efficiency-invariants.ts |
 | Parallel-tool-by-default directive | required when artifact uses ≥2 independent tool calls | Body-text scan |
@@ -71,8 +71,21 @@ Governance and audit cycles apply the same quality standards, anti-slop, and ant
 | Cross-file duplication | <5% | 0% ideal; audit per cycle |
 | Finding inflation | <2.0x pre-dedup/post-triage | Source-level dedup improvement |
 | Governance total | <=3000 lines | Increasing across cycles = bloat signal |
+| Generated UI a11y violations (axe-core, serious/critical) | 0 | Per-component, per-route, applies to agent-produced output |
+| Design-token adoption in generated code (color, spacing, typography) | >=95% | Hard-coded values count against; semantic tokens count toward |
+| Four-state surface contract coverage on generated async views | 100% | Loading + empty + error + partial; missing any state is a regression |
+| Generated-service OTel instrumentation on request path | 100% | Per route, per service, agent-produced |
+| Migration expand-contract conformance | 100% | Schema changes follow 3- or 4-deploy expand/migrate/contract; reversibility documented |
+| API breaking-change events on stable endpoints | 0 per release | Verified by oasdiff / buf breaking / graphql-inspector CI gate |
+| AI feature eval coverage | 100% | Every AI feature has automated eval set + hallucination-as-SLI |
+| Per-feature test-class mandate compliance | 100% | Per `rules/hatch3r-testing.md` mandate-map: parser→fuzz, payment→mutation, RPC→contract |
+| Supply-chain floor coverage | 100% | npm provenance + SBOM + SHA-pinned actions + cosign-verified containers |
+| User-facing service SLO defined | 100% | Per service: availability + latency p95/p99 + burn-rate alert |
+| Auth depth coverage | 100% | OAuth 2.1 + OIDC validation + DPoP + WebAuthn server-side + RBAC/ABAC/ReBAC rubric applied |
 | Anti-slop phrases | 0 per file | Pattern match per cycle |
 | Checklist items/SA | 4-8 | <4 shallow, >8 too broad |
+| Ambiguity-detection gate coverage (agents/skills/commands) | 100% | §0/Step 0 references `agents/shared/user-question-protocol.md` |
+| Sub-agent count emission on delegating artifacts | 100% | First-class output field with rationale per P8 |
 
 #### Anti-Bloat Principles
 
@@ -98,10 +111,21 @@ Security and trust are first-class governance concerns integrated into every tie
 
 ### P7. Speed & Token Efficiency (end-user runtime)
 
-End-user agentic flows (commands, agents, skills consumed in `npx hatch3r`-installed projects) are tuned for token economy and latency, using only zero-quality-loss techniques established in published LLM literature: static-first prompt structure for cross-provider cache friendliness, parallel-tool-by-default, triage-first orchestration with auto-tiered depth (Light/Standard/Deep), plan/act split, structured outputs over prose, lazy loading via reference-by-pointer, and conditional sub-agent invocation. Aggressive compression that risks quality is rejected. The audit-cycle prompt itself (AUDIT.md, RE-ENVISION.md, `hatch3r-audit-cycle*.md`) is exempt — depth there is non-negotiable. AUDIT-EXECUTE.md is no longer exempt as of Cycle 9: it carries `triage_tiers` and groups Low/Info trivial findings sharing a closed `tier1_pattern` into batch sub-agents (≤30 per batch), preserving the rule that the orchestrator never edits files itself.
+End-user agentic flows (commands, agents, skills consumed in `npx hatch3r`-installed projects) are tuned for token economy and latency, using only zero-quality-loss techniques established in published LLM literature: static-first prompt structure for cross-provider cache friendliness, parallel-tool-by-default, triage-first orchestration with auto-tiered depth (Light/Standard/Deep), plan/act split, structured outputs over prose, and lazy loading via reference-by-pointer. P7 governs the static-prompt frame and dependency-edge serialization — it does NOT govern fan-out width. Aggressive compression that risks quality is rejected. The audit-cycle prompt itself (AUDIT.md, RE-ENVISION.md, `hatch3r-audit-cycle*.md`) is exempt — depth there is non-negotiable. AUDIT-EXECUTE.md is no longer exempt as of Cycle 9: it carries `triage_tiers` and groups Low/Info trivial findings sharing a closed `tier1_pattern` into batch sub-agents (≤30 per batch), preserving the rule that the orchestrator never edits files itself.
+
+**Tension with P8 resolved:** P7 minimizes token waste in the static prompt structure; P8 mandates fan-out width sufficient for task size. Token cost is never a valid reason to under-fan-out (P8 dominates).
 
 **Measurement:** static-first ordering compliance (100% of orchestrator commands), parallel-tool directive presence (100% of multi-tool agents), triage-first directive on `orchestrator: true` commands (required), passive token/latency telemetry deltas in `src/pipeline/observability.ts` cycle-over-cycle (informational).
 **Governance refs:** AUDIT.md D06 (extended), charter directive 14 (Speed & Token Efficiency Awareness), lean thresholds below (efficiency rows).
+
+### P8. Clarification & Fan-out Discipline
+
+Every hatch3r-invoked agentic workflow detects and resolves ambiguity via `agents/shared/user-question-protocol.md` BEFORE executing — default behavior, not exception-driven.
+
+Sub-agent fan-out scales with task size; serialization is only valid on dependency edges. Token cost is never a valid reason to serialize independent work. Delegating artifacts emit sub-agent count + rationale as a first-class output field.
+
+**Measurement:** B1 gate present rate (target 100% across agents, skills, commands), sub-agent count emission rate on delegating artifacts (target 100%), under-fan-out incidents per cycle (target 0). User-content authoring tools count toward this when they delegate.
+**Governance refs:** AUDIT.md Behavioral Charter directive 17 (clarification-first verification), D05 (B1 in prompts), D07 (B2 in orchestration), D13 (B1 in human-AI collaboration), shared/user-question-protocol.md.
 
 ### Pillar Compliance Test
 
@@ -117,11 +141,12 @@ If (1) is "none", the change is rejected. If (3) is "increase", justify net valu
 |--------|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
 | P1 CLI UX | S | P | S | S | S | S | — | D10, D20.1 | — |
 | P2 Quality | P | P | P | S | S | S | P | D1,D5,D7,D13 | — |
-| P3 Currency | S | P | P | S | — | S | — | D2,D9 | S |
-| P4 Lean | S | P | P | P | — | S | — | D5,D16, D20 | — |
-| P5 Governance | P | S | P | P | S | P | S | D16,D18,D19, D20 | — |
+| P3 Currency | S | P | P | S | — | S | — | D2,D9,D21 | P |
+| P4 Lean | S | P | P | P | S | S | — | D5,D16, D20 | — |
+| P5 Governance | P | S | P | P | P | P | S | D16,D18,D19, D20 | — |
 | P6 Security | P | — | S | S | — | — | — | D15, D20.2 | P |
 | P7 Speed & Tokens | S | — | S | S | — | — | — | D6 | — |
+| P8 Clarification & Fan-out | P | P | P | S | P | — | S | D5,D7,D13 | — |
 
 P=primary, S=supporting, —=gap or acceptable. Columns: A-EXEC=AUDIT-EXECUTE.md · RE-ENV=RE-ENVISION.md · TMPL=audit/templates · Domains=audit/domains · Trust=D15 Part B.
 **Known gaps:** P6 ↔ VISION.md and P7 ↔ VISION.md — add via RE-ENVISION.md workflow.
@@ -173,11 +198,12 @@ Identification and action are separated because audit is read-only (safe to run 
 | 3 | Identification/action separation | Audit reads safely; execution writes require gates and consent |
 | 4 | Per-proposal consent for CL-3 | Changing the audit system is highest-risk; no batch approval |
 | 5 | Content fixes flow through audit cycle | Permanent quality vs. one-time fix; audit cycle is the maintenance mechanism |
-| 6 | Dual behavioral charters | Audit agents (13 directives) evaluate; content agents (quality charter) execute |
+| 6 | Dual behavioral charters | Audit agents (17 directives) evaluate; content agents (quality charter) execute |
 | 7 | Wave-based execution with regression gates | Progressive risk: critical first, gated between waves, rollback per-wave |
 | 8 | Finding registry as central manifest | Single lifecycle record per finding; enables cross-cycle learning |
 | 9 | Governance directory isolation | governance/ for governance, agents/ for content, src/ for code -- clear boundaries |
 | 10 | Workspace features integrated into existing CLI commands | No separate command group; features belong in init/sync/config/status |
+| 11 | RE-ENVISION is a holistic governance sparring engine with hybrid edit authority | Vision-only refinement leaves cross-layer drift unresolved between audits; sparring across all 10 governance layers via 10 parallel SAs + 20-theme dialog brings the corpus to one consistent state. Direct-edit (per-file consent) for VISION, lean thresholds, anti-bloat, Silent Failure, charter additions/refinements, anti-slop wordlist (atomic pair), EVOLVE mechanics, quality-charter, user-question-protocol, CLAUDE.md cross-refs. CL-3 / Phase 7 routing for audit-system (AUDIT.md domains/scoring/CL phases, AUDIT-EXECUTE waves/gates/registry, audit/domains, audit/templates, .claude/rules, .claude/skills). §8 amendment queue for pillars, traceability matrix, amendment protocol itself, Key Design Decisions. |
 
 ---
 
@@ -197,3 +223,7 @@ Changes to this Constitution require:
 - **All other changes:** Explicit framework owner approval with rationale
 
 Every amendment must pass the Pillar Compliance Test (§2) and include date + rationale.
+
+### RE-ENVISION direct-edit authorization (added 2026-05-18)
+
+`governance/RE-ENVISION.md` is an authorized direct-edit path (with per-file consent at its §6.1) for the following layers: VISION.md content + principles; §2 P5 lean-threshold rows; §2 Anti-Bloat Principles; §2 Silent Failure Contract; behavioral charter directive additions and refinements in `governance/AUDIT.md` (directive removals route to CL-3); anti-slop wordlist in `governance/AUDIT-EXECUTE.md` regression gate 11 paired atomically with `CLAUDE.md` §Anti-Slop Wordlist; `governance/EVOLVE.md` prompt mechanics; `agents/shared/quality-charter.md`; `agents/shared/user-question-protocol.md`; `CLAUDE.md` cross-references. Pillars (§2 P1–P8 definitions), the Pillar-to-Governance Traceability Matrix (§3), this Amendment Protocol section (§8), and Key Design Decisions (§6) remain framework-owner direct-edits under this §8 protocol with dated rationale — RE-ENVISION emits a queued proposal in `.re-envision-workspace/constitution-amendment-queue.md` with pre-populated dated rationale for framework-owner application. Audit-system changes (AUDIT.md domains/scoring/CL phases, AUDIT-EXECUTE.md waves/gates/registry, audit/domains/D*.md, audit/templates/*.md, .claude/rules/*.md, .claude/skills/h4tcher-*/SKILL.md) route to CL-3 / AUDIT-EXECUTE Phase 7 per-proposal consent.

@@ -54,7 +54,7 @@
 - [ ] Plan/act split — non-trivial commands separate planning sub-agent from execution sub-agent; bundled plan+act in one prompt is a Medium finding
 - [ ] Structured outputs over prose — multi-step pipelines emit machine-parseable handoff (YAML/JSON tables) between phases; free-form prose handoff is a finding
 - [ ] Lazy loading / reference-by-pointer — bulky context (board state, learnings corpus, AGENTS.md) is loaded conditionally with a token budget rather than eagerly inlined
-- [ ] Conditional sub-agent invocation — Phase 4 specialists (a11y-auditor, perf-profiler, dep-auditor) are dispatch-gated; unconditional invocation across trivial tasks is a finding
+- [ ] Conditional sub-agent invocation (dispatch-gating, NOT fan-out narrowing) — Phase 4 specialists are dispatch-gated on task relevance signals (e.g., a11y-auditor skipped when no UI changes); a finding requires the gate to be wrong, not narrow. Under-fan-out of independent work for cost reasons is a P8 violation, not a P7 win (see Pillar note below).
 
 ### 6.6 Cross-Adapter Efficiency Consistency
 - [ ] All 15 adapter outputs preserve static-first ordering after canonical-to-adapter transformation; no adapter rewrites the prompt frame to inject volatile metadata at the top
@@ -65,6 +65,9 @@
 ## Universal Checklist
 - [ ] Every published artifact passes static-first ordering; no anti-cache patterns (mid-prompt timestamps, ephemeral counters, per-run UUIDs above stable frames)
 - [ ] Efficiency claims are model-agnostic — provider-specific optimizations (e.g., Anthropic `cache_control`) are advisory, not required
+
+## P7 vs P8 Boundary
+P7 governs static-prompt efficiency and dependency-edge serialization. P8 governs fan-out width. Cost is never a valid reason to under-fan-out independent work — that is a P8 (B2) violation, not a P7 win. D06 findings that recommend narrowing fan-out must cite a dependency edge, not token economics.
 
 ## Domain Boundary
 

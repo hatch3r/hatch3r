@@ -34,8 +34,10 @@ const SAFE_FILENAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]*\.md$/;
  * Each entry's `patternId` matches a row in the catalog. The sync test at
  * `src/__tests__/pipeline/injectionPatternsSync.test.ts` asserts every ID
  * here appears in the catalog.
+ *
+ * Exported for cross-module use (handoffs validation reuses the same patterns).
  */
-const LEARNINGS_INJECTION_PATTERNS: { patternId: string; pattern: RegExp }[] = [
+export const LEARNINGS_INJECTION_PATTERNS: { patternId: string; pattern: RegExp }[] = [
   // Fake section headers that mimic system/agent instructions
   {
     patternId: "P-LEARN-01",

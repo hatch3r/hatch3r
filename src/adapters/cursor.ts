@@ -94,7 +94,7 @@ export class CursorAdapter extends BaseAdapter {
     }
 
     results.push(
-      ...await this.processSkillsWithFm(ctx, (id) => `.cursor/skills/${toPrefixedId(id)}/SKILL.md`),
+      ...await this.processSkillsWithFmCliFiltered(ctx, (id) => `.cursor/skills/${toPrefixedId(id)}/SKILL.md`),
     );
 
     results.push(

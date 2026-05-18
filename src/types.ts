@@ -75,6 +75,13 @@ export interface HatchManifest {
   tools: Tool[];
   features: Features;
   mcp: McpConfig;
+  /**
+   * CLI-tooling pivot (added in 1.7.5 as an additive optional field — no
+   * manifest version bump). Absence is equivalent to `{ enabled: false,
+   * selected: [] }`. Read via
+   * `src/manifest/hatchJson.ts::readCliToolsConfig`.
+   */
+  cliTools?: CliToolsConfig;
   board?: BoardConfig;
   repos?: RepoEntry[];
   packages?: PackageEntry[];
@@ -128,6 +135,18 @@ export interface HatchManifest {
     excludedContent?: string[];
     /** Content IDs added locally (not from workspace). */
     localContent?: string[];
+    /**
+     * CLI tools added at this member only (plan §4.8). Mirrors
+     * `localContent` for content. Workspace `defaults.cliTools.selected`
+     * is the baseline; this list extends it for this member.
+     */
+    localCliTools?: CliToolId[];
+    /**
+     * CLI tools the member opts out of even though the workspace
+     * defaults include them (plan §4.8). Exclusion wins (matches
+     * `excludedContent` semantics).
+     */
+    excludedCliTools?: CliToolId[];
   };
   managedFiles: string[];
   /**
@@ -211,10 +230,41 @@ export interface Features {
   mcp: boolean;
   githubAgents: boolean;
   hooks: boolean;
+  /**
+   * Controls whether adapter outputs surface active handoff documents from
+   * `.agents/handoffs/active/` in their primary tool-context file. Default
+   * `true`. Absent on pre-1.8.0 manifests; consumers treat absence as `true`.
+   */
+  handoffs: boolean;
 }
 
 export interface McpConfig {
   servers: string[];
+}
+
+/**
+ * Identifier for a CLI tool entry in `AVAILABLE_CLI_TOOLS`
+ * (`src/cliTools/registry.ts`). Free-form string for forward compatibility
+ * with future tools added by maintainers; runtime validation lives in
+ * `src/cliTools/registry.ts`.
+ */
+export type CliToolId = string;
+
+/**
+ * Manifest payload that captures the CLI-tooling pivot: a master enable
+ * switch plus the selected tool ids. `overrides` lets a project disable a
+ * tool that came from a workspace or preset default without removing the
+ * id from `selected` (matching the per-content override pattern used by
+ * `customization`).
+ *
+ * Absent on pre-1.7.5 manifests; consumers must treat absence as
+ * `{ enabled: false, selected: [] }` (see
+ * `src/manifest/hatchJson.ts::readCliToolsConfig`).
+ */
+export interface CliToolsConfig {
+  enabled: boolean;
+  selected: CliToolId[];
+  overrides?: Record<CliToolId, { disabled?: boolean; note?: string }>;
 }
 
 export interface HooksConfig {
@@ -391,6 +441,59 @@ export interface RepoInfo {
 
 export const MANAGED_BLOCK_START = "<!-- HATCH3R:BEGIN -->";
 export const MANAGED_BLOCK_END = "<!-- HATCH3R:END -->";
+
+/**
+ * Issue #76: HATCH3R:BEGIN/END markers must adopt the host file's comment
+ * syntax — embedding HTML-style `<!-- -->` markers inside a YAML workflow
+ * file produces a parse error on line 2 and GitHub Actions rejects the file.
+ *
+ * `MANAGED_BLOCK_START` / `MANAGED_BLOCK_END` above remain the Markdown/HTML
+ * default and the canonical name used everywhere markdown is the host. The
+ * YAML variant below is used for `.yml` / `.yaml` outputs (currently only
+ * `.github/workflows/copilot-setup-steps.yml`).
+ *
+ * Read-side helpers in `src/merge/managedBlocks.ts` accept any variant in
+ * `MANAGED_BLOCK_VARIANTS` so a file written by an earlier hatch3r release
+ * with the wrong-style markers (the bug in v1.7.0/v1.7.1 produced HTML
+ * markers inside the YAML workflow) can be auto-repaired on the next sync.
+ */
+export const MANAGED_BLOCK_START_YAML = "# HATCH3R:BEGIN";
+export const MANAGED_BLOCK_END_YAML = "# HATCH3R:END";
+
+/** A pair of markers that delimit a hatch3r managed block in a specific host syntax. */
+export interface ManagedBlockMarkers {
+  readonly start: string;
+  readonly end: string;
+}
+
+/**
+ * Ordered list of marker variants. Read-side functions scan in this order;
+ * Markdown is listed first because it is the historical default and the
+ * vast majority of managed files. Adding a new variant requires appending
+ * an entry here — no other code change needed for detection.
+ */
+export const MANAGED_BLOCK_VARIANTS: readonly ManagedBlockMarkers[] = [
+  { start: MANAGED_BLOCK_START, end: MANAGED_BLOCK_END },
+  { start: MANAGED_BLOCK_START_YAML, end: MANAGED_BLOCK_END_YAML },
+];
+
+/**
+ * Choose the marker variant for a given output path. Currently:
+ * - `.yml` / `.yaml` → YAML `#`-prefixed markers (issue #76)
+ * - everything else  → HTML/Markdown `<!-- -->` markers (default)
+ *
+ * JSON files are never wrapped in managed blocks (adapters emit JSON
+ * via `JSON.stringify` without merge), so no JSON variant is needed.
+ */
+export function getMarkersForPath(filePath?: string): ManagedBlockMarkers {
+  if (filePath) {
+    const lower = filePath.toLowerCase();
+    if (lower.endsWith(".yml") || lower.endsWith(".yaml")) {
+      return { start: MANAGED_BLOCK_START_YAML, end: MANAGED_BLOCK_END_YAML };
+    }
+  }
+  return { start: MANAGED_BLOCK_START, end: MANAGED_BLOCK_END };
+}
 export const HATCH3R_PREFIX = "hatch3r-";
 export const AGENTS_DIR = ".agents";
 export const ARCHIVE_DIR = ".hatch3r-archive";
@@ -469,6 +572,7 @@ export const DEFAULT_FEATURES: Features = {
   mcp: true,
   githubAgents: true,
   hooks: true,
+  handoffs: true,
 };
 
 export interface McpServerMeta {

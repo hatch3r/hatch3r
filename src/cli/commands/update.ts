@@ -1030,6 +1030,14 @@ export async function updateCommand(
     label("Version", `v${compactedResult.version}`),
   ], "success");
 
+  // CLI-tooling pivot (plan §4.7 update touchpoint): nudge users who
+  // upgraded without ever opting in to the CLI tooling surface. Repeats
+  // across runs intentionally — there is no manifest flag to dampen it,
+  // and the info() output is one line.
+  if (!m.cliTools || m.cliTools.selected.length === 0) {
+    info("CLI tooling available as a token-efficient alternative to MCP — run `npx hatch3r cli-tools` to opt in.");
+  }
+
   // Pipeline timeout advisory: surface a warning if total wall time exceeded
   // the budget. Disk writes are already complete; this is informational only.
   if (isPipelineTimedOut(pipelineState)) {

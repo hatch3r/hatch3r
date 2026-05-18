@@ -24,7 +24,7 @@ function makeManifest(overrides: Partial<HatchManifest> = {}): HatchManifest {
     namespace: "test",
     project: "test",
     tools: ["cursor"],
-    features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+    features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true, handoffs: true },
     mcp: { servers: [] },
     managedFiles: [],
     ...overrides,

@@ -41,6 +41,46 @@ export const TAG_A11Y = "a11y";
 export const TAG_PERFORMANCE = "performance";
 /** Meta-customization commands/skills */
 export const TAG_CUSTOMIZE = "customize";
+/** Frontend engineering (component code, browser runtimes, client-side rendering) */
+export const TAG_FRONTEND = "frontend";
+/** UI domain — visual design, components, theming, design tokens */
+export const TAG_UI = "ui";
+/** UX domain — user flows, microcopy, state design, interaction patterns */
+export const TAG_UX = "ux";
+/** Design-system adherence — tokens, primitives, component-library reuse */
+export const TAG_DESIGN_SYSTEM = "design-system";
+
+// ── CLI tool tags (plan §5, CLI-tooling pivot) ───────────────
+// Applied to skills under `skills/hatch3r-cli-*/SKILL.md`. The generator
+// in `scripts/generate-cli-skills.ts::tagsFor()` derives the per-skill
+// tag list from `AVAILABLE_CLI_TOOLS[id].category` plus tier classifiers
+// (`core` for tier-1, `opt-in` for tier-3, `caveat` for tier-3 with a
+// known caveat). The umbrella catalog (`hatch3r-cli-overview/SKILL.md`)
+// adds `reference` to mark it as discovery-only.
+/** Marker tag present on every CLI-tool skill (filters for picker UI). */
+export const TAG_CLI_TOOLS = "cli-tools";
+/** Tier-3 opt-in advanced tool marker. */
+export const TAG_OPT_IN = "opt-in";
+/** Tier-3 tool with a known correctness caveat (e.g. rtk pipe rewrite). */
+export const TAG_CAVEAT = "caveat";
+/** Umbrella/index skill marker — discovery, not workflow. */
+export const TAG_REFERENCE = "reference";
+
+// CLI tool category tags — mirror the union in
+// `src/cliTools/registry.ts::CliToolMeta["category"]`.
+export const TAG_CAT_SEARCH = "search";
+export const TAG_CAT_JSON = "json";
+export const TAG_CAT_YAML = "yaml";
+export const TAG_CAT_GIT = "git";
+export const TAG_CAT_VIEW = "view";
+export const TAG_CAT_EDIT = "edit";
+export const TAG_CAT_ARCHIVE = "archive";
+export const TAG_CAT_DATA = "data";
+export const TAG_CAT_FORGE = "forge";
+export const TAG_CAT_BROWSER = "browser";
+export const TAG_CAT_CONTAINER = "container";
+export const TAG_CAT_AI = "ai";
+export const TAG_CAT_INTERACTIVE = "interactive";
 
 // ── Language tags (Finding #71, #74) ─────────────────────────
 /** TypeScript/JavaScript projects */
@@ -73,6 +113,27 @@ export const ALL_TAGS = [
   TAG_A11Y,
   TAG_PERFORMANCE,
   TAG_CUSTOMIZE,
+  TAG_FRONTEND,
+  TAG_UI,
+  TAG_UX,
+  TAG_DESIGN_SYSTEM,
+  TAG_CLI_TOOLS,
+  TAG_OPT_IN,
+  TAG_CAVEAT,
+  TAG_REFERENCE,
+  TAG_CAT_SEARCH,
+  TAG_CAT_JSON,
+  TAG_CAT_YAML,
+  TAG_CAT_GIT,
+  TAG_CAT_VIEW,
+  TAG_CAT_EDIT,
+  TAG_CAT_ARCHIVE,
+  TAG_CAT_DATA,
+  TAG_CAT_FORGE,
+  TAG_CAT_BROWSER,
+  TAG_CAT_CONTAINER,
+  TAG_CAT_AI,
+  TAG_CAT_INTERACTIVE,
   TAG_LANG_TYPESCRIPT,
   TAG_LANG_PYTHON,
   TAG_LANG_GO,
@@ -108,6 +169,10 @@ export const DOMAIN_TAGS: ContentTag[] = [
   TAG_A11Y,
   TAG_PERFORMANCE,
   TAG_CUSTOMIZE,
+  TAG_FRONTEND,
+  TAG_UI,
+  TAG_UX,
+  TAG_DESIGN_SYSTEM,
 ];
 
 /** Language tags — for language-specific content filtering (Finding #71) */
@@ -118,6 +183,32 @@ export const LANGUAGE_TAGS: ContentTag[] = [
   TAG_LANG_RUST,
   TAG_LANG_JAVA,
   TAG_LANG_RUBY,
+];
+
+/**
+ * CLI tool tags — applied to `skills/hatch3r-cli-*` artifacts per
+ * plan §5. Includes the marker tag, tier classifiers, the umbrella
+ * `reference` tag, and the 13 category tags that mirror
+ * `CliToolMeta["category"]` in `src/cliTools/registry.ts`.
+ */
+export const CLI_TOOL_TAGS: ContentTag[] = [
+  TAG_CLI_TOOLS,
+  TAG_OPT_IN,
+  TAG_CAVEAT,
+  TAG_REFERENCE,
+  TAG_CAT_SEARCH,
+  TAG_CAT_JSON,
+  TAG_CAT_YAML,
+  TAG_CAT_GIT,
+  TAG_CAT_VIEW,
+  TAG_CAT_EDIT,
+  TAG_CAT_ARCHIVE,
+  TAG_CAT_DATA,
+  TAG_CAT_FORGE,
+  TAG_CAT_BROWSER,
+  TAG_CAT_CONTAINER,
+  TAG_CAT_AI,
+  TAG_CAT_INTERACTIVE,
 ];
 
 /**

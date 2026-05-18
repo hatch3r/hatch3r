@@ -1,104 +1,69 @@
 # Domain 5: Prompt Engineering Quality
 
-> Last updated: 2026-04-20
+> Last updated: 2026-05-18
 
-**Pillars served:** P2 (primary), P4 (supporting).
+**Pillars served:** P2 (primary), P4, P8 (supporting).
 
-**Scope:** ALL 137 content artifacts evaluated for prompt engineering quality, instruction clarity, and LLM execution reliability.
-**Sub-agents:** 8
+**Scope:** 137 content artifacts evaluated for prompt engineering quality, instruction clarity, ambiguity-detection gates, LLM execution reliability.
+**Sub-agents:** 9
 
-## Sub-Agent Decomposition
+| SA | Focus |
+|----|-------|
+| 5.1 | Pipeline agents (researcher/implementer/reviewer/fixer) |
+| 5.2 | Specialist agents (a11y/architect/ci-watcher/context-rules/dep-auditor/devops/docs-writer/lint-fixer) |
+| 5.3 | Meta agents (perf-profiler/security-auditor/test-writer/learnings-loader) |
+| 5.4 | Rules (22 .md + 22 .mdc) |
+| 5.5 | Commands (34) |
+| 5.6 | Skills (25) |
+| 5.7 | Supporting artifacts (6 checks + 6 hooks + 3 prompts + 4 github-agents) |
+| 5.8 | Cross-artifact consistency (137 artifacts, from D16) |
+| 5.9 | P8 B1 verification (ambiguity-detection gate, directive 17) |
 
-| SA | Focus | Artifact Count |
-|----|-------|---------------|
-| 5.1 | Pipeline Agents | 4 agents: researcher, implementer, reviewer, fixer |
-| 5.2 | Specialist Agents | 8 agents: a11y-auditor, architect, ci-watcher, context-rules, dep-auditor, devops, docs-writer, lint-fixer |
-| 5.3 | Meta Agents | 4 agents: perf-profiler, security-auditor, test-writer, learnings-loader |
-| 5.4 | Rules | 22 .md + 22 .mdc = 44 files |
-| 5.5 | Commands | 34 command files |
-| 5.6 | Skills | 25 skill directories (SKILL.md each) |
-| 5.7 | Supporting Artifacts | 6 checks + 6 hooks + 3 prompts + 4 github-agents = 19 files |
-| 5.8 | Cross-Artifact Consistency | All 137 content artifacts (redistributed from D16) |
+> Apply rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
 
-> Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
-
-## Universal Checklist (apply to ALL sub-agents)
-
-- [ ] **One-shot success prediction** — Would an LLM execute this artifact correctly on the first attempt without clarification? Rate 1-5.
-- [ ] **Instruction clarity scoring** — Are instructions unambiguous, sequenced logically, and free of contradictions? Rate 1-5.
-- [ ] **Output format specification** — Is the expected output format explicitly defined, structured, and parseable?
-- [ ] **Scope boundaries** — Clear what the artifact does and does NOT do? Are there implicit assumptions?
-- [ ] **Cross-agent handoff contract analysis** — For pipeline agents: are handoff contracts between phases (researcher to implementer, reviewer to fixer) explicitly defined with data schemas?
-- [ ] **Golden test case methodology** — Could you write a deterministic test case to verify this artifact produces correct output? If not, why?
-- [ ] **Prompt drift detection** — Are there version markers or checksums to detect when artifact content has drifted from intended behavior?
-- [ ] **Negative scenario testing** — For each content type examined: what happens when prerequisites are missing? When inputs are malformed? When referenced artifacts (agents, skills, MCP servers) don't exist? Content must fail gracefully with clear guidance or warn clearly — not fail silently or produce confusing output.
+## Universal Checklist (all sub-agents)
+- [ ] One-shot success prediction — LLM executes correctly first attempt without clarification (1-5).
+- [ ] Instruction clarity — unambiguous, sequenced, contradiction-free (1-5).
+- [ ] Output format — explicit, structured, parseable.
+- [ ] Scope boundaries — does / does NOT do; implicit assumptions surfaced.
+- [ ] Handoff contracts — pipeline phase data schemas explicit.
+- [ ] Golden test case — deterministic test exists or rationale for absence.
+- [ ] Negative scenarios — missing prereqs, malformed inputs, absent referenced artifacts fail gracefully with guidance.
 
 ## Audit Checklists
 
 ### 5.1 Pipeline Agents
-- [ ] Phase sequencing correctness — research, implement, review, final quality in correct order
-- [ ] Context propagation between phases — critical information flows forward without loss
-- [ ] Review loop termination conditions — clear criteria for when to stop iterating
-- [ ] Phase 4 specialist dispatch logic — which specialists are invoked and when
-- [ ] **Token efficiency** — Pipeline artifact is optimally sized. Reference: AGENTS.md best practices (6-10 rules, ≲150 lines per GitHub 2026 research).
+- [ ] Phase sequencing research→implement→review→final correct; context propagation lossless; review-loop termination criteria explicit; Phase 4 dispatch logic defined; token efficiency per AGENTS.md (6-10 rules, ≲150 lines).
 
 ### 5.2 Specialist Agents
-- [ ] Domain expertise depth — does each specialist demonstrate deep knowledge?
-- [ ] Tool usage instructions — are MCP tools, file operations, and external tools correctly referenced?
-- [ ] Output actionability — can a user act on the specialist's output without interpretation?
-- [ ] Integration with review loop — specialist findings feed back correctly into fixer
-- [ ] **External-research alignment** — Compare against published research on LLM instruction formats; cite source and date.
+- [ ] Domain expertise visible; tool usage (MCP/file ops/externals) accurate; output actionable; integration with review loop intact; external-research alignment cited.
 
 ### 5.3 Meta Agents
-- [ ] Cross-cutting concern coverage — do meta agents address concerns that span multiple domains?
-- [ ] Learning system effectiveness — does the learnings-loader actually improve future agent behavior?
-- [ ] Security coverage breadth — does the security-auditor cover the full attack surface?
-- [ ] **Hallucination prevention** — Meta agent includes grounding mechanisms (file references, schema constraints, verification steps).
+- [ ] Cross-cutting coverage; learnings-loader produces measurable behavior change; security-auditor covers full attack surface; hallucination prevention via file refs, schemas, verification.
 
 ### 5.4 Rules
-- [ ] Technical accuracy — do recommendations reflect current best practices?
-- [ ] .md/.mdc parity — canonical .md and Cursor .mdc versions are in sync
-- [ ] Scope metadata correctness — `alwaysApply`, `globs`, `description` correctly set
-- [ ] OWASP coverage — security rules cover OWASP Top 10 and OWASP Agentic Top 10
-- [ ] Performance budget specificity — measurable thresholds, not vague guidance
+- [ ] Technical accuracy current; .md/.mdc parity intact; scope metadata correct; OWASP Top 10 + Agentic Top 10 covered; performance budgets measurable.
 
 ### 5.5 Commands
-- [ ] Workflow completeness — edge cases, error paths, alternative flows handled
-- [ ] Platform feature integration — commands leverage platform capabilities (GitHub API, git, etc.)
-- [ ] UX quality — intuitive naming, helpful output, clear error messages
-- [ ] Simulated LLM execution — for ALL core and orchestration-heavy commands (minimum: `hatch3r-workflow`, `hatch3r-board-pickup`, `hatch3r-revision`, `hatch3r-quick-change`, `hatch3r-learn`, `hatch3r-security-audit`), mentally simulate step-by-step LLM execution. Predict output at each step. Compare against stated purpose. Flag deviation/hallucination risks. For commands with sub-files (e.g., board-pickup's delegation files), simulate the full delegation chain.
-- [ ] **Governance compliance** — Verify adherence to Principles in `governance/VISION.md` §Principles and Behavioral Standards in `governance/CONSTITUTION.md` §2 P2. Specific checks: ASK checkpoints at user-facing decisions, mandatory quality gates, sub-agent delegation via four-phase pipeline, learnings consultation, scope-always rules in sub-agent prompts, current-information grounding, measurable acceptance criteria, context-degradation guards, severity routing, confidence expression, max-3-iteration review loop with user ASK on exhaustion, agent protocol reference, explicit error handling with recovery guidance.
+- [ ] Workflow completeness (edges/errors/alternates); platform integration; UX quality; simulated LLM execution for core/orchestration commands flags deviation/hallucination; governance compliance per `governance/VISION.md` §Principles and `governance/CONSTITUTION.md` §2 P2 (ASK checkpoints, gates, sub-agent delegation, learnings consultation, severity routing, confidence expression, max-3-iteration loop, explicit error handling).
 
 ### 5.6 Skills
-- [ ] Step-by-step correctness — each step is executable and produces expected results
-- [ ] Input/output contracts — what the skill expects and what it produces is explicit
-- [ ] Guardrails — skill prevents common mistakes and dangerous operations
-- [ ] Verification steps — skill includes self-check mechanisms
-- [ ] Real-world applicability — skill addresses actual production scenarios
+- [ ] Step executability; I/O contracts explicit; guardrails prevent dangerous ops; self-check verification present; real-world production applicability.
 
 ### 5.7 Supporting Artifacts
-- [ ] Check criteria completeness — all 6 checks have explicit pass/fail criteria covering their stated domain scope
-- [ ] Hook trigger accuracy — all 6 hooks fire on correct events
-- [ ] Prompt output quality — all 3 prompts produce useful, structured output
-- [ ] GitHub Actions integration quality — all 4 github-agents work correctly in CI
+- [ ] 6 checks have pass/fail criteria covering scope; 6 hooks fire on correct events; 3 prompts produce structured output; 4 github-agents work in CI.
 
-### Content Quality Principles
+### 5.8 Cross-Artifact Consistency
+- [ ] Consistent terminology, severity scale, output formats across 137 artifacts.
+- [ ] Content interaction — 15+ always-apply rules + skill + shared + agent loaded simultaneously produce no conflict/ambiguity.
+- [ ] MCP dependency graceful degradation — unconfigured server fails with guidance.
+- [ ] Filename prefix scope — top-level published content has `hatch3r-` prefix; support subdirs exempt per `.claude/rules/content-authoring.md`.
 
-Verify that all content artifacts embody the shared quality charter (`agents/shared/quality-charter.md`). These checks apply across all content types and complement the per-type checklists above.
-
-- [ ] **Charter inheritance** — Do agents reference or inherit the shared quality charter? Is the charter accessible in the agent's context when loaded?
-- [ ] **Confidence expression** — Do agents express confidence levels (high/medium/low) in their output? Or do they present all recommendations with equal false certainty?
-- [ ] **Measurable acceptance criteria** — Do commands include measurable, verifiable acceptance criteria (not vague aspirational wording without measurable pass/fail conditions)?
-- [ ] **Failure mode documentation** — Do skills define what happens when prerequisites are missing, when edge cases arise, or when the skill cannot complete its task?
-- [ ] **Approach challenging** — Does the reviewer agent challenge the approach and design, not just the implementation details? Does it ask "is this the right solution?" in addition to "is this solution correct?"
-- [ ] **Requirement questioning** — Does the implementer agent question unclear or potentially misguided requirements before building, or does it blindly implement whatever is specified?
-- [ ] **Information currency** — Do agents use Context7 MCP and web search as instructed by the tooling hierarchy rule? Or do they rely on potentially stale training data for technical decisions?
-- [ ] **Stakeholder awareness** — Do agents consider impact on multiple stakeholders (end user, maintaining developer, team lead, ops team) in their recommendations?
-
-### 5.8 Cross-Artifact Consistency (redistributed from D16)
-- [ ] Consistent terminology across all 137 content artifacts
-- [ ] Consistent severity levels ("Critical", "High", "Medium", "Low") usage across artifacts
-- [ ] Consistent output format structures across artifacts
-- [ ] Content interaction testing: when an agent loads 15+ always-apply rules, a skill, shared context, and agent instructions simultaneously, do instructions conflict or create ambiguity?
-- [ ] MCP dependency graceful degradation: when a command references an unconfigured MCP server, does the workflow fail gracefully with guidance?
-- [ ] Filename prefix scope compliance — top-level published content has `hatch3r-` prefix; support subdirectories (`agents/shared/`, `agents/modes/`, `commands/board/`, `commands/revision/`, `checks/`) are exempt per `.claude/rules/content-authoring.md` item 2.
+### 5.9 P8 B1 verification
+Behavioral Charter directive 17 (Clarification-First Verification). Gate is **default behavior, not exception-driven** per `governance/CONSTITUTION.md` §P8 B1.
+- [ ] Artifact has §0 or Step 0 ambiguity-detection gate (PASS/FAIL).
+- [ ] Gate references `agents/shared/user-question-protocol.md` explicitly (PASS/FAIL).
+- [ ] Gate uses platform-native question tool, not free-text prose (PASS/FAIL).
+- [ ] Gate is default path, not exception-only (PASS/FAIL).
+- [ ] Tier 2+ tasks have hard confirmation gate, not soft inline acknowledgement (PASS/FAIL).
+- [ ] Triggers cover ambiguous scope, irreversible action, missing acceptance criteria.
