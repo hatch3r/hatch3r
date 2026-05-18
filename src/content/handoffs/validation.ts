@@ -17,7 +17,13 @@ export const MAX_HANDOFF_BODY_BYTES = 51_200;
 export const MAX_HANDOFF_FILE_BYTES = 61_440;
 /** Soft cap on active handoffs per repo — over the cap is a warning. */
 export const MAX_ACTIVE_HANDOFFS_PER_REPO = 25;
-/** Default expiry window (days) when authoring tools stamp `expires_after`. */
+/**
+ * Default expiry window in days. The preparer adds this many days to
+ * `created` to compute the ISO-8601 timestamp it writes into the
+ * `expires_after` frontmatter field. On disk, `expires_after` is always
+ * an ISO-8601 string (see {@link isHandoffExpired}); this constant
+ * governs only the day count used at write time.
+ */
 export const HANDOFF_DEFAULT_EXPIRY_DAYS = 30;
 /** Maximum length of the optional `summary` field. */
 export const MAX_SUMMARY_LENGTH = 200;

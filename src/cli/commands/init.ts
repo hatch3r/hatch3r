@@ -101,7 +101,7 @@ Example: \`2026-05-17_T1430_a3f2c_issue-42-cache-refactor.md\`.
 - Created by \`/hatch3r-handoff prepare\` or the \`on-context-switch\` hook.
 - Loaded at session start by \`hatch3r-handoff-loader\`.
 - Resumed via \`/hatch3r-handoff resume [<id>]\` (lists actives if no id given).
-- Default \`expires_after\`: 30 days from \`created\`.
+- \`expires_after\`: ISO-8601 timestamp; preparer default stamps \`created + 30 days\`.
 - Archived (never deleted by hatch3r) on completion or expiry.
 
 ## Required frontmatter

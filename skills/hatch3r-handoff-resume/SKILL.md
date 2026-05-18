@@ -59,8 +59,8 @@ Integrity-only failure (check 1) is a non-fatal degradation — the handoff stil
 1. **git_ref drift.** Compare `frontmatter.git_ref` against `branch@$(git rev-parse --short HEAD)`:
    - **Branch mismatch:** surface `## Drift Warnings`: `Handoff branch is {old}; current branch is {new}. Resume on the expected branch or run 'git checkout {old}' first.`
    - **Branch match, sha differs:** run `git log --oneline <handoff-sha>..HEAD`; surface the commit list under `## Drift Warnings` with text `{n} commits since handoff — review them before resuming.`
-2. **Expiry.** Compute `expires_at = created + expires_after` (default `expires_after: 30 days`). If `now > expires_at`:
-   - Surface `## Expiry Warning`: `Handoff expired on {date}. To extend, update 'expires_after' in frontmatter; to archive, run /hatch3r-handoff complete <id>.`
+2. **Expiry.** Compare `now` against `frontmatter.expires_after` (ISO-8601 timestamp stamped by the preparer as `created + HANDOFF_DEFAULT_EXPIRY_DAYS`, default 30 days). If `now > expires_after`:
+   - Surface `## Expiry Warning`: `Handoff expired on {date}. To extend, update 'expires_after' in frontmatter to a later ISO-8601 timestamp; to archive, run /hatch3r-handoff complete <id>.`
    - **Refuse** the resume until the user extends or archives.
 3. **hatch3r_version.** If `frontmatter.hatch3r_version` major version differs from current `package.json` version: surface `## Migration Notice`: `Handoff was written under hatch3r v{old}; current is v{new}. Schema may have evolved — review the body before relying on it.` Proceed.
 

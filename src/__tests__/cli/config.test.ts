@@ -143,6 +143,25 @@ vi.mock("../../cli/shared/ui.js", () => ({
   warn: vi.fn(),
 }));
 
+// Wave 5 CLI-tooling pivot: the cliTools section in configCommand calls
+// findMissingCliTools (real PATH probe) and offerInstaller (inquirer.prompt).
+// Without these mocks, offerInstaller consumes the queued features answer
+// from setupStandardPrompts, leaving selectedFeatures undefined at
+// config.ts:371. Default to "nothing missing" so offerInstaller is never
+// invoked; tests that exercise install flow can override per-test.
+vi.mock("../../cliTools/detect.js", () => ({
+  findMissingCliTools: vi.fn().mockResolvedValue([]),
+  detectCliTool: vi.fn(),
+  detectCliTools: vi.fn().mockResolvedValue([]),
+  probeBin: vi.fn().mockResolvedValue(""),
+}));
+
+vi.mock("../../cliTools/install.js", () => ({
+  offerInstaller: vi.fn().mockResolvedValue(true),
+  buildInstallPlan: vi.fn().mockReturnValue([]),
+  currentOsKey: vi.fn().mockReturnValue("mac"),
+}));
+
 // ── Import mocked modules ─────────────────────────────────────
 
 import inquirer from "inquirer";

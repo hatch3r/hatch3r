@@ -45,7 +45,7 @@ Each handoff entry carries the following frontmatter fields (full schema in `.ag
 | `git_ref` | `branch@sha7` at write time |
 | `branch` | Branch name (also appears as the prefix of `git_ref`) |
 | `work_item` | Optional platform reference (`gh:owner/repo#42`, `ado:org/project:work-item/123`, `gl:owner/repo!42`) |
-| `expires_after` | Days from `created` before the handoff is considered stale (default 30) |
+| `expires_after` | ISO-8601 timestamp after which the handoff is considered stale (preparer stamps `created + HANDOFF_DEFAULT_EXPIRY_DAYS`, default 30 days) |
 | `summary` | ≤ 200 chars one-line description |
 | `confidence` | 0-1 numeric, set by writer; downgraded to `low` on integrity mismatch |
 | `completeness` | 0-1 numeric — how much of the original scope was finished |

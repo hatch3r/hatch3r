@@ -99,7 +99,7 @@ ID                                              STATUS         BRANCH           
 ## Subcommand: prune
 
 1. Parse `--dry-run` flag.
-2. Scan `.agents/handoffs/active/`: collect entries where `expires_after` has passed (default 30 days from `created`).
+2. Scan `.agents/handoffs/active/`: collect entries whose `expires_after` ISO-8601 timestamp is at-or-before now (preparer default stamps `created + 30 days`).
 3. Scan `.agents/handoffs/archived/`: collect entries where `updated` is older than 90 days.
 4. Present a two-section preview (Active expirations to archive, Archives to delete).
 5. If `--dry-run`: print the preview and exit.
