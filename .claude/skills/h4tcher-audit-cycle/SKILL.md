@@ -1,6 +1,6 @@
 ---
 name: h4tcher-audit-cycle
-description: Execute a full 20-domain audit cycle using the governance audit prompt. Deploys 111 sub-agents across 4 tiers with synthesis gates and produces a structured audit report.
+description: Execute a full 21-domain audit cycle using the governance audit prompt. Deploys 121 sub-agents across 4 tiers with synthesis gates and produces a structured audit report.
 effort: max
 allowed-tools: Read Grep Glob Bash(*) Write Agent WebSearch WebFetch
 ---
@@ -45,9 +45,9 @@ Execute the full hatch3r audit cycle defined in `governance/AUDIT.md`.
     - D09.16 (Emerging Platforms) — wait for D09.1-D09.14
 13. Produce synthesis per domain. Release findings from context
 
-## Tier C — System-Level (7 domains, 27 sub-agents)
+## Tier C — System-Level (8 domains, 36 sub-agents)
 
-14. Read domain files: `governance/audit/domains/D11-data-flow.md` through `D16-compound-system.md`, and `D20-user-content-authoring.md`
+14. Read domain files: `governance/audit/domains/D11-data-flow.md` through `D16-compound-system.md`, `D20-user-content-authoring.md`, and `D21-cli-tool-currency.md`
 15. Launch sub-agents in parallel, except:
     - D16.1 (Cross-Domain Pattern Synthesis) — wait for D05, D07, D09 synthesis
     - D16.2 (Coverage Gap Analysis) — wait for D05, D09 synthesis
@@ -69,7 +69,7 @@ Execute the full hatch3r audit cycle defined in `governance/AUDIT.md`.
     - Tier 2: Domain summaries with finding counts by severity
     - Tier 3: Detailed findings with evidence and recommendations
 23. Run quality gates:
-    - All 19 domains examined
+    - All 21 domains examined
     - Finding counts within expected range (50-155 total)
     - Deduplication applied (2-of-3 signal match: file, root cause, recommendation)
 24. Produce closed-loop tables:

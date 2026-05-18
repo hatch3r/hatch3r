@@ -261,20 +261,20 @@ export function validateHandoffContent(
     );
   }
 
-  // ── Body section coverage ──
+  // ── Body section coverage (criterion 3 — Required) ──
   if (typeof handoff.body === "string" && handoff.body.length > 0) {
     const present = new Set(extractSectionHeadings(handoff.body));
     for (const required of REQUIRED_BODY_SECTIONS) {
       if (!present.has(required)) {
-        warnings.push(`Handoff body is missing required section "## ${required}".`);
+        errors.push(`Handoff body is missing required section "## ${required}".`);
       }
     }
 
-    // ── Injection scan ──
+    // ── Injection scan (criterion 6 — Required, ASI06) ──
     if (!options.skipInjectionScan) {
       const hits = scanForInjectionPatterns(handoff.body);
       for (const patternId of hits) {
-        warnings.push(
+        errors.push(
           `Handoff body matches injection pattern ${patternId}. ` +
             "Review and sanitize before consuming.",
         );

@@ -127,7 +127,7 @@ Before reporting Step 4:
 | Condition | Action |
 |-----------|--------|
 | Validation failure | Surface the specific failing readiness criterion (1-7); abort write; report PARTIAL with the criterion in `Open Questions / Blockers` |
-| Concurrent write conflict for same `work_item` (existing < 24h) | Refuse; suggest waiting for the existing handoff to be resumed/completed, or pass `--force` (in which case write the new handoff with `superseded_by: <existing-id>` and update the existing entry's `superseded_by` to the new id) |
+| Concurrent write conflict for same `work_item` (existing < 24h) | Refuse; suggest waiting for the existing handoff to be resumed/completed, or pass `--force` (in which case write the new handoff with `parent_handoff: <existing-id>` and update the existing entry's `superseded_by` to the new id — `superseded_by` points forward to a replacement, `parent_handoff` points back to a continued predecessor) |
 | Body exceeds 50 KB | List byte counts per section; abort write; suggest compressing `Work Done` history first |
 | `git_ref` cannot be read (detached HEAD, missing repo) | Surface the git command output; abort write; report BLOCKED |
 | Schema validation failure | Name the offending field; abort write; report FAILED |

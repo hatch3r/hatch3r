@@ -156,6 +156,9 @@ export function applyDefaultConfigMocks(refs: ConfigMockRefs): void {
     start: vi.fn(),
     succeed: vi.fn(),
     fail: vi.fn(),
+    warn: vi.fn(),
+    info: vi.fn(),
+    stop: vi.fn(),
   });
   vi.mocked(refs.step as AnyMock).mockImplementation(
     (n: number, total: number, msg: string) => `[${n}/${total}] ${msg}`,

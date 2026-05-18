@@ -32,6 +32,7 @@ import {
   type CliToolMeta,
   type OsKey,
   renderCliToolSkillBody,
+  buildSkillDescription,
 } from "../src/cliTools/index.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -86,99 +87,6 @@ function tagsFor(meta: CliToolMeta): string[] {
     tags.push("caveat");
   }
   return tags;
-}
-
-/**
- * Per-tool trigger phrasing. Kept in sync with
- * `scripts/fix-cli-skill-frontmatter.ts::TOOL_TRIGGERS`. See that file for
- * the rationale (within-cluster cosine divergence) — adding a new tool to
- * `AVAILABLE_CLI_TOOLS` requires an entry here.
- */
-const TOOL_TRIGGERS: Record<string, string> = {
-  ripgrep: "regex content searches across large source trees with gitignore filtering",
-  fd: "locating filenames or directories by glob with parallel walking",
-  jq: "shaping JSON streams via jq-syntax filters and select expressions",
-  yq: "editing Kubernetes manifests, Helm values, or GitHub-Actions workflows in place",
-  gh: "drafting GitHub pull requests, issues, releases, gists, or workflow dispatches",
-  delta: "viewing unified git diffs with side-by-side syntax colourised hunks",
-  bat: "scrolling one source file with syntax colours, line numbers, and header decorations",
-  sd: "literal-string stream substitution with no regex foot-guns",
-  "ast-grep": "Tree-sitter AST pattern rewrites scoped to a single grammar",
-  zstd: "high-ratio compression with single-digit-millisecond decompress speeds",
-  playwright: "end-to-end browser test execution capturing screenshots and traces",
-  duckdb: "ad-hoc analytical SQL over local Parquet, CSV, and JSON files",
-  xsv: "slicing huge CSV documents by row range or column without materialising the dataset",
-  taplo: "formatting and linting pyproject.toml or Cargo.toml manifests",
-  glab: "GitLab merge-request review, pipeline retries, and issue triage",
-  "az-devops": "Azure DevOps work-item edits, repo pushes, and pipeline runs",
-  docker: "image build, container run, exec inspection, or registry push commands",
-  llm: "model-agnostic shell prompting with template files and conversation memory",
-  fzf: "ad-hoc interactive picker over piped stdin streams from another command",
-  lazygit: "keyboard-driven terminal UI for staging, rebasing, branch switching",
-  difftastic: "syntax-aware diffing that reports semantic edits instead of textual lines",
-  rtk: "compressing oversize tool output payloads before they enter an LLM prompt",
-  stagehand: "natural-language browser steering with on-the-fly DOM reasoning",
-  aichat: "RAG-enabled multi-provider conversational shell with saved session history",
-  mods: "Unix-pipeline LLM inference reading Markdown stdin and writing Markdown stdout",
-  comby: "declarative pattern match-and-rewrite spanning mixed-language repositories",
-  miller: "awk-like record processing across CSV, TSV, JSON line streams",
-  csvkit: "Python-powered CSV toolkit covering csvlook, csvsql, csvjoin, csvstat",
-  podman: "rootless OCI-image execution without a privileged daemon",
-};
-
-/**
- * Per-tool closing clause. Kept in sync with
- * `scripts/fix-cli-skill-frontmatter.ts::TOOL_CLOSERS`.
- */
-const TOOL_CLOSERS: Record<string, string> = {
-  docker: "Talks to a running Docker Engine daemon over a Unix socket; perfect for x86 build hosts.",
-  podman: "Forks per-pod processes directly under the invoking user; ideal for hardened CI workers.",
-  delta: "Replaces the legacy `less`-based diff renderer with terminal-native ANSI colour blocks.",
-  difftastic: "Skips whitespace and reordering noise by computing edits over parsed syntax trees.",
-  playwright: "Built around test runners (`@playwright/test`) with deterministic locators and waits.",
-  stagehand: "Wraps Browserbase Stagehand so prompts decide which DOM nodes to inspect or click.",
-  "ast-grep": "Grammar-aware: queries are written in the same syntax as the language being edited.",
-  comby: "Language-agnostic: a single `{:[hole]}` template works against any of 30+ grammars.",
-};
-
-/**
- * Per-category closing clause used as fallback when no per-tool entry
- * exists in `TOOL_CLOSERS`. Vocabulary is intentionally non-overlapping
- * across categories. Kept in sync with the cleanup updater.
- */
-const CATEGORY_CLOSERS: Record<string, string> = {
-  search: "Outputs newline-separated hit records; bound results with `-c` or `--max-count`.",
-  json: "Reads stdin and emits stdout; integrates seamlessly into shell pipelines.",
-  yaml: "Preserves YAML anchors, comments, and ordering when editing in place.",
-  git: "Reads `.git/objects` directly without invoking external services or remotes.",
-  view: "Prints to a terminal pager (`less`-compatible) for quick visual inspection.",
-  edit: "Operates byte-by-byte; safe for fixed-string edits where regex would over-match.",
-  archive: "Designed for cold-storage payloads and CI artifact upload/download steps.",
-  data: "Streams records lazily; works on datasets that exceed available RAM.",
-  forge: "Authenticates via the platform's native token mechanism (OAuth / PAT).",
-  browser: "Drives a real Chromium/Firefox/WebKit binary via the DevTools Protocol.",
-  container: "Composes with OCI-image layer caches and registry pull-through proxies.",
-  ai: "Streams tokens to stdout so downstream `grep`/`tee` consumers see partial results.",
-  interactive: "Requires a TTY; degrade gracefully to non-interactive batch in CI.",
-};
-
-/**
- * Build the expanded description used in skill frontmatter. The registry's
- * `meta.description` is a short picker-UI string (often 25-55 chars) — the
- * frontmatter description must satisfy the 60-char minimum enforced by
- * `validateDescriptionLength()` in `src/cli/commands/validate.ts`. The
- * per-tool trigger plus per-tool/per-category closer keep cosine-similarity
- * below 0.55 across the whole `cli-tools`-tagged cluster.
- *
- * Output lands at ~180-280 chars per registry entry.
- */
-function buildSkillDescription(meta: CliToolMeta): string {
-  const trigger = TOOL_TRIGGERS[meta.id] ?? `${meta.category} tasks`;
-  const closer =
-    TOOL_CLOSERS[meta.id] ??
-    CATEGORY_CLOSERS[meta.category] ??
-    "Use over an MCP equivalent to cut output tokens.";
-  return `${meta.description}. Use when ${trigger}; invoke \`${meta.probe}\`. ${closer}`;
 }
 
 /**

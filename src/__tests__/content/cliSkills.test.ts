@@ -60,7 +60,11 @@ async function readSkillFile(dir: string): Promise<{
 } | null> {
   const path = join(SKILLS_DIR, dir, "SKILL.md");
   try {
-    const content = await readFile(path, "utf-8");
+    const raw = await readFile(path, "utf-8");
+    // Normalize CRLF to LF before YAML parsing so Windows checkouts
+    // (core.autocrlf=true) don't leave a trailing \r inside unquoted
+    // scalar values like `caveat: pipe-output-corruption`.
+    const content = raw.replace(/\r\n/g, "\n");
     return splitFrontmatter(content);
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
