@@ -204,6 +204,8 @@ Stable and aspirational. These do not change week-to-week.
 
 15. **Behavioral charter governs agent conduct** — Agent behavioral standards are defined once and inherited everywhere. Audit sub-agents follow the audit behavioral charter (in AUDIT.md); end-user agents follow the shared quality charter. Both charters are living documents that evolve through the weekly audit cycle.
 
+16. **Design quality and accessibility for agent-produced output** — Agents that generate UI for end-user projects meet a WCAG 2.2 AA baseline verified by axe-core (0 serious/critical violations per route and per component), reuse the project's design tokens and component library before authoring new primitives, and ship the four-state surface contract on every async view (loading + empty + error + partial). Measured under P2 (see [CONSTITUTION.md](CONSTITUTION.md) §2 P2).
+
 ---
 
 ## Distribution

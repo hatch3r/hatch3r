@@ -74,3 +74,24 @@ All user-facing features must meet WCAG 2.2 Level AA conformance. This is the ba
 - Run automated accessibility checks (axe-core, Lighthouse) in CI.
 - Automated tools catch ~30% of accessibility issues. Manual testing is required for keyboard flows, screen reader experience, and cognitive accessibility.
 - Maintain an accessibility test checklist per component type (form, modal, navigation, data table).
+
+## WCAG 2.2 New Success Criteria (Mandatory Audit Items)
+
+WCAG 2.2 (W3C Recommendation, October 2023) added nine Success Criteria; three apply to most UI surfaces and are listed here as required audit items.
+
+- **SC 2.5.8 Target Size (Minimum) — AA:** every pointer-target's hit area is at least 24 by 24 CSS pixels. Smaller targets are permitted only when surrounded by ≥24px of spacing (the spacing exception) or when the larger inline target is also reachable (the inline exception). Test densest UI elements (sidebar collapse, table-row checkboxes, icon-only toolbar buttons).
+- **SC 2.4.11 Focus Not Obscured (Minimum) — AA:** when a control receives keyboard focus, the focused element must not be entirely hidden by author-created content. Common violations: sticky headers, persistent cookie banners, chatbot launcher widgets, fixed action bars. Mitigate with `scroll-margin-top` on focus targets equal to the sticky header height, or by collapsing sticky chrome on focus.
+- **SC 2.5.7 Dragging Movements — AA:** any drag operation (reorder, slider thumb drag, map pan, kanban card move) must offer a single-pointer non-drag alternative. Examples: list reorder with up/down arrow buttons; slider with numeric input or +/- buttons; map pan with arrow-key navigation.
+
+Reference: https://www.w3.org/TR/WCAG22/
+
+## Mobile and Touch Accessibility
+
+Touch surfaces have stricter target and spacing requirements than pointer-only surfaces; native platform guidance supersedes WCAG 2.5.8 on touch.
+
+- Touch targets: 44 by 44 points on iOS (Apple Human Interface Guidelines), 48 by 48 dp on Android (Material Design 3). These supersede WCAG 2.5.8's 24-pixel minimum on touch-only surfaces.
+- Spacing between interactive elements: ≥8 pixels of separation to prevent mis-taps; ≥4 mm on physical-density screens.
+- Avoid tap-to-reveal patterns (hover tooltips, pure-hover dropdowns) — touch has no hover state. Replace with permanent visible labels or with long-press that has a visible affordance and announces itself to screen readers.
+- Apply `env(safe-area-inset-*)` padding on full-bleed surfaces so content clears notches, home indicators, and rounded corners on iOS and Android edge devices.
+- Support Dynamic Type (iOS) and rem-based font scaling — declare body text in `rem` or `em` units, never `px`, so OS-level font size settings cascade.
+- Zoom to 200% and 400% (per WCAG 1.4.4 and 1.4.10 Reflow) must remain functional with no horizontal scroll trap. Audit for `width: 100vw` and fixed pixel widths that break reflow.

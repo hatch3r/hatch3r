@@ -25,7 +25,7 @@ Task Progress:
 
 - Parse the issue body: proposed changes, before/after mockups, affected surfaces, accessibility checklist, responsiveness requirements.
 - Read project quality documentation (accessibility, animation budgets).
-- Review the existing design system tokens and component hierarchy.
+- Invoke `hatch3r-design-system-detect` to produce the Design System Inventory (`skills/hatch3r-design-system-detect/SKILL.md`). Use the inventory to choose between reuse / extend / create paths. Skipping detection is a regression — visual refactors that invent new tokens or duplicate primitives are rejected at review.
 - For external library docs and current best practices, follow the project's tooling hierarchy.
 
 ## Step 2: Visual Change Plan

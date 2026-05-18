@@ -41,6 +41,14 @@ export const TAG_A11Y = "a11y";
 export const TAG_PERFORMANCE = "performance";
 /** Meta-customization commands/skills */
 export const TAG_CUSTOMIZE = "customize";
+/** Frontend engineering (component code, browser runtimes, client-side rendering) */
+export const TAG_FRONTEND = "frontend";
+/** UI domain — visual design, components, theming, design tokens */
+export const TAG_UI = "ui";
+/** UX domain — user flows, microcopy, state design, interaction patterns */
+export const TAG_UX = "ux";
+/** Design-system adherence — tokens, primitives, component-library reuse */
+export const TAG_DESIGN_SYSTEM = "design-system";
 
 // ── CLI tool tags (plan §5, CLI-tooling pivot) ───────────────
 // Applied to skills under `skills/hatch3r-cli-*/SKILL.md`. The generator
@@ -105,6 +113,10 @@ export const ALL_TAGS = [
   TAG_A11Y,
   TAG_PERFORMANCE,
   TAG_CUSTOMIZE,
+  TAG_FRONTEND,
+  TAG_UI,
+  TAG_UX,
+  TAG_DESIGN_SYSTEM,
   TAG_CLI_TOOLS,
   TAG_OPT_IN,
   TAG_CAVEAT,
@@ -157,6 +169,10 @@ export const DOMAIN_TAGS: ContentTag[] = [
   TAG_A11Y,
   TAG_PERFORMANCE,
   TAG_CUSTOMIZE,
+  TAG_FRONTEND,
+  TAG_UI,
+  TAG_UX,
+  TAG_DESIGN_SYSTEM,
 ];
 
 /** Language tags — for language-specific content filtering (Finding #71) */

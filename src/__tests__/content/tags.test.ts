@@ -15,6 +15,10 @@ import {
   TAG_A11Y,
   TAG_PERFORMANCE,
   TAG_CUSTOMIZE,
+  TAG_FRONTEND,
+  TAG_UI,
+  TAG_UX,
+  TAG_DESIGN_SYSTEM,
   TAG_CLI_TOOLS,
   TAG_OPT_IN,
   TAG_CAVEAT,
@@ -113,10 +117,12 @@ describe("tag constants", () => {
 });
 
 describe("ALL_TAGS", () => {
-  // 21 base tags (workflow + context + domain + language) + 17 CLI tool
-  // tags (marker + 3 tier classifiers + 13 category tags) added in 1.7.x.
-  it("contains exactly 38 elements", () => {
-    expect(ALL_TAGS).toHaveLength(38);
+  // 25 base tags (workflow + context + domain + language) + 17 CLI tool
+  // tags (marker + 3 tier classifiers + 13 category tags). Domain tags
+  // expanded from 5 to 9 in 1.7.5 with frontend/ui/ux/design-system added
+  // alongside the agent-produced UI/UX governance slice.
+  it("contains exactly 42 elements", () => {
+    expect(ALL_TAGS).toHaveLength(42);
   });
 
   it("contains every individual tag constant", () => {
@@ -136,6 +142,10 @@ describe("ALL_TAGS", () => {
       TAG_A11Y,
       TAG_PERFORMANCE,
       TAG_CUSTOMIZE,
+      TAG_FRONTEND,
+      TAG_UI,
+      TAG_UX,
+      TAG_DESIGN_SYSTEM,
       TAG_CLI_TOOLS,
       TAG_OPT_IN,
       TAG_CAVEAT,
@@ -229,8 +239,8 @@ describe("CONTEXT_TAGS", () => {
 });
 
 describe("DOMAIN_TAGS", () => {
-  it("has exactly 5 elements", () => {
-    expect(DOMAIN_TAGS).toHaveLength(5);
+  it("has exactly 9 elements", () => {
+    expect(DOMAIN_TAGS).toHaveLength(9);
   });
 
   it("contains the correct domain tags", () => {
@@ -239,6 +249,10 @@ describe("DOMAIN_TAGS", () => {
     expect(DOMAIN_TAGS).toContain(TAG_A11Y);
     expect(DOMAIN_TAGS).toContain(TAG_PERFORMANCE);
     expect(DOMAIN_TAGS).toContain(TAG_CUSTOMIZE);
+    expect(DOMAIN_TAGS).toContain(TAG_FRONTEND);
+    expect(DOMAIN_TAGS).toContain(TAG_UI);
+    expect(DOMAIN_TAGS).toContain(TAG_UX);
+    expect(DOMAIN_TAGS).toContain(TAG_DESIGN_SYSTEM);
   });
 });
 

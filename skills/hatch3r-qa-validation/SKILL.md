@@ -61,6 +61,10 @@ For non-UI test cases (API, data integrity, background jobs), use appropriate no
 
 Do NOT fix bugs during validation. Document and file issues.
 
+### 3c. UI/UX Verification Gate
+
+For any feature that ships UI, the UI/UX verification gate is **`hatch3r-ui-ux-verify`** (`skills/hatch3r-ui-ux-verify/SKILL.md`). All 9 gates in that skill must pass before declaring the feature done. QA validation alone (browser tests, screenshot evidence) does not constitute UI/UX done. Run `hatch3r-ui-ux-verify` before this report's SHIP recommendation and include its verdict in the report.
+
 ## Step 4: Validation Report
 
 Produce a structured report with:

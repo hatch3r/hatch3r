@@ -1,0 +1,149 @@
+---
+id: hatch3r-ux-states-and-flows
+type: rule
+description: Four-state surface contract (loading/empty/error/partial), user-flow decomposition before implementation, and microcopy + tone discipline for end-user UIs
+scope: "**/*.vue,**/*.jsx,**/*.tsx,**/*.svelte,**/components/**,**/*.html,**/messages/**,**/locales/**,**/copy/**"
+tags: [ux, ui, frontend]
+quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
+---
+# UX States and Flows
+
+## User-Flow Decomposition (Mandatory Before Implementation)
+
+Every user story produces three explicit flows before any UI code is written. Skipping this step is a regression — the implementer rejects specs lacking flow decomposition.
+
+1. **Happy Path** — numbered sequence of user actions paired with system responses and decision points covering the success route end-to-end. Includes entry point (route, prior screen, deep link), authentication state assumed, and exit point (resulting state, next screen).
+2. **Alternative Paths** — every documented branch (filters applied, multi-step forms, optional sections, permission tiers, locale variants). Each branch is numbered and references the decision point in the Happy Path where it diverges. Re-converges named.
+3. **Error-Recovery Path** — what the user does when a step fails (network drop, validation failure, expired session, permission denied, server outage, conflict on concurrent edit). Names the recovery action (retry, undo, refresh credential, contact support, drop changes) at every failure point.
+
+Each flow is a numbered list with three columns: user action, system response, decision/branch. Reference `agents/modes/user-flows.md` for the canonical template. A flow is incomplete if any documented decision point has no specified branch outcome. The implementer treats acceptance criteria as a downstream artifact of the flow set — flows come first, criteria are derived.
+
+Flow decomposition is also the contract between the feature designer and the reviewer: the reviewer walks every flow during code review and asserts each numbered step maps to a code path. A code path with no flow step is dead code or undocumented surface; a flow step with no code path is a missing implementation.
+
+## Four-State Surface Contract
+
+Every async view renders all four states. Missing any state on an async view is a blocker — NN/g 2025 measured 92% of AI-generated dashboards omit empty state and 78% omit error state, so this is the regression bar to beat.
+
+| State | Trigger | Rendering rules |
+|-------|---------|-----------------|
+| Loading | Request in flight >300ms | Skeleton matches final content dimensions (explicit width/height) to keep CLS <=0.1; spinner only for short modal actions <500ms; loading state announced via `aria-busy="true"` on the container |
+| Empty | Successful response, 0 results | Distinguish three sub-types below: cold start, active filter, no permission. Each has a distinct heading, visual cue, and CTA |
+| Error | Network failure, server error, validation failure | Plain-language cause + retry CTA + fallback or contact path; no "Oops" or "Something went wrong" — corrective verb required; render in `role="alert"` for assistive tech announcement |
+| Partial | Some data succeeded, some failed | Banner naming the failed subset + degraded data rendered for the succeeded subset + retry option for the failed subset; never silently drop the failed subset |
+
+State machines drive these transitions — model the view as `idle | loading | success | empty | error | partial` and assert every state has a render path in the component. Snapshot every state in tests (Storybook play function or vitest + Testing Library): missing snapshots are blockers.
+
+Transitions between states have their own rules. Loading -> success swaps the skeleton for content without layout shift (the skeleton was already the final dimensions). Loading -> error replaces the skeleton with the error surface and announces it via `role="alert"`. Loading -> empty replaces the skeleton with the sub-typed empty surface (cold / filter / permission). Success -> partial overlays the banner without re-rendering the succeeded subset. Every transition has a measurable duration and an announcement strategy — never silent.
+
+## First-Run vs Filter vs Network — Content Structure
+
+| State type | Heading level | Visual cue | CTA | Example |
+|------------|---------------|------------|-----|---------|
+| Cold start | h2 | Onboarding illustration | "Create your first <noun>" | "No <items> yet — create your first to begin" |
+| Active filter | h3 inside results | Filter icon | "Clear filters" | "No results match these filters" |
+| Network error | role=alert | Error icon | "Retry" + "Contact support" | "Couldn't load <items> — check your connection" |
+| No permission | h3 | Lock icon | "Request access" | "You don't have access to <thing>" |
+
+Cold start and active filter are not interchangeable — a first-run view directs the user to the onboarding action; an active-filter view offers "Clear filters" because the data exists behind the filter. Rendering "Clear filters" on a cold-start view is a usability defect (the button has no effect). Detect the sub-type from a state predicate (item count vs filter count vs auth scope), not from a single boolean.
+
+Predicate ordering matters: check permission first (no-permission overrides everything), then filter state (active-filter overrides cold-start), then total count (cold-start when zero items exist anywhere). Inverting the order renders the wrong empty sub-type and the wrong CTA — a frequent source of "the button does nothing" bug reports.
+
+## Form UX
+
+- Inline validation timing: validate on `blur`. After the first error on a field appears, re-validate on every keystroke with a 150ms debounce so the error tracks the user's correction in flight.
+- Error recovery: clear the inline error immediately when the field becomes valid (no debounce on clear); re-enable the submit button in real time so the user sees recovery without re-tabbing.
+- Error summary on submit: render at the top of the form with anchor links to each invalid field. Move focus to the summary heading (not to the first error field) so screen-reader users hear the count and list before being dropped into one field. Anchor link target is the input itself; the link text is the field label, not "Error 1".
+- Required attributes per input: `autocomplete` (e.g., `email`, `tel`, `cc-number`, `one-time-code`), `inputmode` (e.g., `numeric`, `decimal`, `email`), `aria-describedby` pointing at the error or help text, and `aria-invalid="true"` when invalid. `enterkeyhint` on multi-step forms maps the soft-keyboard enter key to the next action.
+- Never use a disabled submit button as the only error signal — users assume the page is broken. Allow submission and render validation outcome on submit. A submit attempt with invalid fields renders the summary, sets focus on it, and leaves the submit button operable for retry.
+- Identifier-first auth: separate email and password screens; offer passkeys via WebAuthn Conditional UI (`autocomplete="username webauthn"`) so the OS surfaces the credential inline in autofill rather than behind a separate button. Passkey enrollment copy states the user-visible benefit in one sentence ("Sign in with your fingerprint — no password to remember").
+- Positive confirmation for non-trivial fields (email, password strength, username availability): when valid, render an inline check or short affirmation. Pair with a screen-reader-only `aria-live="polite"` announcement.
+- Multi-step forms render a step indicator with current step, total steps, and per-step labels. Each step is a separate `<form>` with its own validation and submit; never collect all fields on one screen behind tabs. Browser back button maps to previous step without data loss.
+- Autosave drafts where the user expects persistence (long-form composition, settings panels). Surface autosave state with a passive indicator ("Saved 2s ago" or "Saving..."), never with a blocking modal.
+
+## Error-Recovery Patterns
+
+- Retry button retries the same operation with the same input. Disable for 1s after click to avoid duplicate submits; re-enable on completion.
+- Fallback offers an alternative path when retry will not help: cached view, contact support, alternate route. Render fallback below retry, not above.
+- Undo for reversible mutations: surface a toast with the undo action and a >=10-second timeout. Persist the undo action across screen navigations until the timeout fires or the user confirms.
+- Conflict on concurrent edit: surface a diff with three options (keep mine, keep theirs, merge); never overwrite silently.
+- Session expiration: re-auth inline (modal or banner with credential field), preserving the user's in-flight data. Forced re-auth that drops form data is a defect.
+
+## Microcopy and Tone
+
+Anchored to GOV.UK Design System (error pattern, plain English) and IBM Carbon (voice + tone).
+
+- Plain language; second person; corrective verb on every error string ("Enter your email address", not "Email is required"). The verb names the action the user takes to recover.
+- No jargon visible to end users: never expose "FIDO2", "WebAuthn", "HTTP 500", "null", "undefined", "401". Translate the implementation detail to the action the user can take. Implementation labels live in logs and error reports, not in UI strings.
+- CTA labels are action-oriented and specific: "Save changes", "Create account", "Delete project" — not "Submit", "OK", "Confirm". Destructive verbs name the object: "Delete project Foo permanently".
+- Error tone explains cause and offers recovery; never blame the user. "We couldn't save your changes — try again." not "You did something wrong." Distinguish system-fault from user-fault wording — for user-fault, name the field; for system-fault, use first-person plural ("we couldn't").
+- ICU MessageFormat for every translatable string. Never concatenate strings to build sentences — singular, plural, and gender variants all live in one message ID with explicit categories. Translator memory stays stable across releases when keys are stable; rename keys is a breaking change.
+- Cross-reference `rules/hatch3r-i18n.md` for translation mechanics and the Microcopy & Tone subsection that defines voice consistency across locales. Reserve 30-40% extra width in layouts for languages like DE and FI.
+- Treat AI as a copy assistant, not author — AI generates tone variants and the human approves final voice strings. Brand voice strings are owned by a named maintainer, not by a model.
+- Forbidden filler in any user-visible string: "Oops", "Whoops", "Something went wrong", "An unexpected error occurred". Lint these via a string-scan check in CI against the locale files. Replacements name the failure and the action — "Couldn't load <items>. Check your connection and retry."
+- Empty-state copy follows the same plain-language rule: name what is absent and the action to fill it. "No drafts yet — start writing." beats "You have no drafts." because the action is in the same sentence.
+- Truncation strategy: never mid-word in single-line truncations; use `text-overflow: ellipsis` with a tooltip or expand affordance for the full string. Multi-line truncation uses `-webkit-line-clamp` with a "Read more" affordance below.
+- Time and date formatting: respect the user's locale via `Intl.DateTimeFormat`; never hard-code "MM/DD/YYYY" or "12:34 PM" in UI strings. Relative time ("3 minutes ago") for recent events; absolute for events >24h old.
+- Numbers and units follow the locale's separator and grouping. Currency renders the user-selected currency, not the merchant's default. Round to the precision the user can act on — financial transactions to two decimals, weights to one.
+
+## Perceived Performance
+
+- Skeleton show threshold: 300ms first-content latency. Below 300ms render the final view directly; above 300ms render skeleton first to avoid spinner flash. Implement via a delayed `setTimeout(showSkeleton, 300)` cleared on early response.
+- Skeleton matches final content dimensions (explicit `width`, `height`, or `aspect-ratio`) so the layout does not shift when real content arrives — CLS <=0.1 baseline. Test by measuring CLS on the route under a throttled network profile (Slow 4G or 4x CPU).
+- Optimistic UI for safe mutations (add to list, mark done, toggle like): apply the change in local state immediately and reconcile on server response. On reject, roll back the local state AND surface a non-blocking toast with retry. Use `useOptimistic` in React or framework equivalent.
+- Pessimistic UI for destructive or financial actions (delete, payment, irreversible state change): wait for server confirmation before reflecting the change. Surface a progress indicator on the action itself, not on the page.
+- Stale-while-revalidate for non-critical data: render the cached value immediately, refresh in the background, surface a non-blocking "Refresh available" affordance when the fresh value differs from the cached value. Never overwrite the rendered view silently — the user is mid-task on the stale data.
+- 2026 Core Web Vitals gates at p75 of real-user data: LCP <=2.5s, INP <=200ms, CLS <=0.1. These are gating, not aspirational. Break long tasks (>50ms) with `scheduler.yield()` or `requestIdleCallback` to keep INP within budget.
+- Streaming UI for long-running AI or tool responses: render tokens as they arrive without re-parsing the full buffer per chunk. Show a typing indicator only while no token has arrived; switch to streamed content on first delta. Provide cancel/abort at every streamed surface.
+- Loading copy names the phase when total work is knowable ("Uploading 3 of 7..."), or names the activity when not ("Encoding..."). Generic "Loading..." is the fallback for sub-300ms cases that escape the skeleton threshold.
+
+## Streaming and Long-Running Operations
+
+- Streaming text (AI responses, log tails, real-time data) renders incrementally. First-token latency target <=500ms; render the typing indicator only until first token, then switch to streamed content.
+- Tool calls and side-effectful operations render as collapsible structured cards with status (pending, running, done, failed), arguments summary, duration, result preview. Hidden tool calls are a trust regression.
+- Human-in-the-loop approval required for any side-effectful tool (write, send, pay, deploy). Default approval mode is opt-in; auto-accept lives behind an explicit setting with named scope and one-click revocation.
+- Cancel/abort available at every long-running call. Abort triggers cleanup (rollback partial state, close streams, release locks). Show the user the post-abort state — never leave the UI in a "Cancelling..." limbo.
+- Citation rendering for retrieval-grounded claims: inline link to the source span. Spans the model cannot ground from retrieved evidence are flagged visibly, not silently emitted.
+
+## Mobile and Touch
+
+- Touch target minimum: 44pt on iOS HIG, 48dp on Material 3. The platform minimum supersedes WCAG SC 2.5.8 (24x24 CSS px) on touch surfaces — use the stricter bound.
+- Spacing between adjacent interactive elements: >=8px to avoid mis-taps. Measure on the rendered DOM, not on the design comp — padding and margins count toward hit area only when they belong to the same interactive element.
+- Avoid tap-to-reveal (hover-only tooltip) on touch surfaces. Use permanent labels or long-press with a visible affordance. Hover-only tooltips fail WCAG SC 1.4.13 Content on Hover or Focus on touch.
+- Apply `env(safe-area-inset-*)` on full-bleed surfaces so primary CTAs do not sit under the iOS home indicator, notch, or Android gesture nav. Native equivalents: `safeAreaInsets` on iOS, `WindowInsets` on Android.
+- Dynamic Type on iOS (`UIFont.preferredFont(forTextStyle:)` or SwiftUI `Font.body`) and rem-based font scaling on Android/web. Never use hard-coded `px` for text — fails text-resize verification at 200% zoom (WCAG SC 1.4.4) and 400% reflow (SC 1.4.10).
+- Drag-only gestures (range slider, kanban reorder, swipe-to-delete) require a non-drag alternative per WCAG SC 2.5.7 — keyboard arrows, click-to-place, explicit "Delete" button.
+- Pointer-event vs touch-event: prefer pointer events (`pointerdown`, `pointermove`, `pointerup`) so the same handler covers mouse, touch, pen. Synthesize click events on tap with a 300ms tolerance only on legacy mobile browsers — modern engines emit click immediately.
+- Pinch-zoom: never disable user zoom on the viewport meta tag. WCAG SC 1.4.4 fails on disabled zoom. Use `maximum-scale=5` to allow up to 5x zoom while suppressing zoom-on-focus jitter.
+- Orientation lock: respect WCAG SC 1.3.4 — content adapts to portrait and landscape unless an essential exception applies (e.g., piano keyboard, blueprint editor). Document the exception in the spec.
+
+## Heuristic Verification Gate
+
+Run every check below before declaring a feature done. A "done" claim without these checks is not done.
+
+- Nielsen 10 heuristics 5-minute walkthrough by a reviewer on the key user flow. Flag any heuristic violation (visibility of status, match to real world, user control, consistency, error prevention, recognition over recall, flexibility, minimalist design, error recovery, help/documentation); resolve before ship.
+- Keyboard-only run through the flow (no mouse, no touch). Every step reachable, every focus state visible (>=2px outline at >=3:1 contrast), no traps, no off-screen focus.
+- Screen-reader smoke test on the key route — one human pass per release using VoiceOver (macOS/iOS) or NVDA (Windows). Document the trace: which landmarks announced, which form labels heard, which dynamic updates registered.
+- First-time-user walkthrough for P0 features: measure task-completion time and observe error recovery. Note where the user paused, backtracked, or asked for help. Three observed users per P0 feature minimum.
+- State-coverage check: snapshot every async view in each of {loading, empty, error, partial, success} via Storybook play or component tests. Missing snapshots block the gate.
+- Microcopy lint: a CI string-scan rejects banned filler ("Oops", "Whoops", "Something went wrong") in any locale file; rejects `disabled` on submit buttons without an accompanying error-state announcement; flags strings without a corrective verb on error keys (`error.*`, `validation.*`).
+- Reduced-motion pass: toggle `prefers-reduced-motion: reduce` on the route and verify all non-essential transitions are removed; essential loaders simplify rather than disable.
+- Reflow pass: zoom the route to 200% and 400% in a 1280x1024 viewport — no horizontal scroll, no clipped content, no overlapping interactive elements.
+
+## References
+
+- WCAG 2.2 AA — new success criteria SC 2.5.8 (Target Size), SC 2.4.11 (Focus Not Obscured), SC 2.5.7 (Dragging Movements), SC 1.4.13 (Content on Hover or Focus)
+- NN/g state-omission research 2025 — empty-state and error-state omission rates in AI-generated UIs (92% empty omitted, 78% error omitted)
+- GOV.UK Design System — error message and error summary components, plain English readability guidance
+- IBM Carbon Design System — voice and tone content guidelines, error message patterns
+- Baymard Institute — inline form validation research and disabled-submit findings (top-10 form-abandonment driver)
+- Google Core Web Vitals 2026 thresholds — LCP, INP, CLS at p75 real-user data
+- Nielsen Norman Group — 10 usability heuristics for user interface design
+- Mailchimp Content Style Guide — voice and tone baseline, clarity over cleverness
+- Apple Human Interface Guidelines — Dynamic Type, safe area, touch target sizing
+- Material 3 Design System — touch target sizing (48dp), state layers, ripple feedback
+- W3C WAI-ARIA Authoring Practices — accessible widget patterns, live regions, focus management
+- FIDO Alliance / Passkey Central — WebAuthn Conditional UI design guidelines for passwordless auth
+- Vercel AI Elements — streaming message component patterns for AI chat surfaces
+- Anthropic engineering blog — agent UI patterns, human-in-the-loop approval, tool-call transparency
+- OpenAI Apps SDK UI guidelines — citation rendering, tool-result presentation
