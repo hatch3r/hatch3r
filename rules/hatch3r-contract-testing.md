@@ -1,0 +1,117 @@
+---
+id: hatch3r-contract-testing
+type: rule
+description: Consumer-driven and spec-driven contract testing between services — Pact, Schemathesis, Dredd, pact-broker can-i-deploy gate
+scope: "**/contracts/**,**/pacts/**,**/api/**,**/openapi*,**/asyncapi*,**/*.proto,**/__tests__/contract/**"
+tags: [review, implementation]
+quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
+---
+# Contract Testing
+
+Pairs `rules/hatch3r-api-design.md` (shape) and `rules/hatch3r-api-versioning.md` (lifecycle) with the verification gate that proves consumer-provider compatibility before deploy.
+
+## When To Use Contract Testing
+
+- **Mandatory** for any cross-team service boundary — two services owned by different teams that exchange messages or RPCs.
+- **Mandatory** for any service-to-service call across a deploy boundary (independent CI pipelines, independent release cadences).
+- **Optional** for in-team boundaries where strong types + integration tests already prove the contract.
+- **Not a substitute** for end-to-end tests — contract tests verify the protocol; E2E verifies the user flow.
+
+## Consumer-Driven Contract Testing (CDCT) — Pact
+
+Pact is the de facto CDCT framework. The flow:
+
+1. **Consumer test:** consumer writes expectations (`given`/`uponReceiving`/`willRespondWith`); Pact records the interactions to a `.pact.json` file and runs the consumer test against an in-process mock provider.
+2. **Publish:** consumer CI publishes the Pact file to a Pact Broker / PactFlow instance with the consumer's git SHA + branch tag.
+3. **Provider verification:** provider CI runs `pact-verifier` against every Pact published against its name; replays each interaction against the real provider implementation and asserts the response matches.
+4. **Deploy gate:** `pact-broker can-i-deploy --pacticipant <service> --version <sha> --to-environment production` returns non-zero if any consumer's verification is failing for the version being deployed.
+
+The `can-i-deploy` gate is the contract-testing equivalent of `npm test` — every production deploy passes it.
+
+## Bi-Directional Contract Testing (BDCT) — PactFlow
+
+When the provider already publishes OpenAPI (or AsyncAPI) and runs self-verification (Dredd/Schemathesis), BDCT avoids the cost of provider Pact verification:
+
+- Provider publishes its OpenAPI spec + self-verification results to PactFlow.
+- Consumer publishes Pact as usual.
+- PactFlow cross-verifies: every consumer expectation must match an OpenAPI operation; every operation field consumed must exist in the OpenAPI response schema.
+- Use BDCT for high-traffic providers where running Pact verification on every consumer PR is expensive; reverts to CDCT if drift is detected between OpenAPI and live behavior.
+
+## Spec-Driven Contract Testing — Schemathesis
+
+Schemathesis generates property-based tests from OpenAPI 3.0 / 3.1 (and GraphQL) schemas:
+
+- Runs against the live provider implementation; fuzzes inputs based on the spec; asserts every response conforms to the documented schema, status codes, and headers.
+- Catches drift between spec and implementation that CDCT alone misses (Pact only verifies the interactions consumers actually request).
+- Published research (`schemathesis.readthedocs.io` benchmark studies) shows Schemathesis finds 1.4-4.5x more defects than Pact-alone on the same providers.
+- Run on every provider PR; report property-based failures with reproducer URLs.
+
+## Other Tools
+
+- **Dredd** — executable contracts from OpenAPI / API Blueprint; declarative happy-path verification. Use for simple cases where Schemathesis is overkill; legacy.
+- **Hoverfly** — proxy-based service virtualization for stateful integration scenarios (record/replay). Useful when downstream dependencies cannot be mocked from a spec.
+
+## Coverage Policy
+
+Every cross-service interaction is covered by:
+
+1. **Consumer side:** Pact test in the consumer's `__tests__/contract/` directory, published to the broker on every consumer PR.
+2. **Provider side:** Schemathesis property-based tests against the provider's OpenAPI spec, run on every provider PR.
+3. **Cross-verification:** `pact-verifier` (CDCT) or PactFlow BDCT replays consumer expectations against the provider implementation on every provider PR + consumer PR (matrix verification — provider PRs verify against every consumer's latest tag; consumer PRs verify against the provider's `main`).
+
+GraphQL: consumers register persisted queries; the registry doubles as the contract — every operation in the manifest is verifiable against the schema via `graphql-inspector validate`.
+
+gRPC: `buf breaking` catches protocol-level breaks; pact-protobuf-plugin or grpcurl-based provider verification catches behavior-level breaks.
+
+## `can-i-deploy` Gate
+
+Every production deploy runs:
+
+```
+pact-broker can-i-deploy \
+  --pacticipant <service-name> \
+  --version <git-sha> \
+  --to-environment production
+```
+
+- Exit non-zero blocks the deploy via the CI gate.
+- Failure messages list which consumer's verification is missing or failing — the deploy operator can read which contract is incompatible.
+- Pair with PactFlow's `webhook` to trigger consumer verifications when the provider publishes a new tag.
+
+## Contract Evolution
+
+- Providers **may** add fields freely; consumers ignore unknown fields by default (Pact + Schemathesis verify that expected fields are present, not that the response contains only those fields).
+- Providers **may not** remove or rename fields without an RFC 9745 Deprecation + RFC 8594 Sunset cycle — cross-reference `rules/hatch3r-api-versioning.md` for the lifecycle.
+- Consumers may add new expectations; the next provider verification run reveals whether the provider supports them.
+- Pact files are immutable once published — never edit a published pact retroactively. Republish under a new consumer version.
+
+## Tooling Per Ecosystem
+
+| Ecosystem | Consumer SDK | Provider verifier |
+|-----------|--------------|-------------------|
+| Node / TS | `@pact-foundation/pact` (pact-js) | `pact-js` verifier or `pact-cli` |
+| Ruby | `pact` gem | `pact-provider-verifier` |
+| JVM | `au.com.dius.pact:pact-jvm-consumer` | `pact-jvm-provider` |
+| Go | `pact-go` | `pact-go verify` |
+| Python | `pact-python` + Schemathesis (spec-driven) | `pact-python` verifier |
+| Rust | `pact_consumer` / `pact_verifier` | `pact_verifier_cli` |
+| .NET | `PactNet` | `PactNet.Verifier` |
+
+Schemathesis is Python-only on the runner side but verifies any OpenAPI 3.x provider regardless of provider language.
+
+## Anti-Patterns
+
+- **Never** mock provider responses in consumer unit tests bypassing Pact — defeats the purpose of CDCT.
+- **Never** run consumer tests against the production provider — use the Pact mock; production data and contract drift get conflated.
+- **Never** edit a published pact retroactively — republish under a new consumer version. The broker keeps the original immutable.
+- **Never** skip `can-i-deploy` because "tests are green locally" — local Pact tests verify the mock, not the live provider.
+- **Never** use only Schemathesis without Pact (or vice versa) — they catch different failure classes (drift vs incompatibility); both are required for full coverage.
+
+## References
+
+- Pact — https://docs.pact.io
+- PactFlow BDCT — https://docs.pactflow.io/docs/bi-directional-contract-testing
+- Schemathesis — https://schemathesis.readthedocs.io
+- `pact-broker can-i-deploy` — https://docs.pact.io/pact_broker/can_i_deploy
+- Standard Webhooks (for webhook contract testing) — https://github.com/standard-webhooks/standard-webhooks
