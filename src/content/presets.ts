@@ -21,14 +21,14 @@ export const PRESETS: ContentPreset[] = [
   },
   {
     id: "standard",
-    name: "Standard",
+    name: "Standard (recommended)",
     description: "Full development lifecycle without niche audits",
     includeTags: ["core", "planning", "implementation", "review", "devops", "maintenance"],
     excludeTags: ["board", "a11y", "performance", "customize"],
   },
   {
     id: "full",
-    name: "Full (recommended)",
+    name: "Full",
     description: "Everything including board management and all audits",
     includeTags: [], // empty = include all
     excludeTags: [],

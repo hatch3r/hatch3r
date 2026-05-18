@@ -51,6 +51,7 @@ import {
   warn,
   step,
   label,
+  verbose,
 } from "../shared/ui.js";
 import { findPackageRoot } from "../shared/paths.js";
 import { runSelfUpdate, pickReExecBin } from "../../install/selfUpdate.js";
@@ -72,12 +73,20 @@ function buildReExecPassThroughArgs(opts?: {
   diff?: boolean;
   force?: boolean;
   dryRun?: boolean;
+  skipAuditSignatures?: boolean;
 }): string[] {
   const args: string[] = [];
   if (opts?.yes) args.push("--yes");
   if (opts?.diff) args.push("--diff");
   if (opts?.force) args.push("--force");
   if (opts?.dryRun) args.push("--dry-run");
+  // C9-H51 (D15-SA15.4-F01): propagate the audit-skip flag to the re-exec
+  // child so a security override the user explicitly opted into is not
+  // silently dropped when the parent self-updates and re-execs into the
+  // freshly installed binary. The re-exec child's audit step is already
+  // a no-op (audit ran in the parent), but propagating keeps the flag
+  // semantically consistent and supports future inner runs.
+  if (opts?.skipAuditSignatures) args.push("--skip-audit-signatures");
   return args;
 }
 
@@ -87,7 +96,9 @@ function buildReExecPassThroughArgs(opts?: {
 async function readFileOrNull(filePath: string): Promise<string | null> {
   try {
     return await readFile(filePath, "utf-8");
-  } catch {
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    verbose(`update: readFileOrNull(${filePath}) → null — ${message}`);
     return null;
   }
 }
@@ -114,13 +125,19 @@ async function appendFailure(agentsDir: string, phase: string, error: unknown, t
         await safeWriteFile(logPath, rotated + line);
         return;
       }
-    } catch {
-      // File does not exist yet -- appendFile will create it
+    } catch (err) {
+      // File does not exist yet -- appendFile will create it. Surface under
+      // --verbose so unexpected read failures stay observable.
+      const message = err instanceof Error ? err.message : String(err);
+      verbose(`update: appendFailure read-before-rotate skipped — ${message}`);
     }
 
     await appendFile(logPath, line);
-  } catch {
-    // Failure logging must not break the update command
+  } catch (err) {
+    // Failure logging must not break the update command. Surface under
+    // --verbose so persistent write failures still get attention.
+    const message = err instanceof Error ? err.message : String(err);
+    verbose(`update: appendFailure suppressed — ${message}`);
   }
 }
 
@@ -846,6 +863,14 @@ export async function updateCommand(
     offline?: boolean;
     skipFetch?: boolean;
     dryRun?: boolean;
+    /**
+     * C9-H51 (D15-SA15.4-F01): emergency override for the `npm audit
+     * signatures` gate. Skips Sigstore signature verification on the
+     * freshly-installed package. Used only when audit is broken upstream
+     * (e.g. transient Rekor outage) and the user has verified the
+     * package out-of-band. Emits a visible warning every time.
+     */
+    skipAuditSignatures?: boolean;
   },
 ): Promise<void> {
   printBanner(true);
@@ -912,6 +937,18 @@ export async function updateCommand(
   // programmatic callers that still pass `offline`.
   const offlineMode = !!(_opts?.offline || _opts?.skipFetch);
   const dryRun = !!_opts?.dryRun;
+  // C9-H51 (D15-SA15.4-F01): visible warning every time the user opts out
+  // of signature verification. The flag is an emergency override, not a
+  // performance knob — surface it loudly so a CI run or a teammate
+  // skimming logs sees the security implication.
+  const skipAuditSignatures = !!_opts?.skipAuditSignatures;
+  if (skipAuditSignatures) {
+    warn(
+      "--skip-audit-signatures: npm audit signatures will be SKIPPED for the freshly fetched hatch3r package. " +
+      "You are accepting responsibility for verifying package provenance out-of-band. " +
+      "Remove this flag once the upstream audit-signatures issue is resolved.",
+    );
+  }
   if (isUpToDate) {
     info(`Already at hatch3r v${HATCH3R_VERSION}`);
   } else if (offlineMode) {
@@ -958,7 +995,11 @@ export async function updateCommand(
     // the regenerate phase runs with the latest code — running it
     // in-process would use the stale module cache the current process
     // loaded before the package got replaced on disk.
-    const selfUpdate = await runSelfUpdate(rootDir, { stepOffset: 0, totalSteps: 4 });
+    const selfUpdate = await runSelfUpdate(rootDir, {
+      stepOffset: 0,
+      totalSteps: 4,
+      skipAuditSignatures,
+    });
     const reExecBin = !isReExec ? pickReExecBin(selfUpdate) : null;
     if (reExecBin) {
       const childArgs = ["update", "--skip-fetch", ...buildReExecPassThroughArgs(_opts)];

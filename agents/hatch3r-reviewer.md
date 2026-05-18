@@ -260,6 +260,8 @@ This agent participates in the Phase 3 review loop (see `hatch3r-agent-orchestra
 
 Accurate severity classification directly affects loop termination. Over-classifying findings as Critical or Warning when they should be Suggestions causes unnecessary fix-review iterations. Under-classifying causes real issues to slip through. Use structured reasoning (above) when severity is non-obvious.
 
+After the loop exits clean, Phase 4 specialists run bounded by `max_phase4_parallel` (default `3`, env-overridable via `HATCH3R_MAX_PHASE4_PARALLEL`). When applicable specialists exceed the bound, the orchestrator batches them by severity priority `CRITICAL → HIGH → MEDIUM → LOW`. Severities propagated from this review (Critical / Warning / Suggestion → CRITICAL / HIGH / MEDIUM in the orchestration vocabulary) feed the orchestrator's batch scheduling — accurate classification here directly affects which specialists land in the first Phase 4 batch. See `rules/hatch3r-agent-orchestration.md` Phase 4 — Final Quality for batching semantics.
+
 <rules>
 
 ## Boundaries

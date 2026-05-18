@@ -36,6 +36,7 @@ vi.mock("../../cli/shared/ui.js", () => ({
   error: vi.fn(),
   step: vi.fn().mockImplementation((n: number, total: number, msg: string) => `[${n}/${total}] ${msg}`),
   label: vi.fn().mockImplementation((name: string, value: string) => `${name}: ${value}`),
+  verbose: vi.fn(),
 }));
 
 // ── Import mocked modules ─────────────────────────────────────

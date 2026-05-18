@@ -58,7 +58,7 @@ Each security control is either **code-enforced** (validated at runtime by TypeS
 | Control | Enforcement | Source Location | Status |
 |---------|-------------|-----------------|--------|
 | Prompt injection guard (input sanitization, output validation, boundary markers) | Code | `src/pipeline/promptGuard.ts` | Active |
-| Agent tool allowlists (per-agent least-privilege) | Code | `src/pipeline/agentToolAllowlist.ts` | Active |
+| Agent tool allowlists (per-agent least-privilege) | Hybrid | Code: `src/pipeline/agentToolAllowlist.ts` (canonical policy registry + `checkToolAccess` orchestrator gate). Adapters: per-platform PreToolUse / MCP gating emission — Claude Code `.claude/hooks/pretooluse-allowlist.mjs` + `.claude/hooks/agent-tool-policies.json`; Cursor `.cursor/rules/hatch3r-tool-allowlist.mdc` + `.cursor/agents-policy.json` (Cursor lacks a PreToolUse hook surface, so enforcement is rule-delegated). | Active |
 | Circuit breaker (transient vs substantive failure classification) | Code | `src/pipeline/circuitBreaker.ts` | Active |
 | Failure logging (structured failure capture) | Code | `src/pipeline/failureLog.ts` | Active |
 | Phase output size compaction (summary bounding) | Code | `src/pipeline/phaseOutputSchema.ts` | Active |
@@ -87,7 +87,7 @@ OWASP ASI controls are implemented through a combination of code enforcement and
 | ASI Control | Description | Enforcement | Implementation |
 |-------------|-------------|-------------|----------------|
 | ASI01 | Prompt injection prevention | Code | `src/pipeline/promptGuard.ts` -- input sanitization, output validation, boundary markers |
-| ASI02 | Tool use restrictions | Code | `src/pipeline/agentToolAllowlist.ts` -- per-agent tool category restrictions |
+| ASI02 | Tool use restrictions | Hybrid | Code: `src/pipeline/agentToolAllowlist.ts` -- per-agent tool category restrictions enforced at orchestrator boundary. Adapter emission: `src/adapters/claude.ts` writes `.claude/hooks/pretooluse-allowlist.mjs` (runtime PreToolUse gate) + `.claude/hooks/agent-tool-policies.json` (machine-readable policy data) so the canonical allowlist survives into the Claude Code runtime as a deny-on-mismatch hook. `src/adapters/cursor.ts` writes `.cursor/agents-policy.json` + `.cursor/rules/hatch3r-tool-allowlist.mdc` (Cursor has no PreToolUse hook surface; rule + machine-readable policy file delegate enforcement to the Cursor agent runtime, paired with the `readonly: true` frontmatter primitive for read-only roles). |
 | ASI03 | Agent isolation | Hybrid | Code: review loop iteration limits (`reviewLoop.ts`), diff-hash verification (`diffHash.ts`). Instruction: agent role boundaries, file access scoping |
 | ASI04 | Secure model configuration | Instruction | Model selection per-agent via `customize.yaml`. No runtime model override mechanism |
 | ASI05 | Input/output validation | Code | `src/pipeline/promptGuard.ts` -- input size limits (MAX_PHASE_INPUT_LENGTH 500 KB) and output size limits (MAX_AGENT_OUTPUT_LENGTH 1 MB); `src/adapters/customization.ts` -- deny-pattern scanning; `src/pipeline/phaseOutputSchema.ts` -- CLI summary compaction |
@@ -96,6 +96,19 @@ OWASP ASI controls are implemented through a combination of code enforcement and
 | ASI08 | Supply chain security | Code (CI) | `.github/workflows/ci.yml` -- supply chain audit, lockfile checks |
 | ASI09 | Access control | Code | Path traversal guards, tool allowlists, managed block enforcement |
 | ASI10 | Secure deployment | Instruction | Deployment guidance in agent content. No runtime deployment control |
+
+## Allowlist Hybrid Contract
+
+The agent tool allowlist (ASI02) is enforced at two layers — the **canonical/repo-level allowlist** (`src/pipeline/agentToolAllowlist.ts::AGENT_TOOL_POLICIES`) is the single source of truth, and **adapter-emitted PreToolUse / MCP-gating hooks** carry that policy into each platform's runtime.
+
+| Layer | Mechanism | Failure mode |
+|-------|-----------|--------------|
+| Canonical (repo) | `checkToolAccess(agentId, tool)` rejects with `AllowlistDenialEvent` when called from the hatch3r orchestrator pipeline (`src/pipeline/` callers) | Deny-by-default; structured `failure-log.jsonl` entry per finding C7.5-W2B2-H44 |
+| Adapter (runtime) | Claude Code: `.claude/hooks/pretooluse-allowlist.mjs` evaluates the requested tool against `.claude/hooks/agent-tool-policies.json` on every PreToolUse event; exits non-zero to block the call. Cursor: `.cursor/rules/hatch3r-tool-allowlist.mdc` (`alwaysApply: true`) + `.cursor/agents-policy.json` instruct the Cursor agent runtime to refuse out-of-policy tool calls. Pairs with the `readonly: true` frontmatter primitive for agents whose policy lacks `write` and `execute`. | Claude: PreToolUse hook exits 2 (Claude Code denies the tool). Cursor: rule-delegated — instruction violation surfaces in the review loop. |
+
+Rationale for Hybrid (not pure Code): the orchestrator-side check (`checkToolAccess`) only fires when the hatch3r pipeline mediates the agent invocation. Once a generated agent runs inside Claude Code, Cursor, or any other adapter target, the orchestrator is no longer in the loop — runtime enforcement must travel with the generated artifacts. Adapter-emitted hooks close the gap; the canonical policy registry remains the single source.
+
+Source of truth: `src/pipeline/agentToolAllowlist.ts::AGENT_TOOL_POLICIES`. Adapter emission helpers: `buildAgentToolPoliciesJson()`, `buildClaudePreToolUseHookScript()`, `buildCursorAllowlistRule()`.
 
 ## Content Signing Limitations
 

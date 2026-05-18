@@ -2,7 +2,7 @@ import type { AdapterOutput } from "../types.js";
 import { toPrefixedId } from "../types.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
-import { readCanonicalFiles, sortByPrecedence, precedenceRank } from "./canonical.js";
+import { sortByPrecedence, precedenceRank } from "./canonical.js";
 import { applyCustomization } from "./customization.js";
 import { toWindsurfToolsFrontmatter } from "../pipeline/adapterToolTranslator.js";
 import type { HookEvent } from "../hooks/types.js";
@@ -115,7 +115,11 @@ export class WindsurfAdapter extends BaseAdapter {
     results.push(output(".windsurfrules", wrapInManagedBlock(windsurfInner), windsurfInner));
 
     if (ctx.features.rules) {
-      const rules = await readCanonicalFiles(ctx.agentsDir, "rules", this.warnings);
+      // C9-H39 (D11-SA11.1-01): use the BaseAdapter-tracked read wrapper so
+      // every canonical rule consumed here is recorded in
+      // `this._trackedSourceFiles` and surfaces on each output's
+      // `sourceFiles` field.
+      const rules = await this.readTrackedCanonicalFiles(ctx.agentsDir, "rules");
       // Wave B3: precedence-ordered emission + NN- numeric filename prefix.
       // NN derives from precedenceRank(rule.precedence): critical=10, high=30,
       // normal=50, low=70. Windsurf lists rule files alphabetically in the
@@ -123,9 +127,11 @@ export class WindsurfAdapter extends BaseAdapter {
       // level.
       const sortedRules = sortByPrecedence(rules);
       for (const rule of sortedRules) {
-        const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);
+        const { content: rawContent, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);
         this.warnings.push(...warnings);
         if (skip) continue;
+        // C9-H47 (D14-SA14.4-H01): substitute detected toolchain tokens.
+        const content = this.substituteDetectedRepoTokens(rawContent, ctx);
         const scope = overrides.scope ?? rule.scope;
         const trigger = ruleTrigger(scope);
         const globScope = (trigger === "glob" && scope)

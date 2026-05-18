@@ -60,6 +60,7 @@ Governance and audit cycles apply the same quality standards, anti-slop, and ant
 | AUDIT-EXECUTE.md | <=700 lines | ±50 lines per execution phase delta |
 | RE-ENVISION.md | <=550 lines | ±25 lines per theme-block delta (10 vision themes + 10 governance-layer sparring themes; recalibrated 2026-05-18 with redesign as holistic sparring engine) |
 | EVOLVE.md | <=400 lines | ±20 lines per assessment-dimension delta |
+| pack-trust-model.md | <=300 lines | ±25 lines per trust-tier or signing-method addition |
 | Static-first prompt structure | required for `orchestrator: true` and `agents/*.md` | scripts/validate-efficiency-invariants.ts |
 | Parallel-tool-by-default directive | required when artifact uses ≥2 independent tool calls | Body-text scan |
 | Triage-first orchestrator | required when `orchestrator: true` | Frontmatter `triage_tiers` array |

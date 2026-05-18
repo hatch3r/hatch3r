@@ -36,7 +36,8 @@ describe("CursorAdapter", () => {
       (o) =>
         o.path.startsWith(".cursor/rules/") &&
         !o.path.includes("bridge") &&
-        !o.path.includes("hook-"),
+        !o.path.includes("hook-") &&
+        !o.path.includes("tool-allowlist"),
     );
     expect(rules.length).toBe(2);
 
@@ -235,7 +236,8 @@ You are a test agent.`,
       (o) =>
         o.path.startsWith(".cursor/rules/") &&
         !o.path.includes("bridge") &&
-        !o.path.includes("hook-"),
+        !o.path.includes("hook-") &&
+        !o.path.includes("tool-allowlist"),
     );
     expect(rules.length).toBe(0);
   });
@@ -424,6 +426,77 @@ Low priority rule body.
       );
       expect(file).toBeDefined();
       expect(file!.content).toContain("readonly: true");
+    });
+  });
+
+  // C9-H49 (D15-SA15.2, P6): per-adapter MCP / tool gating emission.
+  // Cursor has no PreToolUse hook primitive, so enforcement is
+  // rule-delegated: an alwaysApply `.cursor/rules/hatch3r-tool-allowlist.mdc`
+  // rule + machine-readable `.cursor/agents-policy.json` document.
+  // Pairs with `readonly: true` frontmatter primitive emitted by
+  // `toCursorReadonlyFrontmatter`.
+  describe("C9-H49 tool allowlist rule + agents-policy.json emission", () => {
+    it("emits .cursor/agents-policy.json with the canonical registry", async () => {
+      const manifest = makeManifest();
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const policiesFile = outputs.find(
+        (o) => o.path === ".cursor/agents-policy.json",
+      );
+      expect(policiesFile).toBeDefined();
+      const parsed = JSON.parse(policiesFile!.content);
+      expect(parsed.schema).toBe("hatch3r/agent-tool-policies/v1");
+      expect(Array.isArray(parsed.policies)).toBe(true);
+      const reviewer = parsed.policies.find(
+        (p: { agentId: string }) => p.agentId === "hatch3r-reviewer",
+      );
+      const implementer = parsed.policies.find(
+        (p: { agentId: string }) => p.agentId === "hatch3r-implementer",
+      );
+      expect(reviewer).toBeDefined();
+      expect(reviewer.allowedTools).toEqual(["read", "search"]);
+      expect(implementer).toBeDefined();
+      expect(implementer.allowedTools).toContain("write");
+      expect(implementer.allowedTools).toContain("execute");
+      expect(parsed.allToolCategories).toContain("read");
+      expect(parsed.allToolCategories).toContain("mcp");
+    });
+
+    it("emits .cursor/rules/hatch3r-tool-allowlist.mdc as alwaysApply", async () => {
+      const manifest = makeManifest();
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const ruleFile = outputs.find(
+        (o) => o.path === ".cursor/rules/hatch3r-tool-allowlist.mdc",
+      );
+      expect(ruleFile).toBeDefined();
+      // Frontmatter must declare alwaysApply: true so the rule is loaded into every Cursor session.
+      const fmMatch = ruleFile!.content.match(/^---\n([\s\S]*?)\n---/);
+      expect(fmMatch).not.toBeNull();
+      const fm = fmMatch![1];
+      expect(fm).toContain("alwaysApply: true");
+      expect(fm).toContain("ASI02");
+      // Body must contain the canonical per-agent table for human / agent inspection.
+      expect(ruleFile!.content).toContain("Hatch3r Agent Tool Allowlist");
+      expect(ruleFile!.content).toContain("hatch3r-reviewer");
+      expect(ruleFile!.content).toContain("hatch3r-implementer");
+      expect(ruleFile!.content).toContain("read, search");
+      // References the sibling machine-readable JSON document.
+      expect(ruleFile!.content).toContain(".cursor/agents-policy.json");
+      // Body wrapped in a managed block per Cursor adapter convention.
+      expect(ruleFile!.managedContent).toBeDefined();
+    });
+
+    it("emits rule + JSON regardless of features.rules state", async () => {
+      // The allowlist is a trust artifact, not a user-content rule —
+      // disabling `features.rules` must not remove it, otherwise the
+      // ASI02 enforcement chain breaks at the Cursor boundary.
+      const manifest = makeManifest({ features: { rules: false } });
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      expect(
+        outputs.find((o) => o.path === ".cursor/rules/hatch3r-tool-allowlist.mdc"),
+      ).toBeDefined();
+      expect(
+        outputs.find((o) => o.path === ".cursor/agents-policy.json"),
+      ).toBeDefined();
     });
   });
 

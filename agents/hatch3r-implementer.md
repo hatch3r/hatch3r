@@ -215,6 +215,8 @@ Apply this format whenever the implementation involves choosing between approach
 
 After this agent completes Phase 2, the orchestrator runs the Phase 3 review loop (`hatch3r-reviewer` + `hatch3r-fixer`, max 3 iterations). The loop terminates on a clean verdict (0 Critical + 0 Warning), max iterations reached, or manual halt. Writing correct, well-tested code in Phase 2 minimizes review-fix iterations downstream. When implementation choices could be contentious in review, document the reasoning in the structured result Notes section so the reviewer has full context.
 
+After the review loop, Phase 4 specialists (test-writer, security-auditor, docs-writer, lint-fixer, a11y-auditor, perf-profiler, dependency-auditor, architect, devops) run bounded by `max_phase4_parallel` (default `3`, env-overridable via `HATCH3R_MAX_PHASE4_PARALLEL`). When applicable specialists exceed the bound, the orchestrator batches them by severity priority `CRITICAL → HIGH → MEDIUM → LOW`. Implementer Notes that surface high-risk surfaces (security, perf, a11y) help the orchestrator schedule the right specialists into the earliest batch. See `rules/hatch3r-agent-orchestration.md` Phase 4 — Final Quality for batching semantics.
+
 ## Error Handling During Implementation
 
 When encountering errors during implementation, follow these protocols:

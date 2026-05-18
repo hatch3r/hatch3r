@@ -139,7 +139,7 @@ For multi-sub-task implementations, the implementer performs a lightweight mini-
 
 **Phase 4 — Final Quality** (after review loop is clean):
 
-Launch parallel subagents -- no artificial concurrency limit.
+Launch Phase 4 specialists in parallel, bounded by `max_phase4_parallel` (default `3`, override via `HATCH3R_MAX_PHASE4_PARALLEL` env var; valid range 1-16, values outside the range fall back to default with a logged warning). The bound exists to cap per-orchestrator concurrent context cost — it does not soften the P8 B2 directive that fan-out scales with task decomposition. When the number of applicable specialists exceeds `max_phase4_parallel`, batch them by severity-descending priority: `CRITICAL → HIGH → MEDIUM → LOW` (severity is the worst-case finding class the specialist is expected to surface, per the `hatch3r-test-writer` / `hatch3r-security-auditor` always-on baseline → CRITICAL, conditional UI/security/perf → HIGH, docs/lint → MEDIUM, low-impact specialists → LOW). Within the same severity bucket, dispatch order is the trigger-table order in the table above. Each batch runs to completion (all specialists return SUCCESS/PARTIAL/FAILED) before the next batch starts; the validation pass below runs once after the final batch.
 
 - **Always** (except when Phase Skip Criteria applies — see below)**:** `hatch3r-test-writer`, `hatch3r-security-auditor`
 - **Evaluate:** `hatch3r-docs-writer` (when APIs/architecture/UX affected)

@@ -10,7 +10,15 @@ efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
 parallel_tool_default: true
 triage_tiers: [1, 2, 3]
+sub_agents_spawned:
+  count: 7
+  rationale: Seven parallel hatch3r-researcher domains per vision brief in Step 3 — stack, features, architecture, pitfalls, UX, business-model-and-market, production-and-scale; docs-writers fan out in a second parallel batch in Step 7 (one per document category).
 ---
+
+## §0 Detect Ambiguity (P8 B1)
+
+Before any action, scan the user's request and provided context for unresolved questions in scope, acceptance criteria, irreversibility, or constraint conflicts (contradictory inputs, missing target, unknown convention). If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Acceptable to proceed without asking ONLY when scope is single-target, single-concern, and the brief alone is testable. Any residual ambiguity discovered mid-workflow invokes the same protocol.
+
 # Project Spec — Greenfield Project Specification from Vision to Docs
 
 Take a project idea or vision and produce complete project documentation across **two dimensions**: business strategy and technical architecture. Spawns parallel researcher sub-agents (stack, features, architecture, pitfalls, UX, business model & market, production & scale) to analyze the vision from every angle before generating artifacts. Outputs business specs to `docs/specs/business/` (business model, competitive analysis, GTM strategy, production blueprint), technical specs to `docs/specs/technical/` (glossary, overview, per-module specs), ADRs to `docs/adr/`, and a `todo.md` ready for `hatch3r-board-fill`. Optionally generates a root-level `AGENTS.md` as the project's "README for agents." AI proposes all outputs; user confirms before any files are written.

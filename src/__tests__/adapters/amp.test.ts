@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { AmpAdapter } from "../../adapters/amp.js";
+import { ADAPTER_CAPABILITIES } from "../../adapters/index.js";
 import { createManifest } from "../../manifest/hatchJson.js";
 import { resolveTestPath } from "../fixtures.js";
 
@@ -160,5 +161,37 @@ describe("AmpAdapter", () => {
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
     const cliSkills = outputs.filter((o) => o.path.includes("hatch3r-cli-"));
     expect(cliSkills).toEqual([]);
+  });
+
+  // ── C9-H23 / D9-SA9.8.F1: custom slash command deprecation ──────
+  //
+  // Amp deprecated custom slash commands on 2026-01-29 in favor of skills
+  // (https://ampcode.com/news/slashing-custom-commands). The capability
+  // matrix MUST record `commands: false` so that:
+  //   1. `getUnsupportedFeatureWarnings` warns users who toggle
+  //      `manifest.features.commands` for amp.
+  //   2. The adapter never emits files into `.agents/commands/` or
+  //      `.amp/commands/` (skills cover the same surface and are emitted
+  //      via the canonical mirror in `copyHatch3rFiles`).
+  // Re-verified against ampcode.com/manual on 2026-05-18 (current manual
+  // documents skills + plugins; `.agents/commands/` is no longer read).
+  it("capability matrix records commands: false (deprecated 2026-01-29)", () => {
+    expect(ADAPTER_CAPABILITIES.amp.commands).toBe(false);
+  });
+
+  it("emits no command files (custom slash commands deprecated 2026-01-29)", async () => {
+    const manifest = createManifest({
+      tools: ["amp"],
+      features: { commands: true },
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const commandOutputs = outputs.filter(
+      (o) =>
+        o.path.startsWith(".agents/commands/") ||
+        o.path.startsWith(".amp/commands/") ||
+        o.path.includes("/commands/"),
+    );
+    expect(commandOutputs).toEqual([]);
   });
 });

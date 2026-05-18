@@ -101,6 +101,85 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     expect(jq.securityNote).toContain("CVE-2026-32316");
   });
 
+  it("jq securityNote enumerates the additional 2026-04-15 CVE IDs (D21-SA21.3-F03)", () => {
+    // C9-H87: Cycle 9 D21-SA21.3-F03 — extend the jq securityNote to
+    // enumerate the three confirmed additional CVE IDs from the 2026-04-15
+    // oss-sec batch. Three further IDs from that batch were not assigned
+    // canonical names in audit sources and remain referenced by batch URL.
+    const jq = AVAILABLE_CLI_TOOLS.jq;
+    expect(jq.securityNote).toContain("CVE-2026-40612");
+    expect(jq.securityNote).toContain("CVE-2026-43894");
+    expect(jq.securityNote).toContain("CVE-2026-43896");
+    // The oss-sec batch URL anchors the unenumerated remainder so consumers
+    // can pivot to the canonical disclosure list.
+    expect(jq.securityNote).toContain("seclists.org/oss-sec");
+  });
+
+  it("sd entry is annotated releaseCadence:'stable' (D21-SA21.2-F01)", () => {
+    // C9-H86: sd 1.1.0 (released 2025-02-24) is 447 days old at the
+    // 2026-05-18 audit. Tagging the entry `stable` documents that the long
+    // gap is intentional (mature steady-state tool) — the staleness
+    // heuristic in src/cliTools/triggers.ts can suppress amber-flag noise.
+    const sd = AVAILABLE_CLI_TOOLS.sd;
+    expect(sd.releaseCadence).toBe("stable");
+  });
+
+  it("gh entry carries minVersion + securityNote citing GHSA-crc3-h8v6-qh57 (D21-SA21.5-F01)", () => {
+    // C9-H88: gh CLI before 2.92.0 (released 2026-05-06) leaks tokens via
+    // auxiliary host extension calls per GHSA-crc3-h8v6-qh57. Surface
+    // minVersion + securityNote so the installer/picker flag old builds.
+    const gh = AVAILABLE_CLI_TOOLS.gh;
+    expect(gh.minVersion).toBe(">=2.92.0");
+    expect(gh.securityNote).toBeDefined();
+    expect(gh.securityNote).toContain("GHSA-crc3-h8v6-qh57");
+    expect(gh.securityNote).toContain("2.92.0");
+  });
+
+  it("docker entry carries minVersion + securityNote citing CVE-2026-32288 (D21-SA21.6-F02)", () => {
+    // C9-H91: Docker engine 29.5.0 patches CVE-2026-32288 (DoS via crafted
+    // image manifest). minVersion surfaces the requirement before pulling
+    // images from untrusted registries.
+    const docker = AVAILABLE_CLI_TOOLS.docker;
+    expect(docker.minVersion).toBe("29.5.0");
+    expect(docker.securityNote).toBeDefined();
+    expect(docker.securityNote).toContain("CVE-2026-32288");
+  });
+
+  it("podman entry carries minVersion + Windows-only securityNote citing CVE-2026-33414 (D21-SA21.6-F03)", () => {
+    // C9-H92: Podman 5.8.2 patches CVE-2026-33414 — Windows-only PowerShell
+    // command injection on the Hyper-V backend via `podman machine init`.
+    // The securityNote carries an explicit `Windows only` prefix so mac /
+    // linux consumers see the platform scope inline.
+    const podman = AVAILABLE_CLI_TOOLS.podman;
+    expect(podman.minVersion).toBe("5.8.2");
+    expect(podman.securityNote).toBeDefined();
+    expect(podman.securityNote).toContain("CVE-2026-33414");
+    expect(podman.securityNote).toContain("Windows only");
+  });
+
+  it("optional schema fields are correctly typed on every entry (D15-SA15.7-F01 / D21-SA21.7-F02)", () => {
+    // C9-H55 + C9-H89: minVersion / releaseCadence / cve_scan are optional
+    // schema extensions. Verify that each entry that declares them uses the
+    // documented shape — strings for minVersion, the literal union for
+    // releaseCadence, and { last_checked, advisory_count, report_url } for
+    // cve_scan. Entries that omit the fields are not iterated.
+    const validCadences = new Set(["rapid", "monthly", "quarterly", "stable"]);
+    for (const entry of allEntries) {
+      if (entry.minVersion !== undefined) {
+        expect(entry.minVersion).toBeTypeOf("string");
+        expect(entry.minVersion.length).toBeGreaterThan(0);
+      }
+      if (entry.releaseCadence !== undefined) {
+        expect(validCadences.has(entry.releaseCadence)).toBe(true);
+      }
+      if (entry.cve_scan !== undefined) {
+        expect(entry.cve_scan.last_checked).toBeTypeOf("string");
+        expect(entry.cve_scan.advisory_count).toBeTypeOf("number");
+        expect(entry.cve_scan.report_url).toBeTypeOf("string");
+      }
+    }
+  });
+
   it("every entry has id/probe/description/category/tier/install/homepage", () => {
     for (const entry of allEntries) {
       expect(entry.id).toBeTypeOf("string");

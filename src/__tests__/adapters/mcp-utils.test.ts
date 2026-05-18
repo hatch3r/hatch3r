@@ -4,6 +4,9 @@ import {
   validateServerName,
   transformEnvVarSyntax,
   checkVersionPin,
+  detectFetchLauncher,
+  findLauncherPackageArg,
+  ON_DEMAND_FETCH_LAUNCHERS,
   DEFAULT_TRANSFORM_MAX_DEPTH,
 } from "../../adapters/mcp-utils.js";
 import type { McpServerEntry } from "../../adapters/mcp-utils.js";
@@ -615,5 +618,328 @@ describe("validateMcpEntry — C7.5-W2B2-H3 Windows .exe/.cmd/.bat allowlist", (
     };
     const warnings = validateMcpEntry("midpath", entry);
     expect(warnings.some((w) => w.includes("unrecognized command"))).toBe(true);
+  });
+});
+
+// ── C9-H53 (D15-SA15.5-F01 / Pillar P6): ON_DEMAND_FETCH_LAUNCHERS ───────
+// The npx-only version-pin gate is replaced by a launcher set covering
+// every package-manager CLI that fetches packages at launch time. Each
+// entry below is a finding-required positive (single-token launchers,
+// pnpm dlx, yarn dlx) or a negative (commands outside the set).
+
+describe("ON_DEMAND_FETCH_LAUNCHERS (C9-H53)", () => {
+  it("exports the canonical launcher list in declaration order", () => {
+    // The exact composition is load-bearing: D15-SA15.5-F01 requires
+    // npx, uvx, pipx, bunx, pnpm dlx, yarn dlx.
+    expect([...ON_DEMAND_FETCH_LAUNCHERS]).toEqual([
+      "npx",
+      "uvx",
+      "pipx",
+      "bunx",
+      "pnpm dlx",
+      "yarn dlx",
+    ]);
+  });
+});
+
+describe("detectFetchLauncher (C9-H53)", () => {
+  // Positive: every launcher in the finding's required set must be
+  // detected. Single-token launchers match the basename; two-token
+  // launchers match basename + first non-flag arg.
+  it.each([
+    ["npx", "npx", ["@scope/pkg@1.0.0"]],
+    ["uvx", "uvx", ["mcp-server-fetch@1.2.3"]],
+    ["pipx", "pipx", ["mcp-server-py@0.1.0"]],
+    ["bunx", "bunx", ["@scope/pkg@1.0.0"]],
+    ["pnpm dlx", "pnpm", ["dlx", "@scope/pkg@1.0.0"]],
+    ["yarn dlx", "yarn", ["dlx", "@scope/pkg@1.0.0"]],
+  ] as const)(
+    "detects launcher %s from command=%s args=%j",
+    (expected, command, args) => {
+      expect(detectFetchLauncher(command, [...args])).toBe(expected);
+    },
+  );
+
+  it("detects launcher despite Windows .exe/.cmd/.bat suffix", () => {
+    // Extension stripping is case-insensitive (existing C7.5-W2B2-H3
+    // contract). Basename matching follows ALLOWED_COMMANDS, which is
+    // lowercase canonical — Windows shims are conventionally lowercase.
+    expect(detectFetchLauncher("npx.bat", ["@scope/pkg@1.0.0"])).toBe("npx");
+    expect(detectFetchLauncher("uvx.EXE", ["pkg@1.0.0"])).toBe("uvx");
+    expect(detectFetchLauncher("pnpm.cmd", ["dlx", "p@1.0.0"])).toBe(
+      "pnpm dlx",
+    );
+  });
+
+  it("detects launcher despite absolute path prefix (POSIX + Windows)", () => {
+    expect(
+      detectFetchLauncher("/usr/local/bin/uvx", ["pkg@1.0.0"]),
+    ).toBe("uvx");
+    expect(
+      detectFetchLauncher("C:\\Program Files\\nodejs\\npx.exe", [
+        "@scope/pkg@1.0.0",
+      ]),
+    ).toBe("npx");
+  });
+
+  it("ignores pnpm/yarn flags BEFORE the dlx subcommand", () => {
+    // `pnpm --silent dlx pkg` is still a dlx invocation.
+    expect(
+      detectFetchLauncher("pnpm", ["--silent", "dlx", "@scope/pkg@1.0.0"]),
+    ).toBe("pnpm dlx");
+  });
+
+  // Negative: non-launcher commands and pnpm/yarn without the dlx
+  // subcommand must NOT match. A non-match means no pin warning.
+  it.each([
+    ["node", ["server.js"]],
+    ["docker", ["run", "img:tag"]],
+    ["python3", ["-m", "mcp_server"]],
+    ["bun", ["run", "server.ts"]],
+    ["deno", ["run", "main.ts"]],
+    ["go", ["run", "main.go"]],
+  ] as const)("returns null for non-launcher %s", (command, args) => {
+    expect(detectFetchLauncher(command, [...args])).toBeNull();
+  });
+
+  it("returns null for pnpm/yarn without a dlx subcommand", () => {
+    expect(detectFetchLauncher("pnpm", ["install"])).toBeNull();
+    expect(detectFetchLauncher("yarn", ["install"])).toBeNull();
+    expect(detectFetchLauncher("pnpm", [])).toBeNull();
+  });
+
+  it("returns null when command is missing or args is undefined", () => {
+    expect(detectFetchLauncher(undefined, undefined)).toBeNull();
+    expect(detectFetchLauncher("", ["dlx", "pkg"])).toBeNull();
+    expect(detectFetchLauncher("pnpm", undefined)).toBeNull();
+  });
+});
+
+describe("findLauncherPackageArg (C9-H53)", () => {
+  it("returns the first non-flag arg for npx", () => {
+    expect(
+      findLauncherPackageArg("npx", ["-y", "@scope/pkg@1.0.0"], "npx"),
+    ).toBe("@scope/pkg@1.0.0");
+  });
+
+  it("returns the first non-flag arg for uvx", () => {
+    expect(
+      findLauncherPackageArg("uvx", ["pkg@1.0.0"], "uvx"),
+    ).toBe("pkg@1.0.0");
+  });
+
+  it("returns the first non-flag arg AFTER dlx for pnpm dlx", () => {
+    expect(
+      findLauncherPackageArg(
+        "pnpm",
+        ["--silent", "dlx", "@scope/pkg@1.0.0"],
+        "pnpm dlx",
+      ),
+    ).toBe("@scope/pkg@1.0.0");
+  });
+
+  it("returns the first non-flag arg AFTER dlx for yarn dlx", () => {
+    expect(
+      findLauncherPackageArg(
+        "yarn",
+        ["dlx", "@scope/pkg@1.0.0"],
+        "yarn dlx",
+      ),
+    ).toBe("@scope/pkg@1.0.0");
+  });
+
+  it("skips package-level flags after dlx to locate package name", () => {
+    expect(
+      findLauncherPackageArg(
+        "pnpm",
+        ["dlx", "--package=foo", "@scope/pkg@1.0.0"],
+        "pnpm dlx",
+      ),
+    ).toBe("@scope/pkg@1.0.0");
+  });
+
+  it("returns null when no package arg is present", () => {
+    expect(findLauncherPackageArg("npx", ["-y"], "npx")).toBeNull();
+    expect(findLauncherPackageArg("pnpm", ["dlx"], "pnpm dlx")).toBeNull();
+    expect(
+      findLauncherPackageArg("pnpm", ["install"], "pnpm dlx"),
+    ).toBeNull();
+    expect(findLauncherPackageArg("npx", undefined, "npx")).toBeNull();
+    expect(findLauncherPackageArg("npx", [], "npx")).toBeNull();
+  });
+});
+
+describe("validateMcpEntry multi-launcher version-pin (C9-H53)", () => {
+  // POSITIVE cases — each launcher in ON_DEMAND_FETCH_LAUNCHERS must
+  // emit a version-pin warning when its package arg is unpinned.
+
+  it("warns on unpinned uvx package", () => {
+    const entry: McpServerEntry = {
+      command: "uvx",
+      args: ["-y", "mcp-server-fetch"],
+    };
+    const warnings = validateMcpEntry("uvx-srv", entry);
+    expect(warnings.some((w) => w.includes("unpinned"))).toBe(true);
+  });
+
+  it("warns on uvx package pinned to @latest", () => {
+    const entry: McpServerEntry = {
+      command: "uvx",
+      args: ["-y", "mcp-server-fetch@latest"],
+    };
+    const warnings = validateMcpEntry("uvx-srv", entry);
+    expect(warnings.some((w) => w.includes("unpinned"))).toBe(true);
+  });
+
+  it("does NOT warn on uvx package pinned to exact version", () => {
+    const entry: McpServerEntry = {
+      command: "uvx",
+      args: ["-y", "mcp-server-fetch@1.2.3"],
+    };
+    const warnings = validateMcpEntry("uvx-srv", entry);
+    expect(warnings.filter((w) => w.includes("unpinned"))).toHaveLength(0);
+  });
+
+  it("warns on unpinned pipx package", () => {
+    // pipx invocation pattern in MCP configs: `pipx -y <pkg>` —
+    // single-token launcher with the package as the first non-flag arg.
+    const entry: McpServerEntry = {
+      command: "pipx",
+      args: ["-y", "mcp-server-py"],
+    };
+    const warnings = validateMcpEntry("pipx-srv", entry);
+    expect(warnings.some((w) => w.includes("unpinned"))).toBe(true);
+  });
+
+  it("does NOT warn on pipx package pinned to exact version", () => {
+    const entry: McpServerEntry = {
+      command: "pipx",
+      args: ["-y", "mcp-server-py@0.1.0"],
+    };
+    const warnings = validateMcpEntry("pipx-srv", entry);
+    expect(warnings.filter((w) => w.includes("unpinned"))).toHaveLength(0);
+  });
+
+  it("warns on unpinned bunx package", () => {
+    const entry: McpServerEntry = {
+      command: "bunx",
+      args: ["-y", "@scope/mcp-server"],
+    };
+    const warnings = validateMcpEntry("bunx-srv", entry);
+    expect(warnings.some((w) => w.includes("unpinned"))).toBe(true);
+  });
+
+  it("does NOT warn on bunx package pinned to exact version", () => {
+    const entry: McpServerEntry = {
+      command: "bunx",
+      args: ["-y", "@scope/mcp-server@1.0.0"],
+    };
+    const warnings = validateMcpEntry("bunx-srv", entry);
+    expect(warnings.filter((w) => w.includes("unpinned"))).toHaveLength(0);
+  });
+
+  it("warns on unpinned pnpm dlx package", () => {
+    const entry: McpServerEntry = {
+      command: "pnpm",
+      args: ["-y", "dlx", "@scope/mcp-server"],
+    };
+    const warnings = validateMcpEntry("pnpm-srv", entry);
+    expect(warnings.some((w) => w.includes("unpinned"))).toBe(true);
+  });
+
+  it("warns on pnpm dlx package pinned to @latest", () => {
+    const entry: McpServerEntry = {
+      command: "pnpm",
+      args: ["-y", "dlx", "@scope/mcp-server@latest"],
+    };
+    const warnings = validateMcpEntry("pnpm-srv", entry);
+    expect(warnings.some((w) => w.includes("unpinned"))).toBe(true);
+  });
+
+  it("does NOT warn on pnpm dlx package pinned to exact version", () => {
+    const entry: McpServerEntry = {
+      command: "pnpm",
+      args: ["-y", "dlx", "@scope/mcp-server@1.0.0"],
+    };
+    const warnings = validateMcpEntry("pnpm-srv", entry);
+    expect(warnings.filter((w) => w.includes("unpinned"))).toHaveLength(0);
+  });
+
+  it("warns on unpinned yarn dlx package", () => {
+    const entry: McpServerEntry = {
+      command: "yarn",
+      args: ["-y", "dlx", "@scope/mcp-server"],
+    };
+    const warnings = validateMcpEntry("yarn-srv", entry);
+    expect(warnings.some((w) => w.includes("unpinned"))).toBe(true);
+  });
+
+  it("does NOT warn on yarn dlx package pinned to exact version", () => {
+    const entry: McpServerEntry = {
+      command: "yarn",
+      args: ["-y", "dlx", "@scope/mcp-server@1.0.0"],
+    };
+    const warnings = validateMcpEntry("yarn-srv", entry);
+    expect(warnings.filter((w) => w.includes("unpinned"))).toHaveLength(0);
+  });
+
+  // NEGATIVE cases — non-launchers must NOT emit a pin warning even
+  // when their args carry no version pin.
+
+  it("does NOT warn for non-launcher 'node' regardless of args", () => {
+    const entry: McpServerEntry = {
+      command: "node",
+      args: ["-y", "server.js"],
+    };
+    const warnings = validateMcpEntry("node-srv", entry);
+    expect(warnings.filter((w) => w.includes("unpinned"))).toHaveLength(0);
+  });
+
+  it("does NOT warn for non-launcher 'docker' regardless of args", () => {
+    const entry: McpServerEntry = {
+      command: "docker",
+      args: ["-y", "run", "mcp-server:latest"],
+    };
+    const warnings = validateMcpEntry("docker-srv", entry);
+    expect(warnings.filter((w) => w.includes("unpinned"))).toHaveLength(0);
+  });
+
+  it("does NOT warn for pnpm without dlx subcommand", () => {
+    const entry: McpServerEntry = {
+      command: "pnpm",
+      args: ["-y", "install"],
+    };
+    const warnings = validateMcpEntry("pnpm-install", entry);
+    expect(warnings.filter((w) => w.includes("unpinned"))).toHaveLength(0);
+  });
+
+  it("does NOT warn for yarn without dlx subcommand", () => {
+    const entry: McpServerEntry = {
+      command: "yarn",
+      args: ["-y", "install"],
+    };
+    const warnings = validateMcpEntry("yarn-install", entry);
+    expect(warnings.filter((w) => w.includes("unpinned"))).toHaveLength(0);
+  });
+
+  it("detects launcher via Windows .bat shim and still warns when unpinned", () => {
+    const entry: McpServerEntry = {
+      command: "uvx.bat",
+      args: ["-y", "mcp-server-fetch"],
+    };
+    const warnings = validateMcpEntry("win-uvx", entry);
+    expect(warnings.some((w) => w.includes("unpinned"))).toBe(true);
+  });
+
+  it("preserves contract: -y absent ⇒ no pin warning (any launcher)", () => {
+    // Mirrors the original C7-H6 contract — version-pin warnings are
+    // emitted only under -y/--yes (auto-confirm) since interactive
+    // launches surface the package name to the operator.
+    const entry: McpServerEntry = {
+      command: "uvx",
+      args: ["mcp-server-fetch"],
+    };
+    const warnings = validateMcpEntry("uvx-no-y", entry);
+    expect(warnings.some((w) => w.includes("unpinned"))).toBe(false);
   });
 });

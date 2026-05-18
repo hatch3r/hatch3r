@@ -318,8 +318,9 @@ describe("setupWorktree", () => {
           ["worktree", "remove", "--force", wtPath],
           { cwd: mainRepo, stdio: "ignore" },
         );
-      } catch {
+      } catch (err) {
         // Worktree may already be gone if the test threw before `add` ran.
+        void err;
       }
       rmSync(wtPath, { recursive: true, force: true });
     }

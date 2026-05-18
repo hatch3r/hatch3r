@@ -742,6 +742,105 @@ Low priority rule body.
     });
   });
 
+  // C9-H49 (D15-SA15.2, P6): per-adapter PreToolUse / MCP-gating hook
+  // emission. Reclassifies the agent tool allowlist as Hybrid in
+  // SECURITY.md — the canonical policy registry is the source of
+  // truth, and the Claude adapter emits a runtime PreToolUse hook
+  // (`.claude/hooks/pretooluse-allowlist.mjs`) + machine-readable
+  // policy document (`.claude/hooks/agent-tool-policies.json`) so the
+  // allowlist survives into the Claude Code runtime.
+  describe("C9-H49 PreToolUse allowlist hook emission", () => {
+    it("emits .claude/hooks/agent-tool-policies.json with the canonical registry", async () => {
+      const manifest = makeManifest();
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const policiesFile = outputs.find(
+        (o) => o.path === ".claude/hooks/agent-tool-policies.json",
+      );
+      expect(policiesFile).toBeDefined();
+      const parsed = JSON.parse(policiesFile!.content);
+      expect(parsed.schema).toBe("hatch3r/agent-tool-policies/v1");
+      expect(Array.isArray(parsed.policies)).toBe(true);
+      // Registry must contain the canonical hatch3r-reviewer + hatch3r-implementer entries.
+      const reviewer = parsed.policies.find(
+        (p: { agentId: string }) => p.agentId === "hatch3r-reviewer",
+      );
+      const implementer = parsed.policies.find(
+        (p: { agentId: string }) => p.agentId === "hatch3r-implementer",
+      );
+      expect(reviewer).toBeDefined();
+      expect(reviewer.allowedTools).toEqual(["read", "search"]);
+      expect(implementer).toBeDefined();
+      expect(implementer.allowedTools).toContain("write");
+      expect(implementer.allowedTools).toContain("execute");
+      // Top-level discriminator for downstream consumers.
+      expect(parsed.allToolCategories).toContain("read");
+      expect(parsed.allToolCategories).toContain("mcp");
+    });
+
+    it("emits .claude/hooks/pretooluse-allowlist.mjs Node ESM script", async () => {
+      const manifest = makeManifest();
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const hookScript = outputs.find(
+        (o) => o.path === ".claude/hooks/pretooluse-allowlist.mjs",
+      );
+      expect(hookScript).toBeDefined();
+      expect(hookScript!.content.startsWith("#!/usr/bin/env node")).toBe(true);
+      // Hook contract: reads sibling policy file, gates on category match.
+      expect(hookScript!.content).toContain("agent-tool-policies.json");
+      expect(hookScript!.content).toContain("CLAUDE_TOOL_NAME");
+      expect(hookScript!.content).toContain("CLAUDE_SUBAGENT_ID");
+      // Deny-by-default: exit 2 blocks the tool call.
+      expect(hookScript!.content).toContain("process.exit(2)");
+      // Structured deny reason codes for failure-log persistence.
+      expect(hookScript!.content).toContain("UNKNOWN_TOOL");
+      expect(hookScript!.content).toContain("NO_POLICY");
+      expect(hookScript!.content).toContain("TOOL_NOT_ALLOWED");
+      // Claude Code → hatch3r category map (reverse of CLAUDE_CATEGORY_MAP).
+      expect(hookScript!.content).toContain('Read: "read"');
+      expect(hookScript!.content).toContain('Bash: "execute"');
+      expect(hookScript!.content).toContain('Edit: "write"');
+      // MCP tool prefix handling.
+      expect(hookScript!.content).toContain('mcp__');
+    });
+
+    it("registers the PreToolUse hook in settings.json", async () => {
+      const manifest = makeManifest();
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const settings = outputs.find((o) => o.path === ".claude/settings.json");
+      expect(settings).toBeDefined();
+      const parsed = JSON.parse(settings!.content);
+      expect(parsed.hooks.PreToolUse).toBeDefined();
+      // The allowlist hook fires on every tool call (matcher ".*"), so it
+      // appears as one of the PreToolUse entries.
+      const allowlistEntry = parsed.hooks.PreToolUse.find(
+        (e: { hooks: Array<{ command: string }> }) =>
+          e.hooks.some((h) =>
+            h.command.includes("pretooluse-allowlist.mjs"),
+          ),
+      );
+      expect(allowlistEntry).toBeDefined();
+      expect(allowlistEntry.matcher).toBe(".*");
+      expect(allowlistEntry.hooks[0].type).toBe("command");
+      expect(allowlistEntry.hooks[0].command).toContain(
+        "node .claude/hooks/pretooluse-allowlist.mjs",
+      );
+    });
+
+    it("emits policies.json + hook script independently of features.hooks", async () => {
+      // The PreToolUse allowlist is the runtime tail of ASI02 — it
+      // must ship regardless of whether the project opts out of the
+      // hook *content* feature, otherwise the trust chain breaks.
+      const manifest = makeManifest({ features: { hooks: false } });
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      expect(
+        outputs.find((o) => o.path === ".claude/hooks/agent-tool-policies.json"),
+      ).toBeDefined();
+      expect(
+        outputs.find((o) => o.path === ".claude/hooks/pretooluse-allowlist.mjs"),
+      ).toBeDefined();
+    });
+  });
+
   // ── Wave 5 (CLI-tooling pivot, plan §4.6) ───────────────────────
   //
   // Claude's skills surface is filtered by `manifest.cliTools.selected` via

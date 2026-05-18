@@ -21,6 +21,7 @@ import { AGENT_TOOL_POLICIES, validateToolPolicies } from "./agentToolAllowlist.
 import { HARD_MAX_REVIEW_ITERATIONS, DEFAULT_MAX_REVIEW_ITERATIONS } from "./reviewLoop.js";
 import { MAX_PHASE_INPUT_LENGTH, MAX_AGENT_OUTPUT_LENGTH } from "./promptGuard.js";
 import { DEFAULT_PIPELINE_TIMEOUT_MS, MAX_PIPELINE_TIMEOUT_MS } from "./pipelineTimeout.js";
+import { verbose } from "../cli/shared/ui.js";
 
 // Six resilience modules whose CLI invocation is checked. Each entry maps
 // the module's source filename (without extension) to the import-segment
@@ -58,8 +59,9 @@ async function resolveCommandsDir(): Promise<string | null> {
     try {
       const entries = await readdir(candidate);
       if (entries.length > 0) return candidate;
-    } catch {
-      // Try next candidate
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      verbose(`complianceVerification: resolveCommandsDir candidate(${candidate}) skipped — ${message}`);
     }
   }
   return null;
@@ -77,7 +79,9 @@ export async function detectResilienceInvocations(): Promise<Set<ResilienceModul
   let entries: string[];
   try {
     entries = await readdir(commandsDir, { recursive: true }) as string[];
-  } catch {
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    verbose(`complianceVerification: detectResilienceInvocations readdir(${commandsDir}) → empty — ${message}`);
     return invoked;
   }
 

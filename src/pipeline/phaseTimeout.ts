@@ -95,16 +95,31 @@ export function createPhaseTimeoutConfig(
  *
  * The phase function receives an AbortSignal that is aborted when
  * the timeout is reached, allowing the phase to clean up.
+ *
+ * C9-H20 (D8-H8.3.1): An optional `parentSignal` lets callers chain a
+ * pre-existing AbortSignal (e.g. one created at the top of a CLI
+ * command) into the phase. When the parent fires, the inner controller
+ * is aborted too, and `fn` sees the same aborted signal it received.
  */
 export async function executeWithPhaseTimeout<T>(
   phase: PhaseName,
   fn: (signal: AbortSignal) => Promise<T>,
   config?: PhaseTimeoutConfig,
+  parentSignal?: AbortSignal,
 ): Promise<PhaseTimeoutResult<T>> {
   const timeoutMs = config?.timeoutMs ?? getDefaultPhaseTimeout(phase);
   const clampedTimeout = clampTimeout(timeoutMs);
   const startTime = Date.now();
   const controller = new AbortController();
+
+  // Honour an already-aborted parent before scheduling work.
+  if (parentSignal?.aborted) {
+    controller.abort(parentSignal.reason);
+  }
+  const onParentAbort = () => {
+    controller.abort(parentSignal?.reason);
+  };
+  parentSignal?.addEventListener("abort", onParentAbort, { once: true });
 
   let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -150,6 +165,7 @@ export async function executeWithPhaseTimeout<T>(
     if (timer !== undefined) {
       clearTimeout(timer);
     }
+    parentSignal?.removeEventListener("abort", onParentAbort);
   }
 }
 

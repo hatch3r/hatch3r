@@ -40,6 +40,38 @@ export type Tier2Trigger =
   | "azure-remote";
 
 /**
+ * Release cadence classification for a CLI tool. Drives the staleness
+ * heuristic in `src/cliTools/triggers.ts` (Cycle 9 D21-SA21.2): a long gap
+ * since the last release is not automatically a stale-tool finding when the
+ * cadence is `stable` (mature tool with a steady-state design) — e.g.
+ * sd 1.1.0 (447 days at 2026-05-18) is intentional, not abandoned.
+ *
+ * - `rapid`: monthly or faster release cadence (e.g. gh CLI).
+ * - `monthly`: roughly monthly point releases.
+ * - `quarterly`: ~quarterly minor releases.
+ * - `stable`: mature steady-state — long gaps between releases are normal.
+ */
+export type ReleaseCadence = "rapid" | "monthly" | "quarterly" | "stable";
+
+/**
+ * Cycle-tagged CVE-scan record for a CLI tool — populated by the audit cycle
+ * (Cycle 9 D15-SA15.7) when an advisory feed is consulted. Schema only at
+ * Wave 2; population happens in the per-cycle `check-cli-cves.ts` workflow
+ * scheduled by D21 close.
+ */
+export interface CveScan {
+  /** ISO-8601 date the CVE feed was last queried for this tool. */
+  last_checked: string;
+  /** Advisory count returned by the feed at `last_checked` (0 = clean). */
+  advisory_count: number;
+  /**
+   * Canonical advisory URL — typically GHSA or NVD. Empty string when the
+   * feed reported zero advisories and no aggregate-report URL exists.
+   */
+  report_url: string;
+}
+
+/**
  * Catalog entry for a single CLI tool. The `id` is the canonical
  * identifier (kebab-case, matches the `hatch3r-cli-{id}` skill directory
  * name); `probe` is the binary name passed to `command -v` / `where`.
@@ -67,6 +99,28 @@ export interface CliToolMeta {
    * section. Format: `CVE-YYYY-NNNNN: <one-line impact summary>`.
    */
   securityNote?: string;
+  /**
+   * Minimum acceptable upstream version, expressed as a semver range string
+   * (e.g. `">=2.92.0"`, `"29.5.0"`). Surfaced by the installer alongside the
+   * install command so users on older builds know to upgrade before relying
+   * on the tool — typically populated when a recent CVE patch lands in a
+   * specific tagged release. Omit when no minimum is asserted.
+   */
+  minVersion?: string;
+  /**
+   * Upstream release cadence classification — drives the staleness heuristic
+   * in `src/cliTools/triggers.ts` so a long gap on a stable-cadence tool is
+   * not flagged as abandoned. Omit to fall back to the default heuristic
+   * (treat any tool >180 days since last release as candidate-stale).
+   */
+  releaseCadence?: ReleaseCadence;
+  /**
+   * Cycle-tagged CVE-scan record — populated by the per-cycle
+   * `check-cli-cves.ts` workflow (Cycle 9 D15-SA15.7-F01). Schema only at
+   * Wave 2; population happens in a follow-on cycle once the advisory-feed
+   * script lands. Omit when no scan has been recorded for this tool yet.
+   */
+  cve_scan?: CveScan;
   homepage: string;
 }
 
@@ -118,8 +172,14 @@ export const AVAILABLE_CLI_TOOLS = {
     // Release-watch: monitor jqlang/jq releases for a tagged build past 1.8.1
     // that includes the upstream patches for CVE-2026-32316 et al; remove the
     // securityNote once the recommended install version is on a patched tag.
+    // Cycle 9 D21-SA21.3-F03 (C9-H87): the 2026-04-15 oss-sec batch enumerated
+    // CVE-2026-40612 (stack overflow in jv_contains), CVE-2026-43894 (integer
+    // overflow), and CVE-2026-43896 (stack overflow in recursive object merge)
+    // explicitly; three additional CVE IDs from the same batch were not
+    // assigned canonical IDs in the audit sources and remain referenced by
+    // batch (seclists.org/oss-sec/2026/q2/141).
     securityNote:
-      "CVE-2026-32316: jq 1.8.1 ships with a heap buffer overflow in expression evaluation; six additional CVEs disclosed 2026-04-15 are patched on main but no tagged release yet. Avoid invoking on untrusted JSON inputs until the next jq tagged release supersedes 1.8.1.",
+      "CVE-2026-32316: jq 1.8.1 ships with a heap buffer overflow in expression evaluation; six additional CVEs disclosed 2026-04-15 are patched on main but no tagged release yet — three confirmed by ID (CVE-2026-40612 stack overflow in jv_contains, CVE-2026-43894 integer overflow, CVE-2026-43896 stack overflow in recursive object merge); the remaining three are referenced by oss-sec batch (https://seclists.org/oss-sec/2026/q2/141). Avoid invoking on untrusted JSON inputs until the next jq tagged release supersedes 1.8.1.",
     homepage: "https://github.com/jqlang/jq",
   },
   yq: {
@@ -147,6 +207,11 @@ export const AVAILABLE_CLI_TOOLS = {
       win: [{ manager: "winget", command: "winget install GitHub.cli" }],
     },
     requiresEnv: ["GH_TOKEN"],
+    // Cycle 9 D21-SA21.5-F01 (C9-H88): gh <2.92.0 is exposed to
+    // GHSA-crc3-h8v6-qh57; the 2.92.0 release (2026-05-06) ships the fix.
+    minVersion: ">=2.92.0",
+    securityNote:
+      "GHSA-crc3-h8v6-qh57: gh CLI before 2.92.0 may leak authentication tokens via auxiliary host extension calls. Upgrade to 2.92.0 or later before using gh against untrusted GitHub Enterprise hosts.",
     homepage: "https://cli.github.com/",
   },
   delta: {
@@ -186,6 +251,11 @@ export const AVAILABLE_CLI_TOOLS = {
       linux: [{ manager: "cargo", command: "cargo install sd" }],
       win: [{ manager: "scoop", command: "scoop install sd" }],
     },
+    // Cycle 9 D21-SA21.2-F01: sd 1.1.0 (released 2025-02-24) was 447 days old
+    // at the 2026-05-18 audit. The chmln/sd project is mature steady-state —
+    // long gaps between minor releases are intentional, not abandonment.
+    // Tagged `stable` so the staleness heuristic stops flagging this entry.
+    releaseCadence: "stable",
     homepage: "https://github.com/chmln/sd",
   },
   "ast-grep": {
@@ -314,6 +384,11 @@ export const AVAILABLE_CLI_TOOLS = {
       linux: [{ manager: "curl", command: "curl -fsSL https://get.docker.com | sudo sh" }],
       win: [{ manager: "winget", command: "winget install Docker.DockerDesktop" }],
     },
+    // Cycle 9 D21-SA21.6-F02 (C9-H91): Docker engine 29.5.0 patches
+    // CVE-2026-32288 — DoS via crafted image manifest in earlier builds.
+    minVersion: "29.5.0",
+    securityNote:
+      "CVE-2026-32288: Docker engine before 29.5.0 is vulnerable to a denial-of-service via a crafted image manifest. Upgrade to 29.5.0 or later before pulling images from untrusted registries.",
     homepage: "https://docs.docker.com/get-docker/",
   },
   llm: {
@@ -477,6 +552,14 @@ export const AVAILABLE_CLI_TOOLS = {
       linux: [{ manager: "apt", command: "sudo apt install podman" }],
       win: [{ manager: "winget", command: "winget install RedHat.Podman" }],
     },
+    // Cycle 9 D21-SA21.6-F03 (C9-H92): Podman 5.8.2 patches CVE-2026-33414 —
+    // a Windows-only PowerShell command injection on the Hyper-V backend via
+    // `podman machine init --image`. The note is platform-windows-only; mac
+    // and linux builds are not affected, but registry callers surface the
+    // single securityNote with the explicit `Windows only` prefix.
+    minVersion: "5.8.2",
+    securityNote:
+      "CVE-2026-33414 (Windows only): Podman before 5.8.2 is vulnerable to PowerShell command injection in `podman machine init --image` on the Hyper-V backend, allowing Hyper-V VM escape. Upgrade to 5.8.2 or later on Windows; mac and linux builds are unaffected.",
     homepage: "https://podman.io/",
   },
 } as const satisfies Record<CliToolId, CliToolMeta>;

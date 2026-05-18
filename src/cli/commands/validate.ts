@@ -660,7 +660,9 @@ async function findContentFile(
     try {
       await access(path);
       return path;
-    } catch {
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      verbose(`validate: findContentFile access(${path}) → null — ${message}`);
       return null;
     }
   }
@@ -676,7 +678,9 @@ async function findContentFile(
     let entries: { name: string; isDirectory: () => boolean; isFile: () => boolean }[];
     try {
       entries = await readdir(dir, { withFileTypes: true });
-    } catch {
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      verbose(`validate: findContentFile readdir(${dir}) skipped — ${message}`);
       continue;
     }
     for (const entry of entries) {
@@ -704,8 +708,9 @@ async function findContentFile(
       if (fmId && (fmId === id || fmId === baseId)) {
         return file;
       }
-    } catch {
-      // Unreadable file — skip.
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      verbose(`validate: findContentFile fm-fallback readFile(${file}) skipped — ${message}`);
     }
   }
 
@@ -1239,7 +1244,10 @@ export async function validateDocsCounts(rootDir: string): Promise<{ mismatches:
         }
       }
     }
-  } catch { /* README not found */ }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    verbose(`validate: README count-check readFile(${readmePath}) skipped — ${message}`);
+  }
 
   return { mismatches, checked };
 }
@@ -1554,8 +1562,9 @@ export async function validateCommand(opts?: {
         hasCustomizations = true;
         break;
       }
-    } catch {
-      // directory doesn't exist
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      verbose(`validate: customization probe readdir(.hatch3r/${dir}) skipped — ${message}`);
     }
   }
 
@@ -1650,8 +1659,9 @@ async function validateEnvMcpSecrets(
         result.warnings.push(msg);
       }
     }
-  } catch {
-    // File unreadable — skip silently
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    verbose(`validate: .env.mcp secret-scan readFile skipped — ${message}`);
   }
 }
 

@@ -2,11 +2,15 @@ import type { AdapterOutput } from "../types.js";
 import { toPrefixedId } from "../types.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
-import { readCanonicalFiles, sortByPrecedence, precedenceRank } from "./canonical.js";
+import { sortByPrecedence, precedenceRank } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
 import { applyCustomization } from "./customization.js";
 import { transformEnvVarSyntax } from "./mcp-utils.js";
 import { toClaudeToolsFrontmatter } from "../pipeline/adapterToolTranslator.js";
+import {
+  buildAgentToolPoliciesJson,
+  buildClaudePreToolUseHookScript,
+} from "../pipeline/agentToolAllowlist.js";
 import type { HookDefinition, HookEvent } from "../hooks/types.js";
 import { HATCH3R_VERSION } from "../version.js";
 
@@ -260,15 +264,26 @@ export class ClaudeAdapter extends BaseAdapter {
     results.push(output("CLAUDE.md", wrapInManagedBlock(innerContent), innerContent));
 
     if (ctx.features.rules) {
-      const rules = await readCanonicalFiles(ctx.agentsDir, "rules", this.warnings);
+      // C9-H39 (D11-SA11.1-01): use the BaseAdapter-tracked read wrapper so
+      // every canonical rule consumed here is recorded in
+      // `this._trackedSourceFiles` and surfaces on each output's
+      // `sourceFiles` field. Direct `readCanonicalFiles` calls bypass the
+      // provenance tracker introduced by C8-D12-M3.
+      const rules = await this.readTrackedCanonicalFiles(ctx.agentsDir, "rules");
       // Wave B3: precedence-ordered emission + NN- numeric filename prefix on
       // .claude/rules/. critical=10, high=30, normal=50, low=70. Claude Code
       // loads rule files alphabetically; the prefix makes load order explicit.
       const sortedRules = sortByPrecedence(rules);
       for (const rule of sortedRules) {
-        const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);
+        // C9-H20 (D8-H8.3.1): cooperative abort check between rule files
+        // so a phase/adapter timeout cancels the per-rule loop without
+        // waiting for the remaining files to finish customisation.
+        this.throwIfAborted(ctx);
+        const { content: rawContent, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);
         this.warnings.push(...warnings);
         if (skip) continue;
+        // C9-H47 (D14-SA14.4-H01): substitute detected toolchain tokens.
+        const content = this.substituteDetectedRepoTokens(rawContent, ctx);
         const desc = overrides.description ?? rule.description;
         const body = minimal
           ? `# ${rule.id}\n\n${this.stripMinimal(content)}`
@@ -281,9 +296,13 @@ export class ClaudeAdapter extends BaseAdapter {
     if (ctx.features.agents) {
       const agents = await this.readUserFacingCanonicalFiles(ctx.agentsDir, "agents");
       for (const agent of agents) {
-        const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
+        // C9-H20: cooperative abort between agent files.
+        this.throwIfAborted(ctx);
+        const { content: rawContent, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
         this.warnings.push(...warnings);
         if (skip) continue;
+        // C9-H47: substitute detected toolchain tokens in agent body.
+        const content = this.substituteDetectedRepoTokens(rawContent, ctx);
         const agentId = toPrefixedId(agent.id);
         const model = resolveAgentModel(agent.id, agent, ctx.manifest, overrides);
         const desc = overrides.description ?? agent.description;
@@ -348,6 +367,24 @@ export class ClaudeAdapter extends BaseAdapter {
         hooks: [{ type: "command", command: `echo "HATCH3R_HOOK_ACTIVATED: Spawn the ${hook.agent} agent now. Follow the ${hook.agent} agent protocol in .claude/agents/${toPrefixedId(hook.agent)}.md. Event: ${hook.event}. Hook ID: ${hook.id}."` }],
       });
     }
+
+    // C9-H49 (D15-SA15.2, P6): per-adapter PreToolUse allowlist hook.
+    // Reclassifies the agent tool allowlist as Hybrid (canonical policy
+    // registry + runtime PreToolUse gate). The hook is emitted as a
+    // sibling of agent-tool-policies.json so the script reads the
+    // policy file via relative path. Registered as a PreToolUse entry
+    // with matcher ".*" so the hook fires on every tool call; the
+    // script handles category-specific deny decisions internally.
+    // Source: https://code.claude.com/docs/en/plugins-reference#hooks
+    // (PreToolUse exit 2 denies the call; accessed 2026-04-19).
+    if (!hooksConfig.PreToolUse) hooksConfig.PreToolUse = [];
+    hooksConfig.PreToolUse.push({
+      matcher: ".*",
+      hooks: [{
+        type: "command",
+        command: "node .claude/hooks/pretooluse-allowlist.mjs",
+      }],
+    });
 
     hooksConfig.TaskCompleted = [{
       matcher: ".*",
@@ -422,6 +459,23 @@ export class ClaudeAdapter extends BaseAdapter {
       };
       results.push(output(".claude/hooks/hatch3r-hooks.json", JSON.stringify(pluginHooksObj, null, 2)));
     }
+
+    // C9-H49 (D15-SA15.2, P6): emit the PreToolUse allowlist hook script
+    // + the machine-readable agent-tool-policies.json document. Both
+    // ride alongside settings.json regardless of `ctx.features.hooks`
+    // because the PreToolUse gate is the runtime tail of the canonical
+    // ASI02 enforcement — disabling it would break the trust chain.
+    // The hook script is plain Node ESM with zero runtime dependencies;
+    // the JSON document is the SECURITY.md Allowlist Hybrid Contract
+    // source-of-truth payload.
+    results.push(output(
+      ".claude/hooks/agent-tool-policies.json",
+      buildAgentToolPoliciesJson(),
+    ));
+    results.push(output(
+      ".claude/hooks/pretooluse-allowlist.mjs",
+      buildClaudePreToolUseHookScript(),
+    ));
 
     results.push(
       ...await this.processSkillsRawCliFiltered(ctx, (id) => `.claude/skills/${toPrefixedId(id)}/SKILL.md`),

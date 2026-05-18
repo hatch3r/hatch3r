@@ -414,6 +414,30 @@ describe("content/index", () => {
     });
   });
 
+  // ── preset metadata (recommended label) ──────────────────
+
+  describe("preset recommended-label (C9-H25)", () => {
+    // C9-H25 (D10-SA10.1-F2): The "Standard" preset is the documented
+    // recommended default across README, quick-start docs, and the init
+    // CLI fallback. The "(recommended)" tag belongs on Standard's display
+    // name — not Full — so the interactive picker renders consistently.
+    it("standard preset display name carries '(recommended)'", () => {
+      const standard = getPreset("standard");
+      expect(standard.name).toContain("(recommended)");
+    });
+
+    it("full preset display name does NOT carry '(recommended)'", () => {
+      const full = getPreset("full");
+      expect(full.name).not.toContain("(recommended)");
+    });
+
+    it("only one preset is labeled '(recommended)'", () => {
+      const ids = ["minimal", "standard", "full", "custom"] as const;
+      const labeled = ids.filter((id) => getPreset(id).name.includes("(recommended)"));
+      expect(labeled).toEqual(["standard"]);
+    });
+  });
+
   // ── resolveSelection ──────────────────────────────────────
 
   describe("resolveSelection", () => {

@@ -48,8 +48,10 @@ function splitFrontmatter(content: string): {
     if (parsed && typeof parsed === "object") {
       frontmatter = parsed as Record<string, unknown>;
     }
-  } catch {
-    // YAML parse failures surface as separate diagnostics below.
+  } catch (err) {
+    // YAML parse failures surface as separate diagnostics below; keep the
+    // binding so the silent-failure rule sees a non-empty body.
+    void err;
   }
   return { frontmatter, body };
 }

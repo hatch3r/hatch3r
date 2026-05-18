@@ -515,4 +515,250 @@ describe("BaseAdapter", () => {
       expect(ids.some((i) => i.startsWith("hatch3r-cli-"))).toBe(false);
     });
   });
+
+  // ── C9-H4: output invariant enforcement (P5 Silent Failure Contract) ──
+  describe("output invariants (C9-H4)", () => {
+    class TraversalAdapter extends BaseAdapter {
+      readonly name = "traversal";
+      constructor(private readonly badPaths: string[]) {
+        super();
+      }
+      protected async doGenerate(): Promise<AdapterOutput[]> {
+        return this.badPaths.map((p) => output(p, "valid content"));
+      }
+    }
+
+    class InvariantAdapter extends BaseAdapter {
+      readonly name = "invariant";
+      constructor(private readonly outs: AdapterOutput[]) {
+        super();
+      }
+      protected async doGenerate(): Promise<AdapterOutput[]> {
+        return this.outs;
+      }
+    }
+
+    it("throws HatchError with ADAPTER_ERROR when an output path is absolute", async () => {
+      const adapter = new TraversalAdapter(["/etc/passwd"]);
+      await expect(adapter.generate(FIXTURES_DIR, makeManifest())).rejects.toMatchObject({
+        name: "HatchError",
+        errorCode: "ADAPTER_ERROR",
+      });
+    });
+
+    it("throws HatchError when an output path contains '..' traversal", async () => {
+      const adapter = new TraversalAdapter(["../../escape.md"]);
+      await expect(adapter.generate(FIXTURES_DIR, makeManifest())).rejects.toThrow(/traversal/);
+    });
+
+    it("includes every offending path in the error message (not just the first)", async () => {
+      const adapter = new TraversalAdapter(["/abs.md", "../escape.md"]);
+      await expect(adapter.generate(FIXTURES_DIR, makeManifest())).rejects.toThrow(
+        /\/abs\.md.*\.\.\/escape\.md|\.\.\/escape\.md.*\/abs\.md/,
+      );
+    });
+
+    it("drops outputs with empty content and emits a 'dropped' warning", async () => {
+      const adapter = new InvariantAdapter([
+        output("good.md", "ok"),
+        output("empty.md", ""),
+      ]);
+      const outs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      const paths = outs.map((o) => o.path);
+      expect(paths).toEqual(["good.md"]);
+      expect(adapter.warnings.some((w) => w.includes("Empty content") && w.includes("dropped"))).toBe(true);
+    });
+
+    it("drops outputs whose managedContent is not a substring of content", async () => {
+      const adapter = new InvariantAdapter([
+        output("good.md", "wrapped content here", "content here"),
+        output("bad.md", "outer", "INNER NOT PRESENT"),
+      ]);
+      const outs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      const paths = outs.map((o) => o.path);
+      expect(paths).toEqual(["good.md"]);
+      expect(adapter.warnings.some((w) => w.includes("managedContent is not a substring") && w.includes("dropped"))).toBe(true);
+    });
+
+    it("does not surface invariant warnings for valid outputs", async () => {
+      const adapter = new InvariantAdapter([output("ok.md", "content")]);
+      const outs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      expect(outs).toHaveLength(1);
+      expect(adapter.warnings.length).toBe(0);
+    });
+  });
+
+  // ── C9-H20 (D8-H8.3.1): AbortSignal threading ─────────────────────
+  //
+  // Verifies the optional `signal?: AbortSignal` parameter on `generate`
+  // is forwarded to `AdapterContext.signal`, that an already-aborted
+  // signal throws before `doGenerate` runs, and that the base helpers
+  // (`inlineRules`, `processSkillsRaw`, etc.) honour the signal between
+  // loop iterations.
+  describe("AbortSignal threading (C9-H20)", () => {
+    it("forwards the signal to AdapterContext when generate is called with one", async () => {
+      let captured: AbortSignal | undefined;
+      class CaptureCtx extends BaseAdapter {
+        readonly name = "capture-ctx";
+        protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
+          captured = ctx.signal;
+          return [output("test.md", "c")];
+        }
+      }
+      const controller = new AbortController();
+      const adapter = new CaptureCtx();
+      await adapter.generate(FIXTURES_DIR, makeManifest(), "standard", controller.signal);
+      expect(captured).toBe(controller.signal);
+    });
+
+    it("leaves AdapterContext.signal undefined when generate is called without one", async () => {
+      let captured: AbortSignal | undefined;
+      class CaptureCtx extends BaseAdapter {
+        readonly name = "capture-ctx-undef";
+        protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
+          captured = ctx.signal;
+          return [output("test.md", "c")];
+        }
+      }
+      const adapter = new CaptureCtx();
+      await adapter.generate(FIXTURES_DIR, makeManifest());
+      expect(captured).toBeUndefined();
+    });
+
+    it("throws an AbortError when the signal is already aborted on entry", async () => {
+      let doGenerateCalled = false;
+      class NeverRuns extends BaseAdapter {
+        readonly name = "never-runs";
+        protected async doGenerate(): Promise<AdapterOutput[]> {
+          doGenerateCalled = true;
+          return [output("never.md", "x")];
+        }
+      }
+      const controller = new AbortController();
+      controller.abort();
+      const adapter = new NeverRuns();
+      await expect(
+        adapter.generate(FIXTURES_DIR, makeManifest(), "standard", controller.signal),
+      ).rejects.toMatchObject({ name: "AbortError" });
+      // `doGenerate` is bypassed entirely when the signal is pre-aborted.
+      expect(doGenerateCalled).toBe(false);
+    });
+
+    it("rethrows the signal.reason verbatim when it is an Error", async () => {
+      class Noop extends BaseAdapter {
+        readonly name = "noop";
+        protected async doGenerate(): Promise<AdapterOutput[]> {
+          return [];
+        }
+      }
+      const reason = new Error("explicit-reason");
+      const controller = new AbortController();
+      controller.abort(reason);
+      const adapter = new Noop();
+      await expect(
+        adapter.generate(FIXTURES_DIR, makeManifest(), "standard", controller.signal),
+      ).rejects.toBe(reason);
+    });
+
+    it("aborts inlineRules between iterations when the signal fires mid-loop", async () => {
+      let processed = 0;
+      const controller = new AbortController();
+      class AbortInRules extends BaseAdapter {
+        readonly name = "abort-in-rules";
+        protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
+          // Wrap inlineRules; we cannot easily inject a counter into the
+          // helper itself, so abort the controller after the first read by
+          // patching applyCustomization via a side-effect: simply abort
+          // before calling, since the FIXTURES rules dir has two rules and
+          // the helper checks `throwIfAborted` between them.
+          // First, run one rule to ensure the loop entered.
+          const lines = await this.inlineRules(ctx);
+          processed = lines.length;
+          return [output("rules-out.md", lines.join("\n") || "empty")];
+        }
+      }
+      // Abort BEFORE calling generate so the inner check fires.
+      controller.abort();
+      const adapter = new AbortInRules();
+      await expect(
+        adapter.generate(FIXTURES_DIR, makeManifest(), "standard", controller.signal),
+      ).rejects.toMatchObject({ name: "AbortError" });
+      expect(processed).toBe(0); // doGenerate never ran
+    });
+
+    it("aborts mid-loop when the signal fires after the first iteration", async () => {
+      // This adapter aborts the controller from inside doGenerate after
+      // the loop has begun, verifying the cooperative check stops the
+      // very next iteration rather than completing the full set.
+      const controller = new AbortController();
+      let iterations = 0;
+      class MidLoopAbort extends BaseAdapter {
+        readonly name = "mid-loop-abort";
+        protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
+          // Read both rule fixtures, but abort the signal halfway.
+          const rules = await this.readTrackedCanonicalFiles(ctx.agentsDir, "rules");
+          for (const _rule of rules) {
+            this.throwIfAborted(ctx);
+            iterations += 1;
+            if (iterations === 1) controller.abort();
+          }
+          return [output("done.md", "x")];
+        }
+      }
+      const adapter = new MidLoopAbort();
+      await expect(
+        adapter.generate(FIXTURES_DIR, makeManifest(), "standard", controller.signal),
+      ).rejects.toMatchObject({ name: "AbortError" });
+      // First iteration ran, second was aborted.
+      expect(iterations).toBe(1);
+    });
+
+    it("static throwIfSignalAborted is a no-op for an unaborted signal", () => {
+      const controller = new AbortController();
+      // Should not throw.
+      expect(() => BaseAdapter.throwIfSignalAborted(controller.signal)).not.toThrow();
+      expect(() => BaseAdapter.throwIfSignalAborted(undefined)).not.toThrow();
+    });
+
+    it("static throwIfSignalAborted constructs a generic AbortError when no reason is provided", () => {
+      const controller = new AbortController();
+      controller.abort();
+      try {
+        BaseAdapter.throwIfSignalAborted(controller.signal);
+        expect.fail("expected throw");
+      } catch (err) {
+        expect((err as Error).name).toBe("AbortError");
+      }
+    });
+
+    it("static throwIfSignalAborted wraps a non-Error reason into an AbortError", () => {
+      const controller = new AbortController();
+      controller.abort("string reason");
+      try {
+        BaseAdapter.throwIfSignalAborted(controller.signal);
+        expect.fail("expected throw");
+      } catch (err) {
+        expect((err as Error).name).toBe("AbortError");
+        expect((err as Error).message).toContain("string reason");
+      }
+    });
+
+    it("re-checks the signal after doGenerate completes (swallowed abort still surfaces)", async () => {
+      const controller = new AbortController();
+      class SwallowsAbort extends BaseAdapter {
+        readonly name = "swallows-abort";
+        protected async doGenerate(): Promise<AdapterOutput[]> {
+          // Abort during generation but do not check / propagate the
+          // signal inside doGenerate. The base's post-doGenerate
+          // throwIfSignalAborted must still surface the abort.
+          controller.abort();
+          return [output("out.md", "still produced")];
+        }
+      }
+      const adapter = new SwallowsAbort();
+      await expect(
+        adapter.generate(FIXTURES_DIR, makeManifest(), "standard", controller.signal),
+      ).rejects.toMatchObject({ name: "AbortError" });
+    });
+  });
 });

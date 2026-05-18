@@ -8,6 +8,7 @@ import {
   writeIntegrityManifest,
   readIntegrityManifest,
   verifyIntegrity,
+  SCANNED_DIRS,
 } from "../../integrity/index.js";
 
 function expectedSha256(content: string): string {
@@ -666,9 +667,73 @@ describe("integrity", () => {
       const manifest = await generateIntegrityManifest(agentsDir, "1.0.0");
 
       const expectedChecksum = createHash("sha256")
-        .update(JSON.stringify({}))
+        .update("{}")
         .digest("hex");
       expect(manifest.checksum).toBe(expectedChecksum);
+    });
+
+    it("C9-H3: produces the same checksum regardless of file-insertion order", async () => {
+      // Write two canonical files under different subtrees, then compute
+      // checksums from a fresh manifest twice — between calls, swap the
+      // insertion order by deleting and re-writing the second file. With a
+      // canonical (sorted) stringifier the checksum is invariant; with the
+      // legacy JSON.stringify path, the checksum would diverge.
+      await mkdir(join(agentsDir, "agents"), { recursive: true });
+      await mkdir(join(agentsDir, "rules"), { recursive: true });
+      await writeFile(join(agentsDir, "agents", "z-last.md"), "# Z\n");
+      await writeFile(join(agentsDir, "rules", "a-first.md"), "# A\n");
+      const m1 = await generateIntegrityManifest(agentsDir, "1.0.0");
+
+      // Remove and rewrite to perturb readdir insertion order on systems
+      // that report by insertion (ext4 default, tmpfs).
+      await unlink(join(agentsDir, "agents", "z-last.md"));
+      await writeFile(join(agentsDir, "agents", "z-last.md"), "# Z\n");
+      const m2 = await generateIntegrityManifest(agentsDir, "1.0.0");
+
+      expect(m2.checksum).toBe(m1.checksum);
+      // Verify also that the checksum equals the canonical (sorted) form.
+      const sortedKeys = Object.keys(m1.files).sort();
+      const canonical = `{${sortedKeys.map((k) => `${JSON.stringify(k)}:${JSON.stringify(m1.files[k])}`).join(",")}}`;
+      const expected = createHash("sha256").update(canonical).digest("hex");
+      expect(m1.checksum).toBe(expected);
+    });
+  });
+
+  describe("C9-H2 SCANNED_DIRS coverage", () => {
+    it("includes the four directories the audit added (policy/learnings/checks/user)", () => {
+      expect(SCANNED_DIRS).toEqual(
+        expect.arrayContaining(["policy", "learnings", "checks", "user"]),
+      );
+    });
+
+    it("hashes files placed under policy/learnings/checks/user subtrees", async () => {
+      const tamperSubtrees = ["policy", "learnings", "checks", "user"] as const;
+      for (const sub of tamperSubtrees) {
+        await mkdir(join(agentsDir, sub), { recursive: true });
+        await writeFile(join(agentsDir, sub, "probe.md"), `# probe ${sub}\n`);
+      }
+
+      const manifest = await generateIntegrityManifest(agentsDir, "1.0.0");
+      for (const sub of tamperSubtrees) {
+        const key = `${sub}/probe.md`;
+        expect(manifest.files[key]).toBe(expectedSha256(`# probe ${sub}\n`));
+      }
+    });
+
+    it("verifyIntegrity detects modifications under newly scanned subtrees", async () => {
+      await mkdir(join(agentsDir, "policy"), { recursive: true });
+      const original = "# policy v1\n";
+      await writeFile(join(agentsDir, "policy", "p.md"), original);
+
+      const manifest = await generateIntegrityManifest(agentsDir, "1.0.0");
+      await writeIntegrityManifest(agentsDir, manifest);
+
+      // Mutate after seal — verify must surface a `modified` row.
+      await writeFile(join(agentsDir, "policy", "p.md"), "# policy v2\n");
+      const results = await verifyIntegrity(agentsDir);
+      const row = results.find((r) => r.file === "policy/p.md");
+      expect(row).toBeDefined();
+      expect(row?.status).toBe("modified");
     });
   });
 });

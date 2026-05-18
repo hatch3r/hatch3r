@@ -117,8 +117,10 @@ describe("verify command", () => {
     const { verifyCommand } = await import("../../cli/commands/verify.js");
     try {
       await verifyCommand();
-    } catch {
-      // expected
+    } catch (err) {
+      // expected — verifyCommand throws after emitting diagnostics; assert
+      // we hit the throw path so the test fails loudly if behavior changes.
+      expect(err).toBeDefined();
     }
 
     const combined = allOutput() + " " + allErrorOutput();
@@ -212,8 +214,10 @@ describe("verify command", () => {
     const { verifyCommand } = await import("../../cli/commands/verify.js");
     try {
       await verifyCommand();
-    } catch {
-      // expected
+    } catch (err) {
+      // expected — verifyCommand throws after emitting diagnostics; assert
+      // we hit the throw path so the test fails loudly if behavior changes.
+      expect(err).toBeDefined();
     }
 
     const combined = allOutput() + " " + allErrorOutput();
@@ -231,8 +235,10 @@ describe("verify command", () => {
     const { verifyCommand } = await import("../../cli/commands/verify.js");
     try {
       await verifyCommand();
-    } catch {
-      // expected
+    } catch (err) {
+      // expected — verifyCommand throws after emitting diagnostics; assert
+      // we hit the throw path so the test fails loudly if behavior changes.
+      expect(err).toBeDefined();
     }
 
     const combined = allOutput() + " " + allErrorOutput();
@@ -253,8 +259,10 @@ describe("verify command", () => {
     const { verifyCommand } = await import("../../cli/commands/verify.js");
     try {
       await verifyCommand();
-    } catch {
-      // expected — modified + missing causes failure
+    } catch (err) {
+      // expected — modified + missing causes failure. Assert the throw so
+      // the test fails loudly if verifyCommand stops throwing.
+      expect(err).toBeDefined();
     }
 
     const output = allOutput();
@@ -292,8 +300,10 @@ describe("verify command", () => {
     const { verifyCommand } = await import("../../cli/commands/verify.js");
     try {
       await verifyCommand();
-    } catch {
-      // expected
+    } catch (err) {
+      // expected — verifyCommand throws after emitting diagnostics; assert
+      // we hit the throw path so the test fails loudly if behavior changes.
+      expect(err).toBeDefined();
     }
 
     const output = allOutput();
@@ -347,8 +357,10 @@ describe("verify command", () => {
     const { verifyCommand } = await import("../../cli/commands/verify.js");
     try {
       await verifyCommand();
-    } catch {
-      // expected
+    } catch (err) {
+      // expected — verifyCommand throws after emitting diagnostics; assert
+      // we hit the throw path so the test fails loudly if behavior changes.
+      expect(err).toBeDefined();
     }
 
     const combined = allOutput() + " " + allErrorOutput();
@@ -365,8 +377,10 @@ describe("verify command", () => {
     const { verifyCommand } = await import("../../cli/commands/verify.js");
     try {
       await verifyCommand();
-    } catch {
-      // expected
+    } catch (err) {
+      // expected — verifyCommand throws after emitting diagnostics; assert
+      // we hit the throw path so the test fails loudly if behavior changes.
+      expect(err).toBeDefined();
     }
 
     const combined = allOutput() + " " + allErrorOutput();
@@ -407,8 +421,10 @@ describe("verify command", () => {
     const { verifyCommand } = await import("../../cli/commands/verify.js");
     try {
       await verifyCommand();
-    } catch {
-      // expected
+    } catch (err) {
+      // expected — verifyCommand throws after emitting diagnostics; assert
+      // we hit the throw path so the test fails loudly if behavior changes.
+      expect(err).toBeDefined();
     }
 
     expect(allOutput()).toContain("MISSING");

@@ -21,9 +21,12 @@ import tseslint from "typescript-eslint";
  * with a justification comment (the disable comment itself satisfies eslint;
  * the project convention is to add a one-line `// reason: ...` above it).
  *
- * Severity is "warn" so the existing 77-warning baseline shifts but the
- * build does not break. Cycle 7 H18 will convert the silent-null sites in
- * src/adapters/canonical.ts to channel-emitting alternatives.
+ * Severity is "error" as of Cycle 9 H19 — the silent-failure sweep cleared
+ * all 76 outstanding sites by emitting a verbose() diagnostic from every
+ * previously-empty/pure-return catch, satisfying CONSTITUTION.md §2 P5
+ * Silent Failure Contract. Promotion from "warn" to "error" prevents new
+ * silent catches from landing without per-site `// eslint-disable-next-line
+ * silent-failure/no-silent-catch` with a justification comment.
  */
 const silentFailurePlugin = {
   meta: { name: "silent-failure", version: "1.0.0" },
@@ -132,7 +135,7 @@ export default tseslint.config(
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
       "@typescript-eslint/no-explicit-any": "warn",
-      "silent-failure/no-silent-catch": "warn",
+      "silent-failure/no-silent-catch": "error",
       "hatch-error/use-hatch-error": "warn",
     },
   },

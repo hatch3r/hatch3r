@@ -71,11 +71,50 @@ export interface VerifyResult {
 }
 
 const INTEGRITY_FILE = ".integrity.json";
-const SCANNED_DIRS = ["agents", "commands", "rules", "skills", "hooks", "prompts", "github-agents", "mcp"];
+/**
+ * Directories scanned for canonical content hashing.
+ *
+ * C9-H2 (D2-SA2.7-01): Adds `policy`, `learnings`, `checks`, and `user` so
+ * tamper detection covers every canonical subtree the framework ships and
+ * the project mounts. Previously these subtrees were silently excluded —
+ * a file under `.agents/policy/` could be modified without `verify`
+ * surfacing a `modified` result. Tracked by a CI assertion in
+ * `src/__tests__/integrity/index.test.ts`.
+ */
+export const SCANNED_DIRS = [
+  "agents",
+  "commands",
+  "rules",
+  "skills",
+  "hooks",
+  "prompts",
+  "github-agents",
+  "mcp",
+  "checks",
+  "policy",
+  "learnings",
+  "user",
+];
 
 /** Compute a SHA-256 hash of a UTF-8 string, prefixed with `sha256:`. */
 function sha256(content: string): string {
   return `sha256:${createHash("sha256").update(content, "utf-8").digest("hex")}`;
+}
+
+/**
+ * C9-H3 (D2-SA2.7-02): Stable JSON serialisation of a string→string map
+ * with keys sorted lexicographically. `JSON.stringify` preserves insertion
+ * order, which is filesystem-dependent for objects whose keys came from
+ * `readdir`. Sorting yields the same byte sequence across macOS APFS and
+ * Linux ext4/xfs for identical content.
+ */
+function canonicalStringify(files: Record<string, string>): string {
+  const keys = Object.keys(files).sort();
+  const parts: string[] = [];
+  for (const key of keys) {
+    parts.push(`${JSON.stringify(key)}:${JSON.stringify(files[key])}`);
+  }
+  return `{${parts.join(",")}}`;
 }
 
 /** Recursively collect `.md`, `.mdc`, and `.json` file paths from a directory, skipping symlinks. */
@@ -129,8 +168,14 @@ export async function generateIntegrityManifest(
     }
   }
 
+  // C9-H3 (D2-SA2.7-02): Stringify with keys sorted so the manifest-level
+  // checksum is filesystem-order independent. Without the sort, macOS APFS
+  // (case-insensitive, default-ordered) and Linux ext4/xfs (insertion-ordered
+  // by readdir) produce different `JSON.stringify(files)` byte sequences on
+  // identical content, yielding divergent checksums. Sorting the input is
+  // cheaper than canonicalising the object after the fact.
   const checksum = createHash("sha256")
-    .update(JSON.stringify(files))
+    .update(canonicalStringify(files))
     .digest("hex");
 
   const expectedAdapters = options.expectedAdapters
@@ -285,8 +330,10 @@ export async function verifyIntegrity(
 
   const results: VerifyResult[] = [];
 
+  // C9-H3: Recompute with the same canonical (sorted-key) stringifier so
+  // verifyIntegrity stays cross-OS reproducible.
   const expected = createHash("sha256")
-    .update(JSON.stringify(manifest.files))
+    .update(canonicalStringify(manifest.files))
     .digest("hex");
   if (manifest.checksum !== expected) {
     results.push({ file: INTEGRITY_FILE, status: "tampered" });

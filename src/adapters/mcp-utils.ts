@@ -111,9 +111,129 @@ const ALLOWED_COMMANDS = new Set([
   "uv",
   "go",
   "cargo",
+  // C9-H53 (D15-SA15.5-F01, Pillar P6): on-demand fetch launchers other
+  // than npx/uvx that pull packages at launch time. Adding them to the
+  // allowlist prevents false "unrecognized command" warnings on valid
+  // configs while the ON_DEMAND_FETCH_LAUNCHERS set below routes them
+  // through the version-pin gate.
+  "pipx",
+  "bunx",
+  "pnpm",
+  "yarn",
 ]);
 
 const ALLOWED_URL_SCHEMES = new Set(["http:", "https:"]);
+
+/**
+ * Package-managers whose CLIs fetch a package from the network at launch
+ * time, then execute it. Without an immutable version pin, every launch
+ * resolves the latest published version and inherits any upstream
+ * compromise (e.g., 2025 npm maintainer-account incidents).
+ *
+ * Two shapes are supported:
+ * 1. **Single-command launchers** (`npx`, `uvx`, `pipx`, `bunx`) — the
+ *    command itself fetches and runs the package: `command: "uvx"`,
+ *    `args: ["mcp-server-fetch@1.2.3"]`.
+ * 2. **Two-token launchers** (`pnpm dlx`, `yarn dlx`) — the `dlx`
+ *    subcommand of `pnpm` or `yarn` fetches and runs: `command: "pnpm"`,
+ *    `args: ["dlx", "@org/pkg@1.2.3"]`.
+ *
+ * Origin: C9-H53 (D15-SA15.5-F01, Pillar P6). Replaces the prior
+ * `entry.command === "npx"` gate so uvx/pipx/bunx/pnpm dlx/yarn dlx
+ * configurations also receive supply-chain protection.
+ */
+export const ON_DEMAND_FETCH_LAUNCHERS = [
+  "npx",
+  "uvx",
+  "pipx",
+  "bunx",
+  "pnpm dlx",
+  "yarn dlx",
+] as const;
+
+/**
+ * Set form of {@link ON_DEMAND_FETCH_LAUNCHERS} for O(1) membership checks.
+ */
+const ON_DEMAND_FETCH_LAUNCHER_SET: ReadonlySet<string> = new Set(
+  ON_DEMAND_FETCH_LAUNCHERS,
+);
+
+/**
+ * Detect whether an MCP server entry uses an on-demand fetch launcher and
+ * return its canonical token (one of {@link ON_DEMAND_FETCH_LAUNCHERS}).
+ *
+ * Normalizes the command basename (strips path and trailing `.exe`/`.cmd`/
+ * `.bat`) before matching, so Windows shims like `npx.bat` and absolute
+ * paths like `/usr/local/bin/uvx` are detected. For two-token launchers
+ * (`pnpm dlx`, `yarn dlx`), inspects the first non-flag arg.
+ *
+ * Returns `null` when the command is not a fetch launcher (e.g., `node`,
+ * `docker`, a local script).
+ *
+ * Origin: C9-H53 (D15-SA15.5-F01, Pillar P6).
+ */
+export function detectFetchLauncher(
+  command: string | undefined,
+  args: string[] | undefined,
+): (typeof ON_DEMAND_FETCH_LAUNCHERS)[number] | null {
+  if (!command) return null;
+  const rawBase = command.split("/").pop()?.split("\\").pop() ?? command;
+  const baseCommand = rawBase.replace(/\.(?:exe|cmd|bat)$/i, "");
+
+  // Single-token launchers.
+  if (ON_DEMAND_FETCH_LAUNCHER_SET.has(baseCommand)) {
+    return baseCommand as (typeof ON_DEMAND_FETCH_LAUNCHERS)[number];
+  }
+
+  // Two-token launchers: `pnpm dlx <pkg>` / `yarn dlx <pkg>`.
+  if (baseCommand === "pnpm" || baseCommand === "yarn") {
+    const firstNonFlag = args?.find((a) => !a.startsWith("-"));
+    if (firstNonFlag === "dlx") {
+      const composite = `${baseCommand} dlx`;
+      if (ON_DEMAND_FETCH_LAUNCHER_SET.has(composite)) {
+        return composite as (typeof ON_DEMAND_FETCH_LAUNCHERS)[number];
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Locate the package argument for an on-demand fetch launcher.
+ *
+ * For single-token launchers, the package is the first non-flag arg that
+ * is not the command itself. For two-token launchers (`pnpm dlx`,
+ * `yarn dlx`), it is the first non-flag arg AFTER the `dlx` token.
+ *
+ * Returns `null` when no package argument is present (e.g., `npx -y`
+ * with no following positional arg).
+ *
+ * Origin: C9-H53 (D15-SA15.5-F01, Pillar P6).
+ */
+export function findLauncherPackageArg(
+  command: string | undefined,
+  args: string[] | undefined,
+  launcher: (typeof ON_DEMAND_FETCH_LAUNCHERS)[number],
+): string | null {
+  if (!args || args.length === 0) return null;
+
+  // Two-token launcher: skip past the `dlx` token, then pick the first
+  // non-flag arg. Flags BEFORE `dlx` are launcher flags; flags AFTER
+  // belong to the package and should be skipped to find the package name.
+  if (launcher === "pnpm dlx" || launcher === "yarn dlx") {
+    const dlxIndex = args.findIndex((a) => a === "dlx");
+    if (dlxIndex === -1) return null;
+    for (let i = dlxIndex + 1; i < args.length; i++) {
+      const arg = args[i];
+      if (!arg.startsWith("-")) return arg;
+    }
+    return null;
+  }
+
+  // Single-token launcher: first non-flag arg that is not the command.
+  return args.find((a) => !a.startsWith("-") && a !== command) ?? null;
+}
 
 /**
  * Validate a single MCP server entry and return any warnings.
@@ -205,15 +325,29 @@ export function validateMcpEntry(
             `Unscoped packages are susceptible to typosquatting. Consider using a scoped package (@org/pkg).`,
         );
       }
-      // C7-H6 (D15/P6): Warn when npx -y package lacks an immutable version pin.
-      // Per the 2025 npm supply-chain incident (qix maintainer compromise affecting
-      // 18 packages, 2.6B weekly downloads) and OWASP Top 10 for Agentic Apps 2026,
-      // unpinned npx invocations resolve `latest` on every launch and inherit any
-      // upstream compromise. `@latest` is treated as unpinned because it is a tag,
-      // not an immutable version.
-      if (entry.command === "npx" && pkgArg) {
-        const pinWarning = checkVersionPin(name, pkgArg);
-        if (pinWarning) warnings.push(pinWarning);
+      // C7-H6 + C9-H53 (D15-SA15.5-F01, Pillar P6): Warn when an on-demand
+      // fetch launcher invokes a package without an immutable version
+      // pin. The 2025 npm supply-chain incident (qix maintainer compromise
+      // affecting 18 packages, 2.6B weekly downloads) and OWASP Top 10
+      // for Agentic Apps 2026 documented that unpinned launches resolve
+      // `latest` on every invocation and inherit any upstream compromise.
+      // `@latest` is treated as unpinned because it is a mutable tag,
+      // not an immutable version. The original gate covered npx only;
+      // C9-H53 extends coverage to uvx, pipx, bunx, pnpm dlx, and
+      // yarn dlx — every launcher in {@link ON_DEMAND_FETCH_LAUNCHERS}.
+      // Stays scoped to `-y`/`--yes` to preserve the prior contract that
+      // interactive (non-auto-confirm) invocations do not warn.
+      const launcher = detectFetchLauncher(entry.command, entry.args);
+      if (launcher !== null) {
+        const launcherPkg = findLauncherPackageArg(
+          entry.command,
+          entry.args,
+          launcher,
+        );
+        if (launcherPkg) {
+          const pinWarning = checkVersionPin(name, launcherPkg);
+          if (pinWarning) warnings.push(pinWarning);
+        }
       }
     }
   }

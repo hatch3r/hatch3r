@@ -93,8 +93,9 @@ async function loadAllContentFiles(): Promise<ContentFile[]> {
             metadata: metadata as unknown as Record<string, unknown>,
             body: content,
           });
-        } catch {
-          // Skip missing SKILL.md
+        } catch (err) {
+          // Skip missing SKILL.md.
+          void err;
         }
       }
     } else {

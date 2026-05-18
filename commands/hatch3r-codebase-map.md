@@ -10,7 +10,15 @@ efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
 parallel_tool_default: true
 triage_tiers: [1, 2, 3]
+sub_agents_spawned:
+  count: 8
+  rationale: Eight parallel analyzer domains in Step 3 across business + technical dimensions (modules, dependencies, conventions, stack, technical-debt, business-domain, market-context, production-readiness); docs-writers fan out in a second parallel batch in Step 7 (one per document category).
 ---
+
+## §0 Detect Ambiguity (P8 B1)
+
+Before any action, scan the user's request and provided context for unresolved questions in scope, acceptance criteria, irreversibility, or constraint conflicts (contradictory inputs, missing target, unknown convention). If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Acceptable to proceed without asking ONLY when scope is single-target, single-concern, and the brief alone is testable. Any residual ambiguity discovered mid-workflow invokes the same protocol.
+
 # Codebase Map — Brownfield Codebase Analysis & Spec Generation
 
 Analyze an existing codebase to reverse-engineer project documentation across **two dimensions**: business domain analysis and technical architecture analysis. Discovers modules, dependencies, conventions, tech stack, technical debt, business logic, domain models, and production readiness using parallel analyzer sub-agents. Outputs structured specs to `docs/specs/business/` (business domain, market context, production readiness) and `docs/specs/technical/` (modules, conventions, stack, debt), plus inferred architectural decision records to `docs/adr/`. Optionally generates a root-level `AGENTS.md` as the project's "README for agents." This command is **purely read-only** until the final write step — all analysis is static (file reading, pattern matching). Works for any language or framework.

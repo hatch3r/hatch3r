@@ -1,6 +1,12 @@
-import { readFile, readdir } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { readFile, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { scanForDeniedPatterns } from "../adapters/customization.js";
+import { atomicWriteFile } from "../merge/safeWrite.js";
+import {
+  sanitizeUserContent,
+  validateAgentOutput,
+} from "../pipeline/promptGuard.js";
 
 // ── Constants ────────────────────────────────────────────────────
 
@@ -306,5 +312,201 @@ export async function validateLearningsDirectory(
     warnings,
     fileCount,
     totalBytes,
+  };
+}
+
+// ── /learn-driven persistence (C9-H50, D15-SA15.3-F01) ───────────
+
+/**
+ * Compute the SHA-256 hex digest of the body content for tamper detection.
+ *
+ * Trim leading/trailing whitespace before hashing so the digest is stable
+ * across editors that strip or add trailing newlines, matching the
+ * `computeHandoffIntegrity` pattern in `src/content/handoffs/validation.ts`.
+ */
+export function computeLearningIntegrity(body: string): string {
+  const trimmed = body.trim();
+  return createHash("sha256").update(trimmed, "utf-8").digest("hex");
+}
+
+/**
+ * Outcome of {@link persistLearning} — one entry per write attempt.
+ */
+export interface LearningPersistResult {
+  /** True when the write succeeded; false on any guard rejection. */
+  written: boolean;
+  /** Absolute path the file was written to (when `written === true`). */
+  path?: string;
+  /** Computed SHA-256 of the body (post-trim); always present for audit. */
+  integrity: string;
+  /** Reasons the write was rejected; empty when `written === true`. */
+  rejections: string[];
+  /** Non-blocking advisories (denied-pattern hits below quarantine threshold). */
+  warnings: string[];
+}
+
+/** Options for {@link persistLearning}. */
+export interface PersistLearningOptions {
+  /**
+   * The expected SHA-256 of the body. When provided, the persistence path
+   * recomputes the digest of the supplied body and refuses to write unless
+   * the two match. This closes the in-memory tamper window — content cannot
+   * be silently mutated between extraction (Step 2 of the /learn command)
+   * and write (Step 3) without an audit-visible rejection.
+   */
+  expectedIntegrity?: string;
+  /**
+   * Audit-friendly identifier for the loader/agent invoking the persist
+   * path. Defaults to `"learn-command"`.
+   */
+  source?: string;
+}
+
+/**
+ * Persist a learning file with the full /learn-driven security pipeline.
+ *
+ * This is the canonical persistence entry point for the `/hatch3r learn`
+ * command flow. It closes D15-SA15.3-F01 by running THREE security gates
+ * BEFORE any byte is written to disk:
+ *
+ * 1. **`scanForDeniedPatterns`** (from `src/adapters/customization.ts`).
+ *    The same 2026-injection-pattern scan that `safeWriteFile` invokes for
+ *    managed-block writes. Any denied pattern blocks the write and is
+ *    reported in `rejections`. Closes CD with D6-F1 (context poisoning).
+ *
+ * 2. **`validateAgentOutput`** (from `src/pipeline/promptGuard.ts`). The
+ *    pipeline output validator runs all `INJECTION_PATTERNS` plus boundary-
+ *    marker forgery detection. A non-`valid` result blocks the write.
+ *    Closes CD with D6-F2 (boundary-marker tampering).
+ *
+ * 3. **`sanitizeUserContent`** quarantine check. /learn content is user-tier
+ *    per the trust hierarchy in `agents/shared/injection-patterns.md` §B;
+ *    when the sanitizer marks the content `blocked`, persistence refuses.
+ *    The block reasons surface in `rejections` for audit.
+ *
+ * After the three pattern gates pass, the function performs the in-memory
+ * **checksum verification** mandated by D15-SA15.3-F01:
+ *
+ * - Compute SHA-256 of the body (post-trim) via {@link computeLearningIntegrity}.
+ * - When `options.expectedIntegrity` is provided, compare the computed digest
+ *   against it byte-for-byte. A mismatch indicates the body was mutated
+ *   between extraction and persist (in-memory tampering) and the write is
+ *   refused with `rejections: ["integrity mismatch ..."]`.
+ *
+ * Only after every gate passes does the function invoke
+ * {@link atomicWriteFile} to commit the bytes to disk with the standard
+ * temp-file + rename sequence.
+ *
+ * The structural validation from {@link validateLearningContent} also runs
+ * — empty bodies, binary content, and size overruns are hard-rejected.
+ *
+ * @param targetPath  Absolute path where the learning file should be
+ *                    written. Caller is responsible for filename validation
+ *                    via {@link validateLearningFileName} before invocation.
+ * @param body        The fully-formed learning file content (frontmatter
+ *                    plus body). All gates run against this exact string.
+ * @param options     Optional checksum and audit-source overrides.
+ */
+export async function persistLearning(
+  targetPath: string,
+  body: string,
+  options: PersistLearningOptions = {},
+): Promise<LearningPersistResult> {
+  const rejections: string[] = [];
+  const warnings: string[] = [];
+  const source = options.source ?? "learn-command";
+  const fileName = targetPath.substring(targetPath.lastIndexOf("/") + 1);
+
+  // ── Gate 0: Structural validation (size, empty, binary) ──
+  // Run first so size-bound failures short-circuit before pattern scans.
+  const structural = validateLearningContent(body, fileName);
+  rejections.push(...structural.errors);
+
+  // ── Compute integrity (always — audit visibility) ──
+  const integrity = computeLearningIntegrity(body);
+
+  // ── Gate 1: scanForDeniedPatterns ──
+  // Mirrors safeWriteFile branch 2 — same canonical scan, same audit format.
+  const denyHits = scanForDeniedPatterns(body);
+  for (const hit of denyHits) {
+    rejections.push(`source=${source} ${hit}`);
+  }
+
+  // ── Gate 2: validateAgentOutput ──
+  // Catches injection patterns + boundary-marker forgery in the persisted text.
+  const outputValidation = validateAgentOutput(body);
+  if (!outputValidation.valid) {
+    for (const v of outputValidation.violations) {
+      rejections.push(`source=${source} validateAgentOutput: ${v}`);
+    }
+  }
+
+  // ── Gate 3: sanitizeUserContent quarantine ──
+  // /learn content is user-tier. Any blocked match refuses persistence
+  // rather than silently `[SANITIZED]`-replacing — for the /learn path
+  // we want the user to revise rather than ship an obfuscated file.
+  const userContent = sanitizeUserContent(body, {
+    source,
+    reference: fileName,
+  });
+  if (userContent.blocked) {
+    for (const reason of userContent.reasons) {
+      rejections.push(`source=${source} sanitizeUserContent: ${reason}`);
+    }
+  }
+
+  // Surface structural warnings (denied-pattern advisories below quarantine).
+  warnings.push(...structural.warnings);
+
+  // ── Checksum verification (in-memory tamper window close) ──
+  if (typeof options.expectedIntegrity === "string") {
+    if (options.expectedIntegrity !== integrity) {
+      rejections.push(
+        `source=${source} integrity mismatch: declared=${options.expectedIntegrity} computed=${integrity}. ` +
+          `Body was mutated between extraction and persist; refusing write.`,
+      );
+    }
+  }
+
+  // Any rejection blocks the write — fail-closed per P6 (Security & Trust).
+  if (rejections.length > 0) {
+    return {
+      written: false,
+      integrity,
+      rejections,
+      warnings,
+    };
+  }
+
+  // Refuse to overwrite an existing learning file (mirrors writeHandoff
+  // discipline and the `Never overwrite existing learning files` guardrail
+  // in `commands/hatch3r-learn.md`).
+  let exists = false;
+  try {
+    await stat(targetPath);
+    exists = true;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  }
+  if (exists) {
+    return {
+      written: false,
+      integrity,
+      rejections: [
+        `source=${source} refuse-overwrite: ${targetPath} already exists; ` +
+          `learnings are append-only per /hatch3r-learn guardrail.`,
+      ],
+      warnings,
+    };
+  }
+
+  await atomicWriteFile(targetPath, body);
+
+  return {
+    written: true,
+    path: targetPath,
+    integrity,
+    rejections: [],
+    warnings,
   };
 }

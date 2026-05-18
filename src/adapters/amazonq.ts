@@ -81,9 +81,11 @@ export class AmazonQAdapter extends BaseAdapter {
     if (ctx.features.agents) {
       const agents = await this.readUserFacingCanonicalFiles(ctx.agentsDir, "agents");
       for (const agent of agents) {
-        const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
+        const { content: rawContent, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
         this.warnings.push(...warnings);
         if (skip) continue;
+        // C9-H47 (D14-SA14.4-H01): substitute detected toolchain tokens.
+        const content = this.substituteDetectedRepoTokens(rawContent, ctx);
         const desc = overrides.description ?? agent.description;
         const descriptor: AmazonQAgentDescriptor = {
           name: toPrefixedId(agent.id),

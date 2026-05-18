@@ -45,7 +45,8 @@ The orchestrator (`/hatch3r-create`) provides:
   tags:           ["core", "customize", ...],
   adapters:       ["claude", "cursor", ...] | null,
   model:          "fast" | "standard" | "reasoning",  // agent only
-  toolHint:       "<free text>",                      // agent only (optional)
+  toolHint:       "<free text>",                      // agent only (optional, free-text hint)
+  tools:          { allowed?: string[], denied?: string[] }, // agent only — structured allowlist/denylist (C9-H81); entries must be canonical categories from ALL_TOOL_CATEGORIES (src/pipeline/agentToolAllowlist.ts): read, search, write, execute, web, mcp, git, board
   ruleScope:      "always" | "conditional",           // rule only
   ruleGlobs:      ["src/**/*.ts", ...],               // rule only (conditional)
   rulePrecedence: "critical" | "high" | "normal" | "low", // rule only

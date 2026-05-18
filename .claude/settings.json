@@ -21,7 +21,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "head -90 governance/CONSTITUTION.md 2>/dev/null && echo '---' && (python3 -c \"import json; data=json.load(open('governance/audit/finding-registry.json')); pending=[e for e in data if e.get('execution_status')=='pending']; print(f'Pending audit findings: {len(pending)}')\" 2>/dev/null || echo '  Registry not found')"
+            "command": "head -90 governance/CONSTITUTION.md 2>/dev/null && echo '---' && (node .claude/hooks/session-start-registry.mjs governance/audit/finding-registry.json 2>/dev/null || echo 'Audit registry unavailable')"
           }
         ]
       }
@@ -32,7 +32,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo 'hatch3r-dev: governance/ changes require Binding Pillar (P1-P6) alignment. src/adapters/ changes require D09 checklist. Run: npm test && npx tsc --noEmit'"
+            "command": "echo 'hatch3r-dev: governance/ changes require Binding Pillar (P1-P8) alignment. src/adapters/ changes require D09 checklist. Run: npm test && npx tsc --noEmit'"
           }
         ]
       }
@@ -54,7 +54,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo 'hatch3r-dev: Sub-agent inherits governance. 6 Binding Pillars (P1-P6) in governance/CONSTITUTION.md. All changes must serve at least one.'"
+            "command": "echo 'hatch3r-dev: Sub-agent inherits governance. 8 Binding Pillars (P1-P8) in governance/CONSTITUTION.md. All changes must serve at least one.'"
           }
         ]
       }

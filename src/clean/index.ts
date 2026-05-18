@@ -7,6 +7,16 @@ import { readManifest } from "../manifest/hatchJson.js";
 import { AGENTS_DIR, ARCHIVE_DIR, CUSTOMIZE_DIR, TOOLS, WORKTREE_INCLUDE_FILE, type HatchManifest, type Tool } from "../types.js";
 import { detectWorkspaceContext } from "../workspace/detect.js";
 import { discoverUserContent } from "../content/userContent.js";
+import { verbose } from "../cli/shared/ui.js";
+
+/**
+ * Record a clean-probe failure: emit a verbose() line to stderr (visible only
+ * with --verbose). Per D8-H8.4.6 (C9-H19) Silent Failure Contract.
+ */
+function recordCleanProbeFailure(operation: string, err: unknown): void {
+  const message = err instanceof Error ? err.message : String(err);
+  verbose(`clean: ${operation} — ${message}`);
+}
 
 export interface CleanInventory {
   adapterFiles: string[];
@@ -41,7 +51,8 @@ async function fileExists(path: string): Promise<boolean> {
   try {
     await access(path);
     return true;
-  } catch {
+  } catch (err) {
+    recordCleanProbeFailure(`fileExists(${path}) — not present`, err);
     return false;
   }
 }
@@ -49,7 +60,8 @@ async function fileExists(path: string): Promise<boolean> {
 async function dirEntries(path: string): Promise<string[]> {
   try {
     return await readdir(path);
-  } catch {
+  } catch (err) {
+    recordCleanProbeFailure(`dirEntries(${path}) — directory missing`, err);
     return [];
   }
 }
@@ -79,8 +91,14 @@ export async function inventoryArtifacts(rootDir: string): Promise<CleanInventor
   // toolsToScan already covers all TOOLS when manifest is absent (line above),
   // so no additional scanning needed.
 
-  // Filter to only files that actually exist, excluding AGENTS.md
-  // (AGENTS.md is in amp's TOOL_PATH_PREFIXES but needs special managed-block handling)
+  // Filter to only files that actually exist, excluding shared bridge files.
+  // C9-H31 (D10-SA10.5-F1): shared bridge files (e.g. root AGENTS.md) are
+  // tracked under `manifest.managedFilesByAdapter._shared` (SHARED_ADAPTER_KEY
+  // in `src/adapters/index.ts`) — multiple adapters consume them, so they get
+  // managed-block-preservation cleanup (see step 2 in `executeClean` below).
+  // AGENTS.md remains the sole entry today (SHARED_BRIDGE_FILES); when adding
+  // a new bridge file, append it to SHARED_BRIDGE_FILES and extend the
+  // managed-block-preserving branch in step 2.
   const adapterFiles: string[] = [];
   for (const f of adapterFileSet) {
     if (f === "AGENTS.md") continue;
@@ -112,8 +130,13 @@ export async function inventoryArtifacts(rootDir: string): Promise<CleanInventor
         const userContent = extractCustomContent(content).trim();
         agentsMdHasUserContent = userContent.length > 0;
       }
-    } catch {
-      // Can't read, treat as no user content
+    } catch (err) {
+      // Can't read, treat as no user content. Surface under --verbose so
+      // unexpected read errors (e.g., permission denied) remain observable.
+      recordCleanProbeFailure(
+        `inventoryArtifacts: readFile(${agentsMdPath}) — treating as no user content`,
+        err,
+      );
     }
   }
 
@@ -198,7 +221,14 @@ export async function executeClean(
   // Clean empty directories left by adapter file removal
   await cleanEmptyDirs(rootDir, inventory.adapterFiles);
 
-  // 2. Handle root AGENTS.md
+  // 2. Handle shared bridge files (C9-H31 / D10-SA10.5-F1).
+  // Files tracked under `manifest.managedFilesByAdapter._shared` (today: just
+  // root `AGENTS.md`, see `SHARED_BRIDGE_FILES` in `src/adapters/index.ts`)
+  // use managed-block-preservation semantics: strip the hatch3r managed
+  // block, keep any user content above/below it, and remove the file only
+  // when nothing user-authored remains. This is the documented `hatch3r
+  // clean` cleanup contract for files written outside any one adapter's
+  // `doGenerate()` (e.g. `generateRootAgentsMd()` callers in init/sync).
   const agentsMdPath = join(rootDir, "AGENTS.md");
   if (await fileExists(agentsMdPath)) {
     try {

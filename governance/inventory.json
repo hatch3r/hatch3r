@@ -9,8 +9,8 @@
     "rulesMdc": 42,
     "commands": 38,
     "hooks": 6,
-    "pipeline": 17,
-    "cliCommands": 13
+    "pipeline": 18,
+    "cliCommands": 14
   },
   "files": {
     "adapters": [
@@ -300,6 +300,7 @@
       "pipelineContext.ts",
       "pipelineTimeout.ts",
       "promptGuard.ts",
+      "repoSubstitution.ts",
       "retryWithBackoff.ts",
       "reviewLoop.ts"
     ],
@@ -308,6 +309,7 @@
       "clean.ts",
       "cliTools.ts",
       "config.ts",
+      "explain.ts",
       "init.ts",
       "mcp.ts",
       "status.ts",

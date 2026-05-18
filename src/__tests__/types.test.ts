@@ -106,3 +106,38 @@ describe("HatchError constructor (C8-D1-M5)", () => {
     expect(err).toBeInstanceOf(HatchError);
   });
 });
+
+describe("HatchError.recoveryHint (C9-H27 / D10-SA10.2-F2)", () => {
+  it("is undefined by default", () => {
+    const err = new HatchError("boom", 1, "VALIDATION_ERROR");
+    expect(err.recoveryHint).toBeUndefined();
+  });
+
+  it("preserves an explicit hint as the fourth ctor arg", () => {
+    const err = new HatchError(
+      "Invalid --tools value",
+      1,
+      "VALIDATION_ERROR",
+      "Re-run with one of the supported tool ids.",
+    );
+    expect(err.recoveryHint).toBe("Re-run with one of the supported tool ids.");
+    // Hint does not displace any other field.
+    expect(err.message).toBe("Invalid --tools value");
+    expect(err.exitCode).toBe(1);
+    expect(err.errorCode).toBe("VALIDATION_ERROR");
+  });
+
+  it("accepts a hint even when exitCode/errorCode are omitted", () => {
+    const err = new HatchError("transient", undefined, undefined, "Retry in a moment.");
+    expect(err.recoveryHint).toBe("Retry in a moment.");
+    expect(err.errorCode).toBe("UNKNOWN_ERROR");
+    expect(err.exitCode).toBe(1);
+  });
+
+  it("treats recoveryHint as readonly (compile-time invariant)", () => {
+    const err = new HatchError("x", 1, "CONFIG_ERROR", "hint-A");
+    // TypeScript marks recoveryHint as readonly; this runtime check guards
+    // the contract that the CLI top-level handler observes a stable value.
+    expect(err.recoveryHint).toBe("hint-A");
+  });
+});

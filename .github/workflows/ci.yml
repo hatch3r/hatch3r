@@ -13,12 +13,32 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
+# Cycle 9 C9-H9 (D4-H4.2.1): step-security/harden-runner installed as the
+# first step of every job to monitor outbound network egress, file writes,
+# and child-process spawns from inside the GitHub-hosted runner. Audit mode
+# is the recommended starting policy per step-security/harden-runner
+# README — it builds a per-job traffic baseline without blocking, so a
+# malicious dependency exfil attempt (e.g. the Shai-Hulud / Axios 1.14.1
+# class of post-install npm scripts) surfaces in the workflow log even
+# when `npm audit` and the dependency-review-action miss it. Pinned to the
+# v2.19.3 commit SHA (2026-05-14) per actions-pinning policy used for every
+# third-party action in this file. Block mode is a future-cycle upgrade
+# once the per-job allowlist is curated from the audit baseline.
+#
+# Branch-protection note: making this step a required PR check is the
+# human-only follow-up (D4-H4.2.1 Mixed item) — settings → branches →
+# require-status-check "Harden Runner" on main.
 jobs:
   supply-chain:
     name: Supply chain security
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2.19.3
+        with:
+          egress-policy: audit
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
         with:
@@ -59,6 +79,19 @@ jobs:
           fail-on-severity: critical
           comment-summary-in-pr: on-failure
 
+      # Cycle 9 C9-H54 (D15-SA15.5-F05): packages launched by MCP servers
+      # (npx -y @scope/pkg@<ver> entries in mcp/mcp.json) never enter
+      # `package-lock.json`, so `npm audit` and the dependency-review-action
+      # above cannot see them. Query OSV.dev (Google-maintained
+      # open-source vulnerability DB, npm ecosystem from GHSA + npm
+      # advisory feed) for each pinned (package, version) pair and fail
+      # the gate if any Critical/High advisory has been public for more
+      # than 30 days against a version we still ship. Network call to
+      # api.osv.dev is required; transient failures surface as warnings
+      # (queryErrors), not gate failures.
+      - name: MCP package CVE check
+        run: npm run mcp:cve-check
+
   build:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
@@ -70,6 +103,16 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
+      # Cycle 9 C9-H9 (D4-H4.2.1): see top-of-file rationale block.
+      # harden-runner only ships behavioral guards for Linux runners, so on
+      # macos/windows the action no-ops cleanly — installing it
+      # unconditionally is simpler than a matrix exclusion and preserves
+      # the "first step of every job" invariant from the supply-chain job.
+      - name: Harden Runner
+        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2.19.3
+        with:
+          egress-policy: audit
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
         with:

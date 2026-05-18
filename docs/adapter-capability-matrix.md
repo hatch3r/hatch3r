@@ -267,7 +267,7 @@ When omitted, the adapter falls back to sensible defaults so existing projects c
 | agents | `.amp/AGENTS.md` | Inlined into managed block (bridge) |
 | bridge | `.amp/AGENTS.md` | Inline orchestration (mandatory behaviors, agent roster, canonical structure) + canonical reference, above rules/agents |
 | skills | `.amp/skills/hatch3r-{id}/SKILL.md` | Raw content |
-| commands | *(canonical match)* | Amp reads `.agents/commands/` natively |
+| commands | *(not emitted)* | Amp deprecated custom slash commands on 2026-01-29; skills are the documented replacement (see `https://ampcode.com/news/slashing-custom-commands`). |
 | mcp | `.amp/settings.json` | JSON `amp.mcpServers` object |
 
 ### OpenCode
@@ -360,8 +360,7 @@ Some platforms natively read from `.agents/` paths, making adapter output unnece
 
 | Platform | Path | Notes |
 |----------|------|-------|
-| **Amp** | `.agents/commands/` | Amp discovers commands in `.agents/commands/` by convention. Canonical files work without transformation. |
-| **Amp** | `.agents/skills/` | Amp discovers skills in `.agents/skills/` by convention. The adapter also writes to `.amp/skills/` for explicit registration. |
+| **Amp** | `.agents/skills/` | Amp discovers skills in `.agents/skills/` by convention. The adapter also writes to `.amp/skills/` for explicit registration. Skills are also Amp's replacement for custom slash commands (deprecated 2026-01-29). |
 | **Codex** | `AGENTS.md` (root) | Codex 2026 discovery precedence per scope: `AGENTS.override.md` -> `AGENTS.md` -> filenames in `project_doc_fallback_filenames`. hatch3r writes root `AGENTS.md` and registers `TEAM_GUIDE.md`, `.agents.md` as fallbacks in `.codex/config.toml`. `hatch3r status` warns when project-level `AGENTS.override.md` exists (it silently overrides hatch3r's AGENTS.md). |
 | **Windsurf** | `.agents/skills/` | Windsurf natively discovers skills in `.agents/skills/` for skill auto-discovery. The adapter also writes to `.windsurf/skills/` for explicit registration. |
 | **All** | `AGENTS.md` (root) | hatch3r generates a root `AGENTS.md` with managed blocks. Platforms that discover AGENTS.md (Amp, Codex, Windsurf, Cline) automatically read it. |
@@ -410,6 +409,7 @@ set -a && source .env.mcp && set +a && <editor-command> .
 | **windsurf** | hooks | No documented Windsurf hook/event system. |
 | **opencode** | hooks | No documented OpenCode hook/event system. |
 | **amp** | hooks | No documented Amp hook/event system. |
+| **amp** | commands | Amp deprecated custom slash commands on 2026-01-29 ([news](https://ampcode.com/news/slashing-custom-commands)); skills are the documented replacement (already emitted via the canonical mirror). |
 | **aider** | mcp | Aider has no project-level MCP config file format. |
 | **aider** | hooks | No documented Aider hook/event system. |
 | **goose** | hooks | No documented Goose hook/event system. |
@@ -438,7 +438,7 @@ set -a && source .env.mcp && set +a && <editor-command> .
 | Codex | [Codex Config](https://developers.openai.com/codex/config-reference) / [AGENTS.md](https://developers.openai.com/codex/guides/agents-md) |
 | Gemini | [Gemini Code Assist](https://docs.cloud.google.com/gemini/docs/codeassist/agent-mode) |
 | Windsurf | [Windsurf MCP](https://docs.windsurf.com/windsurf/mcp) |
-| Amp | [AGENTS.md](https://ampcode.com/agent.md) / [Custom Commands](https://ampcode.com/news/custom-slash-commands) |
+| Amp | [Manual](https://ampcode.com/manual) / [AGENTS.md](https://ampcode.com/agent.md) / [Custom Commands Deprecation 2026-01-29](https://ampcode.com/news/slashing-custom-commands) |
 | OpenCode | [OpenCode](https://opencode.ai) |
 | Aider | [Aider YAML Config](https://aider.chat/docs/config/aider_conf.html) / [Conventions](https://aider.chat/docs/usage/conventions.html) |
 | Kiro | [Kiro Steering](https://kiro.dev/docs/steering/) / [Hooks](https://kiro.dev/docs/hooks/) / [Powers](https://kiro.dev/blog/introducing-powers/) |

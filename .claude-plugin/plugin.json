@@ -1,10 +1,12 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "hatch3r",
-  "description": "Battle-tested agentic coding setup: 17 agents, 26 skills, 28 rules, 37 commands, 6 hooks, and MCP integrations. Counts derived from governance/inventory.json.",
   "version": "1.7.5",
+  "description": "Tool-agnostic agentic coding setup: 19 agents, 63 skills, 42 rules, 38 commands, 6 hooks, MCP servers, and a CLI-tool surface generated for 15 AI coding tools from a single canonical source. Counts derived from governance/inventory.json.",
   "author": {
     "name": "hatch3r",
-    "email": "support@hatch3r.com"
+    "email": "support@hatch3r.com",
+    "url": "https://github.com/hatch3r/hatch3r"
   },
   "homepage": "https://docs.hatch3r.com",
   "repository": "https://github.com/hatch3r/hatch3r",
@@ -25,5 +27,6 @@
   "skills": "skills/",
   "agents": "agents/",
   "commands": "commands/",
-  "mcpServers": ".mcp.json"
+  "mcpServers": ".mcp.json",
+  "trust_model_ref": "governance/pack-trust-model.md"
 }

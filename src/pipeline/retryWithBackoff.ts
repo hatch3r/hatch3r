@@ -52,6 +52,29 @@ export interface RetryOptions {
    * Defaults to `setTimeout`.
    */
   sleep?: (ms: number) => Promise<void>;
+  /**
+   * Jitter strategy applied to the computed backoff delay (C9-H1).
+   *
+   * `none` — no randomisation (legacy behaviour). Use only when callers
+   *   need deterministic delays for snapshot tests.
+   * `full` — sleep a uniform random value in `[0, computedDelay]` (AWS
+   *   "Full Jitter" — every retrier picks an independent point in the
+   *   backoff window, decorrelating retry timing across N clients).
+   * `decorrelated` — `min(maxDelayMs, U(initialDelayMs, prevDelay * 3))`
+   *   AWS "Decorrelated Jitter" walk — yields better tail behaviour than
+   *   full jitter when many retriers share a transient failure.
+   *
+   * Default: `full`. AWS Builder's Library recommends Full Jitter as the
+   * preferred starting point; deterministic tests opt out via `none`.
+   * Reference: https://aws.amazon.com/builders-library/timeouts-retries-and-backoff-with-jitter/
+   */
+  jitter?: "none" | "full" | "decorrelated";
+  /**
+   * Optional random source (returns a value in `[0, 1)`). Defaults to
+   * `Math.random`. Tests inject a deterministic source to assert jitter
+   * arithmetic without flakes.
+   */
+  random?: () => number;
 }
 
 // ── Defaults ────────────────────────────────────────────────────
@@ -68,11 +91,14 @@ const realSleep = (ms: number): Promise<void> =>
 // ── Implementation ───────────────────────────────────────────────
 
 /**
- * Compute the delay for a given attempt index using exponential backoff.
+ * Compute the base (un-jittered) delay for a given attempt index using
+ * exponential backoff.
  *
  * Attempt 1 produces `initialDelayMs * backoffFactor^0`,
  * attempt 2 produces `initialDelayMs * backoffFactor^1`, and so on.
- * The result is clamped to `[0, maxDelayMs]`.
+ * The result is clamped to `[0, maxDelayMs]`. Callers that want jitter
+ * apply it through {@link applyJitter} or by passing a non-`none` jitter
+ * strategy to {@link retryWithBackoff}.
  */
 export function computeBackoffDelay(
   attempt: number,
@@ -84,6 +110,51 @@ export function computeBackoffDelay(
   const raw = initialDelayMs * Math.pow(backoffFactor, exponent);
   if (!Number.isFinite(raw) || raw < 0) return Math.max(0, maxDelayMs);
   return Math.min(maxDelayMs, raw);
+}
+
+/**
+ * Apply AWS-style jitter to a base exponential-backoff delay (C9-H1).
+ *
+ * - `none` — return `baseDelay` unchanged (deterministic, used by tests).
+ * - `full` — return `random() * baseDelay`. Each call picks an independent
+ *   uniform random point in `[0, baseDelay]`, decorrelating retry timing
+ *   across concurrent retriers.
+ * - `decorrelated` — return `min(maxDelayMs, initialDelayMs +
+ *   random() * (prevDelay * 3 - initialDelayMs))`. The walk grows toward
+ *   the ceiling without being strictly tied to the exponential schedule.
+ *
+ * `prevDelay` is the previous attempt's actual (post-jitter) sleep so the
+ * decorrelated walk advances from the real prior value rather than the
+ * exponential nominal.
+ *
+ * Reference: AWS Builder's Library — Timeouts, retries, and backoff with jitter.
+ */
+export function applyJitter(
+  baseDelay: number,
+  options: {
+    strategy: "none" | "full" | "decorrelated";
+    initialDelayMs: number;
+    maxDelayMs: number;
+    prevDelay: number;
+    random: () => number;
+  },
+): number {
+  const { strategy, initialDelayMs, maxDelayMs, prevDelay, random } = options;
+  if (baseDelay <= 0) return 0;
+  if (strategy === "none") return baseDelay;
+  if (strategy === "full") {
+    const r = random();
+    const jittered = r * baseDelay;
+    return Math.max(0, Math.min(maxDelayMs, jittered));
+  }
+  // decorrelated: U(initialDelayMs, prevDelay * 3) clamped to maxDelayMs.
+  // On the very first retry `prevDelay` is 0, so the upper bound collapses
+  // to `initialDelayMs` and the walk seeds from the configured floor.
+  const lo = Math.max(0, initialDelayMs);
+  const hi = Math.max(lo, prevDelay * 3);
+  const r = random();
+  const jittered = lo + r * (hi - lo);
+  return Math.max(0, Math.min(maxDelayMs, jittered));
 }
 
 /**
@@ -103,8 +174,11 @@ export async function retryWithBackoff<T>(
   const backoffFactor = options.backoffFactor ?? DEFAULT_BACKOFF_FACTOR;
   const shouldRetry = options.shouldRetry ?? defaultShouldRetry;
   const sleep = options.sleep ?? realSleep;
+  const jitter = options.jitter ?? "full";
+  const random = options.random ?? Math.random;
 
   let lastError: unknown;
+  let prevDelay = 0;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       return await fn();
@@ -113,7 +187,15 @@ export async function retryWithBackoff<T>(
       const isLastAttempt = attempt === maxAttempts;
       if (isLastAttempt) break;
       if (!shouldRetry(err, attempt)) break;
-      const delay = computeBackoffDelay(attempt, initialDelayMs, maxDelayMs, backoffFactor);
+      const baseDelay = computeBackoffDelay(attempt, initialDelayMs, maxDelayMs, backoffFactor);
+      const delay = applyJitter(baseDelay, {
+        strategy: jitter,
+        initialDelayMs,
+        maxDelayMs,
+        prevDelay,
+        random,
+      });
+      prevDelay = delay;
       if (delay > 0) await sleep(delay);
     }
   }

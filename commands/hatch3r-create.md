@@ -10,7 +10,14 @@ efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
 parallel_tool_default: true
 triage_tiers: [1, 2, 3]
+sub_agents_spawned:
+  count: 1
+  rationale: Single hatch3r-creator delegation in Phase 2 — body composition plus the strict + gentle gate funnel run as one atomic Task per artifact; multi-artifact runs invoke one creator per artifact in parallel.
 ---
+
+## §0 Detect Ambiguity (P8 B1)
+
+Before any action, scan the user's request and provided context for unresolved questions in scope, acceptance criteria, irreversibility, or constraint conflicts (contradictory inputs, missing target, unknown convention). If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Acceptable to proceed without asking ONLY when scope is single-target, single-concern, and the brief alone is testable. Any residual ambiguity discovered mid-workflow invokes the same protocol.
 
 ## Agent Pipeline
 
@@ -86,6 +93,26 @@ Present the known tag set: `core, customization, planning, implementation, revie
 
 Cache as `tags` (array).
 
+#### 1.4a: Pillar Declaration (C9-H80, D20-F20.1.2)
+
+Every user artifact must declare at least one Binding Pillar — strict-gate enforced at `saveUserContent` (`src/content/userContent.ts`). Present the 8 pillars with one-line descriptors:
+
+```
+Which pillar(s) does this artifact serve? (one or more — comma-separated)
+  P1 — CLI UI/UX Excellence
+  P2 — Scientific & Practical Quality
+  P3 — Adapter & External Tool Currency
+  P4 — Comprehensive Lean Coverage
+  P5 — Governance Self-Quality
+  P6 — Security & Trust Governance
+  P7 — Speed & Token Efficiency
+  P8 — Clarification & Fan-out Discipline
+```
+
+**ASK:** "Select pillar(s) (e.g., `P4, P6`). At least one is required."
+
+Reject empty input and re-ask. Validate every entry against the `P1..P8` enum. Cache as `pillars` (array). The frontmatter emitter writes the array as `pillars: [P1, P4]`; the strict gate also accepts a `**Pillars:** ...` line in the body.
+
 #### 1.5: Adapter Scope (Optional)
 
 **ASK:** "Restrict this artifact to specific adapters? Press Enter to default to ALL enabled adapters (full parity), or list adapter names like `claude, cursor`."
@@ -96,11 +123,34 @@ Cache as `adapters` (array, or `null` for full parity).
 
 Branch on the cached `type`:
 
-- **agent:** Ask for `model` preference (default: `standard`; options: `fast | standard | reasoning`). Ask for an optional tool-allowlist hint (free-text). Cache as `model` and `toolHint`.
+- **agent:** Ask for `model` preference (default: `standard`; options: `fast | standard | reasoning`). Ask for an optional tool-allowlist hint (free-text). Cache as `model` and `toolHint`. Then ask for a structured `tools` declaration (see §1.6a below) and cache as `tools`.
 - **skill:** Confirm the subdirectory layout. Show: "Skill files are stored as `.agents/user/skills/{name}/SKILL.md` (a new directory will be created). Continue?" — ASK Y/n.
 - **rule:** Ask for scope: `always` (loaded every session) or `conditional` (loaded by glob match). If `conditional`, ASK for a comma-separated glob list (e.g., `src/**/*.ts, src/**/*.tsx`). Then ASK for `precedence` (one of `critical | high | normal | low`, default `normal`). Cache as `ruleScope`, `ruleGlobs`, `rulePrecedence`.
 - **command:** ASK whether this is an orchestrator command. If yes, ASK for the agent pipeline as a comma-separated list of agent IDs (each ID must reference an existing agent — canonical or under `.agents/user/agents/`). Cache as `isOrchestrator` and `agentPipeline`.
 - **hook:** ASK for the hook event from the enum: `pre-commit | post-merge | ci-failure | file-save | session-start | pre-push`. Reject any value outside this enum and re-ask. Cache as `hookEvent`.
+
+#### 1.6a: Structured Tool Declaration (C9-H81, D20-F20.1.3)
+
+For `type=agent` only: collect a structured `tools` declaration that the strict gate validates against the canonical category registry (`ALL_TOOL_CATEGORIES` in `src/pipeline/agentToolAllowlist.ts`). The eight valid categories are: `read | search | write | execute | web | mcp | git | board`.
+
+```
+Tool allowlist (optional). Press Enter on either prompt to skip.
+  Categories: read, search, write, execute, web, mcp, git, board.
+  Tools the agent IS permitted to use (comma-separated):
+  Tools the agent is NOT permitted to use (comma-separated):
+```
+
+**ASK (twice):**
+1. "Allowed tool categories (comma-separated; empty = decline)."
+2. "Denied tool categories (comma-separated; empty = decline)."
+
+Validation (perform before caching; re-ask on failure):
+
+- Every entry must be one of the eight categories — reject typos verbatim ("unknown category `X` — valid: read, search, write, execute, web, mcp, git, board").
+- A category may not appear in both lists — reject overlap ("category `X` cannot be both allowed and denied").
+- Both lists may be omitted; emit a one-line note that no structured declaration was collected so the strict gate accepts the artifact with no `tools:` frontmatter.
+
+Cache as `tools: { allowed: [...], denied: [...] }`. Either side may be absent (omitted from the structured input). The frontmatter emitter writes `tools: { allowed: [...], denied: [...] }`; the strict gate at `saveUserContent` re-validates so a tampered structured input from the orchestrator cannot bypass the registry check.
 
 #### 1.7: Plan Summary & Confirmation
 
@@ -128,7 +178,8 @@ Pass the collected slots as a structured input:
   tags:          [{tags}],
   adapters:      [{adapters}] | null,
   model:         "{model}",        // agent only
-  toolHint:      "{toolHint}",     // agent only (optional)
+  toolHint:      "{toolHint}",     // agent only (optional, free-text hint)
+  tools:         { allowed: [{tools.allowed}], denied: [{tools.denied}] }, // agent only — structured allowlist/denylist (C9-H81, D20-F20.1.3); either side may be omitted
   ruleScope:     "{ruleScope}",    // rule only
   ruleGlobs:     [{ruleGlobs}],    // rule only (when scope=conditional)
   rulePrecedence:"{rulePrecedence}", // rule only
@@ -188,8 +239,10 @@ Edit your artifact directly anytime — `.agents/user/` is preserved across
 
 - **Never overwrite an existing user file.** Collision with an existing path under `.agents/user/{type}/` is a strict-gate failure raised by `hatch3r-creator` (status `BLOCKED` with the conflicting path).
 - **Never write to canonical content directories.** All output goes under `.agents/user/`. Writes to `agents/`, `skills/`, `rules/`, `commands/`, or `hooks/` are rejected.
-- **Never bypass strict gates.** Strict failures (frontmatter, ID collision, deny patterns, paired-file parity, orchestrator contract, hook event enum, ≤10KB size) block the save.
-- **Pillar coverage required.** Every user artifact must declare at least one of P1–P6 in tags or body. Authors that do not select a pillar-aligned tag are warned by the gentle gate; the artifact still saves but the warning surfaces in Phase 3.
+- **Never bypass strict gates.** Strict failures (frontmatter, ID collision, deny patterns, paired-file parity, orchestrator contract, hook event enum, ≤10KB size, quality_charter reference, pillar declaration, structured `tools` field shape + category membership) block the save.
+- **Structured tool allowlist required (strict shape).** When `tools` is supplied for an `agent` artifact, every entry in `tools.allowed` and `tools.denied` must resolve to a canonical category from `ALL_TOOL_CATEGORIES` in `src/pipeline/agentToolAllowlist.ts` (`read | search | write | execute | web | mcp | git | board`). Overlap between the two lists is rejected. Strict-gate enforced at `saveUserContent` (C9-H81, D20-F20.1.3; depends on C9-H49 Hybrid allowlist).
+- **Pillar coverage required (strict).** Every user artifact must declare at least one of P1–P8 — via `pillars: [...]` in frontmatter (collected at Step 1.4a) or a `**Pillars:** ...` line in the body. The strict gate at `saveUserContent` blocks the save when neither is present (C9-H80, D20-F20.1.2).
+- **Quality charter inheritance required (strict).** Every user artifact must reference `agents/shared/quality-charter.md` — via `quality_charter:` in frontmatter or a `quality_charter` mention in the body. Strict-gate enforced at `saveUserContent` (C9-H79, D20-F20.1.1, closes CD-12 partial).
 - **One artifact per invocation.** Re-run `/hatch3r-create` for additional artifacts.
 
 ---

@@ -86,6 +86,18 @@ export function createManifest(options: {
   mcpServers?: string[];
   content?: ContentSelection;
   languages?: string[];
+  /**
+   * C9-H47 (D14-SA14.4-H01): detected toolchain results from
+   * `analyzeRepo`. Persisted on the manifest so adapter sync — which does
+   * not re-run `analyzeRepo` — can resolve `${HATCH3R:LINTER}` etc.
+   * tokens from the manifest alone. Omitted from the written manifest
+   * when every field is empty so older fixtures stay byte-identical.
+   */
+  detected?: {
+    linters?: string[];
+    testFrameworks?: string[];
+    ciProviders?: string[];
+  };
   worktreeEnabled?: boolean;
   customization?: CustomizationManifest;
   /**
@@ -126,6 +138,21 @@ export function createManifest(options: {
   }
   if (options.languages && options.languages.length > 0 && options.languages[0] !== "unknown") {
     manifest.languages = options.languages;
+  }
+  // C9-H47: persist detection results when at least one axis has content.
+  // Empty arrays collapse to omission so the written manifest stays
+  // byte-identical to pre-1.8.0 fixtures when detection found nothing
+  // useful — the substitution layer treats absence as "unknown".
+  if (options.detected) {
+    const linters = options.detected.linters?.filter(Boolean) ?? [];
+    const testFrameworks = options.detected.testFrameworks?.filter(Boolean) ?? [];
+    const ciProviders = options.detected.ciProviders?.filter(Boolean) ?? [];
+    if (linters.length > 0 || testFrameworks.length > 0 || ciProviders.length > 0) {
+      manifest.detected = {};
+      if (linters.length > 0) manifest.detected.linters = linters;
+      if (testFrameworks.length > 0) manifest.detected.testFrameworks = testFrameworks;
+      if (ciProviders.length > 0) manifest.detected.ciProviders = ciProviders;
+    }
   }
   if (options.defaultBranch) {
     manifest.board = createMinimalBoardConfig(owner, repo, options.defaultBranch);
@@ -294,6 +321,21 @@ function validateManifest(data: unknown): data is HatchManifest {
       if (typeof k !== "string") return false;
       if (!Array.isArray(v)) return false;
       if (!(v as unknown[]).every((p) => typeof p === "string")) return false;
+    }
+  }
+
+  // C9-H47 (D14-SA14.4-H01): detected toolchain context (optional).
+  // Older manifests omit this field — token substitution falls back to
+  // the "unknown" sentinel in that case.
+  if (obj.detected !== undefined) {
+    if (typeof obj.detected !== "object" || obj.detected === null) return false;
+    const det = obj.detected as Record<string, unknown>;
+    const detectionKeys = ["linters", "testFrameworks", "ciProviders"] as const;
+    for (const key of detectionKeys) {
+      const v = det[key];
+      if (v === undefined) continue;
+      if (!Array.isArray(v)) return false;
+      if (!(v as unknown[]).every((s) => typeof s === "string")) return false;
     }
   }
 

@@ -39,7 +39,7 @@ Execute findings from an audit report using `governance/AUDIT-EXECUTE.md`.
 
 7. Parse Enhanced Action Items from audit report
 8. Run 4-tier deduplication: same file + same root cause + same fix → keep highest severity
-9. Apply pillar justification filter: every finding must trace to P1-P7
+9. Apply pillar justification filter: every finding must trace to P1-P8
 10. Classify owners: auto-fixable vs requires-human-review
 
 ## Phase 2 — Tier Classification & Grouping

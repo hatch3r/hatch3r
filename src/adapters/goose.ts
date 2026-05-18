@@ -52,9 +52,11 @@ export class GooseAdapter extends BaseAdapter {
       // `hatch3r-cli-*` entries not selected in `manifest.cliTools`.
       const skills = await this.readCliFilteredSkills(ctx);
       for (const skill of skills) {
-        const { content, skip, warnings } = await applyCustomizationRaw(ctx.projectRoot, skill);
+        const { content: rawContent, skip, warnings } = await applyCustomizationRaw(ctx.projectRoot, skill);
         this.warnings.push(...warnings);
         if (skip) continue;
+        // C9-H47 (D14-SA14.4-H01): substitute detected toolchain tokens.
+        const content = this.substituteDetectedRepoTokens(rawContent, ctx);
         lines.push(`## Skill: ${toPrefixedId(skill.id)}`, "", content, "");
       }
     }

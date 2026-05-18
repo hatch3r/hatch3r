@@ -11,6 +11,19 @@ import { HatchError } from "../types.js";
 import type { ContentSelection } from "../types.js";
 import type { ContentPreset } from "./presets.js";
 import { filterByLanguages } from "./tags.js";
+import { verbose } from "../cli/shared/ui.js";
+
+/**
+ * Record a content-probe failure: emit a verbose() line to stderr (visible
+ * only with --verbose). Per D8-H8.4.6 (C9-H19) Silent Failure Contract — probes
+ * for "does file/dir exist?" cannot push to caller warnings channels (none are
+ * wired through buildContentIndex / buildSelectionsFromDisk), so verbose() is
+ * the minimum-viable diagnostic surface.
+ */
+function recordContentProbeFailure(operation: string, err: unknown): void {
+  const message = err instanceof Error ? err.message : String(err);
+  verbose(`content: ${operation} — ${message}`);
+}
 
 /**
  * Validate that a relative path does not escape its base directory.
@@ -351,8 +364,11 @@ async function scanContentRoot(
           try {
             await readFile(join(dirPath, mdcFile), "utf-8");
             item.companionPath = posix.join(config.dir, mdcFile);
-          } catch {
-            // No companion file
+          } catch (err) {
+            recordContentProbeFailure(
+              `buildContentIndex: no companion .mdc for ${file}`,
+              err,
+            );
           }
         }
 
@@ -952,13 +968,19 @@ export async function getAvailableItems(
               const { metadata } = parseFrontmatter(raw);
               const rawId = metadata.id || metadata.name || d.name;
               installed.add(applyCommandPrefix(rawId, config.type));
-            } catch {
-              // skip
+            } catch (err) {
+              recordContentProbeFailure(
+                `getRemovableContent: skipped ${dirPath}/${d.name}/SKILL.md`,
+                err,
+              );
             }
           }
         }
-      } catch {
-        // directory doesn't exist
+      } catch (err) {
+        recordContentProbeFailure(
+          `getRemovableContent: readdir(${dirPath}) — directory missing`,
+          err,
+        );
       }
     } else {
       try {
@@ -969,8 +991,11 @@ export async function getAvailableItems(
           const rawId = metadata.id || metadata.name || f.replace(/\.md$/, "");
           installed.add(applyCommandPrefix(rawId, config.type));
         }
-      } catch {
-        // directory doesn't exist
+      } catch (err) {
+        recordContentProbeFailure(
+          `getRemovableContent: readdir(${dirPath}) — directory missing`,
+          err,
+        );
       }
     }
   }
@@ -1012,12 +1037,18 @@ export async function buildSelectionsFromDisk(
             const { metadata } = parseFrontmatter(raw);
             const rawId = metadata.id || metadata.name || d.name;
             items[key].push(applyCommandPrefix(rawId, config.type));
-          } catch {
-            // skip
+          } catch (err) {
+            recordContentProbeFailure(
+              `buildSelectionsFromDisk: skipped ${dirPath}/${d.name}/SKILL.md`,
+              err,
+            );
           }
         }
-      } catch {
-        // directory doesn't exist
+      } catch (err) {
+        recordContentProbeFailure(
+          `buildSelectionsFromDisk: readdir(${dirPath}) — directory missing`,
+          err,
+        );
       }
     } else {
       try {
@@ -1028,8 +1059,11 @@ export async function buildSelectionsFromDisk(
           const rawId = metadata.id || metadata.name || f.replace(/\.md$/, "");
           items[key].push(applyCommandPrefix(rawId, config.type));
         }
-      } catch {
-        // directory doesn't exist
+      } catch (err) {
+        recordContentProbeFailure(
+          `buildSelectionsFromDisk: readdir(${dirPath}) — directory missing`,
+          err,
+        );
       }
     }
   }
