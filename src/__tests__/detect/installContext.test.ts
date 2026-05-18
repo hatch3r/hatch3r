@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, symlink, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
@@ -82,6 +82,46 @@ describe("installContext.surveyInstalls", () => {
     expect(survey.invokedFrom.kind).toBe("dev-source");
     // alsoPresent should be empty (no global probe could resolve) and no
     // project-local install exists in the temp dir.
+    expect(survey.alsoPresent).toEqual([]);
+  });
+
+  it("classifies a symlinked global install (npm link) as kind=dev-source", async () => {
+    // Simulate `npm link`: the global hatch3r directory is a symlink to a
+    // source checkout. Self-update must not run `npm install -g` on this —
+    // doing so would replace the link with the registry tarball.
+    const fakeGlobalRoot = join(tempDir, "fake-global-root");
+    const sourceCheckout = join(tempDir, "source-checkout");
+    await mkdir(fakeGlobalRoot, { recursive: true });
+    await mkdir(sourceCheckout, { recursive: true });
+    await writeFile(
+      join(sourceCheckout, "package.json"),
+      JSON.stringify({ name: "hatch3r", version: "9.9.9-dev" }),
+    );
+    await symlink(sourceCheckout, join(fakeGlobalRoot, "hatch3r"), "dir");
+    vi.mocked(execFileSync).mockReturnValueOnce(Buffer.from(`${fakeGlobalRoot}\n`));
+    process.argv[1] = `${fakeGlobalRoot}/hatch3r/dist/cli/index.js`;
+
+    const survey = await surveyInstalls(tempDir);
+    expect(survey.invokedFrom.kind).toBe("dev-source");
+  });
+
+  it("skips a symlinked global install when probing alsoPresent", async () => {
+    // Invoked from project-local, but a linked global install also exists.
+    // The probe must skip the link so self-update doesn't clobber it.
+    const fakeGlobalRoot = join(tempDir, "fake-global-root");
+    const sourceCheckout = join(tempDir, "source-checkout");
+    await mkdir(fakeGlobalRoot, { recursive: true });
+    await mkdir(sourceCheckout, { recursive: true });
+    await writeFile(
+      join(sourceCheckout, "package.json"),
+      JSON.stringify({ name: "hatch3r", version: "9.9.9-dev" }),
+    );
+    await symlink(sourceCheckout, join(fakeGlobalRoot, "hatch3r"), "dir");
+    vi.mocked(execFileSync).mockReturnValueOnce(Buffer.from(`${fakeGlobalRoot}\n`));
+    process.argv[1] = join(tempDir, "node_modules", ".bin", "hatch3r");
+
+    const survey = await surveyInstalls(tempDir);
+    expect(survey.invokedFrom.kind).toBe("project-local");
     expect(survey.alsoPresent).toEqual([]);
   });
 

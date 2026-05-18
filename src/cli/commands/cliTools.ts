@@ -6,7 +6,10 @@ import {
   type HatchManifest,
 } from "../../types.js";
 import { detectCliTools, findMissingCliTools } from "../../cliTools/detect.js";
-import { offerInstaller } from "../../cliTools/install.js";
+import {
+  offerInstaller,
+  printMissingCliToolsDisclaimer,
+} from "../../cliTools/install.js";
 import {
   AVAILABLE_CLI_TOOLS,
   CLI_TOOL_SECRET_NOTES,
@@ -105,6 +108,11 @@ export async function cliToolsCommand(): Promise<void> {
     ],
     "success",
   );
+
+  if (selected.length > 0) {
+    const finalMissing = await findMissingCliTools(selected);
+    printMissingCliToolsDisclaimer(finalMissing, selected.length);
+  }
 }
 
 export async function cliToolsListCommand(): Promise<void> {
@@ -166,6 +174,11 @@ export async function cliToolsInstallCommand(): Promise<void> {
   }
   spinner.warn(`${missing.length}/${selected.length} CLI tool(s) missing`);
   await offerInstaller(missing, { interactive: true });
+
+  if (selected.length > 0) {
+    const finalMissing = await findMissingCliTools(selected);
+    printMissingCliToolsDisclaimer(finalMissing, selected.length);
+  }
 }
 
 export async function cliToolsDetectCommand(): Promise<void> {

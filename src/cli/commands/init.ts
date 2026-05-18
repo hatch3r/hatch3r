@@ -57,7 +57,7 @@ import {
   TIER1_CLI_TOOLS,
 } from "../../cliTools/registry.js";
 import { findMissingCliTools } from "../../cliTools/detect.js";
-import { offerInstaller } from "../../cliTools/install.js";
+import { offerInstaller, printMissingCliToolsDisclaimer } from "../../cliTools/install.js";
 import { applyPlatformTriggers, evaluateTier2Triggers } from "../../cliTools/triggers.js";
 import { generateIntegrityManifest, writeIntegrityManifest } from "../../integrity/index.js";
 import { HATCH3R_VERSION } from "../../version.js";
@@ -614,6 +614,11 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   }
 
   printBox("Hatch complete", summaryLines, "success");
+
+  if (cliTools && cliTools.selected.length > 0) {
+    const finalMissing = await findMissingCliTools(cliTools.selected);
+    printMissingCliToolsDisclaimer(finalMissing, cliTools.selected.length);
+  }
 
   // D20: post-init "create your first user artifact?" prompt. Skipped when
   // the caller passed `yes: true` (CI / `--yes` flow / tests) so the
@@ -1639,6 +1644,11 @@ async function runWorkspaceInit(
     label("Manifest", `${AGENTS_DIR}/workspace.json`),
   ];
   printBox("Workspace ready", wsLines, "success");
+
+  if (wsCliTools.selected.length > 0) {
+    const finalMissing = await findMissingCliTools(wsCliTools.selected);
+    printMissingCliToolsDisclaimer(finalMissing, wsCliTools.selected.length);
+  }
 }
 
 function resolveToolsFromOpts(toolsFlag: string | undefined, repoInfo: RepoInfo): Tool[] {

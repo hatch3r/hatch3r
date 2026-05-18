@@ -160,6 +160,7 @@ vi.mock("../../cliTools/install.js", () => ({
   offerInstaller: vi.fn().mockResolvedValue(true),
   buildInstallPlan: vi.fn().mockReturnValue([]),
   currentOsKey: vi.fn().mockReturnValue("mac"),
+  printMissingCliToolsDisclaimer: vi.fn(),
 }));
 
 // ── Import mocked modules ─────────────────────────────────────
@@ -187,6 +188,8 @@ import { printBox, info, error as logError, warn, createSpinner, step, label } f
 import { detectWorkspaceContext } from "../../workspace/detect.js";
 import { readWorkspaceManifest, writeWorkspaceManifest } from "../../workspace/manifest.js";
 import { syncWorkspaceRepos } from "../../workspace/sync.js";
+import { findMissingCliTools } from "../../cliTools/detect.js";
+import { printMissingCliToolsDisclaimer } from "../../cliTools/install.js";
 
 // ── Local test helpers (thin wrappers around shared harness) ──
 
@@ -1676,6 +1679,28 @@ describe("config command", () => {
       const summary = getConfigUpdatedBox(printBox).join("\n");
       // The removed id surfaces in the diff output.
       expect(summary).toContain("jq");
+    });
+
+    it("invokes printMissingCliToolsDisclaimer when a final detection pass reports missing tools", async () => {
+      const manifest = makeManifest();
+      primeConfig(manifest, { cliTools: ["ripgrep", "jq"] });
+      vi.mocked(findMissingCliTools).mockResolvedValueOnce([]).mockResolvedValueOnce(["jq"]);
+
+      await (await importConfigCommand())();
+
+      expect(vi.mocked(printMissingCliToolsDisclaimer)).toHaveBeenCalledWith(["jq"], 2);
+    });
+
+    it("does not invoke printMissingCliToolsDisclaimer when no CLI tools are selected", async () => {
+      const manifest = makeManifest({
+        tools: ["cursor"],
+        cliTools: { enabled: false, selected: [] },
+      });
+      primeConfig(manifest, { tools: ["cursor", "claude"], cliTools: [] });
+
+      await (await importConfigCommand())();
+
+      expect(vi.mocked(printMissingCliToolsDisclaimer)).not.toHaveBeenCalled();
     });
   });
 

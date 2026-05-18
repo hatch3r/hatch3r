@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from "vitest";
-import { buildInstallPlan, offerInstaller, currentOsKey } from "../../cliTools/install.js";
+import {
+  buildInstallPlan,
+  offerInstaller,
+  currentOsKey,
+  printMissingCliToolsDisclaimer,
+} from "../../cliTools/install.js";
 
 /**
  * Wave 5 Item 28: behavioural tests for `src/cliTools/install.ts`.
@@ -15,9 +20,19 @@ vi.mock("inquirer", () => ({
   },
 }));
 
+vi.mock("../../cli/shared/ui.js", () => ({
+  printBox: vi.fn(),
+}));
+
 // Import after mock so the helper picks up our stub.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import inquirer from "inquirer";
+import { printBox } from "../../cli/shared/ui.js";
+
+function stripAnsi(s: string): string {
+  // eslint-disable-next-line no-control-regex
+  return s.replace(/\[[0-9;]*m/g, "");
+}
 
 const ORIGINAL_PLATFORM = process.platform;
 function setPlatform(p: NodeJS.Platform): void {
@@ -192,5 +207,47 @@ describe("offerInstaller", () => {
     await offerInstaller(["ripgrep"], { os: "mac" });
 
     expect(inquirer.prompt).toHaveBeenCalledTimes(1);
+  });
+
+  it("prints the one-liner copy-paste line after the per-tool list", async () => {
+    await offerInstaller(["ripgrep", "fd"], { interactive: false, os: "mac" });
+    const all = consoleLogSpy.mock.calls.map((c) => stripAnsi(String(c[0]))).join("\n");
+    expect(all).toContain("Or copy-paste this one-liner to install everything at once:");
+    expect(all).toContain("brew install ripgrep fd");
+  });
+});
+
+describe("printMissingCliToolsDisclaimer", () => {
+  beforeEach(() => {
+    vi.mocked(printBox).mockReset();
+  });
+
+  it("is a no-op when missing.length === 0", () => {
+    printMissingCliToolsDisclaimer([], 5, "mac");
+    expect(printBox).not.toHaveBeenCalled();
+  });
+
+  it("calls printBox with title, lines, and 'warning' style on mac", () => {
+    printMissingCliToolsDisclaimer(["ripgrep", "fd"], 3, "mac");
+    expect(printBox).toHaveBeenCalledTimes(1);
+    const [title, lines, style] = vi.mocked(printBox).mock.calls[0];
+    expect(title).toBe("CLI tools not installed");
+    expect(style).toBe("warning");
+    expect(lines[0]).toBe("2 of 3 selected CLI tools are missing.");
+    expect(lines[1]).toBe("hatch3r does NOT install them for you.");
+    expect(lines).toContain("Copy-paste to install everything (macOS):");
+    expect(lines.some((l) => l.includes("brew install ripgrep fd"))).toBe(true);
+  });
+
+  it("renders the Linux OS label", () => {
+    printMissingCliToolsDisclaimer(["ripgrep"], 1, "linux");
+    const [, lines] = vi.mocked(printBox).mock.calls[0];
+    expect(lines).toContain("Copy-paste to install everything (Linux):");
+  });
+
+  it("renders the Windows OS label", () => {
+    printMissingCliToolsDisclaimer(["ripgrep"], 1, "win");
+    const [, lines] = vi.mocked(printBox).mock.calls[0];
+    expect(lines).toContain("Copy-paste to install everything (Windows):");
   });
 });

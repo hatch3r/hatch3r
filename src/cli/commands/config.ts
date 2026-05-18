@@ -39,7 +39,7 @@ import { detectRepoGitIdentity } from "../../workspace/git.js";
 import { TOOL_DISPLAY_NAMES, TOOL_PROMPT_CHOICES, FEATURE_CHOICES, PLATFORM_DISPLAY_NAMES, sanitizeInput, isWSL } from "../shared/constants.js";
 import { pickCliTools, pickMcpServers, confirmMcpGate } from "../shared/pickers.js";
 import { findMissingCliTools } from "../../cliTools/detect.js";
-import { offerInstaller } from "../../cliTools/install.js";
+import { offerInstaller, printMissingCliToolsDisclaimer } from "../../cliTools/install.js";
 import { buildTagGroupedCustomContentChoices } from "../shared/customContentChoices.js";
 import {
   buildContentIndex,
@@ -956,4 +956,8 @@ export async function configCommand(): Promise<void> {
     }
   }
 
+  if (selectedCliTools.length > 0) {
+    const finalMissing = await findMissingCliTools(selectedCliTools);
+    printMissingCliToolsDisclaimer(finalMissing, selectedCliTools.length);
+  }
 }

@@ -1,7 +1,9 @@
 import chalk from "chalk";
 import inquirer from "inquirer";
 import type { CliToolId } from "../types.js";
+import { printBox } from "../cli/shared/ui.js";
 import { AVAILABLE_CLI_TOOLS, type InstallCommand, type OsKey } from "./registry.js";
+import { buildOneLiner } from "./oneLiner.js";
 
 /**
  * Map the current Node.js `process.platform` to the registry's `OsKey`.
@@ -103,6 +105,16 @@ export async function offerInstaller(
   console.log(chalk.gray("hatch3r will not run these commands for you — copy-paste in your shell."));
   console.log("");
 
+  const oneLiner = buildOneLiner(plan);
+  if (oneLiner) {
+    console.log(chalk.yellow("Or copy-paste this one-liner to install everything at once:"));
+    console.log("");
+    for (const line of oneLiner.split("\n")) {
+      console.log(`  ${chalk.cyan(line)}`);
+    }
+    console.log("");
+  }
+
   if (!interactive) return true;
 
   const { proceed } = await inquirer.prompt<{ proceed: boolean }>([
@@ -114,4 +126,24 @@ export async function offerInstaller(
     },
   ]);
   return proceed;
+}
+
+export function printMissingCliToolsDisclaimer(
+  missing: readonly CliToolId[],
+  totalSelected: number,
+  os: OsKey = currentOsKey(),
+): void {
+  if (missing.length === 0) return;
+  const plan = buildInstallPlan(missing, os);
+  const oneLiner = buildOneLiner(plan);
+  const osLabel = os === "mac" ? "macOS" : os === "linux" ? "Linux" : "Windows";
+  const lines = [
+    `${missing.length} of ${totalSelected} selected CLI tools are missing.`,
+    `hatch3r does NOT install them for you.`,
+    "",
+    `Copy-paste to install everything (${osLabel}):`,
+    "",
+    ...oneLiner.split("\n").map((l) => `  ${l}`),
+  ];
+  printBox("CLI tools not installed", lines, "warning");
 }
