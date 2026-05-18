@@ -11,6 +11,19 @@ quality_charter: agents/shared/quality-charter.md
 
 This skill defines what "done" means for any feature shipping a service. Run before declaring a feature complete. The 9 gates below mix automated checks (machine-checkable on every PR) with one release-cadence gate (SLO + burn-rate alert review per release). Skipping any gate = the feature is not done. Reviewer approval and passing unit tests alone do not satisfy this bar.
 
+## Step 0 — Detect Ambiguity (P8 B1)
+
+Before any work, scan the invocation for unresolved questions in scope, intent, acceptance criteria, target environment, or irreversibility. If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md`. Do not proceed under silent assumption. Default path, not an exception. Triggers for THIS skill: service scope (which routes), trace vendor (OTel collector vs vendor SDK), sample rates (head vs tail), SLO target values, and Gate 7 applicability (LLM-in-path vs pure service).
+
+## Fan-out Discipline (P8 B2)
+
+This skill delegates per task size:
+- Tier 1 (trivial single-file): inline execution acceptable.
+- Tier 2 (multi-file or multi-concern): spawn parallel sub-agents per concern via the Task tool.
+- Tier 3 (multi-module / high-risk): one fresh sub-agent per independent module or gate; orchestrator integrates only.
+
+Never under-fan-out to save tokens. Token cost is dominated by quality and completeness gains. Emit `sub_agents_spawned: { count, rationale }` in your output.
+
 ## Gate 1: OTel span on request path
 
 - Every HTTP server entry point, every RPC handler, and every queue consumer emits a root span. Every outbound DB / cache / queue / external HTTP call is wrapped in a child span.

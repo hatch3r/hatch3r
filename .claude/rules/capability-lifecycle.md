@@ -62,3 +62,5 @@ Before declaring lifecycle work complete, run every gate below — orchestrator 
 - `npm run lint`
 - `npm run validate:rule-parity`
 - `npm run validate:efficiency`
+- B1 gate present (clarification-default rule applied; user-question-protocol referenced)
+- B2 rationale present (sub-agent count + rationale emitted by orchestrator)

@@ -11,6 +11,19 @@ quality_charter: agents/shared/quality-charter.md
 
 This skill defines what "done" means for any feature shipping UI. Run before declaring a feature complete. The 9 gates below mix automated checks (machine-checkable on every PR) with one manual gate (one human screen-reader pass per release). Skipping any gate = the feature is not done. Browser tests and screenshots from `hatch3r-qa-validation` alone do not satisfy this bar.
 
+## Step 0 — Detect Ambiguity (P8 B1)
+
+Before any work, scan the invocation for unresolved questions in scope, intent, acceptance criteria, target environment, or irreversibility. If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md`. Do not proceed under silent assumption. Default path, not an exception. Triggers for THIS skill: routes in scope (single vs all interactive), WCAG target (2.1 AA vs 2.2 AA), visual-regression baseline policy (regenerate vs keep), AI-UX gate applicability, and whether Gate 9 (manual SR pass) is required this run.
+
+## Fan-out Discipline (P8 B2)
+
+This skill delegates per task size:
+- Tier 1 (trivial single-file): inline execution acceptable.
+- Tier 2 (multi-file or multi-concern): spawn parallel sub-agents per concern via the Task tool.
+- Tier 3 (multi-module / high-risk): one fresh sub-agent per independent module or gate; orchestrator integrates only.
+
+Never under-fan-out to save tokens. Token cost is dominated by quality and completeness gains. Emit `sub_agents_spawned: { count, rationale }` in your output.
+
 ## Gate 1: Automated a11y scan (axe-core via Playwright)
 
 - Command: `npx playwright test --grep @a11y` with `@axe-core/playwright` integration on every interactive route.

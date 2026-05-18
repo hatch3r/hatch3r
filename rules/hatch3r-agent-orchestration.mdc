@@ -43,7 +43,7 @@ Every task MUST follow this four-phase pipeline: **Phase 1 — Research** (`hatc
 
 Score task complexity per the `hatch3r-deep-context` rule before Phase 1. Apply the resulting tier:
 
-- **Tier 2 (Standard):** Present elicitation questions inline. Await answers before Phase 2.
+- **Tier 2 hard gate (B1).** Before Phase 2, run `hatch3r-researcher` with `requirements-elicitation:quick` mode to detect ambiguity and ask the user via the platform-native question tool (per `agents/shared/user-question-protocol.md`). Orchestrator awaits answers and integrates them into the Phase 1 brief; do not begin Phase 2 with unresolved questions. Tier 1 is exempt only when scope is single-file, single-concern, and acceptance is testable from the user message alone.
 - **Tier 3 (Deep):** Present Pre-Implementation Summary and ASK for confirmation. Do NOT proceed until all unresolved questions are answered.
 
 ## Mandatory Delegation Directives
@@ -247,6 +247,14 @@ ALL three must hold:
 3. **Overhead < savings** — coordination cost (merge, conflict detection) is less than latency savings (max-of-agents vs sum-of-agents).
 
 **Default:** When in doubt, serialize. For typical hatch3r tasks (1–5 sub-tasks) the DAG-scheduling overhead often outweighs concurrency gain.
+
+### Cost-Dominance Principle
+
+Token cost of sub-agent invocation never justifies serialization of independent work. The three safety conditions (read-only or disjoint writes, deterministic aggregation, no shared mutable state) govern WHEN parallelism is safe; cost does not govern WHETHER to parallelize. When in doubt, fan out. Serialization is only valid on true dependency edges.
+
+### Scaling Heuristic
+
+Sub-agent count tracks task decomposition: N independent modules → N parallel Phase-2 implementers; M specialist gates → M parallel Phase-4 specialists; K independent research questions → K parallel researcher modes. Orchestrators emit `sub_agents_spawned: {count, rationale}` in their structured output.
 
 ## Cross-Phase Error Propagation
 

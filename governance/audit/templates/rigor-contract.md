@@ -38,6 +38,7 @@ Every finding satisfies six tests, drawn from established empirical practice. A 
 4. **Root-cause chain.** Distinguish symptom from systemic driver using a causal chain of at minimum three steps. Symptomatic fixes ship as Info; the systemic driver is the Medium-or-higher finding.
 5. **Bias check.** Name the specific bias risks that apply (confirmation, availability, anchoring) and flag any finding that depends on prior-report framing. A finding that cannot pass this check is downgraded one severity band.
 6. **Adversarial peer-review.** Re-read each finding as a sceptic and record one genuine counter-argument; the resolution of the counter-argument appears in the finding body.
+7. **Clarification gate (P8 B1).** When grading an agent, command, skill, or rule, a missing ambiguity-detection gate — or one not referencing `agents/shared/user-question-protocol.md`, or one that is exception-only rather than default — is a finding at **Medium minimum**. For entry-point agents and always-on rules, the minimum severity is **High**. Per Behavioral Charter directive 17 (Clarification-First Verification) and `governance/CONSTITUTION.md` §P8 B1.
 
 ---
 

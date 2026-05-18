@@ -82,6 +82,8 @@ Before any modifications, capture the immutable baseline. This is the comparison
 
    Phase 1 Triage MUST size the target set against `postDedup.total` (not `preDedup.total`). Phase 5/6/7 summaries MUST cite the `source` field when reporting counts. Backward compat: absent `source` on pre-existing Cycle 7 entries is treated as post-dedup Executive Dashboard.
 
+5. **Verify P8 gate coverage in scope:** B1 ambiguity-detection gates present on edited agents/skills/commands; sub-agent count + rationale emitted on delegating artifacts. Findings emitted at Medium+ per Behavioral Charter directive 17.
+
 Pre-existing failures are NOT regressions.
 
 ---

@@ -2,10 +2,10 @@
 
 > Last updated: 2026-04-19
 
-**Pillars served:** P2 (primary), P1 (supporting).
+**Pillars served:** P2 (primary), P1, P8 (supporting).
 
-**Scope:** How well the framework facilitates productive human-AI interaction.
-**Sub-agents:** 4
+**Scope:** How well the framework facilitates productive human-AI interaction, including proactive ambiguity detection.
+**Sub-agents:** 5
 
 | SA | Focus |
 |----|-------|
@@ -13,6 +13,7 @@
 | 13.2 | Trust Calibration |
 | 13.3 | Confidence Indication |
 | 13.4 | Feedback Loops & Educational Value |
+| 13.5 | P8 B1 Clarification Gates (directive 17) |
 
 > Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
 
@@ -55,3 +56,10 @@ Coverage of interaction types — does the framework support all 11 common inter
 - [ ] Educational value — does the framework teach users better practices, or just do the work?
 - [ ] Learning system (`/.agents/learnings/`) effectiveness assessment
 - [ ] Knowledge transfer — do agents explain their reasoning to help users learn?
+
+### 13.5 P8 B1 Clarification Gates
+Behavioral Charter directive 17 — ambiguity detection is **proactive default**, not reactive exception (`governance/CONSTITUTION.md` §P8 B1).
+- [ ] Artifact directs the agent to detect ambiguity proactively, not reactively (gate at §0/Step 0, before work begins).
+- [ ] `agents/shared/user-question-protocol.md` referenced explicitly for question phrasing and platform-native tool use.
+- [ ] Default-if-no-response handling defined per `user-question-protocol.md` template (timeout, safe default, escalation).
+- [ ] Escalation path on unresolved questions defined (human review, ASK checkpoint, abort with explanation — not silent assumption).

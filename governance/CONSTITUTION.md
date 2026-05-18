@@ -11,7 +11,7 @@ hatch3r is an open-source CLI that installs tool-agnostic agentic coding setups 
 
 ---
 
-## 2. The 7 Binding Pillars
+## 2. The 8 Binding Pillars
 
 Every governance file, audit domain, and enhancement decision must serve at least one pillar. These are the constitutional heart of the governance system.
 
@@ -27,7 +27,7 @@ Every lifecycle stage (init through release) delivers the best achievable CLI in
 Content is of verifiable, real-world-applicable quality. Findings carry the Scientific Rigor Contract — falsifiability, triangulated citations, confidence with basis, ≥3-step causal chain, bias check, peer-review counter-argument — defined in [audit/templates/rigor-contract.md](audit/templates/rigor-contract.md) and operationalised by the Behavioral Charter.
 
 **Measurement:** Behavioral charter compliance rate, one-shot success rate (see [VISION.md](VISION.md) §Quality Bar), finding root-cause depth (symptom vs. systemic). Agent-produced UI/UX measurement: WCAG 2.2 AA conformance via axe-core (0 serious/critical violations per route and per component), design-token adoption rate ≥95% on color and spacing in generated code, four-state surface contract coverage on async views (loading + empty + error + partial = 100%), agent-produced one-shot UI/UX acceptance rate cycle-over-cycle. Production-readiness metrics extend P2 to agent-produced services: instrumented-route ratio (observability) = 100%; expand-contract conformance on schema changes (migrations) = 100%; API breaking-change events per release on stable endpoints = 0; AI feature eval coverage with hallucination-as-SLI defined = 100%; per-feature-mandate-map coverage on test classes (testing depth) = 100%; SBOM + npm provenance + SHA-pinned actions (supply chain) = 100%; SLO defined on user-facing services (reliability) = 100%; OAuth 2.1 + passkey-server + RBAC-or-better authorization (auth depth) = 100%.
-**Governance refs:** [AUDIT.md §Sub-Agent Behavioral Charter](AUDIT.md) (13 directives, authoritative location), Audit Quality Architecture (3 layers), D1/D5/D7/D13.
+**Governance refs:** [AUDIT.md §Sub-Agent Behavioral Charter](AUDIT.md) (17 directives, authoritative location), Audit Quality Architecture (3 layers), D1/D5/D7/D13.
 
 ### P3. Adapter & External Tool Currency
 
@@ -54,7 +54,7 @@ Governance and audit cycles apply the same quality standards, anti-slop, and ant
 
 | Metric | Limit | Calibration |
 |--------|-------|-------------|
-| CONSTITUTION.md | <=225 lines | +25 per binding pillar added |
+| CONSTITUTION.md | <=250 lines | +25 per binding pillar added (P8 baseline) |
 | VISION.md | <=250 lines | Stable; add principles rarely |
 | AUDIT.md | <=600 lines | ±4 lines per domain count delta |
 | AUDIT-EXECUTE.md | <=700 lines | ±50 lines per execution phase delta |
@@ -84,6 +84,8 @@ Governance and audit cycles apply the same quality standards, anti-slop, and ant
 | Auth depth coverage | 100% | OAuth 2.1 + OIDC validation + DPoP + WebAuthn server-side + RBAC/ABAC/ReBAC rubric applied |
 | Anti-slop phrases | 0 per file | Pattern match per cycle |
 | Checklist items/SA | 4-8 | <4 shallow, >8 too broad |
+| Ambiguity-detection gate coverage (agents/skills/commands) | 100% | §0/Step 0 references `agents/shared/user-question-protocol.md` |
+| Sub-agent count emission on delegating artifacts | 100% | First-class output field with rationale per P8 |
 
 #### Anti-Bloat Principles
 
@@ -109,10 +111,21 @@ Security and trust are first-class governance concerns integrated into every tie
 
 ### P7. Speed & Token Efficiency (end-user runtime)
 
-End-user agentic flows (commands, agents, skills consumed in `npx hatch3r`-installed projects) are tuned for token economy and latency, using only zero-quality-loss techniques established in published LLM literature: static-first prompt structure for cross-provider cache friendliness, parallel-tool-by-default, triage-first orchestration with auto-tiered depth (Light/Standard/Deep), plan/act split, structured outputs over prose, lazy loading via reference-by-pointer, and conditional sub-agent invocation. Aggressive compression that risks quality is rejected. The audit-cycle prompt itself (AUDIT.md, RE-ENVISION.md, `hatch3r-audit-cycle*.md`) is exempt — depth there is non-negotiable. AUDIT-EXECUTE.md is no longer exempt as of Cycle 9: it carries `triage_tiers` and groups Low/Info trivial findings sharing a closed `tier1_pattern` into batch sub-agents (≤30 per batch), preserving the rule that the orchestrator never edits files itself.
+End-user agentic flows (commands, agents, skills consumed in `npx hatch3r`-installed projects) are tuned for token economy and latency, using only zero-quality-loss techniques established in published LLM literature: static-first prompt structure for cross-provider cache friendliness, parallel-tool-by-default, triage-first orchestration with auto-tiered depth (Light/Standard/Deep), plan/act split, structured outputs over prose, and lazy loading via reference-by-pointer. P7 governs the static-prompt frame and dependency-edge serialization — it does NOT govern fan-out width. Aggressive compression that risks quality is rejected. The audit-cycle prompt itself (AUDIT.md, RE-ENVISION.md, `hatch3r-audit-cycle*.md`) is exempt — depth there is non-negotiable. AUDIT-EXECUTE.md is no longer exempt as of Cycle 9: it carries `triage_tiers` and groups Low/Info trivial findings sharing a closed `tier1_pattern` into batch sub-agents (≤30 per batch), preserving the rule that the orchestrator never edits files itself.
+
+**Tension with P8 resolved:** P7 minimizes token waste in the static prompt structure; P8 mandates fan-out width sufficient for task size. Token cost is never a valid reason to under-fan-out (P8 dominates).
 
 **Measurement:** static-first ordering compliance (100% of orchestrator commands), parallel-tool directive presence (100% of multi-tool agents), triage-first directive on `orchestrator: true` commands (required), passive token/latency telemetry deltas in `src/pipeline/observability.ts` cycle-over-cycle (informational).
 **Governance refs:** AUDIT.md D06 (extended), charter directive 14 (Speed & Token Efficiency Awareness), lean thresholds below (efficiency rows).
+
+### P8. Clarification & Fan-out Discipline
+
+Every hatch3r-invoked agentic workflow detects and resolves ambiguity via `agents/shared/user-question-protocol.md` BEFORE executing — default behavior, not exception-driven.
+
+Sub-agent fan-out scales with task size; serialization is only valid on dependency edges. Token cost is never a valid reason to serialize independent work. Delegating artifacts emit sub-agent count + rationale as a first-class output field.
+
+**Measurement:** B1 gate present rate (target 100% across agents, skills, commands), sub-agent count emission rate on delegating artifacts (target 100%), under-fan-out incidents per cycle (target 0). User-content authoring tools count toward this when they delegate.
+**Governance refs:** AUDIT.md Behavioral Charter directive 17 (clarification-first verification), D05 (B1 in prompts), D07 (B2 in orchestration), D13 (B1 in human-AI collaboration), shared/user-question-protocol.md.
 
 ### Pillar Compliance Test
 
@@ -133,6 +146,7 @@ If (1) is "none", the change is rejected. If (3) is "increase", justify net valu
 | P5 Governance | P | S | P | P | S | P | S | D16,D18,D19, D20 | — |
 | P6 Security | P | — | S | S | — | — | — | D15, D20.2 | P |
 | P7 Speed & Tokens | S | — | S | S | — | — | — | D6 | — |
+| P8 Clarification & Fan-out | P | P | P | S | — | — | S | D5,D7,D13 | — |
 
 P=primary, S=supporting, —=gap or acceptable. Columns: A-EXEC=AUDIT-EXECUTE.md · RE-ENV=RE-ENVISION.md · TMPL=audit/templates · Domains=audit/domains · Trust=D15 Part B.
 **Known gaps:** P6 ↔ VISION.md and P7 ↔ VISION.md — add via RE-ENVISION.md workflow.
@@ -184,7 +198,7 @@ Identification and action are separated because audit is read-only (safe to run 
 | 3 | Identification/action separation | Audit reads safely; execution writes require gates and consent |
 | 4 | Per-proposal consent for CL-3 | Changing the audit system is highest-risk; no batch approval |
 | 5 | Content fixes flow through audit cycle | Permanent quality vs. one-time fix; audit cycle is the maintenance mechanism |
-| 6 | Dual behavioral charters | Audit agents (13 directives) evaluate; content agents (quality charter) execute |
+| 6 | Dual behavioral charters | Audit agents (17 directives) evaluate; content agents (quality charter) execute |
 | 7 | Wave-based execution with regression gates | Progressive risk: critical first, gated between waves, rollback per-wave |
 | 8 | Finding registry as central manifest | Single lifecycle record per finding; enables cross-cycle learning |
 | 9 | Governance directory isolation | governance/ for governance, agents/ for content, src/ for code -- clear boundaries |

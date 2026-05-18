@@ -12,11 +12,25 @@ cache_friendly: true
 
 ```
 Task Progress:
+- [ ] Step 0: Detect ambiguity (P8 B1)
 - [ ] Step 1: Review cost tracking configuration
 - [ ] Step 2: Estimate current session token usage
 - [ ] Step 3: Identify cost optimization opportunities
 - [ ] Step 4: Generate cost report
 ```
+
+## Step 0 — Detect Ambiguity (P8 B1)
+
+Before any work, scan the invocation for unresolved questions in scope, intent, acceptance criteria, target environment, or irreversibility. If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md`. Do not proceed under silent assumption. Default path, not an exception. Triggers for THIS skill: tracking scope (session vs issue vs epic), budget values when missing from hatch.json, hardStop authority (block vs warn), report format target, and whether to defer non-critical work over budget.
+
+## Fan-out Discipline (P8 B2)
+
+This skill delegates per task size:
+- Tier 1 (trivial single-file): inline execution acceptable.
+- Tier 2 (multi-file or multi-concern): spawn parallel sub-agents per concern via the Task tool.
+- Tier 3 (multi-module / high-risk): one fresh sub-agent per independent module or gate; orchestrator integrates only.
+
+Never under-fan-out to save tokens. Token cost is dominated by quality and completeness gains. Emit `sub_agents_spawned: { count, rationale }` in your output.
 
 ## Step 1: Review Configuration
 

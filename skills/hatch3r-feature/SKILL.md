@@ -33,6 +33,8 @@ Task Progress:
 - **Review resolved requirements**: If the orchestrator provided `requirements-elicitation` answers, read them to understand explicit user decisions on ambiguities (data shape, error behavior, UI states, security model, etc.). Do not guess when explicit answers are available.
 - For external library docs and current best practices, follow the project's tooling hierarchy.
 
+> **Ambiguity detection (P8 B1):** This skill's Step 1 already requires reading `requirements-elicitation` answers and stopping on ambiguity per the Error Handling block. The canonical ambiguity protocol is `agents/shared/user-question-protocol.md` — use the platform-native question tool when scope, acceptance criteria, or irreversibility remain unresolved after Step 1.
+
 ## Step 2: Implementation Plan
 
 Before coding, output:

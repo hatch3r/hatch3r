@@ -19,6 +19,19 @@ Inputs the skill expects:
 
 Outputs the skill produces: a 9-line verdict block written to the PR conversation, plus a JSON artifact at `.audit-workspace/reliability-verify-<sha>.json` for downstream consumption by `hatch3r-release` (or any downstream release-prep skill).
 
+## Step 0 — Detect Ambiguity (P8 B1)
+
+Before any work, scan the invocation for unresolved questions in scope, intent, acceptance criteria, target environment, or irreversibility. If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md`. Do not proceed under silent assumption. Default path, not an exception. Triggers for THIS skill: service scope, SLO target values and window, rollout strategy (canary stages, hold durations), kill-switch authority and provider, and blast-radius rollback drill cadence.
+
+## Fan-out Discipline (P8 B2)
+
+This skill delegates per task size:
+- Tier 1 (trivial single-file): inline execution acceptable.
+- Tier 2 (multi-file or multi-concern): spawn parallel sub-agents per concern via the Task tool.
+- Tier 3 (multi-module / high-risk): one fresh sub-agent per independent module or gate; orchestrator integrates only.
+
+Never under-fan-out to save tokens. Token cost is dominated by quality and completeness gains. Emit `sub_agents_spawned: { count, rationale }` in your output.
+
 ## Gate 1: SLO defined
 
 - The service has at least one Service Level Objective with target percentile, evaluation window, and a wired burn-rate alert.

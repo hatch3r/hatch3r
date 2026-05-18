@@ -13,6 +13,19 @@ Run this skill before shipping any LLM-driven feature. It defines the canonical 
 
 This skill is the implementation counterpart to `rules/hatch3r-ai-evals.md` (backend governance) and `rules/hatch3r-ai-ux-patterns.md` (UI governance). The rules define the bar; this skill defines the route to clearing the bar.
 
+## Step 0 — Detect Ambiguity (P8 B1)
+
+Before any work, scan the invocation for unresolved questions in scope, intent, acceptance criteria, target environment, or irreversibility. If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md`. Do not proceed under silent assumption. Default path, not an exception. Triggers for THIS skill: task class (classification vs open-ended vs RAG vs agentic), model pin (Sonnet vs Opus vs Haiku), eval threshold values, budget per request (cost cap), and fallback policy (graceful degrade vs hard fail).
+
+## Fan-out Discipline (P8 B2)
+
+This skill delegates per task size:
+- Tier 1 (trivial single-file): inline execution acceptable.
+- Tier 2 (multi-file or multi-concern): spawn parallel sub-agents per concern via the Task tool.
+- Tier 3 (multi-module / high-risk): one fresh sub-agent per independent module or gate; orchestrator integrates only.
+
+Never under-fan-out to save tokens. Token cost is dominated by quality and completeness gains. Emit `sub_agents_spawned: { count, rationale }` in your output.
+
 ## Step 1: Define the task and success criteria
 
 - Write down what "right" looks like in one paragraph — the user input class, the expected output shape, the failure modes you want to catch.

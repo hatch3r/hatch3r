@@ -12,12 +12,26 @@ cache_friendly: true
 
 ```
 Task Progress:
+- [ ] Step 0: Detect ambiguity (P8 B1)
 - [ ] Step 1: Read the issue and relevant specs
 - [ ] Step 2: Produce a validation plan
 - [ ] Step 3: Execute all test cases
 - [ ] Step 4: Produce the validation report
 - [ ] Step 5: File follow-up issues
 ```
+
+## Step 0 — Detect Ambiguity (P8 B1)
+
+Before any work, scan the invocation for unresolved questions in scope, intent, acceptance criteria, target environment, or irreversibility. If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md`. Do not proceed under silent assumption. Default path, not an exception. This upgrades validation from exception-driven to default-driven. Triggers for THIS skill: validation scope (single feature vs release), target environment (staging vs prod), pass/fail thresholds, flaky-test policy (retry vs quarantine), and ship/hold authority (auto-block vs surface for review).
+
+## Fan-out Discipline (P8 B2)
+
+This skill delegates per task size:
+- Tier 1 (trivial single-file): inline execution acceptable.
+- Tier 2 (multi-file or multi-concern): spawn parallel sub-agents per concern via the Task tool.
+- Tier 3 (multi-module / high-risk): one fresh sub-agent per independent module or gate; orchestrator integrates only.
+
+Never under-fan-out to save tokens. Token cost is dominated by quality and completeness gains. Emit `sub_agents_spawned: { count, rationale }` in your output.
 
 ## Step 1: Read Inputs
 

@@ -176,6 +176,8 @@ Task Analysis:
 
 **Goal:** Design the solution before implementing.
 
+**Research-completeness directive (P8 B2).** If the Plan phase discovers unknowns not covered by Phase 1 research, spawn additional researcher modes before Phase 3 (Implementation). Do not defer research unknowns to implementation time. Spawning more researcher sub-agents is cheaper than discovered rework.
+
 #### 2a. Draft Implementation Plan
 
 1. List all files to create or modify.
