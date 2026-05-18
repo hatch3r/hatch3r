@@ -81,6 +81,14 @@ interface AdapterCapability {
    * matrix consistency test.
    */
   nativeQuestionTool: boolean;
+  /**
+   * Whether the adapter participates in the CLI-tooling pivot — i.e. emits
+   * the per-tool `hatch3r-cli-*` skills filtered by `manifest.cliTools.selected`.
+   * `true` for the 13 adapters with native `skills: true` output;
+   * `false` for `amp` (reads canonical skills natively) and `zed` (skills:
+   * false; gets a one-line reference in its rules output instead).
+   */
+  cliTools: boolean;
 }
 
 // Adapter capability matrix — last updated for hatch3r v1.6.0.
@@ -89,28 +97,32 @@ interface AdapterCapability {
 // an existing tool gains/loses support for a feature (e.g. a tool ships
 // native hook support). Each row must match the adapter's doGenerate() output.
 export const ADAPTER_CAPABILITIES: Record<Tool, AdapterCapability> = {
-  cursor:   { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false, worktree: true,  customization: true,  modelOverride: true,  nativeQuestionTool: false },
-  claude:   { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false, worktree: true,  customization: true,  modelOverride: true,  nativeQuestionTool: true  },
-  gemini:   { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false, worktree: true,  customization: true,  modelOverride: true,  nativeQuestionTool: false },
-  cline:    { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false, worktree: true,  customization: true,  modelOverride: true,  nativeQuestionTool: false },
-  codex:      { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true,  nativeQuestionTool: false },
-  "amazon-q": { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true,  nativeQuestionTool: false },
-  copilot:  { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: true,  prompts: true,  githubAgents: true,  worktree: true,  customization: true,  modelOverride: true,  nativeQuestionTool: false },
-  opencode: { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: true,  prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true,  nativeQuestionTool: false },
+  cursor:   { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false, worktree: true,  customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: true  },
+  claude:   { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false, worktree: true,  customization: true,  modelOverride: true,  nativeQuestionTool: true,  cliTools: true  },
+  gemini:   { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false, worktree: true,  customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: true  },
+  cline:    { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false, worktree: true,  customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: true  },
+  codex:      { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: true  },
+  "amazon-q": { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: true  },
+  copilot:  { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: true,  prompts: true,  githubAgents: true,  worktree: true,  customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: true  },
+  opencode: { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: true,  prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: true  },
   // C7.5-W2B2-H31 (D9-SA9.7.1): Windsurf shipped Cascade Hooks in v1.13.12 (2026-01-25).
   // Hatch3r emits `.windsurf/hooks.json` per docs.windsurf.com/windsurf/cascade/hooks.md.
-  windsurf: { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false, worktree: true,  customization: true,  modelOverride: true,  nativeQuestionTool: false },
+  windsurf: { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false, worktree: true,  customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: true  },
   // Amp reads AGENTS.md natively; the root file is written by generateRootAgentsMd()
   // in init/update, not by this adapter. Amp also reads skills natively from
   // `.agents/skills/` — populated by copyHatch3rFiles, not re-emitted by this
   // adapter (re-emission corrupts SKILL.md frontmatter via managed-block wrap).
-  // doGenerate() emits MCP settings only.
-  amp:      { agents: false, skills: false, rules: false, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true,  nativeQuestionTool: false },
-  kiro:     { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true,  nativeQuestionTool: false },
-  aider:    { agents: true, skills: true, rules: true, hooks: false, mcp: false, commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true,  nativeQuestionTool: false },
-  goose:    { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true,  nativeQuestionTool: false },
-  zed:      { agents: true, skills: false, rules: true, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: false, modelOverride: false, nativeQuestionTool: false },
-  antigravity: { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true,  nativeQuestionTool: false },
+  // doGenerate() emits MCP settings only. cliTools: false — Amp reads
+  // `hatch3r-cli-*` skills from the canonical `.agents/skills/` tree directly.
+  amp:      { agents: false, skills: false, rules: false, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: false },
+  kiro:     { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: true  },
+  aider:    { agents: true, skills: true, rules: true, hooks: false, mcp: false, commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: true  },
+  goose:    { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: true  },
+  // Zed has no skills surface (skills: false). cliTools: false — Wave 3 will
+  // emit a one-line "Available CLI tool guides: ..." reference inside the
+  // rules output instead of per-tool skill files.
+  zed:      { agents: true, skills: false, rules: true, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: false, modelOverride: false, nativeQuestionTool: false, cliTools: false },
+  antigravity: { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: true  },
 };
 
 /**
@@ -146,6 +158,21 @@ export function getUnsupportedFeatureWarnings(tool: string, manifest: HatchManif
       unsupported.push(label);
     }
   }
+
+  // CLI-tooling pivot: `cliTools` lives on `manifest.cliTools.enabled`, not
+  // `manifest.features`, so it is checked separately from the
+  // feature-label loop above. Warns only when the user has selected at
+  // least one CLI tool but the active adapter does not render the
+  // per-tool `hatch3r-cli-*` skills (e.g. `amp` reads them natively from
+  // the canonical tree; `zed` has no skills surface).
+  if (
+    manifest.cliTools?.enabled &&
+    (manifest.cliTools.selected?.length ?? 0) > 0 &&
+    !caps.cliTools
+  ) {
+    unsupported.push("CLI tool skills");
+  }
+
   if (unsupported.length === 0) return [];
 
   const noun = unsupported.length === 1 ? "feature" : "features";

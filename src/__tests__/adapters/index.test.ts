@@ -80,6 +80,7 @@ describe("getUnsupportedFeatureWarnings", () => {
         mcp: false,
         githubAgents: false,
         hooks: false,
+        handoffs: false,
         ...features,
       },
       mcp: { servers: [] },

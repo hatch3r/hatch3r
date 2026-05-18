@@ -265,3 +265,31 @@ npx hatch3r add <pack>
 ```
 
 This command will allow installing community-contributed agent packs, rule sets, and workflow recipes. Follow [hatch3r on GitHub](https://github.com/hatch3r) for updates.
+
+## hatch3r cli-tools
+
+Added in 1.7.5. Manage the agentic CLI-tools selection (ripgrep, fd, jq, gh, ast-grep, and 25 others across three tiers). The CLI-tooling pivot positions OS-native CLI tools as the default token-efficient agent-tooling surface; MCP is opt-in.
+
+```bash
+npx hatch3r cli-tools                 # open the tier-grouped picker
+npx hatch3r cli-tools list            # show current selection + install status
+npx hatch3r cli-tools detect          # read-only detection report
+npx hatch3r cli-tools install         # re-run the installer offer for missing tools
+```
+
+Detection uses POSIX `command -v` / Windows `where` with a 2-second timeout and fail-open semantics. The installer never executes — it prints copy-paste commands grouped per package manager (`brew`, `apt`, `dnf`, `winget`, `scoop`, with `cargo` / `pipx` / `npm` fallback). After every flow that touches CLI-tool selection, a warning-style box surfaces any selected-but-not-installed tools alongside a one-liner that chains installable tools through their shared package manager.
+
+See the [CLI Tools getting-started guide](../../getting-started/cli-tools.md) for the full tier catalog.
+
+## hatch3r mcp
+
+Added in 1.7.5. Manage MCP server configuration as a side-door for users who skipped MCP during init or want to revisit it later. MCP is opt-in in 1.7.5 (`hatch3r init --yes` no longer auto-configures MCP — add `--mcp` to restore the prior behavior).
+
+```bash
+npx hatch3r mcp setup                 # reopen the MCP server picker
+npx hatch3r mcp list                  # show current MCP configuration
+npx hatch3r mcp remove <id>           # delete a single MCP server
+npx hatch3r mcp env-check             # audit .env.mcp for missing required env vars
+```
+
+See [MCP setup](../../guides/mcp-setup.md) for server reference and security model.

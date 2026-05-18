@@ -156,6 +156,9 @@ export function applyDefaultConfigMocks(refs: ConfigMockRefs): void {
     start: vi.fn(),
     succeed: vi.fn(),
     fail: vi.fn(),
+    warn: vi.fn(),
+    info: vi.fn(),
+    stop: vi.fn(),
   });
   vi.mocked(refs.step as AnyMock).mockImplementation(
     (n: number, total: number, msg: string) => `[${n}/${total}] ${msg}`,
@@ -176,6 +179,19 @@ export interface PromptOverrides {
   mcpServers?: string[];
   contentPreset?: string;
   contentItems?: string[];
+  /**
+   * Wave 3 (CLI-tooling pivot, plan §4.4): default selection returned by
+   * `pickCliTools`. An empty selection short-circuits the detection +
+   * installer follow-ups so the prompt sequence stays deterministic.
+   */
+  cliTools?: string[];
+  /**
+   * Wave 3 (CLI-tooling pivot, plan §4.4): answer to the Yes/No MCP gate.
+   * Defaults to `true` when the manifest has existing servers (mirrors
+   * production `confirmMcpGate` semantics — re-runs don't silently wipe
+   * existing setups). Set to `false` to exercise the decline branch.
+   */
+  mcpGateProceed?: boolean;
 }
 
 /**
@@ -271,21 +287,38 @@ export function setupStandardPrompts(
     tools: overrides.tools ?? manifest.tools,
   });
 
-  // 5. Features prompt
+  // 5. Wave 3 CLI tools picker (plan §4.4). An empty selection skips the
+  // detection sweep + installer follow-ups so the remaining prompt order
+  // stays deterministic. Tests targeting the cliTools roundtrip pass an
+  // explicit `cliTools: [...]` override.
+  inquirerMock.prompt.mockResolvedValueOnce({
+    tools: overrides.cliTools ?? [],
+  });
+
+  // 6. Features prompt
   const currentFeatureKeys =
     overrides.features ??
     (Object.keys(DEFAULT_FEATURES) as (keyof Features)[]).filter((k) => manifest.features[k]);
   inquirerMock.prompt.mockResolvedValueOnce({ features: currentFeatureKeys });
 
-  // 6. MCP servers prompt (only if mcp feature enabled)
+  // 7. Wave 3 MCP Yes/No gate (plan §4.4). Fires only when the mcp feature
+  // is enabled. Default proceed=true when the manifest already has servers
+  // (matches production `confirmMcpGate` defaultYes semantics). If gate
+  // proceeds, the server picker runs next.
   const featureSet = new Set(currentFeatureKeys);
   if (featureSet.has("mcp")) {
-    inquirerMock.prompt.mockResolvedValueOnce({
-      mcp: overrides.mcpServers ?? manifest.mcp.servers,
-    });
+    const hasExistingMcp = (manifest.mcp.servers ?? []).length > 0;
+    const proceedMcp = overrides.mcpGateProceed ?? hasExistingMcp;
+    inquirerMock.prompt.mockResolvedValueOnce({ proceed: proceedMcp });
+    if (proceedMcp) {
+      // 8. MCP servers picker (only when the user proceeded through the gate)
+      inquirerMock.prompt.mockResolvedValueOnce({
+        mcp: overrides.mcpServers ?? manifest.mcp.servers,
+      });
+    }
   }
 
-  // 6b. Worktree prompt (only if tools include a worktree-capable tool)
+  // 9. Worktree prompt (only if tools include a worktree-capable tool)
   const selectedTools = overrides.tools ?? manifest.tools;
   if (selectedTools.some((t: string) => t === "claude")) {
     inquirerMock.prompt.mockResolvedValueOnce({
@@ -293,13 +326,13 @@ export function setupStandardPrompts(
     });
   }
 
-  // 7. Content preset selection prompt (only if manifest has content)
+  // 10. Content preset selection prompt (only if manifest has content)
   if (manifest.content) {
     inquirerMock.prompt.mockResolvedValueOnce({
       preset: overrides.contentPreset ?? manifest.content.preset ?? "full",
     });
 
-    // 8. Custom items prompt (only if preset is "custom")
+    // 11. Custom items prompt (only if preset is "custom")
     if (overrides.contentPreset === "custom") {
       inquirerMock.prompt.mockResolvedValueOnce({
         items: overrides.contentItems ?? [],

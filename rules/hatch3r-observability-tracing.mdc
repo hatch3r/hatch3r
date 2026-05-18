@@ -1,6 +1,6 @@
 ---
 description: Distributed tracing and OpenTelemetry core conventions for the project
-globs: ["**/*trac*", "**/*span*", "**/*telemetry*", "**/*otel*", "**/observability/**"]
+globs: ["**/*trac*", "**/*span*", "**/*telemetry*", "**/*otel*", "**/observability/**", "**/routes/**", "**/handlers/**", "**/services/**", "**/api/**", "**/middleware/**", "**/controllers/**", "**/lib/**"]
 alwaysApply: false
 ---
 # Observability -- Distributed Tracing & OpenTelemetry

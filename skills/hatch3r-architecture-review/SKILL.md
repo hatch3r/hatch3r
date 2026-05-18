@@ -12,6 +12,7 @@ cache_friendly: true
 
 ```
 Task Progress:
+- [ ] Step 0: Detect ambiguity (P8 B1)
 - [ ] Step 1: Read existing ADRs and the template
 - [ ] Step 2: Define the decision context — problem, constraints, options
 - [ ] Step 3: Evaluate options — pros/cons, prototype if needed, check ADR constraints
@@ -19,6 +20,19 @@ Task Progress:
 - [ ] Step 5: Write ADR following the template
 - [ ] Step 6: Update affected specs or docs to reference the new ADR
 ```
+
+## Step 0 — Detect Ambiguity (P8 B1)
+
+Before any work, scan the invocation for unresolved questions in scope, intent, acceptance criteria, target environment, or irreversibility. If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md`. Do not proceed under silent assumption. Default path, not an exception. Triggers for THIS skill: problem framing (what decision needs to be made), constraint set (mandatory vs preferred), evaluation horizon (short-term vs long-term cost), supersedes which prior ADR, and ADR status target (PROPOSED for discussion vs ACCEPTED for binding decision).
+
+## Fan-out Discipline (P8 B2)
+
+This skill delegates per task size:
+- Tier 1 (trivial single-file): inline execution acceptable.
+- Tier 2 (multi-file or multi-concern): spawn parallel sub-agents per concern via the Task tool.
+- Tier 3 (multi-module / high-risk): one fresh sub-agent per independent module or gate; orchestrator integrates only.
+
+Never under-fan-out to save tokens. Token cost is dominated by quality and completeness gains. Emit `sub_agents_spawned: { count, rationale }` in your output.
 
 ## Step 1: Read Existing ADRs and Template
 

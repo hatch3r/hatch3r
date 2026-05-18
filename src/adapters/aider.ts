@@ -25,7 +25,7 @@ export class AiderAdapter extends BaseAdapter {
     ];
 
     results.push(
-      ...await this.processSkillsRaw(ctx, (id) => `.aider/skills/${toPrefixedId(id)}/SKILL.md`),
+      ...await this.processSkillsRawCliFiltered(ctx, (id) => `.aider/skills/${toPrefixedId(id)}/SKILL.md`),
     );
 
     // Note: Aider config is output as YAML (.aider.conf.yml). If TOML output is

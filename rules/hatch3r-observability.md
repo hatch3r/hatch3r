@@ -3,6 +3,7 @@ id: hatch3r-observability
 type: rule
 description: "[Deprecated] Observability conventions -- split into hatch3r-observability-logging, hatch3r-observability-metrics, and hatch3r-observability-tracing"
 scope: conditional
+globs: "**/routes/**,**/handlers/**,**/services/**,**/api/**,**/middleware/**,**/controllers/**,**/lib/**,**/observability/**"
 tags: [devops]
 quality_charter: agents/shared/quality-charter.md
 deprecated: true

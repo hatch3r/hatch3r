@@ -14,12 +14,17 @@ cache_friendly: true
 
 ```
 Task Progress:
+- [ ] Step 0: Detect ambiguity (P8 B1)
 - [ ] Step 1: Inventory existing endpoints
 - [ ] Step 2: Generate OpenAPI spec
 - [ ] Step 3: Validate schemas
 - [ ] Step 4: Generate documentation
 - [ ] Step 5: Verify spec accuracy
 ```
+
+## Step 0 — Detect Ambiguity (P8 B1)
+
+Before any work, scan the invocation for unresolved questions in scope, intent, acceptance criteria, target environment, or irreversibility. If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md`. Do not proceed under silent assumption. Default path, not an exception. Triggers for THIS skill: OpenAPI version (3.0 vs 3.1), spec output path, auth scheme (Bearer vs OAuth2 vs API key), breaking-change policy (block vs version vs document), and target consumers (SDK clients vs human docs vs both).
 
 ## Step 1: Inventory Existing Endpoints
 

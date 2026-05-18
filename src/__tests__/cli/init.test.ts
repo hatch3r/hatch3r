@@ -25,7 +25,7 @@ vi.mock("inquirer", () => {
 const AGENTS_DIR = ".agents";
 
 describe("init command", () => {
-  let initCommand: (opts?: { tools?: string; yes?: boolean }) => Promise<void>;
+  let initCommand: (opts?: { tools?: string; yes?: boolean; cliTools?: string; noCliTools?: boolean; mcp?: boolean }) => Promise<void>;
   let tempDir: string;
   let cwdSpy: MockInstance;
   let exitSpy: MockInstance;
@@ -176,8 +176,11 @@ describe("init command", () => {
     expect(manifest.features.githubAgents).toBe(true);
   });
 
-  it("should include MCP servers when mcp feature is enabled", async () => {
-    await initCommand({ yes: true });
+  // Wave 3 (CLI-tooling pivot, plan §4.3): MCP is now off by default in
+  // `--yes`; callers must pass `--mcp` to re-opt-in. Tests that exercise the
+  // server picker side-effects pass the flag explicitly.
+  it("should include MCP servers when mcp feature is enabled and --mcp is passed", async () => {
+    await initCommand({ yes: true, mcp: true } as Parameters<typeof initCommand>[0]);
 
     const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
     const manifest = JSON.parse(await readFile(manifestPath, "utf-8"));
@@ -186,8 +189,19 @@ describe("init command", () => {
     expect(manifest.mcp.servers.length).toBeGreaterThan(0);
   });
 
-  it("should create .env.mcp with required env vars for selected servers", async () => {
+  it("--yes default produces empty MCP servers (Wave 3 plan §4.3)", async () => {
     await initCommand({ yes: true });
+
+    const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf-8"));
+
+    // Plan §4.3 step 8 / §2 decision row: --yes now defaults MCP off. The
+    // server list is empty unless --mcp is explicitly passed.
+    expect(manifest.mcp.servers).toEqual([]);
+  });
+
+  it("should create .env.mcp with required env vars for selected servers when --mcp is passed", async () => {
+    await initCommand({ yes: true, mcp: true } as Parameters<typeof initCommand>[0]);
 
     const envPath = join(tempDir, ".env.mcp");
     const content = await readFile(envPath, "utf-8");
@@ -195,8 +209,8 @@ describe("init command", () => {
     expect(content).toContain("hatch3r MCP secrets");
   });
 
-  it("should filter canonical mcp.json to only include selected servers", async () => {
-    await initCommand({ yes: true });
+  it("should filter canonical mcp.json to only include selected servers when --mcp is passed", async () => {
+    await initCommand({ yes: true, mcp: true } as Parameters<typeof initCommand>[0]);
 
     const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
     const manifest = JSON.parse(await readFile(manifestPath, "utf-8"));
@@ -221,8 +235,10 @@ describe("init command", () => {
     expect(output).toContain("Features");
   });
 
-  it("should display sourcing hint in success box", async () => {
-    await initCommand({ yes: true });
+  it("should display sourcing hint in success box when --mcp is passed", async () => {
+    // Wave 3: the .env.mcp hint only shows when an MCP setup is generated;
+    // pass --mcp to re-opt-in so this assertion remains meaningful.
+    await initCommand({ yes: true, mcp: true } as Parameters<typeof initCommand>[0]);
 
     const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
     expect(output).toContain("Add your secrets to");
@@ -293,6 +309,26 @@ describe("init command", () => {
     expect(after.costTracking).toEqual({ sessionBudget: 5, currency: "USD", hardStop: true });
     expect(after.specs.paths).toEqual(["docs/api.md", "docs/architecture.md"]);
     expect(after.specs.lastGenerated).toBe("2026-05-01");
+  });
+
+  // 1.7.5 (Wave 5, CLI-tooling pivot plan §4.7): cliTools selection survives
+  // a re-init. Init-supplied cliTools wins over preserved per the
+  // applyPreservedManifestFields rule, but the explicit flag path mirrors
+  // the previous selection — this test pins the bonus round-trip surface.
+  it("re-init --yes --cli-tools tier1 preserves the same tier-1 selection", async () => {
+    await initCommand({ yes: true, cliTools: "tier1" });
+
+    const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
+    const baseline = JSON.parse(await readFile(manifestPath, "utf-8"));
+    // Confirm the first init produced the expected tier-1 set.
+    expect(baseline.cliTools.selected).toContain("ripgrep");
+    expect(baseline.cliTools.selected).toContain("jq");
+
+    // Re-init with the same flag — selection re-emerges deterministically.
+    await initCommand({ yes: true, cliTools: "tier1" });
+
+    const after = JSON.parse(await readFile(manifestPath, "utf-8"));
+    expect(after.cliTools.selected).toEqual(baseline.cliTools.selected);
   });
 
   it("should include AGENTS.md in managedFiles", async () => {
@@ -851,6 +887,10 @@ describe("init worktree generation (claude tool present)", () => {
 
   // v1.6.1 Fix 2: --worktree / --no-worktree flags + interactive prompt.
   // Queue the interactive single-repo prompt sequence for tests that rely on it.
+  // Wave 3 (CLI-tooling pivot, plan §4.3) inserted a CLI-tools picker after
+  // worktree and an MCP Yes/No gate before the MCP-server picker; the empty
+  // selection for tools={} skips the detection + installer follow-ups so the
+  // remaining prompt order stays deterministic.
   function queueInteractiveWithWorktree(opts: { tools?: string[]; worktree?: boolean } = {}): void {
     const inq = vi.mocked(inquirer.prompt);
     const tools = opts.tools ?? ["claude"];
@@ -866,6 +906,8 @@ describe("init worktree generation (claude tool present)", () => {
     } else if (tools.includes("claude")) {
       inq.mockResolvedValueOnce({ enabled: true });
     }
+    // Wave 3: CLI tools picker — empty selection skips detection/installer.
+    inq.mockResolvedValueOnce({ tools: [] });
     inq.mockResolvedValueOnce({ features: ["agents"] });
     // D20: post-init "create your first user artifact?" prompt — decline so
     // the rest of the test logic remains unchanged.
@@ -1024,10 +1066,16 @@ describe("init interactive single-repo flow", () => {
 
   /**
    * Queue prompt responses for the interactive single-repo flow.
-   * Prompt order: platform -> owner/repo -> defaultBranch -> projectType ->
-   * teamSize -> preset -> [custom items] -> tools -> [worktree] -> features -> [mcp].
+   * Wave 3 (CLI-tooling pivot, plan §4.3): prompt order is now
+   *   platform -> owner/repo -> defaultBranch -> projectType -> teamSize ->
+   *   preset -> [custom items] -> tools -> [worktree] -> cliTools picker ->
+   *   features -> [mcp gate] -> [mcp servers].
    * The worktree prompt fires only when a worktree-capable tool (e.g. claude)
-   * is in the selected tools list.
+   * is in the selected tools list. The cliTools picker always runs but an
+   * empty selection short-circuits the detection + installer follow-ups so
+   * tests stay deterministic. The MCP gate fires only when `features.mcp` is
+   * true; the server picker fires only when the user proceeds through the
+   * gate (mcpServers !== undefined here).
    */
   function setupGithubInteractive(opts: {
     preset?: "minimal" | "standard" | "full" | "custom";
@@ -1038,6 +1086,7 @@ describe("init interactive single-repo flow", () => {
     mcpServers?: string[];
     customItems?: string[];
     worktree?: boolean;
+    cliTools?: string[];
   } = {}): void {
     const inq = vi.mocked(inquirer.prompt);
     const tools = opts.tools ?? ["claude"];
@@ -1056,11 +1105,21 @@ describe("init interactive single-repo flow", () => {
     if (tools.includes("claude")) {
       inq.mockResolvedValueOnce({ enabled: opts.worktree ?? true });
     }
+    // Wave 3: CLI tools picker — empty selection skips detection + installer.
+    inq.mockResolvedValueOnce({ tools: opts.cliTools ?? [] });
     inq.mockResolvedValueOnce({
       features: opts.features ?? ["agents", "skills", "rules", "prompts", "commands", "mcp", "githubAgents", "hooks"],
     });
-    if ((opts.features ?? ["mcp"]).includes("mcp")) {
-      inq.mockResolvedValueOnce({ mcp: opts.mcpServers ?? ["github", "playwright", "context7"] });
+    const featuresList = opts.features ?? ["mcp"];
+    if (featuresList.includes("mcp")) {
+      // MCP Yes/No gate — proceed only when the caller supplied servers; an
+      // explicit `mcpServers: []` still proceeds (the user opened the picker
+      // and toggled everything off).
+      const proceedMcp = opts.mcpServers !== undefined;
+      inq.mockResolvedValueOnce({ proceed: proceedMcp });
+      if (proceedMcp) {
+        inq.mockResolvedValueOnce({ mcp: opts.mcpServers ?? ["github", "playwright", "context7"] });
+      }
     }
     // D20: post-init "create your first user artifact?" prompt — decline so
     // the rest of the test logic remains unchanged.
@@ -1106,6 +1165,8 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt
+    // Wave 3: CLI tools picker — empty selection skips detection/installer.
+    inq.mockResolvedValueOnce({ tools: [] });
     inq.mockResolvedValueOnce({ features: ["agents"] });
     inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
 
@@ -1129,6 +1190,8 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt
+    // Wave 3: CLI tools picker — empty selection skips detection/installer.
+    inq.mockResolvedValueOnce({ tools: [] });
     inq.mockResolvedValueOnce({ features: ["agents"] });
     inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
 
@@ -1155,6 +1218,8 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ tools: [] });
     // tools fall-through to ["claude"] triggers the worktree prompt
     inq.mockResolvedValueOnce({ enabled: true });
+    // Wave 3: CLI tools picker — empty selection skips detection/installer.
+    inq.mockResolvedValueOnce({ tools: [] });
     inq.mockResolvedValueOnce({ features: ["agents"] });
     inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
 
@@ -1194,6 +1259,8 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt (claude selected)
+    // Wave 3: CLI tools picker — empty selection skips detection/installer.
+    inq.mockResolvedValueOnce({ tools: [] });
     inq.mockResolvedValueOnce({ features: ["agents"] });
     // The checkExisting prompt — accept overwrite
     inq.mockResolvedValueOnce({ proceed: true });
@@ -1223,6 +1290,8 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt (claude selected)
+    // Wave 3: CLI tools picker — empty selection skips detection/installer.
+    inq.mockResolvedValueOnce({ tools: [] });
     inq.mockResolvedValueOnce({ features: ["agents"] });
     // Reject overwrite
     inq.mockResolvedValueOnce({ proceed: false });
@@ -1289,6 +1358,8 @@ describe("init interactive workspace flow", () => {
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     // 6b) Worktree prompt (claude selected)
     inq.mockResolvedValueOnce({ enabled: true });
+    // 6c) Wave 3 CLI tools picker — empty selection skips detection/installer.
+    inq.mockResolvedValueOnce({ tools: [] });
     // 7) Features
     inq.mockResolvedValueOnce({ features: ["agents"] });
     // 7b) D20 post-init "create your first user artifact?" prompt fired by
@@ -1319,6 +1390,8 @@ describe("init interactive workspace flow", () => {
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt (claude selected)
+    // Wave 3 CLI tools picker — empty selection skips detection/installer.
+    inq.mockResolvedValueOnce({ tools: [] });
     inq.mockResolvedValueOnce({ features: ["agents"] });
     inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
 
@@ -1353,6 +1426,8 @@ describe("init interactive workspace flow", () => {
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     // 7b) Worktree prompt (claude selected)
     inq.mockResolvedValueOnce({ enabled: true });
+    // 7c) Wave 3 CLI tools picker — empty selection skips detection/installer.
+    inq.mockResolvedValueOnce({ tools: [] });
     // 8) Features
     inq.mockResolvedValueOnce({ features: ["agents"] });
     // 8b) D20 post-init "create your first user artifact?" prompt fired by
@@ -1535,6 +1610,8 @@ describe("init eager flag validation (C8-D1-M4)", () => {
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt (claude selected)
+    // Wave 3 CLI tools picker — empty selection skips detection/installer.
+    inq.mockResolvedValueOnce({ tools: [] });
     inq.mockResolvedValueOnce({ features: ["agents"] });
     inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
 
@@ -1602,6 +1679,7 @@ describe("init runInit idempotency guard (C8-D1-M3)", () => {
         mcp: false,
         hooks: false,
         githubAgents: false,
+        handoffs: true,
       },
       mcpServers: [],
       repoInfo,
@@ -1690,6 +1768,8 @@ describe("init workspace conflict guard (C8-D1-M3)", () => {
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt (claude selected)
+    // Wave 3 CLI tools picker — empty selection skips detection/installer.
+    inq.mockResolvedValueOnce({ tools: [] });
     inq.mockResolvedValueOnce({ features: ["agents"] });
     inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
     // Select the repo with existing hatch3r for sync (triggers conflict prompt)
@@ -1717,6 +1797,8 @@ describe("init workspace conflict guard (C8-D1-M3)", () => {
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt (claude selected)
+    // Wave 3 CLI tools picker — empty selection skips detection/installer.
+    inq.mockResolvedValueOnce({ tools: [] });
     inq.mockResolvedValueOnce({ features: ["agents"] });
     inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
     inq.mockResolvedValueOnce({ syncRepos: ["api"] });
@@ -1740,6 +1822,8 @@ describe("init workspace conflict guard (C8-D1-M3)", () => {
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt (claude selected)
+    // Wave 3 CLI tools picker — empty selection skips detection/installer.
+    inq.mockResolvedValueOnce({ tools: [] });
     inq.mockResolvedValueOnce({ features: ["agents"] });
     inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
     inq.mockResolvedValueOnce({ syncRepos: ["api"] });
@@ -1750,6 +1834,140 @@ describe("init workspace conflict guard (C8-D1-M3)", () => {
     const wsManifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "workspace.json"), "utf-8"));
     const apiEntry = wsManifest.repos.find((r: { name: string }) => r.name === "api");
     expect(apiEntry?.sync).toBe(true);
+  });
+});
+
+// ── Wave 5 (CLI-tooling pivot, plan §4.3) ─────────────────────────
+//
+// Coverage for the new --yes flags introduced by the CLI-tooling pivot:
+//   --cli-tools <ids|tier1|all>   resolveCliToolsFlag
+//   --no-cli-tools                disables CLI tools entirely
+//   --mcp                         re-opts into MCP defaults
+//
+// The flags must produce the expected manifest.cliTools / manifest.mcp
+// shape without prompting the user.
+
+describe("init --yes CLI tooling flags (Wave 5 plan §4.3)", () => {
+  let initCommand: (opts?: {
+    tools?: string;
+    yes?: boolean;
+    cliTools?: string;
+    noCliTools?: boolean;
+    mcp?: boolean;
+  }) => Promise<void>;
+  let tempDir: string;
+  let cwdSpy: MockInstance;
+  let exitSpy: MockInstance;
+  let consoleSpy: MockInstance;
+  let consoleErrorSpy: MockInstance;
+
+  beforeAll(async () => {
+    ({ initCommand } = await import("../../cli/commands/init.js"));
+  });
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-init-cli-"));
+    cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+    exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation((() => {
+        throw new Error("process.exit called");
+      }) as never);
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(async () => {
+    cwdSpy.mockRestore();
+    exitSpy.mockRestore();
+    consoleSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("--yes --no-cli-tools produces manifest.cliTools.enabled === false", async () => {
+    await initCommand({ yes: true, noCliTools: true });
+
+    const manifest = JSON.parse(
+      await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"),
+    );
+    expect(manifest.cliTools).toBeDefined();
+    expect(manifest.cliTools.enabled).toBe(false);
+    expect(manifest.cliTools.selected).toEqual([]);
+  });
+
+  it("--yes --cli-tools tier1 produces the tier-1 selection", async () => {
+    await initCommand({ yes: true, cliTools: "tier1" });
+
+    const manifest = JSON.parse(
+      await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"),
+    );
+    expect(manifest.cliTools.enabled).toBe(true);
+    // TIER1_CLI_TOOLS (plan §3) = ripgrep, fd, jq, yq, gh, delta, bat, sd,
+    // ast-grep, zstd (10 entries). Assert membership rather than exact
+    // equality so trigger-driven additions on a real CI runner do not flake
+    // the test — `--cli-tools tier1` explicitly resolves to TIER1 only.
+    expect(manifest.cliTools.selected).toEqual([
+      "ripgrep",
+      "fd",
+      "jq",
+      "yq",
+      "gh",
+      "delta",
+      "bat",
+      "sd",
+      "ast-grep",
+      "zstd",
+    ]);
+  });
+
+  it("--yes (default) includes the tier-1 CLI tools", async () => {
+    // Plan §4.3 `--yes` path: when no explicit `--cli-tools` is passed and
+    // `--no-cli-tools` is absent, the default is tier-1 + triggered tier-2.
+    // The exact tier-2 set depends on RepoInfo (frameworks/languages) and
+    // process.stdout.isTTY which is non-deterministic under vitest. Assert
+    // tier-1 membership only; the cliTools registry tests pin the tier-1
+    // contents.
+    await initCommand({ yes: true });
+
+    const manifest = JSON.parse(
+      await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"),
+    );
+    expect(manifest.cliTools.enabled).toBe(true);
+    const tier1 = ["ripgrep", "fd", "jq", "yq", "gh", "delta", "bat", "sd", "ast-grep", "zstd"];
+    for (const id of tier1) {
+      expect(manifest.cliTools.selected, `missing tier-1 ${id}`).toContain(id);
+    }
+  });
+
+  it("--yes --mcp re-opts into MCP defaults", async () => {
+    await initCommand({ yes: true, mcp: true });
+
+    const manifest = JSON.parse(
+      await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"),
+    );
+    expect(manifest.mcp.servers.length).toBeGreaterThan(0);
+    // Github platform default MCP server.
+    expect(manifest.mcp.servers).toContain("github");
+  });
+
+  it("--yes (no --mcp) produces empty manifest.mcp.servers", async () => {
+    await initCommand({ yes: true });
+
+    const manifest = JSON.parse(
+      await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"),
+    );
+    // Plan §4.3 step 8: MCP is opt-in via --mcp. Without it, servers stay [].
+    expect(manifest.mcp.servers).toEqual([]);
+  });
+
+  it("--yes --cli-tools accepts a comma-separated id list", async () => {
+    await initCommand({ yes: true, cliTools: "ripgrep,jq" });
+
+    const manifest = JSON.parse(
+      await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"),
+    );
+    expect(manifest.cliTools.selected).toEqual(["ripgrep", "jq"]);
   });
 });
 

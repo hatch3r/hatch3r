@@ -130,15 +130,17 @@ Aggregate across the batch for total estimated scope.
 
 **Hard block — Tier 3 (Deep):** If any item scores Tier 3, quick-change is not appropriate.
 
-**ASK:** "This change scores Tier 3 (Deep complexity): {reason}. Quick-change does not provide the research depth needed. Options: (a) switch to `hatch3r-workflow`, (b) narrow the scope."
+**ASK:** "This change scores Tier 3 (Deep complexity): {reason}. Quick-change does not provide the research depth needed. Options: (a) switch to `/h4tcher-workflow`, (b) narrow the scope."
 
-Do NOT offer a "proceed anyway" option for Tier 3. The user must switch to workflow or narrow scope.
+Do NOT offer a "proceed anyway" option for Tier 3. The user must switch to `/h4tcher-workflow` or narrow scope.
 
 **Soft guard — Tier 2 (Standard) or threshold triggers:** If any item scores Tier 2, or if any of these threshold triggers fire (any one is sufficient):
 - Estimated total exceeds **5 files**
 - Estimated total exceeds **~200 lines changed**
 - Changes touch security-sensitive areas
 - Changes require new dependencies or architectural decisions
+
+**Threshold gate (P8 B2).** If any threshold trigger fires (>3 files, cross-module touch, schema change, or net new dependency), spawn the `hatch3r-researcher` with `requirements-elicitation:quick` mode IMMEDIATELY in Step 4b — do not defer research to discover scope creep mid-implementation. Tier-3 hard-block remains in effect.
 
 **ASK:** "This looks larger than a quick change: {reason}. Options: (a) proceed with lightweight research, (b) switch to `hatch3r-workflow` for full ceremony, (c) narrow the scope."
 

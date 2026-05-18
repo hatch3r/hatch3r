@@ -1,0 +1,153 @@
+import { describe, it, expect } from "vitest";
+import { renderCliToolSkillBody } from "../../cliTools/skill.js";
+import { AVAILABLE_CLI_TOOLS, type CliToolMeta } from "../../cliTools/registry.js";
+
+/**
+ * Wave 5 Item 28: `src/cliTools/skill.ts::renderCliToolSkillBody` tests.
+ *
+ * Snapshots the body output for one tier-1 representative (ripgrep) and
+ * verifies RTK's caveat heading + `RTK_DISABLE_PIPE_REWRITE` mitigation
+ * appear in the rendered output. Also checks the scaffold's placeholder
+ * contract for non-caveat tools — Wave 4 cleanup replaces these inline,
+ * but the renderer itself must continue to emit them so the generator
+ * script remains idempotent.
+ */
+
+describe("renderCliToolSkillBody — ripgrep (tier-1 representative)", () => {
+  it("matches a stable inline snapshot for the mac OS path", () => {
+    const ripgrep = AVAILABLE_CLI_TOOLS.ripgrep as CliToolMeta;
+    const body = renderCliToolSkillBody(ripgrep, "mac");
+
+    // Snapshot of the generator scaffold — Wave 4 swaps the three placeholder
+    // sections with per-tool authored content; the wrapper structure (When
+    // to Use, Token Cost, Recipes, Wrong Choice When, Alternatives,
+    // Detection / Install, Homepage) is part of the contract.
+    expect(body).toMatchInlineSnapshot(`
+      "# ripgrep
+
+      Fast recursive grep with sane defaults and gitignore awareness
+
+      ## When to Use
+
+      Reach for \`rg\` when the task is in the **search** category and the agent would otherwise call an MCP tool or read large outputs into context.
+
+      ## Token Cost
+
+      CLI tools return structured stdout that fits in <1KB for typical queries; equivalent MCP calls regularly exceed 10KB.
+      Reference: Anthropic engineering (Nov 4 2025) — code-execution-over-MCP yields 98.7% token reduction.
+
+      ## Recipes
+
+      <placeholder — replaced in Wave 4>
+
+      ## Wrong Choice When
+
+      <placeholder — replaced in Wave 4>
+
+      ## Alternatives
+
+      <placeholder — replaced in Wave 4>
+
+      ## Detection / Install
+
+      Verify with:
+      \`\`\`bash
+      command -v rg
+      \`\`\`
+
+      Install (mac):
+
+      \`\`\`bash
+      # brew
+      brew install ripgrep
+      \`\`\`
+
+      Homepage: https://github.com/BurntSushi/ripgrep
+      "
+    `);
+  });
+
+  it("emits all three placeholder lines for non-caveat tools", () => {
+    const jq = AVAILABLE_CLI_TOOLS.jq as CliToolMeta;
+    const body = renderCliToolSkillBody(jq, "mac");
+    // Renderer contract — Wave 2 emits structural placeholders that Wave 4
+    // cleanup replaces with authored content. The renderer itself must
+    // produce all three so re-running the generator on a Wave 2 build is
+    // idempotent.
+    const placeholderCount = (body.match(/<placeholder — replaced in Wave 4>/g) ?? []).length;
+    expect(placeholderCount).toBe(3);
+  });
+
+  it("does NOT include the caveat heading for non-caveat tools", () => {
+    const jq = AVAILABLE_CLI_TOOLS.jq as CliToolMeta;
+    const body = renderCliToolSkillBody(jq, "mac");
+    expect(body).not.toContain("⚠ Critical");
+    expect(body).not.toContain("RTK_DISABLE_PIPE_REWRITE");
+  });
+});
+
+describe("renderCliToolSkillBody — rtk (tier-3 with caveat)", () => {
+  it("includes the ⚠ Critical heading and mitigation env var", () => {
+    const rtk = AVAILABLE_CLI_TOOLS.rtk as CliToolMeta;
+    const body = renderCliToolSkillBody(rtk, "mac");
+
+    expect(body).toContain("## ⚠ Critical: pipe-output corruption (issue #1282)");
+    expect(body).toContain("RTK_DISABLE_PIPE_REWRITE");
+    expect(body).toContain("https://github.com/rtk-ai/rtk/issues/1282");
+  });
+
+  it("places the caveat block BEFORE the When-to-Use section", () => {
+    const rtk = AVAILABLE_CLI_TOOLS.rtk as CliToolMeta;
+    const body = renderCliToolSkillBody(rtk, "mac");
+
+    const caveatIdx = body.indexOf("## ⚠ Critical");
+    const whenIdx = body.indexOf("## When to Use");
+
+    expect(caveatIdx).toBeGreaterThanOrEqual(0);
+    expect(whenIdx).toBeGreaterThan(caveatIdx);
+  });
+});
+
+describe("renderCliToolSkillBody — OS-specific install rendering", () => {
+  it("renders linux install commands when currentOs is 'linux'", () => {
+    const ripgrep = AVAILABLE_CLI_TOOLS.ripgrep as CliToolMeta;
+    const body = renderCliToolSkillBody(ripgrep, "linux");
+    expect(body).toContain("Install (linux):");
+    expect(body).toContain("sudo apt install ripgrep");
+  });
+
+  it("renders win install commands when currentOs is 'win'", () => {
+    const ripgrep = AVAILABLE_CLI_TOOLS.ripgrep as CliToolMeta;
+    const body = renderCliToolSkillBody(ripgrep, "win");
+    expect(body).toContain("Install (win):");
+    expect(body).toContain("scoop install ripgrep");
+  });
+});
+
+describe("renderCliToolSkillBody — common contract", () => {
+  it("emits every required section heading for every tier-1 tool", () => {
+    const required = [
+      "## When to Use",
+      "## Token Cost",
+      "## Recipes",
+      "## Wrong Choice When",
+      "## Alternatives",
+      "## Detection / Install",
+    ];
+    for (const entry of Object.values(AVAILABLE_CLI_TOOLS) as readonly CliToolMeta[]) {
+      if (entry.tier !== 1) continue;
+      const body = renderCliToolSkillBody(entry, "mac");
+      for (const heading of required) {
+        expect(body, `${entry.id}: missing ${heading}`).toContain(heading);
+      }
+    }
+  });
+
+  it("uses the probe binary name in the Detection block", () => {
+    // astgrep's probe is "sg" while id is "ast-grep" — Detection block must
+    // tell the user to verify with the binary name they actually invoke.
+    const astGrep = AVAILABLE_CLI_TOOLS["ast-grep"] as CliToolMeta;
+    const body = renderCliToolSkillBody(astGrep, "mac");
+    expect(body).toContain("command -v sg");
+  });
+});

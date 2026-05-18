@@ -55,7 +55,7 @@ export class ClineAdapter extends BaseAdapter {
     }
 
     results.push(
-      ...await this.processSkillsRaw(ctx, (id) => `.cline/skills/${toPrefixedId(id)}/SKILL.md`),
+      ...await this.processSkillsRawCliFiltered(ctx, (id) => `.cline/skills/${toPrefixedId(id)}/SKILL.md`),
     );
 
     if (ctx.features.rules) {

@@ -12,16 +12,23 @@ cache_friendly: true
 ## Core Principles
 
 - Unit tests: project test runner. Integration: test runner + emulators/mocks. E2E: browser automation (Playwright or equivalent).
-- **Deterministic.** Mock time where needed. No wall clock dependency.
-- **Isolated.** Each test sets up and tears down its own state.
+- **Deterministic.** Mock time, seed RNG, pin timezone/locale. See Determinism Contract below.
+- **Isolated.** Each test sets up and tears down its own state. Vitest `isolate: true`; Jest `--runInBand` only for serialized DB tests.
 - **Fast.** Unit tests < 50ms. Integration tests < 2s.
 - **Named clearly.** Describe behavior: `"should award 15 XP for 25-min focus block"`.
 - **Regression.** Every bug fix includes a test that fails before the fix and passes after.
-- **No network.** Unit tests must not make network calls. Use mocks.
+- **No network.** Unit tests must not make network calls. Use mocks or Testcontainers (pinned by digest).
 - No type escape hatches in tests. No `.skip` without a linked issue.
 - Write tests to `tests/unit/`, `tests/integration/`, `tests/e2e/`, or equivalent.
 - Use test fixtures from `tests/fixtures/` or equivalent.
 - **Browser verification.** For UI changes, verify visually in the browser via browser automation MCP after automated tests pass. Capture screenshots as evidence.
+
+## Test Pyramid / Honeycomb / Trophy — Pick by Architecture
+
+Pick exactly one shape and document it in `docs/testing.md` (or equivalent):
+- **Pyramid** (heavy unit, light E2E): monoliths with rich domain logic.
+- **Honeycomb** (heavy integration, light unit + E2E): microservices; ~48% of microservice teams (Spotify model).
+- **Trophy** (unit + integration + E2E in similar ratios, light static): serverless functions; ~42% of serverless teams (Kent C. Dodds shape).
 
 ## Coverage Thresholds
 
@@ -33,6 +40,10 @@ cache_friendly: true
 - Generate coverage reports in CI and publish as PR comments or artifacts for visibility.
 - Exclude generated code, type declarations, and config files from coverage metrics.
 
+## Coverage That Matters — Coverage AND Mutation
+
+Coverage alone is necessary, not sufficient. A PR that raises line coverage but drops mutation score is a regression. Reviewers verify the right test classes per the Per-Feature Mandate Map below; coverage numbers are a floor, not a finish line.
+
 ## Mocking Strategy
 
 - **Prefer fakes over mocks** for stateful dependencies (databases, caches). Fakes implement the real interface with in-memory state, making tests more realistic.
@@ -43,59 +54,144 @@ cache_friendly: true
 - **Type-safe mocks.** Mock implementations must satisfy the same TypeScript interface as the real dependency. Avoid `as any` in mock setup.
 - **No mocking the unit under test.** If you need to mock part of the module you are testing, the module has too many responsibilities — refactor first.
 
-## Property-Based Testing
+## Contract Testing
 
-- Use a property-based testing library (fast-check or equivalent) for functions with wide input domains.
-- **Priority targets:** parsers, serializers, validators, encoders/decoders, mathematical functions, and any pure function with complex input types.
-- Define invariants as properties: round-trip (encode then decode equals original), idempotency (applying twice equals applying once), monotonicity, commutativity.
-- Use `fc.assert` with at least 100 runs per property. Increase to 1000 for critical paths.
-- When a property test finds a failure, add the minimal counterexample as a dedicated regression unit test.
-- Shrinking must be enabled — it reduces failing inputs to the smallest reproduction case.
-- Property tests belong alongside unit tests in `tests/unit/`. Name them clearly: `"property: round-trip serialization for UserProfile"`.
+Every cross-service interaction is covered by both consumer-side (Pact) and provider-side (Schemathesis against the OpenAPI/AsyncAPI schema) contract tests. `pact-broker can-i-deploy` gates production deploys: if the consumer/provider contract pair is incompatible, the deploy is blocked. See `rules/hatch3r-contract-testing.md` for the full pattern (broker setup, provider state handlers, versioning, breakage triage).
 
-## Mutation Testing
+## Property-Based Testing — Per Ecosystem
 
-- Use Stryker (or equivalent mutation testing framework) on critical modules to measure test effectiveness beyond line coverage.
-- **Mutation score target:** 70% minimum on critical modules (auth, data layer, business rules). 60% minimum project-wide.
-- Run mutation testing in CI on a weekly schedule (not per-PR — too slow). Report results as a CI artifact.
-- **Surviving mutants** indicate tests that pass regardless of code changes — these are false-coverage tests. Fix them by adding assertions that detect the mutation.
-- Focus mutation testing effort on modules where a bug would cause data loss, security vulnerability, or financial impact.
-- Exclude test files, generated code, and UI presentation logic from mutation analysis.
+Required for any pure function, parser, serializer, state machine, or invariant-bearing function. Default 100 trials per property; raise to 1000 for security-sensitive code. Shrinking must be enabled.
+
+- **TypeScript / JavaScript:** `fast-check` (latest 3.x). Use for pure functions, parsers, state machines (`fc.commands`).
+- **Python:** `Hypothesis` 6.151+. Stateful PBT via `RuleBasedStateMachine`.
+- **Rust:** `proptest`. Shrinks to minimal failing case.
+- **Scala:** `ScalaCheck`. Use for case-class invariants.
+- **Java:** `jqwik` (modern) or `junit-quickcheck`.
+- **Go:** `gopter` or stdlib `testing/quick` (limited shrinking).
+
+Invariants to encode: round-trip (encode then decode equals original), idempotency (applying twice equals once), monotonicity, commutativity. When a property test finds a failure, add the minimal counterexample as a dedicated regression unit test.
+
+## Mutation Testing — Per Ecosystem + Thresholds
+
+Run on a nightly schedule (not per-commit) due to runtime cost. Mutation score is a quality gate alongside coverage. Surviving mutants indicate tests that pass regardless of code changes — fix by adding assertions that detect the mutation.
+
+- **TypeScript / JavaScript:** Stryker. Thresholds: break 50 / low 60 / high 80 (Stryker defaults).
+- **Python:** `mutmut` (88.5% score on reference suite, faster) or `Cosmic Ray` (82.7%, thorough).
+- **Java:** PIT 1.22 (November 2025). Business logic target 80–90.
+- **Go:** `go-mutesting` or `gremlins-dev/gremlins`.
+- **.NET:** `Stryker.NET`.
+
+**Mutation score target:** 70% minimum on critical modules (auth, data layer, business rules), 60% project-wide, 80%+ on payment/billing logic. Exclude test files, generated code, and UI presentation logic from mutation analysis.
+
+## Fuzz Testing — Per Ecosystem
+
+Required for any parser, deserializer, network handler, file-format handler, or untrusted-input boundary. Crash + hang + OOM detection; corpus minimization; persisted crash inputs become regression fixtures.
+
+- **Java:** jazzer (OSS-Fuzz integrated).
+- **JavaScript:** jazzer.js OSS was discontinued in 2025 — fall back to property-based testing for JS-only paths, or fuzz the underlying native binding.
+- **Python:** `atheris` (Google).
+- **Rust:** `cargo-fuzz` + libFuzzer.
+- **Go:** native `testing.F` (Go 1.18+); for advanced workflows use `gosentry` (Trail of Bits, 2026-05-12 fork of the discontinued jazzer.js workflow adapted for Go).
+- **C / C++:** AFL++ + OSS-Fuzz.
+
+## Determinism Contract
+
+Every test must be deterministic. Mandates:
+- **Clock injection.** Production code never calls `new Date()` / `time.Now()` / `datetime.now()` directly; inject a clock interface. In tests: `vi.useFakeTimers()` / `freezegun` / `mock.patch('time.time')`.
+- **Seeded RNG.** Every random call uses an injected seedable RNG. In tests: fixed seed per test.
+- **Pinned timezone and locale.** `TZ=UTC` and `LC_ALL=C.UTF-8` in the CI environment.
+- **Sorted iteration.** Any test asserting on map / dict iteration order sorts first.
+- **OS-assigned ports.** Never bind to a fixed port in tests — bind to `0` to get an OS-assigned port.
+- **Test isolation.** Vitest `isolate: true` (default); Jest `--runInBand` only when needed for serialized DB tests.
 
 ## Flaky Test Handling
 
-- **Zero tolerance policy.** A flaky test erodes trust in the entire suite. Fix or quarantine within 48 hours of detection.
-- **Quarantine process:** Move the flaky test to a `tests/quarantine/` directory or tag with `.skip("FLAKY: #issue-number")`. Create a tracking issue immediately.
-- **Retry strategy in CI:** Allow a maximum of 1 automatic retry for the full test suite. Never retry individual tests silently — that masks flakiness.
-- **Root cause investigation:** Common causes are shared mutable state, timing dependencies (real clocks, `setTimeout`), port conflicts, uncontrolled randomness, and external service calls.
-- **Fix patterns:** Replace `setTimeout` with fake timers, replace shared state with per-test setup, replace port binding with dynamic ports, seed random generators deterministically.
-- **Flaky test metrics:** Track flaky test rate over time. Target < 0.5% flaky rate (flaky runs / total runs). Alert when rate exceeds 1%.
-- **Quarantine review:** Review quarantined tests weekly. Tests quarantined for more than 30 days must be either fixed or deleted with justification.
+- **Detection.** CI retries failed tests once; tests failing on retry but passing on rerun are tagged `flake-suspected`.
+- **Quarantine.** Any test that flakes twice in 7 days moves to `tests/quarantine/` (runs but does not block PRs). Issue auto-filed with the `flake` label.
+- **SLA.** 14 days to root-cause and fix; otherwise the test is deleted. Quarantined tests reviewed weekly.
+- **Retry policy.** Allow at most 1 automatic retry for the full test suite. Never silently retry individual tests — that masks flakiness.
+- **Categorization on intake.** Tag each flake by root cause: timing (use fake timers), network (use mocks / Testcontainers), ordering (sort assertions), pollution (test isolation), resource (cleanup).
+- **Fix patterns.** Replace `setTimeout` with fake timers; replace shared state with per-test setup; replace fixed ports with OS-assigned (`0`); seed random generators deterministically.
+- **Metrics.** Track flaky rate over time. Target < 0.5% (flaky runs / total runs). Alert at 1%.
+- **Cost awareness.** Datadog 2026 telemetry reports 6–8 hrs/eng/week lost to flakes when quarantine + SLA is not enforced.
+
+## E2E Strategy
+
+- **Playwright is the 2026 default** (95k stars, ~290 ms/action, native sharding via `--shard`). Use for cross-browser, accessibility (`@axe-core/playwright`), and visual regression (`toHaveScreenshot()`).
+- Cypress requires paid Cloud for serious parallelization; WebdriverIO is the niche choice for web + mobile parity.
+- Retry policy: `retries: 2` for transient infra; never `retries: >= 5` (masks bugs).
+
+## Snapshot Testing
+
+- **Use sparingly.** 2–4 snapshots per component max. Appropriate for serialized output (JSON API responses, CLI output, rendered HTML structure) where the exact output matters and is stable.
+- **Not appropriate for:** UI component visual appearance (use visual regression tests via `toHaveScreenshot()` or `jest-image-snapshot`), objects with timestamps or random IDs (unstable), large objects (unreadable diffs).
+- **Review discipline.** Snapshot updates (`--update-snapshots`) must be reviewed with the same rigor as code changes. Reviewers verify the new snapshot is intentionally correct, not just "different."
+- **Keep snapshots small.** Files > 100 lines suggest the test is asserting too broadly. Narrow the assertion to the relevant subset.
+- **Inline snapshots** are preferred over external `.snap` files for short outputs (< 20 lines) — keeps the assertion co-located with the test.
+- **Design-system components:** Storybook + Chromatic.
 
 ## Test Data Management
 
-- **Factories over fixtures.** Use factory functions (builder pattern) to generate test data with sensible defaults and per-test overrides. Factories produce valid objects by default; tests override only the fields relevant to the scenario.
-- **Builder pattern example:** `buildUser({ role: "admin" })` returns a full valid User with admin role and random but valid defaults for all other fields.
-- **No shared mutable fixtures.** If multiple tests read the same fixture data, each test must get its own copy. Use `structuredClone()` or factory functions.
-- **Realistic data.** Use faker or equivalent for generating realistic names, emails, dates. Avoid magic strings like `"test"`, `"foo"`, `"abc123"`.
-- **Deterministic seeding.** When using random data generators, seed them per test file so failures are reproducible.
-- **Fixture files** (JSON, YAML) are acceptable for large, complex, or externally-sourced test inputs (API response snapshots, configuration samples). Store in `tests/fixtures/`.
-- **Database state:** Integration tests that require database state must set up and tear down within the test using helpers. Never depend on database state from a previous test.
+- **Factories over fixtures.** Use factory functions (factory-bot for Ruby, Fishery for TS, factory-boy for Python) seeded with Faker pinned to a fixed version.
+- **Builder pattern example:** `buildUser({ role: "admin" })` returns a full valid `User` with admin role and valid defaults for all other fields.
+- **No shared mutable fixtures.** If multiple tests read the same fixture data, each test gets its own copy via `structuredClone()` or a factory function.
+- **Realistic data.** Avoid magic strings like `"test"`, `"foo"`, `"abc123"`.
+- **Deterministic seeding.** Seed generators per test file so failures reproduce.
+- **Fixture files** (JSON, YAML) are acceptable for large, complex, or externally-sourced inputs (API response snapshots, configuration samples). Store in `tests/fixtures/`.
+- **Database state:** Integration tests set up and tear down within the test via helpers. Never depend on database state from a previous test. Enforce tenancy isolation via per-test schema or transaction rollback.
+- **Testcontainers** pinned by image digest, not tag.
 
 ## Error Path Coverage
 
 Error handling code is often under-tested because developers focus on happy paths. Enforce minimum error coverage:
+- **Every exported function that can fail** must have at least one test exercising the error path. "Can fail" includes functions returning `Result<T, E>`, functions with `throw` statements, async functions calling external services, and functions with input validation.
+- **Error message assertions.** Verify that messages, codes, and structured fields contain the expected values. Do not assert only that "an error was thrown" — verify the error content.
+- **Error propagation.** When a function wraps or transforms errors from a dependency, verify the original error context is preserved (cause chain, stack trace, original error code).
+- **Boundary error tests.** For each architectural boundary (API handler, event handler, background processor), verify that errors are caught, logged, and returned as safe responses without leaking internal details.
 
-- **Every exported function that can fail** must have at least one test exercising the error path. "Can fail" includes: functions returning `Result<T, E>`, functions with `throw` statements, async functions calling external services, and functions with input validation.
-- **Error message assertions.** Test that error messages, codes, and structured fields contain the expected values. Do not assert only that "an error was thrown" -- verify the error content.
-- **Error propagation.** When a function wraps or transforms errors from a dependency, test that the original error context is preserved (cause chain, stack trace, original error code).
-- **Boundary error tests.** For each architectural boundary (API handler, event handler, background processor), test that errors are caught, logged, and returned as safe responses without leaking internal details.
+## Load Testing in CI
 
-## Snapshot Testing
+- **k6** (k6 Operator v1.0 for Kubernetes-distributed runs), **Vegeta** (constant-rate, no coordinated omission), **Locust** (Python), **Artillery** (TS).
+- Baseline vs current diff in CI; SLO regression detection on p95, p99, and error-rate thresholds. Block the PR when a tracked SLO regresses.
 
-- **Use sparingly.** Snapshots are appropriate for serialized output (JSON API responses, CLI output, rendered HTML structure) where the exact output matters and is stable.
-- **Not appropriate for:** UI component visual appearance (use visual regression tests), objects with timestamps or random IDs (unstable), large objects (unreadable diffs).
-- **Review discipline.** Snapshot updates (`--update-snapshots`) must be reviewed with the same rigor as code changes. Reviewers must verify the new snapshot is intentionally correct, not just "different."
-- **Keep snapshots small.** Snapshot files > 100 lines suggest the test is asserting too broadly. Narrow the assertion to the relevant subset.
-- **Inline snapshots** (where supported) are preferred over external `.snap` files for short outputs (< 20 lines) because they keep the assertion co-located with the test.
-- **Name snapshot files** to match their test file: `auth.test.ts` → `auth.test.ts.snap`.
+## Security Testing in CI
+
+- **SAST:** Semgrep + CodeQL.
+- **SCA / container / IaC / secrets:** Trivy (one-shot multi-scanner).
+- **DAST:** OWASP ZAP or Nuclei against an ephemeral environment.
+
+See `rules/hatch3r-container-hardening.md` and `rules/hatch3r-dependency-management.md` for the operational policy around hardening and pinning.
+
+## AI-Assisted Test Generation
+
+- **Qodo 2.0** (60.1% F1 on reference benchmark) for TS / JS unit tests + edge cases.
+- **Diffblue Cover** (symbolic, 20× cited productivity uplift on legacy code) for Java.
+
+These are accelerators, not substitutes for the Per-Feature Mandate Map. Every generated test still goes through review and must map to a required test class for the code under test.
+
+## Per-Feature Mandate Map
+
+Reviewers verify each PR satisfies the required test classes for the code class touched. A PR that adds a parser without a fuzz harness, or a payment path without mutation testing, fails review even if coverage is green.
+
+| Code class | Required test classes |
+|------------|----------------------|
+| Parser / deserializer | unit + property + fuzz |
+| Network handler / RPC entry | integration + contract + fuzz |
+| Payment / billing logic | unit + property + mutation (≥ 80 score) |
+| State machine | unit + property (with `RuleBasedStateMachine` analogue) |
+| Pure function | unit + property |
+| Service / RPC client | unit + contract (consumer side) |
+| Service / RPC server | integration + contract (provider side) + Schemathesis |
+| UI component | unit + visual regression + a11y (via `hatch3r-ui-ux-verify`) |
+| LLM feature | eval (via `hatch3r-ai-feature`) + unit on adapter + integration on fallback chain |
+| Background job | unit + integration with poison-message handling |
+
+## References
+
+- Stryker (mutation testing): https://stryker-mutator.io/
+- fast-check (property-based testing, TS): https://fast-check.dev/
+- Hypothesis (property-based testing, Python): https://hypothesis.readthedocs.io/
+- proptest (property-based testing, Rust): https://github.com/proptest-rs/proptest
+- Pact (consumer-driven contract testing): https://docs.pact.io/
+- Schemathesis (OpenAPI provider testing): https://schemathesis.readthedocs.io/
+- OWASP Web Security Testing Guide: https://owasp.org/www-project-web-security-testing-guide/

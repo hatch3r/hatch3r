@@ -17,9 +17,12 @@ describe("createProgram() command registration", () => {
     "add",
     "worktree-setup",
     "worktree-cleanup",
+    // CLI-tooling pivot (1.7.5 Wave 3): mcp + cli-tools side-door commands
+    "mcp",
+    "cli-tools",
   ] as const;
 
-  it("registers all 11 expected commands", () => {
+  it("registers all 13 expected commands", () => {
     expect(registeredNames).toHaveLength(EXPECTED_COMMANDS.length);
     for (const name of EXPECTED_COMMANDS) {
       expect(registeredNames).toContain(name);

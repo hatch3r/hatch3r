@@ -13,7 +13,11 @@ hatch3r provides a full project lifecycle, from setup to release. This guide wal
 npx hatch3r init
 ```
 
-Interactive setup detects your repository, asks about your project context (greenfield/brownfield, solo/team), lets you choose a content profile (Minimal/Standard/Full/Custom), asks which coding tools you use, and generates the selected agents, skills, rules, commands, and MCP configuration.
+Interactive setup detects your repository, asks about your project context (greenfield/brownfield, solo/team), lets you choose a content profile (Minimal/Standard/Full/Custom), asks which coding tools you use, runs the CLI-tools picker (3 tiers grouped, tier-1 default-on), gates MCP behind a Yes/No prompt (default No since 1.7.5), and generates the selected agents, skills, rules, commands, plus the picked CLI-tool skills and optional MCP configuration.
+
+:::tip CLI tools default-on since 1.7.5
+hatch3r's primary agent-tooling surface is now CLI tools (ripgrep, fd, jq, yq, gh, delta, bat, sd, ast-grep, zstd as the tier-1 default; 19 more across tier-2 conditional and tier-3 opt-in). MCP is opt-in. See [CLI Tools](../getting-started/cli-tools) for the full catalog, decision tree, and trade-off discussion.
+:::
 
 **Next steps after init:**
 

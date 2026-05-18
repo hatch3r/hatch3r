@@ -46,8 +46,13 @@ function normalizeOutputs(
 function extractMarkers(content: string): string[] {
   const markers: string[] = [];
 
-  // Detect managed block markers
+  // Detect managed block markers. Issue #76 introduced a YAML-syntax
+  // variant for `.yml` / `.yaml` outputs; track both so a regression
+  // back to HTML markers in a YAML file shows up as a snapshot diff.
   if (content.includes("<!-- HATCH3R:BEGIN -->")) markers.push("MANAGED_BLOCK");
+  if (content.includes("# HATCH3R:BEGIN") && !content.includes("<!-- HATCH3R:BEGIN -->")) {
+    markers.push("MANAGED_BLOCK_YAML");
+  }
 
   // Detect frontmatter
   if (content.startsWith("---")) markers.push("FRONTMATTER");

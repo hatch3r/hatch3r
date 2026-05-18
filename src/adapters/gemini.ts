@@ -73,7 +73,7 @@ export class GeminiAdapter extends BaseAdapter {
     results.push(output(".gemini/settings.json", JSON.stringify(settings, null, 2)));
 
     results.push(
-      ...await this.processSkillsRaw(ctx, (id) => `.gemini/skills/${toPrefixedId(id)}/SKILL.md`),
+      ...await this.processSkillsRawCliFiltered(ctx, (id) => `.gemini/skills/${toPrefixedId(id)}/SKILL.md`),
     );
 
     if (ctx.features.commands) {

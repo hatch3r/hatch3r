@@ -20,11 +20,12 @@ That's it. hatch3r detects your repo, asks about your project context (greenfiel
 
 | Category | Count | Highlights |
 |----------|-------|-----------|
-| **Agents** | 17 | Code reviewer, test writer, security auditor, implementer (sub-agentic), fixer, researcher, architect, DevOps, and more |
-| **Skills** | 26 | Bug fix, feature implementation, issue workflow, release, incident response, context health, cost tracking, recipes, API spec, CI pipeline, migration, customization, and more |
-| **Rules** | 28 | Code standards, testing, API design, observability, theming, i18n, security patterns, agent orchestration, deep context analysis, and more |
-| **Commands** | 37 | Board management, planning (feature, bug, refactor, test), workflow, quick-change, revision, debug, healthcheck, security-audit, cost-tracking, onboard, benchmark, customization, and more |
-| **MCP Servers** | 10 (3 default + 7 opt-in) | Playwright, Context7, Filesystem (default); GitHub, Brave Search, Sentry, Postgres, Linear, Azure DevOps, GitLab (opt-in) |
+| **Agents** | 19 | Code reviewer, test writer, security auditor, implementer (sub-agentic), fixer, researcher, architect, DevOps, handoff loader / preparer, and more |
+| **Skills** | 63 | Bug fix, feature implementation, issue workflow, release, incident response, context health, cost tracking, handoff prepare / resume, recipes, API spec, CI pipeline, migration, customization, 30 per-tool CLI skills, and more |
+| **Rules** | 42 | Code standards, testing, API design, observability, theming, i18n, security patterns, agent orchestration, deep context analysis, handoff readiness, and more |
+| **Commands** | 38 | Board management, planning (feature, bug, refactor, test), workflow, quick-change, revision, debug, healthcheck, security-audit, cost-tracking, onboard, benchmark, customization, handoff (prepare/resume/list/complete/prune), and more |
+| **CLI tools** | 29 across 3 tiers | Tier-1 default (ripgrep, fd, jq, yq, gh, delta, bat, sd, ast-grep, zstd); tier-2 conditional (Playwright, duckdb, xsv, taplo, glab, az-devops, Docker, llm, fzf, lazygit, difftastic); tier-3 opt-in (RTK, Stagehand, aichat, mods, Comby, miller, csvkit, Podman) -- emitted as per-tool canonical skills + a decision-tree overview |
+| **MCP Servers** | 10 (opt-in) | Playwright, Context7, Filesystem, GitHub, Brave Search, Sentry, Postgres, Linear, Azure DevOps, GitLab -- gated behind a Yes/No prompt during `init` (default No since 1.7.5; pass `--mcp` to restore prior `--yes` behavior) |
 | **Platforms** | 3 | GitHub, Azure DevOps, GitLab -- auto-detected from git remote |
 
 ## Supported Tools (15 Adapters)
@@ -145,8 +146,12 @@ npx hatch3r verify        # Verify file integrity checksums
 npx hatch3r clean                 # Remove generated files (optional --reinit)
 npx hatch3r worktree-setup <path>  # Set up gitignored files in a worktree
 npx hatch3r worktree-cleanup <path> # Clean up worktree-specific files
+npx hatch3r cli-tools     # Manage CLI tools (picker / list / install / detect)
+npx hatch3r mcp           # Manage MCP servers (setup / list / remove / env-check)
 npx hatch3r add <pack>    # Install a community pack (coming soon)
 ```
+
+`hatch3r cli-tools` and `hatch3r mcp` are side-door entry points for users who skipped a section during init or want to revisit later. Each accepts subcommands: `cli-tools` defaults to opening the picker (`list`, `install`, `detect` are the other subcommands); `mcp` requires a subcommand (`setup`, `list`, `remove <id>`, `env-check`).
 
 ### Agent Commands
 
@@ -156,22 +161,43 @@ These commands are invoked inside your coding tool (e.g., as Cursor commands).
 
 **Planning:** `project-spec`, `codebase-map`, `roadmap`, `feature-plan`, `bug-plan`, `refactor-plan`, `migration-plan`, `test-plan`, `api-spec`
 
-**Workflow:** `workflow`, `quick-change`, `revision`, `debug`, `onboard`, `benchmark`, `hooks`, `learn`, `recipe`
+**Workflow:** `workflow`, `quick-change`, `revision`, `debug`, `onboard`, `benchmark`, `hooks`, `learn`, `recipe`, `pr-resolve`, `handoff`
 
-**Operations:** `healthcheck`, `security-audit`, `dep-audit`, `release`, `context-health`, `cost-tracking`
+**Operations:** `healthcheck`, `security-audit`, `dep-audit`, `release`, `context-health`, `cost-tracking`, `report`
 
-**Customization:** `agent-customize`, `command-customize`, `skill-customize`, `rule-customize`
+**Customization:** `create`, `agent-customize`, `command-customize`, `skill-customize`, `rule-customize`
 
 All commands are prefixed with `hatch3r-` (e.g., `hatch3r-board-fill`). See the [CLI Commands reference](https://docs.hatch3r.com/docs/reference/commands/cli-commands) and [Agent Commands reference](https://docs.hatch3r.com/docs/reference/commands/agent-commands) for full details.
 
+## CLI Tools
+
+Since 1.7.5, hatch3r ships a first-class CLI-tools surface area as the token-efficient alternative to MCP. The picker runs during `init` (3 tiers grouped, tier-1 default-on, tier-2 conditional on detected project signals, tier-3 opt-in advanced). Detection probes each tool via `command -v` / `where` with a 2s timeout; the installer prints copy-paste commands grouped by package manager and never executes on your behalf. Every selected tool ships a per-tool skill (`skills/hatch3r-cli-{id}/SKILL.md`) plus the `hatch3r-cli-overview` decision-tree skill, emitted to the 13 skill-capable adapters.
+
+Manage CLI tools at any time:
+
+```bash
+npx hatch3r cli-tools           # open picker
+npx hatch3r cli-tools list      # selection + install status
+npx hatch3r cli-tools install   # print install commands for missing tools
+npx hatch3r cli-tools detect    # read-only detection report
+```
+
+See [CLI Tools](https://docs.hatch3r.com/docs/getting-started/cli-tools) for the full 29-tool table, decision tree, and trade-off discussion vs MCP.
+
 ## MCP Configuration
 
-`hatch3r init` creates a `.env.mcp` file with required environment variables for your selected MCP servers (gitignored by default). MCP config is written to the tool-appropriate location (`.cursor/mcp.json`, `.mcp.json`, `.vscode/mcp.json`, etc.).
+Since 1.7.5, MCP is **opt-in**. `npx hatch3r init` gates MCP behind a Yes/No prompt (default No) after the features picker. Declining the gate skips MCP entirely — no `.env.mcp`, no `mcp.json`, no servers in the manifest. When you accept the gate, `hatch3r init` creates a `.env.mcp` file with required environment variables for your selected MCP servers (gitignored by default) and writes MCP config to the tool-appropriate location (`.cursor/mcp.json`, `.mcp.json`, `.vscode/mcp.json`, etc.).
 
 - **VS Code / Copilot**: Secrets are passed via the `env` object in `.vscode/mcp.json`.
 - **Cursor / Claude Code / others**: Source the file first: `set -a && source .env.mcp && set +a && cursor .`
 
-See [MCP Setup](https://docs.hatch3r.com/docs/guides/mcp-setup) for full setup, per-server details, and PAT scope guidance.
+Manage MCP at any time via `npx hatch3r mcp setup | list | remove <id> | env-check`. See [MCP Setup](https://docs.hatch3r.com/docs/guides/mcp-setup) for full setup, per-server details, and PAT scope guidance.
+
+## Upgrading from 1.7.1 or earlier?
+
+**BREAKING for `npx hatch3r init --yes` CI scripts:** As of 1.7.5, MCP servers are no longer configured by default in non-interactive mode. Add `--mcp` to your invocation to restore prior behavior — without it, `manifest.mcp.servers` will be empty and no `.env.mcp` will be created. The interactive `init` flow gates MCP behind a Yes/No prompt defaulting to No.
+
+CLI tools land as the recommended default. Existing 1.7.1 manifests upgrade silently (`cliTools` is optional — absence is treated as opted-out). Run `npx hatch3r cli-tools` on an existing project to opt in; the picker offers tier-1 default-on plus tier-2 tools matching your project signals, and prints per-OS install commands without executing them. `npx hatch3r clean` → `npx hatch3r init` preserves your `cliTools.selected` selection.
 
 ## Platform Agentic Workflows
 
@@ -223,7 +249,7 @@ Ruler (`@intellectronica/ruler`) is the closest architectural analogue to hatch3
 | Canonical content model | 6 artifact types (agents, skills, rules, commands, hooks, MCP servers) plus board workflows and learning loop, indexed in `hatch.json` | 1 artifact type (rules) |
 | Managed blocks | `<!-- HATCH3R:BEGIN -->` / `<!-- HATCH3R:END -->` markers on every bridge file preserve user content across updates (`src/merge/managedBlocks.ts`) | Full-file replacement semantics |
 | Integrity manifest | SHA-256 per-file + manifest-level checksum in `hatch.json`; safe merge via temp file + atomic rename (`src/merge/safeWrite.ts`, `src/integrity/index.ts`) | None |
-| Governance audit cycle | 20-domain audit cycle with 111 sub-agents, 4-wave execution, closed-loop PRD evolution (`governance/AUDIT.md`, `governance/AUDIT-EXECUTE.md`) | None |
+| Governance audit cycle | 21-domain audit cycle with 121 sub-agents, 4-wave execution, closed-loop PRD evolution (`governance/AUDIT.md`, `governance/AUDIT-EXECUTE.md`) | None |
 | Supply-chain provenance | npm OIDC trusted publishing + `--provenance` attestations via `.github/workflows/release.yml` (SLSA-level provenance) | Not published with OIDC trusted publishing |
 | Security | OWASP Agentic Top 10 coverage via `src/pipeline/agentToolAllowlist.ts` + `src/pipeline/mcpDescriptionScan.ts` + `src/pipeline/promptGuard.ts` (500KB input / 1MB output limits) | Rule distribution only |
 

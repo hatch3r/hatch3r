@@ -10,6 +10,8 @@ import {
   HatchError,
   WORKTREE_CAPABLE_TOOLS,
   WORKTREE_INCLUDE_FILE,
+  type CliToolId,
+  type CliToolsConfig,
   type ContentSelection,
   type Features,
   type HatchManifest,
@@ -34,7 +36,10 @@ import { readWorkspaceManifest, writeWorkspaceManifest } from "../../workspace/m
 import { detectSubRepos, detectWorkspaceContext } from "../../workspace/detect.js";
 import { syncWorkspaceRepos } from "../../workspace/sync.js";
 import { detectRepoGitIdentity } from "../../workspace/git.js";
-import { TOOL_DISPLAY_NAMES, TOOL_PROMPT_CHOICES, FEATURE_CHOICES, MCP_CHOICES, PLATFORM_DISPLAY_NAMES, PLATFORM_MCP_SERVER, sanitizeInput, isWSL } from "../shared/constants.js";
+import { TOOL_DISPLAY_NAMES, TOOL_PROMPT_CHOICES, FEATURE_CHOICES, PLATFORM_DISPLAY_NAMES, sanitizeInput, isWSL } from "../shared/constants.js";
+import { pickCliTools, pickMcpServers, confirmMcpGate } from "../shared/pickers.js";
+import { findMissingCliTools } from "../../cliTools/detect.js";
+import { offerInstaller, printMissingCliToolsDisclaimer } from "../../cliTools/install.js";
 import { buildTagGroupedCustomContentChoices } from "../shared/customContentChoices.js";
 import {
   buildContentIndex,
@@ -69,6 +74,10 @@ interface ConfigDiff {
   repoChanged: boolean;
   addedContent: Array<{ type: string; id: string }>;
   removedContent: Array<{ type: string; id: string }>;
+  /** CLI-tooling pivot (plan §4.4): tools selected this run that weren't before. */
+  addedCliTools: CliToolId[];
+  /** CLI-tooling pivot: tools previously selected that the user removed this run. */
+  removedCliTools: CliToolId[];
 }
 
 function computeDiff(
@@ -81,11 +90,14 @@ function computeDiff(
   newRepo: string,
   newNamespace: string,
   newProject: string,
+  newCliToolIds: CliToolId[],
 ): ConfigDiff {
   const oldToolSet = new Set(oldManifest.tools);
   const newToolSet = new Set(newTools);
   const oldMcpSet = new Set(oldManifest.mcp.servers);
   const newMcpSet = new Set(newMcp);
+  const oldCliSet = new Set(oldManifest.cliTools?.selected ?? []);
+  const newCliSet = new Set(newCliToolIds);
 
   const enabledFeatures: (keyof Features)[] = [];
   const disabledFeatures: (keyof Features)[] = [];
@@ -109,6 +121,8 @@ function computeDiff(
       newProject !== oldManifest.project,
     addedContent: [],
     removedContent: [],
+    addedCliTools: newCliToolIds.filter((id) => !oldCliSet.has(id)),
+    removedCliTools: [...oldCliSet].filter((id) => !newCliSet.has(id)),
   };
 }
 
@@ -123,7 +137,9 @@ function isDiffEmpty(diff: ConfigDiff): boolean {
     !diff.platformChanged &&
     !diff.repoChanged &&
     diff.addedContent.length === 0 &&
-    diff.removedContent.length === 0
+    diff.removedContent.length === 0 &&
+    diff.addedCliTools.length === 0 &&
+    diff.removedCliTools.length === 0
   );
 }
 
@@ -142,8 +158,15 @@ function printCurrentConfig(manifest: HatchManifest): void {
     label("Branch", branch),
     label("Tools", toolNames),
     label("Features", enabledFeatures.join(", ")),
-    label("MCP", manifest.mcp.servers.length > 0 ? manifest.mcp.servers.join(", ") : "none"),
   ];
+
+  // CLI-tooling pivot (plan §4.4): always show CLI tools row (signals
+  // the new default surface area), show MCP only when non-empty.
+  const cliSelected = manifest.cliTools?.selected ?? [];
+  lines.push(label("CLI tools", cliSelected.length > 0 ? cliSelected.join(", ") : "none"));
+  if (manifest.mcp.servers.length > 0) {
+    lines.push(label("MCP", manifest.mcp.servers.join(", ")));
+  }
 
   if (manifest.content) {
     const total = countSelectionItems(manifest.content);
@@ -306,6 +329,28 @@ export async function configCommand(): Promise<void> {
     throw new HatchError("At least one tool must be selected.", 1, "VALIDATION_ERROR");
   }
 
+  // --- CLI tools (plan §4.4) ---
+  const existingCliTools = manifest.cliTools?.selected ?? [];
+  const selectedCliTools = await pickCliTools({
+    existing: existingCliTools,
+    wslTheme,
+  });
+  if (selectedCliTools.length > 0) {
+    const cliSpinner = createSpinner(`Detecting ${selectedCliTools.length} CLI tool(s)...`);
+    cliSpinner.start();
+    const missing = await findMissingCliTools(selectedCliTools);
+    if (missing.length === 0) {
+      cliSpinner.succeed(`All ${selectedCliTools.length} CLI tool(s) detected on PATH`);
+    } else {
+      cliSpinner.warn(`${selectedCliTools.length - missing.length}/${selectedCliTools.length} CLI tool(s) detected; ${missing.length} missing`);
+      await offerInstaller(missing, { interactive: true });
+    }
+  }
+  const cliToolsConfig: CliToolsConfig = {
+    enabled: selectedCliTools.length > 0,
+    selected: selectedCliTools,
+  };
+
   // --- Features ---
   const currentFeatureKeys = (Object.keys(DEFAULT_FEATURES) as (keyof Features)[])
     .filter((k) => manifest.features[k]);
@@ -326,24 +371,23 @@ export async function configCommand(): Promise<void> {
     features[k] = selectedFeatures.includes(k);
   }
 
-  // --- MCP servers ---
-  let mcpServers: string[] = [];
+  // --- MCP servers (plan §4.4: Yes/No gate, defaults to existing state) ---
+  // Re-running config with no prior MCP servers defaults to No; re-running
+  // with existing servers defaults to Yes so users don't accidentally wipe
+  // their MCP setup by accepting the default.
+  const hasExistingMcp = manifest.mcp.servers.length > 0;
+  let mcpServers: string[] = hasExistingMcp ? [...manifest.mcp.servers] : [];
   if (features.mcp) {
-    const platformMcp = PLATFORM_MCP_SERVER[platform];
-    const mcpAnswers = await inquirer.prompt<{ mcp: string[] }>([
-      {
-        type: "checkbox",
-        name: "mcp",
-        message: "Select MCP servers:",
-        choices: MCP_CHOICES,
-        default: manifest.mcp.servers,
-        ...(wslTheme && { theme: wslTheme }),
-      },
-    ]);
-    mcpServers = mcpAnswers.mcp ?? [];
-    if (!mcpServers.includes(platformMcp)) {
-      mcpServers.unshift(platformMcp);
+    const proceedMcp = await confirmMcpGate({ hasExisting: hasExistingMcp });
+    if (proceedMcp) {
+      mcpServers = await pickMcpServers({
+        platform,
+        existing: manifest.mcp.servers,
+        wslTheme,
+      });
     }
+    // When proceedMcp is false and there were prior servers, mcpServers
+    // already holds the pre-existing list (preserved per plan §4.4).
   }
 
   // --- Worktree isolation ---
@@ -508,7 +552,7 @@ export async function configCommand(): Promise<void> {
   }
 
   // --- Compute diff ---
-  const diff = computeDiff(manifest, tools, features, mcpServers, platform, owner, repo, namespace, project);
+  const diff = computeDiff(manifest, tools, features, mcpServers, platform, owner, repo, namespace, project, selectedCliTools);
   diff.addedContent = contentChanges.added;
   diff.removedContent = contentChanges.removed;
 
@@ -553,6 +597,7 @@ export async function configCommand(): Promise<void> {
   manifest.tools = tools;
   manifest.features = features;
   manifest.mcp = { servers: mcpServers };
+  manifest.cliTools = cliToolsConfig;
 
   if (manifest.board) {
     manifest.board.owner = owner;
@@ -642,6 +687,12 @@ export async function configCommand(): Promise<void> {
   if (diff.removedContent.length > 0) {
     summaryLines.push(`${chalk.red("-")} Content removed: ${diff.removedContent.length} item(s)`);
   }
+  if (diff.addedCliTools.length > 0) {
+    summaryLines.push(`${chalk.green("+")} CLI tools added: ${diff.addedCliTools.join(", ")}`);
+  }
+  if (diff.removedCliTools.length > 0) {
+    summaryLines.push(`${chalk.red("-")} CLI tools removed: ${diff.removedCliTools.join(", ")}`);
+  }
   if (defaultBranch !== currentBranch) {
     summaryLines.push(`${chalk.yellow("~")} Default branch: ${defaultBranch}`);
   }
@@ -691,6 +742,7 @@ export async function configCommand(): Promise<void> {
       wsManifestFinal.defaults.tools = tools;
       wsManifestFinal.defaults.features = features;
       wsManifestFinal.defaults.mcp = { servers: mcpServers };
+      wsManifestFinal.defaults.cliTools = cliToolsConfig;
       if (manifest.content) {
         wsManifestFinal.defaults.content = manifest.content;
       }
@@ -904,4 +956,8 @@ export async function configCommand(): Promise<void> {
     }
   }
 
+  if (selectedCliTools.length > 0) {
+    const finalMissing = await findMissingCliTools(selectedCliTools);
+    printMissingCliToolsDisclaimer(finalMissing, selectedCliTools.length);
+  }
 }

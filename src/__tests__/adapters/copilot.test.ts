@@ -5,7 +5,12 @@ import { tmpdir } from "node:os";
 import { CopilotAdapter } from "../../adapters/copilot.js";
 import { createManifest } from "../../manifest/hatchJson.js";
 import type { HatchManifest } from "../../types.js";
-import { MANAGED_BLOCK_START, MANAGED_BLOCK_END } from "../../types.js";
+import {
+  MANAGED_BLOCK_START,
+  MANAGED_BLOCK_END,
+  MANAGED_BLOCK_START_YAML,
+  MANAGED_BLOCK_END_YAML,
+} from "../../types.js";
 import { resolveTestPath } from "../fixtures.js";
 
 const FIXTURES_DIR = resolveTestPath(import.meta.url, "../fixtures/agents");
@@ -77,14 +82,23 @@ describe("CopilotAdapter", () => {
     expect(agentsMd).toBeUndefined();
   });
 
-  it("generates copilot-setup-steps.yml with managed blocks", async () => {
+  it("generates copilot-setup-steps.yml with YAML-syntax managed-block markers (issue #76)", async () => {
     const manifest = makeManifest();
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
     const setupSteps = outputs.find((o) => o.path === ".github/workflows/copilot-setup-steps.yml");
     expect(setupSteps).toBeDefined();
-    expect(setupSteps!.content).toContain(MANAGED_BLOCK_START);
-    expect(setupSteps!.content).toContain(MANAGED_BLOCK_END);
+    // Issue #76: HTML markers inside a YAML file produced
+    // "Invalid workflow file ... line 2" in GitHub Actions. The workflow
+    // file must use YAML `#`-prefixed markers so the file parses as YAML.
+    expect(setupSteps!.content).toContain(MANAGED_BLOCK_START_YAML);
+    expect(setupSteps!.content).toContain(MANAGED_BLOCK_END_YAML);
+    expect(setupSteps!.content).not.toContain(MANAGED_BLOCK_START);
+    expect(setupSteps!.content).not.toContain(MANAGED_BLOCK_END);
+    expect(setupSteps!.content).not.toContain("<!--");
+    // The first non-comment line must be the YAML payload, not a marker.
+    const firstLine = setupSteps!.content.split("\n", 1)[0];
+    expect(firstLine).toBe(MANAGED_BLOCK_START_YAML);
     expect(setupSteps!.content).toContain("jobs:");
     expect(setupSteps!.content).toContain("npm install");
     expect(setupSteps!.content).toContain("npm run build");
@@ -334,6 +348,50 @@ You are a test agent.`,
       const fmMatch = file!.content.match(/^---\n([\s\S]*?)\n---/);
       expect(fmMatch).not.toBeNull();
       expect(fmMatch![1]).not.toContain("tools:");
+    });
+  });
+
+  // ── Wave 5 (CLI-tooling pivot, plan §4.6) ───────────────────────
+  //
+  // Copilot's skills surface is filtered by `manifest.cliTools.selected` via
+  // `readCliFilteredSkills` on BaseAdapter. Output path:
+  // `.github/skills/hatch3r-cli-{id}/SKILL.md`.
+  describe("CLI tools filter (Wave 5 plan §4.6)", () => {
+    it("emits only the selected CLI skills when cliTools is enabled", async () => {
+      const manifest: HatchManifest = {
+        ...makeManifest(),
+        cliTools: { enabled: true, selected: ["ripgrep", "jq"] },
+      };
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const cliSkills = outputs.filter((o) =>
+        o.path.startsWith(".github/skills/hatch3r-cli-"),
+      );
+      const paths = cliSkills.map((o) => o.path);
+      expect(paths).toContain(".github/skills/hatch3r-cli-ripgrep/SKILL.md");
+      expect(paths).toContain(".github/skills/hatch3r-cli-jq/SKILL.md");
+      expect(paths.some((p) => p.includes("hatch3r-cli-fd"))).toBe(false);
+    });
+
+    it("emits zero CLI skill files when cliTools.enabled is false", async () => {
+      const manifest: HatchManifest = {
+        ...makeManifest(),
+        cliTools: { enabled: false, selected: ["ripgrep", "jq"] },
+      };
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      expect(
+        outputs.filter((o) => o.path.startsWith(".github/skills/hatch3r-cli-")),
+      ).toEqual([]);
+    });
+
+    it("emits zero CLI skill files when cliTools.selected is empty", async () => {
+      const manifest: HatchManifest = {
+        ...makeManifest(),
+        cliTools: { enabled: true, selected: [] },
+      };
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      expect(
+        outputs.filter((o) => o.path.startsWith(".github/skills/hatch3r-cli-")),
+      ).toEqual([]);
     });
   });
 });

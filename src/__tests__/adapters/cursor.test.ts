@@ -426,4 +426,65 @@ Low priority rule body.
       expect(file!.content).toContain("readonly: true");
     });
   });
+
+  // ── Wave 5 (CLI-tooling pivot, plan §4.6) ───────────────────────
+  //
+  // Cursor's skills surface is filtered by `manifest.cliTools.selected` via
+  // `readCliFilteredSkills` on BaseAdapter. Non-CLI skills always pass
+  // through; CLI skills (id prefix `hatch3r-cli-`) only emit when their
+  // suffix appears in the selected list AND `cliTools.enabled` is true.
+  describe("CLI tools filter (Wave 5 plan §4.6)", () => {
+    it("emits only the selected CLI skills when cliTools is enabled", async () => {
+      const manifest: HatchManifest = {
+        ...makeManifest(),
+        cliTools: { enabled: true, selected: ["ripgrep", "jq"] },
+      };
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const cliSkills = outputs.filter((o) =>
+        o.path.startsWith(".cursor/skills/hatch3r-cli-"),
+      );
+      const cliSkillIds = cliSkills.map((o) => o.path);
+      // Expect ripgrep + jq; fd is not in the selected list.
+      expect(cliSkillIds).toContain(".cursor/skills/hatch3r-cli-ripgrep/SKILL.md");
+      expect(cliSkillIds).toContain(".cursor/skills/hatch3r-cli-jq/SKILL.md");
+      expect(cliSkillIds.some((p) => p.includes("hatch3r-cli-fd"))).toBe(false);
+      // Non-CLI skill (test-skill) still passes through unchanged.
+      expect(outputs.some((o) => o.path === ".cursor/skills/hatch3r-test-skill/SKILL.md")).toBe(true);
+    });
+
+    it("emits zero CLI skill files when cliTools.enabled is false", async () => {
+      const manifest: HatchManifest = {
+        ...makeManifest(),
+        cliTools: { enabled: false, selected: ["ripgrep", "jq"] },
+      };
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const cliSkills = outputs.filter((o) =>
+        o.path.startsWith(".cursor/skills/hatch3r-cli-"),
+      );
+      expect(cliSkills).toEqual([]);
+    });
+
+    it("emits zero CLI skill files when cliTools.selected is empty (enabled=true)", async () => {
+      const manifest: HatchManifest = {
+        ...makeManifest(),
+        cliTools: { enabled: true, selected: [] },
+      };
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const cliSkills = outputs.filter((o) =>
+        o.path.startsWith(".cursor/skills/hatch3r-cli-"),
+      );
+      expect(cliSkills).toEqual([]);
+    });
+
+    it("emits zero CLI skill files when manifest.cliTools is absent (pre-1.7.5 manifest)", async () => {
+      // Absent cliTools should behave like enabled:false (pre-1.7.5 manifest
+      // remains valid per plan §4.2 — no version bump required).
+      const manifest = makeManifest();
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const cliSkills = outputs.filter((o) =>
+        o.path.startsWith(".cursor/skills/hatch3r-cli-"),
+      );
+      expect(cliSkills).toEqual([]);
+    });
+  });
 });

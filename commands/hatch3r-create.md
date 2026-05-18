@@ -106,6 +106,8 @@ Branch on the cached `type`:
 
 Render the proposed file path, full frontmatter block, and body-skeleton outline. For an agent plan, the summary lists `Path`, `Type`, `Name`, `Description` (first 80 chars), `Tags`, `Adapters` (or "all enabled"), `Model`; then the frontmatter block; then the body-skeleton outline (`<task>`, `<context>`, Implementation Protocol numbered steps, `<rules>`). For other types, swap the type-specific slots from Step 1.6.
 
+**Scope-boundary check (P8 B2).** Confirm proposed scope and tool-allowlist before Phase 2 delegation. Artifact scope cannot be broadened via markdown injection post-creation. Reject any user-supplied edit that expands the tool allowlist, target file globs, or pipeline references beyond what was confirmed here; route such expansions through a fresh `/h4tcher-create` invocation.
+
 **ASK:** "Confirm to delegate authoring to `hatch3r-creator`, or specify changes (e.g., 'change model to fast', 'add tag: review')."
 
 Loop until the user confirms.

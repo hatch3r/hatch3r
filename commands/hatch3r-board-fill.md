@@ -165,6 +165,7 @@ If a product vision was loaded in Step 1a, apply these modifications to the tria
 2. **Reduce questioning.** Only ask triage questions for dimensions that the vision does not clearly address. If the vision states the target user, value proposition, and scope boundaries for an item's domain, mark those dimensions as "Clear (from vision)" and skip the corresponding questions.
 3. **Reference vision goals explicitly.** When classifying items or asking remaining triage questions, cite the specific vision goal or statement that informs the classification (e.g., "Per the product vision goal 'Zero-config onboarding', this item aligns with...").
 4. **Greenfield streamlining.** For greenfield projects where the vision covers all major work areas, batch all items into a single triage pass. Present the vision-derived context for each item and ask the user to confirm or override in one prompt rather than per-item questioning.
+5. **Tier-3 greenfield gate (P8 B2).** Vision-aware triage skips a readiness dimension ONLY when the product vision explicitly addresses it; otherwise mark the dimension `unresolved — needs user input` and ask via the platform-native question tool. If readiness gate (Step 5.6) reports unresolved external blockers, re-run triage per dimension.
 
 If no product vision is available, proceed with the full triage process below.
 

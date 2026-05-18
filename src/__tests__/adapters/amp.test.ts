@@ -134,4 +134,31 @@ describe("AmpAdapter", () => {
       expect(o.content.length).toBeGreaterThan(0);
     }
   });
+
+  // ── Wave 5 (CLI-tooling pivot, plan §4.6) ───────────────────────
+  //
+  // amp has `cliTools: false` in ADAPTER_CAPABILITIES because it reads
+  // canonical skills natively from `.agents/skills/`. The adapter MUST
+  // emit zero `hatch3r-cli-*` skill files regardless of `manifest.cliTools`
+  // state — the user's selection drives the canonical mirror copy, not amp's
+  // adapter output.
+  it("emits no CLI skill files even when cliTools is enabled and populated", async () => {
+    const manifest = createManifest({
+      tools: ["amp"],
+      cliTools: { enabled: true, selected: ["ripgrep", "jq", "fd"] },
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+    const cliSkills = outputs.filter((o) => o.path.includes("hatch3r-cli-"));
+    expect(cliSkills).toEqual([]);
+  });
+
+  it("emits no CLI skill files when cliTools is disabled", async () => {
+    const manifest = createManifest({
+      tools: ["amp"],
+      cliTools: { enabled: false, selected: [] },
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+    const cliSkills = outputs.filter((o) => o.path.includes("hatch3r-cli-"));
+    expect(cliSkills).toEqual([]);
+  });
 });

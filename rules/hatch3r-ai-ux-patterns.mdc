@@ -1,0 +1,127 @@
+---
+description: 2026 AI/agentic UX patterns for end-user projects shipping AI features — streaming, tool-call UI, human-approval gates, cancel/abort/undo, citations
+globs: ["**/*.vue", "**/*.jsx", "**/*.tsx", "**/*.svelte", "**/ai/**", "**/chat/**", "**/assistant/**", "**/agents/**", "**/llm/**", "**/copilot/**"]
+alwaysApply: false
+---
+# AI/Agentic UX Patterns (2026)
+
+## Scope
+
+This rule applies when the end-user project ships LLM-driven UI — chat, assistant, copilot, agent dashboards, generative UI surfaces. It does NOT govern the LLM backend itself (model selection, prompt engineering, retrieval pipeline). For non-AI UX rules (loading, empty, error, partial states; form patterns; microcopy), cross-reference `rules/hatch3r-ux-states-and-flows.md`. When both rules apply to the same surface, the non-AI rule sets the baseline and this rule layers AI-specific behavior on top.
+
+Backend companion: `rules/hatch3r-ai-evals.md` defines eval harness, prompt versioning, cost telemetry, prompt caching, model fallback, and hallucination-as-SLI. Apply both rules for any LLM-driven feature.
+
+Detection: this rule activates when the project imports an AI SDK (`ai`, `@ai-sdk/*`, `openai`, `@anthropic-ai/sdk`, `@google/generative-ai`), or contains files under `ai/`, `chat/`, `assistant/`, `agents/`, `llm/`, `copilot/`. Adding any of these to a project that previously had no AI surface triggers the full ruleset on the next agent run.
+
+## Streaming-First Defaults
+
+- Every LLM-driven surface uses framework-agnostic streaming hooks: `useChat`, `useCompletion`, or `useObject` from Vercel AI SDK UI (or equivalent for non-React stacks). Hand-rolled SSE or `fetch` against the model endpoint is a regression in 2026.
+- Render progressive tokens from the moment the request starts. Pair with a skeleton state during the pre-token window (request-sent, first-token-pending). A blank surface during model latency is a regression.
+- Render markdown incrementally without re-parsing the whole buffer on every chunk (Vercel AI Elements `MessageResponse` pattern). Use a streaming-safe markdown renderer that tracks last-rendered offset and appends from there.
+- Emit chunk-level error boundaries. If a stream fails mid-flight, retain prior tokens, render an inline retry control adjacent to the truncated response, and do not blank the surface or reset the message body.
+- Indicate completion explicitly via a final-token marker or `onFinish` callback transition. Stale "thinking" indicators after stream-end erode trust and waste user attention.
+- Non-streaming responses on LLM-driven surfaces are a regression. The narrow exception is structured-output endpoints that must return a single validated JSON payload (`useObject` already streams partial objects — prefer that).
+- Typing indicator policy: show only while no token has arrived; switch to streamed content the moment the first delta lands. Two-second indicator timeouts that linger past first-token are a regression.
+- Backpressure: when the model emits faster than the renderer can paint, batch deltas to one paint per animation frame (`requestAnimationFrame`) rather than dropping tokens or queuing into an unbounded buffer.
+
+## Generative UI (RSC Streaming)
+
+- For dynamic dashboards, cards, and surfaces driven by tool calls, use the `streamUI()` RSC pattern (or framework equivalent). The model returns a tool invocation, the server renders an RSC fragment per tool, the client merges fragments into the thread without re-hydrating.
+- Build on shadcn primitives via Vercel AI Elements — 20+ shadcn-based React components for AI surfaces: messages, input, reasoning panel, tool-call display, response actions. Reuse before authoring; bespoke equivalents are a duplication regression.
+- Keep AI-generated UI off the client JS bundle. RSC streaming keeps the payload server-side; do not ship a client-side renderer that duplicates server-rendered output.
+- Each RSC fragment is independently hydratable — never wrap two tool outputs in a single fragment that requires both to complete before render.
+- For non-React stacks, the equivalent is server-rendered HTML fragments streamed via Server-Sent Events and merged into the DOM with explicit anchor elements per tool call. Do not bypass the server-render boundary with raw `innerHTML` of model output.
+
+## Tool-Call UI Cards
+
+Every tool invocation is user-visible by default. Hidden tool calls are a regression — transparency is the trust contract with the user.
+
+- Render each tool call as a structured card with: tool name, args (collapsed by default, expandable on click), status (`pending` → `in-progress` → `complete` / `failed`), elapsed duration, result preview (truncated, expand to full).
+- Indicate state through both color and icon — a single channel (color only) fails for color-vision-deficient users.
+- Args display redacts secrets (API keys, tokens, bearer credentials) and PII per project data-classification rules. Show a `[redacted]` placeholder so the user knows a value was scrubbed, not omitted.
+- Async sub-flows — a tool that triggers more tools — render as nested cards. Do not collapse a multi-tool sub-flow to a single line; the user must see every external action.
+- Failed tool calls show the error message in plain language plus a single-click retry control. Stack traces and raw API responses belong behind an "Details" toggle, not in the user-visible card body.
+- Result preview length: cap at 200 characters or 5 lines (whichever first); always paired with an "Expand" affordance. Long binary or base64 payloads display size + content-type, not the raw bytes.
+- Tool-call cards are keyboard-focusable and announce status transitions via `aria-live="polite"` regions so screen-reader users perceive state changes without polling the visual surface.
+
+## Human-Approval Gates for Side-Effects
+
+Required for any tool that:
+
+- Mutates external state (database write, email send, post to Slack/GitHub/external service)
+- Spends money (paid-API call, transaction, billable inference run on a third-party provider)
+- Modifies the user's environment (file write, shell command, git push, package install)
+
+Gate pattern:
+
+1. Pause execution before invoking the tool.
+2. Render an approval card showing tool name, full args (no collapse), diff preview if the tool mutates a file, named target ("Send email to alice@example.com", not "Send email").
+3. Require explicit user confirm (`Approve` button, not Enter-to-dismiss).
+4. On approve, invoke the tool and transition the card to `in-progress`. On deny, surface a cancel-reason field and persist the rejection in the run transcript.
+
+Read-only tools (search, fetch, list, read) do not require approval — gating them adds friction without trust value.
+
+Destructive irreversible actions (drop table, delete repo, permanent send) disclose irreversibility on the approval card with a typed-confirmation pattern (user types the named target to enable the confirm button).
+
+Auto-approve scopes (the "trusted tool" pattern) live behind a per-tool setting with a named scope ("Auto-approve git status, never git push"). Default to opt-in, never opt-out. Scopes are revocable from a single settings surface and revocation takes effect for in-flight runs, not just future runs.
+
+## Cancel / Abort / Undo
+
+Three distinct affordances — do not collapse them into a single control:
+
+- **Cancel** — every long-running tool call (>2s expected duration) and every streaming response renders a visible cancel control adjacent to the surface. Wire to an `AbortController` covering both the model stream and the tool worker. Cancellation produces a clean stop with a "Cancelled by user" marker in the transcript — not a hang, not a silent terminate.
+- **Abort** — distinct from cancel. Aborts the entire agent task (a multi-tool plan). Persists prior tool results so the user can resume from any completed step. Renders as a separate control on the agent-task header, not the in-flight tool card.
+- **Undo** — every reversible action (file write, message send, database row insert, configuration change) renders an undo affordance for 5-30s after completion (named target shown: "Undo: deleted file foo.txt"). Maps to a compensating tool call (delete-after-write, recall-after-send, soft-delete-restore). Destructive irreversible actions disclose this on the approval card per the previous section.
+- Keyboard shortcuts: cancel = `Esc` while the surface is focused; abort = `Esc` then confirm (double-tap pattern) to prevent accidental task termination; undo = `Cmd/Ctrl+Z` while the undo affordance is visible.
+- All three controls remain operable after the user navigates away from the surface — running streams and undo windows persist in a thread-level state, not component-local state. A user closing the panel does not cancel the in-flight task.
+
+## Citations and Grounding
+
+- Factual claims from retrieval show inline citations with span-level linkage. Hovering or clicking the citation highlights the source passage in the retrieved document.
+- Cite the retrieval source URL or document anchor, not just the document name — "Knowledge Base / Onboarding" without an anchor is unverifiable.
+- Ungroundable claims are flagged in the response surface ("I'm not certain — this isn't in your retrieved sources") rather than silently emitted. Span-level verification is preferred when the model exposes it.
+- Do not show uncalibrated confidence badges. A "90% confident" indicator without empirical calibration data actively misleads — drop it or replace with grounding framing ("Based on [doc]" or "Not found in your data").
+- When retrieval returns zero results, say so explicitly. Silent fall-through to model parametric memory is a regression — the user cannot distinguish retrieved from confabulated content.
+- Citation rendering: superscript number link in the response body that opens a side panel (or popover on hover) with source title, URL, and highlighted span. Avoid footnote-only patterns that force the user to scroll.
+- Source freshness indicator: when retrieval metadata includes document timestamps, surface the source date on the citation popover. Stale sources flagged at >12 months by default; threshold configurable per project domain.
+
+## Multi-Step Agent UX
+
+- Render the agent's plan as an ordered checklist before execution. Allow the user to edit step text, reorder, or skip individual steps before approving the plan. A pre-execution plan view is required for any agent run with >3 steps.
+- As each step completes, mark with status (success/failure/skipped) plus elapsed duration. Failed steps show the failure cause and a retry control; retry restarts from the failed step, not from the beginning.
+- Streaming reasoning (when the model exposes it via a reasoning channel) renders in a collapsed "Reasoning" panel that the user opens on click. Never inline reasoning with the user-facing message body — it dilutes the response and conflates the user-facing answer with internal model state.
+- Maintain a thread or run ID per conversation for resumption, audit trail, and observability backlink. The run ID is visible in the UI (footer or thread metadata) so users and support can reference a specific run.
+- Plan revision: when the model revises its plan mid-run (adds, removes, or reorders remaining steps), diff the previous plan against the new plan and surface the diff to the user before continuing. Silent plan mutation defeats the pre-execution review.
+- Parallel steps: when the plan contains independent steps that the agent runs in parallel, render them as a horizontal group with shared progress, not a flat vertical list — the user must see the parallelism to interpret elapsed time.
+
+## Failure Modes and Degradation
+
+- **Model timeout** — render a fallback card with a single-click recovery ("Model is slow — retry?" or "Switching to faster model"). Do not silently retry; the user must know the model failed.
+- **Rate limit** — show a countdown timer and queue position when available. Surface vendor rate-limit headers, not raw API error JSON. "Try again in 47s" beats "429 Too Many Requests".
+- **Token budget exceeded** — indicate context truncation in-line ("Conversation truncated — earlier turns dropped") and offer a summary/restart control. Do not silently truncate; the user must know which turns are still in context.
+- **Tool unavailability** — degrade gracefully. Disable the affected feature with a tooltip explaining why ("Slack integration offline — reconnect in Settings"), not a crash or an unhandled exception bubbled to the user.
+- **Stream interruption mid-response** — retain the partial response, render a "Stream interrupted" marker, offer continue-from-here (resume the stream from the last received token) and restart-from-scratch (drop partial, restart) as two separate controls.
+- **Content-policy refusal** — when the model refuses to answer (safety filter, policy violation), render the refusal verbatim in a distinct style (not a normal assistant message), and surface a single-click "Report this" affordance so users can flag false-positive refusals.
+- **Stale session** — if the user returns to a tab where the stream has died (network sleep, tab discard), detect on focus and offer a "Reconnect" control rather than silently re-issuing the request and double-billing the user.
+
+## Verification Gate
+
+Before declaring an AI surface "done":
+
+- Streaming verified end-to-end: scripted Playwright test that asserts progressive token render (first token <1s after request, last token marked complete).
+- Tool-call card snapshot per state (`pending`, `in-progress`, `complete`, `failed`) — missing any state is a blocker.
+- Approval-gate test: simulate a side-effecting tool, assert execution pauses, approval card renders required fields, deny path persists rejection in transcript.
+- Cancel/abort/undo each have at least one end-to-end test exercising the AbortController wire-up; cancellation produces a transcript marker, not a silent terminate.
+- Citation rendering: snapshot of a grounded response shows inline citation with source URL or anchor; an ungroundable claim renders the flag string, not silent emission.
+- Failure-mode coverage: at least one test per failure mode in this rule (timeout, rate limit, token budget, tool unavailability, stream interruption, content-policy refusal, stale session). Missing coverage is a blocker.
+- Accessibility: axe-core scan against every AI surface state (idle, streaming, tool-call pending, approval card open, error) returns 0 serious or critical violations.
+
+## References
+
+- Vercel — Introducing AI Elements (`vercel.com/changelog/introducing-ai-elements`)
+- Vercel AI SDK UI docs (`ai-sdk.dev/docs/ai-sdk-ui`) — `useChat`, `useCompletion`, `useObject`
+- Vercel — AI SDK 3 Generative UI / `streamUI()` (`vercel.com/blog/ai-sdk-3-generative-ui`)
+- Anthropic — Building agents with the Claude Agent SDK (`anthropic.com/engineering/building-agents-with-the-claude-agent-sdk`)
+- OpenAI Apps SDK — UI guidelines (`developers.openai.com/apps-sdk/concepts/ui-guidelines`)
+- ClarityArc — Hallucination, grounding, and citation in enterprise systems
+- Lakera — LLM hallucinations in 2026

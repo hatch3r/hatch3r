@@ -95,6 +95,7 @@ function makeManifest() {
       mcp: true,
       githubAgents: true,
       hooks: true,
+      handoffs: true,
     },
     mcp: { servers: ["github"] },
     board: {
@@ -401,5 +402,82 @@ describe("cleanCommand", () => {
     expect(inquirer.prompt).toHaveBeenCalledTimes(1);
     // runInit should NOT be called
     expect(runInit).not.toHaveBeenCalled();
+  });
+
+  // ── Wave 5 (CLI-tooling pivot, plan §4.7) ──────────────────────
+  //
+  // `cliTools` was added to `PreservedManifestFields` so `clean` -> reinit
+  // carries the user's CLI selection forward. The captureConfig path in
+  // cleanCommand passes it via `preservedManifestFields` to runInit.
+  it("forwards cliTools selection in preservedManifestFields (Wave 5 plan §4.7)", async () => {
+    // Manifest carrying an opted-in CLI tools config + plain `cliTools` field.
+    const manifest = makeManifest() as unknown as HatchManifest;
+    manifest.cliTools = {
+      enabled: true,
+      selected: ["ripgrep", "jq"],
+    };
+
+    const inv = makeInventory({
+      adapterFiles: [".cursor/rules/hatch3r-test.mdc"],
+      canonicalDir: true,
+      manifest,
+    });
+
+    vi.mocked(inventoryArtifacts).mockResolvedValue(inv);
+    vi.mocked(executeClean).mockResolvedValue({
+      removed: [".cursor/rules/hatch3r-test.mdc"],
+      kept: [],
+      errors: [],
+    });
+    vi.mocked(analyzeRepo).mockResolvedValue(makeRepoInfo());
+    vi.mocked(runInit).mockResolvedValue(undefined);
+
+    vi.mocked(inquirer.prompt)
+      .mockResolvedValueOnce({ proceed: true })
+      .mockResolvedValueOnce({ reinit: true });
+
+    await cleanCommand();
+
+    expect(runInit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        preservedManifestFields: expect.objectContaining({
+          cliTools: expect.objectContaining({
+            enabled: true,
+            selected: ["ripgrep", "jq"],
+          }),
+        }),
+      }),
+    );
+  });
+
+  it("omits cliTools from preservedManifestFields when manifest has none", async () => {
+    // No cliTools on manifest -> preserved field should be absent (the
+    // applyPreservedManifestFields code-path keeps the new init's selection
+    // when none was preserved, mirroring features/mcp re-confirmation).
+    const manifest = makeManifest();
+
+    const inv = makeInventory({
+      adapterFiles: [".cursor/rules/hatch3r-test.mdc"],
+      canonicalDir: true,
+      manifest,
+    });
+
+    vi.mocked(inventoryArtifacts).mockResolvedValue(inv);
+    vi.mocked(executeClean).mockResolvedValue({
+      removed: [".cursor/rules/hatch3r-test.mdc"],
+      kept: [],
+      errors: [],
+    });
+    vi.mocked(analyzeRepo).mockResolvedValue(makeRepoInfo());
+    vi.mocked(runInit).mockResolvedValue(undefined);
+
+    vi.mocked(inquirer.prompt)
+      .mockResolvedValueOnce({ proceed: true })
+      .mockResolvedValueOnce({ reinit: true });
+
+    await cleanCommand();
+
+    const callArgs = vi.mocked(runInit).mock.calls[0]?.[0] as { preservedManifestFields?: { cliTools?: unknown } };
+    expect(callArgs.preservedManifestFields?.cliTools).toBeUndefined();
   });
 });

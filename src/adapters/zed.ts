@@ -50,6 +50,12 @@ export class ZedAdapter extends BaseAdapter {
   protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
     const results: AdapterOutput[] = [];
 
+    // TODO Wave 6: append a "Available CLI tool guides: hatch3r-cli-rg, …"
+    // reference line listing manifest.cliTools.selected filtered to tier-1
+    // names — Zed has `skills: false` (no per-file skill output) but the
+    // rules surface can carry a one-line discovery breadcrumb so Zed's
+    // agent knows the guides exist in the canonical .agents/ tree.
+
     const inner = [
       ...await this.bridgeHeader(ctx),
       ...this.zedPlatformCapabilities(),

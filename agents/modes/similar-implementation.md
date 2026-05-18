@@ -24,6 +24,8 @@ Search the codebase for analogous features, components, or modules and extract t
    - Data fetching / API pattern (hooks, services, direct fetch, query library)
    - Test structure and coverage approach (co-located vs separate, naming, mock strategy)
    - Component composition pattern (container/presenter, compound components, render props — if UI)
+   - Component library used: detect from `package.json` + `components.json` + `src/components/ui/*` — record name + version (run `skills/hatch3r-design-system-detect/SKILL.md` to produce the inventory; this mode records which inventory the reference uses)
+   - Design-token source: file path + format (DTCG `tokens.json`, Tailwind v4 `@theme` block, CSS custom properties) plus color space (OKLCH / Display-P3 / hex) — cross-reference `rules/hatch3r-design-system-detection.md`
 5. Identify where the proposed feature MUST differ from references and why (different data shape, different auth model, different performance requirements).
 6. Present reference implementations with a recommendation for which to follow.
 
@@ -53,6 +55,8 @@ Search the codebase for analogous features, components, or modules and extract t
 | Data fetching | {pattern — e.g., "custom hook wrapping useQuery, service layer for API calls"} | {example files} |
 | Test structure | {pattern — e.g., "co-located .test.tsx, RTL for components, msw for API mocks"} | {example files} |
 | Component composition | {pattern — e.g., "container fetches data, presenter renders, shared via compound"} | {example files} |
+| Component library used | {library name + version — e.g., "shadcn/ui (commit hash) on Radix Primitives 1.1.x"} | `package.json`, `components.json`, `src/components/ui/*` |
+| Design-token source | {file path + format + color space — e.g., "`src/styles/tokens.json` DTCG, OKLCH"} | {token file or theme block} |
 
 ### Recommendation
 - **Primary reference:** {name} — follow this for {rationale}
@@ -70,5 +74,7 @@ Search the codebase for analogous features, components, or modules and extract t
 - [ ] Data fetching uses {pattern} from {reference}
 - [ ] Test structure matches {pattern} from {reference}
 - [ ] Component composition follows {pattern} from {reference}
+- [ ] Component library + version matches {reference} (or divergence justified)
+- [ ] Design-token source + color space matches {reference} (or divergence justified)
 - [ ] Documented divergences with justification for each
 ```

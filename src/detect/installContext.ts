@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { dirname, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { detectPackageManager, type PackageManagerName } from "./packageManager.js";
@@ -87,12 +87,33 @@ export function _resetNpmGlobalRootCacheForTesting(): void {
   cachedNpmGlobalRoot = undefined;
 }
 
+/**
+ * `npm link` creates the package directory under the global root as a
+ * symlink to a source checkout. Treat such an install as `dev-source` so
+ * `runSelfUpdate` skips it instead of replacing the link with a registry
+ * tarball.
+ */
+function isLinkedPackageDir(packageRoot: string): boolean {
+  try {
+    return lstatSync(packageRoot).isSymbolicLink();
+    // eslint-disable-next-line silent-failure/no-silent-catch
+  } catch {
+    return false;
+  }
+}
+
 function classifyInvocation(binPath: string, projectRoot: string): InstallKind {
   if (isNpxPath(binPath)) return "npx";
   const globalRoot = npmGlobalRoot();
-  if (globalRoot && binPath.startsWith(globalRoot)) return "global";
+  if (globalRoot && binPath.startsWith(globalRoot)) {
+    if (isLinkedPackageDir(join(globalRoot, "hatch3r"))) return "dev-source";
+    return "global";
+  }
   const projectNodeModules = join(projectRoot, "node_modules") + sep;
-  if (binPath.startsWith(projectNodeModules)) return "project-local";
+  if (binPath.startsWith(projectNodeModules)) {
+    if (isLinkedPackageDir(join(projectRoot, "node_modules", "hatch3r"))) return "dev-source";
+    return "project-local";
+  }
   return "dev-source";
 }
 
@@ -158,10 +179,11 @@ export async function surveyInstalls(rootDir: string): Promise<InstallSurvey> {
 
   // Probe the *other* install kind. If invoked globally, look for a
   // project-local install in rootDir; if invoked from anywhere else, also
-  // probe for a global install.
+  // probe for a global install. `npm link` installs are skipped — updating
+  // them would replace the symlink with a registry tarball.
   if (invokedKind !== "project-local") {
     const projectPkgRoot = join(rootDir, "node_modules", "hatch3r");
-    if (existsSync(join(projectPkgRoot, "package.json"))) {
+    if (existsSync(join(projectPkgRoot, "package.json")) && !isLinkedPackageDir(projectPkgRoot)) {
       const projectBin = join(projectPkgRoot, "dist", "cli", "index.js");
       alsoPresent.push(
         await buildLocation("project-local", projectBin, projectPkgRoot, rootDir),
@@ -172,7 +194,7 @@ export async function surveyInstalls(rootDir: string): Promise<InstallSurvey> {
     const globalRoot = npmGlobalRoot();
     if (globalRoot) {
       const globalPkgRoot = join(globalRoot, "hatch3r");
-      if (existsSync(join(globalPkgRoot, "package.json"))) {
+      if (existsSync(join(globalPkgRoot, "package.json")) && !isLinkedPackageDir(globalPkgRoot)) {
         const globalBin = join(globalPkgRoot, "dist", "cli", "index.js");
         alsoPresent.push(
           await buildLocation("global", globalBin, globalPkgRoot, rootDir),

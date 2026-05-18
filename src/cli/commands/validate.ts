@@ -14,11 +14,13 @@ import { buildContentIndex, validateCrossReferences, validateOrchestrationDepend
 import type { CatalogItem, ContentIndex } from "../../content/index.js";
 import { findPackageRoot } from "../shared/paths.js";
 import { validateLearningsDirectory } from "../../content/learningsValidation.js";
+import { validateHandoffsDirectory } from "../../content/handoffs/index.js";
 import { readCustomizationWithWarnings } from "../../models/customize.js";
 import type { CustomizableType } from "../../models/customize.js";
 import { parseEnvFile } from "../../env/mcpEnv.js";
 import { detectSecrets } from "../../env/secretDetection.js";
 import { runComplianceChecks, formatComplianceReport } from "../../pipeline/complianceVerification.js";
+import { detectCliTools } from "../../cliTools/detect.js";
 import {
   printBanner,
   createSpinner,
@@ -34,6 +36,7 @@ import {
 const DEFAULT_KNOWN_AGENTS = new Set([
   "hatch3r-a11y-auditor", "hatch3r-architect", "hatch3r-ci-watcher", "hatch3r-context-rules",
   "hatch3r-dependency-auditor", "hatch3r-devops", "hatch3r-docs-writer", "hatch3r-fixer",
+  "hatch3r-handoff-loader", "hatch3r-handoff-preparer",
   "hatch3r-implementer", "hatch3r-learnings-loader", "hatch3r-lint-fixer", "hatch3r-perf-profiler",
   "hatch3r-researcher", "hatch3r-reviewer", "hatch3r-security-auditor", "hatch3r-test-writer",
 ]);
@@ -424,6 +427,28 @@ async function validateMcp(
   }
 }
 
+/**
+ * Validate CLI tool selection (plan §4.7). Each tool the user opted in
+ * to that is missing from PATH yields a warning (not an error) — the
+ * tool may simply not be installed yet. Run with `cliTools.enabled` off
+ * is a no-op.
+ */
+async function validateCliTools(
+  manifest: HatchManifest,
+  result: ValidationResult,
+): Promise<void> {
+  const cli = manifest.cliTools;
+  if (!cli?.enabled || cli.selected.length === 0) return;
+  const detection = await detectCliTools(cli.selected);
+  for (const r of detection) {
+    if (!r.installed) {
+      result.warnings.push(
+        `CLI tool '${r.id}' not found on PATH — run \`npx hatch3r cli-tools install\``,
+      );
+    }
+  }
+}
+
 async function validateModels(
   manifest: HatchManifest,
   result: ValidationResult,
@@ -742,6 +767,19 @@ async function validateContentConsistency(
     result.errors.push(e);
   }
   for (const w of learningsResult.warnings) {
+    result.warnings.push(w);
+  }
+
+  // Validate handoffs: schema, size, integrity, expiry, git_ref drift
+  const handoffsActiveDir = join(agentsDir, "handoffs", "active");
+  const handoffsArchivedDir = join(agentsDir, "handoffs", "archived");
+  const handoffsResult = await validateHandoffsDirectory(handoffsActiveDir, {
+    archivedDir: handoffsArchivedDir,
+  });
+  for (const e of handoffsResult.errors) {
+    result.errors.push(e);
+  }
+  for (const w of handoffsResult.warnings) {
     result.warnings.push(w);
   }
 }
@@ -1421,6 +1459,8 @@ export async function validateCommand(opts?: {
     await validateHooks(agentsDir, manifest, result);
     verbose("Checking MCP configuration...");
     await validateMcp(agentsDir, manifest, result);
+    verbose("Checking CLI tools...");
+    await validateCliTools(manifest, result);
     verbose("Checking model configuration...");
     await validateModels(manifest, result);
     verbose("Checking cost tracking...");

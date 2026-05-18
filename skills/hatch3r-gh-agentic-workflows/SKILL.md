@@ -12,6 +12,19 @@ cache_friendly: true
 
 This skill guides setup for AI-powered CI/CD automation in hatch3r-managed projects. The core SKILL covers GitHub Actions (the default); non-GitHub platforms load on demand from `references/`.
 
+## Step 0 — Detect Ambiguity (P8 B1)
+
+Before any work, scan the invocation for unresolved questions in scope, intent, acceptance criteria, target environment, or irreversibility. If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md`. Do not proceed under silent assumption. Default path, not an exception. Triggers for THIS skill: CI platform (GitHub Actions vs Azure Pipelines vs GitLab CI), AI engine (copilot vs claude vs codex), permission scope (read-only vs write), trigger pattern (schedule vs PR event vs manual), and cost-budget enforcement (token cap vs unbounded).
+
+## Fan-out Discipline (P8 B2)
+
+This skill delegates per task size:
+- Tier 1 (trivial single-file): inline execution acceptable.
+- Tier 2 (multi-file or multi-concern): spawn parallel sub-agents per concern via the Task tool.
+- Tier 3 (multi-module / high-risk): one fresh sub-agent per independent module or gate; orchestrator integrates only.
+
+Never under-fan-out to save tokens. Token cost is dominated by quality and completeness gains. Emit `sub_agents_spawned: { count, rationale }` in your output.
+
 ## Progressive Disclosure (Anthropic 2026 skills spec)
 
 | Target platform | File to read |

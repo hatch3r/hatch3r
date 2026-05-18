@@ -2,7 +2,6 @@ import type { AdapterOutput, CanonicalFile } from "../types.js";
 import { toPrefixedId } from "../types.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
 import { BaseAdapter, output, type AdapterContext, type CleanMcpEntry } from "./base.js";
-import { readCanonicalFiles } from "./canonical.js";
 import { applyCustomizationRaw } from "./customization.js";
 import { transformEnvVarSyntax } from "./mcp-utils.js";
 import { stringify as yamlStringify } from "yaml";
@@ -49,7 +48,9 @@ export class GooseAdapter extends BaseAdapter {
     ];
 
     if (ctx.features.skills) {
-      const skills = await readCanonicalFiles(ctx.agentsDir, "skills", this.warnings);
+      // CLI-tooling pivot (plan §4.6): readCliFilteredSkills drops
+      // `hatch3r-cli-*` entries not selected in `manifest.cliTools`.
+      const skills = await this.readCliFilteredSkills(ctx);
       for (const skill of skills) {
         const { content, skip, warnings } = await applyCustomizationRaw(ctx.projectRoot, skill);
         this.warnings.push(...warnings);

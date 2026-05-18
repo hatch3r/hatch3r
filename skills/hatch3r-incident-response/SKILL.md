@@ -12,6 +12,7 @@ cache_friendly: true
 
 ```
 Task Progress:
+- [ ] Step 0: Detect ambiguity (P8 B1)
 - [ ] Step 1: Classify severity (P0-P3) based on impact
 - [ ] Step 2: Triage — identify affected systems, user impact, blast radius
 - [ ] Step 3: Mitigate — apply hotfix or rollback, verify mitigation works
@@ -19,6 +20,19 @@ Task Progress:
 - [ ] Step 5: Write post-mortem with timeline, root cause, action items
 - [ ] Step 6: Create follow-up issues for permanent fixes and preventive measures
 ```
+
+## Step 0 — Detect Ambiguity (P8 B1)
+
+Before any work, scan the invocation for unresolved questions in scope, intent, acceptance criteria, target environment, or irreversibility. If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md`. Do not proceed under silent assumption. Default path, not an exception. Triggers for THIS skill: user-facing impact vs internal-only, blast radius known (single tenant vs all users), rollback safety verified, stakeholder notification scope (engineering vs exec vs public), and whether mitigation requires data write (irreversible) vs config flip (reversible).
+
+## Fan-out Discipline (P8 B2)
+
+This skill delegates per task size:
+- Tier 1 (trivial single-file): inline execution acceptable.
+- Tier 2 (multi-file or multi-concern): spawn parallel sub-agents per concern via the Task tool.
+- Tier 3 (multi-module / high-risk): one fresh sub-agent per independent module or gate; orchestrator integrates only.
+
+Never under-fan-out to save tokens. Token cost is dominated by quality and completeness gains. Emit `sub_agents_spawned: { count, rationale }` in your output.
 
 ## Step 1: Classify Severity
 
