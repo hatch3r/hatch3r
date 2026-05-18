@@ -25,9 +25,9 @@ Evolve is a governance self-check prompt. It assesses the existing governance fi
 Every assessment dimension, every finding, and every proposal is tested against this five-trait mission. A proposal that does not advance a trait with a measurable delta is rejected before ranking (§4.2) and loses ties after ranking (Guardrail 14).
 
 **Out of scope.**
-- Rewriting `governance/VISION.md` — that is `governance/RE-ENVISION.md`
+- Rewriting governance content (VISION.md, principles, lean threshold rows, anti-bloat principles, Silent Failure Contract, behavioral charter directive additions/refinements, anti-slop wordlist, EVOLVE/RE-ENVISION prompt mechanics, quality-charter, user-question-protocol, CLAUDE.md cross-references) — that flows through `governance/RE-ENVISION.md`
 - Running the 19-domain framework audit — that is `governance/AUDIT.md`
-- Applying governance amendments — those flow through RE-ENVISION, AUDIT-EXECUTE Phase 7 (CL-3), or the Amendment Protocol in `governance/CONSTITUTION.md` §8
+- Applying governance amendments — those flow through `governance/RE-ENVISION.md` (direct-edit with per-file consent for permitted layers), AUDIT-EXECUTE Phase 7 (CL-3, per-proposal consent) for audit-system changes, or the Amendment Protocol in `governance/CONSTITUTION.md` §8 for pillars, traceability matrix, amendment protocol itself, and Key Design Decisions
 
 ---
 
@@ -276,13 +276,13 @@ On confirmation, write the report. Modify no other file.
 
 Every proposal is routed to exactly one of three buckets. The report's routing table lists each proposal under its route with the next-prompt handoff.
 
-**Route A — Vision and principles.** Any proposal that touches `governance/VISION.md` content: identity, audience, quality bar, principles, platform strategy, lifecycle coverage. Next prompt: `governance/RE-ENVISION.md` used as a tool. The proposal flows through RE-ENVISION's themed-dialog refinement.
+**Route A — Governance refinement.** Any proposal that touches a layer where RE-ENVISION has direct-edit authority (per `governance/RE-ENVISION.md` §5 edit-authority matrix): `governance/VISION.md` content (identity, audience, quality bar, principles, platform strategy, lifecycle coverage), `governance/CONSTITUTION.md` §2 P5 lean threshold rows, `governance/CONSTITUTION.md` §2 Anti-Bloat Principles, `governance/CONSTITUTION.md` §2 Silent Failure Contract, behavioral charter directive additions/refinements in `governance/AUDIT.md`, the anti-slop wordlist in `governance/AUDIT-EXECUTE.md` regression gate 11 paired atomically with `CLAUDE.md` §Anti-Slop Wordlist, `governance/EVOLVE.md` prompt mechanics, `agents/shared/quality-charter.md`, `agents/shared/user-question-protocol.md`, and `CLAUDE.md` cross-references. Next prompt: `governance/RE-ENVISION.md` used as a sparring engine. The proposal flows through RE-ENVISION's themed-dialog refinement (§4) and per-file consent execution (§6.1).
 
 **Route B — Audit system.** Any proposal that touches `governance/AUDIT.md`, `governance/AUDIT-EXECUTE.md`, `governance/audit/domains/D*.md`, or `governance/audit/templates/*.md`: sub-agent counts, domain weights, scoring methodology, behavioral charter, regression gates, waves, closed-loop phases, template content. Next prompt: `governance/AUDIT-EXECUTE.md` Phase 7 (Audit Prompt Evolution / CL-3). The proposal is presented per-item for user consent.
 
 **Route C — Constitution and prompt mechanics.** Any proposal that touches `governance/CONSTITUTION.md`, `governance/RE-ENVISION.md` *as an artefact to edit* (prompt mechanics of RE-ENVISION itself, not vision content), or `governance/EVOLVE.md` itself: pillar wording, lean thresholds, anti-slop wordlist, Pillar Compliance Test, prompt mechanics. Next action: direct edit under the Amendment Protocol in `governance/CONSTITUTION.md` §8 with a dated rationale.
 
-**RE-ENVISION.md dual-role — worked example.** A proposal to clarify VISION.md's audience list → Route A (RE-ENVISION.md used as a tool to rewrite VISION content). A proposal to add a new theme-block question to RE-ENVISION.md's §2 dialog → Route C (editing RE-ENVISION.md's own prompt mechanics). The destination of the change — VISION content vs RE-ENVISION mechanics — distinguishes the route.
+**RE-ENVISION.md role boundaries — worked examples.** A proposal to clarify VISION.md's audience list → Route A (RE-ENVISION sparring engine direct-edits VISION.md with §6.1 per-file consent). A proposal to add a lean-threshold row for a new governance file → Route A (RE-ENVISION direct-edits the CONSTITUTION §2 P5 row with §6.1 per-file consent + §8 dated rationale). A proposal to refine a CONSTITUTION pillar definition → Route C (queue for framework-owner §8 amendment; RE-ENVISION's §6.3 emits a `constitution-amendment-queue.md` with pre-populated dated rationale, but does NOT direct-edit pillars). A proposal to add a new theme-block question to RE-ENVISION.md's §4 dialog → Route A (RE-ENVISION direct-edits its own prompt mechanics — `EVOLVE.md prompt mechanics` is in RE-ENVISION's direct-edit authority list; the same applies by analogy to RE-ENVISION's own mechanics). The destination of the change determines the route.
 
 **Multi-route conflict resolution.** If a proposal targets files in multiple routes, split it into per-route sub-proposals so each sub-proposal is routed independently. If the proposal is atomic and cannot be split, route to the highest-risk route in precedence order C → B → A — the most restrictive amendment path governs.
 
@@ -352,7 +352,7 @@ The following are recorded as candidates for a later direct edit under the Amend
 
 - Add an `EVOLVE.md` row to the Lean Thresholds table in `governance/CONSTITUTION.md` §2 P5 and mirror into `CLAUDE.md` §Lean Thresholds. Proposed line cap: 400, with per-section sub-budgets matching the structure of this prompt.
 - Add an `EVOLVE.md` row to the Governance References table in `CLAUDE.md`.
-- Consider authoring `.claude/skills/hatch3r-evolve/SKILL.md` so EVOLVE can be invoked via a dev-side slash command. EVOLVE.md remains directly invokable as a prompt without the wrapper.
+- Author `.claude/skills/h4tcher-evolve/SKILL.md` so EVOLVE can be invoked via a dev-side slash command. The canonical pattern is now established by `.claude/skills/h4tcher-re-envision/SKILL.md` (Cycle 9 redesign); this remains an open follow-up. EVOLVE.md remains directly invokable as a prompt without the wrapper.
 
 ---
 

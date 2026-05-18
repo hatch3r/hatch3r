@@ -70,7 +70,7 @@ Every change must serve at least one pillar. Full definitions: `governance/CONST
 | `governance/CONSTITUTION.md` | Design rationale: 7 pillars, traceability matrix, lean thresholds |
 | `governance/AUDIT.md` | Audit prompt: 21 domains, 121 sub-agents, behavioral charter |
 | `governance/AUDIT-EXECUTE.md` | Execution: 4-wave model, regression gates, closed-loop phases |
-| `governance/RE-ENVISION.md` | Vision capture/refinement prompt |
+| `governance/RE-ENVISION.md` | Holistic governance sparring engine — 10 parallel layer SAs + 20-theme dialog; hybrid edit authority (direct-edit / CL-3 / §8 amendment) |
 | `governance/audit/domains/D01-D21` | Domain definitions with sub-agent checklists |
 
 Content fixes flow through the audit cycle (AUDIT.md then AUDIT-EXECUTE.md). No ad-hoc governance edits.

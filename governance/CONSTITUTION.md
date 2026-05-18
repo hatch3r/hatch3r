@@ -1,6 +1,6 @@
 # hatch3r — Constitution
 
-> Established: 2026-03-25 | Restructured: 2026-04-09 (Cycle 5 Reaudit)
+> Established: 2026-03-25 | Restructured: 2026-04-09 (Cycle 5 Reaudit) | Amended: 2026-05-18 (RE-ENVISION redesigned as holistic governance sparring engine — §2 P5 lean-threshold row recalibrated, §3 traceability cells updated, §6 Decision #11 added, §8 authorizes RE-ENVISION as direct-edit path for permitted layers)
 > Design rationale for the hatch3r governance system. VISION.md defines what we aspire to. This Constitution defines why we made these choices and how the governance system holds itself accountable.
 
 ---
@@ -58,7 +58,7 @@ Governance and audit cycles apply the same quality standards, anti-slop, and ant
 | VISION.md | <=250 lines | Stable; add principles rarely |
 | AUDIT.md | <=600 lines | ±4 lines per domain count delta |
 | AUDIT-EXECUTE.md | <=700 lines | ±50 lines per execution phase delta |
-| RE-ENVISION.md | <=350 lines | ±20 lines per theme-block delta |
+| RE-ENVISION.md | <=550 lines | ±25 lines per theme-block delta (10 vision themes + 10 governance-layer sparring themes; recalibrated 2026-05-18 with redesign as holistic sparring engine) |
 | EVOLVE.md | <=400 lines | ±20 lines per assessment-dimension delta |
 | Static-first prompt structure | required for `orchestrator: true` and `agents/*.md` | scripts/validate-efficiency-invariants.ts |
 | Parallel-tool-by-default directive | required when artifact uses ≥2 independent tool calls | Body-text scan |
@@ -142,11 +142,11 @@ If (1) is "none", the change is rejected. If (3) is "increase", justify net valu
 | P1 CLI UX | S | P | S | S | S | S | — | D10, D20.1 | — |
 | P2 Quality | P | P | P | S | S | S | P | D1,D5,D7,D13 | — |
 | P3 Currency | S | P | P | S | — | S | — | D2,D9,D21 | P |
-| P4 Lean | S | P | P | P | — | S | — | D5,D16, D20 | — |
-| P5 Governance | P | S | P | P | S | P | S | D16,D18,D19, D20 | — |
+| P4 Lean | S | P | P | P | S | S | — | D5,D16, D20 | — |
+| P5 Governance | P | S | P | P | P | P | S | D16,D18,D19, D20 | — |
 | P6 Security | P | — | S | S | — | — | — | D15, D20.2 | P |
 | P7 Speed & Tokens | S | — | S | S | — | — | — | D6 | — |
-| P8 Clarification & Fan-out | P | P | P | S | — | — | S | D5,D7,D13 | — |
+| P8 Clarification & Fan-out | P | P | P | S | P | — | S | D5,D7,D13 | — |
 
 P=primary, S=supporting, —=gap or acceptable. Columns: A-EXEC=AUDIT-EXECUTE.md · RE-ENV=RE-ENVISION.md · TMPL=audit/templates · Domains=audit/domains · Trust=D15 Part B.
 **Known gaps:** P6 ↔ VISION.md and P7 ↔ VISION.md — add via RE-ENVISION.md workflow.
@@ -203,6 +203,7 @@ Identification and action are separated because audit is read-only (safe to run 
 | 8 | Finding registry as central manifest | Single lifecycle record per finding; enables cross-cycle learning |
 | 9 | Governance directory isolation | governance/ for governance, agents/ for content, src/ for code -- clear boundaries |
 | 10 | Workspace features integrated into existing CLI commands | No separate command group; features belong in init/sync/config/status |
+| 11 | RE-ENVISION is a holistic governance sparring engine with hybrid edit authority | Vision-only refinement leaves cross-layer drift unresolved between audits; sparring across all 10 governance layers via 10 parallel SAs + 20-theme dialog brings the corpus to one consistent state. Direct-edit (per-file consent) for VISION, lean thresholds, anti-bloat, Silent Failure, charter additions/refinements, anti-slop wordlist (atomic pair), EVOLVE mechanics, quality-charter, user-question-protocol, CLAUDE.md cross-refs. CL-3 / Phase 7 routing for audit-system (AUDIT.md domains/scoring/CL phases, AUDIT-EXECUTE waves/gates/registry, audit/domains, audit/templates, .claude/rules, .claude/skills). §8 amendment queue for pillars, traceability matrix, amendment protocol itself, Key Design Decisions. |
 
 ---
 
@@ -222,3 +223,7 @@ Changes to this Constitution require:
 - **All other changes:** Explicit framework owner approval with rationale
 
 Every amendment must pass the Pillar Compliance Test (§2) and include date + rationale.
+
+### RE-ENVISION direct-edit authorization (added 2026-05-18)
+
+`governance/RE-ENVISION.md` is an authorized direct-edit path (with per-file consent at its §6.1) for the following layers: VISION.md content + principles; §2 P5 lean-threshold rows; §2 Anti-Bloat Principles; §2 Silent Failure Contract; behavioral charter directive additions and refinements in `governance/AUDIT.md` (directive removals route to CL-3); anti-slop wordlist in `governance/AUDIT-EXECUTE.md` regression gate 11 paired atomically with `CLAUDE.md` §Anti-Slop Wordlist; `governance/EVOLVE.md` prompt mechanics; `agents/shared/quality-charter.md`; `agents/shared/user-question-protocol.md`; `CLAUDE.md` cross-references. Pillars (§2 P1–P8 definitions), the Pillar-to-Governance Traceability Matrix (§3), this Amendment Protocol section (§8), and Key Design Decisions (§6) remain framework-owner direct-edits under this §8 protocol with dated rationale — RE-ENVISION emits a queued proposal in `.re-envision-workspace/constitution-amendment-queue.md` with pre-populated dated rationale for framework-owner application. Audit-system changes (AUDIT.md domains/scoring/CL phases, AUDIT-EXECUTE.md waves/gates/registry, audit/domains/D*.md, audit/templates/*.md, .claude/rules/*.md, .claude/skills/h4tcher-*/SKILL.md) route to CL-3 / AUDIT-EXECUTE Phase 7 per-proposal consent.

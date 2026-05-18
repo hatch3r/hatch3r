@@ -38,6 +38,14 @@ const AGENTS_DIR = join(ROOT, "agents");
 const AUDIT_EXECUTE_REL = "governance/AUDIT-EXECUTE.md";
 
 // ── Audit-cycle exempt list (hard-coded) ──────────────────────────
+//
+// RE-ENVISION.md exemption confirmed 2026-05-18 after redesign from vision-only
+// dialog to holistic governance sparring engine. The redesigned prompt still
+// runs interactively (one theme block at a time, 5 hard-stop ASK gates) and
+// fans out 10 layer SAs in parallel at §2 — but the body remains framework-owner
+// dialog, not an orchestrator pipeline. Static-first/triage-first/parallel-tool
+// invariants don't apply to one-at-a-time interactive flows. Per CONSTITUTION
+// §2 P7 the audit-cycle file list is hard-exempt; RE-ENVISION inherits that.
 
 const AUDIT_EXEMPT_PATHS: readonly string[] = [
   "governance/AUDIT.md",

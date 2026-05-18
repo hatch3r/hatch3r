@@ -22,6 +22,7 @@ Pick the preset that matches the intent before editing any artifact:
 | Add a new artifact | `/h4tcher-capability-add` |
 | Rename / split / merge / restructure | `/h4tcher-capability-refactor` |
 | Phase out an artifact | `/h4tcher-capability-remove` |
+| Holistic governance re-think (vision + pillars + audit + execution + lean + charters + anti-slop + closed-loop) | `/h4tcher-re-envision` |
 | Full framework audit cycle | `/h4tcher-audit-cycle` |
 
 When in doubt, run `/h4tcher-capability-discover` first — it is the only read-only lifecycle preset and surfaces duplication risk before any write.
@@ -64,3 +65,4 @@ Before declaring lifecycle work complete, run every gate below — orchestrator 
 - `npm run validate:efficiency`
 - B1 gate present (clarification-default rule applied; user-question-protocol referenced)
 - B2 rationale present (sub-agent count + rationale emitted by orchestrator)
+- `/h4tcher-re-envision` is the only lifecycle preset authorized to direct-edit VISION.md, CONSTITUTION §2 P5 lean-threshold rows, CONSTITUTION §2 Anti-Bloat Principles + Silent Failure Contract, AUDIT.md behavioral charter directive additions/refinements, anti-slop wordlist (atomic pair with CLAUDE.md), EVOLVE.md prompt mechanics, quality-charter, user-question-protocol, and CLAUDE.md cross-references — per-file consent required at §6.1; CONSTITUTION pillars/traceability/§8/Key Design Decisions remain §8 framework-owner direct edit via queued proposals.
