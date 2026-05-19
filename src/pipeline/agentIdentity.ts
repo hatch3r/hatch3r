@@ -6,6 +6,9 @@
  * provenance tracking, and trust verification in multi-agent pipelines.
  *
  * Finding #80 (D15, High): Add agent identity metadata to pipeline outputs (ASI03).
+ *
+ * @library_export_only — ASI03 provenance contract consumed by agent-runtime
+ * integrators (packs, downstream orchestrators), not by the hatch3r CLI itself.
  */
 
 import { getAgentToolPolicy } from "./agentToolAllowlist.js";
