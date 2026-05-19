@@ -153,4 +153,5 @@ From `governance/CONSTITUTION.md` §2 P5:
   - `/h4tcher-capability-refactor` — rename/split/merge/restructure with cross-reference scrubbing
   - `/h4tcher-capability-remove` — phase out with migration notes and reference cleanup
   - `/h4tcher-scoped-audit` — bounded focused audit of a maintainer-described slice (read-only, in-chat report)
+  - `/h4tcher-blueprint-v2` — generate the v2.0.0 clean-slate rebuild spec (12 parallel layer SAs, ~60 sparring themes, ADR per fork, resumable workspace)
 - **Hooks:** `.claude/settings.json` — SessionStart loads governance context, Pre/PostToolUse inject reminders.
