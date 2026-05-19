@@ -63,6 +63,18 @@ Every change must serve at least one pillar. Full definitions: `governance/CONST
 
 ---
 
+## Orchestrator Self-Discipline (Bypass Protection)
+
+Every assistant turn in this repo that causes a file mutation AND operates as an orchestrator-style flow — whether via a registered `/h4tcher-*` command OR an ad-hoc multi-phase task — MUST:
+
+1. Emit the **Per-Turn Pipeline-State Header** at turn start when the task is Tier >= 2 (per `rules/hatch3r-agent-orchestration.md` -> Per-Turn Pipeline-State Header).
+2. Spawn `hatch3r-implementer` via the Task tool for every code mutation (per `rules/hatch3r-agent-orchestration.md` -> Implementation Delegation; Mandatory Delegation Directive). No inline `Edit`/`Write`/`MultiEdit` from the orchestrator turn itself except the `hatch3r-quick-change` Tier 1 carve-out.
+3. Emit the **End-of-Turn Delegation Attestation** block immediately before the Iteration Summary, citing per-file the spawning sub-agent invocation and the `delegation_proof_id` it returned (per `rules/hatch3r-agent-orchestration.md` -> End-of-Turn Delegation Attestation).
+
+Ad-hoc multi-phase workflows do not exempt these requirements. If you are running research and review sub-agents but inlining implementation, you are in bypass mode (CHANGELOG #73). Halt and re-delegate.
+
+---
+
 ## Governance References
 
 | File | Purpose |

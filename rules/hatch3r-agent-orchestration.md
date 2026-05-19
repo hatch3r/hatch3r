@@ -104,6 +104,28 @@ Examples:
 
 A missing header on a tracked Tier >= 2 task is a self-detectable drift signal — the user may halt the turn and request re-grounding. The header also functions as a per-reply cache prime: rendering it forces the orchestrator to re-resolve which phase it is in before choosing tools. Tier 1 tasks, read-only answers, and chat-only iterations do NOT require the header.
 
+### End-of-Turn Delegation Attestation
+
+When the turn is on a tracked task at Tier >= 2 AND caused at least one file mutation, the orchestrator MUST emit a closing block immediately before the Iteration Summary. The block enumerates every file mutated this turn, the spawning sub-agent invocation, and the `delegation_proof_id` returned by that sub-agent.
+
+Format:
+
+```
+[hatch3r-delegation-attestation]
+files_mutated_this_turn:
+  - <relative path>: via <agent-name> (proof: <delegation_proof_id>)
+mutating_subagent_invocations: <integer>
+inline_edits_by_orchestrator: none | <carve-out: hatch3r-quick-change Tier-1 + queued re-delegation>
+```
+
+Rules:
+
+- Each `files_mutated_this_turn` row MUST cite the spawning sub-agent invocation and quote the `delegation_proof_id` returned by that sub-agent verbatim. Unattributable rows are self-declared P8 B2 violations and the orchestrator MUST queue re-delegation in the next turn.
+- `inline_edits_by_orchestrator: none` is the only acceptable value outside the `hatch3r-quick-change` Tier-1 carve-out declared in the "Inline implementation" definition above.
+- Tier 1 read-only and chat-only turns are exempt — same scope as the Per-Turn Pipeline-State Header.
+- Missing block on a Tier >= 2 mutating turn is a self-detectable drift signal — the user may halt the turn and re-ground per the same protocol as the missing-header signal.
+- The block is consumed by reviewers and the next orchestrator turn; it sits beside the Iteration Summary, not inside it, preserving the existing 5-field iteration-summary contract verbatim.
+
 ### Mandatory Delegation Directive (No Inline Implementation)
 
 Restating with maximum clarity for sub-agent prompt inclusion: the orchestrator MUST NOT call `Edit`, `Write`, `MultiEdit`, `NotebookEdit`, `replace_string_in_file`, `multi_replace_string_in_file`, `create_file`, `str_replace_based_edit_tool`, `apply_patch`, or any platform-equivalent code-writing tool from its own turn. The only path for code mutation is the Task tool spawning `hatch3r-implementer` (Phase 2) or `hatch3r-fixer` (Phase 3). Carve-out: `hatch3r-quick-change` Tier 1 trivial items per its declared scope. No other carve-out exists. Violations are bypass mode (see issue #73) — surface them by halting the turn and re-delegating.
