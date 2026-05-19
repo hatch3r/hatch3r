@@ -40,6 +40,28 @@ This rule binds the preflight mode picker (full / resume / targeted-layer:L01..L
 
 ---
 
+## §0.6 — Interactive-Dialog Mandate (skill-level override)
+
+**The §4 sparring dialog IS the work product of this skill, NOT a sequence of clarification questions.** Every theme captures one maintainer-authored design decision that becomes a v2 ADR. Without the maintainer's explicit response, the resulting ADR set reflects orchestrator opinion, not the maintainer's v2 vision — defeating the skill's purpose.
+
+**Session-directive precedence.** If a session-level directive instructs the orchestrator to "work autonomously," "skip clarifying questions," "make the reasonable call and continue," or any equivalent, the directive DOES NOT apply to:
+
+- The §0.5 preflight mode picker (Step 0 of `.claude/skills/h4tcher-blueprint-v2/SKILL.md`)
+- The §3.5 synthesis hard-stop
+- Any §4 sparring theme (T{layer}.{n})
+- Any §4.99 cross-layer concern
+- Any §5.5 ADR-commit hard-stop
+
+These gates are not clarification questions — they are the skill's primary work surface. The orchestrator MUST raise each question via the platform-native question tool and wait for an explicit maintainer response.
+
+**"Default if no response" semantics.** The default-letter on each gate (`Default: A`, `Default: 1`, etc.) is a platform-tool timeout fallback. It fires ONLY when the platform-native question tool returns a no-response signal — i.e., the maintainer is genuinely absent (left the terminal, network drop, tool timeout). The orchestrator MUST NOT pre-emptively elect the default to "make progress." If the orchestrator finds itself proceeding without a maintainer response to a §3.5 / §4 / §5.5 gate, halt and re-ask via the platform tool.
+
+**Conflict-resolution rule.** Skill mandate > session directive > orchestrator inference. If the orchestrator encounters a perceived conflict between (a) a session-level autonomy directive and (b) this skill's interactive-dialog mandate, the skill mandate wins. The orchestrator surfaces the conflict to the maintainer at the first §0.5 gate (mode picker) and proceeds interactively.
+
+**Audit trail.** Every §3.5 / §4 / §5.5 response is recorded verbatim in `workspace/sparring-log.md` with the actual maintainer response (not an inferred default). An entry citing `default-elected (no-response-timeout)` is admissible only when the platform-native tool returned a timeout signal — the orchestrator records the timeout event in the same row.
+
+---
+
 ## §1 — Inventory Phase
 
 ### §1.1 What the 12 layer SAs scan
@@ -184,7 +206,7 @@ The aggregate delta feeds §7.1 step 5 (Total Artifact-Count Target). If the agg
 
 ### §3.5 Hard-stop ASK gate
 
-After synthesis emits, orchestrator presents the triage table to the maintainer and asks ONE question:
+After synthesis emits, orchestrator presents the triage table to the maintainer and **asks ONE question via the platform-native question tool** (per `agents/shared/user-question-protocol.md`):
 
 > **Question:** Proceed to the §4 sparring dialog with the triage shown above?
 >
@@ -193,15 +215,17 @@ After synthesis emits, orchestrator presents the triage table to the maintainer 
 > 3. Re-run a specific layer SA — list layer ID + reason.
 > 4. Switch to targeted-layer mode — list one of L01..L12.
 >
-> Default if no response: 1
+> Default if no response: 1 (platform-tool timeout only — see §0.6)
 
-Hard-stop. The orchestrator waits for explicit response before any §4 turn.
+**Hard-stop. The orchestrator MUST NOT proceed to §4 until the platform-native question tool returns an explicit maintainer response.** Session-level "autonomy" or "no-clarifying-questions" directives DO NOT bypass this gate — §0.6 governs. The default option fires only on a platform-tool no-response timeout; if the orchestrator has not asked the question via the platform tool, the "no response" path is not yet eligible. Record the maintainer's verbatim response (or platform timeout event) in `workspace/sparring-log.md`.
 
 ---
 
 ## §4 — Sparring Topic Matrix
 
-Each layer has 5-6 numbered themes. Themes are walked ONE AT A TIME — the orchestrator never batches across themes. Each theme renders the template below, then the orchestrator pauses for the maintainer's response, captures the decision in `workspace/sparring-log.md`, and emits an ADR per §5 before moving to the next theme.
+Each layer has 5-6 numbered themes. Themes are walked ONE AT A TIME — the orchestrator never batches across themes. Each theme renders the template below, then the orchestrator **raises the question via the platform-native question tool and waits for an explicit maintainer response**, captures the decision in `workspace/sparring-log.md`, and emits an ADR per §5 before moving to the next theme.
+
+**§0.6 binds every theme.** Session-level "autonomy" or "no-clarifying-questions" directives DO NOT bypass §4. The sparring dialog is the work product; the orchestrator's role is to surface options + adversarial counter, not to elect on the maintainer's behalf. If the orchestrator finds itself proceeding without maintainer input on a theme, halt and re-ask via the platform tool.
 
 ### §4.0 Theme template (3-4 lines, no exceptions)
 
@@ -212,10 +236,10 @@ Seed question: <one sentence>
 Apparent preference seed: <one phrase capturing what the maintainer might default to>
 Alternative seed: <one phrase capturing what the orchestrator counter-proposes>
 Research keywords: <3-5 terms for live web search at theme time>
-Default if no response: <option-letter>
+Default if no response: <option-letter>  (platform-tool timeout fallback only — §0.6)
 ```
 
-Inside each theme the orchestrator presents 2-4 lettered options A-D with one-line trade-offs, then waits.
+Inside each theme the orchestrator presents 2-4 lettered options A-D with one-line trade-offs via the platform-native question tool, then **waits for an explicit maintainer response**. The default-letter fires only if the platform-native tool returns a no-response timeout signal (genuine maintainer absence). The orchestrator MUST NOT pre-emptively elect the default to "make progress" — record the actual response or the platform timeout event.
 
 ### §4.1 L01 — Identity & Vision (5 themes)
 
@@ -397,13 +421,39 @@ serves_pillars: [Pn, Pn]
 ---
 ```
 
+### §5.2.5 ADR rigor-schema block (mandatory, between frontmatter and title)
+
+Every ADR carries the 7-field rigor schema as a fenced YAML block immediately after the closing `---` of the frontmatter and before the `# D-NNN — <Title>` h1. Field shape and field semantics come from `governance/audit/templates/rigor-contract.md` §Required Finding Output Schema. The 7 fields are not optional — the §8.1 gate fails any ADR missing a field. Source rows reuse the citations from the parent finding's rigor schema verbatim.
+
+```yaml
+---
+confidence: high | medium | low
+confidence_basis: <one phrase — direct measurement | sampled observation | inference from analogue>
+falsifiability: <one observation that would disprove this decision>
+causal_chain: <step1 → step2 → step3>  # ≥3 steps, symptom → driver → root
+bias_check: <named bias(es) + mitigation>
+counter_argument: <one sceptic position + the resolution>
+sources:
+  - url: https://...
+    accessed: YYYY-MM-DD
+    author: <author or organisation>
+    trust_tier: official-docs | peer-reviewed | vendor-note | independent-analysis | blog-post
+  - url: https://...
+    accessed: YYYY-MM-DD
+    author: <author or organisation>
+    trust_tier: ...
+---
+```
+
+Why a structured block rather than distributed prose: §8.1 lint is grep-driven and looks for the 7 field names at column 0. Distributing the rigor across body sections (e.g., counter_argument folded into the §Counter-Argument + Resolution prose) is not parseable by the gate and counts as a §8.1 failure even if the rigor content is substantively present.
+
 ### §5.3 ADR body sections (uniform, all ADRs)
 
 1. **§Context** — current v1 state (cite file_path:line_number references; 3-6 lines).
 2. **§Decision** — the single chosen option (verbatim from §4 lettered options, expanded to one paragraph).
 3. **§Alternatives Considered** — at least one genuinely different alternative (not just a phrasing variant). For each: one-paragraph description + why-rejected.
-4. **§Counter-Argument + Resolution** — one sceptic position the orchestrator surfaced during §4 sparring + how the chosen option addresses it. This is the §4 adversarial-counter mandate operationalized at ADR time.
-5. **§Sources** — at least 2 sources per empirical claim, each row: `url · accessed YYYY-MM-DD · author/org · trust_tier (official-docs|peer-reviewed|vendor-note|independent-analysis|blog-post)`. Single-source claims allowed only if `trust_tier=official-docs` AND the claim is platform-specific.
+4. **§Counter-Argument + Resolution** — one sceptic position the orchestrator surfaced during §4 sparring + how the chosen option addresses it. This is the §4 adversarial-counter mandate operationalized at ADR time. (Restates the §5.2.5 rigor-schema `counter_argument` field in prose; the structured field is still required.)
+5. **§Sources** — at least 2 sources per empirical claim, each row: `url · accessed YYYY-MM-DD · author/org · trust_tier (official-docs|peer-reviewed|vendor-note|independent-analysis|blog-post)`. Single-source claims allowed only if `trust_tier=official-docs` AND the claim is platform-specific. (Mirrors §5.2.5 `sources:` list.)
 6. **§Pillar Compliance Test (4 questions)** — answered inline:
    - (1) Which pillar(s) does this decision serve? (must be non-empty)
    - (2) What measurable improvement does it produce? (must be quantified)
@@ -436,6 +486,24 @@ theme: T2.1
 status: accepted
 decided_on: 2026-05-20
 serves_pillars: [P4, P5]
+---
+
+---
+confidence: high
+confidence_basis: direct measurement (CONSTITUTION.md line-count + traceability-matrix audit) + sampled observation (peer-framework pillar counts)
+falsifiability: if a future audit cycle surfaces a finding that is uniquely attributable to v1 P5 (no P4 overlap) or v1 P8 (no P7 overlap) in the rebuilt v2 audit, the merge is disproved
+causal_chain: 8 pillars → P5 lean-threshold table carries P4-jurisdiction rows → traceability matrix has 8×N rows where the underlying axis space is 6 → classification ambiguity increases per-finding routing cost
+bias_check: anchoring bias on existing 8-pillar count; mitigated by peer-framework comparison (AWS 6, GitHub 5, NIST 6)
+counter_argument: merging P7+P8 hides B1's user-facing nature under an efficiency umbrella — resolution: B1 retains explicit sub-directive status with its own trigger criteria (ambiguity gate) enforced by `.claude/rules/clarification-default.md`
+sources:
+  - url: https://example.org/pillar-overlap-research
+    accessed: 2026-05-19
+    author: Example Lab
+    trust_tier: peer-reviewed
+  - url: https://owasp.org/asi
+    accessed: 2026-05-19
+    author: OWASP
+    trust_tier: official-docs
 ---
 
 # D-007 — Pillar count reduces from 8 to 6
@@ -481,7 +549,7 @@ the merger consolidates governance dimensions, not enforcement gates.
 
 ### §5.5 ADR-commit hard-stop
 
-After drafting each ADR, the orchestrator asks one question:
+After drafting each ADR, the orchestrator **raises one question via the platform-native question tool** (per `agents/shared/user-question-protocol.md`):
 
 > **Question:** Commit ADR `D-NNN-<slug>.md` as drafted?
 >
@@ -489,9 +557,9 @@ After drafting each ADR, the orchestrator asks one question:
 > 2. Revise — list which section + change.
 > 3. Reject — record rejection rationale in `workspace/sparring-log.md`; do not write the ADR.
 >
-> Default if no response: 1
+> Default if no response: 1 (platform-tool timeout only — see §0.6)
 
-Hard-stop per ADR. The orchestrator waits before moving to the next theme.
+**Hard-stop per ADR. The orchestrator MUST NOT move to the next theme until the platform-native question tool returns an explicit maintainer response.** Session-level autonomy directives DO NOT bypass this gate — §0.6 governs. The default option fires only on a platform-tool no-response timeout. Record the maintainer's verbatim choice (or the platform timeout event) on the corresponding sparring-log entry.
 
 ---
 
@@ -639,7 +707,7 @@ The orchestrator runs these gates inline at SKILL.md Step 8 — after §6 layer 
 
 ### §8.1 Rigor-schema lint
 
-For every `D-NNN-*.md` ADR: confirm the 7 fields are present (confidence, confidence_basis, falsifiability, causal_chain ≥ 3 steps, bias_check, counter_argument, sources). Confirm `sources` has ≥ 2 rows OR a single `official-docs` row for platform-specific claims. Missing field → ADR rejected, the layer doc that references it is rolled back, the responsible layer SA re-runs.
+For every `D-NNN-*.md` ADR: confirm the 7 fields are present at column 0 inside the dedicated rigor-schema YAML block per §5.2.5 (confidence, confidence_basis, falsifiability, causal_chain ≥ 3 steps, bias_check, counter_argument, sources). Confirm `sources` has ≥ 2 rows OR a single `official-docs` row for platform-specific claims. The lint is grep-driven on `^${field}:` patterns — rigor content distributed across §Context / §Counter-Argument / §Sources body prose is NOT admissible substitution; the structured block is the source of truth. Missing field → ADR rejected, the layer doc that references it is rolled back, the responsible layer SA re-runs.
 
 ### §8.2 Per-file lean threshold (`wc -l` vs declared target)
 
