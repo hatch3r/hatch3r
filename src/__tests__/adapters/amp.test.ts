@@ -1,9 +1,15 @@
 import { describe, it, expect } from "vitest";
+import { readFile } from "node:fs/promises";
 import { AmpAdapter } from "../../adapters/amp.js";
+import { ADAPTER_CAPABILITIES } from "../../adapters/index.js";
 import { createManifest } from "../../manifest/hatchJson.js";
 import { resolveTestPath } from "../fixtures.js";
 
 const FIXTURES_DIR = resolveTestPath(import.meta.url, "../fixtures/agents");
+const CAPABILITY_MATRIX_DOC = resolveTestPath(
+  import.meta.url,
+  "../../../docs/adapter-capability-matrix.md",
+);
 
 describe("AmpAdapter", () => {
   const adapter = new AmpAdapter();
@@ -160,5 +166,122 @@ describe("AmpAdapter", () => {
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
     const cliSkills = outputs.filter((o) => o.path.includes("hatch3r-cli-"));
     expect(cliSkills).toEqual([]);
+  });
+
+  // ── C9-H23 / D9-SA9.8.F1: custom slash command deprecation ──────
+  //
+  // Amp deprecated custom slash commands on 2026-01-29 in favor of skills
+  // (https://ampcode.com/news/slashing-custom-commands). The capability
+  // matrix MUST record `commands: false` so that:
+  //   1. `getUnsupportedFeatureWarnings` warns users who toggle
+  //      `manifest.features.commands` for amp.
+  //   2. The adapter never emits files into `.agents/commands/` or
+  //      `.amp/commands/` (skills cover the same surface and are emitted
+  //      via the canonical mirror in `copyHatch3rFiles`).
+  // Re-verified against ampcode.com/manual on 2026-05-18 (current manual
+  // documents skills + plugins; `.agents/commands/` is no longer read).
+  it("capability matrix records commands: false (deprecated 2026-01-29)", () => {
+    expect(ADAPTER_CAPABILITIES.amp.commands).toBe(false);
+  });
+
+  it("emits no command files (custom slash commands deprecated 2026-01-29)", async () => {
+    const manifest = createManifest({
+      tools: ["amp"],
+      features: { commands: true },
+    });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const commandOutputs = outputs.filter(
+      (o) =>
+        o.path.startsWith(".agents/commands/") ||
+        o.path.startsWith(".amp/commands/") ||
+        o.path.includes("/commands/"),
+    );
+    expect(commandOutputs).toEqual([]);
+  });
+
+  // ── C9-M49 (D9-SA9.8-F03): docs ⇄ ADAPTER_CAPABILITIES sync ──────
+  //
+  // The Amp row in `docs/adapter-capability-matrix.md` Implementation Matrix
+  // must stay in lockstep with `ADAPTER_CAPABILITIES.amp`. Prior to this
+  // test the docs row showed `skills: Y` and `commands: ~`, both
+  // contradicting the post-Wave-2-H23 capability flags (`skills: false`,
+  // `commands: false`). The legend mapping enforced here:
+  //
+  //   capability flag = true  → docs cell may be `Y` or `B` (adapter emits
+  //                              files OR routes content through a bridge
+  //                              file the adapter itself writes)
+  //   capability flag = false → docs cell may be `~`, `--`, `B` (bridge
+  //                              written elsewhere, e.g. root AGENTS.md), or
+  //                              `skip`; never `Y` (Y implies adapter output)
+  //
+  // For amp specifically every flag in the Implementation Matrix columns is
+  // `false` except `mcp` (true), and the docs row must reflect exactly that.
+  it("docs/adapter-capability-matrix.md amp row matches ADAPTER_CAPABILITIES.amp", async () => {
+    const doc = await readFile(CAPABILITY_MATRIX_DOC, "utf8");
+
+    // Locate the Implementation Matrix row that starts with `| **amp** |`.
+    // The header before it declares column order:
+    //   rules | agents | skills | prompts | commands | mcp | guardrails |
+    //   githubAgents | hooks | model | agentTeams
+    const rowMatch = doc.match(/^\|\s*\*\*amp\*\*\s*\|([^\n]+)\|\s*$/m);
+    expect(
+      rowMatch,
+      "Implementation Matrix row for amp must exist in docs/adapter-capability-matrix.md",
+    ).not.toBeNull();
+
+    const cells = rowMatch![1]
+      .split("|")
+      .map((c) => c.trim())
+      // Drop trailing empty segment from the closing pipe.
+      .filter((_, idx, arr) => idx < arr.length);
+
+    // The header has 11 capability columns; the trailing | leaves 11 trimmed
+    // cells after split/filter.
+    expect(cells.length, `expected 11 capability cells, got ${cells.length}: ${cells.join(",")}`).toBe(11);
+
+    const [rules, agents, skills, prompts, commands, mcp, guardrails, githubAgents, hooks, model, agentTeams] = cells;
+
+    const caps = ADAPTER_CAPABILITIES.amp;
+
+    // mcp is the only `true` flag for amp; docs must show `Y` (adapter
+    // emits `.amp/settings.json`).
+    expect(caps.mcp, "ADAPTER_CAPABILITIES.amp.mcp must be true").toBe(true);
+    expect(mcp, "docs amp row mcp column must be Y when adapter emits MCP").toBe("Y");
+
+    // rules/agents flags are false because the adapter emits nothing; the
+    // docs cell records bridge content via root AGENTS.md → `B`.
+    expect(caps.rules).toBe(false);
+    expect(caps.agents).toBe(false);
+    expect(rules, "amp.rules flag=false; docs cell must be B (bridge via root AGENTS.md)").toBe("B");
+    expect(agents, "amp.agents flag=false; docs cell must be B (bridge via root AGENTS.md)").toBe("B");
+
+    // skills flag is false because Amp reads `.agents/skills/` natively from
+    // the canonical mirror (copyHatch3rFiles); docs cell must be `~`, NOT
+    // `Y` — that was the C9-M49 drift.
+    expect(caps.skills).toBe(false);
+    expect(skills, "amp.skills flag=false; docs cell must be ~ (canonical read), never Y").toBe("~");
+
+    // commands flag is false post-2026-01-29 deprecation; docs cell must be
+    // `--` (platform no longer supports the surface), NOT `~`.
+    expect(caps.commands).toBe(false);
+    expect(commands, "amp.commands flag=false (deprecated 2026-01-29); docs cell must be --").toBe("--");
+
+    // The remaining capability columns are uniformly false → `--` for amp.
+    expect(caps.prompts).toBe(false);
+    expect(caps.githubAgents).toBe(false);
+    expect(caps.hooks).toBe(false);
+    expect(prompts).toBe("--");
+    expect(guardrails).toBe("--"); // not a capability flag, but matrix records `--`
+    expect(githubAgents).toBe("--");
+    expect(hooks).toBe("--");
+
+    // modelOverride flag is true; docs records `Y` per the model column.
+    expect(caps.modelOverride).toBe(true);
+    expect(model).toBe("Y");
+
+    // agentTeams is not a capability flag; uniformly `--` for amp (the
+    // capability is Claude-Code-only).
+    expect(agentTeams).toBe("--");
   });
 });

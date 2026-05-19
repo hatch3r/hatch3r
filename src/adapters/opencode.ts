@@ -3,7 +3,7 @@ import { toPrefixedId } from "../types.js";
 import { resolveAgentModel, withProviderPrefix } from "../models/resolve.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
-import { readCanonicalFiles, sortByPrecedence } from "./canonical.js";
+import { sortByPrecedence } from "./canonical.js";
 import { applyCustomization } from "./customization.js";
 import { transformEnvVarSyntax } from "./mcp-utils.js";
 import { HATCH3R_VERSION } from "../version.js";
@@ -43,7 +43,11 @@ export class OpenCodeAdapter extends BaseAdapter {
     // by precedence (canonical filenames stay `hatch3r-<id>.md`), so a glob
     // would load rules alphabetically and ignore the precedence bucket.
     if (ctx.features.rules) {
-      const rules = await readCanonicalFiles(ctx.agentsDir, "rules", this.warnings);
+      // C9-H39 (D11-SA11.1-01): use the BaseAdapter-tracked read wrapper so
+      // every canonical rule consumed here is recorded in
+      // `this._trackedSourceFiles` and surfaces on each output's
+      // `sourceFiles` field.
+      const rules = await this.readTrackedCanonicalFiles(ctx.agentsDir, "rules");
       const sortedRules = sortByPrecedence(rules);
       if (sortedRules.length > 0) {
         for (const rule of sortedRules) {
@@ -106,9 +110,11 @@ export class OpenCodeAdapter extends BaseAdapter {
     if (ctx.features.agents) {
       const agents = await this.readUserFacingCanonicalFiles(ctx.agentsDir, "agents");
       for (const agent of agents) {
-        const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
+        const { content: rawContent, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
         this.warnings.push(...warnings);
         if (skip) continue;
+        // C9-H47 (D14-SA14.4-H01): substitute detected toolchain tokens.
+        const content = this.substituteDetectedRepoTokens(rawContent, ctx);
         const agentId = toPrefixedId(agent.id);
         const model = resolveAgentModel(agent.id, agent, ctx.manifest, overrides);
         const desc = overrides.description ?? agent.description;

@@ -80,7 +80,7 @@ Run the full hatch3r gate battery PLUS removal-specific checks. Block commit on 
 | Reference-orphan check | `grep -rn "<removed-name>" agents/ skills/ rules/ commands/ hooks/ checks/ prompts/ github-agents/ src/ governance/ docs/ docs-site/ tests/ CLAUDE.md README.md CHANGELOG.md` | 0 hits outside the CHANGELOG migration entry |
 | CHANGELOG entry | `grep -n "<removed-name>" CHANGELOG.md` | >=1 line under the active release's `### Removed` section |
 | Anti-slop | `grep -nE` against `.claude/rules/anti-slop-enforcement.md` wordlist on every modified `.md` / `.mdc` | 0 hits |
-| Pillar compliance | Apply `.claude/rules/pillar-compliance.md` to the removal | Removal serves one or more of P1-P7 |
+| Pillar compliance | Apply `.claude/rules/pillar-compliance.md` to the removal | Removal serves one or more of P1-P8 |
 | Lean thresholds | `wc -l` on every modified governance file | Within CONSTITUTION §2 P5 limits |
 
 ## Step 7: Stop-Before-Commit Summary
@@ -133,7 +133,7 @@ Next action (maintainer runs manually):
 
 ## References
 
-- D16.3 removal-threshold + add-vs-remove bias check: `governance/audit/domains/D16-compound-system.md:55`
+- D16.3 removal-threshold + add-vs-remove bias check: `governance/audit/domains/D16-compound-system.md:59`
 - Web research mandate: `governance/audit/templates/rigor-contract.md`
 - Quality charter: `agents/shared/quality-charter.md`
 - Sibling presets: `.claude/skills/h4tcher-capability-discover/SKILL.md`, `.claude/skills/h4tcher-capability-refactor/SKILL.md`

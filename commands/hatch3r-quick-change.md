@@ -10,7 +10,14 @@ efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
 parallel_tool_default: true
 triage_tiers: [1, 2, 3]
+sub_agents_spawned:
+  count: 6
+  rationale: Six-stage pipeline per agentPipeline — implementer (one per independent area in batch mode), lint-fixer, reviewer ↔ fixer review loop, then parallel test-writer + security-auditor; final-quality runs in parallel where independent.
 ---
+
+## §0 Detect Ambiguity (P8 B1)
+
+Before any action, scan the user's change description for unresolved questions in scope, target files, irreversibility, or constraint conflicts (multiple matching files, missing acceptance criteria, unclear rename target, ambiguous "small" boundary). If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Acceptable to proceed without asking ONLY when the change is single-file, single-concern, and the brief alone is testable (typo, constant tweak, single-line edit). The Step 2c "ASK" rule remains in force for residual ambiguity discovered mid-workflow.
 
 ## Agent Pipeline
 

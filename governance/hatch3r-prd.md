@@ -1,18 +1,20 @@
-# hatch3r — Product Requirements Document v4.5
+# hatch3r — Product Requirements Document v4.7
 
 **Product name:** hatch3r
 **Mascot:** a tiny T-rex hatchling peeking out of an egg
 **Primary slogan:** Crack the egg. Hatch better agents.
-**Doc version:** v4.5
-**Date:** 2026-04-21 (Europe/Berlin)
-**Supersedes:** hatch3r PRD v4.4 (2026-04-20)
-**Last updated:** 2026-04-21
+**Doc version:** v4.7
+**Date:** 2026-05-18 (Europe/Berlin)
+**Supersedes:** hatch3r PRD v4.6 (2026-05-18, Cycle 9 Wave 1 C9-C6 PRD §1 rewrite)
+**Last updated:** 2026-05-18
 
 ---
 
 ## 1. Executive Summary
 
-> **Posture (post Cycle 8, 2026-04-21):** Ship Ready — overall audit score 83.74/100, 0 Critical findings, 15 platform adapters wired, 19-domain governance audit cycle operational, resilience pipeline and trust-delegation per-adapter `tools:` emission landed in Cycle 7.5 W2B2 (H41/H44/H45/H46), Cycle 8 Wave 3 reached terminal status on all 40 targeted Medium findings (38 done + 1 partial by plan + 1 already-resolved; 3 initially-rolled-back findings re-landed in commit `0a03a92`) with the reviewer verdict upgraded to SHIP.
+> **Posture (Cycle 9 close, 2026-05-18):** Not Ready (distribution); Ship Ready (technical foundation). Cycle 9 audit (21 domains, 121 sub-agents) surfaced 538 post-dedup findings: 8 Critical, 89 High, 228 Medium, 155 Low, 58 Info. Overall formula score 25.3/100 (21-domain weighted); Score Band = Not Ready because the 8 Criticals trigger the severity-ceiling cap regardless of formula score. Critical clusters: D17 strategic positioning (4), D21 operational currency (2), D2 trust delegation (1), D18 PRD self-consistency (1). Wave 1 (Critical) outcomes as of this rewrite: 4 of 8 Criticals resolved by agent execution — C9-C1 (D2 ASI02) added explicit `hatch3r-creator` denylist policy and CI parity test; C9-C7 (D21) replaced archived `xsv` with maintained `qsv` across `cliTools.ts` registry and adapter outputs; C9-C8 (D21) added jq CVE-2026-32316 securityNote with mitigation guidance; C9-C6 (this rewrite, D18 F18.1.1) closes the PRD-vs-audit self-contradiction flagged under AUDIT.md Behavioral Charter directive 5. 4 human-only Criticals remain open and route outside this wave: C9-C2 P9 pillar amendment via `/h4tcher-re-envision` (CONSTITUTION §8 framework-owner edit), C9-C3 AAIF/MCP-registry outreach (split emission-acceptance vs engagement metrics), C9-C4 positioning rewrite vs Cursor / Copilot / Roo Code, C9-C5 90-day distribution sequencing plan. Technical foundation holds: 3162/3162 tests passing, 86.45% statement coverage, atomic temp+rename write contract intact, OWASP ASI01–10 compliance restored after C9-C1. Per D17 holistic note: Ship Ready on technical quality; Not Distribution Ready until the 7 preconditions clear.
+>
+> **Distribution recommendation:** GO-WITH-CONDITIONS — 7 preconditions must close in the 90-day window before unconditional GO (C9-C5 sequencing plan owns the schedule).
 
 hatch3r is an open-source CLI and Cursor plugin that installs a battle-tested, tool-agnostic agentic coding setup into any repository under `/.agents/`, then generates optimal native configuration for the developer's selected coding tool(s): Cursor, GitHub Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline/Roo Code, Aider, Kiro, Goose, Zed, Amazon Q, Antigravity, and a standalone AGENTS.md output.
 
@@ -26,7 +28,7 @@ The product solves the "great agent setups don't travel well" problem by making 
 - **Updatable** — `npx hatch3r update` pulls latest without overwriting customizations
 - **Learnable** — captures insights from issues, reviews, and decisions; compounds project knowledge over time
 - **Event-driven** — lifecycle hooks activate agents automatically on commits, merges, CI failures, and more
-- **Proven** — patterns extracted from a production agentic setup; live counts in `governance/inventory.json` (auto-derived per cycle by `scripts/inventory.ts`); see also 10 MCP servers and 4 GitHub agents
+- **Proven** — patterns extracted from a production agentic setup; live counts in `governance/inventory.json` (auto-derived per cycle by `scripts/inventory.ts`) <!-- counts auto-derived; see governance/inventory.json -->. MCP server and GitHub agent counts are derived from the same source — do not restate inline.
 - **Multi-platform** — supports GitHub, Azure DevOps, and GitLab for board management and MCP integration
 
 hatch3r works equally well for greenfield products, existing codebases, and legacy systems. It includes dedicated commands for greenfield project specification, brownfield codebase analysis, and roadmap generation — providing a complete path from idea to board-managed delivery.
@@ -106,7 +108,7 @@ The agentic coding framework space has segmented into four tiers: full-lifecycle
 
 ### Key Competitors
 
-> **PRD pointer.** Per-framework star counts, focus areas, and strength tables are maintained in `governance/COMPETITIVE-ANALYSIS.md` and refreshed each audit cycle by D17 (Competition & Market Intelligence). The PRD intentionally does not duplicate the table to avoid the staleness pattern observed in v4.1 (Cycle 7 finding F18.1-H1: Superpowers PRD 130k vs live 160k, Spec Kit 84k vs 89.4k, OpenCode 114k vs 146k, Cline 60.5k absent). D17 outputs are the canonical, dated source.
+> **PRD pointer.** Per-framework star counts, focus areas, and strength tables are maintained in `governance/COMPETITIVE-ANALYSIS.md` and refreshed each audit cycle by D17 (Competition & Market Intelligence). The PRD intentionally does not duplicate the table to avoid the staleness pattern observed in v4.1 (Cycle 7 finding F18.1-H1 documented divergence between PRD-stated star counts and live API values across four named competitors; figures are not restated here). D17 outputs are the canonical, dated source — see `governance/COMPETITIVE-ANALYSIS.md` for current per-competitor numbers.
 >
 > **D17 auto-refresh contract.** Every audit cycle re-verifies competitor stars via GitHub API and updates `COMPETITIVE-ANALYSIS.md` with access date + trust tier. Staleness >14 days is itself a finding per Cycle 7 evolution proposal #5.
 
@@ -1422,7 +1424,7 @@ Status legend per row: **[I/W/C/T]** = implemented / wired / CLI-registered / te
 - **CLI commands [I/W/C/T]** — `init`, `config`, `sync`, `update`, `status`, `validate` (with `--docs` CI gate), `verify`, `clean`, `worktree-setup`, `worktree-cleanup`. `add` is **[I/—/C/T]** (stub: CLI entry exists, full pack resolution not yet wired). Live count: see `governance/inventory.json` `cliCommands`.
 - **Tool adapters [I/W/n/a/T]** — Cursor, Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline/Roo Code, Aider, Kiro, Goose, Zed, Amazon Q, Antigravity, plus the AGENTS.md standalone adapter. Live count: see `governance/inventory.json` `adapters`.
 - **Canonical content [I/W/n/a/T]** — agents, skills, rules, commands, hooks, prompts, GitHub agents. Live counts and per-artifact filenames: `governance/inventory.json` (auto-derived per cycle by `scripts/inventory.ts`).
-- **MCP servers [I/W/n/a/T]** — 10 servers in canonical config (3 default: Filesystem, Context7, Playwright; 7 opt-in: GitHub, Brave Search, Sentry, Postgres, Linear, Azure DevOps, GitLab).
+- **MCP servers [I/W/n/a/T]** — canonical config ships a default tier (Filesystem, Context7, Playwright) and an opt-in tier (GitHub, Brave Search, Sentry, Postgres, Linear, Azure DevOps, GitLab). Live count: see `governance/inventory.json` `mcpServers` <!-- counts auto-derived; see governance/inventory.json -->.
 - **Hook system [I/W/C/T]** — 6 event types with adapter integration.
 - **Learning system [I/W/C/T]** — `hatch3r-learn` capture command + `hatch3r-learning-consult` auto-consultation rule.
 - **Project analysis commands [I/W/C/T]** — project-spec, codebase-map, roadmap, feature-plan, bug-plan, refactor-plan, migration-plan, api-spec.
@@ -1484,17 +1486,26 @@ Status legend per row: **[I/W/C/T]** = implemented / wired / CLI-registered / te
 11. **MCP Server Cards support** — June 2026 MCP spec introduces Server Cards. Early adoption is a competitive differentiator. See COMPETITIVE-ANALYSIS.md section 3.2a. (D17-H10, Effort M)
 12. **Benchmark suite for native output quality** — Prove "deepest native integration" claim quantitatively. See COMPETITIVE-ANALYSIS.md section 5.4 for full specification. (D17-H13, Effort High)
 
+#### Cycle 10 Wave 1 Roadmap Additions (D16-F16.2.2 4-artifact set, deferred from Cycle 9 Wave 3)
+
+> Added 2026-05-18 per Cycle 9 Wave 2 finding C9-H74 (D18-F18.2.3). The 4-artifact set below was originally scheduled for Cycle 9 Wave 3 under D16-F16.2.2. Deferred to Cycle 10 Wave 1 to keep Cycle 9 Wave 3 scoped to Medium-severity remediation. Each artifact has a dedicated content-spec under `.audit-workspace/content-specs/` per CL-2 emission (see C9-H35/H36/H37 specs landed in Cycle 9 Wave 2). Timeline: kickoff with Cycle 10 audit Phase 1; target completion Cycle 10 Wave 1 close.
+
+13. **SLO scaffold command** (`hatch3r-slo-scaffold`) — generate baseline SLI/SLO scaffolding (availability, latency, error budget) for a service. Spec at `.audit-workspace/content-specs/slo-scaffold-command-spec.md` (C9-H37). (D16-F16.2.2, Effort M)
+14. **oasdiff CI integration** — wire `oasdiff` into CI to detect breaking OpenAPI schema changes between commits; extend `skills/hatch3r-api-spec/SKILL.md` to consume oasdiff output (C9-H38 reduced-scope variant landed in Wave 2; this entry is the full CI wiring). (D16-F16.2.2, Effort S)
+15. **SBOM emission** — generate CycloneDX or SPDX SBOM during release (npm `--sbom` flag or syft) and attach to GitHub release assets. (D16-F16.2.2, Effort S)
+16. **Auth-scaffold capability** — scaffold OAuth/OIDC/PAT auth boilerplate for greenfield API services; complements existing `hatch3r-api-spec` skill. (D16-F16.2.2, Effort M)
+
 ### Milestone 2a — Distribution Execution Sequence (Cycle 7.5 W2B2 H55)
 
 Five sequenced distribution milestones relative to Cycle 8 kickoff (W0). Each has a target week, a success metric, and a fallback plan. Cross-reference `governance/audit/domains/D17-competition.md` live-baseline npm/GitHub cadence (Cycle 7 CL-3 P2) — staleness >14 days is a D17 finding.
 
-| # | Milestone | Target Week | Success Metric | Fallback Plan |
-|---|-----------|-------------|----------------|---------------|
-| a | Anthropic Claude Plugin Marketplace PR merge | External (tracked via C7-H16 PARTIAL) | PR merged into `anthropics/claude-plugins-official/external_plugins` | If not merged by W2: execute milestones b-c regardless; resubmit after feedback |
-| b | Show HN post | W1 (post marketplace merge) | >=50 HN points in 24h, >=200 comments in 48h; title: "hatch3r v1.6 — tool-agnostic AI coding rule generator for Cursor/Claude/Copilot/Cline/Windsurf/Codex and 10 more" | If milestone (a) delayed past W2: post with "submitted to marketplace" framing instead of "in marketplace" |
-| c | r/ClaudeAI post | W2 | >=100 upvotes, cross-link to HN thread if live | If post downvoted under 10 upvotes within 2h: analyze feedback, revise framing, repost to r/LocalLLaMA or r/ChatGPTCoding in W3 |
-| d | docs.hatch3r.com launch | W3-W4 | Docusaurus site live at docs.hatch3r.com, getting-started + architecture + adapter matrix pages indexed by Google; relies on `docusaurus-generator` skill | If Docusaurus build blocks: ship minimal GitHub Pages fallback (README + inventory.json + adapter-capability-matrix.md) |
-| e | AAIF/ACP registry listing | W4-W6 | hatch3r listed in AAIF public registry OR ACP registry; per D17 quarterly standards-monitoring cadence | If neither registry accepts listing within W8: publish "why we are not in X registry" post documenting the gap; add issue to respective upstream registry repos |
+| # | Milestone | Target Week | Success Metric | Fallback Plan | Status | Last-update |
+|---|-----------|-------------|----------------|---------------|--------|-------------|
+| a | Anthropic Claude Plugin Marketplace PR merge | External (tracked via C7-H16 PARTIAL) | PR merged into `anthropics/claude-plugins-official/external_plugins` | If not merged by W2: execute milestones b-c regardless; resubmit after feedback | Open (blocked on C9-H62 marketplace submission) | 2026-05-18 |
+| b | Show HN post | W1 (post marketplace merge) | >=50 HN points in 24h, >=200 comments in 48h; title: "hatch3r v1.6 — tool-agnostic AI coding rule generator for Cursor/Claude/Copilot/Cline/Windsurf/Codex and 10 more" | If milestone (a) delayed past W2: post with "submitted to marketplace" framing instead of "in marketplace" | Open (blocked on C9-C5 90-day distribution sequencing plan) | 2026-05-18 |
+| c | r/ClaudeAI post | W2 | >=100 upvotes, cross-link to HN thread if live | If post downvoted under 10 upvotes within 2h: analyze feedback, revise framing, repost to r/LocalLLaMA or r/ChatGPTCoding in W3 | Open (blocked on C9-C5 90-day distribution sequencing plan) | 2026-05-18 |
+| d | docs.hatch3r.com launch | W3-W4 | Docusaurus site live at docs.hatch3r.com, getting-started + architecture + adapter matrix pages indexed by Google; relies on `docusaurus-generator` skill | If Docusaurus build blocks: ship minimal GitHub Pages fallback (README + inventory.json + adapter-capability-matrix.md) | Open (blocked on C9-C5 90-day distribution sequencing plan) | 2026-05-18 |
+| e | AAIF/ACP registry listing | W4-W6 | hatch3r listed in AAIF public registry OR ACP registry; per D17 quarterly standards-monitoring cadence | If neither registry accepts listing within W8: publish "why we are not in X registry" post documenting the gap; add issue to respective upstream registry repos | Open (blocked on C9-C3 AAIF/MCP-registry outreach) | 2026-05-18 |
 
 Execution invariants: (1) No milestone blocks on a later one; (2) each milestone has a named owner and a dated rollback condition; (3) week numbers are rescheduled (not deleted) if external dependencies slip. PRD §23 "Competitive traction gap" risk row covers mitigation if >=2 milestones slip past W+2.
 

@@ -8,6 +8,8 @@
  * The log is append-only and auto-rotated when it exceeds MAX_LOG_SIZE.
  */
 
+import { verbose } from "../cli/shared/ui.js";
+
 // ── Types ────────────────────────────────────────────────────────
 
 export interface FailureLogEntry {
@@ -88,8 +90,11 @@ export function parseFailureLog(content: string): FailureLogEntry[] {
       if (parsed.timestamp && parsed.phase && parsed.error) {
         entries.push(parsed);
       }
-    } catch {
-      // Skip malformed lines -- do not let log parsing errors break the pipeline
+    } catch (err) {
+      // Skip malformed lines -- do not let log parsing errors break the pipeline.
+      // Surface under --verbose so operators see the underlying corruption.
+      const message = err instanceof Error ? err.message : String(err);
+      verbose(`failureLog: parseFailureLog skipped malformed line — ${message}`);
     }
   }
   return entries;

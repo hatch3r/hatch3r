@@ -5,6 +5,16 @@ import { ARCHIVE_DIR, HATCH3R_PREFIX, HatchError, sanitizeId } from "../types.js
 import { extractCustomContent, hasManagedBlock } from "../merge/managedBlocks.js";
 import { atomicWriteFile } from "../merge/safeWrite.js";
 import type { CustomizableType } from "../models/customize.js";
+import { verbose } from "../cli/shared/ui.js";
+
+/**
+ * Record an archive-probe failure: emit a verbose() line to stderr (visible
+ * only with --verbose). Per D8-H8.4.6 (C9-H19) Silent Failure Contract.
+ */
+function recordArchiveProbeFailure(operation: string, err: unknown): void {
+  const message = err instanceof Error ? err.message : String(err);
+  verbose(`archive: ${operation} — ${message}`);
+}
 
 function toPosixPath(p: string): string {
   return sep === "\\" ? p.replaceAll("\\", "/") : p;
@@ -89,7 +99,8 @@ async function fileExists(path: string): Promise<boolean> {
   try {
     await access(path);
     return true;
-  } catch {
+  } catch (err) {
+    recordArchiveProbeFailure(`fileExists(${path}) — not present`, err);
     return false;
   }
 }
@@ -112,8 +123,11 @@ export async function collectToolFiles(rootDir: string, tool: Tool): Promise<str
             files.push(relPath);
           }
         }
-      } catch {
-        // directory doesn't exist
+      } catch (err) {
+        recordArchiveProbeFailure(
+          `collectToolFiles: readdir(${absPath}) — directory missing for ${tool}`,
+          err,
+        );
       }
     } else if (await fileExists(absPath)) {
       files.push(prefix);
@@ -221,8 +235,11 @@ export async function cleanEmptyDirs(rootDir: string, paths: string[]): Promise<
       if (entries.length === 0) {
         await rm(dir, { recursive: true });
       }
-    } catch {
-      // directory may not exist or already removed
+    } catch (err) {
+      recordArchiveProbeFailure(
+        `cleanEmptyDirs: readdir/rm(${dir}) — already removed or missing`,
+        err,
+      );
     }
   }
 }
@@ -242,7 +259,22 @@ export function getManagedFilesForTool(
   return manifest.managedFiles.filter((f) => fileMatchesTool(f, tool));
 }
 
-const MAX_ARCHIVE_ENTRIES = 5;
+/**
+ * Maximum archive entries retained per tool before pruning.
+ *
+ * Source: D2-SA2.7 retention contract — five entries balances local
+ * rollback coverage (one entry per recent sync run) against disk-footprint
+ * growth on long-lived projects. Override with HATCH3R_MAX_ARCHIVE_ENTRIES
+ * env var (positive integer; default: 5).
+ */
+const MAX_ARCHIVE_ENTRIES = ((): number => {
+  const envVal = process.env.HATCH3R_MAX_ARCHIVE_ENTRIES;
+  if (envVal) {
+    const parsed = parseInt(envVal, 10);
+    if (!Number.isNaN(parsed) && parsed > 0) return parsed;
+  }
+  return 5;
+})();
 
 /**
  * Prune old archive entries, keeping only the most recent MAX_ARCHIVE_ENTRIES per tool.

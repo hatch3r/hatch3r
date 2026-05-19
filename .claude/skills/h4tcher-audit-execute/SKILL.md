@@ -39,7 +39,7 @@ Execute findings from an audit report using `governance/AUDIT-EXECUTE.md`.
 
 7. Parse Enhanced Action Items from audit report
 8. Run 4-tier deduplication: same file + same root cause + same fix → keep highest severity
-9. Apply pillar justification filter: every finding must trace to P1-P7
+9. Apply pillar justification filter: every finding must trace to P1-P8
 10. Classify owners: auto-fixable vs requires-human-review
 
 ## Phase 2 — Tier Classification & Grouping
@@ -57,11 +57,11 @@ For each wave (1 through 4):
 
 14. Tag pre-wave state: `git tag audit-wave-{N}-pre`
 15. Spawn ALL sub-agents for the wave in a single parallel dispatch — Tier 1 batch sub-agents (per `governance/audit/templates/tier1-batch-sub-agent.md`), Tier 2 file-lock sub-agents, and Tier 3 dedicated sub-agents (both per `governance/audit/templates/implementation-sub-agent.md`). The orchestrator never edits files itself. Each sub-agent writes one results file per finding to `.audit-workspace/wave-{N}/{finding_id}.results.md`.
-16. After all sub-agents complete, run **17-check regression gate** against Phase 0 baseline:
+16. After all sub-agents complete, run **18-check regression gate** against Phase 0 baseline:
     - Tests, Typecheck, Lint, Build, Content validation, Git diff, Diff-backed status
     - Fix-Finding (SUMMARY.md scan), Governance, Governance weight, Anti-slop
     - Severity vocabulary, Governance currency, Doc accuracy, Cross-domain dedup
-    - Triage-first (P7 invariant), Static-first ordering (P7 invariant)
+    - Triage-first (P7 invariant), Static-first ordering (P7 invariant), Strict-content gate
 17. On gate PASS: tag `audit-wave-{N}-post`, update finding-registry.json statuses, re-score domains
 18. On gate FAIL: follow Gate Failure Protocol (targeted fix → L1 rollback → L2 rollback)
 

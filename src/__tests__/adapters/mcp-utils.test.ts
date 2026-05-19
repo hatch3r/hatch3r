@@ -4,6 +4,10 @@ import {
   validateServerName,
   transformEnvVarSyntax,
   checkVersionPin,
+  detectFetchLauncher,
+  findLauncherPackageArg,
+  validateMcpHttpEndpoint,
+  ON_DEMAND_FETCH_LAUNCHERS,
   DEFAULT_TRANSFORM_MAX_DEPTH,
 } from "../../adapters/mcp-utils.js";
 import type { McpServerEntry } from "../../adapters/mcp-utils.js";
@@ -72,36 +76,46 @@ describe("validateMcpEntry", () => {
     expect(warnings[0]).toContain("/tmp/malware");
   });
 
-  it("returns no warnings for valid http URL", () => {
-    const entry: McpServerEntry = { url: "http://localhost:3000/mcp" };
+  it("returns no warnings for valid http URL with SHA-256 pin", () => {
+    // C9-M34: HTTP transport requires _pinned_sha256 or _trust_bypass.
+    const entry: McpServerEntry = {
+      url: "http://localhost:3000/mcp",
+      _pinned_sha256: "a".repeat(64),
+    };
     expect(validateMcpEntry("local", entry)).toEqual([]);
   });
 
-  it("returns no warnings for valid https URL", () => {
-    const entry: McpServerEntry = { url: "https://mcp.example.com/v1" };
+  it("returns no warnings for valid https URL with SHA-256 pin", () => {
+    // C9-M34: HTTP transport requires _pinned_sha256 or _trust_bypass.
+    const entry: McpServerEntry = {
+      url: "https://mcp.example.com/v1",
+      _pinned_sha256: "sha256:" + "b".repeat(64),
+    };
     expect(validateMcpEntry("remote", entry)).toEqual([]);
   });
 
   it("warns on unsupported URL scheme", () => {
+    // C9-M34: With no command, this is an HTTP-transport entry —
+    // missing-pin warning fires alongside the scheme warning. Both must
+    // be present; the scheme warning remains the primary signal.
     const entry: McpServerEntry = { url: "ftp://evil.com/exfil" };
     const warnings = validateMcpEntry("bad-scheme", entry);
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toContain("unsupported URL scheme");
-    expect(warnings[0]).toContain("ftp:");
+    expect(warnings.some((w) => w.includes("unsupported URL scheme"))).toBe(true);
+    expect(warnings.some((w) => w.includes("ftp:"))).toBe(true);
   });
 
   it("warns on file:// URL scheme", () => {
     const entry: McpServerEntry = { url: "file:///etc/passwd" };
     const warnings = validateMcpEntry("file-access", entry);
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toContain("unsupported URL scheme");
+    expect(warnings.some((w) => w.includes("unsupported URL scheme"))).toBe(true);
   });
 
   it("warns on invalid URL", () => {
+    // C9-M34: invalid-URL warning still emitted; missing-pin warning also
+    // present since the entry has url + no command.
     const entry: McpServerEntry = { url: "not a valid url" };
     const warnings = validateMcpEntry("broken", entry);
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toContain("invalid URL");
+    expect(warnings.some((w) => w.includes("invalid URL"))).toBe(true);
   });
 
   it("warns when neither command nor url is set", () => {
@@ -369,12 +383,14 @@ describe("transformEnvVarSyntax", () => {
 
 describe("McpServerEntry headers field", () => {
   it("accepts entries with headers", () => {
+    // C9-M34: HTTP transport requires _pinned_sha256 or _trust_bypass.
     const entry: McpServerEntry = {
       url: "https://api.example.com/mcp/",
       headers: {
         Authorization: "Bearer ${env:API_TOKEN}",
         "X-Custom": "static-value",
       },
+      _pinned_sha256: "c".repeat(64),
     };
     const warnings = validateMcpEntry("example", entry);
     expect(warnings).toEqual([]);
@@ -615,5 +631,602 @@ describe("validateMcpEntry — C7.5-W2B2-H3 Windows .exe/.cmd/.bat allowlist", (
     };
     const warnings = validateMcpEntry("midpath", entry);
     expect(warnings.some((w) => w.includes("unrecognized command"))).toBe(true);
+  });
+});
+
+// ── C9-H53 (D15-SA15.5-F01 / Pillar P6): ON_DEMAND_FETCH_LAUNCHERS ───────
+// The npx-only version-pin gate is replaced by a launcher set covering
+// every package-manager CLI that fetches packages at launch time. Each
+// entry below is a finding-required positive (single-token launchers,
+// pnpm dlx, yarn dlx) or a negative (commands outside the set).
+
+describe("ON_DEMAND_FETCH_LAUNCHERS (C9-H53)", () => {
+  it("exports the canonical launcher list in declaration order", () => {
+    // The exact composition is load-bearing: D15-SA15.5-F01 requires
+    // npx, uvx, pipx, bunx, pnpm dlx, yarn dlx.
+    expect([...ON_DEMAND_FETCH_LAUNCHERS]).toEqual([
+      "npx",
+      "uvx",
+      "pipx",
+      "bunx",
+      "pnpm dlx",
+      "yarn dlx",
+    ]);
+  });
+});
+
+describe("detectFetchLauncher (C9-H53)", () => {
+  // Positive: every launcher in the finding's required set must be
+  // detected. Single-token launchers match the basename; two-token
+  // launchers match basename + first non-flag arg.
+  it.each([
+    ["npx", "npx", ["@scope/pkg@1.0.0"]],
+    ["uvx", "uvx", ["mcp-server-fetch@1.2.3"]],
+    ["pipx", "pipx", ["mcp-server-py@0.1.0"]],
+    ["bunx", "bunx", ["@scope/pkg@1.0.0"]],
+    ["pnpm dlx", "pnpm", ["dlx", "@scope/pkg@1.0.0"]],
+    ["yarn dlx", "yarn", ["dlx", "@scope/pkg@1.0.0"]],
+  ] as const)(
+    "detects launcher %s from command=%s args=%j",
+    (expected, command, args) => {
+      expect(detectFetchLauncher(command, [...args])).toBe(expected);
+    },
+  );
+
+  it("detects launcher despite Windows .exe/.cmd/.bat suffix", () => {
+    // Extension stripping is case-insensitive (existing C7.5-W2B2-H3
+    // contract). Basename matching follows ALLOWED_COMMANDS, which is
+    // lowercase canonical — Windows shims are conventionally lowercase.
+    expect(detectFetchLauncher("npx.bat", ["@scope/pkg@1.0.0"])).toBe("npx");
+    expect(detectFetchLauncher("uvx.EXE", ["pkg@1.0.0"])).toBe("uvx");
+    expect(detectFetchLauncher("pnpm.cmd", ["dlx", "p@1.0.0"])).toBe(
+      "pnpm dlx",
+    );
+  });
+
+  it("detects launcher despite absolute path prefix (POSIX + Windows)", () => {
+    expect(
+      detectFetchLauncher("/usr/local/bin/uvx", ["pkg@1.0.0"]),
+    ).toBe("uvx");
+    expect(
+      detectFetchLauncher("C:\\Program Files\\nodejs\\npx.exe", [
+        "@scope/pkg@1.0.0",
+      ]),
+    ).toBe("npx");
+  });
+
+  it("ignores pnpm/yarn flags BEFORE the dlx subcommand", () => {
+    // `pnpm --silent dlx pkg` is still a dlx invocation.
+    expect(
+      detectFetchLauncher("pnpm", ["--silent", "dlx", "@scope/pkg@1.0.0"]),
+    ).toBe("pnpm dlx");
+  });
+
+  // Negative: non-launcher commands and pnpm/yarn without the dlx
+  // subcommand must NOT match. A non-match means no pin warning.
+  it.each([
+    ["node", ["server.js"]],
+    ["docker", ["run", "img:tag"]],
+    ["python3", ["-m", "mcp_server"]],
+    ["bun", ["run", "server.ts"]],
+    ["deno", ["run", "main.ts"]],
+    ["go", ["run", "main.go"]],
+  ] as const)("returns null for non-launcher %s", (command, args) => {
+    expect(detectFetchLauncher(command, [...args])).toBeNull();
+  });
+
+  it("returns null for pnpm/yarn without a dlx subcommand", () => {
+    expect(detectFetchLauncher("pnpm", ["install"])).toBeNull();
+    expect(detectFetchLauncher("yarn", ["install"])).toBeNull();
+    expect(detectFetchLauncher("pnpm", [])).toBeNull();
+  });
+
+  it("returns null when command is missing or args is undefined", () => {
+    expect(detectFetchLauncher(undefined, undefined)).toBeNull();
+    expect(detectFetchLauncher("", ["dlx", "pkg"])).toBeNull();
+    expect(detectFetchLauncher("pnpm", undefined)).toBeNull();
+  });
+});
+
+describe("findLauncherPackageArg (C9-H53)", () => {
+  it("returns the first non-flag arg for npx", () => {
+    expect(
+      findLauncherPackageArg("npx", ["-y", "@scope/pkg@1.0.0"], "npx"),
+    ).toBe("@scope/pkg@1.0.0");
+  });
+
+  it("returns the first non-flag arg for uvx", () => {
+    expect(
+      findLauncherPackageArg("uvx", ["pkg@1.0.0"], "uvx"),
+    ).toBe("pkg@1.0.0");
+  });
+
+  it("returns the first non-flag arg AFTER dlx for pnpm dlx", () => {
+    expect(
+      findLauncherPackageArg(
+        "pnpm",
+        ["--silent", "dlx", "@scope/pkg@1.0.0"],
+        "pnpm dlx",
+      ),
+    ).toBe("@scope/pkg@1.0.0");
+  });
+
+  it("returns the first non-flag arg AFTER dlx for yarn dlx", () => {
+    expect(
+      findLauncherPackageArg(
+        "yarn",
+        ["dlx", "@scope/pkg@1.0.0"],
+        "yarn dlx",
+      ),
+    ).toBe("@scope/pkg@1.0.0");
+  });
+
+  it("skips package-level flags after dlx to locate package name", () => {
+    expect(
+      findLauncherPackageArg(
+        "pnpm",
+        ["dlx", "--package=foo", "@scope/pkg@1.0.0"],
+        "pnpm dlx",
+      ),
+    ).toBe("@scope/pkg@1.0.0");
+  });
+
+  it("returns null when no package arg is present", () => {
+    expect(findLauncherPackageArg("npx", ["-y"], "npx")).toBeNull();
+    expect(findLauncherPackageArg("pnpm", ["dlx"], "pnpm dlx")).toBeNull();
+    expect(
+      findLauncherPackageArg("pnpm", ["install"], "pnpm dlx"),
+    ).toBeNull();
+    expect(findLauncherPackageArg("npx", undefined, "npx")).toBeNull();
+    expect(findLauncherPackageArg("npx", [], "npx")).toBeNull();
+  });
+});
+
+describe("validateMcpEntry multi-launcher version-pin (C9-H53)", () => {
+  // POSITIVE cases — each launcher in ON_DEMAND_FETCH_LAUNCHERS must
+  // emit a version-pin warning when its package arg is unpinned.
+
+  it("warns on unpinned uvx package", () => {
+    const entry: McpServerEntry = {
+      command: "uvx",
+      args: ["-y", "mcp-server-fetch"],
+    };
+    const warnings = validateMcpEntry("uvx-srv", entry);
+    expect(warnings.some((w) => w.includes("unpinned"))).toBe(true);
+  });
+
+  it("warns on uvx package pinned to @latest", () => {
+    const entry: McpServerEntry = {
+      command: "uvx",
+      args: ["-y", "mcp-server-fetch@latest"],
+    };
+    const warnings = validateMcpEntry("uvx-srv", entry);
+    expect(warnings.some((w) => w.includes("unpinned"))).toBe(true);
+  });
+
+  it("does NOT warn on uvx package pinned to exact version", () => {
+    const entry: McpServerEntry = {
+      command: "uvx",
+      args: ["-y", "mcp-server-fetch@1.2.3"],
+    };
+    const warnings = validateMcpEntry("uvx-srv", entry);
+    expect(warnings.filter((w) => w.includes("unpinned"))).toHaveLength(0);
+  });
+
+  it("warns on unpinned pipx package", () => {
+    // pipx invocation pattern in MCP configs: `pipx -y <pkg>` —
+    // single-token launcher with the package as the first non-flag arg.
+    const entry: McpServerEntry = {
+      command: "pipx",
+      args: ["-y", "mcp-server-py"],
+    };
+    const warnings = validateMcpEntry("pipx-srv", entry);
+    expect(warnings.some((w) => w.includes("unpinned"))).toBe(true);
+  });
+
+  it("does NOT warn on pipx package pinned to exact version", () => {
+    const entry: McpServerEntry = {
+      command: "pipx",
+      args: ["-y", "mcp-server-py@0.1.0"],
+    };
+    const warnings = validateMcpEntry("pipx-srv", entry);
+    expect(warnings.filter((w) => w.includes("unpinned"))).toHaveLength(0);
+  });
+
+  it("warns on unpinned bunx package", () => {
+    const entry: McpServerEntry = {
+      command: "bunx",
+      args: ["-y", "@scope/mcp-server"],
+    };
+    const warnings = validateMcpEntry("bunx-srv", entry);
+    expect(warnings.some((w) => w.includes("unpinned"))).toBe(true);
+  });
+
+  it("does NOT warn on bunx package pinned to exact version", () => {
+    const entry: McpServerEntry = {
+      command: "bunx",
+      args: ["-y", "@scope/mcp-server@1.0.0"],
+    };
+    const warnings = validateMcpEntry("bunx-srv", entry);
+    expect(warnings.filter((w) => w.includes("unpinned"))).toHaveLength(0);
+  });
+
+  it("warns on unpinned pnpm dlx package", () => {
+    const entry: McpServerEntry = {
+      command: "pnpm",
+      args: ["-y", "dlx", "@scope/mcp-server"],
+    };
+    const warnings = validateMcpEntry("pnpm-srv", entry);
+    expect(warnings.some((w) => w.includes("unpinned"))).toBe(true);
+  });
+
+  it("warns on pnpm dlx package pinned to @latest", () => {
+    const entry: McpServerEntry = {
+      command: "pnpm",
+      args: ["-y", "dlx", "@scope/mcp-server@latest"],
+    };
+    const warnings = validateMcpEntry("pnpm-srv", entry);
+    expect(warnings.some((w) => w.includes("unpinned"))).toBe(true);
+  });
+
+  it("does NOT warn on pnpm dlx package pinned to exact version", () => {
+    const entry: McpServerEntry = {
+      command: "pnpm",
+      args: ["-y", "dlx", "@scope/mcp-server@1.0.0"],
+    };
+    const warnings = validateMcpEntry("pnpm-srv", entry);
+    expect(warnings.filter((w) => w.includes("unpinned"))).toHaveLength(0);
+  });
+
+  it("warns on unpinned yarn dlx package", () => {
+    const entry: McpServerEntry = {
+      command: "yarn",
+      args: ["-y", "dlx", "@scope/mcp-server"],
+    };
+    const warnings = validateMcpEntry("yarn-srv", entry);
+    expect(warnings.some((w) => w.includes("unpinned"))).toBe(true);
+  });
+
+  it("does NOT warn on yarn dlx package pinned to exact version", () => {
+    const entry: McpServerEntry = {
+      command: "yarn",
+      args: ["-y", "dlx", "@scope/mcp-server@1.0.0"],
+    };
+    const warnings = validateMcpEntry("yarn-srv", entry);
+    expect(warnings.filter((w) => w.includes("unpinned"))).toHaveLength(0);
+  });
+
+  // NEGATIVE cases — non-launchers must NOT emit a pin warning even
+  // when their args carry no version pin.
+
+  it("does NOT warn for non-launcher 'node' regardless of args", () => {
+    const entry: McpServerEntry = {
+      command: "node",
+      args: ["-y", "server.js"],
+    };
+    const warnings = validateMcpEntry("node-srv", entry);
+    expect(warnings.filter((w) => w.includes("unpinned"))).toHaveLength(0);
+  });
+
+  it("does NOT warn for non-launcher 'docker' regardless of args", () => {
+    const entry: McpServerEntry = {
+      command: "docker",
+      args: ["-y", "run", "mcp-server:latest"],
+    };
+    const warnings = validateMcpEntry("docker-srv", entry);
+    expect(warnings.filter((w) => w.includes("unpinned"))).toHaveLength(0);
+  });
+
+  it("does NOT warn for pnpm without dlx subcommand", () => {
+    const entry: McpServerEntry = {
+      command: "pnpm",
+      args: ["-y", "install"],
+    };
+    const warnings = validateMcpEntry("pnpm-install", entry);
+    expect(warnings.filter((w) => w.includes("unpinned"))).toHaveLength(0);
+  });
+
+  it("does NOT warn for yarn without dlx subcommand", () => {
+    const entry: McpServerEntry = {
+      command: "yarn",
+      args: ["-y", "install"],
+    };
+    const warnings = validateMcpEntry("yarn-install", entry);
+    expect(warnings.filter((w) => w.includes("unpinned"))).toHaveLength(0);
+  });
+
+  it("detects launcher via Windows .bat shim and still warns when unpinned", () => {
+    const entry: McpServerEntry = {
+      command: "uvx.bat",
+      args: ["-y", "mcp-server-fetch"],
+    };
+    const warnings = validateMcpEntry("win-uvx", entry);
+    expect(warnings.some((w) => w.includes("unpinned"))).toBe(true);
+  });
+
+  it("preserves contract: -y absent ⇒ no pin warning (any launcher)", () => {
+    // Mirrors the original C7-H6 contract — version-pin warnings are
+    // emitted only under -y/--yes (auto-confirm) since interactive
+    // launches surface the package name to the operator.
+    const entry: McpServerEntry = {
+      command: "uvx",
+      args: ["mcp-server-fetch"],
+    };
+    const warnings = validateMcpEntry("uvx-no-y", entry);
+    expect(warnings.some((w) => w.includes("unpinned"))).toBe(false);
+  });
+});
+
+// ── C9-M34 (D15 / Pillar P6): HTTP-endpoint SHA-256 pin policy ───────
+// HTTP-transport MCP servers (url set, command absent) must carry an
+// immutable SHA-256 pin of the remote endpoint OR an explicit
+// _trust_bypass: true opt-out. Unpinned HTTP transports inherit any
+// upstream compromise — server takeover, DNS hijack, malicious update —
+// so generation must refuse on policy violation.
+
+const VALID_PIN = "a".repeat(64);
+const VALID_PIN_WITH_PREFIX = "sha256:" + "b".repeat(64);
+
+describe("validateMcpHttpEndpoint (C9-M34)", () => {
+  // ── Out of scope (non-HTTP transports) ────────────────────────────
+  it("returns ok for command-only entries (stdio transport)", () => {
+    const entry: McpServerEntry = {
+      command: "npx",
+      args: ["@scope/pkg@1.0.0"],
+    };
+    expect(validateMcpHttpEndpoint(entry)).toEqual({ ok: true });
+  });
+
+  it("returns ok for entries with both command and url (stdio precedence)", () => {
+    // When command is present, the entry is launched as a process, not
+    // dialed over HTTP. The endpoint policy does not apply.
+    const entry: McpServerEntry = {
+      command: "node",
+      url: "https://example.com/mcp",
+    };
+    expect(validateMcpHttpEndpoint(entry)).toEqual({ ok: true });
+  });
+
+  it("returns ok for empty entries (validated elsewhere)", () => {
+    // Empty entries fail the "neither command nor url" check in
+    // validateMcpEntry — endpoint policy stays silent so the error
+    // surface remains scoped.
+    expect(validateMcpHttpEndpoint({})).toEqual({ ok: true });
+  });
+
+  // ── Pinned path ──────────────────────────────────────────────────
+  it("returns ok for HTTP entry with 64-char hex pin", () => {
+    const entry: McpServerEntry = {
+      url: "https://mcp.example.com/v1",
+      _pinned_sha256: VALID_PIN,
+    };
+    expect(validateMcpHttpEndpoint(entry)).toEqual({ ok: true });
+  });
+
+  it("returns ok for HTTP entry with sha256: prefixed pin", () => {
+    const entry: McpServerEntry = {
+      url: "https://mcp.example.com/v1",
+      _pinned_sha256: VALID_PIN_WITH_PREFIX,
+    };
+    expect(validateMcpHttpEndpoint(entry)).toEqual({ ok: true });
+  });
+
+  it("returns ok for http (insecure) URL with pin", () => {
+    // Endpoint policy does not duplicate the scheme allowlist. Scheme
+    // validation lives in the existing URL-scheme check; here we only
+    // check the pin-or-bypass invariant.
+    const entry: McpServerEntry = {
+      url: "http://localhost:3000/mcp",
+      _pinned_sha256: VALID_PIN,
+    };
+    expect(validateMcpHttpEndpoint(entry)).toEqual({ ok: true });
+  });
+
+  // ── Unpinned path (policy violation) ─────────────────────────────
+  it("refuses HTTP entry with no pin and no bypass", () => {
+    const entry: McpServerEntry = {
+      url: "https://mcp.example.com/v1",
+    };
+    const result = validateMcpHttpEndpoint(entry);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain("missing _pinned_sha256");
+    expect(result.reason).toContain("HTTP transports require");
+    expect(result.reason).toContain("_trust_bypass: true");
+  });
+
+  it("refuses HTTP entry with empty-string pin", () => {
+    const entry: McpServerEntry = {
+      url: "https://mcp.example.com/v1",
+      _pinned_sha256: "",
+    };
+    const result = validateMcpHttpEndpoint(entry);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain("malformed _pinned_sha256");
+  });
+
+  it("refuses HTTP entry with pin shorter than 64 chars", () => {
+    const entry: McpServerEntry = {
+      url: "https://mcp.example.com/v1",
+      _pinned_sha256: "abc123",
+    };
+    const result = validateMcpHttpEndpoint(entry);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain("malformed _pinned_sha256");
+  });
+
+  it("refuses HTTP entry with pin containing uppercase hex", () => {
+    // Pattern requires lowercase hex to keep parsing/comparison
+    // deterministic and to match the handoff-integrity convention.
+    const entry: McpServerEntry = {
+      url: "https://mcp.example.com/v1",
+      _pinned_sha256: "A".repeat(64),
+    };
+    const result = validateMcpHttpEndpoint(entry);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain("malformed _pinned_sha256");
+  });
+
+  it("refuses HTTP entry with pin containing non-hex chars", () => {
+    const entry: McpServerEntry = {
+      url: "https://mcp.example.com/v1",
+      _pinned_sha256: "g".repeat(64),
+    };
+    const result = validateMcpHttpEndpoint(entry);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain("malformed _pinned_sha256");
+  });
+
+  it("refuses HTTP entry with non-string pin (type-coercion guard)", () => {
+    const entry = {
+      url: "https://mcp.example.com/v1",
+      _pinned_sha256: 12345 as unknown as string,
+    } as McpServerEntry;
+    const result = validateMcpHttpEndpoint(entry);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain("malformed _pinned_sha256");
+  });
+
+  // ── Trust bypass path ────────────────────────────────────────────
+  it("returns ok for HTTP entry with _trust_bypass: true", () => {
+    const entry: McpServerEntry = {
+      url: "https://mcp.example.com/v1",
+      _trust_bypass: true,
+    };
+    expect(validateMcpHttpEndpoint(entry)).toEqual({ ok: true });
+  });
+
+  it("treats _trust_bypass: false as requiring a pin", () => {
+    const entry: McpServerEntry = {
+      url: "https://mcp.example.com/v1",
+      _trust_bypass: false,
+    };
+    const result = validateMcpHttpEndpoint(entry);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain("missing _pinned_sha256");
+  });
+
+  it("refuses _trust_bypass with non-boolean value (type-coercion guard)", () => {
+    // Strings, numbers, etc. must NOT be silently coerced — they
+    // indicate a misconfiguration that could mask the policy gate.
+    const entry = {
+      url: "https://mcp.example.com/v1",
+      _trust_bypass: "true" as unknown as boolean,
+    } as McpServerEntry;
+    const result = validateMcpHttpEndpoint(entry);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain("invalid _trust_bypass");
+  });
+
+  it("refuses _trust_bypass with numeric truthy value", () => {
+    const entry = {
+      url: "https://mcp.example.com/v1",
+      _trust_bypass: 1 as unknown as boolean,
+    } as McpServerEntry;
+    const result = validateMcpHttpEndpoint(entry);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain("invalid _trust_bypass");
+  });
+
+  // ── Precedence: bypass beats missing pin ─────────────────────────
+  it("trust_bypass: true overrides missing pin", () => {
+    const entry: McpServerEntry = {
+      url: "https://mcp.example.com/v1",
+      _trust_bypass: true,
+      // No _pinned_sha256 — bypass alone is sufficient.
+    };
+    expect(validateMcpHttpEndpoint(entry)).toEqual({ ok: true });
+  });
+
+  it("trust_bypass: true coexists with valid pin (no conflict)", () => {
+    // Both set is unusual but not a misconfiguration — bypass wins
+    // because the operator has explicitly opted out of the gate.
+    const entry: McpServerEntry = {
+      url: "https://mcp.example.com/v1",
+      _trust_bypass: true,
+      _pinned_sha256: VALID_PIN,
+    };
+    expect(validateMcpHttpEndpoint(entry)).toEqual({ ok: true });
+  });
+});
+
+describe("validateMcpEntry HTTP-pin integration (C9-M34)", () => {
+  // ── Warning surface ──────────────────────────────────────────────
+  it("emits no missing-pin warning for HTTP entry with valid pin", () => {
+    const entry: McpServerEntry = {
+      url: "https://mcp.example.com/v1",
+      _pinned_sha256: VALID_PIN,
+    };
+    const warnings = validateMcpEntry("pinned", entry);
+    expect(warnings.some((w) => w.includes("_pinned_sha256"))).toBe(false);
+  });
+
+  it("emits missing-pin warning for HTTP entry without pin or bypass", () => {
+    const entry: McpServerEntry = {
+      url: "https://mcp.example.com/v1",
+    };
+    const warnings = validateMcpEntry("unpinned", entry);
+    expect(warnings.some((w) => w.includes("missing _pinned_sha256"))).toBe(true);
+  });
+
+  it("emits bypass-acknowledgement warning when _trust_bypass: true", () => {
+    // Bypass is allowed but auditable — operators see the opt-out in
+    // CI logs and review trails.
+    const entry: McpServerEntry = {
+      url: "https://mcp.example.com/v1",
+      _trust_bypass: true,
+    };
+    const warnings = validateMcpEntry("bypassed", entry);
+    expect(warnings.some((w) => w.includes("pinning bypassed"))).toBe(true);
+    expect(warnings.some((w) => w.includes("upstream-compromise risk"))).toBe(true);
+  });
+
+  it("emits no HTTP-pin warning for stdio entries (command set)", () => {
+    const entry: McpServerEntry = {
+      command: "npx",
+      args: ["-y", "@scope/pkg@1.0.0"],
+    };
+    const warnings = validateMcpEntry("stdio", entry);
+    expect(warnings.some((w) => w.includes("_pinned_sha256"))).toBe(false);
+    expect(warnings.some((w) => w.includes("pinning bypassed"))).toBe(false);
+  });
+
+  it("emits no HTTP-pin warning for command+url combos (stdio precedence)", () => {
+    const entry: McpServerEntry = {
+      command: "node",
+      args: ["server.js"],
+      url: "https://example.com/mcp",
+      // No pin, no bypass — policy still permits because command takes
+      // precedence over url.
+    };
+    const warnings = validateMcpEntry("dual-transport", entry);
+    expect(warnings.some((w) => w.includes("_pinned_sha256"))).toBe(false);
+  });
+
+  it("emits malformed-pin warning for HTTP entry with bad pin format", () => {
+    const entry: McpServerEntry = {
+      url: "https://mcp.example.com/v1",
+      _pinned_sha256: "not-a-real-sha256-pin",
+    };
+    const warnings = validateMcpEntry("badpin", entry);
+    expect(warnings.some((w) => w.includes("malformed _pinned_sha256"))).toBe(true);
+  });
+
+  it("emits invalid-bypass warning for non-boolean _trust_bypass", () => {
+    const entry = {
+      url: "https://mcp.example.com/v1",
+      _trust_bypass: "yes" as unknown as boolean,
+    } as McpServerEntry;
+    const warnings = validateMcpEntry("badbypass", entry);
+    expect(warnings.some((w) => w.includes("invalid _trust_bypass"))).toBe(true);
+  });
+
+  // ── Pin-accepted path silences both warning kinds ────────────────
+  it("accepts entry pinned with sha256: prefix variant", () => {
+    const entry: McpServerEntry = {
+      url: "https://mcp.example.com/v1",
+      _pinned_sha256: VALID_PIN_WITH_PREFIX,
+    };
+    const warnings = validateMcpEntry("prefixed", entry);
+    expect(warnings).toEqual([]);
   });
 });

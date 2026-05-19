@@ -6,7 +6,9 @@ exports[`adapter output snapshots > ClaudeAdapter > file paths match snapshot 1`
   ".claude/agents/hatch3r-test-agent.md",
   ".claude/commands/hatch3r-agent-team.md",
   ".claude/commands/hatch3r-test-command.md",
+  ".claude/hooks/agent-tool-policies.json",
   ".claude/hooks/hatch3r-hooks.json",
+  ".claude/hooks/pretooluse-allowlist.mjs",
   ".claude/rules/50-hatch3r-scoped-rule.md",
   ".claude/rules/50-hatch3r-test-rule.md",
   ".claude/settings.json",
@@ -58,7 +60,21 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
       "VALID_JSON",
     ],
     "hasManagedContent": false,
+    "path": ".claude/hooks/agent-tool-policies.json",
+  },
+  {
+    "action": "create",
+    "contentMarkers": [
+      "VALID_JSON",
+    ],
+    "hasManagedContent": false,
     "path": ".claude/hooks/hatch3r-hooks.json",
+  },
+  {
+    "action": "create",
+    "contentMarkers": [],
+    "hasManagedContent": false,
+    "path": ".claude/hooks/pretooluse-allowlist.mjs",
   },
   {
     "action": "create",
@@ -379,6 +395,7 @@ exports[`adapter output snapshots > CopilotAdapter > output structure matches sn
 
 exports[`adapter output snapshots > CursorAdapter > file paths match snapshot 1`] = `
 [
+  ".cursor/agents-policy.json",
   ".cursor/agents/hatch3r-readonly-agent.md",
   ".cursor/agents/hatch3r-test-agent.md",
   ".cursor/commands/hatch3r-test-command.md",
@@ -391,12 +408,21 @@ exports[`adapter output snapshots > CursorAdapter > file paths match snapshot 1`
   ".cursor/rules/hatch3r-hook-post-merge-deploy.mdc",
   ".cursor/rules/hatch3r-hook-pre-commit-lint-fixer.mdc",
   ".cursor/rules/hatch3r-hook-session-start-ci-watcher.mdc",
+  ".cursor/rules/hatch3r-tool-allowlist.mdc",
   ".cursor/skills/hatch3r-test-skill/SKILL.md",
 ]
 `;
 
 exports[`adapter output snapshots > CursorAdapter > output structure matches snapshot 1`] = `
 [
+  {
+    "action": "create",
+    "contentMarkers": [
+      "VALID_JSON",
+    ],
+    "hasManagedContent": false,
+    "path": ".cursor/agents-policy.json",
+  },
   {
     "action": "create",
     "contentMarkers": [
@@ -514,6 +540,16 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
     ],
     "hasManagedContent": true,
     "path": ".cursor/rules/hatch3r-hook-session-start-ci-watcher.mdc",
+  },
+  {
+    "action": "create",
+    "contentMarkers": [
+      "CURSOR_ALWAYS_APPLY",
+      "FRONTMATTER",
+      "MANAGED_BLOCK",
+    ],
+    "hasManagedContent": true,
+    "path": ".cursor/rules/hatch3r-tool-allowlist.mdc",
   },
   {
     "action": "create",

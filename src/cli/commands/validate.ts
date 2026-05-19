@@ -660,7 +660,9 @@ async function findContentFile(
     try {
       await access(path);
       return path;
-    } catch {
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      verbose(`validate: findContentFile access(${path}) → null — ${message}`);
       return null;
     }
   }
@@ -676,7 +678,9 @@ async function findContentFile(
     let entries: { name: string; isDirectory: () => boolean; isFile: () => boolean }[];
     try {
       entries = await readdir(dir, { withFileTypes: true });
-    } catch {
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      verbose(`validate: findContentFile readdir(${dir}) skipped — ${message}`);
       continue;
     }
     for (const entry of entries) {
@@ -704,8 +708,9 @@ async function findContentFile(
       if (fmId && (fmId === id || fmId === baseId)) {
         return file;
       }
-    } catch {
-      // Unreadable file — skip.
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      verbose(`validate: findContentFile fm-fallback readFile(${file}) skipped — ${message}`);
     }
   }
 
@@ -1196,6 +1201,195 @@ function runDescriptionQualityChecks(
   }
 }
 
+/**
+ * C9-M29 (D5-content-body lint): scan canonical content `.md` bodies for
+ * anti-slop wordlist hits and missing pillar references.
+ *
+ * Wordlist source: `governance/CONSTITUTION.md` §2 P5 (Anti-Slop principle)
+ * mirrored in `.claude/rules/anti-slop-enforcement.md`. A hit is flagged
+ * only when the banned phrase has no measurable qualifier within an 8-word
+ * lookahead — the same heuristic as AUDIT-EXECUTE.md regression gate
+ * "Anti-slop" (two-pass wordlist scan, hits lacking a measurable qualifier
+ * within 8 words).
+ *
+ * Pillar-reference rule: every canonical `.md` under agents/, commands/,
+ * rules/, skills/, hooks/ must declare at least one Binding Pillar (P1-P8)
+ * via one of these channels:
+ *   - frontmatter `pillars: [P1, P4]` (preferred)
+ *   - body line `**Pillars:** P1, P4`
+ *   - inline mention of any single token `P1`..`P8` in the body
+ * Missing all three is flagged.
+ *
+ * Default emission is `warnings[]` so the lint surfaces drift without
+ * tripping CI on legacy artifacts that predate the rule. The
+ * `--strict-content` flag (opts.strictContent) escalates every finding to
+ * an error so author skills and the audit cycle can hard-gate new artifacts
+ * without disturbing the legacy backlog.
+ */
+const ANTI_SLOP_WORDLIST: Array<{ phrase: RegExp; label: string }> = [
+  { phrase: /\bbest possible\b/i, label: "best possible" },
+  { phrase: /\bbest-in-class\b/i, label: "best-in-class" },
+  { phrase: /\bworld-class\b/i, label: "world-class" },
+  { phrase: /\bcomprehensive and thorough\b/i, label: "comprehensive and thorough" },
+  { phrase: /\bexhaustive\b/i, label: "exhaustive" },
+  { phrase: /\brobust and resilient\b/i, label: "robust and resilient" },
+  { phrase: /\bhigh-quality\b/i, label: "high-quality" },
+  { phrase: /\bas needed\b/i, label: "as needed" },
+  { phrase: /\bas appropriate\b/i, label: "as appropriate" },
+  { phrase: /\bscalable\b/i, label: "scalable" },
+  { phrase: /\bcarefully\b/i, label: "carefully" },
+  { phrase: /\bthoroughly\b/i, label: "thoroughly" },
+  { phrase: /\bit is important to note\b/i, label: "it is important to note" },
+  { phrase: /\bthis section describes\b/i, label: "this section describes" },
+];
+
+// Qualifier-shaped tokens within the 8-word lookahead window that exempt a
+// banned phrase: explicit numerics (% / digits / ratios), measurement units
+// (ms/s/min/lines/files/MB/KB/calls/req/qps), confidence levels, severity
+// terms, and section/code-fence references. The list mirrors the "measurable
+// criteria" definition in CONSTITUTION §2 P5: a phrase escapes the wordlist
+// only when paired with a specific testable measure.
+const MEASURABLE_QUALIFIER_RE =
+  /\b(\d+%|\d+(?:\.\d+)?(?:\s*(?:ms|s|sec|min|h|hr|hour|day|week|line|lines|file|files|byte|bytes|kb|mb|gb|call|calls|req|qps|rps|tokens|items))?|95th|90th|99th|p50|p95|p99|tier-?[123]|severity\s+(?:critical|high|medium|low|info)|confidence\s+(?:high|medium|low)|<=|>=|≤|≥|<|>|±|N\/M|per\s+\d+|\bSLA\b|\bSLO\b|\b<\d|\d+x)\b/i;
+
+/**
+ * Walk the supplied directory recursively, returning the absolute paths
+ * of every `.md` file (excluding `.mdc` siblings and dotfiles).
+ */
+async function listMarkdownFiles(dirPath: string): Promise<string[]> {
+  const found: string[] = [];
+  try {
+    const entries = await readdir(dirPath, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.name.startsWith(".")) continue;
+      const childPath = join(dirPath, entry.name);
+      if (entry.isFile() && entry.name.endsWith(".md")) {
+        found.push(childPath);
+      } else if (entry.isDirectory()) {
+        const nested = await listMarkdownFiles(childPath);
+        for (const p of nested) found.push(p);
+      }
+    }
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  }
+  return found;
+}
+
+/**
+ * Two-pass scan: find each banned phrase, then check the 8-word lookahead
+ * window for a measurable qualifier per CONSTITUTION §2 P5. Returns one
+ * finding string per surviving hit.
+ */
+function scanAntiSlopHits(body: string, fileLabel: string): string[] {
+  const findings: string[] = [];
+  for (const entry of ANTI_SLOP_WORDLIST) {
+    // Walk every match position so multiple hits in the same body are caught.
+    const globalRe = new RegExp(entry.phrase.source, "gi");
+    let match: RegExpExecArray | null;
+    while ((match = globalRe.exec(body)) !== null) {
+      const tail = body.slice(match.index + match[0].length);
+      const lookaheadWords = tail.split(/\s+/, 8).join(" ");
+      if (MEASURABLE_QUALIFIER_RE.test(lookaheadWords)) continue;
+      // Locate the 1-based line number for the matched offset to make the
+      // finding actionable (file:line label).
+      const upTo = body.slice(0, match.index);
+      const lineNumber = upTo.split("\n").length;
+      findings.push(
+        `${fileLabel}:${lineNumber}: anti-slop "${entry.label}" without a measurable qualifier in the next 8 words — replace per CONSTITUTION.md §2 P5 wordlist`,
+      );
+      // Cap per-file per-phrase findings at 1 to keep the report bounded.
+      break;
+    }
+  }
+  return findings;
+}
+
+/**
+ * Pillar-reference detection: returns true when the file declares at least
+ * one P1..P8 reference via frontmatter `pillars:` or any body mention.
+ */
+function hasPillarReference(parsedFm: Record<string, unknown> | null, body: string): boolean {
+  if (parsedFm) {
+    const fmPillars = parsedFm.pillars;
+    if (Array.isArray(fmPillars) && fmPillars.some((v) => typeof v === "string" && /^P[1-8]$/.test(v))) {
+      return true;
+    }
+    if (typeof fmPillars === "string" && /\bP[1-8]\b/.test(fmPillars)) {
+      return true;
+    }
+  }
+  // Body-line forms: `**Pillars:** P1, P4`, `Pillars: P1`, or any inline P1..P8.
+  if (/\bP[1-8]\b/.test(body)) return true;
+  return false;
+}
+
+/**
+ * Entry point invoked from validateCommand. Scans every canonical `.md`
+ * under .agents/agents, .agents/commands, .agents/rules, .agents/skills,
+ * .agents/hooks for anti-slop hits and missing pillar references.
+ *
+ * Findings emit on the warnings channel by default; with strictContent=true
+ * they escalate to errors.
+ */
+async function validateContentBody(
+  agentsDir: string,
+  result: ValidationResult,
+  strictContent: boolean,
+): Promise<void> {
+  const scanDirs = ["agents", "commands", "rules", "skills", "hooks"];
+  const sink: string[] = strictContent ? result.errors : result.warnings;
+
+  for (const dir of scanDirs) {
+    const dirPath = join(agentsDir, dir);
+    const files = await listMarkdownFiles(dirPath);
+    for (const filePath of files) {
+      // Skip `.mdc` siblings — only `.md` is canonical (rule-parity validator
+      // keeps the pair in sync). Skip frontmatter-only files (no body to scan).
+      let raw: string;
+      try {
+        raw = await readFile(filePath, "utf-8");
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+        continue;
+      }
+      // Compute the relative label for the finding message.
+      const relativeFromAgents = filePath.slice(agentsDir.length + 1);
+      const fileLabel = `.agents/${relativeFromAgents}`;
+
+      // Split frontmatter vs body. The body is the only scan target — banned
+      // phrases inside frontmatter `description:` are caught by the
+      // description-quality lint, not this one.
+      let parsedFm: Record<string, unknown> | null = null;
+      let body = raw;
+      if (raw.startsWith("---")) {
+        const endIdx = raw.indexOf("---", 3);
+        if (endIdx !== -1) {
+          try {
+            parsedFm = parseYaml(raw.slice(3, endIdx).trim()) as Record<string, unknown> | null;
+          } catch {
+            // Malformed YAML is reported by validateFrontmatter; skip here.
+            parsedFm = null;
+          }
+          body = raw.slice(endIdx + 3);
+        }
+      }
+
+      // Anti-slop scan over the body only.
+      for (const finding of scanAntiSlopHits(body, fileLabel)) {
+        sink.push(finding);
+      }
+
+      // Pillar-reference rule.
+      if (!hasPillarReference(parsedFm, body)) {
+        sink.push(
+          `${fileLabel}: missing pillar reference — declare at least one of P1..P8 via 'pillars: [P1, ...]' in frontmatter or a '**Pillars:** P1, ...' line in the body (CLAUDE.md "7 Binding Pillars")`,
+        );
+      }
+    }
+  }
+}
+
 export async function validateDocsCounts(rootDir: string): Promise<{ mismatches: string[]; checked: number }> {
   const mismatches: string[] = [];
   let checked = 0;
@@ -1239,7 +1433,10 @@ export async function validateDocsCounts(rootDir: string): Promise<{ mismatches:
         }
       }
     }
-  } catch { /* README not found */ }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    verbose(`validate: README count-check readFile(${readmePath}) skipped — ${message}`);
+  }
 
   return { mismatches, checked };
 }
@@ -1275,9 +1472,14 @@ export async function validateCommand(opts?: {
   docs?: boolean;
   verbose?: boolean;
   format?: ValidateOutputFormat;
+  strictContent?: boolean;
 }): Promise<void> {
   const format: ValidateOutputFormat = opts?.format === "json" ? "json" : "human";
   const jsonMode = format === "json";
+  // C9-M29: opt-in escalation of the content-body lint (anti-slop + pillar
+  // reference) from warnings to errors. Off by default to avoid disturbing
+  // the legacy backlog; CI gates and author skills can flip this on.
+  const strictContent = !!opts?.strictContent;
 
   // In JSON mode: suppress verbose logging (sent to stdout via info()) and the
   // banner, which would corrupt the machine-readable output. Errors/warnings
@@ -1471,6 +1673,12 @@ export async function validateCommand(opts?: {
     verbose("Checking content consistency...");
     await validateContentConsistency(rootDir, agentsDir, manifest, result);
 
+    // C9-M29: scan canonical content bodies for anti-slop wordlist hits and
+    // missing pillar references. Default emission = warnings; --strict-content
+    // escalates to errors so author skills can hard-gate new artifacts.
+    verbose("Checking content body (anti-slop + pillar references)...");
+    await validateContentBody(agentsDir, result, strictContent);
+
     // Cross-reference validation: check that installed content doesn't have broken references
     try {
       // Build the index with the user-content subtree included so the D20
@@ -1554,8 +1762,9 @@ export async function validateCommand(opts?: {
         hasCustomizations = true;
         break;
       }
-    } catch {
-      // directory doesn't exist
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      verbose(`validate: customization probe readdir(.hatch3r/${dir}) skipped — ${message}`);
     }
   }
 
@@ -1650,8 +1859,9 @@ async function validateEnvMcpSecrets(
         result.warnings.push(msg);
       }
     }
-  } catch {
-    // File unreadable — skip silently
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    verbose(`validate: .env.mcp secret-scan readFile skipped — ${message}`);
   }
 }
 

@@ -2,6 +2,7 @@ import { readFile, readdir, cp, mkdir, rm, stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { join, dirname, normalize, isAbsolute, posix } from "node:path";
 import { parseFrontmatter } from "../adapters/canonical.js";
+import { extractAdaptersFrontmatter } from "./frontmatter.js";
 import { atomicWriteFile } from "../merge/safeWrite.js";
 import {
   PLATFORM_TOOL_MARKER,
@@ -11,6 +12,19 @@ import { HatchError } from "../types.js";
 import type { ContentSelection } from "../types.js";
 import type { ContentPreset } from "./presets.js";
 import { filterByLanguages } from "./tags.js";
+import { verbose } from "../cli/shared/ui.js";
+
+/**
+ * Record a content-probe failure: emit a verbose() line to stderr (visible
+ * only with --verbose). Per D8-H8.4.6 (C9-H19) Silent Failure Contract — probes
+ * for "does file/dir exist?" cannot push to caller warnings channels (none are
+ * wired through buildContentIndex / buildSelectionsFromDisk), so verbose() is
+ * the minimum-viable diagnostic surface.
+ */
+function recordContentProbeFailure(operation: string, err: unknown): void {
+  const message = err instanceof Error ? err.message : String(err);
+  verbose(`content: ${operation} — ${message}`);
+}
 
 /**
  * Validate that a relative path does not escape its base directory.
@@ -309,7 +323,7 @@ async function scanContentRoot(
             source,
           };
           if (source === "user") {
-            const adapters = parseAdaptersFrontmatter(raw);
+            const adapters = extractAdaptersFrontmatter(raw);
             if (adapters) item.adapters = adapters;
           }
           items.push(item);
@@ -351,13 +365,16 @@ async function scanContentRoot(
           try {
             await readFile(join(dirPath, mdcFile), "utf-8");
             item.companionPath = posix.join(config.dir, mdcFile);
-          } catch {
-            // No companion file
+          } catch (err) {
+            recordContentProbeFailure(
+              `buildContentIndex: no companion .mdc for ${file}`,
+              err,
+            );
           }
         }
 
         if (source === "user") {
-          const adapters = parseAdaptersFrontmatter(raw);
+          const adapters = extractAdaptersFrontmatter(raw);
           if (adapters) item.adapters = adapters;
         }
 
@@ -365,44 +382,6 @@ async function scanContentRoot(
       }
     }
   }
-}
-
-/**
- * Parse the optional `adapters: [tool, tool, ...]` array from raw frontmatter.
- * Returns the parsed array (filtered to strings) when present, or null when
- * the field is absent / malformed. Used only for user-tier items so that the
- * canonical corpus never silently inherits an adapters filter.
- *
- * Implemented as a tiny line scan rather than a full YAML re-parse because
- * the canonical `parseFrontmatter` does not surface the `adapters` field on
- * `CanonicalMetadata` — we'd otherwise need a second YAML parse here.
- */
-function parseAdaptersFrontmatter(raw: string): string[] | null {
-  const match = raw.match(/^---\n([\s\S]*?)\n---/);
-  if (!match) return null;
-  const block = match[1] ?? "";
-  // Inline form: `adapters: [a, b, c]`
-  const inline = block.match(/^adapters\s*:\s*\[([^\]]*)\]/m);
-  if (inline) {
-    return inline[1]
-      .split(",")
-      .map((s) => s.trim().replace(/^["']|["']$/g, ""))
-      .filter((s) => s.length > 0);
-  }
-  // Block form:
-  //   adapters:
-  //     - a
-  //     - b
-  const blockHeader = block.match(/^adapters\s*:\s*$([\s\S]*?)(?=^\S|\Z)/m);
-  if (blockHeader) {
-    const result: string[] = [];
-    for (const line of (blockHeader[1] ?? "").split("\n")) {
-      const m = line.match(/^\s+-\s+(.+?)\s*$/);
-      if (m) result.push(m[1].replace(/^["']|["']$/g, ""));
-    }
-    return result.length > 0 ? result : null;
-  }
-  return null;
 }
 
 /**
@@ -952,13 +931,19 @@ export async function getAvailableItems(
               const { metadata } = parseFrontmatter(raw);
               const rawId = metadata.id || metadata.name || d.name;
               installed.add(applyCommandPrefix(rawId, config.type));
-            } catch {
-              // skip
+            } catch (err) {
+              recordContentProbeFailure(
+                `getRemovableContent: skipped ${dirPath}/${d.name}/SKILL.md`,
+                err,
+              );
             }
           }
         }
-      } catch {
-        // directory doesn't exist
+      } catch (err) {
+        recordContentProbeFailure(
+          `getRemovableContent: readdir(${dirPath}) — directory missing`,
+          err,
+        );
       }
     } else {
       try {
@@ -969,8 +954,11 @@ export async function getAvailableItems(
           const rawId = metadata.id || metadata.name || f.replace(/\.md$/, "");
           installed.add(applyCommandPrefix(rawId, config.type));
         }
-      } catch {
-        // directory doesn't exist
+      } catch (err) {
+        recordContentProbeFailure(
+          `getRemovableContent: readdir(${dirPath}) — directory missing`,
+          err,
+        );
       }
     }
   }
@@ -1012,12 +1000,18 @@ export async function buildSelectionsFromDisk(
             const { metadata } = parseFrontmatter(raw);
             const rawId = metadata.id || metadata.name || d.name;
             items[key].push(applyCommandPrefix(rawId, config.type));
-          } catch {
-            // skip
+          } catch (err) {
+            recordContentProbeFailure(
+              `buildSelectionsFromDisk: skipped ${dirPath}/${d.name}/SKILL.md`,
+              err,
+            );
           }
         }
-      } catch {
-        // directory doesn't exist
+      } catch (err) {
+        recordContentProbeFailure(
+          `buildSelectionsFromDisk: readdir(${dirPath}) — directory missing`,
+          err,
+        );
       }
     } else {
       try {
@@ -1028,8 +1022,11 @@ export async function buildSelectionsFromDisk(
           const rawId = metadata.id || metadata.name || f.replace(/\.md$/, "");
           items[key].push(applyCommandPrefix(rawId, config.type));
         }
-      } catch {
-        // directory doesn't exist
+      } catch (err) {
+        recordContentProbeFailure(
+          `buildSelectionsFromDisk: readdir(${dirPath}) — directory missing`,
+          err,
+        );
       }
     }
   }

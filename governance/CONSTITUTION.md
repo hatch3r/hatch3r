@@ -60,6 +60,7 @@ Governance and audit cycles apply the same quality standards, anti-slop, and ant
 | AUDIT-EXECUTE.md | <=700 lines | ±50 lines per execution phase delta |
 | RE-ENVISION.md | <=550 lines | ±25 lines per theme-block delta (10 vision themes + 10 governance-layer sparring themes; recalibrated 2026-05-18 with redesign as holistic sparring engine) |
 | EVOLVE.md | <=400 lines | ±20 lines per assessment-dimension delta |
+| pack-trust-model.md | <=300 lines | ±25 lines per trust-tier or signing-method addition |
 | Static-first prompt structure | required for `orchestrator: true` and `agents/*.md` | scripts/validate-efficiency-invariants.ts |
 | Parallel-tool-by-default directive | required when artifact uses ≥2 independent tool calls | Body-text scan |
 | Triage-first orchestrator | required when `orchestrator: true` | Frontmatter `triage_tiers` array |
@@ -86,6 +87,7 @@ Governance and audit cycles apply the same quality standards, anti-slop, and ant
 | Checklist items/SA | 4-8 | <4 shallow, >8 too broad |
 | Ambiguity-detection gate coverage (agents/skills/commands) | 100% | §0/Step 0 references `agents/shared/user-question-protocol.md` |
 | Sub-agent count emission on delegating artifacts | 100% | First-class output field with rationale per P8 |
+| Detail-rule frontmatter declaration (`rules/*-detail.{md,mdc}`) | required: `detail_rule: true` + `consumed_by: <parent-rule-id>` on both `.md` and `.mdc` | C9-M4 / D16-F16.3.3 — documents justified rule+detail pairings as the alternative to merge; absence reverts the pair to merge-candidate per D16.3 add-vs-remove bias. Currently authorised: `hatch3r-agent-orchestration-detail`, `hatch3r-observability-tracing-detail`. New `*-detail` pairs require a queued §8 amendment proposal. |
 
 #### Anti-Bloat Principles
 

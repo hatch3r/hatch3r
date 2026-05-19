@@ -1,14 +1,87 @@
+// Last updated: 2026-05-19 (P3 platform-currency anchor; per-claim Anthropic
+// docs access dates inside this file remain authoritative for individual
+// assertions).
 import type { AdapterOutput } from "../types.js";
 import { toPrefixedId } from "../types.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
-import { readCanonicalFiles, sortByPrecedence, precedenceRank } from "./canonical.js";
+import { sortByPrecedence, precedenceRank } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
 import { applyCustomization } from "./customization.js";
 import { transformEnvVarSyntax } from "./mcp-utils.js";
 import { toClaudeToolsFrontmatter } from "../pipeline/adapterToolTranslator.js";
+import {
+  buildAgentToolPoliciesJson,
+  buildClaudePreToolUseHookScript,
+} from "../pipeline/agentToolAllowlist.js";
 import type { HookDefinition, HookEvent } from "../hooks/types.js";
 import { HATCH3R_VERSION } from "../version.js";
+
+/**
+ * C9-M47 (D6-SA6.4, P7 Speed & Token Efficiency): cache-breakpoint sentinel.
+ *
+ * Emitted as a paired HTML comment at the start and end of every Claude
+ * adapter managed-block payload (CLAUDE.md, .claude/rules/*.md,
+ * .claude/agents/*.md, .claude/skills/*\/SKILL.md, .claude/commands/*.md,
+ * .claude/commands/hatch3r-agent-team.md).
+ *
+ * The sentinel marks the deterministic, hatch3r-managed prefix that the
+ * Claude Code runtime can fingerprint for prompt-cache reuse. A static
+ * boundary on both sides of the managed block lets the cache layer detect
+ * unchanged prefixes across syncs without scanning the entire file body.
+ *
+ * Format is a balanced pair (`-START`/`-END`) so consumers can split on the
+ * outer markers without ambiguity when both appear in the same emitted file.
+ * The base sentinel `<!-- HATCH3R-CACHE-BREAKPOINT -->` is exported for
+ * tooling that wants to scan for the breakpoint family without caring which
+ * end of the block it sits at.
+ *
+ * The sentinel is a markdown comment so it is invisible in rendered output
+ * and idempotent under the existing `wrapInManagedBlock` trim pass — the
+ * symmetric leading/trailing whitespace contract of the managed-block
+ * helpers is preserved.
+ */
+export const CACHE_BREAKPOINT_SENTINEL = "<!-- HATCH3R-CACHE-BREAKPOINT -->";
+export const CACHE_BREAKPOINT_SENTINEL_START = "<!-- HATCH3R-CACHE-BREAKPOINT-START -->";
+export const CACHE_BREAKPOINT_SENTINEL_END = "<!-- HATCH3R-CACHE-BREAKPOINT-END -->";
+
+/**
+ * Wrap a body string with the cache-breakpoint sentinel pair so the entire
+ * payload sits inside a deterministic, fingerprintable region. Idempotent:
+ * a body that already contains both sentinels is returned unchanged so
+ * nested calls (e.g. post-processing helpers already wrapped upstream)
+ * do not produce duplicated markers.
+ */
+function withCacheBreakpoints(body: string): string {
+  if (
+    body.includes(CACHE_BREAKPOINT_SENTINEL_START) &&
+    body.includes(CACHE_BREAKPOINT_SENTINEL_END)
+  ) {
+    return body;
+  }
+  return `${CACHE_BREAKPOINT_SENTINEL_START}\n${body}\n${CACHE_BREAKPOINT_SENTINEL_END}`;
+}
+
+/**
+ * C9-M47 (P7): re-wrap an `AdapterOutput` produced by the cross-adapter
+ * helpers (`processSkillsRawCliFiltered`, `processCommandsRaw`) so the
+ * Claude adapter's managed-block payload carries the cache-breakpoint
+ * sentinels without disturbing the shared base helpers.
+ *
+ * Strategy: take the existing `managedContent` (the raw body the helper
+ * passed to `wrapInManagedBlock`), wrap it with sentinels, and rebuild
+ * the full file `content` via `wrapInManagedBlock`. Outputs without
+ * `managedContent` (no managed block) pass through unchanged.
+ */
+function rewrapWithCacheBreakpoints(out: AdapterOutput): AdapterOutput {
+  if (!out.managedContent) return out;
+  const wrappedBody = withCacheBreakpoints(out.managedContent);
+  return {
+    ...out,
+    content: wrapInManagedBlock(wrappedBody),
+    managedContent: wrappedBody,
+  };
+}
 
 const AGENT_TEAMS_SECTION = [
   "## Agent Teams",
@@ -256,23 +329,40 @@ export class ClaudeAdapter extends BaseAdapter {
           "**Later:** Customize agent behavior via `.hatch3r/{type}/{id}.customize.yaml` without editing managed files.",
           "",
         ];
-    const innerContent = innerParts.join("\n");
+    // C9-M47 (P7): wrap inner content with cache-breakpoint sentinels before
+    // emission so the Claude Code prompt-cache layer sees a deterministic
+    // hatch3r-managed prefix across syncs.
+    const innerContent = withCacheBreakpoints(innerParts.join("\n"));
     results.push(output("CLAUDE.md", wrapInManagedBlock(innerContent), innerContent));
 
     if (ctx.features.rules) {
-      const rules = await readCanonicalFiles(ctx.agentsDir, "rules", this.warnings);
+      // C9-H39 (D11-SA11.1-01): use the BaseAdapter-tracked read wrapper so
+      // every canonical rule consumed here is recorded in
+      // `this._trackedSourceFiles` and surfaces on each output's
+      // `sourceFiles` field. Direct `readCanonicalFiles` calls bypass the
+      // provenance tracker introduced by C8-D12-M3.
+      const rules = await this.readTrackedCanonicalFiles(ctx.agentsDir, "rules");
       // Wave B3: precedence-ordered emission + NN- numeric filename prefix on
       // .claude/rules/. critical=10, high=30, normal=50, low=70. Claude Code
       // loads rule files alphabetically; the prefix makes load order explicit.
       const sortedRules = sortByPrecedence(rules);
       for (const rule of sortedRules) {
-        const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);
+        // C9-H20 (D8-H8.3.1): cooperative abort check between rule files
+        // so a phase/adapter timeout cancels the per-rule loop without
+        // waiting for the remaining files to finish customisation.
+        this.throwIfAborted(ctx);
+        const { content: rawContent, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);
         this.warnings.push(...warnings);
         if (skip) continue;
+        // C9-H47 (D14-SA14.4-H01): substitute detected toolchain tokens.
+        const content = this.substituteDetectedRepoTokens(rawContent, ctx);
         const desc = overrides.description ?? rule.description;
-        const body = minimal
+        const rawBody = minimal
           ? `# ${rule.id}\n\n${this.stripMinimal(content)}`
           : `# ${rule.id}\n\n${desc}\n\n${content}`;
+        // C9-M47 (P7): cache-breakpoint sentinels wrap every rule body so the
+        // managed-block payload fingerprint stays stable for prompt-cache reuse.
+        const body = withCacheBreakpoints(rawBody);
         const nn = precedenceRank(rule.precedence) / 10;
         results.push(output(`.claude/rules/${nn}-${toPrefixedId(rule.id)}.md`, wrapInManagedBlock(body), body));
       }
@@ -281,9 +371,13 @@ export class ClaudeAdapter extends BaseAdapter {
     if (ctx.features.agents) {
       const agents = await this.readUserFacingCanonicalFiles(ctx.agentsDir, "agents");
       for (const agent of agents) {
-        const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
+        // C9-H20: cooperative abort between agent files.
+        this.throwIfAborted(ctx);
+        const { content: rawContent, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
         this.warnings.push(...warnings);
         if (skip) continue;
+        // C9-H47: substitute detected toolchain tokens in agent body.
+        const content = this.substituteDetectedRepoTokens(rawContent, ctx);
         const agentId = toPrefixedId(agent.id);
         const model = resolveAgentModel(agent.id, agent, ctx.manifest, overrides);
         const desc = overrides.description ?? agent.description;
@@ -297,15 +391,17 @@ export class ClaudeAdapter extends BaseAdapter {
         const fmLines = [`description: ${desc}`];
         if (toolsFm) fmLines.push(`tools: ${toolsFm}`);
         const fm = `---\n${fmLines.join("\n")}\n---`;
+        // C9-M47 (P7): cache-breakpoint sentinels wrap every agent body so the
+        // emitted managed block fingerprints stably across syncs.
         if (minimal) {
           const modelNote = model ? `\nModel: \`${model}\`` : "";
-          const body = `${this.stripMinimal(content)}${modelNote}`;
+          const body = withCacheBreakpoints(`${this.stripMinimal(content)}${modelNote}`);
           results.push(output(`.claude/agents/${agentId}.md`, `${fm}\n\n${wrapInManagedBlock(body)}`, body));
         } else {
           const modelGuidance = model
             ? `\n\n## Recommended Model\n\nPreferred: \`${model}\`. Set via \`/model ${model}\` or env \`CLAUDE_CODE_SUBAGENT_MODEL=${model}\`.`
             : "";
-          const body = `${content}${modelGuidance}`;
+          const body = withCacheBreakpoints(`${content}${modelGuidance}`);
           results.push(output(`.claude/agents/${agentId}.md`, `${fm}\n\n${wrapInManagedBlock(body)}`, body));
         }
       }
@@ -348,6 +444,24 @@ export class ClaudeAdapter extends BaseAdapter {
         hooks: [{ type: "command", command: `echo "HATCH3R_HOOK_ACTIVATED: Spawn the ${hook.agent} agent now. Follow the ${hook.agent} agent protocol in .claude/agents/${toPrefixedId(hook.agent)}.md. Event: ${hook.event}. Hook ID: ${hook.id}."` }],
       });
     }
+
+    // C9-H49 (D15-SA15.2, P6): per-adapter PreToolUse allowlist hook.
+    // Reclassifies the agent tool allowlist as Hybrid (canonical policy
+    // registry + runtime PreToolUse gate). The hook is emitted as a
+    // sibling of agent-tool-policies.json so the script reads the
+    // policy file via relative path. Registered as a PreToolUse entry
+    // with matcher ".*" so the hook fires on every tool call; the
+    // script handles category-specific deny decisions internally.
+    // Source: https://code.claude.com/docs/en/plugins-reference#hooks
+    // (PreToolUse exit 2 denies the call; accessed 2026-04-19).
+    if (!hooksConfig.PreToolUse) hooksConfig.PreToolUse = [];
+    hooksConfig.PreToolUse.push({
+      matcher: ".*",
+      hooks: [{
+        type: "command",
+        command: "node .claude/hooks/pretooluse-allowlist.mjs",
+      }],
+    });
 
     hooksConfig.TaskCompleted = [{
       matcher: ".*",
@@ -423,13 +537,39 @@ export class ClaudeAdapter extends BaseAdapter {
       results.push(output(".claude/hooks/hatch3r-hooks.json", JSON.stringify(pluginHooksObj, null, 2)));
     }
 
-    results.push(
-      ...await this.processSkillsRawCliFiltered(ctx, (id) => `.claude/skills/${toPrefixedId(id)}/SKILL.md`),
-    );
+    // C9-H49 (D15-SA15.2, P6): emit the PreToolUse allowlist hook script
+    // + the machine-readable agent-tool-policies.json document. Both
+    // ride alongside settings.json regardless of `ctx.features.hooks`
+    // because the PreToolUse gate is the runtime tail of the canonical
+    // ASI02 enforcement — disabling it would break the trust chain.
+    // The hook script is plain Node ESM with zero runtime dependencies;
+    // the JSON document is the SECURITY.md Allowlist Hybrid Contract
+    // source-of-truth payload.
+    results.push(output(
+      ".claude/hooks/agent-tool-policies.json",
+      buildAgentToolPoliciesJson(),
+    ));
+    results.push(output(
+      ".claude/hooks/pretooluse-allowlist.mjs",
+      buildClaudePreToolUseHookScript(),
+    ));
 
-    results.push(
-      ...await this.processCommandsRaw(ctx, (id) => `.claude/commands/${toPrefixedId(id)}.md`),
+    // C9-M47 (P7): re-wrap skill/command outputs with cache-breakpoint
+    // sentinels. The base helpers emit `wrapInManagedBlock(content)` directly
+    // (shared across all 15 adapters); we post-process the Claude-specific
+    // results so the sentinels appear in this adapter's managed blocks only,
+    // without touching the cross-adapter helpers.
+    const skillOutputs = await this.processSkillsRawCliFiltered(
+      ctx,
+      (id) => `.claude/skills/${toPrefixedId(id)}/SKILL.md`,
     );
+    results.push(...skillOutputs.map(rewrapWithCacheBreakpoints));
+
+    const commandOutputs = await this.processCommandsRaw(
+      ctx,
+      (id) => `.claude/commands/${toPrefixedId(id)}.md`,
+    );
+    results.push(...commandOutputs.map(rewrapWithCacheBreakpoints));
 
     const mcp = await this.readFilteredMcp(ctx);
     if (mcp) {
@@ -442,7 +582,9 @@ export class ClaudeAdapter extends BaseAdapter {
       results.push(output(".mcp.json", JSON.stringify({ mcpServers: claudeMcp }, null, 2)));
     }
 
-    results.push(output(".claude/commands/hatch3r-agent-team.md", wrapInManagedBlock(AGENT_TEAM_COMMAND), AGENT_TEAM_COMMAND));
+    // C9-M47 (P7): agent-team command body gets cache-breakpoint sentinels too.
+    const agentTeamBody = withCacheBreakpoints(AGENT_TEAM_COMMAND);
+    results.push(output(".claude/commands/hatch3r-agent-team.md", wrapInManagedBlock(agentTeamBody), agentTeamBody));
 
     return results;
   }

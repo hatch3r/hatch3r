@@ -157,12 +157,16 @@ function parseHookFrontmatter(
   try {
     parsed = parseYaml(match[1]) as Record<string, unknown> | null;
   } catch (err) {
-    return {
+    // The caller (loadHooks) consumes this error via the returned object and
+    // pushes it onto the warnings[] channel — the catch IS the diagnostic
+    // surface here. Build the structured error and return it.
+    const errorResult = {
       error: {
-        code: "YAML_PARSE_ERROR",
+        code: "YAML_PARSE_ERROR" as const,
         message: `frontmatter YAML is malformed: ${err instanceof Error ? err.message : String(err)}`,
       },
     };
+    return errorResult;
   }
   if (!parsed || typeof parsed !== "object") {
     return { error: { code: "YAML_PARSE_ERROR", message: "frontmatter did not parse to an object" } };

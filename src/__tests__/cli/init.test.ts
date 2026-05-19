@@ -152,7 +152,16 @@ describe("init command", () => {
     const { initCommand } = await import("../../cli/commands/init.js");
 
     await expect(initCommand({ yes: true, tools: "invalid-tool" })).rejects.toThrow(HatchError);
-    try { await initCommand({ yes: true, tools: "invalid-tool" }); } catch (e) { expect((e as HatchError).exitCode).toBe(1); }
+    try {
+      await initCommand({ yes: true, tools: "invalid-tool" });
+    } catch (e) {
+      expect((e as HatchError).exitCode).toBe(1);
+      // C9-H27 (D10-SA10.2-F2): invalid-tool throw site carries an
+      // actionable recoveryHint listing the valid ids — verifies the new
+      // structured field is threaded through the --yes init path.
+      expect((e as HatchError).recoveryHint).toBeDefined();
+      expect((e as HatchError).recoveryHint).toMatch(/Re-run with --tools/);
+    }
 
     // C8-D12-M1: `error()` routes to stderr per POSIX; check both streams so
     // future routing changes don't false-positive this assertion.
@@ -428,16 +437,18 @@ describe("init command", () => {
     expect(manifest.tools).toEqual(["amp"]);
   });
 
-  it("should use full preset by default with --yes flag", async () => {
+  it("should use standard preset by default with --yes flag (C9-H25)", async () => {
+    // C9-H25 (D10-SA10.1-F2): Default preset is "standard" — aligns README,
+    // quick-start, and init.ts on the audit-recommended default. "Full"
+    // remains an opt-in for users who want everything including board
+    // management and niche audits (a11y, performance, customize).
     await initCommand({ yes: true });
 
     const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
     const manifest = JSON.parse(await readFile(manifestPath, "utf-8"));
 
-    // In --yes mode, content.preset should default to full
-    if (manifest.content) {
-      expect(manifest.content.preset).toBe("full");
-    }
+    // In --yes mode, content.preset must default to standard
+    expect(manifest.content?.preset).toBe("standard");
   });
 
   it("should create hooks directory when hooks feature is enabled", async () => {
@@ -593,6 +604,24 @@ describe("workspace init", () => {
     const wsManifest = JSON.parse(wsRaw);
     expect(wsManifest.repos).toHaveLength(2);
   });
+
+  it("workspace --yes defaults to standard preset (C9-H25)", async () => {
+    // C9-H25 (D10-SA10.1-F2): Workspace --yes path must propagate the same
+    // recommended default as single-repo --yes — Standard, not Full. Prevents
+    // workspace users from receiving the heavier Full bundle by accident.
+    await createWorkspaceLayout(tempDir, ["repo-a", "repo-b"]);
+
+    await initCommand({ yes: true });
+
+    const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf-8"));
+    expect(manifest.content?.preset).toBe("standard");
+
+    // Workspace defaults block also tracks the recommended preset.
+    const wsManifestPath = join(tempDir, AGENTS_DIR, "workspace.json");
+    const wsManifest = JSON.parse(await readFile(wsManifestPath, "utf-8"));
+    expect(wsManifest.defaults?.content?.preset).toBe("standard");
+  });
 });
 
 // ── C7-H20 (D3): branch-coverage uplift for src/cli/commands/init.ts ──
@@ -643,6 +672,9 @@ describe("init validation flags (--yes path)", () => {
     } catch (e) {
       expect((e as HatchError).exitCode).toBe(1);
       expect((e as HatchError).errorCode).toBe("VALIDATION_ERROR");
+      // C9-H27 (D10-SA10.2-F2): validateFlag carries a hint with the
+      // valid options the user can re-run with.
+      expect((e as HatchError).recoveryHint).toMatch(/Re-run with one of/);
     }
   });
 
@@ -650,12 +682,24 @@ describe("init validation flags (--yes path)", () => {
     await expect(
       initCommand({ yes: true, projectType: "legacy" }),
     ).rejects.toThrow(HatchError);
+    try {
+      await initCommand({ yes: true, projectType: "legacy" });
+    } catch (e) {
+      // C9-H27: project-type hint mentions the valid project-type literals.
+      expect((e as HatchError).recoveryHint).toMatch(/Re-run with one of/);
+    }
   });
 
   it("rejects an invalid --team-size value", async () => {
     await expect(
       initCommand({ yes: true, teamSize: "duo" }),
     ).rejects.toThrow(HatchError);
+    try {
+      await initCommand({ yes: true, teamSize: "duo" });
+    } catch (e) {
+      // C9-H27: team-size hint mentions the valid team-size literals.
+      expect((e as HatchError).recoveryHint).toMatch(/Re-run with one of/);
+    }
   });
 
   it("accepts --preset minimal and writes it to the manifest", async () => {
@@ -887,10 +931,12 @@ describe("init worktree generation (claude tool present)", () => {
 
   // v1.6.1 Fix 2: --worktree / --no-worktree flags + interactive prompt.
   // Queue the interactive single-repo prompt sequence for tests that rely on it.
-  // Wave 3 (CLI-tooling pivot, plan §4.3) inserted a CLI-tools picker after
-  // worktree and an MCP Yes/No gate before the MCP-server picker; the empty
-  // selection for tools={} skips the detection + installer follow-ups so the
-  // remaining prompt order stays deterministic.
+  // C9-H28 (D10-SA10.3-F1) prompt order:
+  //   platform -> owner/repo -> defaultBranch -> projectType -> teamSize ->
+  //   preset -> tools -> [worktree] -> features -> [mcp gate] -> [mcp picker] ->
+  //   cliTools picker -> [create?]
+  // Features + MCP now precede the CLI-tools picker so the high-impact core
+  // decisions complete before the broader CLI-tooling roster prompt.
   function queueInteractiveWithWorktree(opts: { tools?: string[]; worktree?: boolean } = {}): void {
     const inq = vi.mocked(inquirer.prompt);
     const tools = opts.tools ?? ["claude"];
@@ -906,9 +952,10 @@ describe("init worktree generation (claude tool present)", () => {
     } else if (tools.includes("claude")) {
       inq.mockResolvedValueOnce({ enabled: true });
     }
-    // Wave 3: CLI tools picker — empty selection skips detection/installer.
-    inq.mockResolvedValueOnce({ tools: [] });
     inq.mockResolvedValueOnce({ features: ["agents"] });
+    // C9-H28: CLI tools picker now follows features + MCP — empty selection
+    // skips detection/installer.
+    inq.mockResolvedValueOnce({ tools: [] });
     // D20: post-init "create your first user artifact?" prompt — decline so
     // the rest of the test logic remains unchanged.
     inq.mockResolvedValueOnce({ create: false });
@@ -1066,16 +1113,17 @@ describe("init interactive single-repo flow", () => {
 
   /**
    * Queue prompt responses for the interactive single-repo flow.
-   * Wave 3 (CLI-tooling pivot, plan §4.3): prompt order is now
+   * C9-H28 (D10-SA10.3-F1) prompt order:
    *   platform -> owner/repo -> defaultBranch -> projectType -> teamSize ->
-   *   preset -> [custom items] -> tools -> [worktree] -> cliTools picker ->
-   *   features -> [mcp gate] -> [mcp servers].
+   *   preset -> [custom items] -> tools -> [worktree] -> features ->
+   *   [mcp gate] -> [mcp servers] -> cliTools picker -> [create?]
    * The worktree prompt fires only when a worktree-capable tool (e.g. claude)
    * is in the selected tools list. The cliTools picker always runs but an
    * empty selection short-circuits the detection + installer follow-ups so
    * tests stay deterministic. The MCP gate fires only when `features.mcp` is
    * true; the server picker fires only when the user proceeds through the
-   * gate (mcpServers !== undefined here).
+   * gate (mcpServers !== undefined here). C9-H28 moved features + MCP ahead
+   * of CLI tools so users complete the high-impact decisions first.
    */
   function setupGithubInteractive(opts: {
     preset?: "minimal" | "standard" | "full" | "custom";
@@ -1105,8 +1153,6 @@ describe("init interactive single-repo flow", () => {
     if (tools.includes("claude")) {
       inq.mockResolvedValueOnce({ enabled: opts.worktree ?? true });
     }
-    // Wave 3: CLI tools picker — empty selection skips detection + installer.
-    inq.mockResolvedValueOnce({ tools: opts.cliTools ?? [] });
     inq.mockResolvedValueOnce({
       features: opts.features ?? ["agents", "skills", "rules", "prompts", "commands", "mcp", "githubAgents", "hooks"],
     });
@@ -1121,6 +1167,9 @@ describe("init interactive single-repo flow", () => {
         inq.mockResolvedValueOnce({ mcp: opts.mcpServers ?? ["github", "playwright", "context7"] });
       }
     }
+    // C9-H28: CLI tools picker now follows features + MCP — empty selection
+    // skips detection + installer.
+    inq.mockResolvedValueOnce({ tools: opts.cliTools ?? [] });
     // D20: post-init "create your first user artifact?" prompt — decline so
     // the rest of the test logic remains unchanged.
     inq.mockResolvedValueOnce({ create: false });
@@ -1165,9 +1214,9 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt
-    // Wave 3: CLI tools picker — empty selection skips detection/installer.
-    inq.mockResolvedValueOnce({ tools: [] });
     inq.mockResolvedValueOnce({ features: ["agents"] });
+    // C9-H28: CLI tools picker now follows features + MCP.
+    inq.mockResolvedValueOnce({ tools: [] });
     inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
 
     await initCommand({});
@@ -1190,9 +1239,9 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt
-    // Wave 3: CLI tools picker — empty selection skips detection/installer.
-    inq.mockResolvedValueOnce({ tools: [] });
     inq.mockResolvedValueOnce({ features: ["agents"] });
+    // C9-H28: CLI tools picker now follows features + MCP.
+    inq.mockResolvedValueOnce({ tools: [] });
     inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
 
     await initCommand({});
@@ -1218,9 +1267,9 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ tools: [] });
     // tools fall-through to ["claude"] triggers the worktree prompt
     inq.mockResolvedValueOnce({ enabled: true });
-    // Wave 3: CLI tools picker — empty selection skips detection/installer.
-    inq.mockResolvedValueOnce({ tools: [] });
     inq.mockResolvedValueOnce({ features: ["agents"] });
+    // C9-H28: CLI tools picker now follows features + MCP.
+    inq.mockResolvedValueOnce({ tools: [] });
     inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
 
     await initCommand({});
@@ -1259,9 +1308,9 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt (claude selected)
-    // Wave 3: CLI tools picker — empty selection skips detection/installer.
-    inq.mockResolvedValueOnce({ tools: [] });
     inq.mockResolvedValueOnce({ features: ["agents"] });
+    // C9-H28: CLI tools picker now follows features + MCP.
+    inq.mockResolvedValueOnce({ tools: [] });
     // The checkExisting prompt — accept overwrite
     inq.mockResolvedValueOnce({ proceed: true });
     inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
@@ -1290,9 +1339,9 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt (claude selected)
-    // Wave 3: CLI tools picker — empty selection skips detection/installer.
-    inq.mockResolvedValueOnce({ tools: [] });
     inq.mockResolvedValueOnce({ features: ["agents"] });
+    // C9-H28: CLI tools picker now follows features + MCP.
+    inq.mockResolvedValueOnce({ tools: [] });
     // Reject overwrite
     inq.mockResolvedValueOnce({ proceed: false });
 
@@ -1358,11 +1407,11 @@ describe("init interactive workspace flow", () => {
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     // 6b) Worktree prompt (claude selected)
     inq.mockResolvedValueOnce({ enabled: true });
-    // 6c) Wave 3 CLI tools picker — empty selection skips detection/installer.
-    inq.mockResolvedValueOnce({ tools: [] });
-    // 7) Features
+    // 7) Features (C9-H28: moved before CLI tools)
     inq.mockResolvedValueOnce({ features: ["agents"] });
-    // 7b) D20 post-init "create your first user artifact?" prompt fired by
+    // 7b) CLI tools picker — empty selection skips detection/installer.
+    inq.mockResolvedValueOnce({ tools: [] });
+    // 7c) D20 post-init "create your first user artifact?" prompt fired by
     // runInit at the workspace root before workspace-level sync prompts.
     inq.mockResolvedValueOnce({ create: false });
     // 8) Repo selection for sync
@@ -1381,7 +1430,7 @@ describe("init interactive workspace flow", () => {
     const inq = vi.mocked(inquirer.prompt);
     // 1) Decline workspace mode -> falls through to single-repo interactive flow
     inq.mockResolvedValueOnce({ useWorkspace: false });
-    // 2-9) Single-repo prompts
+    // 2-9) Single-repo prompts (C9-H28 order)
     inq.mockResolvedValueOnce({ platform: "github" });
     inq.mockResolvedValueOnce({ owner: "o", repo: "r" });
     inq.mockResolvedValueOnce({ defaultBranch: "main" });
@@ -1390,9 +1439,9 @@ describe("init interactive workspace flow", () => {
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt (claude selected)
-    // Wave 3 CLI tools picker — empty selection skips detection/installer.
-    inq.mockResolvedValueOnce({ tools: [] });
     inq.mockResolvedValueOnce({ features: ["agents"] });
+    // C9-H28: CLI tools picker now follows features + MCP.
+    inq.mockResolvedValueOnce({ tools: [] });
     inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
 
     await initCommand({});
@@ -1426,11 +1475,11 @@ describe("init interactive workspace flow", () => {
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     // 7b) Worktree prompt (claude selected)
     inq.mockResolvedValueOnce({ enabled: true });
-    // 7c) Wave 3 CLI tools picker — empty selection skips detection/installer.
-    inq.mockResolvedValueOnce({ tools: [] });
-    // 8) Features
+    // 8) Features (C9-H28: moved before CLI tools)
     inq.mockResolvedValueOnce({ features: ["agents"] });
-    // 8b) D20 post-init "create your first user artifact?" prompt fired by
+    // 8b) CLI tools picker — empty selection skips detection/installer.
+    inq.mockResolvedValueOnce({ tools: [] });
+    // 8c) D20 post-init "create your first user artifact?" prompt fired by
     // runInit at the workspace root before workspace-level sync prompts.
     inq.mockResolvedValueOnce({ create: false });
     // 9) Repo sync selection
@@ -1601,7 +1650,7 @@ describe("init eager flag validation (C8-D1-M4)", () => {
 
   it("accepts valid --preset with no --yes flag (enters interactive flow)", async () => {
     const inq = vi.mocked(inquirer.prompt);
-    // Validation passes; the usual interactive flow runs.
+    // Validation passes; the usual interactive flow runs (C9-H28 order).
     inq.mockResolvedValueOnce({ platform: "github" });
     inq.mockResolvedValueOnce({ owner: "o", repo: "r" });
     inq.mockResolvedValueOnce({ defaultBranch: "main" });
@@ -1610,9 +1659,9 @@ describe("init eager flag validation (C8-D1-M4)", () => {
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt (claude selected)
-    // Wave 3 CLI tools picker — empty selection skips detection/installer.
-    inq.mockResolvedValueOnce({ tools: [] });
     inq.mockResolvedValueOnce({ features: ["agents"] });
+    // C9-H28: CLI tools picker now follows features + MCP.
+    inq.mockResolvedValueOnce({ tools: [] });
     inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
 
     await initCommand({ preset: "minimal" });
@@ -1768,9 +1817,9 @@ describe("init workspace conflict guard (C8-D1-M3)", () => {
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt (claude selected)
-    // Wave 3 CLI tools picker — empty selection skips detection/installer.
-    inq.mockResolvedValueOnce({ tools: [] });
     inq.mockResolvedValueOnce({ features: ["agents"] });
+    // C9-H28: CLI tools picker now follows features + MCP.
+    inq.mockResolvedValueOnce({ tools: [] });
     inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
     // Select the repo with existing hatch3r for sync (triggers conflict prompt)
     inq.mockResolvedValueOnce({ syncRepos: ["api"] });
@@ -1797,9 +1846,9 @@ describe("init workspace conflict guard (C8-D1-M3)", () => {
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt (claude selected)
-    // Wave 3 CLI tools picker — empty selection skips detection/installer.
-    inq.mockResolvedValueOnce({ tools: [] });
     inq.mockResolvedValueOnce({ features: ["agents"] });
+    // C9-H28: CLI tools picker now follows features + MCP.
+    inq.mockResolvedValueOnce({ tools: [] });
     inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
     inq.mockResolvedValueOnce({ syncRepos: ["api"] });
     inq.mockResolvedValueOnce({ confirmConflict: true });
@@ -1822,9 +1871,9 @@ describe("init workspace conflict guard (C8-D1-M3)", () => {
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt (claude selected)
-    // Wave 3 CLI tools picker — empty selection skips detection/installer.
-    inq.mockResolvedValueOnce({ tools: [] });
     inq.mockResolvedValueOnce({ features: ["agents"] });
+    // C9-H28: CLI tools picker now follows features + MCP.
+    inq.mockResolvedValueOnce({ tools: [] });
     inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
     inq.mockResolvedValueOnce({ syncRepos: ["api"] });
     // NO confirmConflict prompt expected here
@@ -1968,6 +2017,280 @@ describe("init --yes CLI tooling flags (Wave 5 plan §4.3)", () => {
       await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"),
     );
     expect(manifest.cliTools.selected).toEqual(["ripgrep", "jq"]);
+  });
+});
+
+// ── C9-H26 (D10-SA10.2-F1): --quiet, --json, --no-banner flags ───────
+describe("init chrome-suppression flags (C9-H26)", () => {
+  let initCommand: (opts?: {
+    tools?: string;
+    yes?: boolean;
+    quiet?: boolean;
+    json?: boolean;
+    noBanner?: boolean;
+  }) => Promise<void>;
+  let tempDir: string;
+  let cwdSpy: MockInstance;
+  let exitSpy: MockInstance;
+  let consoleSpy: MockInstance;
+  let consoleErrorSpy: MockInstance;
+
+  beforeAll(async () => {
+    ({ initCommand } = await import("../../cli/commands/init.js"));
+  });
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-init-chrome-"));
+    cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+    exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation((() => {
+        throw new Error("process.exit called");
+      }) as never);
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(async () => {
+    cwdSpy.mockRestore();
+    exitSpy.mockRestore();
+    consoleSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("--quiet suppresses the banner and success box on stdout", async () => {
+    await initCommand({ yes: true, quiet: true });
+
+    const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    // Banner contains the gradient logo + "Crack the egg" tagline; success
+    // box title is "Hatch complete". None of these should appear under --quiet.
+    expect(stdout).not.toContain("Crack the egg");
+    expect(stdout).not.toContain("Hatch complete");
+  });
+
+  it("--no-banner suppresses the banner but keeps the success box", async () => {
+    await initCommand({ yes: true, noBanner: true });
+
+    const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(stdout).not.toContain("Crack the egg");
+    expect(stdout).toContain("Hatch complete");
+  });
+
+  it("--json emits a single machine-readable JSON line and no chrome", async () => {
+    await initCommand({ yes: true, json: true, tools: "claude" });
+
+    const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    // Banner + success box must be absent.
+    expect(stdout).not.toContain("Crack the egg");
+    expect(stdout).not.toContain("Hatch complete");
+
+    // Exactly one JSON line on stdout.
+    const jsonLines = consoleSpy.mock.calls
+      .map((c) => String(c[0]))
+      .filter((line) => line.trim().startsWith("{") && line.trim().endsWith("}"));
+    expect(jsonLines.length).toBe(1);
+
+    const payload = JSON.parse(jsonLines[0]);
+    expect(payload.status).toBe("ok");
+    expect(payload.version).toBe(HATCH3R_VERSION);
+    expect(payload.tools).toEqual(["claude"]);
+    // C9-H25: default --yes preset is now "standard" (not "full")
+    expect(payload.preset).toBe("standard");
+    expect(payload.canonicalDir).toBe(AGENTS_DIR);
+    expect(payload.manifestPath).toBe(`${AGENTS_DIR}/hatch.json`);
+    expect(Array.isArray(payload.mcpServers)).toBe(true);
+    expect(Array.isArray(payload.cliTools)).toBe(true);
+    // Manifest still written normally.
+    const manifest = JSON.parse(
+      await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"),
+    );
+    expect(manifest.tools).toEqual(["claude"]);
+  });
+
+  it("--json implies --quiet (no banner, no success box)", async () => {
+    await initCommand({ yes: true, json: true });
+
+    const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(stdout).not.toContain("Crack the egg");
+    expect(stdout).not.toContain("Hatch complete");
+  });
+
+  it("default mode (no flags) still emits the banner and success box", async () => {
+    await initCommand({ yes: true });
+
+    const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(stdout).toContain("Hatch complete");
+  });
+});
+
+// ── C9-H29 (D10-SA10.3-F2): Multi-CTA post-init hint ──────────────────
+describe("init multi-CTA post-init hint (C9-H29)", () => {
+  let initCommand: (opts?: { tools?: string; yes?: boolean }) => Promise<void>;
+  let tempDir: string;
+  let cwdSpy: MockInstance;
+  let exitSpy: MockInstance;
+  let consoleSpy: MockInstance;
+  let consoleErrorSpy: MockInstance;
+
+  beforeAll(async () => {
+    ({ initCommand } = await import("../../cli/commands/init.js"));
+  });
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-init-cta-"));
+    cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+    exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation((() => {
+        throw new Error("process.exit called");
+      }) as never);
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(async () => {
+    cwdSpy.mockRestore();
+    exitSpy.mockRestore();
+    consoleSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("greenfield empty repo surfaces all 4 README paths (project-spec primary, codebase-map/feature-plan/quick-change as alternates)", async () => {
+    // Empty tempDir = greenfield (no language detected, no existing agents).
+    await initCommand({ yes: true });
+    const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(stdout).toContain("project-spec");
+    expect(stdout).toContain("roadmap");
+    expect(stdout).toContain("codebase-map");
+    expect(stdout).toContain("feature-plan");
+    expect(stdout).toContain("quick-change");
+  });
+
+  it("brownfield repo surfaces codebase-map primary and all 3 alternates (feature-plan/quick-change/project-spec)", async () => {
+    // Drop a tsconfig.json to make the repo non-greenfield (typescript detected).
+    await writeFile(join(tempDir, "tsconfig.json"), JSON.stringify({}));
+    await initCommand({ yes: true });
+    const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(stdout).toContain("codebase-map");
+    expect(stdout).toContain("feature-plan");
+    expect(stdout).toContain("quick-change");
+    expect(stdout).toContain("project-spec");
+  });
+});
+
+// ── C9-H32 (D10-SA10.5-F2): TOOL_SECRET_NOTES surface at tool-selection time ─
+describe("init tool-secret-notes ordering (C9-H32)", () => {
+  let initCommand: (opts?: { tools?: string; yes?: boolean }) => Promise<void>;
+  let tempDir: string;
+  let cwdSpy: MockInstance;
+  let exitSpy: MockInstance;
+  let consoleSpy: MockInstance;
+  let consoleErrorSpy: MockInstance;
+
+  beforeAll(async () => {
+    ({ initCommand } = await import("../../cli/commands/init.js"));
+  });
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-init-secret-order-"));
+    cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+    exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation((() => {
+        throw new Error("process.exit called");
+      }) as never);
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(inquirer.prompt).mockReset();
+  });
+
+  afterEach(async () => {
+    cwdSpy.mockRestore();
+    exitSpy.mockRestore();
+    consoleSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("MCP-secret-loading notes surface in interactive flow immediately after tool selection (before features/CLI tools)", async () => {
+    const inq = vi.mocked(inquirer.prompt);
+    inq.mockResolvedValueOnce({ platform: "github" });
+    inq.mockResolvedValueOnce({ owner: "o", repo: "r" });
+    inq.mockResolvedValueOnce({ defaultBranch: "main" });
+    inq.mockResolvedValueOnce({ projectType: "brownfield" });
+    inq.mockResolvedValueOnce({ teamSize: "solo" });
+    inq.mockResolvedValueOnce({ preset: "minimal" });
+    inq.mockResolvedValueOnce({ tools: ["claude"] });
+    inq.mockResolvedValueOnce({ enabled: true });
+    inq.mockResolvedValueOnce({ features: ["agents"] });
+    inq.mockResolvedValueOnce({ tools: [] });
+    inq.mockResolvedValueOnce({ create: false });
+
+    await initCommand({});
+
+    const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    // Claude routes secrets via shell sourcing — surfaced as part of the
+    // TOOL_SECRET_NOTES block at tool-selection time.
+    expect(stdout).toContain("MCP secret loading by tool");
+    expect(stdout).toContain("shell sourcing");
+  });
+});
+
+// ── C9-H31 (D10-SA10.5-F1): managedFilesByAdapter._shared bridge files ─
+describe("init shared-bridge-file ownership (C9-H31)", () => {
+  let initCommand: (opts?: { tools?: string; yes?: boolean }) => Promise<void>;
+  let tempDir: string;
+  let cwdSpy: MockInstance;
+  let exitSpy: MockInstance;
+  let consoleSpy: MockInstance;
+  let consoleErrorSpy: MockInstance;
+
+  beforeAll(async () => {
+    ({ initCommand } = await import("../../cli/commands/init.js"));
+  });
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-init-shared-"));
+    cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+    exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation((() => {
+        throw new Error("process.exit called");
+      }) as never);
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(async () => {
+    cwdSpy.mockRestore();
+    exitSpy.mockRestore();
+    consoleSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("populates managedFilesByAdapter._shared with the root AGENTS.md path", async () => {
+    await initCommand({ yes: true, tools: "claude" });
+
+    const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf-8"));
+
+    expect(manifest.managedFilesByAdapter).toBeDefined();
+    expect(manifest.managedFilesByAdapter._shared).toBeDefined();
+    expect(manifest.managedFilesByAdapter._shared).toContain("AGENTS.md");
+  });
+
+  it("adapter-owned files appear under their own Tool key, not under _shared", async () => {
+    await initCommand({ yes: true, tools: "claude" });
+
+    const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf-8"));
+
+    // CLAUDE.md is an adapter-owned file → under claude, not _shared.
+    expect(manifest.managedFilesByAdapter.claude).toContain("CLAUDE.md");
+    expect(manifest.managedFilesByAdapter._shared).not.toContain("CLAUDE.md");
   });
 });
 

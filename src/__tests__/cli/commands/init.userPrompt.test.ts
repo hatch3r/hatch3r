@@ -81,9 +81,8 @@ describe("init D20 post-init prompt (C8-D20)", () => {
 
   it("interactive mode + decline ('false') prints the Tip pointer to /hatch3r-create", async () => {
     const inq = vi.mocked(inquirer.prompt);
-    // Queue all prompts for an interactive minimal flow. Wave 3 (CLI-tooling
-    // pivot, plan §4.3) inserted a CLI tools picker between worktree and
-    // features — an empty selection skips the detection/installer follow-ups.
+    // Queue all prompts for an interactive minimal flow. C9-H28
+    // (D10-SA10.3-F1) moved features + MCP ahead of the CLI tools picker.
     inq.mockResolvedValueOnce({ platform: "github" });
     inq.mockResolvedValueOnce({ owner: "o", repo: "r" });
     inq.mockResolvedValueOnce({ defaultBranch: "main" });
@@ -92,8 +91,8 @@ describe("init D20 post-init prompt (C8-D20)", () => {
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     inq.mockResolvedValueOnce({ enabled: true }); // worktree (claude)
-    inq.mockResolvedValueOnce({ tools: [] }); // Wave 3 CLI tools picker
     inq.mockResolvedValueOnce({ features: ["agents"] });
+    inq.mockResolvedValueOnce({ tools: [] }); // C9-H28: CLI tools picker follows features
     // The new D20 prompt — decline.
     inq.mockResolvedValueOnce({ create: false });
 
@@ -114,8 +113,8 @@ describe("init D20 post-init prompt (C8-D20)", () => {
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     inq.mockResolvedValueOnce({ enabled: true });
-    inq.mockResolvedValueOnce({ tools: [] }); // Wave 3 CLI tools picker
     inq.mockResolvedValueOnce({ features: ["agents"] });
+    inq.mockResolvedValueOnce({ tools: [] }); // C9-H28: CLI tools picker follows features
     // The new D20 prompt — accept.
     inq.mockResolvedValueOnce({ create: true });
 

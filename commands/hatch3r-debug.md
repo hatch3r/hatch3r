@@ -10,7 +10,14 @@ efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
 parallel_tool_default: true
 triage_tiers: [1, 2, 3]
+sub_agents_spawned:
+  count: 6
+  rationale: Six-stage pipeline per agentPipeline — researcher → implementer → reviewer ↔ fixer review loop (max 3 iterations) → parallel final-quality pass (test-writer + security-auditor); serialization only across true dependency edges (logs → root cause → fix → verify).
 ---
+## §0 Detect Ambiguity (P8 B1)
+
+Before any action, scan the user's bug description and provided context for unresolved questions in scope, reproduction conditions, irreversibility, or constraint conflicts (contradictory symptoms, missing environment details, unknown affected area). If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Acceptable to proceed without asking ONLY when the bug is single-file, single-symptom, and the brief alone identifies the reproduction path. The Stage 1c "ASK" rule remains in force for residual ambiguity discovered mid-workflow.
+
 # Debug — Instrument, Diagnose, and Fix from Runtime Evidence
 
 Standalone debug-and-fix command that instruments the codebase with strategic debug logging, pauses for the user to reproduce the issue and provide runtime logs, performs root cause analysis from the collected evidence, implements the fix, and removes all debug artifacts. Five-stage workflow: Gather Context → Add Debug Logging → Collect Logs (user checkpoint) → Root Cause Analysis → Implement Fix. Works independently — no board integration, no GitHub issue required.

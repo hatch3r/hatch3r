@@ -5,7 +5,7 @@ import type {
 import { toPrefixedId } from "../types.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
-import { readCanonicalFiles, sortByPrecedence, precedenceRank } from "./canonical.js";
+import { sortByPrecedence, precedenceRank } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
 import { applyCustomization } from "./customization.js";
 import { detectPackageManager } from "../detect/packageManager.js";
@@ -51,7 +51,11 @@ export class CopilotAdapter extends BaseAdapter {
     const scopedRules: { rule: CanonicalFile; content: string; scope: string }[] = [];
 
     if (ctx.features.rules) {
-      const rules = await readCanonicalFiles(ctx.agentsDir, "rules", this.warnings);
+      // C9-H39 (D11-SA11.1-01): use the BaseAdapter-tracked read wrapper so
+      // every canonical rule consumed here is recorded in
+      // `this._trackedSourceFiles` and surfaces on each output's
+      // `sourceFiles` field.
+      const rules = await this.readTrackedCanonicalFiles(ctx.agentsDir, "rules");
       // Wave B3: sort by precedence so both the inlined always-rules (in
       // copilot-instructions.md) and the per-file scoped-rules are emitted
       // in priority order. Always-rules are concatenated into a single file,
@@ -59,13 +63,15 @@ export class CopilotAdapter extends BaseAdapter {
       // order. Scoped-rules get a NN- filename prefix on their per-file path.
       const sortedRules = sortByPrecedence(rules);
       for (const rule of sortedRules) {
+        // C9-H20 (D8-H8.3.1): cooperative abort between rule files.
+        this.throwIfAborted(ctx);
         const { content: rawContent, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);
         this.warnings.push(...warnings);
         if (skip) continue;
         // Parity with BaseAdapter.inlineRules: substitute the platform-tool
         // marker so copilot's custom rule loop stays consistent with the
         // 14 other adapters that go through the base class.
-        const content = this.substituteAskUserMarker(rawContent);
+        const content = this.substituteCanonicalContent(rawContent, ctx);
         const scope = overrides.scope ?? rule.scope;
         if (scope && scope !== "always") {
           scopedRules.push({ rule: { ...rule, description: overrides.description ?? rule.description }, content, scope });
@@ -149,13 +155,15 @@ jobs:
     if (ctx.features.agents) {
       const agents = await this.readUserFacingCanonicalFiles(ctx.agentsDir, "agents");
       for (const agent of agents) {
+        // C9-H20 (D8-H8.3.1): cooperative abort between agent files.
+        this.throwIfAborted(ctx);
         const { content: rawContent, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
         this.warnings.push(...warnings);
         if (skip) continue;
         // Parity with BaseAdapter.inlineAgents: substitute the platform-tool
         // marker so copilot's custom agent loop stays consistent with the
         // 14 other adapters that go through the base class.
-        const content = this.substituteAskUserMarker(rawContent);
+        const content = this.substituteCanonicalContent(rawContent, ctx);
         const model = resolveAgentModel(agent.id, agent, ctx.manifest, overrides);
         const desc = overrides.description ?? agent.description;
         const prefixedId = toPrefixedId(agent.id);
@@ -177,7 +185,8 @@ jobs:
     }
 
     if (ctx.features.prompts) {
-      const prompts = await readCanonicalFiles(ctx.agentsDir, "prompts", this.warnings);
+      // C9-H39 (D11-SA11.1-01): tracked read wrapper for prompt provenance.
+      const prompts = await this.readTrackedCanonicalFiles(ctx.agentsDir, "prompts");
       for (const prompt of prompts) {
         const body = prompt.rawContent;
         results.push(output(`.github/prompts/${toPrefixedId(prompt.id)}.prompt.md`, wrapInManagedBlock(body), body));
@@ -189,7 +198,8 @@ jobs:
     );
 
     if (ctx.features.githubAgents) {
-      const ghAgents = await readCanonicalFiles(ctx.agentsDir, "github-agents", this.warnings);
+      // C9-H39 (D11-SA11.1-01): tracked read wrapper for github-agents provenance.
+      const ghAgents = await this.readTrackedCanonicalFiles(ctx.agentsDir, "github-agents");
       for (const agent of ghAgents) {
         const body = agent.rawContent;
         results.push(output(`.github/agents/${toPrefixedId(agent.id)}.agent.md`, wrapInManagedBlock(body), body));

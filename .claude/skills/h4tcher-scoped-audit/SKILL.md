@@ -114,7 +114,7 @@ Suggested next step: <none | h4tcher-capability-refactor | h4tcher-capability-re
 ## References
 
 - Rigor contract: `governance/audit/templates/rigor-contract.md`
-- Pillar definitions: `governance/CONSTITUTION.md` §2 P1-P7
+- Pillar definitions: `governance/CONSTITUTION.md` §2 P1-P8
 - Anti-slop wordlist: `.claude/rules/anti-slop-enforcement.md`
 - Lean thresholds: `.claude/rules/governance-lean-thresholds.md`
 - Quality charter: `agents/shared/quality-charter.md`

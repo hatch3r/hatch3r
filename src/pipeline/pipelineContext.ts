@@ -7,6 +7,11 @@
  * typed when context is passed between phases.
  *
  * Finding #54 (D7, High): Add TypeScript PipelineContext type with runtime validation.
+ *
+ * @library_export_only — canonical handoff schema for the hatch3r agent pipeline
+ * (consumed by hatch3r-* agents and downstream pack integrators); the CLI itself
+ * never instantiates a PipelineContext because runtime execution happens inside
+ * Claude Code / the host coding tool, not inside the CLI process.
  */
 
 // ── Types ────────────────────────────────────────────────────────

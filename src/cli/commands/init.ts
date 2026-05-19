@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { basename, dirname, join } from "node:path";
 import chalk from "chalk";
 import inquirer from "inquirer";
-import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
+import { getAdapter, getUnsupportedFeatureWarnings, SHARED_ADAPTER_KEY, SHARED_BRIDGE_FILES } from "../../adapters/index.js";
 import {
   applyPreservedManifestFields,
   createManifest,
@@ -45,6 +45,10 @@ import {
   step,
   label,
   warn,
+  setQuiet,
+  setJson,
+  isJson,
+  isQuiet,
 } from "../shared/ui.js";
 import { findPackageRoot } from "../shared/paths.js";
 import { buildTagGroupedCustomContentChoices } from "../shared/customContentChoices.js";
@@ -369,6 +373,7 @@ export async function runInit(options: RunInitOptions): Promise<void> {
       `runInit already in progress for ${rootDir}`,
       1,
       "CONFIG_ERROR",
+      "Wait for the in-flight init to finish, or check for a stale process holding the directory.",
     );
   }
   RUNNING_INITS.add(rootDir);
@@ -459,7 +464,30 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   // existing manifest's customization so it survives. Clean -> reinit
   // already supplies `options.customization` directly via captureConfig.
   const effectiveCustomization = customization ?? existingManifest?.customization;
-  const manifest = createManifest({ platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, content: contentSelection, languages: repoInfo.languages, worktreeEnabled, customization: effectiveCustomization, cliTools });
+  const manifest = createManifest({
+    platform,
+    owner,
+    repo,
+    namespace,
+    project,
+    defaultBranch,
+    tools,
+    features,
+    mcpServers,
+    content: contentSelection,
+    languages: repoInfo.languages,
+    // C9-H47 (D14-SA14.4-H01): persist detected toolchain so adapter
+    // sync can resolve `${HATCH3R:LINTER}` etc. tokens from the manifest
+    // alone (sync.ts does not re-run analyzeRepo).
+    detected: {
+      linters: repoInfo.linters,
+      testFrameworks: repoInfo.testFrameworks,
+      ciProviders: repoInfo.ciProviders,
+    },
+    worktreeEnabled,
+    customization: effectiveCustomization,
+    cliTools,
+  });
   // 1.7.1: reapply platform/user state so a `clean` -> reinit (explicit
   // `preservedManifestFields`) and a plain `hatch3r init` over an existing
   // `.agents/hatch.json` (fallback to existingManifest extraction) both
@@ -493,6 +521,14 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   // would silently skip cleanup, and an upgrade-over-existing-init would
   // miss the first opportunity to drop pre-B3 rule files).
   manifest.managedFilesByAdapter = manifest.managedFilesByAdapter ?? {};
+  // C9-H31 (D10-SA10.5-F1): Track bridge files (e.g. root AGENTS.md) that
+  // are written outside any single adapter's `doGenerate()` under the
+  // `_shared` sentinel key. The `hatch3r clean` cleanup contract honours
+  // managed-block preservation for these paths. AGENTS.md was already added
+  // to `manifest.managedFiles` above; the _shared bucket gives clean +
+  // future tooling explicit ownership semantics. See
+  // `src/adapters/index.ts::SHARED_ADAPTER_KEY` for the full contract.
+  manifest.managedFilesByAdapter[SHARED_ADAPTER_KEY] = [...SHARED_BRIDGE_FILES];
   for (const tool of tools) {
     const adapter = getAdapter(tool);
     try {
@@ -521,7 +557,12 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     }
     if (adapterFailures.length === tools.length) {
       s3.fail(step(3, totalSteps, "All adapters failed"));
-      throw new HatchError("All adapters failed", 1, "ADAPTER_ERROR");
+      throw new HatchError(
+        "All adapters failed",
+        1,
+        "ADAPTER_ERROR",
+        "Re-run with `--verbose` to see per-adapter detail, then check `npx hatch3r validate` for upstream content errors.",
+      );
     }
   }
   s3.succeed(step(3, totalSteps, adapterFailures.length > 0
@@ -563,11 +604,52 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
 
   s4.succeed(step(4, totalSteps, "Done"));
 
-  console.log();
   const enabledFeatures = Object.entries(features)
     .filter(([, v]) => v)
     .map(([k]) => k);
 
+  // C9-H26 (D10-SA10.2-F1): `--json` emits one machine-readable line on
+  // stdout and skips the decorated success box, multi-CTA hint, and
+  // CLI-tooling disclaimer. `--quiet` (without `--json`) skips the box but
+  // still calls printBox (which is a no-op when isQuiet()). The summary
+  // payload is a stable JSON schema for CI consumers.
+  if (isJson()) {
+    const isGreenfieldForJson =
+      repoInfo.languages.length === 1 &&
+      repoInfo.languages[0] === "unknown" &&
+      repoInfo.existingTools.length === 0 &&
+      !repoInfo.hasExistingAgents;
+    const payload = {
+      status: "ok" as const,
+      version: HATCH3R_VERSION,
+      rootDir,
+      platform,
+      owner,
+      repo,
+      namespace,
+      project,
+      defaultBranch,
+      tools,
+      features: enabledFeatures,
+      mcpServers,
+      cliTools: cliTools?.selected ?? [],
+      preset: contentSelection.preset,
+      projectType: contentSelection.projectType,
+      teamSize: contentSelection.teamSize,
+      contentItemCount: countSelectionItems(contentSelection),
+      worktreeEnabled: !!manifest.worktree?.enabled,
+      isGreenfield: isGreenfieldForJson,
+      adapterFailures: adapterFailures.map((f) => ({ tool: f.tool, error: f.error })),
+      canonicalDir: AGENTS_DIR,
+      manifestPath: `${AGENTS_DIR}/hatch.json`,
+    };
+    console.log(JSON.stringify(payload));
+    return;
+  }
+
+  if (!isQuiet()) {
+    console.log();
+  }
   const presetLabel = contentSelection.preset.charAt(0).toUpperCase() + contentSelection.preset.slice(1);
   const summaryLines = [
     label("Profile", `${presetLabel} (${contentSelection.projectType}, ${contentSelection.teamSize})`),
@@ -595,6 +677,12 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   summaryLines.push(label("Canonical", `${AGENTS_DIR}/`));
   summaryLines.push(label("Manifest", `${AGENTS_DIR}/hatch.json`));
 
+  // C9-H29 (D10-SA10.3-F2): Multi-CTA post-init hint based on context.
+  // Surfaces the 4 README paths (greenfield: project-spec + roadmap;
+  // brownfield: codebase-map; single feature: feature-plan; small change:
+  // quick-change) so the user can pick the route that matches their
+  // immediate intent. The primary CTA stays at the top (highest signal for
+  // context) and the remaining three render as dimmed alternates.
   const isGreenfield =
     repoInfo.languages.length === 1 &&
     repoInfo.languages[0] === "unknown" &&
@@ -602,9 +690,15 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     !repoInfo.hasExistingAgents;
   summaryLines.push("");
   if (isGreenfield) {
-    summaryLines.push(`${chalk.cyan("→")} Run ${chalk.bold(formatCommandHint(tools, "project-spec"))} to define your new project`);
+    summaryLines.push(`${chalk.cyan("→")} Run ${chalk.bold(formatCommandHint(tools, "project-spec"))} to define your new project, then ${chalk.bold(formatCommandHint(tools, "roadmap"))}`);
+    summaryLines.push(`${chalk.dim("·")} ${chalk.dim("Existing codebase later? ")}${chalk.bold(formatCommandHint(tools, "codebase-map"))}`);
+    summaryLines.push(`${chalk.dim("·")} ${chalk.dim("Single feature: ")}${chalk.bold(formatCommandHint(tools, "feature-plan"))}`);
+    summaryLines.push(`${chalk.dim("·")} ${chalk.dim("Small change: ")}${chalk.bold(formatCommandHint(tools, "quick-change"))}`);
   } else {
     summaryLines.push(`${chalk.cyan("→")} Run ${chalk.bold(formatCommandHint(tools, "codebase-map"))} to map your existing codebase`);
+    summaryLines.push(`${chalk.dim("·")} ${chalk.dim("Single feature: ")}${chalk.bold(formatCommandHint(tools, "feature-plan"))}`);
+    summaryLines.push(`${chalk.dim("·")} ${chalk.dim("Small change: ")}${chalk.bold(formatCommandHint(tools, "quick-change"))}`);
+    summaryLines.push(`${chalk.dim("·")} ${chalk.dim("Greenfield project? ")}${chalk.bold(formatCommandHint(tools, "project-spec"))}`);
   }
 
   if (envResult && envResult.newVars.length > 0) {
@@ -615,7 +709,7 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
 
   printBox("Hatch complete", summaryLines, "success");
 
-  if (cliTools && cliTools.selected.length > 0) {
+  if (cliTools && cliTools.selected.length > 0 && !isQuiet()) {
     const finalMissing = await findMissingCliTools(cliTools.selected);
     printMissingCliToolsDisclaimer(finalMissing, cliTools.selected.length);
   }
@@ -624,7 +718,8 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   // the caller passed `yes: true` (CI / `--yes` flow / tests) so the
   // non-interactive contract is preserved. Interactive callers see one of
   // two short hints depending on whether they accept or decline.
-  if (!skipInitPrompts) {
+  // C9-H26: also skipped under `--quiet` / `--json` (chrome-free CI flow).
+  if (!skipInitPrompts && !isQuiet()) {
     const { create } = await inquirer.prompt<{ create: boolean }>([{
       type: "confirm",
       name: "create",
@@ -674,6 +769,7 @@ async function checkExisting(rootDir: string, skipPrompt: boolean, newSelection?
       ]);
       if (!proceed) {
         console.log(chalk.dim("\n  Init cancelled.\n"));
+        // Exit 0 + no recoveryHint: user-initiated cancellation is success.
         throw new HatchError("Init cancelled.", 0);
       }
     }
@@ -686,7 +782,12 @@ function validateFlag<T extends string>(value: string | undefined, valid: T[], f
   if (!value) return fallback;
   if (!(valid as string[]).includes(value)) {
     logError(`Invalid --${name}: "${value}". Valid: ${valid.join(", ")}`);
-    throw new HatchError(`Invalid --${name}: "${value}"`, 1, "VALIDATION_ERROR");
+    throw new HatchError(
+      `Invalid --${name}: "${value}"`,
+      1,
+      "VALIDATION_ERROR",
+      `Re-run with one of: ${valid.join(", ")}.`,
+    );
   }
   return value as T;
 }
@@ -716,9 +817,45 @@ export async function initCommand(
      * MCP behind a Yes/No gate (plan §4.3 step 8 / §2 decision row).
      */
     mcp?: boolean;
+    /**
+     * C9-H26 (D10-SA10.2-F1): Suppress all stdout chrome (banner, spinner
+     * text, success box, multi-CTA hints). Diagnostic warnings/errors still
+     * route to stderr per POSIX. Useful for CI logs where the banner +
+     * decorated boxes clutter output. Implies the `--no-banner` effect.
+     */
+    quiet?: boolean;
+    /**
+     * C9-H26 (D10-SA10.2-F1): Emit a single machine-readable JSON line on
+     * stdout instead of the decorated success box. Schema:
+     *   {"status":"ok","version":"<ver>","rootDir":"<abs>","tools":[...],
+     *    "preset":"<id>","mcpServers":[...],"cliTools":[...]}
+     * Errors continue to throw HatchError; callers receive the normal
+     * non-zero exit code. Implies `--quiet`.
+     */
+    json?: boolean;
+    /**
+     * C9-H26 (D10-SA10.2-F1): Skip the multi-line ASCII banner emitted at
+     * the top of `hatch3r init`. Independent of `--quiet`; useful when a
+     * CI badge tool wants the banner gone but the success box kept.
+     */
+    noBanner?: boolean;
   } = {},
 ): Promise<void> {
-  printBanner();
+  // C9-H26 (D10-SA10.2-F1): chrome-suppression flags.
+  // - `--json` implies `--quiet` (the structured emission replaces all chrome).
+  // - `--quiet` implies `--no-banner` (banner is chrome).
+  // - `--no-banner` alone keeps spinner/success-box output.
+  // Reset state explicitly each call so flags from a previous invocation
+  // never leak into the current one (matters under vitest where the module
+  // is shared across tests in the same process).
+  const jsonMode = opts.json === true;
+  const quietMode = jsonMode || opts.quiet === true;
+  const skipBanner = quietMode || opts.noBanner === true;
+  setJson(jsonMode);
+  setQuiet(quietMode);
+  if (!skipBanner) {
+    printBanner();
+  }
 
   // C8-D1-M4: Validate `--preset`, `--project-type`, and `--team-size` flag
   // values eagerly, before any prompt or detection work runs. Previously
@@ -727,7 +864,7 @@ export async function initCommand(
   // and still prompted the user. Per CLI Guidelines fail-fast validation,
   // invalid values abort with exit 1 before any side-effect.
   if (opts.preset !== undefined) {
-    validateFlag(opts.preset, ["minimal", "standard", "full", "custom"], "full", "preset");
+    validateFlag(opts.preset, ["minimal", "standard", "full", "custom"], "standard", "preset");
   }
   if (opts.projectType !== undefined) {
     validateFlag(opts.projectType, ["greenfield", "brownfield"], "brownfield", "project-type");
@@ -810,7 +947,12 @@ export async function initCommand(
       if (invalid.length > 0) {
         logError(`Invalid tool(s): ${invalid.join(", ")}`);
         console.log(chalk.dim(`  Valid tools: ${[...VALID_TOOLS].join(", ")}`));
-        throw new HatchError(`Invalid tool(s): ${invalid.join(", ")}`, 1, "VALIDATION_ERROR");
+        throw new HatchError(
+          `Invalid tool(s): ${invalid.join(", ")}`,
+          1,
+          "VALIDATION_ERROR",
+          `Re-run with --tools set to one or more of: ${[...VALID_TOOLS].join(", ")}.`,
+        );
       }
       tools = rawTools as Tool[];
     } else if (repoInfo.existingTools.length > 0) {
@@ -855,7 +997,7 @@ export async function initCommand(
       repoInfo.languages[0] === "unknown" &&
       repoInfo.existingTools.length === 0 &&
       !repoInfo.hasExistingAgents;
-    const presetId = validateFlag(opts.preset, ["minimal", "standard", "full"], "full", "preset");
+    const presetId = validateFlag(opts.preset, ["minimal", "standard", "full"], "standard", "preset");
     const projectType = validateFlag(opts.projectType, ["greenfield", "brownfield"], isGreenfield ? "greenfield" : "brownfield", "project-type");
     const teamSize = validateFlag(opts.teamSize, ["solo", "team"], "solo", "team-size");
     const preset = getPreset(presetId);
@@ -1007,7 +1149,7 @@ export async function initCommand(
           value: p.id,
         };
       }),
-      default: "full" as PresetId,
+      default: "standard" as PresetId,
     },
   ]);
   const selectedPreset = getPreset(presetAnswer.preset);
@@ -1051,9 +1193,27 @@ export async function initCommand(
   ]);
   const tools = toolAnswers.tools.length > 0 ? toolAnswers.tools : DEFAULT_TOOLS;
 
+  // C9-H32 (D10-SA10.5-F2): Surface MCP secret-loading divergence at
+  // tool-selection time — before commit — so a user picking Claude alongside
+  // auto-loaders (Cursor / Copilot / Windsurf) sees the divergent shell-source
+  // requirement immediately, not after manifest write. Previously these notes
+  // surfaced inside the MCP block right before runInit, which is post-commit
+  // from the user's mental model (no remaining decision point to act on).
+  const secretNotes = tools.map((t) => TOOL_SECRET_NOTES[t]).filter(Boolean);
+  if (secretNotes.length > 0) {
+    info(chalk.dim("MCP secret loading by tool:"));
+    for (const note of secretNotes) {
+      info(chalk.dim(`  ${note}`));
+    }
+  }
+
   // Worktree file isolation: mirrors config.ts prompt. Honor explicit
   // --worktree/--no-worktree flag. Else prompt when a worktree-capable tool
-  // is selected, else disable. Prompt order: tools -> worktree -> CLI tools -> features -> MCP.
+  // is selected, else disable. C9-H28 (D10-SA10.3-F1) prompt order:
+  // tools -> worktree -> features -> MCP -> CLI tools. Features and MCP
+  // (which drive the larger first-run choices: agents/skills/rules/etc. and
+  // the env-secret commitment) now precede the CLI-tools picker so the user
+  // makes the high-impact decisions first.
   const hasWorktreeTool = tools.some(t => WORKTREE_CAPABLE_TOOLS.has(t));
   let worktreeEnabled: boolean;
   if (opts.worktree !== undefined) {
@@ -1070,9 +1230,44 @@ export async function initCommand(
     worktreeEnabled = false;
   }
 
+  // C9-H28 (D10-SA10.3-F1): Features prompt moved BEFORE CLI tools so the
+  // core selection (agents/skills/rules/MCP) is made before the longer
+  // CLI-tooling picker. Previously CLI tools intervened between worktree
+  // and features, lengthening time-to-features-decision.
+  const featureAnswers = await inquirer.prompt<{ features: (keyof Features)[] }>([
+    {
+      type: "checkbox",
+      name: "features",
+      message: "Select features (MCP provides tool-server integration):",
+      choices: FEATURE_CHOICES,
+      default: DEFAULT_FEATURE_KEYS,
+      ...(wslTheme && { theme: wslTheme }),
+    },
+  ]);
+  const selectedFeatures = featureAnswers.features;
+  const features = { ...DEFAULT_FEATURES };
+  for (const k of Object.keys(features) as (keyof Features)[]) {
+    features[k] = selectedFeatures.includes(k);
+  }
+
+  // CLI-tooling pivot (plan §4.3 step 8): MCP is now behind a Yes/No
+  // gate that defaults to No. Users opt in explicitly and only then see
+  // the server picker. `hatch3r mcp setup` exists as a side-door for
+  // users who skipped here and changed their mind later. C9-H28: paired
+  // with features above and placed BEFORE CLI tools.
+  let mcpServers: string[] = [];
+  if (features.mcp) {
+    const proceedMcp = await confirmMcpGate({ hasExisting: false, defaultYes: false });
+    if (proceedMcp) {
+      mcpServers = await pickMcpServers({ platform, wslTheme });
+    }
+  }
+
   // CLI-tooling pivot (plan §4.3 steps 2-5): pick CLI tools, run a
   // detection sweep, and surface install-pending commands for missing
   // binaries. The picker pre-checks tier-1 and project-triggered tier-2.
+  // C9-H28 (D10-SA10.3-F1): moved AFTER features + MCP so the high-impact
+  // core decisions complete before the broader CLI-tooling roster prompt.
   const tier2Suggested = Array.from(new Set([
     ...evaluateTier2Triggers(repoInfo),
     ...applyPlatformTriggers(platform, []),
@@ -1110,43 +1305,6 @@ export async function initCommand(
     enabled: selectedCliTools.length > 0,
     selected: selectedCliTools,
   };
-
-  // #143 (D19-14): Streamline MCP onboarding — surface secret notes inline
-  const secretNotes = tools.map((t) => TOOL_SECRET_NOTES[t]).filter(Boolean);
-  if (secretNotes.length > 0) {
-    info(chalk.dim("MCP secret loading by tool:"));
-    for (const note of secretNotes) {
-      info(chalk.dim(`  ${note}`));
-    }
-  }
-
-  const featureAnswers = await inquirer.prompt<{ features: (keyof Features)[] }>([
-    {
-      type: "checkbox",
-      name: "features",
-      message: "Select features (MCP provides tool-server integration):",
-      choices: FEATURE_CHOICES,
-      default: DEFAULT_FEATURE_KEYS,
-      ...(wslTheme && { theme: wslTheme }),
-    },
-  ]);
-  const selectedFeatures = featureAnswers.features;
-  const features = { ...DEFAULT_FEATURES };
-  for (const k of Object.keys(features) as (keyof Features)[]) {
-    features[k] = selectedFeatures.includes(k);
-  }
-
-  // CLI-tooling pivot (plan §4.3 step 8): MCP is now behind a Yes/No
-  // gate that defaults to No. Users opt in explicitly and only then see
-  // the server picker. `hatch3r mcp setup` exists as a side-door for
-  // users who skipped here and changed their mind later.
-  let mcpServers: string[] = [];
-  if (features.mcp) {
-    const proceedMcp = await confirmMcpGate({ hasExisting: false, defaultYes: false });
-    if (proceedMcp) {
-      mcpServers = await pickMcpServers({ platform, wslTheme });
-    }
-  }
 
   // --- Resolve content selection ---
   const contentSelection = resolveSelection(selectedPreset, projectType, teamSize, filterIndex, customSelections, projectLanguages);
@@ -1199,7 +1357,7 @@ async function runWorkspaceInit(
         })();
     const index = await buildContentIndex(CONTENT_ROOT);
     const projectLanguages = languagesForSelection(repoInfo);
-    const contentSelection = resolveSelection(getPreset("full"), "brownfield", "solo", index, undefined, projectLanguages);
+    const contentSelection = resolveSelection(getPreset("standard"), "brownfield", "solo", index, undefined, projectLanguages);
     const wsManifest = createWorkspaceManifest(
       basename(rootDir) || "workspace",
       { platform, tools, features, mcp: { servers: mcpServers }, cliTools: cliToolsBase, content: contentSelection },
@@ -1217,20 +1375,24 @@ async function runWorkspaceInit(
 
   wsSpinner.succeed(`Workspace: ${detectedRepos.length} repo(s) detected`);
 
-  // Step 2: Display detected repos with git identity
-  console.log();
-  console.log(chalk.dim("  Repo            Platform      Owner/Repo                      Branch"));
-  for (const r of enriched) {
-    const name = (r.name ?? r.path).padEnd(16);
-    if (r.owner && r.repo) {
-      const platLabel = PLATFORM_DISPLAY_NAMES[r.platform].padEnd(14);
-      const identity = `${r.owner}/${r.repo}`.padEnd(32);
-      console.log(`  ${name}${chalk.dim(platLabel)}${chalk.dim(identity)}${chalk.dim(r.defaultBranch)}`);
-    } else {
-      console.log(`  ${name}${chalk.dim("(no remote detected)")}`);
+  // Step 2: Display detected repos with git identity. C9-H26: skip the
+  // table render under quiet/json — the JSON success payload already lists
+  // the repos under `repos`.
+  if (!isQuiet()) {
+    console.log();
+    console.log(chalk.dim("  Repo            Platform      Owner/Repo                      Branch"));
+    for (const r of enriched) {
+      const name = (r.name ?? r.path).padEnd(16);
+      if (r.owner && r.repo) {
+        const platLabel = PLATFORM_DISPLAY_NAMES[r.platform].padEnd(14);
+        const identity = `${r.owner}/${r.repo}`.padEnd(32);
+        console.log(`  ${name}${chalk.dim(platLabel)}${chalk.dim(identity)}${chalk.dim(r.defaultBranch)}`);
+      } else {
+        console.log(`  ${name}${chalk.dim("(no remote detected)")}`);
+      }
     }
+    console.log();
   }
-  console.log();
 
   // Step 3: Interactive — confirm/edit repo identities
   if (!headless) {
@@ -1311,7 +1473,7 @@ async function runWorkspaceInit(
       repoInfo.languages[0] === "unknown" &&
       repoInfo.existingTools.length === 0 &&
       !repoInfo.hasExistingAgents;
-    const presetId = validateFlag(opts.preset, ["minimal", "standard", "full"], "full", "preset");
+    const presetId = validateFlag(opts.preset, ["minimal", "standard", "full"], "standard", "preset");
     const projectType = validateFlag(opts.projectType, ["greenfield", "brownfield"], isGreenfield ? "greenfield" : "brownfield", "project-type");
     const teamSize = validateFlag(opts.teamSize, ["solo", "team"], "solo", "team-size");
     const preset = getPreset(presetId);
@@ -1378,7 +1540,7 @@ async function runWorkspaceInit(
             value: p.id,
           };
         }),
-        default: "full" as PresetId,
+        default: "standard" as PresetId,
       },
     ]);
     const selectedPreset = getPreset(presetAnswer.preset);
@@ -1417,9 +1579,21 @@ async function runWorkspaceInit(
     ]);
     tools = toolAnswers.tools.length > 0 ? toolAnswers.tools : DEFAULT_TOOLS;
 
+    // C9-H32 (D10-SA10.5-F2): Surface per-editor MCP secret-loading
+    // divergence at tool-selection time — before commit — matching the
+    // single-repo flow. Workspace parity prevents user surprise.
+    const wsSecretNotes = tools.map((t) => TOOL_SECRET_NOTES[t]).filter(Boolean);
+    if (wsSecretNotes.length > 0) {
+      info(chalk.dim("MCP secret loading by tool:"));
+      for (const note of wsSecretNotes) {
+        info(chalk.dim(`  ${note}`));
+      }
+    }
+
     // Worktree file isolation: mirrors config.ts prompt. Honor explicit
     // --worktree/--no-worktree flag. Else prompt when a worktree-capable tool
-    // is selected, else disable.
+    // is selected, else disable. C9-H28 (D10-SA10.3-F1) workspace parity:
+    // features + MCP now precede CLI tools (see single-repo flow).
     const wsHasWorktreeTool = tools.some(t => WORKTREE_CAPABLE_TOOLS.has(t));
     if (opts.worktree !== undefined) {
       worktreeEnabled = opts.worktree;
@@ -1435,9 +1609,40 @@ async function runWorkspaceInit(
       worktreeEnabled = false;
     }
 
+    // C9-H28 (D10-SA10.3-F1): Features prompt moved BEFORE CLI tools in
+    // workspace flow to match the single-repo flow.
+    const featureAnswers = await inquirer.prompt<{ features: (keyof Features)[] }>([
+      {
+        type: "checkbox",
+        name: "features",
+        message: "Select features:",
+        choices: FEATURE_CHOICES,
+        default: DEFAULT_FEATURE_KEYS,
+        ...(wslTheme && { theme: wslTheme }),
+      },
+    ]);
+    const selectedFeatures = featureAnswers.features;
+    features = { ...DEFAULT_FEATURES };
+    for (const k of Object.keys(features) as (keyof Features)[]) {
+      features[k] = selectedFeatures.includes(k);
+    }
+
+    // CLI-tooling pivot: MCP picker is behind a Yes/No gate (plan §4.3
+    // step 8 / §4.4). Default No on first init, Yes on re-run with
+    // existing servers (workspace root has no manifest, so default No).
+    // C9-H28: paired with features, BEFORE CLI tools.
+    mcpServers = [];
+    if (features.mcp) {
+      const wsProceedMcp = await confirmMcpGate({ hasExisting: false, defaultYes: false });
+      if (wsProceedMcp) {
+        mcpServers = await pickMcpServers({ platform, wslTheme });
+      }
+    }
+
     // CLI-tooling pivot (plan §4.3 + §4.8 workspace parity): pick CLI
     // tools at workspace creation so the workspace defaults carry a
-    // baseline tier-1 selection to all members.
+    // baseline tier-1 selection to all members. C9-H28: moved AFTER
+    // features + MCP to match the single-repo flow.
     const wsTier2Suggested = Array.from(new Set([
       ...evaluateTier2Triggers(repoInfo),
       ...applyPlatformTriggers(platform, []),
@@ -1461,42 +1666,6 @@ async function runWorkspaceInit(
       enabled: wsSelectedCliTools.length > 0,
       selected: wsSelectedCliTools,
     };
-
-    // Surface per-editor secret loading notes
-    const wsSecretNotes = tools.map((t) => TOOL_SECRET_NOTES[t]).filter(Boolean);
-    if (wsSecretNotes.length > 0) {
-      info(chalk.dim("MCP secret loading by tool:"));
-      for (const note of wsSecretNotes) {
-        info(chalk.dim(`  ${note}`));
-      }
-    }
-
-    const featureAnswers = await inquirer.prompt<{ features: (keyof Features)[] }>([
-      {
-        type: "checkbox",
-        name: "features",
-        message: "Select features:",
-        choices: FEATURE_CHOICES,
-        default: DEFAULT_FEATURE_KEYS,
-        ...(wslTheme && { theme: wslTheme }),
-      },
-    ]);
-    const selectedFeatures = featureAnswers.features;
-    features = { ...DEFAULT_FEATURES };
-    for (const k of Object.keys(features) as (keyof Features)[]) {
-      features[k] = selectedFeatures.includes(k);
-    }
-
-    // CLI-tooling pivot: MCP picker is behind a Yes/No gate (plan §4.3
-    // step 8 / §4.4). Default No on first init, Yes on re-run with
-    // existing servers (workspace root has no manifest, so default No).
-    mcpServers = [];
-    if (features.mcp) {
-      const wsProceedMcp = await confirmMcpGate({ hasExisting: false, defaultYes: false });
-      if (wsProceedMcp) {
-        mcpServers = await pickMcpServers({ platform, wslTheme });
-      }
-    }
 
     contentSelection = resolveSelection(selectedPreset, projectType, teamSize, wsFilterIndex, customSelections, projectLanguages);
   }
@@ -1636,7 +1805,43 @@ async function runWorkspaceInit(
     }
   }
 
-  console.log();
+  // C9-H26 (D10-SA10.2-F1): json/quiet aware workspace summary. Skip the
+  // decorated box (printBox is already a no-op under quiet) and emit a
+  // JSON line that lists every repo and the sync count.
+  if (isJson()) {
+    const payload = {
+      status: "ok" as const,
+      version: HATCH3R_VERSION,
+      mode: "workspace" as const,
+      rootDir,
+      platform,
+      tools,
+      mcpServers,
+      cliTools: wsCliTools.selected,
+      preset: contentSelection.preset,
+      projectType: contentSelection.projectType,
+      teamSize: contentSelection.teamSize,
+      contentItemCount: countSelectionItems(contentSelection),
+      repos: repoEntries.map((r) => ({
+        path: r.path,
+        name: r.name,
+        sync: r.sync,
+        owner: r.owner ?? null,
+        repo: r.repo ?? null,
+        defaultBranch: r.defaultBranch ?? null,
+        platform: r.platform ?? null,
+      })),
+      syncCount,
+      worktreeEnabled,
+      manifestPath: `${AGENTS_DIR}/workspace.json`,
+    };
+    console.log(JSON.stringify(payload));
+    return;
+  }
+
+  if (!isQuiet()) {
+    console.log();
+  }
   const wsLines = [
     label("Mode", "workspace"),
     label("Repos", `${repoEntries.length} registered, ${syncCount} synced`),
@@ -1645,7 +1850,7 @@ async function runWorkspaceInit(
   ];
   printBox("Workspace ready", wsLines, "success");
 
-  if (wsCliTools.selected.length > 0) {
+  if (wsCliTools.selected.length > 0 && !isQuiet()) {
     const finalMissing = await findMissingCliTools(wsCliTools.selected);
     printMissingCliToolsDisclaimer(finalMissing, wsCliTools.selected.length);
   }
@@ -1658,7 +1863,12 @@ function resolveToolsFromOpts(toolsFlag: string | undefined, repoInfo: RepoInfo)
     if (invalid.length > 0) {
       logError(`Invalid tool(s): ${invalid.join(", ")}`);
       console.log(chalk.dim(`  Valid tools: ${[...VALID_TOOLS].join(", ")}`));
-      throw new HatchError(`Invalid tool(s): ${invalid.join(", ")}`, 1);
+      throw new HatchError(
+        `Invalid tool(s): ${invalid.join(", ")}`,
+        1,
+        "VALIDATION_ERROR",
+        `Re-run with --tools set to one or more of: ${[...VALID_TOOLS].join(", ")}.`,
+      );
     }
     return rawTools as Tool[];
   }
@@ -1692,7 +1902,12 @@ function resolveCliToolsFlag(
   if (invalid.length > 0) {
     logError(`Invalid CLI tool(s): ${invalid.join(", ")}`);
     console.log(chalk.dim(`  Valid ids: ${[...valid].join(", ")}`));
-    throw new HatchError(`Invalid CLI tool(s): ${invalid.join(", ")}`, 1, "VALIDATION_ERROR");
+    throw new HatchError(
+      `Invalid CLI tool(s): ${invalid.join(", ")}`,
+      1,
+      "VALIDATION_ERROR",
+      "Re-run with --cli-tools=tier1, --cli-tools=all, or a comma-separated subset of valid ids (run `hatch3r cli-tools list` to see them).",
+    );
   }
   return rawIds;
 }

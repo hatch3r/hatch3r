@@ -60,10 +60,11 @@ describe("ClaudeAdapter hooks integration", () => {
     const settings = outputs.find((o) => o.path === ".claude/settings.json");
     const parsed = JSON.parse(settings!.content);
     expect(parsed.hooks).toBeDefined();
-    expect(parsed.hooks.PreToolUse).toBeUndefined();
     expect(parsed.hooks.SessionStart).toBeUndefined();
     expect(parsed.hooks.TaskCompleted).toBeDefined();
     expect(parsed.hooks.TeammateIdle).toBeDefined();
+    expect(parsed.hooks.PreToolUse).toBeDefined();
+    expect(parsed.hooks.PreToolUse[0].hooks[0].command).toContain("pretooluse-allowlist");
   });
 });
 

@@ -56,7 +56,7 @@ SQL-style join on `id` between two CSVs, streamed.
 ## Wrong Choice When
 
 - **Multi-gigabyte analytical queries with joins:** `hatch3r-cli-duckdb` (tier 2) has a query planner and parallel scan; mlr is streaming-single-thread.
-- **One-column slice or count:** `hatch3r-cli-xsv` (tier 2) is faster for trivial slicing.
+- **One-column slice or count:** `hatch3r-cli-qsv` (tier 2) is faster for trivial slicing.
 - **Production ETL with schema enforcement:** use a real database or dbt — mlr is a CLI-scratchpad tool.
 
 ## Alternatives
@@ -64,7 +64,7 @@ SQL-style join on `id` between two CSVs, streamed.
 | Tool | When to prefer |
 |------|----------------|
 | `hatch3r-cli-duckdb` (tier 2) | Multi-GB data, joins, analytical SQL, Parquet |
-| `hatch3r-cli-xsv` (tier 2) | Single-column slice, count, sample on plain CSV |
+| `hatch3r-cli-qsv` (tier 2) | Single-column slice, count, sample on plain CSV |
 | `hatch3r-cli-csvkit` (tier 3) | SQL-over-CSV with `csvsql`, Python integration |
 
 ## Detection / Install

@@ -57,14 +57,14 @@ Run SQL directly against a CSV using an in-memory SQLite — no schema file requ
 
 - **Files larger than ~1M rows:** csvkit is Python-startup-heavy; `hatch3r-cli-duckdb` (tier 2) loads and queries the same file in a fraction of the time.
 - **Production SQL workloads:** csvsql is convenient but evaluates against in-memory SQLite — use a real database for anything served.
-- **Single-column slice or count under a few hundred MB:** `hatch3r-cli-xsv` (tier 2) is faster with lower memory pressure.
+- **Single-column slice or count under a few hundred MB:** `hatch3r-cli-qsv` (tier 2) is faster with lower memory pressure.
 
 ## Alternatives
 
 | Tool | When to prefer |
 |------|----------------|
 | `hatch3r-cli-duckdb` (tier 2) | Large files, analytical SQL, Parquet, multi-file joins |
-| `hatch3r-cli-xsv` (tier 2) | Fast column slicing, sampling, deduping |
+| `hatch3r-cli-qsv` (tier 2) | Fast column slicing, sampling, deduping |
 | `hatch3r-cli-miller` (tier 3) | Streaming put/filter DSL, format conversion |
 
 ## Detection / Install

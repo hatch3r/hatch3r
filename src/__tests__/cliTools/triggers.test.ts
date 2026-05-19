@@ -60,28 +60,28 @@ describe("evaluateTier2Triggers — web-project", () => {
 });
 
 describe("evaluateTier2Triggers — data-project", () => {
-  it("triggers duckdb and xsv for python projects", () => {
+  it("triggers duckdb and qsv for python projects", () => {
     const ids = evaluateTier2Triggers(makeRepoInfo({ languages: ["python"] }));
     expect(ids).toContain("duckdb");
-    expect(ids).toContain("xsv");
+    expect(ids).toContain("qsv");
   });
 
-  it("triggers duckdb and xsv for r projects", () => {
+  it("triggers duckdb and qsv for r projects", () => {
     const ids = evaluateTier2Triggers(makeRepoInfo({ languages: ["r"] }));
     expect(ids).toContain("duckdb");
-    expect(ids).toContain("xsv");
+    expect(ids).toContain("qsv");
   });
 
-  it("triggers duckdb and xsv for sql projects", () => {
+  it("triggers duckdb and qsv for sql projects", () => {
     const ids = evaluateTier2Triggers(makeRepoInfo({ languages: ["sql"] }));
     expect(ids).toContain("duckdb");
-    expect(ids).toContain("xsv");
+    expect(ids).toContain("qsv");
   });
 
   it("does not trigger data tools for typescript-only projects", () => {
     const ids = evaluateTier2Triggers(makeRepoInfo({ languages: ["typescript"] }));
     expect(ids).not.toContain("duckdb");
-    expect(ids).not.toContain("xsv");
+    expect(ids).not.toContain("qsv");
   });
 });
 

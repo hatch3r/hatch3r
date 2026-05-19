@@ -1,6 +1,8 @@
 ---
 name: h4tcher-docusaurus-generator
 description: Generate end-user documentation site using Docusaurus 3.x from the current project. Use this skill when the user asks to create documentation, generate docs, build a docs site, or set up Docusaurus for their project. Supports analyzing project structure, generating markdown docs, configuring Docusaurus, and creating user guides.
+effort: medium
+allowed-tools: Read Grep Glob Bash(*) Write Edit
 ---
 
 # Docusaurus Generator

@@ -31,6 +31,7 @@ export type Disposition =
   | "excluded"
   | "human_only"
   | "deferred"
+  | "deferred_cycle10"
   | "already_resolved"
   | "rollover"
   | "partially_promoted"
@@ -151,12 +152,13 @@ const TIER1_PATTERN_ENUM: ReadonlySet<string> = new Set([
   // Closed enum from AUDIT-EXECUTE.md §Tier Classification — Tier 1.
   // Kept here as the runtime authority. Update when AUDIT-EXECUTE.md
   // adds new mechanical fix-shapes via CL-3.
-  "anti-slop-substitution",
-  "frontmatter-field-stamp",
-  "broken-link-fix",
-  "trailing-whitespace",
-  "missing-pillar-tag",
-  "missing-last-updated",
+  "anti_slop_swap",
+  "currency_header_add",
+  "doc_count_update",
+  "frontmatter_field_add",
+  "typo_fix",
+  "version_bump",
+  "lint_disable_removal",
 ]);
 
 const VALID_DISPOSITIONS: ReadonlySet<string> = new Set([
@@ -164,6 +166,7 @@ const VALID_DISPOSITIONS: ReadonlySet<string> = new Set([
   "excluded",
   "human_only",
   "deferred",
+  "deferred_cycle10",
   "already_resolved",
   "rollover",
   "partially_promoted",

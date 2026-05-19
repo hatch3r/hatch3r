@@ -43,7 +43,7 @@ Identify the content type from user input:
 
 ## Step 4: Validate
 
-9. **Pillar alignment:** Document which pillar(s) this artifact serves (P1-P7)
+9. **Pillar alignment:** Document which pillar(s) this artifact serves (P1-P8)
 10. **Duplication check:** Search existing artifacts for overlapping scope:
     ```
     grep -r "similar-keyword" agents/ skills/ rules/ commands/ hooks/

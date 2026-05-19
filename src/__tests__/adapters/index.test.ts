@@ -19,7 +19,11 @@
 
 import { describe, it, expect } from "vitest";
 import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
+import { createManifest } from "../../manifest/hatchJson.js";
 import { HatchError, type HatchManifest, type Tool } from "../../types.js";
+import { resolveTestPath } from "../fixtures.js";
+
+const FIXTURES_DIR = resolveTestPath(import.meta.url, "../fixtures/agents");
 
 describe("getAdapter", () => {
   it("returns adapter for known tools", () => {
@@ -131,7 +135,8 @@ describe("getUnsupportedFeatureWarnings", () => {
 
   it("warns when commands are enabled but adapter lacks command support", () => {
     const manifest = makeManifest({ commands: true });
-    // amp does not support commands
+    // amp does not support commands — custom slash commands deprecated
+    // by Amp on 2026-01-29 (C9-H23 / D9-SA9.8.F1). Re-verified 2026-05-18.
     const warnings = getUnsupportedFeatureWarnings("amp", manifest);
     expect(warnings.some((w) => w.includes("commands"))).toBe(true);
   });
@@ -175,4 +180,89 @@ describe("getUnsupportedFeatureWarnings", () => {
     const warnings = getUnsupportedFeatureWarnings("zed", manifest);
     expect(warnings.some((w) => w.includes("skills"))).toBe(true);
   });
+});
+
+// ── C9-H39 (D11-SA11.1-01): sourceFiles provenance non-emptiness gate ──
+//
+// Every adapter that reads canonical content must populate `sourceFiles` on
+// at least one of its outputs so the per-output provenance manifest emitted
+// by `src/integrity/provenance.ts` can attribute generated artifacts back to
+// the canonical files that shaped them. Adapters that bypass
+// `BaseAdapter.readTrackedCanonicalFiles` (the wrapper that pushes into
+// `_trackedSourceFiles`) by calling `readCanonicalFiles` directly leave the
+// `sourceFiles` field unset and break the audit-trail contract.
+//
+// This test reads the shared canonical fixtures under
+// `src/__tests__/fixtures/agents` and runs every adapter's full generate()
+// pipeline. Each adapter must produce at least one output whose
+// `sourceFiles` array is non-empty.
+//
+// Excluded: `amp` reads MCP config only (no canonical content path) and
+// emits zero outputs against the fixture's empty mcp.servers list — it has
+// no canonical-content provenance to track.
+describe("adapter sourceFiles provenance (C9-H39)", () => {
+  // Adapters that consume canonical files (rules/agents/skills/commands/...).
+  // The provenance contract requires sourceFiles to be non-empty on at least
+  // one output. Run each adapter with full feature flags so the canonical
+  // read path is exercised.
+  const ADAPTERS_WITH_CANONICAL_READS: Tool[] = [
+    "cursor",
+    "claude",
+    "copilot",
+    "cline",
+    "windsurf",
+    "gemini",
+    "codex",
+    "opencode",
+    "kiro",
+    "goose",
+    "zed",
+    "aider",
+    "amazon-q",
+    "antigravity",
+  ];
+
+  // Adapters that do not consume canonical content at generate() time. `amp`
+  // emits only `.amp/settings.json` from MCP config; with no MCP entries it
+  // produces zero outputs and has no provenance to track.
+  const ADAPTERS_WITHOUT_CANONICAL_READS: Tool[] = ["amp"];
+
+  for (const tool of ADAPTERS_WITH_CANONICAL_READS) {
+    it(`adapter "${tool}" populates sourceFiles on at least one output`, async () => {
+      const adapter = getAdapter(tool);
+      const manifest = createManifest({ tools: [tool] });
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const outputsWithSourceFiles = outputs.filter(
+        (o) => Array.isArray(o.sourceFiles) && o.sourceFiles.length > 0,
+      );
+      expect(
+        outputsWithSourceFiles.length,
+        `${tool}: expected at least one output with non-empty sourceFiles. ` +
+          `Got ${outputs.length} outputs; none had sourceFiles populated. ` +
+          `This usually means the adapter calls readCanonicalFiles directly ` +
+          `instead of this.readTrackedCanonicalFiles.`,
+      ).toBeGreaterThan(0);
+      // Each populated sourceFiles entry must be an absolute path string
+      // (canonical file `sourcePath`s are absolute filesystem paths).
+      for (const out of outputsWithSourceFiles) {
+        for (const src of out.sourceFiles!) {
+          expect(typeof src).toBe("string");
+          expect(src.length).toBeGreaterThan(0);
+        }
+      }
+    });
+  }
+
+  for (const tool of ADAPTERS_WITHOUT_CANONICAL_READS) {
+    it(`adapter "${tool}" is documented as not reading canonical content`, async () => {
+      const adapter = getAdapter(tool);
+      const manifest = createManifest({ tools: [tool] });
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      // The fixture manifest has zero MCP servers, so amp produces zero
+      // outputs. If the adapter ever starts reading canonical content,
+      // move it to ADAPTERS_WITH_CANONICAL_READS and the assertion above
+      // will start applying.
+      expect(outputs.length).toBe(0);
+    });
+  }
 });

@@ -1,3 +1,5 @@
+// Last updated: 2026-05-19 (P3 platform-currency anchor; cursor.com/docs/agents
+// access dates inside this file remain authoritative for individual claims).
 import type {
   AdapterOutput,
   CanonicalFile,
@@ -5,11 +7,15 @@ import type {
 import { toPrefixedId } from "../types.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
-import { readCanonicalFiles, sortByPrecedence, precedenceRank } from "./canonical.js";
+import { sortByPrecedence, precedenceRank } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
 import { applyCustomization } from "./customization.js";
 import { transformEnvVarSyntax } from "./mcp-utils.js";
 import { toCursorReadonlyFrontmatter } from "../pipeline/adapterToolTranslator.js";
+import {
+  buildAgentToolPoliciesJson,
+  buildCursorAllowlistRule,
+} from "../pipeline/agentToolAllowlist.js";
 
 /**
  * The Cursor adapter generates .mdc files from .md canonical files by adding
@@ -45,7 +51,12 @@ export class CursorAdapter extends BaseAdapter {
     const results: AdapterOutput[] = [];
 
     if (ctx.features.rules) {
-      const rules = await readCanonicalFiles(ctx.agentsDir, "rules", this.warnings);
+      // C9-H39 (D11-SA11.1-01): use the BaseAdapter-tracked read wrapper so
+      // every canonical rule consumed here is recorded in
+      // `this._trackedSourceFiles` and surfaces on each output's
+      // `sourceFiles` field. Direct `readCanonicalFiles` calls bypass the
+      // provenance tracker introduced by C8-D12-M3.
+      const rules = await this.readTrackedCanonicalFiles(ctx.agentsDir, "rules");
       // Wave B3: precedence-ordered emission + NN- numeric filename prefix.
       // NN derives from precedenceRank(rule.precedence): critical=10, high=30,
       // normal=50, low=70. The prefix makes load order visible in the filesystem
@@ -53,9 +64,17 @@ export class CursorAdapter extends BaseAdapter {
       // precedence rules first.
       const sortedRules = sortByPrecedence(rules);
       for (const rule of sortedRules) {
-        const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);
+        // C9-H20 (D8-H8.3.1): cooperative abort between per-rule .mdc
+        // emissions so pipeline timeouts cancel without waiting for the
+        // remaining rules' customisation step to finish.
+        this.throwIfAborted(ctx);
+        const { content: rawContent, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);
         this.warnings.push(...warnings);
         if (skip) continue;
+        // C9-H47 (D14-SA14.4-H01): substitute detected toolchain tokens so
+        // canonical content carries `${HATCH3R:LINTER}` etc. and adapter
+        // output carries the resolved value.
+        const content = this.substituteDetectedRepoTokens(rawContent, ctx);
         const desc = overrides.description ?? rule.description;
         const ruleWithDesc = { ...rule, description: desc };
         const nn = precedenceRank(rule.precedence) / 10;
@@ -67,9 +86,13 @@ export class CursorAdapter extends BaseAdapter {
     if (ctx.features.agents) {
       const agents = await this.readUserFacingCanonicalFiles(ctx.agentsDir, "agents");
       for (const agent of agents) {
-        const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
+        // C9-H20 (D8-H8.3.1): cooperative abort between agent files.
+        this.throwIfAborted(ctx);
+        const { content: rawContent, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
         this.warnings.push(...warnings);
         if (skip) continue;
+        // C9-H47: substitute detected toolchain tokens in agent body.
+        const content = this.substituteDetectedRepoTokens(rawContent, ctx);
         const prefixedId = toPrefixedId(agent.id);
         const model = resolveAgentModel(agent.id, agent, ctx.manifest, overrides);
         const desc = overrides.description ?? agent.description;
@@ -118,6 +141,25 @@ export class CursorAdapter extends BaseAdapter {
       const body = `# Hook: ${hook.id}\n\n**Event:** ${hook.event}\n**Agent:** ${hook.agent}\n\n${hook.description}\n\nHATCH3R_HOOK_ACTIVATED: When this hook's event (${hook.event}) is triggered${globs.length > 0 ? ` for files matching ${globs.join(", ")}` : ""}, you MUST spawn the ${hook.agent} agent now. Read and follow the ${hook.agent} agent protocol in \`.agents/agents/${toPrefixedId(hook.agent)}.md\`.`;
       results.push(mdcOutput(`.cursor/rules/${toPrefixedId(`hook-${hook.id}`)}.mdc`, fm, body));
     }
+
+    // C9-H49 (D15-SA15.2, P6): emit the per-adapter MCP / tool gating
+    // artifacts. Cursor has no PreToolUse hook primitive
+    // (cursor.com/docs/agents accessed 2026-04-19), so enforcement is
+    // rule-delegated: an alwaysApply rule plus a machine-readable
+    // `agents-policy.json` document. Pairs with the `readonly: true`
+    // frontmatter primitive already emitted by
+    // `toCursorReadonlyFrontmatter` for agents whose policy lacks
+    // both `write` and `execute`.
+    const allowlistFm = `---\ndescription: Per-agent tool allowlist (ASI02). Enforced by the Cursor agent runtime — out-of-policy tool calls must be refused.\nalwaysApply: true\n---`;
+    results.push(mdcOutput(
+      ".cursor/rules/hatch3r-tool-allowlist.mdc",
+      allowlistFm,
+      buildCursorAllowlistRule(),
+    ));
+    results.push(output(
+      ".cursor/agents-policy.json",
+      buildAgentToolPoliciesJson(),
+    ));
 
     const bridgeFm = `---
 description: Bridge to canonical agent instructions and mandatory orchestration directives

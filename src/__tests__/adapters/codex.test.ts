@@ -374,4 +374,59 @@ Use a \\\\ backslash too.`,
     const configToml = outputs.find((o) => o.path === ".codex/config.toml")!;
     expect(configToml.content).not.toContain("[hooks.");
   });
+
+  // ── C9-H22 (D9-SA9.5.F1) — Codex 0.114 spawn_agent regression warning ──
+  // openai/codex#14579 documents that per-agent TOML files in `.codex/agents/`
+  // are not loaded by the live `spawn_agent` tool on Codex 0.114. The adapter
+  // emits a generation-time warning whenever agent features are enabled so
+  // operators see the regression note alongside the produced files.
+  describe("Codex 0.114 spawn_agent regression warning (C9-H22)", () => {
+    it("emits a spawn_agent regression warning when features.agents is true", async () => {
+      const freshAdapter = new CodexAdapter();
+      const manifest = makeManifest();
+      await freshAdapter.generate(FIXTURES_DIR, manifest);
+
+      const regressionWarnings = freshAdapter.warnings.filter((w) =>
+        w.includes("spawn_agent regression"),
+      );
+      expect(regressionWarnings.length).toBe(1);
+      const msg = regressionWarnings[0]!;
+      // Cite the upstream issue so operators can verify the source.
+      expect(msg).toContain("openai/codex#14579");
+      // Name the affected version so operators know when an upgrade clears it.
+      expect(msg).toContain("0.114");
+      // Surface the documented workaround (CLI -c overrides).
+      expect(msg).toContain("-c");
+      // The codex adapter tag keeps warnings filterable by source.
+      expect(msg).toMatch(/^\[codex\]/);
+    });
+
+    it("does not emit the spawn_agent warning when features.agents is false", async () => {
+      const freshAdapter = new CodexAdapter();
+      const manifest = makeManifest({ features: { agents: false } });
+      await freshAdapter.generate(FIXTURES_DIR, manifest);
+
+      const regressionWarnings = freshAdapter.warnings.filter((w) =>
+        w.includes("spawn_agent regression"),
+      );
+      // No per-agent TOML files are generated when agents are disabled, so
+      // the spawn_agent regression cannot affect this sync — suppress the
+      // warning to avoid alarm fatigue.
+      expect(regressionWarnings.length).toBe(0);
+    });
+
+    it("resets warnings between adapter.generate() invocations", async () => {
+      // BaseAdapter.generate clears `this.warnings` at the top, so repeated
+      // sync calls must not accumulate duplicate spawn_agent warnings.
+      const freshAdapter = new CodexAdapter();
+      const manifest = makeManifest();
+      await freshAdapter.generate(FIXTURES_DIR, manifest);
+      await freshAdapter.generate(FIXTURES_DIR, manifest);
+
+      const regressionWarnings = freshAdapter.warnings.filter((w) =>
+        w.includes("spawn_agent regression"),
+      );
+      expect(regressionWarnings.length).toBe(1);
+    });
+  });
 });

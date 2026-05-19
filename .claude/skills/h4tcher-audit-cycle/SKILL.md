@@ -16,7 +16,7 @@ Execute the full hatch3r audit cycle defined in `governance/AUDIT.md`.
    - Specific areas of concern to prioritize
    - Any domains to skip or deprioritize
 2. Read `governance/AUDIT.md` fully — this is the authoritative audit protocol
-3. Read `governance/CONSTITUTION.md` §2 for the 7 Binding Pillars
+3. Read `governance/CONSTITUTION.md` §2 for the 8 Binding Pillars
 
 ## Setup
 

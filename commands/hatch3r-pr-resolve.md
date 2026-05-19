@@ -10,7 +10,14 @@ efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
 parallel_tool_default: true
 triage_tiers: [1, 2, 3]
+sub_agents_spawned:
+  count: 9
+  rationale: Per-PR fanout — implementer, lint-fixer, test-writer (FIX NOW group, parallel), reviewer ↔ fixer review loop (max 3 iterations), then parallel Tier-3 final-quality specialists (security-auditor, docs-writer, a11y-auditor, perf-profiler) per the Tier-3 specialist mandate.
 ---
+
+## §0 Detect Ambiguity (P8 B1)
+
+Before any action, scan the user's request and provided context for unresolved questions in scope, acceptance criteria, irreversibility, or constraint conflicts (contradictory inputs, missing target, unknown convention). If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Acceptable to proceed without asking ONLY when scope is single-target, single-concern, and the brief alone is testable. Any residual ambiguity discovered mid-workflow invokes the same protocol.
 
 ## Agent Pipeline
 
@@ -113,7 +120,7 @@ run_cache:
   evaluation_results: [<evaluation>, ...]    # Step 4 output keyed by finding.comment_id
   triage_decisions: [<decision>, ...]        # Step 5 output (post-ASK)
   fix_results:
-    sub_agents_spawned: [<name>, ...]
+    fix_agents_invoked: [<name>, ...]        # runtime log of agents invoked (distinct from the P8 B2 frontmatter `sub_agents_spawned` emission, which is the static fan-out contract)
     files_changed: [<path>, ...]
     findings_addressed: [<comment_id>, ...]
     findings_blocked: [<comment_id>, ...]

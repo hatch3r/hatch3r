@@ -158,6 +158,46 @@ describe("phaseTimeout", () => {
       // The operation should be marked as timed out or the signal was aborted
       expect(result.phase).toBe("adapter");
     }, 15_000);
+
+    // ── C9-H20 (D8-H8.3.1): parentSignal threading ─────────────────
+    it("aborts the inner signal when an external parentSignal fires mid-execution", async () => {
+      const parent = new AbortController();
+      let innerSignal: AbortSignal | undefined;
+      const promise = executeWithPhaseTimeout(
+        "adapter",
+        async (signal) => {
+          innerSignal = signal;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          return "ok";
+        },
+        { timeoutMs: 30_000 },
+        parent.signal,
+      );
+      // Abort the parent before the task finishes.
+      setTimeout(() => parent.abort(new Error("parent-cancelled")), 10);
+      const result = await promise;
+      expect(innerSignal?.aborted).toBe(true);
+      // Phase still reports as "completed" because the task itself
+      // resolved with "ok" — but the inner signal was forwarded.
+      expect(result.phase).toBe("adapter");
+    });
+
+    it("propagates an already-aborted parentSignal to the inner signal immediately", async () => {
+      const parent = new AbortController();
+      parent.abort(new Error("pre-aborted"));
+      let observedAbortedOnEntry = false;
+      const result = await executeWithPhaseTimeout(
+        "adapter",
+        async (signal) => {
+          observedAbortedOnEntry = signal.aborted;
+          return "ran";
+        },
+        { timeoutMs: 30_000 },
+        parent.signal,
+      );
+      expect(observedAbortedOnEntry).toBe(true);
+      expect(result.phase).toBe("adapter");
+    });
   });
 
   describe("PhaseTimeoutError", () => {

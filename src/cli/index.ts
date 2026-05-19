@@ -61,6 +61,16 @@ try {
   await program.parseAsync();
 } catch (err) {
   if (err instanceof HatchError) {
+    // C9-H27 (D10-SA10.2-F2): surface the structured recoveryHint on stderr
+    // before exiting so the user sees an actionable next step. Skip on exit 0
+    // (clean user-initiated cancellation) — printing a recovery hint there
+    // would imply a failure happened. Diagnostics go to stderr per POSIX so
+    // they remain visible when stdout is piped (matches src/cli/shared/ui.ts
+    // error()/warn() conventions).
+    if (err.exitCode !== 0 && err.recoveryHint) {
+      console.error(`\nhatch3r: ${err.message}`);
+      console.error(`  Try: ${err.recoveryHint}`);
+    }
     process.exit(err.exitCode);
   }
   // D1-SA1.8.1: Classify ExitPromptError (SIGINT during inquirer prompt) and

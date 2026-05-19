@@ -9,6 +9,16 @@ import {
   type CatalogItem,
 } from "../../content/index.js";
 import { WORKFLOW_TAGS, DOMAIN_TAGS } from "../../content/tags.js";
+import { verbose } from "./ui.js";
+
+/**
+ * Record an agentsContent-probe failure: emit a verbose() line to stderr
+ * (visible only with --verbose). Per D8-H8.4.6 (C9-H19) Silent Failure Contract.
+ */
+function recordAgentsContentProbeFailure(operation: string, err: unknown): void {
+  const message = err instanceof Error ? err.message : String(err);
+  verbose(`agentsContent: ${operation} — ${message}`);
+}
 
 /**
  * Shared orchestration content inlined into adapter bridge files (CLAUDE.md, GEMINI.md,
@@ -658,7 +668,8 @@ async function readDirFiles(dir: string): Promise<DirFile[]> {
         content: await readFile(join(dir, name), "utf-8"),
       })),
     );
-  } catch {
+  } catch (err) {
+    recordAgentsContentProbeFailure(`readDirFiles(${dir}) → [] — directory missing`, err);
     return [];
   }
 }
@@ -705,12 +716,19 @@ async function readSkillDirs(dir: string): Promise<{ id: string; description: st
           description: metadata.description ?? "",
           checklist: extractSkillChecklist(content),
         });
-      } catch {
-        // skip
+      } catch (err) {
+        recordAgentsContentProbeFailure(
+          `readSkillDirs: readFile(${dir}/${entry.name}/SKILL.md) skipped`,
+          err,
+        );
       }
     }
     return skills.sort((a, b) => a.id.localeCompare(b.id));
-  } catch {
+  } catch (err) {
+    recordAgentsContentProbeFailure(
+      `readSkillDirs(${dir}) → [] — directory missing`,
+      err,
+    );
     return [];
   }
 }

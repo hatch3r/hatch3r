@@ -28,6 +28,7 @@ import {
   step,
   label,
   warn,
+  verbose,
 } from "../shared/ui.js";
 import { runRegenerate } from "./update.js";
 import { archiveToolOutputs, removeManagedFilesForPaths, type MigrationNotice } from "../../archive/index.js";
@@ -489,8 +490,9 @@ export async function configCommand(): Promise<void> {
             if (refs.includes(removedId)) {
               dependents.push(keepId);
             }
-          } catch {
-            // File not readable, skip
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            verbose(`config: dependency check readFile(${keepId}) skipped — ${message}`);
           }
         }
         if (dependents.length > 0) {

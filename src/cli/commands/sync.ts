@@ -45,7 +45,8 @@ import {
 } from "../../pipeline/pipelineTimeout.js";
 import { compactPhaseOutput } from "../../pipeline/phaseOutputSchema.js";
 import { retryWithBackoff } from "../../pipeline/retryWithBackoff.js";
-import { discoverUserContent } from "../../content/userContent.js";
+import { discoverUserContent, validateContentBody } from "../../content/userContent.js";
+import { scanOrphanFiles, formatOrphanScanDiagnostic } from "../../content/orphanScan.js";
 import {
   printBanner,
   createSpinner,
@@ -66,7 +67,9 @@ async function checkSpecFreshness(rootDir: string): Promise<void> {
   const specsDir = join(rootDir, "docs", "specs");
   try {
     await stat(specsDir);
-  } catch {
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    verbose(`sync: checkSpecFreshness skipped — no ${specsDir} (${message})`);
     return; // No specs directory — nothing to check
   }
 
@@ -82,7 +85,9 @@ async function checkSpecFreshness(rootDir: string): Promise<void> {
         oldestSpecMtime = fileStat.mtimeMs;
       }
     }
-  } catch {
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    verbose(`sync: checkSpecFreshness readdir/stat failed — ${message}`);
     return;
   }
 
@@ -102,8 +107,9 @@ async function checkSpecFreshness(rootDir: string): Promise<void> {
         );
       }
     }
-  } catch {
-    // git not available or no commits — skip
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    verbose(`sync: checkSpecFreshness git log failed — ${message}`);
   }
 }
 
@@ -129,13 +135,19 @@ async function appendFailure(agentsDir: string, phase: string, error: unknown, t
         await safeWriteFile(logPath, rotated + line);
         return;
       }
-    } catch {
-      // File does not exist yet — that is fine, appendFile will create it
+    } catch (err) {
+      // File does not exist yet — that is fine, appendFile will create it.
+      // Surface under --verbose so unexpected read failures stay observable.
+      const message = err instanceof Error ? err.message : String(err);
+      verbose(`sync: appendFailure read-before-rotate skipped — ${message}`);
     }
 
     await appendFile(logPath, line);
-  } catch {
-    // Failure logging must not break the sync command
+  } catch (err) {
+    // Failure logging must not break the sync command. Surface under --verbose
+    // so persistent write failures still get attention from operators.
+    const message = err instanceof Error ? err.message : String(err);
+    verbose(`sync: appendFailure suppressed — ${message}`);
   }
 }
 
@@ -145,7 +157,11 @@ async function appendFailure(agentsDir: string, phase: string, error: unknown, t
 async function readFileOrNull(filePath: string): Promise<string | null> {
   try {
     return await readFile(filePath, "utf-8");
-  } catch {
+  } catch (err) {
+    // Caller treats missing files as null; expose under --verbose to surface
+    // permission errors or other unexpected read failures.
+    const message = err instanceof Error ? err.message : String(err);
+    verbose(`sync: readFileOrNull(${filePath}) → null — ${message}`);
     return null;
   }
 }
@@ -159,6 +175,14 @@ export async function syncCommand(
     minimal?: boolean;
     verbose?: boolean;
     strictBudget?: boolean;
+    /**
+     * C9-M26 (D11-SA11.4-01): When true, the orphan-file scan unlinks every
+     * file it flags in `.agents/<canonical-subdir>/` that does not match the
+     * canonical-inventory naming convention. Default is informational
+     * reporting only (no removal). User-tier (`.agents/user/`) and
+     * project-only (`policy`, `learnings`) subtrees are never visited.
+     */
+    cleanOrphans?: boolean;
   } = {},
 ): Promise<void> {
   setVerbose(!!opts.verbose);
@@ -210,16 +234,53 @@ export async function syncCommand(
     verbose(`User content discovery skipped: ${err instanceof Error ? err.message : String(err)}`);
   }
 
+  // C9-H84 (D20-F20.2.2 cross-linked with D15-SA15.1-F04): pre-flight body
+  // scan of `.agents/user/` artifacts via validateContentBody. Stops a
+  // prompt-injected or tampered user artifact from being propagated into
+  // every adapter output. `--force` is required to override, mirroring the
+  // integrity-drift gate below.
+  try {
+    const bodyViolations = await validateContentBody(rootDir);
+    const bodyErrors = bodyViolations.filter((v) => v.severity === "error");
+    if (bodyErrors.length > 0) {
+      warn(`User-content pre-flight: ${bodyErrors.length} violation(s) detected`);
+      for (const v of bodyErrors) {
+        warn(`  ${v.relativePath}: ${v.message}`);
+      }
+      if (!opts.force) {
+        logError(
+          "Refusing to sync with denied patterns in user content. Edit the offending file(s), " +
+          "delete via `rm`, or re-run with --force to propagate the content as-is.",
+        );
+        throw new HatchError(
+          "User-content pre-flight scan failed (use --force to override)",
+          1,
+          "VALIDATION_ERROR",
+        );
+      }
+      warn("Continuing with --force: denied patterns in user content will be propagated.");
+      console.log();
+    }
+  } catch (err) {
+    if (err instanceof HatchError) throw err;
+    // Scan failure must not break sync; log via verbose so the diagnostic is
+    // available without polluting the default summary.
+    verbose(`User-content pre-flight scan skipped: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
   // C7-H5 (D15, OWASP ASI 2026): Preflight integrity check. If canonical
   // files have drifted (modified, missing, or tampered manifest) we refuse
   // the mutation operation unless the user explicitly opts in with --force.
   // This stops sync from amplifying unauthorized edits to every adapter
   // output silently.
-  const integrityResults = await verifyIntegrity(agentsDir);
-  const modified = integrityResults.filter((r) => r.status === "modified");
-  const missing = integrityResults.filter((r) => r.status === "missing");
-  const tampered = integrityResults.filter((r) => r.status === "tampered");
-  const driftDetected = modified.length > 0 || missing.length > 0 || tampered.length > 0;
+  // C9-M16: consume the discriminated-union return from `verifyIntegrity`.
+  // The `ok: false` branch already partitions the actionable drift rows by
+  // status, so no post-filter pass is needed.
+  const integrityVerification = await verifyIntegrity(agentsDir);
+  const modified = integrityVerification.ok ? [] : integrityVerification.errors.modified;
+  const missing = integrityVerification.ok ? [] : integrityVerification.errors.missing;
+  const tampered = integrityVerification.ok ? [] : integrityVerification.errors.tampered;
+  const driftDetected = !integrityVerification.ok;
   if (driftDetected) {
     warn("Integrity issues detected in canonical files:");
     for (const r of tampered) {
@@ -663,10 +724,32 @@ export async function syncCommand(
               warn(`Orphaned customization: .hatch3r/${dir}/${f} — content no longer in manifest. Consider removing it.`);
             }
           }
-        } catch {
-          // .hatch3r/{dir} does not exist — no customizations to check
+        } catch (err) {
+          // .hatch3r/{dir} does not exist — no customizations to check.
+          // Surface under --verbose to expose unexpected probe failures.
+          const message = err instanceof Error ? err.message : String(err);
+          verbose(`sync: orphan-customize scan readdir(.hatch3r/${dir}) skipped — ${message}`);
         }
       }
+    }
+
+    // C9-M26 (D11-SA11.4-01): Orphan-file scan across the canonical
+    // .agents/<canonical-subdir>/ subtree. Reports files that do not match
+    // the canonical-inventory naming convention (no `hatch3r-` prefix, not
+    // under a `hatch3r-*` parent, and not in ALWAYS_CANONICAL_BASENAMES).
+    // Walks only the nine canonical subdirs — never visits .agents/user/,
+    // .agents/policy/, .agents/learnings/ — so user-authored content is
+    // never flagged. Default emission is info(); --clean-orphans unlinks
+    // the offending files after a containment check.
+    try {
+      const orphanScan = await scanOrphanFiles(agentsDir, { cleanOrphans: !!opts.cleanOrphans });
+      const diag = formatOrphanScanDiagnostic(orphanScan, { cleanOrphans: !!opts.cleanOrphans });
+      if (diag) info(diag);
+    } catch (err) {
+      // Scan failure must not break sync. Surface via verbose so persistent
+      // failures still get attention from operators.
+      const message = err instanceof Error ? err.message : String(err);
+      verbose(`sync: orphan-file scan skipped — ${message}`);
     }
   }
 

@@ -52,7 +52,7 @@ Validate the governance system's internal consistency between audit cycles.
 
 ## Step 6: Pillar Coverage
 
-13. For each pillar (P1-P7), verify at least one governance file provides primary coverage
+13. For each pillar (P1-P8), verify at least one governance file provides primary coverage
 14. Cross-reference against CONSTITUTION.md §3 traceability matrix
 
 ## Report

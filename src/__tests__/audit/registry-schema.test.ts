@@ -195,7 +195,7 @@ describe("validateRegistry — invariants", () => {
   it("accepts tier=1 with a pattern from the closed enum", () => {
     const f = modernMinimal({
       execution_tier: 1,
-      tier1_pattern: "anti-slop-substitution",
+      tier1_pattern: "anti_slop_swap",
     });
     const drifts = validateRegistry(parseRegistry([f]));
     expect(

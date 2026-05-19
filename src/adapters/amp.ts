@@ -16,8 +16,15 @@ import { BaseAdapter, output, type AdapterContext } from "./base.js";
  *
  * Amp reads `AGENTS.md` natively at the project root — that file is
  * written once by `generateRootAgentsMd()` in init/update; the adapter
- * does not emit it. Amp also reads commands natively from
- * `.agents/commands/`.
+ * does not emit it.
+ *
+ * Commands: Amp deprecated custom slash commands on 2026-01-29 (see
+ * https://ampcode.com/news/slashing-custom-commands). The replacement is
+ * skills under `.agents/skills/`, which hatch3r already populates via
+ * `copyHatch3rFiles()`. `.agents/commands/` is no longer read by Amp;
+ * hatch3r's command artifacts in that directory are inert for Amp users
+ * but remain on disk for other adapters and direct user reference. This
+ * is why `ADAPTER_CAPABILITIES.amp.commands` is `false`.
  */
 export class AmpAdapter extends BaseAdapter {
   readonly name = "amp";

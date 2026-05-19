@@ -10,7 +10,15 @@ efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
 parallel_tool_default: true
 triage_tiers: [1, 2, 3]
+sub_agents_spawned:
+  count: 10
+  rationale: Full 4-phase delivery pipeline — researcher (Phase 1), implementer (one per independent module, Phase 3), reviewer ↔ fixer review loop (Phase 4a), then a parallel Phase-4b final-quality batch (test-writer, security-auditor, docs-writer, lint-fixer, a11y-auditor, perf-profiler) bounded by max_phase4_parallel.
 ---
+
+## §0 Detect Ambiguity (P8 B1)
+
+Before any action, scan the user's request and provided context for unresolved questions in scope, acceptance criteria, irreversibility, or constraint conflicts (contradictory inputs, missing target, unknown convention). If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Acceptable to proceed without asking ONLY when scope is single-target, single-concern, and the brief alone is testable. Any residual ambiguity discovered mid-workflow invokes the same protocol.
+
 # Development Workflow -- Guided Lifecycle for Structured Implementation
 
 Optional guided development lifecycle command that walks through structured phases — Analyze, Plan, Implement, Review — using hatch3r's existing agents and skills. Includes a Quick Mode that collapses phases for small tasks. Scale-adaptive: detects task complexity and recommends the appropriate mode. Works standalone or when invoked from `hatch3r-board-pickup`.
@@ -309,7 +317,7 @@ Each reviewer/fixer sub-agent prompt MUST include:
 
 #### 4b. Final Quality (Parallel Specialists)
 
-**ONLY after the review loop (4a) reports 0 Critical + 0 Warning findings**, spawn the remaining specialist sub-agents. Use the Task tool with `subagent_type: "generalPurpose"`. Launch as many independent sub-agents in parallel as the platform supports.
+**ONLY after the review loop (4a) reports 0 Critical + 0 Warning findings**, spawn the remaining specialist sub-agents. Use the Task tool with `subagent_type: "generalPurpose"`. Dispatch is bounded by `max_phase4_parallel` (default `3`, env-overridable via `HATCH3R_MAX_PHASE4_PARALLEL`, valid range 1-16) per `rules/hatch3r-agent-orchestration.md` Phase 4 — Final Quality. When the applicable specialists exceed the bound, batch by severity priority `CRITICAL → HIGH → MEDIUM → LOW`; each batch runs to completion before the next.
 
 **Always spawn (mandatory for every code change):**
 

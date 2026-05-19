@@ -45,6 +45,7 @@ import { basename, dirname, relative, resolve } from "node:path";
 import { HATCH3R_PREFIX } from "../types.js";
 import { extractCustomContent, hasManagedBlock } from "./managedBlocks.js";
 import { TOOL_PATH_PREFIXES } from "../archive/index.js";
+import { verbose } from "../cli/shared/ui.js";
 
 /**
  * Wave B3: Match the precedence-prefixed `NN-hatch3r-*` naming emitted by
@@ -173,7 +174,12 @@ async function fileIsUserWrapped(
     const userOutside = extractCustomContent(content).trim();
     return { wrapped: userOutside.length > 0 };
   } catch (err) {
-    return { wrapped: false, error: err instanceof Error ? err.message : String(err) };
+    // Caller (sweepOrphansForAdapter) surfaces wrapCheck.error as a "read-failed"
+    // diagnostic in the result list. Also emit under --verbose so operators see
+    // the underlying cause without grepping the structured result.
+    const message = err instanceof Error ? err.message : String(err);
+    verbose(`orphanCleanup: fileIsUserWrapped(${absPath}) read failed — ${message}`);
+    return { wrapped: false, error: message };
   }
 }
 

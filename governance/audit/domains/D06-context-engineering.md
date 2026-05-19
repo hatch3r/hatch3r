@@ -59,7 +59,7 @@
 ### 6.6 Cross-Adapter Efficiency Consistency
 - [ ] All 15 adapter outputs preserve static-first ordering after canonical-to-adapter transformation; no adapter rewrites the prompt frame to inject volatile metadata at the top
 - [ ] Provider-specific cache hints (Anthropic prompt caching, OpenAI Responses caching) are surfaced where supported but graceful when absent — model-agnostic claim
-- [ ] Adapter-specific frontmatter transforms preserve `triage_tiers`, `efficiency_tier`, `cache_friendly`, `parallel_tool_default`, and `efficiency_patterns` signals end-to-end
+- [ ] Governance-only: `triage_tiers`, `efficiency_tier`, `cache_friendly`, `parallel_tool_default`, and `efficiency_patterns` frontmatter fields remain declared on canonical artifacts (verified by `scripts/validate-efficiency-invariants.ts`). Adapter outputs are NOT required to echo these signals — they are advisory metadata for the audit layer, not adapter contract.
 - [ ] Cross-adapter parity check — same canonical artifact yields semantically equivalent efficiency-relevant prompt structure across all 15 adapters
 
 ## Universal Checklist

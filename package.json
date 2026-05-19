@@ -1,6 +1,6 @@
 {
   "name": "hatch3r",
-  "version": "1.7.5",
+  "version": "1.8.0",
   "description": "Battle-tested agentic coding setup framework. One command to hatch your agent stack -- agents, skills, rules, commands, and MCP for every major AI coding tool.",
   "type": "module",
   "exports": {
@@ -22,17 +22,19 @@
     "test:watch": "vitest",
     "inventory": "tsx scripts/inventory.ts",
     "inventory:check-docs": "tsx scripts/inventory.ts --check-docs",
-    "validate:rule-parity": "tsx scripts/validate-rule-parity.ts",
-    "validate:efficiency": "tsx scripts/validate-efficiency-invariants.ts",
+    "validate:rule-parity": "tsx scripts/validate-rule-parity.ts && tsx scripts/validate-rule-pillar-currency.ts",
+    "validate:efficiency": "tsx scripts/validate-efficiency-invariants.ts && tsx scripts/validate-bridge-budget.ts && tsx scripts/validate-fanout-emission.ts",
     "validate:cli-skills": "tsx scripts/validate-cli-skills.ts",
+    "validate:wiring": "tsx scripts/validate-wiring.ts",
     "generate:cli-skills": "tsx scripts/generate-cli-skills.ts",
-    "validate": "npm run validate:rule-parity && npm run validate:efficiency && npm run validate:cli-skills",
+    "validate": "npm run validate:rule-parity && npm run validate:efficiency && npm run validate:cli-skills && npm run validate:wiring",
     "audit:validate-registry": "tsx scripts/validate-finding-registry.ts",
     "audit:migrate": "tsx scripts/migrate-finding-registry.ts",
     "audit:archive": "tsx scripts/audit-archive.ts",
     "audit:find": "tsx scripts/audit-find.ts",
     "audit:reset": "tsx scripts/clean-audit-workspace.ts",
-    "lockfile:check": "lockfile-lint --path package-lock.json --type npm --allowed-hosts npm --validate-https"
+    "lockfile:check": "lockfile-lint --path package-lock.json --type npm --allowed-hosts npm --validate-https",
+    "mcp:cve-check": "tsx scripts/check-mcp-cves.ts"
   },
   "keywords": [
     "agents",
@@ -90,6 +92,7 @@
     "commander": "^14.0.3",
     "inquirer": "^13.3.2",
     "ora": "^9.3.0",
+    "p-limit": "^3.1.0",
     "proper-lockfile": "^4.1.2",
     "update-notifier": "^7.3.1",
     "yaml": "^2.8.3"

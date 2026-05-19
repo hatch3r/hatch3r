@@ -10,6 +10,7 @@ import { updateCommand } from "./commands/update.js";
 import { validateCommand } from "./commands/validate.js";
 import { verifyCommand } from "./commands/verify.js";
 import { statusCommand } from "./commands/status.js";
+import { explainCommand } from "./commands/explain.js";
 import {
   mcpSetupCommand,
   mcpListCommand,
@@ -64,7 +65,7 @@ export function createProgram(): Command {
     .option("--yes", "Skip interactive prompts, use defaults")
     .option("--quick", "Skip all prompts and use smart defaults (alias for --yes)")
     .option("--default", "Skip all prompts and use smart defaults (alias for --yes)")
-    .option("--preset <preset>", "Content preset: minimal, standard, full (default: full)")
+    .option("--preset <preset>", "Content preset: minimal, standard, full (default: standard)")
     .option("--project-type <type>", "Project type: greenfield, brownfield")
     .option("--team-size <size>", "Team size: solo, team")
     .option("--worktree", "Enable git worktree file isolation (overrides tool auto-detect)")
@@ -73,6 +74,9 @@ export function createProgram(): Command {
     .option("--cli-tools <ids>", "CLI tools to opt in on --yes: 'tier1', 'all', or comma-separated ids (default: tier-1 + triggered tier-2)")
     .option("--no-cli-tools", "Skip the CLI-tools opt-in on --yes")
     .option("--mcp", "Re-opt-in to MCP servers on --yes (MCP is now opt-in by default)")
+    .option("--quiet", "Suppress stdout chrome (banner, spinner, success box); stderr diagnostics still emit (C9-H26)")
+    .option("--json", "Emit a machine-readable JSON summary on stdout; implies --quiet (C9-H26)")
+    .option("--no-banner", "Skip the ASCII banner at startup (C9-H26)")
     .action(initCommand);
 
   program
@@ -84,6 +88,7 @@ export function createProgram(): Command {
     .option("--force", "Overwrite locally modified files in sub-repos")
     .option("--minimal", "Generate stripped-down output (no comments, minimal formatting) to reduce token usage")
     .option("--strict-budget", "Fail sync if any adapter's generated output exceeds its context budget (default: warn)")
+    .option("--clean-orphans", "Remove files in .agents/<canonical-subdir>/ that do not match canonical-inventory naming (no hatch3r- prefix). Default is informational only.")
     .option("--verbose", "Show detailed output for each file processed")
     .action(syncCommand);
 
@@ -102,6 +107,8 @@ export function createProgram(): Command {
     .option("--force", "Override the preflight integrity check and proceed despite drift")
     .option("--offline, --skip-fetch", "Skip the package fetch step; regenerate only from already-installed canonical content")
     .option("--dry-run", "Preview what would change (added/modified/unchanged per adapter) without writing files")
+    .option("--skip-audit-signatures", "EMERGENCY OVERRIDE: skip `npm audit signatures` verification on the freshly-fetched package. Default is to refuse update on signature failure.")
+    .option("--clean-orphans", "Remove files in .agents/<canonical-subdir>/ that do not match canonical-inventory naming (no hatch3r- prefix). Default is informational only.")
     .action(updateCommand);
 
   program
@@ -112,6 +119,10 @@ export function createProgram(): Command {
       "--format <format>",
       "Output format for CI consumers: human (default) or json",
       "human",
+    )
+    .option(
+      "--strict-content",
+      "Escalate content-body lint (anti-slop wordlist + missing pillar references) from warnings to errors",
     )
     .action(validateCommand);
 
@@ -215,6 +226,18 @@ export function createProgram(): Command {
     .command("detect")
     .description("Read-only detection report for the current CLI tool selection")
     .action(cliToolsDetectCommand);
+
+  // C9-H13: surface the triage-first cost model declared in canonical
+  // command frontmatter (triage_tiers + agentPipeline) so users can answer
+  // "what will this command cost at each tier?" without running it.
+  program
+    .command("explain")
+    .description("Explain the per-tier cost model of a hatch3r command (reads triage_tiers from frontmatter)")
+    .requiredOption("--cost <command-id>", "Command id to explain (e.g. hatch3r-quick-change, quick-change)")
+    .option("--input-rate <usd-per-1m>", "Override input rate in USD per 1M tokens")
+    .option("--output-rate <usd-per-1m>", "Override output rate in USD per 1M tokens")
+    .option("--verbose", "Show detailed output")
+    .action(explainCommand);
 
   // Catch-all for unknown commands -- redirect agent commands to the editor
   program.on("command:*", (operands: string[]) => {

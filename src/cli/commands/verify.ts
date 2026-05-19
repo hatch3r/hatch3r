@@ -44,6 +44,11 @@ export interface VerifyOptions {
  * Run a single integrity verification pass.
  * Returns true if integrity check passed, false if issues were found.
  * Throws HatchError only if manifest is missing or results are empty.
+ *
+ * C9-M16: Consumes the discriminated-union return shape from
+ * `verifyIntegrity` so the "no manifest" branch is distinct from the
+ * "manifest passed" branch at the type level. Counts are still emitted
+ * for `printSummary` and the verbose row print loop.
  */
 async function runVerifyPass(agentsDir: string): Promise<{
   passed: boolean;
@@ -51,11 +56,16 @@ async function runVerifyPass(agentsDir: string): Promise<{
   hasModifiedOrMissing: boolean;
   hasTampered: boolean;
 }> {
-  const results = await verifyIntegrity(agentsDir);
+  const verification = await verifyIntegrity(agentsDir);
 
-  if (results.length === 0) {
+  // C9-M16: no manifest on disk \u2192 ok=true with manifest=null and empty
+  // drift. Preserve the legacy "passed with zero counts" return so
+  // verifyCommand short-circuits the same way.
+  if (verification.ok && verification.manifest === null) {
     return { passed: true, counts: { pass: 0 }, hasModifiedOrMissing: false, hasTampered: false };
   }
+
+  const drift = verification.drift;
 
   const icons: Record<string, string> = {
     pass: chalk.green("\u2714"),
@@ -74,7 +84,7 @@ async function runVerifyPass(agentsDir: string): Promise<{
   };
 
   console.log();
-  for (const r of results) {
+  for (const r of drift) {
     const icon = icons[r.status] ?? " ";
     const lbl = labels[r.status] ?? r.status;
     console.log(`  ${icon} ${lbl.padEnd(18)} ${r.file}`);
@@ -82,13 +92,17 @@ async function runVerifyPass(agentsDir: string): Promise<{
   console.log();
 
   const counts: Record<string, number> = { pass: 0, modified: 0, missing: 0, new: 0, tampered: 0 };
-  for (const r of results) {
+  for (const r of drift) {
     counts[r.status] = (counts[r.status] ?? 0) + 1;
   }
 
-  const hasModifiedOrMissing = (counts.modified ?? 0) > 0 || (counts.missing ?? 0) > 0;
-  const hasTampered = (counts.tampered ?? 0) > 0;
-  const passed = !hasModifiedOrMissing && !hasTampered;
+  // C9-M16: derive the legacy boolean fields from the discriminated union
+  // directly. `verification.ok === true` \u21D2 no actionable drift (modified,
+  // missing, tampered); `new` rows are advisory and never flip `ok`.
+  const hasModifiedOrMissing = !verification.ok
+    && (verification.errors.modified.length > 0 || verification.errors.missing.length > 0);
+  const hasTampered = !verification.ok && verification.errors.tampered.length > 0;
+  const passed = verification.ok;
 
   return { passed, counts, hasModifiedOrMissing, hasTampered };
 }
