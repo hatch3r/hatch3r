@@ -88,11 +88,11 @@ vi.mock("../../content/index.js", () => ({
 vi.mock("../../content/presets.js", () => ({
   PRESETS: [
     { id: "minimal", name: "Minimal", description: "Core only", includeTags: ["core"], excludeTags: [] },
-    { id: "standard", name: "Standard", description: "Full dev lifecycle", includeTags: [], excludeTags: [] },
-    { id: "full", name: "Full (recommended)", description: "Everything", includeTags: [], excludeTags: [] },
+    { id: "standard", name: "Standard (recommended)", description: "Full dev lifecycle", includeTags: [], excludeTags: [] },
+    { id: "full", name: "Full", description: "Everything", includeTags: [], excludeTags: [] },
     { id: "custom", name: "Custom", description: "Choose exactly what you need", includeTags: [], excludeTags: [] },
   ],
-  getPreset: vi.fn().mockReturnValue({ id: "full", name: "Full (recommended)", description: "Everything", includeTags: [], excludeTags: [] }),
+  getPreset: vi.fn().mockReturnValue({ id: "standard", name: "Standard (recommended)", description: "Full dev lifecycle", includeTags: [], excludeTags: [] }),
 }));
 
 vi.mock("../../cli/shared/agentsContent.js", () => ({
@@ -141,6 +141,7 @@ vi.mock("../../cli/shared/ui.js", () => ({
   step: vi.fn(),
   label: vi.fn(),
   warn: vi.fn(),
+  verbose: vi.fn(),
 }));
 
 // Wave 5 CLI-tooling pivot: the cliTools section in configCommand calls
@@ -287,7 +288,7 @@ describe("config command", () => {
     it("should show error message about missing hatch.json", async () => {
       vi.mocked(readManifest).mockResolvedValue(null);
       const configCommand = await importConfigCommand();
-      try { await configCommand(); } catch { /* expected */ }
+      try { await configCommand(); } catch (err) { /* expected throw */ expect(err).toBeDefined(); }
 
       expect(vi.mocked(logError)).toHaveBeenCalledWith(expect.stringContaining("No .agents/hatch.json found"));
     });

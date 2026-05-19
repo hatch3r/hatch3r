@@ -2,7 +2,7 @@ import type { AdapterOutput } from "../types.js";
 import { toPrefixedId } from "../types.js";
 import { resolveAgentModel } from "../models/resolve.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
-import { readCanonicalFiles, sortByPrecedence } from "./canonical.js";
+import { sortByPrecedence } from "./canonical.js";
 import { applyCustomization } from "./customization.js";
 import { escapeTomlString, escapeTomlMultilineString, tomlKey } from "./toml-utils.js";
 import { transformEnvVarSyntax } from "./mcp-utils.js";
@@ -25,6 +25,20 @@ import { transformEnvVarSyntax } from "./mcp-utils.js";
 // AGENTS.md is absent. The `status` command surfaces a warning when a
 // project-level AGENTS.override.md exists, since that file silently overrides
 // hatch3r-managed AGENTS.md (P3, D9-SA9.5.1).
+//
+// C9-H22 (D9-SA9.5.F1, P3+P1): Codex CLI 0.114 has a documented regression
+// (openai/codex#14579 — closed): custom agent roles defined in a project-local
+// `.codex/config.toml` (and per the same loader path, files under
+// `.codex/agents/*.toml`) are not resolved by the live `spawn_agent` tool.
+// The same role works when injected via `-c` CLI overrides, so the failure is
+// in project-config loading rather than role syntax. Until OpenAI ships a fix
+// upstream, hatch3r's per-agent TOML files in `.codex/agents/` may not be
+// callable from `spawn_agent` in 0.114-series CLIs even though sync produces
+// them correctly. When `manifest.features.agents` is enabled, this adapter
+// emits a generation-time warning naming the regression and the workaround
+// (CLI `-c` overrides) so operators can audit before relying on multi-agent
+// orchestration. The `status` command surfaces the same note whenever codex
+// is among the configured adapters so the warning is visible outside sync.
 //
 // Per-agent (subagent) configurations are written as individual TOML files in
 // `.codex/agents/` per the Codex subagents schema
@@ -59,8 +73,12 @@ export class CodexAdapter extends BaseAdapter {
       // into .codex/config.toml appear in critical -> high -> normal -> low
       // order (id lexicographic tie-break) — matches the ordering used by
       // the other inline adapters that concatenate rule bodies.
+      // C9-H39 (D11-SA11.1-01): use the BaseAdapter-tracked read wrapper so
+      // every canonical rule consumed here is recorded in
+      // `this._trackedSourceFiles` and surfaces on each output's
+      // `sourceFiles` field.
       const rules = sortByPrecedence(
-        await readCanonicalFiles(ctx.agentsDir, "rules", this.warnings),
+        await this.readTrackedCanonicalFiles(ctx.agentsDir, "rules"),
       );
       const enabledRules = [];
       for (const rule of rules) {
@@ -80,11 +98,26 @@ export class CodexAdapter extends BaseAdapter {
     }
 
     if (ctx.features.agents) {
+      // C9-H22 (D9-SA9.5.F1): Warn that per-agent TOML files in `.codex/agents/`
+      // may not be loaded by Codex 0.114's `spawn_agent` tool due to
+      // openai/codex#14579. Emitted on every sync when agents are enabled so
+      // operators see the regression note alongside the generated files.
+      this.warnings.push(
+        "[codex] Codex CLI 0.114 has a spawn_agent regression (openai/codex#14579): " +
+          "custom agent roles defined in project-local .codex/ files are not loaded " +
+          "by spawn_agent. hatch3r generates per-agent TOML files in .codex/agents/ " +
+          "but they may not be callable from spawn_agent on Codex 0.114. Workaround: " +
+          "inject the same role via CLI overrides (codex exec -c 'agents.<id>.config_file=…'). " +
+          "Upgrade Codex when a fixed version ships, or use the `codex` adapter only for " +
+          "single-agent flows in the interim.",
+      );
       const agents = await this.readUserFacingCanonicalFiles(ctx.agentsDir, "agents");
       for (const agent of agents) {
-        const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
+        const { content: rawContent, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
         this.warnings.push(...warnings);
         if (skip) continue;
+        // C9-H47 (D14-SA14.4-H01): substitute detected toolchain tokens.
+        const content = this.substituteDetectedRepoTokens(rawContent, ctx);
         const agentId = toPrefixedId(agent.id);
         const model = resolveAgentModel(agent.id, agent, ctx.manifest, overrides);
         const desc = overrides.description ?? agent.description;

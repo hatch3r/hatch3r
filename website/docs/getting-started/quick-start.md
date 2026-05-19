@@ -34,7 +34,7 @@ Interactive flow (~2 minutes). hatch3r asks 9 questions, in this order:
 3. **Default branch** — used by board, PR, and release commands.
 4. **Project type** — `greenfield` (new) or `brownfield` (existing). Filters out content irrelevant to your situation.
 5. **Team size** — `solo` or `team`. Solo skips board-management content.
-6. **Content profile** — `minimal`, `standard`, `full` (recommended), or `custom`. See the [profile table](#content-profiles) below.
+6. **Content profile** — `minimal`, `standard` (recommended), `full`, or `custom`. See the [profile table](#content-profiles) below.
 7. **Tools** — multi-select from the 15 supported adapters.
 8. **Worktree isolation** — only asked if you selected a worktree-capable tool.
 9. **MCP servers** — multi-select from 10 servers (3 default, 7 opt-in). Platform-aware: the GitHub / ADO / GitLab MCP that matches your platform is pre-selected.
@@ -63,8 +63,8 @@ npx hatch3r init --yes --preset standard --tools claude --project-type brownfiel
 | Profile | What's included | Best for |
 |---------|----------------|----------|
 | **Minimal** | Core agents and core rules only (`core` tag) | Quick setup, minimal footprint |
-| **Standard** | Full development lifecycle without niche audits | Most projects |
-| **Full** (recommended) | Everything including board management and all audits | Large teams, full coverage |
+| **Standard** (recommended) | Full development lifecycle without niche audits | Most projects |
+| **Full** | Everything including board management and all audits | Large teams, full coverage |
 | **Custom** | Interactive picker per artifact type | Fine-grained control |
 
 The profile is combined with greenfield/brownfield and solo/team filters, so a `solo + greenfield + standard` install carries materially less content than `team + brownfield + full`.

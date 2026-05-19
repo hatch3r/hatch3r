@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -10,6 +10,7 @@ import {
   detectPlatformFromRemote,
   detectRepoGitIdentity,
 } from "../../workspace/git.js";
+import { setVerbose } from "../../cli/shared/ui.js";
 
 describe("workspace git detection", () => {
   let tempDir: string;
@@ -152,6 +153,121 @@ describe("workspace git detection", () => {
       expect(identity.owner).toBe("ops-team");
       expect(identity.repo).toBe("infra");
       expect(identity.platform).toBe("gitlab");
+    });
+  });
+
+  // C9-H18 (D8-H8.1.2): catch blocks must emit verbose() lines and append
+  // descriptive entries to the caller-supplied warnings accumulator. Silent
+  // fallbacks (`""`, `"main"`) hid workspace-identity-detection bugs.
+  describe("silent-failure surfacing (C9-H18)", () => {
+    let stderrSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      stderrSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      stderrSpy.mockRestore();
+      setVerbose(false);
+    });
+
+    it("parseGitRemote pushes a warning when git is not a repo", async () => {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-git-warn-remote-"));
+      const warnings: string[] = [];
+
+      const result = parseGitRemote(tempDir, warnings);
+
+      expect(result.owner).toBe("");
+      expect(result.repo).toBe("");
+      expect(warnings.length).toBeGreaterThan(0);
+      expect(warnings[0]).toMatch(/parseGitRemote/);
+    });
+
+    it("parseGitRemote emits verbose() line on failure when --verbose is enabled", async () => {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-git-verbose-remote-"));
+      setVerbose(true);
+
+      parseGitRemote(tempDir);
+
+      const stderrCalls = stderrSpy.mock.calls.map((c: unknown[]) => c.join(" "));
+      expect(stderrCalls.some((line: string) => /\[verbose\].*git: parseGitRemote/.test(line))).toBe(true);
+    });
+
+    it("parseGitRemote does not push to warnings when accumulator is omitted", async () => {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-git-nopush-remote-"));
+      // No warnings array passed — must not throw, must not crash.
+      expect(() => parseGitRemote(tempDir)).not.toThrow();
+    });
+
+    it("parseGitDefaultBranch pushes a warning when origin/HEAD is missing", async () => {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-git-warn-branch-"));
+      await createGitRepo(tempDir);
+      const warnings: string[] = [];
+
+      const result = parseGitDefaultBranch(tempDir, warnings);
+
+      expect(result).toBe("main");
+      expect(warnings.length).toBeGreaterThan(0);
+      expect(warnings.some((w) => /parseGitDefaultBranch|default-branch/.test(w))).toBe(true);
+    });
+
+    it("parseGitDefaultBranch emits verbose() line on failure when --verbose is enabled", async () => {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-git-verbose-branch-"));
+      setVerbose(true);
+
+      parseGitDefaultBranch(tempDir);
+
+      const stderrCalls = stderrSpy.mock.calls.map((c: unknown[]) => c.join(" "));
+      expect(stderrCalls.some((line: string) => /\[verbose\].*git: parseGitDefaultBranch/.test(line))).toBe(true);
+    });
+
+    it("getGitRemoteUrl pushes a warning when git is not a repo", async () => {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-git-warn-url-"));
+      const warnings: string[] = [];
+
+      const url = getGitRemoteUrl(tempDir, warnings);
+
+      expect(url).toBe("");
+      expect(warnings.length).toBeGreaterThan(0);
+      expect(warnings[0]).toMatch(/getGitRemoteUrl/);
+    });
+
+    it("getGitRemoteUrl emits verbose() line on failure when --verbose is enabled", async () => {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-git-verbose-url-"));
+      setVerbose(true);
+
+      getGitRemoteUrl(tempDir);
+
+      const stderrCalls = stderrSpy.mock.calls.map((c: unknown[]) => c.join(" "));
+      expect(stderrCalls.some((line: string) => /\[verbose\].*git: getGitRemoteUrl/.test(line))).toBe(true);
+    });
+
+    it("detectRepoGitIdentity threads warnings accumulator into all three helpers", async () => {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-git-warn-identity-"));
+      const warnings: string[] = [];
+
+      const identity = detectRepoGitIdentity(tempDir, warnings);
+
+      expect(identity.owner).toBe("");
+      expect(identity.repo).toBe("");
+      expect(identity.defaultBranch).toBe("main");
+      expect(identity.platform).toBe("github");
+      // At minimum getGitRemoteUrl + parseGitRemote + parseGitDefaultBranch
+      // should each push at least one entry on a fresh non-git directory.
+      expect(warnings.length).toBeGreaterThanOrEqual(3);
+      expect(warnings.some((w) => /getGitRemoteUrl/.test(w))).toBe(true);
+      expect(warnings.some((w) => /parseGitRemote/.test(w))).toBe(true);
+      expect(warnings.some((w) => /parseGitDefaultBranch|default-branch/.test(w))).toBe(true);
+    });
+
+    it("does not emit verbose() output when --verbose is off", async () => {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-git-verbose-off-"));
+      setVerbose(false);
+
+      parseGitRemote(tempDir);
+
+      const stderrCalls = stderrSpy.mock.calls.map((c: unknown[]) => c.join(" "));
+      expect(stderrCalls.some((line: string) => /\[verbose\]/.test(line))).toBe(false);
     });
   });
 });

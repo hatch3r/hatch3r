@@ -92,7 +92,7 @@ Run after authoring completes. Block commit on any failure.
 | Inventory regen | `npm run inventory` | diff matches new artifact set |
 | Inventory drift | `npm run inventory:check-docs` | 0 drift |
 | Anti-slop | `grep -nE "<wordlist>" <new-files>` | 0 hits |
-| Pillar Compliance Test | `.claude/rules/pillar-compliance.md` on each new file | Each file serves >=1 of P1-P7 |
+| Pillar Compliance Test | `.claude/rules/pillar-compliance.md` on each new file | Each file serves >=1 of P1-P8 |
 
 10. If canonical content was added under `agents/ skills/ rules/ commands/ hooks/ checks/ prompts/ github-agents/`, `git diff governance/inventory.json` must show the new artifact entry. Investigate any unexpected drift.
 

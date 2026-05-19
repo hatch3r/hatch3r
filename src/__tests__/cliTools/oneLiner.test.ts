@@ -22,11 +22,22 @@ describe("buildOneLiner", () => {
     expect(buildOneLiner(plan)).toBe(expected);
   });
 
-  it("linux ripgrep + sd + xsv groups apt and groups cargo (two prefix groups)", () => {
-    const plan = buildInstallPlan(["ripgrep", "sd", "xsv"], "linux");
+  it("linux ripgrep + sd groups apt + cargo (two prefix groups)", () => {
+    const plan = buildInstallPlan(["ripgrep", "sd"], "linux");
     const expected =
-      "sudo apt install ripgrep \\\n  && cargo install sd xsv";
+      "sudo apt install ripgrep \\\n  && cargo install sd";
     expect(buildOneLiner(plan)).toBe(expected);
+  });
+
+  it("linux qsv install (with flags) stays standalone — multi-token package args are not groupable", () => {
+    // qsv ships with `cargo install qsv --locked --features all_features`
+    // (the `--features all_features` flag is required to land the full
+    // 80+ command set). The grouping regex rejects multi-token tails, so
+    // qsv lands as a standalone chunk after any groupable cargo bucket.
+    const plan = buildInstallPlan(["sd", "qsv"], "linux");
+    const result = buildOneLiner(plan);
+    expect(result).toContain("cargo install sd");
+    expect(result).toContain("cargo install qsv --locked --features all_features");
   });
 
   it("windows ripgrep + gh: scoop grouped, winget kept standalone", () => {

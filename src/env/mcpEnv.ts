@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { AVAILABLE_MCP_SERVERS, ENV_VAR_HELP } from "../types.js";
 import { atomicWriteFile } from "../merge/safeWrite.js";
+import { verbose } from "../cli/shared/ui.js";
 
 export interface EnvVar {
   name: string;
@@ -130,8 +131,11 @@ export async function ensureGitignoreEntry(rootDir: string): Promise<void> {
   let content = "";
   try {
     content = await readFile(gitignorePath, "utf-8");
-  } catch {
-    // .gitignore doesn't exist yet — will be created below
+  } catch (err) {
+    // .gitignore doesn't exist yet — will be created below. Surface under
+    // --verbose so unexpected read failures (permission) stay observable.
+    const message = err instanceof Error ? err.message : String(err);
+    verbose(`mcpEnv: ensureGitignoreEntry readFile(${gitignorePath}) — will create — ${message}`);
   }
 
   const dominated = content

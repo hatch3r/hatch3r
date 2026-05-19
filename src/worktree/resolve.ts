@@ -4,7 +4,18 @@ import { join, resolve, dirname, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { randomBytes } from "node:crypto";
 import { HatchError } from "../types.js";
+import { verbose } from "../cli/shared/ui.js";
 import type { WorktreeListEntry, WorktreeStatus } from "./types.js";
+
+/**
+ * Record a worktree-probe failure on stderr under --verbose. Per D8-H8.4.6
+ * (C9-H19) Silent Failure Contract — soft probes that have no warnings channel
+ * still emit a diagnostic at this level.
+ */
+function recordWorktreeProbeFailure(operation: string, err: unknown): void {
+  const message = err instanceof Error ? err.message : String(err);
+  verbose(`worktree/resolve: ${operation} — ${message}`);
+}
 
 /**
  * Writes the given gitignore-style patterns to a temp file, then runs
@@ -41,8 +52,11 @@ export async function resolvePatterns(
   } finally {
     try {
       unlinkSync(tmpFile);
-    } catch {
-      // Temp file may already be gone
+    } catch (err) {
+      recordWorktreeProbeFailure(
+        `unlinkSync(${tmpFile}) — temp file may already be gone`,
+        err,
+      );
     }
   }
 }
@@ -56,7 +70,8 @@ export function isInsideWorktree(dir: string): boolean {
   try {
     const stat = statSync(join(dir, ".git"));
     return stat.isFile();
-  } catch {
+  } catch (err) {
+    recordWorktreeProbeFailure(`isInsideWorktree(${dir}) — no .git`, err);
     return false;
   }
 }
@@ -104,7 +119,14 @@ export function isGitIgnored(rootDir: string, filePath: string): boolean {
       stdio: "ignore",
     });
     return true;
-  } catch {
+  } catch (err) {
+    // `git check-ignore -q` exits non-zero when the path is NOT ignored, so a
+    // throw here is the normal "not ignored" signal. Surface under --verbose
+    // so unexpected errors (e.g., `git` missing from PATH) remain observable.
+    recordWorktreeProbeFailure(
+      `isGitIgnored(${filePath}) — not ignored or git unavailable`,
+      err,
+    );
     return false;
   }
 }

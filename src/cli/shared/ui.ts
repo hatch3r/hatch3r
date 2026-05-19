@@ -60,7 +60,55 @@ function buildBanner(): string[] {
 
 const BANNER_LINES = buildBanner();
 
+/**
+ * C9-H26 (D10-SA10.2-F1): module-level quiet/json flags that command
+ * implementations can set via {@link setQuiet} / {@link setJson} before
+ * UI calls fire. UI primitives (`printBanner`, `printBox`, `info`,
+ * `createSpinner`, `printNextSteps`, `printTimingSummary`) become no-ops
+ * on stdout when `quietEnabled === true`. Diagnostics (`error`, `warn`)
+ * remain on stderr so failures stay visible. `jsonEnabled` is a stricter
+ * variant that callers can read directly to choose between a chrome-free
+ * structured emission and the decorated success box.
+ */
+let quietEnabled = false;
+let jsonEnabled = false;
+
+/**
+ * Enable or disable quiet mode. Suppresses stdout chrome (banner, spinner
+ * text, decorated boxes, info() messages, next-step hints). No effect on
+ * stderr (warnings/errors) or on explicit `console.log` callsites elsewhere
+ * in the codebase — command implementations should consult {@link isQuiet}
+ * before calling those.
+ */
+export function setQuiet(enabled: boolean): void {
+  quietEnabled = enabled;
+}
+
+/** Read the current quiet-mode flag. */
+export function isQuiet(): boolean {
+  return quietEnabled;
+}
+
+/**
+ * Enable or disable json mode. Setting `enabled = true` also turns on
+ * quiet mode (json output replaces all decorated chrome). Setting
+ * `enabled = false` clears only the json flag; callers must additionally
+ * call `setQuiet(false)` to fully reset chrome state. Callers should
+ * branch on {@link isJson} before emitting the success box and emit a
+ * structured JSON line instead.
+ */
+export function setJson(enabled: boolean): void {
+  jsonEnabled = enabled;
+  if (enabled) quietEnabled = true;
+}
+
+/** Read the current json-mode flag. */
+export function isJson(): boolean {
+  return jsonEnabled;
+}
+
 export function printBanner(compact = false): void {
+  if (quietEnabled) return;
   if (compact) {
     console.log(
       `\n  ${CYAN.bold("hatch3r")} ${chalk.dim(`v${HATCH3R_VERSION}`)}\n`,
@@ -72,7 +120,38 @@ export function printBanner(compact = false): void {
   }
 }
 
+/**
+ * C9-H26: minimal Ora-compatible no-op surface used when quiet mode is on.
+ * Matches the subset of `Ora` methods that init/sync call so the spinner
+ * call sites do not need conditional dispatch. Returns `this` from every
+ * chainable method so existing chained code (e.g. `spinner.start().succeed()`)
+ * keeps compiling and running.
+ */
+function silentSpinner(): Ora {
+  const noop = (() => silent) as never;
+  const silent = {
+    text: "",
+    prefixText: "",
+    color: "cyan",
+    indent: 2,
+    spinner: "dots",
+    isSpinning: false,
+    start: noop,
+    stop: noop,
+    succeed: noop,
+    fail: noop,
+    warn: noop,
+    info: noop,
+    stopAndPersist: noop,
+    clear: noop,
+    render: noop,
+    frame: () => "",
+  } as unknown as Ora;
+  return silent;
+}
+
 export function createSpinner(text: string): Ora {
+  if (quietEnabled) return silentSpinner();
   return ora({
     text,
     color: "cyan",
@@ -86,6 +165,7 @@ export function printBox(
   lines: string[],
   style: "success" | "info" | "error" | "warning" = "info",
 ): void {
+  if (quietEnabled) return;
   const colors = {
     success: "#10b981" as const,
     info: "#06b6d4" as const,
@@ -120,6 +200,7 @@ export function warn(msg: string): void {
 }
 
 export function info(msg: string): void {
+  if (quietEnabled) return;
   console.log(`  ${CYAN("ℹ")} ${msg}`);
 }
 
@@ -150,6 +231,7 @@ export function verbose(msg: string): void {
  * Used after init/update to reduce first-run friction.
  */
 export function printNextSteps(steps: string[]): void {
+  if (quietEnabled) return;
   if (steps.length === 0) return;
   console.log(chalk.dim("\n  Next steps:"));
   for (const s of steps) {
@@ -163,6 +245,7 @@ export function printNextSteps(steps: string[]): void {
  * Used at the end of sync/validate to show elapsed time.
  */
 export function printTimingSummary(startMs: number): void {
+  if (quietEnabled) return;
   const elapsed = Date.now() - startMs;
   const seconds = (elapsed / 1000).toFixed(1);
   console.log(chalk.dim(`  Completed in ${seconds}s\n`));

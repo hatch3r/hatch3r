@@ -4,6 +4,8 @@ type: skill
 description: Eval-driven development workflow for shipping AI features — write eval before prompt, measure, iterate, ship with caching + cost telemetry + model fallback + hallucination SLI
 tags: [implementation, ai]
 quality_charter: agents/shared/quality-charter.md
+efficiency_patterns: agents/shared/efficiency-patterns.md
+cache_friendly: true
 ---
 # AI Feature Workflow (Eval-Driven)
 

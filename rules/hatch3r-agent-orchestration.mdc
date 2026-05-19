@@ -1,6 +1,7 @@
 ---
 description: Mandatory agent delegation, skill loading, and subagent usage directives for ALL tasks in ALL contexts
 alwaysApply: true
+precedence: high
 ---
 # Agent Orchestration
 
@@ -98,6 +99,28 @@ Examples:
 
 A missing header on a tracked Tier >= 2 task is a self-detectable drift signal — the user may halt the turn and request re-grounding. The header also functions as a per-reply cache prime: rendering it forces the orchestrator to re-resolve which phase it is in before choosing tools. Tier 1 tasks, read-only answers, and chat-only iterations do NOT require the header.
 
+### End-of-Turn Delegation Attestation
+
+When the turn is on a tracked task at Tier >= 2 AND caused at least one file mutation, the orchestrator MUST emit a closing block immediately before the Iteration Summary. The block enumerates every file mutated this turn, the spawning sub-agent invocation, and the `delegation_proof_id` returned by that sub-agent.
+
+Format:
+
+```
+[hatch3r-delegation-attestation]
+files_mutated_this_turn:
+  - <relative path>: via <agent-name> (proof: <delegation_proof_id>)
+mutating_subagent_invocations: <integer>
+inline_edits_by_orchestrator: none | <carve-out: hatch3r-quick-change Tier-1 + queued re-delegation>
+```
+
+Rules:
+
+- Each `files_mutated_this_turn` row MUST cite the spawning sub-agent invocation and quote the `delegation_proof_id` returned by that sub-agent verbatim. Unattributable rows are self-declared P8 B2 violations and the orchestrator MUST queue re-delegation in the next turn.
+- `inline_edits_by_orchestrator: none` is the only acceptable value outside the `hatch3r-quick-change` Tier-1 carve-out declared in the "Inline implementation" definition above.
+- Tier 1 read-only and chat-only turns are exempt — same scope as the Per-Turn Pipeline-State Header.
+- Missing block on a Tier >= 2 mutating turn is a self-detectable drift signal — the user may halt the turn and re-ground per the same protocol as the missing-header signal.
+- The block is consumed by reviewers and the next orchestrator turn; it sits beside the Iteration Summary, not inside it, preserving the existing 5-field iteration-summary contract verbatim.
+
 ### Mandatory Delegation Directive (No Inline Implementation)
 
 Restating with maximum clarity for sub-agent prompt inclusion: the orchestrator MUST NOT call `Edit`, `Write`, `MultiEdit`, `NotebookEdit`, `replace_string_in_file`, `multi_replace_string_in_file`, `create_file`, `str_replace_based_edit_tool`, `apply_patch`, or any platform-equivalent code-writing tool from its own turn. The only path for code mutation is the Task tool spawning `hatch3r-implementer` (Phase 2) or `hatch3r-fixer` (Phase 3). Carve-out: `hatch3r-quick-change` Tier 1 trivial items per its declared scope. No other carve-out exists. Violations are bypass mode (see issue #73) — surface them by halting the turn and re-delegating.
@@ -127,14 +150,14 @@ For multi-sub-task implementations, the implementer performs a lightweight mini-
 
 1. Spawn `hatch3r-reviewer` with diff and acceptance criteria. Reviewer includes blast radius summary.
 2. Critical/Warning findings: spawn `hatch3r-fixer` with full reviewer output.
-3. Re-review after fixes. Repeat until 0 Critical + 0 Warning, or max 3 iterations.
+3. Re-review after fixes. Repeat until 0 Critical + 0 Warning, or max 4 iterations (matches `DEFAULT_MAX_REVIEW_ITERATIONS` in `src/pipeline/reviewLoop.ts`; raised from 3 to 4 in Cycle 7.5 W2B2 finding H26 so the oscillation detector becomes reachable in default config). The rule default and the code constant are kept in sync by `src/__tests__/pipeline/reviewLoop.test.ts` (CI-enforced).
 4. **Confirmation pass** after clean review: lightweight re-review for fix-driven regressions and acceptance criteria completeness. The confirmation pass checks only: (a) no new test failures compared to Phase 2 baseline, (b) no type errors introduced, (c) acceptance criteria from the issue are still met. It does not re-run the full review checklist.
 5. Max iterations reached: surface to user with a structured summary: iteration count, remaining Critical findings (with file:line), remaining Warning findings, and a recommendation (fix manually vs. accept risk). Never present raw reviewer output without summarization.
 6. **Review gate confidence signal:** When the review loop exits with a clean verdict, record the iteration count in `PipelineContext.reviewResult.iterations`. Clean-on-first-pass (iteration 1) signals higher confidence than clean-after-multiple-iterations (iteration 2-3). Phase 4 specialists and the orchestrator should factor this into their risk assessment.
 
 **Phase 4 — Final Quality** (after review loop is clean):
 
-Launch parallel subagents -- no artificial concurrency limit.
+Launch Phase 4 specialists in parallel, bounded by `max_phase4_parallel` (default `3`, override via `HATCH3R_MAX_PHASE4_PARALLEL` env var; valid range 1-16, values outside the range fall back to default with a logged warning). The bound exists to cap per-orchestrator concurrent context cost — it does not soften the P8 B2 directive that fan-out scales with task decomposition. When the number of applicable specialists exceeds `max_phase4_parallel`, batch them by severity-descending priority: `CRITICAL → HIGH → MEDIUM → LOW` (severity is the worst-case finding class the specialist is expected to surface, per the `hatch3r-test-writer` / `hatch3r-security-auditor` always-on baseline → CRITICAL, conditional UI/security/perf → HIGH, docs/lint → MEDIUM, low-impact specialists → LOW). Within the same severity bucket, dispatch order is the trigger-table order in the table above. Each batch runs to completion (all specialists return SUCCESS/PARTIAL/FAILED) before the next batch starts; the validation pass below runs once after the final batch.
 
 - **Always** (except when Phase Skip Criteria applies — see below)**:** `hatch3r-test-writer`, `hatch3r-security-auditor`
 - **Evaluate:** `hatch3r-docs-writer` (when APIs/architecture/UX affected)

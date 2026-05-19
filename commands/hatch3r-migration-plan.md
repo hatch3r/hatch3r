@@ -10,7 +10,14 @@ efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
 parallel_tool_default: true
 triage_tiers: [1, 2, 3]
+sub_agents_spawned:
+  count: 3
+  rationale: Two parallel hatch3r-researcher modes (changelog-analysis + breaking-change-inventory) in Step 3 followed by a hatch3r-architect for codebase impact mapping and a hatch3r-docs-writer for the plan; serialization only on the research → impact-mapping dependency edge.
 ---
+
+## §0 Detect Ambiguity (P8 B1)
+
+Before any action, scan the user's request and provided context for unresolved questions in scope, acceptance criteria, irreversibility, or constraint conflicts (contradictory inputs, missing target, unknown convention). If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Acceptable to proceed without asking ONLY when scope is single-target, single-concern, and the brief alone is testable. Any residual ambiguity discovered mid-workflow invokes the same protocol.
 
 ## Agent Pipeline
 

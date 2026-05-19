@@ -273,8 +273,9 @@ describe("workspace sync", () => {
     try {
       await access(join(tempDir, "web", AGENTS_DIR, "hatch.json"));
       expect.fail("web should not have hatch.json");
-    } catch {
-      // Expected — web is not synced
+    } catch (err) {
+      // Expected — web is not synced.
+      void err;
     }
   });
 
@@ -301,8 +302,9 @@ describe("workspace sync", () => {
     try {
       await access(join(tempDir, "api", AGENTS_DIR, "hatch.json"));
       expect.fail("api should not have hatch.json in dry-run mode");
-    } catch {
-      // Expected
+    } catch (err) {
+      // Expected — dry-run does not write hatch.json.
+      void err;
     }
   });
 
@@ -629,5 +631,182 @@ describe("workspace sync", () => {
     } finally {
       getAdapterSpy.mockRestore();
     }
+  });
+
+  // D14-SA14.2-H01 (High, C9-H45): Parallel sync of N opted-in repos
+  // completes successfully and produces one synced result per repo.
+  // Verifies the pLimit-bounded refactor preserves correctness when
+  // multiple sub-repo syncs run concurrently.
+  it("syncs multiple opted-in repos in parallel", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-ws-parallel-"));
+    await mkdir(join(tempDir, AGENTS_DIR), { recursive: true });
+
+    const repoNames = ["api", "web", "worker", "docs", "infra"];
+    for (const name of repoNames) {
+      await createGitRepo(join(tempDir, name));
+    }
+
+    const wsManifest = createWorkspaceManifest(
+      "test",
+      defaults,
+      repoNames.map((name) => ({ path: name, name, sync: true })),
+      "manual",
+    );
+    await writeWorkspaceManifest(tempDir, wsManifest);
+
+    const result = await syncWorkspaceRepos(tempDir);
+
+    expect(result.repos).toHaveLength(repoNames.length);
+    for (const name of repoNames) {
+      const repoResult = result.repos.find((r) => r.path === name);
+      expect(repoResult, `result for ${name}`).toBeDefined();
+      expect(repoResult!.action).toBe("synced");
+      await expect(
+        access(join(tempDir, name, AGENTS_DIR, "hatch.json")),
+      ).resolves.toBeUndefined();
+    }
+
+    // All five repos must have lastSync recorded in the workspace manifest
+    // — the serialized mutex on incremental writes preserves this guarantee
+    // even when per-repo work completes concurrently.
+    const persisted = await readWorkspaceManifest(tempDir);
+    for (const name of repoNames) {
+      const entry = persisted!.repos.find((r) => r.path === name);
+      expect(entry?.lastSync, `lastSync for ${name}`).toBeDefined();
+    }
+  });
+
+  // D14-SA14.2-H01 (High, C9-H45): The `concurrency` option caps the
+  // number of sub-repo syncs in flight simultaneously. Verified by
+  // instrumenting the adapter to record peak in-flight count: with
+  // concurrency=2 and 5 target repos, peak in-flight never exceeds 2.
+  it("respects the concurrency cap on parallel sync", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-ws-conc-"));
+    await mkdir(join(tempDir, AGENTS_DIR), { recursive: true });
+
+    const repoNames = ["a", "b", "c", "d", "e"];
+    for (const name of repoNames) {
+      await createGitRepo(join(tempDir, name));
+    }
+
+    const wsManifest = createWorkspaceManifest(
+      "test",
+      defaults,
+      repoNames.map((name) => ({ path: name, name, sync: true })),
+      "manual",
+    );
+    await writeWorkspaceManifest(tempDir, wsManifest);
+
+    // Instrument the cursor adapter to add a small delay and record the
+    // peak in-flight count. The adapter is invoked exactly once per repo
+    // by syncSingleRepo, so its in-flight counter measures sub-repo
+    // concurrency directly.
+    let inFlight = 0;
+    let peakInFlight = 0;
+    const adaptersMod = await import("../../adapters/index.js");
+    const realGetAdapter = adaptersMod.getAdapter;
+    const getAdapterSpy = vi.spyOn(adaptersMod, "getAdapter").mockImplementation(
+      ((tool: string) => {
+        const real = realGetAdapter(tool as Parameters<typeof realGetAdapter>[0]);
+        const wrapped = {
+          get warnings() {
+            return real.warnings;
+          },
+          generate: async (...args: Parameters<typeof real.generate>) => {
+            inFlight++;
+            if (inFlight > peakInFlight) peakInFlight = inFlight;
+            try {
+              await new Promise((resolve) => setTimeout(resolve, 25));
+              return await real.generate(...args);
+            } finally {
+              inFlight--;
+            }
+          },
+        };
+        return wrapped as unknown as ReturnType<typeof realGetAdapter>;
+      }) as typeof realGetAdapter,
+    );
+
+    try {
+      const result = await syncWorkspaceRepos(tempDir, { concurrency: 2 });
+      expect(result.repos).toHaveLength(repoNames.length);
+      for (const r of result.repos) {
+        expect(r.action).toBe("synced");
+      }
+      // Peak in-flight count must not exceed the concurrency cap.
+      expect(peakInFlight).toBeGreaterThan(0);
+      expect(peakInFlight).toBeLessThanOrEqual(2);
+    } finally {
+      getAdapterSpy.mockRestore();
+    }
+  });
+
+  // D14-SA14.2-H01 (High, C9-H45): The sync journal at
+  // `<workspaceRoot>/.agents/.workspace-sync-journal.jsonl` records one
+  // JSONL line per sub-repo terminal action so a crashed run leaves a
+  // recoverable trace.
+  it("writes a journal entry per repo to .workspace-sync-journal.jsonl", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-ws-journal-"));
+    await mkdir(join(tempDir, AGENTS_DIR), { recursive: true });
+    await createGitRepo(join(tempDir, "api"));
+    await createGitRepo(join(tempDir, "web"));
+    // "missing" path intentionally has no directory — produces an error
+    // entry that must also be journaled.
+
+    const wsManifest = createWorkspaceManifest(
+      "test",
+      defaults,
+      [
+        { path: "api", name: "api", sync: true },
+        { path: "web", name: "web", sync: true },
+        { path: "missing", name: "missing", sync: true },
+      ],
+      "manual",
+    );
+    await writeWorkspaceManifest(tempDir, wsManifest);
+
+    await syncWorkspaceRepos(tempDir);
+
+    const journalPath = join(tempDir, AGENTS_DIR, ".workspace-sync-journal.jsonl");
+    await expect(access(journalPath)).resolves.toBeUndefined();
+
+    const raw = await readFile(journalPath, "utf-8");
+    const lines = raw.trim().split("\n").filter((l) => l.length > 0);
+    expect(lines).toHaveLength(3);
+
+    const entries = lines.map((l) => JSON.parse(l) as Record<string, unknown>);
+    const byRepo = new Map(entries.map((e) => [e.repo as string, e]));
+
+    expect(byRepo.get("api")?.action).toBe("synced");
+    expect(byRepo.get("web")?.action).toBe("synced");
+    expect(byRepo.get("missing")?.action).toBe("error");
+    expect(typeof byRepo.get("missing")?.error).toBe("string");
+
+    for (const entry of entries) {
+      expect(typeof entry.ts).toBe("string");
+      expect(typeof entry.workspaceChecksum).toBe("string");
+      expect((entry.workspaceChecksum as string).length).toBe(64);
+    }
+  });
+
+  // D14-SA14.2-H01 (High, C9-H45): Dry-run mode must remain side-effect-
+  // free — no journal file written, no manifest mutation.
+  it("does not write a journal entry in dry-run mode", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-ws-dry-journal-"));
+    await mkdir(join(tempDir, AGENTS_DIR), { recursive: true });
+    await createGitRepo(join(tempDir, "api"));
+
+    const wsManifest = createWorkspaceManifest(
+      "test",
+      defaults,
+      [{ path: "api", name: "api", sync: true }],
+      "manual",
+    );
+    await writeWorkspaceManifest(tempDir, wsManifest);
+
+    await syncWorkspaceRepos(tempDir, { dryRun: true });
+
+    const journalPath = join(tempDir, AGENTS_DIR, ".workspace-sync-journal.jsonl");
+    await expect(access(journalPath)).rejects.toThrow();
   });
 });

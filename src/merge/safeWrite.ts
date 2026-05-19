@@ -369,6 +369,26 @@ export async function safeWriteFile(
   if (options.managedContent) {
     if (!hasManagedBlock(existingContent)) {
       if (options.appendIfNoBlock) {
+        // C9-H41 (D11-SA11.2-01, P6): Scan existing user content for denied
+        // patterns BEFORE splicing the managed block in front of it. The
+        // companion `existing-markers` branch (below) scans `customContent`
+        // extracted from inside markers, but on first sync — when no markers
+        // exist yet — the entire file body is user-owned untrusted content
+        // about to be preserved verbatim alongside the new managed block.
+        // Refusing the splice on a deny hit is the correct disposition:
+        // proceeding would smuggle attacker-controlled tokens into the
+        // hatch3r-managed file, defeating the purpose of the pipeline deny
+        // scan. See governance/audit/finding-registry.json#C9-H41.
+        const deniedExisting = scanForDeniedPatterns(existingContent);
+        if (deniedExisting.length > 0) {
+          throw new HatchError(
+            `Refusing to splice managed block into ${filePath}: existing file content contains denied pattern(s): ${deniedExisting.join("; ")}. ` +
+              `Review the file for prompt-injection or instruction-override content, remove the offending text, then re-run the command. ` +
+              `If this is a false positive, move the suspect text into a hatch3r-managed block manually or open an issue with the matching snippet.`,
+            1,
+            "VALIDATION_ERROR",
+          );
+        }
         // G6 (v1.7.1): trailing \n parity with insertManagedBlock so the
         // first write through this branch and the second write through the
         // existing-markers branch produce byte-identical output. Without

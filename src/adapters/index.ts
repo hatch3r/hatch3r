@@ -91,6 +91,34 @@ interface AdapterCapability {
   cliTools: boolean;
 }
 
+/**
+ * C9-H31 (D10-SA10.5-F1): Sentinel key under `manifest.managedFilesByAdapter`
+ * for files written outside any single adapter's `doGenerate()` but read by
+ * multiple adapters (the "bridge" surface). Today the only shared bridge file
+ * is the root `AGENTS.md` (written by `generateRootAgentsMd()` in init/sync,
+ * read natively by `amp`, `codex`, `gemini`, `antigravity`, and consulted by
+ * `aider`, `cline`, `copilot`, `cursor`, `goose`, `opencode`, `windsurf`).
+ *
+ * Cleanup contract: `hatch3r clean` MUST treat every path under the
+ * `_shared` key with managed-block-preservation semantics (strip the managed
+ * block, keep user content). Adapter-owned files (under a specific `Tool`
+ * key) follow the normal `hatch3r clean` removal path. See
+ * `src/clean/index.ts::inventoryArtifacts` and `executeClean`.
+ */
+export const SHARED_ADAPTER_KEY = "_shared" as const;
+
+/**
+ * C9-H31 (D10-SA10.5-F1): The current list of bridge files registered under
+ * `SHARED_ADAPTER_KEY` in `manifest.managedFilesByAdapter._shared`. Keep in
+ * sync with init/sync code that writes outside an adapter
+ * (`generateRootAgentsMd` callers). When adding a new shared file:
+ * 1. Append the relative path here.
+ * 2. Confirm it appears in `manifest.managedFilesByAdapter._shared` after init.
+ * 3. Verify `hatch3r clean` cleanup handles user-content preservation for it
+ *    (or extend `executeClean` in `src/clean/index.ts` accordingly).
+ */
+export const SHARED_BRIDGE_FILES: readonly string[] = ["AGENTS.md"] as const;
+
 // Adapter capability matrix — last updated for hatch3r v1.6.0.
 // #260 (D9-9.31): Updated "last verified" version from v1.2.0 to v1.4.0.
 // Review this matrix when adding new adapters, removing adapters, or when
@@ -114,6 +142,10 @@ export const ADAPTER_CAPABILITIES: Record<Tool, AdapterCapability> = {
   // adapter (re-emission corrupts SKILL.md frontmatter via managed-block wrap).
   // doGenerate() emits MCP settings only. cliTools: false — Amp reads
   // `hatch3r-cli-*` skills from the canonical `.agents/skills/` tree directly.
+  // commands: false — Amp deprecated custom slash commands on 2026-01-29
+  // (https://ampcode.com/news/slashing-custom-commands); skills are the
+  // documented replacement. C9-H23 / D9-SA9.8.F1: re-verified 2026-05-18
+  // against ampcode.com/manual and the deprecation news post.
   amp:      { agents: false, skills: false, rules: false, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: false },
   kiro:     { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: true  },
   aider:    { agents: true, skills: true, rules: true, hooks: false, mcp: false, commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: true  },

@@ -68,6 +68,10 @@ Compact (`-c`) one-object-per-line projection — perfect input for `xargs -L1` 
 | `dasel` | Single binary across JSON/YAML/TOML/XML with a path-query DSL — handy in CI where you do not want jq+yq. |
 | `fx` | Interactive JSON browsing in a TTY; jq is the right call in scripts. |
 
+## Known Issues
+
+- **CVE-2026-32316 (active, no tagged fix as of 2026-05-18):** jq 1.8.1 ships with a heap buffer overflow in expression evaluation. Six additional CVEs were disclosed 2026-04-15; patches are committed on `jqlang/jq` `main` but no superseding tagged release exists yet. Do not invoke `jq` on JSON sourced from an untrusted producer (third-party API webhook, user-supplied upload) until a tagged release past 1.8.1 lands. Reference: https://github.com/jqlang/jq/security/advisories.
+
 ## Detection / Install
 
 Verify with:

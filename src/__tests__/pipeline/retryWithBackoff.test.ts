@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import {
   retryWithBackoff,
   computeBackoffDelay,
+  applyJitter,
   defaultShouldRetry,
   DEFAULT_MAX_ATTEMPTS,
   DEFAULT_INITIAL_DELAY_MS,
@@ -83,7 +84,12 @@ describe("retryWithBackoff", () => {
         return "ok";
       });
 
-      const result = await retryWithBackoff(fn, { sleep, initialDelayMs: 50, maxDelayMs: 50 });
+      const result = await retryWithBackoff(fn, {
+        sleep,
+        initialDelayMs: 50,
+        maxDelayMs: 50,
+        jitter: "none",
+      });
       expect(result).toBe("ok");
       expect(fn).toHaveBeenCalledTimes(2);
       expect(sleep).toHaveBeenCalledTimes(1);
@@ -102,6 +108,7 @@ describe("retryWithBackoff", () => {
           maxAttempts: 3,
           initialDelayMs: 10,
           maxDelayMs: 10,
+          jitter: "none",
         }),
       ).rejects.toThrow(/etimedout/i);
       expect(fn).toHaveBeenCalledTimes(3);
@@ -133,6 +140,7 @@ describe("retryWithBackoff", () => {
           maxAttempts: 4,
           initialDelayMs: 1,
           maxDelayMs: 1,
+          jitter: "none",
           shouldRetry: (_err, attempt) => attempt < 2,
         }),
       ).rejects.toThrow(/bespoke/);
@@ -194,11 +202,192 @@ describe("retryWithBackoff", () => {
           initialDelayMs: 100,
           maxDelayMs: 10_000,
           backoffFactor: 3,
+          jitter: "none",
         }),
       ).rejects.toThrow();
 
       // attempts 1,2,3 fail then sleep; attempt 4 fails and we stop.
       expect(sleeps).toEqual([100, 300, 900]);
+    });
+  });
+
+  describe("applyJitter (C9-H1)", () => {
+    it("returns baseDelay unchanged when strategy is 'none'", () => {
+      expect(
+        applyJitter(500, {
+          strategy: "none",
+          initialDelayMs: 100,
+          maxDelayMs: 5000,
+          prevDelay: 0,
+          random: () => 0.99,
+        }),
+      ).toBe(500);
+    });
+
+    it("returns 0 when baseDelay is non-positive regardless of strategy", () => {
+      for (const strategy of ["none", "full", "decorrelated"] as const) {
+        expect(
+          applyJitter(0, {
+            strategy,
+            initialDelayMs: 100,
+            maxDelayMs: 5000,
+            prevDelay: 0,
+            random: () => 0.5,
+          }),
+        ).toBe(0);
+      }
+    });
+
+    it("scales by random() under 'full' strategy", () => {
+      // Full jitter: r * baseDelay (clamped to maxDelayMs).
+      expect(
+        applyJitter(1000, {
+          strategy: "full",
+          initialDelayMs: 100,
+          maxDelayMs: 5000,
+          prevDelay: 0,
+          random: () => 0,
+        }),
+      ).toBe(0);
+      expect(
+        applyJitter(1000, {
+          strategy: "full",
+          initialDelayMs: 100,
+          maxDelayMs: 5000,
+          prevDelay: 0,
+          random: () => 0.5,
+        }),
+      ).toBe(500);
+      expect(
+        applyJitter(1000, {
+          strategy: "full",
+          initialDelayMs: 100,
+          maxDelayMs: 5000,
+          prevDelay: 0,
+          random: () => 0.999999,
+        }),
+      ).toBeCloseTo(999.999, 3);
+    });
+
+    it("respects maxDelayMs ceiling under 'full' strategy", () => {
+      expect(
+        applyJitter(10_000, {
+          strategy: "full",
+          initialDelayMs: 100,
+          maxDelayMs: 5000,
+          prevDelay: 0,
+          random: () => 0.99,
+        }),
+      ).toBeLessThanOrEqual(5000);
+    });
+
+    it("seeds from initialDelayMs when prevDelay is 0 under 'decorrelated' strategy", () => {
+      // First retry: prevDelay=0 → hi collapses to initialDelayMs.
+      // U(initialDelayMs, initialDelayMs) is exactly initialDelayMs.
+      expect(
+        applyJitter(200, {
+          strategy: "decorrelated",
+          initialDelayMs: 100,
+          maxDelayMs: 5000,
+          prevDelay: 0,
+          random: () => 0.7,
+        }),
+      ).toBe(100);
+    });
+
+    it("walks the bound U(initial, prevDelay*3) under 'decorrelated' strategy", () => {
+      // initialDelayMs=100, prevDelay=200, so range is U(100, 600).
+      // r=0 → 100; r=0.5 → 350; r=1 → 600.
+      expect(
+        applyJitter(800, {
+          strategy: "decorrelated",
+          initialDelayMs: 100,
+          maxDelayMs: 5000,
+          prevDelay: 200,
+          random: () => 0,
+        }),
+      ).toBe(100);
+      expect(
+        applyJitter(800, {
+          strategy: "decorrelated",
+          initialDelayMs: 100,
+          maxDelayMs: 5000,
+          prevDelay: 200,
+          random: () => 0.5,
+        }),
+      ).toBe(350);
+      expect(
+        applyJitter(800, {
+          strategy: "decorrelated",
+          initialDelayMs: 100,
+          maxDelayMs: 5000,
+          prevDelay: 200,
+          random: () => 1,
+        }),
+      ).toBe(600);
+    });
+
+    it("clamps decorrelated walk to maxDelayMs", () => {
+      // prevDelay*3 = 30_000, but maxDelayMs=5000 caps it.
+      expect(
+        applyJitter(10_000, {
+          strategy: "decorrelated",
+          initialDelayMs: 100,
+          maxDelayMs: 5000,
+          prevDelay: 10_000,
+          random: () => 1,
+        }),
+      ).toBe(5000);
+    });
+  });
+
+  describe("retryWithBackoff jitter integration (C9-H1)", () => {
+    it("defaults to 'full' jitter when no strategy is provided", async () => {
+      const sleeps: number[] = [];
+      const sleep = vi.fn(async (ms: number) => {
+        sleeps.push(ms);
+      });
+      const fn = vi.fn(async () => {
+        throw Object.assign(new Error("transient"), { code: "ETIMEDOUT" });
+      });
+      // random() always returns 0.25 → full jitter picks 25% of baseDelay.
+      await expect(
+        retryWithBackoff(fn, {
+          sleep,
+          random: () => 0.25,
+          maxAttempts: 3,
+          initialDelayMs: 400,
+          maxDelayMs: 5000,
+          backoffFactor: 2,
+        }),
+      ).rejects.toThrow();
+      // baseDelays would be [400, 800]; with full jitter at r=0.25 → [100, 200].
+      expect(sleeps).toEqual([100, 200]);
+    });
+
+    it("threads decorrelated jitter through the prevDelay walk", async () => {
+      const sleeps: number[] = [];
+      const sleep = vi.fn(async (ms: number) => {
+        sleeps.push(ms);
+      });
+      const fn = vi.fn(async () => {
+        throw Object.assign(new Error("transient"), { code: "ETIMEDOUT" });
+      });
+      // r=1 → upper bound each iteration. With initial=100, max=5000:
+      //   attempt 1: prevDelay=0 → U(100,100) → 100; prevDelay := 100.
+      //   attempt 2: prevDelay=100 → U(100,300) → 300; prevDelay := 300.
+      await expect(
+        retryWithBackoff(fn, {
+          sleep,
+          random: () => 1,
+          jitter: "decorrelated",
+          maxAttempts: 3,
+          initialDelayMs: 100,
+          maxDelayMs: 5000,
+          backoffFactor: 2,
+        }),
+      ).rejects.toThrow();
+      expect(sleeps).toEqual([100, 300]);
     });
   });
 });

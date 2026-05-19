@@ -27,7 +27,9 @@ async function dirCharCount(dir: string): Promise<number> {
   let entries: import("node:fs").Dirent[];
   try {
     entries = await readdir(dir, { withFileTypes: true });
-  } catch {
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    verbose(`status: dirCharCount readdir(${dir}) → 0 — ${message}`);
     return 0;
   }
   for (const entry of entries) {
@@ -329,6 +331,24 @@ export async function statusCommand(opts?: { verbose?: boolean; deep?: boolean }
       const code = (err as NodeJS.ErrnoException | undefined)?.code ?? "UNKNOWN";
       verbose(`AGENTS.override.md probe: not present (${code})`);
     }
+
+    // ── Codex 0.114 spawn_agent regression (C9-H22 / D9-SA9.5.F1) ──
+    // openai/codex#14579 (closed): Codex CLI 0.114 does not load custom
+    // agent roles from project-local .codex/config.toml or .codex/agents/
+    // when resolving spawn_agent(agent_type=…). hatch3r still emits the
+    // per-agent TOML files (Codex documents the layout and a fix is
+    // expected upstream), but operators relying on multi-agent
+    // orchestration today must inject roles via CLI overrides. Surface
+    // the compatibility note in `hatch3r status` whenever codex is among
+    // the configured adapters so the constraint is visible outside sync.
+    const codexLines: string[] = [
+      `${chalk.yellow("⚠")} Codex 0.114 spawn_agent regression (openai/codex#14579):`,
+      `  project-local .codex/agents/*.toml roles may not be resolved by spawn_agent.`,
+      `  Workaround: inject via CLI overrides`,
+      `  ${chalk.dim("codex exec -c 'agents.<id>.config_file=…'")}`,
+      `  Upgrade Codex when a fixed release ships.`,
+    ];
+    printBox("Codex compatibility", codexLines, "warning");
   }
 
   // ── Workspace topology ──────────────────────────────────────

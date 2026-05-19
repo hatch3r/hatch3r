@@ -3,7 +3,7 @@ import type { AdapterOutput } from "../types.js";
 import { toPrefixedId } from "../types.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
-import { filterUserFacing, readCanonicalFiles } from "./canonical.js";
+import { filterUserFacing } from "./canonical.js";
 import { applyCustomization } from "./customization.js";
 import type { HookEvent } from "../hooks/types.js";
 import { escapeTomlString } from "./toml-utils.js";
@@ -77,12 +77,21 @@ export class GeminiAdapter extends BaseAdapter {
     );
 
     if (ctx.features.commands) {
-      const commandsRaw = await readCanonicalFiles(ctx.agentsDir, "commands", this.warnings);
+      // C9-H39 (D11-SA11.1-01): use the BaseAdapter-tracked read wrapper so
+      // every canonical command consumed here is recorded in
+      // `this._trackedSourceFiles` and surfaces on each output's
+      // `sourceFiles` field. We retain the inline `filterUserFacing` call
+      // (instead of switching to `readUserFacingCanonicalFiles`) because
+      // the latter joins the path differently — keeping the literal join
+      // preserves prior behavior in this adapter's snapshot.
+      const commandsRaw = await this.readTrackedCanonicalFiles(ctx.agentsDir, "commands");
       const commands = filterUserFacing(commandsRaw, "command", join(ctx.agentsDir, "commands"));
       for (const cmd of commands) {
-        const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, cmd);
+        const { content: rawContent, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, cmd);
         this.warnings.push(...warnings);
         if (skip) continue;
+        // C9-H47 (D14-SA14.4-H01): substitute detected toolchain tokens.
+        const content = this.substituteDetectedRepoTokens(rawContent, ctx);
         const desc = overrides.description ?? cmd.description;
         const toml = [
           `description = "${escapeTomlString(desc)}"`,

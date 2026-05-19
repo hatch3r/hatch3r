@@ -204,6 +204,94 @@ describe("adapterTimeout", () => {
 
       expect(result.completed).toBe(true);
     });
+
+    // ── C9-H20 (D8-H8.3.1): AbortSignal forwarded to adapter.generate ─
+    it("passes an AbortSignal as the 4th positional argument to adapter.generate", async () => {
+      let receivedSignal: AbortSignal | undefined;
+      const adapter: Adapter = {
+        name: "signal-capture",
+        warnings: [],
+        generate: vi.fn(async (_dir, _m, _mode, signal?: AbortSignal) => {
+          receivedSignal = signal;
+          return [] as AdapterOutput[];
+        }),
+        getOutputPaths: vi.fn(async () => []),
+      };
+
+      const result = await generateWithTimeout(
+        "cursor",
+        adapter,
+        "/agents",
+        manifest,
+        generationMode,
+        { timeoutMs: 30_000 },
+      );
+
+      expect(result.completed).toBe(true);
+      expect(receivedSignal).toBeDefined();
+      expect(receivedSignal?.aborted).toBe(false);
+    });
+
+    it("propagates an external parentSignal abort into adapter.generate", async () => {
+      let receivedSignal: AbortSignal | undefined;
+      const adapter: Adapter = {
+        name: "parent-link",
+        warnings: [],
+        generate: vi.fn(async (_dir, _m, _mode, signal?: AbortSignal) => {
+          receivedSignal = signal;
+          // Simulate work — long enough for the parent to fire before
+          // the adapter finishes.
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          return [] as AdapterOutput[];
+        }),
+        getOutputPaths: vi.fn(async () => []),
+      };
+
+      const parent = new AbortController();
+      setTimeout(() => parent.abort(new Error("user-cancelled")), 10);
+
+      await generateWithTimeout(
+        "cursor",
+        adapter,
+        "/agents",
+        manifest,
+        generationMode,
+        { timeoutMs: 30_000 },
+        parent.signal,
+      );
+
+      // The inner signal should reflect the parent abort by the time
+      // generate resolves.
+      expect(receivedSignal?.aborted).toBe(true);
+    });
+
+    it("aborts the inner signal when the adapter timeout fires", async () => {
+      let receivedSignal: AbortSignal | undefined;
+      const adapter: Adapter = {
+        name: "slow",
+        warnings: [],
+        generate: vi.fn(async (_dir, _m, _mode, signal?: AbortSignal) => {
+          receivedSignal = signal;
+          // Never resolve — the timeout has to win.
+          return new Promise<AdapterOutput[]>(() => {});
+        }),
+        getOutputPaths: vi.fn(async () => []),
+      };
+
+      const result = await generateWithTimeout(
+        "cursor",
+        adapter,
+        "/agents",
+        manifest,
+        generationMode,
+        { timeoutMs: MIN_ADAPTER_TIMEOUT_MS },
+      );
+
+      // Race timed out → completed=false; the signal handed to the
+      // adapter is aborted so cooperative cleanup can run.
+      expect(result.completed).toBe(false);
+      expect(receivedSignal?.aborted).toBe(true);
+    }, 15_000);
   });
 
   describe("AdapterTimeoutError", () => {

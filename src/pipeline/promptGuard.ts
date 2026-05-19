@@ -264,6 +264,107 @@ export function sanitizePipelineInput(
   return { sanitized, violations, truncated };
 }
 
+// ── User Content Sanitization (C9-H14, D6-SA6.4-F1) ──────────────
+
+/** Maximum length for user-contributed content in characters. */
+export const MAX_USER_CONTENT_LENGTH = 250_000;
+
+export interface UserContentSanitizationResult {
+  /** Sanitized content with matched patterns replaced by `[SANITIZED]`. */
+  sanitized: string;
+  /** True when one or more injection patterns matched (caller should treat content as quarantined). */
+  blocked: boolean;
+  /** Audit-friendly reasons for each match (pattern ID + description + source). */
+  reasons: string[];
+}
+
+export interface UserContentContext {
+  /**
+   * Identifier of the loader/agent invoking the sanitizer (e.g.
+   * `learnings-loader`, `handoff-loader`, `context-rules`). Used in
+   * audit-friendly reason strings so reviewers can trace which loader
+   * encountered the violation.
+   */
+  source: string;
+  /**
+   * Optional reference to the file (or entry id) the content originated
+   * from. Included in audit reasons when present.
+   */
+  reference?: string;
+}
+
+/**
+ * Sanitize user-contributed content loaded into agent context.
+ *
+ * This wrapper is the canonical entry point invoked by user-tier loaders
+ * (learnings-loader, handoff-loader, context-rules) before learnings or
+ * handoffs are surfaced in a session briefing. It enforces the trust
+ * boundary defined in `agents/shared/injection-patterns.md` Section B
+ * (user-tier content) by:
+ *
+ * 1. Running every pattern in `INJECTION_PATTERNS` (the same catalog used
+ *    by `sanitizePipelineInput`) against the content body.
+ * 2. Replacing matched substrings with `[SANITIZED]` so downstream agents
+ *    do not see the raw injection payload.
+ * 3. Emitting structured `reasons` (pattern ID, description, source)
+ *    suitable for `Validation Warnings` sections in agent briefings.
+ * 4. Returning `blocked: true` whenever any pattern matched so callers
+ *    can quarantine the entry per ASI06 (Memory & Context Poisoning).
+ *
+ * Length enforcement uses `MAX_USER_CONTENT_LENGTH` (250 KB) to match the
+ * effective ceiling for learnings/handoffs without invoking the broader
+ * pipeline ceiling (`MAX_PHASE_INPUT_LENGTH`).
+ */
+export function sanitizeUserContent(
+  content: string,
+  ctx?: UserContentContext,
+): UserContentSanitizationResult {
+  const reasons: string[] = [];
+  let sanitized = content;
+  let blocked = false;
+  const sourceTag = ctx?.source ?? "unknown";
+  const refTag = ctx?.reference ? ` ref=${ctx.reference}` : "";
+
+  // Length enforcement (truncate before pattern scan to bound cost).
+  if (sanitized.length > MAX_USER_CONTENT_LENGTH) {
+    reasons.push(
+      `source=${sourceTag}${refTag} truncated from ${sanitized.length} to ${MAX_USER_CONTENT_LENGTH} characters`,
+    );
+    sanitized = sanitized.substring(0, MAX_USER_CONTENT_LENGTH);
+    blocked = true;
+  }
+
+  // Strip null bytes (P-PIPE-05 also matches, but explicit strip is safer
+  // because the regex is escape-sequence-or-null and the replacement below
+  // only happens once per loop iteration).
+  if (sanitized.includes("\0")) {
+    sanitized = sanitized.replace(/\0/g, "");
+    reasons.push(
+      `source=${sourceTag}${refTag} pattern=P-PIPE-05 null byte stripped`,
+    );
+    blocked = true;
+  }
+
+  // Scan + quarantine every pattern in the catalog.
+  for (const { patternId, pattern, description } of INJECTION_PATTERNS) {
+    if (pattern.test(sanitized)) {
+      reasons.push(
+        `source=${sourceTag}${refTag} pattern=${patternId} ${description}`,
+      );
+      sanitized = sanitized.replace(
+        new RegExp(
+          pattern.source,
+          pattern.flags.includes("g") ? pattern.flags : pattern.flags + "g",
+        ),
+        "[SANITIZED]",
+      );
+      blocked = true;
+    }
+  }
+
+  return { sanitized, blocked, reasons };
+}
+
 // ── Output Validation ────────────────────────────────────────────
 
 export interface OutputValidationResult {

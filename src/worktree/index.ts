@@ -10,6 +10,19 @@ import {
 } from "../types.js";
 import type { WorktreeEntry, WorktreeSetupResult } from "./types.js";
 import { resolvePatterns, findMainWorktree } from "./resolve.js";
+import { verbose } from "../cli/shared/ui.js";
+
+/**
+ * Record a worktree-probe failure: emit a verbose() line to stderr (visible
+ * only with --verbose). Per D8-H8.4.6 (C9-H19) Silent Failure Contract — probes
+ * for "does X exist?" or "is X a symlink?" cannot push to caller warnings
+ * channels (none are wired through worktree cleanup), so verbose() is the
+ * minimum-viable diagnostic surface.
+ */
+function recordWorktreeProbeFailure(operation: string, err: unknown): void {
+  const message = err instanceof Error ? err.message : String(err);
+  verbose(`worktree: ${operation} — ${message}`);
+}
 
 // Gitignore-syntax managed-block markers for .git/info/exclude. Distinct from
 // MANAGED_BLOCK_{START,END} (which are HTML-comment-style and would parse as
@@ -293,8 +306,8 @@ export async function setupWorktree(
       try {
         await lstat(destPath);
         destExists = true;
-      } catch {
-        // Doesn't exist — proceed
+      } catch (err) {
+        recordWorktreeProbeFailure(`lstat(${destPath}) — destination missing`, err);
       }
       if (destExists && !options.force) {
         result.skipped.push(relPath);
@@ -355,20 +368,28 @@ export async function cleanupWorktree(worktreeRoot: string): Promise<void> {
   const localPath = join(worktreeRoot, WORKTREE_INCLUDE_FILE);
   try {
     content = await readFile(localPath, "utf-8");
-  } catch {
+  } catch (localErr) {
+    recordWorktreeProbeFailure(
+      `readFile(${localPath}) — falling back to main worktree`,
+      localErr,
+    );
     // Not found locally — try the main worktree
     try {
       mainRoot = findMainWorktree(worktreeRoot);
       content = await readFile(join(mainRoot, WORKTREE_INCLUDE_FILE), "utf-8");
-    } catch {
-      // Can't find include file anywhere — nothing to clean up
+    } catch (mainErr) {
+      recordWorktreeProbeFailure(
+        `cleanupWorktree: include file unreadable in worktree and main — nothing to clean`,
+        mainErr,
+      );
       return;
     }
   }
 
   if (!content) return;
   if (!mainRoot) {
-    try { mainRoot = findMainWorktree(worktreeRoot); } catch { /* no main root */ }
+    try { mainRoot = findMainWorktree(worktreeRoot); }
+    catch (err) { recordWorktreeProbeFailure("findMainWorktree fallback failed", err); }
   }
 
   const entries = parseWorktreeInclude(content);
@@ -388,12 +409,18 @@ export async function cleanupWorktree(worktreeRoot: string): Promise<void> {
           if (sourceContent === targetContent) {
             await unlink(targetPath);
           }
-        } catch {
-          // Source not readable or target not readable — skip
+        } catch (err) {
+          recordWorktreeProbeFailure(
+            `cleanupWorktree: skipped ${targetPath} (source/target unreadable)`,
+            err,
+          );
         }
       }
-    } catch {
-      // Path doesn't exist or can't be stat'd — skip
+    } catch (err) {
+      recordWorktreeProbeFailure(
+        `cleanupWorktree: lstat(${targetPath}) failed — skipping`,
+        err,
+      );
     }
   }
 }

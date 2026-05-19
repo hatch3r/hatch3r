@@ -460,6 +460,151 @@ describe("update command", () => {
     });
   });
 
+  // C9-H51 (D15-SA15.4-F01): npm audit signatures programmatic verification
+  // after every successful self-update fetch. Default behavior is to refuse
+  // regenerate on signature failure; --skip-audit-signatures is an emergency
+  // override that emits a visible warning.
+  describe("npm audit signatures verification (C9-H51)", () => {
+    /**
+     * Seed an `invokedFrom=project-local` install so runSelfUpdate's
+     * primary-target branch fires (and the audit gate runs). Without this,
+     * runSelfUpdate classifies the invocation as `dev-source` and skips
+     * the audit step entirely.
+     */
+    async function seedProjectLocalForUpdate(root: string): Promise<void> {
+      await mkdir(join(root, "node_modules", "hatch3r"), { recursive: true });
+      await writeFile(
+        join(root, "node_modules", "hatch3r", "package.json"),
+        JSON.stringify({ name: "hatch3r", version: "1.0.0" }),
+      );
+    }
+
+    let prevArgv1: string;
+    beforeEach(() => {
+      prevArgv1 = process.argv[1] ?? "";
+    });
+    afterEach(() => {
+      process.argv[1] = prevArgv1;
+    });
+
+    it("proceeds with regenerate when `npm audit signatures` reports OK", async () => {
+      await createTestProject(tempDir);
+      await seedProjectLocalForUpdate(tempDir);
+      process.argv[1] = join(tempDir, "node_modules", ".bin", "hatch3r");
+      vi.mocked(execFileSync).mockClear();
+      vi.mocked(spawnSync).mockClear();
+
+      // Args-based mock: dispatch by the args array so the mock is robust
+      // to extra npmGlobalRoot probes / cache-miss replays.
+      vi.mocked(execFileSync).mockImplementation((..._args: unknown[]) => {
+        const a = _args[1] as string[] | undefined;
+        if (Array.isArray(a) && a[0] === "audit" && a[1] === "signatures") {
+          return Buffer.from("audited 100 packages\nverified provenance: ok\n");
+        }
+        return Buffer.from("");
+      });
+
+      const { updateCommand } = await import("../../cli/commands/update.js");
+      // updateCommand re-execs on success when an install was updated; the
+      // spawnSync mock is set to status:0 in beforeEach, and process.exit is
+      // mocked to throw. Catch and assert the audit step was invoked.
+      try {
+        await updateCommand({});
+      } catch (e) {
+        expect((e as Error).message).toMatch(/process\.exit|exit/i);
+      }
+
+      // Audit was invoked (at least once).
+      const auditCalls = vi.mocked(execFileSync).mock.calls.filter((c) => {
+        const args = c[1] as string[] | undefined;
+        return Array.isArray(args) && args[0] === "audit" && args[1] === "signatures";
+      });
+      expect(auditCalls.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it("throws HatchError(INTEGRITY_ERROR) and refuses regenerate when `npm audit signatures` fails", async () => {
+      await createTestProject(tempDir);
+      await seedProjectLocalForUpdate(tempDir);
+      process.argv[1] = join(tempDir, "node_modules", ".bin", "hatch3r");
+      vi.mocked(execFileSync).mockClear();
+      vi.mocked(spawnSync).mockClear();
+
+      // Args-based mock: dispatch by args[0..1] so the audit call always
+      // throws regardless of where it falls in execFileSync's call order.
+      vi.mocked(execFileSync).mockImplementation((..._args: unknown[]) => {
+        const a = _args[1] as string[] | undefined;
+        if (Array.isArray(a) && a[0] === "audit" && a[1] === "signatures") {
+          // audit signatures fails — simulate npm's typical failure output
+          const err = new Error("npm audit signatures failed") as Error & {
+            stderr?: string;
+            status?: number;
+          };
+          err.stderr = "signatures: invalid for hatch3r@1.0.0\n";
+          err.status = 1;
+          throw err;
+        }
+        return Buffer.from("");
+      });
+
+      const { updateCommand } = await import("../../cli/commands/update.js");
+      let thrown: unknown;
+      try {
+        await updateCommand({});
+      } catch (e) {
+        thrown = e;
+      }
+      expect(thrown).toBeInstanceOf(HatchError);
+      const err = thrown as HatchError;
+      expect(err.errorCode).toBe("INTEGRITY_ERROR");
+      expect(err.exitCode).toBe(1);
+      expect(err.message).toMatch(/signatures? verification FAILED|npm audit signatures/i);
+      // Verify regenerate was refused: spawnSync (the re-exec) must NOT have
+      // been called — runSelfUpdate threw before reaching pickReExecBin.
+      expect(vi.mocked(spawnSync)).not.toHaveBeenCalled();
+    });
+
+    it("warns and proceeds when --skip-audit-signatures is passed", async () => {
+      await createTestProject(tempDir);
+      await seedProjectLocalForUpdate(tempDir);
+      process.argv[1] = join(tempDir, "node_modules", ".bin", "hatch3r");
+      vi.mocked(execFileSync).mockClear();
+      vi.mocked(spawnSync).mockClear();
+
+      // No audit call should be made; all execFileSync calls succeed silently.
+      vi.mocked(execFileSync).mockImplementation((..._args: unknown[]) => {
+        return Buffer.from("");
+      });
+
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      const { updateCommand } = await import("../../cli/commands/update.js");
+      try {
+        await updateCommand({ skipAuditSignatures: true });
+      } catch (e) {
+        // re-exec branch throws via mocked process.exit; not the audit gate.
+        expect((e as Error).message).toMatch(/process\.exit|exit/i);
+      }
+
+      // No audit signatures call was made.
+      const auditCalls = vi.mocked(execFileSync).mock.calls.filter((c) => {
+        const args = c[1] as string[] | undefined;
+        return Array.isArray(args) && args[0] === "audit" && args[1] === "signatures";
+      });
+      expect(auditCalls.length).toBe(0);
+
+      // A visible warning was emitted. The warn() helper routes via
+      // chalk/console.warn; collect from both spies and the consoleSpy
+      // (some ui.ts helpers route through console.log on certain platforms).
+      const allOutput = [
+        ...consoleSpy.mock.calls.map((c) => String(c[0])),
+        ...consoleErrorSpy.mock.calls.map((c) => String(c[0])),
+        ...warnSpy.mock.calls.map((c) => String(c[0])),
+      ].join(" ");
+      expect(allOutput).toMatch(/skip.*audit.*signatures|SKIPPED|out-of-band/i);
+      warnSpy.mockRestore();
+    });
+  });
+
   // C8-D8-M1 (D8): aggregated recovery guidance on thrown HatchError
   describe("aggregated recovery guidance", () => {
     it("HatchError thrown on all-adapter failure carries a recovery hint", async () => {
@@ -490,6 +635,90 @@ describe("update command", () => {
       } finally {
         spy.mockRestore();
       }
+    });
+  });
+
+  // C9-M26 (D11-SA11.4-01): orphan-file scan reports + optionally removes
+  // files in `.agents/<canonical-subdir>/` that do not match the canonical
+  // naming convention (`hatch3r-` prefix / `hatch3r-*/` parent / `mcp.json`).
+  describe("orphan-file scan (C9-M26)", () => {
+    it("reports orphan files in canonical subdirs as informational only by default", async () => {
+      await createTestProject(tempDir);
+
+      await writeFile(
+        join(tempDir, AGENTS_DIR, "agents", "stray-note.md"),
+        "# stray\n",
+      );
+      await writeFile(
+        join(tempDir, AGENTS_DIR, "commands", "scratch.md"),
+        "# scratch\n",
+      );
+
+      const { updateCommand } = await import("../../cli/commands/update.js");
+      await updateCommand({ offline: true });
+
+      const combined = [
+        ...consoleSpy.mock.calls.map((c) => String(c[0])),
+        ...consoleErrorSpy.mock.calls.map((c) => String(c[0])),
+      ].join("\n");
+      expect(combined).toMatch(/orphan file/);
+      expect(combined).toContain(".agents/agents/stray-note.md");
+      expect(combined).toContain(".agents/commands/scratch.md");
+      expect(combined).toContain("--clean-orphans");
+
+      const stray1 = await readFile(
+        join(tempDir, AGENTS_DIR, "agents", "stray-note.md"),
+        "utf-8",
+      ).catch(() => null);
+      const stray2 = await readFile(
+        join(tempDir, AGENTS_DIR, "commands", "scratch.md"),
+        "utf-8",
+      ).catch(() => null);
+      expect(stray1).not.toBeNull();
+      expect(stray2).not.toBeNull();
+    });
+
+    it("removes orphans when --clean-orphans is set", async () => {
+      await createTestProject(tempDir);
+
+      await writeFile(
+        join(tempDir, AGENTS_DIR, "agents", "stray-note.md"),
+        "# stray\n",
+      );
+
+      const { updateCommand } = await import("../../cli/commands/update.js");
+      await updateCommand({ offline: true, cleanOrphans: true });
+
+      const stray = await readFile(
+        join(tempDir, AGENTS_DIR, "agents", "stray-note.md"),
+        "utf-8",
+      ).catch(() => null);
+      expect(stray).toBeNull();
+    });
+
+    it("never flags files under .agents/user/ even when --clean-orphans is set", async () => {
+      await createTestProject(tempDir);
+
+      const userDir = join(tempDir, AGENTS_DIR, "user", "agents");
+      await mkdir(userDir, { recursive: true });
+      const userPath = join(userDir, "my-agent.md");
+      await writeFile(userPath, "# user agent\n");
+
+      await writeFile(
+        join(tempDir, AGENTS_DIR, "agents", "stray.md"),
+        "# stray\n",
+      );
+
+      const { updateCommand } = await import("../../cli/commands/update.js");
+      await updateCommand({ offline: true, cleanOrphans: true });
+
+      const userStill = await readFile(userPath, "utf-8").catch(() => null);
+      expect(userStill).not.toBeNull();
+      const strayGone = await readFile(
+        join(tempDir, AGENTS_DIR, "agents", "stray.md"),
+        "utf-8",
+      ).catch(() => null);
+      expect(strayGone).toBeNull();
     });
   });
 });

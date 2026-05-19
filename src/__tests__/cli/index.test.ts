@@ -20,9 +20,11 @@ describe("createProgram() command registration", () => {
     // CLI-tooling pivot (1.7.5 Wave 3): mcp + cli-tools side-door commands
     "mcp",
     "cli-tools",
+    // Cycle 9 Wave 2 C9-H13: hatch3r explain --cost <command>
+    "explain",
   ] as const;
 
-  it("registers all 13 expected commands", () => {
+  it("registers all expected commands", () => {
     expect(registeredNames).toHaveLength(EXPECTED_COMMANDS.length);
     for (const name of EXPECTED_COMMANDS) {
       expect(registeredNames).toContain(name);

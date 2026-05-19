@@ -6,6 +6,7 @@ import {
   type Features,
   type Platform,
 } from "../../types.js";
+import { verbose } from "./ui.js";
 
 export const TOOL_DISPLAY_NAMES: Record<Tool, string> = {
   cursor: "Cursor",
@@ -81,16 +82,73 @@ export const TOOL_COMMAND_SYNTAX: Record<Tool, string> = {
 };
 
 /**
+ * Renders the invocation string for a single tool's command-invocation syntax.
+ * - "/" prefix tools (Claude Code, Cursor, etc.) render as `/command-name`.
+ * - " " (space-suffix) prefix tools render as `<prefix>command-name`
+ *   (e.g., Windsurf -> `run workflow command-name`, Aider -> `prompt with command-name`).
+ */
+function renderInvocation(tool: Tool, commandName: string): string {
+  const prefix = TOOL_COMMAND_SYNTAX[tool];
+  return `${prefix}${commandName}`;
+}
+
+/**
+ * Returns per-tool invocation hints for `commandName` across `tools`, keyed
+ * by the tool id. Each value is the literal string a user types to invoke the
+ * command in that tool (e.g., `cursor -> /codebase-map`,
+ * `aider -> prompt with codebase-map`). Tools that share invocation syntax
+ * still get individual entries — callers that want a collapsed view should
+ * inspect distinct values themselves.
+ */
+export function formatCommandHintByTool(
+  tools: Tool[],
+  commandName: string,
+): Record<Tool, string> {
+  const out = {} as Record<Tool, string>;
+  for (const tool of tools) {
+    out[tool] = renderInvocation(tool, commandName);
+  }
+  return out;
+}
+
+/**
  * Returns a user-facing string showing how to invoke a command for the given tool(s).
- * If all selected tools use slash-command syntax, returns "/command-name".
- * Otherwise returns a generic phrasing.
+ *
+ * - When all selected tools share the same invocation syntax, returns the
+ *   single invocation form (e.g., `/command-name` or `run workflow command-name`).
+ * - When tools have mixed syntax, returns a per-tool hint string with one
+ *   `Display Name: invocation` segment per tool joined by ` | `, so users see
+ *   the exact phrasing for every selected tool instead of an ambiguous
+ *   `the X command` placeholder.
+ *
+ * The function always returns a single string (no embedded newlines) so it
+ * remains drop-in safe for box/log renderers that treat each argument as one
+ * line.
  */
 export function formatCommandHint(tools: Tool[], commandName: string): string {
-  const allSlash = tools.every((t) => TOOL_COMMAND_SYNTAX[t] === "/");
-  if (allSlash) {
-    return `/${commandName}`;
+  if (tools.length === 0) {
+    return `the ${commandName} command`;
   }
-  return `the ${commandName} command`;
+
+  const distinctSyntax = new Set(tools.map((t) => TOOL_COMMAND_SYNTAX[t]));
+  if (distinctSyntax.size === 1) {
+    return renderInvocation(tools[0], commandName);
+  }
+
+  // Mixed syntax: emit one segment per tool so no user is left guessing.
+  // Deduplicate by display name to keep the row readable when two tool ids
+  // share a label (e.g., Cline / Roo Code).
+  const seen = new Set<string>();
+  const segments: string[] = [];
+  for (const tool of tools) {
+    const label = TOOL_DISPLAY_NAMES[tool] ?? tool;
+    const invocation = renderInvocation(tool, commandName);
+    const segment = `${label}: ${invocation}`;
+    if (seen.has(segment)) continue;
+    seen.add(segment);
+    segments.push(segment);
+  }
+  return segments.join(" | ");
 }
 
 /**
@@ -118,7 +176,11 @@ export function isWSL(): boolean {
   if (process.env.WSL_DISTRO_NAME) return true;
   try {
     return /microsoft|wsl/i.test(readFileSync("/proc/version", "utf-8"));
-  } catch {
+  } catch (err) {
+    // /proc/version absent on non-Linux platforms — expected. Surface under
+    // --verbose so unexpected failures (permission errors) stay visible.
+    const message = err instanceof Error ? err.message : String(err);
+    verbose(`constants: isWSL probe of /proc/version → false — ${message}`);
     return false;
   }
 }

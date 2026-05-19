@@ -26,7 +26,7 @@
  * — deny-pattern scan + path-traversal guard + size cap).
  */
 
-import { readdir, mkdir, stat } from "node:fs/promises";
+import { readdir, mkdir, stat, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { stringify as yamlStringify } from "yaml";
@@ -34,6 +34,7 @@ import { atomicWriteFile } from "../merge/safeWrite.js";
 import { scanForDeniedPatterns } from "../adapters/customization.js";
 import { sanitizePipelineInput } from "../pipeline/promptGuard.js";
 import { isValidHookEvent } from "../hooks/types.js";
+import { ALL_TOOL_CATEGORIES } from "../pipeline/agentToolAllowlist.js";
 import {
   buildContentIndex,
   cursorCompanionFrontmatter,
@@ -75,6 +76,28 @@ export interface UserContentArtifact {
   isOrchestrator?: boolean;
   /** For type=command, isOrchestrator=true: list of delegated sub-agents. */
   agentPipeline?: string[];
+  /**
+   * For type=agent: structured tool allowlist/denylist (C9-H81, D20-F20.1.3).
+   *
+   * Each entry must be a canonical category from
+   * `ALL_TOOL_CATEGORIES` (`src/pipeline/agentToolAllowlist.ts`):
+   * `read | search | write | execute | web | mcp | git | board`.
+   *
+   * Validation rules (strict gate):
+   *   - All entries in `allowed` and `denied` must be known categories.
+   *   - `allowed` and `denied` may not overlap (no category in both).
+   *   - Both arrays may be omitted; an empty `allowed` list is allowed
+   *     (the resulting agent has no tool permissions until the user edits
+   *     the file manually) but emits a gentle warning.
+   *
+   * The resulting frontmatter emits as
+   * `tools: { allowed: [...], denied: [...] }`. The hatch3r orchestrator
+   * checks this declaration against the canonical `AGENT_TOOL_POLICIES`
+   * registry at runtime via `checkToolAccess`; the structured shape lets
+   * adapters surface the declaration into platform-native runtime guards
+   * (Claude PreToolUse hook, Cursor tool-allowlist rule).
+   */
+  tools?: { allowed?: string[]; denied?: string[] };
 }
 
 export interface SaveResult {
@@ -94,8 +117,34 @@ const MAX_USER_FILE_BYTES = 10_240;
 /** Description must be at least this long (strict gate). */
 const MIN_DESCRIPTION_LENGTH = 60;
 
-/** Body line count above this triggers a gentle "lean" warning. */
-const LEAN_LINE_THRESHOLD = 120;
+/**
+ * Per-type body line thresholds for the gentle "lean" warning (C9-M45,
+ * D20-F20.1 lean coverage refinement).
+ *
+ * Each canonical artifact type has a structural floor below which compression
+ * is meaningful — collapsing a 30-line agent prompt loses value, but a
+ * 400-line agent prompt has measurable redundancy. The values track the
+ * canonical content distribution observed at Cycle 9 baseline:
+ *
+ *   - agent  (350): chat-style prompts with role + workflow + examples.
+ *   - rule   (100): short, declarative, single-pillar enforcement notes.
+ *   - skill  (200): Quick Start + step pattern (medium-length prose).
+ *   - command (200): orchestrator prompts with pipeline + arg parsing.
+ *   - hook   (100): event handlers with terse trigger + action body.
+ *
+ * Falls back to {@link LEAN_LINE_THRESHOLD_DEFAULT} when the type is not in
+ * the map (defensive — every value of {@link UserArtifactType} is keyed).
+ */
+const LEAN_LINE_THRESHOLDS: Record<UserArtifactType, number> = {
+  agent: 350,
+  rule: 100,
+  skill: 200,
+  command: 200,
+  hook: 100,
+};
+
+/** Fallback used when the artifact type is not in {@link LEAN_LINE_THRESHOLDS}. */
+const LEAN_LINE_THRESHOLD_DEFAULT = 120;
 
 /** Slug regex: lowercase kebab-case, must start with [a-z]. */
 const SLUG_REGEX = /^[a-z][a-z0-9-]*$/;
@@ -230,6 +279,108 @@ export async function validateUserArtifact(
   index: ContentIndex,
 ): Promise<{ strict: string[]; gentle: string[] }> {
   return runUserContentGates(artifact, index);
+}
+
+// ── Public API: pre-flight body validation (C9-H84) ────────────
+
+/**
+ * Per-file violation surfaced by {@link validateContentBody}.
+ */
+export interface ContentBodyViolation {
+  /** Project-relative path of the offending file (e.g. `.agents/user/agents/foo.md`). */
+  relativePath: string;
+  /** Severity bucket — strict failures must block `sync`; warnings are advisory. */
+  severity: "error" | "warning";
+  /** Human-readable description of the violation. */
+  message: string;
+}
+
+/**
+ * Scan body content of canonical artifacts AND `.agents/user/` artifacts via
+ * `scanForDeniedPatterns` + `sanitizePipelineInput` before they are forwarded
+ * into adapter outputs. Used by `sync` as a pre-flight gate so a tampered or
+ * prompt-injected user artifact cannot ride into `.cursor/`, `.claude/`, etc.
+ *
+ * Cross-links D15-SA15.1-F04 (ContentValidator pattern) with D20-F20.2.2
+ * (closes CD-10 partial). The scan is read-only — it returns violations and
+ * leaves all on-disk state untouched.
+ *
+ * Behavior:
+ *   - Returns an empty list when `.agents/user/` does not exist.
+ *   - Treats deny-pattern hits and injection-scan violations as `severity: "error"`.
+ *   - Reads the file body (post-frontmatter) and surfaces every match.
+ *   - Tolerates I/O errors on individual files (logs a warning entry, continues
+ *     scanning siblings) — a malformed user file never halts the pre-flight.
+ */
+export async function validateContentBody(
+  rootDir: string,
+): Promise<ContentBodyViolation[]> {
+  const violations: ContentBodyViolation[] = [];
+  const userArtifacts = await discoverUserContent(rootDir);
+  if (userArtifacts.length === 0) return violations;
+
+  for (const artifact of userArtifacts) {
+    const relativePath = relativizeUnderRoot(rootDir, artifact.path);
+
+    let raw: string;
+    try {
+      raw = await readFile(artifact.path, "utf-8");
+    } catch (err) {
+      violations.push({
+        relativePath,
+        severity: "warning",
+        message: `unreadable: ${err instanceof Error ? err.message : String(err)}`,
+      });
+      continue;
+    }
+
+    const body = stripFrontmatter(raw);
+
+    // Strict: deny-pattern scan on body.
+    for (const hit of scanForDeniedPatterns(body)) {
+      violations.push({
+        relativePath,
+        severity: "error",
+        message: `body contains denied pattern — ${hit}`,
+      });
+    }
+
+    // Strict: pipeline injection scan on body.
+    const sanitized = sanitizePipelineInput(body);
+    for (const v of sanitized.violations) {
+      violations.push({
+        relativePath,
+        severity: "error",
+        message: `body fails injection scan — ${v}`,
+      });
+    }
+    if (sanitized.truncated && sanitized.violations.length === 0) {
+      violations.push({
+        relativePath,
+        severity: "error",
+        message: "body exceeds pipeline input cap and was truncated by sanitizePipelineInput",
+      });
+    }
+  }
+
+  return violations;
+}
+
+function stripFrontmatter(raw: string): string {
+  if (!raw.startsWith("---")) return raw;
+  const end = raw.indexOf("---", 3);
+  if (end === -1) return raw;
+  return raw.slice(end + 3).replace(/^\n/, "");
+}
+
+function relativizeUnderRoot(rootDir: string, absPath: string): string {
+  // Normalize separators and trim a leading "./". sync/validate consumers
+  // print this label verbatim so we keep it forward-slash-normalized.
+  const normRoot = rootDir.endsWith("/") ? rootDir : `${rootDir}/`;
+  if (absPath.startsWith(normRoot)) {
+    return absPath.slice(normRoot.length);
+  }
+  return absPath;
 }
 
 // ── Internal: gate funnel ──────────────────────────────────────
@@ -385,33 +536,137 @@ async function runUserContentGates(
     }
   }
 
-  // Lean line threshold.
+  // Lean line threshold (per-type, C9-M45). Falls back to the default cap
+  // when the artifact type is missing from the registry — defensive only;
+  // every value of UserArtifactType is keyed.
   const lineCount = artifact.body.split(/\r?\n/).length;
-  if (lineCount > LEAN_LINE_THRESHOLD) {
+  const typedThreshold =
+    LEAN_LINE_THRESHOLDS[artifact.type] ?? LEAN_LINE_THRESHOLD_DEFAULT;
+  if (lineCount > typedThreshold) {
     gentle.push(
-      `Body has ${lineCount} lines (lean threshold: ${LEAN_LINE_THRESHOLD}) — consider compressing`,
+      `Body has ${lineCount} lines (lean threshold for ${artifact.type}: ${typedThreshold}) — consider compressing`,
     );
   }
 
-  // quality_charter reference check.
   const fm = artifact.frontmatter ?? {};
+
+  // ── Promoted strict gates (C9-H79, C9-H80) ─────────────────
+  // CD-12: charter inheritance and pillar declaration are promoted from
+  // gentle to strict per D20-F20.1.1 / D20-F20.1.2 — Critical-on-absence is
+  // the closed-loop disposition. Authors must declare which pillar a user
+  // artifact serves and inherit the charter discipline; missing either is a
+  // governance regression at the user-content tier.
+
+  // quality_charter reference (strict).
   if (!("quality_charter" in fm) && !/quality[_-]charter/i.test(artifact.body)) {
-    gentle.push(
+    strict.push(
       "Missing quality_charter reference — add `quality_charter: agents/shared/quality-charter.md` to frontmatter or reference it in the body",
     );
   }
 
-  // Pillar declaration check.
+  // Pillar declaration (strict).
   const hasPillarFm = Array.isArray(fm.pillars) && fm.pillars.length > 0;
   const hasPillarBody = /(^|\n)\s*##\s*Pillar/i.test(artifact.body) ||
     /\*\*Pillars?:\*\*/i.test(artifact.body);
   if (!hasPillarFm && !hasPillarBody) {
-    gentle.push(
+    strict.push(
       "Missing pillar declaration — add `pillars: [P1...P6]` to frontmatter or a `**Pillars:**` line in the body",
     );
   }
 
+  // ── Structured tools field (C9-H81, D20-F20.1.3) ───────────────
+  // Validate `tools.allowed` / `tools.denied` (when present) against the
+  // canonical category registry exported by `agentToolAllowlist.ts`. The
+  // shape lets the input contract carry an explicit allowlist/denylist
+  // for agent artifacts so adapter outputs (Claude PreToolUse hook,
+  // Cursor tool-allowlist rule) can mirror the declaration at runtime.
+  if (artifact.tools !== undefined) {
+    const toolsViolations = validateStructuredTools(artifact.tools);
+    for (const v of toolsViolations) strict.push(v);
+  }
+
   return { strict, gentle };
+}
+
+/**
+ * Validate the structured `tools` field per C9-H81 / D20-F20.1.3.
+ *
+ * Returns a list of strict-gate failure messages. An empty list means
+ * the field passes every check (or was absent — callers gate the call
+ * on `artifact.tools !== undefined`).
+ *
+ * Checks enforced:
+ *   1. `tools` is a plain object (rejects arrays, strings, etc.).
+ *   2. `tools.allowed` and `tools.denied`, when present, are arrays of
+ *      strings.
+ *   3. Every entry resolves to a canonical category from
+ *      `ALL_TOOL_CATEGORIES` (the same registry used by
+ *      `checkToolAccess` and the adapter-emitted hooks).
+ *   4. No category appears in both `allowed` and `denied` (contradictory
+ *      declaration).
+ *
+ * Empty arrays are tolerated by the strict gate — the gentle layer can
+ * still nudge the author, but a deliberately empty allowlist is a valid
+ * configuration (locks the agent out of every tool until the user
+ * edits the file manually).
+ */
+function validateStructuredTools(
+  tools: NonNullable<UserContentArtifact["tools"]>,
+): string[] {
+  const violations: string[] = [];
+
+  if (typeof tools !== "object" || tools === null || Array.isArray(tools)) {
+    return [
+      "Invalid `tools` field — expected an object of shape { allowed?: string[], denied?: string[] }",
+    ];
+  }
+
+  const known = new Set<string>(ALL_TOOL_CATEGORIES);
+
+  const checkList = (
+    list: unknown,
+    label: "allowed" | "denied",
+  ): string[] | undefined => {
+    if (list === undefined) return undefined;
+    if (!Array.isArray(list)) {
+      violations.push(
+        `Invalid \`tools.${label}\` — expected an array of category strings (got ${typeof list})`,
+      );
+      return undefined;
+    }
+    const cleaned: string[] = [];
+    for (const entry of list) {
+      if (typeof entry !== "string") {
+        violations.push(
+          `Invalid \`tools.${label}\` entry — every entry must be a string (got ${typeof entry})`,
+        );
+        continue;
+      }
+      if (!known.has(entry)) {
+        violations.push(
+          `Unknown tool category "${entry}" in \`tools.${label}\` — valid categories: ${ALL_TOOL_CATEGORIES.join(", ")}`,
+        );
+        continue;
+      }
+      cleaned.push(entry);
+    }
+    return cleaned;
+  };
+
+  const allowed = checkList(tools.allowed, "allowed");
+  const denied = checkList(tools.denied, "denied");
+
+  if (allowed && denied) {
+    const allowedSet = new Set(allowed);
+    const overlap = denied.filter((c) => allowedSet.has(c));
+    if (overlap.length > 0) {
+      violations.push(
+        `Contradictory \`tools\` declaration — categories appear in both allowed and denied: ${overlap.join(", ")}`,
+      );
+    }
+  }
+
+  return violations;
 }
 
 // ── Internal: composition + write ──────────────────────────────
@@ -454,6 +709,22 @@ function composeArtifactFile(artifact: UserContentArtifact): string {
     }
     if (artifact.isOrchestrator && artifact.agentPipeline) {
       derived.agentPipeline = artifact.agentPipeline;
+    }
+  }
+  // Emit the structured `tools` field when present (C9-H81). The strict
+  // gate already validated the shape and category membership; here we
+  // simply serialise the trimmed payload — both keys are optional, and
+  // we only include each side when the author supplied it.
+  if (artifact.tools && typeof artifact.tools === "object" && !Array.isArray(artifact.tools)) {
+    const toolsPayload: { allowed?: string[]; denied?: string[] } = {};
+    if (Array.isArray(artifact.tools.allowed)) {
+      toolsPayload.allowed = [...artifact.tools.allowed];
+    }
+    if (Array.isArray(artifact.tools.denied)) {
+      toolsPayload.denied = [...artifact.tools.denied];
+    }
+    if (toolsPayload.allowed !== undefined || toolsPayload.denied !== undefined) {
+      derived.tools = toolsPayload;
     }
   }
 

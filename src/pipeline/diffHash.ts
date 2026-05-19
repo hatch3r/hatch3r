@@ -7,6 +7,9 @@
  * is reviewing the actual modifications.
  *
  * Finding #77 (D15, High): Add diff-hash verification on fixer-to-reviewer handoff.
+ *
+ * @library_export_only — published contract for hatch3r-fixer / hatch3r-reviewer
+ * agent implementations and downstream pack integrators; not invoked by the CLI.
  */
 
 import { createHash } from "node:crypto";

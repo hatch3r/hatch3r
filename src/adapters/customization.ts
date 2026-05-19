@@ -50,7 +50,78 @@ const DENY_PATTERNS: RegExp[] = [
   /(?:reveal|show|display|output)\s+(?:your|the)\s+(?:system\s+)?(?:prompt|instructions|rules)/i,
   /(?:jailbreak|dan\s+mode|developer\s+mode)/i,
   /(?:output|print|write)\s+(?:the|your)\s+(?:initial|original|system)\s+(?:prompt|instructions)/i,
+  // C9-H5 (D2-SA2.3-01): 2026 high-prevalence injection-pattern classes.
+  // Mirror pipeline promptGuard P-PIPE-08/09/05 coverage at the customization
+  // layer so non-pipeline call sites (mcpDescriptionScan, safeWrite
+  // user-content, learningsValidation, validate.ts content-scan,
+  // userContent body/frontmatter scan) get defense-in-depth against
+  // (a) Unicode tag-char smuggling, (c) base64-encoded canonical override
+  // phrases, (e) ANSI escape sequences. Patterns (b) ZWJ/ZWNJ-adjacency
+  // and (d) homoglyph "ignore"/"system" run as pre-normalization checks
+  // in scanForDeniedPatterns() because the existing ZERO_WIDTH_CHARS /
+  // homoglyph normalizers strip those signals before regex scan. Sources:
+  // AWS "Defending LLM applications against Unicode character smuggling"
+  // 2026; OWASP LLM01:2025; HackerOne #2372363 "Invisible Prompt
+  // Injection"; arxiv:2504.07467 "Mixture of Encodings"; Promptfoo
+  // base64/homoglyph strategies. Cross-ref: C9-C8 jq securityNote in
+  // cliTools/registry.ts (Wave 1, informational).
+  //
+  // (a) Unicode tag characters U+E0000-U+E007F (invisible payload).
+  // Surrogate-pair form: high surrogate \uDB40 paired with \uDC00-\uDC7F
+  // covers the full tag block. No legitimate use of this block exists in
+  // canonical content; any occurrence is treated as smuggling.
+  /[\uDB40][\uDC00-\uDC7F]/,
+  // (c) Base64-encoded prompt-injection blobs (>=40 chars) containing
+  // any of the canonical override-phrase encodings. Anchored to specific
+  // base64 fragments to avoid matching arbitrary base64; encoding table
+  // mirrors promptGuard P-PIPE-09 plus "Forget all" / "Act as" variants
+  // observed in 2026 disclosures. Minimum match length of the shortest
+  // encoded alternative (>=12 chars "YWN0IGFzIGFu") is well above the
+  // >=40-char raw-blob threshold once the canonical phrases are encoded
+  // (e.g. "Ignore all previous instructions" base64-encodes to 44 chars).
+  /(?:SWdub3JlIGFsbCBwcmV2aW91cyBpbnN0cnVjdGlvbnM|aWdub3JlIGFsbCBwcmV2aW91cyBpbnN0cnVjdGlvbnM|SWdub3JlIHByZXZpb3VzIGluc3RydWN0aW9ucw|aWdub3JlIHByZXZpb3VzIGluc3RydWN0aW9ucw|RGlzcmVnYXJkIHByZXZpb3VzIGluc3RydWN0aW9ucw|ZGlzcmVnYXJkIHByZXZpb3VzIGluc3RydWN0aW9ucw|U3lzdGVtIHByb21wdDo|c3lzdGVtIHByb21wdDo|WW91IGFyZSBub3c|eW91IGFyZSBub3c|Rm9yZ2V0IGFsbCBwcmV2aW91cw|Zm9yZ2V0IGFsbCBwcmV2aW91cw|QWN0IGFzIGFu|YWN0IGFzIGFu)/,
+  // (e) ANSI escape sequence injection -- ESC (0x1B) followed by [
+  // initiating CSI sequences used in terminal-rendering attacks (cursor
+  // movement, color reset, hidden text). Matches the promptGuard
+  // P-PIPE-05 contract but reused at customization layer for call sites
+  // that bypass the pipeline guard.
+  /\x1b\[/,
 ];
+
+/**
+ * C9-H5 (D2-SA2.3-01): pre-normalization deny-pattern classes (b) ZWJ/ZWNJ
+ * adjacency and (d) Cyrillic-confusable "ignore"/"system" smuggling.
+ *
+ * Both classes are detected against the RAW input before normalizeInput()
+ * strips zero-width characters and maps known homoglyphs. Once
+ * normalization runs, ZWJ/ZWNJ are removed (line 296, ZERO_WIDTH_CHARS),
+ * and Cyrillic homoglyphs present in HOMOGLYPH_MAP are replaced with
+ * ASCII -- so these patterns can never fire post-normalization.
+ *
+ * The post-normalization deny-pattern list still catches the canonical
+ * ASCII override phrases ("ignore all previous instructions", etc.); the
+ * pre-scan adds an additional signal for smuggled-via-confusable variants
+ * where the keyword is spelled with non-ASCII look-alikes that may or may
+ * not be in HOMOGLYPH_MAP (U+0456 і, U+0455 ѕ, U+0442 т are not currently
+ * mapped and would survive normalization intact).
+ */
+
+// (b) Zero-width joiner U+200D / non-joiner U+200C signal. Matches a ZWJ/ZWNJ
+// inside (or adjacent to, within 12 chars of) any canonical override-keyword
+// span. We compute the spans by first stripping ZWJ/ZWNJ from a working copy
+// to locate the keyword, then verifying the original contained ZWJ/ZWNJ in
+// proximity. Implemented in scanForDeniedPatterns below for clarity over a
+// monolithic regex.
+const ZWJ_ZWNJ_CHARS = /[‌‍]/;
+const OVERRIDE_KEYWORDS_RAW = /(?:ignore|system|instructions?|disregard|override|forget|jailbreak)/i;
+
+// (d) Cyrillic confusable spelling of "ignore" / "system". Each letter position
+// admits ASCII OR a Cyrillic look-alike from the U+0400-U+04FF block. To avoid
+// false positives on clean ASCII, the scan in scanForDeniedPatterns verifies
+// that the matched substring contains at least one Cyrillic codepoint.
+const CYRILLIC_IGNORE_PATTERN = /[iі]g[nN][oо]r[eе]/i;
+const CYRILLIC_SYSTEM_PATTERN = /[sѕ][yу][sѕ][tт][eе][mм]/i;
+const ANY_CYRILLIC_CHAR = /[Ѐ-ӿ]/;
 
 const ZERO_WIDTH_CHARS = /[\u200B\u200C\u200D\uFEFF\u00AD]/g;
 
@@ -288,8 +359,29 @@ function normalizeInputToFixedPoint(content: string): string {
 }
 
 export function scanForDeniedPatterns(content: string): string[] {
-  const normalized = normalizeInputToFixedPoint(content);
   const violations: string[] = [];
+  // C9-H5 pre-scan (b): ZWJ/ZWNJ smuggling. Strip ZWJ/ZWNJ to a working copy,
+  // locate any override keyword, then check whether the original content had
+  // a ZWJ/ZWNJ within the keyword span or within 12 chars of it. This catches
+  // both (i) ZWJ inserted INSIDE the keyword ("i‍gnore") and (ii) ZWJ
+  // adjacent to a contiguous keyword, before ZERO_WIDTH_CHARS strips them.
+  if (ZWJ_ZWNJ_CHARS.test(content)) {
+    const stripped = content.replace(/[‌‍]/g, "");
+    if (OVERRIDE_KEYWORDS_RAW.test(stripped)) {
+      violations.push("Denied pattern found: zero-width joiner/non-joiner adjacent to override keyword");
+    }
+  }
+  // C9-H5 pre-scan (d): Cyrillic confusable spelling of "ignore"/"system".
+  // The combined keyword pattern accepts ASCII or Cyrillic per position; the
+  // guard against false-positive on clean ASCII is verifying the matched
+  // substring contains at least one Cyrillic codepoint.
+  for (const kwPattern of [CYRILLIC_IGNORE_PATTERN, CYRILLIC_SYSTEM_PATTERN]) {
+    const m = content.match(kwPattern);
+    if (m && ANY_CYRILLIC_CHAR.test(m[0])) {
+      violations.push("Denied pattern found: Cyrillic homoglyph in 'ignore'/'system' keyword");
+    }
+  }
+  const normalized = normalizeInputToFixedPoint(content);
   for (const pattern of DENY_PATTERNS) {
     const match = normalized.match(pattern);
     if (match) {

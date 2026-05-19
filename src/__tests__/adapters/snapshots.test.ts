@@ -71,8 +71,9 @@ function extractMarkers(content: string): string[] {
   try {
     JSON.parse(content);
     markers.push("VALID_JSON");
-  } catch {
-    // Not JSON
+  } catch (err) {
+    // Not JSON — that's an expected branch (markers simply don't gain VALID_JSON).
+    void err;
   }
 
   return markers.sort();

@@ -1,3 +1,6 @@
+// Last updated: 2026-05-19 (P3 platform-currency anchor; aws.github.io
+// /amazon-q-developer-cli access dates inside this file remain authoritative
+// for individual claims).
 import type { AdapterOutput } from "../types.js";
 import { toPrefixedId } from "../types.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
@@ -81,9 +84,11 @@ export class AmazonQAdapter extends BaseAdapter {
     if (ctx.features.agents) {
       const agents = await this.readUserFacingCanonicalFiles(ctx.agentsDir, "agents");
       for (const agent of agents) {
-        const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
+        const { content: rawContent, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
         this.warnings.push(...warnings);
         if (skip) continue;
+        // C9-H47 (D14-SA14.4-H01): substitute detected toolchain tokens.
+        const content = this.substituteDetectedRepoTokens(rawContent, ctx);
         const desc = overrides.description ?? agent.description;
         const descriptor: AmazonQAgentDescriptor = {
           name: toPrefixedId(agent.id),

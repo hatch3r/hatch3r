@@ -55,7 +55,32 @@ Prompt structure follows `agents/shared/prompt-structure.md` — `<task>`, `<con
 - **Always:** <ALWAYS-1>
 - **Never:** <NEVER-1>
 </rules>
+
+## Confidence Expression
+Per `agents/shared/quality-charter.md` §1 and `governance/audit/templates/rigor-contract.md`, rate every recommendation and decision as **high**, **medium**, or **low** confidence and name the basis (direct measurement, sampled observation, inference from analogue).
+
+- **High:** Verified against the specific code/document path read this turn (<FILE-OR-FIXTURE-VERIFIED>).
+- **Medium:** Pattern-based on convention or analogue (<NAMED-PATTERN-OR-ANALOGUE>); not fully traced.
+- **Low:** Best professional judgment without verification (<UNKNOWN-OR-MISSING-INPUT>); recommend human review before acting.
+
+Emit confidence in the structured result block above. Dropping the field is a charter violation.
+
+## Failure Modes
+| Failure | Status | Recovery |
+|---|---|---|
+| <KNOWN-FAILURE-1> | BLOCKED | <RECOVERY-1> |
+| <KNOWN-FAILURE-2> | PARTIAL | <RECOVERY-2> |
+| Ambiguous input that maps to ≥2 reasonable interpretations | BLOCKED | Apply `agents/shared/user-question-protocol.md` before any write. |
+| Required input missing | BLOCKED | Surface a single multiple-choice question naming the missing field and a safe default. |
+| Underlying tool error (filesystem, network, sub-agent timeout) | BLOCKED | Surface the error verbatim; do not silent-retry. |
+
+## Quality Charter
+This agent inherits `agents/shared/quality-charter.md` via the frontmatter `quality_charter:` field. The charter binds: §1 confidence levels, §4 root-cause reporting, §6 fail-gracefully, §7 measurable criteria, §8 escalate-ambiguity-early, §10 standardized iteration summary. List below any agent-specific section overrides — if none, write `None — full charter applies`:
+
+- <CHARTER-OVERRIDE-OR-NONE>
 ```
+
+The three sections above (Confidence Expression, Failure Modes, Quality Charter) are required on every user-authored agent. `hatch3r-creator` injects placeholders during composition and reports `gentleWarnings` when any section is missing or left unsubstituted at save time.
 
 ### 2. Skill Skeleton
 
@@ -190,9 +215,12 @@ This command runs as a single orchestrator without sub-agent delegation.
 - <GUARDRAIL-1>
 ```
 
-Body skeleton — 4b orchestrator (Phase 1 collect, Phase 2 delegate, Phase 3 housekeeping):
+Body skeleton — 4b orchestrator (Step 0 detect ambiguity, Phase 1 collect, Phase 2 delegate, Phase 3 housekeeping):
 
 ```markdown
+## §0 Detect Ambiguity (P8 B1)
+Before any action, scan the user's request for unresolved questions in scope, target artifact, irreversibility, or constraint conflicts (multiple matching files, missing acceptance criteria, ambiguous "small" boundary, conflicting requirements). If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Acceptable to proceed without asking ONLY when scope is single-target, single-concern, and the brief alone is testable. ASK rules in Phase 1 remain in force for residual ambiguity discovered mid-workflow.
+
 ## Agent Pipeline
 This command runs as an orchestrator. After collecting inputs in Phase 1, it delegates to <AGENT-ID-1> via the Task tool.
 # <TITLE>
@@ -210,6 +238,8 @@ Use the Task tool to invoke <AGENT-ID-1>. Pass collected slots as structured inp
 ## Guardrails
 - <GUARDRAIL-1>
 ```
+
+The §0 block is required on every user-authored orchestrator command per CONSTITUTION §2 P8 B1 (Clarification-First, Default-Path). It must reference `agents/shared/user-question-protocol.md` verbatim — `hatch3r-creator` rejects orchestrator commands whose §0 block is missing the reference (strict gate, see D20 SA20.1 audit checklist).
 
 The strict gate `validateCommandOrchestratorFrontmatter` (`src/cli/commands/validate.ts:171`) rejects `orchestrator: true` without a non-empty `agentPipeline` array.
 

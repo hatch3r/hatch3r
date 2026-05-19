@@ -21,7 +21,7 @@ This command provides shared context and procedures for board commands. It does 
 
 ## Prerequisite Check (run at the start of every board command)
 
-Before reading configuration, validate that prerequisites are met. If any check fails, stop immediately with an actionable error message.
+Before reading configuration, validate that prerequisites are met. If any check fails, stop immediately with an actionable error message. For interactive sessions where credentials are missing, use the `agents/shared/user-question-protocol.md` plain-text fallback shape to offer the user a numbered choice (interactive login / paste-token / abort) instead of a bare stop message.
 
 1. **hatch.json exists:** If `.agents/hatch.json` is missing or unreadable, stop with:
    > "Board commands require a hatch3r project. Run `npx hatch3r init` to set up your project first."
@@ -29,10 +29,10 @@ Before reading configuration, validate that prerequisites are met. If any check 
 2. **owner/repo configured:** If both top-level `owner`/`repo` and `board.owner`/`board.repo` are empty, stop with:
    > "Board commands require owner and repo. Run `npx hatch3r config` to set your repository identity, or provide them in `.agents/hatch.json` under the top-level `owner` and `repo` fields."
 
-3. **Platform authentication:** Verify CLI authentication for the configured platform:
-   - **GitHub:** Run `gh auth status`. If it fails, stop with: "GitHub CLI not authenticated. Run `gh auth login` and confirm your PAT has the `project` scope for Projects V2 access. See: https://docs.github.com/en/issues/planning-and-tracking-with-projects"
-   - **Azure DevOps:** Run `az account show`. If it fails, stop with: "Azure CLI not authenticated. Run `az login` or set AZURE_DEVOPS_PAT. Confirm access to organization `{namespace}`."
-   - **GitLab:** Run `glab auth status`. If it fails, stop with: "GitLab CLI not authenticated. Run `glab auth login` or set GITLAB_TOKEN. Confirm access to project `{namespace}/{project}`."
+3. **Platform authentication:** Verify CLI authentication for the configured platform. On failure, ASK via user-question-protocol with three numbered options (interactive login / paste-token / abort) and default to option 1 if no response.
+   - **GitHub:** Run `gh auth status`. If it fails or the `project` scope is missing, check `GITHUB_TOKEN`/`GH_TOKEN` env vars first; if absent, ASK: (1) `gh auth login` interactively, (2) paste a PAT with `project` scope (set GITHUB_TOKEN for this session only), (3) abort. Reference: https://docs.github.com/en/issues/planning-and-tracking-with-projects
+   - **Azure DevOps:** Run `az account show`. If it fails, check `AZURE_DEVOPS_PAT`; if absent, ASK: (1) `az login` interactively, (2) provide AZURE_DEVOPS_PAT, (3) abort. Confirm access to organization `{namespace}`.
+   - **GitLab:** Run `glab auth status`. If it fails, check `GITLAB_TOKEN`; if absent, ASK: (1) `glab auth login` interactively, (2) provide GITLAB_TOKEN, (3) abort. Confirm access to project `{namespace}/{project}`.
 
 4. **projectNumber set (for commands other than board-init):** For `board-fill`, `board-groom`, `board-pickup`, and `board-refresh`, if `board.projectNumber` is null, stop with:
    > "No project board configured. Run the `board-init` command first to create or connect a project board. This sets up the board.projectNumber in `.agents/hatch.json`."
@@ -40,7 +40,7 @@ Before reading configuration, validate that prerequisites are met. If any check 
 5. **GitHub PAT project scope (GitHub only, for board-init/fill/groom/pickup):** If GitHub mutations fail with permission errors, surface:
    > "GitHub Projects V2 requires the `project` scope on your PAT. Run `gh auth refresh -s project` to add it. Classic PATs need `admin:org` for org-owned projects."
 
-Report each failed prerequisite with the specific fix command. Do not proceed past the first failure.
+Report each failed prerequisite with the specific fix command. Do not proceed past the first failure. Record each check's outcome (passed / failed-then-resolved / aborted) in the run cache `errors` entry for the end-of-run summary.
 
 ---
 

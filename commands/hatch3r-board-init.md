@@ -10,6 +10,10 @@ cache_friendly: true
 parallel_tool_default: true
 ---
 
+## §0 Detect Ambiguity (P8 B1)
+
+Before any action, scan the user's request and provided context for unresolved questions in scope, acceptance criteria, irreversibility, or constraint conflicts (contradictory inputs, missing target, unknown convention). If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Acceptable to proceed without asking ONLY when scope is single-target, single-concern, and the brief alone is testable. Any residual ambiguity discovered mid-workflow invokes the same protocol.
+
 ## Agent Pipeline
 
 This command runs as a single orchestrator without sub-agent delegation.
@@ -62,6 +66,53 @@ If the user requests quick mode, defaults mode, or passes a `--quick` or `--defa
 ## Workflow
 
 This command runs in two phases: **Planning** (collect all answers) then **Execution** (perform all mutations). No mutations occur until the user confirms the full plan.
+
+---
+
+### Step 0: Prerequisites
+
+Run BEFORE Phase 1. Halt on the first failure with an actionable fix command. Do not prompt for board configuration choices until every prerequisite below succeeds.
+
+1. **Run the shared Prerequisite Check.** Execute the `Prerequisite Check` block in `hatch3r-board-shared` §"Prerequisite Check (run at the start of every board command)" — verifies `.agents/hatch.json` exists, owner/repo configured, and platform CLI authenticated (`gh auth status` / `az account show` / `glab auth status`).
+
+2. **Verify platform credentials at the env-var layer.** The shared prereq check confirms the CLI is authenticated; this step additionally verifies the underlying credential is present for non-interactive runs:
+
+   **If platform is `github`:**
+   - Run `gh auth status` first. If the CLI is already authenticated with the `project` scope, the env var fallback is not required and this step passes.
+   - If `gh auth status` fails or the `project` scope is missing, check for `GITHUB_TOKEN` (preferred for CI) or `GH_TOKEN`. If neither is set, ASK the user using the `agents/shared/user-question-protocol.md` plain-text fallback shape:
+
+     ```
+     **Question:** GitHub CLI is not authenticated and no GITHUB_TOKEN is set. How should I obtain credentials?
+
+     1. Run `gh auth login` interactively now — opens the GitHub OAuth flow in your browser.
+     2. Provide a Personal Access Token here — paste a PAT with the `project` scope; I will set GITHUB_TOKEN for this session only.
+     3. Abort — exit and configure credentials externally; re-run `hatch3r-board-init` afterward.
+
+     Default if no response: 1
+     ```
+
+   **If platform is `azure-devops`:**
+   - Run `az account show`. If it fails, check for `AZURE_DEVOPS_PAT`. If neither is configured, ASK using the same plain-text fallback shape with options: (1) `az login` interactively, (2) provide AZURE_DEVOPS_PAT, (3) abort. Default: 1.
+
+   **If platform is `gitlab`:**
+   - Run `glab auth status`. If it fails, check for `GITLAB_TOKEN`. If neither is configured, ASK using the same plain-text fallback shape with options: (1) `glab auth login` interactively, (2) provide GITLAB_TOKEN, (3) abort. Default: 1.
+
+3. **Verify owner/repo identity.** Read `.agents/hatch.json` and confirm both top-level `owner`/`repo` (or `board.owner`/`board.repo` as fallback) are set and non-empty. If either is empty, ASK using the user-question-protocol plain-text fallback shape:
+
+   ```
+   **Question:** Owner/repo are not configured in `.agents/hatch.json`. How should I capture them?
+
+   1. Provide owner and repo now — paste in this turn; I will write them to `.agents/hatch.json` after Phase 1 confirmation.
+   2. Run `npx hatch3r config` first — abort, configure repo identity, then re-run `hatch3r-board-init`.
+
+   Default if no response: 1
+   ```
+
+4. **Set pager-bypass env vars.** Before the first CLI invocation, export `GH_PAGER=cat` and `PAGER=cat` per `hatch3r-board-shared` §"Pager-Bypass Directive". Required for reliable `gh api --jq` output capture.
+
+5. **Record prerequisite outcomes.** Write each check's outcome (passed / failed-then-resolved / aborted) to the run cache `errors` entry so the end-of-run summary can surface auth-related warnings.
+
+This step is mandatory and non-skippable. Quick / Defaults Mode (§"Quick / Defaults Mode" above) skips Phase 1 ASKs but does NOT skip Step 0 — credential and identity verification run unconditionally before any board mutation.
 
 ---
 

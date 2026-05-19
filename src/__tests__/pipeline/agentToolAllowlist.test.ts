@@ -68,6 +68,52 @@ describe("agentToolAllowlist", () => {
     it("should return undefined for an unknown agent", () => {
       expect(getAgentToolPolicy("unknown-agent")).toBeUndefined();
     });
+
+    // C9-C1 (D2-SA2.4-01, Critical, ASI02): hatch3r-creator is a
+    // user-content authoring agent that exists at agents/hatch3r-creator.md
+    // but was missing from AGENT_TOOL_POLICIES. An agent that omits the
+    // `tools:` frontmatter inherits ALL parent tools per Claude Code
+    // behaviour, so the absence of a registered policy was a full
+    // privilege-escalation vector on a content-authoring agent.
+    describe("C9-C1 hatch3r-creator policy (ASI02 privilege escalation)", () => {
+      it("returns a defined policy for hatch3r-creator (regression: was undefined)", () => {
+        const policy = getAgentToolPolicy("hatch3r-creator");
+        expect(policy, "hatch3r-creator must have a registered tool policy").toBeDefined();
+        expect(policy!.agentId).toBe("hatch3r-creator");
+      });
+
+      it("applies least-privilege: allows authoring tools, denies network/git/board", () => {
+        const policy = getAgentToolPolicy("hatch3r-creator");
+        expect(policy).toBeDefined();
+        // Authoring needs: read templates, search collisions, write under
+        // .agents/user/, execute mkdir -p.
+        expect(policy!.allowedTools).toContain("read");
+        expect(policy!.allowedTools).toContain("search");
+        expect(policy!.allowedTools).toContain("write");
+        expect(policy!.allowedTools).toContain("execute");
+        // Denied: external research and remote operations are out of scope
+        // per agents/hatch3r-creator.md §Tool Allowlist (the agent does not
+        // need WebFetch/WebSearch; remote orchestration belongs elsewhere).
+        expect(policy!.allowedTools).not.toContain("web");
+        expect(policy!.allowedTools).not.toContain("mcp");
+        expect(policy!.allowedTools).not.toContain("git");
+        expect(policy!.allowedTools).not.toContain("board");
+      });
+
+      it("denies hatch3r-creator from invoking web/git/board tools via checkToolAccess", () => {
+        expect(checkToolAccess("hatch3r-creator", "web").allowed).toBe(false);
+        expect(checkToolAccess("hatch3r-creator", "git").allowed).toBe(false);
+        expect(checkToolAccess("hatch3r-creator", "board").allowed).toBe(false);
+        expect(checkToolAccess("hatch3r-creator", "mcp").allowed).toBe(false);
+      });
+
+      it("allows hatch3r-creator to invoke read/search/write/execute via checkToolAccess", () => {
+        expect(checkToolAccess("hatch3r-creator", "read").allowed).toBe(true);
+        expect(checkToolAccess("hatch3r-creator", "search").allowed).toBe(true);
+        expect(checkToolAccess("hatch3r-creator", "write").allowed).toBe(true);
+        expect(checkToolAccess("hatch3r-creator", "execute").allowed).toBe(true);
+      });
+    });
   });
 
   describe("checkToolAccess", () => {

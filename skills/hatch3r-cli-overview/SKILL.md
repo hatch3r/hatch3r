@@ -40,7 +40,7 @@ hatch3r recommends a small set of terminal-native CLI tools agents can call inst
 | `llm` | `hatch3r-cli-llm` | simonw/llm — invoke LLMs from the command line with prompt templates |
 | `playwright` | `hatch3r-cli-playwright` | Browser automation, web testing, and UI interaction |
 | `taplo` | `hatch3r-cli-taplo` | TOML toolkit (format, lint, query) for pyproject.toml / Cargo.toml |
-| `xsv` | `hatch3r-cli-xsv` | Fast CSV toolkit (slice, search, join, stats) |
+| `qsv` | `hatch3r-cli-qsv` | Fast CSV toolkit (slice, search, join, stats, 80+ commands) — actively-maintained xsv successor |
 
 ## Tier 3 — opt-in advanced
 

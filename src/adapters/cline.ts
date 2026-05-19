@@ -2,11 +2,23 @@ import type { AdapterOutput } from "../types.js";
 import { toPrefixedId } from "../types.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
-import { readCanonicalFiles, sortByPrecedence, precedenceRank } from "./canonical.js";
+import { sortByPrecedence, precedenceRank } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
 import { applyCustomization } from "./customization.js";
 import { transformEnvVarSyntax } from "./mcp-utils.js";
+import { toClineGroupsFrontmatter } from "../pipeline/adapterToolTranslator.js";
 import { HATCH3R_VERSION } from "../version.js";
+
+/**
+ * Roo Code default fallback groups for agents that have no registered
+ * AGENT_TOOL_POLICIES entry (i.e. user-authored agents). Mirrors the
+ * permissive set Cline/Roo Code ships by default; only hatch3r-authored
+ * agents are subject to the per-policy translation below.
+ *
+ * Source: https://docs.roocode.com/features/custom-modes (accessed
+ * 2026-05-18, Roo Code, official-docs).
+ */
+const CLINE_DEFAULT_GROUPS: readonly string[] = ["read", "edit", "browser", "command", "mcp"];
 
 interface ClineCustomMode {
   slug: string;
@@ -27,19 +39,32 @@ export class ClineAdapter extends BaseAdapter {
     if (ctx.features.agents) {
       const agents = await this.readUserFacingCanonicalFiles(ctx.agentsDir, "agents");
       for (const agent of agents) {
-        const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
+        const { content: rawContent, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
         this.warnings.push(...warnings);
         if (skip) continue;
+        // C9-H47 (D14-SA14.4-H01): substitute detected toolchain tokens.
+        const content = this.substituteDetectedRepoTokens(rawContent, ctx);
         const slug = toPrefixedId(agent.id);
         const model = resolveAgentModel(agent.id, agent, ctx.manifest, overrides);
         const modelGuidance = model
           ? `\n\nRecommended model: ${model}. Select this model in the Roo Code model dropdown when using this mode.`
           : "";
+        // C9-H21 (D9-SA9.4.F2, P3/P6): translate the agent's hatch3r tool
+        // policy to per-mode Roo Code groups instead of hardcoding the
+        // full permissive set. Read-only agents (e.g. hatch3r-researcher,
+        // hatch3r-reviewer) drop the `edit` and `command` groups so the
+        // monotonic-privilege invariant survives on Cline/Roo Code.
+        //
+        // Fallback path: agents without a registered policy (user-authored
+        // agents under .agents/user/agents/) retain the permissive default
+        // — hatch3r does not own their tool-allowlist contract.
+        const policyGroups = toClineGroupsFrontmatter(slug);
+        const groups = policyGroups ?? [...CLINE_DEFAULT_GROUPS];
         customModes.push({
           slug,
           name: agent.id,
           roleDefinition: content + modelGuidance,
-          groups: ["read", "edit", "browser", "command", "mcp"],
+          groups,
           whenToUse: overrides.description ?? agent.description,
         });
       }
@@ -59,16 +84,22 @@ export class ClineAdapter extends BaseAdapter {
     );
 
     if (ctx.features.rules) {
-      const rules = await readCanonicalFiles(ctx.agentsDir, "rules", this.warnings);
+      // C9-H39 (D11-SA11.1-01): use the BaseAdapter-tracked read wrapper so
+      // every canonical rule consumed here is recorded in
+      // `this._trackedSourceFiles` and surfaces on each output's
+      // `sourceFiles` field.
+      const rules = await this.readTrackedCanonicalFiles(ctx.agentsDir, "rules");
       // Wave B3: precedence-ordered emission + NN- numeric filename prefix on
       // .roo/rules/. critical=10, high=30, normal=50, low=70. Roo Code loads
       // rule files alphabetically; the prefix establishes deterministic load
       // order at the filesystem level.
       const sortedRules = sortByPrecedence(rules);
       for (const rule of sortedRules) {
-        const { content, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);
+        const { content: rawContent, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);
         this.warnings.push(...warnings);
         if (skip) continue;
+        // C9-H47 (D14-SA14.4-H01): substitute detected toolchain tokens.
+        const content = this.substituteDetectedRepoTokens(rawContent, ctx);
         const desc = overrides.description ?? rule.description;
         const body = `# ${rule.id}\n\n${desc}\n\n${content}`;
         const nn = precedenceRank(rule.precedence) / 10;

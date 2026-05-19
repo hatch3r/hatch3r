@@ -156,18 +156,24 @@ describe("runSelfUpdate", () => {
       JSON.stringify({ name: "hatch3r", version: "1.0.0" }),
     );
 
-    let callIndex = 0;
+    // Args-based dispatch (robust to extra calls injected by audit):
+    //   ["root", "-g"]                    -> fake-global-root
+    //   ["install", "hatch3r@latest"]     -> primary install succeeds
+    //   ["audit", "signatures"]           -> primary audit succeeds
+    //   ["install", "-g", "hatch3r@..."]  -> secondary global install throws
     vi.mocked(execFileSync).mockImplementation((..._args: unknown[]) => {
-      if (callIndex === 0) {
-        callIndex++;
-        return Buffer.from(`${fakeRoot}\n`); // npm root -g
+      const a = _args[1] as string[] | undefined;
+      if (Array.isArray(a) && a[0] === "root" && a[1] === "-g") {
+        return Buffer.from(`${fakeRoot}\n`);
       }
-      if (callIndex === 1) {
-        callIndex++;
-        return Buffer.from(""); // primary install succeeds
+      if (Array.isArray(a) && a[0] === "audit" && a[1] === "signatures") {
+        return Buffer.from("verified: ok\n");
       }
-      callIndex++;
-      throw new Error("EACCES: permission denied (global install)");
+      if (Array.isArray(a) && a.includes("-g") && a.includes("hatch3r@latest")) {
+        throw new Error("EACCES: permission denied (global install)");
+      }
+      // project-local install
+      return Buffer.from("");
     });
 
     const result = await runSelfUpdate(tempDir);

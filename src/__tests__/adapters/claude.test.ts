@@ -2,7 +2,12 @@ import { describe, it, expect } from "vitest";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { ClaudeAdapter } from "../../adapters/claude.js";
+import {
+  ClaudeAdapter,
+  CACHE_BREAKPOINT_SENTINEL,
+  CACHE_BREAKPOINT_SENTINEL_START,
+  CACHE_BREAKPOINT_SENTINEL_END,
+} from "../../adapters/claude.js";
 import { createManifest } from "../../manifest/hatchJson.js";
 import type { HatchManifest } from "../../types.js";
 import { MANAGED_BLOCK_START, MANAGED_BLOCK_END } from "../../types.js";
@@ -742,6 +747,105 @@ Low priority rule body.
     });
   });
 
+  // C9-H49 (D15-SA15.2, P6): per-adapter PreToolUse / MCP-gating hook
+  // emission. Reclassifies the agent tool allowlist as Hybrid in
+  // SECURITY.md — the canonical policy registry is the source of
+  // truth, and the Claude adapter emits a runtime PreToolUse hook
+  // (`.claude/hooks/pretooluse-allowlist.mjs`) + machine-readable
+  // policy document (`.claude/hooks/agent-tool-policies.json`) so the
+  // allowlist survives into the Claude Code runtime.
+  describe("C9-H49 PreToolUse allowlist hook emission", () => {
+    it("emits .claude/hooks/agent-tool-policies.json with the canonical registry", async () => {
+      const manifest = makeManifest();
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const policiesFile = outputs.find(
+        (o) => o.path === ".claude/hooks/agent-tool-policies.json",
+      );
+      expect(policiesFile).toBeDefined();
+      const parsed = JSON.parse(policiesFile!.content);
+      expect(parsed.schema).toBe("hatch3r/agent-tool-policies/v1");
+      expect(Array.isArray(parsed.policies)).toBe(true);
+      // Registry must contain the canonical hatch3r-reviewer + hatch3r-implementer entries.
+      const reviewer = parsed.policies.find(
+        (p: { agentId: string }) => p.agentId === "hatch3r-reviewer",
+      );
+      const implementer = parsed.policies.find(
+        (p: { agentId: string }) => p.agentId === "hatch3r-implementer",
+      );
+      expect(reviewer).toBeDefined();
+      expect(reviewer.allowedTools).toEqual(["read", "search"]);
+      expect(implementer).toBeDefined();
+      expect(implementer.allowedTools).toContain("write");
+      expect(implementer.allowedTools).toContain("execute");
+      // Top-level discriminator for downstream consumers.
+      expect(parsed.allToolCategories).toContain("read");
+      expect(parsed.allToolCategories).toContain("mcp");
+    });
+
+    it("emits .claude/hooks/pretooluse-allowlist.mjs Node ESM script", async () => {
+      const manifest = makeManifest();
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const hookScript = outputs.find(
+        (o) => o.path === ".claude/hooks/pretooluse-allowlist.mjs",
+      );
+      expect(hookScript).toBeDefined();
+      expect(hookScript!.content.startsWith("#!/usr/bin/env node")).toBe(true);
+      // Hook contract: reads sibling policy file, gates on category match.
+      expect(hookScript!.content).toContain("agent-tool-policies.json");
+      expect(hookScript!.content).toContain("CLAUDE_TOOL_NAME");
+      expect(hookScript!.content).toContain("CLAUDE_SUBAGENT_ID");
+      // Deny-by-default: exit 2 blocks the tool call.
+      expect(hookScript!.content).toContain("process.exit(2)");
+      // Structured deny reason codes for failure-log persistence.
+      expect(hookScript!.content).toContain("UNKNOWN_TOOL");
+      expect(hookScript!.content).toContain("NO_POLICY");
+      expect(hookScript!.content).toContain("TOOL_NOT_ALLOWED");
+      // Claude Code → hatch3r category map (reverse of CLAUDE_CATEGORY_MAP).
+      expect(hookScript!.content).toContain('Read: "read"');
+      expect(hookScript!.content).toContain('Bash: "execute"');
+      expect(hookScript!.content).toContain('Edit: "write"');
+      // MCP tool prefix handling.
+      expect(hookScript!.content).toContain('mcp__');
+    });
+
+    it("registers the PreToolUse hook in settings.json", async () => {
+      const manifest = makeManifest();
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const settings = outputs.find((o) => o.path === ".claude/settings.json");
+      expect(settings).toBeDefined();
+      const parsed = JSON.parse(settings!.content);
+      expect(parsed.hooks.PreToolUse).toBeDefined();
+      // The allowlist hook fires on every tool call (matcher ".*"), so it
+      // appears as one of the PreToolUse entries.
+      const allowlistEntry = parsed.hooks.PreToolUse.find(
+        (e: { hooks: Array<{ command: string }> }) =>
+          e.hooks.some((h) =>
+            h.command.includes("pretooluse-allowlist.mjs"),
+          ),
+      );
+      expect(allowlistEntry).toBeDefined();
+      expect(allowlistEntry.matcher).toBe(".*");
+      expect(allowlistEntry.hooks[0].type).toBe("command");
+      expect(allowlistEntry.hooks[0].command).toContain(
+        "node .claude/hooks/pretooluse-allowlist.mjs",
+      );
+    });
+
+    it("emits policies.json + hook script independently of features.hooks", async () => {
+      // The PreToolUse allowlist is the runtime tail of ASI02 — it
+      // must ship regardless of whether the project opts out of the
+      // hook *content* feature, otherwise the trust chain breaks.
+      const manifest = makeManifest({ features: { hooks: false } });
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      expect(
+        outputs.find((o) => o.path === ".claude/hooks/agent-tool-policies.json"),
+      ).toBeDefined();
+      expect(
+        outputs.find((o) => o.path === ".claude/hooks/pretooluse-allowlist.mjs"),
+      ).toBeDefined();
+    });
+  });
+
   // ── Wave 5 (CLI-tooling pivot, plan §4.6) ───────────────────────
   //
   // Claude's skills surface is filtered by `manifest.cliTools.selected` via
@@ -784,6 +888,154 @@ Low priority rule body.
       expect(
         outputs.filter((o) => o.path.startsWith(".claude/skills/hatch3r-cli-")),
       ).toEqual([]);
+    });
+  });
+
+  // C9-M47 (D6-SA6.4, P7): cache-breakpoint sentinel coverage. The Claude
+  // adapter emits a paired sentinel (`<!-- HATCH3R-CACHE-BREAKPOINT-START -->` /
+  // `<!-- HATCH3R-CACHE-BREAKPOINT-END -->`) inside every managed block so
+  // the Claude Code prompt-cache layer can fingerprint the deterministic
+  // hatch3r-managed prefix across syncs. The cases below pin the sentinel
+  // emission contract for each managed-block-bearing output the adapter
+  // produces and prove the constants are exported for downstream tooling.
+  describe("cache-breakpoint sentinel (C9-M47)", () => {
+    it("exports a balanced sentinel-name family", () => {
+      expect(CACHE_BREAKPOINT_SENTINEL).toBe("<!-- HATCH3R-CACHE-BREAKPOINT -->");
+      expect(CACHE_BREAKPOINT_SENTINEL_START).toBe("<!-- HATCH3R-CACHE-BREAKPOINT-START -->");
+      expect(CACHE_BREAKPOINT_SENTINEL_END).toBe("<!-- HATCH3R-CACHE-BREAKPOINT-END -->");
+    });
+
+    it("emits start + end sentinels inside CLAUDE.md managed block", async () => {
+      const manifest = makeManifest();
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const claudeMd = outputs.find((o) => o.path === "CLAUDE.md");
+      expect(claudeMd).toBeDefined();
+      expect(claudeMd!.content).toContain(CACHE_BREAKPOINT_SENTINEL_START);
+      expect(claudeMd!.content).toContain(CACHE_BREAKPOINT_SENTINEL_END);
+      // Sentinels live inside the managed block.
+      const startIdx = claudeMd!.content.indexOf(MANAGED_BLOCK_START);
+      const endIdx = claudeMd!.content.indexOf(MANAGED_BLOCK_END);
+      const sentStartIdx = claudeMd!.content.indexOf(CACHE_BREAKPOINT_SENTINEL_START);
+      const sentEndIdx = claudeMd!.content.indexOf(CACHE_BREAKPOINT_SENTINEL_END);
+      expect(startIdx).toBeLessThan(sentStartIdx);
+      expect(sentStartIdx).toBeLessThan(sentEndIdx);
+      expect(sentEndIdx).toBeLessThan(endIdx);
+      // managedContent (the inner payload) also carries the sentinels.
+      expect(claudeMd!.managedContent).toContain(CACHE_BREAKPOINT_SENTINEL_START);
+      expect(claudeMd!.managedContent).toContain(CACHE_BREAKPOINT_SENTINEL_END);
+    });
+
+    it("emits sentinels in every .claude/rules/ output", async () => {
+      const manifest = makeManifest();
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const rules = outputs.filter((o) => o.path.startsWith(".claude/rules/"));
+      expect(rules.length).toBeGreaterThan(0);
+      for (const rule of rules) {
+        expect(rule.content).toContain(CACHE_BREAKPOINT_SENTINEL_START);
+        expect(rule.content).toContain(CACHE_BREAKPOINT_SENTINEL_END);
+        expect(rule.managedContent).toContain(CACHE_BREAKPOINT_SENTINEL_START);
+        expect(rule.managedContent).toContain(CACHE_BREAKPOINT_SENTINEL_END);
+      }
+    });
+
+    it("emits sentinels in every .claude/agents/ output (standard mode)", async () => {
+      const manifest = makeManifest();
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const agents = outputs.filter((o) => o.path.startsWith(".claude/agents/"));
+      expect(agents.length).toBeGreaterThan(0);
+      for (const agent of agents) {
+        expect(agent.content).toContain(CACHE_BREAKPOINT_SENTINEL_START);
+        expect(agent.content).toContain(CACHE_BREAKPOINT_SENTINEL_END);
+        // The agent file format is `---FM---\n\n<managed block>` so the
+        // sentinels must sit inside the managed block, not in the frontmatter.
+        const fmEndIdx = agent.content.indexOf("---\n\n");
+        const sentIdx = agent.content.indexOf(CACHE_BREAKPOINT_SENTINEL_START);
+        expect(sentIdx).toBeGreaterThan(fmEndIdx);
+      }
+    });
+
+    it("emits sentinels in every .claude/agents/ output (minimal mode)", async () => {
+      const manifest = makeManifest();
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest, "minimal");
+      const agents = outputs.filter((o) => o.path.startsWith(".claude/agents/"));
+      expect(agents.length).toBeGreaterThan(0);
+      for (const agent of agents) {
+        expect(agent.content).toContain(CACHE_BREAKPOINT_SENTINEL_START);
+        expect(agent.content).toContain(CACHE_BREAKPOINT_SENTINEL_END);
+      }
+    });
+
+    it("emits sentinels in skill SKILL.md outputs", async () => {
+      const manifest = makeManifest();
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const skills = outputs.filter((o) => o.path.startsWith(".claude/skills/"));
+      expect(skills.length).toBeGreaterThan(0);
+      for (const skill of skills) {
+        expect(skill.content).toContain(CACHE_BREAKPOINT_SENTINEL_START);
+        expect(skill.content).toContain(CACHE_BREAKPOINT_SENTINEL_END);
+        expect(skill.managedContent).toContain(CACHE_BREAKPOINT_SENTINEL_START);
+        expect(skill.managedContent).toContain(CACHE_BREAKPOINT_SENTINEL_END);
+      }
+    });
+
+    it("emits sentinels in .claude/commands/ outputs", async () => {
+      const manifest = makeManifest();
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const commands = outputs.filter((o) => o.path.startsWith(".claude/commands/"));
+      expect(commands.length).toBeGreaterThan(0);
+      for (const cmd of commands) {
+        expect(cmd.content).toContain(CACHE_BREAKPOINT_SENTINEL_START);
+        expect(cmd.content).toContain(CACHE_BREAKPOINT_SENTINEL_END);
+        expect(cmd.managedContent).toContain(CACHE_BREAKPOINT_SENTINEL_START);
+        expect(cmd.managedContent).toContain(CACHE_BREAKPOINT_SENTINEL_END);
+      }
+    });
+
+    it("emits sentinels in hatch3r-agent-team.md", async () => {
+      const manifest = makeManifest();
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const agentTeam = outputs.find(
+        (o) => o.path === ".claude/commands/hatch3r-agent-team.md",
+      );
+      expect(agentTeam).toBeDefined();
+      expect(agentTeam!.content).toContain(CACHE_BREAKPOINT_SENTINEL_START);
+      expect(agentTeam!.content).toContain(CACHE_BREAKPOINT_SENTINEL_END);
+      expect(agentTeam!.managedContent).toContain(CACHE_BREAKPOINT_SENTINEL_START);
+      expect(agentTeam!.managedContent).toContain(CACHE_BREAKPOINT_SENTINEL_END);
+    });
+
+    it("does not duplicate sentinels on re-emission (idempotent helper)", async () => {
+      // Same adapter instance, two sequential generates → sentinels must
+      // appear exactly once per managed block (no double-wrap from nested
+      // calls or from `processSkillsRawCliFiltered` -> `rewrapWithCacheBreakpoints`).
+      const manifest = makeManifest();
+      await adapter.generate(FIXTURES_DIR, manifest);
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      for (const out of outputs) {
+        if (!out.managedContent) continue;
+        const startMatches = out.content.match(
+          new RegExp(CACHE_BREAKPOINT_SENTINEL_START.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&"), "g"),
+        );
+        const endMatches = out.content.match(
+          new RegExp(CACHE_BREAKPOINT_SENTINEL_END.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&"), "g"),
+        );
+        expect(startMatches?.length ?? 0).toBe(1);
+        expect(endMatches?.length ?? 0).toBe(1);
+      }
+    });
+
+    it("preserves managedContent-is-substring-of-content invariant", async () => {
+      // The BaseAdapter Output-invariant gate (C9-H4 in base.ts) drops any
+      // output whose `managedContent` is not a substring of `content`.
+      // Confirm the sentinel-bearing managedContent still satisfies that
+      // invariant — otherwise outputs would silently disappear from sync.
+      const manifest = makeManifest();
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const managed = outputs.filter((o) => o.managedContent);
+      expect(managed.length).toBeGreaterThan(0);
+      for (const out of managed) {
+        expect(out.content.includes(out.managedContent!.trim())).toBe(true);
+      }
     });
   });
 });

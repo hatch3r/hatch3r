@@ -67,6 +67,8 @@ Append only when they carry information. Do not include empty headers.
 **Suggested Next Action:** {one line}
 ```
 
+The **End-of-Turn Delegation Attestation** (defined in `hatch3r-agent-orchestration` -> End-of-Turn Delegation Attestation) is conditionally required and appears immediately BEFORE this Iteration Summary block. It applies when the turn is on a Tier >= 2 tracked task AND caused at least one file mutation. The Iteration Summary's 5-field contract is unchanged — the Attestation lives in a separate block to preserve backward compatibility for the 15 adapter outputs.
+
 ## Field Semantics
 
 - **Outcome** is one sentence. The user should grasp what happened from this line alone.

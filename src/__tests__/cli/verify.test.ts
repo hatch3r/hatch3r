@@ -4,12 +4,56 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { HatchError } from "../../types.js";
-import type { IntegrityManifest, VerifyResult } from "../../integrity/index.js";
+import type { IntegrityManifest, VerifyResult, VerifyIntegrityResult } from "../../integrity/index.js";
 
 vi.mock("../../integrity/index.js", () => ({
   readIntegrityManifest: vi.fn(),
   verifyIntegrity: vi.fn(),
 }));
+
+/**
+ * C9-M16: helper that wraps a legacy `VerifyResult[]` test fixture into
+ * the discriminated-union shape returned by `verifyIntegrity`. Mirrors
+ * the partitioning logic in `src/integrity/index.ts::verifyIntegrity` so
+ * test fixtures continue to read as flat arrays at the call site while
+ * the mock returns the union expected by `runVerifyPass`.
+ *
+ * - Empty array → ok=true, manifest=null, drift=[] (matches "no manifest"
+ *   branch). Tests that previously passed `[]` exercise the same path.
+ * - Tampered row present → ok=false with that row under errors.tampered.
+ * - Modified/missing rows present (without tampered) → ok=false with
+ *   rows under errors.modified / errors.missing; `new` and `pass` rows
+ *   carry forward into `drift`.
+ * - Only `pass` / `new` rows → ok=true with `manifest` set to the
+ *   `dummyManifest` so callers that branch on `manifest === null` (i.e.
+ *   "no manifest" vs "passed") observe the right shape.
+ */
+function asUnion(
+  results: VerifyResult[],
+  manifest: IntegrityManifest | null = null,
+): VerifyIntegrityResult {
+  if (results.length === 0) {
+    return { ok: true, manifest: null, drift: [] };
+  }
+  const tampered = results.filter((r) => r.status === "tampered");
+  if (tampered.length > 0) {
+    return {
+      ok: false,
+      errors: { modified: [], missing: [], tampered },
+      drift: results,
+    };
+  }
+  const modified = results.filter((r) => r.status === "modified");
+  const missing = results.filter((r) => r.status === "missing");
+  if (modified.length === 0 && missing.length === 0) {
+    return { ok: true, manifest, drift: results };
+  }
+  return {
+    ok: false,
+    errors: { modified, missing, tampered: [] },
+    drift: results,
+  };
+}
 
 vi.mock("../../cli/commands/update.js", () => ({
   runUpdate: vi.fn(async () => ({
@@ -117,8 +161,10 @@ describe("verify command", () => {
     const { verifyCommand } = await import("../../cli/commands/verify.js");
     try {
       await verifyCommand();
-    } catch {
-      // expected
+    } catch (err) {
+      // expected — verifyCommand throws after emitting diagnostics; assert
+      // we hit the throw path so the test fails loudly if behavior changes.
+      expect(err).toBeDefined();
     }
 
     const combined = allOutput() + " " + allErrorOutput();
@@ -127,7 +173,8 @@ describe("verify command", () => {
 
   it("shows 'No files to verify' when results array is empty", async () => {
     mockReadIntegrityManifest.mockResolvedValue(dummyManifest);
-    mockVerifyIntegrity.mockResolvedValue([]);
+    // C9-M16: empty-array fixture → ok=true with manifest=null + empty drift
+    mockVerifyIntegrity.mockResolvedValue(asUnion([]));
 
     const { verifyCommand } = await import("../../cli/commands/verify.js");
     await verifyCommand();
@@ -141,7 +188,7 @@ describe("verify command", () => {
       { file: "agents/hatch3r-test.md", status: "pass" },
       { file: "rules/hatch3r-code.md", status: "pass" },
     ];
-    mockVerifyIntegrity.mockResolvedValue(results);
+    mockVerifyIntegrity.mockResolvedValue(asUnion(results, dummyManifest));
 
     const { verifyCommand } = await import("../../cli/commands/verify.js");
     await verifyCommand();
@@ -156,7 +203,7 @@ describe("verify command", () => {
       { file: "rules/hatch3r-code.md", status: "pass" },
       { file: "rules/hatch3r-git.md", status: "pass" },
     ];
-    mockVerifyIntegrity.mockResolvedValue(results);
+    mockVerifyIntegrity.mockResolvedValue(asUnion(results, dummyManifest));
 
     const { verifyCommand } = await import("../../cli/commands/verify.js");
     await verifyCommand();
@@ -170,7 +217,7 @@ describe("verify command", () => {
       { file: "agents/hatch3r-test.md", status: "pass" },
       { file: "rules/hatch3r-code.md", status: "modified", expected: "sha256:aaa", actual: "sha256:bbb" },
     ];
-    mockVerifyIntegrity.mockResolvedValue(results);
+    mockVerifyIntegrity.mockResolvedValue(asUnion(results, dummyManifest));
 
     const { verifyCommand } = await import("../../cli/commands/verify.js");
     await expect(verifyCommand()).rejects.toThrow(HatchError);
@@ -183,7 +230,7 @@ describe("verify command", () => {
       { file: "agents/hatch3r-test.md", status: "pass" },
       { file: "rules/hatch3r-gone.md", status: "missing", expected: "sha256:aaa" },
     ];
-    mockVerifyIntegrity.mockResolvedValue(results);
+    mockVerifyIntegrity.mockResolvedValue(asUnion(results, dummyManifest));
 
     const { verifyCommand } = await import("../../cli/commands/verify.js");
     await expect(verifyCommand()).rejects.toThrow(HatchError);
@@ -195,7 +242,7 @@ describe("verify command", () => {
     const results: VerifyResult[] = [
       { file: ".integrity.json", status: "tampered" },
     ];
-    mockVerifyIntegrity.mockResolvedValue(results);
+    mockVerifyIntegrity.mockResolvedValue(asUnion(results, dummyManifest));
 
     const { verifyCommand } = await import("../../cli/commands/verify.js");
     await expect(verifyCommand()).rejects.toThrow(HatchError);
@@ -207,13 +254,15 @@ describe("verify command", () => {
     const results: VerifyResult[] = [
       { file: ".integrity.json", status: "tampered" },
     ];
-    mockVerifyIntegrity.mockResolvedValue(results);
+    mockVerifyIntegrity.mockResolvedValue(asUnion(results, dummyManifest));
 
     const { verifyCommand } = await import("../../cli/commands/verify.js");
     try {
       await verifyCommand();
-    } catch {
-      // expected
+    } catch (err) {
+      // expected — verifyCommand throws after emitting diagnostics; assert
+      // we hit the throw path so the test fails loudly if behavior changes.
+      expect(err).toBeDefined();
     }
 
     const combined = allOutput() + " " + allErrorOutput();
@@ -226,13 +275,15 @@ describe("verify command", () => {
     const results: VerifyResult[] = [
       { file: "rules/hatch3r-code.md", status: "modified", expected: "sha256:aaa", actual: "sha256:bbb" },
     ];
-    mockVerifyIntegrity.mockResolvedValue(results);
+    mockVerifyIntegrity.mockResolvedValue(asUnion(results, dummyManifest));
 
     const { verifyCommand } = await import("../../cli/commands/verify.js");
     try {
       await verifyCommand();
-    } catch {
-      // expected
+    } catch (err) {
+      // expected — verifyCommand throws after emitting diagnostics; assert
+      // we hit the throw path so the test fails loudly if behavior changes.
+      expect(err).toBeDefined();
     }
 
     const combined = allOutput() + " " + allErrorOutput();
@@ -248,13 +299,15 @@ describe("verify command", () => {
       { file: "rules/hatch3r-gone.md", status: "missing", expected: "sha256:ccc" },
       { file: "commands/hatch3r-new.md", status: "new", actual: "sha256:ddd" },
     ];
-    mockVerifyIntegrity.mockResolvedValue(results);
+    mockVerifyIntegrity.mockResolvedValue(asUnion(results, dummyManifest));
 
     const { verifyCommand } = await import("../../cli/commands/verify.js");
     try {
       await verifyCommand();
-    } catch {
-      // expected — modified + missing causes failure
+    } catch (err) {
+      // expected — modified + missing causes failure. Assert the throw so
+      // the test fails loudly if verifyCommand stops throwing.
+      expect(err).toBeDefined();
     }
 
     const output = allOutput();
@@ -270,7 +323,7 @@ describe("verify command", () => {
       { file: "agents/hatch3r-test.md", status: "pass" },
       { file: "commands/hatch3r-new.md", status: "new", actual: "sha256:ddd" },
     ];
-    mockVerifyIntegrity.mockResolvedValue(results);
+    mockVerifyIntegrity.mockResolvedValue(asUnion(results, dummyManifest));
 
     const { verifyCommand } = await import("../../cli/commands/verify.js");
     await verifyCommand();
@@ -287,13 +340,15 @@ describe("verify command", () => {
       { file: "commands/hatch3r-added.md", status: "new", actual: "sha256:ddd" },
       { file: ".integrity.json", status: "tampered" },
     ];
-    mockVerifyIntegrity.mockResolvedValue(results);
+    mockVerifyIntegrity.mockResolvedValue(asUnion(results, dummyManifest));
 
     const { verifyCommand } = await import("../../cli/commands/verify.js");
     try {
       await verifyCommand();
-    } catch {
-      // expected
+    } catch (err) {
+      // expected — verifyCommand throws after emitting diagnostics; assert
+      // we hit the throw path so the test fails loudly if behavior changes.
+      expect(err).toBeDefined();
     }
 
     const output = allOutput();
@@ -309,7 +364,7 @@ describe("verify command", () => {
     const results: VerifyResult[] = [
       { file: "rules/hatch3r-code.md", status: "modified", expected: "sha256:aaa", actual: "sha256:bbb" },
     ];
-    mockVerifyIntegrity.mockResolvedValue(results);
+    mockVerifyIntegrity.mockResolvedValue(asUnion(results, dummyManifest));
 
     const { verifyCommand } = await import("../../cli/commands/verify.js");
     try {
@@ -327,7 +382,7 @@ describe("verify command", () => {
       { file: "agents/hatch3r-test.md", status: "pass" },
       { file: "rules/hatch3r-code.md", status: "pass" },
     ];
-    mockVerifyIntegrity.mockResolvedValue(results);
+    mockVerifyIntegrity.mockResolvedValue(asUnion(results, dummyManifest));
 
     const { verifyCommand } = await import("../../cli/commands/verify.js");
     await verifyCommand();
@@ -342,13 +397,15 @@ describe("verify command", () => {
     const results: VerifyResult[] = [
       { file: "rules/hatch3r-code.md", status: "modified", expected: "sha256:aaa", actual: "sha256:bbb" },
     ];
-    mockVerifyIntegrity.mockResolvedValue(results);
+    mockVerifyIntegrity.mockResolvedValue(asUnion(results, dummyManifest));
 
     const { verifyCommand } = await import("../../cli/commands/verify.js");
     try {
       await verifyCommand();
-    } catch {
-      // expected
+    } catch (err) {
+      // expected — verifyCommand throws after emitting diagnostics; assert
+      // we hit the throw path so the test fails loudly if behavior changes.
+      expect(err).toBeDefined();
     }
 
     const combined = allOutput() + " " + allErrorOutput();
@@ -360,13 +417,15 @@ describe("verify command", () => {
     const results: VerifyResult[] = [
       { file: "rules/hatch3r-gone.md", status: "missing", expected: "sha256:aaa" },
     ];
-    mockVerifyIntegrity.mockResolvedValue(results);
+    mockVerifyIntegrity.mockResolvedValue(asUnion(results, dummyManifest));
 
     const { verifyCommand } = await import("../../cli/commands/verify.js");
     try {
       await verifyCommand();
-    } catch {
-      // expected
+    } catch (err) {
+      // expected — verifyCommand throws after emitting diagnostics; assert
+      // we hit the throw path so the test fails loudly if behavior changes.
+      expect(err).toBeDefined();
     }
 
     const combined = allOutput() + " " + allErrorOutput();
@@ -391,7 +450,7 @@ describe("verify command", () => {
     const results: VerifyResult[] = [
       { file: "agents/hatch3r-one.md", status: "pass" },
     ];
-    mockVerifyIntegrity.mockResolvedValue(results);
+    mockVerifyIntegrity.mockResolvedValue(asUnion(results, dummyManifest));
 
     const { verifyCommand } = await import("../../cli/commands/verify.js");
     await expect(verifyCommand()).resolves.toBeUndefined();
@@ -402,13 +461,15 @@ describe("verify command", () => {
     const results: VerifyResult[] = [
       { file: "rules/hatch3r-gone.md", status: "missing", expected: "sha256:aaa" },
     ];
-    mockVerifyIntegrity.mockResolvedValue(results);
+    mockVerifyIntegrity.mockResolvedValue(asUnion(results, dummyManifest));
 
     const { verifyCommand } = await import("../../cli/commands/verify.js");
     try {
       await verifyCommand();
-    } catch {
-      // expected
+    } catch (err) {
+      // expected — verifyCommand throws after emitting diagnostics; assert
+      // we hit the throw path so the test fails loudly if behavior changes.
+      expect(err).toBeDefined();
     }
 
     expect(allOutput()).toContain("MISSING");
@@ -421,7 +482,7 @@ describe("verify command", () => {
       { file: "agents/hatch3r-test.md", status: "pass" },
       { file: "commands/hatch3r-fresh.md", status: "new", actual: "sha256:eee" },
     ];
-    mockVerifyIntegrity.mockResolvedValue(results);
+    mockVerifyIntegrity.mockResolvedValue(asUnion(results, dummyManifest));
 
     const { verifyCommand } = await import("../../cli/commands/verify.js");
     await verifyCommand();
@@ -442,8 +503,8 @@ describe("verify command", () => {
       { file: "rules/hatch3r-code.md", status: "pass" },
     ];
     mockVerifyIntegrity
-      .mockResolvedValueOnce(failResults)
-      .mockResolvedValueOnce(passResults);
+      .mockResolvedValueOnce(asUnion(failResults, dummyManifest))
+      .mockResolvedValueOnce(asUnion(passResults, dummyManifest));
 
     const { verifyCommand } = await import("../../cli/commands/verify.js");
     await verifyCommand({ fix: true });
@@ -458,7 +519,7 @@ describe("verify command", () => {
       { file: "rules/hatch3r-code.md", status: "modified", expected: "sha256:aaa", actual: "sha256:bbb" },
     ];
     // All verify calls return failures (fix doesn't resolve)
-    mockVerifyIntegrity.mockResolvedValue(failResults);
+    mockVerifyIntegrity.mockResolvedValue(asUnion(failResults, dummyManifest));
 
     const { verifyCommand } = await import("../../cli/commands/verify.js");
     await expect(verifyCommand({ fix: true, maxFixAttempts: 2 })).rejects.toThrow(HatchError);
@@ -472,7 +533,7 @@ describe("verify command", () => {
     const passResults: VerifyResult[] = [
       { file: "agents/hatch3r-test.md", status: "pass" },
     ];
-    mockVerifyIntegrity.mockResolvedValue(passResults);
+    mockVerifyIntegrity.mockResolvedValue(asUnion(passResults, dummyManifest));
 
     const { verifyCommand } = await import("../../cli/commands/verify.js");
     await verifyCommand({ fix: true });
@@ -485,7 +546,7 @@ describe("verify command", () => {
     const failResults: VerifyResult[] = [
       { file: "rules/hatch3r-code.md", status: "missing", expected: "sha256:aaa" },
     ];
-    mockVerifyIntegrity.mockResolvedValue(failResults);
+    mockVerifyIntegrity.mockResolvedValue(asUnion(failResults, dummyManifest));
 
     const { verifyCommand } = await import("../../cli/commands/verify.js");
     try {
@@ -500,7 +561,7 @@ describe("verify command", () => {
     const results: VerifyResult[] = [
       { file: "rules/hatch3r-code.md", status: "modified", expected: "sha256:aaa", actual: "sha256:bbb" },
     ];
-    mockVerifyIntegrity.mockResolvedValue(results);
+    mockVerifyIntegrity.mockResolvedValue(asUnion(results, dummyManifest));
 
     const { verifyCommand } = await import("../../cli/commands/verify.js");
     await expect(verifyCommand()).rejects.toThrow(HatchError);
@@ -512,7 +573,7 @@ describe("verify command", () => {
     const failResults: VerifyResult[] = [
       { file: "rules/hatch3r-code.md", status: "modified", expected: "sha256:aaa", actual: "sha256:bbb" },
     ];
-    mockVerifyIntegrity.mockResolvedValue(failResults);
+    mockVerifyIntegrity.mockResolvedValue(asUnion(failResults, dummyManifest));
 
     const { verifyCommand } = await import("../../cli/commands/verify.js");
     try {

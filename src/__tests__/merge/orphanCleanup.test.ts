@@ -21,7 +21,9 @@ async function fileExists(path: string): Promise<boolean> {
   try {
     await stat(path);
     return true;
-  } catch {
+  } catch (err) {
+    // Missing path is the expected outcome for this probe.
+    void err;
     return false;
   }
 }

@@ -73,6 +73,13 @@ export function getAdapterTimeout(
  * If the adapter completes within the timeout, returns its outputs.
  * If the adapter exceeds the timeout, returns a timeout error and
  * the adapter is skipped with a warning.
+ *
+ * C9-H20 (D8-H8.3.1): An `AbortController` is created per call. Its
+ * signal is passed to `adapter.generate(..., signal)` so adapters with
+ * long-running loops can check `signal.aborted` and exit cooperatively
+ * instead of leaving the surrounding `Promise.race` waiting for them.
+ * An optional `parentSignal` lets a caller (e.g. the outer phase
+ * timeout) propagate a higher-level cancellation into the adapter.
  */
 export async function generateWithTimeout(
   tool: Tool,
@@ -81,17 +88,34 @@ export async function generateWithTimeout(
   manifest: HatchManifest,
   generationMode: GenerationMode,
   config?: AdapterTimeoutConfig,
+  parentSignal?: AbortSignal,
 ): Promise<AdapterGenerationResult> {
   const timeoutMs = getAdapterTimeout(tool, config);
   const startTime = Date.now();
+  const controller = new AbortController();
+
+  // Honour an already-aborted parent before scheduling work — adapter
+  // generate calls `BaseAdapter.throwIfSignalAborted(signal)` at entry so
+  // the AbortError surfaces on the first await.
+  if (parentSignal?.aborted) {
+    controller.abort(parentSignal.reason);
+  }
+  const onParentAbort = () => {
+    controller.abort(parentSignal?.reason);
+  };
+  parentSignal?.addEventListener("abort", onParentAbort, { once: true });
 
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   try {
     const outputs = await Promise.race([
-      adapter.generate(agentsDir, manifest, generationMode),
+      adapter.generate(agentsDir, manifest, generationMode, controller.signal),
       new Promise<never>((_resolve, reject) => {
         timer = setTimeout(() => {
+          // Abort first so the adapter's cooperative checks unwind any
+          // in-flight loop iterations cleanly, then reject the race so
+          // the surrounding caller sees an AdapterTimeoutError.
+          controller.abort();
           reject(
             new AdapterTimeoutError(tool, timeoutMs),
           );
@@ -135,6 +159,7 @@ export async function generateWithTimeout(
     if (timer !== undefined) {
       clearTimeout(timer);
     }
+    parentSignal?.removeEventListener("abort", onParentAbort);
   }
 }
 

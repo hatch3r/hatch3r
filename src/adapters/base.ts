@@ -6,6 +6,7 @@ import type {
   GenerationMode,
   HatchManifest,
 } from "../types.js";
+import { HatchError } from "../types.js";
 import { resolveAgentModel } from "../models/resolve.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
 import { generateBridgeOrchestration } from "../cli/shared/agentsContent.js";
@@ -14,11 +15,30 @@ import { applyCustomization, applyCustomizationRaw } from "./customization.js";
 import { readMcpConfig, transformEnvVarSyntax, type McpServerEntry } from "./mcp-utils.js";
 import { readHookDefinitions } from "../hooks/index.js";
 import { PLATFORM_TOOL_MARKER, toAskUserPlatformNote } from "../pipeline/adapterToolTranslator.js";
+import {
+  detectionContextFromManifest,
+  substituteRepoTokens,
+} from "../pipeline/repoSubstitution.js";
 
 export interface Adapter {
   name: string;
   warnings: string[];
-  generate(agentsDir: string, manifest: HatchManifest, generationMode?: GenerationMode): Promise<AdapterOutput[]>;
+  /**
+   * Generate adapter output files.
+   *
+   * C9-H20 (D8-H8.3.1): An optional `AbortSignal` lets pipeline timeouts
+   * cancel a slow adapter cooperatively. Implementations SHOULD check
+   * `signal?.aborted` between long-running steps and propagate the signal
+   * to inner async operations. When the signal is already aborted on
+   * entry, `generate` throws `signal.reason` (or a generic
+   * `AbortError`) immediately.
+   */
+  generate(
+    agentsDir: string,
+    manifest: HatchManifest,
+    generationMode?: GenerationMode,
+    signal?: AbortSignal,
+  ): Promise<AdapterOutput[]>;
   getOutputPaths(agentsDir: string, manifest: HatchManifest): Promise<string[]>;
 }
 
@@ -38,6 +58,15 @@ export interface AdapterContext {
   projectRoot: string;
   /** Generation verbosity mode. "minimal" strips comments, descriptions, and reduces formatting. */
   generationMode: GenerationMode;
+  /**
+   * C9-H20 (D8-H8.3.1): Optional abort signal threaded from the pipeline
+   * timeout (see `src/pipeline/phaseTimeout.ts` and
+   * `src/pipeline/adapterTimeout.ts`). Adapters performing long-running
+   * work SHOULD check `signal?.aborted` at loop boundaries and call
+   * {@link BaseAdapter.throwIfAborted} (or equivalent) to terminate
+   * cleanly when the pipeline cancels them.
+   */
+  signal?: AbortSignal;
 }
 
 export interface ModelFormat {
@@ -68,7 +97,12 @@ export abstract class BaseAdapter implements Adapter {
    * Adapters that violate these invariants will produce broken output files or
    * corrupt user content during the merge phase.
    */
-  async generate(agentsDir: string, manifest: HatchManifest, generationMode: GenerationMode = "standard"): Promise<AdapterOutput[]> {
+  async generate(
+    agentsDir: string,
+    manifest: HatchManifest,
+    generationMode: GenerationMode = "standard",
+    signal?: AbortSignal,
+  ): Promise<AdapterOutput[]> {
     this.warnings = [];
     this._cachedOutputPaths = null; // Invalidate path cache on re-generation
     // C8-D12-M3: Reset per-invocation provenance tracker before doGenerate.
@@ -77,26 +111,86 @@ export abstract class BaseAdapter implements Adapter {
     // after doGenerate returns, the set is the closed list of canonical
     // files this adapter consumed in the current run.
     this._trackedSourceFiles = new Set<string>();
+
+    // C9-H20 (D8-H8.3.1): Honour an already-aborted signal before doing any
+    // work. Subsequent abort checks are performed inside helpers
+    // (`throwIfAborted` is exposed for adapter implementations to call
+    // between long-running steps).
+    BaseAdapter.throwIfSignalAborted(signal);
+
     const outputs = await this.doGenerate({
       agentsDir,
       manifest,
       features: manifest.features,
       projectRoot: dirname(agentsDir),
       generationMode,
+      signal,
     });
 
-    // #119: Validate output invariants to catch generation bugs early
-    for (const out of outputs) {
-      if (out.path.startsWith("/") || out.path.includes("..")) {
-        this.warnings.push(`[${this.name}] Invalid output path "${out.path}" — must be relative with no traversal`);
-      }
-      if (!out.content) {
-        this.warnings.push(`[${this.name}] Empty content for output "${out.path}" — possible generation bug`);
-      }
-      if (out.managedContent && !out.content.includes(out.managedContent)) {
-        this.warnings.push(`[${this.name}] managedContent is not a substring of content for "${out.path}"`);
-      }
+    // Re-check after doGenerate completes — the signal may have fired
+    // mid-generation but the implementation chose to swallow it instead of
+    // throwing. Surface the abort here so callers see consistent behaviour.
+    BaseAdapter.throwIfSignalAborted(signal);
+
+    // C9-H4 (D2-SA2.1-01): Output-invariant enforcement.
+    //
+    // Path-traversal is a P6 (Security & Trust) violation — a sync that
+    // would write outside the project root MUST fail loudly. We throw a
+    // HatchError so the CLI surfaces a non-zero exit code instead of
+    // pushing a warning and silently writing the corrupt path.
+    //
+    // Empty content and managedContent-not-substring are P5 (Silent
+    // Failure Contract) violations: both indicate a generation bug that
+    // would otherwise produce a broken output file or corrupt user
+    // content during merge. We drop the offending output (rather than
+    // throwing) so a single bad output in a multi-file adapter does not
+    // poison the rest of the sync, but we still surface a warning so the
+    // operator sees the failure.
+    const traversalOutputs = outputs.filter(
+      (o) => o.path.startsWith("/") || o.path.includes(".."),
+    );
+    if (traversalOutputs.length > 0) {
+      const paths = traversalOutputs.map((o) => `"${o.path}"`).join(", ");
+      throw new HatchError(
+        `Adapter "${this.name}" produced output path(s) ${paths} that are absolute or contain ".." traversal segments. ` +
+          `Output paths must be relative to the project root with no upward traversal. ` +
+          `This is a generation bug — fix the adapter's doGenerate implementation.`,
+        undefined,
+        "ADAPTER_ERROR",
+      );
     }
+
+    const filteredOutputs: AdapterOutput[] = [];
+    for (const out of outputs) {
+      if (!out.content) {
+        this.warnings.push(
+          `[${this.name}] Empty content for output "${out.path}" — output dropped (possible generation bug)`,
+        );
+        continue;
+      }
+      // `wrapInManagedBlock` trims the inner content before wrapping with
+      // markers (see src/merge/managedBlocks.ts::wrapInManagedBlock), so a
+      // legitimate adapter pattern is `output(path, wrapInManagedBlock(x), x)`
+      // where x has leading/trailing whitespace. We honour that by comparing
+      // the trimmed projection — only a genuine substring mismatch (e.g.
+      // managedContent contains characters that wrapInManagedBlock could not
+      // have produced) drops the output.
+      if (
+        out.managedContent &&
+        !out.content.includes(out.managedContent.trim())
+      ) {
+        this.warnings.push(
+          `[${this.name}] managedContent is not a substring of content for "${out.path}" — output dropped (would corrupt managed-block merge)`,
+        );
+        continue;
+      }
+      filteredOutputs.push(out);
+    }
+    // Reassign so the rest of this method works against the surviving set.
+    // Local mutation only — adapters do not retain references to the
+    // returned array between calls.
+    outputs.length = 0;
+    outputs.push(...filteredOutputs);
 
     // C8-D12-M3: Attach per-output source provenance. Adapters that already
     // set `sourceFiles` explicitly (e.g. a single-canonical-file output path
@@ -133,6 +227,44 @@ export abstract class BaseAdapter implements Adapter {
     const outputs = await this.generate(agentsDir, manifest);
     this._cachedOutputPaths = outputs.map((o) => o.path);
     return this._cachedOutputPaths;
+  }
+
+  /**
+   * C9-H20 (D8-H8.3.1): Throw if the provided AbortSignal has been aborted.
+   *
+   * Adapters with custom loops that perform per-file I/O (e.g. claude.ts's
+   * agent emission, cursor.ts's per-rule .mdc emission) should call this
+   * between iterations so a pipeline timeout cancels the work cooperatively
+   * rather than waiting for the current file batch to complete. Implemented
+   * as a static so subclasses can call it on `BaseAdapter.throwIfSignalAborted(ctx.signal)`
+   * without needing to thread a per-instance method into helper functions.
+   *
+   * The thrown error matches Node's AbortController convention: when
+   * `signal.reason` is set, it is rethrown verbatim; otherwise a generic
+   * `AbortError` (DOMException-style) is thrown. Callers can detect both
+   * by checking `err.name === "AbortError"`.
+   */
+  static throwIfSignalAborted(signal: AbortSignal | undefined): void {
+    if (!signal?.aborted) return;
+    const reason = signal.reason;
+    if (reason instanceof Error) throw reason;
+    if (reason !== undefined) {
+      const err = new Error(typeof reason === "string" ? reason : "Adapter generation aborted");
+      err.name = "AbortError";
+      throw err;
+    }
+    const err = new Error("Adapter generation aborted");
+    err.name = "AbortError";
+    throw err;
+  }
+
+  /**
+   * Instance shorthand for {@link BaseAdapter.throwIfSignalAborted}. Lets
+   * subclass methods write `this.throwIfAborted(ctx)` between long-running
+   * loop iterations.
+   */
+  protected throwIfAborted(ctx: AdapterContext): void {
+    BaseAdapter.throwIfSignalAborted(ctx.signal);
   }
 
   /**
@@ -296,10 +428,11 @@ export abstract class BaseAdapter implements Adapter {
     );
     const minimal = this.isMinimal(ctx);
     for (const rule of rules) {
+      this.throwIfAborted(ctx);
       const { content: raw, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, rule);
       this.warnings.push(...warnings);
       if (skip) continue;
-      const content = this.substituteAskUserMarker(raw);
+      const content = this.substituteCanonicalContent(raw, ctx);
       const desc = overrides.description ?? rule.description;
       if (minimal) {
         lines.push(`## ${rule.id}`, "", this.stripMinimal(content), "");
@@ -320,10 +453,11 @@ export abstract class BaseAdapter implements Adapter {
     const agents = await this.readUserFacingCanonicalFiles(ctx.agentsDir, "agents");
     const minimal = this.isMinimal(ctx);
     for (const agent of agents) {
+      this.throwIfAborted(ctx);
       const { content: raw, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, agent);
       this.warnings.push(...warnings);
       if (skip) continue;
-      const content = this.substituteAskUserMarker(raw);
+      const content = this.substituteCanonicalContent(raw, ctx);
       const model = resolveAgentModel(agent.id, agent, ctx.manifest, overrides);
       const desc = overrides.description ?? agent.description;
       const fmt = model ? (formatModel ?? defaultModelFormat)(model) : undefined;
@@ -349,10 +483,11 @@ export abstract class BaseAdapter implements Adapter {
     const results: AdapterOutput[] = [];
     const skills = await this.readTrackedCanonicalFiles(ctx.agentsDir, "skills");
     for (const skill of skills) {
+      this.throwIfAborted(ctx);
       const { content: raw, skip, warnings } = await applyCustomizationRaw(ctx.projectRoot, skill);
       this.warnings.push(...warnings);
       if (skip) continue;
-      const content = this.substituteAskUserMarker(raw);
+      const content = this.substituteCanonicalContent(raw, ctx);
       results.push(output(pathFn(skill.id), wrapInManagedBlock(content), content));
     }
     return results;
@@ -367,10 +502,11 @@ export abstract class BaseAdapter implements Adapter {
     const results: AdapterOutput[] = [];
     const skills = await this.readTrackedCanonicalFiles(ctx.agentsDir, "skills");
     for (const skill of skills) {
+      this.throwIfAborted(ctx);
       const { content: raw, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, skill);
       this.warnings.push(...warnings);
       if (skip) continue;
-      const content = this.substituteAskUserMarker(raw);
+      const content = this.substituteCanonicalContent(raw, ctx);
       const desc = overrides.description ?? skill.description;
       const fm = `---\nname: ${skill.id}\ndescription: ${desc}\n---`;
       results.push(output(pathFn(skill.id), `${fm}\n\n${wrapInManagedBlock(content)}`, content));
@@ -420,10 +556,11 @@ export abstract class BaseAdapter implements Adapter {
     const results: AdapterOutput[] = [];
     const skills = await this.readCliFilteredSkills(ctx);
     for (const skill of skills) {
+      this.throwIfAborted(ctx);
       const { content: raw, skip, warnings } = await applyCustomizationRaw(ctx.projectRoot, skill);
       this.warnings.push(...warnings);
       if (skip) continue;
-      const content = this.substituteAskUserMarker(raw);
+      const content = this.substituteCanonicalContent(raw, ctx);
       results.push(output(pathFn(skill.id), wrapInManagedBlock(content), content));
     }
     return results;
@@ -442,10 +579,11 @@ export abstract class BaseAdapter implements Adapter {
     const results: AdapterOutput[] = [];
     const skills = await this.readCliFilteredSkills(ctx);
     for (const skill of skills) {
+      this.throwIfAborted(ctx);
       const { content: raw, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, skill);
       this.warnings.push(...warnings);
       if (skip) continue;
-      const content = this.substituteAskUserMarker(raw);
+      const content = this.substituteCanonicalContent(raw, ctx);
       const desc = overrides.description ?? skill.description;
       const fm = `---\nname: ${skill.id}\ndescription: ${desc}\n---`;
       results.push(output(pathFn(skill.id), `${fm}\n\n${wrapInManagedBlock(content)}`, content));
@@ -465,10 +603,11 @@ export abstract class BaseAdapter implements Adapter {
     // as user-invocable entries in the tool's command picker.
     const commands = await this.readUserFacingCanonicalFiles(ctx.agentsDir, "commands");
     for (const cmd of commands) {
+      this.throwIfAborted(ctx);
       const { content: raw, skip, warnings } = await applyCustomizationRaw(ctx.projectRoot, cmd);
       this.warnings.push(...warnings);
       if (skip) continue;
-      const content = this.substituteAskUserMarker(raw);
+      const content = this.substituteCanonicalContent(raw, ctx);
       results.push(output(pathFn(cmd.id), wrapInManagedBlock(content), content));
     }
     return results;
@@ -547,6 +686,41 @@ export abstract class BaseAdapter implements Adapter {
   protected substituteAskUserMarker(content: string): string {
     if (!content.includes(PLATFORM_TOOL_MARKER)) return content;
     return content.split(PLATFORM_TOOL_MARKER).join(toAskUserPlatformNote(this.name));
+  }
+
+  /**
+   * C9-H47 (D14-SA14.4-H01): Replace `${HATCH3R:LINTER}` /
+   * `${HATCH3R:TEST_FRAMEWORK}` / `${HATCH3R:CI_PROVIDER}` tokens with the
+   * detected values persisted on `ctx.manifest.detected`. Empty / absent
+   * values collapse to the `"unknown"` sentinel — adapters emit a valid
+   * sentence rather than a leaked template variable.
+   *
+   * Idempotent and a no-op when no token appears in the body. Called
+   * after {@link substituteAskUserMarker} on every canonical body the
+   * BaseAdapter helpers inline/emit so all 15 adapters get parity.
+   *
+   * See src/pipeline/repoSubstitution.ts for the token list and the
+   * fallback / multi-value rendering contract.
+   */
+  protected substituteDetectedRepoTokens(content: string, ctx: AdapterContext): string {
+    return substituteRepoTokens(content, detectionContextFromManifest(ctx.manifest));
+  }
+
+  /**
+   * Canonical-content post-processing pipeline. Composes every output-time
+   * substitution helper in a fixed order so adapter call sites stay one
+   * line and the substitution surface is identical across the 15 adapters
+   * (parity invariant from D9 + the audit's D14-SA14.4-H01 wiring).
+   *
+   * Order:
+   *  1. `substituteAskUserMarker`  — replaces the PLATFORM-TOOL marker.
+   *  2. `substituteDetectedRepoTokens` — replaces detected LINTER /
+   *     TEST_FRAMEWORK / CI_PROVIDER tokens.
+   *
+   * Idempotent: a body without any tokens passes through unchanged.
+   */
+  protected substituteCanonicalContent(content: string, ctx: AdapterContext): string {
+    return this.substituteDetectedRepoTokens(this.substituteAskUserMarker(content), ctx);
   }
 
   /**
