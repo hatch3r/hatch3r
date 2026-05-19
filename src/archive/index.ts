@@ -259,7 +259,22 @@ export function getManagedFilesForTool(
   return manifest.managedFiles.filter((f) => fileMatchesTool(f, tool));
 }
 
-const MAX_ARCHIVE_ENTRIES = 5;
+/**
+ * Maximum archive entries retained per tool before pruning.
+ *
+ * Source: D2-SA2.7 retention contract — five entries balances local
+ * rollback coverage (one entry per recent sync run) against disk-footprint
+ * growth on long-lived projects. Override with HATCH3R_MAX_ARCHIVE_ENTRIES
+ * env var (positive integer; default: 5).
+ */
+const MAX_ARCHIVE_ENTRIES = ((): number => {
+  const envVal = process.env.HATCH3R_MAX_ARCHIVE_ENTRIES;
+  if (envVal) {
+    const parsed = parseInt(envVal, 10);
+    if (!Number.isNaN(parsed) && parsed > 0) return parsed;
+  }
+  return 5;
+})();
 
 /**
  * Prune old archive entries, keeping only the most recent MAX_ARCHIVE_ENTRIES per tool.

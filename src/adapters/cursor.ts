@@ -1,3 +1,5 @@
+// Last updated: 2026-05-19 (P3 platform-currency anchor; cursor.com/docs/agents
+// access dates inside this file remain authoritative for individual claims).
 import type {
   AdapterOutput,
   CanonicalFile,

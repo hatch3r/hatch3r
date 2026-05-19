@@ -4,37 +4,47 @@
 
 **Pillars served:** P2 (primary), P5 (supporting).
 
-**Scope:** All 47 test files across the test suite. Coverage analysis, test quality assessment, and testing infrastructure evaluation.
+**Scope:** All 135 test files across the test suite. Coverage analysis, test quality assessment, and testing infrastructure evaluation.
 **Sub-agents:** 5
 
 ### Test File Distribution
 
 | Category | Files | Count |
 |----------|-------|-------|
-| Adapters | `src/__tests__/adapters/` | 19 |
-| CLI | `src/__tests__/cli/` | 10 |
-| Content | `src/__tests__/content/` | 3 |
-| Workspace | `src/__tests__/workspace/` | 3 |
+| CLI | `src/__tests__/cli/` | 27 |
+| Adapters | `src/__tests__/adapters/` | 26 |
+| Pipeline | `src/__tests__/pipeline/` | 22 |
+| Content | `src/__tests__/content/` | 13 |
+| Merge | `src/__tests__/merge/` | 6 |
+| CliTools | `src/__tests__/cliTools/` | 6 |
+| Workspace | `src/__tests__/workspace/` | 5 |
+| Audit | `src/__tests__/audit/` | 5 |
+| Worktree | `src/__tests__/worktree/` | 3 |
+| Hooks | `src/__tests__/hooks/` | 3 |
+| Detect | `src/__tests__/detect/` | 3 |
+| Version | `src/__tests__/version/` | 2 |
 | Models | `src/__tests__/models/` | 2 |
-| Merge | `src/__tests__/merge/` | 2 |
-| Hooks | `src/__tests__/hooks/` | 2 |
-| Worktree | `src/__tests__/worktree/` | 1 |
-| Detect | `src/__tests__/detect/` | 1 |
-| Env | `src/__tests__/env/` | 1 |
-| Integrity | `src/__tests__/integrity/` | 1 |
+| Integrity | `src/__tests__/integrity/` | 2 |
+| Env | `src/__tests__/env/` | 2 |
+| Manifests | `src/__tests__/manifests/` | 1 |
 | Manifest | `src/__tests__/manifest/` | 1 |
+| Install | `src/__tests__/install/` | 1 |
+| Importers | `src/__tests__/importers/` | 1 |
+| E2E | `src/__tests__/e2e/` | 1 |
+| Clean | `src/__tests__/clean/` | 1 |
 | Archive | `src/__tests__/archive/` | 1 |
-| **Total** | | **47** |
+| Root (`types.test.ts`) | `src/__tests__/` | 1 |
+| **Total** | | **135** |
 
 ## Sub-Agent Decomposition
 
 | SA | Focus | Files |
 |----|-------|-------|
-| 3.1 | Adapter Tests | 19 test files in `src/__tests__/adapters/` (note: no `amazonq.test.ts` exists) |
-| 3.2 | CLI Tests | 10 test files in `src/__tests__/cli/` |
-| 3.3 | Content & Manifest Tests | `src/__tests__/content/{index,tags,assertSafePath}.test.ts`, `src/__tests__/manifest/hatchJson.test.ts` |
-| 3.4 | Integration Tests | `src/__tests__/{hooks,models,detect,env,integrity,archive,merge,workspace,worktree}/` (14 files) |
-| 3.5 | Coverage Meta-Analysis | All 47 test files, coverage report, test infrastructure |
+| 3.1 | Adapter Tests | 26 test files in `src/__tests__/adapters/` (now includes `amazonq.test.ts`) |
+| 3.2 | CLI Tests | 27 test files in `src/__tests__/cli/` |
+| 3.3 | Content & Manifest Tests | `src/__tests__/content/` (13 files), `src/__tests__/manifest/`, `src/__tests__/manifests/` |
+| 3.4 | Integration Tests | `src/__tests__/{hooks,models,detect,env,integrity,archive,merge,workspace,worktree,pipeline,audit,cliTools,version,clean,e2e,importers,install}/` (85 files) |
+| 3.5 | Coverage Meta-Analysis | All 135 test files, coverage report, test infrastructure |
 
 > Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
 
@@ -70,7 +80,7 @@
 
 ### 3.5 Coverage Meta-Analysis
 - [ ] Run `npm test` and analyze overall coverage percentage
-- [ ] Identify untested modules — source files with zero coverage (note: `src/adapters/amazonq.ts` has no test file)
+- [ ] Identify untested modules — source files with zero coverage
 - [ ] Identify untested branches — conditional paths not exercised
 - [ ] Test quality assessment — assertions per test, meaningful vs trivial tests
 - [ ] Test determinism — no flaky tests, no order dependencies

@@ -8,6 +8,23 @@ import { toWindsurfToolsFrontmatter } from "../pipeline/adapterToolTranslator.js
 import type { HookEvent } from "../hooks/types.js";
 import { HATCH3R_VERSION } from "../version.js";
 
+/**
+ * Windsurf adapter.
+ *
+ * Generates `.windsurfrules` (Cascade preamble with bridge + inline agents +
+ * per-agent tool policies), per-rule files in `.windsurf/rules/` with
+ * precedence-prefixed filenames, skills in `.windsurf/skills/`, workflows in
+ * `.windsurf/workflows/`, optional `.windsurf/mcp.json`, and Cascade hooks at
+ * `.windsurf/hooks.json` (twelve-event schema shipped in Windsurf 1.13.12).
+ *
+ * Reference: https://docs.windsurf.com/windsurf/cascade/hooks.md
+ *
+ * > Last updated: 2026-05-19
+ *
+ * Currency anchor for D16-F16.1.7 cross-cutting routing signal; full adapter
+ * audit deferred to Cycle 10 `/h4tcher-scoped-audit windsurf-adapter`.
+ */
+
 function isGlobPattern(scope: string): boolean {
   return scope.includes("*") || scope.includes("?") || scope.includes("[");
 }

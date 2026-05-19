@@ -133,7 +133,7 @@ Next action (maintainer runs manually):
 
 ## References
 
-- D16.3 removal-threshold + add-vs-remove bias check: `governance/audit/domains/D16-compound-system.md:55`
+- D16.3 removal-threshold + add-vs-remove bias check: `governance/audit/domains/D16-compound-system.md:59`
 - Web research mandate: `governance/audit/templates/rigor-contract.md`
 - Quality charter: `agents/shared/quality-charter.md`
 - Sibling presets: `.claude/skills/h4tcher-capability-discover/SKILL.md`, `.claude/skills/h4tcher-capability-refactor/SKILL.md`

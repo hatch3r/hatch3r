@@ -4,7 +4,7 @@
 
 **Pillars served:** P2 (primary), P4, P8 (supporting).
 
-**Scope:** 137 content artifacts evaluated for prompt engineering quality, instruction clarity, ambiguity-detection gates, LLM execution reliability.
+**Scope:** 209 content artifacts evaluated for prompt engineering quality, instruction clarity, ambiguity-detection gates, LLM execution reliability.
 **Sub-agents:** 9
 
 | SA | Focus |
@@ -12,11 +12,11 @@
 | 5.1 | Pipeline agents (researcher/implementer/reviewer/fixer) |
 | 5.2 | Specialist agents (a11y/architect/ci-watcher/context-rules/dep-auditor/devops/docs-writer/lint-fixer) |
 | 5.3 | Meta agents (perf-profiler/security-auditor/test-writer/learnings-loader) |
-| 5.4 | Rules (22 .md + 22 .mdc) |
-| 5.5 | Commands (34) |
-| 5.6 | Skills (25) |
+| 5.4 | Rules (42 .md + 42 .mdc) |
+| 5.5 | Commands (38) |
+| 5.6 | Skills (63) |
 | 5.7 | Supporting artifacts (6 checks + 6 hooks + 3 prompts + 4 github-agents) |
-| 5.8 | Cross-artifact consistency (137 artifacts, from D16) |
+| 5.8 | Cross-artifact consistency (209 artifacts, from D16) |
 | 5.9 | P8 B1 verification (ambiguity-detection gate, directive 17) |
 
 > Apply rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
@@ -41,7 +41,7 @@
 ### 5.3 Meta Agents
 - [ ] Cross-cutting coverage; learnings-loader produces measurable behavior change; security-auditor covers full attack surface; hallucination prevention via file refs, schemas, verification.
 
-### 5.4 Rules
+### 5.4 Rules (42 .md + 42 .mdc)
 - [ ] Technical accuracy current; .md/.mdc parity intact; scope metadata correct; OWASP Top 10 + Agentic Top 10 covered; performance budgets measurable.
 
 ### 5.5 Commands
@@ -54,7 +54,7 @@
 - [ ] 6 checks have pass/fail criteria covering scope; 6 hooks fire on correct events; 3 prompts produce structured output; 4 github-agents work in CI.
 
 ### 5.8 Cross-Artifact Consistency
-- [ ] Consistent terminology, severity scale, output formats across 137 artifacts.
+- [ ] Consistent terminology, severity scale, output formats across 209 artifacts.
 - [ ] Content interaction — 15+ always-apply rules + skill + shared + agent loaded simultaneously produce no conflict/ambiguity.
 - [ ] MCP dependency graceful degradation — unconfigured server fails with guidance.
 - [ ] Filename prefix scope — top-level published content has `hatch3r-` prefix; support subdirs exempt per `.claude/rules/content-authoring.md`.

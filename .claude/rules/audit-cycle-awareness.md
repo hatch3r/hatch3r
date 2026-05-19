@@ -4,7 +4,7 @@
 
 The audit cycle is the framework's primary quality mechanism. Understand the flow:
 
-1. **Audit** (`governance/AUDIT.md`): 21 domains across 4 tiers deploy 119 sub-agents. Each produces findings with severity (Critical/High/Medium/Low/Info)
+1. **Audit** (`governance/AUDIT.md`): 21 domains across 4 tiers deploy 121 sub-agents. Each produces findings with severity (Critical/High/Medium/Low/Info)
 2. **Execute** (`governance/AUDIT-EXECUTE.md`): 4-wave progression (Critical first) with **18-check** regression gates between waves. Each wave fans out **one sub-agent per finding** (same-file findings grouped into a file-lock sub-agent; same-wave dependency chains serialized). Sub-agents write to `.audit-workspace/wave-{N}/{finding_id}.results.md` per the Context Management Protocol; orchestrator reads only the wave SUMMARY.md. Gates compare against immutable Phase 0 baseline
 3. **Closed-loop:**
    - CL-1: PRD evolution candidates (identification only)

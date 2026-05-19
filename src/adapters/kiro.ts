@@ -1,3 +1,5 @@
+// Last updated: 2026-05-19 (P3 platform-currency anchor; kiro.dev/docs access
+// dates inside this file remain authoritative for individual claims).
 import type { AdapterOutput } from "../types.js";
 import { toPrefixedId } from "../types.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
