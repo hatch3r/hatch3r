@@ -198,7 +198,7 @@ export const VALID_TOOLS = new Set<string>(TOOLS);
 export const TOOL_CHOICES = TOOLS.join(", ");
 
 /** Tools that support git worktree file isolation. Shared across init, update, and config. */
-export const WORKTREE_CAPABLE_TOOLS = new Set<string>(["claude"]);
+export const WORKTREE_CAPABLE_TOOLS = new Set<string>(["claude", "cursor", "copilot"]);
 
 export interface BoardConfig {
   owner: string;

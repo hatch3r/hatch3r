@@ -34,6 +34,7 @@ import {
   type Tool,
 } from "../../types.js";
 import { analyzeRepo } from "../../detect/repoAnalyzer.js";
+import { detectProjectType } from "../../detect/projectType.js";
 import { ensureEnvMcp, ensureGitignoreEntry, getSourceEnvMcpCommand } from "../../env/mcpEnv.js";
 import { generateCanonicalAgentsMd, generateRootAgentsMd } from "../shared/agentsContent.js";
 import {
@@ -52,8 +53,15 @@ import {
 } from "../shared/ui.js";
 import { findPackageRoot } from "../shared/paths.js";
 import { buildTagGroupedCustomContentChoices } from "../shared/customContentChoices.js";
-import { TOOL_DISPLAY_NAMES, TOOL_PROMPT_CHOICES, FEATURE_CHOICES, MCP_CHOICES, PLATFORM_DISPLAY_NAMES, PLATFORM_MCP_SERVER, sanitizeInput, isWSL, formatCommandHint, TOOL_SECRET_NOTES } from "../shared/constants.js";
-import { pickCliTools, pickMcpServers, confirmMcpGate } from "../shared/pickers.js";
+import { TOOL_DISPLAY_NAMES, TOOL_PROMPT_CHOICES, MCP_CHOICES, PLATFORM_DISPLAY_NAMES, PLATFORM_MCP_SERVER, sanitizeInput, isWSL, formatCommandHint, TOOL_SECRET_NOTES } from "../shared/constants.js";
+import { pickCliTools, pickMcpServers } from "../shared/pickers.js";
+import {
+  BACK,
+  isBack,
+  runStepMachine,
+  type Step,
+  type StepResult,
+} from "../shared/initSteps.js";
 import {
   AVAILABLE_CLI_TOOLS,
   CLI_TOOL_SECRET_NOTES,
@@ -77,7 +85,6 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONTENT_ROOT = findPackageRoot(__dirname);
 
 const DEFAULT_TOOLS: Tool[] = ["claude"];
-const DEFAULT_FEATURE_KEYS = Object.keys(DEFAULT_FEATURES) as (keyof Features)[];
 const DEFAULT_MCP: string[] = ["playwright", "github", "context7"];
 
 // Seed content for `.agents/handoffs/README.md`. Documents the schema so
@@ -387,7 +394,6 @@ export async function runInit(options: RunInitOptions): Promise<void> {
 
 async function runInitInner(options: RunInitOptions): Promise<void> {
   const { rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, customization, cliTools } = options;
-  const skipInitPrompts = options.yes === true;
   const agentsDir = join(rootDir, AGENTS_DIR);
   const totalSteps = 4;
 
@@ -669,6 +675,7 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   }
   if (manifest.worktree?.enabled) {
     summaryLines.push(label("Worktree", "isolation enabled"));
+    summaryLines.push(`  ${chalk.dim("Disable with: hatch3r config set worktree.enabled false")}`);
   }
   if (envResult && envResult.action !== "skipped") {
     summaryLines.push(label("Secrets", `.env.mcp (fill in your API keys)`));
@@ -714,23 +721,8 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     printMissingCliToolsDisclaimer(finalMissing, cliTools.selected.length);
   }
 
-  // D20: post-init "create your first user artifact?" prompt. Skipped when
-  // the caller passed `yes: true` (CI / `--yes` flow / tests) so the
-  // non-interactive contract is preserved. Interactive callers see one of
-  // two short hints depending on whether they accept or decline.
-  // C9-H26: also skipped under `--quiet` / `--json` (chrome-free CI flow).
-  if (!skipInitPrompts && !isQuiet()) {
-    const { create } = await inquirer.prompt<{ create: boolean }>([{
-      type: "confirm",
-      name: "create",
-      message: "Would you like to create your first custom artifact now?",
-      default: false,
-    }]);
-    if (create) {
-      info(`Run /hatch3r-create in your AI tool to start authoring. The slash command is now installed under your tool's commands directory.`);
-    } else {
-      info(`Tip: Run /hatch3r-create anytime to author your own agents, skills, rules, commands, or hooks.`);
-    }
+  if (!isQuiet()) {
+    info(`Tip: Run /hatch3r-create anytime to author your own agents, skills, rules, commands, or hooks.`);
   }
 }
 
@@ -992,13 +984,9 @@ export async function initCommand(
     const defaultBranch = parseGitDefaultBranch();
 
     // Use CLI flags with validation, falling back to auto-detect / defaults
-    const isGreenfield =
-      repoInfo.languages.length === 1 &&
-      repoInfo.languages[0] === "unknown" &&
-      repoInfo.existingTools.length === 0 &&
-      !repoInfo.hasExistingAgents;
+    const detection = await detectProjectType(repoInfo, rootDir);
     const presetId = validateFlag(opts.preset, ["minimal", "standard", "full"], "standard", "preset");
-    const projectType = validateFlag(opts.projectType, ["greenfield", "brownfield"], isGreenfield ? "greenfield" : "brownfield", "project-type");
+    const projectType = validateFlag(opts.projectType, ["greenfield", "brownfield"], detection.type, "project-type");
     const teamSize = validateFlag(opts.teamSize, ["solo", "team"], "solo", "team-size");
     const preset = getPreset(presetId);
     const index = await buildContentIndex(CONTENT_ROOT);
@@ -1021,184 +1009,294 @@ export async function initCommand(
   const remoteUrl = getGitRemoteUrl();
   const detectedPlatform = detectPlatformFromRemote(remoteUrl);
 
-  const platformAnswer = await inquirer.prompt<{ platform: Platform }>([
-    {
-      type: "select",
-      name: "platform",
-      message: "Select your platform:",
-      choices: [
-        { name: "GitHub", value: "github" as Platform },
-        { name: "Azure DevOps", value: "azure-devops" as Platform },
-        { name: "GitLab", value: "gitlab" as Platform },
-      ],
-      default: detectedPlatform,
-    },
-  ]);
-  const platform = platformAnswer.platform;
-
-  let owner: string;
-  let repo: string;
-  let namespace: string;
-  let project: string;
-
-  if (platform === "azure-devops") {
-    const adoAnswers = await inquirer.prompt<{ org: string; project: string; repo: string }>([
-      { type: "input", name: "org", message: "Azure DevOps organization:", default: remote.owner || undefined },
-      { type: "input", name: "project", message: "Azure DevOps project:" },
-      { type: "input", name: "repo", message: "Repository name:", default: remote.repo || undefined },
-    ]);
-    owner = sanitizeInput(adoAnswers.org);
-    repo = sanitizeInput(adoAnswers.repo);
-    namespace = owner;
-    project = sanitizeInput(adoAnswers.project);
-  } else if (platform === "gitlab") {
-    const glAnswers = await inquirer.prompt<{ namespace: string; project: string }>([
-      { type: "input", name: "namespace", message: "GitLab namespace (group or username):", default: remote.owner || undefined },
-      { type: "input", name: "project", message: "Project name:", default: remote.repo || undefined },
-    ]);
-    owner = sanitizeInput(glAnswers.namespace);
-    repo = sanitizeInput(glAnswers.project);
-    namespace = owner;
-    project = repo;
-  } else {
-    const repoAnswers = await inquirer.prompt<{ owner: string; repo: string }>([
-      { type: "input", name: "owner", message: "GitHub owner (org or username):", default: remote.owner || undefined },
-      { type: "input", name: "repo", message: "Repository name:", default: remote.repo || undefined },
-    ]);
-    owner = sanitizeInput(repoAnswers.owner);
-    repo = sanitizeInput(repoAnswers.repo);
-    namespace = owner;
-    project = repo;
-  }
-
-  const defaultBranchDefault = parseGitDefaultBranch();
-  const defaultBranchAnswers = await inquirer.prompt<{ defaultBranch: string }>([
-    {
-      type: "input",
-      name: "defaultBranch",
-      message: "Default branch (for checkout, PR base, release):",
-      default: defaultBranchDefault,
-      // C8-D1-M9: reject values that fail `git check-ref-format`. Empty
-      // input is allowed through (falls back to detected default below).
-      validate: (v: string) => {
-        const trimmed = v.trim();
-        if (trimmed === "") return true;
-        return (
-          isValidGitBranchName(trimmed) ||
-          `Invalid git branch name: "${trimmed}". See git-check-ref-format(1).`
-        );
-      },
-    },
-  ]);
-  const defaultBranch = defaultBranchAnswers.defaultBranch.trim() || defaultBranchDefault;
-
-  // --- Project type (with filter exclusion counts) ---
   const filterIndex = await buildContentIndex(CONTENT_ROOT);
   const projectLanguages = languagesForSelection(repoInfo);
-  const isAutoGreenfield =
-    repoInfo.languages.length === 1 &&
-    repoInfo.languages[0] === "unknown" &&
-    repoInfo.existingTools.length === 0 &&
-    !repoInfo.hasExistingAgents;
+  const detection = await detectProjectType(repoInfo, rootDir);
   const greenfieldExcl = countProjectTypeExclusions("greenfield", filterIndex.items);
   const brownfieldExcl = countProjectTypeExclusions("brownfield", filterIndex.items);
-  const projectTypeAnswer = await inquirer.prompt<{ projectType: "greenfield" | "brownfield" }>([
-    {
-      type: "select",
-      name: "projectType",
-      message: "Is this a new (greenfield) or existing (brownfield) project?",
-      choices: [
-        { name: `Greenfield — new project from scratch${greenfieldExcl > 0 ? ` (filters out ${greenfieldExcl} brownfield-only item${greenfieldExcl === 1 ? "" : "s"})` : ""}`, value: "greenfield" as const },
-        { name: `Brownfield — existing codebase${brownfieldExcl > 0 ? ` (filters out ${brownfieldExcl} greenfield-only item${brownfieldExcl === 1 ? "" : "s"})` : ""}`, value: "brownfield" as const },
-      ],
-      default: isAutoGreenfield ? "greenfield" : "brownfield",
-    },
-  ]);
-  const projectType = projectTypeAnswer.projectType;
-
-  // --- Team size (with filter exclusion counts) ---
+  const detectionHint = detection.signals.length > 0
+    ? ` (detected: ${detection.signals.slice(0, 3).join(", ")})`
+    : "";
   const soloExcl = countTeamSizeExclusions("solo", filterIndex.items);
-  const teamSizeAnswer = await inquirer.prompt<{ teamSize: "solo" | "team" }>([
-    {
-      type: "select",
-      name: "teamSize",
-      message: "Solo developer or team collaboration?",
-      choices: [
-        { name: `Solo — just me${soloExcl > 0 ? ` (filters out ${soloExcl} team-only item${soloExcl === 1 ? "" : "s"})` : ""}`, value: "solo" as const },
-        { name: "Team — multiple contributors", value: "team" as const },
-      ],
-      default: "solo",
-    },
-  ]);
-  const teamSize = teamSizeAnswer.teamSize;
-
-  // --- Content preset (with exclusion counts) ---
   const totalItems = filterIndex.items.length;
-  const presetAnswer = await inquirer.prompt<{ preset: PresetId }>([
-    {
-      type: "select",
-      name: "preset",
-      message: "Select content profile:",
-      choices: PRESETS.map((p) => {
-        const excluded = countPresetExclusions(p, filterIndex);
-        const estimated = p.id !== "custom" ? estimatePresetItemCount(p, projectType, teamSize, filterIndex, projectLanguages) : 0;
-        const countHint = estimated > 0 ? ` (~${estimated} items)` : "";
-        const suffix = excluded > 0 ? ` (excludes ${excluded} of ${totalItems})` : "";
-        return {
-          name: `${p.name} — ${p.description}${countHint}${suffix}`,
-          value: p.id,
-        };
-      }),
-      default: "standard" as PresetId,
-    },
-  ]);
-  const selectedPreset = getPreset(presetAnswer.preset);
-
+  const defaultBranchDefault = parseGitDefaultBranch();
   const wslTheme = isWSL()
     ? { icon: { checked: chalk.green("[x]"), unchecked: "[ ]", cursor: ">" } }
     : undefined;
+  const toolDefaults = repoInfo.existingTools.length > 0 ? repoInfo.existingTools : DEFAULT_TOOLS;
+  const tier2Suggested = Array.from(new Set([
+    ...evaluateTier2Triggers(repoInfo),
+    ...applyPlatformTriggers(detectedPlatform, []),
+  ]));
 
-  // --- Custom content selection ---
-  // #148 (D19-19): Group content by tags in custom profile display
-  let customSelections: string[] | undefined;
-  if (selectedPreset.id === "custom") {
-    const contentIndex = filterIndex;
-    const groupedChoices = buildTagGroupedCustomContentChoices(
-      contentIndex.items,
-      (item) => item.protected || item.tags.includes("core"),
-    );
-
-    const customAnswer = await inquirer.prompt<{ items: string[] }>([
-      {
-        type: "checkbox",
-        name: "items",
-        message: "Select content items:",
-        choices: groupedChoices,
-        ...(wslTheme && { theme: wslTheme }),
-      },
-    ]);
-    customSelections = customAnswer.items;
+  // Step-machine drives the interactive flow with back-navigation.
+  // Each step's `run()` calls inquirer with the same shape the
+  // pre-Slice-E inline prompts used so existing test queues match
+  // unchanged. The orchestrator awaits `runStepMachine` and consumes
+  // the resolved state below.
+  interface SingleRepoState {
+    platform: Platform;
+    identity: { owner: string; repo: string; namespace: string; project: string };
+    defaultBranch: string;
+    projectType: "greenfield" | "brownfield";
+    teamSize: "solo" | "team";
+    preset: PresetId;
+    customItems: string[] | undefined;
+    tools: Tool[];
+    wantMcp: boolean;
+    mcpServers: string[];
+    cliTools: CliToolId[];
   }
 
-  const toolDefaults = repoInfo.existingTools.length > 0 ? repoInfo.existingTools : DEFAULT_TOOLS;
-  const toolAnswers = await inquirer.prompt<{ tools: Tool[] }>([
+  const steps: Array<Step<SingleRepoState, keyof SingleRepoState>> = [
     {
-      type: "checkbox",
-      name: "tools",
-      message: "Select tools to configure:",
-      choices: TOOL_PROMPT_CHOICES,
-      default: toolDefaults,
-      ...(wslTheme && { theme: wslTheme }),
+      id: "platform",
+      async run(_state, previous): Promise<StepResult<Platform>> {
+        const answer = await inquirer.prompt<{ platform: Platform | typeof BACK }>([
+          {
+            type: "select",
+            name: "platform",
+            message: "Select your platform: (or ← Back)",
+            choices: [
+              { name: "← Back", value: BACK as unknown as Platform },
+              { name: "GitHub", value: "github" as Platform },
+              { name: "Azure DevOps", value: "azure-devops" as Platform },
+              { name: "GitLab", value: "gitlab" as Platform },
+            ],
+            default: previous ?? detectedPlatform,
+          },
+        ]);
+        return isBack(answer.platform) ? BACK : (answer.platform as Platform);
+      },
     },
-  ]);
-  const tools = toolAnswers.tools.length > 0 ? toolAnswers.tools : DEFAULT_TOOLS;
+    {
+      id: "identity",
+      async run(state, previous): Promise<StepResult<SingleRepoState["identity"]>> {
+        const plat = state.platform!;
+        if (plat === "azure-devops") {
+          const ado = await inquirer.prompt<{ org: string; project: string; repo: string }>([
+            { type: "input", name: "org", message: "Azure DevOps organization: (type :back to go back)", default: previous?.owner || remote.owner || undefined },
+            { type: "input", name: "project", message: "Azure DevOps project: (type :back to go back)", default: previous?.project || undefined },
+            { type: "input", name: "repo", message: "Repository name: (type :back to go back)", default: previous?.repo || remote.repo || undefined },
+          ]);
+          if ([ado.org, ado.project, ado.repo].some((v) => v.trim() === ":back")) return BACK;
+          const owner = sanitizeInput(ado.org);
+          return {
+            owner,
+            repo: sanitizeInput(ado.repo),
+            namespace: owner,
+            project: sanitizeInput(ado.project),
+          };
+        } else if (plat === "gitlab") {
+          const gl = await inquirer.prompt<{ namespace: string; project: string }>([
+            { type: "input", name: "namespace", message: "GitLab namespace (group or username): (type :back to go back)", default: previous?.namespace || remote.owner || undefined },
+            { type: "input", name: "project", message: "Project name: (type :back to go back)", default: previous?.project || remote.repo || undefined },
+          ]);
+          if ([gl.namespace, gl.project].some((v) => v.trim() === ":back")) return BACK;
+          const owner = sanitizeInput(gl.namespace);
+          const repo2 = sanitizeInput(gl.project);
+          return { owner, repo: repo2, namespace: owner, project: repo2 };
+        } else {
+          const gh = await inquirer.prompt<{ owner: string; repo: string }>([
+            { type: "input", name: "owner", message: "GitHub owner (org or username): (type :back to go back)", default: previous?.owner || remote.owner || undefined },
+            { type: "input", name: "repo", message: "Repository name: (type :back to go back)", default: previous?.repo || remote.repo || undefined },
+          ]);
+          if ([gh.owner, gh.repo].some((v) => v.trim() === ":back")) return BACK;
+          const owner = sanitizeInput(gh.owner);
+          const repo2 = sanitizeInput(gh.repo);
+          return { owner, repo: repo2, namespace: owner, project: repo2 };
+        }
+      },
+    },
+    {
+      id: "defaultBranch",
+      async run(_state, previous): Promise<StepResult<string>> {
+        const answers = await inquirer.prompt<{ defaultBranch: string }>([
+          {
+            type: "input",
+            name: "defaultBranch",
+            message: "Default branch (for checkout, PR base, release): (type :back to go back)",
+            default: previous ?? defaultBranchDefault,
+            // C8-D1-M9: reject values that fail `git check-ref-format`. Empty
+            // input is allowed through (falls back to detected default below).
+            // `:back` short-circuits validation so back-nav always works.
+            validate: (v: string) => {
+              const trimmed = v.trim();
+              if (trimmed === "" || trimmed === ":back") return true;
+              return (
+                isValidGitBranchName(trimmed) ||
+                `Invalid git branch name: "${trimmed}". See git-check-ref-format(1).`
+              );
+            },
+          },
+        ]);
+        if (answers.defaultBranch.trim() === ":back") return BACK;
+        return answers.defaultBranch.trim() || defaultBranchDefault;
+      },
+    },
+    {
+      id: "projectType",
+      async run(_state, previous): Promise<StepResult<"greenfield" | "brownfield">> {
+        const answer = await inquirer.prompt<{ projectType: "greenfield" | "brownfield" | typeof BACK }>([
+          {
+            type: "select",
+            name: "projectType",
+            message: `Is this a new (greenfield) or existing (brownfield) project?${detectionHint} (or ← Back)`,
+            choices: [
+              { name: "← Back", value: BACK as unknown as "greenfield" },
+              { name: `Greenfield — new project from scratch${greenfieldExcl > 0 ? ` (filters out ${greenfieldExcl} brownfield-only item${greenfieldExcl === 1 ? "" : "s"})` : ""}`, value: "greenfield" as const },
+              { name: `Brownfield — existing codebase${brownfieldExcl > 0 ? ` (filters out ${brownfieldExcl} greenfield-only item${brownfieldExcl === 1 ? "" : "s"})` : ""}`, value: "brownfield" as const },
+            ],
+            default: previous ?? detection.type,
+          },
+        ]);
+        return isBack(answer.projectType) ? BACK : (answer.projectType as "greenfield" | "brownfield");
+      },
+    },
+    {
+      id: "teamSize",
+      async run(_state, previous): Promise<StepResult<"solo" | "team">> {
+        const answer = await inquirer.prompt<{ teamSize: "solo" | "team" | typeof BACK }>([
+          {
+            type: "select",
+            name: "teamSize",
+            message: "Solo developer or team collaboration? (or ← Back)",
+            choices: [
+              { name: "← Back", value: BACK as unknown as "solo" },
+              { name: `Solo — just me${soloExcl > 0 ? ` (filters out ${soloExcl} team-only item${soloExcl === 1 ? "" : "s"})` : ""}`, value: "solo" as const },
+              { name: "Team — multiple contributors", value: "team" as const },
+            ],
+            default: previous ?? "solo",
+          },
+        ]);
+        return isBack(answer.teamSize) ? BACK : (answer.teamSize as "solo" | "team");
+      },
+    },
+    {
+      id: "preset",
+      async run(state, previous): Promise<StepResult<PresetId>> {
+        const projectType2 = state.projectType!;
+        const teamSize2 = state.teamSize!;
+        const answer = await inquirer.prompt<{ preset: PresetId | typeof BACK }>([
+          {
+            type: "select",
+            name: "preset",
+            message: "Select content profile: (or ← Back)",
+            choices: [
+              { name: "← Back", value: BACK as unknown as PresetId },
+              ...PRESETS.map((p) => {
+                const excluded = countPresetExclusions(p, filterIndex);
+                const estimated = p.id !== "custom" ? estimatePresetItemCount(p, projectType2, teamSize2, filterIndex, projectLanguages) : 0;
+                const countHint = estimated > 0 ? ` (~${estimated} items)` : "";
+                const suffix = excluded > 0 ? ` (excludes ${excluded} of ${totalItems})` : "";
+                return {
+                  name: `${p.name} — ${p.description}${countHint}${suffix}`,
+                  value: p.id,
+                };
+              }),
+            ],
+            default: previous ?? ("standard" as PresetId),
+          },
+        ]);
+        return isBack(answer.preset) ? BACK : (answer.preset as PresetId);
+      },
+    },
+    {
+      id: "customItems",
+      skip: (s) => s.preset !== "custom",
+      async run(_state, previous): Promise<StepResult<string[] | undefined>> {
+        const groupedChoices = buildTagGroupedCustomContentChoices(
+          filterIndex.items,
+          (item) => item.protected || item.tags.includes("core"),
+        );
+        const customAnswer = await inquirer.prompt<{ items: Array<string | typeof BACK> }>([
+          {
+            type: "checkbox",
+            name: "items",
+            message: "Select content items: (or ← Back)",
+            choices: [
+              { name: "← Back", value: BACK as unknown as string },
+              ...groupedChoices,
+            ],
+            ...(previous ? { default: previous } : {}),
+            ...(wslTheme && { theme: wslTheme }),
+          },
+        ]);
+        const items = customAnswer.items ?? [];
+        if (Array.isArray(items) && items.some(isBack)) return BACK;
+        return (items as string[]).filter((v) => !isBack(v));
+      },
+    },
+    {
+      id: "tools",
+      async run(_state, previous): Promise<StepResult<Tool[]>> {
+        const toolAnswers = await inquirer.prompt<{ tools: Array<Tool | typeof BACK> }>([
+          {
+            type: "checkbox",
+            name: "tools",
+            message: "Select tools to configure: (or ← Back)",
+            choices: [
+              { name: "← Back", value: BACK as unknown as Tool },
+              ...TOOL_PROMPT_CHOICES,
+            ],
+            default: previous ?? toolDefaults,
+            ...(wslTheme && { theme: wslTheme }),
+          },
+        ]);
+        const arr = toolAnswers.tools ?? [];
+        if (Array.isArray(arr) && arr.some(isBack)) return BACK;
+        const filtered = (arr as Tool[]).filter((v) => !isBack(v));
+        return filtered.length > 0 ? filtered : DEFAULT_TOOLS;
+      },
+    },
+    {
+      id: "wantMcp",
+      async run(): Promise<StepResult<boolean>> {
+        // Confirm prompts have no ← Back affordance (single yes/no). Walk
+        // back via the NEXT step's ← Back option.
+        const { wantMcp } = await inquirer.prompt<{ wantMcp: boolean }>([
+          {
+            type: "confirm",
+            name: "wantMcp",
+            message: "Configure MCP servers (tool-server integration)?",
+            default: false,
+            ...(wslTheme && { theme: wslTheme }),
+          },
+        ]);
+        return wantMcp;
+      },
+    },
+    {
+      id: "mcpServers",
+      skip: (s) => !s.wantMcp,
+      async run(state): Promise<StepResult<string[]>> {
+        return await pickMcpServers({ platform: state.platform!, wslTheme });
+      },
+    },
+    {
+      id: "cliTools",
+      async run(): Promise<StepResult<CliToolId[]>> {
+        return await pickCliTools({ tier2Suggested, wslTheme });
+      },
+    },
+  ];
+
+  const stepState = await runStepMachine<SingleRepoState>(steps);
+
+  const platform = stepState.platform;
+  const { owner, repo, namespace, project } = stepState.identity;
+  const defaultBranch = stepState.defaultBranch;
+  const projectType = stepState.projectType;
+  const teamSize = stepState.teamSize;
+  const selectedPreset = getPreset(stepState.preset);
+  const customSelections = stepState.customItems;
+  const tools = stepState.tools;
+  const features: Features = { ...DEFAULT_FEATURES, mcp: stepState.wantMcp };
 
   // C9-H32 (D10-SA10.5-F2): Surface MCP secret-loading divergence at
   // tool-selection time — before commit — so a user picking Claude alongside
   // auto-loaders (Cursor / Copilot / Windsurf) sees the divergent shell-source
-  // requirement immediately, not after manifest write. Previously these notes
-  // surfaced inside the MCP block right before runInit, which is post-commit
-  // from the user's mental model (no remaining decision point to act on).
+  // requirement immediately.
   const secretNotes = tools.map((t) => TOOL_SECRET_NOTES[t]).filter(Boolean);
   if (secretNotes.length > 0) {
     info(chalk.dim("MCP secret loading by tool:"));
@@ -1207,75 +1305,15 @@ export async function initCommand(
     }
   }
 
-  // Worktree file isolation: mirrors config.ts prompt. Honor explicit
-  // --worktree/--no-worktree flag. Else prompt when a worktree-capable tool
-  // is selected, else disable. C9-H28 (D10-SA10.3-F1) prompt order:
-  // tools -> worktree -> features -> MCP -> CLI tools. Features and MCP
-  // (which drive the larger first-run choices: agents/skills/rules/etc. and
-  // the env-secret commitment) now precede the CLI-tools picker so the user
-  // makes the high-impact decisions first.
-  const hasWorktreeTool = tools.some(t => WORKTREE_CAPABLE_TOOLS.has(t));
-  let worktreeEnabled: boolean;
-  if (opts.worktree !== undefined) {
-    worktreeEnabled = opts.worktree;
-  } else if (hasWorktreeTool) {
-    const wtAnswer = await inquirer.prompt<{ enabled: boolean }>([{
-      type: "confirm",
-      name: "enabled",
-      message: "Enable worktree file isolation (for parallel agent sessions)?",
-      default: true,
-    }]);
-    worktreeEnabled = wtAnswer.enabled;
-  } else {
-    worktreeEnabled = false;
-  }
+  // Worktree file isolation: auto-enable when a worktree-capable tool is
+  // selected; honor explicit --worktree/--no-worktree override.
+  const worktreeEnabled = opts.worktree ?? tools.some(t => WORKTREE_CAPABLE_TOOLS.has(t));
 
-  // C9-H28 (D10-SA10.3-F1): Features prompt moved BEFORE CLI tools so the
-  // core selection (agents/skills/rules/MCP) is made before the longer
-  // CLI-tooling picker. Previously CLI tools intervened between worktree
-  // and features, lengthening time-to-features-decision.
-  const featureAnswers = await inquirer.prompt<{ features: (keyof Features)[] }>([
-    {
-      type: "checkbox",
-      name: "features",
-      message: "Select features (MCP provides tool-server integration):",
-      choices: FEATURE_CHOICES,
-      default: DEFAULT_FEATURE_KEYS,
-      ...(wslTheme && { theme: wslTheme }),
-    },
-  ]);
-  const selectedFeatures = featureAnswers.features;
-  const features = { ...DEFAULT_FEATURES };
-  for (const k of Object.keys(features) as (keyof Features)[]) {
-    features[k] = selectedFeatures.includes(k);
-  }
+  // MCP server list is empty unless the user opted in via the gate.
+  const mcpServers: string[] = stepState.mcpServers ?? [];
 
-  // CLI-tooling pivot (plan §4.3 step 8): MCP is now behind a Yes/No
-  // gate that defaults to No. Users opt in explicitly and only then see
-  // the server picker. `hatch3r mcp setup` exists as a side-door for
-  // users who skipped here and changed their mind later. C9-H28: paired
-  // with features above and placed BEFORE CLI tools.
-  let mcpServers: string[] = [];
-  if (features.mcp) {
-    const proceedMcp = await confirmMcpGate({ hasExisting: false, defaultYes: false });
-    if (proceedMcp) {
-      mcpServers = await pickMcpServers({ platform, wslTheme });
-    }
-  }
-
-  // CLI-tooling pivot (plan §4.3 steps 2-5): pick CLI tools, run a
-  // detection sweep, and surface install-pending commands for missing
-  // binaries. The picker pre-checks tier-1 and project-triggered tier-2.
-  // C9-H28 (D10-SA10.3-F1): moved AFTER features + MCP so the high-impact
-  // core decisions complete before the broader CLI-tooling roster prompt.
-  const tier2Suggested = Array.from(new Set([
-    ...evaluateTier2Triggers(repoInfo),
-    ...applyPlatformTriggers(platform, []),
-  ]));
-  const selectedCliTools = await pickCliTools({
-    tier2Suggested,
-    wslTheme,
-  });
+  // CLI tools selection + detection + installer follow-up.
+  const selectedCliTools = stepState.cliTools;
   if (selectedCliTools.length > 0) {
     const detectSpinner = createSpinner(`Detecting ${selectedCliTools.length} CLI tool(s)...`);
     detectSpinner.start();
@@ -1468,116 +1506,206 @@ async function runWorkspaceInit(
       ]));
       wsCliTools = { enabled: selected.length > 0, selected };
     }
-    const isGreenfield =
-      repoInfo.languages.length === 1 &&
-      repoInfo.languages[0] === "unknown" &&
-      repoInfo.existingTools.length === 0 &&
-      !repoInfo.hasExistingAgents;
+    const wsDetection = await detectProjectType(repoInfo, rootDir);
     const presetId = validateFlag(opts.preset, ["minimal", "standard", "full"], "standard", "preset");
-    const projectType = validateFlag(opts.projectType, ["greenfield", "brownfield"], isGreenfield ? "greenfield" : "brownfield", "project-type");
+    const projectType = validateFlag(opts.projectType, ["greenfield", "brownfield"], wsDetection.type, "project-type");
     const teamSize = validateFlag(opts.teamSize, ["solo", "team"], "solo", "team-size");
     const preset = getPreset(presetId);
     const index = await buildContentIndex(CONTENT_ROOT);
     const projectLanguages = languagesForSelection(repoInfo);
     contentSelection = resolveSelection(preset, projectType, teamSize, index, undefined, projectLanguages);
   } else {
-    // Interactive workspace-wide config prompts
+    // Interactive workspace-wide config prompts — driven by the
+    // step-machine for back-navigation. The per-repo identity-edit loop
+    // and the final `syncRepos` checkbox remain outside the state
+    // machine (Slice E §workspace).
     const wslTheme = isWSL()
       ? { icon: { checked: chalk.green("[x]"), unchecked: "[ ]", cursor: ">" } }
       : undefined;
 
     const wsFilterIndex = await buildContentIndex(CONTENT_ROOT);
     const projectLanguages = languagesForSelection(repoInfo);
-    const isAutoGreenfield =
-      repoInfo.languages.length === 1 &&
-      repoInfo.languages[0] === "unknown" &&
-      repoInfo.existingTools.length === 0 &&
-      !repoInfo.hasExistingAgents;
+    const wsDetection = await detectProjectType(repoInfo, rootDir);
     const wsGreenfieldExcl = countProjectTypeExclusions("greenfield", wsFilterIndex.items);
     const wsBrownfieldExcl = countProjectTypeExclusions("brownfield", wsFilterIndex.items);
-    const projectTypeAnswer = await inquirer.prompt<{ projectType: "greenfield" | "brownfield" }>([
-      {
-        type: "select",
-        name: "projectType",
-        message: "Is this a new (greenfield) or existing (brownfield) project?",
-        choices: [
-          { name: `Greenfield — new project from scratch${wsGreenfieldExcl > 0 ? ` (filters out ${wsGreenfieldExcl} brownfield-only item${wsGreenfieldExcl === 1 ? "" : "s"})` : ""}`, value: "greenfield" as const },
-          { name: `Brownfield — existing codebase${wsBrownfieldExcl > 0 ? ` (filters out ${wsBrownfieldExcl} greenfield-only item${wsBrownfieldExcl === 1 ? "" : "s"})` : ""}`, value: "brownfield" as const },
-        ],
-        default: isAutoGreenfield ? "greenfield" : "brownfield",
-      },
-    ]);
-    const projectType = projectTypeAnswer.projectType;
-
+    const wsDetectionHint = wsDetection.signals.length > 0
+      ? ` (detected: ${wsDetection.signals.slice(0, 3).join(", ")})`
+      : "";
     const wsSoloExcl = countTeamSizeExclusions("solo", wsFilterIndex.items);
-    const teamSizeAnswer = await inquirer.prompt<{ teamSize: "solo" | "team" }>([
-      {
-        type: "select",
-        name: "teamSize",
-        message: "Solo developer or team collaboration?",
-        choices: [
-          { name: `Solo — just me${wsSoloExcl > 0 ? ` (filters out ${wsSoloExcl} team-only item${wsSoloExcl === 1 ? "" : "s"})` : ""}`, value: "solo" as const },
-          { name: "Team — multiple contributors", value: "team" as const },
-        ],
-        default: "solo",
-      },
-    ]);
-    const teamSize = teamSizeAnswer.teamSize;
-
     const wsTotalItems = wsFilterIndex.items.length;
-    const presetAnswer = await inquirer.prompt<{ preset: PresetId }>([
-      {
-        type: "select",
-        name: "preset",
-        message: "Select content profile:",
-        choices: PRESETS.map((p) => {
-          const excluded = countPresetExclusions(p, wsFilterIndex);
-          const wsEstimated = p.id !== "custom" ? estimatePresetItemCount(p, projectType, teamSize, wsFilterIndex, projectLanguages) : 0;
-          const wsCountHint = wsEstimated > 0 ? ` (~${wsEstimated} items)` : "";
-          const suffix = excluded > 0 ? ` (excludes ${excluded} of ${wsTotalItems})` : "";
-          return {
-            name: `${p.name} — ${p.description}${wsCountHint}${suffix}`,
-            value: p.id,
-          };
-        }),
-        default: "standard" as PresetId,
-      },
-    ]);
-    const selectedPreset = getPreset(presetAnswer.preset);
+    const wsToolDefaults = repoInfo.existingTools.length > 0 ? repoInfo.existingTools : DEFAULT_TOOLS;
+    const wsTier2Suggested = Array.from(new Set([
+      ...evaluateTier2Triggers(repoInfo),
+      ...applyPlatformTriggers(platform, []),
+    ]));
 
-    // #148 (D19-19): Group content by tags in workspace custom profile display
-    let customSelections: string[] | undefined;
-    if (selectedPreset.id === "custom") {
-      const contentIndex = wsFilterIndex;
-      const wsGroupedChoices = buildTagGroupedCustomContentChoices(
-        contentIndex.items,
-        (item) => item.protected || item.tags.includes("core"),
-      );
-
-      const customAnswer = await inquirer.prompt<{ items: string[] }>([
-        {
-          type: "checkbox",
-          name: "items",
-          message: "Select content items:",
-          choices: wsGroupedChoices,
-          ...(wslTheme && { theme: wslTheme }),
-        },
-      ]);
-      customSelections = customAnswer.items;
+    interface WorkspaceState {
+      projectType: "greenfield" | "brownfield";
+      teamSize: "solo" | "team";
+      preset: PresetId;
+      customItems: string[] | undefined;
+      tools: Tool[];
+      wantMcp: boolean;
+      mcpServers: string[];
+      cliTools: CliToolId[];
     }
 
-    const toolDefaults = repoInfo.existingTools.length > 0 ? repoInfo.existingTools : DEFAULT_TOOLS;
-    const toolAnswers = await inquirer.prompt<{ tools: Tool[] }>([
+    const wsSteps: Array<Step<WorkspaceState>> = [
       {
-        type: "checkbox",
-        name: "tools",
-        message: "Select tools to configure:",
-        choices: TOOL_PROMPT_CHOICES,
-        default: toolDefaults,
-        ...(wslTheme && { theme: wslTheme }),
+        id: "projectType",
+        async run(_state, previous): Promise<StepResult<"greenfield" | "brownfield">> {
+          const answer = await inquirer.prompt<{ projectType: "greenfield" | "brownfield" | typeof BACK }>([
+            {
+              type: "select",
+              name: "projectType",
+              message: `Is this a new (greenfield) or existing (brownfield) project?${wsDetectionHint} (or ← Back)`,
+              choices: [
+                { name: "← Back", value: BACK as unknown as "greenfield" },
+                { name: `Greenfield — new project from scratch${wsGreenfieldExcl > 0 ? ` (filters out ${wsGreenfieldExcl} brownfield-only item${wsGreenfieldExcl === 1 ? "" : "s"})` : ""}`, value: "greenfield" as const },
+                { name: `Brownfield — existing codebase${wsBrownfieldExcl > 0 ? ` (filters out ${wsBrownfieldExcl} greenfield-only item${wsBrownfieldExcl === 1 ? "" : "s"})` : ""}`, value: "brownfield" as const },
+              ],
+              default: previous ?? wsDetection.type,
+            },
+          ]);
+          return isBack(answer.projectType) ? BACK : (answer.projectType as "greenfield" | "brownfield");
+        },
       },
-    ]);
-    tools = toolAnswers.tools.length > 0 ? toolAnswers.tools : DEFAULT_TOOLS;
+      {
+        id: "teamSize",
+        async run(_state, previous): Promise<StepResult<"solo" | "team">> {
+          const answer = await inquirer.prompt<{ teamSize: "solo" | "team" | typeof BACK }>([
+            {
+              type: "select",
+              name: "teamSize",
+              message: "Solo developer or team collaboration? (or ← Back)",
+              choices: [
+                { name: "← Back", value: BACK as unknown as "solo" },
+                { name: `Solo — just me${wsSoloExcl > 0 ? ` (filters out ${wsSoloExcl} team-only item${wsSoloExcl === 1 ? "" : "s"})` : ""}`, value: "solo" as const },
+                { name: "Team — multiple contributors", value: "team" as const },
+              ],
+              default: previous ?? "solo",
+            },
+          ]);
+          return isBack(answer.teamSize) ? BACK : (answer.teamSize as "solo" | "team");
+        },
+      },
+      {
+        id: "preset",
+        async run(state, previous): Promise<StepResult<PresetId>> {
+          const pt = state.projectType!;
+          const ts = state.teamSize!;
+          const answer = await inquirer.prompt<{ preset: PresetId | typeof BACK }>([
+            {
+              type: "select",
+              name: "preset",
+              message: "Select content profile: (or ← Back)",
+              choices: [
+                { name: "← Back", value: BACK as unknown as PresetId },
+                ...PRESETS.map((p) => {
+                  const excluded = countPresetExclusions(p, wsFilterIndex);
+                  const wsEstimated = p.id !== "custom" ? estimatePresetItemCount(p, pt, ts, wsFilterIndex, projectLanguages) : 0;
+                  const wsCountHint = wsEstimated > 0 ? ` (~${wsEstimated} items)` : "";
+                  const suffix = excluded > 0 ? ` (excludes ${excluded} of ${wsTotalItems})` : "";
+                  return {
+                    name: `${p.name} — ${p.description}${wsCountHint}${suffix}`,
+                    value: p.id,
+                  };
+                }),
+              ],
+              default: previous ?? ("standard" as PresetId),
+            },
+          ]);
+          return isBack(answer.preset) ? BACK : (answer.preset as PresetId);
+        },
+      },
+      {
+        id: "customItems",
+        skip: (s) => s.preset !== "custom",
+        async run(_state, previous): Promise<StepResult<string[] | undefined>> {
+          const wsGroupedChoices = buildTagGroupedCustomContentChoices(
+            wsFilterIndex.items,
+            (item) => item.protected || item.tags.includes("core"),
+          );
+          const customAnswer = await inquirer.prompt<{ items: Array<string | typeof BACK> }>([
+            {
+              type: "checkbox",
+              name: "items",
+              message: "Select content items: (or ← Back)",
+              choices: [
+                { name: "← Back", value: BACK as unknown as string },
+                ...wsGroupedChoices,
+              ],
+              ...(previous ? { default: previous } : {}),
+              ...(wslTheme && { theme: wslTheme }),
+            },
+          ]);
+          const items = customAnswer.items ?? [];
+          if (Array.isArray(items) && items.some(isBack)) return BACK;
+          return (items as string[]).filter((v) => !isBack(v));
+        },
+      },
+      {
+        id: "tools",
+        async run(_state, previous): Promise<StepResult<Tool[]>> {
+          const toolAnswers = await inquirer.prompt<{ tools: Array<Tool | typeof BACK> }>([
+            {
+              type: "checkbox",
+              name: "tools",
+              message: "Select tools to configure: (or ← Back)",
+              choices: [
+                { name: "← Back", value: BACK as unknown as Tool },
+                ...TOOL_PROMPT_CHOICES,
+              ],
+              default: previous ?? wsToolDefaults,
+              ...(wslTheme && { theme: wslTheme }),
+            },
+          ]);
+          const arr = toolAnswers.tools ?? [];
+          if (Array.isArray(arr) && arr.some(isBack)) return BACK;
+          const filtered = (arr as Tool[]).filter((v) => !isBack(v));
+          return filtered.length > 0 ? filtered : DEFAULT_TOOLS;
+        },
+      },
+      {
+        id: "wantMcp",
+        async run(): Promise<StepResult<boolean>> {
+          const { wantMcp } = await inquirer.prompt<{ wantMcp: boolean }>([
+            {
+              type: "confirm",
+              name: "wantMcp",
+              message: "Configure MCP servers (tool-server integration)?",
+              default: false,
+              ...(wslTheme && { theme: wslTheme }),
+            },
+          ]);
+          return wantMcp;
+        },
+      },
+      {
+        id: "mcpServers",
+        skip: (s) => !s.wantMcp,
+        async run(): Promise<StepResult<string[]>> {
+          return await pickMcpServers({ platform, wslTheme });
+        },
+      },
+      {
+        id: "cliTools",
+        async run(): Promise<StepResult<CliToolId[]>> {
+          return await pickCliTools({
+            tier2Suggested: wsTier2Suggested,
+            wslTheme,
+          });
+        },
+      },
+    ];
+
+    const wsState = await runStepMachine<WorkspaceState>(wsSteps);
+
+    const projectType = wsState.projectType;
+    const teamSize = wsState.teamSize;
+    const selectedPreset = getPreset(wsState.preset);
+    const customSelections = wsState.customItems;
+    tools = wsState.tools;
 
     // C9-H32 (D10-SA10.5-F2): Surface per-editor MCP secret-loading
     // divergence at tool-selection time — before commit — matching the
@@ -1590,67 +1718,11 @@ async function runWorkspaceInit(
       }
     }
 
-    // Worktree file isolation: mirrors config.ts prompt. Honor explicit
-    // --worktree/--no-worktree flag. Else prompt when a worktree-capable tool
-    // is selected, else disable. C9-H28 (D10-SA10.3-F1) workspace parity:
-    // features + MCP now precede CLI tools (see single-repo flow).
-    const wsHasWorktreeTool = tools.some(t => WORKTREE_CAPABLE_TOOLS.has(t));
-    if (opts.worktree !== undefined) {
-      worktreeEnabled = opts.worktree;
-    } else if (wsHasWorktreeTool) {
-      const wsWtAnswer = await inquirer.prompt<{ enabled: boolean }>([{
-        type: "confirm",
-        name: "enabled",
-        message: "Enable worktree file isolation (for parallel agent sessions)?",
-        default: true,
-      }]);
-      worktreeEnabled = wsWtAnswer.enabled;
-    } else {
-      worktreeEnabled = false;
-    }
+    worktreeEnabled = opts.worktree ?? tools.some(t => WORKTREE_CAPABLE_TOOLS.has(t));
+    features = { ...DEFAULT_FEATURES, mcp: wsState.wantMcp };
+    mcpServers = wsState.mcpServers ?? [];
 
-    // C9-H28 (D10-SA10.3-F1): Features prompt moved BEFORE CLI tools in
-    // workspace flow to match the single-repo flow.
-    const featureAnswers = await inquirer.prompt<{ features: (keyof Features)[] }>([
-      {
-        type: "checkbox",
-        name: "features",
-        message: "Select features:",
-        choices: FEATURE_CHOICES,
-        default: DEFAULT_FEATURE_KEYS,
-        ...(wslTheme && { theme: wslTheme }),
-      },
-    ]);
-    const selectedFeatures = featureAnswers.features;
-    features = { ...DEFAULT_FEATURES };
-    for (const k of Object.keys(features) as (keyof Features)[]) {
-      features[k] = selectedFeatures.includes(k);
-    }
-
-    // CLI-tooling pivot: MCP picker is behind a Yes/No gate (plan §4.3
-    // step 8 / §4.4). Default No on first init, Yes on re-run with
-    // existing servers (workspace root has no manifest, so default No).
-    // C9-H28: paired with features, BEFORE CLI tools.
-    mcpServers = [];
-    if (features.mcp) {
-      const wsProceedMcp = await confirmMcpGate({ hasExisting: false, defaultYes: false });
-      if (wsProceedMcp) {
-        mcpServers = await pickMcpServers({ platform, wslTheme });
-      }
-    }
-
-    // CLI-tooling pivot (plan §4.3 + §4.8 workspace parity): pick CLI
-    // tools at workspace creation so the workspace defaults carry a
-    // baseline tier-1 selection to all members. C9-H28: moved AFTER
-    // features + MCP to match the single-repo flow.
-    const wsTier2Suggested = Array.from(new Set([
-      ...evaluateTier2Triggers(repoInfo),
-      ...applyPlatformTriggers(platform, []),
-    ]));
-    const wsSelectedCliTools = await pickCliTools({
-      tier2Suggested: wsTier2Suggested,
-      wslTheme,
-    });
+    const wsSelectedCliTools = wsState.cliTools;
     if (wsSelectedCliTools.length > 0) {
       const wsDetectSpinner = createSpinner(`Detecting ${wsSelectedCliTools.length} CLI tool(s)...`);
       wsDetectSpinner.start();

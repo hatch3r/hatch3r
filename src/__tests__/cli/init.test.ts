@@ -929,15 +929,13 @@ describe("init worktree generation (claude tool present)", () => {
     ).rejects.toThrow();
   });
 
-  // v1.6.1 Fix 2: --worktree / --no-worktree flags + interactive prompt.
-  // Queue the interactive single-repo prompt sequence for tests that rely on it.
-  // C9-H28 (D10-SA10.3-F1) prompt order:
+  // Slice D: worktree is auto-enabled when a worktree-capable tool is
+  // selected; the interactive confirm prompt was removed. --worktree /
+  // --no-worktree still override. C9-H28 (D10-SA10.3-F1) prompt order:
   //   platform -> owner/repo -> defaultBranch -> projectType -> teamSize ->
-  //   preset -> tools -> [worktree] -> features -> [mcp gate] -> [mcp picker] ->
+  //   preset -> tools -> wantMcp -> [mcp picker] ->
   //   cliTools picker -> [create?]
-  // Features + MCP now precede the CLI-tools picker so the high-impact core
-  // decisions complete before the broader CLI-tooling roster prompt.
-  function queueInteractiveWithWorktree(opts: { tools?: string[]; worktree?: boolean } = {}): void {
+  function queueInteractiveWithWorktree(opts: { tools?: string[] } = {}): void {
     const inq = vi.mocked(inquirer.prompt);
     const tools = opts.tools ?? ["claude"];
     inq.mockResolvedValueOnce({ platform: "github" });
@@ -947,34 +945,33 @@ describe("init worktree generation (claude tool present)", () => {
     inq.mockResolvedValueOnce({ teamSize: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools });
-    if (tools.includes("claude") && opts.worktree !== undefined) {
-      inq.mockResolvedValueOnce({ enabled: opts.worktree });
-    } else if (tools.includes("claude")) {
-      inq.mockResolvedValueOnce({ enabled: true });
-    }
-    inq.mockResolvedValueOnce({ features: ["agents"] });
-    // C9-H28: CLI tools picker now follows features + MCP — empty selection
-    // skips detection/installer.
+    // Slice B: feature checkbox replaced by single wantMcp confirm.
+    inq.mockResolvedValueOnce({ wantMcp: false });
+    // C9-H28: CLI tools picker follows MCP — empty selection skips
+    // detection/installer.
     inq.mockResolvedValueOnce({ tools: [] });
-    // D20: post-init "create your first user artifact?" prompt — decline so
-    // the rest of the test logic remains unchanged.
-    inq.mockResolvedValueOnce({ create: false });
   }
 
-  it("interactive init prompts for worktree when a worktree-capable tool is selected", async () => {
-    queueInteractiveWithWorktree({ tools: ["claude"], worktree: true });
+  it("interactive init auto-enables worktree when a worktree-capable tool is selected", async () => {
+    queueInteractiveWithWorktree({ tools: ["claude"] });
     await initCommand();
     const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
     expect(manifest.worktree?.enabled).toBe(true);
     await expect(access(join(tempDir, ".worktreeinclude"))).resolves.toBeUndefined();
   });
 
-  it("interactive init respects declining worktree prompt", async () => {
-    queueInteractiveWithWorktree({ tools: ["claude"], worktree: false });
+  it("interactive init auto-enables worktree when cursor is the only selected tool", async () => {
+    queueInteractiveWithWorktree({ tools: ["cursor"] });
     await initCommand();
     const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
-    expect(manifest.worktree).toBeUndefined();
-    await expect(access(join(tempDir, ".worktreeinclude"))).rejects.toThrow();
+    expect(manifest.worktree?.enabled).toBe(true);
+  });
+
+  it("interactive init auto-enables worktree when copilot is the only selected tool", async () => {
+    queueInteractiveWithWorktree({ tools: ["copilot"] });
+    await initCommand();
+    const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
+    expect(manifest.worktree?.enabled).toBe(true);
   });
 
   it("--yes --no-worktree disables worktree even when claude is selected", async () => {
@@ -990,8 +987,15 @@ describe("init worktree generation (claude tool present)", () => {
     expect(manifest.worktree?.enabled).toBe(true);
   });
 
-  it("interactive init does not prompt for worktree when no worktree-capable tool is selected", async () => {
+  it("interactive init leaves worktree disabled when no worktree-capable tool is selected", async () => {
     queueInteractiveWithWorktree({ tools: ["amp"] });
+    await initCommand();
+    const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
+    expect(manifest.worktree).toBeUndefined();
+  });
+
+  it("interactive init with only gemini leaves worktree disabled", async () => {
+    queueInteractiveWithWorktree({ tools: ["gemini"] });
     await initCommand();
     const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
     expect(manifest.worktree).toBeUndefined();
@@ -1115,15 +1119,16 @@ describe("init interactive single-repo flow", () => {
    * Queue prompt responses for the interactive single-repo flow.
    * C9-H28 (D10-SA10.3-F1) prompt order:
    *   platform -> owner/repo -> defaultBranch -> projectType -> teamSize ->
-   *   preset -> [custom items] -> tools -> [worktree] -> features ->
+   *   preset -> [custom items] -> tools -> features ->
    *   [mcp gate] -> [mcp servers] -> cliTools picker -> [create?]
-   * The worktree prompt fires only when a worktree-capable tool (e.g. claude)
-   * is in the selected tools list. The cliTools picker always runs but an
-   * empty selection short-circuits the detection + installer follow-ups so
-   * tests stay deterministic. The MCP gate fires only when `features.mcp` is
-   * true; the server picker fires only when the user proceeds through the
-   * gate (mcpServers !== undefined here). C9-H28 moved features + MCP ahead
-   * of CLI tools so users complete the high-impact decisions first.
+   * Slice D removed the worktree confirm prompt; worktree is auto-enabled
+   * when a worktree-capable tool (claude/cursor/copilot) is selected. The
+   * cliTools picker always runs but an empty selection short-circuits the
+   * detection + installer follow-ups so tests stay deterministic. The MCP
+   * gate fires only when `features.mcp` is true; the server picker fires only
+   * when the user proceeds through the gate (mcpServers !== undefined here).
+   * C9-H28 moved features + MCP ahead of CLI tools so users complete the
+   * high-impact decisions first.
    */
   function setupGithubInteractive(opts: {
     preset?: "minimal" | "standard" | "full" | "custom";
@@ -1133,7 +1138,6 @@ describe("init interactive single-repo flow", () => {
     features?: string[];
     mcpServers?: string[];
     customItems?: string[];
-    worktree?: boolean;
     cliTools?: string[];
   } = {}): void {
     const inq = vi.mocked(inquirer.prompt);
@@ -1148,31 +1152,19 @@ describe("init interactive single-repo flow", () => {
       inq.mockResolvedValueOnce({ items: opts.customItems ?? [] });
     }
     inq.mockResolvedValueOnce({ tools });
-    // Worktree prompt fires only when a worktree-capable tool is selected.
-    // WORKTREE_CAPABLE_TOOLS currently = new Set(["claude"]).
-    if (tools.includes("claude")) {
-      inq.mockResolvedValueOnce({ enabled: opts.worktree ?? true });
+    // Slice B: feature checkbox replaced by single wantMcp confirm — the
+    // confirm doubles as the MCP gate. Callers who want MCP supply
+    // `mcpServers` (or set `features: ["mcp", ...]` for back-compat);
+    // anything else means MCP off.
+    const featuresList = opts.features ?? (opts.mcpServers !== undefined ? ["mcp"] : []);
+    const wantMcp = featuresList.includes("mcp");
+    inq.mockResolvedValueOnce({ wantMcp });
+    if (wantMcp) {
+      inq.mockResolvedValueOnce({ mcp: opts.mcpServers ?? ["github", "playwright", "context7"] });
     }
-    inq.mockResolvedValueOnce({
-      features: opts.features ?? ["agents", "skills", "rules", "prompts", "commands", "mcp", "githubAgents", "hooks"],
-    });
-    const featuresList = opts.features ?? ["mcp"];
-    if (featuresList.includes("mcp")) {
-      // MCP Yes/No gate — proceed only when the caller supplied servers; an
-      // explicit `mcpServers: []` still proceeds (the user opened the picker
-      // and toggled everything off).
-      const proceedMcp = opts.mcpServers !== undefined;
-      inq.mockResolvedValueOnce({ proceed: proceedMcp });
-      if (proceedMcp) {
-        inq.mockResolvedValueOnce({ mcp: opts.mcpServers ?? ["github", "playwright", "context7"] });
-      }
-    }
-    // C9-H28: CLI tools picker now follows features + MCP — empty selection
-    // skips detection + installer.
+    // C9-H28: CLI tools picker follows MCP — empty selection skips
+    // detection + installer.
     inq.mockResolvedValueOnce({ tools: opts.cliTools ?? [] });
-    // D20: post-init "create your first user artifact?" prompt — decline so
-    // the rest of the test logic remains unchanged.
-    inq.mockResolvedValueOnce({ create: false });
   }
 
   it("runs the GitHub interactive flow end-to-end", async () => {
@@ -1213,11 +1205,11 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ teamSize: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt
-    inq.mockResolvedValueOnce({ features: ["agents"] });
+    // Slice B: feature checkbox replaced by wantMcp confirm; this test
+    // exercises MCP-off.
+    inq.mockResolvedValueOnce({ wantMcp: false });
     // C9-H28: CLI tools picker now follows features + MCP.
     inq.mockResolvedValueOnce({ tools: [] });
-    inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
 
     await initCommand({});
 
@@ -1238,11 +1230,11 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ teamSize: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt
-    inq.mockResolvedValueOnce({ features: ["agents"] });
+    // Slice B: feature checkbox replaced by wantMcp confirm; this test
+    // exercises MCP-off.
+    inq.mockResolvedValueOnce({ wantMcp: false });
     // C9-H28: CLI tools picker now follows features + MCP.
     inq.mockResolvedValueOnce({ tools: [] });
-    inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
 
     await initCommand({});
 
@@ -1265,12 +1257,11 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ preset: "minimal" });
     // Empty tool selection -> falls back to DEFAULT_TOOLS (= ["claude"])
     inq.mockResolvedValueOnce({ tools: [] });
-    // tools fall-through to ["claude"] triggers the worktree prompt
-    inq.mockResolvedValueOnce({ enabled: true });
-    inq.mockResolvedValueOnce({ features: ["agents"] });
+    // Slice B: feature checkbox replaced by wantMcp confirm; this test
+    // exercises MCP-off.
+    inq.mockResolvedValueOnce({ wantMcp: false });
     // C9-H28: CLI tools picker now follows features + MCP.
     inq.mockResolvedValueOnce({ tools: [] });
-    inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
 
     await initCommand({});
 
@@ -1307,13 +1298,13 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ teamSize: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt (claude selected)
-    inq.mockResolvedValueOnce({ features: ["agents"] });
+    // Slice B: feature checkbox replaced by wantMcp confirm; this test
+    // exercises MCP-off.
+    inq.mockResolvedValueOnce({ wantMcp: false });
     // C9-H28: CLI tools picker now follows features + MCP.
     inq.mockResolvedValueOnce({ tools: [] });
     // The checkExisting prompt — accept overwrite
     inq.mockResolvedValueOnce({ proceed: true });
-    inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
 
     await initCommand({});
 
@@ -1338,8 +1329,9 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ teamSize: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt (claude selected)
-    inq.mockResolvedValueOnce({ features: ["agents"] });
+    // Slice B: feature checkbox replaced by wantMcp confirm; this test
+    // exercises MCP-off.
+    inq.mockResolvedValueOnce({ wantMcp: false });
     // C9-H28: CLI tools picker now follows features + MCP.
     inq.mockResolvedValueOnce({ tools: [] });
     // Reject overwrite
@@ -1405,15 +1397,12 @@ describe("init interactive workspace flow", () => {
     inq.mockResolvedValueOnce({ preset: "minimal" });
     // 6) Tools
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    // 6b) Worktree prompt (claude selected)
-    inq.mockResolvedValueOnce({ enabled: true });
-    // 7) Features (C9-H28: moved before CLI tools)
-    inq.mockResolvedValueOnce({ features: ["agents"] });
+    // 7) Features (C9-H28: moved before CLI tools; Slice D: worktree auto-enabled)
+    // Slice B: feature checkbox replaced by wantMcp confirm; this test
+    // exercises MCP-off.
+    inq.mockResolvedValueOnce({ wantMcp: false });
     // 7b) CLI tools picker — empty selection skips detection/installer.
     inq.mockResolvedValueOnce({ tools: [] });
-    // 7c) D20 post-init "create your first user artifact?" prompt fired by
-    // runInit at the workspace root before workspace-level sync prompts.
-    inq.mockResolvedValueOnce({ create: false });
     // 8) Repo selection for sync
     inq.mockResolvedValueOnce({ syncRepos: [] });
 
@@ -1438,11 +1427,11 @@ describe("init interactive workspace flow", () => {
     inq.mockResolvedValueOnce({ teamSize: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt (claude selected)
-    inq.mockResolvedValueOnce({ features: ["agents"] });
+    // Slice B: feature checkbox replaced by wantMcp confirm; this test
+    // exercises MCP-off.
+    inq.mockResolvedValueOnce({ wantMcp: false });
     // C9-H28: CLI tools picker now follows features + MCP.
     inq.mockResolvedValueOnce({ tools: [] });
-    inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
 
     await initCommand({});
 
@@ -1473,15 +1462,12 @@ describe("init interactive workspace flow", () => {
     inq.mockResolvedValueOnce({ preset: "minimal" });
     // 7) Tools
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    // 7b) Worktree prompt (claude selected)
-    inq.mockResolvedValueOnce({ enabled: true });
-    // 8) Features (C9-H28: moved before CLI tools)
-    inq.mockResolvedValueOnce({ features: ["agents"] });
+    // 8) Features (C9-H28: moved before CLI tools; Slice D: worktree auto-enabled)
+    // Slice B: feature checkbox replaced by wantMcp confirm; this test
+    // exercises MCP-off.
+    inq.mockResolvedValueOnce({ wantMcp: false });
     // 8b) CLI tools picker — empty selection skips detection/installer.
     inq.mockResolvedValueOnce({ tools: [] });
-    // 8c) D20 post-init "create your first user artifact?" prompt fired by
-    // runInit at the workspace root before workspace-level sync prompts.
-    inq.mockResolvedValueOnce({ create: false });
     // 9) Repo sync selection
     inq.mockResolvedValueOnce({ syncRepos: [] });
 
@@ -1658,11 +1644,11 @@ describe("init eager flag validation (C8-D1-M4)", () => {
     inq.mockResolvedValueOnce({ teamSize: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt (claude selected)
-    inq.mockResolvedValueOnce({ features: ["agents"] });
+    // Slice B: feature checkbox replaced by wantMcp confirm; this test
+    // exercises MCP-off.
+    inq.mockResolvedValueOnce({ wantMcp: false });
     // C9-H28: CLI tools picker now follows features + MCP.
     inq.mockResolvedValueOnce({ tools: [] });
-    inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
 
     await initCommand({ preset: "minimal" });
 
@@ -1734,9 +1720,8 @@ describe("init runInit idempotency guard (C8-D1-M3)", () => {
       repoInfo,
       contentSelection,
       worktreeEnabled: false,
-      // D20: pass `yes: true` so runInit skips the post-init "create your
-      // first user artifact?" prompt — this test focuses on idempotency, not
-      // interactive UX.
+      // Idempotency-focused test — pass `yes: true` to keep the flow
+      // non-interactive.
       yes: true,
     };
 
@@ -1816,11 +1801,11 @@ describe("init workspace conflict guard (C8-D1-M3)", () => {
     inq.mockResolvedValueOnce({ teamSize: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt (claude selected)
-    inq.mockResolvedValueOnce({ features: ["agents"] });
+    // Slice B: feature checkbox replaced by wantMcp confirm; this test
+    // exercises MCP-off.
+    inq.mockResolvedValueOnce({ wantMcp: false });
     // C9-H28: CLI tools picker now follows features + MCP.
     inq.mockResolvedValueOnce({ tools: [] });
-    inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
     // Select the repo with existing hatch3r for sync (triggers conflict prompt)
     inq.mockResolvedValueOnce({ syncRepos: ["api"] });
     // Decline the overwrite
@@ -1845,11 +1830,11 @@ describe("init workspace conflict guard (C8-D1-M3)", () => {
     inq.mockResolvedValueOnce({ teamSize: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt (claude selected)
-    inq.mockResolvedValueOnce({ features: ["agents"] });
+    // Slice B: feature checkbox replaced by wantMcp confirm; this test
+    // exercises MCP-off.
+    inq.mockResolvedValueOnce({ wantMcp: false });
     // C9-H28: CLI tools picker now follows features + MCP.
     inq.mockResolvedValueOnce({ tools: [] });
-    inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
     inq.mockResolvedValueOnce({ syncRepos: ["api"] });
     inq.mockResolvedValueOnce({ confirmConflict: true });
 
@@ -1870,11 +1855,11 @@ describe("init workspace conflict guard (C8-D1-M3)", () => {
     inq.mockResolvedValueOnce({ teamSize: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt (claude selected)
-    inq.mockResolvedValueOnce({ features: ["agents"] });
+    // Slice B: feature checkbox replaced by wantMcp confirm; this test
+    // exercises MCP-off.
+    inq.mockResolvedValueOnce({ wantMcp: false });
     // C9-H28: CLI tools picker now follows features + MCP.
     inq.mockResolvedValueOnce({ tools: [] });
-    inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
     inq.mockResolvedValueOnce({ syncRepos: ["api"] });
     // NO confirmConflict prompt expected here
 
@@ -2223,10 +2208,10 @@ describe("init tool-secret-notes ordering (C9-H32)", () => {
     inq.mockResolvedValueOnce({ teamSize: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    inq.mockResolvedValueOnce({ enabled: true });
-    inq.mockResolvedValueOnce({ features: ["agents"] });
+    // Slice B: feature checkbox replaced by wantMcp confirm; this test
+    // exercises MCP-off.
+    inq.mockResolvedValueOnce({ wantMcp: false });
     inq.mockResolvedValueOnce({ tools: [] });
-    inq.mockResolvedValueOnce({ create: false });
 
     await initCommand({});
 

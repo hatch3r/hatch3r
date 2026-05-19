@@ -807,36 +807,14 @@ const MIGRATION_CHECKPOINTS: MigrationCheckpoint[] = [
       if (manifest.worktree !== undefined) return false;
       return manifest.tools.some(t => WORKTREE_CAPABLE_TOOLS.has(t));
     },
-    execute: async (manifest, rootDir, headless) => {
-      let enabled: boolean;
-
-      if (headless) {
-        // Default to enabled in headless/CI mode
-        enabled = true;
-      } else {
-        const answer = await inquirer.prompt<{ enabled: boolean }>([{
-          type: "confirm",
-          name: "enabled",
-          message: "hatch3r now supports worktree file isolation for parallel agent sessions. Enable it?",
-          default: true,
-        }]);
-        enabled = answer.enabled;
-      }
-
+    execute: async (manifest, rootDir, _headless) => {
+      const enabled = true;
       const updated = { ...manifest, worktree: { enabled } };
-      const notices: string[] = [];
-
-      if (enabled) {
-        const wtContent = await generateWorktreeInclude(updated, rootDir);
-        await safeWriteFile(join(rootDir, WORKTREE_INCLUDE_FILE), wtContent, {
-          appendIfNoBlock: true,
-        });
-        notices.push("Worktree isolation enabled — .worktreeinclude generated");
-      } else {
-        notices.push("Worktree isolation skipped (enable later with `hatch3r config`)");
-      }
-
-      return { manifest: updated, notices };
+      const wtContent = await generateWorktreeInclude(updated, rootDir);
+      await safeWriteFile(join(rootDir, WORKTREE_INCLUDE_FILE), wtContent, {
+        appendIfNoBlock: true,
+      });
+      return { manifest: updated, notices: ["Worktree isolation enabled — .worktreeinclude generated"] };
     },
   },
 ];
