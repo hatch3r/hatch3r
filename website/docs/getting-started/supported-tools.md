@@ -106,7 +106,7 @@ Pre-checked when the matching trigger holds against the active project.
 |------|---------|---------|
 | Playwright | `web-project` | Browser automation, web testing, and UI interaction |
 | duckdb | `data-project` | Embedded analytical database with first-class CSV/Parquet |
-| xsv | `data-project` | Fast CSV toolkit (slice, search, join, stats) |
+| qsv | `data-project` | Fast CSV toolkit (slice, search, join, stats, 80+ commands) — actively-maintained xsv successor |
 | taplo | `rust-project` / `python-project` | TOML toolkit (format, lint, query) |
 | glab | `gitlab-remote` | GitLab CLI — merge requests, issues, pipelines |
 | az-devops | `azure-remote` | Azure DevOps work items, repos, pipelines via az CLI extension |

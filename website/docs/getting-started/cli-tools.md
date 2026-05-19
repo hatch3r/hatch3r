@@ -44,7 +44,7 @@ Pre-checked when the matching trigger holds.
 |------|-------|---------|-------------|
 | Playwright | `playwright` | `web-project` | Browser automation, web testing, and UI interaction |
 | duckdb | `duckdb` | `data-project` | Embedded analytical database with first-class CSV/Parquet |
-| xsv | `xsv` | `data-project` | Fast CSV toolkit (slice, search, join, stats) |
+| qsv | `qsv` | `data-project` | Fast CSV toolkit (slice, search, join, stats, 80+ commands) — actively-maintained xsv successor |
 | taplo | `taplo` | `rust-project` / `python-project` | TOML toolkit (format, lint, query) |
 | glab | `glab` | `gitlab-remote` | GitLab CLI — merge requests, issues, pipelines |
 | az-devops | `az` | `azure-remote` | Azure DevOps work items, repos, pipelines via az CLI extension |
@@ -94,7 +94,7 @@ The `hatch3r-cli-overview` skill that ships in every project includes the full d
 
 - **Text search** → `rg` (fast literal/regex grep). For structural patterns (AST-aware) use `ast-grep` instead. For cross-language declarative rewrites, escalate to `comby`.
 - **Find files** → `fd` (sane defaults, gitignore-aware).
-- **JSON queries** → `jq`. For tabular CSV/TSV pipelines, prefer `xsv` or `miller`.
+- **JSON queries** → `jq`. For tabular CSV/TSV pipelines, prefer `qsv` or `miller`.
 - **YAML / TOML** → `yq` for YAML, `taplo` for TOML.
 - **View a file** → `bat` (syntax-highlighted cat). For diff display use `delta`.
 - **Edit-in-place** → `sd` for literal-string substitution. For structural rewrites use `ast-grep` or `comby`.
