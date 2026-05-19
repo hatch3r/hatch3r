@@ -35,7 +35,7 @@ import { printBanner, printBox, label, info, error as logError, setVerbose } fro
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const FRONTMATTER_REGEX = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/;
+const FRONTMATTER_REGEX = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
 
 /**
  * Parsed view of a command file's efficiency-relevant frontmatter fields.
