@@ -122,11 +122,11 @@ Answer these now, or say 'use defaults' for any where you're comfortable with a 
    - `docs/specs/` -- project specifications (read TOC/headers first, expand relevant sections only)
    - `docs/adr/` -- architectural decision records (scan for testing-related decisions)
    - `README.md` -- project overview
-   - `.agents/hatch.json` -- board configuration
+   - `.hatch3r/hatch.json` -- board configuration
    - Existing `todo.md` -- current backlog (check for overlap or related items)
    - Feature spec -- if mode is feature-scoped, look for the referenced feature spec in `docs/specs/`
 2. Scan GitHub issues via `search_issues` for existing testing-related work. Note duplicates or partial overlaps.
-3. If `.agents/learnings/` exists, scan for learnings relevant to testing, coverage, or quality.
+3. If `.hatch3r/learnings/` exists, scan for learnings relevant to testing, coverage, or quality.
 4. Present a context summary:
 
 ```
@@ -534,7 +534,7 @@ If `hatch3r-board-fill`: instruct the user to invoke `hatch3r-board-fill`. Note 
 - **Sub-agent failure:** Retry the failed sub-agent once. If it fails again, present partial results from the remaining sub-agents and ask the user how to proceed (continue without that researcher's input / provide the missing information manually / abort).
 - **Conflicting researcher outputs:** Present both options side by side with trade-offs. Ask the user to decide. Do not silently pick one.
 - **File write failure:** Report the error and provide the full file content so the user can create the file manually.
-- **Missing project context:** If no `hatch3r-board-shared` or `.agents/hatch.json` exists, proceed without board context -- this command does not require board configuration.
+- **Missing project context:** If no `hatch3r-board-shared` or `.hatch3r/hatch.json` exists, proceed without board context -- this command does not require board configuration.
 - **No existing tests:** Switch to bootstrapping strategy -- the test plan becomes a greenfield test setup plan. Include infrastructure setup (framework installation, config, CI gates) as P0 items. Warn that coverage baselines will be unavailable.
 - **No coverage tooling:** Recommend coverage setup as a prerequisite. Include coverage tooling installation as a P0 infrastructure item in the test plan. Proceed with estimated coverage from code analysis rather than measured coverage.
 - **Feature spec not found (feature-scoped mode):** Warn that the test plan will be less informed without a feature spec. Recommend running `hatch3r-feature-plan` first for best results. Proceed with what's available from codebase analysis.

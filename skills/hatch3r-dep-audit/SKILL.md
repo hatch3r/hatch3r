@@ -48,7 +48,7 @@ Never under-fan-out to save tokens. Token cost is dominated by quality and compl
 For critical and high vulnerabilities:
 
 - Use **web search** to look up each CVE: exploitability, affected versions, fix version, workarounds.
-- Check npm advisories and platform-specific security tools for official guidance (check `platform` in `.agents/hatch.json`):
+- Check npm advisories and platform-specific security tools for official guidance (check `platform` in `.hatch3r/hatch.json`):
   - **GitHub:** GitHub Security Advisories (`gh api /repos/{owner}/{repo}/security-advisories`)
   - **Azure DevOps:** Azure Artifacts security scanning and Azure Boards advisory tracking
   - **GitLab:** GitLab Dependency Scanning (Security & Compliance → Vulnerability Report)

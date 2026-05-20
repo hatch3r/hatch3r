@@ -1,11 +1,16 @@
-// D20: tests that `clean` preserves the `.agents/user/` subtree across
-// dry-run and live-execution paths. Mirrors the temp-repo + readManifest
-// mock pattern in src/__tests__/clean/index.test.ts.
+// D20 + Wave 5/6/7: tests that `clean` preserves the user-content subtree
+// across dry-run and live-execution paths. Wave 5 relocated user content
+// from `.agents/user/` to `.hatch3r/overrides/`; Wave 7 reshaped
+// `CleanInventory` to track `hatch3rDir` as a single preserved-state
+// bucket. There is no longer a `userContentCount` field — the live
+// scan happens elsewhere — but the live `executeClean` still must not
+// delete anything under `.hatch3r/overrides/`.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mkdtemp, mkdir, writeFile, rm, access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { HATCH3R_DIR } from "../../../types.js";
 
 vi.mock("../../../manifest/hatchJson.js", async () => {
   const actual = await vi.importActual<typeof import("../../../manifest/hatchJson.js")>(
@@ -25,7 +30,7 @@ import { readManifest } from "../../../manifest/hatchJson.js";
 import { detectWorkspaceContext } from "../../../workspace/detect.js";
 import { inventoryArtifacts, executeClean } from "../../../clean/index.js";
 
-const AGENTS_DIR = ".agents";
+const OVERRIDES_REL = `${HATCH3R_DIR}/overrides`;
 
 async function exists(path: string): Promise<boolean> {
   try {
@@ -44,30 +49,25 @@ const VALID_DESC =
   "User-tier clean-test fixture description with enough text to clear the >=60 character description gate";
 
 async function seedRepoWithUserContent(tempDir: string): Promise<void> {
-  // Minimal .agents/ canonical layout
-  await mkdir(join(tempDir, AGENTS_DIR, "rules"), { recursive: true });
-  await mkdir(join(tempDir, AGENTS_DIR, "learnings"), { recursive: true });
-
   // Adapter output to be removed by clean
   await mkdir(join(tempDir, ".cursor", "rules"), { recursive: true });
   await writeFile(join(tempDir, ".cursor", "rules", "hatch3r-test.mdc"), "cursor");
 
-  // User content
-  await mkdir(join(tempDir, AGENTS_DIR, "user", "agents"), { recursive: true });
+  // User content under .hatch3r/overrides/ (Wave 5 relocation)
+  const overridesDir = join(tempDir, OVERRIDES_REL);
+  await mkdir(join(overridesDir, "agents"), { recursive: true });
   await writeFile(
-    join(tempDir, AGENTS_DIR, "user", "agents", "my-helper.md"),
+    join(overridesDir, "agents", "my-helper.md"),
     `---\nid: my-helper\ntype: agent\ndescription: ${VALID_DESC}\n---\nbody\n`,
   );
-  await mkdir(join(tempDir, AGENTS_DIR, "user", "skills", "my-skill"), {
-    recursive: true,
-  });
+  await mkdir(join(overridesDir, "skills", "my-skill"), { recursive: true });
   await writeFile(
-    join(tempDir, AGENTS_DIR, "user", "skills", "my-skill", "SKILL.md"),
+    join(overridesDir, "skills", "my-skill", "SKILL.md"),
     `---\nid: my-skill\ntype: skill\ndescription: ${VALID_DESC}\n---\nbody\n`,
   );
 }
 
-describe("clean preserves .agents/user/ (D20)", () => {
+describe("clean preserves .hatch3r/overrides/ (D20 + Wave 5)", () => {
   let tempDir: string;
 
   beforeEach(async () => {
@@ -81,48 +81,50 @@ describe("clean preserves .agents/user/ (D20)", () => {
     vi.restoreAllMocks();
   });
 
-  it("dry-run lists .agents/user/ in the kept inventory when user content is present", async () => {
+  it("dry-run lists .hatch3r/ in the kept inventory when overrides are present", async () => {
     await seedRepoWithUserContent(tempDir);
 
     const inventory = await inventoryArtifacts(tempDir);
-    expect(inventory.userContentCount).toBe(2);
+    // Wave 7: hatch3rDir tracks the single preserved-state directory.
+    expect(inventory.hatch3rDir).toBe(true);
 
     const result = await executeClean(tempDir, inventory, true);
-    const userKept = result.kept.find((k) => k.includes(`${AGENTS_DIR}/user/`));
-    expect(userKept).toBeDefined();
-    expect(userKept).toMatch(/2 user artifact/);
+    // Wave 7 messaging: hatch3rDir is reported as kept with the listed sub-dirs.
+    const hatch3rKept = result.kept.find((k) => k.includes(HATCH3R_DIR));
+    expect(hatch3rKept).toBeDefined();
+    expect(hatch3rKept).toMatch(/overrides/);
   });
 
-  it("live clean does not delete .agents/user/ when user content is present", async () => {
+  it("live clean does not delete .hatch3r/overrides/ when user content is present", async () => {
     await seedRepoWithUserContent(tempDir);
 
     const inventory = await inventoryArtifacts(tempDir);
-    expect(inventory.userContentCount).toBe(2);
+    expect(inventory.hatch3rDir).toBe(true);
 
     await executeClean(tempDir, inventory, false);
 
-    // The user subtree must still exist with both artifacts intact.
-    expect(await exists(join(tempDir, AGENTS_DIR, "user"))).toBe(true);
+    // The overrides subtree must still exist with both artifacts intact.
+    expect(await exists(join(tempDir, OVERRIDES_REL))).toBe(true);
     expect(
-      await exists(join(tempDir, AGENTS_DIR, "user", "agents", "my-helper.md")),
+      await exists(join(tempDir, OVERRIDES_REL, "agents", "my-helper.md")),
     ).toBe(true);
     expect(
       await exists(
-        join(tempDir, AGENTS_DIR, "user", "skills", "my-skill", "SKILL.md"),
+        join(tempDir, OVERRIDES_REL, "skills", "my-skill", "SKILL.md"),
       ),
     ).toBe(true);
   });
 
-  it("user content survives a clean+reseed cycle (file content unchanged)", async () => {
+  it("user content survives a clean cycle (file content unchanged)", async () => {
     await seedRepoWithUserContent(tempDir);
 
-    const userPath = join(tempDir, AGENTS_DIR, "user", "agents", "my-helper.md");
+    const userPath = join(tempDir, OVERRIDES_REL, "agents", "my-helper.md");
     const before = await readFile(userPath, "utf-8");
 
     const inventory = await inventoryArtifacts(tempDir);
     await executeClean(tempDir, inventory, false);
 
-    // No re-init needed for this assertion — the file should be byte-identical.
+    // The file should be byte-identical after clean.
     const after = await readFile(userPath, "utf-8");
     expect(after).toBe(before);
   });

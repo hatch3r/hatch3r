@@ -26,9 +26,9 @@ Scan, assess, and upgrade npm dependencies for **{owner}/{repo}** (root and any 
 
 ## Shared Context
 
-**Read the project's shared board context at the start of the run** (e.g., `.agents/commands/hatch3r-board-shared.md` or equivalent). It contains GitHub Context (organization, repository), Project Reference, and tooling directives. Use GitHub MCP tools for issue creation. Use Context7 MCP for library docs and migration guides. Use web research for CVE details and known workarounds.
+**Read the project's shared board context at the start of the run** (e.g., `the canonical `commands/` directory or `.hatch3r/commands/` (for customizations)hatch3r-board-shared.md` or equivalent). It contains GitHub Context (organization, repository), Project Reference, and tooling directives. Use GitHub MCP tools for issue creation. Use Context7 MCP for library docs and migration guides. Use web research for CVE details and known workarounds.
 
-**Consult learnings:** If `.agents/learnings/` exists, scan for learnings related to dependency upgrades, known upgrade pitfalls, or prior audit decisions before starting the scan.
+**Consult learnings:** If `.hatch3r/learnings/` exists, scan for learnings related to dependency upgrades, known upgrade pitfalls, or prior audit decisions before starting the scan.
 
 ## Global Rule Overrides
 

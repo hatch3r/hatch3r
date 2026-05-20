@@ -95,7 +95,7 @@ Produce a structured report with:
 
 - File new issues for bugs discovered during validation.
 - If validation fails, state what must be fixed before re-validation.
-- Post report as comment on the issue/work item or linked PR/MR (check `platform` in `.agents/hatch.json`).
+- Post report as comment on the issue/work item or linked PR/MR (check `platform` in `.hatch3r/hatch.json`).
 
 ## Error Handling
 

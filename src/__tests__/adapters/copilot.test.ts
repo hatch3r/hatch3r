@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { CopilotAdapter } from "../../adapters/copilot.js";
 import { createManifest } from "../../manifest/hatchJson.js";
@@ -14,6 +14,8 @@ import {
 import { resolveTestPath } from "../fixtures.js";
 
 const FIXTURES_DIR = resolveTestPath(import.meta.url, "../fixtures/agents");
+// Wave 5: fixture user repo root so `.hatch3r/{type}/{id}.customize.yaml` resolves.
+const FIXTURES_USER_REPO = dirname(FIXTURES_DIR);
 
 describe("CopilotAdapter", () => {
   const adapter = new CopilotAdapter();
@@ -233,7 +235,7 @@ describe("CopilotAdapter", () => {
 
   it("emits model from customization file when present", async () => {
     const manifest = makeManifest();
-    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest, FIXTURES_USER_REPO);
 
     const agentFile = outputs.find((o) => o.path === ".github/agents/hatch3r-test-agent.agent.md");
     expect(agentFile).toBeDefined();

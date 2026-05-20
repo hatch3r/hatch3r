@@ -1,7 +1,7 @@
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { access, mkdir, readFile, rename } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import {
-  AGENTS_DIR,
+  HATCH3R_DIR,
   HatchError,
   MANIFEST_FILE,
   VALID_TOOLS,
@@ -115,7 +115,12 @@ export function createManifest(options: {
   const namespace = options.namespace ?? owner;
   const project = options.project ?? repo;
   const manifest: HatchManifest = {
-    version: "2.0.0",
+    // schemaVersion 3 (Wave 6): manifest moved from `.agents/hatch.json` to
+    // `.hatch3r/hatch.json`, root AGENTS.md bridge removed, and
+    // `managedFilesByAdapter._shared` dropped (the sentinel bucket that
+    // tracked the legacy root-AGENTS.md bridge — no shared bridge files
+    // remain after Wave 3 removed AGENTS.md emission).
+    version: "3.0.0",
     hatch3rVersion: HATCH3R_VERSION,
     platform,
     owner,
@@ -194,6 +199,24 @@ export function migrateManifest(raw: Record<string, unknown>): Record<string, un
     migrated.tools = (migrated.tools as unknown[]).filter(
       (t) => typeof t !== "string" || t !== "agents-md",
     );
+  }
+
+  // Wave 6 (1.9.0 / schemaVersion 3): drop the `_shared` sentinel bucket
+  // from `managedFilesByAdapter`. It previously tracked the root AGENTS.md
+  // bridge (Wave 3 removed the bridge); leaving the empty bucket on disk
+  // would survive forever. Idempotent — runs every load until cleared.
+  if (
+    migrated.managedFilesByAdapter !== null &&
+    typeof migrated.managedFilesByAdapter === "object"
+  ) {
+    const mfba = migrated.managedFilesByAdapter as Record<string, unknown>;
+    if ("_shared" in mfba) {
+      delete mfba._shared;
+    }
+  }
+
+  if (migrated.version === "2.0.0") {
+    migrated.version = "3.0.0";
   }
 
   return migrated;
@@ -355,10 +378,53 @@ function validateManifest(data: unknown): data is HatchManifest {
   return true;
 }
 
+/**
+ * Wave 6 manifest-relocation shim. Migrates `.agents/hatch.json` ->
+ * `.hatch3r/hatch.json` on first read against an existing pre-1.9 install.
+ * Idempotent: returns immediately when the new path already holds the file,
+ * and never touches `.agents/` when `.hatch3r/hatch.json` is present.
+ *
+ * Emits a single one-shot console warning per migration so operators see why
+ * the directory changed; no warning when the layout is already current.
+ *
+ * Surrounding state moves (`learnings/`, `handoffs/`, `mcp/mcp.json`) are
+ * handled by `src/migration/agentsToHatch3r.ts::migrateAgentsToHatch3r`,
+ * which is called from `runInit`/`runSync`/`runUpdate`/`runRegenerate`/
+ * `syncWorkspaceRepos`. The shim here is a defensive duplicate for callers
+ * that exercise `readManifest` outside those entry points.
+ */
+async function migrateManifestPath(rootDir: string): Promise<void> {
+  // Legacy `.agents/` literal — migration shim only; new writes target
+  // `.hatch3r/`.
+  const oldPath = join(rootDir, ".agents", MANIFEST_FILE);
+  const newPath = join(rootDir, HATCH3R_DIR, MANIFEST_FILE);
+  // Fast path: new layout already in place.
+  try {
+    await access(newPath);
+    return;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  }
+  // Old path must exist for a migration to make sense.
+  try {
+    await access(oldPath);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw err;
+  }
+  await mkdir(join(rootDir, HATCH3R_DIR), { recursive: true });
+  await rename(oldPath, newPath);
+  console.warn(
+    `[hatch3r] Migrated manifest from .agents/${MANIFEST_FILE} ` +
+      `to ${HATCH3R_DIR}/${MANIFEST_FILE}.`,
+  );
+}
+
 export async function readManifest(
   rootDir: string,
 ): Promise<HatchManifest | null> {
-  const manifestPath = join(rootDir, AGENTS_DIR, MANIFEST_FILE);
+  await migrateManifestPath(rootDir);
+  const manifestPath = join(rootDir, HATCH3R_DIR, MANIFEST_FILE);
 
   let raw: string;
   try {
@@ -407,7 +473,12 @@ export async function writeManifest(
       "CONFIG_ERROR",
     );
   }
-  const manifestPath = join(rootDir, AGENTS_DIR, MANIFEST_FILE);
+  const manifestPath = join(rootDir, HATCH3R_DIR, MANIFEST_FILE);
+  // Wave 6: ensure the destination directory exists. `writeManifest` is the
+  // first writer touching `.hatch3r/` in several pipelines (workspace init,
+  // some test fixtures); pre-creating the directory keeps the atomic write
+  // from failing with ENOENT on the temp-file path.
+  await mkdir(dirname(manifestPath), { recursive: true });
   await atomicWriteFile(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
 }
 
@@ -430,7 +501,7 @@ export function removeManagedFile(
 /**
  * Subset of {@link HatchManifest} that carries user- and platform-specific state
  * which must survive `hatch3r clean` -> reinit and plain `hatch3r init` over an
- * existing `.agents/hatch.json`. Init options (platform, owner, repo, tools,
+ * existing `.hatch3r/hatch.json`. Init options (platform, owner, repo, tools,
  * features, content, mcp) are intentionally excluded — those are user-confirmed
  * each run and must win over preserved values.
  *

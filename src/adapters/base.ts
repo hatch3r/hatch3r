@@ -1,4 +1,4 @@
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import type {
   AdapterOutput,
   CanonicalFile,
@@ -10,6 +10,7 @@ import { HatchError } from "../types.js";
 import { resolveAgentModel } from "../models/resolve.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
 import { generateBridgeOrchestration } from "../cli/shared/agentsContent.js";
+import { resolveUserContentRoot } from "../content/index.js";
 import { filterUserFacing, readCanonicalFiles, sortByPrecedence, type CanonicalType } from "./canonical.js";
 import { applyCustomization, applyCustomizationRaw } from "./customization.js";
 import { readMcpConfig, transformEnvVarSyntax, type McpServerEntry } from "./mcp-utils.js";
@@ -26,6 +27,14 @@ export interface Adapter {
   /**
    * Generate adapter output files.
    *
+   * Wave 5 (D20 overrides): `userRepoRoot` is the user's repository root —
+   * the directory under which `.hatch3r/overrides/` is searched for D20
+   * user-authored content. Pass the same value as the working directory the
+   * CLI was invoked against (init/sync/update) or the per-workspace-member
+   * repo dir. When omitted/undefined, user-tier overrides are disabled
+   * (canonical-only generation) — this is the legacy behaviour preserved for
+   * direct test invocations that do not stage a user subtree.
+   *
    * C9-H20 (D8-H8.3.1): An optional `AbortSignal` lets pipeline timeouts
    * cancel a slow adapter cooperatively. Implementations SHOULD check
    * `signal?.aborted` between long-running steps and propagate the signal
@@ -34,12 +43,13 @@ export interface Adapter {
    * `AbortError`) immediately.
    */
   generate(
-    agentsDir: string,
+    canonicalRoot: string,
     manifest: HatchManifest,
+    userRepoRoot?: string,
     generationMode?: GenerationMode,
     signal?: AbortSignal,
   ): Promise<AdapterOutput[]>;
-  getOutputPaths(agentsDir: string, manifest: HatchManifest): Promise<string[]>;
+  getOutputPaths(canonicalRoot: string, manifest: HatchManifest): Promise<string[]>;
 }
 
 /** Convenience factory for creating an AdapterOutput with `action: "create"`. */
@@ -52,7 +62,27 @@ export function output(
 }
 
 export interface AdapterContext {
-  agentsDir: string;
+  /**
+   * Wave 4: the bundled canonical-content root resolved via
+   * {@link resolveBundledContentRoot}. Adapters read canonical agents/skills/
+   * rules/commands/hooks/prompts/mcp from `${canonicalRoot}/{dir}/`. The
+   * legacy `.agents/` materialisation in the user repo no longer exists.
+   */
+  canonicalRoot: string;
+  /**
+   * Wave 5: the user's repository root. D20 user-authored content lives
+   * under `${userRepoRoot}/.hatch3r/overrides/{type}/...`. When `undefined`,
+   * user-tier overrides are disabled (canonical-only generation). The
+   * BaseAdapter helpers automatically resolve this to a `userContentRoot`
+   * via {@link resolveUserContentRoot} when reading canonical files.
+   *
+   * This replaces the brittle `process.cwd()` fallback used in Wave 4 — every
+   * CLI call site (init/sync/update + workspace sync) now plumbs this
+   * explicitly. {@link AdapterContext.projectRoot} continues to point at the
+   * same directory so `applyCustomization` / customization probes keep
+   * resolving against the user's working tree.
+   */
+  userRepoRoot?: string;
   manifest: HatchManifest;
   features: Features;
   projectRoot: string;
@@ -98,8 +128,9 @@ export abstract class BaseAdapter implements Adapter {
    * corrupt user content during the merge phase.
    */
   async generate(
-    agentsDir: string,
+    canonicalRoot: string,
     manifest: HatchManifest,
+    userRepoRoot?: string,
     generationMode: GenerationMode = "standard",
     signal?: AbortSignal,
   ): Promise<AdapterOutput[]> {
@@ -118,11 +149,19 @@ export abstract class BaseAdapter implements Adapter {
     // between long-running steps).
     BaseAdapter.throwIfSignalAborted(signal);
 
+    // Wave 5: prefer the explicit `userRepoRoot` plumbed by CLI commands; fall
+    // back to `process.cwd()` only when the caller did not supply one (direct
+    // test invocations that do not stage user-tier overrides). Customization
+    // probes (`applyCustomization` -> `.hatch3r/customize.yaml`) continue to
+    // resolve against this same directory.
+    const projectRoot = userRepoRoot ?? process.cwd();
+
     const outputs = await this.doGenerate({
-      agentsDir,
+      canonicalRoot,
+      userRepoRoot,
       manifest,
       features: manifest.features,
-      projectRoot: dirname(agentsDir),
+      projectRoot,
       generationMode,
       signal,
     });
@@ -222,9 +261,9 @@ export abstract class BaseAdapter implements Adapter {
    * Caches the result so repeated calls do not re-generate.
    */
   private _cachedOutputPaths: string[] | null = null;
-  async getOutputPaths(agentsDir: string, manifest: HatchManifest): Promise<string[]> {
+  async getOutputPaths(canonicalRoot: string, manifest: HatchManifest): Promise<string[]> {
     if (this._cachedOutputPaths) return this._cachedOutputPaths;
-    const outputs = await this.generate(agentsDir, manifest);
+    const outputs = await this.generate(canonicalRoot, manifest);
     this._cachedOutputPaths = outputs.map((o) => o.path);
     return this._cachedOutputPaths;
   }
@@ -327,10 +366,15 @@ export abstract class BaseAdapter implements Adapter {
    * integration point for {@link AdapterOutput.sourceFiles} population.
    */
   protected async readTrackedCanonicalFiles(
-    agentsDir: string,
+    canonicalRoot: string,
     type: CanonicalType,
+    userRepoRoot?: string,
   ): Promise<CanonicalFile[]> {
-    const files = await readCanonicalFiles(agentsDir, type, this.warnings);
+    // Wave 5: when an explicit user-repo root is plumbed, resolve to the
+    // `.hatch3r/overrides/` subtree so D20 user-authored artifacts layer on
+    // top of bundled canonical content. Undefined user root => canonical-only.
+    const userContentRoot = userRepoRoot ? resolveUserContentRoot(userRepoRoot) : undefined;
+    const files = await readCanonicalFiles(canonicalRoot, type, this.warnings, userContentRoot);
     const filtered = this.filterByAdapterScope(files);
     for (const f of filtered) {
       // `sourcePath` is an absolute filesystem path to the canonical file;
@@ -358,19 +402,22 @@ export abstract class BaseAdapter implements Adapter {
    * `adapters: [claude]` is dropped from every adapter except `claude`.
    */
   protected async readUserFacingCanonicalFiles(
-    agentsDir: string,
+    canonicalRoot: string,
     type: "commands" | "agents",
+    userRepoRoot?: string,
   ): Promise<CanonicalFile[]> {
-    const files = await readCanonicalFiles(agentsDir, type, this.warnings);
+    // Wave 5: same `.hatch3r/overrides/` lookup as readTrackedCanonicalFiles.
+    const userContentRoot = userRepoRoot ? resolveUserContentRoot(userRepoRoot) : undefined;
+    const files = await readCanonicalFiles(canonicalRoot, type, this.warnings, userContentRoot);
     const expectedType = type === "commands" ? "command" : "agent";
-    // `filterUserFacing` is keyed off `${agentsDir}/${type}` as the
-    // base directory. User-tier files (under `${agentsDir}/user/${type}/`)
-    // resolve to a relative path beginning with `..` so the helper's
+    // `filterUserFacing` is keyed off `${canonicalRoot}/${type}` as the base
+    // directory. User-tier files (read via an explicit userContentRoot, Wave
+    // 5+) resolve to a relative path beginning with `..` so the helper's
     // safe-default keep branch lets them through unchanged — only canonical
     // companion subdirectories like `commands/board/` and `agents/modes/`
     // are filtered out. User files then run through {@link filterByAdapterScope}
     // for the `adapters: [...]` opt-out.
-    const userFacing = filterUserFacing(files, expectedType, join(agentsDir, type));
+    const userFacing = filterUserFacing(files, expectedType, join(canonicalRoot, type));
     const filtered = this.filterByAdapterScope(userFacing);
     for (const f of filtered) {
       if (f.sourcePath) this._trackedSourceFiles.add(f.sourcePath);
@@ -385,18 +432,29 @@ export abstract class BaseAdapter implements Adapter {
    * Use this when the adapter needs custom formatting around the bridge content.
    */
   protected async bridgeOrchestration(ctx: AdapterContext): Promise<string> {
-    const orchestration = await generateBridgeOrchestration(ctx.agentsDir, ctx.manifest.content?.preset);
+    const orchestration = await generateBridgeOrchestration(
+      ctx.canonicalRoot,
+      ctx.manifest.content?.preset,
+      this.name,
+    );
     return this.isMinimal(ctx) ? this.stripMinimal(orchestration) : orchestration;
   }
 
-  protected async bridgeHeader(ctx: AdapterContext, agentsPath = "/.agents/AGENTS.md"): Promise<string[]> {
+  /**
+   * Wave 4: `agentsPath` defaults to `"this file"` because the root
+   * `AGENTS.md` is no longer emitted (W3) — the bridge file IS the
+   * orchestration doc now. Callers may still pass a custom path for the
+   * (rare) adapters that emit a sibling reference document.
+   */
+  protected async bridgeHeader(ctx: AdapterContext, agentsPath = "this file"): Promise<string[]> {
     const orchestration = await this.bridgeOrchestration(ctx);
+    const isThisFile = agentsPath === "this file";
     if (this.isMinimal(ctx)) {
       return [
         "",
         "# Hatch3r Agent Instructions",
         "",
-        `Instructions: \`${agentsPath}\``,
+        isThisFile ? "Instructions inlined below." : `Instructions: \`${agentsPath}\``,
         "",
         orchestration,
         "",
@@ -406,7 +464,9 @@ export abstract class BaseAdapter implements Adapter {
       "",
       "# Hatch3r Agent Instructions",
       "",
-      `Full canonical agent instructions are at \`${agentsPath}\`.`,
+      isThisFile
+        ? "Canonical agent orchestration is inlined in this file."
+        : `Full canonical agent instructions are at \`${agentsPath}\`.`,
       "",
       orchestration,
       "",
@@ -424,7 +484,7 @@ export abstract class BaseAdapter implements Adapter {
     // deterministic priority order. Rules without a `precedence` field fall
     // back to "normal" rank, so legacy fixtures keep their alphabetic order.
     const rules = sortByPrecedence(
-      await this.readTrackedCanonicalFiles(ctx.agentsDir, "rules"),
+      await this.readTrackedCanonicalFiles(ctx.canonicalRoot, "rules", ctx.userRepoRoot),
     );
     const minimal = this.isMinimal(ctx);
     for (const rule of rules) {
@@ -450,7 +510,7 @@ export abstract class BaseAdapter implements Adapter {
   ): Promise<string[]> {
     if (!ctx.features.agents) return [];
     const lines: string[] = [];
-    const agents = await this.readUserFacingCanonicalFiles(ctx.agentsDir, "agents");
+    const agents = await this.readUserFacingCanonicalFiles(ctx.canonicalRoot, "agents", ctx.userRepoRoot);
     const minimal = this.isMinimal(ctx);
     for (const agent of agents) {
       this.throwIfAborted(ctx);
@@ -481,7 +541,7 @@ export abstract class BaseAdapter implements Adapter {
   ): Promise<AdapterOutput[]> {
     if (!ctx.features.skills) return [];
     const results: AdapterOutput[] = [];
-    const skills = await this.readTrackedCanonicalFiles(ctx.agentsDir, "skills");
+    const skills = await this.readTrackedCanonicalFiles(ctx.canonicalRoot, "skills", ctx.userRepoRoot);
     for (const skill of skills) {
       this.throwIfAborted(ctx);
       const { content: raw, skip, warnings } = await applyCustomizationRaw(ctx.projectRoot, skill);
@@ -500,7 +560,7 @@ export abstract class BaseAdapter implements Adapter {
   ): Promise<AdapterOutput[]> {
     if (!ctx.features.skills) return [];
     const results: AdapterOutput[] = [];
-    const skills = await this.readTrackedCanonicalFiles(ctx.agentsDir, "skills");
+    const skills = await this.readTrackedCanonicalFiles(ctx.canonicalRoot, "skills", ctx.userRepoRoot);
     for (const skill of skills) {
       this.throwIfAborted(ctx);
       const { content: raw, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, skill);
@@ -531,7 +591,7 @@ export abstract class BaseAdapter implements Adapter {
    * pipelines can reuse it directly.
    */
   protected async readCliFilteredSkills(ctx: AdapterContext): Promise<CanonicalFile[]> {
-    const all = await this.readTrackedCanonicalFiles(ctx.agentsDir, "skills");
+    const all = await this.readTrackedCanonicalFiles(ctx.canonicalRoot, "skills", ctx.userRepoRoot);
     const cliCfg = ctx.manifest.cliTools ?? { enabled: false, selected: [] as string[] };
     const selected = new Set(cliCfg.selected ?? []);
     return all.filter((skill) => {
@@ -601,7 +661,7 @@ export abstract class BaseAdapter implements Adapter {
     // Filter out companion/reference content (shared-context, subdirectory
     // workflow steps like commands/board/pickup-*) so they do not appear
     // as user-invocable entries in the tool's command picker.
-    const commands = await this.readUserFacingCanonicalFiles(ctx.agentsDir, "commands");
+    const commands = await this.readUserFacingCanonicalFiles(ctx.canonicalRoot, "commands", ctx.userRepoRoot);
     for (const cmd of commands) {
       this.throwIfAborted(ctx);
       const { content: raw, skip, warnings } = await applyCustomizationRaw(ctx.projectRoot, cmd);
@@ -618,7 +678,7 @@ export abstract class BaseAdapter implements Adapter {
     ctx: AdapterContext,
   ): Promise<Record<string, CleanMcpEntry> | null> {
     if (!ctx.features.mcp || ctx.manifest.mcp.servers.length === 0) return null;
-    const { servers: mcpServers, warnings } = await readMcpConfig(ctx.agentsDir);
+    const { servers: mcpServers, warnings } = await readMcpConfig(ctx.canonicalRoot);
     this.warnings.push(...warnings);
     if (Object.keys(mcpServers).length === 0) return null;
     const selectedSet = new Set(ctx.manifest.mcp.servers);
@@ -667,7 +727,7 @@ export abstract class BaseAdapter implements Adapter {
     // D5-SA5.7-H3 — Surface hook-parse diagnostics (invalid event, missing
     // field, YAML error, duplicate id) via the adapter warnings channel
     // instead of silently discarding malformed definitions.
-    return readHookDefinitions(ctx.agentsDir, this.warnings);
+    return readHookDefinitions(ctx.canonicalRoot, this.warnings);
   }
 
   /** Returns true when the adapter is running in minimal generation mode. */

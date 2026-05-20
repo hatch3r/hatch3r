@@ -49,7 +49,7 @@ Research exactly ONE brief per invocation across one or more modes using the 4-t
 
 ### 2. Load Context (Unless Pre-Loaded)
 
-If the orchestrator did not supply a context summary, gather it: scan `docs/specs/` TOC/headers first (expand only relevant sections, ~30 lines per file), `docs/adr/` for relevant decisions, `README.md`, `.agents/learnings/` if present, and existing `todo.md` for overlap. If the orchestrator supplied context, use it directly — do not re-read.
+If the orchestrator did not supply a context summary, gather it: scan `docs/specs/` TOC/headers first (expand only relevant sections, ~30 lines per file), `docs/adr/` for relevant decisions, `README.md`, `.hatch3r/learnings/` if present, and existing `todo.md` for overlap. If the orchestrator supplied context, use it directly — do not re-read.
 
 ### 3. Execute Requested Modes
 
@@ -173,7 +173,7 @@ Every finding must include:
 
 ## Boundaries
 
-- **Always:** Follow the tooling hierarchy (project docs -> codebase -> Context7 -> web research). Use the platform CLI (check `platform` in `.agents/hatch.json`). Stay within the research brief's scope. Produce structured output matching the mode's specification. Report BLOCKED if the brief is ambiguous or contradictory.
+- **Always:** Follow the tooling hierarchy (project docs -> codebase -> Context7 -> web research). Use the platform CLI (check `platform` in `.hatch3r/hatch.json`). Stay within the research brief's scope. Produce structured output matching the mode's specification. Report BLOCKED if the brief is ambiguous or contradictory.
 - **Ask first:** If the brief's scope is unclear, if contradictions are found between sources, or if critical context is missing. When surfacing a question to the user, follow `agents/shared/user-question-protocol.md` (native tool preferred; structured plain-text fallback).
 - **Never:** Create files. Modify code. Create branches, commits, or PRs. Modify board status. Expand scope beyond the research brief. Invent findings not supported by evidence.
 

@@ -1,6 +1,6 @@
 # GitLab CI/CD — Agentic Workflow Patterns
 
-Loaded on demand when `platform: gitlab` in `.agents/hatch.json` or when user is setting up GitLab CI.
+Loaded on demand when `platform: gitlab` in `.hatch3r/hatch.json` or when user is setting up GitLab CI.
 
 GitLab CI uses `.gitlab-ci.yml` at the repo root to define pipelines. Use the `glab ci` CLI for management and monitoring.
 

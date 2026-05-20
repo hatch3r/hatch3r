@@ -34,24 +34,22 @@ interface ParsedOutputPath {
   id: string;
 }
 
-// #255 (D9-9.26): Added "AGENTS.md" to amp prefixes so archive cleanup catches amp's root-level output.
-// #256 (D9-9.27): Added ".aider/" to aider prefixes so archive cleanup catches aider's skills subdirectory.
+// Wave 7: trimmed to the 3 retained adapters (cursor, claude, copilot).
+// Pre-1.9 tools (windsurf/codex/amp/gemini/cline/aider/kiro/opencode/goose/
+// zed/amazon-q/antigravity) were removed in Wave 1; their archive prefixes
+// are no longer needed because `inventoryArtifacts` only enumerates `Tool`.
 export const TOOL_PATH_PREFIXES: Record<Tool, string[]> = {
   cursor: [".cursor/"],
   claude: [".claude/", "CLAUDE.md", ".mcp.json"],
-  copilot: [".github/copilot-instructions.md", ".github/workflows/copilot-setup-steps.yml", ".vscode/mcp.json", ".github/instructions/", ".github/agents/", ".github/prompts/", ".github/skills/"],
-  windsurf: [".windsurf/", ".windsurfrules"],
-  amp: [".amp/", "AGENTS.md"],
-  codex: [".codex/"],
-  gemini: [".gemini/", "GEMINI.md"],
-  cline: [".cline/", ".clinerules/", ".roo/", ".roomodes"],
-  aider: ["CONVENTIONS.md", ".aider.conf.yml", ".aider/"],
-  kiro: [".kiro/"],
-  opencode: ["opencode.json", ".opencode/"],
-  goose: [".goosehints", ".goose/"],
-  zed: [".rules", ".zed/"],
-  "amazon-q": [".amazonq/"],
-  antigravity: [".antigravity/"],
+  copilot: [
+    ".github/copilot-instructions.md",
+    ".github/workflows/copilot-setup-steps.yml",
+    ".vscode/mcp.json",
+    ".github/instructions/",
+    ".github/agents/",
+    ".github/prompts/",
+    ".github/skills/",
+  ],
 };
 
 const PATH_PATTERNS: Array<{ pattern: RegExp; type: CustomizableType }> = [

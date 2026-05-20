@@ -118,10 +118,10 @@ Answer these now, or say 'use defaults' for any where you're comfortable with a 
    - `docs/specs/` — project specifications (read TOC/headers first, expand relevant sections only)
    - `docs/adr/` — architectural decision records (scan for decisions relevant to the feature area)
    - `README.md` — project overview
-   - `.agents/hatch.json` — board configuration
+   - `.hatch3r/hatch.json` — board configuration
    - Existing `todo.md` — current backlog (check for overlap or related items)
 2. Scan GitHub issues via `search_issues` for existing work related to the feature. Note duplicates or partial overlaps.
-3. If `.agents/learnings/` exists, scan for learnings relevant to the feature area. Match by area and tags against the feature brief.
+3. If `.hatch3r/learnings/` exists, scan for learnings relevant to the feature area. Match by area and tags against the feature brief.
 4. Present a context summary:
 
 ```
@@ -448,7 +448,7 @@ If yes, instruct the user to invoke the `hatch3r-board-fill` command. Note that 
 - **Sub-agent failure:** Retry the failed sub-agent once. If it fails again, present partial results from the remaining sub-agents and ask the user how to proceed (continue without that researcher's input / provide the missing information manually / abort).
 - **Conflicting researcher outputs:** Present both options side by side with trade-offs. Ask the user to decide. Do not silently pick one.
 - **File write failure:** Report the error and provide the full file content so the user can create the file manually.
-- **Missing project context:** If no `hatch3r-board-shared` or `.agents/hatch.json` exists, proceed without board context — this command does not require board configuration.
+- **Missing project context:** If no `hatch3r-board-shared` or `.hatch3r/hatch.json` exists, proceed without board context — this command does not require board configuration.
 - **No existing specs or docs:** Proceed without spec references. Warn that the feature spec will be less contextualized without existing project documentation. Recommend running `hatch3r-project-spec` or `hatch3r-codebase-map` first for best results.
 - **Duplicate detection:** If the feature overlaps significantly with existing todo.md items or GitHub issues found in Step 2, present the overlap and ASK whether to proceed (augment existing / replace / abort).
 

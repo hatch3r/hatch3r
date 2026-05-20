@@ -22,7 +22,7 @@ All board operations MUST follow the Board Sync Enforcement rules defined in `ha
 
 # Board Refresh -- Regenerate the Board Overview Dashboard
 
-Scan all open issues/work items on **{owner}/{repo}** (read from `.agents/hatch.json` board config), compute board health metrics, build implementation lanes from dependency analysis, and regenerate the `meta:board-overview` dashboard issue with current data, model recommendations, and health diagnostics. The `platform` field determines whether to interact with GitHub Issues, Azure DevOps Work Items, or GitLab Issues. This is a lightweight, read-heavy command -- the only mutation is updating (or creating) the single board overview issue.
+Scan all open issues/work items on **{owner}/{repo}** (read from `.hatch3r/hatch.json` board config), compute board health metrics, build implementation lanes from dependency analysis, and regenerate the `meta:board-overview` dashboard issue with current data, model recommendations, and health diagnostics. The `platform` field determines whether to interact with GitHub Issues, Azure DevOps Work Items, or GitLab Issues. This is a lightweight, read-heavy command -- the only mutation is updating (or creating) the single board overview issue.
 
 ---
 
@@ -58,10 +58,10 @@ Execute these steps in order. **Do not skip any step.**
 
 ### Step 1: Read Configuration
 
-1. Read `.agents/hatch.json` and cache the full config (top-level `owner`/`repo`, `platform`, and `board` section).
-2. Read `platform` from `.agents/hatch.json`. Default to `github` if missing.
+1. Read `.hatch3r/hatch.json` and cache the full config (top-level `owner`/`repo`, `platform`, and `board` section).
+2. Read `platform` from `.hatch3r/hatch.json`. Default to `github` if missing.
 3. Resolve owner/repo per `hatch3r-board-shared`: use top-level `owner`/`repo` first, fall back to `board.owner`/`board.repo` if top-level values are empty.
-4. If both are missing, abort with: "Cannot refresh board -- owner and repo are not configured in `.agents/hatch.json`. Run `board-init` first."
+4. If both are missing, abort with: "Cannot refresh board -- owner and repo are not configured in `.hatch3r/hatch.json`. Run `board-init` first."
 5. Note `board.projectNumber` -- if null, board sync will be skipped later.
 
 ---

@@ -608,11 +608,11 @@ async function readSkillSubdirs(baseDir: string): Promise<CanonicalReadResult[]>
 
 /** Internal dispatch on canonical type to the matching reader. */
 async function readCanonicalResults(
-  agentsDir: string,
+  canonicalRoot: string,
   type: CanonicalType,
 ): Promise<CanonicalReadResult[]> {
   const config = READER_CONFIGS[type];
-  const baseDir = join(agentsDir, config.dir);
+  const baseDir = join(canonicalRoot, config.dir);
   return config.strategy === "subdirectory"
     ? readSkillSubdirs(baseDir)
     : readGlobMd(baseDir, config.type);
@@ -620,7 +620,7 @@ async function readCanonicalResults(
 
 /**
  * D20 user-content authoring: read user-tier artifacts of a given type from
- * `${agentsDir}/user/${dir}/`. Reuses {@link readGlobMd} and
+ * `${userContentRoot}/${dir}/`. Reuses {@link readGlobMd} and
  * {@link readSkillSubdirs} so the user subtree gets identical YAML, symlink,
  * UTF-8, and structural-injection treatment as canonical content (the
  * {@link scanCanonicalInjectionTokens} pass inside {@link readSingleMd}
@@ -632,20 +632,22 @@ async function readCanonicalResults(
  * `BaseAdapter.readTrackedCanonicalFiles` /
  * `readUserFacingCanonicalFiles`) can distinguish user from canonical.
  *
- * Silently returns an empty list when `${agentsDir}/user/${dir}` is absent
+ * Silently returns an empty list when `${userContentRoot}/${dir}` is absent
  * — this is the common case for projects that have not yet authored any
  * user content. Permission and YAML errors surface via the same
  * {@link CanonicalReadResult.error} channel as canonical reads.
+ *
+ * Wave 4: `userContentRoot` is the user-repo override directory passed in by
+ * the caller (Wave 5 will wire this to `.hatch3r/overrides/`). The legacy
+ * implicit `${canonicalRoot}/user/` subtree no longer exists — every caller
+ * that wants user-tier overrides must pass an explicit root.
  */
 async function readUserCanonicalResults(
-  agentsDir: string,
+  userContentRoot: string,
   type: CanonicalType,
 ): Promise<CanonicalReadResult[]> {
   const config = READER_CONFIGS[type];
-  // Layout: `.agents/user/{plural-dir}` mirrors the canonical layout under
-  // `.agents/{plural-dir}`. Matches `userTypeDir()` in
-  // `src/content/userContent.ts` so discovery and read paths agree.
-  const baseDir = join(agentsDir, "user", config.dir);
+  const baseDir = join(userContentRoot, config.dir);
   const results = config.strategy === "subdirectory"
     ? await readSkillSubdirs(baseDir)
     : await readGlobMd(baseDir, config.type);
@@ -658,7 +660,14 @@ async function readUserCanonicalResults(
 }
 
 /**
- * Read all canonical files of a given type from the `.agents/` directory.
+ * Read all canonical files of a given type from the bundled canonical-content
+ * root.
+ *
+ * Wave 4: the first argument is the **bundled** canonical-content root (post
+ * W0/W3, every caller passes {@link resolveBundledContentRoot}'s result). The
+ * legacy `.agents/` materialisation in the user's repo no longer exists, so
+ * user-tier overrides must be supplied via the explicit `userContentRoot`
+ * parameter — there is no implicit `${canonicalRoot}/user/` lookup anymore.
  *
  * Returns parsed `CanonicalFile` objects for every successful read. Failed
  * reads (YAML errors, permission denied, decode failures) are surfaced via
@@ -672,23 +681,22 @@ async function readUserCanonicalResults(
  * `warnings: string[]` (typically `this.warnings` on a BaseAdapter) to
  * receive a `[canonical] CODE: file: message` line per non-skip failure.
  *
- * D20 user-content authoring: when `includeUser` is `true` (default), the
- * user subtree at `${agentsDir}/user/${dir}/` is also scanned and its
- * results appended *after* the canonical results. User-tier files have
+ * D20 user-content authoring: when `userContentRoot` is provided and the
+ * directory exists, the user subtree is also scanned and its results appended
+ * *after* the canonical results. User-tier files have
  * `canonical.source === "user"`; canonical files have `source` undefined
- * (treated as `"canonical"` by consumers). Pass `includeUser = false` to
- * preserve the legacy canonical-only behaviour at call sites that read the
- * package source tree (e.g. `hatch3r update`'s package-side scan must not
- * reach into a project's user directory).
+ * (treated as `"canonical"` by consumers). Wave 5 wires the
+ * `.hatch3r/overrides/` path through adapters; for now most call sites pass
+ * `undefined` (no overrides).
  */
 export async function readCanonicalFiles(
-  agentsDir: string,
+  canonicalRoot: string,
   type: CanonicalType,
   warnings?: string[],
-  includeUser = true,
+  userContentRoot?: string,
 ): Promise<CanonicalFile[]> {
-  const canonical = await readCanonicalResults(agentsDir, type);
-  const user = includeUser ? await readUserCanonicalResults(agentsDir, type) : [];
+  const canonical = await readCanonicalResults(canonicalRoot, type);
+  const user = userContentRoot ? await readUserCanonicalResults(userContentRoot, type) : [];
   // Order: canonical first, user second. Predictable for downstream
   // consumers (sortByPrecedence is stable on equal precedence and
   // tie-breaks on `id`, so user content with the same precedence as a
@@ -723,17 +731,17 @@ export async function readCanonicalFiles(
  * fails when N>0 canonical reads error out. Most adapters should prefer
  * `readCanonicalFiles(dir, type, this.warnings)`.
  *
- * D20: see {@link readCanonicalFiles} for `includeUser` semantics — the
+ * D20: see {@link readCanonicalFiles} for `userContentRoot` semantics — the
  * user subtree results are appended after canonical, with each user-tier
  * `CanonicalReadResult.canonical.source === "user"`.
  */
 export async function readCanonicalFilesDetailed(
-  agentsDir: string,
+  canonicalRoot: string,
   type: CanonicalType,
-  includeUser = true,
+  userContentRoot?: string,
 ): Promise<CanonicalReadResult[]> {
-  const canonical = await readCanonicalResults(agentsDir, type);
-  if (!includeUser) return canonical;
-  const user = await readUserCanonicalResults(agentsDir, type);
+  const canonical = await readCanonicalResults(canonicalRoot, type);
+  if (!userContentRoot) return canonical;
+  const user = await readUserCanonicalResults(userContentRoot, type);
   return [...canonical, ...user];
 }

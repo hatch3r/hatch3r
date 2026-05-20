@@ -29,6 +29,6 @@ When this hook fires, the assigned agent should:
 
 ## Configuration
 
-- **Allowlist**: Add known false positives to `.agents/security/secret-allowlist.json` (patterns or file paths to ignore).
-- **Pattern extensions**: The agent uses built-in patterns for common secret types. Add project-specific patterns via `.agents/security/custom-patterns.json`.
+- **Allowlist**: Add known false positives to `.hatch3r/security/secret-allowlist.json` (patterns or file paths to ignore).
+- **Pattern extensions**: The agent uses built-in patterns for common secret types. Add project-specific patterns via `.hatch3r/security/custom-patterns.json`.
 - **Scope**: By default, scans only the diff of outgoing commits. Set `scanFullHistory: true` to scan all files (slower, useful for initial audits).

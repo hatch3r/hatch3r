@@ -1,6 +1,6 @@
 # Azure DevOps Pipelines — Agentic Workflow Patterns
 
-Loaded on demand when `platform: azure-devops` in `.agents/hatch.json` or when user is setting up Azure DevOps CI.
+Loaded on demand when `platform: azure-devops` in `.hatch3r/hatch.json` or when user is setting up Azure DevOps CI.
 
 Azure Pipelines use YAML files in the repo (typically `azure-pipelines.yml` or files under `.azuredevops/`) to define CI/CD jobs. Use the `az pipelines` CLI for management and monitoring.
 
@@ -24,7 +24,7 @@ steps:
     displayName: 'AI-assisted test improvement'
 ```
 
-Replace `{defaultBranch}` with `board.defaultBranch` from `.agents/hatch.json` (fallback: `"main"`).
+Replace `{defaultBranch}` with `board.defaultBranch` from `.hatch3r/hatch.json` (fallback: `"main"`).
 
 ## 2. Continuous Triage (ADO)
 

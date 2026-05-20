@@ -72,7 +72,7 @@ Reference:
 ## Step 4: External Research
 
 - For external library docs and current best practices, follow the project's tooling hierarchy.
-- **Issue/PR search** (check `platform` in `.agents/hatch.json`): Search for related issues, prior discussions, or similar decisions in the repo:
+- **Issue/PR search** (check `platform` in `.hatch3r/hatch.json`): Search for related issues, prior discussions, or similar decisions in the repo:
   - **GitHub:** Use **GitHub MCP** or `gh issue list --search "..."` / `gh pr list --search "..."`
   - **Azure DevOps:** `az boards query --wiql "SELECT [System.Id] FROM WorkItems WHERE [System.Title] CONTAINS '...'"` or `az repos pr list`
   - **GitLab:** `glab issue list --search "..."` / `glab mr list --search "..."`

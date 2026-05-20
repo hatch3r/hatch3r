@@ -102,10 +102,10 @@ Bug Brief:
    - `docs/adr/` — architectural decision records (scan for decisions relevant to the affected area)
    - `docs/investigations/` — prior investigation reports (check for related or recurring bugs)
    - `README.md` — project overview
-   - `.agents/hatch.json` — board configuration
+   - `.hatch3r/hatch.json` — board configuration
    - Existing `todo.md` — current backlog (check for overlap or related items)
 2. Scan GitHub issues via `search_issues` for existing work related to the bug. Note duplicates, related bugs, or prior investigations.
-3. If `.agents/learnings/` exists, scan for learnings relevant to the affected area. Match by area and tags against the bug brief.
+3. If `.hatch3r/learnings/` exists, scan for learnings relevant to the affected area. Match by area and tags against the bug brief.
 4. Present a context summary:
 
 ```
@@ -428,7 +428,7 @@ If yes, instruct the user to invoke the `hatch3r-board-fill` command. Note that 
 - **Sub-agent failure:** Retry the failed sub-agent once. If it fails again, present partial results from the remaining sub-agents and ask the user how to proceed (continue without that researcher's input / provide the missing information manually / abort).
 - **Conflicting researcher outputs:** Present both options side by side with trade-offs. Ask the user to decide. Do not silently pick one.
 - **File write failure:** Report the error and provide the full file content so the user can create the file manually.
-- **Missing project context:** If no `hatch3r-board-shared` or `.agents/hatch.json` exists, proceed without board context — this command does not require board configuration.
+- **Missing project context:** If no `hatch3r-board-shared` or `.hatch3r/hatch.json` exists, proceed without board context — this command does not require board configuration.
 - **No existing specs or docs:** Proceed without spec references. Warn that the investigation will be less contextualized without existing project documentation. Recommend running `hatch3r-project-spec` or `hatch3r-codebase-map` first for best results.
 - **Duplicate detection:** If the bug overlaps significantly with existing todo.md items, GitHub issues, or prior investigation reports found in Step 2, present the overlap and ASK whether to proceed (augment existing / replace / abort).
 - **No clear root cause:** If all hypotheses are low-confidence, state this clearly. Recommend a focused debugging session (using `hatch3r-bug-fix` skill with the top hypothesis) rather than generating speculative fix items. ASK the user how to proceed.

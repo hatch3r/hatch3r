@@ -25,11 +25,11 @@ The `prepare` subcommand delegates to `hatch3r-handoff-preparer` via the Task to
 
 ## Learnings Consultation
 
-Before starting, scan `.agents/learnings/` for entries tagged `handoff`, `context-switch`, `resume`, or `session-state`. Apply the protocol in `rules/hatch3r-learning-consult.md` (frontmatter-first scan; surface top 5 by confidence). Skip if the directory has fewer than 3 files.
+Before starting, scan `.hatch3r/learnings/` for entries tagged `handoff`, `context-switch`, `resume`, or `session-state`. Apply the protocol in `rules/hatch3r-learning-consult.md` (frontmatter-first scan; surface top 5 by confidence). Skip if the directory has fewer than 3 files.
 
 # Handoff Management — Cross-Session Work Continuity
 
-Manage canonical handoff documents at `.agents/handoffs/active/` for mid-work state capture and resumption across sessions, tools, or developers.
+Manage canonical handoff documents at `.hatch3r/handoffs/active/` for mid-work state capture and resumption across sessions, tools, or developers.
 
 ---
 
@@ -101,13 +101,13 @@ ID                                              STATUS         BRANCH           
 
 **ASK:** "Mark `{id}` completed and archive? (y/N). Reason will be recorded: `{reason or 'no reason given'}`."
 
-4. On confirm: transition `status` to `completed`, stamp `updated` to now, prepend the archival notice (mirrors learnings archival format), then atomic-rename to `.agents/handoffs/archived/<id>.md`.
+4. On confirm: transition `status` to `completed`, stamp `updated` to now, prepend the archival notice (mirrors learnings archival format), then atomic-rename to `.hatch3r/handoffs/archived/<id>.md`.
 
 ## Subcommand: prune
 
 1. Parse `--dry-run` flag.
-2. Scan `.agents/handoffs/active/`: collect entries whose `expires_after` ISO-8601 timestamp is at-or-before now (preparer default stamps `created + 30 days`).
-3. Scan `.agents/handoffs/archived/`: collect entries where `updated` is older than 90 days.
+2. Scan `.hatch3r/handoffs/active/`: collect entries whose `expires_after` ISO-8601 timestamp is at-or-before now (preparer default stamps `created + 30 days`).
+3. Scan `.hatch3r/handoffs/archived/`: collect entries where `updated` is older than 90 days.
 4. Present a two-section preview (Active expirations to archive, Archives to delete).
 5. If `--dry-run`: print the preview and exit.
 
@@ -119,7 +119,7 @@ ID                                              STATUS         BRANCH           
 
 ## Error Handling
 
-- `.agents/handoffs/active/` missing or empty: emit `No active handoffs. Run 'hatch3r-handoff prepare' to capture one.` and exit 0.
+- `.hatch3r/handoffs/active/` missing or empty: emit `No active handoffs. Run 'hatch3r-handoff prepare' to capture one.` and exit 0.
 - Ambiguous `<id>` (multiple partial matches): list the matches and **ASK** the user to pick one.
 - Write conflict (concurrent prepare for same `work_item`): surface the existing handoff path and **ASK** whether to overwrite (only if existing handoff is older than 24 hours per `writeHandoff` policy).
 - `complete` or `prune` requested on a missing id: report the path that was looked up and suggest `hatch3r-handoff list`.
@@ -127,7 +127,7 @@ ID                                              STATUS         BRANCH           
 ## Guardrails
 
 - **Never delete** a handoff without explicit user confirmation. Prune deletes only archives older than 90 days, and only after the confirm prompt.
-- **Never modify** a file already in `.agents/handoffs/archived/`. Archived entries are immutable history.
+- **Never modify** a file already in `.hatch3r/handoffs/archived/`. Archived entries are immutable history.
 - **Never include secrets** (API keys, tokens, credentials) in any handoff body. The preparer scans for credential-shaped strings; reject the write if any are detected.
-- **Never write** outside `.agents/handoffs/active/` for new handoffs. Archival is the only path into `archived/`.
+- **Never write** outside `.hatch3r/handoffs/active/` for new handoffs. Archival is the only path into `archived/`.
 - **Always emit the Iteration Summary block** at the end of the iteration per `rules/hatch3r-iteration-summary.md`.

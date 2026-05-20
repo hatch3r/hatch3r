@@ -187,7 +187,7 @@ describe("BaseAdapter", () => {
       }
       const adapter = new ModeCapture();
       const manifest = makeManifest();
-      await adapter.generate(FIXTURES_DIR, manifest, "minimal");
+      await adapter.generate(FIXTURES_DIR, manifest, undefined, "minimal");
       expect(capturedMode).toBe("minimal");
     });
 
@@ -202,7 +202,7 @@ describe("BaseAdapter", () => {
       }
       const adapter = new MinimalCheck();
       const manifest = makeManifest();
-      await adapter.generate(FIXTURES_DIR, manifest, "minimal");
+      await adapter.generate(FIXTURES_DIR, manifest, undefined, "minimal");
       expect(isMin).toBe(true);
     });
 
@@ -217,7 +217,7 @@ describe("BaseAdapter", () => {
       }
       const adapter = new MinimalCheck();
       const manifest = makeManifest();
-      await adapter.generate(FIXTURES_DIR, manifest, "standard");
+      await adapter.generate(FIXTURES_DIR, manifest, undefined, "standard");
       expect(isMin).toBe(false);
     });
 
@@ -444,7 +444,7 @@ describe("BaseAdapter", () => {
 
     function makeCtx(manifest: HatchManifest): AdapterContext {
       return {
-        agentsDir: FIXTURES_DIR,
+        canonicalRoot: FIXTURES_DIR,
         manifest,
         features: manifest.features,
         projectRoot: "/fake/root",
@@ -607,7 +607,7 @@ describe("BaseAdapter", () => {
       }
       const controller = new AbortController();
       const adapter = new CaptureCtx();
-      await adapter.generate(FIXTURES_DIR, makeManifest(), "standard", controller.signal);
+      await adapter.generate(FIXTURES_DIR, makeManifest(), undefined, "standard", controller.signal);
       expect(captured).toBe(controller.signal);
     });
 
@@ -638,7 +638,7 @@ describe("BaseAdapter", () => {
       controller.abort();
       const adapter = new NeverRuns();
       await expect(
-        adapter.generate(FIXTURES_DIR, makeManifest(), "standard", controller.signal),
+        adapter.generate(FIXTURES_DIR, makeManifest(), undefined, "standard", controller.signal),
       ).rejects.toMatchObject({ name: "AbortError" });
       // `doGenerate` is bypassed entirely when the signal is pre-aborted.
       expect(doGenerateCalled).toBe(false);
@@ -656,7 +656,7 @@ describe("BaseAdapter", () => {
       controller.abort(reason);
       const adapter = new Noop();
       await expect(
-        adapter.generate(FIXTURES_DIR, makeManifest(), "standard", controller.signal),
+        adapter.generate(FIXTURES_DIR, makeManifest(), undefined, "standard", controller.signal),
       ).rejects.toBe(reason);
     });
 
@@ -681,7 +681,7 @@ describe("BaseAdapter", () => {
       controller.abort();
       const adapter = new AbortInRules();
       await expect(
-        adapter.generate(FIXTURES_DIR, makeManifest(), "standard", controller.signal),
+        adapter.generate(FIXTURES_DIR, makeManifest(), undefined, "standard", controller.signal),
       ).rejects.toMatchObject({ name: "AbortError" });
       expect(processed).toBe(0); // doGenerate never ran
     });
@@ -696,7 +696,7 @@ describe("BaseAdapter", () => {
         readonly name = "mid-loop-abort";
         protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
           // Read both rule fixtures, but abort the signal halfway.
-          const rules = await this.readTrackedCanonicalFiles(ctx.agentsDir, "rules");
+          const rules = await this.readTrackedCanonicalFiles(ctx.canonicalRoot, "rules");
           for (const _rule of rules) {
             this.throwIfAborted(ctx);
             iterations += 1;
@@ -707,7 +707,7 @@ describe("BaseAdapter", () => {
       }
       const adapter = new MidLoopAbort();
       await expect(
-        adapter.generate(FIXTURES_DIR, makeManifest(), "standard", controller.signal),
+        adapter.generate(FIXTURES_DIR, makeManifest(), undefined, "standard", controller.signal),
       ).rejects.toMatchObject({ name: "AbortError" });
       // First iteration ran, second was aborted.
       expect(iterations).toBe(1);
@@ -757,7 +757,7 @@ describe("BaseAdapter", () => {
       }
       const adapter = new SwallowsAbort();
       await expect(
-        adapter.generate(FIXTURES_DIR, makeManifest(), "standard", controller.signal),
+        adapter.generate(FIXTURES_DIR, makeManifest(), undefined, "standard", controller.signal),
       ).rejects.toMatchObject({ name: "AbortError" });
     });
   });

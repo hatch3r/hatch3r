@@ -15,7 +15,7 @@ A copy-paste-runnable walkthrough that takes a project from empty to released us
 
 - **Node.js 22 or later** — the only hard prerequisite. Check with `node --version`.
 - **A git repository** at the working directory, OR a non-git folder containing one or more git subdirectories (workspace mode is auto-detected).
-- **One of the [supported tools](./supported-tools)** — Cursor, Claude Code, Copilot, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline / Roo, Aider, Kiro, Goose, Zed, Amazon Q, or Antigravity.
+- **One of the [supported tools](./supported-tools)** — Cursor, Claude Code, or GitHub Copilot. (As of 1.9.0, hatch3r supports these 3 adapters only; see [CHANGELOG](https://github.com/hatch3r-dev/hatch3r/blob/main/CHANGELOG.md) for the 1.9.0 scope cut.)
 
 That is it. No global install, no preflight setup.
 
@@ -35,7 +35,7 @@ Interactive flow (~2 minutes). hatch3r asks 9 questions, in this order:
 4. **Project type** — `greenfield` (new) or `brownfield` (existing). Filters out content irrelevant to your situation.
 5. **Team size** — `solo` or `team`. Solo skips board-management content.
 6. **Content profile** — `minimal`, `standard` (recommended), `full`, or `custom`. See the [profile table](#content-profiles) below.
-7. **Tools** — multi-select from the 15 supported adapters.
+7. **Tools** — multi-select from the 3 supported adapters (Cursor, Claude Code, Copilot).
 8. **Worktree isolation** — only asked if you selected a worktree-capable tool.
 9. **MCP servers** — multi-select from 10 servers (3 default, 7 opt-in). Platform-aware: the GitHub / ADO / GitLab MCP that matches your platform is pre-selected.
 
@@ -49,14 +49,15 @@ npx hatch3r init --yes --preset standard --tools claude --project-type brownfiel
 
 | Path | Purpose |
 |------|---------|
-| `.agents/` | Canonical, tool-agnostic source (agents, skills, rules, commands, mcp/) |
-| `.agents/hatch.json` | Manifest with content selection, tool list, MCP servers, integrity checksums |
-| `.agents/AGENTS.md` | Generated index of installed content |
-| `AGENTS.md` (repo root) | Rich agent roster with skill and command links |
-| Tool-specific outputs | `.cursor/`, `CLAUDE.md`, `.windsurfrules`, `.clinerules`, `GEMINI.md`, etc. — one per selected tool |
+| `.hatch3r/hatch.json` | Manifest with content selection, tool list, MCP servers (schemaVersion 3) |
+| `.hatch3r/overrides/` | User-authored canonical overrides (escape hatch — adapters prefer overrides over bundled canonical content) |
+| `.hatch3r/learnings/`, `.hatch3r/handoffs/`, `.hatch3r/mcp/` | `/learn` outputs, cross-session handoff bundles, resolved MCP config |
+| Tool-specific outputs | `.cursor/` (Cursor), `.claude/` + `CLAUDE.md` (Claude), `.github/copilot-instructions.md` + `.github/instructions/` + `.github/prompts/` + `.github/agents/` (Copilot) |
 | `.env.mcp` | Secret placeholder file (gitignored) — only created if you enabled MCP |
 | `.gitignore` | Updated to exclude `.env.mcp` |
 | `.worktreeinclude` | Created only if a worktree-capable tool is selected |
+
+Canonical content (agents, skills, rules, commands, hooks) is no longer materialized into `.agents/` in your repo — it's read from the bundled npm package by each adapter.
 
 ### Content profiles
 
@@ -104,11 +105,11 @@ Two patterns, depending on the tool:
 
 **Auto-loaded** — VS Code / Copilot read env vars from the `env` object hatch3r writes into `.vscode/mcp.json`. No sourcing needed; just fill `.env.mcp` and let the adapter regenerate the per-tool config on the next `sync`.
 
-**Source-and-launch** — Cursor, Claude Code, Windsurf, Amp, Codex, Gemini, Cline / Roo, Kiro all expect env vars to be present in the process that launches the editor:
+**Source-and-launch** — Cursor and Claude Code expect env vars to be present in the process that launches the editor:
 
 ```bash
 # macOS / Linux (zsh, bash)
-set -a && source .env.mcp && set +a && cursor .          # or: claude / windsurf / etc.
+set -a && source .env.mcp && set +a && cursor .          # or: claude .
 ```
 
 ```powershell
@@ -223,13 +224,13 @@ Day-to-day commands you will run as you edit `.agents/` content or rotate tools:
 
 | Command | When to run |
 |---------|-------------|
-| `npx hatch3r sync` | After editing anything inside `.agents/`. Re-generates all tool outputs from the canonical state. |
-| `npx hatch3r status` | Drift check — does any generated file differ from what canonical would produce? |
-| `npx hatch3r validate` | Pre-commit / CI structural check — frontmatter, cross-references, content compliance. Exit 0 means clean. |
-| `npx hatch3r verify` | SHA-256 + manifest integrity check. `--fix` auto-runs `update` to heal drift. |
+| `npx hatch3r sync` | After editing anything under `.hatch3r/overrides/` or upgrading hatch3r. Re-generates all tool outputs from bundled canonical content + your overrides. |
+| `npx hatch3r status` | Drift check — does any adapter-output file differ from what hatch3r would regenerate now? |
+| `npx hatch3r validate` | Pre-commit / CI structural check — frontmatter, cross-references, content compliance on bundled content + your overrides. Exit 0 means clean. |
+| `npx hatch3r verify` | Thin wrapper around `status` that exits non-zero on drift. |
 | `npx hatch3r config` | Reconfigure platform, tools, MCP servers, features, or content selection — fully interactive. |
 | `npx hatch3r update` | Pull the latest hatch3r templates, safe-merging into your customizations. Use `--offline` to skip the npm fetch. |
-| `npx hatch3r clean` | Remove all hatch3r-managed artifacts. |
+| `npx hatch3r clean` | Remove all hatch3r-managed artifacts (preserves `.hatch3r/overrides/`, `.hatch3r/learnings/`, `.hatch3r/handoffs/`, `.hatch3r/mcp/`). |
 
 ---
 
@@ -257,7 +258,7 @@ npx hatch3r sync --dry-run                # preview without writing
 npx hatch3r config                        # add or remove repos, change sync strategy
 ```
 
-The shared `.agents/` lives at the workspace root; each sub-repo gets independent copies of the generated files (not symlinks), with optional per-repo overrides for tools, features, and content. See the [Workspace guide](../guides/workspace) for details.
+The shared `.hatch3r/` lives at the workspace root; each sub-repo gets independent adapter outputs (not symlinks), with optional per-repo overrides for tools, features, and content. See the [Workspace guide](../guides/workspace) for details.
 
 ---
 

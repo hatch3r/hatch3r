@@ -8,14 +8,13 @@ import { checkContextBudget, formatBudgetWarning } from "../../adapters/contextB
 import { safeWriteFile } from "../../merge/safeWrite.js";
 import { sweepOrphansForAdapter, formatOrphanCleanupDiagnostic, type OrphanCleanupEntry } from "../../merge/orphanCleanup.js";
 import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
-import { AGENTS_DIR, HatchError, WORKTREE_INCLUDE_FILE, type AdapterOutput, type GenerationMode } from "../../types.js";
+import { HATCH3R_DIR, HatchError, WORKTREE_INCLUDE_FILE, type AdapterOutput, type GenerationMode } from "../../types.js";
+import { migrateAgentsToHatch3r } from "../../migration/agentsToHatch3r.js";
 import { ensureEnvMcp, ensureGitignoreEntry, getSourceEnvMcpCommand } from "../../env/mcpEnv.js";
 import { readWorkspaceManifest } from "../../workspace/manifest.js";
 import { detectWorkspaceContext } from "../../workspace/detect.js";
 import { syncWorkspaceRepos } from "../../workspace/sync.js";
-import { generateCanonicalAgentsMd, generateRootAgentsMd } from "../shared/agentsContent.js";
-import { verifyIntegrity, generateIntegrityManifest, readIntegrityManifest, writeIntegrityManifest } from "../../integrity/index.js";
-import { buildProvenanceManifest, readProvenanceManifest, writeProvenanceManifest } from "../../integrity/provenance.js";
+import { resolveBundledContentRoot } from "../../content/contentRoot.js";
 import { pruneArchives } from "../../archive/index.js";
 import { HATCH3R_VERSION } from "../../version.js";
 import {
@@ -207,13 +206,18 @@ export async function syncCommand(
     );
   }
 
-  const agentsDir = join(rootDir, AGENTS_DIR);
+  // Wave 6: relocate any pre-1.9 `.agents/` state before reading the manifest
+  // so legacy installs sync without manual `init` first.
+  await migrateAgentsToHatch3r(rootDir);
+  // Wave 7: legacy state lives under `.hatch3r/`; the failure log + orphan
+  // sweeper write into that directory.
+  const hatch3rDir = join(rootDir, HATCH3R_DIR);
   const manifest = await readManifest(rootDir);
 
   if (!manifest) {
-    logError("No .agents/hatch.json found.");
+    logError(`No ${HATCH3R_DIR}/hatch.json found.`);
     console.log(chalk.dim("  Run `npx hatch3r init` to set up your project first.\n"));
-    throw new HatchError("No .agents/hatch.json found.", 1, "CONFIG_ERROR");
+    throw new HatchError(`No ${HATCH3R_DIR}/hatch.json found.`, 1, "CONFIG_ERROR");
   }
 
   const m = manifest;
@@ -226,7 +230,7 @@ export async function syncCommand(
   try {
     const userArtifacts = await discoverUserContent(rootDir);
     if (userArtifacts.length > 0) {
-      verbose(`User content: ${userArtifacts.length} artifact(s) discovered under .agents/user/`);
+      verbose(`User content: ${userArtifacts.length} artifact(s) discovered under .hatch3r/overrides/`);
     }
   } catch (err) {
     // Discovery failure must not break sync; log via verbose so the
@@ -268,87 +272,27 @@ export async function syncCommand(
     verbose(`User-content pre-flight scan skipped: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  // C7-H5 (D15, OWASP ASI 2026): Preflight integrity check. If canonical
-  // files have drifted (modified, missing, or tampered manifest) we refuse
-  // the mutation operation unless the user explicitly opts in with --force.
-  // This stops sync from amplifying unauthorized edits to every adapter
-  // output silently.
-  // C9-M16: consume the discriminated-union return from `verifyIntegrity`.
-  // The `ok: false` branch already partitions the actionable drift rows by
-  // status, so no post-filter pass is needed.
-  const integrityVerification = await verifyIntegrity(agentsDir);
-  const modified = integrityVerification.ok ? [] : integrityVerification.errors.modified;
-  const missing = integrityVerification.ok ? [] : integrityVerification.errors.missing;
-  const tampered = integrityVerification.ok ? [] : integrityVerification.errors.tampered;
-  const driftDetected = !integrityVerification.ok;
-  if (driftDetected) {
-    warn("Integrity issues detected in canonical files:");
-    for (const r of tampered) {
-      warn(`  TAMPERED: ${r.file}`);
-    }
-    for (const r of modified) {
-      warn(`  MODIFIED: ${r.file}`);
-    }
-    for (const r of missing) {
-      warn(`  MISSING:  ${r.file}`);
-    }
-    if (!opts.force) {
-      logError(
-        "Refusing to sync with integrity drift. Run `hatch3r verify` to inspect, " +
-        "`hatch3r update` to restore canonical content, or re-run with --force to " +
-        "proceed and propagate the current on-disk content.",
-      );
-      throw new HatchError(
-        "Integrity drift detected (use --force to override)",
-        1,
-        "INTEGRITY_ERROR",
-      );
-    }
-    warn("Continuing with --force: drifted files will be propagated as-is.");
-    console.log();
-  }
+  // Wave 7: the canonical-content integrity preflight is gone — adapters now
+  // source content directly from the bundled package (`resolveBundledContentRoot`),
+  // which is read-only and verified by npm's tarball signature. Drift is
+  // detected per-output by `hatch3r status` / `hatch3r verify`, not per
+  // canonical-input by a sha256 manifest. The `--force` flag is preserved
+  // for future use (orphan-cleanup overrides etc.).
+  void opts.force;
 
   const results: { path: string; action: string }[] = [];
-  const totalSteps = m.tools.length + 1;
+  // Wave 3: no AGENTS.md bridge step; one step per adapter.
+  const totalSteps = m.tools.length;
   let currentStep = 0;
 
   // --diff: track file snapshots before and after generation
   const diffBefore = new Map<string, string | null>();
   const diffAfter = new Map<string, string | null>();
 
-  if (opts.diff) {
-    diffBefore.set("AGENTS.md", await readFileOrNull(join(rootDir, "AGENTS.md")));
-    diffBefore.set(`${AGENTS_DIR}/AGENTS.md`, await readFileOrNull(join(agentsDir, "AGENTS.md")));
-  }
-
-  const s1 = createSpinner(step(++currentStep, totalSteps, "Syncing AGENTS.md..."));
-  s1.start();
-  const rootAgentsMd = await generateRootAgentsMd(agentsDir);
-
-  if (opts.dryRun) {
-    results.push({ path: "AGENTS.md", action: "dry-run" });
-    const canonicalAgentsMd = await generateCanonicalAgentsMd(agentsDir);
-    results.push({ path: `${AGENTS_DIR}/AGENTS.md`, action: "dry-run" });
-    if (opts.diff) {
-      diffAfter.set("AGENTS.md", rootAgentsMd.full);
-      diffAfter.set(`${AGENTS_DIR}/AGENTS.md`, canonicalAgentsMd);
-    }
-  } else {
-    const agentsMdResult = await safeWriteFile(join(rootDir, "AGENTS.md"), rootAgentsMd.full, {
-      managedContent: rootAgentsMd.inner,
-    });
-    if (agentsMdResult.warning) warn(agentsMdResult.warning);
-    results.push({ path: "AGENTS.md", action: agentsMdResult.action });
-    const canonicalAgentsMd = await generateCanonicalAgentsMd(agentsDir);
-    const canonicalResult = await safeWriteFile(join(agentsDir, "AGENTS.md"), canonicalAgentsMd);
-    if (canonicalResult.warning) warn(canonicalResult.warning);
-    results.push({ path: `${AGENTS_DIR}/AGENTS.md`, action: canonicalResult.action });
-    if (opts.diff) {
-      diffAfter.set("AGENTS.md", await readFileOrNull(join(rootDir, "AGENTS.md")));
-      diffAfter.set(`${AGENTS_DIR}/AGENTS.md`, await readFileOrNull(join(agentsDir, "AGENTS.md")));
-    }
-  }
-  s1.succeed(step(currentStep, totalSteps, opts.dryRun ? "AGENTS.md (dry run)" : "AGENTS.md synced"));
+  // Wave 3: AGENTS.md sync step removed (no canonical or root AGENTS.md
+  // emission, per blueprint v2 decision #3). Adapters source canonical
+  // content from the bundled package via resolveBundledContentRoot.
+  const canonicalContentRoot = resolveBundledContentRoot();
 
   const generationMode: GenerationMode = opts.minimal ? "minimal" : "standard";
   if (opts.minimal) {
@@ -356,12 +300,9 @@ export async function syncCommand(
   }
 
   // #260 (D11-11.7): Track output paths across adapters to detect collisions.
-  // Multiple adapters writing to the same file (e.g. Amp's AGENTS.md vs the
-  // sync bridge's AGENTS.md) can cause silent overwrites.
+  // Wave 3: no sync-bridge outputs; collision detection now strictly across
+  // adapters.
   const outputPathOwners = new Map<string, string>();
-  // Seed with sync bridge outputs
-  outputPathOwners.set("AGENTS.md", "sync-bridge");
-  outputPathOwners.set(`${AGENTS_DIR}/AGENTS.md`, "sync-bridge");
 
   const adapterFailures: { tool: string; error: string }[] = [];
   // C8-D12-M3: Per-adapter output collector for `.agents/.provenance.json`
@@ -420,8 +361,23 @@ export async function syncCommand(
       // Run adapter generation with a per-adapter timeout, and retry
       // transient failures with exponential backoff. Substantive failures
       // (auth, 404, malformed config) propagate on the first attempt.
+      // Wave 3: pass canonicalContentRoot (bundled-package path), not the
+      // user-repo `.agents/` dir. Adapters source canonical content from the
+      // bundled package.
       const generationResult = await retryWithBackoff(
-        () => generateWithTimeout(tool, adapter, agentsDir, m, generationMode),
+        // Wave 5: thread rootDir as userRepoRoot so D20 overrides at
+        // <rootDir>/.hatch3r/overrides/ feed adapter generation.
+        () =>
+          generateWithTimeout(
+            tool,
+            adapter,
+            canonicalContentRoot,
+            m,
+            generationMode,
+            undefined,
+            undefined,
+            rootDir,
+          ),
         { maxAttempts: 2 },
       );
       if (!generationResult.completed) {
@@ -463,7 +419,7 @@ export async function syncCommand(
           breakers.set(tool, breaker);
           adapterFailures.push({ tool, error: errMessage });
           budgetGateFailed = true;
-          await appendFailure(agentsDir, "sync:budget-gate", new Error(errMessage), tool);
+          await appendFailure(hatch3rDir, "sync:budget-gate", new Error(errMessage), tool);
           continue;
         }
         warn(budgetWarning);
@@ -535,7 +491,7 @@ export async function syncCommand(
         error: err instanceof Error ? err.message : String(err),
       });
       // Record to persistent failure log for post-hoc debugging
-      await appendFailure(agentsDir, "sync:adapter-generate", err, tool);
+      await appendFailure(hatch3rDir, "sync:adapter-generate", err, tool);
     }
     }
   });
@@ -625,58 +581,25 @@ export async function syncCommand(
     // That concern was based on the incorrect premise that adapter outputs
     // are in the manifest — they are not. The manifest only covers canonical
     // `.agents/` content, which is unaffected by adapter success/failure.
+    // Wave 3: integrity manifest writes removed; Wave 7 will reintroduce a
+    // bundled-content integrity model. Partial-adapter outcomes are surfaced
+    // via the per-adapter warnings emitted above.
     const successfulAdapters = m.tools.filter(
       (t) => !adapterFailures.some((f) => f.tool === t),
     );
-    // G5: Pass the previous manifest so a redundant sync (identical canonical
-    // content + same adapter sets) preserves its `generated` timestamp instead
-    // of stamping a fresh one. This makes status ↔ sync idempotent.
-    const previousIntegrityManifest = await readIntegrityManifest(agentsDir);
-    const integrityManifest = await generateIntegrityManifest(
-      agentsDir,
-      HATCH3R_VERSION,
-      {
-        expectedAdapters: m.tools,
-        successfulAdapters,
-        previousManifest: previousIntegrityManifest ?? undefined,
-      },
-    );
-    // Only write when we did not reuse the previous manifest verbatim. Both
-    // checksum equality and reference equality are sufficient discriminators
-    // — generateIntegrityManifest returns the previous object identity when
-    // the fingerprint matches.
-    if (integrityManifest !== previousIntegrityManifest) {
-      await writeIntegrityManifest(agentsDir, integrityManifest);
-    }
     if (adapterFailures.length > 0) {
       warn(
-        `Integrity manifest regenerated with ${successfulAdapters.length}/${m.tools.length} adapters successful. ` +
-        `Re-run sync after resolving errors to produce a complete manifest.`,
+        `Adapter outputs: ${successfulAdapters.length}/${m.tools.length} adapters successful. ` +
+        `Re-run sync after resolving errors.`,
       );
     }
 
-    // C8-D12-M3: Persist per-adapter source-file provenance to
-    // `.agents/.provenance.json` so operators can trace any generated
-    // adapter output back to its canonical inputs. The manifest is always
-    // regenerated after a sync that reached this point (even under partial
-    // adapter failure) — stale entries for failed adapters are omitted
-    // because only successful generations push into `perAdapterOutputs`.
-    // G6 (v1.7.1): pass the previous manifest so a redundant sync over the
-    // same canonical+adapter inputs preserves `generated` rather than
-    // stamping a fresh timestamp on byte-equivalent entries.
-    const previousProvenanceManifest = await readProvenanceManifest(agentsDir);
-    const provenanceManifest = buildProvenanceManifest(
-      HATCH3R_VERSION,
-      rootDir,
-      perAdapterOutputs,
-      previousProvenanceManifest,
-    );
-    // Mirror the integrity-manifest pattern above: buildProvenanceManifest
-    // returns the previous object identity when entries are byte-equivalent,
-    // so skip the atomic write on redundant sync.
-    if (provenanceManifest !== previousProvenanceManifest) {
-      await writeProvenanceManifest(agentsDir, provenanceManifest);
-    }
+    // Wave 7: the `.agents/.provenance.json` writer was removed alongside
+    // the integrity subsystem. Per-adapter source-file attribution is now
+    // available via the BaseAdapter `sourceFiles` field on AdapterOutput
+    // (in-memory only) and via the bundled-content root, which is the
+    // single immutable source of truth for canonical inputs.
+    void perAdapterOutputs;
 
     // Task #11 orphan-cleanup: emit an aggregated diagnostic for every
     // orphan candidate we inspected this run. `unlinked` entries are
@@ -733,24 +656,15 @@ export async function syncCommand(
       }
     }
 
-    // C9-M26 (D11-SA11.4-01): Orphan-file scan across the canonical
-    // .agents/<canonical-subdir>/ subtree. Reports files that do not match
-    // the canonical-inventory naming convention (no `hatch3r-` prefix, not
-    // under a `hatch3r-*` parent, and not in ALWAYS_CANONICAL_BASENAMES).
-    // Walks only the nine canonical subdirs — never visits .agents/user/,
-    // .agents/policy/, .agents/learnings/ — so user-authored content is
-    // never flagged. Default emission is info(); --clean-orphans unlinks
-    // the offending files after a containment check.
-    try {
-      const orphanScan = await scanOrphanFiles(agentsDir, { cleanOrphans: !!opts.cleanOrphans });
-      const diag = formatOrphanScanDiagnostic(orphanScan, { cleanOrphans: !!opts.cleanOrphans });
-      if (diag) info(diag);
-    } catch (err) {
-      // Scan failure must not break sync. Surface via verbose so persistent
-      // failures still get attention from operators.
-      const message = err instanceof Error ? err.message : String(err);
-      verbose(`sync: orphan-file scan skipped — ${message}`);
-    }
+    // Wave 7: the canonical orphan-file scan walked `.agents/<canonical>/`
+    // for files violating the hatch3r-inventory naming convention. Since
+    // Wave 3+4 there is no user-side canonical tree — canonical content
+    // lives exclusively under the bundled package — so the scan has no
+    // remaining surface to inspect. Helpers (`scanOrphanFiles`,
+    // `formatOrphanScanDiagnostic`) are kept for the bundled-content
+    // validate gate (`npx hatch3r validate`) only.
+    void scanOrphanFiles;
+    void formatOrphanScanDiagnostic;
   }
 
   console.log();

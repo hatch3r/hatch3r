@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   ClaudeAdapter,
@@ -14,6 +14,10 @@ import { MANAGED_BLOCK_START, MANAGED_BLOCK_END } from "../../types.js";
 import { resolveTestPath } from "../fixtures.js";
 
 const FIXTURES_DIR = resolveTestPath(import.meta.url, "../fixtures/agents");
+// Wave 5: fixture user repo root — parent of canonical fixtures, so
+// `.hatch3r/{type}/{id}.customize.yaml` lookups (e.g. test-agent.customize.yaml)
+// resolve correctly without needing a real CWD with .hatch3r/ staged.
+const FIXTURES_USER_REPO = dirname(FIXTURES_DIR);
 
 describe("ClaudeAdapter", () => {
   const adapter = new ClaudeAdapter();
@@ -46,7 +50,8 @@ describe("ClaudeAdapter", () => {
     expect(claudeMd!.content).toContain(MANAGED_BLOCK_START);
     expect(claudeMd!.content).toContain(MANAGED_BLOCK_END);
     expect(claudeMd!.content).toContain("Hatch3r Project Instructions");
-    expect(claudeMd!.content).toContain(".agents/AGENTS.md");
+    // W4: root AGENTS.md removed — CLAUDE.md is itself the bridge. No `.agents/AGENTS.md` reference.
+    expect(claudeMd!.content).not.toContain(".agents/AGENTS.md");
     expect(claudeMd!.content).toContain(".claude/rules/");
     expect(claudeMd!.content).toContain("Mandatory Behaviors");
     expect(claudeMd!.content).toContain("Agent Quick Reference");
@@ -440,7 +445,7 @@ describe("ClaudeAdapter", () => {
 
   it("emits model from customization file when present", async () => {
     const manifest = makeManifest();
-    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest, FIXTURES_USER_REPO);
 
     const agentFile = outputs.find((o) => o.path === ".claude/agents/hatch3r-test-agent.md");
     expect(agentFile).toBeDefined();
@@ -581,9 +586,9 @@ You are a test agent.`,
   // ── Finding 3.10: generationMode "minimal" integration test ──
   it("produces shorter output in minimal mode than standard mode", async () => {
     const manifest = makeManifest();
-    const standardOutputs = await adapter.generate(FIXTURES_DIR, manifest, "standard");
+    const standardOutputs = await adapter.generate(FIXTURES_DIR, manifest, undefined, "standard");
     const minimalAdapter = new ClaudeAdapter();
-    const minimalOutputs = await minimalAdapter.generate(FIXTURES_DIR, manifest, "minimal");
+    const minimalOutputs = await minimalAdapter.generate(FIXTURES_DIR, manifest, undefined, "minimal");
 
     const stdBridge = standardOutputs.find((o) => o.path === "CLAUDE.md");
     const minBridge = minimalOutputs.find((o) => o.path === "CLAUDE.md");
@@ -595,7 +600,7 @@ You are a test agent.`,
   it("minimal mode still produces valid non-empty output", async () => {
     const manifest = makeManifest();
     const minimalAdapter = new ClaudeAdapter();
-    const outputs = await minimalAdapter.generate(FIXTURES_DIR, manifest, "minimal");
+    const outputs = await minimalAdapter.generate(FIXTURES_DIR, manifest, undefined, "minimal");
 
     for (const o of outputs) {
       expect(o.content.length).toBeGreaterThan(0);
@@ -956,7 +961,7 @@ Low priority rule body.
 
     it("emits sentinels in every .claude/agents/ output (minimal mode)", async () => {
       const manifest = makeManifest();
-      const outputs = await adapter.generate(FIXTURES_DIR, manifest, "minimal");
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest, undefined, "minimal");
       const agents = outputs.filter((o) => o.path.startsWith(".claude/agents/"));
       expect(agents.length).toBeGreaterThan(0);
       for (const agent of agents) {

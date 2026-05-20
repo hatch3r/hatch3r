@@ -11,10 +11,7 @@
 import { describe, it, expect } from "vitest";
 import { CursorAdapter } from "../../adapters/cursor.js";
 import { ClaudeAdapter } from "../../adapters/claude.js";
-import { WindsurfAdapter } from "../../adapters/windsurf.js";
 import { CopilotAdapter } from "../../adapters/copilot.js";
-import { ClineAdapter } from "../../adapters/cline.js";
-import { CodexAdapter } from "../../adapters/codex.js";
 import { createManifest } from "../../manifest/hatchJson.js";
 import type { HatchManifest } from "../../types.js";
 import { resolveTestPath } from "../fixtures.js";
@@ -128,26 +125,6 @@ describe("adapter output snapshots", () => {
     });
   });
 
-  describe("WindsurfAdapter", () => {
-    const adapter = new WindsurfAdapter();
-
-    it("output structure matches snapshot", async () => {
-      const manifest = makeManifest("windsurf");
-      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
-      const normalized = normalizeOutputs(outputs);
-
-      expect(normalized).toMatchSnapshot();
-    });
-
-    it("file paths match snapshot", async () => {
-      const manifest = makeManifest("windsurf");
-      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
-      const paths = outputs.map((o) => o.path).sort();
-
-      expect(paths).toMatchSnapshot();
-    });
-  });
-
   describe("CopilotAdapter", () => {
     const adapter = new CopilotAdapter();
 
@@ -161,46 +138,6 @@ describe("adapter output snapshots", () => {
 
     it("file paths match snapshot", async () => {
       const manifest = makeManifest("copilot");
-      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
-      const paths = outputs.map((o) => o.path).sort();
-
-      expect(paths).toMatchSnapshot();
-    });
-  });
-
-  describe("ClineAdapter", () => {
-    const adapter = new ClineAdapter();
-
-    it("output structure matches snapshot", async () => {
-      const manifest = makeManifest("cline");
-      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
-      const normalized = normalizeOutputs(outputs);
-
-      expect(normalized).toMatchSnapshot();
-    });
-
-    it("file paths match snapshot", async () => {
-      const manifest = makeManifest("cline");
-      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
-      const paths = outputs.map((o) => o.path).sort();
-
-      expect(paths).toMatchSnapshot();
-    });
-  });
-
-  describe("CodexAdapter", () => {
-    const adapter = new CodexAdapter();
-
-    it("output structure matches snapshot", async () => {
-      const manifest = makeManifest("codex");
-      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
-      const normalized = normalizeOutputs(outputs);
-
-      expect(normalized).toMatchSnapshot();
-    });
-
-    it("file paths match snapshot", async () => {
-      const manifest = makeManifest("codex");
       const outputs = await adapter.generate(FIXTURES_DIR, manifest);
       const paths = outputs.map((o) => o.path).sort();
 

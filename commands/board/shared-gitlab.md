@@ -49,7 +49,7 @@ GitLab MCP tools are not currently available. All operations use the `glab` CLI.
 
 ## GitLab Context
 
-Derived from `.agents/hatch.json` board config:
+Derived from `.hatch3r/hatch.json` board config:
 
 - **Namespace:** top-level `owner` (GitLab group or user namespace)
 - **Project:** top-level `repo` (GitLab project name)

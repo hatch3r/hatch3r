@@ -55,7 +55,7 @@ export class CopilotAdapter extends BaseAdapter {
       // every canonical rule consumed here is recorded in
       // `this._trackedSourceFiles` and surfaces on each output's
       // `sourceFiles` field.
-      const rules = await this.readTrackedCanonicalFiles(ctx.agentsDir, "rules");
+      const rules = await this.readTrackedCanonicalFiles(ctx.canonicalRoot, "rules", ctx.userRepoRoot);
       // Wave B3: sort by precedence so both the inlined always-rules (in
       // copilot-instructions.md) and the per-file scoped-rules are emitted
       // in priority order. Always-rules are concatenated into a single file,
@@ -86,7 +86,7 @@ export class CopilotAdapter extends BaseAdapter {
       "",
       "# Hatch3r Project Instructions",
       "",
-      "Full canonical agent instructions are at `/.agents/AGENTS.md`.",
+      "Canonical agent orchestration is inlined in this file; per-artifact content lives in `.github/instructions/`, `.github/agents/`, `.github/skills/`, and `.github/prompts/`.",
       "",
       bridgeOrchestration,
       "",
@@ -153,7 +153,7 @@ jobs:
     }
 
     if (ctx.features.agents) {
-      const agents = await this.readUserFacingCanonicalFiles(ctx.agentsDir, "agents");
+      const agents = await this.readUserFacingCanonicalFiles(ctx.canonicalRoot, "agents", ctx.userRepoRoot);
       for (const agent of agents) {
         // C9-H20 (D8-H8.3.1): cooperative abort between agent files.
         this.throwIfAborted(ctx);
@@ -186,7 +186,7 @@ jobs:
 
     if (ctx.features.prompts) {
       // C9-H39 (D11-SA11.1-01): tracked read wrapper for prompt provenance.
-      const prompts = await this.readTrackedCanonicalFiles(ctx.agentsDir, "prompts");
+      const prompts = await this.readTrackedCanonicalFiles(ctx.canonicalRoot, "prompts", ctx.userRepoRoot);
       for (const prompt of prompts) {
         const body = prompt.rawContent;
         results.push(output(`.github/prompts/${toPrefixedId(prompt.id)}.prompt.md`, wrapInManagedBlock(body), body));
@@ -199,7 +199,7 @@ jobs:
 
     if (ctx.features.githubAgents) {
       // C9-H39 (D11-SA11.1-01): tracked read wrapper for github-agents provenance.
-      const ghAgents = await this.readTrackedCanonicalFiles(ctx.agentsDir, "github-agents");
+      const ghAgents = await this.readTrackedCanonicalFiles(ctx.canonicalRoot, "github-agents", ctx.userRepoRoot);
       for (const agent of ghAgents) {
         const body = agent.rawContent;
         results.push(output(`.github/agents/${toPrefixedId(agent.id)}.agent.md`, wrapInManagedBlock(body), body));

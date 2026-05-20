@@ -57,7 +57,7 @@ It retains:
 - Quality checks (lint, typecheck, test) — always mandatory
 - Sub-agent delegation for all non-trivial work
 - Full review pipeline in Stage 5 (reviewer, test-writer, security-auditor)
-- `scope: always` rules from `.agents/rules/`
+- `scope: always` rules from `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)`
 - Debug artifact cleanup guarantee
 
 ---
@@ -127,8 +127,8 @@ You can also paste an error log, stack trace, or screenshot description and I'll
 1. Check for existing documentation:
    - `docs/specs/` — project specifications (read TOC/headers first, expand relevant sections only)
    - `README.md` — project overview and setup instructions
-   - `AGENTS.md` or `.agents/rules/` — agent rules and project conventions
-2. If `.agents/learnings/` exists, scan for learnings relevant to the affected area. Match by area and tags against the bug description.
+   - `AGENTS.md` or `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)` — agent rules and project conventions
+2. If `.hatch3r/learnings/` exists, scan for learnings relevant to the affected area. Match by area and tags against the bug description.
 3. Scan the affected code area — read the primary files involved, trace imports and dependencies one level deep.
 
 **Knowledge hierarchy:** project specs → codebase exploration → Context7 MCP (`resolve-library-id` then `query-docs`) → web research. Exhaust each level before escalating to the next.
@@ -166,7 +166,7 @@ The researcher prompt MUST include:
 - The affected files and modules identified in Stage 1b.
 - Instruction to follow the **hatch3r-researcher agent protocol** with mode `symptom-trace`.
 - Instruction to identify specific instrumentation points: decision branches, data flow boundaries, error handlers, state transitions, and external call sites in the affected area.
-- All `scope: always` rule directives from `.agents/rules/`.
+- All `scope: always` rule directives from `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)`.
 
 The researcher must produce a structured list of recommended instrumentation points:
 
@@ -186,7 +186,7 @@ Spawn a `hatch3r-implementer` sub-agent via the Task tool (`subagent_type: "gene
 The implementer prompt MUST include:
 - The researcher's instrumentation points from Stage 2a.
 - The confirmed bug context from Stage 1c.
-- All `scope: always` rule directives from `.agents/rules/`.
+- All `scope: always` rule directives from `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)`.
 - Explicit instruction: do NOT create branches, commits, or PRs.
 
 **Debug logging rules** (include these verbatim in the implementer prompt):
@@ -281,7 +281,7 @@ The researcher prompt MUST include:
 - The structured log analysis from Stage 3b (full parsed output).
 - The instrumentation point list from Stage 2a (to correlate expected vs. actual behavior).
 - Instruction to follow the **hatch3r-researcher agent protocol** with mode `root-cause` and depth `deep`.
-- All `scope: always` rule directives from `.agents/rules/`.
+- All `scope: always` rule directives from `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)`.
 - Instruction to produce ranked hypotheses with evidence from the log data.
 
 **Knowledge hierarchy for the researcher:** project specs → codebase → Context7 MCP → web research. Use `gh` CLI (e.g., `gh issue list`, `gh pr list`) for reading GitHub data; prefer `gh` over GitHub MCP tools.
@@ -324,7 +324,7 @@ Spawn a `hatch3r-implementer` sub-agent via the Task tool (`subagent_type: "gene
 The implementer prompt MUST include:
 - The confirmed diagnosis from Stage 4b (root cause, evidence, recommended fix approach).
 - The full list of files modified in Stage 2b (debug logging locations) for cleanup reference.
-- All `scope: always` rule directives from `.agents/rules/`.
+- All `scope: always` rule directives from `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)`.
 - Explicit instruction: do NOT create branches, commits, or PRs.
 
 **Fix implementation rules** (include these verbatim in the implementer prompt):
@@ -355,7 +355,7 @@ Run a review-fix loop, maximum 3 iterations, until the reviewer reports a clean 
    - The diff of all changes (use `git diff` on the working tree).
    - The original bug context from Stage 1c.
    - The diagnosis from Stage 4b.
-   - All `scope: always` rule directives from `.agents/rules/`.
+   - All `scope: always` rule directives from `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)`.
    - Instruction to verify: correctness of the fix, no remaining debug artifacts, code quality, no regressions introduced.
 
 2. If the reviewer reports findings (critical or warning level):
@@ -378,12 +378,12 @@ After the review loop completes clean (or the user proceeds), spawn these two su
    - The fix diff (what was changed).
    - The root cause from Stage 4b.
    - Instruction to write tests that would have caught this bug — regression tests targeting the specific failure mode.
-   - All `scope: always` rule directives from `.agents/rules/`.
+   - All `scope: always` rule directives from `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)`.
 
 2. **`hatch3r-security-auditor`** — security review of the fix. The prompt MUST include:
    - The fix diff.
    - The affected files and data flows.
-   - All `scope: always` rule directives from `.agents/rules/`.
+   - All `scope: always` rule directives from `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)`.
 
 Await both sub-agents. Apply any findings (additional tests, security fixes).
 

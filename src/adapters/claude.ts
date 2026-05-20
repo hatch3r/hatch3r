@@ -296,7 +296,7 @@ export class ClaudeAdapter extends BaseAdapter {
           "",
           "# Hatch3r Project Instructions",
           "",
-          "Instructions: `.agents/AGENTS.md`. Rules: `.claude/rules/`. Agents: `.claude/agents/`.",
+          "Instructions inlined below. Rules: `.claude/rules/`. Agents: `.claude/agents/`. Skills: `.claude/skills/`. Commands: `.claude/commands/`.",
           "",
           bridgeOrchestration,
           "",
@@ -307,8 +307,8 @@ export class ClaudeAdapter extends BaseAdapter {
           "",
           "# Hatch3r Project Instructions",
           "",
-          "Full canonical agent instructions are at `.agents/AGENTS.md`.",
-          "Rules are managed in `.claude/rules/` and agents in `.claude/agents/`.",
+          "Canonical agent orchestration is inlined in this file.",
+          "Rules are managed in `.claude/rules/`, agents in `.claude/agents/`, skills in `.claude/skills/`, commands in `.claude/commands/`.",
           "",
           bridgeOrchestration,
           "",
@@ -341,7 +341,7 @@ export class ClaudeAdapter extends BaseAdapter {
       // `this._trackedSourceFiles` and surfaces on each output's
       // `sourceFiles` field. Direct `readCanonicalFiles` calls bypass the
       // provenance tracker introduced by C8-D12-M3.
-      const rules = await this.readTrackedCanonicalFiles(ctx.agentsDir, "rules");
+      const rules = await this.readTrackedCanonicalFiles(ctx.canonicalRoot, "rules", ctx.userRepoRoot);
       // Wave B3: precedence-ordered emission + NN- numeric filename prefix on
       // .claude/rules/. critical=10, high=30, normal=50, low=70. Claude Code
       // loads rule files alphabetically; the prefix makes load order explicit.
@@ -369,7 +369,7 @@ export class ClaudeAdapter extends BaseAdapter {
     }
 
     if (ctx.features.agents) {
-      const agents = await this.readUserFacingCanonicalFiles(ctx.agentsDir, "agents");
+      const agents = await this.readUserFacingCanonicalFiles(ctx.canonicalRoot, "agents", ctx.userRepoRoot);
       for (const agent of agents) {
         // C9-H20: cooperative abort between agent files.
         this.throwIfAborted(ctx);

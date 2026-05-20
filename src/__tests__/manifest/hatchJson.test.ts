@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { mkdtemp, mkdir, writeFile, readFile, rm, access } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -21,7 +21,8 @@ describe("hatchJson", () => {
       const manifest = createManifest({
         tools: ["cursor"],
       });
-      expect(manifest.version).toBe("2.0.0");
+      // Wave 6 (1.9.0 / schemaVersion 3): manifest path and shape bumped.
+      expect(manifest.version).toBe("3.0.0");
       expect(manifest.hatch3rVersion).toBe(HATCH3R_VERSION);
       expect(manifest.platform).toBe("github");
       expect(manifest.tools).toEqual(["cursor"]);
@@ -153,13 +154,15 @@ describe("hatchJson", () => {
       expect(result.project).toBe("app");
     });
 
-    it("bumps version from 1.0.0 to 2.0.0", () => {
+    it("bumps version from 1.0.0 to 3.0.0 (chained 1->2->3 migration)", () => {
       const result = migrateManifest({
         version: "1.0.0",
         owner: "acme",
         repo: "app",
       });
-      expect(result.version).toBe("2.0.0");
+      // Wave 6 (1.9.0 / schemaVersion 3): migration chain runs
+      // 1.0.0 -> 2.0.0 -> 3.0.0 in a single pass.
+      expect(result.version).toBe("3.0.0");
     });
 
     it("does not overwrite existing platform", () => {
@@ -194,14 +197,15 @@ describe("hatchJson", () => {
       expect(result.project).toBe("custom-proj");
     });
 
-    it("does not downgrade version from 2.0.0", () => {
+    it("bumps version from 2.0.0 to 3.0.0", () => {
       const result = migrateManifest({
         version: "2.0.0",
         platform: "github",
         owner: "acme",
         repo: "app",
       });
-      expect(result.version).toBe("2.0.0");
+      // Wave 6 (1.9.0 / schemaVersion 3): 2.0.0 -> 3.0.0 on read.
+      expect(result.version).toBe("3.0.0");
     });
 
     it("handles empty manifest gracefully", () => {
@@ -277,13 +281,14 @@ describe("hatchJson", () => {
 
     async function setup(): Promise<string> {
       tempDir = await mkdtemp(join(tmpdir(), "hatch3r-manifest-"));
-      await mkdir(join(tempDir, ".agents"), { recursive: true });
+      // Wave 6: manifest lives at `.hatch3r/hatch.json` now.
+      await mkdir(join(tempDir, ".hatch3r"), { recursive: true });
       return tempDir;
     }
 
     async function writeManifestJson(rootDir: string, data: unknown): Promise<void> {
       await writeFile(
-        join(rootDir, ".agents", "hatch.json"),
+        join(rootDir, ".hatch3r", "hatch.json"),
         JSON.stringify(data, null, 2),
         "utf-8",
       );
@@ -298,7 +303,7 @@ describe("hatchJson", () => {
     it("throws on malformed JSON", async () => {
       const rootDir = await setup();
       await writeFile(
-        join(rootDir, ".agents", "hatch.json"),
+        join(rootDir, ".hatch3r", "hatch.json"),
         "{ not valid json }}}",
         "utf-8",
       );
@@ -311,7 +316,7 @@ describe("hatchJson", () => {
     it("throws HatchError with CONFIG_ERROR code on malformed JSON", async () => {
       const rootDir = await setup();
       await writeFile(
-        join(rootDir, ".agents", "hatch.json"),
+        join(rootDir, ".hatch3r", "hatch.json"),
         "{ not valid json }}}",
         "utf-8",
       );
@@ -460,7 +465,8 @@ describe("hatchJson", () => {
       });
       const result = await readManifest(rootDir);
       expect(result).not.toBeNull();
-      expect(result!.version).toBe("2.0.0");
+      // Wave 6: 2.0.0 manifests are migrated to 3.0.0 on read.
+      expect(result!.version).toBe("3.0.0");
       expect(result!.tools).toEqual(["cursor"]);
     });
 
@@ -478,7 +484,8 @@ describe("hatchJson", () => {
       });
       const result = await readManifest(rootDir);
       expect(result).not.toBeNull();
-      expect(result!.version).toBe("2.0.0");
+      // Wave 6: chained migration runs 1.0.0 -> 2.0.0 -> 3.0.0.
+      expect(result!.version).toBe("3.0.0");
       expect(result!.namespace).toBe("acme");
       expect(result!.project).toBe("app");
     });
@@ -568,6 +575,100 @@ describe("hatchJson", () => {
     });
   });
 
+  // Wave 6 (1.9.0): one-shot relocation of `.agents/hatch.json` ->
+  // `.hatch3r/hatch.json` triggered the first time `readManifest` runs
+  // against a pre-1.9 install. The shim must be idempotent and emit a
+  // single console warning so operators see why the directory changed.
+  describe("readManifest migration shim (.agents/ -> .hatch3r/)", () => {
+    let tempDir: string;
+    let warnSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(async () => {
+      warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    });
+
+    afterEach(async () => {
+      warnSpy.mockRestore();
+      if (tempDir) await rm(tempDir, { recursive: true, force: true });
+    });
+
+    it("relocates a pre-1.9 .agents/hatch.json to .hatch3r/hatch.json on read", async () => {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-shim-"));
+      // Seed a pre-1.9 install with the legacy `.agents/` location.
+      // Inline literal — this is one of the only legitimate uses of `.agents`
+      // in the rewritten test surface (migration-shim test setup).
+      const legacyDir = join(tempDir, ".agents");
+      await mkdir(legacyDir, { recursive: true });
+      const legacyManifest = {
+        version: "2.0.0",
+        hatch3rVersion: "1.8.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true, handoffs: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+      };
+      await writeFile(join(legacyDir, "hatch.json"), JSON.stringify(legacyManifest, null, 2), "utf-8");
+
+      const result = await readManifest(tempDir);
+      expect(result).not.toBeNull();
+      expect(result!.tools).toEqual(["cursor"]);
+
+      // Manifest now lives under .hatch3r/.
+      await expect(access(join(tempDir, ".hatch3r", "hatch.json"))).resolves.toBeUndefined();
+      // Legacy path is gone.
+      await expect(access(join(tempDir, ".agents", "hatch.json"))).rejects.toThrow();
+
+      // A single one-shot warning was emitted.
+      const warnCalls = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+      const matchingWarn = warnCalls.find((m: string) => /Migrated manifest from .agents/.test(m));
+      expect(matchingWarn).toBeDefined();
+    });
+
+    it("is a no-op when .hatch3r/hatch.json already exists (legacy ignored)", async () => {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-shim-"));
+      // Pre-existing new layout
+      await mkdir(join(tempDir, ".hatch3r"), { recursive: true });
+      const newManifest = {
+        version: "3.0.0",
+        hatch3rVersion: "1.9.0",
+        owner: "current",
+        repo: "current",
+        namespace: "current",
+        project: "current",
+        tools: ["claude"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true, handoffs: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+      };
+      await writeFile(join(tempDir, ".hatch3r", "hatch.json"), JSON.stringify(newManifest, null, 2), "utf-8");
+
+      // Also seed a stale legacy manifest — shim must NOT touch it.
+      await mkdir(join(tempDir, ".agents"), { recursive: true });
+      await writeFile(
+        join(tempDir, ".agents", "hatch.json"),
+        JSON.stringify({ ...newManifest, owner: "stale" }, null, 2),
+        "utf-8",
+      );
+
+      const result = await readManifest(tempDir);
+      expect(result).not.toBeNull();
+      // We read from the new path, not the legacy stale one.
+      expect(result!.owner).toBe("current");
+
+      // No migration warning was emitted because no migration happened.
+      const warnCalls = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+      const matchingWarn = warnCalls.find((m: string) => /Migrated manifest from .agents/.test(m));
+      expect(matchingWarn).toBeUndefined();
+
+      // Legacy file untouched.
+      await expect(access(join(tempDir, ".agents", "hatch.json"))).resolves.toBeUndefined();
+    });
+  });
+
   describe("writeManifest", () => {
     let tempDir: string;
 
@@ -579,7 +680,7 @@ describe("hatchJson", () => {
 
     it("writes a manifest that can be read back", async () => {
       tempDir = await mkdtemp(join(tmpdir(), "hatch3r-write-"));
-      await mkdir(join(tempDir, ".agents"), { recursive: true });
+      await mkdir(join(tempDir, ".hatch3r"), { recursive: true });
 
       const manifest = createManifest({ tools: ["cursor"], mcpServers: ["github"] });
       await writeManifest(tempDir, manifest);
@@ -592,19 +693,19 @@ describe("hatchJson", () => {
 
     it("writes valid JSON with trailing newline", async () => {
       tempDir = await mkdtemp(join(tmpdir(), "hatch3r-write-"));
-      await mkdir(join(tempDir, ".agents"), { recursive: true });
+      await mkdir(join(tempDir, ".hatch3r"), { recursive: true });
 
       const manifest = createManifest({ tools: ["cursor"] });
       await writeManifest(tempDir, manifest);
 
-      const raw = await readFile(join(tempDir, ".agents", "hatch.json"), "utf-8");
+      const raw = await readFile(join(tempDir, ".hatch3r", "hatch.json"), "utf-8");
       expect(raw.endsWith("\n")).toBe(true);
       expect(() => JSON.parse(raw)).not.toThrow();
     });
 
     it("overwrites existing manifest", async () => {
       tempDir = await mkdtemp(join(tmpdir(), "hatch3r-write-"));
-      await mkdir(join(tempDir, ".agents"), { recursive: true });
+      await mkdir(join(tempDir, ".hatch3r"), { recursive: true });
 
       const original = createManifest({ tools: ["cursor"] });
       await writeManifest(tempDir, original);
@@ -620,7 +721,7 @@ describe("hatchJson", () => {
     // persisting to disk to prevent corrupt state from being serialized.
     it("throws HatchError(CONFIG_ERROR) when managedFiles is not an array", async () => {
       tempDir = await mkdtemp(join(tmpdir(), "hatch3r-write-"));
-      await mkdir(join(tempDir, ".agents"), { recursive: true });
+      await mkdir(join(tempDir, ".hatch3r"), { recursive: true });
 
       const manifest = createManifest({ tools: ["cursor"] });
       // Force an invalid shape past TS via cast.
@@ -638,7 +739,7 @@ describe("hatchJson", () => {
 
     it("throws when tools contains invalid tool name outside VALID_TOOLS", async () => {
       tempDir = await mkdtemp(join(tmpdir(), "hatch3r-write-"));
-      await mkdir(join(tempDir, ".agents"), { recursive: true });
+      await mkdir(join(tempDir, ".hatch3r"), { recursive: true });
 
       const manifest = createManifest({ tools: ["cursor"] });
       (manifest as unknown as Record<string, unknown>).tools = ["not-a-real-tool"];
@@ -650,7 +751,7 @@ describe("hatchJson", () => {
 
     it("throws when required field (mcp) is missing", async () => {
       tempDir = await mkdtemp(join(tmpdir(), "hatch3r-write-"));
-      await mkdir(join(tempDir, ".agents"), { recursive: true });
+      await mkdir(join(tempDir, ".hatch3r"), { recursive: true });
 
       const manifest = createManifest({ tools: ["cursor"] });
       // Remove mcp entirely.
@@ -661,7 +762,7 @@ describe("hatchJson", () => {
 
     it("does NOT write file when validation fails", async () => {
       tempDir = await mkdtemp(join(tmpdir(), "hatch3r-write-"));
-      await mkdir(join(tempDir, ".agents"), { recursive: true });
+      await mkdir(join(tempDir, ".hatch3r"), { recursive: true });
 
       const manifest = createManifest({ tools: ["cursor"] });
       (manifest as unknown as Record<string, unknown>).managedFiles = null;
@@ -669,7 +770,7 @@ describe("hatchJson", () => {
       await expect(writeManifest(tempDir, manifest)).rejects.toThrow(HatchError);
 
       // Confirm no file was written — access must reject with ENOENT.
-      const manifestPath = join(tempDir, ".agents", "hatch.json");
+      const manifestPath = join(tempDir, ".hatch3r", "hatch.json");
       try {
         await access(manifestPath);
         throw new Error("manifest file should not exist after failed validation");
@@ -680,7 +781,7 @@ describe("hatchJson", () => {
 
     it("round-trip: createManifest then write then read succeeds", async () => {
       tempDir = await mkdtemp(join(tmpdir(), "hatch3r-write-"));
-      await mkdir(join(tempDir, ".agents"), { recursive: true });
+      await mkdir(join(tempDir, ".hatch3r"), { recursive: true });
 
       const manifest = createManifest({
         tools: ["cursor", "claude"],
@@ -710,13 +811,13 @@ describe("hatchJson", () => {
 
     async function setup(): Promise<string> {
       tempDir = await mkdtemp(join(tmpdir(), "hatch3r-validate-"));
-      await mkdir(join(tempDir, ".agents"), { recursive: true });
+      await mkdir(join(tempDir, ".hatch3r"), { recursive: true });
       return tempDir;
     }
 
     async function writeManifestJson(rootDir: string, data: unknown): Promise<void> {
       await writeFile(
-        join(rootDir, ".agents", "hatch.json"),
+        join(rootDir, ".hatch3r", "hatch.json"),
         JSON.stringify(data, null, 2),
         "utf-8",
       );

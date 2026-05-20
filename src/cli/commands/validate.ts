@@ -6,13 +6,14 @@ import chalk from "chalk";
 import { parse as parseYaml } from "yaml";
 import { readManifest } from "../../manifest/hatchJson.js";
 import { isValidHookEvent } from "../../hooks/types.js";
-import { AGENTS_DIR, HATCH3R_PREFIX, HatchError } from "../../types.js";
+import { HATCH3R_PREFIX, HatchError } from "../../types.js";
 import type { HatchManifest } from "../../types.js";
 import { HATCH3R_VERSION } from "../../version.js";
 import { scanForDeniedPatterns } from "../../adapters/customization.js";
 import { buildContentIndex, validateCrossReferences, validateOrchestrationDependencies, resolveUserContentRoot } from "../../content/index.js";
 import type { CatalogItem, ContentIndex } from "../../content/index.js";
 import { findPackageRoot } from "../shared/paths.js";
+import { resolveBundledContentRoot } from "../../content/contentRoot.js";
 import { validateLearningsDirectory } from "../../content/learningsValidation.js";
 import { validateHandoffsDirectory } from "../../content/handoffs/index.js";
 import { readCustomizationWithWarnings } from "../../models/customize.js";
@@ -67,7 +68,10 @@ async function validateManifest(
   result: ValidationResult,
 ): Promise<void> {
   if (!manifest) {
-    result.errors.push("Missing .agents/hatch.json manifest");
+    // Wave 6 moves the manifest to `.hatch3r/hatch.json`; a missing manifest
+    // is a warning (project may not yet be hatch3r-managed) rather than a
+    // hard error so bundled-canonical validation can still run for tooling.
+    result.warnings.push("Missing hatch.json manifest (run `hatch3r init` to create one)");
     return;
   }
   if (!manifest.version) result.errors.push("hatch.json: missing 'version' field");
@@ -84,7 +88,7 @@ async function validateManifest(
 }
 
 async function validateDirectories(
-  agentsDir: string,
+  canonicalRoot: string,
   result: ValidationResult,
 ): Promise<void> {
   const requiredDirs = ["agents", "skills", "rules"];
@@ -92,67 +96,68 @@ async function validateDirectories(
 
   for (const dir of requiredDirs) {
     try {
-      await access(join(agentsDir, dir));
+      await access(join(canonicalRoot, dir));
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-      result.errors.push(`Required directory missing: .agents/${dir}/`);
+      result.errors.push(`Required canonical directory missing: ${dir}/ (under bundled content root)`);
     }
   }
 
   for (const dir of optionalDirs) {
     try {
-      await access(join(agentsDir, dir));
+      await access(join(canonicalRoot, dir));
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-      verboseWarn(result, `Optional directory missing: .agents/${dir}/`);
+      verboseWarn(result, `Optional canonical directory missing: ${dir}/ (under bundled content root)`);
     }
   }
 }
 
 async function validateFrontmatter(
-  agentsDir: string,
+  canonicalRoot: string,
   result: ValidationResult,
 ): Promise<void> {
   const requiredDirs = ["agents", "skills", "rules"];
   const optionalDirs = ["commands", "prompts", "mcp", "policy", "github-agents"];
 
   for (const dir of [...requiredDirs, ...optionalDirs]) {
-    const dirPath = join(agentsDir, dir);
+    const dirPath = join(canonicalRoot, dir);
     try {
       const entries = await readdir(dirPath, { withFileTypes: true });
       for (const entry of entries) {
         if (entry.isFile() && entry.name.endsWith(".md")) {
           const filePath = join(dirPath, entry.name);
           const content = await readFile(filePath, "utf-8");
+          const label = `${dir}/${entry.name}`;
           if (!content.startsWith("---")) {
-            result.warnings.push(`Missing frontmatter: .agents/${dir}/${entry.name}`);
+            result.warnings.push(`Missing frontmatter: ${label}`);
           } else {
             const endIdx = content.indexOf("---", 3);
             if (endIdx === -1) {
-              result.errors.push(`Invalid frontmatter (no closing ---): .agents/${dir}/${entry.name}`);
+              result.errors.push(`Invalid frontmatter (no closing ---): ${label}`);
             } else {
               const frontmatter = content.slice(3, endIdx).trim();
               const parsedFm = parseYaml(frontmatter) as Record<string, unknown> | null;
               // github-agents use `name:` as their identifier; everything else uses `id:`.
               const idField = dir === "github-agents" ? "name" : "id";
               if (!parsedFm || typeof parsedFm !== "object" || !parsedFm[idField]) {
-                result.warnings.push(`Missing '${idField}' in frontmatter: .agents/${dir}/${entry.name}`);
+                result.warnings.push(`Missing '${idField}' in frontmatter: ${label}`);
               }
               if (!parsedFm || typeof parsedFm !== "object" || !parsedFm.type) {
-                result.warnings.push(`Missing 'type' in frontmatter: .agents/${dir}/${entry.name}`);
+                result.warnings.push(`Missing 'type' in frontmatter: ${label}`);
               }
               // C8-D5-M1: Commands must declare orchestrator marker so adapters
               // and runtime gates can distinguish orchestrator commands (which
               // delegate to sub-agents) from inline-execution commands.
               if (dir === "commands" && parsedFm && typeof parsedFm === "object") {
-                validateCommandOrchestratorFrontmatter(parsedFm, `.agents/${dir}/${entry.name}`, result);
+                validateCommandOrchestratorFrontmatter(parsedFm, label, result);
               }
               // P7: Recognize and type-check the five new optional efficiency
               // frontmatter fields. Unknown values produce warnings only; the
               // hard `triage_tiers` requirement on orchestrator commands is
               // enforced separately by scripts/validate-efficiency-invariants.ts.
               if (parsedFm && typeof parsedFm === "object") {
-                validateEfficiencyFrontmatter(parsedFm, `.agents/${dir}/${entry.name}`, dir, result);
+                validateEfficiencyFrontmatter(parsedFm, label, dir, result);
               }
             }
           }
@@ -166,7 +171,7 @@ async function validateFrontmatter(
             await access(skillPath);
           } catch (err) {
             if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-            result.warnings.push(`Skill directory missing SKILL.md: .agents/${dir}/${entry.name}/`);
+            result.warnings.push(`Skill directory missing SKILL.md: ${dir}/${entry.name}/`);
           }
         }
       }
@@ -175,12 +180,8 @@ async function validateFrontmatter(
     }
   }
 
-  try {
-    await access(join(agentsDir, "AGENTS.md"));
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-    result.warnings.push("Missing .agents/AGENTS.md");
-  }
+  // Wave 4: the root AGENTS.md is no longer emitted (W3). Bundled content
+  // contains no AGENTS.md either — the bridge file is the orchestration doc.
 }
 
 /**
@@ -345,23 +346,23 @@ async function validateManagedFilePrefixes(
 }
 
 async function validateHooks(
-  agentsDir: string,
+  canonicalRoot: string,
   manifest: HatchManifest,
   result: ValidationResult,
 ): Promise<void> {
   if (!manifest.features.hooks) return;
 
-  const hooksDir = join(agentsDir, "hooks");
+  const hooksDir = join(canonicalRoot, "hooks");
   try {
     const hookFiles = await readdir(hooksDir);
     const mdHooks = hookFiles.filter(f => f.endsWith(".md"));
     if (mdHooks.length === 0) {
-      result.warnings.push("Hooks feature enabled but no hook definitions found in .agents/hooks/");
+      result.warnings.push("Hooks feature enabled but no hook definitions found in bundled hooks/");
     }
 
     let agentFiles: Set<string> | undefined;
     try {
-      const agentEntries = await readdir(join(agentsDir, "agents"));
+      const agentEntries = await readdir(join(canonicalRoot, "agents"));
       agentFiles = new Set(agentEntries.filter(f => f.endsWith(".md")));
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
@@ -370,7 +371,7 @@ async function validateHooks(
     for (const hookFile of mdHooks) {
       const hookContent = await readFile(join(hooksDir, hookFile), "utf-8");
       if (!hookContent.startsWith("---")) {
-        result.warnings.push(`Hook missing frontmatter: .agents/hooks/${hookFile}`);
+        result.warnings.push(`Hook missing frontmatter: hooks/${hookFile}`);
         continue;
       }
       const endIdx = hookContent.indexOf("---", 3);
@@ -387,7 +388,7 @@ async function validateHooks(
           : `${HATCH3R_PREFIX}${fm.agent}`;
         const expectedFile = `${agentName}.md`;
         if (!agentFiles.has(expectedFile)) {
-          result.errors.push(`Hook "${hookFile}" references agent "${fm.agent}" but .agents/agents/${expectedFile} does not exist`);
+          result.errors.push(`Hook "${hookFile}" references agent "${fm.agent}" but agents/${expectedFile} does not exist`);
         }
         // Build known agents set from manifest content or fallback
         const knownAgents = manifest.content
@@ -400,18 +401,18 @@ async function validateHooks(
     }
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-    result.warnings.push("Hooks feature enabled but .agents/hooks/ directory not found");
+    result.warnings.push("Hooks feature enabled but bundled hooks/ directory not found");
   }
 }
 
 async function validateMcp(
-  agentsDir: string,
+  canonicalRoot: string,
   manifest: HatchManifest,
   result: ValidationResult,
 ): Promise<void> {
   if (!manifest.features.mcp || manifest.mcp.servers.length === 0) return;
 
-  const mcpPath = join(agentsDir, "mcp", "mcp.json");
+  const mcpPath = join(canonicalRoot, "mcp", "mcp.json");
   try {
     const mcpContent = await readFile(mcpPath, "utf-8");
     const mcpParsed = JSON.parse(mcpContent);
@@ -420,9 +421,9 @@ async function validateMcp(
     }
   } catch (err) {
     if (err instanceof SyntaxError) {
-      result.errors.push("Invalid JSON in .agents/mcp/mcp.json");
+      result.errors.push("Invalid JSON in mcp/mcp.json (bundled content root)");
     } else {
-      result.warnings.push("MCP servers configured but .agents/mcp/mcp.json not found");
+      result.warnings.push("MCP servers configured but mcp/mcp.json not found in bundled content root");
     }
   }
 }
@@ -739,7 +740,7 @@ async function validateContentConsistency(
       for (const id of ids) {
         const found = await findContentFile(agentsDir, cfg, id);
         if (!found) {
-          result.warnings.push(`Content "${id}" (${key}) in manifest but missing from .agents/${cfg.dir}/`);
+          result.warnings.push(`Content "${id}" (${key}) in manifest but missing from bundled ${cfg.dir}/`);
         }
       }
     }
@@ -826,7 +827,7 @@ const USER_CONTENT_SLUG_REGEX = /^[a-z][a-z0-9-]*$/;
 
 /**
  * Map a user content item's `type` (canonical category) to the directory
- * name it must live under inside `.agents/user/`. Used by the type/dir
+ * name it must live under inside `.hatch3r/overrides/`. Used by the type/dir
  * mismatch strict gate.
  */
 const USER_CONTENT_TYPE_DIRS: Record<string, string> = {
@@ -839,7 +840,7 @@ const USER_CONTENT_TYPE_DIRS: Record<string, string> = {
 
 /**
  * D20 strict + gentle validation gates for user-authored content under
- * `.agents/user/`. Strict failures push to `result.errors`; gentle failures
+ * `.hatch3r/overrides/`. Strict failures push to `result.errors`; gentle failures
  * push to `result.warnings`. Reuses `scanForDeniedPatterns`,
  * `validateCommandOrchestratorFrontmatter`, and `isValidHookEvent` so the
  * gate logic does not diverge from canonical-content checks.
@@ -866,7 +867,7 @@ async function validateUserContent(
   if (userItems.length === 0) return;
 
   for (const item of userItems) {
-    const fileLabel = `.agents/user/${item.relativePath}`;
+    const fileLabel = `.hatch3r/overrides/${item.relativePath}`;
 
     // Resolve the on-disk path and read the body.
     const absPath =
@@ -1326,14 +1327,14 @@ function hasPillarReference(parsedFm: Record<string, unknown> | null, body: stri
 
 /**
  * Entry point invoked from validateCommand. Scans every canonical `.md`
- * under .agents/agents, .agents/commands, .agents/rules, .agents/skills,
- * .agents/hooks for anti-slop hits and missing pillar references.
+ * under {canonicalRoot}/agents, /commands, /rules, /skills, /hooks for
+ * anti-slop hits and missing pillar references.
  *
  * Findings emit on the warnings channel by default; with strictContent=true
  * they escalate to errors.
  */
 async function validateContentBody(
-  agentsDir: string,
+  canonicalRoot: string,
   result: ValidationResult,
   strictContent: boolean,
 ): Promise<void> {
@@ -1341,7 +1342,7 @@ async function validateContentBody(
   const sink: string[] = strictContent ? result.errors : result.warnings;
 
   for (const dir of scanDirs) {
-    const dirPath = join(agentsDir, dir);
+    const dirPath = join(canonicalRoot, dir);
     const files = await listMarkdownFiles(dirPath);
     for (const filePath of files) {
       // Skip `.mdc` siblings — only `.md` is canonical (rule-parity validator
@@ -1353,9 +1354,9 @@ async function validateContentBody(
         if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
         continue;
       }
-      // Compute the relative label for the finding message.
-      const relativeFromAgents = filePath.slice(agentsDir.length + 1);
-      const fileLabel = `.agents/${relativeFromAgents}`;
+      // Compute the relative label for the finding message — relative to the
+      // canonical content root so the label reads e.g. `rules/foo.md`.
+      const fileLabel = filePath.slice(canonicalRoot.length + 1);
 
       // Split frontmatter vs body. The body is the only scan target — banned
       // phrases inside frontmatter `description:` are caught by the
@@ -1533,95 +1534,27 @@ export async function validateCommand(opts?: {
     }
     return;
   }
-  const agentsDir = join(rootDir, AGENTS_DIR);
   const result: ValidationResult = { errors: [], warnings: [] };
 
-  const spinner = jsonMode ? null : createSpinner("Validating .agents/ structure...");
+  const spinner = jsonMode ? null : createSpinner("Validating bundled canonical content...");
   spinner?.start();
 
-  // Wave A2: when cwd is a hatch3r framework source repo (has canonical
-  // content roots but no .agents/), run the description-quality lint on
-  // the canonical source and exit 0. This lets framework maintainers run
-  // the lint as a worklist generator without having to `hatch3r init`
-  // their own repo.
-  const cwdIsFrameworkSource =
-    existsSync(join(rootDir, "agents")) &&
-    existsSync(join(rootDir, "skills")) &&
-    existsSync(join(rootDir, "rules")) &&
-    existsSync(join(rootDir, "commands"));
-
+  // Wave 4: validation now reads from the bundled canonical-content root
+  // resolved via `resolveBundledContentRoot()`. The user-repo `.agents/`
+  // materialisation no longer exists (W3 dropped it from init/sync/update),
+  // so the prior "`.agents/` not found → error" branch is gone. When the
+  // cwd is the framework source repo (dev mode), `resolveBundledContentRoot`
+  // already returns the repo root, so dev/install/consumer paths converge
+  // on the same canonical scan.
+  let canonicalRoot: string;
   try {
-    await access(agentsDir);
+    canonicalRoot = resolveBundledContentRoot();
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-
-    if (cwdIsFrameworkSource) {
-      spinner?.stop();
-      await validateCanonicalDescriptionQuality(rootDir, result);
-      if (jsonMode) {
-        const hasErrors = result.errors.length > 0;
-        emitJson({
-          errors: result.errors,
-          warnings: result.warnings,
-          summary: {
-            status: hasErrors ? "failed" : "passed",
-            errorCount: result.errors.length,
-            warningCount: result.warnings.length,
-            docsMode: false,
-            hatch3rVersion: HATCH3R_VERSION,
-            timestamp,
-          },
-        });
-        if (hasErrors) {
-          throw new HatchError("Validation failed", 1, "VALIDATION_ERROR");
-        }
-        return;
-      }
-      if (result.errors.length > 0) {
-        console.log();
-        for (const e of result.errors) logError(e);
-        console.log();
-        if (result.warnings.length > 0) {
-          for (const w of result.warnings) warn(w);
-          console.log();
-        }
-        printBox(
-          "Canonical content lint failed",
-          [
-            `${chalk.red("✖")} ${result.errors.length} error(s)`,
-            `${chalk.yellow("⚠")} ${result.warnings.length} warning(s)`,
-            chalk.dim("(framework-source mode — .agents/ not required)"),
-          ],
-          "error",
-        );
-        throw new HatchError("Validation failed", 1, "VALIDATION_ERROR");
-      }
-      if (result.warnings.length > 0) {
-        console.log();
-        for (const w of result.warnings) warn(w);
-        console.log();
-        printBox(
-          "Canonical content lint",
-          [
-            `${chalk.green("✔")} 0 errors`,
-            `${chalk.yellow("⚠")} ${result.warnings.length} warning(s)`,
-            chalk.dim("(framework-source mode — .agents/ not required)"),
-          ],
-          "success",
-        );
-      } else {
-        printBox(
-          "Canonical content lint",
-          [chalk.green("All checks passed")],
-          "success",
-        );
-      }
-      return;
-    }
-
+    spinner?.fail("Validation failed");
+    const message = err instanceof Error ? err.message : String(err);
     if (jsonMode) {
       emitJson({
-        errors: [".agents/ directory not found. Run `hatch3r init` first."],
+        errors: [message],
         warnings: [],
         summary: {
           status: "failed",
@@ -1633,34 +1566,36 @@ export async function validateCommand(opts?: {
         },
       });
     } else {
-      spinner?.fail("Validation failed");
-      logError(".agents/ directory not found. Run `hatch3r init` first.");
+      logError(message);
       console.log();
     }
-    throw new HatchError(".agents/ directory not found.", 1, "CONFIG_ERROR");
+    throw new HatchError(message, 1, "CONFIG_ERROR");
   }
 
+  // Manifest is now read from `.hatch3r/hatch.json` (Wave 6 will finalize the
+  // move; `readManifest` already accepts the user repo root). A missing
+  // manifest is no longer fatal — bundled-canonical validation still runs.
   const manifest = await readManifest(rootDir);
 
-  // Wave A2: track whether the description-quality lint has already run on
-  // installed `.agents/` content, so we don't duplicate findings from a
-  // second canonical-source pass below.
+  // Wave 4: track whether the description-quality lint has already run on
+  // the canonical index so the legacy canonical-source pass below does not
+  // duplicate findings.
   let descriptionLintRan = false;
 
   verbose("Checking manifest...");
   await validateManifest(rootDir, manifest, result);
   verbose("Checking directory structure...");
-  await validateDirectories(agentsDir, result);
+  await validateDirectories(canonicalRoot, result);
   verbose("Checking frontmatter...");
-  await validateFrontmatter(agentsDir, result);
+  await validateFrontmatter(canonicalRoot, result);
 
   if (manifest) {
     verbose("Checking file prefixes...");
     await validateManagedFilePrefixes(manifest, result);
     verbose("Checking hooks...");
-    await validateHooks(agentsDir, manifest, result);
+    await validateHooks(canonicalRoot, manifest, result);
     verbose("Checking MCP configuration...");
-    await validateMcp(agentsDir, manifest, result);
+    await validateMcp(canonicalRoot, manifest, result);
     verbose("Checking CLI tools...");
     await validateCliTools(manifest, result);
     verbose("Checking model configuration...");
@@ -1668,40 +1603,40 @@ export async function validateCommand(opts?: {
     verbose("Checking cost tracking...");
     await validateCostTracking(manifest, result);
     verbose("Checking customizations...");
-    await validateCustomizations(rootDir, agentsDir, manifest, result);
+    await validateCustomizations(rootDir, canonicalRoot, manifest, result);
     await validateCustomizeYaml(rootDir, result);
     verbose("Checking content consistency...");
-    await validateContentConsistency(rootDir, agentsDir, manifest, result);
+    await validateContentConsistency(rootDir, canonicalRoot, manifest, result);
 
     // C9-M29: scan canonical content bodies for anti-slop wordlist hits and
     // missing pillar references. Default emission = warnings; --strict-content
     // escalates to errors so author skills can hard-gate new artifacts.
     verbose("Checking content body (anti-slop + pillar references)...");
-    await validateContentBody(agentsDir, result, strictContent);
+    await validateContentBody(canonicalRoot, result, strictContent);
 
-    // Cross-reference validation: check that installed content doesn't have broken references
+    // Cross-reference validation runs against the bundled canonical index.
+    // Wave 5 will reintroduce the `.hatch3r/overrides/` user-tier subtree;
+    // until then, the index is canonical-only.
     try {
-      // Build the index with the user-content subtree included so the D20
-      // validator and collision detector see user artifacts. The userRoot
-      // option no-ops when the .agents/user/ directory does not exist.
-      const index = await buildContentIndex(agentsDir, {
+      const index = await buildContentIndex(canonicalRoot, {
         userRoot: resolveUserContentRoot(rootDir),
       });
       if (index.items.length > 0) {
-        const crossRefResult = await validateCrossReferences(agentsDir, index);
+        const crossRefResult = await validateCrossReferences(canonicalRoot, index);
         for (const w of crossRefResult.warnings) {
           result.warnings.push(w);
         }
-        // Wave A2: description-quality lint on the installed content.
-        // When this runs, we skip the canonical pass below to avoid duplicate
-        // findings.
+        // Description-quality lint on the bundled content — when this runs,
+        // we skip the canonical-package pass below to avoid duplicate findings.
         runDescriptionQualityChecks(index, result);
         descriptionLintRan = true;
       }
-      // D20: strict + gentle gates for user-authored content. No-op when
-      // .agents/user/ does not exist or has no items.
+      // D20: strict + gentle gates for user-authored content under the new
+      // `.hatch3r/overrides/` root (Wave 5). The function no-ops when the user
+      // root is absent, so projects that never authored overrides incur no
+      // findings.
       verbose("Checking user content (D20 gates)...");
-      await validateUserContent(rootDir, agentsDir, result, index);
+      await validateUserContent(rootDir, canonicalRoot, result, index);
 
       // Content ID collision validation
       // Expected: command/skill cross-type pairs (by design, commands and skills share IDs)
@@ -1742,14 +1677,15 @@ export async function validateCommand(opts?: {
   // Security compliance verification (#86 D15)
   await validateSecurityCompliance(result);
 
-  // Wave A2: Description-quality lint on the canonical package content
-  // (agents/, skills/, rules/, commands/ at the package root). This runs
-  // only when the installed-content lint above did not run (no .agents/ or
-  // empty index) — the source of truth for content rewrites is the canonical
-  // tree, and the worklist must reflect it.
+  // Description-quality lint on the canonical package content. This runs
+  // only when the bundled-content lint above did not run (empty index).
   if (!descriptionLintRan) {
     await validateCanonicalDescriptionQuality(rootDir, result);
   }
+
+  // Wave 7+8 TODO: layer a tamper-detection scan over adapter-output managed
+  // blocks (`.claude/`, `.cursor/`, `.github/`) here so unmanaged edits inside
+  // HATCH3R:BEGIN/END markers surface as warnings.
 
   spinner?.stop();
 

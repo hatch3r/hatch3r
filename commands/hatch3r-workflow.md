@@ -151,7 +151,7 @@ Cache the researcher outputs for use in Phase 2 and Phase 3.
 
 #### 1d. Consult Learnings
 
-If `.agents/learnings/` exists:
+If `.hatch3r/learnings/` exists:
 
 1. Search for learnings tagged with relevant areas or technologies.
 2. Surface any applicable past experiences that inform this task.
@@ -261,8 +261,8 @@ The implementer sub-agent prompt MUST include:
 - The task description, acceptance criteria, and type.
 - The researcher output from Step 3a (if not skipped).
 - The selected hatch3r skill name and instructions.
-- All `scope: always` rule directives from `.agents/rules/`.
-- Relevant learnings from `.agents/learnings/`.
+- All `scope: always` rule directives from `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)`.
+- Relevant learnings from `.hatch3r/learnings/`.
 - Explicit instruction: do NOT create branches, commits, or PRs.
 - **Reference conventions** from `similar-implementation` output (Tier 2/3) — triggers the implementer's Convention Lock step.
 - **Resolved requirements** from `requirements-elicitation` answers (Tier 2/3) — explicit decisions on ambiguities.
@@ -310,7 +310,7 @@ After each reviewer iteration, assess the reviewer's findings confidence: if the
 
 Each reviewer/fixer sub-agent prompt MUST include:
 - The agent protocol to follow.
-- All `scope: always` rule directives from `.agents/rules/`.
+- All `scope: always` rule directives from `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)`.
 - The diff or file changes to review/fix.
 - The task's acceptance criteria.
 - Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
@@ -336,7 +336,7 @@ Each reviewer/fixer sub-agent prompt MUST include:
 
 Each specialist sub-agent prompt MUST include:
 - The agent protocol to follow.
-- All `scope: always` rule directives from `.agents/rules/`.
+- All `scope: always` rule directives from `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)`.
 - The diff or file changes to review.
 - The task's acceptance criteria.
 - Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
@@ -371,10 +371,10 @@ Review Results:
 
 #### 4e. Capture Learnings
 
-If `.agents/learnings/` exists:
+If `.hatch3r/learnings/` exists:
 
 1. Extract learnings from this implementation session (patterns discovered, pitfalls encountered, decisions made).
-2. Store in `.agents/learnings/` with appropriate area tags.
+2. Store in `.hatch3r/learnings/` with appropriate area tags.
 
 ---
 

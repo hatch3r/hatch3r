@@ -57,10 +57,10 @@
 - [ ] Conditional sub-agent invocation (dispatch-gating, NOT fan-out narrowing) — Phase 4 specialists are dispatch-gated on task relevance signals (e.g., a11y-auditor skipped when no UI changes); a finding requires the gate to be wrong, not narrow. Under-fan-out of independent work for cost reasons is a P8 violation, not a P7 win (see Pillar note below).
 
 ### 6.6 Cross-Adapter Efficiency Consistency
-- [ ] All 15 adapter outputs preserve static-first ordering after canonical-to-adapter transformation; no adapter rewrites the prompt frame to inject volatile metadata at the top
+- [ ] All 3 adapter outputs (claude, cursor, copilot) preserve static-first ordering after canonical-to-adapter transformation; no adapter rewrites the prompt frame to inject volatile metadata at the top
 - [ ] Provider-specific cache hints (Anthropic prompt caching, OpenAI Responses caching) are surfaced where supported but graceful when absent — model-agnostic claim
 - [ ] Governance-only: `triage_tiers`, `efficiency_tier`, `cache_friendly`, `parallel_tool_default`, and `efficiency_patterns` frontmatter fields remain declared on canonical artifacts (verified by `scripts/validate-efficiency-invariants.ts`). Adapter outputs are NOT required to echo these signals — they are advisory metadata for the audit layer, not adapter contract.
-- [ ] Cross-adapter parity check — same canonical artifact yields semantically equivalent efficiency-relevant prompt structure across all 15 adapters
+- [ ] Cross-adapter parity check — same canonical artifact yields semantically equivalent efficiency-relevant prompt structure across all 3 adapters (claude, cursor, copilot)
 
 ## Universal Checklist
 - [ ] Every published artifact passes static-first ordering; no anti-cache patterns (mid-prompt timestamps, ephemeral counters, per-run UUIDs above stable frames)

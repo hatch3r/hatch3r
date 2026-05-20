@@ -283,14 +283,14 @@ describe("sweepOrphansForAdapter", () => {
     expect(await fileExists(join(tempDir, oldPath))).toBe(false);
   });
 
-  it("works across multiple adapter output roots (.windsurf, .claude, .github/instructions)", async () => {
-    // Sanity check the root-containment filter accepts all the roots B3
-    // touched. Each case is isolated to its own adapter call.
+  it("works across the supported adapter output roots (.cursor, .claude, .github/instructions)", async () => {
+    // W1-C (release/1.9.0): only claude, cursor, copilot adapters remain.
+    // Each case is isolated to its own adapter call to verify the
+    // root-containment filter accepts each adapter's primary output root.
     const cases: Array<{ adapter: string; path: string }> = [
-      { adapter: "windsurf", path: ".windsurf/rules/50-hatch3r-test.md" },
+      { adapter: "cursor", path: ".cursor/rules/50-hatch3r-test.mdc" },
       { adapter: "claude", path: ".claude/rules/50-hatch3r-test.md" },
       { adapter: "copilot", path: ".github/instructions/50-hatch3r-test.md" },
-      { adapter: "cline", path: ".clinerules/50-hatch3r-test.md" },
     ];
     for (const { adapter, path } of cases) {
       const sub = path.split("/").slice(0, -1).join("/");

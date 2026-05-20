@@ -40,7 +40,7 @@ Never under-fan-out to save tokens. Token cost is dominated by quality and compl
 ## Step 1: Determine Version Bump
 
 - Review changes since last release: merged PRs/MRs, commit history.
-- List merged PRs/MRs since last tag using the platform tools (check `platform` in `.agents/hatch.json`):
+- List merged PRs/MRs since last tag using the platform tools (check `platform` in `.hatch3r/hatch.json`):
   - **GitHub:** Use **GitHub MCP** (`search_issues`, PR search) or `gh pr list --state merged --base {defaultBranch}`
   - **Azure DevOps:** `az repos pr list --status completed --target-branch {defaultBranch}`
   - **GitLab:** `glab mr list --state merged --target-branch {defaultBranch}`
@@ -82,7 +82,7 @@ npm run build
 
 - Create annotated tag: `git tag -a vX.Y.Z -m "Release vX.Y.Z"`.
 - Push tag: `git push origin vX.Y.Z`.
-- Create the release using the platform CLI (check `platform` in `.agents/hatch.json`):
+- Create the release using the platform CLI (check `platform` in `.hatch3r/hatch.json`):
   - **GitHub:** `gh release create vX.Y.Z --title "vX.Y.Z" --notes "{changelog}"` (or use **GitHub MCP** if available)
   - **Azure DevOps:** `az repos tag create vX.Y.Z` — attach release notes as a wiki page or work item, and upload build artifacts via Azure Artifacts
   - **GitLab:** `glab release create vX.Y.Z --name "vX.Y.Z" --notes "{changelog}"`

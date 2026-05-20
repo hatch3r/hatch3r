@@ -53,10 +53,6 @@ export const ADAPTER_WORKTREE_PATTERNS: Record<
     { pattern: ".claude/", strategy: "copy", reason: "Claude adapter output (settings, rules, agents, skills, commands)" },
     { pattern: ".mcp.json", strategy: "copy", reason: "MCP server config" },
   ],
-  gemini: [
-    { pattern: "GEMINI.md", strategy: "copy", reason: "Gemini main instructions" },
-    { pattern: ".gemini/", strategy: "copy", reason: "Gemini adapter output (settings, commands, skills)" },
-  ],
   cursor: [
     { pattern: ".cursor/", strategy: "copy", reason: "Cursor adapter output (rules, agents, skills, commands, MCP)" },
   ],
@@ -65,49 +61,8 @@ export const ADAPTER_WORKTREE_PATTERNS: Record<
     { pattern: ".github/instructions/", strategy: "copy", reason: "Copilot scoped instructions" },
     { pattern: ".github/agents/", strategy: "copy", reason: "Copilot agents" },
     { pattern: ".github/prompts/", strategy: "copy", reason: "Copilot prompts" },
-{ pattern: ".github/skills/", strategy: "copy", reason: "Copilot skills" },
+    { pattern: ".github/skills/", strategy: "copy", reason: "Copilot skills" },
     { pattern: ".vscode/mcp.json", strategy: "copy", reason: "VS Code MCP config" },
-  ],
-  windsurf: [
-    { pattern: ".windsurfrules", strategy: "copy", reason: "Windsurf main instructions" },
-    { pattern: ".windsurf/", strategy: "copy", reason: "Windsurf adapter output (rules, skills, workflows, MCP)" },
-  ],
-  cline: [
-    { pattern: ".roomodes", strategy: "copy", reason: "Roo Code custom modes" },
-    { pattern: ".roo/", strategy: "copy", reason: "Roo Code rules and MCP" },
-    { pattern: ".cline/", strategy: "copy", reason: "Cline skills" },
-    { pattern: ".clinerules/", strategy: "copy", reason: "Cline workflows" },
-  ],
-  amp: [
-    { pattern: ".amp/", strategy: "copy", reason: "Amp adapter output (agents, settings, skills)" },
-  ],
-  codex: [
-    { pattern: ".codex/", strategy: "copy", reason: "Codex adapter output (config, skills)" },
-  ],
-  opencode: [
-    { pattern: "opencode.json", strategy: "copy", reason: "OpenCode config" },
-    { pattern: ".opencode/", strategy: "copy", reason: "OpenCode adapter output (agents, skills, commands)" },
-  ],
-  kiro: [
-    { pattern: ".kiro/", strategy: "copy", reason: "Kiro adapter output (steering, settings)" },
-  ],
-  aider: [
-    { pattern: "CONVENTIONS.md", strategy: "copy", reason: "Aider conventions" },
-    { pattern: ".aider.conf.yml", strategy: "copy", reason: "Aider config" },
-    { pattern: ".aider/", strategy: "copy", reason: "Aider skills" },
-  ],
-  goose: [
-    { pattern: ".goosehints", strategy: "copy", reason: "Goose instructions" },
-    { pattern: ".goose/", strategy: "copy", reason: "Goose MCP config" },
-  ],
-  zed: [
-    { pattern: ".rules", strategy: "copy", reason: "Zed rules" },
-  ],
-  "amazon-q": [
-    { pattern: ".amazonq/", strategy: "copy", reason: "Amazon Q adapter output (rules, settings)" },
-  ],
-  antigravity: [
-    { pattern: ".antigravity/", strategy: "copy", reason: "Antigravity adapter output (rules, skills, settings)" },
   ],
 };
 
@@ -129,16 +84,18 @@ export async function generateWorktreeInclude(
   entries.push({ pattern: ".env", strategy: "copy", reason: "environment variables" });
   entries.push({ pattern: ".env.*", strategy: "copy", reason: "environment variables (includes .env.mcp)" });
 
-  // .agents/ — always include (no-op if tracked by git)
-  entries.push({ pattern: ".agents/", strategy: "symlink", reason: "shared agent definitions" });
+  // .hatch3r/ — Wave 6: state-tier footprint (manifest + overrides + learnings + handoffs + mcp).
+  entries.push({ pattern: ".hatch3r/", strategy: "symlink", reason: "shared hatch3r state (manifest, overrides, mcp)" });
   entries.push({
-    pattern: ".agents/learnings/",
+    pattern: ".hatch3r/learnings/",
     strategy: "copy",
     reason: "per-worktree learnings (diverge across branches)",
   });
-
-  // AGENTS.md — public agent documentation
-  entries.push({ pattern: "AGENTS.md", strategy: "copy", reason: "public agent documentation" });
+  entries.push({
+    pattern: ".hatch3r/handoffs/",
+    strategy: "copy",
+    reason: "per-worktree handoffs (diverge across branches)",
+  });
 
   // docs/specs/ — project specifications (read by agents during implementation and review)
   entries.push({ pattern: "docs/specs/", strategy: "copy", reason: "project specifications for agent context" });

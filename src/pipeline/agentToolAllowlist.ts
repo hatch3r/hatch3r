@@ -115,12 +115,12 @@ export const AGENT_TOOL_POLICIES: readonly AgentToolPolicy[] = [
   {
     agentId: "hatch3r-handoff-preparer",
     allowedTools: ["read", "search", "write"],
-    description: "Handoff preparation: read session state, search git/files for context, write canonical handoff to .agents/handoffs/active/. No execute (filesystem-only).",
+    description: "Handoff preparation: read session state, search git/files for context, write canonical handoff to .hatch3r/handoffs/active/. No execute (filesystem-only).",
   },
   {
     agentId: "hatch3r-handoff-loader",
     allowedTools: ["read", "search"],
-    description: "Session-start loader: read .agents/handoffs/active/ and search git for branch context to surface active handoffs. No write, execute, or external IO.",
+    description: "Session-start loader: read .hatch3r/handoffs/active/ and search git for branch context to surface active handoffs. No write, execute, or external IO.",
   },
   {
     agentId: "hatch3r-reviewer",
@@ -195,7 +195,7 @@ export const AGENT_TOOL_POLICIES: readonly AgentToolPolicy[] = [
   {
     agentId: "hatch3r-creator",
     allowedTools: ["read", "search", "write", "execute"],
-    description: "User-content authoring: read templates, search for ID collisions, write artifacts under .agents/user/, execute mkdir -p for directory creation. No git, board, web, or mcp — external research is out of scope per the agent's documented tool allowlist (agents/hatch3r-creator.md §Tool Allowlist). Closes finding C9-C1 (ASI02 privilege-escalation gap).",
+    description: "User-content authoring: read templates, search for ID collisions, write artifacts under .hatch3r/overrides/, execute mkdir -p for directory creation. No git, board, web, or mcp — external research is out of scope per the agent's documented tool allowlist (agents/hatch3r-creator.md §Tool Allowlist). Closes finding C9-C1 (ASI02 privilege-escalation gap).",
   },
 ] as const;
 

@@ -22,7 +22,7 @@ All board operations MUST follow the Board Sync Enforcement rules defined in `ha
 
 # Board Groom -- Backlog Refinement for Existing Issues
 
-Perform ongoing backlog grooming on **{owner}/{repo}** (read from `.agents/hatch.json` board config). Scans all open issues, surfaces health-driven refinement suggestions, and lets the user selectively apply grooming actions: re-prioritize, reclassify, re-scope, demote, archive, decompose, merge duplicates, refresh dependencies, and remediate board health gaps. Unlike `board-fill` (which ingests new work from `todo.md`), board-groom operates exclusively on existing board items. Unlike `board-refresh` (which is read-only), board-groom mutates issues based on user-confirmed decisions.
+Perform ongoing backlog grooming on **{owner}/{repo}** (read from `.hatch3r/hatch.json` board config). Scans all open issues, surfaces health-driven refinement suggestions, and lets the user selectively apply grooming actions: re-prioritize, reclassify, re-scope, demote, archive, decompose, merge duplicates, refresh dependencies, and remediate board health gaps. Unlike `board-fill` (which ingests new work from `todo.md`), board-groom operates exclusively on existing board items. Unlike `board-refresh` (which is read-only), board-groom mutates issues based on user-confirmed decisions.
 
 ---
 
@@ -56,10 +56,10 @@ Execute these steps in order. **Do not skip any step.** Ask the user at every ch
 
 ### Step 1: Read Configuration
 
-1. Read `.agents/hatch.json` and cache the full config (top-level `owner`/`repo`, `platform`, and `board` section).
-2. Read `platform` from `.agents/hatch.json`. Default to `github` if missing.
+1. Read `.hatch3r/hatch.json` and cache the full config (top-level `owner`/`repo`, `platform`, and `board` section).
+2. Read `platform` from `.hatch3r/hatch.json`. Default to `github` if missing.
 3. Resolve owner/repo per `hatch3r-board-shared`: use top-level `owner`/`repo` first, fall back to `board.owner`/`board.repo` if top-level values are empty.
-4. If both are missing, abort with: "Cannot groom board -- owner and repo are not configured in `.agents/hatch.json`. Run `board-init` first."
+4. If both are missing, abort with: "Cannot groom board -- owner and repo are not configured in `.hatch3r/hatch.json`. Run `board-init` first."
 5. Note `board.projectNumber` -- if null, board sync will be skipped later.
 
 ---

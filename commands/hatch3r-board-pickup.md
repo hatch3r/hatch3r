@@ -21,7 +21,7 @@ Before any action, scan the user's request and provided context for unresolved q
 
 # Board Pickup -- Develop Issues from the Project Board
 
-Pick up an epic (with all sub-issues), a single sub-issue, a standalone issue, or **a batch of independent issues** from **{owner}/{repo}** (read from `.agents/hatch.json` board config) for development. The `platform` field determines whether to interact with GitHub Issues, Azure DevOps Work Items, or GitLab Issues. Supports single-issue and multi-issue batch modes. When no specific issue is referenced, auto-picks the next best candidate(s). Respects dependency order and readiness status. Performs collision detection, creates a branch, then delegates implementation via one sub-agent per issue running in parallel.
+Pick up an epic (with all sub-issues), a single sub-issue, a standalone issue, or **a batch of independent issues** from **{owner}/{repo}** (read from `.hatch3r/hatch.json` board config) for development. The `platform` field determines whether to interact with GitHub Issues, Azure DevOps Work Items, or GitLab Issues. Supports single-issue and multi-issue batch modes. When no specific issue is referenced, auto-picks the next best candidate(s). Respects dependency order and readiness status. Performs collision detection, creates a branch, then delegates implementation via one sub-agent per issue running in parallel.
 
 ---
 
@@ -267,7 +267,7 @@ Follow the **Board Sync Procedure** from `hatch3r-board-shared` for each issue m
 
 **If branch exists:** **ASK** reuse / delete+recreate / rename with `-v2`.
 
-**Normal path:** Use `{base}` = `board.defaultBranch` from `.agents/hatch.json` (fallback: `"main"`).
+**Normal path:** Use `{base}` = `board.defaultBranch` from `.hatch3r/hatch.json` (fallback: `"main"`).
 
 ```bash
 git checkout {base} && git pull origin {base} && git checkout -b {branch-name}
@@ -293,7 +293,7 @@ Use the issue type to select the appropriate hatch3r skill: `type:bug` → the h
 
 #### 6.pre: Consult Learnings
 
-Before delegating: scan `.agents/learnings/` for matching `area`/`tags`, include relevant learnings (especially `pitfall` category) in sub-agent context. Skip silently if no learnings directory exists.
+Before delegating: scan `.hatch3r/learnings/` for matching `area`/`tags`, include relevant learnings (especially `pitfall` category) in sub-agent context. Skip silently if no learnings directory exists.
 
 > **Audit epics:** Audit epics produce findings (issues) rather than code changes — adjust delegation and skip Steps 7-8a if no code changes.
 
@@ -318,7 +318,7 @@ Execute Steps 7-10 in order after all implementation completes:
 - **Step 8:** Create PR/MR with proper `Closes #N` references. See platform sub-files for CLI commands.
 - **Step 8a:** Transition labels to `status:in-review` and sync board. See platform sub-files.
 - **Step 9:** Post-PR housekeeping: epic link verification, board dashboard refresh (9a, mandatory), end-of-run reconciliation (9b, mandatory).
-- **Step 10:** Capture learnings in `.agents/learnings/` if any were identified.
+- **Step 10:** Capture learnings in `.hatch3r/learnings/` if any were identified.
 
 ---
 

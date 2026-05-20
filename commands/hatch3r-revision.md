@@ -105,7 +105,7 @@ Rebuild full context in the fresh window. No prior implementation context is ass
 #### 1a. Detect Scope of Changes
 
 1. Identify the current branch: `git branch --show-current`.
-2. Determine the default branch from `.agents/hatch.json` (`board.defaultBranch`). Fall back to `main` if unavailable.
+2. Determine the default branch from `.hatch3r/hatch.json` (`board.defaultBranch`). Fall back to `main` if unavailable.
 3. Compute the diff: `git diff {defaultBranch}...HEAD --stat` for a summary, then `git diff {defaultBranch}...HEAD` for the full diff.
 4. Parse the diff summary: files changed, lines added/removed, file types affected.
 5. Identify affected areas from the file paths (e.g., `src/routes/` -> API, `src/components/` -> UI, `tests/` -> testing).
@@ -114,7 +114,7 @@ Rebuild full context in the fresh window. No prior implementation context is ass
 
 > Platform-specific CLI commands: see `commands/board/shared-{platform}.md` for PR/issue lookup
 
-1. Detect the platform from `.agents/hatch.json` (`board.platform`). Fall back to GitHub if unavailable.
+1. Detect the platform from `.hatch3r/hatch.json` (`board.platform`). Fall back to GitHub if unavailable.
 2. Search for an open PR on this branch using the platform CLI:
    - **GitHub:** `gh pr list --head {branch} --state open --json number,title,body,url --limit 1`
    - **Azure DevOps:** `az repos pr list --source-branch {branch} --status active --top 1`
@@ -127,11 +127,11 @@ Rebuild full context in the fresh window. No prior implementation context is ass
 
 #### 1c. Load Project Rules
 
-Read all `scope: always` rules from `.agents/rules/`. These must be included in every sub-agent prompt in Step 6.
+Read all `scope: always` rules from `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)`. These must be included in every sub-agent prompt in Step 6.
 
 #### 1d. Consult Learnings
 
-If `.agents/learnings/` exists, scan for learnings with matching areas or tags that overlap with the affected areas from Step 1a.5. Cache relevant learnings for Step 6.
+If `.hatch3r/learnings/` exists, scan for learnings with matching areas or tags that overlap with the affected areas from Step 1a.5. Cache relevant learnings for Step 6.
 
 ---
 
@@ -460,7 +460,7 @@ Capture revision-specific learnings. Focus on patterns that inform future implem
    - Were there any integration issues between sub-agent outputs?
 
 2. If significant learnings are identified:
-   - Create learning files in `.agents/learnings/` following the `hatch3r-learn` command format.
+   - Create learning files in `.hatch3r/learnings/` following the `hatch3r-learn` command format.
    - Use category `pitfall` for issues agents commonly miss.
    - Use category `pattern` for revision approaches that worked well.
    - Tag with relevant area labels.

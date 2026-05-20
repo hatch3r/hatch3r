@@ -211,7 +211,7 @@ describe("adapterTimeout", () => {
       const adapter: Adapter = {
         name: "signal-capture",
         warnings: [],
-        generate: vi.fn(async (_dir, _m, _mode, signal?: AbortSignal) => {
+        generate: vi.fn(async (_dir, _m, _userRoot, _mode, signal?: AbortSignal) => {
           receivedSignal = signal;
           return [] as AdapterOutput[];
         }),
@@ -237,7 +237,7 @@ describe("adapterTimeout", () => {
       const adapter: Adapter = {
         name: "parent-link",
         warnings: [],
-        generate: vi.fn(async (_dir, _m, _mode, signal?: AbortSignal) => {
+        generate: vi.fn(async (_dir, _m, _userRoot, _mode, signal?: AbortSignal) => {
           receivedSignal = signal;
           // Simulate work — long enough for the parent to fire before
           // the adapter finishes.
@@ -270,7 +270,7 @@ describe("adapterTimeout", () => {
       const adapter: Adapter = {
         name: "slow",
         warnings: [],
-        generate: vi.fn(async (_dir, _m, _mode, signal?: AbortSignal) => {
+        generate: vi.fn(async (_dir, _m, _userRoot, _mode, signal?: AbortSignal) => {
           receivedSignal = signal;
           // Never resolve — the timeout has to win.
           return new Promise<AdapterOutput[]>(() => {});

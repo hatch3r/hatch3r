@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { basename, dirname, join } from "node:path";
 import chalk from "chalk";
 import inquirer from "inquirer";
-import { getAdapter, getUnsupportedFeatureWarnings, SHARED_ADAPTER_KEY, SHARED_BRIDGE_FILES } from "../../adapters/index.js";
+import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
 import {
   applyPreservedManifestFields,
   createManifest,
@@ -15,11 +15,12 @@ import {
   type PreservedManifestFields,
 } from "../../manifest/hatchJson.js";
 import { filterMcpJsonOnDisk } from "../../manifest/mcpFilter.js";
+import { migrateAgentsToHatch3r } from "../../migration/agentsToHatch3r.js";
 import { safeWriteFile } from "../../merge/safeWrite.js";
 import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
 import {
-  AGENTS_DIR,
   DEFAULT_FEATURES,
+  HATCH3R_DIR,
   HatchError,
   VALID_TOOLS,
   WORKTREE_CAPABLE_TOOLS,
@@ -33,10 +34,11 @@ import {
   type RepoInfo,
   type Tool,
 } from "../../types.js";
+import { readFile } from "node:fs/promises";
 import { analyzeRepo } from "../../detect/repoAnalyzer.js";
 import { detectProjectType } from "../../detect/projectType.js";
 import { ensureEnvMcp, ensureGitignoreEntry, getSourceEnvMcpCommand } from "../../env/mcpEnv.js";
-import { generateCanonicalAgentsMd, generateRootAgentsMd } from "../shared/agentsContent.js";
+import { resolveBundledContentRoot } from "../../content/contentRoot.js";
 import {
   printBanner,
   createSpinner,
@@ -71,9 +73,8 @@ import {
 import { findMissingCliTools } from "../../cliTools/detect.js";
 import { offerInstaller, printMissingCliToolsDisclaimer } from "../../cliTools/install.js";
 import { applyPlatformTriggers, evaluateTier2Triggers } from "../../cliTools/triggers.js";
-import { generateIntegrityManifest, writeIntegrityManifest } from "../../integrity/index.js";
 import { HATCH3R_VERSION } from "../../version.js";
-import { buildContentIndex, resolveSelection, copySelectedContent, countSelectionItems, selectionSummary, getAllContentIds, removeContentItem, validateOrchestrationDependencies, countPresetExclusions, countProjectTypeExclusions, countTeamSizeExclusions, estimatePresetItemCount } from "../../content/index.js";
+import { buildContentIndex, resolveSelection, countSelectionItems, selectionSummary, getAllContentIds, validateOrchestrationDependencies, countPresetExclusions, countProjectTypeExclusions, countTeamSizeExclusions, estimatePresetItemCount } from "../../content/index.js";
 import { PRESETS, getPreset, type PresetId } from "../../content/presets.js";
 import { detectSubRepos, shouldSuggestWorkspace } from "../../workspace/detect.js";
 import { createWorkspaceManifest, writeWorkspaceManifest } from "../../workspace/manifest.js";
@@ -87,9 +88,9 @@ const CONTENT_ROOT = findPackageRoot(__dirname);
 const DEFAULT_TOOLS: Tool[] = ["claude"];
 const DEFAULT_MCP: string[] = ["playwright", "github", "context7"];
 
-// Seed content for `.agents/handoffs/README.md`. Documents the schema so
-// `hatch3r-handoff-loader` and `/hatch3r-handoff resume` have a single
-// on-disk source of truth.
+// Seed content for `.hatch3r/handoffs/README.md` (Wave 6 relocation; previously
+// `.agents/handoffs/README.md`). Documents the schema so `hatch3r-handoff-loader`
+// and `/hatch3r-handoff resume` have a single on-disk source of truth.
 const HANDOFFS_README_SEED = `# Project Handoffs
 
 This directory holds active and archived handoff documents surfaced by the
@@ -167,7 +168,8 @@ Handoffs are plain Markdown — readable by humans and any AI tool. Tool-specifi
 See \`agents/hatch3r-handoff-loader.md\`, \`skills/hatch3r-handoff-resume/SKILL.md\`, and \`rules/hatch3r-handoff-readiness.md\` for the full protocols.
 `;
 
-// D5-SA5.3-H1: Seed content for `.agents/learnings/README.md`. Explains the
+// D5-SA5.3-H1: Seed content for `.hatch3r/learnings/README.md` (Wave 6
+// relocation; previously `.agents/learnings/README.md`). Explains the
 // directory's purpose so `hatch3r-learnings-loader` surfaces an actionable
 // starting point on first session instead of silently skipping when empty.
 const LEARNINGS_README_SEED = `# Project Learnings
@@ -214,7 +216,7 @@ entry; see \`hatch3r-learnings-loader\` for the full protocol.
 
 ## Recommended First Learning — Pipeline Drift
 
-Copy the markdown block below into \`.agents/learnings/pipeline-drift-rule-73.md\`
+Copy the markdown block below into \`.hatch3r/learnings/pipeline-drift-rule-73.md\`
 to prime your AI tool against the bypass pattern reported in hatch3r
 issue #73 (GitHub Copilot Chat skipping the four-phase sub-agent
 pipeline on Tier-3 epics). The \`hatch3r-learnings-loader\` agent will
@@ -394,70 +396,22 @@ export async function runInit(options: RunInitOptions): Promise<void> {
 
 async function runInitInner(options: RunInitOptions): Promise<void> {
   const { rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, customization, cliTools } = options;
-  const agentsDir = join(rootDir, AGENTS_DIR);
   const totalSteps = 4;
 
-  const s1 = createSpinner(step(1, totalSteps, "Creating canonical files..."));
-  s1.start();
-  await mkdir(agentsDir, { recursive: true });
+  // Wave 6: relocate any pre-1.9 `.agents/` state (hatch.json, learnings/,
+  // handoffs/, mcp/mcp.json) to `.hatch3r/` before reading the manifest so a
+  // re-init over a legacy install discovers the manifest at the new path.
+  await migrateAgentsToHatch3r(rootDir);
 
-  // Detect re-init: check if manifest exists and compute content delta
+  const s1 = createSpinner(step(1, totalSteps, "Resolving canonical content..."));
+  s1.start();
+
+  // Wave 3: Detect re-init via manifest only — no `.agents/` materialization.
+  // Adapters source canonical content from the bundled package (see
+  // `resolveBundledContentRoot`), not from a user-repo directory.
   const existingManifest = await readManifest(rootDir);
 
-  // Build content index from package and copy only selected items
-  const index = await buildContentIndex(CONTENT_ROOT);
-  await copySelectedContent(CONTENT_ROOT, agentsDir, contentSelection, index);
-
-  // Clean up stale content from previous init
-  if (existingManifest?.content) {
-    const oldIds = getAllContentIds(existingManifest.content);
-    const newIds = getAllContentIds(contentSelection);
-    for (const id of oldIds) {
-      if (!newIds.has(id)) {
-        const item = index.byId.get(id);
-        if (item) await removeContentItem(agentsDir, item, { rootDir });
-      }
-    }
-  }
-
-  await mkdir(join(agentsDir, "learnings"), { recursive: true });
-  // D5-SA5.3-H1: Seed learnings/ with a README so `hatch3r-learnings-loader`
-  // has something to surface instead of silently skipping. Only created when
-  // absent (fresh init) — never overwrites user-authored content on re-init.
-  const learningsReadmePath = join(agentsDir, "learnings", "README.md");
-  try {
-    await access(learningsReadmePath);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-      await safeWriteFile(learningsReadmePath, LEARNINGS_README_SEED);
-    } else {
-      throw err;
-    }
-  }
-
-  // Seed handoffs/ directory tree and README. Mirrors the learnings idempotent
-  // seed: directory always created, README only on fresh init.
-  await mkdir(join(agentsDir, "handoffs", "active"), { recursive: true });
-  await mkdir(join(agentsDir, "handoffs", "archived"), { recursive: true });
-  const handoffsReadmePath = join(agentsDir, "handoffs", "README.md");
-  try {
-    await access(handoffsReadmePath);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-      await safeWriteFile(handoffsReadmePath, HANDOFFS_README_SEED);
-    } else {
-      throw err;
-    }
-  }
-
-  const mcpPath = join(agentsDir, "mcp", "mcp.json");
-  await filterMcpJsonOnDisk(mcpPath, new Set(mcpServers));
-
-  // Generate dynamic AGENTS.md based on what's actually installed
-  const canonicalAgentsMd = await generateCanonicalAgentsMd(agentsDir);
-  await safeWriteFile(join(agentsDir, "AGENTS.md"), canonicalAgentsMd, { force: true });
-
-  s1.succeed(step(1, totalSteps, `Canonical files created (${countSelectionItems(contentSelection)} items)`));
+  s1.succeed(step(1, totalSteps, `Canonical content resolved (${countSelectionItems(contentSelection)} items)`));
 
   // C7-H8 (D1): Build the manifest in memory but defer the disk write until
   // after adapter generation succeeds. Writing the manifest before adapters
@@ -512,14 +466,6 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     step(3, totalSteps, `Generating ${tools.map((t) => TOOL_DISPLAY_NAMES[t] ?? t).join(", ")} output...`),
   );
   s3.start();
-  // On init, preserve existing user content: prepend managed block if file has no markers.
-  // Generate rich root AGENTS.md with agent/skill/command rosters for platform discovery.
-  const rootAgentsMd = await generateRootAgentsMd(agentsDir);
-  await safeWriteFile(join(rootDir, "AGENTS.md"), rootAgentsMd.full, {
-    managedContent: rootAgentsMd.inner,
-    appendIfNoBlock: true,
-  });
-  addManagedFile(manifest, "AGENTS.md");
 
   const adapterFailures: { tool: string; error: string }[] = [];
   // Task #11 orphan-cleanup: populate managedFilesByAdapter on init so the
@@ -527,18 +473,16 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   // would silently skip cleanup, and an upgrade-over-existing-init would
   // miss the first opportunity to drop pre-B3 rule files).
   manifest.managedFilesByAdapter = manifest.managedFilesByAdapter ?? {};
-  // C9-H31 (D10-SA10.5-F1): Track bridge files (e.g. root AGENTS.md) that
-  // are written outside any single adapter's `doGenerate()` under the
-  // `_shared` sentinel key. The `hatch3r clean` cleanup contract honours
-  // managed-block preservation for these paths. AGENTS.md was already added
-  // to `manifest.managedFiles` above; the _shared bucket gives clean +
-  // future tooling explicit ownership semantics. See
-  // `src/adapters/index.ts::SHARED_ADAPTER_KEY` for the full contract.
-  manifest.managedFilesByAdapter[SHARED_ADAPTER_KEY] = [...SHARED_BRIDGE_FILES];
+  // Wave 3: adapters read canonical content from the bundled package, not
+  // from a user-repo `.agents/` directory. No root AGENTS.md is emitted at
+  // init time (per blueprint v2 decision #3).
+  const canonicalContentRoot = resolveBundledContentRoot();
   for (const tool of tools) {
     const adapter = getAdapter(tool);
     try {
-      const outputs = await adapter.generate(agentsDir, manifest);
+      // Wave 5: pass rootDir as userRepoRoot so D20 overrides under
+      // .hatch3r/overrides/ are picked up by readCanonicalFiles.
+      const outputs = await adapter.generate(canonicalContentRoot, manifest, rootDir);
       for (const w of adapter.warnings) { warn(w); }
       const toolPaths: string[] = [];
       for (const out of outputs) {
@@ -597,10 +541,72 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
 
   const s4 = createSpinner(step(4, totalSteps, "Finalizing..."));
   s4.start();
+  // Wave 6: ensure `.hatch3r/` exists for the manifest write — it is now the
+  // only on-disk hatch3r directory the user sees.
+  await mkdir(join(rootDir, HATCH3R_DIR), { recursive: true });
   await writeManifest(rootDir, manifest);
 
-  const integrityManifest = await generateIntegrityManifest(agentsDir, HATCH3R_VERSION);
-  await writeIntegrityManifest(agentsDir, integrityManifest);
+  // Wave 6: seed `.hatch3r/learnings/` and `.hatch3r/handoffs/` with README
+  // primers (relocated from W3-removed `.agents/` seeding). Idempotent —
+  // README is only written when absent so user-authored content is never
+  // overwritten on re-init.
+  const hatch3rDir = join(rootDir, HATCH3R_DIR);
+  await mkdir(join(hatch3rDir, "learnings"), { recursive: true });
+  const learningsReadmePath = join(hatch3rDir, "learnings", "README.md");
+  try {
+    await access(learningsReadmePath);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      await safeWriteFile(learningsReadmePath, LEARNINGS_README_SEED);
+    } else {
+      throw err;
+    }
+  }
+  await mkdir(join(hatch3rDir, "handoffs", "active"), { recursive: true });
+  await mkdir(join(hatch3rDir, "handoffs", "archived"), { recursive: true });
+  const handoffsReadmePath = join(hatch3rDir, "handoffs", "README.md");
+  try {
+    await access(handoffsReadmePath);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      await safeWriteFile(handoffsReadmePath, HANDOFFS_README_SEED);
+    } else {
+      throw err;
+    }
+  }
+
+  // Wave 6: emit `.hatch3r/mcp/mcp.json` filtered to the user's selected
+  // servers. Reads the unfiltered template from the bundled-content root
+  // (`<pkg>/mcp/mcp.json`), copies it to the user repo, then runs the
+  // existing in-place filter. Skipped when MCP is disabled or no servers
+  // selected — keeps the directory absent rather than emitting an empty
+  // file.
+  if (features.mcp && mcpServers.length > 0) {
+    const bundledMcpPath = join(resolveBundledContentRoot(), "mcp", "mcp.json");
+    const targetMcpPath = join(hatch3rDir, "mcp", "mcp.json");
+    try {
+      const raw = await readFile(bundledMcpPath, "utf-8");
+      await mkdir(join(hatch3rDir, "mcp"), { recursive: true });
+      await safeWriteFile(targetMcpPath, raw);
+      await filterMcpJsonOnDisk(targetMcpPath, new Set(mcpServers));
+    } catch (err) {
+      // Missing bundled MCP template is non-fatal — log and continue so init
+      // still completes. The user can re-run init or sync once the package
+      // payload is restored.
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        warn(
+          `Bundled MCP template not found at ${bundledMcpPath}; ` +
+            `${HATCH3R_DIR}/mcp/mcp.json not written.`,
+        );
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  // Wave 3: integrity manifest writes removed (per blueprint v2 decision #8).
+  // Wave 7 will reintroduce the integrity model against the bundled content
+  // root, not against `.agents/`.
 
   let envResult: { action: string; path: string; newVars: string[] } | undefined;
   if (features.mcp && mcpServers.length > 0) {
@@ -646,8 +652,12 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
       worktreeEnabled: !!manifest.worktree?.enabled,
       isGreenfield: isGreenfieldForJson,
       adapterFailures: adapterFailures.map((f) => ({ tool: f.tool, error: f.error })),
-      canonicalDir: AGENTS_DIR,
-      manifestPath: `${AGENTS_DIR}/hatch.json`,
+      // Wave 6: the on-disk hatch3r footprint is now `.hatch3r/`. Adapters
+      // source canonical content from the bundled package (Wave 3), so the
+      // legacy `canonicalDir` field surfaces the new state directory instead
+      // of a non-existent `.agents/`.
+      canonicalDir: HATCH3R_DIR,
+      manifestPath: `${HATCH3R_DIR}/hatch.json`,
     };
     console.log(JSON.stringify(payload));
     return;
@@ -681,8 +691,8 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     summaryLines.push(label("Secrets", `.env.mcp (fill in your API keys)`));
   }
   summaryLines.push("");
-  summaryLines.push(label("Canonical", `${AGENTS_DIR}/`));
-  summaryLines.push(label("Manifest", `${AGENTS_DIR}/hatch.json`));
+  summaryLines.push(label("State dir", `${HATCH3R_DIR}/`));
+  summaryLines.push(label("Manifest", `${HATCH3R_DIR}/hatch.json`));
 
   // C9-H29 (D10-SA10.3-F2): Multi-CTA post-init hint based on context.
   // Surfaces the 4 README paths (greenfield: project-spec + roadmap;
@@ -727,11 +737,15 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
 }
 
 async function checkExisting(rootDir: string, skipPrompt: boolean, newSelection?: ContentSelection): Promise<void> {
-  const hatchJsonPath = join(rootDir, AGENTS_DIR, "hatch.json");
+  // Wave 6: migration shim relocates a legacy `.agents/hatch.json` to
+  // `.hatch3r/hatch.json` on first read; checkExisting probes the new
+  // location only.
+  await migrateAgentsToHatch3r(rootDir);
+  const hatchJsonPath = join(rootDir, HATCH3R_DIR, "hatch.json");
   try {
     await access(hatchJsonPath);
     if (!skipPrompt) {
-      let message = "Existing .agents/ found. This will overwrite managed files. Continue?";
+      let message = `Existing ${HATCH3R_DIR}/ found. This will overwrite managed files. Continue?`;
 
       // Compute removal count if we have both old and new selections
       if (newSelection) {
@@ -746,7 +760,7 @@ async function checkExisting(rootDir: string, skipPrompt: boolean, newSelection?
           if (removeCount > 0) {
             const oldPreset = existingManifest.content.preset.charAt(0).toUpperCase() + existingManifest.content.preset.slice(1);
             const newPreset = newSelection.preset.charAt(0).toUpperCase() + newSelection.preset.slice(1);
-            message = `Existing .agents/ found. ${removeCount} content item(s) will be removed (switching from ${oldPreset} to ${newPreset}). Continue?`;
+            message = `Existing ${HATCH3R_DIR}/ found. ${removeCount} content item(s) will be removed (switching from ${oldPreset} to ${newPreset}). Continue?`;
           }
         }
       }
@@ -1905,7 +1919,7 @@ async function runWorkspaceInit(
       })),
       syncCount,
       worktreeEnabled,
-      manifestPath: `${AGENTS_DIR}/workspace.json`,
+      manifestPath: `${HATCH3R_DIR}/workspace.json`,
     };
     console.log(JSON.stringify(payload));
     return;
@@ -1918,7 +1932,7 @@ async function runWorkspaceInit(
     label("Mode", "workspace"),
     label("Repos", `${repoEntries.length} registered, ${syncCount} synced`),
     label("Strategy", "manual (use hatch3r sync --repos to propagate)"),
-    label("Manifest", `${AGENTS_DIR}/workspace.json`),
+    label("Manifest", `${HATCH3R_DIR}/workspace.json`),
   ];
   printBox("Workspace ready", wsLines, "success");
 

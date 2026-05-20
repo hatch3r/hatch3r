@@ -8,7 +8,8 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-const AGENTS_DIR = ".agents";
+// Wave 6: manifest moved from .agents/hatch.json to .hatch3r/hatch.json.
+const AGENTS_DIR = ".hatch3r";
 
 // Mock inquirer so the prompt-driven branches are deterministic. Mirrors the
 // pattern in src/__tests__/cli/init.test.ts.

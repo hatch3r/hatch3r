@@ -1,6 +1,6 @@
 ---
 id: hatch3r-handoff-prepare
-description: Capture mid-work session state into a canonical handoff document at .agents/handoffs/active/. Use when ending a session mid-work, switching tools, or after context-health Orange/Red.
+description: Capture mid-work session state into a canonical handoff document at .hatch3r/handoffs/active/. Use when ending a session mid-work, switching tools, or after context-health Orange/Red.
 tags: [core, maintenance]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
@@ -17,7 +17,7 @@ Task Progress:
 - [ ] Step 1: Gather session state (git_ref, files, tests, work_item)
 - [ ] Step 2: Compose body (8 required sections + user-tier markers)
 - [ ] Step 3: Validate against readiness rule
-- [ ] Step 4: Write atomically to .agents/handoffs/active/<id>.md
+- [ ] Step 4: Write atomically to .hatch3r/handoffs/active/<id>.md
 - [ ] Step 5: Confirm with path, summary, and Iteration Summary
 ```
 
@@ -36,13 +36,13 @@ Never under-fan-out to save tokens. Token cost is dominated by quality and compl
 
 ## Step 1: Gather State
 
-Collect the inputs required by the handoff schema (see `.agents/handoffs/README.md` for the canonical schema):
+Collect the inputs required by the handoff schema (see `.hatch3r/handoffs/README.md` for the canonical schema):
 
 1. **git_ref** — run `git branch --show-current` and `git rev-parse --short HEAD`. Compose as `branch@sha7` (e.g., `feat/cache-refactor@a3f2c1d`).
 2. **branch** — same value as the branch component above.
 3. **Modified files** — run `git status --porcelain`; pair each path with its change type for the `File Manifest` table.
 4. **Build & Test Status** — from session memory, recover the most recent results of `npm test`, `npm run lint`, and `npx tsc --noEmit`. If none ran this session, re-run them.
-5. **work_item (optional)** — read `platform` from `.agents/hatch.json` (`github | azure-devops | gitlab`) plus active issue from the current branch name or recent board state. Compose as `gh:owner/repo#42`, `ado:org/project:work-item/123`, or `gl:owner/repo!42`.
+5. **work_item (optional)** — read `platform` from `.hatch3r/hatch.json` (`github | azure-devops | gitlab`) plus active issue from the current branch name or recent board state. Compose as `gh:owner/repo#42`, `ado:org/project:work-item/123`, or `gl:owner/repo!42`.
 6. **compaction_count (optional)** — increment from a parent handoff's value if resuming; else omit.
 7. **target_agent** — explicit named agent (`hatch3r-implementer`, `hatch3r-reviewer`, etc.) or `any` only when the user opts in.
 
@@ -108,7 +108,7 @@ A failed Required criterion is `errors[]` — refuse the write. A failed Recomme
 
 1. Generate the id: `<YYYY-MM-DD>_T<HHmm>_<5hex>_<kebab-slug>` (e.g., `2026-05-17_T1430_a3f2c_issue-42-cache-refactor`). The 5-char hex segment is a random suffix that prevents accidental same-id overwrites within the same minute.
 2. Call `writeHandoff(agentsDir, handoff)` from `src/content/handoffs/index.ts`. The function performs an atomic temp+rename per the `safeWrite.ts` pattern under `HATCH3R_LOCK=1`.
-3. The handoff lands at `.agents/handoffs/active/<id>.md`.
+3. The handoff lands at `.hatch3r/handoffs/active/<id>.md`.
 
 **Status default:** `in-progress`. Use `open` if the work has not been started, or `handed-off` if explicitly transferring to another developer or agent.
 
@@ -119,7 +119,7 @@ A failed Required criterion is `errors[]` — refuse the write. A failed Recomme
 Report:
 
 ```
-Handoff written: .agents/handoffs/active/<id>.md
+Handoff written: .hatch3r/handoffs/active/<id>.md
 Summary: {summary}
 Warnings: {list or "none"}
 ```
@@ -130,7 +130,7 @@ Then emit the canonical Iteration Summary block per `rules/hatch3r-iteration-sum
 
 - **Always:** validate before write (readiness rule criteria 1-7), compute integrity hash, wrap body in user-tier markers, default `target_agent` to an explicit value, preserve `git_ref` accuracy at write time.
 - **Ask first:** before overwriting an existing active handoff for the same `work_item` (only allowed when existing is older than 24 hours), before setting `target_agent: any`.
-- **Never:** include full conversation transcripts, include secrets/credentials/tokens, write directly to `.agents/handoffs/archived/`, paraphrase content from the Iteration Summary block.
+- **Never:** include full conversation transcripts, include secrets/credentials/tokens, write directly to `.hatch3r/handoffs/archived/`, paraphrase content from the Iteration Summary block.
 
 ## Error Handling
 
@@ -148,7 +148,7 @@ Then emit the canonical Iteration Summary block per `rules/hatch3r-iteration-sum
 - [ ] Step 1 state gathered (git_ref, files, tests, optional work_item)
 - [ ] Step 2 body composed with 8 sections and user-tier markers
 - [ ] Step 3 readiness rule passed (criteria 1-7) with warnings surfaced
-- [ ] Step 4 file written to `.agents/handoffs/active/<id>.md`
+- [ ] Step 4 file written to `.hatch3r/handoffs/active/<id>.md`
 - [ ] Step 5 confirmation reported + Iteration Summary block emitted
 
 ## Related Skills & Agents

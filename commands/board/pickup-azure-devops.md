@@ -56,7 +56,7 @@ Follow the **Azure Boards Work Item State Sync** from `commands/board/shared-azu
 **Create PR:**
 `az repos pr create --org https://dev.azure.com/{namespace} --project {project} --source-branch {branch} --target-branch {base} --title "..." --description "..."` (fall back to `create_pull_request` MCP).
 
-`{base}` = `board.defaultBranch` from `.agents/hatch.json` (fallback: `"main"`).
+`{base}` = `board.defaultBranch` from `.hatch3r/hatch.json` (fallback: `"main"`).
 
 **Link PR to epic:**
 `az boards work-item relation add --id {epic_id} --relation-type "ArtifactLink" --target-id {pr_id}` or link via PR description.

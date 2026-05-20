@@ -10,7 +10,7 @@ cache_friendly: true
 
 # PR / MR Creation Workflow
 
-> **Platform detection:** Check `platform` in `.agents/hatch.json` to determine terminology and CLI. GitHub/Azure DevOps use "Pull Request" (PR); GitLab uses "Merge Request" (MR).
+> **Platform detection:** Check `platform` in `.hatch3r/hatch.json` to determine terminology and CLI. GitHub/Azure DevOps use "Pull Request" (PR); GitLab uses "Merge Request" (MR).
 
 ## Quick Start
 
@@ -85,12 +85,12 @@ Examples:
 - `feat: add user preferences panel (#42)`
 - `fix: correct validation for email field (#87)`
 
-Create the PR/MR using the platform CLI (check `platform` in `.agents/hatch.json`):
+Create the PR/MR using the platform CLI (check `platform` in `.hatch3r/hatch.json`):
 - **GitHub:** `gh pr create --base {defaultBranch} --head {branch} --title "..." --body "..."`
 - **Azure DevOps:** `az repos pr create --source-branch {branch} --target-branch {defaultBranch} --title "..." --description "..."`
 - **GitLab:** `glab mr create --source-branch {branch} --target-branch {defaultBranch} --title "..." --description "..."`
 
-Use `board.defaultBranch` from `.agents/hatch.json` as the target branch (fallback: `"main"`).
+Use `board.defaultBranch` from `.hatch3r/hatch.json` as the target branch (fallback: `"main"`).
 
 ## Required Agent Delegation
 

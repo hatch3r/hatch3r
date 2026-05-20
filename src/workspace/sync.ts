@@ -1,17 +1,15 @@
 import { createHash } from "node:crypto";
-import { mkdir, access, readFile, appendFile } from "node:fs/promises";
+import { access, readFile, appendFile } from "node:fs/promises";
 import { cpus } from "node:os";
 import { join, relative } from "node:path";
 import pLimit from "p-limit";
 import { getAdapter } from "../adapters/index.js";
 import {
   buildContentIndex,
-  copySelectedContent,
   getAllContentIds,
   getAllItemsById,
-  removeContentItem,
 } from "../content/index.js";
-import { generateIntegrityManifest, writeIntegrityManifest, verifyIntegrity } from "../integrity/index.js";
+import { resolveBundledContentRoot } from "../content/contentRoot.js";
 import {
   createManifest,
   readManifest,
@@ -19,9 +17,9 @@ import {
   addManagedFile,
 } from "../manifest/hatchJson.js";
 import { safeWriteFile } from "../merge/safeWrite.js";
-import { AGENTS_DIR } from "../types.js";
+import { HATCH3R_DIR } from "../types.js";
+import { migrateAgentsToHatch3r } from "../migration/agentsToHatch3r.js";
 import { HATCH3R_VERSION } from "../version.js";
-import { generateCanonicalAgentsMd, generateRootAgentsMd } from "../cli/shared/agentsContent.js";
 import { findPackageRoot } from "../cli/shared/paths.js";
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
@@ -130,7 +128,8 @@ async function appendJournalEntry(
   entry: WorkspaceSyncJournalEntry,
   onWarn?: (message: string) => void,
 ): Promise<void> {
-  const journalPath = join(workspaceRoot, AGENTS_DIR, WORKSPACE_SYNC_JOURNAL_FILE);
+  // Wave 6: journal lives in `.hatch3r/` alongside the rest of workspace state.
+  const journalPath = join(workspaceRoot, HATCH3R_DIR, WORKSPACE_SYNC_JOURNAL_FILE);
   try {
     await appendFile(journalPath, JSON.stringify(entry) + "\n", "utf-8");
   } catch (err) {
@@ -155,6 +154,10 @@ export async function syncWorkspaceRepos(
   workspaceRoot: string,
   options: WorkspaceSyncOptions = {},
 ): Promise<WorkspaceSyncResult> {
+  // Wave 6: relocate any pre-1.9 `.agents/` state at the workspace root before
+  // reading the workspace manifest — keeps legacy installs hot-syncing without
+  // a manual `hatch3r init` first.
+  await migrateAgentsToHatch3r(workspaceRoot);
   const wsManifest = await readWorkspaceManifest(workspaceRoot);
   if (!wsManifest) {
     return { repos: [] };
@@ -170,28 +173,10 @@ export async function syncWorkspaceRepos(
     index.items.filter((item) => item.protected).map((item) => item.id),
   );
 
-  // D15 Medium (#15.24): Pre-sync integrity check — warn if workspace
-  // canonical content has been tampered with before propagating to sub-repos.
-  //
-  // C9-M16: consume the discriminated-union return from `verifyIntegrity`.
-  // Workspace sync historically warns on both `modified` and `tampered`
-  // rows, so we union those two error buckets into a single warning list.
-  const wsAgentsDir = join(workspaceRoot, AGENTS_DIR);
-  const wsVerification = await verifyIntegrity(wsAgentsDir);
-  const tampered = wsVerification.ok
-    ? []
-    : [
-        ...wsVerification.errors.modified,
-        ...wsVerification.errors.tampered,
-      ];
-  if (tampered.length > 0 && !options.force) {
-    for (const r of tampered) {
-      options.onWarn?.(
-        `Integrity issue in workspace content: ${r.file} (${r.status}). ` +
-        `Use --force to sync anyway, or run hatch3r verify to inspect.`,
-      );
-    }
-  }
+  // Wave 7: workspace canonical-content integrity check removed alongside
+  // the integrity subsystem. Canonical content is sourced from the bundled
+  // package (read-only) in every sub-repo, so the workspace root no longer
+  // has a `.agents/` tree to verify before propagation.
 
   // Select target repos
   const targetRepos = options.repos?.length
@@ -327,7 +312,6 @@ async function syncSingleRepo(
   options: WorkspaceSyncOptions,
 ): Promise<WorkspaceRepoSyncResult> {
   const repoDir = join(workspaceRoot, repoEntry.path);
-  const repoAgentsDir = join(repoDir, AGENTS_DIR);
 
   // Verify repo directory exists
   try {
@@ -344,6 +328,10 @@ async function syncSingleRepo(
       error: `Directory not found: ${repoEntry.path}`,
     };
   }
+
+  // Wave 6: relocate any pre-1.9 `.agents/` state in this sub-repo before
+  // reading its manifest. Idempotent — no-op on already-migrated repos.
+  await migrateAgentsToHatch3r(repoDir);
 
   // Resolve effective config
   const resolved = resolveRepoConfig(wsManifest.defaults, repoEntry.overrides, protectedIds);
@@ -376,23 +364,10 @@ async function syncSingleRepo(
 
   options.onProgress?.(`Syncing ${repoEntry.name ?? repoEntry.path}...`);
 
-  // Ensure .agents/ exists
-  await mkdir(repoAgentsDir, { recursive: true });
-
-  // Copy selected content to sub-repo
-  await copySelectedContent(CONTENT_ROOT, repoAgentsDir, effectiveSelection, index);
-
-  // Remove stale content (handle cross-type collisions)
-  for (const id of toRemove) {
-    const items = getAllItemsById(index, id);
-    for (const item of items) {
-      await removeContentItem(repoAgentsDir, item, { rootDir: repoDir });
-    }
-  }
-
-  // Generate AGENTS.md for sub-repo
-  const canonicalAgentsMd = await generateCanonicalAgentsMd(repoAgentsDir);
-  await safeWriteFile(join(repoAgentsDir, "AGENTS.md"), canonicalAgentsMd, { force: true });
+  // Wave 3: no `.agents/` materialization in sub-repos; adapters read
+  // canonical content from the bundled package via resolveBundledContentRoot.
+  // No canonical AGENTS.md emission. Wave 6 will reintroduce per-member
+  // `.hatch3r/` seeding (manifest, learnings, handoffs).
 
   // Write sub-repo manifest — resolve per-repo git identity
   const repoInfo = await analyzeRepo(repoDir);
@@ -470,20 +445,17 @@ async function syncSingleRepo(
 
   await writeManifest(repoDir, manifest);
 
-  // Generate root AGENTS.md for sub-repo with inline agent/skill/command rosters
-  const rootAgentsMd = await generateRootAgentsMd(repoAgentsDir);
-  await safeWriteFile(join(repoDir, "AGENTS.md"), rootAgentsMd.full, {
-    managedContent: rootAgentsMd.inner,
-    appendIfNoBlock: true,
-  });
-  addManagedFile(manifest, "AGENTS.md");
+  // Wave 3: no root AGENTS.md emission (per blueprint v2 decision #3).
 
   // Run adapter generation
+  const canonicalContentRoot = resolveBundledContentRoot();
   const toolsSynced: string[] = [];
   for (const tool of resolved.tools) {
     try {
       const adapter = getAdapter(tool);
-      const outputs = await adapter.generate(repoAgentsDir, manifest);
+      // Wave 5: each workspace member's repoDir is its user-repo root for the
+      // purposes of D20 overrides under .hatch3r/overrides/.
+      const outputs = await adapter.generate(canonicalContentRoot, manifest, repoDir);
       for (const w of adapter.warnings) {
         options.onWarn?.(w);
       }
@@ -505,29 +477,14 @@ async function syncSingleRepo(
   // Write manifest again with managedFiles populated
   await writeManifest(repoDir, manifest);
 
-  // D1-SA1.3.2 (High): Always regenerate the integrity manifest, recording
-  // both `expectedAdapters` (all configured tools for this sub-repo) and
-  // `successfulAdapters` (tools whose generation completed). The manifest
-  // covers canonical content in `.agents/` which adapters read but do not
-  // modify, so regenerating on partial failure is safe — it simply reflects
-  // the current canonical state and surfaces the partial outcome via the
-  // adapter metadata so downstream tools can detect stale/missing adapter
-  // output directories.
-  const allAdaptersSucceeded = toolsSynced.length === resolved.tools.length;
-  const integrityManifest = await generateIntegrityManifest(
-    repoAgentsDir,
-    HATCH3R_VERSION,
-    {
-      expectedAdapters: resolved.tools,
-      successfulAdapters: toolsSynced,
-    },
-  );
-  await writeIntegrityManifest(repoAgentsDir, integrityManifest);
-  if (!allAdaptersSucceeded) {
+  // Wave 3: integrity manifest writes removed; Wave 7 will reintroduce a
+  // bundled-content integrity model. Surface partial-adapter outcomes via
+  // existing onWarn channel only.
+  if (toolsSynced.length !== resolved.tools.length) {
     options.onWarn?.(
-      `Integrity manifest regenerated for ${repoEntry.path} with ` +
+      `Adapter outputs for ${repoEntry.path}: ` +
       `${toolsSynced.length}/${resolved.tools.length} adapters successful. ` +
-      `Re-run sync after resolving errors to produce a complete manifest.`,
+      `Re-run sync after resolving errors.`,
     );
   }
 

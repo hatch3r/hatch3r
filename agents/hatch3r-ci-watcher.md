@@ -26,7 +26,7 @@ Before any action, scan the brief for unresolved questions in scope, acceptance 
 
 ## Key Files
 
-Identify CI pipeline files based on the project's configured platform (check `platform` in `.agents/hatch.json`):
+Identify CI pipeline files based on the project's configured platform (check `platform` in `.hatch3r/hatch.json`):
 
 - **GitHub:** `.github/workflows/ci.yml`, `.github/workflows/deploy-*.yml`
 - **Azure DevOps:** `azure-pipelines.yml`, `.azuredevops/pipelines/`
@@ -46,7 +46,7 @@ Adapt to project CI. Common jobs:
 
 ## Commands
 
-Use the platform CLI to interact with CI runs (check `platform` in `.agents/hatch.json`):
+Use the platform CLI to interact with CI runs (check `platform` in `.hatch3r/hatch.json`):
 
 | Action | GitHub | Azure DevOps | GitLab |
 |--------|--------|--------------|--------|

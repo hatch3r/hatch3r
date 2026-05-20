@@ -105,7 +105,7 @@ From config files and top-level imports, identify:
 - Check for `docs/specs/` — if exists, note contents (including `business/` and `technical/` subdirectories)
 - Check for `docs/adr/` — if exists, note contents
 - Check for `README.md`, `CONTRIBUTING.md`, `ARCHITECTURE.md`, or similar
-- Check for `.agents/hatch.json` — if exists, this project already has hatch3r configuration
+- Check for `.hatch3r/hatch.json` — if exists, this project already has hatch3r configuration
 - Check for root `AGENTS.md` — if exists, note its contents
 
 If `docs/specs/` or `docs/adr/` already exist:

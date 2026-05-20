@@ -1,15 +1,15 @@
 ---
-description: Consult .agents/learnings/ for pitfalls, patterns, and past decisions before implementation with frontmatter-first scan and priority ordering
-globs: ["**/.agents/learnings/**", "**/learnings/**"]
+description: Consult .hatch3r/learnings/ for pitfalls, patterns, and past decisions before implementation with frontmatter-first scan and priority ordering
+globs: ["**/.hatch3r/learnings/**", "**/learnings/**"]
 alwaysApply: false
 ---
 # Learning Consultation
 
-Before implementing any task, check `.agents/learnings/` for relevant past learnings.
+Before implementing any task, check `.hatch3r/learnings/` for relevant past learnings.
 
 ## Consultation Process
 
-1. If `.agents/learnings/` exists and contains files:
+1. If `.hatch3r/learnings/` exists and contains files:
    - Scan learning file frontmatter for matching `tags` or `area` that overlap with the current task.
    - Read the `## Applies When` section of potential matches.
    - Surface relevant learnings to the developer/agent before implementation begins.
@@ -35,4 +35,4 @@ To avoid excessive token usage during consultation:
 1. **Scan frontmatter first.** Read only the YAML frontmatter (`tags`, `area`, `category`) of each learning file to determine relevance. Only read the full body of learnings that match the current task.
 2. **Limit surfaced learnings.** Present at most 5 relevant learnings per consultation. If more are relevant, prioritize by confidence level (high > medium > low) and recency.
 3. **Cache consultation results.** If consultation was already performed for this task (e.g., during board-pickup), do not re-consult during skill execution. The orchestrator passes relevant learnings to subagents as part of prompt enrichment.
-4. **Skip when empty.** If `.agents/learnings/` has fewer than 3 files, consultation overhead exceeds value. Skip silently.
+4. **Skip when empty.** If `.hatch3r/learnings/` has fewer than 3 files, consultation overhead exceeds value. Skip silently.

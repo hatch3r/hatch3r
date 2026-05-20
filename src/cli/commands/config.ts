@@ -5,7 +5,6 @@ import chalk from "chalk";
 import inquirer from "inquirer";
 import { readManifest, writeManifest, isValidGitBranchName } from "../../manifest/hatchJson.js";
 import {
-  AGENTS_DIR,
   DEFAULT_FEATURES,
   HatchError,
   WORKTREE_CAPABLE_TOOLS,
@@ -418,7 +417,13 @@ export async function configCommand(): Promise<void> {
     console.log();
 
     const contentRoot = findPackageRoot(__dirname);
-    const agentsDir = join(rootDir, AGENTS_DIR);
+    // Wave 7: legacy `.agents/` literal — the `addContentItem` / canonical
+    // AGENTS.md materialization block below operates on the pre-1.9
+    // canonical tree, which Wave 3+4 has already eliminated for new installs.
+    // Wired through here so existing `.agents/` installs that have not yet
+    // run the migration shim continue to behave; replace with bundled-content
+    // sourcing in a follow-up wave.
+    const agentsDir = join(rootDir, ".agents");
     const index = await buildContentIndex(contentRoot);
     const previousContent = manifest.content;
     const { projectType, teamSize } = manifest.content;

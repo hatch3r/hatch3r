@@ -107,7 +107,7 @@ To exclude a rule from adapter output without deleting its canonical file:
 enabled: false
 ```
 
-The rule's canonical definition remains in `.agents/rules/` but no adapter output is generated for it.
+The rule's canonical definition remains in `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)` but no adapter output is generated for it.
 
 ## Workflow
 

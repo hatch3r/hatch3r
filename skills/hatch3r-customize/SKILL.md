@@ -43,10 +43,10 @@ This skill handles customization for all artifact types. The `type` parameter de
 
 | Type | Source Directory | Customization Directory | YAML Fields |
 |------|-----------------|------------------------|-------------|
-| `agent` | `.agents/agents/` | `.hatch3r/agents/` | `model`, `description`, `enabled` |
-| `command` | `.agents/commands/` | `.hatch3r/commands/` | `description`, `enabled` |
-| `rule` | `.agents/rules/` | `.hatch3r/rules/` | `scope`, `description`, `enabled` |
-| `skill` | `.agents/skills/` | `.hatch3r/skills/` | `description`, `enabled` |
+| `agent` | `the canonical `agents/` directory or `.hatch3r/agents/` (for customizations)` | `.hatch3r/agents/` | `model`, `description`, `enabled` |
+| `command` | `the canonical `commands/` directory or `.hatch3r/commands/` (for customizations)` | `.hatch3r/commands/` | `description`, `enabled` |
+| `rule` | `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)` | `.hatch3r/rules/` | `scope`, `description`, `enabled` |
+| `skill` | `the canonical `skills/` directory or `.hatch3r/skills/` (for customizations)` | `.hatch3r/skills/` | `description`, `enabled` |
 
 **Protected agents:** Some agents have `protected: true` in their canonical frontmatter. For these agents, `description` and `enabled` overrides are ignored — only `model` and markdown instructions can be customized.
 

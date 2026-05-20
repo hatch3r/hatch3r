@@ -82,12 +82,8 @@ function printInventory(inventory: CleanInventory): void {
   if (inventory.adapterFiles.length > 0) {
     sections.push(`  ${chalk.red("×")} ${inventory.adapterFiles.length} adapter output file(s)`);
   }
-  if (inventory.canonicalDir) {
-    if ((inventory.userContentCount ?? 0) > 0) {
-      sections.push(`  ${chalk.red("×")} .agents/ canonical directory ${chalk.dim("(.agents/user/ preserved)")}`);
-    } else {
-      sections.push(`  ${chalk.red("×")} .agents/ canonical directory`);
-    }
+  if (inventory.manifestPresent) {
+    sections.push(`  ${chalk.red("×")} .hatch3r/hatch.json`);
   }
   if (inventory.worktreeInclude) {
     sections.push(`  ${chalk.red("×")} .worktreeinclude`);
@@ -100,17 +96,10 @@ function printInventory(inventory: CleanInventory): void {
   if (inventory.envMcp) {
     sections.push(`  ${chalk.green("✓")} .env.mcp ${chalk.dim("(kept — contains secrets)")}`);
   }
-  if (inventory.customizeDir) {
-    sections.push(`  ${chalk.green("✓")} .hatch3r/ ${chalk.dim("(kept — customizations)")}`);
-  }
-  // D20: user-authored content is always preserved.
-  if ((inventory.userContentCount ?? 0) > 0) {
+  if (inventory.hatch3rDir) {
     sections.push(
-      `  ${chalk.green("✓")} .agents/user/ ${chalk.dim(`(${inventory.userContentCount} user artifact(s) — kept, user-authored)`)}`,
+      `  ${chalk.green("✓")} .hatch3r/ ${chalk.dim("(kept — learnings, handoffs, overrides, mcp, customizations)")}`,
     );
-  }
-  if (inventory.learnings.length > 0) {
-    sections.push(`  ${chalk.green("✓")} ${inventory.learnings.length} learning(s) ${chalk.dim("(backed up for reinit)")}`);
   }
 
   if (sections.length > 0) {
@@ -139,7 +128,7 @@ export async function cleanCommand(
   // Check if there's anything to clean
   const hasAnything =
     inventory.adapterFiles.length > 0 ||
-    inventory.canonicalDir ||
+    inventory.manifestPresent ||
     inventory.worktreeInclude ||
     inventory.archiveDir;
 
@@ -294,7 +283,7 @@ export async function cleanCommand(
         if (learningsBackup) {
           summaryLines.push(`${chalk.green("✓")} Learnings restored`);
         }
-        if (inventory.customizeDir) {
+        if (inventory.hatch3rDir) {
           summaryLines.push(`${chalk.green("✓")} Customizations preserved`);
         }
         if (inventory.envMcp) {
@@ -306,10 +295,10 @@ export async function cleanCommand(
         s3.fail(step(3, 3, "Reinit failed"));
         if (err instanceof HatchError && err.exitCode === 0) throw err;
         logError(`Reinit failed: ${(err as Error).message}`);
-        if (learningsBackup) {
-          warn(`Learnings backup preserved at: ${learningsBackup}`);
-          warn(`  To restore: cp -r "${learningsBackup}" .agents/learnings/`);
-        }
+        // Wave 7: learnings live under `.hatch3r/learnings/` and are never
+        // moved by clean, so no rollback message is needed when a reinit
+        // fails. `learningsBackup` is always null on the new code path.
+        void learningsBackup;
         throw new HatchError("Reinit failed during clean.", 1, "CLEAN_ERROR");
       }
       return;
@@ -327,7 +316,7 @@ export async function cleanCommand(
   if (inventory.envMcp) {
     summaryLines.push(`${chalk.green("✓")} .env.mcp preserved`);
   }
-  if (inventory.customizeDir) {
+  if (inventory.hatch3rDir) {
     summaryLines.push(`${chalk.green("✓")} .hatch3r/ customizations preserved`);
   }
   summaryLines.push("");

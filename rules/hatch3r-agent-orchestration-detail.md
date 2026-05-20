@@ -3,7 +3,7 @@ id: hatch3r-agent-orchestration-detail
 type: rule
 description: Extended orchestration reference — PipelineContext schemas, resilience protocols, observability integration, and auto-mode guardrails
 scope: conditional
-globs: "**/.agents/**,**/pipeline/**,**/*orchestrat*,**/*agent*"
+globs: "**/.hatch3r/**,**/pipeline/**,**/*orchestrat*,**/*agent*"
 tags: [core]
 precedence: normal
 quality_charter: agents/shared/quality-charter.md

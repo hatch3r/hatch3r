@@ -1,11 +1,11 @@
-import { access, readFile, readdir, stat } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import chalk from "chalk";
 import { readManifest } from "../../manifest/hatchJson.js";
 import { getAdapter } from "../../adapters/index.js";
-import { AGENTS_DIR, HatchError, type HatchManifest } from "../../types.js";
+import { HatchError, type HatchManifest } from "../../types.js";
 import { extractManagedBlock } from "../../merge/managedBlocks.js";
-import { readIntegrityManifest } from "../../integrity/index.js";
+import { resolveBundledContentRoot } from "../../content/contentRoot.js";
 import { discoverUserContent } from "../../content/userContent.js";
 import {
   printBanner,
@@ -13,7 +13,6 @@ import {
   printBox,
   error as logError,
   info,
-  warn,
   label,
   setVerbose,
   verbose,
@@ -21,231 +20,195 @@ import {
 import { readWorkspaceManifest } from "../../workspace/manifest.js";
 import { detectCliTools } from "../../cliTools/detect.js";
 
-/** Recursively sum the byte size of all files under a directory. */
-async function dirCharCount(dir: string): Promise<number> {
-  let total = 0;
-  let entries: import("node:fs").Dirent[];
-  try {
-    entries = await readdir(dir, { withFileTypes: true });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    verbose(`status: dirCharCount readdir(${dir}) → 0 — ${message}`);
-    return 0;
-  }
-  for (const entry of entries) {
-    const fullPath = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      total += await dirCharCount(fullPath);
-    } else if (entry.isFile()) {
-      const info = await stat(fullPath);
-      total += info.size;
-    }
-  }
-  return total;
+/**
+ * Wave 7 drift status — per-file comparison between on-disk adapter output
+ * and freshly regenerated output (sourced from the bundled content root).
+ */
+export interface DriftEntry {
+  path: string;
+  tool: string;
+  /** `in-sync` — managed block (or full content) matches regeneration.
+   *  `modified` — file exists but managed block differs.
+   *  `missing`  — file path absent from disk.
+   *  `unexpected` — file present on disk but no longer produced by any adapter.
+   */
+  status: "in-sync" | "modified" | "missing" | "unexpected";
+}
+
+export interface DriftReport {
+  entries: DriftEntry[];
+  counts: { synced: number; modified: number; missing: number; unexpected: number };
 }
 
 /**
- * D1-SA1.4.1 (High): Fast drift check using the integrity manifest seal
- * timestamp + adapter output path enumeration (via `adapter.getOutputPaths`).
+ * Wave 7: regenerate every adapter's output in memory (from the bundled
+ * content root, no `.agents/` involvement) and compare against on-disk
+ * output. The integrity-manifest fast path was removed with the integrity
+ * subsystem (Wave 7); this is the only path.
  *
- * Per-file drift uses `stat().mtimeMs > sealMs` — any output file written or
- * touched after the integrity manifest was sealed is reported as drifted.
- * This is cheaper than the deep path because it avoids rendering adapter
- * output content in memory to byte-compare; adapters with lightweight
- * `getOutputPaths` overrides avoid `generate()` entirely.
- *
- * Returns null (falls back to deep check) when the integrity manifest is
- * absent or its seal timestamp is malformed.
+ * `verifyCommand` reuses this exact helper so verify+status share one
+ * drift definition.
  */
-async function runFastStatusCheck(
+export async function computeAdapterDrift(
   rootDir: string,
-  agentsDir: string,
   manifest: HatchManifest,
-): Promise<{ stats: { synced: number; drifted: number; missing: number }; fileLines: string[] } | null> {
-  const integrityManifest = await readIntegrityManifest(agentsDir);
-  if (!integrityManifest) {
-    return null;
-  }
+): Promise<DriftReport> {
+  const counts = { synced: 0, modified: 0, missing: 0, unexpected: 0 };
+  const entries: DriftEntry[] = [];
 
-  const sealMs = new Date(integrityManifest.generated).getTime();
-  if (!Number.isFinite(sealMs)) {
-    // Malformed seal timestamp — defer to deep check for correctness
-    return null;
-  }
-
-  const stats = { synced: 0, drifted: 0, missing: 0 };
-  const fileLines: string[] = [];
-
-  // D1-SA1.3.2 (High): If the integrity manifest records adapter tracking
-  // metadata, surface partial-sync state so users know which tools need
-  // re-running.
-  if (integrityManifest.expectedAdapters && integrityManifest.successfulAdapters) {
-    const expected = new Set(integrityManifest.expectedAdapters);
-    const successful = new Set(integrityManifest.successfulAdapters);
-    for (const tool of expected) {
-      if (!successful.has(tool)) {
-        fileLines.push(chalk.yellow(`${tool}: last sync did not complete (check hatch3r sync output)`));
-      }
-    }
-  }
+  const canonicalContentRoot = resolveBundledContentRoot();
+  const seenPaths = new Set<string>();
 
   for (const tool of manifest.tools) {
     const adapter = getAdapter(tool);
-    // Enumerate the output paths without reading the adapter's in-memory
-    // content unless the adapter's getOutputPaths override requires it.
-    // The BaseAdapter default still calls generate() once and caches, so
-    // this is at worst the same cost as the deep path's enumeration; the
-    // savings come from skipping the byte-for-byte comparison below.
-    const paths = await adapter.getOutputPaths(agentsDir, manifest);
-    verbose(`${tool}: ${paths.length} output path(s) to check (fast path)`);
-    fileLines.push(chalk.bold(`${tool}:`));
-
-    for (const p of paths) {
-      const destPath = join(rootDir, p);
-      try {
-        const fileStat = await stat(destPath);
-        // mtime > sealMs => file was modified after the integrity seal,
-        // which indicates drift from what was produced at seal time.
-        if (fileStat.mtimeMs > sealMs) {
-          fileLines.push(`  ${chalk.yellow("~")} ${p} ${chalk.dim("(drifted)")}`);
-          stats.drifted++;
-        } else {
-          fileLines.push(`  ${chalk.green("=")} ${p}`);
-          stats.synced++;
-        }
-      } catch (err) {
-        if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-        fileLines.push(`  ${chalk.red("+")} ${p} ${chalk.dim("(missing)")}`);
-        stats.missing++;
-      }
-    }
-  }
-
-  return { stats, fileLines };
-}
-
-/**
- * D1-SA1.4.1 (High): Deep drift check — regenerates every adapter's output in
- * memory and compares byte-for-byte. This is the historical path; preserved
- * as the fallback when no integrity manifest exists or when --deep is set.
- */
-async function runDeepStatusCheck(
-  rootDir: string,
-  agentsDir: string,
-  manifest: HatchManifest,
-): Promise<{ stats: { synced: number; drifted: number; missing: number }; fileLines: string[] }> {
-  const stats = { synced: 0, drifted: 0, missing: 0 };
-  const fileLines: string[] = [];
-
-  for (const tool of manifest.tools) {
-    const adapter = getAdapter(tool);
-    const outputs = await adapter.generate(agentsDir, manifest);
+    // Wave 7 drift parity: regeneration must use the SAME projectRoot the
+    // emission used (init/sync/update pass `rootDir`). Without it, adapter
+    // customization probes resolve against `process.cwd()` instead of the
+    // user repo, producing spurious "modified" entries on every status call.
+    const outputs = await adapter.generate(canonicalContentRoot, manifest, rootDir);
     verbose(`${tool}: ${outputs.length} output file(s) to check`);
 
-    fileLines.push(chalk.bold(`${tool}:`));
-
     for (const out of outputs) {
+      seenPaths.add(out.path);
       const destPath = join(rootDir, out.path);
       try {
         const existing = await readFile(destPath, "utf-8");
         const existingBlock = extractManagedBlock(existing);
-        const expectedBlock = out.managedContent ?? extractManagedBlock(out.content);
-        if (existingBlock !== null && expectedBlock !== null ? existingBlock === expectedBlock : existing === out.content) {
-          fileLines.push(`  ${chalk.green("=")} ${out.path}`);
-          stats.synced++;
+        // Prefer extracting from the regenerated content rather than the raw
+        // managedContent hint: `wrapInManagedBlock` / `extractManagedBlock`
+        // trim their payload, and several adapters pass an un-trimmed body
+        // in `out.managedContent` for convenience. Comparing trimmed-on-disk
+        // against raw-from-managedContent produced spurious "modified"
+        // entries on every status call.
+        const expectedBlock = extractManagedBlock(out.content) ?? out.managedContent ?? null;
+        const matches = existingBlock !== null && expectedBlock !== null
+          ? existingBlock === expectedBlock.trim()
+          : existing === out.content;
+        if (matches) {
+          entries.push({ path: out.path, tool, status: "in-sync" });
+          counts.synced++;
         } else {
-          fileLines.push(`  ${chalk.yellow("~")} ${out.path} ${chalk.dim("(drifted)")}`);
-          stats.drifted++;
+          entries.push({ path: out.path, tool, status: "modified" });
+          counts.modified++;
         }
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-        fileLines.push(`  ${chalk.red("+")} ${out.path} ${chalk.dim("(missing)")}`);
-        stats.missing++;
+        entries.push({ path: out.path, tool, status: "missing" });
+        counts.missing++;
       }
     }
   }
-  return { stats, fileLines };
+
+  // Files emitted by init/sync directly (not by any adapter). Tracked in the
+  // manifest for `clean`/`update` lifecycle parity but excluded from the
+  // "unexpected" drift check so they do not generate false-positive notices.
+  const NON_ADAPTER_MANAGED_FILES = new Set<string>([".worktreeinclude"]);
+
+  // Surface files the manifest still tracks but no current adapter emits.
+  // These are leftovers from a removed adapter or a renamed output path.
+  for (const tracked of manifest.managedFiles ?? []) {
+    if (seenPaths.has(tracked)) continue;
+    if (NON_ADAPTER_MANAGED_FILES.has(tracked)) continue;
+    try {
+      await access(join(rootDir, tracked));
+      entries.push({ path: tracked, tool: "(unowned)", status: "unexpected" });
+      counts.unexpected++;
+    } catch (err) {
+      // Missing-and-unowned is a no-op — neither produced nor present.
+      const code = (err as NodeJS.ErrnoException | undefined)?.code ?? "UNKNOWN";
+      verbose(`status: unexpected-file probe access(${tracked}) — ${code}`);
+    }
+  }
+
+  return { entries, counts };
 }
 
-export async function statusCommand(opts?: { verbose?: boolean; deep?: boolean }): Promise<void> {
+/** Render the per-file drift lines for printing in status / verify output. */
+function renderDriftLines(report: DriftReport): string[] {
+  const byTool = new Map<string, DriftEntry[]>();
+  for (const entry of report.entries) {
+    const arr = byTool.get(entry.tool) ?? [];
+    arr.push(entry);
+    byTool.set(entry.tool, arr);
+  }
+  const lines: string[] = [];
+  for (const [tool, items] of byTool) {
+    lines.push(chalk.bold(`${tool}:`));
+    for (const entry of items) {
+      switch (entry.status) {
+        case "in-sync":
+          lines.push(`  ${chalk.green("=")} ${entry.path}`);
+          break;
+        case "modified":
+          lines.push(`  ${chalk.yellow("~")} ${entry.path} ${chalk.dim("(drifted)")}`);
+          break;
+        case "missing":
+          lines.push(`  ${chalk.red("+")} ${entry.path} ${chalk.dim("(missing)")}`);
+          break;
+        case "unexpected":
+          lines.push(`  ${chalk.red("!")} ${entry.path} ${chalk.dim("(unexpected: not produced by any current adapter)")}`);
+          break;
+      }
+    }
+  }
+  return lines;
+}
+
+export async function statusCommand(opts?: { verbose?: boolean }): Promise<void> {
   setVerbose(!!opts?.verbose);
   printBanner(true);
 
   const rootDir = process.cwd();
-  const agentsDir = join(rootDir, AGENTS_DIR);
   const manifest = await readManifest(rootDir);
 
   if (!manifest) {
-    logError("No .agents/hatch.json found.");
+    logError("No .hatch3r/hatch.json found.");
     console.log(chalk.dim("  Run `npx hatch3r init` to set up your project first.\n"));
-    throw new HatchError("No .agents/hatch.json found.", 1, "CONFIG_ERROR");
+    throw new HatchError("No .hatch3r/hatch.json found.", 1, "CONFIG_ERROR");
   }
 
-  const spinner = createSpinner("Checking sync status...");
+  const spinner = createSpinner("Checking adapter-output drift...");
   spinner.start();
 
   verbose(`Checking ${manifest.tools.length} tool(s): ${manifest.tools.join(", ")}`);
 
-  // D1-SA1.4.1 (High): Prefer the integrity-manifest-based fast path to avoid
-  // the O(N adapters x M canonical files) regeneration on every status call.
-  // Fall back to the deep path when (a) user passes --deep or (b) no
-  // integrity manifest exists (fresh repo never synced).
-  let checkResult: { stats: { synced: number; drifted: number; missing: number }; fileLines: string[] } | null = null;
-  let usedFastPath = false;
-
-  if (!opts?.deep) {
-    checkResult = await runFastStatusCheck(rootDir, agentsDir, manifest);
-    if (checkResult) {
-      usedFastPath = true;
-      verbose("Used fast-path status check (integrity-manifest based)");
-    }
-  }
-  if (!checkResult) {
-    checkResult = await runDeepStatusCheck(rootDir, agentsDir, manifest);
-    verbose(opts?.deep ? "Used deep status check (--deep)" : "Used deep status check (no integrity manifest)");
-  }
-
-  const { stats, fileLines } = checkResult;
+  const report = await computeAdapterDrift(rootDir, manifest);
 
   spinner.stop();
   console.log();
 
-  for (const line of fileLines) {
+  for (const line of renderDriftLines(report)) {
     console.log(`  ${line}`);
   }
   console.log();
 
   const summaryLines = [
-    `${chalk.green("=")} In sync: ${stats.synced}`,
+    `${chalk.green("=")} In sync:    ${report.counts.synced}`,
   ];
-  if (stats.drifted > 0) {
-    summaryLines.push(`${chalk.yellow("~")} Drifted: ${stats.drifted}`);
+  if (report.counts.modified > 0) {
+    summaryLines.push(`${chalk.yellow("~")} Drifted:    ${report.counts.modified}`);
   }
-  if (stats.missing > 0) {
-    summaryLines.push(`${chalk.red("+")} Missing: ${stats.missing}`);
+  if (report.counts.missing > 0) {
+    summaryLines.push(`${chalk.red("+")} Missing:    ${report.counts.missing}`);
   }
-
-  // Estimate canonical token count from .agents/ directory size
-  const totalChars = await dirCharCount(agentsDir);
-  const estimatedTokens = Math.round(totalChars / 4);
-  const formattedTokens = estimatedTokens.toLocaleString("en-US");
-  summaryLines.push(`${chalk.dim("~")} Estimated canonical tokens: ~${formattedTokens}`);
-  if (usedFastPath) {
-    summaryLines.push(chalk.dim("mode: fast (integrity-manifest). Pass --deep for byte-for-byte regeneration check."));
+  if (report.counts.unexpected > 0) {
+    summaryLines.push(`${chalk.red("!")} Unexpected: ${report.counts.unexpected}`);
   }
 
-  const style = stats.drifted > 0 || stats.missing > 0 ? "info" as const : "success" as const;
+  const hasDrift = report.counts.modified > 0 || report.counts.missing > 0 || report.counts.unexpected > 0;
+  const style = hasDrift ? "info" as const : "success" as const;
   printBox("Status", summaryLines, style);
 
-  if (stats.drifted > 0 || stats.missing > 0) {
+  if (report.counts.modified > 0 || report.counts.missing > 0) {
     info(`Run ${chalk.bold("hatch3r sync")} to regenerate drifted/missing files.`);
+    console.log();
+  }
+  if (report.counts.unexpected > 0) {
+    info(`Unexpected files are tracked in the manifest but no longer produced. Run ${chalk.bold("hatch3r clean")} to remove them, or remove them manually.`);
     console.log();
   }
 
   // ── CLI tools (plan §4.7 status touchpoint) ────────────────
-  // Informational only — does not affect exit code. Reports N/M
-  // installed and lists missing tools so users can run
-  // `npx hatch3r cli-tools install` to see install commands.
   const cliSelected = manifest.cliTools?.selected ?? [];
   if (manifest.cliTools?.enabled && cliSelected.length > 0) {
     const cliResults = await detectCliTools(cliSelected);
@@ -265,11 +228,9 @@ export async function statusCommand(opts?: { verbose?: boolean; deep?: boolean }
   }
 
   // ── User content (D20) ─────────────────────────────────────
-  // Prefer the manifest's userContent counters (kept current by
-  // `saveUserContent`) and fall back to a live disk scan when the manifest
-  // has not yet recorded any user content. The fallback exists because
-  // older hatch3r versions do not write the field; a user who manually
-  // created files under `.agents/user/` should still see them in status.
+  // Manifest counters are authoritative when present; otherwise fall back
+  // to a live disk scan so user-authored content remains visible even when
+  // a pre-D20 manifest is in play.
   let userTypes: Record<string, number> | null = null;
   let userTotal = 0;
   let userLastModified: string | null = null;
@@ -289,8 +250,6 @@ export async function statusCommand(opts?: { verbose?: boolean; deep?: boolean }
         userTotal = discovered.length;
       }
     } catch (err) {
-      // Discovery is best-effort — surface via verbose so operators can
-      // diagnose without breaking the status command.
       verbose(`User content discovery skipped: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
@@ -309,54 +268,12 @@ export async function statusCommand(opts?: { verbose?: boolean; deep?: boolean }
     printBox("User content", userLines, "info");
   }
 
-  // ── Codex precedence-chain warning (C7.5-W2B2-H36 / D9-SA9.5.1) ──
-  // OpenAI Codex CLI checks AGENTS.override.md before AGENTS.md in every
-  // scope. If ops or compliance has placed AGENTS.override.md at the
-  // project root, hatch3r-managed AGENTS.md is silently superseded. Warn
-  // when the override file is present so users know their hatch3r content
-  // is being overridden by a non-hatch3r file.
-  if (manifest.tools.includes("codex")) {
-    const overridePath = join(rootDir, "AGENTS.override.md");
-    try {
-      await access(overridePath);
-      warn(
-        `AGENTS.override.md present at project root -- Codex will use it instead of hatch3r's AGENTS.md (per Codex 2026 discovery precedence).`,
-      );
-      console.log();
-    } catch (err) {
-      // Expected path: no override file present is normal operation. Surface
-      // the probe outcome via the verbose channel so the silent-failure
-      // contract is satisfied and diagnostics are available when debugging
-      // (CONSTITUTION.md §2 P5).
-      const code = (err as NodeJS.ErrnoException | undefined)?.code ?? "UNKNOWN";
-      verbose(`AGENTS.override.md probe: not present (${code})`);
-    }
-
-    // ── Codex 0.114 spawn_agent regression (C9-H22 / D9-SA9.5.F1) ──
-    // openai/codex#14579 (closed): Codex CLI 0.114 does not load custom
-    // agent roles from project-local .codex/config.toml or .codex/agents/
-    // when resolving spawn_agent(agent_type=…). hatch3r still emits the
-    // per-agent TOML files (Codex documents the layout and a fix is
-    // expected upstream), but operators relying on multi-agent
-    // orchestration today must inject roles via CLI overrides. Surface
-    // the compatibility note in `hatch3r status` whenever codex is among
-    // the configured adapters so the constraint is visible outside sync.
-    const codexLines: string[] = [
-      `${chalk.yellow("⚠")} Codex 0.114 spawn_agent regression (openai/codex#14579):`,
-      `  project-local .codex/agents/*.toml roles may not be resolved by spawn_agent.`,
-      `  Workaround: inject via CLI overrides`,
-      `  ${chalk.dim("codex exec -c 'agents.<id>.config_file=…'")}`,
-      `  Upgrade Codex when a fixed release ships.`,
-    ];
-    printBox("Codex compatibility", codexLines, "warning");
-  }
-
   // ── Workspace topology ──────────────────────────────────────
   const wsManifest = await readWorkspaceManifest(rootDir);
   if (wsManifest && wsManifest.repos.length > 0) {
     const wsLines: string[] = [];
     for (const repo of wsManifest.repos) {
-      const icon = repo.sync ? chalk.green("\u2713") : chalk.dim("\u25CB");
+      const icon = repo.sync ? chalk.green("✓") : chalk.dim("○");
       let detail: string;
       if (!repo.sync) {
         detail = chalk.dim("sync disabled");
@@ -388,4 +305,5 @@ export async function statusCommand(opts?: { verbose?: boolean; deep?: boolean }
     ];
     printBox("Workspace member", wsInfo, "info");
   }
+
 }

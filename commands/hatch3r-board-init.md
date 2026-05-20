@@ -22,7 +22,7 @@ All board operations MUST follow the Board Sync Enforcement rules defined in `ha
 
 # Board Init -- Bootstrap a Project Board
 
-Initialize a new or existing project board for **{owner}/{repo}** (read from `.agents/hatch.json` board config). The `platform` field in `hatch.json` determines whether to set up GitHub Projects V2, Azure Boards, or GitLab Issue Boards. Sets up status fields/states, creates the full hatch3r label/tag taxonomy, optionally migrates issues from another project, and writes all IDs back to `.agents/hatch.json` so subsequent board commands work out of the box. AI proposes configuration; user confirms before any mutation.
+Initialize a new or existing project board for **{owner}/{repo}** (read from `.hatch3r/hatch.json` board config). The `platform` field in `hatch.json` determines whether to set up GitHub Projects V2, Azure Boards, or GitLab Issue Boards. Sets up status fields/states, creates the full hatch3r label/tag taxonomy, optionally migrates issues from another project, and writes all IDs back to `.hatch3r/hatch.json` so subsequent board commands work out of the box. AI proposes configuration; user confirms before any mutation.
 
 ---
 
@@ -53,7 +53,7 @@ Follow the **Token-Saving Directives** in `hatch3r-board-shared`.
 
 If the user requests quick mode, defaults mode, or passes a `--quick` or `--defaults` flag: use all auto-detected values without prompting and proceed directly to execution with a single confirmation. Specifically:
 
-1. Auto-detect owner/repo from `.agents/hatch.json` (skip ASK in 1.1).
+1. Auto-detect owner/repo from `.hatch3r/hatch.json` (skip ASK in 1.1).
 2. Default to "Create new project" if `board.projectNumber` is null (skip ASK in 1.2).
 3. Use `{repo} Board` as the project name (skip ASK in 1.2a).
 4. Auto-detect default branch via `git rev-parse --abbrev-ref origin/HEAD` (skip ASK in 1.2b).
@@ -73,7 +73,7 @@ This command runs in two phases: **Planning** (collect all answers) then **Execu
 
 Run BEFORE Phase 1. Halt on the first failure with an actionable fix command. Do not prompt for board configuration choices until every prerequisite below succeeds.
 
-1. **Run the shared Prerequisite Check.** Execute the `Prerequisite Check` block in `hatch3r-board-shared` §"Prerequisite Check (run at the start of every board command)" — verifies `.agents/hatch.json` exists, owner/repo configured, and platform CLI authenticated (`gh auth status` / `az account show` / `glab auth status`).
+1. **Run the shared Prerequisite Check.** Execute the `Prerequisite Check` block in `hatch3r-board-shared` §"Prerequisite Check (run at the start of every board command)" — verifies `.hatch3r/hatch.json` exists, owner/repo configured, and platform CLI authenticated (`gh auth status` / `az account show` / `glab auth status`).
 
 2. **Verify platform credentials at the env-var layer.** The shared prereq check confirms the CLI is authenticated; this step additionally verifies the underlying credential is present for non-interactive runs:
 
@@ -97,12 +97,12 @@ Run BEFORE Phase 1. Halt on the first failure with an actionable fix command. Do
    **If platform is `gitlab`:**
    - Run `glab auth status`. If it fails, check for `GITLAB_TOKEN`. If neither is configured, ASK using the same plain-text fallback shape with options: (1) `glab auth login` interactively, (2) provide GITLAB_TOKEN, (3) abort. Default: 1.
 
-3. **Verify owner/repo identity.** Read `.agents/hatch.json` and confirm both top-level `owner`/`repo` (or `board.owner`/`board.repo` as fallback) are set and non-empty. If either is empty, ASK using the user-question-protocol plain-text fallback shape:
+3. **Verify owner/repo identity.** Read `.hatch3r/hatch.json` and confirm both top-level `owner`/`repo` (or `board.owner`/`board.repo` as fallback) are set and non-empty. If either is empty, ASK using the user-question-protocol plain-text fallback shape:
 
    ```
-   **Question:** Owner/repo are not configured in `.agents/hatch.json`. How should I capture them?
+   **Question:** Owner/repo are not configured in `.hatch3r/hatch.json`. How should I capture them?
 
-   1. Provide owner and repo now — paste in this turn; I will write them to `.agents/hatch.json` after Phase 1 confirmation.
+   1. Provide owner and repo now — paste in this turn; I will write them to `.hatch3r/hatch.json` after Phase 1 confirmation.
    2. Run `npx hatch3r config` first — abort, configure repo identity, then re-run `hatch3r-board-init`.
 
    Default if no response: 1
@@ -122,8 +122,8 @@ Collect all configuration choices upfront. No GitHub API calls or file writes in
 
 #### 1.1: Read Configuration
 
-1. Read `.agents/hatch.json` and cache the `board` config.
-2. Read `platform` from `.agents/hatch.json`. Default to `github` if missing. Cache for the run.
+1. Read `.hatch3r/hatch.json` and cache the `board` config.
+2. Read `platform` from `.hatch3r/hatch.json`. Default to `github` if missing. Cache for the run.
 3. Resolve owner/repo per `hatch3r-board-shared`: **Use top-level `owner`/`repo` first.** Fall back to `board.owner`/`board.repo` if top-level values are empty.
 4. If both are set (from either source), note: "Using owner=`{owner}`, repo=`{repo}`, platform=`{platform}`."
 5. If either is missing:
@@ -135,7 +135,7 @@ Update the in-memory config with the provided values.
 #### 1.2: Choose Mode
 
 **If platform is `github`:**
-1. If `board.projectNumber` is already set in `.agents/hatch.json`, default to **B** (Connect to existing project #{board.projectNumber}).
+1. If `board.projectNumber` is already set in `.hatch3r/hatch.json`, default to **B** (Connect to existing project #{board.projectNumber}).
 2. If `board.projectNumber` is null or missing, default to **A** (Create new).
 
 **If platform is `azure-devops`:**
@@ -158,15 +158,15 @@ No separate prompt — the project name is included in the consolidated plan con
 
 #### 1.2b: Default Branch
 
-1. Auto-detect the default branch: run `git rev-parse --abbrev-ref origin/HEAD` and strip the `origin/` prefix. If the command fails (e.g., no remote configured), fall back to `board.defaultBranch` from `.agents/hatch.json`, then to `"main"`.
+1. Auto-detect the default branch: run `git rev-parse --abbrev-ref origin/HEAD` and strip the `origin/` prefix. If the command fails (e.g., no remote configured), fall back to `board.defaultBranch` from `.hatch3r/hatch.json`, then to `"main"`.
 2. Record the detected branch name. This value is written to `board.defaultBranch` and used by board-pickup (checkout, PR base) and other agents.
 
 No separate prompt — the detected branch is included in the consolidated plan confirmation (Step 1.6).
 
 #### 1.3: Area Labels
 
-1. Auto-suggest area labels from the top-level source directories in the codebase. Scan the repository root and common source roots (`src/`, `packages/`, `apps/`) for top-level directories that represent distinct areas (e.g., `frontend`, `backend`, `api`, `infra`, `cli`, `docs`). Exclude non-area directories (`node_modules`, `.git`, `dist`, `build`, `.github`, `.agents`, `coverage`, `__tests__`).
-2. If `board.areas` already has entries in `.agents/hatch.json`, use those as the default and note the source.
+1. Auto-suggest area labels from the top-level source directories in the codebase. Scan the repository root and common source roots (`src/`, `packages/`, `apps/`) for top-level directories that represent distinct areas (e.g., `frontend`, `backend`, `api`, `infra`, `cli`, `docs`). Exclude non-area directories (`node_modules`, `.git`, `dist`, `build`, `.github`, `.hatch3r`, `coverage`, `__tests__`).
+2. If `board.areas` already has entries in `.hatch3r/hatch.json`, use those as the default and note the source.
 3. Present the auto-detected areas in the consolidated plan confirmation (Step 1.6) where the user can confirm, add, remove, or skip area labels.
 
 No separate prompt — area labels are included in the consolidated plan confirmation (Step 1.6).
@@ -209,7 +209,7 @@ Board Init Plan:
 
 Execute all planned mutations in sequence. No further questions unless a mutation fails.
 
-**--resume flag.** When invoked with `--resume`, board-init checks `board.workflows.itemClosedEnabled` in `.agents/hatch.json`. If true, Phase 2.1 through 2.5 are skipped (project, status field, labels, migration, config write-back have already succeeded) and execution jumps directly to the workflow verification gate (§2.2 step 6 above) for the GitHub platform, then proceeds to §2.6 (Create Board Overview Issue) on success. If the gate still fails, the command re-halts with the same actionable message. Non-GitHub platforms ignore `--resume` and run Phase 2 normally.
+**--resume flag.** When invoked with `--resume`, board-init checks `board.workflows.itemClosedEnabled` in `.hatch3r/hatch.json`. If true, Phase 2.1 through 2.5 are skipped (project, status field, labels, migration, config write-back have already succeeded) and execution jumps directly to the workflow verification gate (§2.2 step 6 above) for the GitHub platform, then proceeds to §2.6 (Create Board Overview Issue) on success. If the gate still fails, the command re-halts with the same actionable message. Non-GitHub platforms ignore `--resume` and run Phase 2 normally.
 
 #### 2.1: Create or Connect Project
 
@@ -361,7 +361,7 @@ Execute all planned mutations in sequence. No further questions unless a mutatio
 
 #### 2.3: Create Label Taxonomy
 
-1. Read the label taxonomy from `board.labels` in `.agents/hatch.json`.
+1. Read the label taxonomy from `board.labels` in `.hatch3r/hatch.json`.
 2. If labels are not defined or empty, use these defaults:
 
 | Category  | Labels |
@@ -535,7 +535,7 @@ Board Init Complete:
   Areas: [list or "none"]
   Migration: N issues migrated from Project #X (or "skipped")
   Board overview: #{issueNumber}
-  Config: .agents/hatch.json updated
+  Config: .hatch3r/hatch.json updated
 ```
 
 ---
@@ -557,4 +557,4 @@ Board Init Complete:
 - **Collect all choices in Phase 1 before any mutations in Phase 2.**
 - **Never skip Planning questions or the plan confirmation step.**
 - **Require proper authentication** for the configured platform. If mutations fail with permission errors, surface platform-specific auth requirements.
-- **Preserve existing `.agents/hatch.json` content** outside the `board` key when writing config back.
+- **Preserve existing `.hatch3r/hatch.json` content** outside the `board` key when writing config back.

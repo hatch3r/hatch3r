@@ -57,27 +57,11 @@ import { resolveTestPath } from "../fixtures.js";
 
 const FIXTURES_DIR = resolveTestPath(import.meta.url, "../fixtures/agents");
 
-// All 15 registered tools (must stay in lockstep with TOOLS / adapter factory
+// All 3 registered tools (must stay in lockstep with TOOLS / adapter factory
 // map in src/adapters/index.ts). Test will fail-fast if a new tool is added
 // to TOOLS without being added here, because the length mismatch surfaces in
 // the assertion below.
-const TOOLS_UNDER_TEST: Tool[] = [
-  "cursor",
-  "copilot",
-  "claude",
-  "opencode",
-  "windsurf",
-  "amp",
-  "codex",
-  "gemini",
-  "cline",
-  "aider",
-  "kiro",
-  "goose",
-  "zed",
-  "amazon-q",
-  "antigravity",
-];
+const TOOLS_UNDER_TEST: Tool[] = ["cursor", "copilot", "claude"];
 
 // Keys of Features that the matrix declares per-column.
 const FEATURE_KEYS: Array<keyof Features> = [
@@ -204,7 +188,7 @@ describe("ADAPTER_CAPABILITIES drift detection (C7.5-W2B2-H6)", () => {
     // Guard: if someone adds a tool to TOOLS without adding it to
     // TOOLS_UNDER_TEST, this assertion surfaces the gap before the per-tool
     // tests run. Keep in lockstep with src/types.ts `TOOLS`.
-    const expectedCount = 15;
+    const expectedCount = 3;
     expect(TOOLS_UNDER_TEST.length).toBe(expectedCount);
   });
 
@@ -221,30 +205,13 @@ describe("ADAPTER_CAPABILITIES drift detection (C7.5-W2B2-H6)", () => {
 
   // ── Wave 5 (CLI-tooling pivot, plan §4.6) ───────────────────────
   //
-  // ADAPTER_CAPABILITIES.cliTools must be `true` for the 13 adapters with
-  // skills surfaces (cursor, claude, gemini, cline, codex, amazon-q,
-  // copilot, opencode, windsurf, kiro, aider, goose, antigravity) and
-  // `false` for amp (reads canonical skills natively) and zed (no skills
-  // surface). The matrix drives the runtime warning emitted by
+  // ADAPTER_CAPABILITIES.cliTools must be `true` for all 3 retained adapters
+  // (cursor, claude, copilot), each of which exposes a native `skills: true`
+  // surface. The matrix drives the runtime warning emitted by
   // `getUnsupportedFeatureWarnings` for users who select CLI tools on an
   // adapter that doesn't render them.
   describe("cliTools capability (Wave 5 plan §4.6)", () => {
-    const CLI_TOOLS_TRUE: ReadonlyArray<Tool> = [
-      "cursor",
-      "claude",
-      "gemini",
-      "cline",
-      "codex",
-      "amazon-q",
-      "copilot",
-      "opencode",
-      "windsurf",
-      "kiro",
-      "aider",
-      "goose",
-      "antigravity",
-    ];
-    const CLI_TOOLS_FALSE: ReadonlyArray<Tool> = ["amp", "zed"];
+    const CLI_TOOLS_TRUE: ReadonlyArray<Tool> = ["cursor", "claude", "copilot"];
 
     it("declares cliTools: true for adapters with skills surfaces", () => {
       for (const tool of CLI_TOOLS_TRUE) {
@@ -254,17 +221,6 @@ describe("ADAPTER_CAPABILITIES drift detection (C7.5-W2B2-H6)", () => {
           caps.cliTools,
           `${tool}: expected cliTools=true (Wave 5 plan §4.6)`,
         ).toBe(true);
-      }
-    });
-
-    it("declares cliTools: false for amp and zed (no per-tool skill surface)", () => {
-      for (const tool of CLI_TOOLS_FALSE) {
-        const caps = ADAPTER_CAPABILITIES[tool];
-        expect(caps, `${tool}: ADAPTER_CAPABILITIES entry missing`).toBeDefined();
-        expect(
-          caps.cliTools,
-          `${tool}: expected cliTools=false (Wave 5 plan §4.6)`,
-        ).toBe(false);
       }
     });
 
@@ -283,10 +239,10 @@ describe("ADAPTER_CAPABILITIES drift detection (C7.5-W2B2-H6)", () => {
         (c) => c.cliTools,
       ).length;
       const falseCount = total - trueCount;
-      // 13 true + 2 false = 15 (the full adapter matrix).
-      expect(total).toBe(15);
-      expect(trueCount).toBe(13);
-      expect(falseCount).toBe(2);
+      // 3 true + 0 false = 3 (the full adapter matrix after the 3-adapter pivot).
+      expect(total).toBe(3);
+      expect(trueCount).toBe(3);
+      expect(falseCount).toBe(0);
     });
   });
 

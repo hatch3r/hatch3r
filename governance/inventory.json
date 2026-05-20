@@ -1,7 +1,7 @@
 {
-  "lastUpdated": "2026-05-19",
+  "lastUpdated": "2026-05-20",
   "counts": {
-    "adapters": 15,
+    "adapters": 3,
     "agents": 19,
     "skills": 63,
     "cliSkills": 30,
@@ -14,21 +14,9 @@
   },
   "files": {
     "adapters": [
-      "aider.ts",
-      "amazonq.ts",
-      "amp.ts",
-      "antigravity.ts",
       "claude.ts",
-      "cline.ts",
-      "codex.ts",
       "copilot.ts",
-      "cursor.ts",
-      "gemini.ts",
-      "goose.ts",
-      "kiro.ts",
-      "opencode.ts",
-      "windsurf.ts",
-      "zed.ts"
+      "cursor.ts"
     ],
     "agents": [
       "hatch3r-a11y-auditor.md",

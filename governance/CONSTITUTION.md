@@ -31,10 +31,10 @@ Content is of verifiable, real-world-applicable quality. Findings carry the Scie
 
 ### P3. Adapter & External Tool Currency
 
-Every adapter, end-user-recommended CLI tool, and MCP server stays current through audit cycles. Each cycle mandates live web research against latest official documentation, vendor changelogs ≤12 months old, and CVE feeds ≤90 days old. Staleness >90 days for any tier-1 tool is a Medium finding; missing CVE check is High.
+The 3 supported adapters (`claude`, `cursor`, `copilot`), end-user-recommended CLI tools, and MCP servers stay current through audit cycles. Each cycle mandates live web research against latest official documentation, vendor changelogs ≤12 months old, and CVE feeds ≤90 days old. Staleness >90 days for any tier-1 tool is a Medium finding; missing CVE check is High. Scope narrowed to 3 adapters in 1.9.0 (Decision #12) — narrower scope raises the per-adapter currency bar.
 
-**Measurement:** Platform documentation date vs. audit date delta (per adapter and per CLI tool), feature gap count per adapter, adapter test coverage, CLI tool currency delta (last vendor release vs cycle date, target ≤90 days), CVE advisory acknowledgement count per cycle.
-**Governance refs:** AUDIT.md D9 (Platform Adapters, web research mandate), D21 (CLI Tool Currency), D2.4 (External Tool Config Utilities), charter directive 12 (currency verification), D15.5 + D15.7 (MCP and CLI supply-chain trust).
+**Measurement:** Platform documentation date vs. audit date delta (per adapter and per CLI tool, N=3 adapters), feature gap count per adapter, adapter test coverage, CLI tool currency delta (last vendor release vs cycle date, target ≤90 days), CVE advisory acknowledgement count per cycle.
+**Governance refs:** AUDIT.md D9 (Platform Adapters, web research mandate, 3 adapter SAs + 2 synthesis), D21 (CLI Tool Currency), D2.4 (External Tool Config Utilities), charter directive 12 (currency verification), D15.5 + D15.7 (MCP and CLI supply-chain trust).
 
 ### P4. Comprehensive Lean Coverage
 
@@ -206,6 +206,7 @@ Identification and action are separated because audit is read-only (safe to run 
 | 9 | Governance directory isolation | governance/ for governance, agents/ for content, src/ for code -- clear boundaries |
 | 10 | Workspace features integrated into existing CLI commands | No separate command group; features belong in init/sync/config/status |
 | 11 | RE-ENVISION is a holistic governance sparring engine with hybrid edit authority | Vision-only refinement leaves cross-layer drift unresolved between audits; sparring across all 10 governance layers via 10 parallel SAs + 20-theme dialog brings the corpus to one consistent state. Direct-edit (per-file consent) for VISION, lean thresholds, anti-bloat, Silent Failure, charter additions/refinements, anti-slop wordlist (atomic pair), EVOLVE mechanics, quality-charter, user-question-protocol, CLAUDE.md cross-refs. CL-3 / Phase 7 routing for audit-system (AUDIT.md domains/scoring/CL phases, AUDIT-EXECUTE waves/gates/registry, audit/domains, audit/templates, .claude/rules, .claude/skills). §8 amendment queue for pillars, traceability matrix, amendment protocol itself, Key Design Decisions. |
+| 12 | Adapter scope reduced to `claude` + `cursor` + `copilot`; `.hatch3r/` is the sole user-visible footprint (1.9.0) | Maintaining 15 adapters fragmented test/audit attention and diluted per-adapter currency. Narrowing to 3 high-leverage platforms concentrates maintenance, raises the per-adapter quality bar (D9 SA count drops from 16 to 5), and eliminates 12 duplicated codepaths. Bundled-content model removes `.agents/` materialization from user repos — adapters read canonical content from the npm package via `resolveBundledContentRoot()`. `.hatch3r/` (manifest + learnings + handoffs + overrides + mcp) becomes the single hatch3r footprint; `.agents/hatch.json` migration shim covers in-place upgrades. Applied under §8 framework-owner direct authority as a major-version breaking change. |
 
 ---
 

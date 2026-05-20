@@ -1,12 +1,12 @@
 # hatch3r — Full Framework Audit Prompt
 
-> Last updated: 2026-04-27
+> Last updated: 2026-05-20
 
 ## Purpose
 
 Perform a deep, end-to-end audit of every area, aspect, and line of code or content in the hatch3r framework. The goal: verify this framework is production-ready and open-sourceable by applying the 21-domain checklist across code, content, and adapter implementations — enabling end users to build winning software products at scale.
 
-This audit covers **21 domains** organized across **4 tiers**, deploying **121 sub-agents** for maximum depth. Every domain requires web research for current market context. The final deliverable is a structured audit report with severity-tagged findings, weighted domain scores, and prioritized action items using 3-tier progressive disclosure.
+This audit covers **21 domains** organized across **4 tiers**, deploying **110 sub-agents** for maximum depth (recalibrated from 121 in 1.9.0: D9 dropped from 16 SAs to 5 — 3 per-adapter SAs + 2 synthesis — per CONSTITUTION §6 Decision #12). Every domain requires web research for current market context. The final deliverable is a structured audit report with severity-tagged findings, weighted domain scores, and prioritized action items using 3-tier progressive disclosure.
 
 > **Path Convention:** All file paths in this document are relative to the **repository root**. Governance files live under `governance/`. The ephemeral `.audit-workspace/` directory is created at repository root.
 
@@ -18,9 +18,9 @@ This audit covers **21 domains** organized across **4 tiers**, deploying **121 s
 
 ### Architecture
 
-| Canonical Source (`/.agents/`) | Adapter Outputs |
-|------|-------|
-| agents/, skills/, rules/, commands/, prompts/, hooks/, checks/, mcp/, policy/, learnings/, AGENTS.md, hatch.json | .cursor/ (Cursor), .github/ (Copilot), CLAUDE.md (Claude), GEMINI.md (Gemini), .windsurfrules (Windsurf), .amp/ (Amp), AGENTS.md (OpenCode), .codex/ (Codex), .roo/.roomodes (Cline), .aider/ (Aider), .kiro/ (Kiro), .goosehints (Goose), .rules (Zed), .amazonq/ (Amazon Q), .antigravity/ (Antigravity) |
+| Bundled Canonical Source (npm package) | Adapter Outputs (3 supported platforms) | User-Repo Footprint |
+|------|-------|-------|
+| agents/, skills/, rules/, commands/, prompts/, hooks/, checks/, mcp/, github-agents/ — read via `resolveBundledContentRoot()`; no `.agents/` materialized in user repos as of 1.9.0 | CLAUDE.md (Claude Code), .cursor/rules/ + .cursor/mcp.json + .cursor/commands/ (Cursor), .github/copilot-instructions.md + .github/instructions/ + .github/prompts/ (GitHub Copilot) | `.hatch3r/{hatch.json, learnings/, handoffs/, overrides/, mcp/}` — single user-visible hatch3r footprint |
 
 ### Component Inventory
 
@@ -54,7 +54,7 @@ Not all domains require equal audit depth every cycle. To prevent diminishing re
 
 ### Sub-Agent Strategy
 
-Spawn **121 sub-agents** across 21 audit domains organized in 4 tiers. Each domain decomposes into multiple focused sub-agents for maximum depth. Sub-agents within the same domain run in parallel unless a sequential dependency is noted. Domain-level synthesis sub-agents run only after their prerequisite sub-agents complete. Inherit your LLM model to every sub-agent — do not downgrade. Each sub-agent MUST use web research. **Never optimize for token efficiency — optimize for audit quality and depth.**
+Spawn **110 sub-agents** across 21 audit domains organized in 4 tiers (recalibrated from 121 in 1.9.0: D9 platform-adapter SAs reduced from 16 to 5 alongside the adapter-scope cut to 3 supported platforms — CONSTITUTION §6 Decision #12). Each domain decomposes into multiple focused sub-agents for maximum depth. Sub-agents within the same domain run in parallel unless a sequential dependency is noted. Domain-level synthesis sub-agents run only after their prerequisite sub-agents complete. Inherit your LLM model to every sub-agent — do not downgrade. Each sub-agent MUST use web research. **Never optimize for token efficiency — optimize for audit quality and depth.**
 
 #### Optional Domain Orchestrator Bundling
 
@@ -73,8 +73,8 @@ The following sub-agents have sequential dependencies and MUST NOT launch until 
 
 | Sub-Agent | Depends On | Reason |
 |-----------|-----------|--------|
-| 9.15 (Capability Matrix Verification) | 9.1–9.14 | Requires all per-adapter audit findings |
-| 9.16 (Emerging Platforms) | 9.1–9.14 | Requires understanding of current adapter landscape |
+| 9.4 (Capability Matrix Verification) | 9.1–9.3 | Requires all per-adapter audit findings (claude, cursor, copilot) |
+| 9.5 (Emerging Platforms) | 9.1–9.3 | Requires understanding of current adapter landscape and platforms outside the 3-adapter supported set |
 | 16.1 (Cross-Domain Pattern Synthesis) | D5, D7, D9 | Requires prompt, orchestration, and adapter findings |
 | 16.2 (Coverage Gap Analysis) | D5, D9 | Requires content and adapter findings |
 | 16.3 (Artifact Inventory & Redundancy) | D5, D14, pre-audit inventory | Requires per-artifact quality findings and verified artifact inventory |
@@ -87,11 +87,11 @@ The following sub-agents have sequential dependencies and MUST NOT launch until 
 
 ### Concurrency Model
 
-Of the 121 total sub-agents, **110 launch immediately** in parallel. The remaining **11 sub-agents** launch sequentially after their dependencies complete:
+Of the 110 total sub-agents, **99 launch immediately** in parallel. The remaining **11 sub-agents** launch sequentially after their dependencies complete:
 
 | Tier | Sequential Sub-Agents |
 |------|----------------------|
-| B | 9.15, 9.16 |
+| B | 9.4, 9.5 |
 | C | 16.1, 16.2, 16.3, 20.2, 21.7 |
 | D | 17.3, 18.1, 18.2, 18.3 |
 
@@ -117,11 +117,11 @@ Execute by tier with synthesis between tiers:
 | Tier | Domains | Agents | Action |
 |------|---------|--------|--------|
 | A | D1–D4 | 27 | Launch → synthesize → release from context |
-| B | D5–D10,D19 | 52 | Launch → synthesize → release from context |
+| B | D5–D10,D19 | 41 | Launch → synthesize → release from context |
 | C | D11–D16, D20–D21 | 36 | Launch → synthesize → release from context |
 | D | D17–D18 | 6 | Launch → synthesize → final assembly |
 
-Peak context: 52 sub-agent results (Tier B), not 121.
+Peak context: 41 sub-agent results (Tier B), not 110.
 
 ### Pre-Audit Questions
 
@@ -225,7 +225,7 @@ A cross-domain finding (D16) that merely re-states a home-domain finding with th
 | Home-domain finding | Cross-domain candidate | Verdict |
 |---------------------|------------------------|---------|
 | D5 #12: "Skill X missing measurable acceptance criteria in `skills/hatch3r-x/SKILL.md`" | D16: "Skill X has loose acceptance language" | Duplicate (File + Root Cause match) — log as cross-domain confirmation, do not create D16 finding |
-| D9 #4 (Cursor): "Cursor adapter omits MCP env file" + D9 #11 (Aider): "Aider adapter omits MCP env file" | D16: "MCP env file generation inconsistent across adapters" | Distinct (3+ domains, contradiction surface) — qualifies as D16 finding |
+| D9 #2 (Cursor): "Cursor adapter omits MCP env file" + D9 #3 (Copilot): "Copilot adapter omits MCP env file" | D16: "MCP env file generation inconsistent across adapters" | Distinct (3+ domains, contradiction surface) — qualifies as D16 finding |
 
 ---
 
@@ -247,7 +247,7 @@ If total findings fall below 50, the orchestrating agent MUST verify depth by ch
 ### Quality Checklist
 
 - [ ] All 21 domains were examined (no domain was skipped). Domains with zero findings must include a clean-domain justification citing: specific files examined, verification methods used, and web research performed. A clean domain is acceptable; a skipped domain is not.
-- [ ] All 121 sub-agents produced output (no silent failures)
+- [ ] All 110 sub-agents produced output (no silent failures)
 - [ ] Every Critical and High finding has a specific, actionable recommendation
 - [ ] Every finding references specific files, line numbers, or artifacts
 - [ ] Web research was performed for every domain (cite sources)
@@ -362,7 +362,7 @@ Each domain file (`governance/audit/domains/D{NN}-{name}.md`) must meet these mi
 | B | 6: Context Engineering & Token Economics | 6 | 6 | 0 |
 | B | 7: Agent Orchestration Optimization | 5 | 5 | 0 |
 | B | 8: Error Recovery & Resilience | 4 | 4 | 0 |
-| B | 9: Platform Adapters | 16 | 14 | 2 |
+| B | 9: Platform Adapters | 5 | 3 | 2 |
 | B | 10: User Experience & Documentation | 9 | 9 | 0 |
 | B | 19: Agentic Development Self-Governance | 4 | 4 | 0 |
 | C | 11: End-to-End Data Flow | 4 | 4 | 0 |
@@ -375,7 +375,7 @@ Each domain file (`governance/audit/domains/D{NN}-{name}.md`) must meet these mi
 | C | 21: CLI Tool Currency | 7 | 6 | 1 |
 | D | 17: Competition & Market Intelligence | 3 | 2 | 1 |
 | D | 18: PRD, Roadmap & Distribution | 3 | 0 | 3 |
-| **Total** | | **121** | **110** | **11** |
+| **Total** | | **110** | **99** | **11** |
 
 > **Note:** Sub-agent counts and domain list may evolve across audit cycles via the self-evolution process (Phase CL-3). The table above reflects the current baseline. Any changes require explicit user consent.
 
@@ -444,7 +444,7 @@ For each domain: Health Score (X/100), Finding Count by severity, Top 3 Findings
 
 ### Strengths Inventory
 
-Each domain summary must include a **Strengths** subsection listing 1-3 specific implementation strengths observed during the audit. Strengths must cite specific files, patterns, or metrics -- not general praise. Example: "Atomic write pattern in `src/merge/safeWrite.ts` prevents partial-write corruption across all 15 adapters." Strengths that persist across 3+ audit cycles are candidates for the project's public documentation.
+Each domain summary must include a **Strengths** subsection listing 1-3 specific implementation strengths observed during the audit. Strengths must cite specific files, patterns, or metrics -- not general praise. Example: "Atomic write pattern in `src/merge/safeWrite.ts` prevents partial-write corruption across all 3 supported adapters." Strengths that persist across 3+ audit cycles are candidates for the project's public documentation.
 
 ---
 

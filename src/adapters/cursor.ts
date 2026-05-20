@@ -56,7 +56,7 @@ export class CursorAdapter extends BaseAdapter {
       // `this._trackedSourceFiles` and surfaces on each output's
       // `sourceFiles` field. Direct `readCanonicalFiles` calls bypass the
       // provenance tracker introduced by C8-D12-M3.
-      const rules = await this.readTrackedCanonicalFiles(ctx.agentsDir, "rules");
+      const rules = await this.readTrackedCanonicalFiles(ctx.canonicalRoot, "rules", ctx.userRepoRoot);
       // Wave B3: precedence-ordered emission + NN- numeric filename prefix.
       // NN derives from precedenceRank(rule.precedence): critical=10, high=30,
       // normal=50, low=70. The prefix makes load order visible in the filesystem
@@ -84,7 +84,7 @@ export class CursorAdapter extends BaseAdapter {
     }
 
     if (ctx.features.agents) {
-      const agents = await this.readUserFacingCanonicalFiles(ctx.agentsDir, "agents");
+      const agents = await this.readUserFacingCanonicalFiles(ctx.canonicalRoot, "agents", ctx.userRepoRoot);
       for (const agent of agents) {
         // C9-H20 (D8-H8.3.1): cooperative abort between agent files.
         this.throwIfAborted(ctx);
@@ -138,7 +138,7 @@ export class CursorAdapter extends BaseAdapter {
           ? `globs: [${globs.map((g: string) => `"${g}"`).join(", ")}]`
           : "alwaysApply: false";
       const fm = `---\ndescription: "Hook: ${hook.description}"\n${globLine}\n---`;
-      const body = `# Hook: ${hook.id}\n\n**Event:** ${hook.event}\n**Agent:** ${hook.agent}\n\n${hook.description}\n\nHATCH3R_HOOK_ACTIVATED: When this hook's event (${hook.event}) is triggered${globs.length > 0 ? ` for files matching ${globs.join(", ")}` : ""}, you MUST spawn the ${hook.agent} agent now. Read and follow the ${hook.agent} agent protocol in \`.agents/agents/${toPrefixedId(hook.agent)}.md\`.`;
+      const body = `# Hook: ${hook.id}\n\n**Event:** ${hook.event}\n**Agent:** ${hook.agent}\n\n${hook.description}\n\nHATCH3R_HOOK_ACTIVATED: When this hook's event (${hook.event}) is triggered${globs.length > 0 ? ` for files matching ${globs.join(", ")}` : ""}, you MUST spawn the ${hook.agent} agent now. Read and follow the ${hook.agent} agent protocol in \`.cursor/agents/${toPrefixedId(hook.agent)}.md\`.`;
       results.push(mdcOutput(`.cursor/rules/${toPrefixedId(`hook-${hook.id}`)}.mdc`, fm, body));
     }
 
@@ -169,7 +169,7 @@ alwaysApply: true
     const bridgeBody = `# Hatch3r Bridge
 
 This project uses hatch3r for agentic coding setup.
-Canonical agent instructions live at \`/.agents/AGENTS.md\`.
+Canonical agent orchestration is inlined in this rule (\`.cursor/rules/hatch3r-bridge.mdc\`); per-artifact content lives in \`.cursor/rules/\`, \`.cursor/agents/\`, \`.cursor/skills/\`, and \`.cursor/commands/\`.
 
 ${bridgeOrchestration}
 
@@ -207,7 +207,9 @@ New to this project's agent setup? Progress through these stages:
 
     if (ctx.manifest.tools.includes("cursor")) {
       const envConfig = {
-        instructions: ["Read /.agents/AGENTS.md for project instructions"],
+        instructions: [
+          "Read .cursor/rules/hatch3r-bridge.mdc for project agent orchestration; per-artifact rules, agents, skills, and commands live under .cursor/.",
+        ],
         mcpServers: {},
       };
       results.push(output(".cursor/environment.json", JSON.stringify(envConfig, null, 2) + "\n"));

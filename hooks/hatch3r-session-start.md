@@ -16,11 +16,11 @@ Activate the learnings-loader agent when a new coding session starts to surface 
 
 When this hook fires, the assigned agent should:
 
-1. Read the `.agents/learnings/` directory and index all available learning files by area, tags, and recency.
+1. Read the `.hatch3r/learnings/` directory and index all available learning files by area, tags, and recency.
 2. Identify the most relevant learnings based on recently modified files in the working tree (using `git diff` and `git log` to infer the active work area).
 3. Surface the top 3-5 most relevant learnings as a brief summary, prioritizing: (a) learnings from the last 7 days, (b) learnings matching the current branch's area labels, (c) learnings tagged as high-impact or cross-cutting.
 4. If there are recent architectural decisions or convention changes, highlight them prominently.
-5. If `.agents/learnings/` does not exist or is empty, skip silently.
+5. If `.hatch3r/learnings/` does not exist or is empty, skip silently.
 
 ## Expected Output
 

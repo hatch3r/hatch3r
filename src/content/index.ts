@@ -187,7 +187,7 @@ export interface CatalogItem {
   /**
    * Provenance of the catalog item. Always set: "canonical" for items scanned
    * from the package content root, "user" for items scanned from
-   * `.agents/user/` (D20 user-content authoring).
+   * `.hatch3r/overrides/` (D20 user-content authoring).
    */
   source: "canonical" | "user";
   /**
@@ -1208,13 +1208,18 @@ function cursorCompanionFrontmatter(description: string, scope?: string): string
 
 /**
  * Resolve the absolute path to the user-content subtree under a project root.
- * D20: user-tier artifacts live at `<rootDir>/.agents/user/{type}/...`.
+ * D20: user-tier artifacts live at `<rootDir>/.hatch3r/overrides/{type}/...`.
+ *
+ * Wave 5: relocated from `<rootDir>/.agents/user/` to `<rootDir>/.hatch3r/overrides/`
+ * as part of the `.hatch3r/`-only on-disk contract. The migration shim in
+ * `src/migration/agentsToHatch3r.ts` relocates pre-1.9 installs on next
+ * init/sync/update.
  *
  * Always returns the path; callers stat the directory to decide whether the
  * subtree exists yet (it is created lazily by the first `saveUserContent`).
  */
 export function resolveUserContentRoot(rootDir: string): string {
-  return join(rootDir, ".agents", "user");
+  return join(rootDir, ".hatch3r", "overrides");
 }
 
 /**

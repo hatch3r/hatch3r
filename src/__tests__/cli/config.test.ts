@@ -1146,7 +1146,7 @@ describe("config command", () => {
 
     it("computeDiff: detects tool additions", async () => {
       const manifest = makeManifest({ tools: ["cursor"] });
-      primeConfig(manifest, { tools: ["cursor", "windsurf"] });
+      primeConfig(manifest, { tools: ["cursor", "claude"] });
 
       await (await importConfigCommand())();
 
@@ -1156,7 +1156,7 @@ describe("config command", () => {
     });
 
     it("computeDiff: detects tool removals", async () => {
-      const manifest = makeManifest({ tools: ["cursor", "windsurf"] });
+      const manifest = makeManifest({ tools: ["cursor", "claude"] });
       vi.mocked(readManifest).mockResolvedValue(manifest);
       vi.mocked(archiveToolOutputs).mockResolvedValue({ archivedFiles: [], migrations: [] });
       setupStandardPrompts(manifest, { tools: ["cursor"] });

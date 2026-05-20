@@ -41,16 +41,13 @@ function manifest(
 const ROOT = "/tmp/fake-root";
 
 describe("generateWorktreeInclude", () => {
-  it("always includes .agents/ and .agents/learnings/", async () => {
+  it("always includes .hatch3r/ and .hatch3r/learnings/", async () => {
     const out = await generateWorktreeInclude(manifest(["claude"]), ROOT);
-    expect(out).toContain(".agents/");
-    expect(out).toContain(".agents/learnings/");
+    expect(out).toContain(".hatch3r/");
+    expect(out).toContain(".hatch3r/learnings/");
   });
 
-  it("always includes AGENTS.md", async () => {
-    const out = await generateWorktreeInclude(manifest(["gemini"]), ROOT);
-    expect(out).toContain("AGENTS.md");
-  });
+  // Wave 3 (release/1.9.0): root AGENTS.md is no longer emitted.
 
   it("always includes .env patterns", async () => {
     const out = await generateWorktreeInclude(manifest(["claude"]), ROOT);
@@ -65,19 +62,17 @@ describe("generateWorktreeInclude", () => {
     expect(out).toContain(".mcp.json");
   });
 
-  it("includes Gemini adapter patterns for gemini tool", async () => {
-    const out = await generateWorktreeInclude(manifest(["gemini"]), ROOT);
-    expect(out).toContain("GEMINI.md");
-    expect(out).toContain(".gemini/");
+  it("includes Cursor adapter patterns for cursor tool", async () => {
+    const out = await generateWorktreeInclude(manifest(["cursor"]), ROOT);
+    expect(out).toContain(".cursor/");
   });
 
   it("includes union of patterns for multiple tools", async () => {
-    const out = await generateWorktreeInclude(manifest(["claude", "gemini"]), ROOT);
+    const out = await generateWorktreeInclude(manifest(["claude", "cursor"]), ROOT);
     expect(out).toContain("CLAUDE.md");
     expect(out).toContain(".claude/");
     expect(out).toContain(".mcp.json");
-    expect(out).toContain("GEMINI.md");
-    expect(out).toContain(".gemini/");
+    expect(out).toContain(".cursor/");
   });
 
   it("includes node_modules by default", async () => {
@@ -102,12 +97,12 @@ describe("generateWorktreeInclude", () => {
     expect(out).toContain("secrets.json");
   });
 
-  it(".agents/ is symlinked and .agents/learnings/ is copied", async () => {
+  it(".hatch3r/ is symlinked and .hatch3r/learnings/ is copied", async () => {
     const out = await generateWorktreeInclude(manifest(["claude"]), ROOT);
     const entries = parseWorktreeInclude(out);
-    const agentsEntry = entries.find((e) => e.pattern === ".agents/");
-    const learningsEntry = entries.find((e) => e.pattern === ".agents/learnings/");
-    expect(agentsEntry?.strategy).toBe("symlink");
+    const stateEntry = entries.find((e) => e.pattern === ".hatch3r/");
+    const learningsEntry = entries.find((e) => e.pattern === ".hatch3r/learnings/");
+    expect(stateEntry?.strategy).toBe("symlink");
     expect(learningsEntry?.strategy).toBe("copy");
   });
 
@@ -123,19 +118,19 @@ describe("generateWorktreeInclude", () => {
 
 describe("parseWorktreeInclude round-trip", () => {
   it("parses all generated entries back correctly", async () => {
-    const out = await generateWorktreeInclude(manifest(["claude", "gemini"]), ROOT);
+    const out = await generateWorktreeInclude(manifest(["claude", "cursor"]), ROOT);
     const entries = parseWorktreeInclude(out);
 
-    // Should have: .env, .env.*, .agents/, .agents/learnings/, AGENTS.md,
-    // CLAUDE.md, .claude/, .mcp.json, GEMINI.md, .gemini/, node_modules/
-    expect(entries.length).toBeGreaterThanOrEqual(11);
+    // Wave 3 + Wave 6 (release/1.9.0): no more .agents/ or root AGENTS.md.
+    // Should have: .env, .env.*, .hatch3r/, .hatch3r/learnings/, .hatch3r/handoffs/,
+    // CLAUDE.md, .claude/, .mcp.json, .cursor/, node_modules/
+    expect(entries.length).toBeGreaterThanOrEqual(10);
 
     const patterns = entries.map((e) => e.pattern);
     expect(patterns).toContain(".env");
-    expect(patterns).toContain(".agents/");
-    expect(patterns).toContain("AGENTS.md");
+    expect(patterns).toContain(".hatch3r/");
     expect(patterns).toContain("CLAUDE.md");
-    expect(patterns).toContain("GEMINI.md");
+    expect(patterns).toContain(".cursor/");
     expect(patterns).toContain("node_modules/");
   });
 });

@@ -3,7 +3,7 @@ import inquirer from "inquirer";
 import { mkdtemp, mkdir, writeFile, readFile, rm, access } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { HatchError } from "../../types.js";
+import { HatchError, HATCH3R_DIR } from "../../types.js";
 import { HATCH3R_VERSION } from "../../version.js";
 
 // Mock inquirer so interactive paths can be exercised. The --yes paths in
@@ -22,7 +22,10 @@ vi.mock("inquirer", () => {
   };
 });
 
-const AGENTS_DIR = ".agents";
+// Wave 6 (1.9.0): the hatch3r footprint moved from `.agents/` to `.hatch3r/`.
+// For the rewritten init tests, `AGENTS_DIR` refers to `.hatch3r/` so existing
+// `join(tempDir, AGENTS_DIR, "hatch.json")` reads pick up the new location.
+const AGENTS_DIR = HATCH3R_DIR;
 
 describe("init command", () => {
   let initCommand: (opts?: { tools?: string; yes?: boolean; cliTools?: string; noCliTools?: boolean; mcp?: boolean }) => Promise<void>;
@@ -69,7 +72,8 @@ describe("init command", () => {
     const raw = await readFile(manifestPath, "utf-8");
     const manifest = JSON.parse(raw);
 
-    expect(manifest.version).toBe("2.0.0");
+    // Wave 6 (1.9.0 / schemaVersion 3): manifest version bumped.
+    expect(manifest.version).toBe("3.0.0");
     expect(manifest.hatch3rVersion).toBe(HATCH3R_VERSION);
     expect(manifest.platform).toBe("github");
     expect(Array.isArray(manifest.tools)).toBe(true);
@@ -82,14 +86,19 @@ describe("init command", () => {
     expect(manifest.managedFiles.length).toBeGreaterThan(0);
   });
 
-  it("should copy canonical files to .agents/", async () => {
+  it("does NOT materialise canonical content under .agents/ (Wave 3 removal)", async () => {
     await initCommand({ yes: true });
 
-    const agentsDir = join(tempDir, AGENTS_DIR);
-    await expect(access(join(agentsDir, "rules"))).resolves.toBeUndefined();
-    await expect(access(join(agentsDir, "agents"))).resolves.toBeUndefined();
-    await expect(access(join(agentsDir, "skills"))).resolves.toBeUndefined();
-    await expect(access(join(agentsDir, "commands"))).resolves.toBeUndefined();
+    // Wave 3: adapters source canonical content from the bundled package.
+    // No `.agents/` directory is created in user repos.
+    let dotAgentsExists = false;
+    try {
+      await access(join(tempDir, ".agents"));
+      dotAgentsExists = true;
+    } catch (err) {
+      void err;
+    }
+    expect(dotAgentsExists).toBe(false);
   });
 
   // D5-SA5.3-H1: `hatch3r init` must seed `.agents/learnings/README.md`
@@ -120,15 +129,20 @@ describe("init command", () => {
     expect(afterReinit).toBe(userContent);
   });
 
-  it("should create AGENTS.md with managed content", async () => {
+  it("does NOT emit root AGENTS.md (Wave 3 removal)", async () => {
     await initCommand({ yes: true });
 
-    const agentsMdPath = join(tempDir, "AGENTS.md");
-    const content = await readFile(agentsMdPath, "utf-8");
-
-    expect(content).toContain("<!-- HATCH3R:BEGIN -->");
-    expect(content).toContain("<!-- HATCH3R:END -->");
-    expect(content).toContain("hatch3r");
+    // Wave 3 (decision #3): root AGENTS.md is no longer emitted; each
+    // adapter writes its own native bridge file (CLAUDE.md, .cursor/rules/,
+    // .github/copilot-instructions.md).
+    let agentsMdExists = false;
+    try {
+      await access(join(tempDir, "AGENTS.md"));
+      agentsMdExists = true;
+    } catch (err) {
+      void err;
+    }
+    expect(agentsMdExists).toBe(false);
   });
 
   it("should generate adapter output files", async () => {
@@ -340,25 +354,26 @@ describe("init command", () => {
     expect(after.cliTools.selected).toEqual(baseline.cliTools.selected);
   });
 
-  it("should include AGENTS.md in managedFiles", async () => {
+  it("does NOT include AGENTS.md in managedFiles (Wave 3 removal)", async () => {
     await initCommand({ yes: true });
 
     const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
     const manifest = JSON.parse(await readFile(manifestPath, "utf-8"));
-    expect(manifest.managedFiles).toContain("AGENTS.md");
+    // Wave 3 removed root AGENTS.md emission; the path must not appear in
+    // managedFiles either, since orphan-cleanup walks that list.
+    expect(manifest.managedFiles).not.toContain("AGENTS.md");
   });
 
-  it("should preserve user content in AGENTS.md when it pre-exists without managed blocks", async () => {
+  it("does NOT touch a pre-existing root AGENTS.md (Wave 3 removal)", async () => {
+    // Wave 3: init no longer touches root AGENTS.md at all. A user-authored
+    // file at the root must be byte-identical after init runs.
     const userContent = "# My Project Instructions\n\nUse TypeScript for all new code.";
     await writeFile(join(tempDir, "AGENTS.md"), userContent);
 
     await initCommand({ yes: true });
 
     const content = await readFile(join(tempDir, "AGENTS.md"), "utf-8");
-    expect(content).toContain(userContent);
-    expect(content).toContain("<!-- HATCH3R:BEGIN -->");
-    expect(content).toContain("<!-- HATCH3R:END -->");
-    expect(content).toContain("hatch3r");
+    expect(content).toBe(userContent);
   });
 
   it("should preserve user content in platform-specific files (e.g. CLAUDE.md) when pre-existing", async () => {
@@ -374,14 +389,16 @@ describe("init command", () => {
   });
 
   it("should handle multiple valid tools from --tools flag", async () => {
-    await initCommand({ yes: true, tools: "cursor,claude,gemini" });
+    // Wave 1 hard-cut deleted gemini (and 11 other adapters). Use the
+    // three retained adapters as the multi-tool fixture.
+    await initCommand({ yes: true, tools: "cursor,claude,copilot" });
 
     const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
     const manifest = JSON.parse(await readFile(manifestPath, "utf-8"));
 
     expect(manifest.tools).toContain("cursor");
     expect(manifest.tools).toContain("claude");
-    expect(manifest.tools).toContain("gemini");
+    expect(manifest.tools).toContain("copilot");
     expect(manifest.tools.length).toBe(3);
   }, 60_000); // Generates output for 3 adapters; on slower Windows runners
                 // this can exceed the default 30s testTimeout in vitest.config.ts
@@ -413,28 +430,28 @@ describe("init command", () => {
     expect(manifest.tools).toContain("cursor");
   });
 
-  it("should create canonical content directories", async () => {
+  it("should create the .hatch3r/learnings/ directory (Wave 6 relocation)", async () => {
     await initCommand({ yes: true });
 
-    const agentsDir = join(tempDir, AGENTS_DIR);
-    await expect(access(join(agentsDir, "learnings"))).resolves.toBeUndefined();
+    // Wave 6: learnings live under `.hatch3r/learnings/` now.
+    const hatch3rDir = join(tempDir, HATCH3R_DIR);
+    await expect(access(join(hatch3rDir, "learnings"))).resolves.toBeUndefined();
   });
 
-  it("should create canonical AGENTS.md inside .agents/", async () => {
-    await initCommand({ yes: true });
-
-    const canonicalPath = join(tempDir, AGENTS_DIR, "AGENTS.md");
-    const content = await readFile(canonicalPath, "utf-8");
-    expect(content.length).toBeGreaterThan(0);
-  });
+  // Removed (Wave 3 + Wave 4): canonical AGENTS.md was previously emitted at
+  // `.agents/AGENTS.md` as the source for the root bridge file. The whole
+  // tree is gone — adapters source canonical content from the bundled
+  // package — so this test has no implementation to exercise.
 
   it("should handle a single tool from --tools flag", async () => {
-    await initCommand({ yes: true, tools: "amp" });
+    // Wave 1 hard-cut deleted `amp` along with 11 other adapters. Use
+    // claude as the single-tool fixture (one of the three retained).
+    await initCommand({ yes: true, tools: "claude" });
 
     const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
     const manifest = JSON.parse(await readFile(manifestPath, "utf-8"));
 
-    expect(manifest.tools).toEqual(["amp"]);
+    expect(manifest.tools).toEqual(["claude"]);
   });
 
   it("should use standard preset by default with --yes flag (C9-H25)", async () => {
@@ -566,15 +583,26 @@ describe("workspace init", () => {
     expect(manifest.board).toBeUndefined();
   });
 
-  it("should create canonical content at workspace root", async () => {
+  it("should create the .hatch3r/ state directory at workspace root", async () => {
     await createWorkspaceLayout(tempDir, ["repo-a"]);
 
     await initCommand({ yes: true });
 
-    // .agents/ directory should exist with canonical content
+    // Wave 6: workspace root writes manifest + workspace.json under
+    // `.hatch3r/`. Wave 3 removed the canonical AGENTS.md materialisation
+    // entirely.
     await expect(access(join(tempDir, AGENTS_DIR))).resolves.toBeUndefined();
     await expect(access(join(tempDir, AGENTS_DIR, "hatch.json"))).resolves.toBeUndefined();
-    await expect(access(join(tempDir, AGENTS_DIR, "AGENTS.md"))).resolves.toBeUndefined();
+
+    // No canonical AGENTS.md is materialised at workspace root.
+    let canonicalAgentsMd = false;
+    try {
+      await access(join(tempDir, AGENTS_DIR, "AGENTS.md"));
+      canonicalAgentsMd = true;
+    } catch (err) {
+      void err;
+    }
+    expect(canonicalAgentsMd).toBe(false);
   });
 
   it("should respect --tools flag in workspace mode", async () => {
@@ -920,14 +948,12 @@ describe("init worktree generation (claude tool present)", () => {
     expect(manifest.managedFiles).toContain(".worktreeinclude");
   });
 
-  it("does NOT generate .worktreeinclude when only non-worktree tools are selected", async () => {
-    // amp is not in WORKTREE_CAPABLE_TOOLS — branch falls through line 242
-    await initCommand({ yes: true, tools: "amp" });
-
-    await expect(
-      access(join(tempDir, ".worktreeinclude")),
-    ).rejects.toThrow();
-  });
+  // Removed (Wave 1): the previous test verified that selecting a single
+  // non-worktree-capable tool (`amp`) left `.worktreeinclude` unwritten.
+  // After Wave 1's hard-cut, every retained adapter (claude, cursor,
+  // copilot) is in WORKTREE_CAPABLE_TOOLS (`src/types.ts:201`). There is
+  // no non-worktree-capable tool to use as the negative-case fixture.
+  // The `--no-worktree` opt-out below still covers the off path.
 
   // Slice D: worktree is auto-enabled when a worktree-capable tool is
   // selected; the interactive confirm prompt was removed. --worktree /
@@ -981,25 +1007,15 @@ describe("init worktree generation (claude tool present)", () => {
     await expect(access(join(tempDir, ".worktreeinclude"))).rejects.toThrow();
   });
 
-  it("--yes --worktree enables worktree even when no worktree-capable tool is selected", async () => {
-    await initCommand({ yes: true, tools: "amp", worktree: true });
-    const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
-    expect(manifest.worktree?.enabled).toBe(true);
-  });
-
-  it("interactive init leaves worktree disabled when no worktree-capable tool is selected", async () => {
-    queueInteractiveWithWorktree({ tools: ["amp"] });
-    await initCommand();
-    const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
-    expect(manifest.worktree).toBeUndefined();
-  });
-
-  it("interactive init with only gemini leaves worktree disabled", async () => {
-    queueInteractiveWithWorktree({ tools: ["gemini"] });
-    await initCommand();
-    const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
-    expect(manifest.worktree).toBeUndefined();
-  });
+  // Removed (Wave 1): tests below depended on a non-worktree-capable tool
+  // selection. After the hard-cut to three adapters (all worktree-capable),
+  // the negative case has no fixture and these scenarios are unreachable:
+  //   - "--yes --worktree enables worktree even when no worktree-capable
+  //     tool is selected" (amp tool deleted)
+  //   - "interactive init leaves worktree disabled when no worktree-capable
+  //     tool is selected" (amp tool deleted)
+  //   - "interactive init with only gemini leaves worktree disabled"
+  //     (gemini tool deleted)
 });
 
 describe("init language detection (Wave 3 H15)", () => {
@@ -1071,14 +1087,15 @@ describe("init language detection (Wave 3 H15)", () => {
   });
 
   it("agnostic content (rules without language tags) is included for any project", async () => {
-    // Empty repo (unknown language) — language-agnostic content still copied
+    // Wave 3: canonical content is no longer copied into the user repo;
+    // adapters read it from the bundled package. Verify the contract via
+    // the manifest's content selection rather than a `.agents/agents/`
+    // file probe. Language-agnostic core agents (e.g. hatch3r-implementer)
+    // must still appear in the selected items list for any project.
     await initCommand({ yes: true });
 
-    const agentsDir = join(tempDir, AGENTS_DIR);
-    // Core agents are language-agnostic and should always be present
-    await expect(
-      access(join(agentsDir, "agents", "hatch3r-implementer.md")),
-    ).resolves.toBeUndefined();
+    const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
+    expect(manifest.content?.items?.agents).toContain("hatch3r-implementer");
   });
 });
 
@@ -2256,26 +2273,29 @@ describe("init shared-bridge-file ownership (C9-H31)", () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
-  it("populates managedFilesByAdapter._shared with the root AGENTS.md path", async () => {
+  it("drops the managedFilesByAdapter._shared bucket (Wave 6 manifest schema bump)", async () => {
+    // Wave 6 (1.9.0 / schemaVersion 3): root AGENTS.md emission was
+    // removed in Wave 3, so the `_shared` bucket that tracked it is
+    // useless and is explicitly stripped by `migrateManifest` (see
+    // `src/manifest/hatchJson.ts` Wave 6 idempotent prune).
     await initCommand({ yes: true, tools: "claude" });
 
     const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
     const manifest = JSON.parse(await readFile(manifestPath, "utf-8"));
 
     expect(manifest.managedFilesByAdapter).toBeDefined();
-    expect(manifest.managedFilesByAdapter._shared).toBeDefined();
-    expect(manifest.managedFilesByAdapter._shared).toContain("AGENTS.md");
+    expect(manifest.managedFilesByAdapter._shared).toBeUndefined();
   });
 
-  it("adapter-owned files appear under their own Tool key, not under _shared", async () => {
+  it("adapter-owned files appear under their own Tool key", async () => {
     await initCommand({ yes: true, tools: "claude" });
 
     const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
     const manifest = JSON.parse(await readFile(manifestPath, "utf-8"));
 
-    // CLAUDE.md is an adapter-owned file → under claude, not _shared.
+    // CLAUDE.md is an adapter-owned file → under claude, never under any
+    // shared/global bucket.
     expect(manifest.managedFilesByAdapter.claude).toContain("CLAUDE.md");
-    expect(manifest.managedFilesByAdapter._shared).not.toContain("CLAUDE.md");
   });
 });
 

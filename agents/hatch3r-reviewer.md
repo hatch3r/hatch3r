@@ -36,7 +36,7 @@ Prompt structure follows `agents/shared/prompt-structure.md` — `<task>`, `<con
 
 ## Project Quality Checks
 
-Before completing a review, consult the project quality checks in `.agents/checks/` (code-quality.md, security.md, testing.md) and verify the implementation meets the defined standards. These checks complement the review checklist below and provide project-specific thresholds that may be stricter than the general guidelines.
+Before completing a review, consult the project quality checks in `checks/` (code-quality.md, security.md, testing.md) and verify the implementation meets the defined standards. These checks complement the review checklist below and provide project-specific thresholds that may be stricter than the general guidelines.
 
 </context>
 
@@ -50,7 +50,7 @@ Before reviewing, scan `docs/specs/` (if present) for specifications relevant to
 
 ## Review Checklist
 
-Verify compliance with `.agents/rules/hatch3r-security-patterns.md`, `.agents/rules/hatch3r-code-standards.md`, and `.agents/rules/hatch3r-testing.md` across all review items:
+Verify compliance with `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)hatch3r-security-patterns.md`, `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)hatch3r-code-standards.md`, and `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)hatch3r-testing.md` across all review items:
 
 1. **Correctness:** Does the code do what the issue/spec requires?
 2. **Privacy invariants:** No sensitive content in events/cloud data. Metadata allowlisted. Redaction defaults. Sensitive collections deny-all client access.

@@ -13,7 +13,8 @@
     "hatch3r": "./dist/cli/index.js"
   },
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && tsx scripts/copy-content.ts",
+    "postbuild": "tsx scripts/copy-content.ts",
     "dev": "tsup --watch",
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit",
@@ -43,12 +44,6 @@
     "cursor",
     "copilot",
     "claude",
-    "opencode",
-    "windsurf",
-    "amp",
-    "codex",
-    "gemini",
-    "cline",
     "agentic",
     "ai-agents",
     "mcp",
@@ -73,16 +68,7 @@
     "node": ">=22.0.0"
   },
   "files": [
-    "dist/cli/",
-    "agents/",
-    "checks/",
-    "commands/",
-    "rules/",
-    "skills/",
-    "prompts/",
-    "github-agents/",
-    "mcp/",
-    "hooks/",
+    "dist/",
     "README.md",
     "LICENSE"
   ],

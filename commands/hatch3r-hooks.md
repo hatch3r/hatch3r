@@ -20,7 +20,7 @@ This command runs as a single orchestrator without sub-agent delegation. Hook de
 
 ## Learnings Consultation
 
-If `.agents/learnings/` exists, scan for learnings related to hook configurations, event trigger patterns, or prior hook issues before starting.
+If `.hatch3r/learnings/` exists, scan for learnings related to hook configurations, event trigger patterns, or prior hook issues before starting.
 
 # Hooks — Event-Driven Agent Activation
 
@@ -34,8 +34,8 @@ Execute these steps in order. **Do not skip any step.** Ask the user at every ch
 
 ### Step 1: Discover Current State
 
-1. Check `.agents/hooks/` for existing hook definition files (`.md` files with frontmatter).
-2. Read `.agents/hatch.json` for configured tools and features.
+1. Check `the canonical `hooks/` directory or `.hatch3r/hooks/` (for customizations)` for existing hook definition files (`.md` files with frontmatter).
+2. Read `.hatch3r/hatch.json` for configured tools and features.
 3. List existing hooks with their event, agent, and conditions.
 
 Present the current state:
@@ -95,7 +95,7 @@ Present available hatch3r agents:
 - `dependency-auditor` — Dependency security and update checks
 - `docs-writer` — Documentation generation and updates
 
-If the user wants a custom agent name not in this list, accept it but warn that the agent must exist in `.agents/agents/`.
+If the user wants a custom agent name not in this list, accept it but warn that the agent must exist in `the canonical `agents/` directory or `.hatch3r/agents/` (for customizations)`.
 
 **ASK:** "Select an agent to activate when this event fires."
 
@@ -108,7 +108,7 @@ If the user wants a custom agent name not in this list, accept it but warn that 
 
 #### 2d. Write Hook Definition File
 
-Generate the hook definition file at `.agents/hooks/{event}-{agent-short-name}.md`:
+Generate the hook definition file at `the canonical `hooks/` directory or `.hatch3r/hooks/` (for customizations){event}-{agent-short-name}.md`:
 
 ```markdown
 ---
@@ -150,7 +150,7 @@ For editing an existing hook:
 1. List all hooks and ask which to edit.
 2. Show current definition.
 3. Ask what to change (event, agent, conditions, description).
-4. Update the hook file in `.agents/hooks/`.
+4. Update the hook file in `the canonical `hooks/` directory or `.hatch3r/hooks/` (for customizations)`.
 
 **ASK:** "Updated hook: {summary}. Save? (yes / revert / cancel)"
 
@@ -161,7 +161,7 @@ For editing an existing hook:
 1. List all hooks and ask which to remove.
 2. Show the hook definition.
 
-**ASK:** "Remove hook '{id}'? This will delete `.agents/hooks/{filename}`. (yes / cancel)"
+**ASK:** "Remove hook '{id}'? This will delete `the canonical `hooks/` directory or `.hatch3r/hooks/` (for customizations){filename}`. (yes / cancel)"
 
 3. Delete the file. Warn that tool-specific generated files (e.g., `.cursor/rules/hatch3r-hook-*.mdc`) will be cleaned up on the next `npx hatch3r sync`.
 
@@ -169,7 +169,7 @@ For editing an existing hook:
 
 ### Step 5: Sync Hooks to Tools
 
-1. Read all hook definitions from `.agents/hooks/`.
+1. Read all hook definitions from `the canonical `hooks/` directory or `.hatch3r/hooks/` (for customizations)`.
 2. For each configured tool in `hatch.json`, describe what will be generated:
    - **Claude Code:** Hook documentation appended to managed section of `CLAUDE.md`
    - **Cursor:** Glob-based `.mdc` rule files in `.cursor/rules/hatch3r-hook-*.mdc`
@@ -209,7 +209,7 @@ In `hatch.json`:
 }
 ```
 
-Custom events follow the same hook definition format as built-in events — create a hook file in `.agents/hooks/` with `event: custom:{domain}:{action}`.
+Custom events follow the same hook definition format as built-in events — create a hook file in `the canonical `hooks/` directory or `.hatch3r/hooks/` (for customizations)` with `event: custom:{domain}:{action}`.
 
 ---
 
@@ -284,9 +284,9 @@ For `pre-commit` with three hooks:
 
 ## Error Handling
 
-- `.agents/hooks/` doesn't exist: create it automatically.
+- `the canonical `hooks/` directory or `.hatch3r/hooks/` (for customizations)` doesn't exist: create it automatically.
 - Invalid event type: warn and show the valid events table.
-- Agent not found in `.agents/agents/`: warn but allow (agent may be added later).
+- Agent not found in `the canonical `agents/` directory or `.hatch3r/agents/` (for customizations)`: warn but allow (agent may be added later).
 - Adapter doesn't support hooks: generate hook definition file anyway, warn that sync for that tool is a no-op.
 - Duplicate hook ID: warn and ask the user to choose a different name or overwrite.
 

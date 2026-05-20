@@ -26,11 +26,11 @@ This command runs as a single orchestrator without sub-agent delegation. Quality
 
 ## Shared Context
 
-**Read the project's shared board context at the start of the run** (e.g., `.agents/commands/hatch3r-board-shared.md` or equivalent). It contains GitHub Context, Project Reference, and tooling directives. Use GitHub MCP tools for issue/PR operations. Fallback to `gh` CLI for release creation (outside MCP catalog).
+**Read the project's shared board context at the start of the run** (e.g., `the canonical `commands/` directory or `.hatch3r/commands/` (for customizations)hatch3r-board-shared.md` or equivalent). It contains GitHub Context, Project Reference, and tooling directives. Use GitHub MCP tools for issue/PR operations. Fallback to `gh` CLI for release creation (outside MCP catalog).
 
-**Default branch:** Use `board.defaultBranch` from `.agents/hatch.json` (fallback: `"main"`) for all git operations involving the base branch (e.g., `git log`, `search_pull_requests` with `base`, `git push origin`).
+**Default branch:** Use `board.defaultBranch` from `.hatch3r/hatch.json` (fallback: `"main"`) for all git operations involving the base branch (e.g., `git log`, `search_pull_requests` with `base`, `git push origin`).
 
-**Consult learnings:** If `.agents/learnings/` exists, scan for learnings related to release processes, version bumping conventions, or prior release issues before starting.
+**Consult learnings:** If `.hatch3r/learnings/` exists, scan for learnings related to release processes, version bumping conventions, or prior release issues before starting.
 
 ## Global Rule Overrides
 
@@ -160,7 +160,7 @@ git tag v{version}
 
 ### Step 7: Push
 
-Use `{base}` = `board.defaultBranch` from `.agents/hatch.json` (fallback: `"main"`).
+Use `{base}` = `board.defaultBranch` from `.hatch3r/hatch.json` (fallback: `"main"`).
 
 ```bash
 git push origin {base} && git push origin v{version}

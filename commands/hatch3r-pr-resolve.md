@@ -58,7 +58,7 @@ Optional positional argument: `<pr-number>` (integer).
 
 ## Shared Context
 
-If board context exists (current branch has an associated PR or board configuration in `.agents/hatch.json`), **read the `hatch3r-board-shared` command at the start of the run.** Cache `board.platform`, `board.owner`, `board.repo`, `board.defaultBranch`, and `board.projectNumber` for the duration of the run.
+If board context exists (current branch has an associated PR or board configuration in `.hatch3r/hatch.json`), **read the `hatch3r-board-shared` command at the start of the run.** Cache `board.platform`, `board.owner`, `board.repo`, `board.defaultBranch`, and `board.projectNumber` for the duration of the run.
 
 After loading `hatch3r-board-shared`, **read the platform-specific shared file** matching `board.platform`:
 - GitHub → `commands/board/shared-github.md`
@@ -67,7 +67,7 @@ After loading `hatch3r-board-shared`, **read the platform-specific shared file**
 
 Each platform file's **Cross-Cutting Tooling** table now includes PR-comment read and reply endpoints used in Steps 2 and 8.
 
-If no `.agents/hatch.json` exists, fall back to GitHub and proceed — the command can still run on any GitHub repo where `gh auth login` has been completed.
+If no `.hatch3r/hatch.json` exists, fall back to GitHub and proceed — the command can still run on any GitHub repo where `gh auth login` has been completed.
 
 ---
 
@@ -83,7 +83,7 @@ If no `.agents/hatch.json` exists, fall back to GitHub and proceed — the comma
 1. **One fetch per comment scope.** Issue exactly one paginated request per scope in Step 2; cache and reuse for Steps 3, 4, and 8.
 2. **One diff computation.** Compute `git diff {defaultBranch}...HEAD` once in Step 1; reuse for Steps 4 (outdated detection) and 7 (review loop input).
 3. **Targeted file reads.** In Step 4, read only the files referenced by a comment's `path`/`line` — not the full codebase.
-4. **No re-reading shared rules.** `scope: always` rules from `.agents/rules/` load once at session start; pass their content into sub-agent prompts (Step 6) rather than reloading.
+4. **No re-reading shared rules.** `scope: always` rules from `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)` load once at session start; pass their content into sub-agent prompts (Step 6) rather than reloading.
 5. **Per-platform reference cache.** Load the matching `commands/board/shared-{platform}.md` once at run start (Shared Context). Step 8 reads templates from the cache, not from disk.
 
 ---
@@ -163,7 +163,7 @@ Tier assignment is recomputed after Step 4 (when severity is known). If the init
 
 #### 1b. Detect Platform
 
-1. Read `.agents/hatch.json`. Extract `board.platform` (`github | azure-devops | gitlab`).
+1. Read `.hatch3r/hatch.json`. Extract `board.platform` (`github | azure-devops | gitlab`).
 2. If absent or unreadable, default to GitHub and record a Low-confidence platform-detection finding in `run_cache.errors`.
 
 #### 1c. Look Up the PR
@@ -453,9 +453,9 @@ Each sub-agent prompt MUST include:
 
 1. The findings list for that agent: `(comment_id, file, line, comment body verbatim as the "ask", proposed_action from Step 4)`.
 2. Instruction to follow the corresponding agent protocol.
-3. All `scope: always` rule directives from `.agents/rules/`.
+3. All `scope: always` rule directives from `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)`.
 4. Acceptance criteria from `run_cache.pr.linked_issues` (read once at Step 1, cached).
-5. Relevant `.agents/learnings/` matching the affected areas.
+5. Relevant `.hatch3r/learnings/` matching the affected areas.
 6. Explicit: do NOT create branches, commits, or PRs.
 7. Confidence expression requirement (verbatim from the Confidence Propagation Contract above).
 8. PR-resolve-specific constraint: "You are addressing reviewer comments on an existing PR. Stay within the architecture established by the PR's existing changes; do not introduce scope creep beyond the comments listed below."

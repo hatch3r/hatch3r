@@ -2,6 +2,45 @@
 
 All notable changes to hatch3r are documented in this file.
 
+## [1.9.0] - 2026-05-20
+
+### Headline
+
+Adapter scope cut from 15 to 3 (Claude Code, Cursor, GitHub Copilot) and a bundled-content refactor that removes the `.agents/` materialization step from end-user repos. Manifest, learnings, handoffs, MCP config, and the user-content escape hatch all relocate under a single `.hatch3r/` directory. Schema version bumped to 3. This is a breaking release.
+
+### Breaking Changes
+
+- **Adapter scope cut to 3.** Only `claude` (Claude Code), `cursor`, and `copilot` (GitHub Copilot) are supported. Hard cut — no compatibility stubs, no deprecation period.
+- **`.agents/` no longer written into user repos.** Adapters now read canonical content from the bundled npm package via `resolveBundledContentRoot()`. The only hatch3r-managed directory in your repo is `.hatch3r/`.
+- **Root `/AGENTS.md` removed.** Each adapter emits only its native surface (`.claude/` + `CLAUDE.md`, `.cursor/`, `.github/copilot-instructions.md` and related Copilot dirs). The shared bridge file is gone along with `SHARED_ADAPTER_KEY` / `SHARED_BRIDGE_FILES`.
+- **Manifest moved to `.hatch3r/hatch.json`** (was `.agents/hatch.json`). Auto-migration shim relocates on first `init`/`sync`/`update`.
+- **User-content escape hatch moved to `.hatch3r/overrides/`** (was `.agents/user/`). Adapters check overrides first, fall back to bundled canonical content.
+- **Learnings, handoffs, and MCP config moved to `.hatch3r/learnings/`, `.hatch3r/handoffs/`, `.hatch3r/mcp/`** (were under `.agents/`). Migration shim handles the relocation.
+- **Integrity manifest removed.** No more `.integrity.json` file, no SHA-256 per-file checksums. `hatch3r verify` and `hatch3r status` now do drift detection on adapter outputs only — compare regenerated output (from bundled content) against on-disk copy for every path in `manifest.managedFiles`.
+- **Manifest `schemaVersion` bumped to 3.** Older manifests are auto-migrated on read.
+
+### Removed
+
+- 12 adapter implementations and their tests, snapshots, type entries, and CLI registry rows: `aider`, `amazonq`, `amp`, `antigravity`, `cline`, `codex`, `gemini`, `goose`, `kiro`, `opencode`, `windsurf`, `zed`.
+- Adapter id surface trimmed in `src/types.ts` (`TOOLS` / `Tool`), `src/cli/shared/constants.ts` (`TOOL_DISPLAY_NAMES`, invocation syntax, secret notes), `src/pipeline/adapterToolTranslator.ts` (`NativeAgentConfig`, `ASK_USER_TOOLS`), `src/detect/repoAnalyzer.ts` (`TOOL_INDICATORS`), and `src/worktree/index.ts` (`ADAPTER_WORKTREE_PATTERNS`).
+- `src/integrity/` integrity-manifest module is reduced to drift-only semantics; `.integrity.json` reads/writes deleted.
+- `generateRootAgentsMd` and root-`AGENTS.md` emission paths in `src/cli/commands/init.ts` and `src/workspace/sync.ts`.
+
+### Migration Notes
+
+- **Auto-migration shim** runs on first `init`/`sync`/`update` against an existing project:
+  - `.agents/hatch.json` → `.hatch3r/hatch.json`
+  - `.agents/user/` → `.hatch3r/overrides/`
+  - `.agents/learnings/` → `.hatch3r/learnings/`
+  - `.agents/handoffs/` → `.hatch3r/handoffs/`
+  - `.agents/mcp/mcp.json` → `.hatch3r/mcp/mcp.json`
+  - Old paths are removed after a successful relocation; one-shot warning printed.
+- **Removed-adapter directories are NOT auto-cleaned.** Per the maintainer's hard-cut decision, existing user repos with `.windsurf/`, `.gemini/`, `.codex/`, `.cline/`, `.kiro/`, `.goose/`, `.amazonq/`, `.antigravity/`, `.aider/`, `.amp/`, `.opencode/`, or `.rules` directories will see them as orphaned after upgrading. Remove them manually (`rm -rf .windsurf .gemini ...`). A follow-up `hatch3r migrate --remove-deprecated-adapters` command is queued for a later release.
+- **CI scripts using `--tools` with removed adapter ids will fail at validation.** Trim invocations to `--tools claude,cursor,copilot` (or a subset). Unknown adapter ids are rejected, not silently ignored.
+- **Custom content under `.agents/user/`** is preserved by the migration shim — but verify the move after first sync; the shim warns on collisions and skips overwrite.
+
+---
+
 ## [1.8.0] - 2026-05-19
 
 ### Headline

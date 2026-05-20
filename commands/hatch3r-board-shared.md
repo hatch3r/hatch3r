@@ -23,11 +23,11 @@ This command provides shared context and procedures for board commands. It does 
 
 Before reading configuration, validate that prerequisites are met. If any check fails, stop immediately with an actionable error message. For interactive sessions where credentials are missing, use the `agents/shared/user-question-protocol.md` plain-text fallback shape to offer the user a numbered choice (interactive login / paste-token / abort) instead of a bare stop message.
 
-1. **hatch.json exists:** If `.agents/hatch.json` is missing or unreadable, stop with:
+1. **hatch.json exists:** If `.hatch3r/hatch.json` is missing or unreadable, stop with:
    > "Board commands require a hatch3r project. Run `npx hatch3r init` to set up your project first."
 
 2. **owner/repo configured:** If both top-level `owner`/`repo` and `board.owner`/`board.repo` are empty, stop with:
-   > "Board commands require owner and repo. Run `npx hatch3r config` to set your repository identity, or provide them in `.agents/hatch.json` under the top-level `owner` and `repo` fields."
+   > "Board commands require owner and repo. Run `npx hatch3r config` to set your repository identity, or provide them in `.hatch3r/hatch.json` under the top-level `owner` and `repo` fields."
 
 3. **Platform authentication:** Verify CLI authentication for the configured platform. On failure, ASK via user-question-protocol with three numbered options (interactive login / paste-token / abort) and default to option 1 if no response.
    - **GitHub:** Run `gh auth status`. If it fails or the `project` scope is missing, check `GITHUB_TOKEN`/`GH_TOKEN` env vars first; if absent, ASK: (1) `gh auth login` interactively, (2) paste a PAT with `project` scope (set GITHUB_TOKEN for this session only), (3) abort. Reference: https://docs.github.com/en/issues/planning-and-tracking-with-projects
@@ -35,7 +35,7 @@ Before reading configuration, validate that prerequisites are met. If any check 
    - **GitLab:** Run `glab auth status`. If it fails, check `GITLAB_TOKEN`; if absent, ASK: (1) `glab auth login` interactively, (2) provide GITLAB_TOKEN, (3) abort. Confirm access to project `{namespace}/{project}`.
 
 4. **projectNumber set (for commands other than board-init):** For `board-fill`, `board-groom`, `board-pickup`, and `board-refresh`, if `board.projectNumber` is null, stop with:
-   > "No project board configured. Run the `board-init` command first to create or connect a project board. This sets up the board.projectNumber in `.agents/hatch.json`."
+   > "No project board configured. Run the `board-init` command first to create or connect a project board. This sets up the board.projectNumber in `.hatch3r/hatch.json`."
 
 5. **GitHub PAT project scope (GitHub only, for board-init/fill/groom/pickup):** If GitHub mutations fail with permission errors, surface:
    > "GitHub Projects V2 requires the `project` scope on your PAT. Run `gh auth refresh -s project` to add it. Classic PATs need `admin:org` for org-owned projects."
@@ -46,7 +46,7 @@ Report each failed prerequisite with the specific fix command. Do not proceed pa
 
 ## Board Configuration
 
-All board commands read project-specific configuration from `.agents/hatch.json`. The GitHub owner and repo are defined at the top level (`owner`, `repo`). Board-specific configuration (Projects v2 IDs, label taxonomy, branch conventions, area labels) lives under the `board` key. **Read `.agents/hatch.json` at the start of every run and cache both top-level and `board` config for the duration.**
+All board commands read project-specific configuration from `.hatch3r/hatch.json`. The GitHub owner and repo are defined at the top level (`owner`, `repo`). Board-specific configuration (Projects v2 IDs, label taxonomy, branch conventions, area labels) lives under the `board` key. **Read `.hatch3r/hatch.json` at the start of every run and cache both top-level and `board` config for the duration.**
 
 **Owner/repo resolution:** Use top-level `owner`/`repo`. Fall back to `board.owner`/`board.repo` if top-level values are empty (backward compatibility).
 
@@ -95,7 +95,7 @@ If any field is `null` or missing, the corresponding feature is disabled (e.g., 
 
 ## Platform Detection
 
-Read `platform` from `.agents/hatch.json`. This determines all CLI commands, API patterns, and terminology for this run. If `platform` is missing or empty, default to `github`.
+Read `platform` from `.hatch3r/hatch.json`. This determines all CLI commands, API patterns, and terminology for this run. If `platform` is missing or empty, default to `github`.
 
 > Platform-specific details: see `commands/board/shared-github.md`
 > Platform-specific details: see `commands/board/shared-azure-devops.md`
@@ -141,7 +141,7 @@ Board sync is **MANDATORY**, not optional. The following rules override any "ski
 6. **Cross-reference: every epic/work item and sub-issue must have its board item ID tracked for subsequent updates.** After adding an item to the board, store the returned item ID in the run cache keyed by issue number.
 7. **`has-dependencies` label consistency:** Every issue with a non-empty `## Dependencies` section (containing at least one `Blocked by` or `Recommended after` reference) MUST have the `has-dependencies` label. Issues whose `## Dependencies` section contains only `None` MUST NOT have the label. Board commands enforce this during creation and update.
 8. **Retry-then-halt fallback policy.** When the Board Sync Procedure's full fallback chain (platform CLI -> MCP) fails for a single item, retry the full chain exactly twice with 2-second then 8-second backoffs. If the third attempt fails, halt that item (not the whole run), roll back only the specific status label this run added (snapshot the item's label set at start-of-sync; do not revert labels that pre-existed or were set concurrently by a human), surface the item to the user as a blocker, and record all three attempts with timestamps under `sync_results` in the run cache.
-9. **Null-option abort.** If any `board.statusOptions.*` key required by a planned sync mutation is null in `.agents/hatch.json`, halt the mutation before it fires with: "Cannot sync {status:label}: board.statusOptions.{key} is null in .agents/hatch.json. Run `hatch3r-board-init` to populate status option IDs." Do not proceed with remaining items in the batch.
+9. **Null-option abort.** If any `board.statusOptions.*` key required by a planned sync mutation is null in `.hatch3r/hatch.json`, halt the mutation before it fires with: "Cannot sync {status:label}: board.statusOptions.{key} is null in .hatch3r/hatch.json. Run `hatch3r-board-init` to populate status option IDs." Do not proceed with remaining items in the batch.
 10. **Retry budget ceiling.** No more than 20% of items in a batch may enter retry (rule 8). If the ceiling is exceeded, halt the batch -- this pattern indicates systemic failure (auth expired, project moved, rate limit exceeded), not per-item noise. Record a single batch-level error in the run cache `errors` entry in addition to the per-item `sync_results`.
 
 ---

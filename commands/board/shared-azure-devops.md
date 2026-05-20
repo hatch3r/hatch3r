@@ -56,7 +56,7 @@ Use `az devops` / `az boards` / `az repos` CLI. Issues = Work Items. PRs = Pull 
 
 ## Azure DevOps Context
 
-Derived from `.agents/hatch.json` board config:
+Derived from `.hatch3r/hatch.json` board config:
 
 - **Organization:** top-level `owner` (maps to Azure DevOps organization name)
 - **Project:** top-level `repo` (maps to Azure DevOps project name)

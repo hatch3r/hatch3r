@@ -84,11 +84,12 @@ export function getAdapterTimeout(
 export async function generateWithTimeout(
   tool: Tool,
   adapter: Adapter,
-  agentsDir: string,
+  canonicalRoot: string,
   manifest: HatchManifest,
   generationMode: GenerationMode,
   config?: AdapterTimeoutConfig,
   parentSignal?: AbortSignal,
+  userRepoRoot?: string,
 ): Promise<AdapterGenerationResult> {
   const timeoutMs = getAdapterTimeout(tool, config);
   const startTime = Date.now();
@@ -109,7 +110,7 @@ export async function generateWithTimeout(
 
   try {
     const outputs = await Promise.race([
-      adapter.generate(agentsDir, manifest, generationMode, controller.signal),
+      adapter.generate(canonicalRoot, manifest, userRepoRoot, generationMode, controller.signal),
       new Promise<never>((_resolve, reject) => {
         timer = setTimeout(() => {
           // Abort first so the adapter's cooperative checks unwind any

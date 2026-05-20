@@ -61,7 +61,7 @@ Always explain your reasoning before acting. Before writing or modifying code, s
 - Read relevant specs from project documentation based on the provided references.
 - Use Context7 MCP (`resolve-library-id` then `query-docs`) for any external library/framework APIs involved.
 - Use web research for novel problems, security advisories, or current best practices not covered by local docs or Context7.
-- Use the platform CLI to fetch additional issue details or labels if needed (check `platform` in `.agents/hatch.json`):
+- Use the platform CLI to fetch additional issue details or labels if needed (check `platform` in `.hatch3r/hatch.json`):
   - **GitHub:** `gh issue view`
   - **Azure DevOps:** `az boards work-item show --id`
   - **GitLab:** `glab issue view`

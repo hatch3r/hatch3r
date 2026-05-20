@@ -141,7 +141,7 @@ To exclude an agent from adapter output without deleting its canonical file:
 enabled: false
 ```
 
-The agent's canonical definition remains in `.agents/agents/` but no adapter output is generated for it.
+The agent's canonical definition remains in `the canonical `agents/` directory or `.hatch3r/agents/` (for customizations)` but no adapter output is generated for it.
 
 ## Protected Agents
 

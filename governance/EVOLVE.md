@@ -72,7 +72,7 @@ The report artefact is `governance/EVOLVE-REPORT.md`. The prompt writes no other
 
 Both apply unmodified per the canonical [audit/templates/rigor-contract.md](audit/templates/rigor-contract.md). Every finding and every proposal in this prompt satisfies the six tests (falsifiability, triangulation, confidence with basis, ≥3-step causal chain, bias check, adversarial peer-review counter-argument) and the Web Research Mandate citation profile (≥2 independent sources, URL + access date + author/org + trust tier, recency windows). Missing any disqualifies the finding from inclusion.
 
-Per-EVOLVE topic targets (drawn from `audit/templates/rigor-contract.md` §Per-Domain Source Targets, plus EVOLVE-specific): leading agentic-coding framework practice, prompt-engineering and agent-orchestration research, platform documentation for the 15 adapters hatch3r ships, security baselines (OWASP ASI, supply-chain reports), industry UI/UX patterns for developer tools, performance/cost benchmarks for agentic workflows.
+Per-EVOLVE topic targets (drawn from `audit/templates/rigor-contract.md` §Per-Domain Source Targets, plus EVOLVE-specific): leading agentic-coding framework practice, prompt-engineering and agent-orchestration research, platform documentation for the 3 supported adapters hatch3r ships (claude, cursor, copilot — scope reduced in 1.9.0 per CONSTITUTION §6 Decision #12), security baselines (OWASP ASI, supply-chain reports), industry UI/UX patterns for developer tools, performance/cost benchmarks for agentic workflows.
 
 ---
 

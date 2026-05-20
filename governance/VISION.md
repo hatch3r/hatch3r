@@ -1,6 +1,6 @@
 # hatch3r — Vision
 
-> Last updated: 2026-04-19
+> Last updated: 2026-05-20
 
 **Crack the egg. Hatch better agents.**
 
@@ -8,7 +8,7 @@
 
 ## What hatch3r Is
 
-hatch3r is an open-source CLI and Cursor plugin that installs a battle-tested, tool-agnostic agentic coding setup into any repository. One canonical source in `/.agents/`, adapters generate native configuration for 15 AI coding platforms. Weekly-audited and continuously improved through a closed-loop system.
+hatch3r is an open-source CLI and Cursor plugin that installs a battle-tested, tool-agnostic agentic coding setup into any repository. Canonical content ships inside the npm package; adapters read it directly from the bundle and generate native configuration for 3 supported AI coding platforms (Claude Code, Cursor, GitHub Copilot). The single user-visible footprint is `.hatch3r/` (manifest, learnings, handoffs, overrides, MCP credentials). Weekly-audited and continuously improved through a closed-loop system.
 
 Run `npx hatch3r init`. Get a production-grade agentic setup. Start building.
 
@@ -26,7 +26,7 @@ hatch3r is for everyone building software with AI coding assistants — solo dev
 
 **Team Lead / Platform Owner** — Needs consistent AI-assisted development practices across a team. Standardizes on hatch3r so every developer gets the same quality bar regardless of which AI tool they prefer.
 
-**OSS Maintainer** — Wants contributors using AI tools to produce PRs that pass the project's code-review standards on first submission. Ships a `.agents/` directory so AI assistants understand the project's conventions, architecture, and quality expectations from day one.
+**OSS Maintainer** — Wants contributors using AI tools to produce PRs that pass the project's code-review standards on first submission. Adopts hatch3r so adapter-generated platform configs (CLAUDE.md, `.cursor/`, `.github/`) carry the project's conventions, architecture, and quality expectations from day one.
 
 **Legacy System Maintainer** — Needs AI assistance that respects existing patterns, understands old codebases, and makes incremental improvements without breaking things. hatch3r's outside-in perspective and non-destructive adoption model make this safe.
 
@@ -46,7 +46,7 @@ Larger features (reusable components, styling consistency, i18n keys, complex wi
 
 The revision loop — human tests as user, provides targeted feedback, agent fixes efficiently — works well. Optimize it, don't rethink it. Minimize the number of revision cycles needed, but make each cycle fast and effective when it happens.
 
-User-authored artifacts produced via /hatch3r-create are held to the same one-shot success standard as canonical content; D20 enforces this via hybrid gates (creator-tool gates at write time, artifact-compliance gates at audit time).
+User-authored artifacts produced via /hatch3r-create are held to the same one-shot success standard as canonical content; D20 enforces this via hybrid gates (creator-tool gates at write time, artifact-compliance gates at audit time). Project-local overrides land under `.hatch3r/overrides/` (the D20 user-content escape hatch, relocated from `.agents/user/` in 1.9.0).
 
 ---
 
@@ -90,7 +90,7 @@ Content is ONLY maintained through the weekly audit cycle or in-between agentic 
 
 ### Canonical Content vs Project-Local Content
 
-Canonical content (under `agents/`, `skills/`, `rules/`, `commands/`, `hooks/` in the framework repository) is maintained ONLY through the weekly audit cycle and framework-owner agentic work. **Project-local content** — agents, skills, rules, commands, and hooks authored by an end-user via `/hatch3r-create` and stored under their project's `.agents/user/` — is held to the same one-shot success standard via Domain 20 (D20.1 audits the creator tool, D20.2 audits the artifacts). Project-local artifacts are not maintained by the framework owner; they are maintained by their project owner. Both bodies of content are subject to the shared quality charter and the lean thresholds in CONSTITUTION.md §2 P5.
+Canonical content (under `agents/`, `skills/`, `rules/`, `commands/`, `hooks/` in the framework repository) is maintained ONLY through the weekly audit cycle and framework-owner agentic work. **Project-local content** — agents, skills, rules, commands, and hooks authored by an end-user via `/hatch3r-create` and stored under their project's `.hatch3r/overrides/` — is held to the same one-shot success standard via Domain 20 (D20.1 audits the creator tool, D20.2 audits the artifacts). Project-local artifacts are not maintained by the framework owner; they are maintained by their project owner. Both bodies of content are subject to the shared quality charter and the lean thresholds in CONSTITUTION.md §2 P5.
 
 ### Seven Content Types
 
@@ -110,15 +110,21 @@ Every content artifact must be auditable, versionable, and improvable through th
 
 ## Platform Strategy
 
-All 15 adapters are equally supported. No first-class vs second-class platforms. If hatch3r supports a platform, that platform gets the full capability set that the platform's native format can express.
+All 3 supported adapters are equally supported. No first-class vs second-class platforms. Each gets the full capability set that the platform's native format can express. Scope reduced to 3 in 1.9.0 (CONSTITUTION §6 Decision #12) to concentrate maintenance and raise the per-adapter currency bar.
 
 ### Supported Platforms
 
-Cursor, GitHub Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline/Roo Code, Aider, Kiro (rebranded from Amazon Q CLI), Goose, Zed, Amazon Q, AntiGravity.
+| Platform | Output paths |
+|----------|--------------|
+| Claude Code | `CLAUDE.md` (root, managed-block wrapped) |
+| Cursor | `.cursor/rules/`, `.cursor/mcp.json`, `.cursor/commands/` |
+| GitHub Copilot | `.github/copilot-instructions.md`, `.github/instructions/`, `.github/prompts/` |
+
+Canonical content lives inside the npm package; adapters read it via `resolveBundledContentRoot()` and emit platform-native config into the paths above. The user repo carries no `.agents/` directory in 1.9.0 — only `.hatch3r/` (manifest, learnings, handoffs, overrides, MCP credentials) plus the adapter output paths.
 
 ### Parity and Adaptation
 
-Platform changes — new features, API changes, deprecations — are detected and adapted within the weekly audit cycle. The adapter infrastructure maps canonical content to each platform's native format. Capability gaps between platforms are tracked and documented, not hidden.
+Platform changes — new features, API changes, deprecations — are detected and adapted within the weekly audit cycle. The adapter infrastructure maps bundled canonical content to each platform's native format. Capability gaps between platforms are tracked and documented, not hidden.
 
 ---
 
@@ -162,7 +168,7 @@ The CLI is NOT a runtime. It generates configuration; it does not execute agents
 
 Learning is automatic. The system captures learnings on the fly after each learning moment — not only when the user explicitly instructs it.
 
-**Project-level only.** Users work on their projects, not on the framework itself. Learnings are scoped to the project and stored in the project's `.agents/learnings/` directory.
+**Project-level only.** Users work on their projects, not on the framework itself. Learnings are scoped to the project and stored in the project's `.hatch3r/learnings/` directory.
 
 **Must not bloat.** Efficient storage, no redundancy, no noise. Old learnings that are superseded get consolidated or removed. The learning store stays lean and useful.
 
@@ -174,7 +180,7 @@ Learning is automatic. The system captures learnings on the fly after each learn
 
 Stable and aspirational. These do not change week-to-week.
 
-1. **Canonical source in `/.agents/`** — One truth, many outputs.
+1. **Canonical source bundled in the npm package** — One truth, many outputs. Adapters read canonical content via `resolveBundledContentRoot()`; user repos carry only `.hatch3r/` plus adapter outputs.
 
 2. **Everything is plain text** — Reviewable, diffable, versionable. No binary blobs, no opaque databases.
 
@@ -194,7 +200,7 @@ Stable and aspirational. These do not change week-to-week.
 
 10. **One-shot success as the north star** — Every content change is measured against: does this make first-attempt success more likely?
 
-11. **Equal adapter parity across all platforms** — No first-class or second-class citizens. Every supported platform gets the full capability set.
+11. **Equal adapter parity across the 3 supported platforms** — Claude Code, Cursor, GitHub Copilot each get the full capability set their native format can express. No first-class or second-class citizens within the supported set.
 
 12. **Incremental adoption** — Legacy-friendly, non-destructive. Works with what exists, does not demand a rewrite.
 
