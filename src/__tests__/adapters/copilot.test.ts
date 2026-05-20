@@ -111,7 +111,9 @@ describe("CopilotAdapter", () => {
     const manifest = makeManifest();
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
-    const prompts = outputs.filter((o) => o.path.startsWith(".github/prompts/"));
+    // Top-level picker entries — companion subtrees (`.github/prompts/board/`,
+    // `.github/prompts/revision/`) are emitted but excluded from this count.
+    const prompts = outputs.filter((o) => /^\.github\/prompts\/[^/]+\.md$/.test(o.path));
     expect(prompts.length).toBe(2);
 
     const promptFromPrompts = prompts.find((p) => p.path.includes("test-prompt"));
@@ -120,7 +122,7 @@ describe("CopilotAdapter", () => {
     expect(promptFromPrompts!.content).toContain("test-prompt");
     expect(promptFromPrompts!.managedContent).toBeDefined();
 
-    const commands = outputs.filter((o) => o.path.startsWith(".github/prompts/") && o.path.includes("test-command"));
+    const commands = prompts.filter((p) => p.path.includes("test-command"));
     expect(commands.length).toBe(1);
     const promptFromCommands = commands[0];
     expect(promptFromCommands).toBeDefined();
@@ -131,7 +133,9 @@ describe("CopilotAdapter", () => {
     const manifest = makeManifest();
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
-    const agentFiles = outputs.filter((o) => o.path.startsWith(".github/agents/"));
+    // Top-level picker entries — companion subtrees (`.github/agents/modes/`,
+    // `.github/agents/shared/`) are emitted but excluded from this count.
+    const agentFiles = outputs.filter((o) => /^\.github\/agents\/[^/]+\.(agent\.md|md)$/.test(o.path));
     expect(agentFiles.length).toBe(3);
 
     const regularAgent = agentFiles.find((a) => a.path.includes("test-agent"));
@@ -139,12 +143,34 @@ describe("CopilotAdapter", () => {
     expect(regularAgent!.content).toContain("name: test-agent");
     expect(regularAgent!.managedContent).toBeDefined();
 
-    const ghAgentFiles = outputs.filter((o) => o.path.startsWith(".github/agents/") && o.path.includes("test-gh-agent"));
+    const ghAgentFiles = agentFiles.filter((a) => a.path.includes("test-gh-agent"));
     expect(ghAgentFiles.length).toBe(1);
     const ghAgent = ghAgentFiles[0];
     expect(ghAgent).toBeDefined();
     expect(ghAgent!.content).toContain("test-gh-agent");
     expect(ghAgent!.managedContent).toBeDefined();
+  });
+
+  it("emits companion subtree files under `.github/` so canonical references resolve", async () => {
+    const manifest = makeManifest();
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const pathSet = new Set(outputs.map((o) => o.path));
+    // Agents companion subtrees follow `.github/agents/{modes,shared}/`
+    expect(pathSet.has(".github/agents/modes/fake-mode.md")).toBe(true);
+    expect(pathSet.has(".github/agents/shared/fake-reference.md")).toBe(true);
+    // Commands route to `.github/prompts/`, so command companions land beside the per-command prompt files
+    expect(pathSet.has(".github/prompts/board/pickup-fake.md")).toBe(true);
+
+    // Companion paths must not surface in the top-level agent/prompt pickers.
+    const topLevelAgentPaths = outputs
+      .filter((o) => /^\.github\/agents\/[^/]+\.md$/.test(o.path))
+      .map((o) => o.path);
+    const topLevelPromptPaths = outputs
+      .filter((o) => /^\.github\/prompts\/[^/]+\.md$/.test(o.path))
+      .map((o) => o.path);
+    expect(topLevelAgentPaths.some((p) => p.includes("fake-mode"))).toBe(false);
+    expect(topLevelPromptPaths.some((p) => p.includes("pickup-fake"))).toBe(false);
   });
 
   it("generates skill files in .github/skills/", async () => {

@@ -210,6 +210,26 @@ jobs:
       ...await this.processSkillsWithFmCliFiltered(ctx, (id) => `.github/skills/${toPrefixedId(id)}/SKILL.md`),
     );
 
+    // Companion/reference content (see `BaseAdapter.processCompanionSubdir`
+    // for the rationale). Copilot routes commands to `.github/prompts/`,
+    // so command companions land beside the per-command prompt files;
+    // agents and checks follow the per-adapter agent/check directories.
+    // Gating mirrors the primary feature; `checks/` rides either agents
+    // or commands. Copilot's `prompts` feature flag covers both the
+    // canonical `prompts/` dir and the commands → `.github/prompts/`
+    // emission, so command companions follow `features.commands`.
+    const companionMappings: Array<[string, boolean, (f: string) => string]> = [
+      ["agents/modes", ctx.features.agents, (f) => `.github/agents/modes/${f}`],
+      ["agents/shared", ctx.features.agents, (f) => `.github/agents/shared/${f}`],
+      ["commands/board", ctx.features.commands, (f) => `.github/prompts/board/${f}`],
+      ["commands/revision", ctx.features.commands, (f) => `.github/prompts/revision/${f}`],
+      ["checks", ctx.features.agents || ctx.features.commands, (f) => `.github/checks/${f}`],
+    ];
+    for (const [subdir, enabled, pathFn] of companionMappings) {
+      if (!enabled) continue;
+      results.push(...await this.processCompanionSubdir(ctx, subdir, pathFn));
+    }
+
     const mcp = await this.readFilteredMcp(ctx);
     if (mcp && Object.keys(mcp).length > 0) {
       // Use shared buildStdMcpEntries to avoid redundant env construction (#2.19)

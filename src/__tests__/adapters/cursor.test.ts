@@ -76,7 +76,9 @@ describe("CursorAdapter", () => {
     const manifest = makeManifest();
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
-    const agents = outputs.filter((o) => o.path.startsWith(".cursor/agents/"));
+    // Top-level picker entries — companion subtrees (`.cursor/agents/modes/`,
+    // `.cursor/agents/shared/`) are emitted but excluded from this count.
+    const agents = outputs.filter((o) => /^\.cursor\/agents\/[^/]+\.md$/.test(o.path));
     expect(agents.length).toBe(2);
 
     const agent = agents.find((o) => o.path === ".cursor/agents/hatch3r-test-agent.md")!;
@@ -159,11 +161,33 @@ You are a test agent.`,
     expect(skill.managedContent).toBeDefined();
   });
 
+  it("emits companion subtree files under `.cursor/` so canonical references resolve", async () => {
+    const manifest = makeManifest();
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const pathSet = new Set(outputs.map((o) => o.path));
+    expect(pathSet.has(".cursor/agents/modes/fake-mode.md")).toBe(true);
+    expect(pathSet.has(".cursor/agents/shared/fake-reference.md")).toBe(true);
+    expect(pathSet.has(".cursor/commands/board/pickup-fake.md")).toBe(true);
+
+    // Companion paths must not surface in the top-level agent/command pickers.
+    const topLevelAgentPaths = outputs
+      .filter((o) => /^\.cursor\/agents\/[^/]+\.md$/.test(o.path))
+      .map((o) => o.path);
+    const topLevelCommandPaths = outputs
+      .filter((o) => /^\.cursor\/commands\/[^/]+\.md$/.test(o.path))
+      .map((o) => o.path);
+    expect(topLevelAgentPaths.some((p) => p.includes("fake-mode"))).toBe(false);
+    expect(topLevelCommandPaths.some((p) => p.includes("pickup-fake"))).toBe(false);
+  });
+
   it("generates command files", async () => {
     const manifest = makeManifest();
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
-    const commands = outputs.filter((o) => o.path.startsWith(".cursor/commands/"));
+    // Top-level picker entries — companion subtrees (`.cursor/commands/board/`,
+    // `.cursor/commands/revision/`) are emitted but excluded from this count.
+    const commands = outputs.filter((o) => /^\.cursor\/commands\/[^/]+\.md$/.test(o.path));
     expect(commands.length).toBe(1);
 
     const cmd = commands[0]!;

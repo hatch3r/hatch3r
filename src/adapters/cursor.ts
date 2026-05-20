@@ -124,6 +124,24 @@ export class CursorAdapter extends BaseAdapter {
       ...await this.processCommandsRaw(ctx, (id) => `.cursor/commands/${toPrefixedId(id)}.md`),
     );
 
+    // Companion/reference content (see `BaseAdapter.processCompanionSubdir`
+    // for the rationale). Mirror the canonical subtree under per-adapter
+    // native paths so canonical references like `agents/shared/quality-charter.md`
+    // resolve in the user repo after the 1.9.0 bundled-content migration.
+    // Gating mirrors the primary feature; `checks/` is referenced by both
+    // agents (reviewer) and commands (benchmark).
+    const companionMappings: Array<[string, boolean, (f: string) => string]> = [
+      ["agents/modes", ctx.features.agents, (f) => `.cursor/agents/modes/${f}`],
+      ["agents/shared", ctx.features.agents, (f) => `.cursor/agents/shared/${f}`],
+      ["commands/board", ctx.features.commands, (f) => `.cursor/commands/board/${f}`],
+      ["commands/revision", ctx.features.commands, (f) => `.cursor/commands/revision/${f}`],
+      ["checks", ctx.features.agents || ctx.features.commands, (f) => `.cursor/checks/${f}`],
+    ];
+    for (const [subdir, enabled, pathFn] of companionMappings) {
+      if (!enabled) continue;
+      results.push(...await this.processCompanionSubdir(ctx, subdir, pathFn));
+    }
+
     const mcp = await this.readFilteredMcp(ctx);
     if (mcp) {
       const transformed = transformEnvVarSyntax(mcp, "shell") as Record<string, Record<string, unknown>>;

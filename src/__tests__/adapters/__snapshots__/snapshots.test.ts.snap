@@ -4,6 +4,9 @@ exports[`adapter output snapshots > ClaudeAdapter > file paths match snapshot 1`
 [
   ".claude/agents/hatch3r-readonly-agent.md",
   ".claude/agents/hatch3r-test-agent.md",
+  ".claude/agents/modes/fake-mode.md",
+  ".claude/agents/shared/fake-reference.md",
+  ".claude/commands/board/pickup-fake.md",
   ".claude/commands/hatch3r-agent-team.md",
   ".claude/commands/hatch3r-test-command.md",
   ".claude/hooks/agent-tool-policies.json",
@@ -37,6 +40,30 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
     ],
     "hasManagedContent": true,
     "path": ".claude/agents/hatch3r-test-agent.md",
+  },
+  {
+    "action": "create",
+    "contentMarkers": [
+      "MANAGED_BLOCK",
+    ],
+    "hasManagedContent": true,
+    "path": ".claude/agents/modes/fake-mode.md",
+  },
+  {
+    "action": "create",
+    "contentMarkers": [
+      "MANAGED_BLOCK",
+    ],
+    "hasManagedContent": true,
+    "path": ".claude/agents/shared/fake-reference.md",
+  },
+  {
+    "action": "create",
+    "contentMarkers": [
+      "MANAGED_BLOCK",
+    ],
+    "hasManagedContent": true,
+    "path": ".claude/commands/board/pickup-fake.md",
   },
   {
     "action": "create",
@@ -138,8 +165,11 @@ exports[`adapter output snapshots > CopilotAdapter > file paths match snapshot 1
   ".github/agents/hatch3r-readonly-agent.agent.md",
   ".github/agents/hatch3r-test-agent.agent.md",
   ".github/agents/hatch3r-test-gh-agent.agent.md",
+  ".github/agents/modes/fake-mode.md",
+  ".github/agents/shared/fake-reference.md",
   ".github/copilot-instructions.md",
   ".github/instructions/50-hatch3r-scoped-rule.instructions.md",
+  ".github/prompts/board/pickup-fake.md",
   ".github/prompts/hatch3r-test-command.prompt.md",
   ".github/prompts/hatch3r-test-prompt.prompt.md",
   ".github/skills/hatch3r-test-skill/SKILL.md",
@@ -179,6 +209,22 @@ exports[`adapter output snapshots > CopilotAdapter > output structure matches sn
   {
     "action": "create",
     "contentMarkers": [
+      "MANAGED_BLOCK",
+    ],
+    "hasManagedContent": true,
+    "path": ".github/agents/modes/fake-mode.md",
+  },
+  {
+    "action": "create",
+    "contentMarkers": [
+      "MANAGED_BLOCK",
+    ],
+    "hasManagedContent": true,
+    "path": ".github/agents/shared/fake-reference.md",
+  },
+  {
+    "action": "create",
+    "contentMarkers": [
       "AGENT_QUICK_REFERENCE",
       "BRIDGE_SECTION",
       "MANAGED_BLOCK",
@@ -195,6 +241,14 @@ exports[`adapter output snapshots > CopilotAdapter > output structure matches sn
     ],
     "hasManagedContent": true,
     "path": ".github/instructions/50-hatch3r-scoped-rule.instructions.md",
+  },
+  {
+    "action": "create",
+    "contentMarkers": [
+      "MANAGED_BLOCK",
+    ],
+    "hasManagedContent": true,
+    "path": ".github/prompts/board/pickup-fake.md",
   },
   {
     "action": "create",
@@ -245,6 +299,9 @@ exports[`adapter output snapshots > CursorAdapter > file paths match snapshot 1`
   ".cursor/agents-policy.json",
   ".cursor/agents/hatch3r-readonly-agent.md",
   ".cursor/agents/hatch3r-test-agent.md",
+  ".cursor/agents/modes/fake-mode.md",
+  ".cursor/agents/shared/fake-reference.md",
+  ".cursor/commands/board/pickup-fake.md",
   ".cursor/commands/hatch3r-test-command.md",
   ".cursor/environment.json",
   ".cursor/mcp.json",
@@ -287,6 +344,30 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
     ],
     "hasManagedContent": true,
     "path": ".cursor/agents/hatch3r-test-agent.md",
+  },
+  {
+    "action": "create",
+    "contentMarkers": [
+      "MANAGED_BLOCK",
+    ],
+    "hasManagedContent": true,
+    "path": ".cursor/agents/modes/fake-mode.md",
+  },
+  {
+    "action": "create",
+    "contentMarkers": [
+      "MANAGED_BLOCK",
+    ],
+    "hasManagedContent": true,
+    "path": ".cursor/agents/shared/fake-reference.md",
+  },
+  {
+    "action": "create",
+    "contentMarkers": [
+      "MANAGED_BLOCK",
+    ],
+    "hasManagedContent": true,
+    "path": ".cursor/commands/board/pickup-fake.md",
   },
   {
     "action": "create",

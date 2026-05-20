@@ -1,3 +1,4 @@
+import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import type {
   AdapterOutput,
@@ -669,6 +670,85 @@ export abstract class BaseAdapter implements Adapter {
       if (skip) continue;
       const content = this.substituteCanonicalContent(raw, ctx);
       results.push(output(pathFn(cmd.id), wrapInManagedBlock(content), content));
+    }
+    return results;
+  }
+
+  /**
+   * Emit companion/reference content from a canonical subdirectory.
+   *
+   * Companion content lives under support subdirectories of the canonical
+   * tree (`agents/modes/`, `agents/shared/`, `commands/board/`,
+   * `commands/revision/`, `checks/`) and is referenced by primary
+   * artifacts via path strings such as
+   * `agents/shared/quality-charter.md` or
+   * `agents/modes/architecture.md`. Pre-1.9.0 these files were
+   * materialised in the user's `.agents/` mirror; the bundled-content
+   * migration (commit e4e5126) removed that mirror without re-emitting
+   * the companion subtrees, so canonical references stopped resolving in
+   * the user repo. This helper closes that gap by emitting each `.md`
+   * file as a managed-block output under the per-adapter native path
+   * supplied by `pathFn`.
+   *
+   * Notes on the design choice:
+   * - Path references inside companion bodies are NOT rewritten — the
+   *   runtime agent uses Grep/Glob on the filename, which finds the file
+   *   wherever it lives. Existing canonical bodies already rely on this
+   *   pattern when referencing rules (e.g. `rules/hatch3r-X.md` resolves
+   *   on disk to `.claude/rules/{NN}-hatch3r-X.md`).
+   * - `substituteCanonicalContent` is applied so the PLATFORM-TOOL marker
+   *   in `agents/shared/user-question-protocol.md` is replaced with the
+   *   per-adapter platform note, matching the substitution that
+   *   `inlineAgents` / `inlineRules` perform on primary artifacts.
+   * - Outputs are tracked as managed blocks so orphan cleanup (in
+   *   `src/cli/commands/sync.ts`) reclaims them if a future canonical
+   *   tree drops the file.
+   * - ENOENT on `canonicalSubdir` is silently treated as an empty
+   *   directory so adapters can call this helper for every subdir
+   *   without each one needing to probe existence first.
+   *
+   * @param canonicalSubdir POSIX-style canonical-relative subdir (e.g.
+   *   `"agents/modes"`).
+   * @param pathFn Mapping from companion file basename (e.g. `"architecture.md"`)
+   *   to the adapter-native output path.
+   */
+  protected async processCompanionSubdir(
+    ctx: AdapterContext,
+    canonicalSubdir: string,
+    pathFn: (filename: string) => string,
+  ): Promise<AdapterOutput[]> {
+    const fullDir = join(ctx.canonicalRoot, canonicalSubdir);
+    let entries: { name: string; isFile: () => boolean }[];
+    try {
+      entries = await readdir(fullDir, { withFileTypes: true });
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw err;
+    }
+
+    const results: AdapterOutput[] = [];
+    const minimal = this.isMinimal(ctx);
+    const sorted = entries
+      .filter((e) => e.isFile() && e.name.endsWith(".md"))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    for (const entry of sorted) {
+      this.throwIfAborted(ctx);
+      const src = join(fullDir, entry.name);
+      let raw: string;
+      try {
+        raw = await readFile(src, "utf-8");
+      } catch (err) {
+        this.warnings.push(
+          `[${this.name}] failed to read companion file ${canonicalSubdir}/${entry.name}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        continue;
+      }
+
+      const substituted = this.substituteCanonicalContent(raw, ctx);
+      const body = minimal ? this.stripMinimal(substituted) : substituted;
+      this._trackedSourceFiles.add(src);
+      results.push(output(pathFn(entry.name), wrapInManagedBlock(body), body));
     }
     return results;
   }

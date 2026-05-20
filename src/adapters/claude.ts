@@ -571,6 +571,32 @@ export class ClaudeAdapter extends BaseAdapter {
     );
     results.push(...commandOutputs.map(rewrapWithCacheBreakpoints));
 
+    // Companion/reference content (`agents/modes/`, `agents/shared/`,
+    // `commands/board/`, `commands/revision/`, `checks/`) is referenced by
+    // primary artifacts via plain `agents/shared/quality-charter.md`-style
+    // path strings. Without these subtrees on disk the runtime agent's
+    // Read/Grep cannot resolve those references — the bundled-content
+    // migration in 1.9.0 removed the `.agents/` mirror that previously
+    // materialised them. We re-emit each subtree under the per-adapter
+    // native path so references resolve and orphan cleanup tracks them.
+    //
+    // Gating: each subtree rides the same feature flag as the primary
+    // artifact it supports — disabling a feature also disables its
+    // companion subtree. `checks/` is referenced from both agents
+    // (reviewer) and commands (benchmark), so either gate keeps it.
+    const companionMappings: Array<[string, boolean, (f: string) => string]> = [
+      ["agents/modes", ctx.features.agents, (f) => `.claude/agents/modes/${f}`],
+      ["agents/shared", ctx.features.agents, (f) => `.claude/agents/shared/${f}`],
+      ["commands/board", ctx.features.commands, (f) => `.claude/commands/board/${f}`],
+      ["commands/revision", ctx.features.commands, (f) => `.claude/commands/revision/${f}`],
+      ["checks", ctx.features.agents || ctx.features.commands, (f) => `.claude/checks/${f}`],
+    ];
+    for (const [subdir, enabled, pathFn] of companionMappings) {
+      if (!enabled) continue;
+      const companionOutputs = await this.processCompanionSubdir(ctx, subdir, pathFn);
+      results.push(...companionOutputs.map(rewrapWithCacheBreakpoints));
+    }
+
     const mcp = await this.readFilteredMcp(ctx);
     if (mcp) {
       const claudeMcp: Record<string, unknown> = {};

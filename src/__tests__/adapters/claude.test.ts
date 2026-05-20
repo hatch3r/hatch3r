@@ -89,7 +89,9 @@ describe("ClaudeAdapter", () => {
     const manifest = makeManifest();
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
-    const agents = outputs.filter((o) => o.path.startsWith(".claude/agents/"));
+    // Top-level picker entries — companion subtrees (`.claude/agents/modes/`,
+    // `.claude/agents/shared/`) are emitted but excluded from this count.
+    const agents = outputs.filter((o) => /^\.claude\/agents\/[^/]+\.md$/.test(o.path));
     expect(agents.length).toBe(2);
 
     const agent = agents.find((o) => o.path === ".claude/agents/hatch3r-test-agent.md")!;
@@ -99,28 +101,53 @@ describe("ClaudeAdapter", () => {
     expect(agent.managedContent).toBeDefined();
   });
 
-  it("filters companion agent content (modes/shared) and command content (subdirectory/shared-context) from per-tool output", async () => {
+  it("filters companion agent content (modes/shared) and command content (subdirectory/shared-context) from per-tool picker output", async () => {
     const manifest = makeManifest();
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
-    const agentPaths = outputs
-      .filter((o) => o.path.startsWith(".claude/agents/"))
+    // Picker-level paths are top-level `.md` files only (no subdir segments)
+    // — companion subtrees are emitted but live under `.claude/agents/modes/`,
+    // `.claude/commands/board/`, etc. and must not surface in the picker.
+    const topLevelAgentPaths = outputs
+      .filter((o) => /^\.claude\/agents\/[^/]+\.md$/.test(o.path))
       .map((o) => o.path);
-    const commandPaths = outputs
-      .filter((o) => o.path.startsWith(".claude/commands/"))
+    const topLevelCommandPaths = outputs
+      .filter((o) => /^\.claude\/commands\/[^/]+\.md$/.test(o.path))
       .map((o) => o.path);
 
     // Top-level primary fixtures survive
-    expect(agentPaths.some((p) => p.includes("test-agent"))).toBe(true);
-    expect(commandPaths.some((p) => p.includes("test-command"))).toBe(true);
+    expect(topLevelAgentPaths.some((p) => p.includes("test-agent"))).toBe(true);
+    expect(topLevelCommandPaths.some((p) => p.includes("test-command"))).toBe(true);
 
-    // Subdirectory companion fixtures are excluded from pickers
-    expect(agentPaths.some((p) => p.includes("fake-mode"))).toBe(false);
-    expect(agentPaths.some((p) => p.includes("fake-reference"))).toBe(false);
-    expect(commandPaths.some((p) => p.includes("pickup-fake"))).toBe(false);
+    // Subdirectory companion fixtures are excluded from picker-level paths
+    expect(topLevelAgentPaths.some((p) => p.includes("fake-mode"))).toBe(false);
+    expect(topLevelAgentPaths.some((p) => p.includes("fake-reference"))).toBe(false);
+    expect(topLevelCommandPaths.some((p) => p.includes("pickup-fake"))).toBe(false);
 
     // Top-level file with non-primary frontmatter type is excluded
-    expect(commandPaths.some((p) => p.includes("fake-shared"))).toBe(false);
+    expect(topLevelCommandPaths.some((p) => p.includes("fake-shared"))).toBe(false);
+  });
+
+  it("emits companion subtree files under per-adapter native paths so canonical references resolve", async () => {
+    const manifest = makeManifest();
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const pathSet = new Set(outputs.map((o) => o.path));
+
+    // agents/modes/ fixture lands under `.claude/agents/modes/`
+    expect(pathSet.has(".claude/agents/modes/fake-mode.md")).toBe(true);
+    // agents/shared/ fixture lands under `.claude/agents/shared/`
+    expect(pathSet.has(".claude/agents/shared/fake-reference.md")).toBe(true);
+    // commands/board/ fixture lands under `.claude/commands/board/`
+    expect(pathSet.has(".claude/commands/board/pickup-fake.md")).toBe(true);
+
+    // Companion outputs are wrapped in managed blocks so orphan cleanup
+    // and sync drift detection cover them.
+    const companion = outputs.find((o) => o.path === ".claude/agents/modes/fake-mode.md");
+    expect(companion).toBeDefined();
+    expect(companion!.managedContent).toBeDefined();
+    expect(companion!.content).toContain(MANAGED_BLOCK_START);
+    expect(companion!.content).toContain(MANAGED_BLOCK_END);
   });
 
   it("includes Agent Teams section in CLAUDE.md", async () => {
