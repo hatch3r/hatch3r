@@ -2,6 +2,7 @@
 description: Event and message schema evolution patterns for Kafka / Kinesis / Pub-Sub / event store — backward + forward + full compatibility modes, schema registry, consumer-side defaults
 globs: ["**/events/**", "**/schemas/**", "**/*.avsc", "**/*.proto", "**/messaging/**", "**/kafka/**", "**/pubsub/**"]
 alwaysApply: false
+precedence: high
 ---
 # Event Schema Evolution
 

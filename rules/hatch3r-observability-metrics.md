@@ -5,6 +5,7 @@ description: Metrics, SLO/SLI definitions, alerting, and dashboard conventions f
 scope: conditional
 globs: "**/*metric*,**/*slo*,**/*sli*,**/*alert*,**/*dashboard*,**/observability/**,**/routes/**,**/handlers/**,**/services/**,**/api/**,**/middleware/**,**/controllers/**,**/lib/**"
 tags: [devops]
+precedence: high
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true
 ---

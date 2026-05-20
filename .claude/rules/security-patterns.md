@@ -1,3 +1,12 @@
+---
+id: security-patterns
+type: rule
+description: Mandatory security patterns in src/ — atomic writes, path traversal guards, no hardcoded secrets, prompt injection defense, tool allowlists, integrity verification, circuit breaker.
+tags: [maintainer, security, p6]
+scope: always
+precedence: high
+---
+
 # Security Patterns
 
 **Pillars:** P6 (Security & Trust)

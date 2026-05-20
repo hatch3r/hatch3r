@@ -1,3 +1,12 @@
+---
+id: governance-lean-thresholds
+type: rule
+description: Lean-threshold limits from CONSTITUTION.md §2 P5 must hold for every governance file modification; pillar-backed rationale required for overages.
+tags: [maintainer, governance, p4, p5]
+scope: always
+precedence: high
+---
+
 # Governance Lean Thresholds
 
 **Pillars:** P5 (Governance Self-Quality), P4 (Lean Coverage)

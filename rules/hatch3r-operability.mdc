@@ -2,6 +2,7 @@
 description: Operability patterns in user code — liveness / readiness / startup probes, graceful shutdown, feature flags, runbook URL annotations, health endpoints
 globs: ["**/services/**", "**/handlers/**", "**/health*", "**/probes/**", "**/k8s/**", "**/manifests/**", "**/charts/**", "**/feature*", "**/flags/**"]
 alwaysApply: false
+precedence: high
 ---
 # Operability
 

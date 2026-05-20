@@ -1,3 +1,12 @@
+---
+id: content-authoring
+type: rule
+description: Canonical content authoring contract — required YAML frontmatter, filename prefix, quality charter, duplication check, skill/rule/command format conventions, .md/.mdc rule scope transform.
+tags: [maintainer, content, p2, p4]
+scope: always
+precedence: high
+---
+
 # Content Authoring
 
 **Pillars:** P4 (Lean Coverage), P2 (Scientific Quality)

@@ -1,3 +1,12 @@
+---
+id: anti-slop-enforcement
+type: rule
+description: Zero tolerance for banned filler phrases in .md files under governance/agents/commands/rules/skills/hooks; replace with measurable qualifiers.
+tags: [maintainer, governance, p4, p5]
+scope: always
+precedence: high
+---
+
 # Anti-Slop Enforcement
 
 **Pillars:** P5 (Governance Self-Quality), P4 (Lean Coverage)

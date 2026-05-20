@@ -1,3 +1,12 @@
+---
+id: test-requirements
+type: rule
+description: Testing standards from vitest.config.ts — 78/65/80/80 global coverage, 90/80/90/90 for src/merge and src/integrity, 85/75/85/85 for src/content and adapters/customization.
+tags: [maintainer, testing, p2, p5]
+scope: always
+precedence: high
+---
+
 # Test Requirements
 
 **Pillars:** P2 (Scientific Quality), P5 (Governance Self-Quality)

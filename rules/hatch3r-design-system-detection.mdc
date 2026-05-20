@@ -2,6 +2,7 @@
 description: Mandatory detection of existing design tokens, theme primitives, and component library before AI agents author new UI components
 globs: ["**/*.vue", "**/*.jsx", "**/*.tsx", "**/*.svelte", "**/*.css", "**/*.scss", "**/components/**", "**/tokens*", "**/theme*", "**/design-system/**", "**/tailwind*"]
 alwaysApply: false
+precedence: high
 ---
 # Design System Detection
 

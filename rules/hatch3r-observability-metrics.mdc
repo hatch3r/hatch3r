@@ -2,6 +2,7 @@
 description: Metrics, SLO/SLI definitions, alerting, and dashboard conventions for the project
 globs: ["**/*metric*", "**/*slo*", "**/*sli*", "**/*alert*", "**/*dashboard*", "**/observability/**", "**/routes/**", "**/handlers/**", "**/services/**", "**/api/**", "**/middleware/**", "**/controllers/**", "**/lib/**"]
 alwaysApply: false
+precedence: high
 ---
 # Observability -- Metrics, SLOs & Alerting
 

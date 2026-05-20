@@ -4,6 +4,7 @@ type: rule
 description: Coverage thresholds, mocking strategy, property-based testing, mutation-score targets, flaky test quarantine, and snapshot test discipline
 scope: "**/*.test.*,**/*.spec.*,**/__tests__/**,**/tests/**,**/test/**,**/*.cy.*,**/playwright/**,**/vitest.config.*,**/jest.config.*,**/cypress.config.*"
 tags: [review, orchestration]
+precedence: high
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true
 ---

@@ -2,6 +2,7 @@
 description: Resilience patterns in user code — circuit breakers, retry with decorrelated jitter, timeouts with deadline propagation, idempotency keys, bulkheads, hedged requests
 globs: ["**/services/**", "**/handlers/**", "**/clients/**", "**/integrations/**", "**/api/**", "**/middleware/**", "**/circuit*", "**/retry*", "**/resilience*"]
 alwaysApply: false
+precedence: high
 ---
 # Resilience Patterns
 
