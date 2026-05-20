@@ -1,7 +1,7 @@
 ---
 id: hatch3r-cli-llm
 description: "simonw/llm — invoke LLMs from the command line with prompt templates. Use when model-agnostic shell prompting with template files and conversation memory; invoke `llm`. Streams tokens to stdout so downstream `grep`/`tee` consumers see partial results."
-tags: ["cli-tools", "ai"]
+tags: ["cli-tools", "ai-cat", "maintenance"]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

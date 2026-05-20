@@ -4,7 +4,7 @@ type: command
 orchestrator: true
 agentPipeline: [hatch3r-researcher, hatch3r-docs-writer]
 description: Diagnose a complex incident -- reproduce the symptom, rank root-cause hypotheses, design the fix path, and emit regression coverage items as a board-ready investigation
-tags: [core, planning]
+tags: [planning, orchestration]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

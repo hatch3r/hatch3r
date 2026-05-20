@@ -1,7 +1,7 @@
 ---
 id: hatch3r-cli-bat
 description: "cat clone with syntax highlighting and git integration. Use when scrolling one source file with syntax colours, line numbers, and header decorations; invoke `bat`. Prints to a terminal pager (`less`-compatible) for quick visual inspection."
-tags: ["cli-tools", "view", "core"]
+tags: ["cli-tools", "view", "orchestration"]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

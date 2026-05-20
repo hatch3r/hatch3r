@@ -3,7 +3,7 @@ id: hatch3r-auth-patterns
 type: rule
 description: Authentication and authorization patterns for end-user apps — OAuth 2.1, OIDC, DPoP, JWT rotation, cookie security, RBAC vs ABAC vs ReBAC rubric
 scope: "**/auth/**,**/login/**,**/session/**,**/oauth/**,**/oidc/**,**/jwt/**,**/permissions/**,**/policies/**,**/middleware/**"
-tags: [security, implementation]
+tags: [implementation, floor:security]
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true
 ---

@@ -1,7 +1,7 @@
 ---
 id: hatch3r-cli-aichat
 description: "Multi-provider LLM chat CLI with RAG and session memory. Use when RAG-enabled multi-provider conversational shell with saved session history; invoke `aichat`. Streams tokens to stdout so downstream `grep`/`tee` consumers see partial results."
-tags: ["cli-tools", "ai", "opt-in"]
+tags: ["cli-tools", "ai-cat", "opt-in"]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

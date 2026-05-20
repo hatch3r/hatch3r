@@ -3,7 +3,7 @@ id: hatch3r-passkey-server
 type: rule
 description: Server-side WebAuthn / passkey ceremony — registration, authentication, attestation, counter, RP-ID, recovery, FIDO CXP/CXF awareness
 scope: "**/auth/**,**/passkey*,**/webauthn*,**/fido*,**/credentials/**,**/api/**,**/handlers/**"
-tags: [security, implementation]
+tags: [implementation, floor:security]
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true
 ---

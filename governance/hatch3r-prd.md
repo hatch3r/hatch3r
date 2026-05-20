@@ -425,17 +425,12 @@ hatch3r installs and maintains:
     hatch3r-i18n.md
     hatch3r-learning-consult.md
     hatch3r-migrations.md
-    hatch3r-observability.md
     hatch3r-performance-budgets.md
     hatch3r-secrets-management.md
     hatch3r-security-patterns.md
     hatch3r-testing.md
     hatch3r-theming.md
     hatch3r-tooling-hierarchy.md
-  prompts/
-    hatch3r-pr-description.md
-    hatch3r-bug-triage.md
-    hatch3r-code-review.md
   commands/
     hatch3r-agent-customize.md       # Per-agent customization via .customize.yaml
     hatch3r-api-spec.md              # API specification generation

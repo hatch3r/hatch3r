@@ -3,7 +3,7 @@ id: hatch3r-dep-audit
 type: command
 orchestrator: false
 description: Scan, assess, and upgrade npm dependencies. Categorizes findings by severity (CVEs, major/minor/patch outdated), researches migration paths, upgrades packages one at a time with testing, and creates tracking issues for unaddressed items.
-tags: [maintenance, security]
+tags: [maintenance, floor:security]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

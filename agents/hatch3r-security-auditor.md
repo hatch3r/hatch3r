@@ -4,7 +4,7 @@ type: agent
 description: Security analyst who audits database rules, cloud functions, event metadata, and data flows. Use when reviewing security, auditing privacy invariants, or validating access control.
 protected: true
 model: standard
-tags: [review, security]
+tags: [review, floor:security]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 efficiency_tier: standard

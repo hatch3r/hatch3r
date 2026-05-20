@@ -1,7 +1,7 @@
 ---
 id: hatch3r-cli-az-devops
 description: "Azure DevOps work items, repos, pipelines via az CLI extension. Use when Azure DevOps work-item edits, repo pushes, and pipeline runs; invoke `az`. Authenticates via the platform's native token mechanism (OAuth / PAT)."
-tags: ["cli-tools", "forge"]
+tags: ["cli-tools", "forge", "maintenance"]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

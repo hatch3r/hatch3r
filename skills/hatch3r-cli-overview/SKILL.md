@@ -1,7 +1,7 @@
 ---
 id: hatch3r-cli-overview
 description: "Catalog of all hatch3r-recommended CLI tools — discovery entry with tier tables and decision tree."
-tags: ["cli-tools", "core", "reference"]
+tags: ["cli-tools", "reference", "orchestration"]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

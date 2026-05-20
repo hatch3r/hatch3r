@@ -1,7 +1,7 @@
 ---
 id: hatch3r-cli-duckdb
 description: "Embedded analytical database with first-class CSV/Parquet support. Use when ad-hoc analytical SQL over local Parquet, CSV, and JSON files; invoke `duckdb`. Streams records lazily; works on datasets that exceed available RAM."
-tags: ["cli-tools", "data"]
+tags: ["cli-tools", "data", "maintenance"]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

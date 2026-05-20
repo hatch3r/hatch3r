@@ -1,7 +1,7 @@
 ---
 id: hatch3r-cli-glab
 description: "GitLab CLI — merge requests, issues, pipelines. Use when GitLab merge-request review, pipeline retries, and issue triage; invoke `glab`. Authenticates via the platform's native token mechanism (OAuth / PAT)."
-tags: ["cli-tools", "forge"]
+tags: ["cli-tools", "forge", "maintenance"]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

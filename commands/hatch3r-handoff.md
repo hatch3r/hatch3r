@@ -4,7 +4,7 @@ type: command
 orchestrator: true
 agentPipeline: [hatch3r-handoff-preparer]
 description: Prepare, resume, list, complete, and prune cross-session handoff documents.
-tags: [core, maintenance]
+tags: [orchestration, maintenance]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

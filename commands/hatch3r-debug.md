@@ -4,7 +4,7 @@ type: command
 orchestrator: true
 agentPipeline: [hatch3r-researcher, hatch3r-implementer, hatch3r-reviewer, hatch3r-fixer, hatch3r-test-writer, hatch3r-security-auditor]
 description: Standalone debug-and-fix workflow — add strategic debug logging, collect runtime logs from the user, perform root cause analysis, implement the fix, and clean up all debug artifacts.
-tags: [core, implementation]
+tags: [implementation, orchestration]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

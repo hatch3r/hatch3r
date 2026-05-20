@@ -1,7 +1,7 @@
 ---
 id: hatch3r-cli-rtk
 description: "CLI output-compression proxy (see ⚠ caveat). Use when compressing oversize tool output payloads before they enter an LLM prompt; invoke `rtk`. Streams tokens to stdout so downstream `grep`/`tee` consumers see partial results."
-tags: ["cli-tools", "ai", "opt-in", "caveat"]
+tags: ["cli-tools", "ai-cat", "opt-in", "caveat"]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
@@ -20,8 +20,13 @@ CLI output-compression proxy (see ⚠ caveat)
 
 ## ⚠ Critical: pipe-output corruption (issue #1282)
 
-rtk silently rewrites piped stdout which breaks downstream tooling.
-Mitigation: `export RTK_DISABLE_PIPE_REWRITE=1` or invoke with `rtk --raw-output`.
+rtk's compressed output can corrupt downstream consumers when stdout is piped or redirected. Upstream issue #1282 ("Silent output corruption when stdout is piped or redirected") is open as of 2026-05-20; the upstream-suggested fix is a runtime `isatty` check that has not landed yet.
+
+Verified workaround (README §usage + issue #1282 body, re-checked 2026-05-20):
+- Wrap any piped or redirected invocation as `rtk proxy <cmd>` — `proxy` is a documented raw-passthrough subcommand that skips compression for that one call.
+
+For other potential flags or env-var kill switches, consult the upstream README directly before relying on them — none are documented at the time of this skill's last verification.
+
 Track upstream: https://github.com/rtk-ai/rtk/issues/1282
 
 ## When to Use
@@ -34,11 +39,6 @@ CLI tools return structured stdout that fits in <1KB for typical queries; equiva
 Reference: Anthropic engineering (Nov 4 2025) — code-execution-over-MCP yields 98.7% token reduction.
 
 ## Recipes
-
-```bash
-export RTK_DISABLE_PIPE_REWRITE=1
-```
-Disable pipe-output rewriting before any pipeline use. Required for safe interop with jq/grep/awk.
 
 ```bash
 rtk run npm test
@@ -56,13 +56,13 @@ rtk eval 'function foo() { return 42 }'
 Sandboxed JavaScript eval — returns just the value, no surrounding noise.
 
 ```bash
-rtk --raw-output run go test ./...
+rtk proxy go test ./...
 ```
-Per-invocation override of the pipe rewrite when piping output into a downstream parser (`| jq`, `| grep`).
+Per-invocation opt-out of the pipe rewrite via the `proxy` wrapper when piping output into a downstream parser (`| jq`, `| grep`).
 
 ## Wrong Choice When
 
-- **Piping to `jq` / `grep` / `awk` without `RTK_DISABLE_PIPE_REWRITE=1` set:** the rewrite mangles JSON byte boundaries (issue #1282) — corruption is silent. Reach for plain shell + `tee` or `hatch3r-cli-jq` directly on raw command output.
+- **Piping to `jq` / `grep` / `awk` without wrapping the upstream command in `rtk proxy`:** the rewrite mangles byte boundaries (issue #1282) — corruption is silent. Reach for plain shell + `tee` or `hatch3r-cli-jq` directly on raw command output.
 - **Safety-critical CI where masked failures matter:** rtk's compression can elide stack frames a downstream check needs. Run the underlying test command directly and capture full output to a file.
 - **One-shot small commands under ~100 lines:** the compression overhead exceeds the saved context — invoke the underlying tool directly.
 

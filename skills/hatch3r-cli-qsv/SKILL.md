@@ -1,7 +1,7 @@
 ---
 id: hatch3r-cli-qsv
 description: "Fast CSV toolkit (slice, search, join, stats, 80+ commands) — actively-maintained xsv successor. Use when slicing huge CSV documents by row range or column without materialising the dataset; invoke `qsv`. Streams records lazily; works on datasets that exceed available RAM."
-tags: ["cli-tools", "data"]
+tags: ["cli-tools", "data", "maintenance"]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

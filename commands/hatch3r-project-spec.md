@@ -4,7 +4,7 @@ type: command
 orchestrator: true
 agentPipeline: [hatch3r-researcher, hatch3r-docs-writer]
 description: Translate a greenfield vision into future-state design artifacts -- ADRs, domain model, API contracts, per-module technical specs, and a board-ready todo.md
-tags: [planning, greenfield]
+tags: [planning, ctx:greenfield-only]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

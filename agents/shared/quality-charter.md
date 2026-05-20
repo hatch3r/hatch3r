@@ -123,8 +123,8 @@ Cross-reference: this section is audited under D10 SA10.9 (`governance/audit/dom
 
 When an agent produces a service that handles a request, the charter binds it to these criteria. Each is measurable.
 
-- **OpenTelemetry spans on request path:** every inbound request and every outbound call (DB, HTTP, queue, RPC) emits an OTel span with `trace_id` and `span_id` propagated end-to-end; instrumented-route ratio = 100% (no silent paths). Reference `rules/hatch3r-observability.md`.
-- **Structured logs with trace correlation:** every log line is JSON, carries `trace_id`, includes service name + version + environment, and uses log levels mapped to severity. Stack traces emitted on `error`. Reference `rules/hatch3r-observability.md`.
+- **OpenTelemetry spans on request path:** every inbound request and every outbound call (DB, HTTP, queue, RPC) emits an OTel span with `trace_id` and `span_id` propagated end-to-end; instrumented-route ratio = 100% (no silent paths). Reference `rules/hatch3r-observability-tracing.md` and `rules/hatch3r-observability-logging.md`.
+- **Structured logs with trace correlation:** every log line is JSON, carries `trace_id`, includes service name + version + environment, and uses log levels mapped to severity. Stack traces emitted on `error`. Reference `rules/hatch3r-observability-tracing.md` and `rules/hatch3r-observability-logging.md`.
 - **RED + USE metrics on user-facing services:** Rate, Errors, Duration per route plus Utilization, Saturation, Errors per resource. Histograms over averages on latency.
 - **SLO with multi-window multi-burn-rate alerts:** every user-facing service declares an availability + latency SLO; alerts use the 2%/5%/10% multi-window multi-burn-rate pattern (Google SRE workbook), not raw threshold alerts.
 - **Error tracker with PII scrubbing:** Sentry-class tooling with source-map upload, release tag, environment tag, and an allowlist scrubber for known PII fields before egress.

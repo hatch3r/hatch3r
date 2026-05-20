@@ -4,7 +4,7 @@ type: command
 orchestrator: true
 agentPipeline: [hatch3r-creator]
 description: Author a custom user-tier artifact (agent, skill, rule, command, or hook) for this project. Generates frontmatter and body skeleton, applies strict + gentle quality gates, writes to .hatch3r/overrides/{type}/, and offers to sync to all enabled adapters.
-tags: [core, customize]
+tags: [customize]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

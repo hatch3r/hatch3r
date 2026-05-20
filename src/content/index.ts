@@ -11,7 +11,15 @@ import {
 import { HatchError } from "../types.js";
 import type { ContentSelection } from "../types.js";
 import type { ContentPreset } from "./presets.js";
-import { filterByLanguages } from "./tags.js";
+import {
+  TAG_CTX_BROWNFIELD_ONLY,
+  TAG_CTX_GREENFIELD_ONLY,
+  TAG_CTX_TEAM_ONLY,
+  filterByLanguages,
+  isCapabilityTag,
+  isCustomizeTag,
+  isFloorTag,
+} from "./tags.js";
 import { verbose } from "../cli/shared/ui.js";
 
 /**
@@ -491,21 +499,31 @@ export const TYPE_TO_SELECTION_KEY: Record<string, keyof ContentSelection["items
 /**
  * Apply preset + context filters to determine which IDs to include.
  *
- * Filtering logic:
- * 1. Start with all items from the index
- * 2. If preset has includeTags, keep only items matching ANY of those tags
- * 3. If preset has excludeTags, remove items matching ANY of those tags
- * 4. If projectType is "greenfield", remove items tagged ONLY with "brownfield"
- * 5. If projectType is "brownfield", remove items tagged ONLY with "greenfield"
- * 6. If teamSize is "solo" AND preset.id !== "full", remove items whose ONLY tags are "team" / "board".
- *    The "full" preset is an explicit opt-in that disables this preference-based narrowing; the
- *    projectType filter and language filter still apply under full (they are technical
- *    compatibility filters, not preferences).
- * 7. Items with protected: true are always included
- * 8. For "custom" preset, use customSelections as explicit ID list
- * 9. Language filtering (Finding #71): items with language tags (lang:*) are only
- *    included when the project's detected languages match. Items without language
- *    tags are always included.
+ * Four-stage pipeline (Wave 1 of content-pack redesign; see
+ * `.audit-workspace/council-D-architect.md` §3):
+ *
+ *   1. Custom path — explicit ID list plus protected + floor passthrough.
+ *      For `preset.id === "custom"` with `customSelections` provided.
+ *   2. Floor admission — items carrying any `isFloorTag(t)` tag (or
+ *      `protected: true`) are admitted unconditionally for every non-custom
+ *      preset. Structural invariant: a preset cannot disable floor admission.
+ *   3. Capability gate — non-floor items pass when their capability tags
+ *      intersect the preset's `capabilities` positive list. Customize-family
+ *      items (carrying `TAG_CUSTOMIZE`) pass only when `preset.includeCustomize`
+ *      is true. Per-id `includeIds` / `excludeIds` provide additive /
+ *      subtractive carve-outs but cannot remove floor or protected items.
+ *      Items with zero capability tags AND zero floor tags AND not protected
+ *      AND not in `includeIds` are DROPPED — this is a deliberate reversal
+ *      of the v1 "empty tags = passthrough" loophole.
+ *   4. Context filter — remove items whose context tags are incompatible
+ *      with the project type. Team-size filter applies to `ctx:team-only`
+ *      items but is bypassed for floor-admitted items (security & UI/UX
+ *      apply to everyone, even solo developers).
+ *   5. Language filter — unchanged from v1; see `filterByLanguages`.
+ *
+ * Skipped when `options.skipContextFilters` is set (e.g. from
+ * `hatch3r config` — the user is explicitly choosing a preset and should
+ * not have items silently removed by stored context filters).
  */
 export function resolveSelection(
   preset: ContentPreset,
@@ -518,83 +536,90 @@ export function resolveSelection(
 ): ContentSelection {
   let selected: CatalogItem[];
 
+  // ── Stage 1: Custom path ──
   if (preset.id === "custom" && customSelections) {
-    // For custom, use explicit ID list
     const customSet = new Set(customSelections);
     selected = index.items.filter(
-      (item) => customSet.has(item.id) || item.protected,
+      (item) =>
+        customSet.has(item.id) ||
+        item.protected ||
+        item.tags.some(isFloorTag), // floor still applies to custom
     );
   } else {
-    selected = [...index.items];
-
-    // Apply includeTags filter (if non-empty, keep only items matching ANY tag)
-    if (preset.includeTags.length > 0) {
-      const includeSet = new Set<string>(preset.includeTags);
-      selected = selected.filter(
-        (item) =>
-          item.protected ||
-          item.tags.length === 0 || // items without tags pass through
-          item.tags.some((t) => includeSet.has(t)),
-      );
-    }
-
-    // Apply excludeTags filter
-    // #122: Guard against vacuous truth — items with no tags should pass through,
-    // not be excluded (Array.every on empty array returns true).
-    if (preset.excludeTags.length > 0) {
-      const excludeSet = new Set<string>(preset.excludeTags);
-      selected = selected.filter(
-        (item) =>
-          item.protected ||
-          item.tags.length === 0 ||
-          !item.tags.every((t) => excludeSet.has(t)),
-      );
-    }
-
-    // Context filtering: project type, team size, language
-    // Skipped when called from config — the user is explicitly choosing a preset
-    // and should not have items silently removed by stored context filters.
-    if (!options?.skipContextFilters) {
-      if (projectType === "greenfield") {
-        // Remove items tagged ONLY with "brownfield"
-        selected = selected.filter(
-          (item) =>
-            item.protected ||
-            !item.tags.includes("brownfield") ||
-            item.tags.some((t) => t !== "brownfield" && t !== "team" && t !== "solo"),
-        );
-      } else {
-        // Remove items tagged ONLY with "greenfield"
-        selected = selected.filter(
-          (item) =>
-            item.protected ||
-            !item.tags.includes("greenfield") ||
-            item.tags.some((t) => t !== "greenfield" && t !== "team" && t !== "solo"),
-        );
-      }
-
-      // Context filtering: team size
-      // "full" preset is an explicit opt-in that bypasses preference-based narrowing.
-      // projectType and language filters remain active even under full — they are
-      // technical compatibility filters, not preferences.
-      if (teamSize === "solo" && preset.id !== "full") {
-        // Remove items whose tags are exclusively team/board (no other workflow/domain tags)
-        selected = selected.filter((item) => {
-          if (item.protected) return true;
-          if (!item.tags.includes("team") && !item.tags.includes("board")) return true;
-          // Has team/board tag — keep if it has other non-context tags too
-          return item.tags.some(
-            (t) => t !== "team" && t !== "board" && t !== "solo" && t !== "greenfield" && t !== "brownfield",
-          );
-        });
+    // ── Stage 2: Floor admission (structural invariant) ──
+    // Any item carrying a floor:* tag is admitted unconditionally for every
+    // non-custom preset. No preset can remove a floor-tagged item via
+    // configuration — only by removing the tag at the source artifact.
+    const admitted = new Set<string>();
+    for (const item of index.items) {
+      if (item.protected || item.tags.some(isFloorTag)) {
+        admitted.add(item.id);
       }
     }
+
+    // ── Stage 3: Capability gate ──
+    // Non-floor items pass when their capability tags intersect the preset's
+    // capabilities. The customize facet is gated by preset.includeCustomize.
+    // Items with zero capability tags AND not in includeIds are NOT admitted —
+    // that's a deliberate reversal of the v1 "empty tags = passthrough"
+    // loophole; surfacing tagging mistakes is the point.
+    const capSet = new Set<string>(preset.capabilities);
+    const includeIdSet = new Set<string>(preset.includeIds ?? []);
+    const excludeIdSet = new Set<string>(preset.excludeIds ?? []);
+
+    for (const item of index.items) {
+      if (admitted.has(item.id)) continue;
+      // excludeIds is subtractive but cannot remove floor / protected items —
+      // those were already added to `admitted` above and are skipped here.
+      if (excludeIdSet.has(item.id)) continue;
+
+      const itemCapabilities = item.tags.filter(isCapabilityTag);
+      const hasMatchingCapability = itemCapabilities.some((t) => capSet.has(t));
+      const isCustomizeItem = item.tags.some(isCustomizeTag);
+
+      if (hasMatchingCapability) {
+        admitted.add(item.id);
+      } else if (isCustomizeItem && preset.includeCustomize) {
+        admitted.add(item.id);
+      } else if (includeIdSet.has(item.id)) {
+        admitted.add(item.id);
+      }
+    }
+
+    selected = index.items.filter((item) => admitted.has(item.id));
   }
 
-  // Language filtering (Finding #71): remove items whose language tags
-  // don't match the detected project languages. Items without any language
-  // tags pass through (language-agnostic content). Skipped when
-  // skipContextFilters is set (e.g. from `hatch3r config`).
+  // ── Stage 4: Context filter (technical compatibility, not preferences) ──
+  if (!options?.skipContextFilters) {
+    selected = selected.filter((item) => {
+      if (item.protected) return true;
+
+      // Project-type compatibility applies even to floor-admitted items —
+      // a brownfield-migration helper is technically meaningless on greenfield.
+      if (projectType === "greenfield" && item.tags.includes(TAG_CTX_BROWNFIELD_ONLY)) {
+        return false;
+      }
+      if (projectType === "brownfield" && item.tags.includes(TAG_CTX_GREENFIELD_ONLY)) {
+        return false;
+      }
+
+      // Team-size compatibility. Floor-admitted items bypass team-size
+      // filtering — a security or UI/UX item that happens to be team-shaped
+      // still ships for solo developers (the floor invariant wins). Replaces
+      // the v1 `full`-preset carve-out: same effect, structural mechanism
+      // (floor tag) instead of a hard-coded preset id check.
+      const isFloor = item.tags.some(isFloorTag);
+      if (!isFloor && teamSize === "solo" && item.tags.includes(TAG_CTX_TEAM_ONLY)) {
+        return false;
+      }
+      return true;
+    });
+  }
+
+  // ── Stage 5: Language filter (Finding #71) ──
+  // Items with language tags (lang:*) are only included when the project's
+  // detected languages match. Items without any language tags pass through
+  // (language-agnostic content). Skipped when skipContextFilters is set.
   if (!options?.skipContextFilters && projectLanguages && projectLanguages.length > 0) {
     selected = filterByLanguages(selected, projectLanguages);
   }
@@ -627,6 +652,10 @@ export function resolveSelection(
 
 /**
  * Count how many items a preset would exclude relative to the full item set.
+ *
+ * Wave 1 semantics: an item is excluded when it is not admitted by either
+ * floor admission, the capability gate, or the customize/includeIds carve-outs.
+ * Protected and floor-tagged items are never counted as excluded.
  */
 export function countPresetExclusions(
   preset: ContentPreset,
@@ -635,24 +664,25 @@ export function countPresetExclusions(
   if (preset.id === "custom") return 0;
   if (preset.id === "full") return 0;
 
+  const capSet = new Set<string>(preset.capabilities);
+  const includeIdSet = new Set<string>(preset.includeIds ?? []);
+  const excludeIdSet = new Set<string>(preset.excludeIds ?? []);
+
   let count = 0;
   for (const item of index.items) {
     if (item.protected) continue;
-    // includeTags filter
-    if (preset.includeTags.length > 0) {
-      const includeSet = new Set<string>(preset.includeTags);
-      if (item.tags.length > 0 && !item.tags.some((t) => includeSet.has(t))) {
-        count++;
-        continue;
-      }
+    if (item.tags.some(isFloorTag)) continue;
+    if (excludeIdSet.has(item.id)) {
+      count++;
+      continue;
     }
-    // excludeTags filter (#122: guard against vacuous truth for empty tags)
-    if (preset.excludeTags.length > 0) {
-      const excludeSet = new Set<string>(preset.excludeTags);
-      if (item.tags.length > 0 && item.tags.every((t) => excludeSet.has(t))) {
-        count++;
-      }
-    }
+    const hasMatchingCapability = item.tags
+      .filter(isCapabilityTag)
+      .some((t) => capSet.has(t));
+    if (hasMatchingCapability) continue;
+    if (item.tags.some(isCustomizeTag) && preset.includeCustomize) continue;
+    if (includeIdSet.has(item.id)) continue;
+    count++;
   }
   return count;
 }
@@ -664,16 +694,12 @@ export function countProjectTypeExclusions(
   projectType: "greenfield" | "brownfield",
   items: CatalogItem[],
 ): number {
-  const opposite = projectType === "greenfield" ? "brownfield" : "greenfield";
+  const oppositeTag =
+    projectType === "greenfield" ? TAG_CTX_BROWNFIELD_ONLY : TAG_CTX_GREENFIELD_ONLY;
   let count = 0;
   for (const item of items) {
     if (item.protected) continue;
-    if (
-      item.tags.includes(opposite) &&
-      !item.tags.some((t) => t !== opposite && t !== "team" && t !== "solo")
-    ) {
-      count++;
-    }
+    if (item.tags.includes(oppositeTag)) count++;
   }
   return count;
 }
@@ -681,10 +707,10 @@ export function countProjectTypeExclusions(
 /**
  * Count how many items the team size filter would remove from a pre-filtered set.
  *
- * Preset-unaware approximation: the "full" preset rescues all such items at selection
- * time (see resolveSelection), but this helper has no visibility into preset choice
- * because callers use it for pre-prompt UX hints before the preset is known. Treat
- * the returned count as an upper bound.
+ * Wave 1 semantics: removes items carrying `ctx:team-only` for solo developers,
+ * but bypasses floor-admitted items (the floor invariant ships UI/UX and security
+ * for everyone, including solo). Returned count is an upper bound — callers use
+ * it for pre-prompt UX hints before the preset is known.
  */
 export function countTeamSizeExclusions(
   teamSize: "solo" | "team",
@@ -694,11 +720,8 @@ export function countTeamSizeExclusions(
   let count = 0;
   for (const item of items) {
     if (item.protected) continue;
-    if (!item.tags.includes("team") && !item.tags.includes("board")) continue;
-    const hasOther = item.tags.some(
-      (t) => t !== "team" && t !== "board" && t !== "solo" && t !== "greenfield" && t !== "brownfield",
-    );
-    if (!hasOther) count++;
+    if (item.tags.some(isFloorTag)) continue;
+    if (item.tags.includes(TAG_CTX_TEAM_ONLY)) count++;
   }
   return count;
 }

@@ -164,7 +164,7 @@ describe("CLI skill structural snapshots", () => {
     // appear before any other section so users see the risk before reading
     // recipes.
     expect(parsed!.body).toContain("## ⚠ Critical: pipe-output corruption (issue #1282)");
-    expect(parsed!.body).toContain("RTK_DISABLE_PIPE_REWRITE");
+    expect(parsed!.body).toContain("rtk proxy");
 
     const caveatIdx = parsed!.body.indexOf("## ⚠ Critical");
     const whenIdx = parsed!.body.indexOf("## When to Use");

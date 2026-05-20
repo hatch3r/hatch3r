@@ -3,7 +3,7 @@ id: hatch3r-tooling-hierarchy
 type: rule
 description: Platform MCP-first priority, documentation MCP for library APIs, web research for CVEs, and browser MCP for UI verification with fallback guidance
 scope: "**/.hatch3r/**,**/mcp/**,**/mcp.json,**/.cursor/**,**/.github/copilot*,**/hatch.json,**/.claude/**"
-tags: [core]
+tags: [orchestration]
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true
 ---

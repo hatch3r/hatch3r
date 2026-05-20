@@ -36,12 +36,17 @@ import type { ContentSelection } from "../../types.js";
 const PROJECT_ROOT = resolve(import.meta.dirname, "../../../");
 const CONTENT_ROOT = PROJECT_ROOT; // Content lives at repo root
 
+// Wave 2 of the content-pack redesign removed the prompts/ directory after the
+// 3 prompt artifacts were deprecated (`hatch3r-bug-triage`, `hatch3r-code-review`,
+// `hatch3r-pr-description`). The prompt content type remains in TYPE_TO_SELECTION_KEY
+// and ContentSelection.items.prompts so existing user-tier content keeps working,
+// but the directory itself ships empty and the canonical inventory is now
+// 6 content types — agent, command, rule, skill, hook, github-agent.
 const CONTENT_DIRS: { dir: string; type: string; strategy: "glob" | "subdirectory" }[] = [
   { dir: "agents", type: "agent", strategy: "glob" },
   { dir: "commands", type: "command", strategy: "glob" },
   { dir: "rules", type: "rule", strategy: "glob" },
   { dir: "skills", type: "skill", strategy: "subdirectory" },
-  { dir: "prompts", type: "prompt", strategy: "glob" },
   { dir: "hooks", type: "hook", strategy: "glob" },
   { dir: "github-agents", type: "github-agent", strategy: "glob" },
 ];
@@ -238,11 +243,15 @@ describe("compound system content validation", () => {
       expect(invalid).toEqual([]);
     });
 
-    it("at least one content file uses the core tag", () => {
-      const coreFiles = allFiles.filter(
-        (f) => Array.isArray(f.metadata.tags) && f.metadata.tags.includes("core"),
+    it("at least one content file uses the orchestration capability tag (formerly 'core')", () => {
+      // Wave 1 renamed the legacy `core` tag to `orchestration` (capability
+      // facet). Per src/content/tags.ts every published canonical artifact
+      // must carry at least one capability or floor tag, and the orchestration
+      // pipeline agents are tagged `orchestration` specifically.
+      const orchFiles = allFiles.filter(
+        (f) => Array.isArray(f.metadata.tags) && f.metadata.tags.includes("orchestration"),
       );
-      expect(coreFiles.length).toBeGreaterThan(0);
+      expect(orchFiles.length).toBeGreaterThan(0);
     });
   });
 
@@ -269,11 +278,6 @@ describe("compound system content validation", () => {
       expect(commands.length).toBeGreaterThanOrEqual(34);
     });
 
-    it("has prompt content files", () => {
-      const prompts = allFiles.filter((f) => f.type === "prompt");
-      expect(prompts.length).toBeGreaterThanOrEqual(3);
-    });
-
     it("has hook content files", () => {
       const hooks = allFiles.filter((f) => f.type === "hook");
       expect(hooks.length).toBeGreaterThanOrEqual(6);
@@ -284,10 +288,14 @@ describe("compound system content validation", () => {
       expect(ghAgents.length).toBeGreaterThanOrEqual(4);
     });
 
-    it("all seven content type directories are represented", () => {
+    it("all six published content type directories are represented", () => {
+      // Wave 2 deprecated the 3 canonical prompts (hatch3r-bug-triage,
+      // hatch3r-code-review, hatch3r-pr-description) and shipped the prompts/
+      // directory empty. The selection key is preserved for user-tier
+      // extensions but the directory is no longer in CONTENT_DIRS.
       const types = new Set(allFiles.map((f) => f.type));
       expect(types).toEqual(
-        new Set(["agent", "command", "rule", "skill", "prompt", "hook", "github-agent"]),
+        new Set(["agent", "command", "rule", "skill", "hook", "github-agent"]),
       );
     });
   });
@@ -316,12 +324,13 @@ describe("compound system content validation", () => {
       }
     });
 
-    it("orchestration rule exists and is tagged as core", () => {
+    it("orchestration rule exists and is tagged as orchestration (formerly 'core')", () => {
+      // Wave 1 renamed the legacy `core` capability tag to `orchestration`.
       const orchRule = allFiles.find(
         (f) => f.type === "rule" && f.metadata.id === "hatch3r-agent-orchestration",
       );
       expect(orchRule).toBeDefined();
-      expect((orchRule!.metadata.tags as string[]).includes("core")).toBe(true);
+      expect((orchRule!.metadata.tags as string[]).includes("orchestration")).toBe(true);
     });
 
     it("full preset resolveSelection includes all orchestration agents", () => {
@@ -473,14 +482,23 @@ describe("compound system content validation", () => {
       expect(totalItems).toBeGreaterThan(0);
     });
 
-    it("full preset selects all content items", () => {
+    it("full preset selects every item except those filtered by the context filter", () => {
+      // Under the Wave 1 pipeline the full preset covers every capability and
+      // every floor admission, but the context filter (project type) still
+      // removes items declaring incompatibility with the selected project
+      // type. brownfield+team here drops ctx:greenfield-only items; the rest
+      // ship. Items dropped by context are counted via
+      // countProjectTypeExclusions + countTeamSizeExclusions.
       const preset = getPreset("full");
       const selection = resolveSelection(preset, "brownfield", "team", contentIndex);
       const totalItems = Object.values(selection.items).reduce(
         (sum, arr) => sum + arr.length,
         0,
       );
-      expect(totalItems).toBe(contentIndex.items.length);
+      const greenfieldOnly = contentIndex.items.filter(
+        (i) => !i.protected && i.tags.includes("ctx:greenfield-only"),
+      ).length;
+      expect(totalItems).toBe(contentIndex.items.length - greenfieldOnly);
     });
 
     it("standard preset selects more than minimal but not necessarily all", () => {

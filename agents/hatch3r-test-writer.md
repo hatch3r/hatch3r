@@ -4,7 +4,7 @@ type: agent
 description: QA engineer who writes deterministic, isolated tests. Covers unit, integration, E2E, security rules, and contract tests.
 model: standard
 protected: true
-tags: [core, review]
+tags: [review, floor:protocol]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 efficiency_tier: standard

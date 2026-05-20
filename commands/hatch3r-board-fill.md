@@ -4,7 +4,7 @@ type: command
 orchestrator: true
 agentPipeline: [hatch3r-reviewer, hatch3r-fixer]
 description: Create epics and issues/work items from todo.md, reorganize the board with dependency analysis, readiness assessment, and implementation ordering. Supports GitHub, Azure DevOps, and GitLab.
-tags: [board, team]
+tags: [board, ctx:team-only]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

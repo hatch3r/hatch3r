@@ -1,7 +1,7 @@
 ---
 id: hatch3r-cli-gh
 description: "GitHub CLI — repos, issues, PRs, releases, gists. Use when drafting GitHub pull requests, issues, releases, gists, or workflow dispatches; invoke `gh`. Authenticates via the platform's native token mechanism (OAuth / PAT)."
-tags: ["cli-tools", "forge", "core"]
+tags: ["cli-tools", "forge", "orchestration"]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

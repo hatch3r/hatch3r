@@ -3,7 +3,7 @@ id: hatch3r-design-system-detection
 type: rule
 description: Mandatory detection of existing design tokens, theme primitives, and component library before AI agents author new UI components
 scope: "**/*.vue,**/*.jsx,**/*.tsx,**/*.svelte,**/*.css,**/*.scss,**/components/**,**/tokens*,**/theme*,**/design-system/**,**/tailwind*"
-tags: [ui, design-system, frontend]
+tags: [implementation, floor:ui-ux, ui, design-system, frontend]
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true
 ---

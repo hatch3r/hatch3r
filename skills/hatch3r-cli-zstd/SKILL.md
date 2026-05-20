@@ -1,7 +1,7 @@
 ---
 id: hatch3r-cli-zstd
 description: "Fast lossless compression with high ratio. Use when high-ratio compression with single-digit-millisecond decompress speeds; invoke `zstd`. Designed for cold-storage payloads and CI artifact upload/download steps."
-tags: ["cli-tools", "archive", "core"]
+tags: ["cli-tools", "archive", "orchestration"]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

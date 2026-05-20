@@ -3,7 +3,7 @@ id: hatch3r-board-init
 type: command
 orchestrator: false
 description: Initialize a project board (GitHub Projects V2, Azure Boards, or GitLab Issue Boards) with hatch3r's label taxonomy, status fields, and board structure. Platform detected from hatch.json.
-tags: [board, team]
+tags: [board, ctx:team-only]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

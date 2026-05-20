@@ -1,7 +1,7 @@
 ---
 id: hatch3r-cli-docker
 description: "Container runtime and CLI. Use when image build, container run, exec inspection, or registry push commands; invoke `docker`. Talks to a running Docker Engine daemon over a Unix socket; perfect for x86 build hosts."
-tags: ["cli-tools", "container"]
+tags: ["cli-tools", "container", "maintenance"]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

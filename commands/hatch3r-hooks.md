@@ -3,7 +3,7 @@ id: hatch3r-hooks
 type: command
 orchestrator: false
 description: Define and manage event-driven hooks that activate agents on project events
-tags: [core, devops]
+tags: [devops, orchestration]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

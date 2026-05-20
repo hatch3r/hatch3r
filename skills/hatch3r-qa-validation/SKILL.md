@@ -1,7 +1,7 @@
 ---
 id: hatch3r-qa-validation
 description: E2E validation workflow producing a structured pass/fail report with evidence. Use when running QA validation, acceptance testing, verifying releases, or working on QA E2E validation issues.
-tags: [core, review]
+tags: [review, orchestration]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

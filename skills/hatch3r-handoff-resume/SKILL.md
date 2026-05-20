@@ -1,7 +1,7 @@
 ---
 id: hatch3r-handoff-resume
 description: Load and resume a handoff document from .hatch3r/handoffs/active/. Validates schema, integrity, expiry, and git_ref drift before surfacing content as user-tier context.
-tags: [core, maintenance]
+tags: [orchestration, maintenance]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

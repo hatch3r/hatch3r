@@ -4,7 +4,7 @@ type: hook
 event: session-start
 agent: learnings-loader
 description: Load relevant learnings at session start
-tags: [core]
+tags: [orchestration]
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true
 ---

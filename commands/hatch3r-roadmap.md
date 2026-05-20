@@ -4,7 +4,7 @@ type: command
 orchestrator: true
 agentPipeline: [hatch3r-researcher, hatch3r-docs-writer]
 description: Sequence delivery phases over time into a dependency-ordered milestone plan with business and technical lenses, emitting a todo.md rollout schedule rather than design docs
-tags: [planning, greenfield]
+tags: [planning, ctx:greenfield-only]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

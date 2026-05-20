@@ -1,7 +1,7 @@
 ---
 id: hatch3r-cli-yq
 description: "YAML processor (mikefarah Go implementation). Use when editing Kubernetes manifests, Helm values, or GitHub-Actions workflows in place; invoke `yq`. Preserves YAML anchors, comments, and ordering when editing in place."
-tags: ["cli-tools", "yaml", "core"]
+tags: ["cli-tools", "yaml", "orchestration"]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

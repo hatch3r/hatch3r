@@ -5,7 +5,7 @@ description: Handoff readiness checklist — pre-write validation before persist
 scope: conditional
 globs: .hatch3r/handoffs/active/**/*.md
 precedence: high
-tags: [core, maintenance]
+tags: [orchestration, maintenance]
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true
 ---

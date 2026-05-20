@@ -1,7 +1,7 @@
 ---
 id: hatch3r-cli-ast-grep
 description: "Structural search and rewrite for code via AST patterns. Use when Tree-sitter AST pattern rewrites scoped to a single grammar; invoke `sg`. Grammar-aware: queries are written in the same syntax as the language being edited."
-tags: ["cli-tools", "search", "core"]
+tags: ["cli-tools", "search", "orchestration"]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

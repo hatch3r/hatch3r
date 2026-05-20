@@ -1,7 +1,7 @@
 ---
 id: hatch3r-cli-fzf
 description: "Interactive fuzzy finder for TTY pickers. Use when ad-hoc interactive picker over piped stdin streams from another command; invoke `fzf`. Requires a TTY; degrade gracefully to non-interactive batch in CI."
-tags: ["cli-tools", "interactive"]
+tags: ["cli-tools", "interactive", "maintenance"]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

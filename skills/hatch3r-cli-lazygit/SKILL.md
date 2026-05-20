@@ -1,7 +1,7 @@
 ---
 id: hatch3r-cli-lazygit
 description: "Terminal UI for git with keyboard-driven workflows. Use when keyboard-driven terminal UI for staging, rebasing, branch switching; invoke `lazygit`. Reads `.git/objects` directly without invoking external services or remotes."
-tags: ["cli-tools", "git"]
+tags: ["cli-tools", "git", "maintenance"]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

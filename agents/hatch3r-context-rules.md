@@ -3,7 +3,7 @@ id: hatch3r-context-rules
 type: agent
 description: Context-aware rules engine that applies coding standards based on file type, location, and project conventions. Use when enforcing project rules on save or reviewing files against established patterns.
 model: fast
-tags: [core, maintenance]
+tags: [orchestration, maintenance]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 efficiency_tier: standard

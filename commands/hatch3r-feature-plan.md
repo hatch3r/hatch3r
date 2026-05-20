@@ -4,7 +4,7 @@ type: command
 orchestrator: true
 agentPipeline: [hatch3r-researcher, hatch3r-docs-writer]
 description: Design a new capability -- draft user stories, acceptance criteria, data model, API surface, and sub-issue breakdown as an epic-shaped todo.md for greenfield features
-tags: [core, planning]
+tags: [planning, orchestration]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

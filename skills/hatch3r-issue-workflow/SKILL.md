@@ -1,7 +1,7 @@
 ---
 id: hatch3r-issue-workflow
 description: Guides the 8-step agentic development workflow for issues/work items. Covers parsing issues, loading skills, reading specs, planning, implementing, testing, opening PRs/MRs, and addressing review. Use when working on any issue/work item or when the user mentions an issue number.
-tags: [core, implementation]
+tags: [implementation, orchestration]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

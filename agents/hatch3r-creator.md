@@ -3,7 +3,7 @@ id: hatch3r-creator
 type: agent
 description: Authors user-tier custom artifacts (agents, skills, rules, commands, hooks) under .hatch3r/overrides/. Validates frontmatter schema, runs strict + gentle quality gates, and writes the artifact only when all strict gates pass.
 model: standard
-tags: [core, customize]
+tags: [orchestration, customize]
 protected: true
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md

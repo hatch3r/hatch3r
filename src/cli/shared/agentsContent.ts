@@ -8,7 +8,27 @@ import {
   type ContentIndex,
   type CatalogItem,
 } from "../../content/index.js";
-import { WORKFLOW_TAGS, DOMAIN_TAGS } from "../../content/tags.js";
+import { tagsForFacet } from "../../content/tags.js";
+
+/**
+ * Capability tags drive the task-router "workflow" rows (formerly WORKFLOW_TAGS).
+ * Sourced from the capability facet in TAG_REGISTRY so additions are picked up
+ * automatically — Wave 1 of the content-pack redesign replaced the flat
+ * WORKFLOW_TAGS array with the capability facet of TAG_REGISTRY.
+ */
+const WORKFLOW_TAGS: string[] = tagsForFacet("capability");
+
+/**
+ * Domain-like specialisation tags drive the task-router "domain" rows. The new
+ * taxonomy splits the old DOMAIN_TAGS into floor markers (`floor:*`),
+ * customize, and UI/UX specialisations. The router needs every tag that can
+ * meaningfully label a task type, so we concatenate all three facets.
+ */
+const DOMAIN_TAGS: string[] = [
+  ...tagsForFacet("floor"),
+  ...tagsForFacet("customize"),
+  ...tagsForFacet("ui-ux-specialisation"),
+];
 import { verbose } from "./ui.js";
 
 /**

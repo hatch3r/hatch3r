@@ -1,7 +1,7 @@
 ---
 id: hatch3r-recipe
 description: Create, test, and manage workflow recipes that compose hatch3r capabilities into guided sequences. Use when creating new recipes, customizing existing ones, or troubleshooting recipe execution.
-tags: [core]
+tags: [orchestration]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

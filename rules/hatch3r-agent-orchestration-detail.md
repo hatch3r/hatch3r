@@ -4,7 +4,7 @@ type: rule
 description: Extended orchestration reference — PipelineContext schemas, resilience protocols, observability integration, and auto-mode guardrails
 scope: conditional
 globs: "**/.hatch3r/**,**/pipeline/**,**/*orchestrat*,**/*agent*"
-tags: [core]
+tags: [orchestration, floor:protocol]
 precedence: normal
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true

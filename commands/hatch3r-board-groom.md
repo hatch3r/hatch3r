@@ -3,7 +3,7 @@ id: hatch3r-board-groom
 type: command
 orchestrator: false
 description: Ongoing backlog refinement for existing board items. Re-prioritize, reclassify, re-scope, archive stale items, decompose oversized issues, merge duplicates, refresh dependencies, and remediate board health findings.
-tags: [board, team]
+tags: [board, ctx:team-only]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

@@ -4,7 +4,7 @@ type: hook
 event: ci-failure
 agent: ci-watcher
 description: Diagnose CI pipeline failures
-tags: [core]
+tags: [devops]
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true
 ---

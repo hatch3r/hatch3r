@@ -4,7 +4,7 @@ type: command
 orchestrator: true
 agentPipeline: [hatch3r-researcher, hatch3r-docs-writer]
 description: Reverse-engineer a brownfield codebase into current-state module boundaries, integration-point inventory, tech-debt register, and dependency graph via static analysis
-tags: [planning, brownfield]
+tags: [planning, ctx:brownfield-only]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

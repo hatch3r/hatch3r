@@ -86,13 +86,18 @@ vi.mock("../../content/index.js", () => ({
 }));
 
 vi.mock("../../content/presets.js", () => ({
+  // Wave 1 of the content-pack redesign replaced the legacy
+  // { includeTags, excludeTags } preset shape with
+  // { capabilities, includeCustomize, includeIds?, excludeIds? } per
+  // src/content/presets.ts::ContentPreset. The mock mirrors the live shape
+  // so test fixtures do not encode obsolete fields.
   PRESETS: [
-    { id: "minimal", name: "Minimal", description: "Core only", includeTags: ["core"], excludeTags: [] },
-    { id: "standard", name: "Standard (recommended)", description: "Full dev lifecycle", includeTags: [], excludeTags: [] },
-    { id: "full", name: "Full", description: "Everything", includeTags: [], excludeTags: [] },
-    { id: "custom", name: "Custom", description: "Choose exactly what you need", includeTags: [], excludeTags: [] },
+    { id: "minimal", name: "Minimal", description: "Core only", capabilities: ["orchestration", "implementation"], includeCustomize: false },
+    { id: "standard", name: "Standard (recommended)", description: "Full dev lifecycle", capabilities: ["orchestration", "planning", "implementation", "review", "devops", "maintenance", "board"], includeCustomize: true },
+    { id: "full", name: "Full", description: "Everything", capabilities: ["orchestration", "planning", "implementation", "review", "devops", "maintenance", "board", "performance", "ai"], includeCustomize: true },
+    { id: "custom", name: "Custom", description: "Choose exactly what you need", capabilities: [], includeCustomize: false },
   ],
-  getPreset: vi.fn().mockReturnValue({ id: "standard", name: "Standard (recommended)", description: "Full dev lifecycle", includeTags: [], excludeTags: [] }),
+  getPreset: vi.fn().mockReturnValue({ id: "standard", name: "Standard (recommended)", description: "Full dev lifecycle", capabilities: ["orchestration", "planning", "implementation", "review", "devops", "maintenance", "board"], includeCustomize: true }),
 }));
 
 vi.mock("../../cli/shared/agentsContent.js", () => ({

@@ -1,7 +1,7 @@
 ---
 id: hatch3r-cli-difftastic
 description: "Structural diff that understands syntax. Use when syntax-aware diffing that reports semantic edits instead of textual lines; invoke `difft`. Skips whitespace and reordering noise by computing edits over parsed syntax trees."
-tags: ["cli-tools", "git"]
+tags: ["cli-tools", "git", "maintenance"]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

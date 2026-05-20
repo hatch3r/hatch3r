@@ -4,7 +4,7 @@ type: hook
 event: pre-push
 agent: security-auditor
 description: Scan for secrets and security issues before push
-tags: [core]
+tags: [floor:security]
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true
 ---

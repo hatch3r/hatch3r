@@ -1,7 +1,7 @@
 ---
 id: hatch3r-pr-creation
 description: Create a pull request or merge request following project conventions including branch naming, PR/MR template, checklist, and rollout plan. Use when opening or preparing a PR/MR, or when the user asks to create a PR or MR.
-tags: [core, implementation]
+tags: [implementation, orchestration]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

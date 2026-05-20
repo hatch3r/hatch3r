@@ -4,7 +4,7 @@ type: rule
 description: Component structure, styling tokens, loading/error/empty states, form validation timing, and accessible label patterns for Vue, React, and JSX
 scope: conditional
 globs: "src/**/*.vue,src/**/*.tsx,src/**/*.jsx"
-tags: [implementation, lang:typescript]
+tags: [implementation, floor:ui-ux, lang:typescript]
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true
 ---

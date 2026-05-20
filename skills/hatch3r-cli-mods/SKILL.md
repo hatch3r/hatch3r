@@ -1,7 +1,7 @@
 ---
 id: hatch3r-cli-mods
 description: "Charm mods — Unix-friendly LLM pipeline tool. Use when Unix-pipeline LLM inference reading Markdown stdin and writing Markdown stdout; invoke `mods`. Streams tokens to stdout so downstream `grep`/`tee` consumers see partial results."
-tags: ["cli-tools", "ai", "opt-in"]
+tags: ["cli-tools", "ai-cat", "opt-in"]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

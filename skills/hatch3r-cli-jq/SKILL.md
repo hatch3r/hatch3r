@@ -1,7 +1,7 @@
 ---
 id: hatch3r-cli-jq
 description: "JSON processor and query language. Use when shaping JSON streams via jq-syntax filters and select expressions; invoke `jq`. Reads stdin and emits stdout; integrates seamlessly into shell pipelines."
-tags: ["cli-tools", "json", "core"]
+tags: ["cli-tools", "json", "orchestration"]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

@@ -1,7 +1,7 @@
 ---
 id: hatch3r-cli-sd
 description: "Intuitive sed replacement with literal string patterns. Use when literal-string stream substitution with no regex foot-guns; invoke `sd`. Operates byte-by-byte; safe for fixed-string edits where regex would over-match."
-tags: ["cli-tools", "edit", "core"]
+tags: ["cli-tools", "edit", "orchestration"]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

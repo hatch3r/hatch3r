@@ -6,7 +6,31 @@ All notable changes to hatch3r are documented in this file.
 
 ### Headline
 
-Adapter scope cut from 15 to 3 (Claude Code, Cursor, GitHub Copilot) and a bundled-content refactor that removes the `.agents/` materialization step from end-user repos. Manifest, learnings, handoffs, MCP config, and the user-content escape hatch all relocate under a single `.hatch3r/` directory. Schema version bumped to 3. This is a breaking release.
+Adapter scope cut from 15 to 3 (Claude Code, Cursor, GitHub Copilot) and a bundled-content refactor that removes the `.agents/` materialization step from end-user repos. Manifest, learnings, handoffs, MCP config, and the user-content escape hatch all relocate under a single `.hatch3r/` directory. Content pack redesign splits the flat `tags: string[]` into 3 logical facets (capability / floor / context) with structural floor admission for security + UI/UX in every preset. Schema version bumped to 3. This is a breaking release.
+
+### Content Pack Redesign (P1, P2, P4, P6)
+
+Replaces the brittle `includeTags` / `excludeTags` filter with a 4-stage admission pipeline driven by typed tag facets. Source of truth for the design: `.audit-workspace/council-D-architect.md` (4-member sub-agentic council deliverable that preceded the implementation).
+
+- **Tag taxonomy (`src/content/tags.ts`) — full rewrite.** New facets: capability (`orchestration`, `planning`, `implementation`, `review`, `devops`, `maintenance`, `board`, `performance`, `ai`), floor (`floor:security`, `floor:ui-ux`, `floor:protocol`), context (`ctx:greenfield-only`, `ctx:brownfield-only`, `ctx:team-only`), customize (`customize`), ui-ux specialisation (`a11y`, `frontend`, `ui`, `ux`, `design-system`), cli-tool + cli-tool-category (CLI category `ai` renamed to `ai-cat` to disambiguate from the new `ai` capability), language. `TAG_REGISTRY` is the single source of truth; helpers `facetOf`, `tagsForFacet`, and per-facet `is*` predicates replace hard-coded enumerations. Tags before: 42. Tags after: 38.
+- **Removed tags:** `core` (split into `orchestration` capability + `floor:protocol`), `solo` (decorative; unused), bare `security` (now `floor:security`). Renamed: `team` → `ctx:team-only`, `greenfield` → `ctx:greenfield-only`, `brownfield` → `ctx:brownfield-only`.
+- **Filter semantics (`src/content/index.ts::resolveSelection`) — replaced.** 4 stages: custom path → floor admission (every `floor:*` item admitted unconditionally for every non-custom preset) → capability gate (positive intersection; customize gated by `preset.includeCustomize`; per-id `includeIds`/`excludeIds` carve-outs) → context filter (`ctx:*-only`; floor items bypass team-size filtering) → language filter. **The "empty tags = passthrough" loophole is reversed**: items with zero capability + zero floor + not protected are now DROPPED.
+- **Preset DSL (`src/content/presets.ts`) — replaced.** `includeTags`/`excludeTags` removed. New fields: `capabilities: CapabilityTag[]` (positive list; floor not listed), `includeCustomize: boolean` (locked: `false` for minimal, `true` for standard + full), optional `includeIds`/`excludeIds` for per-id carve-outs (cannot remove floor or protected items).
+- **Floor categories enforced structurally** (cannot be disabled by preset config):
+  - `floor:security` (P6) — security rules, auditor agents, secrets/auth/data-classification rules
+  - `floor:ui-ux` (P1/P2) — UI/UX verification, accessibility (a11y is part of UI/UX floor), state design, design-system detection, theming, AI UX patterns
+  - `floor:protocol` — pipeline-critical agents (researcher, implementer, reviewer, fixer, test-writer) and orchestration rules; ensures the framework's sub-agent pipeline ships in every preset
+- **Canonical content re-tagged** (~117 of 175 artifacts) via auditable migration scripts left in place: `scripts/wave2-retag.ts` (main retag pass) and `scripts/wave2-fix-cli-skills.ts` (CLI-skill capability fix).
+- **Preset item counts (brownfield / team / typescript context):** minimal = 93 (up from ~62; raised floor admits security + UI/UX + protocol), standard = 159 (board ✓, customize ✓, tier-2 CLI ✓), full = 168 (all 30 CLI-tool skills via `full.includeIds` for tier-3).
+- **5 deprecation hawks removed** (verified zero cross-references per Council C's audit):
+  - `rules/hatch3r-observability.md` + `.mdc` — `deprecated: true`; superseded by `hatch3r-observability-{logging,metrics,tracing}`
+  - `rules/hatch3r-observability-tracing-detail.md` + `.mdc` — `deprecated: true`; consolidated into `hatch3r-observability-tracing`
+  - `prompts/hatch3r-bug-triage.md` — orphaned; function subsumed by `cmd-hatch3r-bug-plan` + `cmd-hatch3r-debug`
+  - `prompts/hatch3r-code-review.md` — orphaned; function subsumed by `hatch3r-reviewer` agent
+  - `prompts/hatch3r-pr-description.md` — orphaned; function subsumed by `cmd-hatch3r-pr-resolve` + `hatch3r-pr-creation` skill
+  
+  Cross-reference cleanup in `rules/hatch3r-ai-evals.{md,mdc}` (re-pointed to consolidating rule), `rules/hatch3r-agent-orchestration.{md,mdc}` (enumeration trim), `governance/CONSTITUTION.md` (`*-detail` authorised list), `agents/shared/quality-charter.md`, `agents/hatch3r-reviewer.md`, `skills/hatch3r-observability-verify/SKILL.md`, `governance/hatch3r-prd.md`. `prompts/` directory is now empty; the `prompt` artifact type remains in `src/content/index.ts::TYPE_TO_SELECTION_KEY` for forward compat.
+- **User-tier override migration.** User content under `.hatch3r/overrides/` carrying legacy tag values (`core`, `team`, `solo`, `greenfield`, `brownfield`, plain `security`) is no longer recognised by the new filter — items with no matching capability + no floor + not protected drop silently. Migration guide: `docs/MIGRATION-content-pack-redesign.md`.
 
 ### Breaking Changes
 

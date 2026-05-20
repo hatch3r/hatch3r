@@ -1,7 +1,7 @@
 ---
 id: hatch3r-cli-delta
 description: "Syntax-highlighting git diff pager. Use when viewing unified git diffs with side-by-side syntax colourised hunks; invoke `delta`. Replaces the legacy `less`-based diff renderer with terminal-native ANSI colour blocks."
-tags: ["cli-tools", "git", "core"]
+tags: ["cli-tools", "git", "orchestration"]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

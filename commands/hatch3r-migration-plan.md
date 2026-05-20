@@ -4,7 +4,7 @@ type: command
 orchestrator: true
 agentPipeline: [hatch3r-researcher, hatch3r-architect, hatch3r-docs-writer]
 description: Create a phased migration plan for a major dependency or framework upgrade. Analyzes breaking changes and produces an actionable plan with rollback procedures.
-tags: [planning, brownfield]
+tags: [planning, ctx:brownfield-only]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

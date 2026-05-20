@@ -1,7 +1,7 @@
 ---
 id: hatch3r-cli-playwright
 description: "Browser automation, web testing, and UI interaction. Use when end-to-end browser test execution capturing screenshots and traces; invoke `playwright`. Built around test runners (`@playwright/test`) with deterministic locators and waits."
-tags: ["cli-tools", "browser"]
+tags: ["cli-tools", "browser", "maintenance"]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

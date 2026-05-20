@@ -4,7 +4,7 @@ type: command
 orchestrator: true
 agentPipeline: [hatch3r-implementer, hatch3r-lint-fixer, hatch3r-test-writer, hatch3r-reviewer, hatch3r-fixer, hatch3r-security-auditor, hatch3r-docs-writer, hatch3r-a11y-auditor, hatch3r-perf-profiler]
 description: Read all open PR comments (inline + review summary + general discussion) across GitHub, Azure DevOps, and GitLab; evaluate each against current code via the rigor contract; implement accepted findings through the standard agent pipeline; and reply per comment with rationale. Auto-detects the PR from the current branch (or accepts an explicit PR number).
-tags: [implementation, team, review]
+tags: [implementation, review, ctx:team-only]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

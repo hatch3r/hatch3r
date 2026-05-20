@@ -1,7 +1,7 @@
 ---
 id: hatch3r-cli-taplo
 description: "TOML toolkit (format, lint, query) for pyproject.toml / Cargo.toml. Use when formatting and linting pyproject.toml or Cargo.toml manifests; invoke `taplo`. Preserves YAML anchors, comments, and ordering when editing in place."
-tags: ["cli-tools", "yaml"]
+tags: ["cli-tools", "yaml", "maintenance"]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

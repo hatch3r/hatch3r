@@ -4,7 +4,7 @@ type: agent
 description: Expert code reviewer for the project. Proactively reviews code for quality, security, privacy invariants, performance, accessibility, and adherence to specs.
 protected: true
 model: standard
-tags: [core, review]
+tags: [review, floor:protocol]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 efficiency_tier: standard
@@ -79,7 +79,7 @@ Verify compliance with `the canonical `rules/` directory or `.hatch3r/rules/` (f
     - **SLO + burn-rate alert:** user-facing route has an SLO file and a multi-window multi-burn-rate alert (2%/5%/10%); raw threshold alerts on a critical route flagged as Warning.
     - **Error tracker wired:** unhandled errors reach Sentry-class tooling with `release` tag, source maps, and PII scrubber. Releases without the release tag are Critical.
 
-    Cross-reference: `skills/hatch3r-observability-verify` and `rules/hatch3r-observability.md`. Findings reuse the severity vocabulary above.
+    Cross-reference: `skills/hatch3r-observability-verify` and `rules/hatch3r-observability-metrics.md`. Findings reuse the severity vocabulary above.
 
 14. **migration.review:** Evaluate schema and event-schema changes for safe deploy semantics:
     - **Expand-contract pattern:** the diff stages expand, migrate, contract across separate deploys; a single-deploy destructive change is Critical.

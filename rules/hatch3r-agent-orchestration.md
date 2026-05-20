@@ -3,7 +3,7 @@ id: hatch3r-agent-orchestration
 type: rule
 description: Mandatory agent delegation, skill loading, and subagent usage directives for ALL tasks in ALL contexts
 scope: always
-tags: [core]
+tags: [orchestration, floor:protocol]
 precedence: high
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true
@@ -371,6 +371,6 @@ All `scope: always` rules apply to every task including subagent work. Include r
 - `hatch3r-dependency-management` -- dependency-auditor
 
 **Tier 3 -- On-demand:**
-- `hatch3r-api-design`, `hatch3r-secrets-management`, `hatch3r-data-classification`, `hatch3r-performance-budgets`, `hatch3r-browser-verification`, `hatch3r-component-conventions`, `hatch3r-i18n`, `hatch3r-theming`, `hatch3r-migrations`, `hatch3r-feature-flags`, `hatch3r-observability-logging`, `hatch3r-observability-metrics`, `hatch3r-observability-tracing`, `hatch3r-observability-tracing-detail`
+- `hatch3r-api-design`, `hatch3r-secrets-management`, `hatch3r-data-classification`, `hatch3r-performance-budgets`, `hatch3r-browser-verification`, `hatch3r-component-conventions`, `hatch3r-i18n`, `hatch3r-theming`, `hatch3r-migrations`, `hatch3r-feature-flags`, `hatch3r-observability-logging`, `hatch3r-observability-metrics`, `hatch3r-observability-tracing`
 
 For limited context windows, Tier 1 is mandatory. Tier 2/3 included selectively by agent role and task scope.

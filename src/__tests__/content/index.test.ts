@@ -29,6 +29,24 @@ import {
 } from "../../content/index.js";
 import type { CatalogItem, ContentIndex } from "../../content/index.js";
 import { getPreset } from "../../content/presets.js";
+import {
+  TAG_PLANNING,
+  TAG_IMPLEMENTATION,
+  TAG_REVIEW,
+  TAG_DEVOPS,
+  TAG_ORCHESTRATION,
+  TAG_BOARD,
+  TAG_PERFORMANCE,
+  TAG_AI,
+  TAG_FLOOR_SECURITY,
+  TAG_FLOOR_UI_UX,
+  TAG_FLOOR_PROTOCOL,
+  TAG_CTX_GREENFIELD_ONLY,
+  TAG_CTX_BROWNFIELD_ONLY,
+  TAG_CTX_TEAM_ONLY,
+  TAG_CUSTOMIZE,
+  TAG_A11Y,
+} from "../../content/tags.js";
 
 // ── Fixture helper ─────────────────────────────────────────────
 
@@ -37,7 +55,7 @@ function mdFile(overrides: Record<string, unknown> = {}, body = "# Content"): st
     id: "test-item",
     type: "agent",
     description: "A test item",
-    tags: ["core", "implementation"],
+    tags: [TAG_ORCHESTRATION, TAG_IMPLEMENTATION],
   };
   const merged = { ...defaults, ...overrides };
   const lines = Object.entries(merged).map(([k, v]) => {
@@ -54,33 +72,33 @@ async function createContentRoot(dir: string): Promise<string> {
   await mkdir(join(contentRoot, "agents"), { recursive: true });
   await writeFile(
     join(contentRoot, "agents", "hatch3r-implementer.md"),
-    mdFile({ id: "hatch3r-implementer", type: "agent", description: "Implements features", tags: ["core", "implementation"] }),
+    mdFile({ id: "hatch3r-implementer", type: "agent", description: "Implements features", tags: [TAG_ORCHESTRATION, TAG_IMPLEMENTATION] }),
   );
   await writeFile(
     join(contentRoot, "agents", "hatch3r-reviewer.md"),
-    mdFile({ id: "hatch3r-reviewer", type: "agent", description: "Reviews code", tags: ["core", "review"] }),
+    mdFile({ id: "hatch3r-reviewer", type: "agent", description: "Reviews code", tags: [TAG_ORCHESTRATION, TAG_REVIEW] }),
   );
   await writeFile(
     join(contentRoot, "agents", "hatch3r-protected.md"),
-    mdFile({ id: "hatch3r-protected", type: "agent", description: "Protected agent", tags: ["core"], protected: true }),
+    mdFile({ id: "hatch3r-protected", type: "agent", description: "Protected agent", tags: [TAG_ORCHESTRATION], protected: true }),
   );
 
   // commands (glob strategy)
   await mkdir(join(contentRoot, "commands"), { recursive: true });
   await writeFile(
     join(contentRoot, "commands", "hatch3r-feature-plan.md"),
-    mdFile({ id: "hatch3r-feature-plan", type: "command", description: "Plan a feature", tags: ["planning"] }),
+    mdFile({ id: "hatch3r-feature-plan", type: "command", description: "Plan a feature", tags: [TAG_PLANNING] }),
   );
   await writeFile(
     join(contentRoot, "commands", "hatch3r-board-init.md"),
-    mdFile({ id: "hatch3r-board-init", type: "command", description: "Init board", tags: ["board", "team"] }),
+    mdFile({ id: "hatch3r-board-init", type: "command", description: "Init board", tags: [TAG_BOARD, TAG_CTX_TEAM_ONLY] }),
   );
 
   // rules (glob strategy — with companion .mdc)
   await mkdir(join(contentRoot, "rules"), { recursive: true });
   await writeFile(
     join(contentRoot, "rules", "hatch3r-code-standards.md"),
-    mdFile({ id: "hatch3r-code-standards", type: "rule", description: "Code standards", tags: ["core"] }),
+    mdFile({ id: "hatch3r-code-standards", type: "rule", description: "Code standards", tags: [TAG_ORCHESTRATION] }),
   );
   await writeFile(
     join(contentRoot, "rules", "hatch3r-code-standards.mdc"),
@@ -88,19 +106,19 @@ async function createContentRoot(dir: string): Promise<string> {
   );
   await writeFile(
     join(contentRoot, "rules", "hatch3r-testing.md"),
-    mdFile({ id: "hatch3r-testing", type: "rule", description: "Testing rules", tags: ["review"] }),
+    mdFile({ id: "hatch3r-testing", type: "rule", description: "Testing rules", tags: [TAG_REVIEW] }),
   );
 
   // skills (subdirectory strategy)
   await mkdir(join(contentRoot, "skills", "hatch3r-feature"), { recursive: true });
   await writeFile(
     join(contentRoot, "skills", "hatch3r-feature", "SKILL.md"),
-    mdFile({ id: "hatch3r-feature", type: "skill", description: "Feature skill", tags: ["implementation"] }),
+    mdFile({ id: "hatch3r-feature", type: "skill", description: "Feature skill", tags: [TAG_IMPLEMENTATION] }),
   );
   await mkdir(join(contentRoot, "skills", "hatch3r-refactor"), { recursive: true });
   await writeFile(
     join(contentRoot, "skills", "hatch3r-refactor", "SKILL.md"),
-    mdFile({ id: "hatch3r-refactor", type: "skill", description: "Refactor skill", tags: ["implementation"] }),
+    mdFile({ id: "hatch3r-refactor", type: "skill", description: "Refactor skill", tags: [TAG_IMPLEMENTATION] }),
   );
   await writeFile(
     join(contentRoot, "skills", "hatch3r-refactor", "helper.md"),
@@ -111,21 +129,21 @@ async function createContentRoot(dir: string): Promise<string> {
   await mkdir(join(contentRoot, "prompts"), { recursive: true });
   await writeFile(
     join(contentRoot, "prompts", "hatch3r-code-review.md"),
-    mdFile({ id: "hatch3r-code-review", type: "prompt", description: "Code review prompt", tags: ["review"] }),
+    mdFile({ id: "hatch3r-code-review", type: "prompt", description: "Code review prompt", tags: [TAG_REVIEW] }),
   );
 
   // hooks (glob strategy)
   await mkdir(join(contentRoot, "hooks"), { recursive: true });
   await writeFile(
     join(contentRoot, "hooks", "hatch3r-pre-commit.md"),
-    mdFile({ id: "hatch3r-pre-commit", type: "hook", description: "Pre-commit hook", tags: ["devops"] }),
+    mdFile({ id: "hatch3r-pre-commit", type: "hook", description: "Pre-commit hook", tags: [TAG_DEVOPS] }),
   );
 
   // github-agents (glob strategy)
   await mkdir(join(contentRoot, "github-agents"), { recursive: true });
   await writeFile(
     join(contentRoot, "github-agents", "hatch3r-test-agent.md"),
-    mdFile({ id: "hatch3r-test-agent", type: "github-agent", description: "Test GH agent", tags: ["review"] }),
+    mdFile({ id: "hatch3r-test-agent", type: "github-agent", description: "Test GH agent", tags: [TAG_REVIEW] }),
   );
 
   // checks/ and mcp/ directories (always-copied)
@@ -144,7 +162,7 @@ function makeCatalogItem(overrides: Partial<CatalogItem> = {}): CatalogItem {
     id: "test-item",
     type: "agent",
     description: "A test item",
-    tags: ["core"],
+    tags: [TAG_ORCHESTRATION],
     relativePath: "agents/test-item.md",
     source: "canonical",
     ...overrides,
@@ -265,7 +283,7 @@ describe("content/index", () => {
       expect(agent!.id).toBe("hatch3r-implementer");
       expect(agent!.type).toBe("agent");
       expect(agent!.description).toBe("Implements features");
-      expect(agent!.tags).toEqual(["core", "implementation"]);
+      expect(agent!.tags).toEqual([TAG_ORCHESTRATION, TAG_IMPLEMENTATION]);
     });
 
     it("falls back to filename for id when frontmatter has no id", async () => {
@@ -439,106 +457,299 @@ describe("content/index", () => {
   });
 
   // ── resolveSelection ──────────────────────────────────────
+  //
+  // Wave 1 of the content-pack redesign reshaped resolveSelection into a
+  // four-stage pipeline (custom path → floor admission → capability gate →
+  // context filter → language filter). The fixture set below exercises the
+  // new model — capability gate is positive-list only, floor tags admit
+  // unconditionally for non-custom presets, customize is a typed boolean,
+  // and zero-capability / zero-floor / non-protected items are DROPPED
+  // (reversed from v1's empty-tag passthrough).
 
   describe("resolveSelection", () => {
-    const coreAgent = makeCatalogItem({ id: "core-agent", tags: ["core", "implementation"] });
-    const planningCmd = makeCatalogItem({ id: "plan-cmd", type: "command", tags: ["planning"], relativePath: "commands/plan-cmd.md" });
-    const boardCmd = makeCatalogItem({ id: "board-cmd", type: "command", tags: ["board", "team"], relativePath: "commands/board-cmd.md" });
-    const protectedAgent = makeCatalogItem({ id: "protected-agent", protected: true, tags: ["core"], relativePath: "agents/protected-agent.md" });
-    const brownfieldCmd = makeCatalogItem({ id: "bf-cmd", type: "command", tags: ["brownfield"], relativePath: "commands/bf-cmd.md" });
-    const greenfieldCmd = makeCatalogItem({ id: "gf-cmd", type: "command", tags: ["greenfield"], relativePath: "commands/gf-cmd.md" });
-    const noTagsRule = makeCatalogItem({ id: "no-tags-rule", type: "rule", tags: [], relativePath: "rules/no-tags-rule.md" });
-    const reviewRule = makeCatalogItem({ id: "review-rule", type: "rule", tags: ["review"], relativePath: "rules/review-rule.md" });
-    const a11yAgent = makeCatalogItem({ id: "a11y-agent", tags: ["a11y"], relativePath: "agents/a11y-agent.md" });
-    const teamOnlyCmd = makeCatalogItem({ id: "team-only", type: "command", tags: ["team"], relativePath: "commands/team-only.md" });
-    const teamCoreCmd = makeCatalogItem({ id: "team-core", type: "command", tags: ["team", "core"], relativePath: "commands/team-core.md" });
+    // Core orchestration agent — admitted by every preset's capability gate
+    // because every non-custom preset lists TAG_ORCHESTRATION in capabilities.
+    const orchestrationAgent = makeCatalogItem({
+      id: "orchestration-agent",
+      tags: [TAG_ORCHESTRATION, TAG_IMPLEMENTATION],
+    });
+    // Planning command — admitted by standard/full only (TAG_PLANNING).
+    const planningCmd = makeCatalogItem({
+      id: "plan-cmd", type: "command", tags: [TAG_PLANNING],
+      relativePath: "commands/plan-cmd.md",
+    });
+    // Board command — admitted by standard/full only (TAG_BOARD).
+    // Carries ctx:team-only so it should also be filtered for solo teams.
+    const boardCmd = makeCatalogItem({
+      id: "board-cmd", type: "command", tags: [TAG_BOARD, TAG_CTX_TEAM_ONLY],
+      relativePath: "commands/board-cmd.md",
+    });
+    // Protected agent — always passes, even with no capability tag.
+    const protectedAgent = makeCatalogItem({
+      id: "protected-agent", protected: true, tags: [],
+      relativePath: "agents/protected-agent.md",
+    });
+    // Brownfield-only command with an implementation capability — admitted by
+    // every preset, then removed only by the greenfield context filter.
+    const brownfieldCmd = makeCatalogItem({
+      id: "bf-cmd", type: "command",
+      tags: [TAG_IMPLEMENTATION, TAG_CTX_BROWNFIELD_ONLY],
+      relativePath: "commands/bf-cmd.md",
+    });
+    // Greenfield-only command — mirror of brownfieldCmd for the opposite filter.
+    const greenfieldCmd = makeCatalogItem({
+      id: "gf-cmd", type: "command",
+      tags: [TAG_IMPLEMENTATION, TAG_CTX_GREENFIELD_ONLY],
+      relativePath: "commands/gf-cmd.md",
+    });
+    // Untagged rule — exercises the REVERSED empty-tag rule. Zero capability +
+    // zero floor + not protected = DROPPED under the new pipeline.
+    const noTagsRule = makeCatalogItem({
+      id: "no-tags-rule", type: "rule", tags: [],
+      relativePath: "rules/no-tags-rule.md",
+    });
+    // Review rule — admitted by standard/full only (TAG_REVIEW).
+    const reviewRule = makeCatalogItem({
+      id: "review-rule", type: "rule", tags: [TAG_REVIEW],
+      relativePath: "rules/review-rule.md",
+    });
+    // UI/UX-floor a11y agent — admitted by EVERY non-custom preset via floor
+    // admission, regardless of preset.capabilities or includeCustomize.
+    const a11yAgent = makeCatalogItem({
+      id: "a11y-agent", tags: [TAG_FLOOR_UI_UX, TAG_A11Y],
+      relativePath: "agents/a11y-agent.md",
+    });
+    // Security-floor rule — admitted by every non-custom preset.
+    const securityRule = makeCatalogItem({
+      id: "security-rule", type: "rule", tags: [TAG_FLOOR_SECURITY],
+      relativePath: "rules/security-rule.md",
+    });
+    // Team-only command with an orchestration capability — admitted by every
+    // preset, but the context filter removes it for solo teams unless the item
+    // also carries a floor tag (it does not here).
+    const teamOnlyCmd = makeCatalogItem({
+      id: "team-only", type: "command",
+      tags: [TAG_ORCHESTRATION, TAG_CTX_TEAM_ONLY],
+      relativePath: "commands/team-only.md",
+    });
+    // Customize-only command — admitted only when preset.includeCustomize is
+    // true (i.e. standard + full); has no capability tag of its own.
+    const customizeCmd = makeCatalogItem({
+      id: "customize-cmd", type: "command", tags: [TAG_CUSTOMIZE],
+      relativePath: "commands/customize-cmd.md",
+    });
+    // Performance agent — admitted only by full preset (full.capabilities
+    // includes TAG_PERFORMANCE).
+    const perfAgent = makeCatalogItem({
+      id: "perf-agent", tags: [TAG_PERFORMANCE],
+      relativePath: "agents/perf-agent.md",
+    });
+    // AI agent — admitted only by full preset (full.capabilities includes
+    // TAG_AI). Exercises the new capability added in Wave 1.
+    const aiAgent = makeCatalogItem({
+      id: "ai-agent", tags: [TAG_AI],
+      relativePath: "agents/ai-agent.md",
+    });
 
     const allItems = [
-      coreAgent, planningCmd, boardCmd, protectedAgent, brownfieldCmd,
-      greenfieldCmd, noTagsRule, reviewRule, a11yAgent, teamOnlyCmd, teamCoreCmd,
+      orchestrationAgent, planningCmd, boardCmd, protectedAgent, brownfieldCmd,
+      greenfieldCmd, noTagsRule, reviewRule, a11yAgent, securityRule,
+      teamOnlyCmd, customizeCmd, perfAgent, aiAgent,
     ];
     const index = makeIndex(allItems);
 
-    it("full preset includes all items when no filters apply", () => {
+    // ── Capability gate ───────────────────────────────────────
+
+    it("full preset admits items with any capability tag", () => {
       const preset = getPreset("full");
       const selection = resolveSelection(preset, "brownfield", "team", index);
 
       const allIds = getAllContentIds(selection);
-      // Full preset, brownfield+team: greenfield-only removed, everything else in
-      expect(allIds.has("core-agent")).toBe(true);
+      // brownfield+team: greenfield-only removed, everything else admitted by
+      // either the capability gate, floor admission, or customize/protected.
+      expect(allIds.has("orchestration-agent")).toBe(true);
       expect(allIds.has("plan-cmd")).toBe(true);
       expect(allIds.has("board-cmd")).toBe(true);
       expect(allIds.has("bf-cmd")).toBe(true);
-      expect(allIds.has("team-only")).toBe(true);
+      expect(allIds.has("perf-agent")).toBe(true);
+      expect(allIds.has("ai-agent")).toBe(true);
+      expect(allIds.has("customize-cmd")).toBe(true);
     });
 
-    it("minimal preset with includeTags filters to only matching tags", () => {
+    it("minimal preset admits only orchestration + implementation capabilities", () => {
       const preset = getPreset("minimal");
       const selection = resolveSelection(preset, "brownfield", "team", index);
 
       const allIds = getAllContentIds(selection);
-      // Minimal only includes "core" tag
-      expect(allIds.has("core-agent")).toBe(true);
-      // planning-only item should be excluded
-      expect(allIds.has("plan-cmd")).toBe(false);
-      // a11y-only item should be excluded
-      expect(allIds.has("a11y-agent")).toBe(false);
+      // Minimal.capabilities = [orchestration, implementation]
+      expect(allIds.has("orchestration-agent")).toBe(true);
+      expect(allIds.has("bf-cmd")).toBe(true); // implementation
+      // Non-minimal capabilities are excluded.
+      expect(allIds.has("plan-cmd")).toBe(false);   // planning
+      expect(allIds.has("review-rule")).toBe(false); // review
+      expect(allIds.has("perf-agent")).toBe(false);  // performance (full-only)
+      expect(allIds.has("ai-agent")).toBe(false);    // ai (full-only)
+      expect(allIds.has("board-cmd")).toBe(false);   // board (standard+full)
     });
 
-    it("standard preset excludeTags removes items with only excluded tags", () => {
+    it("standard preset admits planning/review/devops/maintenance/board but not performance/ai", () => {
       const preset = getPreset("standard");
       const selection = resolveSelection(preset, "brownfield", "team", index);
 
       const allIds = getAllContentIds(selection);
-      // Standard excludes board, a11y, performance, customize
-      expect(allIds.has("a11y-agent")).toBe(false);
-      // board-cmd has tags ["board", "team"] — both board and team are excluded via excludeTags? No,
-      // standard excludeTags = ["board", "a11y", "performance", "customize"]
-      // board-cmd tags = ["board", "team"] — "team" is NOT in excludeSet, so not all tags excluded
-      // It should survive excludeTags, but may fail includeTags check
-      // standard includeTags = ["core", "planning", "implementation", "review", "devops", "maintenance"]
-      // board-cmd has ["board", "team"] — none in includeTags, so excluded by includeTags
-      expect(allIds.has("board-cmd")).toBe(false);
+      expect(allIds.has("plan-cmd")).toBe(true);    // planning
+      expect(allIds.has("review-rule")).toBe(true); // review
+      expect(allIds.has("board-cmd")).toBe(true);   // board
+      // Full-only capabilities still excluded.
+      expect(allIds.has("perf-agent")).toBe(false);
+      expect(allIds.has("ai-agent")).toBe(false);
     });
+
+    // ── Floor admission (structural invariant) ────────────────
+
+    it("floor:ui-ux items are admitted by every non-custom preset (including minimal)", () => {
+      const preset = getPreset("minimal");
+      const selection = resolveSelection(preset, "brownfield", "team", index);
+      const allIds = getAllContentIds(selection);
+      // a11y-agent carries floor:ui-ux — admitted by floor admission even
+      // though minimal.capabilities does not list anything UI/UX-related.
+      expect(allIds.has("a11y-agent")).toBe(true);
+    });
+
+    it("floor:security items are admitted by every non-custom preset", () => {
+      const preset = getPreset("minimal");
+      const selection = resolveSelection(preset, "brownfield", "team", index);
+      const allIds = getAllContentIds(selection);
+      // security-rule carries only floor:security (no capability tag) and
+      // still ships under minimal because floor admission is structural.
+      expect(allIds.has("security-rule")).toBe(true);
+    });
+
+    it("floor admission bypasses team-size context filter (UI/UX ships to solo too)", () => {
+      // Synthetic floor item that ALSO carries ctx:team-only — the floor
+      // tag wins, the item ships to solo.
+      const floorTeamOnly = makeCatalogItem({
+        id: "floor-team-only",
+        tags: [TAG_FLOOR_UI_UX, TAG_CTX_TEAM_ONLY],
+        relativePath: "agents/floor-team-only.md",
+      });
+      const floorIndex = makeIndex([floorTeamOnly]);
+      const preset = getPreset("standard");
+      const selection = resolveSelection(preset, "brownfield", "solo", floorIndex);
+      expect(getAllContentIds(selection).has("floor-team-only")).toBe(true);
+    });
+
+    // ── Reversed empty-tag passthrough ───────────────────────
+
+    it("items with zero capability + zero floor + not protected are DROPPED (reversed empty-tag rule)", () => {
+      const preset = getPreset("full");
+      const selection = resolveSelection(preset, "brownfield", "team", index);
+      // no-tags-rule has neither a capability nor a floor tag and is not
+      // protected — under the v1 "empty tags pass" rule it would have been
+      // admitted; the new pipeline drops it deliberately.
+      expect(getAllContentIds(selection).has("no-tags-rule")).toBe(false);
+    });
+
+    it("dropping zero-capability items applies to every preset (not just minimal)", () => {
+      for (const presetId of ["minimal", "standard", "full"] as const) {
+        const preset = getPreset(presetId);
+        const selection = resolveSelection(preset, "brownfield", "team", index);
+        expect(
+          getAllContentIds(selection).has("no-tags-rule"),
+          `preset ${presetId} should drop no-tags-rule`,
+        ).toBe(false);
+      }
+    });
+
+    // ── Protected items ───────────────────────────────────────
 
     it("protected items are always included regardless of filters", () => {
       const preset = getPreset("minimal");
       const selection = resolveSelection(preset, "greenfield", "solo", index);
 
       const allIds = getAllContentIds(selection);
+      // protected-agent has zero tags but is `protected: true`.
       expect(allIds.has("protected-agent")).toBe(true);
     });
 
-    it("items without tags pass through includeTags filter", () => {
+    // ── Customize family (locked: standard + full only) ──────
+
+    it("minimal preset (includeCustomize=false) excludes customize-only items", () => {
       const preset = getPreset("minimal");
       const selection = resolveSelection(preset, "brownfield", "team", index);
-
-      const allIds = getAllContentIds(selection);
-      expect(allIds.has("no-tags-rule")).toBe(true);
+      expect(getAllContentIds(selection).has("customize-cmd")).toBe(false);
     });
 
-    it("#122: items without tags pass through excludeTags filter (vacuous truth fix)", () => {
-      // Standard preset has excludeTags. Items with empty tags should NOT be excluded.
+    it("standard preset (includeCustomize=true) admits customize-only items", () => {
       const preset = getPreset("standard");
       const selection = resolveSelection(preset, "brownfield", "team", index);
-
-      const allIds = getAllContentIds(selection);
-      // no-tags-rule has no tags, should survive excludeTags filter
-      expect(allIds.has("no-tags-rule")).toBe(true);
+      expect(getAllContentIds(selection).has("customize-cmd")).toBe(true);
     });
 
-    it("greenfield projectType removes brownfield-only items", () => {
+    it("full preset (includeCustomize=true) admits customize-only items", () => {
+      const preset = getPreset("full");
+      const selection = resolveSelection(preset, "brownfield", "team", index);
+      expect(getAllContentIds(selection).has("customize-cmd")).toBe(true);
+    });
+
+    // ── includeIds / excludeIds carve-outs ───────────────────
+
+    it("includeIds admits items whose capability tags do not intersect the preset", () => {
+      // Synthetic preset variant: minimal + an explicit includeIds carve-out
+      // for the performance agent, which minimal's capability list would
+      // otherwise reject.
+      const carveOut = {
+        ...getPreset("minimal"),
+        includeIds: ["perf-agent"],
+      };
+      const selection = resolveSelection(carveOut, "brownfield", "team", index);
+      expect(getAllContentIds(selection).has("perf-agent")).toBe(true);
+    });
+
+    it("excludeIds removes items that would otherwise be admitted by capability", () => {
+      // Synthetic preset variant: full minus the planning command.
+      const carveOut = {
+        ...getPreset("full"),
+        excludeIds: ["plan-cmd"],
+      };
+      const selection = resolveSelection(carveOut, "brownfield", "team", index);
+      expect(getAllContentIds(selection).has("plan-cmd")).toBe(false);
+      // Other capability matches still admitted.
+      expect(getAllContentIds(selection).has("review-rule")).toBe(true);
+    });
+
+    it("excludeIds cannot remove floor-admitted items (floor invariant wins)", () => {
+      const carveOut = {
+        ...getPreset("full"),
+        excludeIds: ["a11y-agent", "security-rule"],
+      };
+      const selection = resolveSelection(carveOut, "brownfield", "team", index);
+      // Floor items are admitted before excludeIds is even consulted.
+      expect(getAllContentIds(selection).has("a11y-agent")).toBe(true);
+      expect(getAllContentIds(selection).has("security-rule")).toBe(true);
+    });
+
+    it("excludeIds cannot remove protected items", () => {
+      const carveOut = {
+        ...getPreset("full"),
+        excludeIds: ["protected-agent"],
+      };
+      const selection = resolveSelection(carveOut, "brownfield", "team", index);
+      expect(getAllContentIds(selection).has("protected-agent")).toBe(true);
+    });
+
+    // ── Context filter ───────────────────────────────────────
+
+    it("greenfield projectType removes ctx:brownfield-only items", () => {
       const preset = getPreset("full");
       const selection = resolveSelection(preset, "greenfield", "team", index);
 
       const allIds = getAllContentIds(selection);
-      // brownfield-only should be removed
       expect(allIds.has("bf-cmd")).toBe(false);
-      // greenfield-only should remain
       expect(allIds.has("gf-cmd")).toBe(true);
     });
 
-    it("brownfield projectType removes greenfield-only items", () => {
+    it("brownfield projectType removes ctx:greenfield-only items", () => {
       const preset = getPreset("full");
       const selection = resolveSelection(preset, "brownfield", "team", index);
 
@@ -547,27 +758,17 @@ describe("content/index", () => {
       expect(allIds.has("bf-cmd")).toBe(true);
     });
 
-    it("solo teamSize removes items with only team/board tags when preset is not 'full'", () => {
+    it("solo teamSize removes non-floor ctx:team-only items", () => {
       const preset = getPreset("standard");
       const selection = resolveSelection(preset, "brownfield", "solo", index);
 
       const allIds = getAllContentIds(selection);
-      // team-only has tags ["team"] — all tags are team/board context, should be removed
       expect(allIds.has("team-only")).toBe(false);
-      // board-cmd has tags ["board", "team"] — all context tags, should be removed
+      // board-cmd carries ctx:team-only — also removed.
       expect(allIds.has("board-cmd")).toBe(false);
     });
 
-    it("solo teamSize keeps items with team tag plus other workflow tags", () => {
-      const preset = getPreset("full");
-      const selection = resolveSelection(preset, "brownfield", "solo", index);
-
-      const allIds = getAllContentIds(selection);
-      // team-core has tags ["team", "core"] — has "core" (non-context), should stay
-      expect(allIds.has("team-core")).toBe(true);
-    });
-
-    it("team teamSize keeps team/board items", () => {
+    it("team teamSize keeps ctx:team-only items", () => {
       const preset = getPreset("full");
       const selection = resolveSelection(preset, "brownfield", "team", index);
 
@@ -576,37 +777,70 @@ describe("content/index", () => {
       expect(allIds.has("board-cmd")).toBe(true);
     });
 
-    it("custom preset with customSelections uses explicit ID list", () => {
+    // ── Custom preset ────────────────────────────────────────
+
+    it("custom preset with customSelections uses explicit ID list (plus protected + floor)", () => {
       const preset = getPreset("custom");
-      const selection = resolveSelection(preset, "brownfield", "team", index, ["core-agent", "review-rule"]);
+      const selection = resolveSelection(
+        preset, "brownfield", "team", index,
+        ["orchestration-agent", "review-rule"],
+      );
 
       const allIds = getAllContentIds(selection);
-      expect(allIds.has("core-agent")).toBe(true);
+      expect(allIds.has("orchestration-agent")).toBe(true);
       expect(allIds.has("review-rule")).toBe(true);
-      // Non-selected, non-protected items should be excluded
+      // Non-selected, non-protected, non-floor items excluded.
       expect(allIds.has("plan-cmd")).toBe(false);
-      expect(allIds.has("a11y-agent")).toBe(false);
+      // Floor items still pass even in custom.
+      expect(allIds.has("a11y-agent")).toBe(true);
+      expect(allIds.has("security-rule")).toBe(true);
     });
 
     it("custom preset still includes protected items", () => {
       const preset = getPreset("custom");
-      const selection = resolveSelection(preset, "brownfield", "team", index, ["core-agent"]);
+      const selection = resolveSelection(
+        preset, "brownfield", "team", index,
+        ["orchestration-agent"],
+      );
 
       const allIds = getAllContentIds(selection);
       expect(allIds.has("protected-agent")).toBe(true);
     });
+
+    it("custom preset without customSelections falls back to floor-only admission (capability gate via empty .capabilities)", () => {
+      const preset = getPreset("custom");
+      // custom.capabilities is empty and includeCustomize is false. Result:
+      // only floor + protected items survive the capability gate.
+      const selection = resolveSelection(preset, "brownfield", "team", index);
+
+      const allIds = getAllContentIds(selection);
+      // Floor items pass.
+      expect(allIds.has("a11y-agent")).toBe(true);
+      expect(allIds.has("security-rule")).toBe(true);
+      // Protected passes.
+      expect(allIds.has("protected-agent")).toBe(true);
+      // Items with only capability tags are rejected (custom has no caps).
+      expect(allIds.has("orchestration-agent")).toBe(false);
+      expect(allIds.has("plan-cmd")).toBe(false);
+      // ctx:greenfield-only doesn't apply (we're brownfield) — both bf-cmd
+      // and gf-cmd had capability tags but custom rejects those too.
+      expect(allIds.has("bf-cmd")).toBe(false);
+      expect(allIds.has("gf-cmd")).toBe(false);
+    });
+
+    // ── Selection grouping + metadata ────────────────────────
 
     it("groups items correctly by type in selection.items", () => {
       const preset = getPreset("full");
       const selection = resolveSelection(preset, "brownfield", "team", index);
 
       // Agents go to items.agents
-      expect(selection.items.agents).toContain("core-agent");
+      expect(selection.items.agents).toContain("orchestration-agent");
       expect(selection.items.agents).toContain("protected-agent");
       // Commands go to items.commands
       expect(selection.items.commands).toContain("plan-cmd");
       // Rules go to items.rules
-      expect(selection.items.rules).toContain("no-tags-rule");
+      expect(selection.items.rules).toContain("security-rule");
     });
 
     it("returns correct preset/projectType/teamSize in selection", () => {
@@ -618,46 +852,6 @@ describe("content/index", () => {
       expect(selection.teamSize).toBe("solo");
     });
 
-    it("full preset with greenfield+solo still applies projectType filter but not team filter", () => {
-      const preset = getPreset("full");
-      const selection = resolveSelection(preset, "greenfield", "solo", index);
-
-      const allIds = getAllContentIds(selection);
-      // Brownfield-only removed — projectType is a technical compatibility filter, still applies
-      expect(allIds.has("bf-cmd")).toBe(false);
-      // Team-only survives — full preset bypasses preference-based team-size filter
-      expect(allIds.has("team-only")).toBe(true);
-      // Core agent survives both filters
-      expect(allIds.has("core-agent")).toBe(true);
-    });
-
-    it("custom preset without customSelections falls back to all items with filters", () => {
-      const preset = getPreset("custom");
-      // custom preset has empty includeTags/excludeTags, so everything passes preset filters
-      const selection = resolveSelection(preset, "brownfield", "team", index);
-
-      const allIds = getAllContentIds(selection);
-      // Everything except greenfield-only should be present
-      expect(allIds.has("core-agent")).toBe(true);
-      expect(allIds.has("gf-cmd")).toBe(false);
-    });
-
-    it("items with mixed brownfield+other tags survive greenfield filter", () => {
-      const mixedItem = makeCatalogItem({
-        id: "mixed-bf",
-        type: "command",
-        tags: ["brownfield", "core"],
-        relativePath: "commands/mixed-bf.md",
-      });
-      const mixedIndex = makeIndex([mixedItem]);
-      const preset = getPreset("full");
-      const selection = resolveSelection(preset, "greenfield", "team", mixedIndex);
-
-      const allIds = getAllContentIds(selection);
-      // Has "core" as a non-context tag alongside "brownfield", so survives
-      expect(allIds.has("mixed-bf")).toBe(true);
-    });
-
     it("empty index returns selection with empty items", () => {
       const preset = getPreset("full");
       const emptyIndex = makeIndex([]);
@@ -666,71 +860,34 @@ describe("content/index", () => {
       expect(countSelectionItems(selection)).toBe(0);
     });
 
-    it("minimal preset excludes review-tagged items (not in includeTags)", () => {
-      const preset = getPreset("minimal");
-      const selection = resolveSelection(preset, "brownfield", "team", index);
+    // ── Dual context-tag items ───────────────────────────────
 
-      const allIds = getAllContentIds(selection);
-      expect(allIds.has("review-rule")).toBe(false);
-    });
-
-    // ── Tag consolidation edge cases ──────────────────────────
-
-    it("item with both greenfield and brownfield tags passes both project type filters", () => {
+    it("item carrying both ctx:greenfield-only and ctx:brownfield-only is filtered by either project type", () => {
+      // An item declaring incompatibility with BOTH project types removes
+      // itself from every preset — there is no project type left it could
+      // ship to. This is a tagging mistake by design.
       const dualItem = makeCatalogItem({
-        id: "dual-context",
-        type: "rule",
-        tags: ["greenfield", "brownfield"],
+        id: "dual-context", type: "rule",
+        tags: [TAG_IMPLEMENTATION, TAG_CTX_GREENFIELD_ONLY, TAG_CTX_BROWNFIELD_ONLY],
         relativePath: "rules/dual-context.md",
       });
       const dualIndex = makeIndex([dualItem]);
       const preset = getPreset("full");
 
-      // Should survive greenfield filter (has non-brownfield tag: "greenfield")
+      // Greenfield filter drops ctx:brownfield-only items.
       const gfSelection = resolveSelection(preset, "greenfield", "team", dualIndex);
-      expect(getAllContentIds(gfSelection).has("dual-context")).toBe(true);
+      expect(getAllContentIds(gfSelection).has("dual-context")).toBe(false);
 
-      // Should survive brownfield filter (has non-greenfield tag: "brownfield")
+      // Brownfield filter drops ctx:greenfield-only items.
       const bfSelection = resolveSelection(preset, "brownfield", "team", dualIndex);
-      expect(getAllContentIds(bfSelection).has("dual-context")).toBe(true);
-    });
-
-    it("item with only 'team' tag is filtered out when teamSize is solo", () => {
-      const teamOnlyItem = makeCatalogItem({
-        id: "team-only-item",
-        type: "command",
-        tags: ["team"],
-        relativePath: "commands/team-only-item.md",
-      });
-      const soloIndex = makeIndex([teamOnlyItem]);
-      const preset = getPreset("standard");
-
-      const selection = resolveSelection(preset, "brownfield", "solo", soloIndex);
-      expect(getAllContentIds(selection).has("team-only-item")).toBe(false);
-    });
-
-    it("item with 'team' and 'core' tags survives solo teamSize filter", () => {
-      const teamCoreItem = makeCatalogItem({
-        id: "team-core-item",
-        type: "rule",
-        tags: ["team", "core"],
-        relativePath: "rules/team-core-item.md",
-      });
-      const mixedIndex = makeIndex([teamCoreItem]);
-      const preset = getPreset("full");
-
-      // "core" is a non-context tag, so item should survive solo filter
-      const selection = resolveSelection(preset, "brownfield", "solo", mixedIndex);
-      expect(getAllContentIds(selection).has("team-core-item")).toBe(true);
+      expect(getAllContentIds(bfSelection).has("dual-context")).toBe(false);
     });
 
     // ── Language filtering (Finding #71) ────────────────────
 
     it("items without language tags are included regardless of project languages", () => {
       const genericRule = makeCatalogItem({
-        id: "generic-rule",
-        type: "rule",
-        tags: ["core"],
+        id: "generic-rule", type: "rule", tags: [TAG_ORCHESTRATION],
         relativePath: "rules/generic-rule.md",
       });
       const langIndex = makeIndex([genericRule]);
@@ -742,9 +899,7 @@ describe("content/index", () => {
 
     it("items with matching language tag are included for that language", () => {
       const tsRule = makeCatalogItem({
-        id: "ts-rule",
-        type: "rule",
-        tags: ["core", "lang:typescript"],
+        id: "ts-rule", type: "rule", tags: [TAG_ORCHESTRATION, "lang:typescript"],
         relativePath: "rules/ts-rule.md",
       });
       const langIndex = makeIndex([tsRule]);
@@ -756,9 +911,7 @@ describe("content/index", () => {
 
     it("items with non-matching language tag are excluded for other languages", () => {
       const tsRule = makeCatalogItem({
-        id: "ts-only-rule",
-        type: "rule",
-        tags: ["core", "lang:typescript"],
+        id: "ts-only-rule", type: "rule", tags: [TAG_ORCHESTRATION, "lang:typescript"],
         relativePath: "rules/ts-only-rule.md",
       });
       const langIndex = makeIndex([tsRule]);
@@ -770,9 +923,7 @@ describe("content/index", () => {
 
     it("javascript projects match lang:typescript tagged items", () => {
       const tsRule = makeCatalogItem({
-        id: "ts-js-rule",
-        type: "rule",
-        tags: ["core", "lang:typescript"],
+        id: "ts-js-rule", type: "rule", tags: [TAG_ORCHESTRATION, "lang:typescript"],
         relativePath: "rules/ts-js-rule.md",
       });
       const langIndex = makeIndex([tsRule]);
@@ -784,21 +935,15 @@ describe("content/index", () => {
 
     it("multi-language projects include items matching any detected language", () => {
       const pyRule = makeCatalogItem({
-        id: "py-rule",
-        type: "rule",
-        tags: ["core", "lang:python"],
+        id: "py-rule", type: "rule", tags: [TAG_ORCHESTRATION, "lang:python"],
         relativePath: "rules/py-rule.md",
       });
       const goRule = makeCatalogItem({
-        id: "go-rule",
-        type: "rule",
-        tags: ["core", "lang:go"],
+        id: "go-rule", type: "rule", tags: [TAG_ORCHESTRATION, "lang:go"],
         relativePath: "rules/go-rule.md",
       });
       const rubyRule = makeCatalogItem({
-        id: "ruby-rule",
-        type: "rule",
-        tags: ["core", "lang:ruby"],
+        id: "ruby-rule", type: "rule", tags: [TAG_ORCHESTRATION, "lang:ruby"],
         relativePath: "rules/ruby-rule.md",
       });
       const langIndex = makeIndex([pyRule, goRule, rubyRule]);
@@ -813,9 +958,8 @@ describe("content/index", () => {
 
     it("protected items with non-matching language tags are still included", () => {
       const protectedLangItem = makeCatalogItem({
-        id: "protected-lang",
-        type: "agent",
-        tags: ["core", "lang:typescript"],
+        id: "protected-lang", type: "agent",
+        tags: [TAG_ORCHESTRATION, "lang:typescript"],
         protected: true,
         relativePath: "agents/protected-lang.md",
       });
@@ -828,9 +972,8 @@ describe("content/index", () => {
 
     it("no language filtering when projectLanguages is undefined", () => {
       const tsRule = makeCatalogItem({
-        id: "ts-rule-no-filter",
-        type: "rule",
-        tags: ["core", "lang:typescript"],
+        id: "ts-rule-no-filter", type: "rule",
+        tags: [TAG_ORCHESTRATION, "lang:typescript"],
         relativePath: "rules/ts-rule-no-filter.md",
       });
       const langIndex = makeIndex([tsRule]);
@@ -842,9 +985,8 @@ describe("content/index", () => {
 
     it("no language filtering when projectLanguages is empty array", () => {
       const tsRule = makeCatalogItem({
-        id: "ts-rule-empty",
-        type: "rule",
-        tags: ["core", "lang:typescript"],
+        id: "ts-rule-empty", type: "rule",
+        tags: [TAG_ORCHESTRATION, "lang:typescript"],
         relativePath: "rules/ts-rule-empty.md",
       });
       const langIndex = makeIndex([tsRule]);
@@ -854,44 +996,17 @@ describe("content/index", () => {
       expect(getAllContentIds(selection).has("ts-rule-empty")).toBe(true);
     });
 
-    // ── Full preset opt-in: bypasses preference-based team-size narrowing ──
+    // ── skipContextFilters opt-out (config.ts path) ──────────
 
-    it("full preset + solo keeps team-only items (regression: board and onboard commands)", () => {
+    it("skipContextFilters=true bypasses project-type, team-size, and language filters", () => {
       const preset = getPreset("full");
-      const selection = resolveSelection(preset, "brownfield", "solo", index);
+      const selection = resolveSelection(
+        preset, "brownfield", "solo", index, undefined, undefined,
+        { skipContextFilters: true },
+      );
       const allIds = getAllContentIds(selection);
-      // team-only has tags ["team"] — under the fix, full preset rescues it
-      expect(allIds.has("team-only")).toBe(true);
-    });
-
-    it("full preset + solo keeps board+team items", () => {
-      const preset = getPreset("full");
-      const selection = resolveSelection(preset, "brownfield", "solo", index);
-      const allIds = getAllContentIds(selection);
-      // board-cmd has tags ["board", "team"] — under the fix, full preset rescues it
-      expect(allIds.has("board-cmd")).toBe(true);
-    });
-
-    it("full preset + greenfield + solo still removes brownfield-only items", () => {
-      const preset = getPreset("full");
-      const selection = resolveSelection(preset, "greenfield", "solo", index);
-      const allIds = getAllContentIds(selection);
-      // projectType filter is a technical compatibility filter and still applies under full
-      expect(allIds.has("bf-cmd")).toBe(false);
-    });
-
-    it("standard preset + solo still removes team-only items (scope check: fix is full-only)", () => {
-      const preset = getPreset("standard");
-      const selection = resolveSelection(preset, "brownfield", "solo", index);
-      const allIds = getAllContentIds(selection);
-      // standard + solo should still filter team-only items — fix is scoped to full
-      expect(allIds.has("team-only")).toBe(false);
-    });
-
-    it("full preset + solo with skipContextFilters=true keeps team items (config.ts path unchanged)", () => {
-      const preset = getPreset("full");
-      const selection = resolveSelection(preset, "brownfield", "solo", index, undefined, undefined, { skipContextFilters: true });
-      const allIds = getAllContentIds(selection);
+      // team-only and board-cmd would normally be removed for solo; under
+      // skipContextFilters they stay.
       expect(allIds.has("team-only")).toBe(true);
       expect(allIds.has("board-cmd")).toBe(true);
     });
@@ -1607,11 +1722,18 @@ describe("content/index", () => {
   // ── Exclusion counting ───────────────────────────────────────
 
   describe("countPresetExclusions", () => {
+    // Fixture exercises the new capability-gate + floor + customize semantics.
     const exclIndex = makeIndex([
-      makeCatalogItem({ id: "core-item", tags: ["core"], relativePath: "agents/core.md" }),
-      makeCatalogItem({ id: "planning-item", type: "command", tags: ["planning"], relativePath: "commands/plan.md" }),
-      makeCatalogItem({ id: "board-item", type: "command", tags: ["board"], relativePath: "commands/board.md" }),
-      makeCatalogItem({ id: "review-item", type: "rule", tags: ["review"], relativePath: "rules/review.md" }),
+      // Orchestration capability — admitted by every non-custom preset.
+      makeCatalogItem({ id: "orch-item", tags: [TAG_ORCHESTRATION], relativePath: "agents/orch.md" }),
+      // Planning — admitted by standard/full, EXCLUDED under minimal.
+      makeCatalogItem({ id: "planning-item", type: "command", tags: [TAG_PLANNING], relativePath: "commands/plan.md" }),
+      // Board — admitted by standard/full, EXCLUDED under minimal.
+      makeCatalogItem({ id: "board-item", type: "command", tags: [TAG_BOARD], relativePath: "commands/board.md" }),
+      // Review — admitted by standard/full, EXCLUDED under minimal.
+      makeCatalogItem({ id: "review-item", type: "rule", tags: [TAG_REVIEW], relativePath: "rules/review.md" }),
+      // Floor item — never counted as excluded under any preset.
+      makeCatalogItem({ id: "floor-item", tags: [TAG_FLOOR_SECURITY], relativePath: "agents/floor.md" }),
     ]);
 
     it("returns 0 for full preset", () => {
@@ -1624,19 +1746,21 @@ describe("content/index", () => {
       expect(countPresetExclusions(preset, exclIndex)).toBe(0);
     });
 
-    it("counts excluded items for minimal preset", () => {
+    it("counts capability-gated items as excluded for minimal preset", () => {
       const preset = getPreset("minimal");
       const count = countPresetExclusions(preset, exclIndex);
-      // Minimal only includes "core" tag; planning, board, review get excluded
+      // Minimal.capabilities = [orchestration, implementation]. Items missing
+      // those capabilities and lacking floor/protected status are excluded:
+      // planning, board, review = 3. floor-item is admitted by floor and not
+      // counted; orch-item is admitted by capability gate and not counted.
       expect(count).toBe(3);
     });
 
     it("does not count protected items as excluded", () => {
       const protectedOnly = makeIndex([
         makeCatalogItem({
-          id: "prot",
-          type: "agent",
-          tags: ["obscure-tag"],
+          id: "prot", type: "agent",
+          tags: [], // no capability, no floor — would normally be dropped
           relativePath: "agents/prot.md",
           protected: true,
         }),
@@ -1644,55 +1768,116 @@ describe("content/index", () => {
       const preset = getPreset("minimal");
       expect(countPresetExclusions(preset, protectedOnly)).toBe(0);
     });
+
+    it("does not count floor-tagged items as excluded (structural invariant)", () => {
+      const floorOnly = makeIndex([
+        makeCatalogItem({
+          id: "ui-floor",
+          tags: [TAG_FLOOR_UI_UX], // no capability — admitted by floor only
+          relativePath: "agents/ui-floor.md",
+        }),
+      ]);
+      const preset = getPreset("minimal");
+      expect(countPresetExclusions(preset, floorOnly)).toBe(0);
+    });
+
+    it("counts customize-only items as excluded under includeCustomize=false (minimal)", () => {
+      const customizeOnly = makeIndex([
+        makeCatalogItem({
+          id: "cust-only",
+          tags: [TAG_CUSTOMIZE], // customize, no capability
+          relativePath: "agents/cust-only.md",
+        }),
+      ]);
+      const preset = getPreset("minimal"); // includeCustomize: false
+      expect(countPresetExclusions(preset, customizeOnly)).toBe(1);
+    });
+
+    it("does not count customize-only items under includeCustomize=true (standard)", () => {
+      const customizeOnly = makeIndex([
+        makeCatalogItem({
+          id: "cust-only",
+          tags: [TAG_CUSTOMIZE],
+          relativePath: "agents/cust-only.md",
+        }),
+      ]);
+      const preset = getPreset("standard"); // includeCustomize: true
+      expect(countPresetExclusions(preset, customizeOnly)).toBe(0);
+    });
+
+    it("does not count items rescued by includeIds carve-out", () => {
+      const rescued = makeIndex([
+        makeCatalogItem({
+          id: "perf-only",
+          tags: [TAG_PERFORMANCE], // not in minimal.capabilities
+          relativePath: "agents/perf-only.md",
+        }),
+      ]);
+      const carveOut = { ...getPreset("minimal"), includeIds: ["perf-only"] };
+      expect(countPresetExclusions(carveOut, rescued)).toBe(0);
+    });
   });
 
   describe("countProjectTypeExclusions", () => {
-    it("counts brownfield-only items excluded by greenfield filter", () => {
+    it("counts ctx:brownfield-only items excluded by greenfield filter", () => {
       const items = [
-        makeCatalogItem({ id: "bf-only", type: "agent", tags: ["brownfield"], relativePath: "agents/bf.md" }),
-        makeCatalogItem({ id: "both", type: "agent", tags: ["brownfield", "core"], relativePath: "agents/both.md" }),
-        makeCatalogItem({ id: "gf", type: "agent", tags: ["core"], relativePath: "agents/gf.md" }),
+        makeCatalogItem({ id: "bf-only", type: "agent", tags: [TAG_CTX_BROWNFIELD_ONLY], relativePath: "agents/bf.md" }),
+        makeCatalogItem({ id: "both", type: "agent", tags: [TAG_CTX_BROWNFIELD_ONLY, TAG_ORCHESTRATION], relativePath: "agents/both.md" }),
+        makeCatalogItem({ id: "gf", type: "agent", tags: [TAG_ORCHESTRATION], relativePath: "agents/gf.md" }),
       ];
-      expect(countProjectTypeExclusions("greenfield", items)).toBe(1); // only bf-only
+      // Both items carrying ctx:brownfield-only count as exclusions for
+      // greenfield (the count is a pre-filter UX hint, not a final selection).
+      expect(countProjectTypeExclusions("greenfield", items)).toBe(2);
     });
 
-    it("counts greenfield-only items excluded by brownfield filter", () => {
+    it("counts ctx:greenfield-only items excluded by brownfield filter", () => {
       const items = [
-        makeCatalogItem({ id: "gf-only", type: "agent", tags: ["greenfield"], relativePath: "agents/gf.md" }),
-        makeCatalogItem({ id: "mixed", type: "agent", tags: ["greenfield", "core"], relativePath: "agents/mixed.md" }),
+        makeCatalogItem({ id: "gf-only", type: "agent", tags: [TAG_CTX_GREENFIELD_ONLY], relativePath: "agents/gf.md" }),
+        makeCatalogItem({ id: "mixed", type: "agent", tags: [TAG_CTX_GREENFIELD_ONLY, TAG_ORCHESTRATION], relativePath: "agents/mixed.md" }),
       ];
-      expect(countProjectTypeExclusions("brownfield", items)).toBe(1); // only gf-only
+      expect(countProjectTypeExclusions("brownfield", items)).toBe(2);
     });
 
     it("does not count protected items", () => {
       const items = [
-        makeCatalogItem({ id: "prot-bf", type: "agent", tags: ["brownfield"], relativePath: "agents/prot.md", protected: true }),
+        makeCatalogItem({ id: "prot-bf", type: "agent", tags: [TAG_CTX_BROWNFIELD_ONLY], relativePath: "agents/prot.md", protected: true }),
       ];
       expect(countProjectTypeExclusions("greenfield", items)).toBe(0);
     });
   });
 
   describe("countTeamSizeExclusions", () => {
-    it("counts team-only items excluded by solo filter", () => {
+    it("counts ctx:team-only items excluded by solo filter", () => {
       const items = [
-        makeCatalogItem({ id: "team-only", type: "command", tags: ["team"], relativePath: "commands/team.md" }),
-        makeCatalogItem({ id: "board-only", type: "command", tags: ["board"], relativePath: "commands/board.md" }),
-        makeCatalogItem({ id: "team-core", type: "command", tags: ["team", "core"], relativePath: "commands/team-core.md" }),
-        makeCatalogItem({ id: "normal", type: "command", tags: ["core"], relativePath: "commands/normal.md" }),
+        makeCatalogItem({ id: "team-only", type: "command", tags: [TAG_CTX_TEAM_ONLY], relativePath: "commands/team.md" }),
+        makeCatalogItem({ id: "team-orch", type: "command", tags: [TAG_CTX_TEAM_ONLY, TAG_ORCHESTRATION], relativePath: "commands/team-orch.md" }),
+        makeCatalogItem({ id: "normal", type: "command", tags: [TAG_ORCHESTRATION], relativePath: "commands/normal.md" }),
       ];
-      expect(countTeamSizeExclusions("solo", items)).toBe(2); // team-only and board-only
+      // Both items carrying ctx:team-only count as exclusions under solo.
+      expect(countTeamSizeExclusions("solo", items)).toBe(2);
     });
 
     it("returns 0 for team filter", () => {
       const items = [
-        makeCatalogItem({ id: "team-only", type: "command", tags: ["team"], relativePath: "commands/team.md" }),
+        makeCatalogItem({ id: "team-only", type: "command", tags: [TAG_CTX_TEAM_ONLY], relativePath: "commands/team.md" }),
       ];
       expect(countTeamSizeExclusions("team", items)).toBe(0);
     });
 
     it("does not count protected items", () => {
       const items = [
-        makeCatalogItem({ id: "prot-team", type: "command", tags: ["team"], relativePath: "commands/pt.md", protected: true }),
+        makeCatalogItem({ id: "prot-team", type: "command", tags: [TAG_CTX_TEAM_ONLY], relativePath: "commands/pt.md", protected: true }),
+      ];
+      expect(countTeamSizeExclusions("solo", items)).toBe(0);
+    });
+
+    it("does not count floor-tagged ctx:team-only items (floor invariant ships UI/UX to solo)", () => {
+      const items = [
+        makeCatalogItem({
+          id: "floor-team",
+          tags: [TAG_FLOOR_UI_UX, TAG_CTX_TEAM_ONLY],
+          relativePath: "agents/floor-team.md",
+        }),
       ];
       expect(countTeamSizeExclusions("solo", items)).toBe(0);
     });

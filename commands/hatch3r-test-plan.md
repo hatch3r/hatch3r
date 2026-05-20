@@ -4,7 +4,7 @@ type: command
 orchestrator: true
 agentPipeline: [hatch3r-researcher, hatch3r-docs-writer]
 description: Plan a comprehensive test strategy -- spawn parallel researchers, produce test plan spec with coverage targets, priority ordering, test case outlines, and structured todo.md entries for board-fill.
-tags: [core, planning]
+tags: [planning, orchestration]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
