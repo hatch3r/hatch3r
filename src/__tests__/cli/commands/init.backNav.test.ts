@@ -10,11 +10,16 @@ import {
   runStepMachine,
   type Step,
 } from "../../../cli/shared/initSteps.js";
+import { __testing as backableTesting } from "../../../cli/shared/backablePrompts.js";
 
-// Mirror init.test.ts: mock inquirer.prompt so each helper call returns
-// a queued answer shape. Slice E focuses on the step-machine driver in
-// isolation — the helpers translate the BACK sentinel and `:back` text
-// trigger into machine-level walk-back.
+// Mirror init.test.ts: mock inquirer.prompt so each helper call returns a
+// queued answer shape. The Shift+Tab refactor (commit message: ↑↓ navigate
+// · ⏎ select · Shift+Tab back) replaced the inline "← Back" menu choice
+// and `:back` string trigger with a keypress signalled by the backable
+// prompts in `src/cli/shared/backablePrompts.ts`. Tests mock at the
+// inquirer.prompt boundary, so they queue the BACK sentinel directly to
+// simulate a Shift+Tab keypress; Symbol.for("hatch3r.BACK") guarantees
+// identity holds across the mocked/production module boundary.
 vi.mock("inquirer", () => {
   class Separator {
     constructor(public readonly line: string) {}
@@ -92,10 +97,9 @@ describe("runStepMachine — BACK from step 2", () => {
     expect(result).toEqual({ a: "A1", b: "B-final" });
     // Step a should have re-prompted with its prior answer as `previous`.
     expect(aCalls).toEqual([undefined, "A1"]);
-    // Step b's second visit should also receive its prior answer as `previous`.
-    // First visit: prior is undefined (never answered). Walk-back sets
-    // prev[b] only if b returned a real value; because b returned BACK,
-    // prev[b] stays undefined — so the second visit also gets undefined.
+    // Step b's first-visit prior is undefined; walk-back does not write
+    // prev[b] because b returned BACK, so the second visit also gets
+    // undefined.
     expect(bCalls).toEqual([undefined, undefined]);
   });
 });
@@ -107,7 +111,6 @@ describe("runStepMachine — skip cascade", () => {
     const stepBSkipped = vi.fn().mockReturnValue(true);
     const steps: Array<Step<S>> = [
       { id: "a", async run() { return "A"; } },
-      // c (third in list) is skipped:
       { id: "b", async run() { return "B"; } },
       { id: "c", skip: stepBSkipped, async run() { throw new Error("c should be skipped"); } },
       {
@@ -123,7 +126,6 @@ describe("runStepMachine — skip cascade", () => {
     expect(result.a).toBe("A");
     expect(result.b).toBe("B");
     expect(result.d).toBe("D");
-    // c was skipped both forward and during walk-back — never visited.
     expect(stepBSkipped).toHaveBeenCalled();
   });
 });
@@ -138,9 +140,6 @@ describe("runStepMachine — MCP gate flip", () => {
         id: "wantMcp",
         async run() {
           gateVisits++;
-          // First visit: opt-in. Second visit (after BACK from servers
-          // step is not possible because confirm has no BACK; we
-          // simulate the gate-flip differently — see test logic).
           if (gateVisits === 1) return true;
           return false;
         },
@@ -150,88 +149,21 @@ describe("runStepMachine — MCP gate flip", () => {
         skip: (s) => !s.wantMcp,
         async run() {
           serversVisits++;
-          if (serversVisits === 1) {
-            // After picking servers, the user clicks back to the gate.
-            return BACK;
-          }
-          // After the gate flips off, this step should be skipped — so
-          // serversVisits should never reach 2.
+          if (serversVisits === 1) return BACK;
           return ["should-not-happen"];
         },
       },
     ];
     const result = await runStepMachine<S>(steps);
     expect(result.wantMcp).toBe(false);
-    // mcpServers slot was deleted on the second forward pass because
-    // skip() became true. Final state has no mcpServers entry.
     expect(result.mcpServers).toBeUndefined();
     expect(serversVisits).toBe(1);
     expect(gateVisits).toBe(2);
   });
 });
 
-describe("askInput — `:back` text trigger", () => {
-  it("returns BACK for exactly ':back'", async () => {
-    vi.mocked(inquirer.prompt).mockResolvedValueOnce({ x: ":back" });
-    const r = await askInput({ name: "x", message: "Q" });
-    expect(isBack(r)).toBe(true);
-  });
-
-  it("returns BACK for ':back' with trailing whitespace", async () => {
-    vi.mocked(inquirer.prompt).mockResolvedValueOnce({ x: ":back  " });
-    const r = await askInput({ name: "x", message: "Q" });
-    expect(isBack(r)).toBe(true);
-  });
-
-  it("returns the raw string for 'not :back'", async () => {
-    vi.mocked(inquirer.prompt).mockResolvedValueOnce({ x: "not :back" });
-    const r = await askInput({ name: "x", message: "Q" });
-    expect(r).toBe("not :back");
-  });
-
-  it("`:back` short-circuits validator (validator never rejects back-nav)", async () => {
-    const validate = vi.fn().mockReturnValue("invalid");
-    // The wrapper passes its own validator to inquirer; inquirer would
-    // call that wrapper validator with the input before resolving. We
-    // simulate the wrapper directly by invoking the call's validate
-    // function ourselves.
-    let capturedValidate: ((s: string) => boolean | string) | undefined;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (vi.mocked(inquirer.prompt) as any).mockImplementationOnce(async (q: unknown) => {
-      const arr = q as Array<{ validate?: (s: string) => boolean | string }>;
-      capturedValidate = arr[0]?.validate;
-      return { x: ":back" };
-    });
-    const r = await askInput({ name: "x", message: "Q", validate });
-    expect(isBack(r)).toBe(true);
-    // Caller's validate should NOT have been called for the ':back' input.
-    expect(capturedValidate).toBeDefined();
-    expect(capturedValidate!(":back")).toBe(true);
-    // For a non-:back input, caller's validate IS consulted.
-    expect(capturedValidate!("anything-else")).toBe("invalid");
-    expect(validate).toHaveBeenCalledWith("anything-else");
-  });
-});
-
-describe("askSelect / askCheckbox — BACK option prepended", () => {
-  it("askSelect prepends '← Back' as the first choice", async () => {
-    let captured: Array<{ name: string; value: unknown }> | undefined;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (vi.mocked(inquirer.prompt) as any).mockImplementationOnce(async (q: unknown) => {
-      const arr = q as Array<{ choices: Array<{ name: string; value: unknown }> }>;
-      captured = arr[0].choices;
-      return { x: "go" };
-    });
-    await askSelect({
-      name: "x",
-      message: "Pick one",
-      choices: [{ name: "Go", value: "go" }],
-    });
-    expect(captured?.[0]?.name).toBe("← Back");
-    expect(captured?.[0]?.value).toBe(BACK);
-  });
-
-  it("askSelect returns BACK when the user picks the back sentinel", async () => {
+describe("askSelect / askCheckbox / askInput / askConfirm — BACK sentinel", () => {
+  it("askSelect returns BACK when the prompt resolves with the sentinel", async () => {
     vi.mocked(inquirer.prompt).mockResolvedValueOnce({ x: BACK });
     const r = await askSelect({
       name: "x",
@@ -241,8 +173,18 @@ describe("askSelect / askCheckbox — BACK option prepended", () => {
     expect(isBack(r)).toBe(true);
   });
 
-  it("askCheckbox returns BACK when the BACK sentinel is in the answer array", async () => {
-    vi.mocked(inquirer.prompt).mockResolvedValueOnce({ x: ["a", BACK, "b"] });
+  it("askSelect returns the chosen value otherwise", async () => {
+    vi.mocked(inquirer.prompt).mockResolvedValueOnce({ x: "go" });
+    const r = await askSelect({
+      name: "x",
+      message: "Pick one",
+      choices: [{ name: "Go", value: "go" }],
+    });
+    expect(r).toBe("go");
+  });
+
+  it("askCheckbox returns BACK when the prompt resolves with the sentinel", async () => {
+    vi.mocked(inquirer.prompt).mockResolvedValueOnce({ x: BACK });
     const r = await askCheckbox({
       name: "x",
       message: "Pick many",
@@ -254,7 +196,7 @@ describe("askSelect / askCheckbox — BACK option prepended", () => {
     expect(isBack(r)).toBe(true);
   });
 
-  it("askCheckbox strips BACK from the result when not selected", async () => {
+  it("askCheckbox forwards the array of selected values otherwise", async () => {
     vi.mocked(inquirer.prompt).mockResolvedValueOnce({ x: ["a", "b"] });
     const r = await askCheckbox({
       name: "x",
@@ -267,9 +209,60 @@ describe("askSelect / askCheckbox — BACK option prepended", () => {
     expect(r).toEqual(["a", "b"]);
   });
 
-  it("askConfirm has no BACK affordance and forwards the boolean answer", async () => {
+  it("askInput returns BACK when the prompt resolves with the sentinel", async () => {
+    vi.mocked(inquirer.prompt).mockResolvedValueOnce({ x: BACK });
+    const r = await askInput({ name: "x", message: "Q" });
+    expect(isBack(r)).toBe(true);
+  });
+
+  it("askInput forwards the typed string otherwise", async () => {
+    vi.mocked(inquirer.prompt).mockResolvedValueOnce({ x: "anything" });
+    const r = await askInput({ name: "x", message: "Q" });
+    expect(r).toBe("anything");
+  });
+
+  it("askConfirm returns BACK when the prompt resolves with the sentinel", async () => {
+    vi.mocked(inquirer.prompt).mockResolvedValueOnce({ x: BACK });
+    const r = await askConfirm({ name: "x", message: "Yes/No?" });
+    expect(isBack(r)).toBe(true);
+  });
+
+  it("askConfirm forwards the boolean answer otherwise", async () => {
     vi.mocked(inquirer.prompt).mockResolvedValueOnce({ x: true });
     const r = await askConfirm({ name: "x", message: "Yes/No?" });
     expect(r).toBe(true);
+  });
+});
+
+describe("Shift+Tab keypress predicate", () => {
+  const { isShiftTabKey } = backableTesting;
+
+  it("matches Shift+Tab", () => {
+    expect(isShiftTabKey({ name: "tab", shift: true, ctrl: false })).toBe(true);
+  });
+
+  it("does not match plain Tab", () => {
+    expect(isShiftTabKey({ name: "tab", shift: false, ctrl: false })).toBe(false);
+  });
+
+  it("does not match Ctrl+Shift+Tab", () => {
+    expect(isShiftTabKey({ name: "tab", shift: true, ctrl: true })).toBe(false);
+  });
+
+  it("does not match Meta+Shift+Tab", () => {
+    // KeypressEvent doesn't declare `meta` but Node's readline may set it.
+    expect(
+      isShiftTabKey({ name: "tab", shift: true, ctrl: false, meta: true } as never),
+    ).toBe(false);
+  });
+
+  it("does not match Shift+other-key", () => {
+    expect(isShiftTabKey({ name: "enter", shift: true, ctrl: false })).toBe(false);
+  });
+});
+
+describe("Symbol.for identity across modules", () => {
+  it("BACK from initSteps equals Symbol.for('hatch3r.BACK')", () => {
+    expect(BACK).toBe(Symbol.for("hatch3r.BACK"));
   });
 });

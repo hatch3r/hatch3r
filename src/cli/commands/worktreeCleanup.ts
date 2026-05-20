@@ -1,5 +1,4 @@
 import chalk from "chalk";
-import inquirer from "inquirer";
 import {
   HatchError,
 } from "../../types.js";
@@ -15,6 +14,15 @@ import {
   getWorktreeStatus,
 } from "../../worktree/resolve.js";
 import type { WorktreeListEntry, WorktreeStatus } from "../../worktree/types.js";
+import {
+  askCheckbox,
+  askConfirm,
+  askSelect,
+  isBack,
+  runStepMachine,
+  type Step,
+  type StepResult,
+} from "../shared/initSteps.js";
 import {
   printBanner,
   createSpinner,
@@ -170,6 +178,164 @@ function buildChoices(partitioned: ReturnType<typeof partition>, mainRoot: strin
   return out;
 }
 
+type CleanupMode = "all" | "specific" | "cancel";
+
+interface CleanupFlowState {
+  mode: CleanupMode;
+  picks: string[];
+  proceed: boolean;
+}
+
+/**
+ * Compute which selected paths have uncommitted work. Returned dirty list
+ * drives the `proceed` step's skip predicate and the warning printBox.
+ */
+function findDirty(
+  selected: string[],
+  partitioned: ReturnType<typeof partition>,
+): Candidate[] {
+  const lookup = new Map<string, Candidate>();
+  for (const c of [...partitioned.managed, ...partitioned.other]) lookup.set(c.entry.path, c);
+  return selected
+    .map((p) => lookup.get(p))
+    .filter((c): c is Candidate =>
+      !!c && (c.status.modified > 0 || c.status.untracked > 0 || c.status.stashes > 0),
+    );
+}
+
+/**
+ * Resolve the effective selection of paths to clean for the current state.
+ * `all` mode pulls every candidate; `specific` uses the user-picked set;
+ * `cancel` returns empty (caller short-circuits).
+ */
+function resolveSelected(
+  state: Partial<CleanupFlowState>,
+  partitioned: ReturnType<typeof partition>,
+): string[] {
+  if (state.mode === "all") {
+    return [...partitioned.managed, ...partitioned.other].map((c) => c.entry.path);
+  }
+  if (state.mode === "specific") {
+    return state.picks ?? [];
+  }
+  return [];
+}
+
+/**
+ * Run the 3-prompt interactive flow (mode → picks → proceed) through the
+ * step-machine so Shift+Tab walks back across the chain. Each step's run()
+ * routes the BACK sentinel via isBack() — no answer is consumed as a
+ * string/array/boolean before the sentinel check.
+ *
+ * Steps:
+ *   - mode    : pick "all" / "specific" / "cancel"
+ *   - picks   : checkbox of candidate worktrees (skipped unless mode === "specific")
+ *   - proceed : confirm destruction of uncommitted work
+ *               (skipped when no selection is dirty or mode === "cancel")
+ */
+async function runInteractiveFlow(
+  partitioned: ReturnType<typeof partition>,
+  mainRoot: string,
+): Promise<{ paths: string[]; cancelled: boolean }> {
+  const allCandidates = [...partitioned.managed, ...partitioned.other];
+
+  const steps: Array<Step<CleanupFlowState>> = [
+    {
+      id: "mode",
+      async run(_state, previous): Promise<StepResult<CleanupMode>> {
+        return await askSelect<CleanupMode>({
+          name: "mode",
+          message: `Clean ${allCandidates.length} worktree(s)?`,
+          choices: [
+            { name: `Pick specific (recommended)`, value: "specific" },
+            { name: `Clean all ${allCandidates.length}`, value: "all" },
+            { name: `Cancel`, value: "cancel" },
+          ],
+          default: previous ?? "specific",
+        });
+      },
+    },
+    {
+      id: "picks",
+      skip: (s) => s.mode !== "specific",
+      async run(_state, previous): Promise<StepResult<string[]>> {
+        return await askCheckbox<string>({
+          name: "picks",
+          message: "Select worktrees to clean",
+          choices: buildChoices(partitioned, mainRoot),
+          default: previous,
+        });
+      },
+    },
+    {
+      id: "proceed",
+      skip: (s) => {
+        if (s.mode === "cancel") return true;
+        const selected = resolveSelected(s, partitioned);
+        if (selected.length === 0) return true;
+        return findDirty(selected, partitioned).length === 0;
+      },
+      async run(state): Promise<StepResult<boolean>> {
+        const selected = resolveSelected(state, partitioned);
+        const dirty = findDirty(selected, partitioned);
+
+        printBox(
+          "Uncommitted work in selected worktrees",
+          [
+            chalk.yellow.bold("These worktrees have local changes that will be DESTROYED:"),
+            "",
+            ...dirty.map(
+              (c) =>
+                `  ${chalk.yellow("⚠")} ${shortPath(c.entry.path, mainRoot)}  ${statusBadge(c.status)}`,
+            ),
+            "",
+            chalk.dim(
+              "`git worktree remove --force` is required because adapter sync mutates copied files.",
+            ),
+          ],
+          "error",
+        );
+
+        // Preserve the legacy non-TTY fallback: when stdin is not a TTY the
+        // confirm prompt has no way to render, so auto-proceed with a notice
+        // (same behavior as the pre-refactor confirmDirty fall-through).
+        if (!process.stdin.isTTY) {
+          warn("Non-interactive session detected — proceeding. Pass --yes to silence this notice.");
+          return true;
+        }
+
+        return await askConfirm({
+          name: "proceed",
+          message: `Destroy uncommitted work in ${dirty.length} worktree(s)?`,
+          default: false,
+        });
+      },
+    },
+  ];
+
+  const result = await runStepMachine<CleanupFlowState>(steps);
+
+  // Defensive: the step-machine sets each completed slot via assignment, but
+  // skipped steps deliberately leave their slot `undefined`. Route every
+  // consumer through the typed accessors below so no raw answer (which might
+  // be the BACK sentinel if the prompt somehow leaked it) ever reaches a
+  // string/array/boolean method call.
+  if (isBack(result.mode)) return { paths: [], cancelled: true };
+  if (result.mode === "cancel") return { paths: [], cancelled: true };
+
+  const paths = resolveSelected(result, partitioned);
+  if (paths.length === 0) return { paths: [], cancelled: false };
+
+  // proceed step was skipped (no dirty work) → safe to clean.
+  // proceed step ran → honour user's confirm answer.
+  const dirty = findDirty(paths, partitioned);
+  if (dirty.length === 0) return { paths, cancelled: false };
+
+  if (isBack(result.proceed)) return { paths: [], cancelled: true };
+  if (result.proceed !== true) return { paths: [], cancelled: true };
+  return { paths, cancelled: false };
+}
+
 async function selectWorktrees(
   partitioned: ReturnType<typeof partition>,
   mainRoot: string,
@@ -178,76 +344,13 @@ async function selectWorktrees(
   const allCandidates = [...partitioned.managed, ...partitioned.other];
   if (allCandidates.length === 0) return { paths: [], cancelled: false };
 
+  // Non-interactive short-circuit: --all and --yes bypass the prompt chain
+  // (mode + picks + proceed) and confirm-dirty entirely.
   if (opts.all || opts.yes) {
     return { paths: allCandidates.map((c) => c.entry.path), cancelled: false };
   }
 
-  const { mode } = await inquirer.prompt<{ mode: "all" | "specific" | "cancel" }>([
-    {
-      type: "list",
-      name: "mode",
-      message: `Clean ${allCandidates.length} worktree(s)?`,
-      default: "specific",
-      choices: [
-        { name: `Pick specific (recommended)`, value: "specific" },
-        { name: `Clean all ${allCandidates.length}`, value: "all" },
-        { name: `Cancel`, value: "cancel" },
-      ],
-    },
-  ]);
-  if (mode === "cancel") return { paths: [], cancelled: true };
-  if (mode === "all") return { paths: allCandidates.map((c) => c.entry.path), cancelled: false };
-
-  const { picks } = await inquirer.prompt<{ picks: string[] }>([
-    {
-      type: "checkbox",
-      name: "picks",
-      message: "Select worktrees to clean",
-      choices: buildChoices(partitioned, mainRoot),
-    },
-  ]);
-  return { paths: picks, cancelled: false };
-}
-
-async function confirmDirty(
-  selected: string[],
-  partitioned: ReturnType<typeof partition>,
-  mainRoot: string,
-  opts: CleanupOptions,
-): Promise<boolean> {
-  if (opts.yes) return true;
-  const lookup = new Map<string, Candidate>();
-  for (const c of [...partitioned.managed, ...partitioned.other]) lookup.set(c.entry.path, c);
-  const dirty = selected
-    .map((p) => lookup.get(p))
-    .filter((c): c is Candidate => !!c && (c.status.modified > 0 || c.status.untracked > 0 || c.status.stashes > 0));
-  if (dirty.length === 0) return true;
-
-  printBox(
-    "Uncommitted work in selected worktrees",
-    [
-      chalk.yellow.bold("These worktrees have local changes that will be DESTROYED:"),
-      "",
-      ...dirty.map((c) => `  ${chalk.yellow("⚠")} ${shortPath(c.entry.path, mainRoot)}  ${statusBadge(c.status)}`),
-      "",
-      chalk.dim("`git worktree remove --force` is required because adapter sync mutates copied files."),
-    ],
-    "error",
-  );
-
-  if (!process.stdin.isTTY) {
-    warn("Non-interactive session detected — proceeding. Pass --yes to silence this notice.");
-    return true;
-  }
-  const { proceed } = await inquirer.prompt<{ proceed: boolean }>([
-    {
-      type: "confirm",
-      name: "proceed",
-      message: `Destroy uncommitted work in ${dirty.length} worktree(s)?`,
-      default: false,
-    },
-  ]);
-  return proceed;
+  return await runInteractiveFlow(partitioned, mainRoot);
 }
 
 async function performCleanup(
@@ -331,14 +434,6 @@ export async function worktreeCleanupCommand(
   if (selection.paths.length === 0 && partitioned.prunable.length === 0) {
     info("No worktrees selected.");
     return;
-  }
-
-  if (selection.paths.length > 0) {
-    const ok = await confirmDirty(selection.paths, partitioned, mainRoot, opts);
-    if (!ok) {
-      info("Cancelled. No worktrees removed.");
-      return;
-    }
   }
 
   const s = createSpinner(opts.dryRun ? "Previewing cleanup..." : "Cleaning worktrees...");

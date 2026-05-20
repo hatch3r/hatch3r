@@ -20,4 +20,10 @@ export default defineConfig({
   banner: {
     js: "#!/usr/bin/env node",
   },
+  // Externalize inquirer's internals. They are transitive deps (not in our
+  // `dependencies`), so tsup would otherwise bundle them — and `@inquirer/core`
+  // pulls in CJS modules like `mute-stream` that use dynamic `require("stream")`,
+  // which a single ESM bundle cannot satisfy. Leaving them as runtime imports
+  // makes Node resolve them from node_modules where their CJS works natively.
+  external: ["@inquirer/core", "@inquirer/figures"],
 });

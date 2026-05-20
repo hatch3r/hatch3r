@@ -1070,9 +1070,8 @@ export async function initCommand(
           {
             type: "select",
             name: "platform",
-            message: "Select your platform: (or ← Back)",
+            message: "Select your platform:",
             choices: [
-              { name: "← Back", value: BACK as unknown as Platform },
               { name: "GitHub", value: "github" as Platform },
               { name: "Azure DevOps", value: "azure-devops" as Platform },
               { name: "GitLab", value: "gitlab" as Platform },
@@ -1088,36 +1087,36 @@ export async function initCommand(
       async run(state, previous): Promise<StepResult<SingleRepoState["identity"]>> {
         const plat = state.platform!;
         if (plat === "azure-devops") {
-          const ado = await inquirer.prompt<{ org: string; project: string; repo: string }>([
-            { type: "input", name: "org", message: "Azure DevOps organization: (type :back to go back)", default: previous?.owner || remote.owner || undefined },
-            { type: "input", name: "project", message: "Azure DevOps project: (type :back to go back)", default: previous?.project || undefined },
-            { type: "input", name: "repo", message: "Repository name: (type :back to go back)", default: previous?.repo || remote.repo || undefined },
+          const ado = await inquirer.prompt<{ org: string | typeof BACK; project: string | typeof BACK; repo: string | typeof BACK }>([
+            { type: "input", name: "org", message: "Azure DevOps organization:", default: previous?.owner || remote.owner || undefined },
+            { type: "input", name: "project", message: "Azure DevOps project:", default: previous?.project || undefined },
+            { type: "input", name: "repo", message: "Repository name:", default: previous?.repo || remote.repo || undefined },
           ]);
-          if ([ado.org, ado.project, ado.repo].some((v) => v.trim() === ":back")) return BACK;
-          const owner = sanitizeInput(ado.org);
+          if (isBack(ado.org) || isBack(ado.project) || isBack(ado.repo)) return BACK;
+          const owner = sanitizeInput(ado.org as string);
           return {
             owner,
-            repo: sanitizeInput(ado.repo),
+            repo: sanitizeInput(ado.repo as string),
             namespace: owner,
-            project: sanitizeInput(ado.project),
+            project: sanitizeInput(ado.project as string),
           };
         } else if (plat === "gitlab") {
-          const gl = await inquirer.prompt<{ namespace: string; project: string }>([
-            { type: "input", name: "namespace", message: "GitLab namespace (group or username): (type :back to go back)", default: previous?.namespace || remote.owner || undefined },
-            { type: "input", name: "project", message: "Project name: (type :back to go back)", default: previous?.project || remote.repo || undefined },
+          const gl = await inquirer.prompt<{ namespace: string | typeof BACK; project: string | typeof BACK }>([
+            { type: "input", name: "namespace", message: "GitLab namespace (group or username):", default: previous?.namespace || remote.owner || undefined },
+            { type: "input", name: "project", message: "Project name:", default: previous?.project || remote.repo || undefined },
           ]);
-          if ([gl.namespace, gl.project].some((v) => v.trim() === ":back")) return BACK;
-          const owner = sanitizeInput(gl.namespace);
-          const repo2 = sanitizeInput(gl.project);
+          if (isBack(gl.namespace) || isBack(gl.project)) return BACK;
+          const owner = sanitizeInput(gl.namespace as string);
+          const repo2 = sanitizeInput(gl.project as string);
           return { owner, repo: repo2, namespace: owner, project: repo2 };
         } else {
-          const gh = await inquirer.prompt<{ owner: string; repo: string }>([
-            { type: "input", name: "owner", message: "GitHub owner (org or username): (type :back to go back)", default: previous?.owner || remote.owner || undefined },
-            { type: "input", name: "repo", message: "Repository name: (type :back to go back)", default: previous?.repo || remote.repo || undefined },
+          const gh = await inquirer.prompt<{ owner: string | typeof BACK; repo: string | typeof BACK }>([
+            { type: "input", name: "owner", message: "GitHub owner (org or username):", default: previous?.owner || remote.owner || undefined },
+            { type: "input", name: "repo", message: "Repository name:", default: previous?.repo || remote.repo || undefined },
           ]);
-          if ([gh.owner, gh.repo].some((v) => v.trim() === ":back")) return BACK;
-          const owner = sanitizeInput(gh.owner);
-          const repo2 = sanitizeInput(gh.repo);
+          if (isBack(gh.owner) || isBack(gh.repo)) return BACK;
+          const owner = sanitizeInput(gh.owner as string);
+          const repo2 = sanitizeInput(gh.repo as string);
           return { owner, repo: repo2, namespace: owner, project: repo2 };
         }
       },
@@ -1125,18 +1124,17 @@ export async function initCommand(
     {
       id: "defaultBranch",
       async run(_state, previous): Promise<StepResult<string>> {
-        const answers = await inquirer.prompt<{ defaultBranch: string }>([
+        const answers = await inquirer.prompt<{ defaultBranch: string | typeof BACK }>([
           {
             type: "input",
             name: "defaultBranch",
-            message: "Default branch (for checkout, PR base, release): (type :back to go back)",
+            message: "Default branch (for checkout, PR base, release):",
             default: previous ?? defaultBranchDefault,
             // C8-D1-M9: reject values that fail `git check-ref-format`. Empty
             // input is allowed through (falls back to detected default below).
-            // `:back` short-circuits validation so back-nav always works.
             validate: (v: string) => {
               const trimmed = v.trim();
-              if (trimmed === "" || trimmed === ":back") return true;
+              if (trimmed === "") return true;
               return (
                 isValidGitBranchName(trimmed) ||
                 `Invalid git branch name: "${trimmed}". See git-check-ref-format(1).`
@@ -1144,8 +1142,8 @@ export async function initCommand(
             },
           },
         ]);
-        if (answers.defaultBranch.trim() === ":back") return BACK;
-        return answers.defaultBranch.trim() || defaultBranchDefault;
+        if (isBack(answers.defaultBranch)) return BACK;
+        return (answers.defaultBranch as string).trim() || defaultBranchDefault;
       },
     },
     {
@@ -1155,9 +1153,8 @@ export async function initCommand(
           {
             type: "select",
             name: "projectType",
-            message: `Is this a new (greenfield) or existing (brownfield) project?${detectionHint} (or ← Back)`,
+            message: `Is this a new (greenfield) or existing (brownfield) project?${detectionHint}`,
             choices: [
-              { name: "← Back", value: BACK as unknown as "greenfield" },
               { name: `Greenfield — new project from scratch${greenfieldExcl > 0 ? ` (filters out ${greenfieldExcl} brownfield-only item${greenfieldExcl === 1 ? "" : "s"})` : ""}`, value: "greenfield" as const },
               { name: `Brownfield — existing codebase${brownfieldExcl > 0 ? ` (filters out ${brownfieldExcl} greenfield-only item${brownfieldExcl === 1 ? "" : "s"})` : ""}`, value: "brownfield" as const },
             ],
@@ -1174,9 +1171,8 @@ export async function initCommand(
           {
             type: "select",
             name: "teamSize",
-            message: "Solo developer or team collaboration? (or ← Back)",
+            message: "Solo developer or team collaboration?",
             choices: [
-              { name: "← Back", value: BACK as unknown as "solo" },
               { name: `Solo — just me${soloExcl > 0 ? ` (filters out ${soloExcl} team-only item${soloExcl === 1 ? "" : "s"})` : ""}`, value: "solo" as const },
               { name: "Team — multiple contributors", value: "team" as const },
             ],
@@ -1195,20 +1191,17 @@ export async function initCommand(
           {
             type: "select",
             name: "preset",
-            message: "Select content profile: (or ← Back)",
-            choices: [
-              { name: "← Back", value: BACK as unknown as PresetId },
-              ...PRESETS.map((p) => {
-                const excluded = countPresetExclusions(p, filterIndex);
-                const estimated = p.id !== "custom" ? estimatePresetItemCount(p, projectType2, teamSize2, filterIndex, projectLanguages) : 0;
-                const countHint = estimated > 0 ? ` (~${estimated} items)` : "";
-                const suffix = excluded > 0 ? ` (excludes ${excluded} of ${totalItems})` : "";
-                return {
-                  name: `${p.name} — ${p.description}${countHint}${suffix}`,
-                  value: p.id,
-                };
-              }),
-            ],
+            message: "Select content profile:",
+            choices: PRESETS.map((p) => {
+              const excluded = countPresetExclusions(p, filterIndex);
+              const estimated = p.id !== "custom" ? estimatePresetItemCount(p, projectType2, teamSize2, filterIndex, projectLanguages) : 0;
+              const countHint = estimated > 0 ? ` (~${estimated} items)` : "";
+              const suffix = excluded > 0 ? ` (excludes ${excluded} of ${totalItems})` : "";
+              return {
+                name: `${p.name} — ${p.description}${countHint}${suffix}`,
+                value: p.id,
+              };
+            }),
             default: previous ?? ("standard" as PresetId),
           },
         ]);
@@ -1223,52 +1216,42 @@ export async function initCommand(
           filterIndex.items,
           (item) => item.protected || item.tags.includes("core"),
         );
-        const customAnswer = await inquirer.prompt<{ items: Array<string | typeof BACK> }>([
+        const customAnswer = await inquirer.prompt<{ items: string[] | typeof BACK }>([
           {
             type: "checkbox",
             name: "items",
-            message: "Select content items: (or ← Back)",
-            choices: [
-              { name: "← Back", value: BACK as unknown as string },
-              ...groupedChoices,
-            ],
+            message: "Select content items:",
+            choices: groupedChoices,
             ...(previous ? { default: previous } : {}),
             ...(wslTheme && { theme: wslTheme }),
           },
         ]);
-        const items = customAnswer.items ?? [];
-        if (Array.isArray(items) && items.some(isBack)) return BACK;
-        return (items as string[]).filter((v) => !isBack(v));
+        if (isBack(customAnswer.items)) return BACK;
+        return (customAnswer.items ?? []) as string[];
       },
     },
     {
       id: "tools",
       async run(_state, previous): Promise<StepResult<Tool[]>> {
-        const toolAnswers = await inquirer.prompt<{ tools: Array<Tool | typeof BACK> }>([
+        const toolAnswers = await inquirer.prompt<{ tools: Tool[] | typeof BACK }>([
           {
             type: "checkbox",
             name: "tools",
-            message: "Select tools to configure: (or ← Back)",
-            choices: [
-              { name: "← Back", value: BACK as unknown as Tool },
-              ...TOOL_PROMPT_CHOICES,
-            ],
+            message: "Select tools to configure:",
+            choices: TOOL_PROMPT_CHOICES,
             default: previous ?? toolDefaults,
             ...(wslTheme && { theme: wslTheme }),
           },
         ]);
-        const arr = toolAnswers.tools ?? [];
-        if (Array.isArray(arr) && arr.some(isBack)) return BACK;
-        const filtered = (arr as Tool[]).filter((v) => !isBack(v));
+        if (isBack(toolAnswers.tools)) return BACK;
+        const filtered = (toolAnswers.tools ?? []) as Tool[];
         return filtered.length > 0 ? filtered : DEFAULT_TOOLS;
       },
     },
     {
       id: "wantMcp",
       async run(): Promise<StepResult<boolean>> {
-        // Confirm prompts have no ← Back affordance (single yes/no). Walk
-        // back via the NEXT step's ← Back option.
-        const { wantMcp } = await inquirer.prompt<{ wantMcp: boolean }>([
+        const { wantMcp } = await inquirer.prompt<{ wantMcp: boolean | typeof BACK }>([
           {
             type: "confirm",
             name: "wantMcp",
@@ -1277,7 +1260,8 @@ export async function initCommand(
             ...(wslTheme && { theme: wslTheme }),
           },
         ]);
-        return wantMcp;
+        if (isBack(wantMcp)) return BACK;
+        return wantMcp as boolean;
       },
     },
     {
@@ -1572,9 +1556,8 @@ async function runWorkspaceInit(
             {
               type: "select",
               name: "projectType",
-              message: `Is this a new (greenfield) or existing (brownfield) project?${wsDetectionHint} (or ← Back)`,
+              message: `Is this a new (greenfield) or existing (brownfield) project?${wsDetectionHint}`,
               choices: [
-                { name: "← Back", value: BACK as unknown as "greenfield" },
                 { name: `Greenfield — new project from scratch${wsGreenfieldExcl > 0 ? ` (filters out ${wsGreenfieldExcl} brownfield-only item${wsGreenfieldExcl === 1 ? "" : "s"})` : ""}`, value: "greenfield" as const },
                 { name: `Brownfield — existing codebase${wsBrownfieldExcl > 0 ? ` (filters out ${wsBrownfieldExcl} greenfield-only item${wsBrownfieldExcl === 1 ? "" : "s"})` : ""}`, value: "brownfield" as const },
               ],
@@ -1591,9 +1574,8 @@ async function runWorkspaceInit(
             {
               type: "select",
               name: "teamSize",
-              message: "Solo developer or team collaboration? (or ← Back)",
+              message: "Solo developer or team collaboration?",
               choices: [
-                { name: "← Back", value: BACK as unknown as "solo" },
                 { name: `Solo — just me${wsSoloExcl > 0 ? ` (filters out ${wsSoloExcl} team-only item${wsSoloExcl === 1 ? "" : "s"})` : ""}`, value: "solo" as const },
                 { name: "Team — multiple contributors", value: "team" as const },
               ],
@@ -1612,20 +1594,17 @@ async function runWorkspaceInit(
             {
               type: "select",
               name: "preset",
-              message: "Select content profile: (or ← Back)",
-              choices: [
-                { name: "← Back", value: BACK as unknown as PresetId },
-                ...PRESETS.map((p) => {
-                  const excluded = countPresetExclusions(p, wsFilterIndex);
-                  const wsEstimated = p.id !== "custom" ? estimatePresetItemCount(p, pt, ts, wsFilterIndex, projectLanguages) : 0;
-                  const wsCountHint = wsEstimated > 0 ? ` (~${wsEstimated} items)` : "";
-                  const suffix = excluded > 0 ? ` (excludes ${excluded} of ${wsTotalItems})` : "";
-                  return {
-                    name: `${p.name} — ${p.description}${wsCountHint}${suffix}`,
-                    value: p.id,
-                  };
-                }),
-              ],
+              message: "Select content profile:",
+              choices: PRESETS.map((p) => {
+                const excluded = countPresetExclusions(p, wsFilterIndex);
+                const wsEstimated = p.id !== "custom" ? estimatePresetItemCount(p, pt, ts, wsFilterIndex, projectLanguages) : 0;
+                const wsCountHint = wsEstimated > 0 ? ` (~${wsEstimated} items)` : "";
+                const suffix = excluded > 0 ? ` (excludes ${excluded} of ${wsTotalItems})` : "";
+                return {
+                  name: `${p.name} — ${p.description}${wsCountHint}${suffix}`,
+                  value: p.id,
+                };
+              }),
               default: previous ?? ("standard" as PresetId),
             },
           ]);
@@ -1640,50 +1619,42 @@ async function runWorkspaceInit(
             wsFilterIndex.items,
             (item) => item.protected || item.tags.includes("core"),
           );
-          const customAnswer = await inquirer.prompt<{ items: Array<string | typeof BACK> }>([
+          const customAnswer = await inquirer.prompt<{ items: string[] | typeof BACK }>([
             {
               type: "checkbox",
               name: "items",
-              message: "Select content items: (or ← Back)",
-              choices: [
-                { name: "← Back", value: BACK as unknown as string },
-                ...wsGroupedChoices,
-              ],
+              message: "Select content items:",
+              choices: wsGroupedChoices,
               ...(previous ? { default: previous } : {}),
               ...(wslTheme && { theme: wslTheme }),
             },
           ]);
-          const items = customAnswer.items ?? [];
-          if (Array.isArray(items) && items.some(isBack)) return BACK;
-          return (items as string[]).filter((v) => !isBack(v));
+          if (isBack(customAnswer.items)) return BACK;
+          return (customAnswer.items ?? []) as string[];
         },
       },
       {
         id: "tools",
         async run(_state, previous): Promise<StepResult<Tool[]>> {
-          const toolAnswers = await inquirer.prompt<{ tools: Array<Tool | typeof BACK> }>([
+          const toolAnswers = await inquirer.prompt<{ tools: Tool[] | typeof BACK }>([
             {
               type: "checkbox",
               name: "tools",
-              message: "Select tools to configure: (or ← Back)",
-              choices: [
-                { name: "← Back", value: BACK as unknown as Tool },
-                ...TOOL_PROMPT_CHOICES,
-              ],
+              message: "Select tools to configure:",
+              choices: TOOL_PROMPT_CHOICES,
               default: previous ?? wsToolDefaults,
               ...(wslTheme && { theme: wslTheme }),
             },
           ]);
-          const arr = toolAnswers.tools ?? [];
-          if (Array.isArray(arr) && arr.some(isBack)) return BACK;
-          const filtered = (arr as Tool[]).filter((v) => !isBack(v));
+          if (isBack(toolAnswers.tools)) return BACK;
+          const filtered = (toolAnswers.tools ?? []) as Tool[];
           return filtered.length > 0 ? filtered : DEFAULT_TOOLS;
         },
       },
       {
         id: "wantMcp",
         async run(): Promise<StepResult<boolean>> {
-          const { wantMcp } = await inquirer.prompt<{ wantMcp: boolean }>([
+          const { wantMcp } = await inquirer.prompt<{ wantMcp: boolean | typeof BACK }>([
             {
               type: "confirm",
               name: "wantMcp",
@@ -1692,7 +1663,8 @@ async function runWorkspaceInit(
               ...(wslTheme && { theme: wslTheme }),
             },
           ]);
-          return wantMcp;
+          if (isBack(wantMcp)) return BACK;
+          return wantMcp as boolean;
         },
       },
       {

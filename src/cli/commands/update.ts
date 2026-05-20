@@ -58,6 +58,7 @@ import { runSelfUpdate, pickReExecBin } from "../../install/selfUpdate.js";
 import { pruneArchives } from "../../archive/index.js";
 import { buildSelectionsFromDisk } from "../../content/index.js";
 import { scanOrphanFiles, formatOrphanScanDiagnostic } from "../../content/orphanScan.js";
+import { isBack } from "../shared/initSteps.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONTENT_DIRS = ["agents", "commands", "rules", "skills", "prompts", "github-agents", "mcp", "hooks"];
@@ -662,6 +663,10 @@ const MIGRATION_CHECKPOINTS: MigrationCheckpoint[] = [
             default: "brownfield",
           },
         ]);
+        if (isBack(projectType)) {
+          info("Update cancelled (Shift+Tab).");
+          throw new HatchError("Update cancelled.", 0);
+        }
         const { teamSize } = await inquirer.prompt<{ teamSize: "solo" | "team" }>([
           {
             type: "select",
@@ -674,6 +679,10 @@ const MIGRATION_CHECKPOINTS: MigrationCheckpoint[] = [
             default: "team",
           },
         ]);
+        if (isBack(teamSize)) {
+          info("Update cancelled (Shift+Tab).");
+          throw new HatchError("Update cancelled.", 0);
+        }
         content.projectType = projectType;
         content.teamSize = teamSize;
       }

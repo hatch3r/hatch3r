@@ -1,7 +1,7 @@
 import inquirer from "inquirer";
 
 /**
- * Step-machine driver for `hatch3r init`'s interactive flow.
+ * Step-machine driver for hatch3r's multi-step interactive flows.
  *
  * Each prompt is modelled as a {@link Step} that returns either a value
  * for its slot in the state object or the {@link BACK} sentinel. The
@@ -9,21 +9,27 @@ import inquirer from "inquirer";
  * driver re-renders the previous non-skipped step with the user's prior
  * answer pre-selected as the default.
  *
- * The helpers ({@link askSelect}, {@link askCheckbox}, {@link askConfirm},
- * {@link askInput}) wrap `inquirer.prompt` so the BACK affordance is
- * uniform: select/checkbox prompts get a prepended "← Back" choice and a
- * `(or ← Back)` hint on the message; text inputs accept the literal
- * `:back` (whitespace-trimmed) and append `(type :back to go back)` to
- * the prompt.
+ * BACK is signalled by the **Shift+Tab** keypress in any prompt rendered
+ * by `src/cli/shared/backablePrompts.ts` (registered at CLI bootstrap).
+ * The helpers in this file (`askSelect`, `askCheckbox`, `askConfirm`,
+ * `askInput`) translate the keypress-resolved answer into a typed
+ * StepResult — no per-prompt back affordance is required at call sites.
  *
- * The helpers pass the caller-supplied `name` through to inquirer so that
+ * The helpers pass the caller-supplied `name` through to inquirer so
  * existing tests (which queue answers shaped like `{ platform: "github" }`)
  * keep working unchanged.
  */
 
-/** Opaque sentinel returned when the user wants to walk back one step. */
-export const BACK: unique symbol = Symbol("BACK");
-export type Back = typeof BACK;
+/**
+ * Opaque sentinel returned when the user wants to walk back one step.
+ *
+ * Uses `Symbol.for` so identity holds across module boundaries — this is
+ * required because the backable prompts (in `backablePrompts.ts`) resolve
+ * with the same sentinel and the comparison must succeed across separate
+ * module instances (production code vs. vitest-mocked modules).
+ */
+export const BACK: symbol = Symbol.for("hatch3r.BACK");
+export type Back = symbol;
 
 /** Either a real answer of type T or the BACK sentinel. */
 export type StepResult<T> = T | Back;
@@ -125,25 +131,24 @@ interface AskSelectArgs<T> {
 }
 
 /**
- * Prompt with a single-choice list. Prepends a "← Back" entry so the
- * user can walk back one step. Returns BACK or the selected value.
+ * Prompt with a single-choice list. Returns BACK when the user presses
+ * Shift+Tab (delivered by the backable prompts registered in
+ * `backablePrompts.ts`), or the selected value otherwise.
  */
 export async function askSelect<T>(
   args: AskSelectArgs<T>,
 ): Promise<StepResult<T>> {
-  const backChoice = { name: "← Back", value: BACK as unknown as T };
-  const choices = [backChoice, ...args.choices];
-  const answer = await inquirer.prompt<Record<string, T>>([
+  const answer = await inquirer.prompt<Record<string, T | Back>>([
     {
       type: "select",
       name: args.name,
-      message: `${args.message} (or ← Back)`,
-      choices,
+      message: args.message,
+      choices: args.choices,
       ...(args.default !== undefined ? { default: args.default } : {}),
     },
   ]);
   const value = answer[args.name];
-  return isBack(value) ? BACK : value;
+  return isBack(value) ? BACK : (value as T);
 }
 
 interface AskCheckboxArgs<T> {
@@ -158,28 +163,25 @@ interface AskCheckboxArgs<T> {
 }
 
 /**
- * Prompt with a multi-choice list. Prepends a "← Back" toggle; if the
- * user selects it (alone or alongside real values), returns BACK. Pass-
- * through callers that already build inquirer.Separator choices keep
- * working — separators are forwarded unchanged.
+ * Prompt with a multi-choice list. Returns BACK on Shift+Tab, the array
+ * of selected values otherwise. Separators are forwarded unchanged to
+ * inquirer (the tier-grouping pattern used by `pickers.ts`).
  */
 export async function askCheckbox<T>(
   args: AskCheckboxArgs<T>,
 ): Promise<StepResult<T[]>> {
-  const backChoice = { name: "← Back", value: BACK as unknown as T };
-  const choices = [backChoice, ...args.choices];
-  const answer = await inquirer.prompt<Record<string, T[]>>([
+  const answer = await inquirer.prompt<Record<string, T[] | Back>>([
     {
       type: "checkbox",
       name: args.name,
-      message: `${args.message} (or ← Back)`,
-      choices,
+      message: args.message,
+      choices: args.choices,
       ...(args.default !== undefined ? { default: args.default } : {}),
     },
   ]);
-  const values = answer[args.name] ?? [];
-  if (Array.isArray(values) && values.some(isBack)) return BACK;
-  return values.filter((v) => !isBack(v));
+  const value = answer[args.name];
+  if (isBack(value)) return BACK;
+  return (value ?? []) as T[];
 }
 
 interface AskConfirmArgs {
@@ -189,16 +191,14 @@ interface AskConfirmArgs {
 }
 
 /**
- * Confirm prompts (yes/no) have no BACK affordance — the user only types
- * one letter so a third option would clutter the UI. Walk back to a
- * confirm via the NEXT step's ← Back. Returns the boolean answer.
- *
- * Wrapped in StepResult for type uniformity; it never returns BACK.
+ * Confirm prompt (yes/no). Returns BACK on Shift+Tab, the boolean answer
+ * otherwise. (Confirm prompts gained back-nav with the Shift+Tab refactor —
+ * previously a documented limitation.)
  */
 export async function askConfirm(
   args: AskConfirmArgs,
 ): Promise<StepResult<boolean>> {
-  const answer = await inquirer.prompt<Record<string, boolean>>([
+  const answer = await inquirer.prompt<Record<string, boolean | Back>>([
     {
       type: "confirm",
       name: args.name,
@@ -206,7 +206,8 @@ export async function askConfirm(
       ...(args.default !== undefined ? { default: args.default } : {}),
     },
   ]);
-  return answer[args.name];
+  const value = answer[args.name];
+  return isBack(value) ? BACK : (value as boolean);
 }
 
 interface AskInputArgs {
@@ -217,30 +218,23 @@ interface AskInputArgs {
 }
 
 /**
- * Text input prompt. The literal string `:back` (after `trim()`) walks
- * the user back one step. The `:back` check runs BEFORE the caller's
- * `validate` callback so back-navigation always succeeds regardless of
- * validator strictness.
+ * Text input prompt. Returns BACK on Shift+Tab, the typed string otherwise
+ * (or the default when the user submits empty input). Caller-supplied
+ * validators see only real string values — Shift+Tab is intercepted at
+ * the prompt level before validation runs.
  */
 export async function askInput(
   args: AskInputArgs,
 ): Promise<StepResult<string>> {
-  const wrappedValidate = args.validate
-    ? (v: string): boolean | string => {
-        if (v.trim() === ":back") return true;
-        return args.validate!(v);
-      }
-    : undefined;
-  const answer = await inquirer.prompt<Record<string, string>>([
+  const answer = await inquirer.prompt<Record<string, string | Back>>([
     {
       type: "input",
       name: args.name,
-      message: `${args.message} (type :back to go back)`,
+      message: args.message,
       ...(args.default !== undefined ? { default: args.default } : {}),
-      ...(wrappedValidate ? { validate: wrappedValidate } : {}),
+      ...(args.validate ? { validate: args.validate } : {}),
     },
   ]);
-  const value = answer[args.name] ?? "";
-  if (value.trim() === ":back") return BACK;
-  return value;
+  const value = answer[args.name];
+  return isBack(value) ? BACK : (value as string);
 }

@@ -9,6 +9,7 @@ import {
 } from "../../cliTools/registry.js";
 import type { CliToolId, Platform } from "../../types.js";
 import { MCP_CHOICES, PLATFORM_MCP_SERVER } from "./constants.js";
+import { BACK, isBack, type Back } from "./initSteps.js";
 
 /**
  * Shared inquirer pickers extracted from `init.ts` and `config.ts` so the
@@ -75,7 +76,7 @@ export interface PickCliToolsOptions {
  * Caveat-bearing tools (currently only RTK) render with a leading
  * warning glyph so users opt-in with eyes open.
  */
-export async function pickCliTools(opts: PickCliToolsOptions = {}): Promise<CliToolId[]> {
+export async function pickCliTools(opts: PickCliToolsOptions = {}): Promise<CliToolId[] | Back> {
   const existingSet = new Set<CliToolId>(opts.existing ?? []);
   const suggestedSet = new Set<CliToolId>(opts.tier2Suggested ?? []);
   const hasExistingSelection = (opts.existing?.length ?? 0) > 0;
@@ -127,7 +128,7 @@ export async function pickCliTools(opts: PickCliToolsOptions = {}): Promise<CliT
 
   const themeOption = opts.wslTheme ? { theme: opts.wslTheme } : {};
 
-  const { tools } = await inquirer.prompt<{ tools: CliToolId[] }>([
+  const { tools } = await inquirer.prompt<{ tools: CliToolId[] | Back }>([
     {
       type: "checkbox",
       name: "tools",
@@ -137,7 +138,8 @@ export async function pickCliTools(opts: PickCliToolsOptions = {}): Promise<CliT
     },
   ]);
 
-  return tools ?? [];
+  if (isBack(tools)) return BACK;
+  return (tools ?? []) as CliToolId[];
 }
 
 export interface PickMcpServersOptions {
@@ -156,7 +158,7 @@ export interface PickMcpServersOptions {
  * project ends up with `gitlab` first in `manifest.mcp.servers` even if
  * the user untoggled it.
  */
-export async function pickMcpServers(opts: PickMcpServersOptions): Promise<string[]> {
+export async function pickMcpServers(opts: PickMcpServersOptions): Promise<string[] | Back> {
   const platformMcp = PLATFORM_MCP_SERVER[opts.platform];
   const defaultSelection = opts.existing && opts.existing.length > 0
     ? opts.existing
@@ -164,7 +166,7 @@ export async function pickMcpServers(opts: PickMcpServersOptions): Promise<strin
 
   const themeOption = opts.wslTheme ? { theme: opts.wslTheme } : {};
 
-  const { mcp } = await inquirer.prompt<{ mcp: string[] }>([
+  const { mcp } = await inquirer.prompt<{ mcp: string[] | Back }>([
     {
       type: "checkbox",
       name: "mcp",
@@ -174,7 +176,8 @@ export async function pickMcpServers(opts: PickMcpServersOptions): Promise<strin
       ...themeOption,
     },
   ]);
-  const servers = mcp ?? [];
+  if (isBack(mcp)) return BACK;
+  const servers = (mcp ?? []) as string[];
   if (!servers.includes(platformMcp)) {
     servers.unshift(platformMcp);
   }
@@ -195,9 +198,9 @@ export interface ConfirmMcpGateOptions {
  * user's confirm answer; callers decide whether to open
  * `pickMcpServers` based on the return.
  */
-export async function confirmMcpGate(opts: ConfirmMcpGateOptions): Promise<boolean> {
+export async function confirmMcpGate(opts: ConfirmMcpGateOptions): Promise<boolean | Back> {
   const defaultYes = opts.defaultYes ?? opts.hasExisting;
-  const { proceed } = await inquirer.prompt<{ proceed: boolean }>([
+  const { proceed } = await inquirer.prompt<{ proceed: boolean | Back }>([
     {
       type: "confirm",
       name: "proceed",
@@ -205,5 +208,6 @@ export async function confirmMcpGate(opts: ConfirmMcpGateOptions): Promise<boole
       default: defaultYes,
     },
   ]);
-  return proceed;
+  if (isBack(proceed)) return BACK;
+  return proceed as boolean;
 }

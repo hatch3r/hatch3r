@@ -16,6 +16,7 @@ import { inventoryArtifacts, executeClean, backupLearnings, restoreLearnings, ty
 import { runInit, type RunInitOptions } from "./init.js";
 import { analyzeRepo } from "../../detect/repoAnalyzer.js";
 import { extractPreservedManifestFields, type PreservedManifestFields } from "../../manifest/hatchJson.js";
+import { isBack } from "../shared/initSteps.js";
 
 interface CapturedConfig {
   platform: Platform;
@@ -187,6 +188,13 @@ export async function cleanCommand(
         default: false,
       },
     ]);
+    if (isBack(proceed)) {
+      info("Clean cancelled (Shift+Tab).");
+      if (learningsBackup) {
+        await rm(learningsBackup, { recursive: true, force: true });
+      }
+      return;
+    }
     if (!proceed) {
       console.log(chalk.dim("\n  Clean cancelled.\n"));
       // Clean up learnings backup
@@ -227,6 +235,14 @@ export async function cleanCommand(
         default: true,
       },
     ]);
+
+    if (isBack(reinit)) {
+      info("Clean cancelled (Shift+Tab).");
+      if (learningsBackup) {
+        await rm(learningsBackup, { recursive: true, force: true });
+      }
+      return;
+    }
 
     if (reinit) {
       console.log("");

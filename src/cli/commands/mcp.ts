@@ -24,6 +24,7 @@ import {
   label,
 } from "../shared/ui.js";
 import { pickMcpServers } from "../shared/pickers.js";
+import { isBack } from "../shared/initSteps.js";
 import { isWSL } from "../shared/constants.js";
 
 /**
@@ -59,11 +60,16 @@ export async function mcpSetupCommand(): Promise<void> {
   requireManifest(rootDir, manifest);
 
   const platform = manifest.platform ?? "github";
-  const selected = await pickMcpServers({
+  const selectedResult = await pickMcpServers({
     platform,
     existing: manifest.mcp.servers,
     wslTheme: wslThemeOrUndefined(),
   });
+  if (isBack(selectedResult)) {
+    info("MCP setup cancelled (Shift+Tab).");
+    return;
+  }
+  const selected = selectedResult;
 
   manifest.mcp = { servers: selected };
   await writeManifest(rootDir, manifest);
