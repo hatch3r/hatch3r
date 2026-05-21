@@ -1,7 +1,5 @@
 ---
 id: hatch3r-board-groom
-type: command
-orchestrator: false
 description: Ongoing backlog refinement for existing board items. Re-prioritize, reclassify, re-scope, archive stale items, decompose oversized issues, merge duplicates, refresh dependencies, and remediate board health findings.
 tags: [board, ctx:team-only]
 quality_charter: agents/shared/quality-charter.md
@@ -14,17 +12,6 @@ parallel_tool_default: true
 
 Before any action, scan the user's request and provided context for unresolved questions in scope, acceptance criteria, irreversibility, or constraint conflicts (contradictory inputs, missing target, unknown convention). If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Acceptable to proceed without asking ONLY when scope is single-target, single-concern, and the brief alone is testable. Any residual ambiguity discovered mid-workflow invokes the same protocol.
 
-## Agent Pipeline
-
-This command runs as a single orchestrator without sub-agent delegation.
-
-All board operations MUST follow the Board Sync Enforcement rules defined in `hatch3r-board-shared`.
-
-# Board Groom -- Backlog Refinement for Existing Issues
-
-Perform ongoing backlog grooming on **{owner}/{repo}** (read from `.hatch3r/hatch.json` board config). Scans all open issues, surfaces health-driven refinement suggestions, and lets the user selectively apply grooming actions: re-prioritize, reclassify, re-scope, demote, archive, decompose, merge duplicates, refresh dependencies, and remediate board health gaps. Unlike `board-fill` (which ingests new work from `todo.md`), board-groom operates exclusively on existing board items. Unlike `board-refresh` (which is read-only), board-groom mutates issues based on user-confirmed decisions.
-
----
 
 ## Integration with GitHub Agentic Workflows
 
@@ -42,7 +29,7 @@ GitHub Agentic Workflows and hatch3r are complementary: use agentic workflows fo
 
 ## Shared Context
 
-**Read the `hatch3r-board-shared` command at the start of the run.** It contains Board Configuration, Platform Detection, Platform Context, Board Sync Procedure, and tooling directives. Cache all values for the duration of this run.
+**Read the `hatch3r-board-shared` skill at the start of the run.** It contains Board Configuration, Platform Detection, Platform Context, Board Sync Procedure, and tooling directives. Cache all values for the duration of this run.
 
 ## Token-Saving Directives
 

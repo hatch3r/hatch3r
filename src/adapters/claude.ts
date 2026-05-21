@@ -454,12 +454,24 @@ export class ClaudeAdapter extends BaseAdapter {
     // script handles category-specific deny decisions internally.
     // Source: https://code.claude.com/docs/en/plugins-reference#hooks
     // (PreToolUse exit 2 denies the call; accessed 2026-04-19).
+    //
+    // Launcher hardening: because the matcher is ".*", any failure in
+    // resolving or running the script becomes a per-tool-call error
+    // storm. Wrap the invocation in a Node-inline guard that (a) exits
+    // 0 silently if the .mjs is missing (fail-open + quiet — same
+    // security posture as the broken-install case today, minus the
+    // noise), (b) propagates the child's stdout (deny JSON) through
+    // stdio:'inherit', (c) keeps the child's stderr audit log only on
+    // a clean exit so script crashes don't leak stack traces on every
+    // tool call. Detection of a missing script remains the job of
+    // `hatch3r status` / `hatch3r verify`.
     if (!hooksConfig.PreToolUse) hooksConfig.PreToolUse = [];
     hooksConfig.PreToolUse.push({
       matcher: ".*",
       hooks: [{
         type: "command",
-        command: "node .claude/hooks/pretooluse-allowlist.mjs",
+        command:
+          "node -e \"const fs=require('fs'),cp=require('child_process'),p='.claude/hooks/pretooluse-allowlist.mjs';try{fs.statSync(p)}catch{process.exit(0)}const r=cp.spawnSync(process.execPath,[p],{stdio:['inherit','inherit','pipe']});if(r.status===0&&r.stderr)process.stderr.write(r.stderr);process.exit(0)\"",
       }],
     });
 

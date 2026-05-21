@@ -22,6 +22,9 @@ coverage/
 *.swp
 *.swo
 
+# Claude Code local scheduler state
+.claude/scheduled_tasks.lock
+
 # OS files
 Thumbs.db
 

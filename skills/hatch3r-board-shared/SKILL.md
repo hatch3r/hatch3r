@@ -1,7 +1,5 @@
 ---
 id: hatch3r-board-shared
-type: shared-context
-orchestrator: false
 description: Shared context and procedures for all board commands. Provides platform-agnostic board config, label taxonomy, branch conventions, sync enforcement, and tooling directives. Platform-specific details are in commands/board/shared-{platform}.md.
 tags: [board, ctx:team-only]
 quality_charter: agents/shared/quality-charter.md
@@ -13,11 +11,6 @@ parallel_tool_default: true
 
 Shared context for `hatch3r-board-fill`, `hatch3r-board-groom`, `hatch3r-board-pickup`, `hatch3r-board-refresh`, and related board commands. Read once per run and cache.
 
-## Agent Pipeline
-
-This command provides shared context and procedures for board commands. It does not spawn sub-agents directly.
-
----
 
 ## Prerequisite Check (run at the start of every board command)
 

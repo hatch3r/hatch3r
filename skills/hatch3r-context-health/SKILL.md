@@ -42,6 +42,19 @@ Run through the self-assessment checklist:
 4. **File currency**: List files you've modified — when did you last read each one?
 5. **Scope check**: Compare your current work to the original issue description.
 
+### Model-Aware Threshold Profiles
+
+Default thresholds assume a large-context model. When the active model is known, apply the matching profile to adjust thresholds:
+
+| Model Tier | Context Window | Token Warning | Turn Limit | File Staleness |
+|-----------|---------------|---------------|------------|----------------|
+| Small (< 32K) | ~32K tokens | > 60% of window | > 15 turns | > 10 turns |
+| Medium (32K--128K) | ~128K tokens | > 70% of window | > 25 turns | > 15 turns |
+| Large (128K--200K) | ~200K tokens | > 80% of window | > 30 turns | > 20 turns |
+| Extended (> 200K) | 200K+ tokens | > 85% of window | > 40 turns | > 25 turns |
+
+Profile resolution: read `models` in `.hatch3r/hatch.json`; default to **Large** if unset. A `contextHealth` section in `hatch.json` with explicit thresholds overrides the profile. Log the active profile at the start of each check: `"Context health using <tier> profile (<window_size> tokens)"`.
+
 ## Step 2: Identify Degradation
 
 | Check | Healthy | Degraded |
@@ -108,7 +121,10 @@ Context poisoning is more dangerous than missing context because it leads to con
 - [ ] Appropriate corrective action taken
 - [ ] Health verified at Green or Yellow after correction
 
+## Board Pickup Integration
+
+When `board-pickup` operates in auto-advance mode, context health is checked between issues. Orange completes the current issue then a fresh agent handles the next; Red mid-issue marks the issue PARTIAL and moves it back to Ready.
+
 ## Related Skills & Agents
 
-- **Command**: `hatch3r-context-health` -- full monitoring protocol with integration points
 - **Command**: `hatch3r-board-pickup` -- auto-advance mode uses context health for session management

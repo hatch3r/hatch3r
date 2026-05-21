@@ -189,12 +189,12 @@ sub_agents_spawned:
 
   it("does NOT flag non-orchestrator commands", async () => {
     await writeArtifact(
-      join(fx.commandsDir, "hatch3r-recipe.md"),
-      `id: hatch3r-recipe
+      join(fx.commandsDir, "hatch3r-debug.md"),
+      `id: hatch3r-debug
 type: command
-description: Recipe (inline)
+description: Debug (inline)
 orchestrator: false`,
-      `# Recipe\n`,
+      `# Debug\n`,
     );
 
     const result = await runValidator({ commandsDir: fx.commandsDir });

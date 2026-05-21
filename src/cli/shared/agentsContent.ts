@@ -156,7 +156,7 @@ New to hatch3r? Start here and expand as you go:
 
 **Day 1 — Core workflow:** Use the 4-phase pipeline above for any task. Start by invoking \`hatch3r-researcher\` for context, then \`hatch3r-implementer\` for changes.
 **Week 1 — Skills & commands:** Load skills from \`${p.skillsDir}\` matching your task type. Try \`/hatch3r-feature-plan\` or \`/hatch3r-bug-plan\` commands.
-**Week 2 — Board & team:** If using project management, run \`/hatch3r-board-init\` to set up your board. Use \`/hatch3r-board-pickup\` for structured delivery.
+**Week 2 — Board & team:** If using project management, invoke the \`hatch3r-board-init\` skill to set up your board. Use \`/hatch3r-board-pickup\` for structured delivery.
 **Ongoing — Customization:** Override agent behavior via \`.hatch3r/overrides/{type}/{id}.customize.yaml\`. Add project learnings to \`.hatch3r/learnings/\`.`;
 }
 
@@ -414,7 +414,7 @@ function bestTaskTypeForSkill(skillTags: string[], rows: TaskRouterRow[]): strin
  * readers know how to invoke it:
  *   - agent:   `hatch3r-researcher`
  *   - command: `/hatch3r-board-pickup` (cmd- index prefix stripped)
- *   - skill:   `hatch3r-agent-customize` _(skill)_
+ *   - skill:   `hatch3r-customize` _(skill)_
  */
 function renderPrimary(primary: { kind: TaskRouterPrimaryKind; id: string }): string {
   switch (primary.kind) {

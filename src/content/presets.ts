@@ -106,20 +106,11 @@ export const PRESETS: ContentPreset[] = [
       TAG_AI,
     ],
     includeCustomize: true,
-    // Tier-3 CLI skills are tagged with `cli-tools` + a category only (no
-    // capability tag); the capability gate skips them. They surface in `full`
-    // via explicit id admission so the cliTools picker can still gate actual
-    // installation as tier-3 opt-in. See src/cliTools/registry.ts TIER3_CLI_TOOLS.
-    includeIds: [
-      "hatch3r-cli-rtk",
-      "hatch3r-cli-stagehand",
-      "hatch3r-cli-aichat",
-      "hatch3r-cli-mods",
-      "hatch3r-cli-comby",
-      "hatch3r-cli-miller",
-      "hatch3r-cli-csvkit",
-      "hatch3r-cli-podman",
-    ],
+    // v1.9.0 toolbox consolidation: tier-3 CLI tools are now sections inside
+    // `hatch3r-cli-toolbox` (consolidated from the 25 former per-tool skill
+    // files). The toolbox skill is itself capability-tagged so the gate
+    // admits it without an explicit id override. The cliTools picker still
+    // governs installation of the underlying binaries as tier-3 opt-in.
   },
   {
     id: "custom",

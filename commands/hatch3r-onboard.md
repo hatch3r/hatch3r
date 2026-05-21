@@ -35,7 +35,7 @@ Take a new developer's role, experience level, and focus areas and produce a com
 
 ## Shared Context
 
-**Read the `hatch3r-board-shared` command at the start of the run** if it exists. While this command does not perform board operations, it establishes patterns and context (GitHub owner/repo, tooling directives) that provide project metadata useful for the onboarding guide. Cache any values found.
+**Read the `hatch3r-board-shared` skill at the start of the run** if it exists. While this command does not perform board operations, it establishes patterns and context (GitHub owner/repo, tooling directives) that provide project metadata useful for the onboarding guide. Cache any values found.
 
 ## Token-Saving Directives
 

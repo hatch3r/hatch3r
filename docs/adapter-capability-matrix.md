@@ -50,7 +50,7 @@ Canonical content lives inside the bundled npm package (`<pkgRoot>/dist/content/
 
 ### Agent Model Customization
 
-All 3 adapters emit model preferences when configured via `hatch.json`, agent frontmatter, or `.hatch3r/agents/{id}.customize.yaml`. Resolution order: customization file > manifest per-agent > agent frontmatter > manifest default. See [model-selection.md](model-selection.md) for configuration, aliases, and platform behavior. Use the `hatch3r-agent-customize` command for per-agent overrides.
+All 3 adapters emit model preferences when configured via `hatch.json`, agent frontmatter, or `.hatch3r/agents/{id}.customize.yaml`. Resolution order: customization file > manifest per-agent > agent frontmatter > manifest default. See [model-selection.md](model-selection.md) for configuration, aliases, and platform behavior. Use the `hatch3r-customize` skill for per-agent overrides.
 
 | Adapter | Emission | Notes |
 |---------|----------|-------|
@@ -202,7 +202,7 @@ set -a && source .env.mcp && set +a && <editor-command> .
 
 | Topic | Docs |
 |-------|------|
-| **Agent model customization** | [model-selection.md](model-selection.md) — configuration, aliases, resolution order; [hatch3r-agent-customize](../commands/hatch3r-agent-customize.md) — per-agent overrides |
+| **Agent model customization** | [model-selection.md](model-selection.md) — configuration, aliases, resolution order; [hatch3r-customize](../skills/hatch3r-customize/SKILL.md) — per-artifact overrides |
 | Cursor | [Cursor Rules](https://docs.cursor.com/context/rules-for-ai) / [Subagents](https://cursor.com/docs/context/subagents) / [Plugins](https://cursor.com/docs/plugins) |
 | Copilot | [Custom Instructions](https://docs.github.com/copilot/customizing-copilot/adding-custom-instructions-for-github-copilot) / [Agent Skills](https://docs.github.com/copilot/how-tos/use-copilot-agents/coding-agent/create-skills) |
 | Claude | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) |

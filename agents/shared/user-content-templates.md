@@ -171,7 +171,7 @@ The body bytes of `.md` and `.mdc` must match exactly (paired-file parity is a s
 **Path:** `.hatch3r/overrides/commands/<NAME>.md`. **Required:** `id`, `type`, `description`, `orchestrator`, `tags`. **Required when orchestrator=true:** `agentPipeline` (non-empty array). **Optional:** `quality_charter` (auto-injected). Two variants follow; pick by the `orchestrator` value.
 
 ```yaml
-# 4a. Inline command — orchestrator: false. Modeled after commands/hatch3r-recipe.md.
+# 4a. Inline command — orchestrator: false. Modeled after commands/hatch3r-debug.md.
 ---
 id: <NAME>
 type: command
@@ -183,7 +183,7 @@ quality_charter: agents/shared/quality-charter.md
 ```
 
 ```yaml
-# 4b. Orchestrator command — orchestrator: true. Modeled after commands/hatch3r-board-init.md.
+# 4b. Orchestrator command — orchestrator: true. Modeled after commands/hatch3r-board-fill.md.
 ---
 id: <NAME>
 type: command
@@ -283,5 +283,5 @@ For each user type, mirror the canonical shape below — minus the `hatch3r-` fi
 - **Agent:** `agents/hatch3r-implementer.md` (full body) or `agents/hatch3r-fixer.md` (compact body).
 - **Skill:** `skills/hatch3r-bug-fix/SKILL.md` or `skills/hatch3r-feature/SKILL.md`.
 - **Rule:** `rules/hatch3r-deep-context.md` (`scope: always`) or `rules/hatch3r-component-conventions.md` (`scope: conditional`).
-- **Command:** `commands/hatch3r-recipe.md` (inline) or `commands/hatch3r-board-init.md` (orchestrator).
+- **Command:** `commands/hatch3r-debug.md` (inline) or `commands/hatch3r-board-fill.md` (orchestrator).
 - **Hook:** `hooks/hatch3r-pre-commit.md` (with globs) or `hooks/hatch3r-session-start.md` (always-fire).

@@ -57,7 +57,7 @@ hatch3r board commands orchestrate the **implementation delivery pipeline** (ini
 
 ## Shared Context
 
-**Read the `hatch3r-board-shared` command at the start of the run.** It contains Board Configuration, Platform Detection, Platform Context, Board Sync Procedure, and tooling directives. Cache all values for the duration of this run.
+**Read the `hatch3r-board-shared` skill at the start of the run.** It contains Board Configuration, Platform Detection, Platform Context, Board Sync Procedure, and tooling directives. Cache all values for the duration of this run.
 
 All issue operations in this command MUST follow the Board Sync Enforcement rules defined in `hatch3r-board-shared`. Every status change, issue creation, and update must be synced to the board immediately.
 

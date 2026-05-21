@@ -1,7 +1,5 @@
 ---
 id: hatch3r-board-refresh
-type: command
-orchestrator: false
 description: Regenerate the living board overview dashboard from current board state. Scans all open issues, computes health metrics, and updates the meta:board-overview issue.
 tags: [board, ctx:team-only]
 quality_charter: agents/shared/quality-charter.md
@@ -14,17 +12,6 @@ parallel_tool_default: true
 
 Before any action, scan the user's request and provided context for unresolved questions in scope, acceptance criteria, irreversibility, or constraint conflicts (contradictory inputs, missing target, unknown convention). If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Acceptable to proceed without asking ONLY when scope is single-target, single-concern, and the brief alone is testable. Any residual ambiguity discovered mid-workflow invokes the same protocol.
 
-## Agent Pipeline
-
-This command runs as a single orchestrator without sub-agent delegation.
-
-All board operations MUST follow the Board Sync Enforcement rules defined in `hatch3r-board-shared`.
-
-# Board Refresh -- Regenerate the Board Overview Dashboard
-
-Scan all open issues/work items on **{owner}/{repo}** (read from `.hatch3r/hatch.json` board config), compute board health metrics, build implementation lanes from dependency analysis, and regenerate the `meta:board-overview` dashboard issue with current data, model recommendations, and health diagnostics. The `platform` field determines whether to interact with GitHub Issues, Azure DevOps Work Items, or GitLab Issues. This is a lightweight, read-heavy command -- the only mutation is updating (or creating) the single board overview issue.
-
----
 
 ## Integration with GitHub Agentic Workflows
 
@@ -44,7 +31,7 @@ GitHub Agentic Workflows and hatch3r are complementary: use agentic workflows fo
 
 ## Shared Context
 
-**Read the `hatch3r-board-shared` command at the start of the run.** It contains Board Configuration, Platform Detection, Platform Context, Board Sync Procedure, and tooling directives. Cache all values for the duration of this run.
+**Read the `hatch3r-board-shared` skill at the start of the run.** It contains Board Configuration, Platform Detection, Platform Context, Board Sync Procedure, and tooling directives. Cache all values for the duration of this run.
 
 ## Token-Saving Directives
 

@@ -99,6 +99,10 @@ Use the project's PR template. Include:
 - **Major version upgrade breaks tests**: Roll back the upgrade, document the breaking changes encountered, and create a dedicated migration issue with the specific test failures and required code changes.
 - **Lockfile conflicts after upgrade**: Regenerate the lockfile from scratch (`rm package-lock.json && npm install`), verify all tests pass, and commit the clean lockfile.
 
+## Tracking Issues for Deferred Items
+
+For CVEs or outdated packages not addressed in this session, create a tracking issue on the project's platform (GitHub Issues, ADO Work Item, or GitLab Issue per `platform` in `.hatch3r/hatch.json`). Use severity-based priority labels: Critical/High → `priority:p0`/`priority:p1`; Medium/Low → `priority:p2`; Major outdated → `priority:p2`; Minor/patch → `priority:p3`. Include package name, current version, target version, severity, CVE ID (if applicable), and migration notes. Never close out a critical/high CVE without either a fix or a tracking issue.
+
 ## Definition of Done
 
 - [ ] No critical or high CVEs remaining

@@ -66,9 +66,8 @@ export function sortByPrecedence<T extends { precedence?: string; id: string }>(
  * 2. Frontmatter-type whitelist: `frontmatterType` must be either absent
  *    (legacy files lacking the field load unchanged) or equal to
  *    `expectedFrontmatterType`. This catches the rare case of a top-level
- *    companion file such as `commands/hatch3r-board-shared.md`
- *    (`type: shared-context`) that sits next to the real commands but must
- *    not be invocable.
+ *    companion file (e.g., a `type: shared-context` file) that sits next to
+ *    real commands but must not be invocable.
  *
  * Canonical `.agents/` content (populated by `src/content/index.ts`)
  * remains unfiltered, so parent commands can continue referencing

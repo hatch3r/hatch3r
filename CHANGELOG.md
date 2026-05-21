@@ -116,6 +116,20 @@ Maintainer directive: `blueprint-v2` (v2.0.0 clean-slate rebuild spec generator 
 
 Pillar service: P4 (removes a preset with no use outside its own dialog runs; cuts ~1300 governance lines), P5 (governance total back under the 3000-line lean cap with margin to spare).
 
+### Command-vs-Skill Refactor + CLI-toolbox Consolidation (P4, P5, P8)
+
+A capability-lifecycle iteration that codifies when an artifact belongs in `commands/` vs `skills/`, then applies the new criterion across the canonical content surface.
+
+- **Codified Command-vs-Skill criterion** in `governance/CONSTITUTION.md` §6 Decision #13 and `.claude/rules/content-authoring.md` (item #9). Commands are user-invocable orchestrators; skills are model-invoked capabilities. Mixed-purpose artifacts split or collapse.
+- **Added reputable-source reconnaissance mandate** for content authoring in `governance/CONSTITUTION.md` §6 Decision #14, `.claude/rules/content-authoring.md` (item #10), and `.claude/skills/h4tcher-content-author/SKILL.md` (new Step 3). Every new agent / skill / rule / command / hook authored in this repo must cite ≥2 reputable sources (vendor docs, RFCs, OWASP, framework READMEs) before merging.
+- **Collapsed the 4 customize commands** (`hatch3r-agent-customize`, `hatch3r-command-customize`, `hatch3r-rule-customize`, `hatch3r-skill-customize`) and their paired redirect skills into the single canonical `skills/hatch3r-customize/SKILL.md`. Net change approximately -651 LOC.
+- **Demoted 5 commands to skills** (`context-health`, `cost-tracking`, `dep-audit`, `recipe`, `release`) and **converted 4 board-* commands to skills** (`board-init`, `board-groom`, `board-refresh`, `board-shared`). These 9 artifacts were model-invoked under the new criterion, not user-facing orchestrators. Net governance reduction approximately -900 LOC.
+- **Consolidated 25 specialist CLI-tool skills** into a single category-indexed `skills/hatch3r-cli-toolbox/SKILL.md` (269 lines). 5 essentials kept standalone (`ripgrep`, `jq`, `gh`, `fd`, `fzf`). Net change approximately -1,960 LOC.
+- **Inventory deltas:** commands 38 → 25 (Δ-13), skills 63 → 39 (Δ-24), CLI skills 30 → 6.
+- **Total iteration:** approximately -3,500 LOC across canonical content + governance.
+
+Pillar service: P4 (removes overlapping artifacts; single source of truth per capability), P5 (criterion is testable via the new content-authoring rule and the discover/refactor lifecycle presets), P8 (B1 reputable-source mandate makes ambiguity-resolution part of authoring, not an afterthought).
+
 ---
 
 ## [1.8.0] - 2026-05-19

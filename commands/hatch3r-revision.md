@@ -53,7 +53,7 @@ The user is the reviewer. The agent is the interviewer and fixer.
 
 ## Shared Context
 
-**If board context exists** (current branch has an associated PR linked to issues), **read the `hatch3r-board-shared` command at the start of the run.** It contains Board Configuration, Platform Detection, Platform Context, Board Sync Procedure, and tooling directives. Cache all values for the duration of this run.
+**If board context exists** (current branch has an associated PR linked to issues), **read the `hatch3r-board-shared` skill at the start of the run.** It contains Board Configuration, Platform Detection, Platform Context, Board Sync Procedure, and tooling directives. Cache all values for the duration of this run.
 
 If no board context exists (plain instruction, no PR, no linked issues), skip shared context loading and work from the git diff alone.
 

@@ -90,8 +90,8 @@ async function createContentRoot(dir: string): Promise<string> {
     mdFile({ id: "hatch3r-feature-plan", type: "command", description: "Plan a feature", tags: [TAG_PLANNING] }),
   );
   await writeFile(
-    join(contentRoot, "commands", "hatch3r-board-init.md"),
-    mdFile({ id: "hatch3r-board-init", type: "command", description: "Init board", tags: [TAG_BOARD, TAG_CTX_TEAM_ONLY] }),
+    join(contentRoot, "commands", "hatch3r-board-fill.md"),
+    mdFile({ id: "hatch3r-board-fill", type: "command", description: "Init board", tags: [TAG_BOARD, TAG_CTX_TEAM_ONLY] }),
   );
 
   // rules (glob strategy — with companion .mdc)
@@ -1561,25 +1561,25 @@ describe("content/index", () => {
 
       // Create the command file to remove
       await mkdir(join(agentsDir, "commands"), { recursive: true });
-      await writeFile(join(agentsDir, "commands", "hatch3r-board-init.md"), "# command");
+      await writeFile(join(agentsDir, "commands", "hatch3r-board-fill.md"), "# command");
 
       // Customize files are stored WITHOUT the cmd- and hatch3r- prefixes
       await mkdir(join(rootDir, ".hatch3r", "commands"), { recursive: true });
-      await writeFile(join(rootDir, ".hatch3r", "commands", "board-init.customize.yaml"), "overrides: true");
+      await writeFile(join(rootDir, ".hatch3r", "commands", "board-fill.customize.yaml"), "overrides: true");
 
       const item: CatalogItem = {
-        id: "cmd-hatch3r-board-init",
+        id: "cmd-hatch3r-board-fill",
         type: "command",
         description: "Command with prefixed id",
         tags: [],
-        relativePath: "commands/hatch3r-board-init.md",
+        relativePath: "commands/hatch3r-board-fill.md",
         source: "canonical",
       };
 
       await removeContentItem(agentsDir, item, { rootDir });
 
       // The customize file (named without prefixes) should be deleted
-      await expect(readFile(join(rootDir, ".hatch3r", "commands", "board-init.customize.yaml"), "utf-8")).rejects.toThrow();
+      await expect(readFile(join(rootDir, ".hatch3r", "commands", "board-fill.customize.yaml"), "utf-8")).rejects.toThrow();
     });
 
     it("throws HatchError for path traversal in relativePath", async () => {

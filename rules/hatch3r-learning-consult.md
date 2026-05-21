@@ -23,7 +23,7 @@ Before implementing any task, check `.hatch3r/learnings/` for relevant past lear
 
 - During `hatch3r-board-pickup` Step 6: consult learnings before implementation delegation.
 - During `hatch3r-board-fill` Step 4: consult learnings when scoping and estimating issues.
-- During `hatch3r-board-groom` Step 4c: consult learnings when re-scoping or reclassifying existing issues.
+- During the `hatch3r-board-groom` skill (Step 4c): consult learnings when re-scoping or reclassifying existing issues.
 - During any skill execution: check for relevant pitfalls before coding.
 
 ## Learning Priority

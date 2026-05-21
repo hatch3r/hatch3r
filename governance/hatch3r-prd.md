@@ -385,13 +385,16 @@ hatch3r installs and maintains:
     hatch3r-test-writer.md         # Test authoring agent
   skills/
     hatch3r-a11y-audit/SKILL.md
-    hatch3r-agent-customize/SKILL.md
     hatch3r-api-spec/SKILL.md
     hatch3r-architecture-review/SKILL.md
+    hatch3r-board-groom/SKILL.md
+    hatch3r-board-init/SKILL.md
+    hatch3r-board-refresh/SKILL.md
+    hatch3r-board-shared/SKILL.md
     hatch3r-bug-fix/SKILL.md
     hatch3r-ci-pipeline/SKILL.md
-    hatch3r-command-customize/SKILL.md
     hatch3r-context-health/SKILL.md
+    hatch3r-customize/SKILL.md           # Unified per-artifact customization (agents/commands/rules/skills)
     hatch3r-cost-tracking/SKILL.md
     hatch3r-dep-audit/SKILL.md
     hatch3r-feature/SKILL.md
@@ -406,8 +409,6 @@ hatch3r installs and maintains:
     hatch3r-recipe/SKILL.md
     hatch3r-refactor/SKILL.md
     hatch3r-release/SKILL.md
-    hatch3r-rule-customize/SKILL.md
-    hatch3r-skill-customize/SKILL.md
     hatch3r-visual-refactor/SKILL.md
   rules/
     hatch3r-accessibility-standards.md
@@ -432,22 +433,13 @@ hatch3r installs and maintains:
     hatch3r-theming.md
     hatch3r-tooling-hierarchy.md
   commands/
-    hatch3r-agent-customize.md       # Per-agent customization via .customize.yaml
     hatch3r-api-spec.md              # API specification generation
     hatch3r-benchmark.md             # Performance benchmarking
     hatch3r-board-fill.md            # Create epics/issues from todo.md
-    hatch3r-board-groom.md           # Board grooming and prioritization
-    hatch3r-board-init.md            # Initialize GitHub Projects V2 board
     hatch3r-board-pickup.md          # Pick up issues, delegate to sub-agents, create PRs
-    hatch3r-board-refresh.md         # Refresh board state and sync statuses
-    hatch3r-board-shared.md          # Configurable shared board context
     hatch3r-bug-plan.md              # Complex bug investigation planning
     hatch3r-codebase-map.md          # Brownfield codebase analysis
-    hatch3r-command-customize.md     # Per-command customization
-    hatch3r-context-health.md        # Context health monitoring
-    hatch3r-cost-tracking.md         # Token usage and cost tracking
     hatch3r-debug.md                 # Structured debugging workflow
-    hatch3r-dep-audit.md             # Dependency scan + upgrade tracking
     hatch3r-feature-plan.md          # Single-feature deep planning
     hatch3r-healthcheck.md           # Full product QA audit
     hatch3r-hooks.md                 # Interactive hook management
@@ -456,14 +448,10 @@ hatch3r installs and maintains:
     hatch3r-onboard.md               # Project onboarding guide
     hatch3r-project-spec.md          # Greenfield project specification
     hatch3r-quick-change.md          # Rapid small-change workflow
-    hatch3r-recipe.md                # Composable workflow recipes
     hatch3r-refactor-plan.md         # Refactoring and migration planning
-    hatch3r-release.md               # Version + changelog + deploy
     hatch3r-revision.md              # Iterative revision workflow
     hatch3r-roadmap.md               # Phased roadmap generation
-    hatch3r-rule-customize.md        # Per-rule customization
     hatch3r-security-audit.md        # Full product security audit
-    hatch3r-skill-customize.md       # Per-skill customization
     hatch3r-workflow.md              # Guided development workflow
   hooks/
     *.md                             # Hook definitions (frontmatter: id, event, agent)
@@ -938,8 +926,9 @@ agents/
 commands/
   hatch3r-healthcheck.md
   hatch3r-security-audit.md
-  hatch3r-dep-audit.md
-  hatch3r-release.md
+skills/
+  hatch3r-dep-audit/SKILL.md
+  hatch3r-release/SKILL.md
 mcp.json
 README.md
 ```

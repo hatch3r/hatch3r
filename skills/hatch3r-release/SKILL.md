@@ -103,6 +103,39 @@ npm run build
 - Watch user-reported issues for first 24h.
 - If errors spike: rollback and investigate.
 
+## Pre-Release Support
+
+Version formats: alpha (`x.y.z-alpha.N`), beta (`x.y.z-beta.N`), release candidate (`x.y.z-rc.N`). Workflow:
+
+1. Tag pre-release (e.g., `v1.2.0-beta.1`).
+2. Publish to npm with `--tag` (`npm publish --tag beta`).
+3. Smoke-test against the pre-release package.
+4. Promote: publish stable without pre-release suffix.
+5. Deprecate pre-release versions after stable release.
+
+npm distribution tags: `latest` (stable), `beta`, `next` (RCs), `alpha`. GitHub releases for pre-releases use `--prerelease`.
+
+## CHANGELOG.md Format
+
+Follow Keep a Changelog:
+- `### Added` — new features
+- `### Changed` — changes to existing functionality
+- `### Deprecated` — soon-to-be removed
+- `### Removed` — removed features
+- `### Fixed` — bug fixes
+- `### Security` — vulnerability fixes
+
+Entries grouped under `## [x.y.z] - YYYY-MM-DD`. Generate entry as part of the release commit; stage `CHANGELOG.md` alongside `package.json`. If `CHANGELOG.md` does not exist, create it with the standard header pointing to keepachangelog.com and semver.org.
+
+## Rollback Procedure
+
+If a release introduces critical issues:
+
+- **npm:** `npm deprecate package@version "Critical issue — use version X instead"`. Within 72h, `npm unpublish package@version` is permitted (only inside npm's unpublish window). Publish a hotfix as a new patch release.
+- **Git:** create a revert commit on the default branch, tag a new patch version, push to trigger the release workflow.
+- **Communication:** update CHANGELOG with rollback notice, open a post-mortem issue, notify users via release notes/discussions.
+- Always create a tracking issue documenting the incident. Never auto-rollback or auto-unpublish without explicit user confirmation; prefer deprecation over unpublish.
+
 ## Error Handling
 
 - **Quality gates fail during release preparation**: Do not proceed with the release. Fix the failing gate (test failures, lint errors, type errors), re-run all gates, and restart the release process.

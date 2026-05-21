@@ -365,11 +365,11 @@ describe("applyCustomizationRaw", () => {
   }
 
   const baseCommand: CanonicalFile = {
-    id: "hatch3r-release",
+    id: "hatch3r-board-pickup",
     type: "command",
-    description: "Release workflow",
-    content: "Execute release steps.",
-    rawContent: "---\nid: hatch3r-release\n---\n# Release\n\nExecute release steps.",
+    description: "Board pickup workflow",
+    content: "Execute board pickup steps.",
+    rawContent: "---\nid: hatch3r-board-pickup\n---\n# Board Pickup\n\nExecute board pickup steps.",
     sourcePath: "/fake/path.md",
   };
 
@@ -385,7 +385,7 @@ describe("applyCustomizationRaw", () => {
     const dir = join(projectRoot, ".hatch3r", "commands");
     await mkdir(dir, { recursive: true });
     await writeFile(
-      join(dir, "hatch3r-release.customize.md"),
+      join(dir, "hatch3r-board-pickup.customize.md"),
       "Deploy to staging first.",
       "utf-8",
     );
@@ -400,7 +400,7 @@ describe("applyCustomizationRaw", () => {
     const dir = join(projectRoot, ".hatch3r", "commands");
     await mkdir(dir, { recursive: true });
     await writeFile(
-      join(dir, "hatch3r-release.customize.yaml"),
+      join(dir, "hatch3r-board-pickup.customize.yaml"),
       "enabled: false",
       "utf-8",
     );

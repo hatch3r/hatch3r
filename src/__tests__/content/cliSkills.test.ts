@@ -6,19 +6,12 @@ import { parse as parseYaml } from "yaml";
 import { AVAILABLE_CLI_TOOLS, type CliToolMeta } from "../../cliTools/registry.js";
 
 /**
- * Wave 5 Bonus: per-tool CLI skill structural snapshot + parity contract.
+ * v1.9.0 toolbox consolidation: per-tool CLI skill structural snapshot +
+ * parity contract. Five high-frequency tools retain standalone skill files;
+ * every other registry entry lives as a `### {id}` section in
+ * `skills/hatch3r-cli-toolbox/SKILL.md`.
  *
- * Mirrors the script-level gate `scripts/validate-cli-skills.ts` but lives
- * inside vitest so the registry-vs-skills drift surfaces in `npm test` as
- * well as in CI's dedicated parity step. Coverage:
- *  - Every `AVAILABLE_CLI_TOOLS` id has a matching skill directory.
- *  - Frontmatter id matches the directory name.
- *  - ripgrep (tier-1 representative) and rtk (tier-3 caveat-bearing) snapshot.
- *
- * Note: this test depends on Wave 4 content cleanup landing — until per-tool
- * authored content replaces the Wave 2 placeholder scaffold, the structural
- * snapshots target the section headings rather than full body bytes, so
- * the cleanup pass remains free to evolve content under fixed contracts.
+ * Mirrors the script-level gate `scripts/validate-cli-skills.ts`.
  */
 
 const __filename = fileURLToPath(import.meta.url);
@@ -26,7 +19,9 @@ const __dirname = dirname(__filename);
 const ROOT = resolve(__dirname, "..", "..", "..");
 const SKILLS_DIR = join(ROOT, "skills");
 const PER_TOOL_PREFIX = "hatch3r-cli-";
-const UMBRELLA_DIR = "hatch3r-cli-overview";
+const TOOLBOX_DIR = "hatch3r-cli-toolbox";
+
+const STANDALONE_TOOLS = new Set(["ripgrep", "jq", "gh", "fd", "fzf"]);
 
 function splitFrontmatter(content: string): {
   frontmatter: Record<string, unknown>;
@@ -49,8 +44,6 @@ function splitFrontmatter(content: string): {
       frontmatter = parsed as Record<string, unknown>;
     }
   } catch (err) {
-    // YAML parse failures surface as separate diagnostics below; keep the
-    // binding so the silent-failure rule sees a non-empty body.
     void err;
   }
   return { frontmatter, body };
@@ -63,9 +56,6 @@ async function readSkillFile(dir: string): Promise<{
   const path = join(SKILLS_DIR, dir, "SKILL.md");
   try {
     const raw = await readFile(path, "utf-8");
-    // Normalize CRLF to LF before YAML parsing so Windows checkouts
-    // (core.autocrlf=true) don't leave a trailing \r inside unquoted
-    // scalar values like `caveat: pipe-output-corruption`.
     const content = raw.replace(/\r\n/g, "\n");
     return splitFrontmatter(content);
   } catch (err) {
@@ -74,63 +64,68 @@ async function readSkillFile(dir: string): Promise<{
   }
 }
 
-describe("CLI skills registry-vs-filesystem parity", () => {
-  it("every AVAILABLE_CLI_TOOLS id has a matching skills/hatch3r-cli-{id}/SKILL.md", async () => {
-    for (const id of Object.keys(AVAILABLE_CLI_TOOLS)) {
+describe("CLI skills registry-vs-filesystem parity (v1.9.0 toolbox)", () => {
+  it("every STANDALONE tool has a matching skills/hatch3r-cli-{id}/SKILL.md", async () => {
+    for (const id of STANDALONE_TOOLS) {
       const path = join(SKILLS_DIR, `${PER_TOOL_PREFIX}${id}`, "SKILL.md");
-      await expect(access(path), `Missing SKILL.md for ${id}`).resolves.toBeUndefined();
+      await expect(access(path), `Missing standalone SKILL.md for ${id}`).resolves.toBeUndefined();
     }
   });
 
-  it("no orphaned hatch3r-cli-* skill directories without a registry entry", async () => {
+  it("no non-standalone per-tool skill dirs (toolbox consolidation)", async () => {
     const entries = await readdir(SKILLS_DIR);
     const cliDirs = entries
-      .filter((n) => n.startsWith(PER_TOOL_PREFIX) && n !== UMBRELLA_DIR)
+      .filter((n) => n.startsWith(PER_TOOL_PREFIX) && n !== TOOLBOX_DIR)
       .sort();
-    const registryIds = new Set(Object.keys(AVAILABLE_CLI_TOOLS));
     for (const dir of cliDirs) {
       const id = dir.slice(PER_TOOL_PREFIX.length);
       expect(
-        registryIds.has(id),
-        `Orphaned skill directory hatch3r-cli-${id} — registry has no matching entry`,
+        STANDALONE_TOOLS.has(id),
+        `Per-tool skill dir hatch3r-cli-${id} should be a section in hatch3r-cli-toolbox`,
       ).toBe(true);
     }
   });
 
-  it("umbrella skill exists at skills/hatch3r-cli-overview/SKILL.md", async () => {
-    const path = join(SKILLS_DIR, UMBRELLA_DIR, "SKILL.md");
+  it("toolbox skill exists at skills/hatch3r-cli-toolbox/SKILL.md", async () => {
+    const path = join(SKILLS_DIR, TOOLBOX_DIR, "SKILL.md");
     await expect(access(path)).resolves.toBeUndefined();
+  });
+
+  it("toolbox body contains a section for every non-standalone registry tool", async () => {
+    const parsed = await readSkillFile(TOOLBOX_DIR);
+    expect(parsed).not.toBeNull();
+    for (const meta of Object.values(AVAILABLE_CLI_TOOLS) as CliToolMeta[]) {
+      if (STANDALONE_TOOLS.has(meta.id)) continue;
+      expect(
+        parsed!.body.includes(`### ${meta.id}`),
+        `toolbox missing "### ${meta.id}" section`,
+      ).toBe(true);
+    }
   });
 });
 
-describe("CLI skill frontmatter contract", () => {
-  it("every per-tool skill frontmatter id matches the directory name", async () => {
-    for (const id of Object.keys(AVAILABLE_CLI_TOOLS)) {
+describe("Standalone CLI skill frontmatter contract", () => {
+  it("standalone skill frontmatter id matches the directory name", async () => {
+    for (const id of STANDALONE_TOOLS) {
       const parsed = await readSkillFile(`${PER_TOOL_PREFIX}${id}`);
       expect(parsed, `Missing skill file for ${id}`).not.toBeNull();
       const fmId = parsed!.frontmatter.id;
-      expect(
-        fmId,
-        `Frontmatter id mismatch for hatch3r-cli-${id}`,
-      ).toBe(`${PER_TOOL_PREFIX}${id}`);
+      expect(fmId, `Frontmatter id mismatch for hatch3r-cli-${id}`).toBe(`${PER_TOOL_PREFIX}${id}`);
     }
   });
 
-  it("every per-tool skill carries the cli-tools tag", async () => {
-    for (const id of Object.keys(AVAILABLE_CLI_TOOLS)) {
+  it("standalone skills carry the cli-tools tag", async () => {
+    for (const id of STANDALONE_TOOLS) {
       const parsed = await readSkillFile(`${PER_TOOL_PREFIX}${id}`);
       expect(parsed, `Missing skill file for ${id}`).not.toBeNull();
       const tags = parsed!.frontmatter.tags;
-      expect(
-        Array.isArray(tags),
-        `tags must be an array for ${id}`,
-      ).toBe(true);
+      expect(Array.isArray(tags), `tags must be an array for ${id}`).toBe(true);
       expect((tags as string[]).includes("cli-tools"), `${id} missing cli-tools tag`).toBe(true);
     }
   });
 
-  it("every per-tool skill embeds a cli_tool block matching the registry tier and caveat", async () => {
-    for (const id of Object.keys(AVAILABLE_CLI_TOOLS)) {
+  it("standalone skills embed a cli_tool block matching the registry tier and caveat", async () => {
+    for (const id of STANDALONE_TOOLS) {
       const registry = AVAILABLE_CLI_TOOLS[id as keyof typeof AVAILABLE_CLI_TOOLS] as CliToolMeta;
       const parsed = await readSkillFile(`${PER_TOOL_PREFIX}${id}`);
       const cliBlock = parsed?.frontmatter.cli_tool as Record<string, unknown> | undefined;
@@ -143,13 +138,10 @@ describe("CLI skill frontmatter contract", () => {
   });
 });
 
-describe("CLI skill structural snapshots", () => {
-  it("ripgrep (tier-1 representative) starts with the expected heading", async () => {
+describe("Standalone CLI skill structural snapshots", () => {
+  it("ripgrep (representative standalone) starts with the expected heading and sections", async () => {
     const parsed = await readSkillFile(`${PER_TOOL_PREFIX}ripgrep`);
     expect(parsed).not.toBeNull();
-    // The body should begin with the # ripgrep heading after the generator
-    // marker. Structural contract only — Wave 4 cleanup may evolve recipe
-    // content underneath this heading without breaking the test.
     expect(parsed!.body).toContain("# ripgrep");
     expect(parsed!.body).toContain("## When to Use");
     expect(parsed!.body).toContain("## Token Cost");
@@ -157,18 +149,11 @@ describe("CLI skill structural snapshots", () => {
     expect(parsed!.body).toContain("## Detection / Install");
   });
 
-  it("rtk (tier-3 with pipe-output-corruption caveat) exposes the caveat heading at structural level", async () => {
-    const parsed = await readSkillFile(`${PER_TOOL_PREFIX}rtk`);
+  it("toolbox skill surfaces the rtk caveat heading (consolidated from former hatch3r-cli-rtk)", async () => {
+    const parsed = await readSkillFile(TOOLBOX_DIR);
     expect(parsed).not.toBeNull();
-    // Mirrors the renderCliToolSkillBody assertion: the caveat heading must
-    // appear before any other section so users see the risk before reading
-    // recipes.
-    expect(parsed!.body).toContain("## ⚠ Critical: pipe-output corruption (issue #1282)");
+    // rtk's pipe-output-corruption caveat must still surface in the toolbox.
     expect(parsed!.body).toContain("rtk proxy");
-
-    const caveatIdx = parsed!.body.indexOf("## ⚠ Critical");
-    const whenIdx = parsed!.body.indexOf("## When to Use");
-    expect(caveatIdx).toBeGreaterThanOrEqual(0);
-    expect(whenIdx).toBeGreaterThan(caveatIdx);
+    expect(parsed!.body.toLowerCase()).toContain("issue #1282");
   });
 });

@@ -822,12 +822,26 @@ Low priority rule body.
       );
       expect(hookScript).toBeDefined();
       expect(hookScript!.content.startsWith("#!/usr/bin/env node")).toBe(true);
-      // Hook contract: reads sibling policy file, gates on category match.
+      // Hook contract per https://code.claude.com/docs/en/hooks:
+      // - reads sibling policy file
+      // - reads payload as JSON on stdin (not env vars)
+      // - identifies sub-agent via `agent_type` from the payload
+      // - deny via stdout JSON with permissionDecision: "deny"
       expect(hookScript!.content).toContain("agent-tool-policies.json");
-      expect(hookScript!.content).toContain("CLAUDE_TOOL_NAME");
-      expect(hookScript!.content).toContain("CLAUDE_SUBAGENT_ID");
-      // Deny-by-default: exit 2 blocks the tool call.
-      expect(hookScript!.content).toContain("process.exit(2)");
+      expect(hookScript!.content).toContain("readFileSync(0,");
+      expect(hookScript!.content).toContain("payload.tool_name");
+      expect(hookScript!.content).toContain("payload.agent_type");
+      expect(hookScript!.content).toContain("payload.agent_id");
+      expect(hookScript!.content).toContain("hookSpecificOutput");
+      expect(hookScript!.content).toContain('"PreToolUse"');
+      expect(hookScript!.content).toContain('"deny"');
+      expect(hookScript!.content).toContain("permissionDecisionReason");
+      // Regression guard: the env-var contract was wrong; never reintroduce.
+      expect(hookScript!.content).not.toContain("CLAUDE_TOOL_NAME");
+      expect(hookScript!.content).not.toContain("CLAUDE_SUBAGENT_ID");
+      expect(hookScript!.content).not.toContain("process.exit(2)");
+      // Scope filter: only hatch3r-* sub-agents are governed.
+      expect(hookScript!.content).toContain('"hatch3r-"');
       // Structured deny reason codes for failure-log persistence.
       expect(hookScript!.content).toContain("UNKNOWN_TOOL");
       expect(hookScript!.content).toContain("NO_POLICY");
@@ -838,6 +852,161 @@ Low priority rule body.
       expect(hookScript!.content).toContain('Edit: "write"');
       // MCP tool prefix handling.
       expect(hookScript!.content).toContain('mcp__');
+    });
+
+    // Runtime tests: write the emitted script + policy file to a temp
+    // directory, invoke with `node`, pipe a JSON payload on stdin, and
+    // assert the documented Claude Code contract. These catch the
+    // class of bug fixed by re-reading the hook spec (env-vars → stdin
+    // JSON, exit 2 → stdout JSON with permissionDecision: "deny").
+    describe("hook script runtime contract", () => {
+      const setupHookDir = async () => {
+        const { mkdtemp, writeFile } = await import("node:fs/promises");
+        const { tmpdir } = await import("node:os");
+        const path = await import("node:path");
+        const manifest = makeManifest();
+        const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+        const hookScript = outputs.find(
+          (o) => o.path === ".claude/hooks/pretooluse-allowlist.mjs",
+        );
+        const policies = outputs.find(
+          (o) => o.path === ".claude/hooks/agent-tool-policies.json",
+        );
+        const dir = await mkdtemp(path.join(tmpdir(), "hatch3r-hook-"));
+        const hookPath = path.join(dir, "pretooluse-allowlist.mjs");
+        const policyPath = path.join(dir, "agent-tool-policies.json");
+        await writeFile(hookPath, hookScript!.content);
+        await writeFile(policyPath, policies!.content);
+        return { dir, hookPath };
+      };
+
+      const runHook = async (hookPath: string, payload: unknown) => {
+        const { spawn } = await import("node:child_process");
+        return await new Promise<{
+          code: number | null;
+          stdout: string;
+          stderr: string;
+        }>((resolve, reject) => {
+          const proc = spawn("node", [hookPath], { stdio: "pipe" });
+          let stdout = "";
+          let stderr = "";
+          proc.stdout.on("data", (b) => (stdout += b.toString()));
+          proc.stderr.on("data", (b) => (stderr += b.toString()));
+          proc.on("error", reject);
+          proc.on("close", (code) => resolve({ code, stdout, stderr }));
+          proc.stdin.end(JSON.stringify(payload));
+        });
+      };
+
+      it("passes through main-thread calls (no agent_type) with empty stdout", async () => {
+        const { hookPath } = await setupHookDir();
+        const result = await runHook(hookPath, {
+          session_id: "s",
+          transcript_path: "/tmp/t",
+          cwd: "/tmp",
+          permission_mode: "default",
+          hook_event_name: "PreToolUse",
+          tool_name: "Bash",
+          tool_input: { command: "ls" },
+        });
+        expect(result.code).toBe(0);
+        expect(result.stdout).toBe("");
+      });
+
+      it("passes through non-hatch3r sub-agents (e.g. general-purpose) with empty stdout", async () => {
+        const { hookPath } = await setupHookDir();
+        const result = await runHook(hookPath, {
+          session_id: "s",
+          transcript_path: "/tmp/t",
+          cwd: "/tmp",
+          permission_mode: "default",
+          hook_event_name: "PreToolUse",
+          tool_name: "Bash",
+          tool_input: { command: "ls" },
+          agent_id: "abc123",
+          agent_type: "general-purpose",
+        });
+        expect(result.code).toBe(0);
+        expect(result.stdout).toBe("");
+      });
+
+      it("allows in-policy tool for a hatch3r-* sub-agent (empty stdout)", async () => {
+        const { hookPath } = await setupHookDir();
+        // hatch3r-implementer policy includes "execute".
+        const result = await runHook(hookPath, {
+          hook_event_name: "PreToolUse",
+          tool_name: "Bash",
+          tool_input: { command: "npm test" },
+          agent_id: "abc123",
+          agent_type: "hatch3r-implementer",
+        });
+        expect(result.code).toBe(0);
+        expect(result.stdout).toBe("");
+      });
+
+      it("denies out-of-policy tool for a hatch3r-* sub-agent via stdout JSON + exit 0", async () => {
+        const { hookPath } = await setupHookDir();
+        // hatch3r-researcher policy: read/search/web/mcp — no execute.
+        const result = await runHook(hookPath, {
+          hook_event_name: "PreToolUse",
+          tool_name: "Bash",
+          tool_input: { command: "rm -rf /" },
+          agent_id: "abc123",
+          agent_type: "hatch3r-researcher",
+        });
+        expect(result.code).toBe(0);
+        const parsed = JSON.parse(result.stdout);
+        expect(parsed.hookSpecificOutput.hookEventName).toBe("PreToolUse");
+        expect(parsed.hookSpecificOutput.permissionDecision).toBe("deny");
+        expect(parsed.hookSpecificOutput.permissionDecisionReason).toMatch(
+          /hatch3r-researcher/,
+        );
+        expect(result.stderr).toContain("TOOL_NOT_ALLOWED");
+      });
+
+      it("denies unregistered hatch3r-* sub-agent (NO_POLICY)", async () => {
+        const { hookPath } = await setupHookDir();
+        const result = await runHook(hookPath, {
+          hook_event_name: "PreToolUse",
+          tool_name: "Read",
+          tool_input: {},
+          agent_id: "abc123",
+          agent_type: "hatch3r-unknown-agent",
+        });
+        expect(result.code).toBe(0);
+        const parsed = JSON.parse(result.stdout);
+        expect(parsed.hookSpecificOutput.permissionDecision).toBe("deny");
+        expect(result.stderr).toContain("NO_POLICY");
+      });
+
+      it("denies unknown Claude tool for a hatch3r-* sub-agent (UNKNOWN_TOOL)", async () => {
+        const { hookPath } = await setupHookDir();
+        const result = await runHook(hookPath, {
+          hook_event_name: "PreToolUse",
+          tool_name: "SomeFutureTool",
+          tool_input: {},
+          agent_id: "abc123",
+          agent_type: "hatch3r-implementer",
+        });
+        expect(result.code).toBe(0);
+        const parsed = JSON.parse(result.stdout);
+        expect(parsed.hookSpecificOutput.permissionDecision).toBe("deny");
+        expect(result.stderr).toContain("UNKNOWN_TOOL");
+      });
+
+      it("allows mcp__ prefixed tools for sub-agents granted the mcp category", async () => {
+        const { hookPath } = await setupHookDir();
+        // hatch3r-researcher has mcp in allowedTools.
+        const result = await runHook(hookPath, {
+          hook_event_name: "PreToolUse",
+          tool_name: "mcp__some_server__some_tool",
+          tool_input: {},
+          agent_id: "abc123",
+          agent_type: "hatch3r-researcher",
+        });
+        expect(result.code).toBe(0);
+        expect(result.stdout).toBe("");
+      });
     });
 
     it("registers the PreToolUse hook in settings.json", async () => {
@@ -858,9 +1027,15 @@ Low priority rule body.
       expect(allowlistEntry).toBeDefined();
       expect(allowlistEntry.matcher).toBe(".*");
       expect(allowlistEntry.hooks[0].type).toBe("command");
+      // Launcher is a node-inline guard that references the script path
+      // and fails open silently if it's missing — see claude.ts comment
+      // block above the PreToolUse hook registration.
       expect(allowlistEntry.hooks[0].command).toContain(
-        "node .claude/hooks/pretooluse-allowlist.mjs",
+        ".claude/hooks/pretooluse-allowlist.mjs",
       );
+      expect(allowlistEntry.hooks[0].command).toMatch(/^node -e /);
+      expect(allowlistEntry.hooks[0].command).toContain("fs.statSync");
+      expect(allowlistEntry.hooks[0].command).toContain("process.exit(0)");
     });
 
     it("emits policies.json + hook script independently of features.hooks", async () => {

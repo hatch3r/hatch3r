@@ -137,7 +137,7 @@ describe("buildTaskRouterModel", () => {
     const index = makeIndex([
       agent("hatch3r-implementer", ["core", "implementation"]),
       command("hatch3r-board-pickup", ["board", "team"]),
-      command("hatch3r-board-init", ["board", "team"]),
+      command("hatch3r-board-fill", ["board", "team"]),
       rule("hatch3r-board-hygiene", ["board"]),
     ]);
 
@@ -145,9 +145,9 @@ describe("buildTaskRouterModel", () => {
     const boardRow = rows.find((r) => r.tag === "board");
     expect(boardRow).toBeDefined();
     expect(boardRow!.primary.kind).toBe("command");
-    // `hatch3r-board-init` and `hatch3r-board-pickup` tie on rank vector;
-    // alphabetical tie-break puts "init" first in the prefixed id space.
-    expect(boardRow!.primary.id).toBe("cmd-hatch3r-board-init");
+    // `hatch3r-board-fill` and `hatch3r-board-pickup` tie on rank vector;
+    // alphabetical tie-break puts "fill" first in the prefixed id space.
+    expect(boardRow!.primary.id).toBe("cmd-hatch3r-board-fill");
     // Fallback agents list only contains agents — commands don't spill over.
     expect(boardRow!.fallbackAgents).toEqual([]);
     expect(boardRow!.relevantRules).toEqual(["hatch3r-board-hygiene"]);
@@ -171,7 +171,7 @@ describe("buildTaskRouterModel", () => {
     // All three content types tag `customize`; agent must win.
     const index = makeIndex([
       agent("hatch3r-customizer", ["customize"]),
-      command("hatch3r-agent-customize", ["customize"]),
+      command("hatch3r-customize-runner", ["customize"]),
       skill("hatch3r-customize", ["customize"]),
     ]);
 

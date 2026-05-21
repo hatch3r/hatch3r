@@ -5,11 +5,10 @@ tags: [customize]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
-canonical_for: [hatch3r-agent-customize, hatch3r-command-customize, hatch3r-rule-customize, hatch3r-skill-customize]
 ---
 # Artifact Customization Management
 
-> **Canonical entry point.** Four type-specific skills (`hatch3r-agent-customize`, `hatch3r-command-customize`, `hatch3r-rule-customize`, `hatch3r-skill-customize`) redirect here via `redirect_to: hatch3r-customize` frontmatter. Their body documents the rejected-merge alternative per `governance/audit/domains/D16-compound-system.md` SA 16.3.
+> **Canonical entry point.** This is the single skill for all per-artifact customization (agents, commands, rules, skills). The four prior type-specific skill stubs were removed in v1.9.0 per the Decision #13 Command-vs-Skill criterion; `governance/audit/domains/D16-compound-system.md` SA 16.3 documents the rejected-merge alternative.
 
 ## Quick Start
 

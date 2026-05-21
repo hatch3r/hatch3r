@@ -23,9 +23,9 @@ That's it. hatch3r detects your repo, asks about your project context (greenfiel
 | Category | Count | Highlights |
 |----------|-------|-----------|
 | **Agents** | 19 | Code reviewer, test writer, security auditor, implementer (sub-agentic), fixer, researcher, architect, DevOps, handoff loader / preparer, and more |
-| **Skills** | 63 | Bug fix, feature implementation, issue workflow, release, incident response, context health, cost tracking, handoff prepare / resume, recipes, API spec, CI pipeline, migration, customization, 30 per-tool CLI skills, and more |
-| **Rules** | 42 | Code standards, testing, API design, observability, theming, i18n, security patterns, agent orchestration, deep context analysis, handoff readiness, and more |
-| **Commands** | 38 | Board management, planning (feature, bug, refactor, test), workflow, quick-change, revision, debug, healthcheck, security-audit, cost-tracking, onboard, benchmark, customization, handoff (prepare/resume/list/complete/prune), and more |
+| **Skills** | 39 | Bug fix, feature implementation, issue workflow, release, incident response, context health, cost tracking, handoff prepare / resume, recipes, API spec, CI pipeline, migration, customization, board lifecycle (init/groom/refresh/shared), 5 standalone CLI-tool skills (ripgrep, jq, gh, fd, fzf) + a 24-tool `cli-toolbox`, and more |
+| **Rules** | 40 | Code standards, testing, API design, observability, theming, i18n, security patterns, agent orchestration, deep context analysis, handoff readiness, and more |
+| **Commands** | 25 | Board management, planning (feature, bug, refactor, test), workflow, quick-change, revision, debug, healthcheck, security-audit, onboard, benchmark, handoff (prepare/resume/list/complete/prune), and more |
 | **CLI tools** | 29 across 3 tiers | Tier-1 default (ripgrep, fd, jq, yq, gh, delta, bat, sd, ast-grep, zstd); tier-2 conditional (Playwright, duckdb, qsv, taplo, glab, az-devops, Docker, llm, fzf, lazygit, difftastic); tier-3 opt-in (RTK, Stagehand, aichat, mods, Comby, miller, csvkit, Podman) -- emitted as per-tool canonical skills + a decision-tree overview |
 | **MCP Servers** | 10 (opt-in) | Playwright, Context7, Filesystem, GitHub, Brave Search, Sentry, Postgres, Linear, Azure DevOps, GitLab -- gated behind a Yes/No prompt during `init` (default No since 1.7.5; pass `--mcp` to restore prior `--yes` behavior) |
 | **Platforms** | 3 | GitHub, Azure DevOps, GitLab -- auto-detected from git remote |
@@ -137,21 +137,21 @@ npx hatch3r add <pack>    # Install a community pack (coming soon)
 
 These commands are invoked inside your coding tool (e.g., as Cursor commands).
 
-**Board management:** `board-init`, `board-fill`, `board-groom`, `board-pickup`, `board-refresh`, `board-shared`
+**Board management:** `board-fill`, `board-pickup` (lifecycle helpers `board-init`, `board-groom`, `board-refresh`, `board-shared` ship as skills)
 
 **Planning:** `project-spec`, `codebase-map`, `roadmap`, `feature-plan`, `bug-plan`, `refactor-plan`, `migration-plan`, `test-plan`, `api-spec`
 
-**Workflow:** `workflow`, `quick-change`, `revision`, `debug`, `onboard`, `benchmark`, `hooks`, `learn`, `recipe`, `pr-resolve`, `handoff`
+**Workflow:** `workflow`, `quick-change`, `revision`, `debug`, `onboard`, `benchmark`, `hooks`, `learn`, `pr-resolve`, `handoff`
 
-**Operations:** `healthcheck`, `security-audit`, `dep-audit`, `release`, `context-health`, `cost-tracking`, `report`
+**Operations:** `healthcheck`, `security-audit`, `report` (helpers `dep-audit`, `release`, `context-health`, `cost-tracking`, `recipe` ship as skills)
 
-**Customization:** `create`, `agent-customize`, `command-customize`, `skill-customize`, `rule-customize`
+**Customization:** `create` (single `hatch3r-customize` skill covers agent/command/skill/rule customization)
 
 All commands are prefixed with `hatch3r-` (e.g., `hatch3r-board-fill`). See the [CLI Commands reference](https://docs.hatch3r.com/docs/reference/commands/cli-commands) and [Agent Commands reference](https://docs.hatch3r.com/docs/reference/commands/agent-commands) for full details.
 
 ## CLI Tools
 
-Since 1.7.5, hatch3r ships a first-class CLI-tools surface area as the token-efficient alternative to MCP. The picker runs during `init` (3 tiers grouped, tier-1 default-on, tier-2 conditional on detected project signals, tier-3 opt-in advanced). Detection probes each tool via `command -v` / `where` with a 2s timeout; the installer prints copy-paste commands grouped by package manager and never executes on your behalf. Every selected tool ships a per-tool skill (`skills/hatch3r-cli-{id}/SKILL.md`) plus the `hatch3r-cli-overview` decision-tree skill, emitted to all 3 supported adapters.
+Since 1.7.5, hatch3r ships a first-class CLI-tools surface area as the token-efficient alternative to MCP. The picker runs during `init` (3 tiers grouped, tier-1 default-on, tier-2 conditional on detected project signals, tier-3 opt-in advanced). Detection probes each tool via `command -v` / `where` with a 2s timeout; the installer prints copy-paste commands grouped by package manager and never executes on your behalf. 5 essentials (ripgrep, jq, gh, fd, fzf) ship as standalone skills (`skills/hatch3r-cli-{id}/SKILL.md`); the remaining 24 tools live in a single category-indexed `hatch3r-cli-toolbox` skill, emitted to all 3 supported adapters.
 
 Manage CLI tools at any time:
 

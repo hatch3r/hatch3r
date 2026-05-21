@@ -1,18 +1,17 @@
 #!/usr/bin/env node
 /**
- * scripts/validate-cli-skills.ts — Wave 4a, plan §7 item 25
+ * scripts/validate-cli-skills.ts — Wave 4a, plan §7 item 25 (revised v1.9.0)
  *
- * Registry-skill parity gate. Asserts that every `AVAILABLE_CLI_TOOLS`
- * entry has a matching `skills/hatch3r-cli-{id}/SKILL.md` (and vice-versa)
- * plus that the per-skill frontmatter agrees with the registry on id,
- * tier, and caveat. The umbrella catalog must reference every tool.
+ * Registry-skill parity gate. After the v1.9.0 toolbox consolidation:
+ *  - Five high-frequency tools retain a standalone `skills/hatch3r-cli-{id}/SKILL.md`
+ *    (`ripgrep`, `jq`, `gh`, `fd`, `fzf`).
+ *  - Every other `AVAILABLE_CLI_TOOLS` entry must appear as a `### {id}`
+ *    section inside `skills/hatch3r-cli-toolbox/SKILL.md`.
  *
  * Pillars: P3 (CLI-Tool Currency), P4 (Lean Coverage), P5 (Governance Self-Quality).
  *
  * Usage: `npm run validate:cli-skills` (invokes via tsx). Exits 0 on a
  * clean pass, 1 on any drift with a per-file failure summary.
- *
- * Mirrors the structure of `scripts/validate-rule-parity.ts`.
  */
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
@@ -25,8 +24,15 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const ROOT = resolve(__dirname, "..");
 const SKILLS_DIR = join(ROOT, "skills");
-const UMBRELLA_DIR = "hatch3r-cli-overview";
+const TOOLBOX_DIR = "hatch3r-cli-toolbox";
 const PER_TOOL_PREFIX = "hatch3r-cli-";
+
+/**
+ * The five tools that retain standalone per-tool skills (always-on, highest
+ * agent-call frequency). Every other registry entry must be covered by a
+ * section in `hatch3r-cli-toolbox/SKILL.md`.
+ */
+const STANDALONE_TOOLS = new Set(["ripgrep", "jq", "gh", "fd", "fzf"]);
 
 interface Failure {
   file: string;
@@ -40,10 +46,6 @@ interface ParsedSkill {
   body: string;
 }
 
-/**
- * Strip the leading YAML frontmatter block. Mirrors the implementation in
- * `scripts/validate-rule-parity.ts` for behavioral consistency.
- */
 function splitFrontmatter(content: string): {
   frontmatter: Record<string, unknown>;
   body: string;
@@ -65,8 +67,7 @@ function splitFrontmatter(content: string): {
       frontmatter = parsed as Record<string, unknown>;
     }
   } catch {
-    // YAML parse failure is surfaced upstream as a frontmatter validation
-    // failure; we still want to return the body so subsequent checks run.
+    // Surfaced upstream as a frontmatter validation failure.
   }
   return { frontmatter, body };
 }
@@ -93,27 +94,25 @@ async function listExistingCliSkillDirs(): Promise<string[]> {
     throw err;
   }
   return entries
-    .filter((name) => name.startsWith(PER_TOOL_PREFIX) && name !== UMBRELLA_DIR)
+    .filter((name) => name.startsWith(PER_TOOL_PREFIX) && name !== TOOLBOX_DIR)
     .sort((a, b) => a.localeCompare(b));
 }
 
 /**
- * Check 1: every registry entry has a matching skill file.
- * Check 3: per-skill frontmatter `id` matches `hatch3r-cli-{toolId}`.
- * Check 4: per-skill frontmatter has a `cli_tool` block whose `id` matches.
- * Check 5: tools with a registry `caveat` carry a `## ⚠` heading or
- *          `caveat:` substring in the rendered body.
+ * Check 1: every standalone-tier tool has its own skill file with matching
+ * frontmatter id, cli_tool block, and caveat surfacing.
  */
-async function checkRegistryHasSkills(): Promise<Failure[]> {
+async function checkStandaloneSkills(): Promise<Failure[]> {
   const failures: Failure[] = [];
   for (const meta of Object.values(AVAILABLE_CLI_TOOLS) as CliToolMeta[]) {
+    if (!STANDALONE_TOOLS.has(meta.id)) continue;
     const dir = `${PER_TOOL_PREFIX}${meta.id}`;
     const skill = await readSkill(dir);
     if (!skill) {
       failures.push({
         file: `${dir}/SKILL.md`,
-        reason: "missing skill file",
-        detail: `expected skills/${dir}/SKILL.md for registry tool ${meta.id}`,
+        reason: "missing standalone skill",
+        detail: `expected skills/${dir}/SKILL.md for standalone tool ${meta.id}`,
       });
       continue;
     }
@@ -154,9 +153,6 @@ async function checkRegistryHasSkills(): Promise<Failure[]> {
     }
 
     if (meta.caveat) {
-      // Body must surface the caveat: either as a "## ⚠" heading (the
-      // generator template's preferred form) or by including the literal
-      // registry caveat key inline.
       const hasHeading = /^##\s+⚠/m.test(skill.body);
       const hasKey = skill.body.includes(`caveat: ${meta.caveat}`) || skill.body.includes(meta.caveat);
       if (!hasHeading && !hasKey) {
@@ -172,15 +168,23 @@ async function checkRegistryHasSkills(): Promise<Failure[]> {
 }
 
 /**
- * Check 2: every existing per-tool skill directory maps to a registry id.
- * Catches drift in the reverse direction (skill exists, registry entry
- * deleted).
+ * Check 2: every existing per-tool skill directory maps to a standalone tool.
+ * After v1.9.0, only `STANDALONE_TOOLS` may have standalone dirs (plus the
+ * `hatch3r-cli-toolbox` umbrella, which is excluded from the listing).
  */
 async function checkSkillsHaveRegistry(): Promise<Failure[]> {
   const failures: Failure[] = [];
   const dirs = await listExistingCliSkillDirs();
   for (const dir of dirs) {
     const toolId = dir.slice(PER_TOOL_PREFIX.length);
+    if (!STANDALONE_TOOLS.has(toolId)) {
+      failures.push({
+        file: `skills/${dir}/SKILL.md`,
+        reason: "non-standalone per-tool skill",
+        detail: `tool ${toolId} should be covered as a section in skills/${TOOLBOX_DIR}/SKILL.md, not its own directory`,
+      });
+      continue;
+    }
     const inRegistry = (AVAILABLE_CLI_TOOLS as Record<string, CliToolMeta | undefined>)[toolId];
     if (!inRegistry) {
       failures.push({
@@ -194,28 +198,28 @@ async function checkSkillsHaveRegistry(): Promise<Failure[]> {
 }
 
 /**
- * Check 6: umbrella skill exists and references every tool id in its body.
- * The id must appear as a kebab-case mention (matches both `\`tool\`` and
- * `hatch3r-cli-tool`) — the generator emits both forms in its catalog
- * tables, so the substring check is intentionally permissive.
+ * Check 3: toolbox skill exists and contains a `### {id}` section for every
+ * non-standalone registry tool.
  */
-async function checkUmbrella(): Promise<Failure[]> {
+async function checkToolbox(): Promise<Failure[]> {
   const failures: Failure[] = [];
-  const umbrella = await readSkill(UMBRELLA_DIR);
-  if (!umbrella) {
+  const toolbox = await readSkill(TOOLBOX_DIR);
+  if (!toolbox) {
     failures.push({
-      file: `skills/${UMBRELLA_DIR}/SKILL.md`,
-      reason: "missing umbrella skill",
-      detail: "the catalog file `hatch3r-cli-overview/SKILL.md` must exist",
+      file: `skills/${TOOLBOX_DIR}/SKILL.md`,
+      reason: "missing toolbox skill",
+      detail: `the consolidated reference at skills/${TOOLBOX_DIR}/SKILL.md must exist`,
     });
     return failures;
   }
   for (const meta of Object.values(AVAILABLE_CLI_TOOLS) as CliToolMeta[]) {
-    if (!umbrella.body.includes(meta.id)) {
+    if (STANDALONE_TOOLS.has(meta.id)) continue;
+    const headingPattern = new RegExp(`^###\\s+${meta.id.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}\\b`, "m");
+    if (!headingPattern.test(toolbox.body)) {
       failures.push({
-        file: umbrella.path,
-        reason: "umbrella missing tool",
-        detail: `umbrella catalog must mention tool id "${meta.id}"`,
+        file: toolbox.path,
+        reason: "toolbox missing tool section",
+        detail: `toolbox must contain a "### ${meta.id}" section`,
       });
     }
   }
@@ -224,15 +228,15 @@ async function checkUmbrella(): Promise<Failure[]> {
 
 async function main(): Promise<void> {
   const failures: Failure[] = [];
-  failures.push(...(await checkRegistryHasSkills()));
+  failures.push(...(await checkStandaloneSkills()));
   failures.push(...(await checkSkillsHaveRegistry()));
-  failures.push(...(await checkUmbrella()));
+  failures.push(...(await checkToolbox()));
 
   const total = Object.keys(AVAILABLE_CLI_TOOLS).length;
   if (failures.length === 0) {
     // eslint-disable-next-line no-console
     console.log(
-      `validate:cli-skills: ${total} registry entries checked, umbrella catalog OK, 0 drift`,
+      `validate:cli-skills: ${total} registry entries checked (${STANDALONE_TOOLS.size} standalone, ${total - STANDALONE_TOOLS.size} toolbox sections), 0 drift`,
     );
     return;
   }

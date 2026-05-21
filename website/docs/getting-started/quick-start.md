@@ -170,11 +170,7 @@ If you took the tiny-change path, you are done — jump to [Step 8](#step-8--mai
 
 ## Step 5 — Set up the board
 
-Run inside your editor:
-
-```
-/hatch3r-board-init
-```
+Invoke the `hatch3r-board-init` skill from your editor (Claude Code: `Skill: hatch3r-board-init`; Cursor: load the skill from the skills picker; Copilot: reference the skill in the chat).
 
 This creates or connects a project board on your detected platform — a GitHub Projects V2 board, an Azure DevOps board, or a GitLab Issues board. It writes back the resolved board owner / project number / area labels into `hatch.json` so subsequent commands target the correct board.
 
@@ -200,7 +196,7 @@ Then run:
 
 `board-fill` parses `todo.md`, classifies each item (feature / bug / refactor / migration / test), groups items into epics, builds a dependency DAG, and marks ready items as `status:ready` on the board.
 
-For backlog hygiene later: `/hatch3r-board-groom` surfaces stale items, priority imbalances, and decomposition candidates.
+For backlog hygiene later: invoke the `hatch3r-board-groom` skill — it surfaces stale items, priority imbalances, and decomposition candidates.
 
 ---
 
@@ -236,11 +232,9 @@ Day-to-day commands you will run as you edit `.agents/` content or rotate tools:
 
 ## Step 9 — Release
 
-```
-/hatch3r-release
-```
+Invoke the `hatch3r-release` skill.
 
-`release` reads the conventional-commit history since the last tag, decides the semver bump (patch / minor / major), generates a changelog entry, tags, and publishes per your project's release config.
+The release skill reads the conventional-commit history since the last tag, decides the semver bump (patch / minor / major), generates a changelog entry, tags, and publishes per your project's release config.
 
 That closes the loop: init → spec → board → pickup → release.
 

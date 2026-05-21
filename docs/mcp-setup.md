@@ -162,7 +162,7 @@ For the remote GitHub MCP server (repos, issues, pull_requests, projects):
 **Classic PAT** (Settings → Developer settings → Personal access tokens → Tokens (classic)):
 - `repo` — full control of private repositories (read/write code, issues, PRs)
 - `read:org` — read org and team membership (needed for org projects)
-- `project` — read/write access to GitHub Projects V2 (required for board commands: `hatch3r-board-init`, `hatch3r-board-fill`, `hatch3r-board-groom`, `hatch3r-board-pickup`, `hatch3r-board-refresh`)
+- `project` — read/write access to GitHub Projects V2 (required for board commands `hatch3r-board-fill`, `hatch3r-board-pickup` and board skills `hatch3r-board-init`, `hatch3r-board-groom`, `hatch3r-board-refresh`)
 
 **Fine-grained PAT** (recommended):
 
@@ -171,7 +171,7 @@ For the remote GitHub MCP server (repos, issues, pull_requests, projects):
 | Contents | Read and write | Code, file operations |
 | Issues | Read and write | Issue creation, labeling, assignment |
 | Pull requests | Read and write | PR creation, review, merge |
-| Projects | Read and write | Board commands (`hatch3r-board-init`, etc.) |
+| Projects | Read and write | Board commands and skills (`hatch3r-board-fill`, `hatch3r-board-init`, etc.) |
 | Metadata | Read | Repository metadata (auto-granted) |
 | Members (Organization) | Read | Org projects and team membership |
 

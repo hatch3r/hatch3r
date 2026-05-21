@@ -72,7 +72,7 @@ Since 1.7.5 MCP is opt-in (default No during `init`). See the [MCP Setup guide](
 
 ## CLI Tools
 
-Since 1.7.5, hatch3r ships a 29-tool CLI surface area as the token-efficient alternative to MCP. Each selected tool emits a per-tool skill to all 3 supported adapters (Cursor, Claude Code, Copilot) plus the `hatch3r-cli-overview` decision-tree skill.
+Since 1.7.5, hatch3r ships a 29-tool CLI surface area as the token-efficient alternative to MCP. In v1.9.0 the per-tool skills were consolidated: five high-frequency tools (`ripgrep`, `jq`, `gh`, `fd`, `fzf`) retain standalone skill files, and the remaining 24 are sections of the consolidated `hatch3r-cli-toolbox` reference skill. Canonical content is emitted to all 3 supported adapters (Cursor, Claude Code, Copilot).
 
 ### Tier-1 (default-on, 10 tools)
 

@@ -275,7 +275,7 @@ describe("compound system content validation", () => {
 
     it("has command content files", () => {
       const commands = allFiles.filter((f) => f.type === "command");
-      expect(commands.length).toBeGreaterThanOrEqual(34);
+      expect(commands.length).toBeGreaterThanOrEqual(20);
     });
 
     it("has hook content files", () => {

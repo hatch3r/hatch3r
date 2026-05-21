@@ -1,7 +1,5 @@
 ---
 id: hatch3r-board-init
-type: command
-orchestrator: false
 description: Initialize a project board (GitHub Projects V2, Azure Boards, or GitLab Issue Boards) with hatch3r's label taxonomy, status fields, and board structure. Platform detected from hatch.json.
 tags: [board, ctx:team-only]
 quality_charter: agents/shared/quality-charter.md
@@ -14,17 +12,6 @@ parallel_tool_default: true
 
 Before any action, scan the user's request and provided context for unresolved questions in scope, acceptance criteria, irreversibility, or constraint conflicts (contradictory inputs, missing target, unknown convention). If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Acceptable to proceed without asking ONLY when scope is single-target, single-concern, and the brief alone is testable. Any residual ambiguity discovered mid-workflow invokes the same protocol.
 
-## Agent Pipeline
-
-This command runs as a single orchestrator without sub-agent delegation.
-
-All board operations MUST follow the Board Sync Enforcement rules defined in `hatch3r-board-shared`.
-
-# Board Init -- Bootstrap a Project Board
-
-Initialize a new or existing project board for **{owner}/{repo}** (read from `.hatch3r/hatch.json` board config). The `platform` field in `hatch.json` determines whether to set up GitHub Projects V2, Azure Boards, or GitLab Issue Boards. Sets up status fields/states, creates the full hatch3r label/tag taxonomy, optionally migrates issues from another project, and writes all IDs back to `.hatch3r/hatch.json` so subsequent board commands work out of the box. AI proposes configuration; user confirms before any mutation.
-
----
 
 ## Integration with Platform Agentic Workflows
 
@@ -41,7 +28,7 @@ Platform agentic workflows and hatch3r are complementary: use platform workflows
 
 ## Shared Context
 
-**Read the `hatch3r-board-shared` command at the start of the run.** It contains Board Configuration, Platform Detection, Platform Context, Board Sync Procedure, and tooling directives. Cache all values for the duration of this run.
+**Read the `hatch3r-board-shared` skill at the start of the run.** It contains Board Configuration, Platform Detection, Platform Context, Board Sync Procedure, and tooling directives. Cache all values for the duration of this run.
 
 ## Token-Saving Directives
 
