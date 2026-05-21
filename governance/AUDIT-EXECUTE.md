@@ -133,7 +133,7 @@ Before promoting any finding to `targeted`, cross-reference recent audit-cycle c
 
 ### Central-Path Classification
 
-A finding is **central-path** if its primary modified file is one of: `src/cli/shared/ui.ts` (stdout/stderr routing), `src/cli/shared/errors.ts` or `src/cli/shared/HatchError*` (exit-code map), `src/pipeline/observability.ts` (log sinks), `src/merge/safeWrite.ts` (atomic-write contract), `src/integrity/*` (hash sinks), or any `src/pipeline/*` file cited by ≥3 other files as "contract".
+A finding is **central-path** if its primary modified file is one of: `src/cli/shared/ui.ts` (stdout/stderr routing), `src/cli/shared/errors.ts` or `src/cli/shared/HatchError*` (exit-code map), `src/pipeline/observability.ts` (log sinks), `src/merge/safeWrite.ts` (atomic-write contract), `src/migration/agentsToHatch3r.ts` (one-shot user-state migration on first init/sync/update after 1.8 → 1.9 upgrade), or any `src/pipeline/*` file cited by ≥3 other files as "contract".
 
 Central-path findings MUST include this audit-test-fixtures acceptance criterion: *tests in `src/__tests__/**` spying on the old contract (e.g., `vi.spyOn(console, 'log')` for stdout, `vi.spyOn(console, 'error')` for stderr) either continue to assert the correct channel OR are explicitly updated by the fix sub-agent; central-path fixes MUST produce a net-positive test count on the specific channel assertion they change.* Flag the finding with `central_path: true` in the registry; Phase 4 reviewer Pass 1.5 uses this flag to require an explicit test-audit line in the results file.
 

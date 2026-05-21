@@ -63,6 +63,59 @@ Replaces the brittle `includeTags` / `excludeTags` filter with a 4-stage admissi
 - **CI scripts using `--tools` with removed adapter ids will fail at validation.** Trim invocations to `--tools claude,cursor,copilot` (or a subset). Unknown adapter ids are rejected, not silently ignored.
 - **Custom content under `.agents/user/`** is preserved by the migration shim — but verify the move after first sync; the shim warns on collisions and skips overwrite.
 
+### Init UX Overhaul (P1, P3, P4, P5)
+
+`npx hatch3r init` is rebuilt around a weighted-signal project detector and a step-machine that reduces prompts and explains its defaults.
+
+- **Weighted-signal detector** in `src/detect/projectType.ts` returns `{type, confidence, signals[]}` synthesised from git depth, `src/`/`lib/`/`app/` presence, `package.json` dependencies, README size, primary language, existing CLI-tool indicators, and any existing `.agents/` directory. The top-3 signals are appended to the prompt message so the user sees why the default greenfield/brownfield choice is what it is — no more opaque pre-selected radio button.
+- **Feature picker reduced.** Agents, rules, and skills are always-on and no longer appear as checkbox options. MCP is lifted out of the feature checklist and into a dedicated `confirm` gate (opt-in default no), matching the 1.7.5 MCP-demotion contract.
+- **Post-init "create your first artifact?" prompt removed.** The flow ends with a single tip line gated only by `!isQuiet()` — no extra decision after the canonical config is on disk.
+- **Worktree-capable tools expanded** from `{claude}` to `{claude, cursor, copilot}` (verified against the current Cursor and Copilot platform docs). Same auto-enable is applied to the `update` migration checkpoint.
+- **`src/cli/shared/initSteps.ts` (246 LOC, new module)** implements the step machine: `Step<S, K>` interface, `BACK` sentinel, `runStepMachine` driver, and `askSelect` / `askCheckbox` / `askConfirm` / `askInput` helpers reused by `init`, `config`, and `worktree-cleanup`.
+
+Pillar service: P1 (fewer decisions, signal-explained defaults), P3 (worktree parity across all 3 adapters), P4 (replaces ad-hoc prompt chains with one reusable driver), P5 (the always-on artifact classes match the canonical content model).
+
+### Shift+Tab Back-Navigation (P1, P4, P8)
+
+Back-navigation is promoted from a per-prompt `← Back` menu choice / `:back` string literal to a real key control (CSI Z), closing the timer race and readline-conflict bugs that plagued the 1.8.0 stop-gap.
+
+- **`src/cli/shared/backablePrompts.ts` (722 LOC, new module)** forks `select` / `checkbox` / `input` / `confirm` via `@inquirer/core::createPrompt` and registers each fork under its standard name. The fork intercepts Shift+Tab in `useKeypress` and resolves with a shared `BACK` sentinel — `Symbol.for("hatch3r.BACK")` so identity survives module-boundary crossings. Every fork renders a key-controls footer: `↑↓ navigate · ⏎ select · Shift+Tab back`.
+- **`BACKABLE_COMMANDS` allow-list** in `src/cli/index.ts` — `init`, `config`, `worktree-cleanup`, `clean`, `update`, `mcp`, `cli-tools`. Stray Shift+Tab outside the allow-list cannot leak the `BACK` sentinel into a non-audited command's string consumers.
+- **`config` and `worktree-cleanup` lifted to `runStepMachine`** so the new back-nav semantics propagate to every multi-step flow without per-command wiring.
+- **Build wiring:** `@inquirer/core` and `@inquirer/figures` externalised in `tsup.config.ts`; `mute-stream` promoted to direct dependency so end-user installs resolve it via the package registry rather than relying on a transitive bring-along.
+
+Pillar service: P1 (single key chord replaces per-prompt menu items), P4 (one fork module replaces ad-hoc back-strings across 7 commands), P8 (Shift+Tab is now the canonical back-out mechanism for ambiguity-resolution flows that need a do-over).
+
+### Companion Content Emission (P3, P4)
+
+Pre-1.9.0, companion/reference content under support subdirectories (`agents/modes/`, `agents/shared/`, `commands/board/`, `commands/revision/`, `checks/`) was materialised in the user's `.agents/` mirror. The bundled-content migration (e4e5126) removed that mirror without re-emitting the companion subtrees, so canonical references like `agents/shared/quality-charter.md` stopped resolving in user repos.
+
+- **`BaseAdapter::emitCompanionContent` (new helper)** walks a canonical subdirectory, applies `substituteCanonicalContent` so the `PLATFORM-TOOL` marker in `user-question-protocol.md` is replaced per adapter, and emits each `.md` file as a managed-block output under the adapter's native path. Path references inside companion bodies are left intact — the runtime agent resolves filenames via Grep/Glob, which works against the per-adapter copies as written.
+- **Wired into `claude`, `cursor`, and `copilot` adapters** so every shipped surface exposes the same companion content reachable from a canonical-content reference.
+
+Pillar service: P3 (each adapter surface now ships the full companion-content set the canonical artifacts reference), P4 (one helper replaces three potential per-adapter implementations).
+
+### Rule Precedence Application — 23 high + 2 critical (P2, P4, P5, P6)
+
+The `precedence` frontmatter field shipped in 1.8.0 was unused on 46 of 52 rules. Cosmetic rules (theming, i18n, commit-conventions) shared the same default rank as security, secrets, auth, testing, migrations, supply-chain, observability, accessibility, and the entire CONSTITUTION §2 P2 "100% / 0" hard-mandate set.
+
+- **Critical (rank 100, prefix `10-`):** `hatch3r-security-patterns`, `hatch3r-secrets-management`.
+- **High (rank 300, prefix `30-`):** `hatch3r-auth-patterns`, `hatch3r-passkey-server`, `hatch3r-data-classification`, `hatch3r-testing`, `hatch3r-ai-evals`, `hatch3r-contract-testing`, `hatch3r-migrations`, `hatch3r-api-versioning`, `hatch3r-event-schema-evolution`, `hatch3r-ci-cd`, `hatch3r-container-hardening`, `hatch3r-dependency-management`, `hatch3r-observability-logging`, `hatch3r-observability-metrics`, `hatch3r-observability-tracing`, `hatch3r-operability`, `hatch3r-resilience-patterns`, `hatch3r-accessibility-standards`, `hatch3r-ux-states-and-flows`, `hatch3r-design-system-detection`. Framework-dev gatekeepers: `.claude/rules/pillar-compliance`, `governance-lean-thresholds`, `anti-slop-enforcement`, `security-patterns`, `content-authoring`, `test-requirements`.
+- **Six framework-dev `.claude/rules/` files that lacked frontmatter** received full `id` / `type` / `description` / `tags` / `scope` / `precedence` blocks so the parity gate has something to compare against.
+- **Mechanical change; gates green:** `validate:rule-parity` 40 pairs / 0 drift, `validate` (efficiency / bridge-budget / cli-skills / wiring), `hatch3r validate` 0 errors, `tsc` 0 errors, `eslint` 0 errors, `vitest` 131 files / 3355 tests.
+
+Pillar service: P2 (rank now matches the §2 P2 hard-mandate set), P4 (cosmetic vs critical no longer collapsed into one rank), P5 (the frontmatter field shipped in 1.8.0 finally has consumers), P6 (security / secrets / auth / data-classification surface above defaults).
+
+### Blueprint-v2 Feature Removal (P4, P5)
+
+Maintainer directive: `blueprint-v2` (v2.0.0 clean-slate rebuild spec generator + governance workspace) removed in full. Sixth lifecycle preset with no use outside its own dialog runs; ~1300 lines of governance content that no longer fit the active 8-pillar framework.
+
+- **Removed (tracked):** `governance/BLUEPRINT-V2.md`, `governance/blueprint-v2/` (README + `decisions/INDEX` + `workspace/`), `.claude/skills/h4tcher-blueprint-v2/SKILL.md`.
+- **Cross-references scrubbed** in `CLAUDE.md` and `.claude/rules/capability-lifecycle.md` so the lifecycle decision tree and pillar/skills overview no longer point at a deleted preset.
+- **Governance total: 2789 lines** (was ~4100 with blueprint-v2; CONSTITUTION lean limit 3000).
+
+Pillar service: P4 (removes a preset with no use outside its own dialog runs; cuts ~1300 governance lines), P5 (governance total back under the 3000-line lean cap with margin to spare).
+
 ---
 
 ## [1.8.0] - 2026-05-19

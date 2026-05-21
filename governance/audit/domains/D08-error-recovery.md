@@ -19,7 +19,8 @@
 ## Audit Checklists
 
 ### 8.1 CLI Error Handling
-- [ ] CLI graceful failure for: missing Node.js version, no git repo, no internet, permission denied, corrupt `hatch.json`, missing `/.agents/` directory, invalid arguments, interrupted operations
+- [ ] CLI graceful failure for: missing Node.js version, no git repo, no internet, permission denied, missing `.hatch3r/` directory or corrupt `hatch.json`, invalid arguments, interrupted operations
+- [ ] Migration shim resilience — `src/migration/agentsToHatch3r.ts` (one-shot `.agents/*` → `.hatch3r/*` migration on first init/sync/update after 1.8 → 1.9 upgrade) handles: partial migration interruption (process killed mid-move), pre-existing `.hatch3r/` directory, missing source `.agents/` directory (already migrated or clean install), permission errors, file already present at destination.
 - [ ] Error message quality — are error messages actionable with clear next steps?
 - [ ] Exit codes — correct exit codes for different failure modes
 - [ ] Recovery guidance — does the CLI tell the user how to fix the problem?

@@ -4,10 +4,10 @@
 
 **Pillars served:** P3 (primary), P4 (supporting).
 
-**Scope:** The 3 retained adapters (claude, cursor, copilot) and the capability matrix. One sub-agent per adapter for depth; one sequential synthesis sub-agent.
-**Sub-agents:** 4
+**Scope:** The 3 retained adapters (claude, cursor, copilot) and the capability matrix. One sub-agent per adapter for depth; two sequential synthesis sub-agents (capability matrix verification + emerging platforms).
+**Sub-agents:** 5
 
-Sub-agent 9.4 is **sequential** — it runs only after 9.1–9.3 complete.
+Sub-agents 9.4 and 9.5 are **sequential** — they run only after 9.1–9.3 complete, and may run in parallel with each other once unblocked.
 
 **Reference:** `docs/adapter-capability-matrix.md`
 
@@ -16,7 +16,8 @@ Sub-agent 9.4 is **sequential** — it runs only after 9.1–9.3 complete.
 | 9.1 | Claude | `src/adapters/claude.ts` | `CLAUDE.md`, `.claude/`, `.mcp.json` | see insights |
 | 9.2 | Cursor | `src/adapters/cursor.ts` | `.cursor/` (.mdc rules, agents, skills, commands, mcp.json, hooks) | see insights |
 | 9.3 | Copilot | `src/adapters/copilot.ts` | `.github/` (instructions, agents, prompts, mcp) | see insights |
-| 9.4 | **Capability Matrix + Emerging Platforms (SEQUENTIAL)** | `docs/adapter-capability-matrix.md` + web research | Cross-adapter synthesis + new candidate scan | n/a |
+| 9.4 | **Capability Matrix Verification (SEQUENTIAL)** | `docs/adapter-capability-matrix.md` + per-adapter findings | Cross-adapter synthesis | n/a |
+| 9.5 | **Emerging Platforms (SEQUENTIAL)** | Web research on AI coding tools with significant traction | New candidate scan | n/a |
 
 > "see insights" = `governance/audit/execution-insights.json` → `d9_adapter_research_dates.{adapter}`. Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
 
@@ -36,16 +37,25 @@ Each adapter sub-agent MUST:
 - [ ] Model emission rendering matches platform-native preference syntax (native field if supported, guidance string fallback otherwise); MCP config transformation matches the platform's documented schema; secret loading method matches platform's documented secret-source
 - [ ] Hook/event mapping matches the platform's current hook taxonomy (event names, payload shape); new platform capabilities not yet supported by the adapter are flagged
 - [ ] User-question tool: verify platform's current native question tool via official docs. Confirm `ASK_USER_TOOLS[adapter]` in `src/pipeline/adapterToolTranslator.ts` and `nativeQuestionTool` in `src/adapters/index.ts` agree (both populated, or both null/false). Cite URL + access date.
+- [ ] Companion content emission: adapter calls `emitCompanionContent` for every support subdirectory in scope and emits each `.md` file to the per-adapter native path with `substituteCanonicalContent` applied
 - [ ] Test coverage: test file adequately covers adapter output paths
 
-### 9.4 Capability Matrix + Emerging Platforms (SEQUENTIAL)
+### 9.4 Capability Matrix Verification (SEQUENTIAL)
 
-Runs after 9.1–9.3 complete. Owns cross-adapter synthesis and new-platform monitoring.
+Runs after 9.1–9.3 complete. Owns cross-adapter synthesis.
 
 - [ ] Cross-reference Implementation Matrix against per-adapter findings; purge omission claims contradicted by adapter source or vendor docs
 - [ ] Verify "Canonical Path Matches" remain accurate across the 3 retained adapters
 - [ ] Maintenance guide verified: every retained adapter listed, every command documented, every hook mapping shown, against filesystem actuals
-- [ ] Emerging platforms: search for AI coding tools with significant traction (VC-funded, rising GitHub stars in AI/coding category). Recommend adapter additions with priority ranking and rationale; output feeds next-cycle CL-2 candidate list
+- [ ] Companion-content emission verified: each adapter's `emitCompanionContent` output appears under the per-adapter native path for `agents/modes/`, `agents/shared/`, `commands/board/`, `commands/revision/`, `checks/` (1.9.0 feature — see commit 8c92831)
+
+### 9.5 Emerging Platforms (SEQUENTIAL)
+
+Runs after 9.1–9.3 complete. Owns new-platform monitoring.
+
+- [ ] Emerging platforms: search for AI coding tools with significant traction (VC-funded, rising GitHub stars in AI/coding category)
+- [ ] Tracked candidates: monitor signal for previously-retired adapters (opencode, gemini, codex, cline, aider, kiro, goose, zed, windsurf, amp, amazonq, antigravity) and assess re-introduction triggers
+- [ ] Recommend adapter additions with priority ranking and rationale; output feeds next-cycle CL-2 candidate list
 
 ## Domain Boundary
 

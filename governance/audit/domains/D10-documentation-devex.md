@@ -70,7 +70,7 @@ Ref: `src/content/index.ts`, `presets.ts`, `tags.ts`, `src/cli/commands/init.ts`
 - [ ] Profile change after init — path from Minimal to Standard/Full is obvious and additive, not destructive
 - [ ] Filter interaction effects — brownfield + solo + Minimal yields intended experience
 ### 10.7 Workflow Chain Viability
-Ref: `.agents/commands/`, `.agents/skills/`, `website/docs/guides/`, `quick-start.md`
+Ref: `commands/`, `skills/`, `website/docs/guides/`, `quick-start.md`
 - [ ] Full chain mapped: init -> /project-spec -> /roadmap -> /board-init -> /board-fill -> /board-pickup -> /workflow -> /release (review is an internal loop inside `/workflow` and `/board-fill` via `src/pipeline/reviewLoop.ts`; no standalone `/review` command ships)
 - [ ] Prerequisites per step — GitHub Projects V2, MCP servers, API keys, git remote identified
 - [ ] Failure clarity — which steps fail silently vs with clear errors; which are falsely optional?

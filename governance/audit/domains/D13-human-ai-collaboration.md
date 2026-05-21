@@ -54,7 +54,7 @@ Coverage of interaction types — does the framework support all 11 common inter
 ### 13.4 Feedback Loops & Educational Value
 - [ ] Can users provide feedback that improves future agent performance?
 - [ ] Educational value — does the framework teach users better practices, or just do the work?
-- [ ] Learning system (`/.agents/learnings/`) effectiveness assessment
+- [ ] Learning system (`.hatch3r/learnings/`) effectiveness assessment
 - [ ] Knowledge transfer — do agents explain their reasoning to help users learn?
 
 ### 13.5 P8 B1 Clarification Gates

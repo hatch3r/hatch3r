@@ -42,7 +42,7 @@
 - [ ] Optimization opportunities — identify the highest-cost areas with room for reduction
 
 ### 6.4 Context Integrity & Isolation
-- [ ] Learnings poisoning prevention — can `/.agents/learnings/` be weaponized to manipulate future agent behavior?
+- [ ] Learnings poisoning prevention — can `.hatch3r/learnings/` be weaponized to manipulate future agent behavior?
 - [ ] Context injection via user-controlled files — can project files inject instructions into agent context?
 - [ ] Session isolation — does corrupted context from one session persist and affect subsequent sessions?
 - [ ] Memory safety boundaries — are there limits on what learnings can contain?

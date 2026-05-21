@@ -4,7 +4,7 @@
 
 **Pillars served:** P2 (primary), P5 (supporting).
 
-**Scope:** All 135 test files across the test suite. Coverage analysis, test quality assessment, and testing infrastructure evaluation.
+**Scope:** All 133 test files across the test suite. Coverage analysis, test quality assessment, and testing infrastructure evaluation.
 **Sub-agents:** 5
 
 ### Test File Distribution
@@ -24,7 +24,6 @@
 | Detect | `src/__tests__/detect/` | 3 |
 | Version | `src/__tests__/version/` | 2 |
 | Models | `src/__tests__/models/` | 2 |
-| Integrity | `src/__tests__/integrity/` | 2 |
 | Env | `src/__tests__/env/` | 2 |
 | Manifests | `src/__tests__/manifests/` | 1 |
 | Manifest | `src/__tests__/manifest/` | 1 |
@@ -34,7 +33,7 @@
 | Clean | `src/__tests__/clean/` | 1 |
 | Archive | `src/__tests__/archive/` | 1 |
 | Root (`types.test.ts`) | `src/__tests__/` | 1 |
-| **Total** | | **135** |
+| **Total** | | **133** |
 
 ## Sub-Agent Decomposition
 
@@ -43,8 +42,8 @@
 | 3.1 | Adapter Tests | 26 test files in `src/__tests__/adapters/` (now includes `amazonq.test.ts`) |
 | 3.2 | CLI Tests | 27 test files in `src/__tests__/cli/` |
 | 3.3 | Content & Manifest Tests | `src/__tests__/content/` (13 files), `src/__tests__/manifest/`, `src/__tests__/manifests/` |
-| 3.4 | Integration Tests | `src/__tests__/{hooks,models,detect,env,integrity,archive,merge,workspace,worktree,pipeline,audit,cliTools,version,clean,e2e,importers,install}/` (85 files) |
-| 3.5 | Coverage Meta-Analysis | All 135 test files, coverage report, test infrastructure |
+| 3.4 | Integration Tests | `src/__tests__/{hooks,models,detect,env,archive,merge,workspace,worktree,pipeline,audit,cliTools,version,clean,e2e,importers,install}/` (83 files) |
+| 3.5 | Coverage Meta-Analysis | All 133 test files, coverage report, test infrastructure |
 
 > Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
 
@@ -72,7 +71,7 @@
 - [ ] Model resolution/customization tests — override application, precedence
 - [ ] Repo analyzer tests — detection accuracy across project types
 - [ ] MCP env tests — environment variable generation correctness
-- [ ] Integrity verification tests — tamper detection accuracy
+- [ ] Drift detection tests — regenerate-and-diff accuracy
 - [ ] Archive tests — backup creation, restoration, cleanup
 - [ ] Safe write/managed block tests — merge integrity, concurrent access
 - [ ] Workspace integration tests — manifest lifecycle, multi-repo sync, detection accuracy

@@ -87,6 +87,9 @@ Governance and audit cycles apply the same quality standards, anti-slop, and ant
 | Checklist items/SA | 4-8 | <4 shallow, >8 too broad |
 | Ambiguity-detection gate coverage (agents/skills/commands) | 100% | §0/Step 0 references `agents/shared/user-question-protocol.md` |
 | Sub-agent count emission on delegating artifacts | 100% | First-class output field with rationale per P8 |
+| Floor admission (security + UI/UX + protocol) | structural invariant: every non-custom preset admits every item tagged `floor:security`, `floor:ui-ux`, or `floor:protocol` unconditionally | `src/content/index.ts::resolveSelection` stage 2; presets cannot disable via config. Item with zero capability + zero floor + not protected is DROPPED (1.9.0 — commit 7418f49 reverses the pre-1.9.0 empty-tag passthrough loophole) |
+| Tag-facet integrity on canonical artifacts | every canonical agent/skill/rule/command/hook carries ≥1 capability tag OR ≥1 floor tag in frontmatter; `customize` and `floor:*` items are exempt from capability-gate filtering | `src/content/tags.ts::TAG_REGISTRY` single source of truth; `facetOf()` + `tagsForFacet()` predicates; verified by content/tags.test.ts and content/index.test.ts |
+| Rule-precedence assignment policy | security + secrets rules → `precedence: critical` (rank 100, prefix `10-`); rules implementing CONSTITUTION §2 P2 hard-mandate floors (supply-chain, observability, migrations, auth depth, AI evals, accessibility, etc.) and framework-dev gatekeepers → `precedence: high` (rank 300, prefix `30-`); cosmetic/style → `precedence: normal` (rank 500, prefix `50-`); deprecation hawks → `precedence: low` (rank 700, prefix `70-`) | `scripts/validate-rule-parity.ts` checks `.md`/`.mdc` parity; D05 audit verifies assignment-policy compliance |
 | Detail-rule frontmatter declaration (`rules/*-detail.{md,mdc}`) | required: `detail_rule: true` + `consumed_by: <parent-rule-id>` on both `.md` and `.mdc` | C9-M4 / D16-F16.3.3 — documents justified rule+detail pairings as the alternative to merge; absence reverts the pair to merge-candidate per D16.3 add-vs-remove bias. Currently authorised: `hatch3r-agent-orchestration-detail`. New `*-detail` pairs require a queued §8 amendment proposal. |
 
 #### Anti-Bloat Principles
@@ -214,7 +217,7 @@ Identification and action are separated because audit is read-only (safe to run 
 
 `governance/` top level: `CONSTITUTION.md` (this file) · `VISION.md` (public identity) · `RE-ENVISION.md` (capture/refinement prompt) · `AUDIT.md` (domains, scoring, charter, CL phases) · `AUDIT-EXECUTE.md` (waves, gates, registry, learning) · `inventory.json` (filesystem-derived counts, drift-checked in CI) · `hatch3r-prd.md`/`COMPETITIVE-ANALYSIS.md`/`AUDIT-REPORT.md` (gitignored).
 
-`governance/audit/`: `domains/D01-D20.md` (20 domain definitions) · `templates/` (sub-agent templates incl. `rigor-contract.md`) · `baseline.json` · `finding-registry.json` · `execution-insights.json`. Trust delegation chain and compliance mapping live in D15 Part B (not separate files).
+`governance/audit/`: `domains/D01-D21.md` (21 domain definitions) · `templates/` (sub-agent templates incl. `rigor-contract.md`) · `baseline.json` · `finding-registry.json` · `execution-insights.json`. Trust delegation chain and compliance mapping live in D15 Part B (not separate files).
 
 ---
 

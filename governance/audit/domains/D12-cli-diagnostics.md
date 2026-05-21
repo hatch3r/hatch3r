@@ -39,7 +39,7 @@
 - [ ] Customization overrides are surfaced in output so users can verify their customizations took effect
 
 ### 12.4 Content Traceability
-- [ ] Users can trace any generated file back to its canonical source in `/.agents/`
+- [ ] Users can trace any generated file back to its canonical source in the bundled npm package (resolved via `resolveBundledContentRoot()`)
 - [ ] Managed block boundaries (`HATCH3R:BEGIN`/`HATCH3R:END`) are documented in generated output
 - [ ] The transformation pipeline is visible: canonical artifact → adapter transformation → output file
 - [ ] Content dependency chains are surfaced: agent X requires skill Y, command Z depends on MCP server W

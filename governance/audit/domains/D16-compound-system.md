@@ -40,7 +40,7 @@ If yes to either: log as "cross-domain confirmation of D{N} #{ID}" without creat
 - [ ] Cross-command sub-agent prompts: do all commands specifying sub-agent prompt requirements include the same mandatory items?
 - [ ] Cross-command confidence expression: do all commands use the same three-level scale at the same structural points?
 - [ ] Cross-artifact contradiction detection: do any content artifacts give conflicting instructions?
-- [ ] Library-CLI divergence: do library modules (`src/merge/`, `src/integrity/`, `src/content/`) expose APIs that CLI commands (`src/cli/commands/`) do not exercise or exercise differently?
+- [ ] Library-CLI divergence: do library modules (`src/merge/`, `src/content/`, `src/migration/`) expose APIs that CLI commands (`src/cli/commands/`) do not exercise or exercise differently?
 - [ ] Consistency drift: are naming conventions, error patterns, and return types uniform across all `src/` modules?
 
 ### 16.2 Closed-Loop Effectiveness
@@ -49,7 +49,7 @@ If yes to either: log as "cross-domain confirmation of D{N} #{ID}" without creat
 - [ ] Audit evolution adoption rate: were CL-3 proposals reflected in current AUDIT.md and domain files?
 - [ ] Feedback loop latency: how many cycles from finding identification to resolution?
 - [ ] Diminishing returns: are scores improving? Is improvement rate slowing (healthy maturity) or stalling (broken loop)?
-- [ ] Learning system integration: are findings captured as learnings in `/.agents/learnings/`?
+- [ ] Learning system integration: are findings captured as learnings in `.hatch3r/learnings/`?
 - [ ] Two-speed detection: are tactical fixes (wave 1-2) progressing while strategic items (CL phases 5-7) remain stalled? Flag if CL phases have 0 executions for 2+ cycles
 
 ### 16.3 Artifact Inventory & Redundancy

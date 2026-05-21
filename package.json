@@ -1,6 +1,6 @@
 {
   "name": "hatch3r",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "description": "Battle-tested agentic coding setup framework. One command to hatch your agent stack -- agents, skills, rules, commands, and MCP for every major AI coding tool.",
   "type": "module",
   "exports": {

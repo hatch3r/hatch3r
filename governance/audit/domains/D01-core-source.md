@@ -43,11 +43,11 @@
 - [ ] Sync correctness — regenerates adapter output from current canonical source without data loss
 - [ ] Add command — pack installation flow, content injection, dependency resolution
 - [ ] Clean removal path — can a user fully remove hatch3r output? Is there an `hatch3r remove` command or documented manual steps?
-- [ ] Cross-adapter state coherence — after a partial adapter failure during update (e.g., 3/5 succeed, 2/5 fail), are the generated configs in a consistent state? Is the integrity manifest accurate?
+- [ ] Cross-adapter state coherence — after a partial adapter failure during update (e.g., 2 of 3 succeed), are the generated configs in a consistent state? Does drift detection report the failed adapter accurately?
 
 ### 1.4 CLI Commands: validate, verify, status
 - [ ] Validate — schema validation, reference integrity checking, adapter output verification
-- [ ] Verify — integrity manifest checking, tamper detection, drift reporting
+- [ ] Verify — drift detection by regenerating adapter outputs from bundled content and diffing against the on-disk copy
 - [ ] Status — display correctness, drift detection between canonical and adapter output
 
 ### 1.5 Merge & Safe Write

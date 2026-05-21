@@ -4,7 +4,7 @@
 
 **Pillars served:** P3 (primary), P2 (supporting).
 
-**Scope:** All adapter support code — the base contract, canonical reader, customization pipeline, utilities, registry, content system, and integrity/archive systems. Does NOT cover per-adapter implementations (those are Domain 9).
+**Scope:** All adapter support code — the base contract, canonical reader, customization pipeline, utilities, registry, content system, and archive system / drift detection. Does NOT cover per-adapter implementations (those are Domain 9).
 **Sub-agents:** 7
 
 ## Sub-Agent Decomposition
@@ -17,7 +17,7 @@
 | 2.4 | External Tool Config Utilities | `src/adapters/mcp-utils.ts`, `src/adapters/toml-utils.ts`, `src/pipeline/agentToolAllowlist.ts`, `src/pipeline/adapterToolTranslator.ts` |
 | 2.5 | Adapter Index & Registry | `src/adapters/index.ts` |
 | 2.6 | Content System | `src/content/index.ts` (686 LOC), `src/content/tags.ts` (91 LOC), `src/content/presets.ts` (48 LOC) |
-| 2.7 | Integrity & Archive Systems | `src/integrity/index.ts`, `src/archive/index.ts` (263 LOC) |
+| 2.7 | Archive System & Drift Detection | `src/archive/index.ts` + drift-detection logic in `src/cli/commands/verify.ts` / `status.ts` |
 
 > Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
 
@@ -28,10 +28,11 @@
 - [ ] Extensibility patterns — new adapters can be added without modifying base
 - [ ] Capability declaration — adapters correctly declare supported features
 - [ ] Hook support interface — base contract supports hook transformation
+- [ ] Companion content emission — `BaseAdapter.emitCompanionContent` walks support subdirectories (`agents/modes/`, `agents/shared/`, `commands/board/`, `commands/revision/`, `checks/`), applies `substituteCanonicalContent`, and emits each `.md` file as a managed-block output under the per-adapter native path. Verify each adapter wires the helper; verify path references inside companion bodies remain intact for runtime Grep/Glob resolution.
 
 ### 2.2 Canonical Reader
 - [ ] Correctness for ALL content types — agents, rules, commands, skills, hooks, prompts, checks, mcp, policy, learnings
-- [ ] File discovery — correctly finds all canonical files in `/.agents/`
+- [ ] File discovery — correctly finds all canonical files via `resolveBundledContentRoot()` in the installed npm package
 - [ ] Frontmatter parsing — metadata extracted accurately from all file types
 - [ ] Error handling for malformed content — graceful failures with actionable messages
 
@@ -62,13 +63,12 @@
 - [ ] Content resolution and deduplication — no duplicate or missing artifacts
 - [ ] Integration with CLI init — content system correctly feeds into the init flow
 
-### 2.7 Integrity & Archive Systems
-- [ ] Integrity manifest generation — all managed files tracked with correct hashes
-- [ ] Tamper detection — modified files detected accurately, no false positives/negatives
+### 2.7 Archive System & Drift Detection
 - [ ] Archive/backup creation and restoration — backups are complete and restorable
 - [ ] Archive cleanup — old archives pruned to avoid disk bloat
-- [ ] Integrity verification during update — updates verify integrity before modifying files
+- [ ] Drift detection during update — updates regenerate adapter outputs from bundled content and warn on drift before overwriting user-modified files
+- [ ] Drift report accuracy — diff against on-disk copy distinguishes user edits from outdated canonical output
 
 ## Domain Boundary
 
-> D02 audits adapter contracts and abstractions (base.ts, canonical.ts, customization.ts, content system, integrity system): "Are the abstractions correct?" D09 audits per-adapter implementations: "Does each adapter correctly implement the contract for its target platform?" D11 audits end-to-end integration by tracing specific content types through the full pipeline: "When content flows from canonical source through adapter transformation to disk output, does it arrive correctly?" D11 findings must demonstrate cross-component failures that neither D02 nor D09 would catch independently.
+> D02 audits adapter contracts and abstractions (base.ts, canonical.ts, customization.ts, content system): "Are the abstractions correct?" D09 audits per-adapter implementations: "Does each adapter correctly implement the contract for its target platform?" D11 audits end-to-end integration by tracing specific content types through the full pipeline: "When content flows from canonical source through adapter transformation to disk output, does it arrive correctly?" D11 findings must demonstrate cross-component failures that neither D02 nor D09 would catch independently.

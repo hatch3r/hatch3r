@@ -41,4 +41,17 @@ Enforced by `scripts/validate-rule-parity.ts` (CI gate via `npm run validate:rul
 - `.mdc` `globs` is a JSON array of quoted strings (no bare CSV).
 - The set of globs on the `.mdc` side equals the set derived from the `.md` side via the transform above.
 
+## Rule Precedence Ranks and Assignment Policy
+
+Canonical `.md` rule frontmatter supports `precedence: critical|high|normal|low` (default `normal`). Adapters consume this field as the `NN-` filename prefix and ordering signal on every per-file rule emission (`src/adapters/canonical.ts::sortByPrecedence`).
+
+| Precedence | Rank | Filename prefix | Assignment policy |
+|------------|-----:|-----------------|-------------------|
+| `critical` | 100 | `10-` | Security and secrets rules — `hatch3r-security-patterns`, `hatch3r-secrets-management`, and any future rule with equivalent blast radius |
+| `high` | 300 | `30-` | Rules implementing CONSTITUTION §2 P2 hard-mandate floors (supply-chain, observability, migrations, API versioning, AI evals, accessibility, container hardening, dependency management, resilience patterns, design-system detection, ux-states-and-flows) AND framework-dev gatekeeper rules under `.claude/rules/` (pillar-compliance, governance-lean-thresholds, anti-slop-enforcement, security-patterns, content-authoring, test-requirements) AND pre-existing pipeline-protocol rules (agent-orchestration, iteration-summary, handoff-readiness, clarification-default, fan-out-discipline) |
+| `normal` | 500 | `50-` | Default. Cosmetic/style rules — theming, i18n, commit conventions, doc style |
+| `low` | 700 | `70-` | Deprecation hawks awaiting removal |
+
+The `.mdc` twin inherits `precedence` unchanged from the `.md` source. `scripts/validate-rule-parity.ts` (CI gate `npm run validate:rule-parity`) verifies parity across all rule pairs. D05 audits enforce assignment-policy compliance per cycle.
+
 D05 audit checklist (prompt engineering quality): `governance/audit/domains/D05-prompt-engineering.md`

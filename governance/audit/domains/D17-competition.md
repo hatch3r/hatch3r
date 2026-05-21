@@ -30,7 +30,7 @@ Per competitor: scope / quality / community (stars, downloads) / approach (confi
 - [ ] **AGENTS.md spec** — version, adoption, diff since last cycle
 - [ ] **MCP protocol** — spec version, Server Cards, session monitoring, breaking changes
 - [ ] **ACP** — JetBrains/Zed-backed; integration scope/timeline
-- [ ] **All 15 platforms** — features, deprecations, API changes per platform
+- [ ] **All 3 supported platforms** (claude, cursor, copilot) — features, deprecations, API changes per platform. Plus a tracked candidate-platform watchlist (currently: opencode, gemini, codex, cline, aider, kiro, goose, zed, windsurf, amp, amazonq, antigravity — adapters retired in 1.9.0 but monitored for re-introduction signal).
 
 ### 17.3 Market Positioning & Strategy (SEQUENTIAL)
 Synthesizes 17.1/17.2.
