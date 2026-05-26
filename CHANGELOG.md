@@ -2,6 +2,119 @@
 
 All notable changes to hatch3r are documented in this file.
 
+## [2.0.0] - 2026-05-26
+
+### Headline
+
+Two-axis pillar framework (governance P1-P8 × content-quality CQ1-CQ9) backed by 9 quality-vector specialist agents, 2 spec agents (greenfield/brownfield) with an orchestrator command, 3 new audit domains (D22 Content Architecture, D23 Agentic Engineering Trends, D24 Governance Self-Audit), 6 new canonical rules, 4 new audit templates, and 6 code modules adding maturity-tier config, resumability + per-session snapshot rollback, cost visibility, tag-filtered routing, adapter capability-utilization audit, and an opt-in Playwright browser-verification skill. CONSTITUTION restructured (§2 two-axis, §3 second matrix, 17 new Key Design Decisions). Tag registry expanded from 44 to 76 tags. This is a major release without breaking CLI surface; manifest schema unchanged from v1.9.0.
+
+### Two-Axis Pillar Framework (CONSTITUTION §2)
+
+- **Governance axis (§2A — P1-P8):** how the framework operates. No change to pillar identities; measurements extended per §2 P2.
+- **Content-quality axis (§2B — CQ1-CQ9):** what the framework produces. Each CQ pillar carries measurable thresholds (axe-core 0 critical, design-token ≥95%, OAuth 2.1 + OIDC + DPoP + WebAuthn, OTel 100%, real-deal test ratio ≥80%, jscpd ≤5%, etc.).
+- **Pillar Compliance Test extended** with Q5 impact horizon (Decision 17) + Q6 P8 dominance over P7.
+- §3 Traceability Matrix split into §3.1 (P1-P8) and §3.2 (CQ1-CQ9). 17 new Key Design Decisions (#15-#31) document the 2.0.0 design rationale.
+
+### Bucket 1.1 — 9 Quality-Vector Specialist Agents (Decision 13)
+
+Each new agent reviews end-user code against one CQ pillar with measurable checklist items, two-axis pillar declaration, `floor:content-quality` admission tag, proof_trace + impact_horizon + progress_toward_pillar output contract per Decision 17, and ≥2 web-researched references ≤12 months old per Decision 14.
+
+- `agents/hatch3r-ui.md` (CQ1) — WCAG 2.2 AA via axe-core, design-token ≥95%, four-state surface contract
+- `agents/hatch3r-ux.md` (CQ2) — error-recovery rate ≥90%, first-run success ≥80%, decisions-per-flow ≤3
+- `agents/hatch3r-security.md` (CQ3) — OAuth 2.1 + OIDC + DPoP (RFC 9449) + WebAuthn server-side, SBOM (CycloneDX 1.6) + npm provenance + SHA-pinned actions + cosign-signed containers
+- `agents/hatch3r-reliability.md` (CQ4) — OTel 100% on request path, SLO with multi-window burn-rate alerts (Google SRE), RED+USE metrics, RFC 9457 problem+json, circuit breaker + decorrelated jitter
+- `agents/hatch3r-testability.md` (CQ5) — per-feature test-class mandate map (parser→fuzz, payment→mutation, RPC→contract), real-deal-first ≥80%, AI feature eval 100%
+- `agents/hatch3r-scalability.md` (CQ6) — stateless-handler ratio ≥95%, back-pressure, idempotency-Key per Stripe pattern
+- `agents/hatch3r-performance.md` (CQ7) — Core Web Vitals p75 (LCP ≤2.5s, INP ≤200ms, CLS ≤0.1), backend p95 ≤200ms / p99 ≤500ms, N+1 = 0
+- `agents/hatch3r-maintainability.md` (CQ8) — jscpd ≤5%, pattern-reuse ≥70%, complexity ≤10, expand-contract migration 100%
+- `agents/hatch3r-enhancability.md` (CQ9) — feature-flag adoption 100% on behavior changes, semver, RFC 9745 Deprecation + RFC 8594 Sunset headers
+
+### Bucket 1.2 — 2 Spec Agents + Orchestrator (Decision 14)
+
+- `agents/hatch3r-greenfield-spec.md` — market research + competitive analysis + persona + tech-stack + PRD + acceptance criteria + risk inventory + test plan
+- `agents/hatch3r-brownfield-spec.md` — codebase map + existing-pattern detection + integration-surface analysis + migration-aware plan + non-destructive-adoption check
+- `commands/hatch3r-spec.md` — orchestrator picks greenfield vs brownfield by project-state detection
+
+### Bucket 1.3 — 3 New Audit Domains (Decision 19)
+
+- `governance/audit/domains/D22-content-architecture.md` (4 SAs) — obsolete / mergable / missing / fusionable artifacts in canonical corpus + `.claude/*` system
+- `governance/audit/domains/D23-agentic-engineering-trends.md` (3 SAs) — per-cycle web research on public implementer-agent prompts, MCP protocol, AI SDK, agentic-coding CLI releases
+- `governance/audit/domains/D24-governance-self-audit.md` (4 SAs) — applies rigor contract + behavioral charter to governance corpus itself
+
+### Bucket 1.4 — 6 Canonical Rules
+
+Each rule ships with `.md` + `.mdc` twin per `scripts/validate-rule-parity.ts`.
+
+- `rules/hatch3r-learning-system.{md,mdc}` (Decision 22) — structured frontmatter + auto-consolidation + mandatory consultation gate
+- `rules/hatch3r-iteration-summary.{md,mdc}` (Decision 23) — 9-section template
+- `rules/hatch3r-proof-model.{md,mdc}` (Decision 9) — proof_trace schema + pre-execution verification gates
+- `rules/hatch3r-anti-duplication.{md,mdc}` (Decision 12) — discovery gate + post-write jscpd scan (threshold tunable per tier)
+- `rules/hatch3r-capability-matrix.{md,mdc}` (Decision 21) — twin metric (currency + utilization) per adapter
+- `rules/hatch3r-cost-visibility.{md,mdc}` (Decision 24) — pre-execution estimate + post-execution actuals + delta
+
+### Bucket 1.5 — 4 Audit Templates (Decisions 18 + 20)
+
+- `governance/audit/templates/high-batch-sub-agent.md` (Tier 2H, ≤8 High findings per same-pattern batch)
+- `governance/audit/templates/medium-batch-sub-agent.md` (Tier 2M, ≤15 Medium findings per same-pattern batch)
+- `governance/audit/templates/web-comparison-content-audit.md` (Decision 20 comparison-table format)
+- `governance/audit/templates/charter-floors-end-user.md` (single-source catalogue split from AUDIT.md directives 15+16)
+
+### Bucket 2.1 — Maturity-Tier Configuration (Decision 4)
+
+`hatch3r config maturity=solo|team|scaleup|enterprise` (set / get / inline key=value). Persisted to `.hatch3r/hatch.json::maturity`. `src/content/index.ts::resolveSelection` gates `tier:*` / `floor:enterprise-only` tags by project tier rank. Default `solo` when manifest absent. 27 new tests.
+
+### Bucket 2.2 — Resumability + Rollback (Decision 27)
+
+- `src/pipeline/checkpoint.ts` — workspace-checkpointed orchestrator resumability via `.{cmd}-workspace/checkpoint.json`
+- `src/pipeline/snapshot.ts` — pre-mutation snapshots under `.hatch3r/snapshots/<session-id>/`; tombstone sentinels handle file deletion on rollback
+- `src/cli/commands/rollback.ts` — `hatch3r rollback --session=<id>` + `list` + `--dry-run` + `--yes`
+- `--resume` flag surface declared on `init` + `sync`
+- 63 new tests; coverage exceeds 90/80/90/90 on all new pipeline modules
+
+### Bucket 2.3 — Cost Visibility (Decision 24)
+
+- `src/pipeline/costEstimator.ts` — `estimateCost` per Light/Standard/Deep tier midpoints, `recordActuals` (atomic write), `computeDelta` (flags >25% variance), `formatCostBlock` (iteration-summary cost: block)
+- `src/pipeline/observability.ts` extended with `recordSubAgentSpawn` / `recordPhaseDuration` / `recordTokenCost`
+- 49 new tests
+
+### Bucket 2.4 — Tag-Filtered Routing (Decision 8)
+
+- `src/content/routing.ts` — pure functions: `filterCandidatesByTags` + `narrowByProjectDetection` + `buildCandidateSet` with rationale array. Floor + protected items bypass every filter. Wiring into `resolveSelection` deferred to follow-up integration commit.
+- 37 new tests; coverage 98.68/95/100/98.52
+
+### Bucket 2.5 — Capability-Utilization Audit Logic (Decision 21)
+
+- `src/adapters/capabilityMatrix.ts` — `enumerateAdapterCapabilities`, `enumeratePlatformCapabilities` (reads `docs/adapter-capability-matrix.md` sentinel + built-in seed), `computeUtilization`, `surfaceFindings` (Medium for high-leverage, Info for low-leverage, satisfies rigor-contract Required Finding Output Schema)
+- 21 new tests
+
+### Bucket 2.6 — Playwright Browser-Verification Skill (Decision 16)
+
+- `skills/hatch3r-browser-verify/SKILL.md` — opt-in skill, default ON for `hatch3r-ui` + `hatch3r-ux`, disable via `hatch3r config browser=off`. Visual verification + axe-core a11y + screenshot regression + E2E test scaffolds.
+- Skill ID `hatch3r-browser-verify` (renamed to avoid cross-type collision with pre-existing `rules/hatch3r-browser-verification.{md,mdc}` from v1.6.0)
+- `agents/hatch3r-ui.md` + `agents/hatch3r-ux.md` declare `browser_capability: opt-in`
+
+### Tag-Registry Expansion (src/content/tags.ts)
+
+32 new tags added to `TAG_REGISTRY`:
+
+- **CQ-vector capability tags** (10): `security`, `reliability`, `testing`, `scalability`, `maintainability`, `enhancability`, `observability`, `supply-chain`, `accessibility`, `orchestrator`
+- **Work-type capability tags** (21): `spec`, `greenfield`, `brownfield`, `migration`, `telemetry`, `cost`, `anti-duplication`, `code-quality`, `code-standards`, `adapters`, `capability`, `currency`, `iteration`, `summary`, `learning`, `knowledge-capture`, `proof`, `verification`, `citation`, `playwright`, `visual-regression`
+- **Floor tag** (1): `floor:content-quality`
+
+`ALL_TAGS` 44 → 76. `tagsForFacet("capability")` 9 → 40. `tagsForFacet("floor")` 3 → 4.
+
+### Inventory
+
+agents 19 → 30; skills 39 → 40; rules 40 → 45; commands 25 → 26; pipeline modules 18 → 21; CLI commands 14 → 15; audit domains 21 → 24.
+
+### Gates
+
+- `npx tsc --noEmit` — 0 errors
+- `npm test` — 3551/3551 passing
+- `npm run lint` — 0 errors
+- `npm run validate` — 45/45 rule pairs OK; 0 errors across efficiency-invariants, bridge-budget, fanout-emission, cli-skills, wiring
+- Anti-slop wordlist scan — 0 hits across all new content
+
 ## [1.9.0] - 2026-05-26
 
 ### Headline
