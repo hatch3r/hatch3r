@@ -38,7 +38,7 @@ Run an iterative review loop (max 3 iterations) until 0 Critical + 0 Warning fin
 
 The reviewer prompt MUST include:
 - The diff of all changes made (use `git diff` on the working tree).
-- All `scope: always` rule directives from `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)`.
+- All `scope: always` rule directives from `rules/`.
 - Iteration number and previous findings (if not the first iteration).
 - Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
 
@@ -82,7 +82,7 @@ After the review loop is clean, spawn specialist agents in parallel via the Task
 
 Each specialist sub-agent prompt MUST include:
 - The agent protocol to follow (e.g., "Follow the hatch3r-test-writer agent protocol").
-- All `scope: always` rule directives from `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)` (sub-agents do not inherit rules automatically).
+- All `scope: always` rule directives from `rules/` (sub-agents do not inherit rules automatically).
 - The diff or file changes to review.
 - The linked issue's acceptance criteria (if available).
 - Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.

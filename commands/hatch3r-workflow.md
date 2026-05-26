@@ -261,7 +261,7 @@ The implementer sub-agent prompt MUST include:
 - The task description, acceptance criteria, and type.
 - The researcher output from Step 3a (if not skipped).
 - The selected hatch3r skill name and instructions.
-- All `scope: always` rule directives from `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)`.
+- All `scope: always` rule directives from `rules/`.
 - Relevant learnings from `.hatch3r/learnings/`.
 - Explicit instruction: do NOT create branches, commits, or PRs.
 - **Reference conventions** from `similar-implementation` output (Tier 2/3) — triggers the implementer's Convention Lock step.
@@ -310,7 +310,7 @@ After each reviewer iteration, assess the reviewer's findings confidence: if the
 
 Each reviewer/fixer sub-agent prompt MUST include:
 - The agent protocol to follow.
-- All `scope: always` rule directives from `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)`.
+- All `scope: always` rule directives from `rules/`.
 - The diff or file changes to review/fix.
 - The task's acceptance criteria.
 - Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
@@ -336,7 +336,7 @@ Each reviewer/fixer sub-agent prompt MUST include:
 
 Each specialist sub-agent prompt MUST include:
 - The agent protocol to follow.
-- All `scope: always` rule directives from `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)`.
+- All `scope: always` rule directives from `rules/`.
 - The diff or file changes to review.
 - The task's acceptance criteria.
 - Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.

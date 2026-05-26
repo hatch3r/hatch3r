@@ -57,7 +57,7 @@ The implementer sub-agent prompt MUST include:
 - **Blast radius data** from enhanced `codebase-impact` (Tier 3) — transitive dependency trace and API consumer map.
 - Documentation references relevant to this issue.
 - Instruction to follow the **hatch3r-implementer agent protocol**.
-- All `scope: always` rule directives from `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)` — subagents do not inherit rules automatically.
+- All `scope: always` rule directives from `rules/` — subagents do not inherit rules automatically.
 - Relevant learnings from `.hatch3r/learnings/` (from Step 6.pre).
 - Explicit instruction: do NOT create branches, commits, or PRs.
 - Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
@@ -97,7 +97,7 @@ Launch as many independent sub-agents in parallel as the platform supports.
 
 Each specialist sub-agent prompt MUST include:
 - The agent protocol to follow (e.g., "Follow the hatch3r-reviewer agent protocol").
-- All `scope: always` rule directives from `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)` (subagents do not inherit rules automatically).
+- All `scope: always` rule directives from `rules/` (subagents do not inherit rules automatically).
 - The diff or file changes to review.
 - The issue's acceptance criteria.
 - Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.

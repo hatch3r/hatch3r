@@ -28,7 +28,7 @@ Before any action, scan the brief for unresolved questions in scope, acceptance 
 
 ## Critical Invariants to Enforce
 
-Follow the security patterns defined in `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)hatch3r-security-patterns.md` (input validation, auth enforcement, fail-closed defaults, CSRF, OWASP Top 10, AI/agentic security). In addition, enforce these project-specific invariants:
+Follow the security patterns defined in `rules/hatch3r-security-patterns.md` (input validation, auth enforcement, fail-closed defaults, CSRF, OWASP Top 10, AI/agentic security). In addition, enforce these project-specific invariants:
 
 - **Data pipeline:** No sensitive content anywhere in the data pipeline
 - **Metadata:** Event metadata validated against allowlist (client AND server)

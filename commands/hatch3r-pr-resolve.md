@@ -83,7 +83,7 @@ If no `.hatch3r/hatch.json` exists, fall back to GitHub and proceed — the comm
 1. **One fetch per comment scope.** Issue exactly one paginated request per scope in Step 2; cache and reuse for Steps 3, 4, and 8.
 2. **One diff computation.** Compute `git diff {defaultBranch}...HEAD` once in Step 1; reuse for Steps 4 (outdated detection) and 7 (review loop input).
 3. **Targeted file reads.** In Step 4, read only the files referenced by a comment's `path`/`line` — not the full codebase.
-4. **No re-reading shared rules.** `scope: always` rules from `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)` load once at session start; pass their content into sub-agent prompts (Step 6) rather than reloading.
+4. **No re-reading shared rules.** `scope: always` rules from `rules/` load once at session start; pass their content into sub-agent prompts (Step 6) rather than reloading.
 5. **Per-platform reference cache.** Load the matching `commands/board/shared-{platform}.md` once at run start (Shared Context). Step 8 reads templates from the cache, not from disk.
 
 ---
@@ -453,7 +453,7 @@ Each sub-agent prompt MUST include:
 
 1. The findings list for that agent: `(comment_id, file, line, comment body verbatim as the "ask", proposed_action from Step 4)`.
 2. Instruction to follow the corresponding agent protocol.
-3. All `scope: always` rule directives from `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)`.
+3. All `scope: always` rule directives from `rules/`.
 4. Acceptance criteria from `run_cache.pr.linked_issues` (read once at Step 1, cached).
 5. Relevant `.hatch3r/learnings/` matching the affected areas.
 6. Explicit: do NOT create branches, commits, or PRs.

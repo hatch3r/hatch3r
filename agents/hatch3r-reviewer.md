@@ -50,7 +50,7 @@ Before reviewing, scan `docs/specs/` (if present) for specifications relevant to
 
 ## Review Checklist
 
-Verify compliance with `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)hatch3r-security-patterns.md`, `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)hatch3r-code-standards.md`, and `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)hatch3r-testing.md` across all review items:
+Verify compliance with `rules/hatch3r-security-patterns.md`, `rules/hatch3r-code-standards.md`, and `rules/hatch3r-testing.md` across all review items:
 
 1. **Correctness:** Does the code do what the issue/spec requires?
 2. **Privacy invariants:** No sensitive content in events/cloud data. Metadata allowlisted. Redaction defaults. Sensitive collections deny-all client access.

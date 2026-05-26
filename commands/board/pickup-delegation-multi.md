@@ -78,7 +78,7 @@ For each dependency level, starting at Level 1:
    - **Blast radius data** from enhanced `codebase-impact` (Tier 3) — transitive dependency trace and API consumer map.
    - Documentation references relevant to this sub-issue.
    - Instruction to follow the hatch3r-implementer agent protocol.
-   - All `scope: always` rule directives from `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)` — subagents do not inherit rules automatically.
+   - All `scope: always` rule directives from `rules/` — subagents do not inherit rules automatically.
    - Relevant learnings from `.hatch3r/learnings/` (from Step 6.pre).
    - Instruction to use GitHub MCP for issue reads, and follow the project's tooling hierarchy for external knowledge augmentation.
    - Explicit instruction: do NOT create branches, commits, or PRs.
@@ -147,7 +147,7 @@ For each dependency level, starting at Level 1:
    - **Blast radius data** from enhanced `codebase-impact` (Tier 3).
    - Documentation references relevant to this issue.
    - Instruction to follow the **hatch3r-implementer agent protocol**.
-   - All `scope: always` rule directives from `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)` — subagents do not inherit rules automatically.
+   - All `scope: always` rule directives from `rules/` — subagents do not inherit rules automatically.
    - Relevant learnings from `.hatch3r/learnings/` (from Step 6.pre).
    - Explicit instruction: do NOT create branches, commits, or PRs.
    - Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.

@@ -219,7 +219,7 @@ Pull from `user-content-templates.md` §5. Sections: short paragraph describing 
 
 #### E.3 Type-Specific Gates
 
-- Strict: hook event enum enforced by `isValidHookEvent` from `src/hooks/types.ts:30`. Referenced agent must exist in canonical `the canonical `agents/` directory or `.hatch3r/agents/` (for customizations)` or under `.hatch3r/overrides/agents/`. Deny-pattern scan.
+- Strict: hook event enum enforced by `isValidHookEvent` from `src/hooks/types.ts:30`. Referenced agent must exist in canonical `agents/` or under `.hatch3r/overrides/agents/`. Deny-pattern scan.
 - Gentle: anti-slop, lean threshold (≤80 lines), pillar tag presence.
 
 ---
