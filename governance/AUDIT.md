@@ -4,9 +4,9 @@
 
 ## Purpose
 
-Perform a deep, end-to-end audit of every area, aspect, and line of code or content in the hatch3r framework. The goal: verify this framework is production-ready and open-sourceable by applying the 21-domain checklist across code, content, and adapter implementations — enabling end users to build winning software products at scale.
+Perform a deep, end-to-end audit of every area, aspect, and line of code or content in the hatch3r framework. The goal: verify this framework is production-ready and open-sourceable by applying the 24-domain checklist across code, content, and adapter implementations — enabling end users to build winning software products at scale.
 
-This audit covers **21 domains** organized across **4 tiers**, deploying **110 sub-agents** for maximum depth (recalibrated from 121 in 1.9.0: D9 dropped from 16 SAs to 5 — 3 per-adapter SAs + 2 synthesis — per CONSTITUTION §6 Decision #12). Every domain requires web research for current market context. The final deliverable is a structured audit report with severity-tagged findings, weighted domain scores, and prioritized action items using 3-tier progressive disclosure.
+This audit covers **24 domains** organized across **4 tiers**, deploying **113 sub-agents** at the 2.0.0 baseline (D22/D23/D24 content authoring deferred — domain SAs add to ~124 once authored). Recalibrated from 121 in 1.9.0: D9 dropped from 16 SAs to 5 — 3 per-adapter SAs + 2 synthesis — per CONSTITUTION §6 Decision #12. D22 Content Architecture (Tier B), D23 Agentic Engineering Trends + D24 Governance Self-Audit (Tier C) admitted per Decision 19. Every domain requires web research for current market context. The final deliverable is a structured audit report with severity-tagged findings, weighted domain scores, and prioritized action items using 3-tier progressive disclosure.
 
 > **Path Convention:** All file paths in this document are relative to the **repository root**. Governance files live under `governance/`. The ephemeral `.audit-workspace/` directory is created at repository root.
 
@@ -54,7 +54,7 @@ Not all domains require equal audit depth every cycle. To prevent diminishing re
 
 ### Sub-Agent Strategy
 
-Spawn **110 sub-agents** across 21 audit domains organized in 4 tiers (recalibrated from 121 in 1.9.0: D9 platform-adapter SAs reduced from 16 to 5 alongside the adapter-scope cut to 3 supported platforms — CONSTITUTION §6 Decision #12). Each domain decomposes into multiple focused sub-agents for maximum depth. Sub-agents within the same domain run in parallel unless a sequential dependency is noted. Domain-level synthesis sub-agents run only after their prerequisite sub-agents complete. Inherit your LLM model to every sub-agent — do not downgrade. Each sub-agent MUST use web research. **Never optimize for token efficiency — optimize for audit quality and depth.**
+Spawn **113 sub-agents** across 24 audit domains organized in 4 tiers (recalibrated from 121 in 1.9.0: D9 platform-adapter SAs reduced from 16 to 5 alongside the adapter-scope cut to 3 supported platforms — CONSTITUTION §6 Decision #12; D22/D23/D24 added per Decision 19, content authoring deferred to next cycle when SA count rises to ~124). Each domain decomposes into multiple focused sub-agents for maximum depth. Sub-agents within the same domain run in parallel unless a sequential dependency is noted. Domain-level synthesis sub-agents run only after their prerequisite sub-agents complete. Inherit your LLM model to every sub-agent — do not downgrade. Each sub-agent MUST use web research. **Never optimize for token efficiency — optimize for audit quality and depth.**
 
 #### Optional Domain Orchestrator Bundling
 
@@ -87,13 +87,15 @@ The following sub-agents have sequential dependencies and MUST NOT launch until 
 
 ### Concurrency Model
 
-Of the 110 total sub-agents, **99 launch immediately** in parallel. The remaining **11 sub-agents** launch sequentially after their dependencies complete:
+Of the 113 total sub-agents, **102 launch immediately** in parallel. The remaining **11 sub-agents** launch sequentially after their dependencies complete:
 
 | Tier | Sequential Sub-Agents |
 |------|----------------------|
 | B | 9.4, 9.5 |
 | C | 16.1, 16.2, 16.3, 20.2, 21.7 |
 | D | 17.3, 18.1, 18.2, 18.3 |
+
+Parallelism is bounded by provider rate limits. If Tier B's 43-SA burst exceeds the orchestrator's input-tokens-per-minute or requests-per-minute ceiling, the orchestrator chunks the burst into batches of N (N defaults to 20, configurable via `--max-parallel-sa`). Rate-limit failures are classified as transient per `src/pipeline/circuitBreaker.ts` and retried with exponential backoff (decorrelated jitter, max 3 retries). Substantive failures classified per §Sub-Agent Failure Handling.
 
 ### Web Research & Scientific Rigor
 
@@ -117,11 +119,11 @@ Execute by tier with synthesis between tiers:
 | Tier | Domains | Agents | Action |
 |------|---------|--------|--------|
 | A | D1–D4 | 27 | Launch → synthesize → release from context |
-| B | D5–D10,D19 | 41 | Launch → synthesize → release from context |
-| C | D11–D16, D20–D21 | 36 | Launch → synthesize → release from context |
+| B | D5–D10,D19,D22 | 43 | Launch → synthesize → release from context |
+| C | D11–D16, D20–D21, D23, D24 | 37 | Launch → synthesize → release from context |
 | D | D17–D18 | 6 | Launch → synthesize → final assembly |
 
-Peak context: 41 sub-agent results (Tier B), not 110.
+Peak context: 43 sub-agent results (Tier B), not 113.
 
 ### Pre-Audit Questions
 
@@ -149,10 +151,12 @@ D03 domain file claimed 47 test files when filesystem held 88 (Cycle 7 sub-agent
 | Tier | Domains | Weight Per Domain | Tier Total |
 |------|---------|-------------------|------------|
 | A — Foundational | D1–D4 | 0.077 | 0.308 |
-| B — Quality | D5–D10,D19 | 0.0497 | 0.348 |
-| C — System-Level | D11–D16, D20–D21 | 0.038 | 0.304 |
+| B — Quality | D5–D10,D19,D22 | 0.0435 | 0.348 |
+| C — System-Level | D11–D16, D20–D21, D23, D24 | 0.0304 | 0.304 |
 | D — Strategic | D17–D18 | 0.020 | 0.040 |
 | **Total** | | | **1.00** |
+
+> **2.0.0 admission (Decision 19):** D22 Content Architecture joins Tier B (web-comparison cohort with D5/D7/D9 per Decision 20). D23 Agentic Engineering Trends + D24 Governance Self-Audit join Tier C. Tier totals preserved; per-domain weights recalibrated. Domain count: 21 → 24.
 
 ### Weighted Score Formula
 
@@ -246,8 +250,8 @@ If total findings fall below 50, the orchestrating agent MUST verify depth by ch
 
 ### Quality Checklist
 
-- [ ] All 21 domains were examined (no domain was skipped). Domains with zero findings must include a clean-domain justification citing: specific files examined, verification methods used, and web research performed. A clean domain is acceptable; a skipped domain is not.
-- [ ] All 110 sub-agents produced output (no silent failures)
+- [ ] All 24 domains were examined (no domain was skipped). Domains with zero findings must include a clean-domain justification citing: specific files examined, verification methods used, and web research performed. A clean domain is acceptable; a skipped domain is not.
+- [ ] All 113 sub-agents produced output (no silent failures)
 - [ ] Every Critical and High finding has a specific, actionable recommendation
 - [ ] Every finding references specific files, line numbers, or artifacts
 - [ ] Web research was performed for every domain (cite sources)
@@ -277,7 +281,7 @@ Flag any finding matching these patterns and require the sub-agent to deepen:
 
 ## Audit Domains
 
-21 domains across 4 tiers. Each domain's full scope, sub-agent decomposition, and audit checklists are in the corresponding file under `governance/audit/domains/`.
+24 domains across 4 tiers. Each domain's full scope, sub-agent decomposition, and audit checklists are in the corresponding file under `governance/audit/domains/`.
 
 The orchestrator spawns sub-agents per domain file. Each sub-agent:
 1. Reads its domain file (`governance/audit/domains/D{NN}-{name}.md`)
@@ -300,10 +304,11 @@ The orchestrator spawns sub-agents per domain file. Each sub-agent:
 - [ ] Apply the Scientific Rigor Contract per [audit/templates/rigor-contract.md](audit/templates/rigor-contract.md) on every finding before writing it (six tests: falsifiability, triangulation, confidence with basis, ≥3-step causal chain, bias check, adversarial peer-review counter-argument)
 - [ ] Apply the Web Research Mandate citation format on every external claim (URL + access date + author/org + trust tier; ≥2 independent sources; recency window per source class)
 - [ ] For end-user runtime artifacts (not audit prompts/commands): efficiency invariants per D06 — static-first ordering, parallel-tool default, triage-first if orchestrator
+- [ ] For state-dependent claims, emit proof_trace block citing verification command + output before stating fact per [audit/templates/rigor-contract.md](audit/templates/rigor-contract.md) §Proof Trace Contract. Missing proof_trace on a behavior-class finding is itself a Medium finding (audit on the auditor)
 
 ### Sub-Agent Behavioral Charter
 
-> **Canonical definition:** [CONSTITUTION.md](CONSTITUTION.md) §2 P2 defines the charter's governance role. The 20 directives below are the authoritative behavioral specification for audit sub-agents (directives 18–20 added per RE-ENVISION Decisions 9/17/20: impact-gated finding registration, comparable-artifact delta for content-class audits, proof-trace emission for state-dependent assertions).
+> **Canonical definition:** [CONSTITUTION.md](CONSTITUTION.md) §2 P2 defines the charter's governance role. The 22 directives below are the authoritative behavioral specification for audit sub-agents (directives 18–20 added per RE-ENVISION Decisions 9/17/20: impact-gated finding registration, comparable-artifact delta for content-class audits, proof-trace emission for state-dependent assertions; directives 21–22 added per RE-ENVISION Decisions 22/12: learning consultation, post-write duplication scan).
 
 Every audit sub-agent must internalize these behavioral directives. These govern HOW you think, not just WHAT you check. The checklists define scope; the charter defines mindset.
 
@@ -347,6 +352,10 @@ Every audit sub-agent must internalize these behavioral directives. These govern
 
 20. **Proof-trace emission for state-dependent assertions.** Every state-dependent claim (file existence, file content, grep match, type-check pass, test output, command exit code) emits a `proof_trace:` block citing the source AND the verification-command output BEFORE stating the fact. Schema: `proof_trace: { claim: <one sentence>, command: <bash invocation>, output: <verbatim ≤200 chars>, accessed: YYYY-MM-DD }`. Asserting state without a proof_trace is a contract violation downgraded one severity band per rigor-contract §3 confidence with basis.
 
+21. **Learning Consultation.** Before authoring findings, the SA reads `.hatch3r/learnings/INDEX.md` (when present in the audited repo) and flags any finding that contradicts or duplicates a captured learning. Findings duplicating a learning are downgraded one severity band (the project already knows). Findings contradicting a learning are upgraded one severity band (the project's captured insight needs correction). Absence of learnings is an Info finding, not a blocker.
+
+22. **Post-Write Duplication Scan.** After all SAs complete, orchestrator runs a byte-similarity scan (jscpd or equivalent) on all `.audit-workspace/D*-SA*.findings.md` files. Findings with >40% byte-similarity to another finding from the same cycle are merged before report assembly. Findings with >40% byte-similarity to text in AUDIT.md / CONSTITUTION.md / domain files are flagged as copy-paste violations (Info finding on the SA that produced them).
+
 ### Domain File Quality Standard
 
 Each domain file (`governance/audit/domains/D{NN}-{name}.md`) must meet these minimum quality standards. CL-3 may propose domain file improvements when standards are not met.
@@ -364,16 +373,16 @@ Each domain file (`governance/audit/domains/D{NN}-{name}.md`) must meet these mi
 | A | 2: Adapter Infrastructure | 7 | 7 | 0 |
 | A | 3: Test Infrastructure | 5 | 5 | 0 |
 | A | 4: Build, CI/CD & Dependencies | 5 | 5 | 0 |
-| B | 5: Prompt Engineering Quality | 8 | 8 | 0 |
+| B | 5: Prompt Engineering Quality | 9 | 9 | 0 |
 | B | 6: Context Engineering & Token Economics | 6 | 6 | 0 |
-| B | 7: Agent Orchestration Optimization | 5 | 5 | 0 |
+| B | 7: Agent Orchestration Optimization | 6 | 6 | 0 |
 | B | 8: Error Recovery & Resilience | 4 | 4 | 0 |
 | B | 9: Platform Adapters | 5 | 3 | 2 |
 | B | 10: User Experience & Documentation | 9 | 9 | 0 |
 | B | 19: Agentic Development Self-Governance | 4 | 4 | 0 |
 | C | 11: End-to-End Data Flow | 4 | 4 | 0 |
 | C | 12: CLI Diagnostics & Traceability | 4 | 4 | 0 |
-| C | 13: Human-AI Collaboration Quality | 4 | 4 | 0 |
+| C | 13: Human-AI Collaboration Quality | 5 | 5 | 0 |
 | C | 14: Cross-Project Adaptability & Scalability | 4 | 4 | 0 |
 | C | 15: Agentic Security & Trust Model | 8 | 8 | 0 |
 | C | 16: Cross-Domain Synthesis | 3 | 0 | 3 |
@@ -381,7 +390,9 @@ Each domain file (`governance/audit/domains/D{NN}-{name}.md`) must meet these mi
 | C | 21: CLI Tool Currency | 7 | 6 | 1 |
 | D | 17: Competition & Market Intelligence | 3 | 2 | 1 |
 | D | 18: PRD, Roadmap & Distribution | 3 | 0 | 3 |
-| **Total** | | **110** | **99** | **11** |
+| **Total** | | **113** | **102** | **11** |
+
+> **Tier subtotals (2.0.0 baseline):** Tier A 27, Tier B 43, Tier C 37, Tier D 6. D22/D23/D24 SA counts (~4+3+4 = +11) added when domain content lands → grand total ~124.
 
 > **Note:** Sub-agent counts and domain list may evolve across audit cycles via the self-evolution process (Phase CL-3). The table above reflects the current baseline. Any changes require explicit user consent.
 
@@ -531,6 +542,8 @@ These phases run after report assembly. They produce structured output appended 
 **Output table:** | Proposal | Category | Current State | Proposed Change | Rationale | Risk |
 
 **Categories:** (1) New/modified domain scope, (2) Sub-agent count changes, (3) Checklist refinements, (4) Scoring methodology adjustments, (5) Process improvements.
+
+**Out of CL-3 scope (route to RE-ENVISION §6.1 direct-edit instead):** charter directive additions/refinements (removals stay CL-3); lean-threshold rows in CONSTITUTION §2 P5; Anti-Bloat Principles; Silent Failure Contract; anti-slop wordlist (paired with CLAUDE.md); EVOLVE prompt mechanics; quality-charter; user-question-protocol; CLAUDE.md cross-references.
 
 **Constraints:**
 - Maximum 10 proposals per cycle
