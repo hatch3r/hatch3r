@@ -4,7 +4,9 @@
 
 **Crack the egg. Hatch better agents.**
 
-hatch3r is an open-source CLI and Cursor plugin that installs a battle-tested, tool-agnostic agentic coding setup into any repository. Ship Ready as of Cycle 8 (audit score 83.74/100, 0 Critical findings, 15 platform adapters wired, 21-domain governance audit cycle operational). One command gives you the full set of agents, skills, rules, commands, hooks, and MCP integrations -- optimized for your coding tool of choice (live counts in [`governance/inventory.json`](governance/inventory.json) <!-- counts auto-derived; see governance/inventory.json -->). Selective init installs only what you need based on your project type and team size.
+hatch3r is an open-source CLI and Cursor plugin that installs a battle-tested, tool-agnostic agentic coding setup into any repository. Ship Ready as of Cycle 8 (audit score 83.74/100, 0 Critical findings, 3 platform adapters wired, 21-domain governance audit cycle operational). One command gives you the full set of agents, skills, rules, commands, hooks, and MCP integrations -- optimized for your coding tool of choice (live counts in [`governance/inventory.json`](governance/inventory.json) <!-- counts auto-derived; see governance/inventory.json -->). Selective init installs only what you need based on your project type and team size.
+
+> **v1.9.0 scope cut:** As of 1.9.0 hatch3r supports only Claude Code, Cursor, and GitHub Copilot. Twelve adapters were removed in a hard cut; canonical content is now read from the bundled npm package (no `.agents/` materialization in user repos), and the manifest moved to `.hatch3r/hatch.json`. See [CHANGELOG.md](CHANGELOG.md) for the full breaking-change list and migration notes.
 
 ## Quick Start
 
@@ -21,64 +23,40 @@ That's it. hatch3r detects your repo, asks about your project context (greenfiel
 | Category | Count | Highlights |
 |----------|-------|-----------|
 | **Agents** | 19 | Code reviewer, test writer, security auditor, implementer (sub-agentic), fixer, researcher, architect, DevOps, handoff loader / preparer, and more |
-| **Skills** | 63 | Bug fix, feature implementation, issue workflow, release, incident response, context health, cost tracking, handoff prepare / resume, recipes, API spec, CI pipeline, migration, customization, 30 per-tool CLI skills, and more |
-| **Rules** | 42 | Code standards, testing, API design, observability, theming, i18n, security patterns, agent orchestration, deep context analysis, handoff readiness, and more |
-| **Commands** | 38 | Board management, planning (feature, bug, refactor, test), workflow, quick-change, revision, debug, healthcheck, security-audit, cost-tracking, onboard, benchmark, customization, handoff (prepare/resume/list/complete/prune), and more |
+| **Skills** | 39 | Bug fix, feature implementation, issue workflow, release, incident response, context health, cost tracking, handoff prepare / resume, recipes, API spec, CI pipeline, migration, customization, board lifecycle (init/groom/refresh/shared), 5 standalone CLI-tool skills (ripgrep, jq, gh, fd, fzf) + a 24-tool `cli-toolbox`, and more |
+| **Rules** | 40 | Code standards, testing, API design, observability, theming, i18n, security patterns, agent orchestration, deep context analysis, handoff readiness, and more |
+| **Commands** | 25 | Board management, planning (feature, bug, refactor, test), workflow, quick-change, revision, debug, healthcheck, security-audit, onboard, benchmark, handoff (prepare/resume/list/complete/prune), and more |
 | **CLI tools** | 29 across 3 tiers | Tier-1 default (ripgrep, fd, jq, yq, gh, delta, bat, sd, ast-grep, zstd); tier-2 conditional (Playwright, duckdb, qsv, taplo, glab, az-devops, Docker, llm, fzf, lazygit, difftastic); tier-3 opt-in (RTK, Stagehand, aichat, mods, Comby, miller, csvkit, Podman) -- emitted as per-tool canonical skills + a decision-tree overview |
 | **MCP Servers** | 10 (opt-in) | Playwright, Context7, Filesystem, GitHub, Brave Search, Sentry, Postgres, Linear, Azure DevOps, GitLab -- gated behind a Yes/No prompt during `init` (default No since 1.7.5; pass `--mcp` to restore prior `--yes` behavior) |
 | **Platforms** | 3 | GitHub, Azure DevOps, GitLab -- auto-detected from git remote |
 
-## Supported Tools (15 Adapters)
+## Supported Tools (3 Adapters)
 
 | Tool | Output |
 |------|--------|
 | **Cursor** | `.mdc` rules, agents, skills, commands, MCP config |
 | **GitHub Copilot** | instructions, prompts, GitHub agents |
 | **Claude Code** | `CLAUDE.md`, skills, `.mcp.json` |
-| **OpenCode** | `AGENTS.md`, `opencode.json` |
-| **Windsurf** | `.windsurfrules` |
-| **Amp** | `AGENTS.md` |
-| **Codex CLI** | `AGENTS.md`, `codex.md` |
-| **Gemini CLI** | `GEMINI.md` |
-| **Cline / Roo Code** | `.clinerules` |
-| **Aider** | `CONVENTIONS.md` |
-| **Kiro** | `.kiro/steering/`, `.kiro/settings/mcp.json` |
-| **Goose** | `.goosehints` |
-| **Zed** | `.rules` |
-| **Amazon Q** | `.amazonq/rules/`, `.amazonq/mcp.json` |
-| **Antigravity** | `.antigravity/rules.md`, `.antigravity/settings.json` |
 
 Platform is auto-detected from your git remote during `hatch3r init`. All board commands, agents, rules, and skills adapt to your selected platform.
 
 ## How It Works
 
 ```
-.agents/              <- Canonical source (tool-agnostic)
-  ├── agents/
-  ├── skills/
-  ├── rules/
-  ├── commands/
-  ├── mcp/
-  ├── AGENTS.md
-  └── hatch.json       <- Manifest
+.hatch3r/                              <- hatch3r footprint in your repo
+  ├── hatch.json                       <- Manifest
+  ├── overrides/                       <- User-authored canonical overrides (escape hatch)
+  ├── learnings/                       <- /learn-captured project knowledge
+  ├── handoffs/                        <- Cross-session handoff bundles
+  └── mcp/mcp.json                     <- Resolved MCP server config
 
-.cursor/               <- Generated (Cursor adapter)
-.github/               <- Generated (Copilot adapter)
-CLAUDE.md              <- Generated (Claude adapter)
-.windsurfrules         <- Generated (Windsurf adapter)
-AGENTS.md              <- Generated (OpenCode, Amp, Codex adapters)
-GEMINI.md              <- Generated (Gemini adapter)
-.clinerules            <- Generated (Cline adapter)
-CONVENTIONS.md         <- Generated (Aider adapter)
-.kiro/                 <- Generated (Kiro adapter)
-.goosehints            <- Generated (Goose adapter)
-.rules                 <- Generated (Zed adapter)
-.amazonq/              <- Generated (Amazon Q adapter)
-.antigravity/          <- Generated (Antigravity adapter)
-.worktreeinclude       <- Generated (worktree isolation)
+.claude/                               <- Generated (Claude Code adapter) + CLAUDE.md at repo root
+.cursor/                               <- Generated (Cursor adapter)
+.github/copilot-instructions.md        <- Generated (Copilot adapter, plus .github/instructions, .github/prompts, .github/agents)
+.worktreeinclude                       <- Generated (worktree isolation)
 ```
 
-hatch3r keeps one source of truth in `.agents/` and generates native configuration for each tool.
+Canonical content (agents, skills, rules, commands, hooks) lives inside the bundled npm package — adapters read from there directly, so end-user repos no longer contain a `.agents/` mirror. The only hatch3r-managed directory in your repo is `.hatch3r/`.
 
 ## Multi-Repo Workspaces
 
@@ -86,23 +64,25 @@ hatch3r can manage multiple git repos from a single workspace root. Run `hatch3r
 
 ```
 my-platform/                   <- Workspace root (not a git repo)
-  .agents/                     <- Shared canonical source
+  .hatch3r/                    <- Workspace-level hatch3r footprint
     workspace.json             <- Workspace manifest
     hatch.json
-    agents/
-    rules/
+    overrides/
     ...
   frontend/                    <- Git repo (gets its own generated files)
     .cursor/
     CLAUDE.md
+    .hatch3r/
     ...
   backend/                     <- Git repo
     .cursor/
     CLAUDE.md
+    .hatch3r/
     ...
   infra/                       <- Git repo
     .cursor/
     CLAUDE.md
+    .hatch3r/
     ...
 ```
 
@@ -114,7 +94,7 @@ npx hatch3r sync --dry-run                # preview changes
 npx hatch3r config                        # manage repos and sync strategy
 ```
 
-Content flows from workspace defaults into each sub-repo with optional per-repo overrides (tools, features, include/exclude content). Sub-repos receive independent copies, not symlinks. See the [Workspace guide](https://docs.hatch3r.com/docs/guides/workspace) for full details.
+Content flows from workspace defaults into each sub-repo with optional per-repo overrides (tools, features, include/exclude content). Sub-repos receive independent adapter outputs (not symlinks). See the [Workspace guide](https://docs.hatch3r.com/docs/guides/workspace) for full details.
 
 ## Workflow
 
@@ -141,8 +121,8 @@ npx hatch3r config        # Reconfigure tools, MCP servers, features, and platfo
 npx hatch3r sync          # Re-generate from canonical state
 npx hatch3r update        # Pull latest templates (safe merge)
 npx hatch3r status        # Check sync status between canonical and generated files
-npx hatch3r validate      # Validate canonical .agents/ structure
-npx hatch3r verify        # Verify file integrity checksums
+npx hatch3r validate      # Validate bundled canonical content + on-disk adapter outputs
+npx hatch3r verify        # Drift check on adapter outputs (non-zero exit on drift)
 npx hatch3r clean                 # Remove generated files (optional --reinit)
 npx hatch3r worktree-setup <path>  # Set up gitignored files in a worktree
 npx hatch3r worktree-cleanup <path> # Clean up worktree-specific files
@@ -157,21 +137,21 @@ npx hatch3r add <pack>    # Install a community pack (coming soon)
 
 These commands are invoked inside your coding tool (e.g., as Cursor commands).
 
-**Board management:** `board-init`, `board-fill`, `board-groom`, `board-pickup`, `board-refresh`, `board-shared`
+**Board management:** `board-fill`, `board-pickup` (lifecycle helpers `board-init`, `board-groom`, `board-refresh`, `board-shared` ship as skills)
 
 **Planning:** `project-spec`, `codebase-map`, `roadmap`, `feature-plan`, `bug-plan`, `refactor-plan`, `migration-plan`, `test-plan`, `api-spec`
 
-**Workflow:** `workflow`, `quick-change`, `revision`, `debug`, `onboard`, `benchmark`, `hooks`, `learn`, `recipe`, `pr-resolve`, `handoff`
+**Workflow:** `workflow`, `quick-change`, `revision`, `debug`, `onboard`, `benchmark`, `hooks`, `learn`, `pr-resolve`, `handoff`
 
-**Operations:** `healthcheck`, `security-audit`, `dep-audit`, `release`, `context-health`, `cost-tracking`, `report`
+**Operations:** `healthcheck`, `security-audit`, `report` (helpers `dep-audit`, `release`, `context-health`, `cost-tracking`, `recipe` ship as skills)
 
-**Customization:** `create`, `agent-customize`, `command-customize`, `skill-customize`, `rule-customize`
+**Customization:** `create` (single `hatch3r-customize` skill covers agent/command/skill/rule customization)
 
 All commands are prefixed with `hatch3r-` (e.g., `hatch3r-board-fill`). See the [CLI Commands reference](https://docs.hatch3r.com/docs/reference/commands/cli-commands) and [Agent Commands reference](https://docs.hatch3r.com/docs/reference/commands/agent-commands) for full details.
 
 ## CLI Tools
 
-Since 1.7.5, hatch3r ships a first-class CLI-tools surface area as the token-efficient alternative to MCP. The picker runs during `init` (3 tiers grouped, tier-1 default-on, tier-2 conditional on detected project signals, tier-3 opt-in advanced). Detection probes each tool via `command -v` / `where` with a 2s timeout; the installer prints copy-paste commands grouped by package manager and never executes on your behalf. Every selected tool ships a per-tool skill (`skills/hatch3r-cli-{id}/SKILL.md`) plus the `hatch3r-cli-overview` decision-tree skill, emitted to the 13 skill-capable adapters.
+Since 1.7.5, hatch3r ships a first-class CLI-tools surface area as the token-efficient alternative to MCP. The picker runs during `init` (3 tiers grouped, tier-1 default-on, tier-2 conditional on detected project signals, tier-3 opt-in advanced). Detection probes each tool via `command -v` / `where` with a 2s timeout; the installer prints copy-paste commands grouped by package manager and never executes on your behalf. 5 essentials (ripgrep, jq, gh, fd, fzf) ship as standalone skills (`skills/hatch3r-cli-{id}/SKILL.md`); the remaining 24 tools live in a single category-indexed `hatch3r-cli-toolbox` skill, emitted to all 3 supported adapters.
 
 Manage CLI tools at any time:
 
@@ -245,10 +225,10 @@ Ruler (`@intellectronica/ruler`) is the closest architectural analogue to hatch3
 
 | Dimension | hatch3r | Ruler |
 |-----------|---------|-------|
-| Tool targets | 15 native adapters generating tool-specific primitives (Cursor `.mdc` frontmatter, Claude Code skills + hooks, Kiro steering, Copilot prompts) | 32 rule-distribution targets (markdown rules only; no tool-specific feature utilization) |
+| Tool targets | 3 native adapters generating tool-specific primitives (Cursor `.mdc` frontmatter, Claude Code skills + hooks, Copilot prompts) | 32 rule-distribution targets (markdown rules only; no tool-specific feature utilization) |
 | Canonical content model | 6 artifact types (agents, skills, rules, commands, hooks, MCP servers) plus board workflows and learning loop, indexed in `hatch.json` | 1 artifact type (rules) |
 | Managed blocks | `<!-- HATCH3R:BEGIN -->` / `<!-- HATCH3R:END -->` markers on every bridge file preserve user content across updates (`src/merge/managedBlocks.ts`) | Full-file replacement semantics |
-| Integrity manifest | SHA-256 per-file + manifest-level checksum in `hatch.json`; safe merge via temp file + atomic rename (`src/merge/safeWrite.ts`, `src/integrity/index.ts`) | None |
+| Drift detection | Adapter-output drift detection via `hatch3r status` / `hatch3r verify` (compares regenerated output against on-disk for every managed path); safe merge via temp file + atomic rename (`src/merge/safeWrite.ts`) | None |
 | Governance audit cycle | 21-domain audit cycle with 121 sub-agents, 4-wave execution, closed-loop PRD evolution (`governance/AUDIT.md`, `governance/AUDIT-EXECUTE.md`) | None |
 | Supply-chain provenance | npm OIDC trusted publishing + `--provenance` attestations via `.github/workflows/release.yml` (SLSA-level provenance) | Not published with OIDC trusted publishing |
 | Security | OWASP Agentic Top 10 coverage via `src/pipeline/agentToolAllowlist.ts` + `src/pipeline/mcpDescriptionScan.ts` + `src/pipeline/promptGuard.ts` (500KB input / 1MB output limits) | Rule distribution only |
@@ -261,7 +241,8 @@ hatch3r separates managed from custom files:
 
 - `hatch3r-*` files are managed by hatch3r and fully replaced on update
 - Files without the prefix are your customizations and are never touched
-- All hatch3r-generated markdown files use managed blocks (`<!-- HATCH3R:BEGIN -->` / `<!-- HATCH3R:END -->`). Content outside these markers is preserved. Bridge files are emitted by 15 adapters: Cursor, Claude, Copilot, Cline, Codex, Gemini, Windsurf, Amp, OpenCode, Aider, Kiro, Goose, Zed, Amazon Q, Antigravity.
+- All hatch3r-generated markdown files use managed blocks (`<!-- HATCH3R:BEGIN -->` / `<!-- HATCH3R:END -->`). Content outside these markers is preserved. Bridge files are emitted by 3 adapters: Cursor, Claude, Copilot.
+- User-authored canonical overrides live under `.hatch3r/overrides/` (escape hatch). Adapters prefer overrides over bundled canonical content.
 
 ## Model Selection
 

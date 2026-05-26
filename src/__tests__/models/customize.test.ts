@@ -72,11 +72,11 @@ describe("readCustomization", () => {
     const dir = join(projectRoot, ".hatch3r", "commands");
     await mkdir(dir, { recursive: true });
     await writeFile(
-      join(dir, "hatch3r-release.customize.yaml"),
+      join(dir, "hatch3r-board-pickup.customize.yaml"),
       "enabled: false",
       "utf-8",
     );
-    const result = await readCustomization(projectRoot, "commands", "hatch3r-release");
+    const result = await readCustomization(projectRoot, "commands", "hatch3r-board-pickup");
     expect(result).toEqual({ enabled: false });
   });
 
@@ -188,11 +188,11 @@ describe("readCustomizationMarkdown", () => {
     const dir = join(projectRoot, ".hatch3r", "commands");
     await mkdir(dir, { recursive: true });
     await writeFile(
-      join(dir, "hatch3r-release.customize.md"),
+      join(dir, "hatch3r-board-pickup.customize.md"),
       "\n  Custom release steps  \n",
       "utf-8",
     );
-    const result = await readCustomizationMarkdown(projectRoot, "commands", "hatch3r-release");
+    const result = await readCustomizationMarkdown(projectRoot, "commands", "hatch3r-board-pickup");
     expect(result).toBe("Custom release steps");
   });
 

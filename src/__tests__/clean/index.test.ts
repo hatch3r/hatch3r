@@ -29,36 +29,52 @@ import {
   restoreLearnings,
   type CleanInventory,
 } from "../../clean/index.js";
+import { HATCH3R_DIR } from "../../types.js";
 
 // ── Constants ─────────────────────────────────────────────────
 
-const AGENTS_DIR = ".agents";
 const ARCHIVE_DIR = ".hatch3r-archive";
-const CUSTOMIZE_DIR = ".hatch3r";
 const WORKTREE_INCLUDE_FILE = ".worktreeinclude";
 
 // ── Helpers ───────────────────────────────────────────────────
 
 async function createTestRepo(tempDir: string): Promise<void> {
-  // .agents/ with learnings
-  await mkdir(join(tempDir, AGENTS_DIR, "learnings"), { recursive: true });
-  await mkdir(join(tempDir, AGENTS_DIR, "rules"), { recursive: true });
+  // .hatch3r/ with learnings (Wave 6 relocation)
+  await mkdir(join(tempDir, HATCH3R_DIR, "learnings"), { recursive: true });
+  await mkdir(join(tempDir, HATCH3R_DIR, "handoffs"), { recursive: true });
+
+  // .hatch3r/hatch.json (Wave 6 manifest relocation)
+  await writeFile(
+    join(tempDir, HATCH3R_DIR, "hatch.json"),
+    JSON.stringify(
+      {
+        version: "3.0.0",
+        hatch3rVersion: "1.9.0",
+        owner: "test",
+        repo: "test",
+        namespace: "test",
+        project: "test",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true, handoffs: true },
+        mcp: { servers: [] },
+        managedFiles: [".cursor/rules/hatch3r-test.mdc"],
+      },
+      null,
+      2,
+    ),
+  );
 
   // .hatch3r-archive/
   await mkdir(join(tempDir, ARCHIVE_DIR), { recursive: true });
   await writeFile(join(tempDir, ARCHIVE_DIR, "old-backup.json"), "{}");
 
-  // .hatch3r/ customizations
-  await mkdir(join(tempDir, CUSTOMIZE_DIR), { recursive: true });
-  await writeFile(join(tempDir, CUSTOMIZE_DIR, "custom.md"), "# Custom");
-
   // .worktreeinclude
-  await writeFile(join(tempDir, WORKTREE_INCLUDE_FILE), ".agents/\n");
+  await writeFile(join(tempDir, WORKTREE_INCLUDE_FILE), `${HATCH3R_DIR}/\n`);
 
   // .env.mcp
   await writeFile(join(tempDir, ".env.mcp"), "SECRET_KEY=abc123");
 
-  // Adapter output: cursor
+  // Adapter output: cursor (matches manifest.managedFiles).
   await mkdir(join(tempDir, ".cursor", "rules"), { recursive: true });
   await writeFile(join(tempDir, ".cursor", "rules", "hatch3r-test.mdc"), "cursor content");
 
@@ -109,21 +125,28 @@ describe("clean/index", () => {
       const inv = await inventoryArtifacts(tempDir);
 
       expect(inv.adapterFiles).toEqual([]);
-      expect(inv.canonicalDir).toBe(false);
+      expect(inv.manifestPresent).toBe(false);
       expect(inv.archiveDir).toBe(false);
-      expect(inv.customizeDir).toBe(false);
+      expect(inv.hatch3rDir).toBe(false);
       expect(inv.worktreeInclude).toBe(false);
       expect(inv.envMcp).toBe(false);
-      expect(inv.learnings).toEqual([]);
       expect(inv.manifest).toBeNull();
     });
 
-    it("detects .agents/ directory", async () => {
-      await mkdir(join(tempDir, AGENTS_DIR), { recursive: true });
+    it("detects .hatch3r/ directory (Wave 6 footprint)", async () => {
+      await mkdir(join(tempDir, HATCH3R_DIR), { recursive: true });
 
       const inv = await inventoryArtifacts(tempDir);
 
-      expect(inv.canonicalDir).toBe(true);
+      expect(inv.hatch3rDir).toBe(true);
+    });
+
+    it("detects .hatch3r/hatch.json manifest", async () => {
+      await mkdir(join(tempDir, HATCH3R_DIR), { recursive: true });
+      await writeFile(join(tempDir, HATCH3R_DIR, "hatch.json"), "{}");
+
+      const inv = await inventoryArtifacts(tempDir);
+      expect(inv.manifestPresent).toBe(true);
     });
 
     it("detects adapter output files", async () => {
@@ -145,16 +168,8 @@ describe("clean/index", () => {
       expect(inv.archiveDir).toBe(true);
     });
 
-    it("detects .hatch3r/ customization directory", async () => {
-      await mkdir(join(tempDir, CUSTOMIZE_DIR), { recursive: true });
-
-      const inv = await inventoryArtifacts(tempDir);
-
-      expect(inv.customizeDir).toBe(true);
-    });
-
     it("detects .worktreeinclude", async () => {
-      await writeFile(join(tempDir, WORKTREE_INCLUDE_FILE), ".agents/\n");
+      await writeFile(join(tempDir, WORKTREE_INCLUDE_FILE), `${HATCH3R_DIR}/\n`);
 
       const inv = await inventoryArtifacts(tempDir);
 
@@ -167,18 +182,6 @@ describe("clean/index", () => {
       const inv = await inventoryArtifacts(tempDir);
 
       expect(inv.envMcp).toBe(true);
-    });
-
-    it("detects learnings files", async () => {
-      await mkdir(join(tempDir, AGENTS_DIR, "learnings"), { recursive: true });
-      await writeFile(join(tempDir, AGENTS_DIR, "learnings", "session-1.md"), "learned stuff");
-      await writeFile(join(tempDir, AGENTS_DIR, "learnings", "session-2.md"), "more stuff");
-
-      const inv = await inventoryArtifacts(tempDir);
-
-      expect(inv.learnings.length).toBe(2);
-      expect(inv.learnings).toContain("session-1.md");
-      expect(inv.learnings).toContain("session-2.md");
     });
   });
 
@@ -196,13 +199,17 @@ describe("clean/index", () => {
       expect(await exists(join(tempDir, ".cursor", "rules", "hatch3r-test.mdc"))).toBe(false);
     });
 
-    it("removes .agents/ directory", async () => {
+    it("removes .hatch3r/hatch.json but preserves .hatch3r/ subdirectories", async () => {
       await createTestRepo(tempDir);
       const inv = await inventoryArtifacts(tempDir);
 
       await executeClean(tempDir, inv, false);
 
-      expect(await exists(join(tempDir, AGENTS_DIR))).toBe(false);
+      // The manifest itself is removed
+      expect(await exists(join(tempDir, HATCH3R_DIR, "hatch.json"))).toBe(false);
+      // But the surrounding `.hatch3r/` user-state is preserved
+      expect(await exists(join(tempDir, HATCH3R_DIR, "learnings"))).toBe(true);
+      expect(await exists(join(tempDir, HATCH3R_DIR, "handoffs"))).toBe(true);
     });
 
     it("removes .worktreeinclude", async () => {
@@ -233,14 +240,14 @@ describe("clean/index", () => {
       expect(result.kept.some((k) => k.includes(".env.mcp"))).toBe(true);
     });
 
-    it("preserves .hatch3r/ customizations (always kept)", async () => {
+    it("preserves .hatch3r/ user state (always kept)", async () => {
       await createTestRepo(tempDir);
       const inv = await inventoryArtifacts(tempDir);
 
       const result = await executeClean(tempDir, inv, false);
 
-      expect(await exists(join(tempDir, CUSTOMIZE_DIR))).toBe(true);
-      expect(result.kept.some((k) => k.includes(CUSTOMIZE_DIR))).toBe(true);
+      expect(await exists(join(tempDir, HATCH3R_DIR))).toBe(true);
+      expect(result.kept.some((k) => k.includes(HATCH3R_DIR))).toBe(true);
     });
 
     it("dry run returns what would be removed without modifying files", async () => {
@@ -253,7 +260,7 @@ describe("clean/index", () => {
       expect(result.removed.length).toBeGreaterThan(0);
 
       // But files should still exist
-      expect(await exists(join(tempDir, AGENTS_DIR))).toBe(true);
+      expect(await exists(join(tempDir, HATCH3R_DIR, "hatch.json"))).toBe(true);
       expect(await exists(join(tempDir, ARCHIVE_DIR))).toBe(true);
       expect(await exists(join(tempDir, WORKTREE_INCLUDE_FILE))).toBe(true);
       expect(await exists(join(tempDir, ".cursor", "rules", "hatch3r-test.mdc"))).toBe(true);
@@ -272,18 +279,16 @@ describe("clean/index", () => {
       ].join("\n");
       await writeFile(join(tempDir, "AGENTS.md"), agentsMd);
 
-      // Build inventory manually, excluding AGENTS.md from adapterFiles
-      // (collectToolFiles for "amp" would include AGENTS.md as an adapter file,
-      // which would cause step 1 to delete it before step 2 handles managed blocks)
+      // Build inventory manually — AGENTS.md is handled by the managed-block
+      // branch in executeClean, not the adapter-file list.
       const inv: CleanInventory = {
         adapterFiles: [],
-        canonicalDir: false,
+        manifestPresent: false,
         archiveDir: false,
-        customizeDir: false,
+        hatch3rDir: false,
         worktreeInclude: false,
         envMcp: false,
         agentsMdHasUserContent: true,
-        learnings: [],
         isWorkspaceRoot: false,
         isWorkspaceMember: false,
         workspaceRootPath: null,
@@ -304,48 +309,29 @@ describe("clean/index", () => {
     });
   });
 
-  // ── backupLearnings / restoreLearnings ────────────────────
+  // ── backupLearnings / restoreLearnings (Wave 7: no-op stubs) ────────
 
-  describe("backupLearnings / restoreLearnings", () => {
+  describe("backupLearnings / restoreLearnings (Wave 7 no-op stubs)", () => {
+    // Wave 7: learnings live under `.hatch3r/learnings/` and survive clean
+    // automatically — they are never moved. `backupLearnings` returns null
+    // and `restoreLearnings` is a no-op so the legacy `clean -> reinit`
+    // flow keeps compiling without a parallel command rewrite.
+
     it("returns null when no learnings directory", async () => {
       const result = await backupLearnings(tempDir);
       expect(result).toBeNull();
     });
 
-    it("returns null when learnings directory is empty", async () => {
-      await mkdir(join(tempDir, AGENTS_DIR, "learnings"), { recursive: true });
+    it("returns null even when a learnings directory exists (Wave 7 no-op)", async () => {
+      await mkdir(join(tempDir, HATCH3R_DIR, "learnings"), { recursive: true });
+      await writeFile(join(tempDir, HATCH3R_DIR, "learnings", "note.md"), "stuff");
 
       const result = await backupLearnings(tempDir);
       expect(result).toBeNull();
     });
 
-    it("backs up and restores learning files correctly", async () => {
-      // Create learnings
-      const learningsDir = join(tempDir, AGENTS_DIR, "learnings");
-      await mkdir(learningsDir, { recursive: true });
-      await writeFile(join(learningsDir, "session-1.md"), "learning one");
-      await writeFile(join(learningsDir, "session-2.md"), "learning two");
-
-      // Backup
-      const backupPath = await backupLearnings(tempDir);
-      expect(backupPath).not.toBeNull();
-      expect(await exists(backupPath!)).toBe(true);
-
-      // Destroy original
-      await rm(join(tempDir, AGENTS_DIR), { recursive: true, force: true });
-      expect(await exists(learningsDir)).toBe(false);
-
-      // Restore
-      await restoreLearnings(tempDir, backupPath!);
-
-      // Verify restored files
-      const restored1 = await readFile(join(learningsDir, "session-1.md"), "utf-8");
-      const restored2 = await readFile(join(learningsDir, "session-2.md"), "utf-8");
-      expect(restored1).toBe("learning one");
-      expect(restored2).toBe("learning two");
-
-      // Backup dir should be cleaned up
-      expect(await exists(backupPath!)).toBe(false);
+    it("restoreLearnings is a no-op that resolves without error", async () => {
+      await expect(restoreLearnings(tempDir, "/tmp/fake-path")).resolves.toBeUndefined();
     });
   });
 });

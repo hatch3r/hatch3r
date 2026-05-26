@@ -4,7 +4,7 @@ type: agent
 description: QA engineer who writes deterministic, isolated tests. Covers unit, integration, E2E, security rules, and contract tests.
 model: standard
 protected: true
-tags: [core, review]
+tags: [review, floor:protocol]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 efficiency_tier: standard
@@ -37,7 +37,7 @@ Before any action, scan the brief for unresolved questions in scope, acceptance 
 
 ## Test Standards
 
-Follow the full testing standards defined in `.agents/rules/hatch3r-testing.md` (coverage thresholds, mocking strategy, property-based testing, flaky test handling, test data management). Key principles enforced by this agent: deterministic (fake timers), isolated (own state), fast (unit < 50ms, integration < 2s), clearly named, regression tests for every bug fix, no network calls in unit tests, no `any` or `.skip` without a linked issue.
+Follow the full testing standards defined in `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)hatch3r-testing.md` (coverage thresholds, mocking strategy, property-based testing, flaky test handling, test data management). Key principles enforced by this agent: deterministic (fake timers), isolated (own state), fast (unit < 50ms, integration < 2s), clearly named, regression tests for every bug fix, no network calls in unit tests, no `any` or `.skip` without a linked issue.
 
 ## Commands
 

@@ -4,7 +4,7 @@ type: command
 orchestrator: true
 agentPipeline: [hatch3r-researcher, hatch3r-docs-writer]
 description: Reverse-engineer a brownfield codebase into current-state module boundaries, integration-point inventory, tech-debt register, and dependency graph via static analysis
-tags: [planning, brownfield]
+tags: [planning, ctx:brownfield-only]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
@@ -105,7 +105,7 @@ From config files and top-level imports, identify:
 - Check for `docs/specs/` — if exists, note contents (including `business/` and `technical/` subdirectories)
 - Check for `docs/adr/` — if exists, note contents
 - Check for `README.md`, `CONTRIBUTING.md`, `ARCHITECTURE.md`, or similar
-- Check for `.agents/hatch.json` — if exists, this project already has hatch3r configuration
+- Check for `.hatch3r/hatch.json` — if exists, this project already has hatch3r configuration
 - Check for root `AGENTS.md` — if exists, note its contents
 
 If `docs/specs/` or `docs/adr/` already exist:

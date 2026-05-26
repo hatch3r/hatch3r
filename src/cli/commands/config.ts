@@ -5,7 +5,6 @@ import chalk from "chalk";
 import inquirer from "inquirer";
 import { readManifest, writeManifest, isValidGitBranchName } from "../../manifest/hatchJson.js";
 import {
-  AGENTS_DIR,
   DEFAULT_FEATURES,
   HatchError,
   WORKTREE_CAPABLE_TOOLS,
@@ -39,6 +38,13 @@ import { syncWorkspaceRepos } from "../../workspace/sync.js";
 import { detectRepoGitIdentity } from "../../workspace/git.js";
 import { TOOL_DISPLAY_NAMES, TOOL_PROMPT_CHOICES, FEATURE_CHOICES, PLATFORM_DISPLAY_NAMES, sanitizeInput, isWSL } from "../shared/constants.js";
 import { pickCliTools, pickMcpServers, confirmMcpGate } from "../shared/pickers.js";
+import {
+  BACK,
+  isBack,
+  runStepMachine,
+  type Step,
+  type StepResult,
+} from "../shared/initSteps.js";
 import { findMissingCliTools } from "../../cliTools/detect.js";
 import { offerInstaller, printMissingCliToolsDisclaimer } from "../../cliTools/install.js";
 import { buildTagGroupedCustomContentChoices } from "../shared/customContentChoices.js";
@@ -198,7 +204,7 @@ export async function configCommand(): Promise<void> {
       `Changes here may be overwritten on next workspace sync.`,
     );
     console.log();
-    const { action } = await inquirer.prompt<{ action: string }>([
+    const actionAnswer = await inquirer.prompt<{ action: string | typeof BACK }>([
       {
         type: "select",
         name: "action",
@@ -210,6 +216,11 @@ export async function configCommand(): Promise<void> {
         default: "local",
       },
     ]);
+    if (isBack(actionAnswer.action)) {
+      info("Config cancelled (Shift+Tab).");
+      return;
+    }
+    const action = actionAnswer.action as string;
     if (action === "workspace") {
       info(`To configure the workspace, run: cd ${wsContext.workspaceRoot} && npx hatch3r config`);
       return;
@@ -237,93 +248,304 @@ export async function configCommand(): Promise<void> {
     ? { icon: { checked: chalk.green("[x]"), unchecked: "[ ]", cursor: ">" } }
     : undefined;
 
-  // --- Platform ---
-  const platformAnswer = await inquirer.prompt<{ platform: Platform }>([
-    {
-      type: "select",
-      name: "platform",
-      message: "Platform:",
-      choices: [
-        { name: "GitHub", value: "github" as Platform },
-        { name: "Azure DevOps", value: "azure-devops" as Platform },
-        { name: "GitLab", value: "gitlab" as Platform },
-      ],
-      default: manifest.platform ?? "github",
-    },
-  ]);
-  const platform = platformAnswer.platform;
+  // --- Interactive flow (step machine) ---
+  //
+  // Lifted out of a linear sequence of inquirer.prompt calls so Shift+Tab
+  // walks back through prior prompts the way it does in `hatch3r init`.
+  // Each prompt is a step in `runStepMachine` — when a step returns BACK,
+  // the driver re-renders the nearest live earlier step with the user's
+  // prior answer pre-selected. The step body is the only place an answer
+  // can be a BACK sentinel; downstream consumers (sanitizeInput, .trim,
+  // .toLowerCase, JSON.stringify) see only real string/array values.
 
-  // --- Repo identity ---
-  let owner: string;
-  let repo: string;
-  let namespace: string;
-  let project: string;
+  const currentBranch = manifest.board?.defaultBranch ?? "main";
 
-  if (platform === "azure-devops") {
-    const adoAnswers = await inquirer.prompt<{ org: string; project: string; repo: string }>([
-      { type: "input", name: "org", message: "Azure DevOps organization:", default: manifest.owner || undefined },
-      { type: "input", name: "project", message: "Azure DevOps project:", default: manifest.project || undefined },
-      { type: "input", name: "repo", message: "Repository name:", default: manifest.repo || undefined },
-    ]);
-    owner = sanitizeInput(adoAnswers.org);
-    repo = sanitizeInput(adoAnswers.repo);
-    namespace = owner;
-    project = sanitizeInput(adoAnswers.project);
-  } else if (platform === "gitlab") {
-    const glAnswers = await inquirer.prompt<{ namespace: string; project: string }>([
-      { type: "input", name: "namespace", message: "GitLab namespace (group or username):", default: manifest.namespace || manifest.owner || undefined },
-      { type: "input", name: "project", message: "Project name:", default: manifest.project || manifest.repo || undefined },
-    ]);
-    owner = sanitizeInput(glAnswers.namespace);
-    repo = sanitizeInput(glAnswers.project);
-    namespace = owner;
-    project = repo;
-  } else {
-    const repoAnswers = await inquirer.prompt<{ owner: string; repo: string }>([
-      { type: "input", name: "owner", message: "GitHub owner (org or username):", default: manifest.owner || undefined },
-      { type: "input", name: "repo", message: "Repository name:", default: manifest.repo || undefined },
-    ]);
-    owner = sanitizeInput(repoAnswers.owner);
-    repo = sanitizeInput(repoAnswers.repo);
-    namespace = owner;
-    project = repo;
+  // Pre-compute content-management inputs that the preset + customItems
+  // steps close over. These are stable across the step machine because
+  // they derive from the on-disk manifest (which the machine never
+  // mutates).
+  let contentRoot: string | undefined;
+  let agentsDir: string | undefined;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let contentIndex: any;
+  let totalItems = 0;
+  let contentProjectType: ContentSelection["projectType"] | undefined;
+  let contentTeamSize: ContentSelection["teamSize"] | undefined;
+  if (manifest.content) {
+    // #145 (D19-16): Explain config vs .customize.yaml distinction
+    info(
+      chalk.dim("Config adds/removes content items. To customize an item's behavior without ") +
+      chalk.dim("removing it, use .hatch3r/<type>/<id>.customize.yaml instead."),
+    );
+    console.log();
+
+    contentRoot = findPackageRoot(__dirname);
+    // Wave 7: legacy `.agents/` literal — the `addContentItem` / canonical
+    // AGENTS.md materialization block below operates on the pre-1.9
+    // canonical tree, which Wave 3+4 has already eliminated for new installs.
+    // Wired through here so existing `.agents/` installs that have not yet
+    // run the migration shim continue to behave; replace with bundled-content
+    // sourcing in a follow-up wave.
+    agentsDir = join(rootDir, ".agents");
+    contentIndex = await buildContentIndex(contentRoot);
+    totalItems = contentIndex.items.length;
+    contentProjectType = manifest.content.projectType;
+    contentTeamSize = manifest.content.teamSize;
+    // NOTE: `getAllContentIds(manifest.content)` is intentionally deferred
+    // to the customItems step's run() (and to the trailing diff block) so
+    // call ordering matches the pre-refactor behaviour — the
+    // configHelpers `stubContentIdsTransition` test stub returns
+    // oldIds-then-newIds across two calls.
   }
 
-  // --- Default branch ---
-  const currentBranch = manifest.board?.defaultBranch ?? "main";
-  const branchAnswer = await inquirer.prompt<{ defaultBranch: string }>([
+  interface ConfigState {
+    platform: Platform;
+    identity: { owner: string; repo: string; namespace: string; project: string };
+    defaultBranch: string;
+    tools: Tool[];
+    cliTools: CliToolId[];
+    features: (keyof Features)[];
+    mcpGate: boolean;
+    mcpServers: string[];
+    worktreeEnabled: boolean;
+    preset: PresetId;
+    customItems: string[] | undefined;
+  }
+
+  const steps: Array<Step<ConfigState, keyof ConfigState>> = [
     {
-      type: "input",
-      name: "defaultBranch",
-      message: "Default branch (for checkout, PR base, release):",
-      default: currentBranch,
-      // C8-D1-M9: reject values that fail `git check-ref-format`. Matches
-      // the init.ts default-branch prompt so an invalid ref cannot reach
-      // `manifest.board.defaultBranch`.
-      validate: (v: string) => {
-        const trimmed = v.trim();
-        if (trimmed === "") return true;
-        return (
-          isValidGitBranchName(trimmed) ||
-          `Invalid git branch name: "${trimmed}". See git-check-ref-format(1).`
-        );
+      id: "platform",
+      async run(_state, previous): Promise<StepResult<Platform>> {
+        const answer = await inquirer.prompt<{ platform: Platform | typeof BACK }>([
+          {
+            type: "select",
+            name: "platform",
+            message: "Platform:",
+            choices: [
+              { name: "GitHub", value: "github" as Platform },
+              { name: "Azure DevOps", value: "azure-devops" as Platform },
+              { name: "GitLab", value: "gitlab" as Platform },
+            ],
+            default: previous ?? manifest.platform ?? "github",
+          },
+        ]);
+        return isBack(answer.platform) ? BACK : (answer.platform as Platform);
       },
     },
-  ]);
-  const defaultBranch = branchAnswer.defaultBranch.trim() || currentBranch;
-
-  // --- Tools ---
-  const toolAnswers = await inquirer.prompt<{ tools: Tool[] }>([
     {
-      type: "checkbox",
-      name: "tools",
-      message: "Select tools to configure:",
-      choices: TOOL_PROMPT_CHOICES,
-      default: manifest.tools,
-      ...(wslTheme && { theme: wslTheme }),
+      id: "identity",
+      async run(state, previous): Promise<StepResult<ConfigState["identity"]>> {
+        const plat = state.platform!;
+        if (plat === "azure-devops") {
+          const ado = await inquirer.prompt<{ org: string | typeof BACK; project: string | typeof BACK; repo: string | typeof BACK }>([
+            { type: "input", name: "org", message: "Azure DevOps organization:", default: previous?.owner || manifest.owner || undefined },
+            { type: "input", name: "project", message: "Azure DevOps project:", default: previous?.project || manifest.project || undefined },
+            { type: "input", name: "repo", message: "Repository name:", default: previous?.repo || manifest.repo || undefined },
+          ]);
+          if (isBack(ado.org) || isBack(ado.project) || isBack(ado.repo)) return BACK;
+          const owner = sanitizeInput(ado.org as string);
+          return {
+            owner,
+            repo: sanitizeInput(ado.repo as string),
+            namespace: owner,
+            project: sanitizeInput(ado.project as string),
+          };
+        } else if (plat === "gitlab") {
+          const gl = await inquirer.prompt<{ namespace: string | typeof BACK; project: string | typeof BACK }>([
+            { type: "input", name: "namespace", message: "GitLab namespace (group or username):", default: previous?.namespace || manifest.namespace || manifest.owner || undefined },
+            { type: "input", name: "project", message: "Project name:", default: previous?.project || manifest.project || manifest.repo || undefined },
+          ]);
+          if (isBack(gl.namespace) || isBack(gl.project)) return BACK;
+          const owner = sanitizeInput(gl.namespace as string);
+          const repo2 = sanitizeInput(gl.project as string);
+          return { owner, repo: repo2, namespace: owner, project: repo2 };
+        } else {
+          const gh = await inquirer.prompt<{ owner: string | typeof BACK; repo: string | typeof BACK }>([
+            { type: "input", name: "owner", message: "GitHub owner (org or username):", default: previous?.owner || manifest.owner || undefined },
+            { type: "input", name: "repo", message: "Repository name:", default: previous?.repo || manifest.repo || undefined },
+          ]);
+          if (isBack(gh.owner) || isBack(gh.repo)) return BACK;
+          const owner = sanitizeInput(gh.owner as string);
+          const repo2 = sanitizeInput(gh.repo as string);
+          return { owner, repo: repo2, namespace: owner, project: repo2 };
+        }
+      },
     },
-  ]);
-  const tools = toolAnswers.tools;
+    {
+      id: "defaultBranch",
+      async run(_state, previous): Promise<StepResult<string>> {
+        const answers = await inquirer.prompt<{ defaultBranch: string | typeof BACK }>([
+          {
+            type: "input",
+            name: "defaultBranch",
+            message: "Default branch (for checkout, PR base, release):",
+            default: previous ?? currentBranch,
+            // C8-D1-M9: reject values that fail `git check-ref-format`. Matches
+            // the init.ts default-branch prompt so an invalid ref cannot reach
+            // `manifest.board.defaultBranch`. Shift+Tab is intercepted before
+            // the validator runs, so the validator only sees real strings.
+            validate: (v: string) => {
+              const trimmed = v.trim();
+              if (trimmed === "") return true;
+              return (
+                isValidGitBranchName(trimmed) ||
+                `Invalid git branch name: "${trimmed}". See git-check-ref-format(1).`
+              );
+            },
+          },
+        ]);
+        if (isBack(answers.defaultBranch)) return BACK;
+        return (answers.defaultBranch as string).trim() || currentBranch;
+      },
+    },
+    {
+      id: "tools",
+      async run(_state, previous): Promise<StepResult<Tool[]>> {
+        const toolAnswers = await inquirer.prompt<{ tools: Tool[] | typeof BACK }>([
+          {
+            type: "checkbox",
+            name: "tools",
+            message: "Select tools to configure:",
+            choices: TOOL_PROMPT_CHOICES,
+            default: previous ?? manifest.tools,
+            ...(wslTheme && { theme: wslTheme }),
+          },
+        ]);
+        if (isBack(toolAnswers.tools)) return BACK;
+        return (toolAnswers.tools ?? []) as Tool[];
+      },
+    },
+    {
+      id: "cliTools",
+      async run(_state, previous): Promise<StepResult<CliToolId[]>> {
+        const existingCliTools = previous ?? manifest.cliTools?.selected ?? [];
+        return await pickCliTools({
+          existing: existingCliTools,
+          wslTheme,
+        });
+      },
+    },
+    {
+      id: "features",
+      async run(_state, previous): Promise<StepResult<(keyof Features)[]>> {
+        const currentFeatureKeys =
+          previous ??
+          (Object.keys(DEFAULT_FEATURES) as (keyof Features)[]).filter((k) => manifest.features[k]);
+        const featureAnswers = await inquirer.prompt<{ features: (keyof Features)[] | typeof BACK }>([
+          {
+            type: "checkbox",
+            name: "features",
+            message: "Select features:",
+            choices: FEATURE_CHOICES,
+            default: currentFeatureKeys,
+            ...(wslTheme && { theme: wslTheme }),
+          },
+        ]);
+        if (isBack(featureAnswers.features)) return BACK;
+        return (featureAnswers.features ?? []) as (keyof Features)[];
+      },
+    },
+    {
+      id: "mcpGate",
+      skip: (s) => !(s.features?.includes("mcp")),
+      async run(): Promise<StepResult<boolean>> {
+        // Re-running config with no prior MCP servers defaults to No;
+        // re-running with existing servers defaults to Yes so users
+        // don't accidentally wipe their MCP setup by accepting the
+        // default (plan §4.4 / `confirmMcpGate` semantics).
+        const hasExistingMcp = manifest.mcp.servers.length > 0;
+        return await confirmMcpGate({ hasExisting: hasExistingMcp });
+      },
+    },
+    {
+      id: "mcpServers",
+      skip: (s) => !(s.features?.includes("mcp")) || !s.mcpGate,
+      async run(state): Promise<StepResult<string[]>> {
+        return await pickMcpServers({
+          platform: state.platform!,
+          existing: manifest.mcp.servers,
+          wslTheme,
+        });
+      },
+    },
+    {
+      id: "worktreeEnabled",
+      skip: (s) => !(s.tools?.some((t) => WORKTREE_CAPABLE_TOOLS.has(t))),
+      async run(_state, previous): Promise<StepResult<boolean>> {
+        const wtAnswer = await inquirer.prompt<{ enabled: boolean | typeof BACK }>([{
+          type: "confirm",
+          name: "enabled",
+          message: "Enable worktree file isolation (for parallel agent sessions)?",
+          default: previous ?? manifest.worktree?.enabled ?? true,
+        }]);
+        if (isBack(wtAnswer.enabled)) return BACK;
+        return wtAnswer.enabled as boolean;
+      },
+    },
+    {
+      id: "preset",
+      skip: () => !manifest.content,
+      async run(_state, previous): Promise<StepResult<PresetId>> {
+        const presetAnswer = await inquirer.prompt<{ preset: PresetId | typeof BACK }>([
+          {
+            type: "select",
+            name: "preset",
+            message: "Select content profile:",
+            choices: PRESETS.map((p) => {
+              const excluded = countPresetExclusions(p, contentIndex);
+              const estimated = p.id !== "custom"
+                ? estimatePresetItemCount(
+                    p,
+                    contentProjectType!,
+                    contentTeamSize!,
+                    contentIndex,
+                    undefined,
+                    { skipContextFilters: true },
+                  )
+                : 0;
+              const countHint = estimated > 0 ? ` (~${estimated} items)` : "";
+              const suffix = excluded > 0 ? ` (excludes ${excluded} of ${totalItems})` : "";
+              return {
+                name: `${p.name} — ${p.description}${countHint}${suffix}`,
+                value: p.id,
+              };
+            }),
+            default: previous ?? (manifest.content!.preset as PresetId),
+          },
+        ]);
+        return isBack(presetAnswer.preset) ? BACK : (presetAnswer.preset as PresetId);
+      },
+    },
+    {
+      id: "customItems",
+      skip: (s) => !manifest.content || s.preset !== "custom",
+      async run(_state, previous): Promise<StepResult<string[] | undefined>> {
+        const currentIds = getAllContentIds(manifest.content!);
+        const groupedChoices = buildTagGroupedCustomContentChoices(
+          contentIndex.items,
+          (item: { id: string }) => (previous ? previous.includes(item.id) : currentIds.has(item.id)),
+        );
+        const customAnswer = await inquirer.prompt<{ items: string[] | typeof BACK }>([
+          {
+            type: "checkbox",
+            name: "items",
+            message: "Select content items:",
+            choices: groupedChoices,
+            ...(wslTheme && { theme: wslTheme }),
+          },
+        ]);
+        if (isBack(customAnswer.items)) return BACK;
+        return (customAnswer.items ?? []) as string[];
+      },
+    },
+  ];
+
+  const stepState = await runStepMachine<ConfigState>(steps);
+
+  const platform = stepState.platform;
+  const { owner, repo, namespace, project } = stepState.identity;
+  const defaultBranch = stepState.defaultBranch;
+  const tools = stepState.tools;
 
   if (tools.length === 0) {
     logError("At least one tool must be selected.");
@@ -331,11 +553,7 @@ export async function configCommand(): Promise<void> {
   }
 
   // --- CLI tools (plan §4.4) ---
-  const existingCliTools = manifest.cliTools?.selected ?? [];
-  const selectedCliTools = await pickCliTools({
-    existing: existingCliTools,
-    wslTheme,
-  });
+  const selectedCliTools = stepState.cliTools;
   if (selectedCliTools.length > 0) {
     const cliSpinner = createSpinner(`Detecting ${selectedCliTools.length} CLI tool(s)...`);
     cliSpinner.start();
@@ -353,56 +571,34 @@ export async function configCommand(): Promise<void> {
   };
 
   // --- Features ---
-  const currentFeatureKeys = (Object.keys(DEFAULT_FEATURES) as (keyof Features)[])
-    .filter((k) => manifest.features[k]);
-
-  const featureAnswers = await inquirer.prompt<{ features: (keyof Features)[] }>([
-    {
-      type: "checkbox",
-      name: "features",
-      message: "Select features:",
-      choices: FEATURE_CHOICES,
-      default: currentFeatureKeys,
-      ...(wslTheme && { theme: wslTheme }),
-    },
-  ]);
-  const selectedFeatures = featureAnswers.features;
+  const selectedFeatures = stepState.features;
   const features: Features = { ...DEFAULT_FEATURES };
   for (const k of Object.keys(features) as (keyof Features)[]) {
     features[k] = selectedFeatures.includes(k);
   }
 
-  // --- MCP servers (plan §4.4: Yes/No gate, defaults to existing state) ---
-  // Re-running config with no prior MCP servers defaults to No; re-running
-  // with existing servers defaults to Yes so users don't accidentally wipe
-  // their MCP setup by accepting the default.
+  // --- MCP servers ---
+  // When the mcp feature is on but the user declined the gate, preserve
+  // the pre-existing list (plan §4.4); when the feature is off entirely,
+  // keep the existing servers untouched so toggling the feature back on
+  // restores the prior setup.
   const hasExistingMcp = manifest.mcp.servers.length > 0;
-  let mcpServers: string[] = hasExistingMcp ? [...manifest.mcp.servers] : [];
+  let mcpServers: string[];
   if (features.mcp) {
-    const proceedMcp = await confirmMcpGate({ hasExisting: hasExistingMcp });
-    if (proceedMcp) {
-      mcpServers = await pickMcpServers({
-        platform,
-        existing: manifest.mcp.servers,
-        wslTheme,
-      });
+    if (stepState.mcpGate && stepState.mcpServers !== undefined) {
+      mcpServers = stepState.mcpServers;
+    } else {
+      mcpServers = hasExistingMcp ? [...manifest.mcp.servers] : [];
     }
-    // When proceedMcp is false and there were prior servers, mcpServers
-    // already holds the pre-existing list (preserved per plan §4.4).
+  } else {
+    mcpServers = hasExistingMcp ? [...manifest.mcp.servers] : [];
   }
 
   // --- Worktree isolation ---
-  const hasWorktreeTool = tools.some(t => WORKTREE_CAPABLE_TOOLS.has(t));
-  if (hasWorktreeTool) {
-    const wtAnswer = await inquirer.prompt<{ enabled: boolean }>([{
-      type: "confirm",
-      name: "enabled",
-      message: "Enable worktree file isolation (for parallel agent sessions)?",
-      default: manifest.worktree?.enabled ?? true,
-    }]);
+  if (stepState.worktreeEnabled !== undefined) {
     manifest.worktree = {
       ...manifest.worktree,
-      enabled: wtAnswer.enabled,
+      enabled: stepState.worktreeEnabled,
     };
   }
 
@@ -410,58 +606,16 @@ export async function configCommand(): Promise<void> {
   const contentChanges: { added: Array<{ type: string; id: string }>; removed: Array<{ type: string; id: string }> } = { added: [], removed: [] };
   let contentMetadataChanged = false;
   if (manifest.content) {
-    // #145 (D19-16): Explain config vs .customize.yaml distinction
-    info(
-      chalk.dim("Config adds/removes content items. To customize an item's behavior without ") +
-      chalk.dim("removing it, use .hatch3r/<type>/<id>.customize.yaml instead."),
-    );
-    console.log();
-
-    const contentRoot = findPackageRoot(__dirname);
-    const agentsDir = join(rootDir, AGENTS_DIR);
-    const index = await buildContentIndex(contentRoot);
+    // The step-machine prelude initialised these inside the same
+    // `manifest.content` guard — narrow here so TypeScript sees them as
+    // defined for the trailing references.
+    const contentRootLocal: string = contentRoot!;
+    const agentsDirLocal: string = agentsDir!;
     const previousContent = manifest.content;
     const { projectType, teamSize } = manifest.content;
-
-    // --- Content preset selection (mirrors init flow) ---
-    const totalItems = index.items.length;
-    const presetAnswer = await inquirer.prompt<{ preset: PresetId }>([
-      {
-        type: "select",
-        name: "preset",
-        message: "Select content profile:",
-        choices: PRESETS.map((p) => {
-          const excluded = countPresetExclusions(p, index);
-          const estimated = p.id !== "custom" ? estimatePresetItemCount(p, projectType, teamSize, index, undefined, { skipContextFilters: true }) : 0;
-          const countHint = estimated > 0 ? ` (~${estimated} items)` : "";
-          const suffix = excluded > 0 ? ` (excludes ${excluded} of ${totalItems})` : "";
-          return {
-            name: `${p.name} — ${p.description}${countHint}${suffix}`,
-            value: p.id,
-          };
-        }),
-        default: manifest.content.preset as PresetId,
-      },
-    ]);
-    const selectedPreset = getPreset(presetAnswer.preset);
-
-    // --- Custom content selection (tag-grouped, mirrors init flow) ---
-    let customSelections: string[] | undefined;
-    if (selectedPreset.id === "custom") {
-      const currentIds = getAllContentIds(manifest.content);
-      const groupedChoices = buildTagGroupedCustomContentChoices(index.items, (item) => currentIds.has(item.id));
-
-      const customAnswer = await inquirer.prompt<{ items: string[] }>([
-        {
-          type: "checkbox",
-          name: "items",
-          message: "Select content items:",
-          choices: groupedChoices,
-          ...(wslTheme && { theme: wslTheme }),
-        },
-      ]);
-      customSelections = customAnswer.items;
-    }
+    const index = contentIndex;
+    const selectedPreset = getPreset(stepState.preset);
+    const customSelections = stepState.customItems;
 
     // --- Resolve new selection and diff against current ---
     const newSelection = resolveSelection(selectedPreset, projectType, teamSize, index, customSelections, undefined, { skipContextFilters: true });
@@ -483,8 +637,8 @@ export async function configCommand(): Promise<void> {
           if (!keepItem) continue;
           try {
             const filePath = keepItem.type === "skill"
-              ? join(agentsDir, keepItem.relativePath, "SKILL.md")
-              : join(agentsDir, keepItem.relativePath);
+              ? join(agentsDirLocal, keepItem.relativePath, "SKILL.md")
+              : join(agentsDirLocal, keepItem.relativePath);
             const content = await readFile(filePath, "utf-8");
             const refs = extractContentReferences(content);
             if (refs.includes(removedId)) {
@@ -521,7 +675,7 @@ export async function configCommand(): Promise<void> {
         const item = index.byId.get(id);
         if (item) {
           contentChanges.added.push({ type: item.type, id: item.id });
-          await addContentItem(contentRoot, agentsDir, item);
+          await addContentItem(contentRootLocal, agentsDirLocal, item);
         }
       }
     }
@@ -530,7 +684,7 @@ export async function configCommand(): Promise<void> {
         const item = index.byId.get(id);
         if (item) {
           contentChanges.removed.push({ type: item.type, id: item.id });
-          await removeContentItem(agentsDir, item, { rootDir });
+          await removeContentItem(agentsDirLocal, item, { rootDir });
         }
       }
     }
@@ -544,9 +698,9 @@ export async function configCommand(): Promise<void> {
 
     // Regenerate canonical and root AGENTS.md after content changes
     if (contentChanges.added.length > 0 || contentChanges.removed.length > 0) {
-      const canonicalAgentsMd = await generateCanonicalAgentsMd(agentsDir);
-      await safeWriteFile(join(agentsDir, "AGENTS.md"), canonicalAgentsMd);
-      const rootAgentsMd = await generateRootAgentsMd(agentsDir);
+      const canonicalAgentsMd = await generateCanonicalAgentsMd(agentsDirLocal);
+      await safeWriteFile(join(agentsDirLocal, "AGENTS.md"), canonicalAgentsMd);
+      const rootAgentsMd = await generateRootAgentsMd(agentsDirLocal);
       await safeWriteFile(join(rootDir, "AGENTS.md"), rootAgentsMd.full, {
         managedContent: rootAgentsMd.inner,
       });
@@ -759,7 +913,12 @@ export async function configCommand(): Promise<void> {
     console.log(chalk.dim(`  Repos: ${currentRepos.join(", ") || "(none)"}`));
     console.log(chalk.dim(`  Sync strategy: ${wsManifestFinal.syncStrategy}`));
 
-    const { manageWorkspace } = await inquirer.prompt<{ manageWorkspace: boolean }>([
+    // Workspace block: defensive Shift+Tab guards. The workspace flow is
+    // outside the step machine for now (its prompts depend on workspace
+    // state computed during the main config flow), so a stray Shift+Tab
+    // is not a back-nav request here — it just cancels gracefully so the
+    // BACK sentinel never reaches a downstream string consumer.
+    const manageWorkspaceAnswer = await inquirer.prompt<{ manageWorkspace: boolean | typeof BACK }>([
       {
         type: "confirm",
         name: "manageWorkspace",
@@ -767,6 +926,11 @@ export async function configCommand(): Promise<void> {
         default: wsContext.type === "workspace-root",
       },
     ]);
+    if (isBack(manageWorkspaceAnswer.manageWorkspace)) {
+      info("Config cancelled (Shift+Tab).");
+      return;
+    }
+    const manageWorkspace = manageWorkspaceAnswer.manageWorkspace as boolean;
 
     if (manageWorkspace) {
       // Scan for new repos
@@ -775,7 +939,7 @@ export async function configCommand(): Promise<void> {
       const newRepos = detectedRepos.filter((r) => !existingPaths.has(r.path));
 
       if (newRepos.length > 0) {
-        const { addRepos } = await inquirer.prompt<{ addRepos: string[] }>([
+        const addReposAnswer = await inquirer.prompt<{ addRepos: string[] | typeof BACK }>([
           {
             type: "checkbox",
             name: "addRepos",
@@ -788,6 +952,11 @@ export async function configCommand(): Promise<void> {
             ...(wslTheme && { theme: wslTheme }),
           },
         ]);
+        if (isBack(addReposAnswer.addRepos)) {
+          info("Config cancelled (Shift+Tab).");
+          return;
+        }
+        const addRepos = (addReposAnswer.addRepos ?? []) as string[];
         for (const path of addRepos) {
           wsManifestFinal.repos.push({ path, name: path, sync: false });
         }
@@ -795,7 +964,7 @@ export async function configCommand(): Promise<void> {
 
       // Toggle sync per repo
       if (wsManifestFinal.repos.length > 0) {
-        const { syncRepos } = await inquirer.prompt<{ syncRepos: string[] }>([
+        const syncReposAnswer = await inquirer.prompt<{ syncRepos: string[] | typeof BACK }>([
           {
             type: "checkbox",
             name: "syncRepos",
@@ -808,6 +977,11 @@ export async function configCommand(): Promise<void> {
             ...(wslTheme && { theme: wslTheme }),
           },
         ]);
+        if (isBack(syncReposAnswer.syncRepos)) {
+          info("Config cancelled (Shift+Tab).");
+          return;
+        }
+        const syncRepos = (syncReposAnswer.syncRepos ?? []) as string[];
         const syncSet = new Set(syncRepos);
         for (const repo of wsManifestFinal.repos) {
           repo.sync = syncSet.has(repo.path);
@@ -816,7 +990,7 @@ export async function configCommand(): Promise<void> {
 
       // Per-repo git identity
       if (wsManifestFinal.repos.length > 0) {
-        const { editIdentity } = await inquirer.prompt<{ editIdentity: string }>([
+        const editIdentityAnswer = await inquirer.prompt<{ editIdentity: string | typeof BACK }>([
           {
             type: "select",
             name: "editIdentity",
@@ -829,6 +1003,11 @@ export async function configCommand(): Promise<void> {
             default: "keep",
           },
         ]);
+        if (isBack(editIdentityAnswer.editIdentity)) {
+          info("Config cancelled (Shift+Tab).");
+          return;
+        }
+        const editIdentity = editIdentityAnswer.editIdentity as string;
 
         if (editIdentity === "detect") {
           for (const repo of wsManifestFinal.repos) {
@@ -842,7 +1021,7 @@ export async function configCommand(): Promise<void> {
         } else if (editIdentity === "edit") {
           for (const repo of wsManifestFinal.repos) {
             console.log(chalk.bold(`\n  ${repo.name ?? repo.path}:`));
-            const identity = await inquirer.prompt<{ owner: string; repo: string; defaultBranch: string }>([
+            const identity = await inquirer.prompt<{ owner: string | typeof BACK; repo: string | typeof BACK; defaultBranch: string | typeof BACK }>([
               { type: "input", name: "owner", message: "  Owner:", default: repo.owner || undefined },
               { type: "input", name: "repo", message: "  Repo:", default: repo.repo || undefined },
               {
@@ -862,15 +1041,19 @@ export async function configCommand(): Promise<void> {
                 },
               },
             ]);
-            repo.owner = sanitizeInput(identity.owner) || undefined;
-            repo.repo = sanitizeInput(identity.repo) || undefined;
-            repo.defaultBranch = identity.defaultBranch.trim() || undefined;
+            if (isBack(identity.owner) || isBack(identity.repo) || isBack(identity.defaultBranch)) {
+              info("Config cancelled (Shift+Tab).");
+              return;
+            }
+            repo.owner = sanitizeInput(identity.owner as string) || undefined;
+            repo.repo = sanitizeInput(identity.repo as string) || undefined;
+            repo.defaultBranch = (identity.defaultBranch as string).trim() || undefined;
           }
         }
       }
 
       // Sync strategy
-      const { strategy } = await inquirer.prompt<{ strategy: "manual" | "on-sync" }>([
+      const strategyAnswer = await inquirer.prompt<{ strategy: "manual" | "on-sync" | typeof BACK }>([
         {
           type: "select",
           name: "strategy",
@@ -882,6 +1065,11 @@ export async function configCommand(): Promise<void> {
           default: wsManifestFinal.syncStrategy,
         },
       ]);
+      if (isBack(strategyAnswer.strategy)) {
+        info("Config cancelled (Shift+Tab).");
+        return;
+      }
+      const strategy = strategyAnswer.strategy as "manual" | "on-sync";
       wsManifestFinal.syncStrategy = strategy;
 
       // C8-D1-M7 (D1 Medium): Atomicity — sync BEFORE persisting the workspace
@@ -904,7 +1092,7 @@ export async function configCommand(): Promise<void> {
       let syncAttempted = false;
       let syncFailed = false;
       if (syncCount > 0) {
-        const { syncNow } = await inquirer.prompt<{ syncNow: boolean }>([
+        const syncNowAnswer = await inquirer.prompt<{ syncNow: boolean | typeof BACK }>([
           {
             type: "confirm",
             name: "syncNow",
@@ -912,6 +1100,11 @@ export async function configCommand(): Promise<void> {
             default: false,
           },
         ]);
+        if (isBack(syncNowAnswer.syncNow)) {
+          info("Config cancelled (Shift+Tab).");
+          return;
+        }
+        const syncNow = syncNowAnswer.syncNow as boolean;
         if (syncNow) {
           syncAttempted = true;
           const wsSpinner = createSpinner(`Syncing ${syncCount} repo(s)...`);

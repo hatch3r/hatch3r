@@ -312,15 +312,15 @@ describe("saveUserContent — happy paths", () => {
   });
 
   it("updates hatch.json userContent counters after each save", async () => {
-    // Seed a manifest that init would normally write so the counter bump
-    // path actually mutates JSON on disk.
-    const agentsDir = join(tempDir, ".agents");
-    await mkdir(agentsDir, { recursive: true });
+    // Wave 6: manifest lives at `.hatch3r/hatch.json`. Seed it so the
+    // counter-bump path actually mutates JSON on disk.
+    const hatch3rDir = join(tempDir, ".hatch3r");
+    await mkdir(hatch3rDir, { recursive: true });
     await writeFile(
-      join(agentsDir, "hatch.json"),
+      join(hatch3rDir, "hatch.json"),
       JSON.stringify({
-        version: "2.0.0",
-        hatch3rVersion: "1.7.0",
+        version: "3.0.0",
+        hatch3rVersion: "1.9.0",
         platform: "github",
         tools: [],
         features: {},
@@ -331,13 +331,13 @@ describe("saveUserContent — happy paths", () => {
     );
 
     await saveUserContent(tempDir, makeArtifact({ name: "first" }));
-    const after1 = JSON.parse(await readFile(join(agentsDir, "hatch.json"), "utf-8"));
+    const after1 = JSON.parse(await readFile(join(hatch3rDir, "hatch.json"), "utf-8"));
     expect(after1.userContent?.count).toBe(1);
     expect(typeof after1.userContent?.lastModified).toBe("string");
     expect(after1.userContent?.types?.agent).toBe(1);
 
     await saveUserContent(tempDir, makeArtifact({ name: "second" }));
-    const after2 = JSON.parse(await readFile(join(agentsDir, "hatch.json"), "utf-8"));
+    const after2 = JSON.parse(await readFile(join(hatch3rDir, "hatch.json"), "utf-8"));
     expect(after2.userContent?.count).toBe(2);
     expect(after2.userContent?.types?.agent).toBe(2);
   });

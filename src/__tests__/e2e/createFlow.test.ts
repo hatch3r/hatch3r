@@ -13,7 +13,9 @@ import { tmpdir } from "node:os";
 import { HatchError } from "../../types.js";
 import { saveUserContent, type UserContentArtifact } from "../../content/userContent.js";
 
-const AGENTS_DIR = ".agents";
+// Wave 5/6: user overrides live at .hatch3r/overrides/{type}/.
+const AGENTS_DIR = ".hatch3r";
+const USER_SUBDIR = "overrides";
 
 vi.mock("inquirer", () => {
   class Separator {
@@ -113,7 +115,7 @@ describe("D20 user-content end-to-end flow", () => {
     const userPath = join(
       tempDir,
       AGENTS_DIR,
-      "user",
+      USER_SUBDIR,
       "agents",
       "preserved.md",
     );
@@ -142,7 +144,7 @@ describe("D20 user-content end-to-end flow", () => {
       // with a non-colliding name — write a colliding file directly so the
       // collision lands on disk and the validator sees it.
       const { writeFile, mkdir } = await import("node:fs/promises");
-      const userAgentsDir = join(tempDir, AGENTS_DIR, "user", "agents");
+      const userAgentsDir = join(tempDir, AGENTS_DIR, USER_SUBDIR, "agents");
       await mkdir(userAgentsDir, { recursive: true });
       await writeFile(
         join(userAgentsDir, "implementer.md"),
@@ -160,7 +162,7 @@ describe("D20 user-content end-to-end flow", () => {
 
     // Direct write to bypass the strict-gate scan in saveUserContent.
     const { writeFile, mkdir } = await import("node:fs/promises");
-    const userAgentsDir = join(tempDir, AGENTS_DIR, "user", "agents");
+    const userAgentsDir = join(tempDir, AGENTS_DIR, USER_SUBDIR, "agents");
     await mkdir(userAgentsDir, { recursive: true });
     await writeFile(
       join(userAgentsDir, "evil.md"),

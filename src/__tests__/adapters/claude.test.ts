@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   ClaudeAdapter,
@@ -14,6 +14,10 @@ import { MANAGED_BLOCK_START, MANAGED_BLOCK_END } from "../../types.js";
 import { resolveTestPath } from "../fixtures.js";
 
 const FIXTURES_DIR = resolveTestPath(import.meta.url, "../fixtures/agents");
+// Wave 5: fixture user repo root — parent of canonical fixtures, so
+// `.hatch3r/{type}/{id}.customize.yaml` lookups (e.g. test-agent.customize.yaml)
+// resolve correctly without needing a real CWD with .hatch3r/ staged.
+const FIXTURES_USER_REPO = dirname(FIXTURES_DIR);
 
 describe("ClaudeAdapter", () => {
   const adapter = new ClaudeAdapter();
@@ -46,7 +50,8 @@ describe("ClaudeAdapter", () => {
     expect(claudeMd!.content).toContain(MANAGED_BLOCK_START);
     expect(claudeMd!.content).toContain(MANAGED_BLOCK_END);
     expect(claudeMd!.content).toContain("Hatch3r Project Instructions");
-    expect(claudeMd!.content).toContain(".agents/AGENTS.md");
+    // W4: root AGENTS.md removed — CLAUDE.md is itself the bridge. No `.agents/AGENTS.md` reference.
+    expect(claudeMd!.content).not.toContain(".agents/AGENTS.md");
     expect(claudeMd!.content).toContain(".claude/rules/");
     expect(claudeMd!.content).toContain("Mandatory Behaviors");
     expect(claudeMd!.content).toContain("Agent Quick Reference");
@@ -84,7 +89,9 @@ describe("ClaudeAdapter", () => {
     const manifest = makeManifest();
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
-    const agents = outputs.filter((o) => o.path.startsWith(".claude/agents/"));
+    // Top-level picker entries — companion subtrees (`.claude/agents/modes/`,
+    // `.claude/agents/shared/`) are emitted but excluded from this count.
+    const agents = outputs.filter((o) => /^\.claude\/agents\/[^/]+\.md$/.test(o.path));
     expect(agents.length).toBe(2);
 
     const agent = agents.find((o) => o.path === ".claude/agents/hatch3r-test-agent.md")!;
@@ -94,28 +101,53 @@ describe("ClaudeAdapter", () => {
     expect(agent.managedContent).toBeDefined();
   });
 
-  it("filters companion agent content (modes/shared) and command content (subdirectory/shared-context) from per-tool output", async () => {
+  it("filters companion agent content (modes/shared) and command content (subdirectory/shared-context) from per-tool picker output", async () => {
     const manifest = makeManifest();
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
-    const agentPaths = outputs
-      .filter((o) => o.path.startsWith(".claude/agents/"))
+    // Picker-level paths are top-level `.md` files only (no subdir segments)
+    // — companion subtrees are emitted but live under `.claude/agents/modes/`,
+    // `.claude/commands/board/`, etc. and must not surface in the picker.
+    const topLevelAgentPaths = outputs
+      .filter((o) => /^\.claude\/agents\/[^/]+\.md$/.test(o.path))
       .map((o) => o.path);
-    const commandPaths = outputs
-      .filter((o) => o.path.startsWith(".claude/commands/"))
+    const topLevelCommandPaths = outputs
+      .filter((o) => /^\.claude\/commands\/[^/]+\.md$/.test(o.path))
       .map((o) => o.path);
 
     // Top-level primary fixtures survive
-    expect(agentPaths.some((p) => p.includes("test-agent"))).toBe(true);
-    expect(commandPaths.some((p) => p.includes("test-command"))).toBe(true);
+    expect(topLevelAgentPaths.some((p) => p.includes("test-agent"))).toBe(true);
+    expect(topLevelCommandPaths.some((p) => p.includes("test-command"))).toBe(true);
 
-    // Subdirectory companion fixtures are excluded from pickers
-    expect(agentPaths.some((p) => p.includes("fake-mode"))).toBe(false);
-    expect(agentPaths.some((p) => p.includes("fake-reference"))).toBe(false);
-    expect(commandPaths.some((p) => p.includes("pickup-fake"))).toBe(false);
+    // Subdirectory companion fixtures are excluded from picker-level paths
+    expect(topLevelAgentPaths.some((p) => p.includes("fake-mode"))).toBe(false);
+    expect(topLevelAgentPaths.some((p) => p.includes("fake-reference"))).toBe(false);
+    expect(topLevelCommandPaths.some((p) => p.includes("pickup-fake"))).toBe(false);
 
     // Top-level file with non-primary frontmatter type is excluded
-    expect(commandPaths.some((p) => p.includes("fake-shared"))).toBe(false);
+    expect(topLevelCommandPaths.some((p) => p.includes("fake-shared"))).toBe(false);
+  });
+
+  it("emits companion subtree files under per-adapter native paths so canonical references resolve", async () => {
+    const manifest = makeManifest();
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const pathSet = new Set(outputs.map((o) => o.path));
+
+    // agents/modes/ fixture lands under `.claude/agents/modes/`
+    expect(pathSet.has(".claude/agents/modes/fake-mode.md")).toBe(true);
+    // agents/shared/ fixture lands under `.claude/agents/shared/`
+    expect(pathSet.has(".claude/agents/shared/fake-reference.md")).toBe(true);
+    // commands/board/ fixture lands under `.claude/commands/board/`
+    expect(pathSet.has(".claude/commands/board/pickup-fake.md")).toBe(true);
+
+    // Companion outputs are wrapped in managed blocks so orphan cleanup
+    // and sync drift detection cover them.
+    const companion = outputs.find((o) => o.path === ".claude/agents/modes/fake-mode.md");
+    expect(companion).toBeDefined();
+    expect(companion!.managedContent).toBeDefined();
+    expect(companion!.content).toContain(MANAGED_BLOCK_START);
+    expect(companion!.content).toContain(MANAGED_BLOCK_END);
   });
 
   it("includes Agent Teams section in CLAUDE.md", async () => {
@@ -440,7 +472,7 @@ describe("ClaudeAdapter", () => {
 
   it("emits model from customization file when present", async () => {
     const manifest = makeManifest();
-    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest, FIXTURES_USER_REPO);
 
     const agentFile = outputs.find((o) => o.path === ".claude/agents/hatch3r-test-agent.md");
     expect(agentFile).toBeDefined();
@@ -581,9 +613,9 @@ You are a test agent.`,
   // ── Finding 3.10: generationMode "minimal" integration test ──
   it("produces shorter output in minimal mode than standard mode", async () => {
     const manifest = makeManifest();
-    const standardOutputs = await adapter.generate(FIXTURES_DIR, manifest, "standard");
+    const standardOutputs = await adapter.generate(FIXTURES_DIR, manifest, undefined, "standard");
     const minimalAdapter = new ClaudeAdapter();
-    const minimalOutputs = await minimalAdapter.generate(FIXTURES_DIR, manifest, "minimal");
+    const minimalOutputs = await minimalAdapter.generate(FIXTURES_DIR, manifest, undefined, "minimal");
 
     const stdBridge = standardOutputs.find((o) => o.path === "CLAUDE.md");
     const minBridge = minimalOutputs.find((o) => o.path === "CLAUDE.md");
@@ -595,7 +627,7 @@ You are a test agent.`,
   it("minimal mode still produces valid non-empty output", async () => {
     const manifest = makeManifest();
     const minimalAdapter = new ClaudeAdapter();
-    const outputs = await minimalAdapter.generate(FIXTURES_DIR, manifest, "minimal");
+    const outputs = await minimalAdapter.generate(FIXTURES_DIR, manifest, undefined, "minimal");
 
     for (const o of outputs) {
       expect(o.content.length).toBeGreaterThan(0);
@@ -790,12 +822,26 @@ Low priority rule body.
       );
       expect(hookScript).toBeDefined();
       expect(hookScript!.content.startsWith("#!/usr/bin/env node")).toBe(true);
-      // Hook contract: reads sibling policy file, gates on category match.
+      // Hook contract per https://code.claude.com/docs/en/hooks:
+      // - reads sibling policy file
+      // - reads payload as JSON on stdin (not env vars)
+      // - identifies sub-agent via `agent_type` from the payload
+      // - deny via stdout JSON with permissionDecision: "deny"
       expect(hookScript!.content).toContain("agent-tool-policies.json");
-      expect(hookScript!.content).toContain("CLAUDE_TOOL_NAME");
-      expect(hookScript!.content).toContain("CLAUDE_SUBAGENT_ID");
-      // Deny-by-default: exit 2 blocks the tool call.
-      expect(hookScript!.content).toContain("process.exit(2)");
+      expect(hookScript!.content).toContain("readFileSync(0,");
+      expect(hookScript!.content).toContain("payload.tool_name");
+      expect(hookScript!.content).toContain("payload.agent_type");
+      expect(hookScript!.content).toContain("payload.agent_id");
+      expect(hookScript!.content).toContain("hookSpecificOutput");
+      expect(hookScript!.content).toContain('"PreToolUse"');
+      expect(hookScript!.content).toContain('"deny"');
+      expect(hookScript!.content).toContain("permissionDecisionReason");
+      // Regression guard: the env-var contract was wrong; never reintroduce.
+      expect(hookScript!.content).not.toContain("CLAUDE_TOOL_NAME");
+      expect(hookScript!.content).not.toContain("CLAUDE_SUBAGENT_ID");
+      expect(hookScript!.content).not.toContain("process.exit(2)");
+      // Scope filter: only hatch3r-* sub-agents are governed.
+      expect(hookScript!.content).toContain('"hatch3r-"');
       // Structured deny reason codes for failure-log persistence.
       expect(hookScript!.content).toContain("UNKNOWN_TOOL");
       expect(hookScript!.content).toContain("NO_POLICY");
@@ -806,6 +852,161 @@ Low priority rule body.
       expect(hookScript!.content).toContain('Edit: "write"');
       // MCP tool prefix handling.
       expect(hookScript!.content).toContain('mcp__');
+    });
+
+    // Runtime tests: write the emitted script + policy file to a temp
+    // directory, invoke with `node`, pipe a JSON payload on stdin, and
+    // assert the documented Claude Code contract. These catch the
+    // class of bug fixed by re-reading the hook spec (env-vars → stdin
+    // JSON, exit 2 → stdout JSON with permissionDecision: "deny").
+    describe("hook script runtime contract", () => {
+      const setupHookDir = async () => {
+        const { mkdtemp, writeFile } = await import("node:fs/promises");
+        const { tmpdir } = await import("node:os");
+        const path = await import("node:path");
+        const manifest = makeManifest();
+        const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+        const hookScript = outputs.find(
+          (o) => o.path === ".claude/hooks/pretooluse-allowlist.mjs",
+        );
+        const policies = outputs.find(
+          (o) => o.path === ".claude/hooks/agent-tool-policies.json",
+        );
+        const dir = await mkdtemp(path.join(tmpdir(), "hatch3r-hook-"));
+        const hookPath = path.join(dir, "pretooluse-allowlist.mjs");
+        const policyPath = path.join(dir, "agent-tool-policies.json");
+        await writeFile(hookPath, hookScript!.content);
+        await writeFile(policyPath, policies!.content);
+        return { dir, hookPath };
+      };
+
+      const runHook = async (hookPath: string, payload: unknown) => {
+        const { spawn } = await import("node:child_process");
+        return await new Promise<{
+          code: number | null;
+          stdout: string;
+          stderr: string;
+        }>((resolve, reject) => {
+          const proc = spawn("node", [hookPath], { stdio: "pipe" });
+          let stdout = "";
+          let stderr = "";
+          proc.stdout.on("data", (b) => (stdout += b.toString()));
+          proc.stderr.on("data", (b) => (stderr += b.toString()));
+          proc.on("error", reject);
+          proc.on("close", (code) => resolve({ code, stdout, stderr }));
+          proc.stdin.end(JSON.stringify(payload));
+        });
+      };
+
+      it("passes through main-thread calls (no agent_type) with empty stdout", async () => {
+        const { hookPath } = await setupHookDir();
+        const result = await runHook(hookPath, {
+          session_id: "s",
+          transcript_path: "/tmp/t",
+          cwd: "/tmp",
+          permission_mode: "default",
+          hook_event_name: "PreToolUse",
+          tool_name: "Bash",
+          tool_input: { command: "ls" },
+        });
+        expect(result.code).toBe(0);
+        expect(result.stdout).toBe("");
+      });
+
+      it("passes through non-hatch3r sub-agents (e.g. general-purpose) with empty stdout", async () => {
+        const { hookPath } = await setupHookDir();
+        const result = await runHook(hookPath, {
+          session_id: "s",
+          transcript_path: "/tmp/t",
+          cwd: "/tmp",
+          permission_mode: "default",
+          hook_event_name: "PreToolUse",
+          tool_name: "Bash",
+          tool_input: { command: "ls" },
+          agent_id: "abc123",
+          agent_type: "general-purpose",
+        });
+        expect(result.code).toBe(0);
+        expect(result.stdout).toBe("");
+      });
+
+      it("allows in-policy tool for a hatch3r-* sub-agent (empty stdout)", async () => {
+        const { hookPath } = await setupHookDir();
+        // hatch3r-implementer policy includes "execute".
+        const result = await runHook(hookPath, {
+          hook_event_name: "PreToolUse",
+          tool_name: "Bash",
+          tool_input: { command: "npm test" },
+          agent_id: "abc123",
+          agent_type: "hatch3r-implementer",
+        });
+        expect(result.code).toBe(0);
+        expect(result.stdout).toBe("");
+      });
+
+      it("denies out-of-policy tool for a hatch3r-* sub-agent via stdout JSON + exit 0", async () => {
+        const { hookPath } = await setupHookDir();
+        // hatch3r-researcher policy: read/search/web/mcp — no execute.
+        const result = await runHook(hookPath, {
+          hook_event_name: "PreToolUse",
+          tool_name: "Bash",
+          tool_input: { command: "rm -rf /" },
+          agent_id: "abc123",
+          agent_type: "hatch3r-researcher",
+        });
+        expect(result.code).toBe(0);
+        const parsed = JSON.parse(result.stdout);
+        expect(parsed.hookSpecificOutput.hookEventName).toBe("PreToolUse");
+        expect(parsed.hookSpecificOutput.permissionDecision).toBe("deny");
+        expect(parsed.hookSpecificOutput.permissionDecisionReason).toMatch(
+          /hatch3r-researcher/,
+        );
+        expect(result.stderr).toContain("TOOL_NOT_ALLOWED");
+      });
+
+      it("denies unregistered hatch3r-* sub-agent (NO_POLICY)", async () => {
+        const { hookPath } = await setupHookDir();
+        const result = await runHook(hookPath, {
+          hook_event_name: "PreToolUse",
+          tool_name: "Read",
+          tool_input: {},
+          agent_id: "abc123",
+          agent_type: "hatch3r-unknown-agent",
+        });
+        expect(result.code).toBe(0);
+        const parsed = JSON.parse(result.stdout);
+        expect(parsed.hookSpecificOutput.permissionDecision).toBe("deny");
+        expect(result.stderr).toContain("NO_POLICY");
+      });
+
+      it("denies unknown Claude tool for a hatch3r-* sub-agent (UNKNOWN_TOOL)", async () => {
+        const { hookPath } = await setupHookDir();
+        const result = await runHook(hookPath, {
+          hook_event_name: "PreToolUse",
+          tool_name: "SomeFutureTool",
+          tool_input: {},
+          agent_id: "abc123",
+          agent_type: "hatch3r-implementer",
+        });
+        expect(result.code).toBe(0);
+        const parsed = JSON.parse(result.stdout);
+        expect(parsed.hookSpecificOutput.permissionDecision).toBe("deny");
+        expect(result.stderr).toContain("UNKNOWN_TOOL");
+      });
+
+      it("allows mcp__ prefixed tools for sub-agents granted the mcp category", async () => {
+        const { hookPath } = await setupHookDir();
+        // hatch3r-researcher has mcp in allowedTools.
+        const result = await runHook(hookPath, {
+          hook_event_name: "PreToolUse",
+          tool_name: "mcp__some_server__some_tool",
+          tool_input: {},
+          agent_id: "abc123",
+          agent_type: "hatch3r-researcher",
+        });
+        expect(result.code).toBe(0);
+        expect(result.stdout).toBe("");
+      });
     });
 
     it("registers the PreToolUse hook in settings.json", async () => {
@@ -826,9 +1027,15 @@ Low priority rule body.
       expect(allowlistEntry).toBeDefined();
       expect(allowlistEntry.matcher).toBe(".*");
       expect(allowlistEntry.hooks[0].type).toBe("command");
+      // Launcher is a node-inline guard that references the script path
+      // and fails open silently if it's missing — see claude.ts comment
+      // block above the PreToolUse hook registration.
       expect(allowlistEntry.hooks[0].command).toContain(
-        "node .claude/hooks/pretooluse-allowlist.mjs",
+        ".claude/hooks/pretooluse-allowlist.mjs",
       );
+      expect(allowlistEntry.hooks[0].command).toMatch(/^node -e /);
+      expect(allowlistEntry.hooks[0].command).toContain("fs.statSync");
+      expect(allowlistEntry.hooks[0].command).toContain("process.exit(0)");
     });
 
     it("emits policies.json + hook script independently of features.hooks", async () => {
@@ -956,7 +1163,7 @@ Low priority rule body.
 
     it("emits sentinels in every .claude/agents/ output (minimal mode)", async () => {
       const manifest = makeManifest();
-      const outputs = await adapter.generate(FIXTURES_DIR, manifest, "minimal");
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest, undefined, "minimal");
       const agents = outputs.filter((o) => o.path.startsWith(".claude/agents/"));
       expect(agents.length).toBeGreaterThan(0);
       for (const agent of agents) {

@@ -365,11 +365,11 @@ describe("applyCustomizationRaw", () => {
   }
 
   const baseCommand: CanonicalFile = {
-    id: "hatch3r-release",
+    id: "hatch3r-board-pickup",
     type: "command",
-    description: "Release workflow",
-    content: "Execute release steps.",
-    rawContent: "---\nid: hatch3r-release\n---\n# Release\n\nExecute release steps.",
+    description: "Board pickup workflow",
+    content: "Execute board pickup steps.",
+    rawContent: "---\nid: hatch3r-board-pickup\n---\n# Board Pickup\n\nExecute board pickup steps.",
     sourcePath: "/fake/path.md",
   };
 
@@ -385,7 +385,7 @@ describe("applyCustomizationRaw", () => {
     const dir = join(projectRoot, ".hatch3r", "commands");
     await mkdir(dir, { recursive: true });
     await writeFile(
-      join(dir, "hatch3r-release.customize.md"),
+      join(dir, "hatch3r-board-pickup.customize.md"),
       "Deploy to staging first.",
       "utf-8",
     );
@@ -400,7 +400,7 @@ describe("applyCustomizationRaw", () => {
     const dir = join(projectRoot, ".hatch3r", "commands");
     await mkdir(dir, { recursive: true });
     await writeFile(
-      join(dir, "hatch3r-release.customize.yaml"),
+      join(dir, "hatch3r-board-pickup.customize.yaml"),
       "enabled: false",
       "utf-8",
     );
@@ -437,7 +437,7 @@ describe("CursorAdapter with customization", () => {
 
     const adapter = new CursorAdapter();
     const manifest = makeManifest();
-    const outputs = await adapter.generate(join(projectRoot, "agents"), manifest);
+    const outputs = await adapter.generate(join(projectRoot, "agents"), manifest, projectRoot);
 
     const agentFile = outputs.find((o) => o.path === ".cursor/agents/hatch3r-test-agent.md");
     expect(agentFile).toBeDefined();
@@ -458,7 +458,7 @@ describe("CursorAdapter with customization", () => {
 
     const adapter = new CursorAdapter();
     const manifest = makeManifest();
-    const outputs = await adapter.generate(join(projectRoot, "agents"), manifest);
+    const outputs = await adapter.generate(join(projectRoot, "agents"), manifest, projectRoot);
 
     const agentFile = outputs.find((o) => o.path === ".cursor/agents/hatch3r-test-agent.md");
     expect(agentFile).toBeUndefined();
@@ -476,7 +476,7 @@ describe("CursorAdapter with customization", () => {
 
     const adapter = new CursorAdapter();
     const manifest = makeManifest();
-    const outputs = await adapter.generate(join(projectRoot, "agents"), manifest);
+    const outputs = await adapter.generate(join(projectRoot, "agents"), manifest, projectRoot);
 
     const agentFile = outputs.find((o) => o.path === ".cursor/agents/hatch3r-test-agent.md");
     expect(agentFile).toBeDefined();
@@ -495,7 +495,7 @@ describe("CursorAdapter with customization", () => {
 
     const adapter = new CursorAdapter();
     const manifest = makeManifest();
-    const outputs = await adapter.generate(join(projectRoot, "agents"), manifest);
+    const outputs = await adapter.generate(join(projectRoot, "agents"), manifest, projectRoot);
 
     const ruleFile = outputs.find((o) => o.path === ".cursor/rules/hatch3r-test-rule.mdc");
     expect(ruleFile).toBeUndefined();
@@ -513,7 +513,7 @@ describe("CursorAdapter with customization", () => {
 
     const adapter = new CursorAdapter();
     const manifest = makeManifest();
-    const outputs = await adapter.generate(join(projectRoot, "agents"), manifest);
+    const outputs = await adapter.generate(join(projectRoot, "agents"), manifest, projectRoot);
 
     // Wave B3: rule outputs now carry a `NN-` precedence prefix. The setup
     // fixture rule has no `precedence:` frontmatter and defaults to `normal`
@@ -536,7 +536,7 @@ describe("CursorAdapter with customization", () => {
 
     const adapter = new CursorAdapter();
     const manifest = makeManifest();
-    const outputs = await adapter.generate(join(projectRoot, "agents"), manifest);
+    const outputs = await adapter.generate(join(projectRoot, "agents"), manifest, projectRoot);
 
     const cmdFile = outputs.find((o) => o.path === ".cursor/commands/hatch3r-test-command.md");
     expect(cmdFile).toBeDefined();
@@ -556,7 +556,7 @@ describe("CursorAdapter with customization", () => {
 
     const adapter = new CursorAdapter();
     const manifest = makeManifest();
-    const outputs = await adapter.generate(join(projectRoot, "agents"), manifest);
+    const outputs = await adapter.generate(join(projectRoot, "agents"), manifest, projectRoot);
 
     const skillFile = outputs.find((o) => o.path.includes("hatch3r-test-skill"));
     expect(skillFile).toBeUndefined();
@@ -591,7 +591,7 @@ describe("ClaudeAdapter with customization", () => {
 
     const adapter = new ClaudeAdapter();
     const manifest = makeManifest({ tools: ["claude"] });
-    const outputs = await adapter.generate(join(projectRoot, "agents"), manifest);
+    const outputs = await adapter.generate(join(projectRoot, "agents"), manifest, projectRoot);
 
     const agentFile = outputs.find((o) => o.path.includes("hatch3r-test-agent"));
     expect(agentFile).toBeDefined();
@@ -611,7 +611,7 @@ describe("ClaudeAdapter with customization", () => {
 
     const adapter = new ClaudeAdapter();
     const manifest = makeManifest({ tools: ["claude"] });
-    const outputs = await adapter.generate(join(projectRoot, "agents"), manifest);
+    const outputs = await adapter.generate(join(projectRoot, "agents"), manifest, projectRoot);
 
     const agentFile = outputs.find((o) => o.path.includes("hatch3r-test-agent"));
     expect(agentFile).toBeUndefined();

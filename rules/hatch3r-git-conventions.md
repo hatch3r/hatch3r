@@ -3,7 +3,7 @@ id: hatch3r-git-conventions
 type: rule
 description: Conventional Commits type list, subject line rules, breaking-change footer format, and branch naming template for type/short-description
 scope: "**/.git/**,**/.gitignore,**/.gitattributes,**/.gitmodules,**/COMMIT_EDITMSG"
-tags: [core]
+tags: [orchestration]
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true
 ---

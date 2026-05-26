@@ -3,7 +3,7 @@ id: hatch3r-learn
 type: command
 orchestrator: false
 description: Capture learnings from development sessions into reusable knowledge files for future consultation.
-tags: [core, maintenance]
+tags: [orchestration, maintenance]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
@@ -56,9 +56,9 @@ Execute these steps in order. **Do not skip any step.** Ask the user at every ch
 
 ### Step 3: Validate and Write Learning Files
 
-For each confirmed learning, validate content security and then create a file in `.agents/learnings/`.
+For each confirmed learning, validate content security and then create a file in `.hatch3r/learnings/`.
 
-If `.agents/learnings/` does not exist, create it.
+If `.hatch3r/learnings/` does not exist, create it.
 
 #### Content Validation (ASI06 — before write)
 
@@ -152,8 +152,8 @@ Present all saved learnings with file paths.
 
 ```
 Learnings Captured:
-  .agents/learnings/{filename1}.md -- {category}: {one-line summary}
-  .agents/learnings/{filename2}.md -- {category}: {one-line summary}
+  .hatch3r/learnings/{filename1}.md -- {category}: {one-line summary}
+  .hatch3r/learnings/{filename2}.md -- {category}: {one-line summary}
 ```
 
 Remind user that these will be auto-consulted during future board-pickup and board-fill runs.
@@ -173,7 +173,7 @@ Remind user that these will be auto-consulted during future board-pickup and boa
 To prevent unbounded context growth, the learnings system enforces a configurable maximum count of active learnings:
 
 - **Default cap:** 100 active learnings (not counting archived or deprecated entries).
-- **Configurable:** Set `learnings.maxActive` in `.agents/hatch.json` to override the default (e.g., `"learnings": { "maxActive": 150 }`).
+- **Configurable:** Set `learnings.maxActive` in `.hatch3r/hatch.json` to override the default (e.g., `"learnings": { "maxActive": 150 }`).
 - **Enforcement:** When the active count reaches the cap, the `hatch3r learn` command refuses to write new learnings until existing ones are archived or pruned. Display the message: "Active learnings limit reached ({count}/{max}). Archive or prune existing learnings before adding new ones."
 - **Per-session cap:** A single `hatch3r learn` invocation may capture at most 10 learnings. If more than 10 are identified in Step 2, present the top 10 by relevance and inform the user that the remainder can be captured in a follow-up session.
 
@@ -216,7 +216,7 @@ integrity: sha256:{hex-digest}  # SHA-256 of body content for tamper detection
 
 ### Archival
 
-Archived learnings are moved to `.agents/learnings/archived/` with their original filename. An archival notice is prepended:
+Archived learnings are moved to `.hatch3r/learnings/archived/` with their original filename. An archival notice is prepended:
 
 ```markdown
 > **Archived on {date}**: {reason — expired | deprecated | superseded by {id}}
@@ -242,7 +242,7 @@ Archived learnings are moved to `.agents/learnings/archived/` with their origina
 ```
 Learnings matching "{query}":
   [{confidence}] {title} ({date}, tags: {tags})
-    .agents/learnings/{filename}.md
+    .hatch3r/learnings/{filename}.md
     Applies when: {trigger summary}
 ```
 
@@ -288,8 +288,8 @@ When writing learning files, validate:
 
 ## Error Handling
 
-- `.agents/learnings/` directory doesn't exist: create it silently.
-- `.agents/learnings/archived/` directory doesn't exist: create it when first archival occurs.
+- `.hatch3r/learnings/` directory doesn't exist: create it silently.
+- `.hatch3r/learnings/archived/` directory doesn't exist: create it when first archival occurs.
 - Duplicate learning detected: warn and **ASK** whether to merge or create separate.
 - No learnings identified: **ASK** user directly what they learned. If still nothing, skip silently.
 - Learning exceeds quality thresholds: warn user with specific violations and suggest fixes.
@@ -302,7 +302,7 @@ When writing learning files, validate:
 - **Never delete learnings.** Use archival (move to `archived/`) instead of deletion.
 - **Learnings must be specific and actionable.** Reject generic advice like "write better tests."
 - **Always include trigger conditions** in the "Applies When" section.
-- **Tags must match project vocabulary** -- use area labels from `.agents/hatch.json`.
+- **Tags must match project vocabulary** -- use area labels from `.hatch3r/hatch.json`.
 - **Max ~20 lines per learning** file body (excluding frontmatter).
 - **Learnings without evidence must be `hypothesis`.** Do not allow `proven` or `experimental` without evidence.
 - **Expired learnings are archived, not deleted.** Preserve institutional knowledge.

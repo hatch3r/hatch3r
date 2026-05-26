@@ -2,6 +2,7 @@
 description: Lockfile discipline, CVE scanning, transitive dependency audits, major version upgrade protocol, and bundle-size impact gates for package manifests
 globs: ["**/package.json", "**/package-lock.json", "**/yarn.lock", "**/pnpm-lock.yaml", "**/Cargo.toml", "**/Cargo.lock", "**/requirements*.txt", "**/pyproject.toml", "**/go.mod", "**/go.sum", "**/Gemfile*"]
 alwaysApply: false
+precedence: high
 ---
 # Dependency Management
 

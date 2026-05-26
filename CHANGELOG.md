@@ -2,6 +2,167 @@
 
 All notable changes to hatch3r are documented in this file.
 
+## [1.9.0] - 2026-05-26
+
+### Headline
+
+Adapter scope cut from 15 to 3 (Claude Code, Cursor, GitHub Copilot) and a bundled-content refactor that removes the `.agents/` materialization step from end-user repos. Manifest, learnings, handoffs, MCP config, and the user-content escape hatch all relocate under a single `.hatch3r/` directory. Content pack redesign splits the flat `tags: string[]` into 3 logical facets (capability / floor / context) with structural floor admission for security + UI/UX in every preset. Schema version bumped to 3. This is a breaking release.
+
+### Content Pack Redesign (P1, P2, P4, P6)
+
+Replaces the brittle `includeTags` / `excludeTags` filter with a 4-stage admission pipeline driven by typed tag facets. Source of truth for the design: `.audit-workspace/council-D-architect.md` (4-member sub-agentic council deliverable that preceded the implementation).
+
+- **Tag taxonomy (`src/content/tags.ts`) — full rewrite.** New facets: capability (`orchestration`, `planning`, `implementation`, `review`, `devops`, `maintenance`, `board`, `performance`, `ai`), floor (`floor:security`, `floor:ui-ux`, `floor:protocol`), context (`ctx:greenfield-only`, `ctx:brownfield-only`, `ctx:team-only`), customize (`customize`), ui-ux specialisation (`a11y`, `frontend`, `ui`, `ux`, `design-system`), cli-tool + cli-tool-category (CLI category `ai` renamed to `ai-cat` to disambiguate from the new `ai` capability), language. `TAG_REGISTRY` is the single source of truth; helpers `facetOf`, `tagsForFacet`, and per-facet `is*` predicates replace hard-coded enumerations. Tags before: 42. Tags after: 38.
+- **Removed tags:** `core` (split into `orchestration` capability + `floor:protocol`), `solo` (decorative; unused), bare `security` (now `floor:security`). Renamed: `team` → `ctx:team-only`, `greenfield` → `ctx:greenfield-only`, `brownfield` → `ctx:brownfield-only`.
+- **Filter semantics (`src/content/index.ts::resolveSelection`) — replaced.** 4 stages: custom path → floor admission (every `floor:*` item admitted unconditionally for every non-custom preset) → capability gate (positive intersection; customize gated by `preset.includeCustomize`; per-id `includeIds`/`excludeIds` carve-outs) → context filter (`ctx:*-only`; floor items bypass team-size filtering) → language filter. **The "empty tags = passthrough" loophole is reversed**: items with zero capability + zero floor + not protected are now DROPPED.
+- **Preset DSL (`src/content/presets.ts`) — replaced.** `includeTags`/`excludeTags` removed. New fields: `capabilities: CapabilityTag[]` (positive list; floor not listed), `includeCustomize: boolean` (locked: `false` for minimal, `true` for standard + full), optional `includeIds`/`excludeIds` for per-id carve-outs (cannot remove floor or protected items).
+- **Floor categories enforced structurally** (cannot be disabled by preset config):
+  - `floor:security` (P6) — security rules, auditor agents, secrets/auth/data-classification rules
+  - `floor:ui-ux` (P1/P2) — UI/UX verification, accessibility (a11y is part of UI/UX floor), state design, design-system detection, theming, AI UX patterns
+  - `floor:protocol` — pipeline-critical agents (researcher, implementer, reviewer, fixer, test-writer) and orchestration rules; ensures the framework's sub-agent pipeline ships in every preset
+- **Canonical content re-tagged** (~117 of 175 artifacts) via auditable migration scripts left in place: `scripts/wave2-retag.ts` (main retag pass) and `scripts/wave2-fix-cli-skills.ts` (CLI-skill capability fix).
+- **Preset item counts (brownfield / team / typescript context):** minimal = 93 (up from ~62; raised floor admits security + UI/UX + protocol), standard = 159 (board ✓, customize ✓, tier-2 CLI ✓), full = 168 (all 30 CLI-tool skills via `full.includeIds` for tier-3).
+- **5 deprecation hawks removed** (verified zero cross-references per Council C's audit):
+  - `rules/hatch3r-observability.md` + `.mdc` — `deprecated: true`; superseded by `hatch3r-observability-{logging,metrics,tracing}`
+  - `rules/hatch3r-observability-tracing-detail.md` + `.mdc` — `deprecated: true`; consolidated into `hatch3r-observability-tracing`
+  - `prompts/hatch3r-bug-triage.md` — orphaned; function subsumed by `cmd-hatch3r-bug-plan` + `cmd-hatch3r-debug`
+  - `prompts/hatch3r-code-review.md` — orphaned; function subsumed by `hatch3r-reviewer` agent
+  - `prompts/hatch3r-pr-description.md` — orphaned; function subsumed by `cmd-hatch3r-pr-resolve` + `hatch3r-pr-creation` skill
+  
+  Cross-reference cleanup in `rules/hatch3r-ai-evals.{md,mdc}` (re-pointed to consolidating rule), `rules/hatch3r-agent-orchestration.{md,mdc}` (enumeration trim), `governance/CONSTITUTION.md` (`*-detail` authorised list), `agents/shared/quality-charter.md`, `agents/hatch3r-reviewer.md`, `skills/hatch3r-observability-verify/SKILL.md`, `governance/hatch3r-prd.md`. `prompts/` directory is now empty; the `prompt` artifact type remains in `src/content/index.ts::TYPE_TO_SELECTION_KEY` for forward compat.
+- **User-tier override migration.** User content under `.hatch3r/overrides/` carrying legacy tag values (`core`, `team`, `solo`, `greenfield`, `brownfield`, plain `security`) is no longer recognised by the new filter — items with no matching capability + no floor + not protected drop silently. Migration guide: `docs/MIGRATION-content-pack-redesign.md`.
+
+### Breaking Changes
+
+- **Adapter scope cut to 3.** Only `claude` (Claude Code), `cursor`, and `copilot` (GitHub Copilot) are supported. Hard cut — no compatibility stubs, no deprecation period.
+- **`.agents/` no longer written into user repos.** Adapters now read canonical content from the bundled npm package via `resolveBundledContentRoot()`. The only hatch3r-managed directory in your repo is `.hatch3r/`.
+- **Root `/AGENTS.md` removed.** Each adapter emits only its native surface (`.claude/` + `CLAUDE.md`, `.cursor/`, `.github/copilot-instructions.md` and related Copilot dirs). The shared bridge file is gone along with `SHARED_ADAPTER_KEY` / `SHARED_BRIDGE_FILES`.
+- **Manifest moved to `.hatch3r/hatch.json`** (was `.agents/hatch.json`). Auto-migration shim relocates on first `init`/`sync`/`update`.
+- **User-content escape hatch moved to `.hatch3r/overrides/`** (was `.agents/user/`). Adapters check overrides first, fall back to bundled canonical content.
+- **Learnings, handoffs, and MCP config moved to `.hatch3r/learnings/`, `.hatch3r/handoffs/`, `.hatch3r/mcp/`** (were under `.agents/`). Migration shim handles the relocation.
+- **Integrity manifest removed.** No more `.integrity.json` file, no SHA-256 per-file checksums. `hatch3r verify` and `hatch3r status` now do drift detection on adapter outputs only — compare regenerated output (from bundled content) against on-disk copy for every path in `manifest.managedFiles`.
+- **Manifest `schemaVersion` bumped to 3.** Older manifests are auto-migrated on read.
+
+### Removed
+
+- 12 adapter implementations and their tests, snapshots, type entries, and CLI registry rows: `aider`, `amazonq`, `amp`, `antigravity`, `cline`, `codex`, `gemini`, `goose`, `kiro`, `opencode`, `windsurf`, `zed`.
+- Adapter id surface trimmed in `src/types.ts` (`TOOLS` / `Tool`), `src/cli/shared/constants.ts` (`TOOL_DISPLAY_NAMES`, invocation syntax, secret notes), `src/pipeline/adapterToolTranslator.ts` (`NativeAgentConfig`, `ASK_USER_TOOLS`), `src/detect/repoAnalyzer.ts` (`TOOL_INDICATORS`), and `src/worktree/index.ts` (`ADAPTER_WORKTREE_PATTERNS`).
+- `src/integrity/` integrity-manifest module is reduced to drift-only semantics; `.integrity.json` reads/writes deleted.
+- `generateRootAgentsMd` and root-`AGENTS.md` emission paths in `src/cli/commands/init.ts` and `src/workspace/sync.ts`.
+
+### Migration Notes
+
+- **Auto-migration shim** runs on first `init`/`sync`/`update` against an existing project:
+  - `.agents/hatch.json` → `.hatch3r/hatch.json`
+  - `.agents/user/` → `.hatch3r/overrides/`
+  - `.agents/learnings/` → `.hatch3r/learnings/`
+  - `.agents/handoffs/` → `.hatch3r/handoffs/`
+  - `.agents/mcp/mcp.json` → `.hatch3r/mcp/mcp.json`
+  - Old paths are removed after a successful relocation; one-shot warning printed.
+- **Removed-adapter directories are NOT auto-cleaned.** Per the maintainer's hard-cut decision, existing user repos with `.windsurf/`, `.gemini/`, `.codex/`, `.cline/`, `.kiro/`, `.goose/`, `.amazonq/`, `.antigravity/`, `.aider/`, `.amp/`, `.opencode/`, or `.rules` directories will see them as orphaned after upgrading. Remove them manually (`rm -rf .windsurf .gemini ...`). A follow-up `hatch3r migrate --remove-deprecated-adapters` command is queued for a later release.
+- **CI scripts using `--tools` with removed adapter ids will fail at validation.** Trim invocations to `--tools claude,cursor,copilot` (or a subset). Unknown adapter ids are rejected, not silently ignored.
+- **Custom content under `.agents/user/`** is preserved by the migration shim — but verify the move after first sync; the shim warns on collisions and skips overwrite.
+
+### Init UX Overhaul (P1, P3, P4, P5)
+
+`npx hatch3r init` is rebuilt around a weighted-signal project detector and a step-machine that reduces prompts and explains its defaults.
+
+- **Weighted-signal detector** in `src/detect/projectType.ts` returns `{type, confidence, signals[]}` synthesised from git depth, `src/`/`lib/`/`app/` presence, `package.json` dependencies, README size, primary language, existing CLI-tool indicators, and any existing `.agents/` directory. The top-3 signals are appended to the prompt message so the user sees why the default greenfield/brownfield choice is what it is — no more opaque pre-selected radio button.
+- **Feature picker reduced.** Agents, rules, and skills are always-on and no longer appear as checkbox options. MCP is lifted out of the feature checklist and into a dedicated `confirm` gate (opt-in default no), matching the 1.7.5 MCP-demotion contract.
+- **Post-init "create your first artifact?" prompt removed.** The flow ends with a single tip line gated only by `!isQuiet()` — no extra decision after the canonical config is on disk.
+- **Worktree-capable tools expanded** from `{claude}` to `{claude, cursor, copilot}` (verified against the current Cursor and Copilot platform docs). Same auto-enable is applied to the `update` migration checkpoint.
+- **`src/cli/shared/initSteps.ts` (246 LOC, new module)** implements the step machine: `Step<S, K>` interface, `BACK` sentinel, `runStepMachine` driver, and `askSelect` / `askCheckbox` / `askConfirm` / `askInput` helpers reused by `init`, `config`, and `worktree-cleanup`.
+
+Pillar service: P1 (fewer decisions, signal-explained defaults), P3 (worktree parity across all 3 adapters), P4 (replaces ad-hoc prompt chains with one reusable driver), P5 (the always-on artifact classes match the canonical content model).
+
+### Shift+Tab Back-Navigation (P1, P4, P8)
+
+Back-navigation is promoted from a per-prompt `← Back` menu choice / `:back` string literal to a real key control (CSI Z), closing the timer race and readline-conflict bugs that plagued the 1.8.0 stop-gap.
+
+- **`src/cli/shared/backablePrompts.ts` (722 LOC, new module)** forks `select` / `checkbox` / `input` / `confirm` via `@inquirer/core::createPrompt` and registers each fork under its standard name. The fork intercepts Shift+Tab in `useKeypress` and resolves with a shared `BACK` sentinel — `Symbol.for("hatch3r.BACK")` so identity survives module-boundary crossings. Every fork renders a key-controls footer: `↑↓ navigate · ⏎ select · Shift+Tab back`.
+- **`BACKABLE_COMMANDS` allow-list** in `src/cli/index.ts` — `init`, `config`, `worktree-cleanup`, `clean`, `update`, `mcp`, `cli-tools`. Stray Shift+Tab outside the allow-list cannot leak the `BACK` sentinel into a non-audited command's string consumers.
+- **`config` and `worktree-cleanup` lifted to `runStepMachine`** so the new back-nav semantics propagate to every multi-step flow without per-command wiring.
+- **Build wiring:** `@inquirer/core` and `@inquirer/figures` externalised in `tsup.config.ts`; `mute-stream` promoted to direct dependency so end-user installs resolve it via the package registry rather than relying on a transitive bring-along.
+
+Pillar service: P1 (single key chord replaces per-prompt menu items), P4 (one fork module replaces ad-hoc back-strings across 7 commands), P8 (Shift+Tab is now the canonical back-out mechanism for ambiguity-resolution flows that need a do-over).
+
+### Companion Content Emission (P3, P4)
+
+Pre-1.9.0, companion/reference content under support subdirectories (`agents/modes/`, `agents/shared/`, `commands/board/`, `commands/revision/`, `checks/`) was materialised in the user's `.agents/` mirror. The bundled-content migration (e4e5126) removed that mirror without re-emitting the companion subtrees, so canonical references like `agents/shared/quality-charter.md` stopped resolving in user repos.
+
+- **`BaseAdapter::emitCompanionContent` (new helper)** walks a canonical subdirectory, applies `substituteCanonicalContent` so the `PLATFORM-TOOL` marker in `user-question-protocol.md` is replaced per adapter, and emits each `.md` file as a managed-block output under the adapter's native path. Path references inside companion bodies are left intact — the runtime agent resolves filenames via Grep/Glob, which works against the per-adapter copies as written.
+- **Wired into `claude`, `cursor`, and `copilot` adapters** so every shipped surface exposes the same companion content reachable from a canonical-content reference.
+
+Pillar service: P3 (each adapter surface now ships the full companion-content set the canonical artifacts reference), P4 (one helper replaces three potential per-adapter implementations).
+
+### Rule Precedence Application — 23 high + 2 critical (P2, P4, P5, P6)
+
+The `precedence` frontmatter field shipped in 1.8.0 was unused on 46 of 52 rules. Cosmetic rules (theming, i18n, commit-conventions) shared the same default rank as security, secrets, auth, testing, migrations, supply-chain, observability, accessibility, and the entire CONSTITUTION §2 P2 "100% / 0" hard-mandate set.
+
+- **Critical (rank 100, prefix `10-`):** `hatch3r-security-patterns`, `hatch3r-secrets-management`.
+- **High (rank 300, prefix `30-`):** `hatch3r-auth-patterns`, `hatch3r-passkey-server`, `hatch3r-data-classification`, `hatch3r-testing`, `hatch3r-ai-evals`, `hatch3r-contract-testing`, `hatch3r-migrations`, `hatch3r-api-versioning`, `hatch3r-event-schema-evolution`, `hatch3r-ci-cd`, `hatch3r-container-hardening`, `hatch3r-dependency-management`, `hatch3r-observability-logging`, `hatch3r-observability-metrics`, `hatch3r-observability-tracing`, `hatch3r-operability`, `hatch3r-resilience-patterns`, `hatch3r-accessibility-standards`, `hatch3r-ux-states-and-flows`, `hatch3r-design-system-detection`. Framework-dev gatekeepers: `.claude/rules/pillar-compliance`, `governance-lean-thresholds`, `anti-slop-enforcement`, `security-patterns`, `content-authoring`, `test-requirements`.
+- **Six framework-dev `.claude/rules/` files that lacked frontmatter** received full `id` / `type` / `description` / `tags` / `scope` / `precedence` blocks so the parity gate has something to compare against.
+- **Mechanical change; gates green:** `validate:rule-parity` 40 pairs / 0 drift, `validate` (efficiency / bridge-budget / cli-skills / wiring), `hatch3r validate` 0 errors, `tsc` 0 errors, `eslint` 0 errors, `vitest` 131 files / 3355 tests.
+
+Pillar service: P2 (rank now matches the §2 P2 hard-mandate set), P4 (cosmetic vs critical no longer collapsed into one rank), P5 (the frontmatter field shipped in 1.8.0 finally has consumers), P6 (security / secrets / auth / data-classification surface above defaults).
+
+### Blueprint-v2 Feature Removal (P4, P5)
+
+Maintainer directive: `blueprint-v2` (v2.0.0 clean-slate rebuild spec generator + governance workspace) removed in full. Sixth lifecycle preset with no use outside its own dialog runs; ~1300 lines of governance content that no longer fit the active 8-pillar framework.
+
+- **Removed (tracked):** `governance/BLUEPRINT-V2.md`, `governance/blueprint-v2/` (README + `decisions/INDEX` + `workspace/`), `.claude/skills/h4tcher-blueprint-v2/SKILL.md`.
+- **Cross-references scrubbed** in `CLAUDE.md` and `.claude/rules/capability-lifecycle.md` so the lifecycle decision tree and pillar/skills overview no longer point at a deleted preset.
+- **Governance total: 2789 lines** (was ~4100 with blueprint-v2; CONSTITUTION lean limit 3000).
+
+Pillar service: P4 (removes a preset with no use outside its own dialog runs; cuts ~1300 governance lines), P5 (governance total back under the 3000-line lean cap with margin to spare).
+
+### Command-vs-Skill Refactor + CLI-toolbox Consolidation (P4, P5, P8)
+
+A capability-lifecycle iteration that codifies when an artifact belongs in `commands/` vs `skills/`, then applies the new criterion across the canonical content surface.
+
+- **Codified Command-vs-Skill criterion** in `governance/CONSTITUTION.md` §6 Decision #13 and `.claude/rules/content-authoring.md` (item #9). Commands are user-invocable orchestrators; skills are model-invoked capabilities. Mixed-purpose artifacts split or collapse.
+- **Added reputable-source reconnaissance mandate** for content authoring in `governance/CONSTITUTION.md` §6 Decision #14, `.claude/rules/content-authoring.md` (item #10), and `.claude/skills/h4tcher-content-author/SKILL.md` (new Step 3). Every new agent / skill / rule / command / hook authored in this repo must cite ≥2 reputable sources (vendor docs, RFCs, OWASP, framework READMEs) before merging.
+- **Collapsed the 4 customize commands** (`hatch3r-agent-customize`, `hatch3r-command-customize`, `hatch3r-rule-customize`, `hatch3r-skill-customize`) and their paired redirect skills into the single canonical `skills/hatch3r-customize/SKILL.md`. Net change approximately -651 LOC.
+- **Demoted 5 commands to skills** (`context-health`, `cost-tracking`, `dep-audit`, `recipe`, `release`) and **converted 4 board-* commands to skills** (`board-init`, `board-groom`, `board-refresh`, `board-shared`). These 9 artifacts were model-invoked under the new criterion, not user-facing orchestrators. Net governance reduction approximately -900 LOC.
+- **Consolidated 25 specialist CLI-tool skills** into a single category-indexed `skills/hatch3r-cli-toolbox/SKILL.md` (269 lines). 5 essentials kept standalone (`ripgrep`, `jq`, `gh`, `fd`, `fzf`). Net change approximately -1,960 LOC.
+- **Inventory deltas:** commands 38 → 25 (Δ-13), skills 63 → 39 (Δ-24), CLI skills 30 → 6.
+- **Total iteration:** approximately -3,500 LOC across canonical content + governance.
+
+Pillar service: P4 (removes overlapping artifacts; single source of truth per capability), P5 (criterion is testable via the new content-authoring rule and the discover/refactor lifecycle presets), P8 (B1 reputable-source mandate makes ambiguity-resolution part of authoring, not an afterthought).
+
+### RE-ENVISION Direct-Edit Pass + Two-Axis Pillar Framework (P5, P8)
+
+Holistic governance sweep run via `/h4tcher-re-envision` on the open release branch. The §6.1 direct-edit pass landed 48 atomic edits across 9 files (VISION, CONSTITUTION, AUDIT, AUDIT-EXECUTE, EVOLVE, CLAUDE.md, quality-charter, user-question-protocol), and the §8 amendment queue cluster A-1 then restructured CONSTITUTION §2 around a two-axis pillar framework for hatch3r 2.0.0 (governance axis P1-P8 + content-quality axis CQ1-CQ9).
+
+- **§6.1 direct-edit pass (commit 4f01064):** 48 edits across 9 files; lean thresholds satisfied (VISION 249/250, CONSTITUTION 244/410, AUDIT 549/600, AUDIT-EXECUTE 705/720, EVOLVE 361/400, quality-charter 263, user-question-protocol 97, CLAUDE.md 163/300). AUDIT-EXECUTE.md gate 11 anti-slop wordlist is now byte-identical to the CLAUDE.md §Anti-Slop block (atomic-pair invariant). EVOLVE §1.3 vs §6 CLAUDE.md scope contradiction closed; 6-pillar references updated to 8-pillar at 6 EVOLVE sites. Workspace artifacts persisted under `.re-envision-workspace/` (gitignored): refinement-plan, cl-3-handoff (60 CL-3 proposals queued), constitution-amendment-queue (9 §8 amendments queued), routing-table, direct-edits.log.
+- **§8 Cluster A-1 — two-axis pillar framework (commit 3ed378e):** CONSTITUTION.md +170 / -17 lines. §2 split into §2.0 Axis Overview + §2A Governance Pillars (P1-P8) + §2B Content-Quality Pillars (CQ1-CQ9: UI, UX, Security, Reliability, Testability, Scalability, Performance, Maintainability, Enhancability). §3 traceability widened to §3.1 (governance × 9 file classes) + §3.2 (content-quality × 9 file classes); P6↔VISION and P7↔VISION cells flipped from `—` to `S`. Pillar Compliance Test extended from 4 to 6 questions (Q5 impact_horizon, Q6 P8 dominance). §6 Key Design Decisions extended with 17 new entries (#15-#31). §2 P5 lean-threshold cap raised to ≤550 lines accommodating two-axis growth.
+
+Pillar service: P5 (governance corpus brought to one consistent state, atomic-pair invariants enforced by byte-diff), P8 (B1 ambiguity-resolution + B2 fan-out requirements now first-class entries in the Pillar Compliance Test).
+
+### Audit Cycle 10 Bootstrap — CL-3 Phase (P2, P5)
+
+Audit-self-evolution proposals from RE-ENVISION 2026-05-26 cl-3-handoff.md landed as 5 clusters (C-1 through C-5) ahead of the next audit cycle. CL-3 ships the orchestration scaffolding so Cycle 10 can run against 24 domains with impact-gated registration, SA batching by severity, proof-trace contracts, resumability, and learning consultation.
+
+- **CL-3 C-1 — AUDIT.md (commit 2f9419e):** 11 atomic edits, AUDIT.md +30 / -17 lines (562/600 lean). D22 Content Architecture admitted to Tier B (count 7→8), D23 Agentic Engineering Trends + D24 Governance Self-Audit admitted to Tier C (count 8→10). Tier-weight math 0.308 + 0.348 + 0.304 + 0.040 = 1.000 exact. SA count refreshed: D5 8→9, D7 5→6, D13 4→5; grand total 110→113. Charter directives 21 (Learning Consultation) + 22 (Post-Write Duplication Scan) added. Universal Audit Checklist proof_trace row added. Concurrency-model rate-limit guidance (Tier B 41-SA burst chunking to batches of 20 default, --max-parallel-sa configurable).
+- **CL-3 C-2 — AUDIT-EXECUTE.md (commit b309d5e):** 13 atomic edits, AUDIT-EXECUTE.md +127 / -116 lines (706/720 lean). Tier 2H (≤8 High per same-pattern batch) + Tier 2M (≤15 Medium) added, projecting 5x-15x SA spawn reduction for High/Medium severities. Impact-gated registration: Phase 1 Triage drops findings missing impact_horizon or progress_toward_pillar, logged to `.audit-workspace/phase-1-drops.log`. Resumability: `.audit-workspace/checkpoint.json` schema + `hatch3r audit-execute --resume` semantics. Cost projection per-wave (estimated_sa_count, input_tokens_static_frame, web_research_queries, duration_min, triage_tier). proof_trace field added to Sub-Agent Output Contract. Cycle Close Iteration Summary section with 9 mandatory sections (a-i). Execution History moved to `governance/audit/archive/execution-history.md` (+10 lines, single-line pointer from AUDIT-EXECUTE.md).
+- **CL-3 C-3 — audit/templates/* (commit 708d7ee):** 9 edit groups across 5 templates, +74 / -8 lines. rigor-contract.md (144/200) gains impact_horizon + progress_toward_pillar fields, Impact-Gated Registration section, Proof Trace Contract section (claim/command/expected/actual/verdict/accessed); P3 name fix `Adapter & MCP Currency` → `Adapter & External Tool Currency`. implementation-sub-agent.md (165/200) gains Pre-Implementation Discovery Gate, Post-Write Duplication Scan (jscpd, tunable per maturity tier), Pre-Implementation Learning Consultation. reviewer-sub-agent.md (198/200) gains Pass 1.6 Learning Consultation Verification. tier1-batch-sub-agent.md (95/200) gains Enum Extension Protocol (5-criteria spec for new tier1_pattern proposals via CL-3). closed-loop-agents.md (151/200) adds Phase 7 carry-forward: accepted proposals carry source finding's impact_horizon + progress_toward_pillar into Conventional Commits trailers (`Impact-Horizon:` + `Progress:`).
+- **CL-3 C-4 — audit/domains/* + cross-doc fix (commit ed90764):** 22 domain files updated via 4 parallel batch writer-SAs, +88 / -56 lines across 24 files (22 domains + CONSTITUTION.md +1/-1 + CLAUDE.md +1/-1). Universal edits: `**Pillars served:**` line gains two-axis tagging (`; content-quality-axis Qq (...)`) on the 19 domains with content-quality applicability (D17, D18, D21 governance-only). Impact-gating per-domain audit-checklist row added to 21/22 files. Per-file targeted edits: D01/D09/D11 §Domain Boundary replaced with pointers; D03 Test File Distribution table replaced with inventory.json pointer (88→64 lines); D05/D07/D09 comparable-artifact delta checklist; D09 capability-utilization scan + utilization-gap aggregation in SA 9.4; D14/D15/D20 maturity-tier semantics. All 22 files within lean thresholds. Cross-doc: CONSTITUTION §7 + CLAUDE.md governance refs row reference D15-trust-reference.md as governed appendix and note D22/D23/D24 future authoring.
+- **CL-3 C-5 — anti-slop-enforcement.md (commit 636a273):** 1 atomic edit, +1 / -1 line. Updated stale reference `regression gate check 10` → `regression gate check 11` matching AUDIT-EXECUTE.md gate-checks table position 11 after L6-F11 numbering normalization in C-2. Paired with EVOLVE.md gate-10→11 update applied in commit 4f01064.
+
+Pillar service: P2 (impact-gated registration drops untestable findings at Phase 1; proof_trace contract enforces falsifiable causal chains), P5 (Tier 2H/2M batching, resumability checkpoints, learning-consultation directives extend the audit self-evolution loop to 24 domains).
+
+### Validator + Inventory Refresh (P5)
+
+Phase B6 validation pass after the §8 A-1 amendment cluster restructured CONSTITUTION §2 heading from `## 2. The 8 Binding Pillars` to `## 2. Pillar Framework (Two-Axis)`.
+
+- **`scripts/validate-rule-pillar-currency.ts` (+19 / -7 lines, commit 0eb1441):** HEADING_RE regex now accepts both legacy (`## N. The K Binding Pillars`) and 2.0.0+ formats (`## N. Pillar Framework` or `## N. Pillar Framework (Two-Axis)`). In the 2.0.0+ format the heading carries no count; declaredCount is derived from `### P{i}.` sectionCount (governance-axis P1-P8 pillars in §2A). Content-quality `### CQ{i}.` pillars (introduced in §2B) are reserved for future extension and not counted by this script.
+- **Inventory regenerated via `npm run inventory`** (`governance/inventory.json` +1 / -1 line): 3 adapters, 19 agents, 39 skills (6 CLI), 40 rules (.md) / 40 (.mdc), 25 commands, 6 hooks, 18 pipeline modules, 14 CLI commands. Counts unchanged from pre-Phase-B state (Phase B authored no new content; new-content authoring deferred to fresh-session-prompt.md Bucket 1.5 per governance-only scope).
+- **Validation results post-fix:** validate-rule-parity 40 pairs / 0 drift; validate-rule-pillar-currency P1-P8 canonical, 0 errors, 0 warnings; `npm test` 131 files / 3363 tests passed; `npx tsc --noEmit` 0 errors; `npx hatch3r validate` 0 errors / 2 pre-existing warnings; `npm run lint` 0 errors / 72 pre-existing warnings (unrelated).
+
+Pillar service: P5 (rule-pillar-currency validator now matches the canonical CONSTITUTION §2 heading shape, restoring CI parity after the two-axis restructure).
+
+---
+
 ## [1.8.0] - 2026-05-19
 
 ### Headline

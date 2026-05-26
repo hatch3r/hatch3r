@@ -1,7 +1,7 @@
 ---
 id: hatch3r-cli-jq
 description: "JSON processor and query language. Use when shaping JSON streams via jq-syntax filters and select expressions; invoke `jq`. Reads stdin and emits stdout; integrates seamlessly into shell pipelines."
-tags: ["cli-tools", "json", "core"]
+tags: ["cli-tools", "json", "orchestration"]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
@@ -56,14 +56,14 @@ Compact (`-c`) one-object-per-line projection — perfect input for `xargs -L1` 
 ## Wrong Choice When
 
 - Don't use `jq` for bidirectional grep on flattened paths; the inverse (`gron` outputs `obj.foo.bar = …` lines you can `rg` then translate back). Reach for `gron`.
-- Don't use `jq` directly on multi-document YAML or front-matter Markdown. Reach for `yq` (`hatch3r-cli-yq`) and pipe `yq -o=json` into `jq` only if you need jq's filter language.
+- Don't use `jq` directly on multi-document YAML or front-matter Markdown. Reach for `yq` (toolbox section in `hatch3r-cli-toolbox`) and pipe `yq -o=json` into `jq` only if you need jq's filter language.
 - Don't reach for `jq` when the file is a stream of newline-delimited JSON (`.ndjson`); use `jq -c` per line or `jaq`/`fx` for stream-friendly behavior — `jq` without `-c` slurps the whole file.
 
 ## Alternatives
 
 | Tool | When to prefer |
 |------|----------------|
-| `yq` (`hatch3r-cli-yq`) | YAML, TOML, XML input — yq speaks them all, jq is JSON-only. |
+| `yq` (toolbox section) | YAML, TOML, XML input — yq speaks them all, jq is JSON-only. |
 | `gron` | Flatten JSON to `path = value` lines for grep-based exploration and reverse-translation. |
 | `dasel` | Single binary across JSON/YAML/TOML/XML with a path-query DSL — handy in CI where you do not want jq+yq. |
 | `fx` | Interactive JSON browsing in a TTY; jq is the right call in scripts. |

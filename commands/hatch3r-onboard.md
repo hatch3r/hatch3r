@@ -4,7 +4,7 @@ type: command
 orchestrator: true
 agentPipeline: [hatch3r-researcher, hatch3r-docs-writer]
 description: Generate a comprehensive onboarding guide for a new developer joining the project -- spawn parallel researchers to analyze codebase structure, architecture, and conventions, then produce a tailored onboarding document with setup instructions, architecture walkthrough, coding conventions, key workflows, tribal knowledge, and a quick-reference cheat sheet.
-tags: [brownfield, team]
+tags: [planning, ctx:brownfield-only, ctx:team-only]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
@@ -35,7 +35,7 @@ Take a new developer's role, experience level, and focus areas and produce a com
 
 ## Shared Context
 
-**Read the `hatch3r-board-shared` command at the start of the run** if it exists. While this command does not perform board operations, it establishes patterns and context (GitHub owner/repo, tooling directives) that provide project metadata useful for the onboarding guide. Cache any values found.
+**Read the `hatch3r-board-shared` skill at the start of the run** if it exists. While this command does not perform board operations, it establishes patterns and context (GitHub owner/repo, tooling directives) that provide project metadata useful for the onboarding guide. Cache any values found.
 
 ## Token-Saving Directives
 
@@ -117,11 +117,11 @@ Answer these now, or say 'skip' for any where you'd rather I omit that section f
    - `package.json` / `pyproject.toml` / `go.mod` / `Cargo.toml` — project metadata, scripts, dependencies
    - `.env.example` — environment variable template
    - `docs/` — any existing documentation
-   - `.agents/rules/` — coding standards and conventions
-   - `.agents/learnings/` — team learnings and institutional knowledge
+   - `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)` — coding standards and conventions
+   - `.hatch3r/learnings/` — team learnings and institutional knowledge
    - CI config (`.github/workflows/`, `.gitlab-ci.yml`, etc.) — CI/CD pipeline
 2. Scan the top-level directory structure to understand project organization.
-3. If `.agents/learnings/` exists, scan for learnings relevant to onboarding, common mistakes, and gotchas. Match by area and tags.
+3. If `.hatch3r/learnings/` exists, scan for learnings relevant to onboarding, common mistakes, and gotchas. Match by area and tags.
 4. Present a context summary:
 
 ```
@@ -131,7 +131,7 @@ Context Loaded:
   Package manifest: {type — with N scripts, M dependencies}
   Env template:     {found / not found}
   Docs:             {N} files in docs/ ({key ones listed})
-  Rules:            {N} files in .agents/rules/ ({areas covered})
+  Rules:            {N} files in the canonical `rules/` directory or `.hatch3r/rules/` (for customizations) ({areas covered})
   Learnings:        {N} relevant learnings
   CI:               {type — N workflows}
   Gaps:             {list any missing context — e.g., "no CONTRIBUTING.md", "no .env.example"}
@@ -287,7 +287,7 @@ Recommended Follow-ups:
 - **Multiple languages/frameworks:** Generate setup sections for each language/framework detected. Organize by language with shared prerequisites listed first. Note which parts of the codebase use which stack.
 - **Missing credentials or access documentation:** Never invent or guess credentials. Include placeholder sections marked `[ACTION REQUIRED]` with instructions on who to contact for access. Flag each missing credential in the Recommended Follow-ups.
 - **File write failure:** Report the error and provide the full guide content so the user can create the file manually.
-- **Missing project context:** If no shared board context or `.agents/hatch.json` exists, proceed without board context — this command does not require board configuration.
+- **Missing project context:** If no shared board context or `.hatch3r/hatch.json` exists, proceed without board context — this command does not require board configuration.
 - **Empty or minimal codebase:** If the project has fewer than 10 source files, generate a condensed guide without the architecture and tribal knowledge sections. Note that the guide will be more useful after the project matures.
 - **Conflicting documentation:** If README instructions conflict with actual project structure or scripts, flag both versions in the guide and note the discrepancy for the developer to verify.
 

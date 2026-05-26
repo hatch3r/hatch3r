@@ -20,7 +20,10 @@ import inquirer from "inquirer";
 
 // ── Constants ──────────────────────────────────────────────────
 
-const AGENTS_DIR = ".agents";
+// Wave 6: manifest moved from .agents/hatch.json to .hatch3r/hatch.json.
+// Tests seed the manifest at the new location directly; migration-shim coverage
+// is handled by src/__tests__/migration/agentsToHatch3r.test.ts.
+const AGENTS_DIR = ".hatch3r";
 
 // ── Fixture helpers ────────────────────────────────────────────
 
@@ -52,10 +55,9 @@ async function createTestProject(
 ): Promise<void> {
   const agentsDir = join(root, AGENTS_DIR);
   await mkdir(agentsDir, { recursive: true });
-  await mkdir(join(agentsDir, "rules"), { recursive: true });
-  await mkdir(join(agentsDir, "agents"), { recursive: true });
-  await mkdir(join(agentsDir, "skills"), { recursive: true });
-  await mkdir(join(agentsDir, "commands"), { recursive: true });
+  // Wave 3/6: end-user repos no longer materialize canonical content under .agents/.
+  // Canonical content is bundled in the npm package; only manifest + overrides live here.
+  await mkdir(join(agentsDir, "overrides", "rules"), { recursive: true });
 
   const manifest: Record<string, unknown> = {
     version: "2.0.0",
@@ -91,10 +93,10 @@ async function createTestProject(
   };
   await writeFile(join(agentsDir, "hatch.json"), JSON.stringify(manifest, null, 2));
 
-  // Write a minimal rule so update has something to work with
+  // Write a minimal user override rule so update has something to work with.
   await writeFile(
-    join(agentsDir, "rules", "hatch3r-test.md"),
-    "---\nid: hatch3r-test\ntype: rule\ndescription: test rule\nscope: always\n---\n# Test Rule\n\nOld test content.\n",
+    join(agentsDir, "overrides", "rules", "team-test.md"),
+    "---\nid: team-test\ntype: rule\ndescription: test rule\nscope: always\n---\n# Test Rule\n\nOld test content.\n",
   );
 }
 
@@ -235,6 +237,7 @@ describe("migration checkpoints", () => {
 
       // Create a large .customize.yaml file (> 10KB = 10240 bytes)
       const largeYaml = "# Large customize file\n" + "override-key: value\n".repeat(1000);
+      await mkdir(join(tempDir, AGENTS_DIR, "rules"), { recursive: true });
       const customizePath = join(tempDir, AGENTS_DIR, "rules", "hatch3r-test.customize.yaml");
       await writeFile(customizePath, largeYaml);
 
@@ -257,6 +260,7 @@ describe("migration checkpoints", () => {
 
       // Create a small customize file (well under 10KB)
       const smallYaml = "override-key: value\n";
+      await mkdir(join(tempDir, AGENTS_DIR, "rules"), { recursive: true });
       const customizePath = join(tempDir, AGENTS_DIR, "rules", "hatch3r-test.customize.yaml");
       await writeFile(customizePath, smallYaml);
 
@@ -521,6 +525,7 @@ describe("migration checkpoints", () => {
 
       // Create a large customize yaml to trigger the third checkpoint
       const largeYaml = "# Large file\n" + "key: value\n".repeat(1500);
+      await mkdir(join(tempDir, AGENTS_DIR, "agents"), { recursive: true });
       await writeFile(
         join(tempDir, AGENTS_DIR, "agents", "hatch3r-big.customize.yaml"),
         largeYaml,
@@ -556,7 +561,7 @@ describe("migration checkpoints", () => {
   });
 
   describe("version upgrade during platform migration", () => {
-    it("should upgrade manifest version from 1.0.0 to 2.0.0 during platform migration", async () => {
+    it("should upgrade manifest version from 1.0.0 to 3.0.0 during platform migration", async () => {
       await createTestProject(tempDir, {
         version: "1.0.0",
         platform: undefined,
@@ -574,7 +579,9 @@ describe("migration checkpoints", () => {
       await updateCommand({ backup: false });
 
       const updated = JSON.parse(await readFile(manifestPath, "utf-8"));
-      expect(updated.version).toBe("2.0.0");
+      // Wave 6 (release/1.9.0): manifest version bumped to 3.0.0 (schemaVersion 3)
+      // when relocating from .agents/hatch.json to .hatch3r/hatch.json.
+      expect(updated.version).toBe("3.0.0");
       expect(updated.platform).toBe("github");
     });
   });
@@ -591,7 +598,7 @@ describe("migration checkpoints", () => {
         ...consoleSpy.mock.calls.map((c) => String(c[0])),
         ...consoleErrorSpy.mock.calls.map((c) => String(c[0])),
       ].join(" ");
-      expect(allOutput).toContain("No .agents/hatch.json found");
+      expect(allOutput).toContain("No .hatch3r/hatch.json found");
     });
   });
 });

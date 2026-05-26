@@ -63,9 +63,9 @@ Each sub-agent prompt MUST include:
 
 1. The specific findings to address (file paths, line numbers, descriptions, expected behavior).
 2. Instruction to follow the corresponding agent protocol (e.g., "Follow the hatch3r-implementer agent protocol").
-3. All `scope: always` rule directives from `.agents/rules/` — sub-agents do not inherit rules automatically.
+3. All `scope: always` rule directives from `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)` — sub-agents do not inherit rules automatically.
 4. Acceptance criteria from linked issues (if available from Step 1b).
-5. Relevant learnings from `.agents/learnings/` (if found in Step 1d).
+5. Relevant learnings from `.hatch3r/learnings/` (if found in Step 1d).
 6. Explicit instruction: do NOT create branches, commits, or PRs.
 7. Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
 8. Revision-specific constraint: "You are fixing existing code, not implementing new features. Stay within the architecture established by the original implementation."

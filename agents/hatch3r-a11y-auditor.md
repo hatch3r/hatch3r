@@ -3,7 +3,7 @@ id: hatch3r-a11y-auditor
 type: agent
 description: Accessibility specialist who audits for WCAG AA compliance. Use when auditing accessibility, reviewing UI components, or fixing a11y issues.
 model: standard
-tags: [review, a11y]
+tags: [review, floor:ui-ux, a11y]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 efficiency_tier: standard
@@ -51,7 +51,7 @@ Browser verification provides ground-truth confirmation that cannot be achieved 
 
 ## Standards to Enforce
 
-Follow the full accessibility standards defined in `.agents/rules/hatch3r-accessibility-standards.md` (WCAG 2.2 AA compliance, keyboard navigation, focus management, color/contrast, screen reader support, ARIA patterns, motion, forms). Summary of key thresholds:
+Follow the full accessibility standards defined in `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)hatch3r-accessibility-standards.md` (WCAG 2.2 AA compliance, keyboard navigation, focus management, color/contrast, screen reader support, ARIA patterns, motion, forms). Summary of key thresholds:
 
 | Requirement         | Standard | Details                                                          |
 | ------------------- | -------- | ---------------------------------------------------------------- |

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { CursorAdapter } from "../../adapters/cursor.js";
 import { createManifest } from "../../manifest/hatchJson.js";
@@ -8,6 +8,9 @@ import type { HatchManifest } from "../../types.js";
 import { resolveTestPath } from "../fixtures.js";
 
 const FIXTURES_DIR = resolveTestPath(import.meta.url, "../fixtures/agents");
+// Wave 5: fixture user repo root — parent of canonical fixtures, so
+// `.hatch3r/{type}/{id}.customize.yaml` lookups resolve correctly.
+const FIXTURES_USER_REPO = dirname(FIXTURES_DIR);
 
 describe("CursorAdapter", () => {
   const adapter = new CursorAdapter();
@@ -73,7 +76,9 @@ describe("CursorAdapter", () => {
     const manifest = makeManifest();
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
-    const agents = outputs.filter((o) => o.path.startsWith(".cursor/agents/"));
+    // Top-level picker entries — companion subtrees (`.cursor/agents/modes/`,
+    // `.cursor/agents/shared/`) are emitted but excluded from this count.
+    const agents = outputs.filter((o) => /^\.cursor\/agents\/[^/]+\.md$/.test(o.path));
     expect(agents.length).toBe(2);
 
     const agent = agents.find((o) => o.path === ".cursor/agents/hatch3r-test-agent.md")!;
@@ -106,7 +111,7 @@ describe("CursorAdapter", () => {
 
   it("emits model from customization file when present", async () => {
     const manifest = makeManifest();
-    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest, FIXTURES_USER_REPO);
 
     const agentFile = outputs.find((o) => o.path === ".cursor/agents/hatch3r-test-agent.md");
     expect(agentFile).toBeDefined();
@@ -156,11 +161,33 @@ You are a test agent.`,
     expect(skill.managedContent).toBeDefined();
   });
 
+  it("emits companion subtree files under `.cursor/` so canonical references resolve", async () => {
+    const manifest = makeManifest();
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const pathSet = new Set(outputs.map((o) => o.path));
+    expect(pathSet.has(".cursor/agents/modes/fake-mode.md")).toBe(true);
+    expect(pathSet.has(".cursor/agents/shared/fake-reference.md")).toBe(true);
+    expect(pathSet.has(".cursor/commands/board/pickup-fake.md")).toBe(true);
+
+    // Companion paths must not surface in the top-level agent/command pickers.
+    const topLevelAgentPaths = outputs
+      .filter((o) => /^\.cursor\/agents\/[^/]+\.md$/.test(o.path))
+      .map((o) => o.path);
+    const topLevelCommandPaths = outputs
+      .filter((o) => /^\.cursor\/commands\/[^/]+\.md$/.test(o.path))
+      .map((o) => o.path);
+    expect(topLevelAgentPaths.some((p) => p.includes("fake-mode"))).toBe(false);
+    expect(topLevelCommandPaths.some((p) => p.includes("pickup-fake"))).toBe(false);
+  });
+
   it("generates command files", async () => {
     const manifest = makeManifest();
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
-    const commands = outputs.filter((o) => o.path.startsWith(".cursor/commands/"));
+    // Top-level picker entries — companion subtrees (`.cursor/commands/board/`,
+    // `.cursor/commands/revision/`) are emitted but excluded from this count.
+    const commands = outputs.filter((o) => /^\.cursor\/commands\/[^/]+\.md$/.test(o.path));
     expect(commands.length).toBe(1);
 
     const cmd = commands[0]!;
@@ -197,7 +224,8 @@ You are a test agent.`,
     expect(bridge).toBeDefined();
     expect(bridge!.content).toContain("alwaysApply: true");
     expect(bridge!.content).toContain("Hatch3r Bridge");
-    expect(bridge!.content).toContain("/.agents/AGENTS.md");
+    // W4: `.agents/AGENTS.md` orchestration root removed; bridge is itself the entry point.
+    expect(bridge!.content).not.toContain("/.agents/AGENTS.md");
     expect(bridge!.content).toContain("Mandatory Behaviors");
     expect(bridge!.content).toContain("Agent Quick Reference");
     expect(bridge!.managedContent).toBeDefined();

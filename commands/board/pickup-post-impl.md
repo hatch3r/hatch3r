@@ -118,7 +118,7 @@ After the PR merges and `Closes #N` auto-closes the referenced issue(s), confirm
    ```
    Record the mutation in the run cache under `updated_issues`.
 
-2. **Board state check.** Read `board.workflows.itemClosedEnabled` from `.agents/hatch.json`:
+2. **Board state check.** Read `board.workflows.itemClosedEnabled` from `.hatch3r/hatch.json`:
    - **If true:** The V2 built-in "Item closed" workflow has already set the board status to Done. Skip to step 3.
    - **If false or absent:** The workflow is not enabled (board-init should have halted, but this is a defensive fallback). Apply the full **Board Sync Procedure** from `hatch3r-board-shared` for each issue, target status = Done.
 
@@ -142,7 +142,7 @@ After PR creation, capture learnings from this development session.
    - Were any pitfalls discovered that should be avoided next time?
 
 2. If learnings are identified:
-   - Create learning files in `.agents/learnings/` following the learning file format (see `hatch3r-learn` command).
+   - Create learning files in `.hatch3r/learnings/` following the learning file format (see `hatch3r-learn` command).
    - Include the issue number as `source-issue`.
    - Tag with relevant area labels from the issue.
    - **ASK:** "Learnings captured: {list}. Anything else to note? (add more / done)"

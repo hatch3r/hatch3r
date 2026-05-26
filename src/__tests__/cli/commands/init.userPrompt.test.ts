@@ -1,5 +1,6 @@
-// D20: dedicated tests for the post-init "create your first user artifact?"
-// inquirer prompt added to runInit.
+// Post-init tip line: unconditional Tip about /hatch3r-create. The previous
+// confirm prompt was theater (both branches printed near-identical tips and
+// neither created anything) — now collapsed to a single line.
 
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach, type MockInstance } from "vitest";
 import inquirer from "inquirer";
@@ -7,7 +8,8 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-const AGENTS_DIR = ".agents";
+// Wave 6: manifest moved from .agents/hatch.json to .hatch3r/hatch.json.
+const AGENTS_DIR = ".hatch3r";
 
 // Mock inquirer so the prompt-driven branches are deterministic. Mirrors the
 // pattern in src/__tests__/cli/init.test.ts.
@@ -23,7 +25,7 @@ vi.mock("inquirer", () => {
   };
 });
 
-describe("init D20 post-init prompt (C8-D20)", () => {
+describe("init post-init tip", () => {
   let initCommand: (opts?: { tools?: string; yes?: boolean }) => Promise<void>;
   let tempDir: string;
   let cwdSpy: MockInstance;
@@ -36,7 +38,7 @@ describe("init D20 post-init prompt (C8-D20)", () => {
   });
 
   beforeEach(async () => {
-    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-init-d20-"));
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-init-tip-"));
     cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempDir);
     exitSpy = vi
       .spyOn(process, "exit")
@@ -63,23 +65,19 @@ describe("init D20 post-init prompt (C8-D20)", () => {
     ].join("\n");
   }
 
-  it("--yes mode skips the post-init prompt entirely (no inquirer call)", async () => {
+  it("--yes mode fires no inquirer prompts and still writes the manifest", async () => {
     await initCommand({ yes: true, tools: "claude" });
 
-    // No inquirer prompt should have fired at all on the --yes path. If the
-    // post-init prompt regressed to firing without skip-guard, it would be
-    // captured here.
     const inq = vi.mocked(inquirer.prompt);
     expect(inq).not.toHaveBeenCalled();
 
-    // And the manifest should still be written (init succeeded).
     const manifest = JSON.parse(
       await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"),
     );
     expect(manifest.tools).toContain("claude");
   });
 
-  it("interactive mode + decline ('false') prints the Tip pointer to /hatch3r-create", async () => {
+  it("interactive mode prints the /hatch3r-create tip exactly once", async () => {
     const inq = vi.mocked(inquirer.prompt);
     // Queue all prompts for an interactive minimal flow. C9-H28
     // (D10-SA10.3-F1) moved features + MCP ahead of the CLI tools picker.
@@ -90,37 +88,19 @@ describe("init D20 post-init prompt (C8-D20)", () => {
     inq.mockResolvedValueOnce({ teamSize: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    inq.mockResolvedValueOnce({ enabled: true }); // worktree (claude)
-    inq.mockResolvedValueOnce({ features: ["agents"] });
-    inq.mockResolvedValueOnce({ tools: [] }); // C9-H28: CLI tools picker follows features
-    // The new D20 prompt — decline.
-    inq.mockResolvedValueOnce({ create: false });
+    // Slice D removed the interactive worktree confirm — auto-enabled when a
+    // worktree-capable tool (claude) is selected.
+    // Slice B: feature checkbox replaced by wantMcp confirm.
+    inq.mockResolvedValueOnce({ wantMcp: false });
+    inq.mockResolvedValueOnce({ tools: [] }); // C9-H28: CLI tools picker follows MCP
 
     await initCommand({});
 
     const out = combinedOutput();
-    expect(out).toContain("Tip");
-    expect(out).toContain("/hatch3r-create");
-  });
-
-  it("interactive mode + accept ('true') prints the Run /hatch3r-create pointer", async () => {
-    const inq = vi.mocked(inquirer.prompt);
-    inq.mockResolvedValueOnce({ platform: "github" });
-    inq.mockResolvedValueOnce({ owner: "o", repo: "r" });
-    inq.mockResolvedValueOnce({ defaultBranch: "main" });
-    inq.mockResolvedValueOnce({ projectType: "brownfield" });
-    inq.mockResolvedValueOnce({ teamSize: "solo" });
-    inq.mockResolvedValueOnce({ preset: "minimal" });
-    inq.mockResolvedValueOnce({ tools: ["claude"] });
-    inq.mockResolvedValueOnce({ enabled: true });
-    inq.mockResolvedValueOnce({ features: ["agents"] });
-    inq.mockResolvedValueOnce({ tools: [] }); // C9-H28: CLI tools picker follows features
-    // The new D20 prompt — accept.
-    inq.mockResolvedValueOnce({ create: true });
-
-    await initCommand({});
-
-    const out = combinedOutput();
-    expect(out).toContain("Run /hatch3r-create");
+    expect(out).toContain("Tip: Run /hatch3r-create");
+    // Exactly one tip line — not two (the old accept/decline branches both
+    // printed a tip).
+    const matches = out.match(/Tip: Run \/hatch3r-create/g) ?? [];
+    expect(matches.length).toBe(1);
   });
 });

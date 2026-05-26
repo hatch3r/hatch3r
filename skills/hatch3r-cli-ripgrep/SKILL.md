@@ -1,7 +1,7 @@
 ---
 id: hatch3r-cli-ripgrep
 description: "Fast recursive grep with sane defaults and gitignore awareness. Use when regex content searches across large source trees with gitignore filtering; invoke `rg`. Outputs newline-separated hit records; bound results with `-c` or `--max-count`."
-tags: ["cli-tools", "search", "core"]
+tags: ["cli-tools", "search", "orchestration"]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
@@ -55,7 +55,7 @@ Two-phase: file list first, then ranged scan — keeps stdout small when match d
 
 ## Wrong Choice When
 
-- Don't use `rg` to match by code structure (function calls, type signatures, JSX shape); literal regex misses renames and whitespace variants. Reach for `ast-grep` (`hatch3r-cli-ast-grep`).
+- Don't use `rg` to match by code structure (function calls, type signatures, JSX shape); literal regex misses renames and whitespace variants. Reach for `ast-grep` (see the ast-grep section in `hatch3r-cli-toolbox`).
 - Don't run `rg` against binary blobs (`.zst`, `.png`, lockfile snapshots); it skips them silently by default but explicit `-a` mode wastes CPU. Reach for category-specific tools (`zstd -d` then `rg`, or `xxd | rg` for hex).
 - Don't use `rg` to search a specific git revision or stash — it only sees the working tree. Reach for `git grep <rev>`.
 
@@ -63,7 +63,7 @@ Two-phase: file list first, then ranged scan — keeps stdout small when match d
 
 | Tool | When to prefer |
 |------|----------------|
-| `ast-grep` (`hatch3r-cli-ast-grep`) | Structural code patterns: matchers like `console.log($MSG)` that survive whitespace and identifier renames. |
+| `ast-grep` (toolbox section) | Structural code patterns: matchers like `console.log($MSG)` that survive whitespace and identifier renames. |
 | `git grep` | Search at a specific revision, tag, or stash — `rg` only reads the working tree. |
 | `fd` (`hatch3r-cli-fd`) piped into `rg` | Filename pre-filter when scoping by extension/age is faster than `rg --type`. |
 | `grep -RIn` | POSIX-only environment where ripgrep is not on PATH and install is blocked. |

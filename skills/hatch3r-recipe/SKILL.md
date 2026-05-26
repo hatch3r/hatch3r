@@ -1,7 +1,7 @@
 ---
 id: hatch3r-recipe
 description: Create, test, and manage workflow recipes that compose hatch3r capabilities into guided sequences. Use when creating new recipes, customizing existing ones, or troubleshooting recipe execution.
-tags: [core]
+tags: [orchestration]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
@@ -49,9 +49,89 @@ Map out the dependency graph:
 - Identify steps that can run in parallel
 - Mark checkpoint steps where user confirmation adds value
 
+## Recipe Schema
+
+Recipes are YAML files stored in `.hatch3r/recipes/` (project-level) or `~/.hatch3r/recipes/` (user-level):
+
+```yaml
+name: greenfield-setup
+version: 1.0.0
+description: Full greenfield project setup from spec to first PR
+author: hatch3r
+tags: [setup, greenfield, planning]
+
+prerequisites:
+  - GitHub repository initialized
+  - hatch3r initialized (hatch3r init)
+
+variables:
+  project_name:
+    description: Project name
+    required: true
+  tech_stack:
+    description: Primary tech stack
+    required: true
+    options: [react, vue, next, express, fastify]
+
+steps:
+  - id: generate-spec
+    name: Generate Project Specification
+    command: hatch3r-project-spec
+    inputs:
+      project_name: "{{ project_name }}"
+    checkpoint: true
+
+  - id: init-board
+    name: Initialize Project Board
+    skill: hatch3r-board-init
+    depends_on: [generate-spec]
+    checkpoint: true
+
+  - id: security-baseline
+    name: Security Baseline Audit
+    command: hatch3r-security-audit
+    depends_on: [init-board]
+    parallel_with: [a11y-baseline]
+
+  - id: a11y-baseline
+    name: Accessibility Baseline
+    skill: hatch3r-a11y-audit
+    depends_on: [init-board]
+    parallel_with: [security-baseline]
+
+completion:
+  message: "Project {{ project_name }} is set up."
+  next_steps:
+    - Continue with `board-pickup` to implement remaining issues
+```
+
+Recipes can also reference other recipes as steps via `recipe: <name>` with `inputs:`.
+
+## Built-in Recipes
+
+1. **Greenfield Setup** — spec → board → audit → first issue
+2. **Legacy Onboarding** — codebase analysis → codebase map → board setup → healthcheck → first improvements
+3. **Security Hardening** — security audit → dep audit → findings triage → hardening
+4. **Performance Sprint** — perf audit → budget review → optimization → verification
+5. **Release Preparation** — healthcheck → test validation → security scan → changelog → release
+6. **Quality Gate** — lint fix → test coverage review → a11y audit → perf audit → security scan
+
+## Execution Modes
+
+| Mode | Behavior |
+|------|----------|
+| Interactive (default) | Pause at checkpoints, show progress |
+| Auto (`--auto`) | Skip checkpoints, run all steps autonomously |
+| Dry-run (`--dry-run`) | Show execution plan without running |
+| Resume (`--resume`) | Continue from last checkpoint |
+
+Workflow: parse recipe → check prerequisites → collect variables (CLI args or prompt) → build DAG from `depends_on`/`parallel_with` → execute (parallelizing where possible) → handle checkpoints → report completion.
+
+Guardrails: recipes must not bypass safety checkpoints for destructive operations; YAML is validated against the schema before execution; circular dependencies are detected and rejected; variable injection is sanitized to prevent command injection.
+
 ## Step 3: Write Recipe YAML
 
-Create the recipe file in `.hatch3r/recipes/` following the schema defined in the `hatch3r-recipe` command. Include:
+Create the recipe file in `.hatch3r/recipes/` following the schema above. Include:
 - Clear name and description
 - Required variables with descriptions
 - Steps with proper `depends_on` and `parallel_with` relationships

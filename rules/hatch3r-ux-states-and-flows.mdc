@@ -2,6 +2,7 @@
 description: Four-state surface contract (loading/empty/error/partial), user-flow decomposition before implementation, and microcopy + tone discipline for end-user UIs
 globs: ["**/*.vue", "**/*.jsx", "**/*.tsx", "**/*.svelte", "**/components/**", "**/*.html", "**/messages/**", "**/locales/**", "**/copy/**"]
 alwaysApply: false
+precedence: high
 ---
 # UX States and Flows
 

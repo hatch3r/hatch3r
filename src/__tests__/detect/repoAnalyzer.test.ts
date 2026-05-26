@@ -349,133 +349,10 @@ describe("analyzeRepo", () => {
       expect(info.existingTools).toContain("claude");
     });
 
-    it("detects OpenCode from opencode.json", async () => {
-      const root = await createTempRepo();
-      await writeFile(join(root, "opencode.json"), "{}");
-
-      const info = await analyzeRepo(root);
-      expect(info.existingTools).toContain("opencode");
-    });
-
-    it("detects OpenCode from opencode.jsonc", async () => {
-      const root = await createTempRepo();
-      await writeFile(join(root, "opencode.jsonc"), "{}");
-
-      const info = await analyzeRepo(root);
-      expect(info.existingTools).toContain("opencode");
-    });
-
-    it("detects Windsurf from .windsurfrules", async () => {
-      const root = await createTempRepo();
-      await writeFile(join(root, ".windsurfrules"), "rules");
-
-      const info = await analyzeRepo(root);
-      expect(info.existingTools).toContain("windsurf");
-    });
-
-    it("detects Amp from .amp/ directory", async () => {
-      const root = await createTempRepo();
-      await mkdir(join(root, ".amp"), { recursive: true });
-
-      const info = await analyzeRepo(root);
-      expect(info.existingTools).toContain("amp");
-    });
-
-    it("does not detect Amp from .agents/commands (hatch3r canonical structure)", async () => {
-      const root = await createTempRepo();
-      await mkdir(join(root, ".agents", "commands"), { recursive: true });
-
-      const info = await analyzeRepo(root);
-      expect(info.existingTools).not.toContain("amp");
-    });
-
-    it("detects Codex from .codex/ directory", async () => {
-      const root = await createTempRepo();
-      await mkdir(join(root, ".codex"), { recursive: true });
-
-      const info = await analyzeRepo(root);
-      expect(info.existingTools).toContain("codex");
-    });
-
-    it("detects Gemini from .gemini/ directory", async () => {
-      const root = await createTempRepo();
-      await mkdir(join(root, ".gemini"), { recursive: true });
-
-      const info = await analyzeRepo(root);
-      expect(info.existingTools).toContain("gemini");
-    });
-
-    it("detects Gemini from GEMINI.md", async () => {
-      const root = await createTempRepo();
-      await writeFile(join(root, "GEMINI.md"), "# Gemini");
-
-      const info = await analyzeRepo(root);
-      expect(info.existingTools).toContain("gemini");
-    });
-
-    it("detects Cline from .clinerules", async () => {
-      const root = await createTempRepo();
-      await writeFile(join(root, ".clinerules"), "rules");
-
-      const info = await analyzeRepo(root);
-      expect(info.existingTools).toContain("cline");
-    });
-
-    it("detects Cline from .roo directory", async () => {
-      const root = await createTempRepo();
-      await mkdir(join(root, ".roo"), { recursive: true });
-
-      const info = await analyzeRepo(root);
-      expect(info.existingTools).toContain("cline");
-    });
-
-    it("detects Cline from .roomodes", async () => {
-      const root = await createTempRepo();
-      await writeFile(join(root, ".roomodes"), "{}");
-
-      const info = await analyzeRepo(root);
-      expect(info.existingTools).toContain("cline");
-    });
-
-    it("detects Aider from .aider.conf.yml", async () => {
-      const root = await createTempRepo();
-      await writeFile(join(root, ".aider.conf.yml"), "read: []");
-
-      const info = await analyzeRepo(root);
-      expect(info.existingTools).toContain("aider");
-    });
-
-    it("detects Kiro from .kiro/ directory", async () => {
-      const root = await createTempRepo();
-      await mkdir(join(root, ".kiro"), { recursive: true });
-
-      const info = await analyzeRepo(root);
-      expect(info.existingTools).toContain("kiro");
-    });
-
-    it("detects Goose from .goosehints", async () => {
-      const root = await createTempRepo();
-      await writeFile(join(root, ".goosehints"), "hints");
-
-      const info = await analyzeRepo(root);
-      expect(info.existingTools).toContain("goose");
-    });
-
-    it("detects Goose from .goose/ directory", async () => {
-      const root = await createTempRepo();
-      await mkdir(join(root, ".goose"), { recursive: true });
-
-      const info = await analyzeRepo(root);
-      expect(info.existingTools).toContain("goose");
-    });
-
-    it("detects Zed from .rules file", async () => {
-      const root = await createTempRepo();
-      await writeFile(join(root, ".rules"), "zed rules");
-
-      const info = await analyzeRepo(root);
-      expect(info.existingTools).toContain("zed");
-    });
+    // W1-C (release/1.9.0): repoAnalyzer detects only the 3 supported adapters —
+    // claude, cursor, copilot. Detection cases for the 12 removed adapters
+    // (aider/amazonq/amp/antigravity/cline/codex/gemini/goose/kiro/opencode/
+    // windsurf/zed) were deleted alongside the adapter sources.
 
     it("returns empty array when no tools detected", async () => {
       const root = await createTempRepo();
@@ -484,16 +361,14 @@ describe("analyzeRepo", () => {
       expect(info.existingTools).toEqual([]);
     });
 
-    it("detects multiple tools simultaneously", async () => {
+    it("detects multiple supported tools simultaneously", async () => {
       const root = await createTempRepo();
       await mkdir(join(root, ".cursor"), { recursive: true });
       await writeFile(join(root, "CLAUDE.md"), "# Claude");
-      await writeFile(join(root, ".windsurfrules"), "rules");
 
       const info = await analyzeRepo(root);
       expect(info.existingTools).toContain("cursor");
       expect(info.existingTools).toContain("claude");
-      expect(info.existingTools).toContain("windsurf");
     });
   });
 

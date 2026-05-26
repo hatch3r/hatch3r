@@ -118,7 +118,6 @@ The orchestrator running this skill emits a single-line verdict per gate (`GATE_
 
 ## Cross-References
 
-- `rules/hatch3r-observability.md`
 - `rules/hatch3r-observability-logging.md`
 - `rules/hatch3r-observability-metrics.md`
 - `rules/hatch3r-observability-tracing.md` (includes AI agent instrumentation; was previously split as `-detail`)

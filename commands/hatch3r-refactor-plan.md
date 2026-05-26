@@ -44,7 +44,7 @@ The command produces phased todo.md entries that map to the appropriate executio
 
 ## Shared Context
 
-**Read the `hatch3r-board-shared` command at the start of the run** if it exists. While this command does not perform board operations directly, it establishes patterns and context (GitHub owner/repo, tooling directives) that downstream commands like `hatch3r-board-fill` rely on. Cache any values found.
+**Read the `hatch3r-board-shared` skill at the start of the run** if it exists. While this command does not perform board operations directly, it establishes patterns and context (GitHub owner/repo, tooling directives) that downstream commands like `hatch3r-board-fill` rely on. Cache any values found.
 
 ## Token-Saving Directives
 
@@ -114,10 +114,10 @@ Refactoring Brief:
    - `docs/specs/` — project specifications (read TOC/headers first, expand relevant sections only)
    - `docs/adr/` — architectural decision records (scan for decisions relevant to the target area)
    - `README.md` — project overview
-   - `.agents/hatch.json` — board configuration
+   - `.hatch3r/hatch.json` — board configuration
    - Existing `todo.md` — current backlog (check for overlap or related items)
 2. Scan GitHub issues via `search_issues` for existing work related to the refactoring area. Note in-progress work, dependencies, or prior refactoring attempts.
-3. If `.agents/learnings/` exists, scan for learnings relevant to the target area. Match by area and tags against the refactoring brief.
+3. If `.hatch3r/learnings/` exists, scan for learnings relevant to the target area. Match by area and tags against the refactoring brief.
 4. Scan test coverage in the target area — identify which parts have strong test coverage (safe to refactor) vs. weak coverage (need tests first).
 5. Present a context summary:
 
@@ -445,7 +445,7 @@ If yes, instruct the user to invoke the `hatch3r-board-fill` command. Note that 
 - **Sub-agent failure:** Retry the failed sub-agent once. If it fails again, present partial results from the remaining sub-agents and ask the user how to proceed (continue without that researcher's input / provide the missing information manually / abort).
 - **Conflicting researcher outputs:** Present both options side by side with trade-offs. Ask the user to decide. Do not silently pick one.
 - **File write failure:** Report the error and provide the full file content so the user can create the file manually.
-- **Missing project context:** If no `hatch3r-board-shared` or `.agents/hatch.json` exists, proceed without board context — this command does not require board configuration.
+- **Missing project context:** If no `hatch3r-board-shared` or `.hatch3r/hatch.json` exists, proceed without board context — this command does not require board configuration.
 - **No existing specs or docs:** Proceed without spec references. Warn that the refactoring spec will be less contextualized without existing project documentation. Recommend running `hatch3r-project-spec` or `hatch3r-codebase-map` first for best results.
 - **Duplicate detection:** If the refactoring overlaps significantly with existing todo.md items or GitHub issues found in Step 2, present the overlap and ASK whether to proceed (augment existing / replace / abort).
 - **Weak test coverage:** If the current state analyzer finds weak test coverage in the target area, the migration path planner MUST include a Phase 0 for test scaffolding. Do not proceed with refactoring phases without adequate coverage.

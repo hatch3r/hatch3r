@@ -3,7 +3,7 @@
  *
  * Public surface for the `/hatch3r-create` command and `hatch3r-creator`
  * sub-agent. Provides three operations against the project-local
- * `.agents/user/` subtree:
+ * `.hatch3r/overrides/` subtree (Wave 5 — relocated from `.agents/user/`):
  *
  *   - {@link saveUserContent}    — strict + gentle gate funnel + atomic write
  *   - {@link discoverUserContent} — enumerate user artifacts on disk
@@ -173,7 +173,7 @@ const ANTI_SLOP_WORDLIST: readonly string[] = [
 // ── Public API ─────────────────────────────────────────────────
 
 /**
- * Save a user artifact under `.agents/user/{type}/...` after running strict
+ * Save a user artifact under `.hatch3r/overrides/{type}/...` after running strict
  * + gentle gates. Strict failure short-circuits (no filesystem mutation).
  * Successful save also bumps `hatch.json.userContent` counters when the
  * manifest exists.
@@ -205,7 +205,7 @@ export async function saveUserContent(
 }
 
 /**
- * Enumerate artifacts under `.agents/user/`. Returns an empty list when the
+ * Enumerate artifacts under `.hatch3r/overrides/`. Returns an empty list when the
  * user subtree does not exist yet.
  *
  * For agents/commands/rules/hooks we glob `*.md` (skipping `.mdc` companions
@@ -287,7 +287,7 @@ export async function validateUserArtifact(
  * Per-file violation surfaced by {@link validateContentBody}.
  */
 export interface ContentBodyViolation {
-  /** Project-relative path of the offending file (e.g. `.agents/user/agents/foo.md`). */
+  /** Project-relative path of the offending file (e.g. `.hatch3r/overrides/agents/foo.md`). */
   relativePath: string;
   /** Severity bucket — strict failures must block `sync`; warnings are advisory. */
   severity: "error" | "warning";
@@ -296,7 +296,7 @@ export interface ContentBodyViolation {
 }
 
 /**
- * Scan body content of canonical artifacts AND `.agents/user/` artifacts via
+ * Scan body content of canonical artifacts AND `.hatch3r/overrides/` artifacts via
  * `scanForDeniedPatterns` + `sanitizePipelineInput` before they are forwarded
  * into adapter outputs. Used by `sync` as a pre-flight gate so a tampered or
  * prompt-injected user artifact cannot ride into `.cursor/`, `.claude/`, etc.
@@ -306,7 +306,7 @@ export interface ContentBodyViolation {
  * leaves all on-disk state untouched.
  *
  * Behavior:
- *   - Returns an empty list when `.agents/user/` does not exist.
+ *   - Returns an empty list when `.hatch3r/overrides/` does not exist.
  *   - Treats deny-pattern hits and injection-scan violations as `severity: "error"`.
  *   - Reads the file body (post-frontmatter) and surfaces every match.
  *   - Tolerates I/O errors on individual files (logs a warning entry, continues
@@ -808,7 +808,7 @@ async function writeArtifactFiles(
 // ── Internal: helpers ──────────────────────────────────────────
 
 function userTypeDir(userRoot: string, type: UserArtifactType): string {
-  // `.agents/user/{plural-dir}` mirrors canonical content layout.
+  // `.hatch3r/overrides/{plural-dir}` mirrors canonical content layout.
   const plural: Record<UserArtifactType, string> = {
     agent: "agents",
     skill: "skills",
@@ -820,7 +820,7 @@ function userTypeDir(userRoot: string, type: UserArtifactType): string {
 }
 
 /**
- * Best-effort manifest counter update. Reads `.agents/hatch.json` (returns
+ * Best-effort manifest counter update. Reads `.hatch3r/hatch.json` (returns
  * null when absent), computes new counters from `discoverUserContent`, and
  * writes the manifest back atomically. If the manifest does not exist yet
  * (init has not run), this is a silent no-op so the save still succeeds.

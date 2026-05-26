@@ -60,15 +60,17 @@ import { cleanCommand } from "../../cli/commands/clean.js";
 // ── Helpers ───────────────────────────────────────────────────
 
 function makeInventory(overrides: Partial<CleanInventory> = {}): CleanInventory {
+  // Wave 7 reshape: dropped `canonicalDir`, `customizeDir`, `learnings`,
+  // `userContentCount`; added `manifestPresent` and `hatch3rDir` to
+  // reflect the single `.hatch3r/` footprint (Wave 6).
   return {
     adapterFiles: [],
-    canonicalDir: false,
+    manifestPresent: false,
     archiveDir: false,
-    customizeDir: false,
+    hatch3rDir: false,
     worktreeInclude: false,
     envMcp: false,
     agentsMdHasUserContent: false,
-    learnings: [],
     isWorkspaceRoot: false,
     isWorkspaceMember: false,
     workspaceRootPath: null,
@@ -169,7 +171,7 @@ describe("cleanCommand", () => {
 
   it("shows inventory and prompts for confirmation", async () => {
     vi.mocked(inventoryArtifacts).mockResolvedValue(
-      makeInventory({ adapterFiles: [".cursor/rules/hatch3r-test.mdc"], canonicalDir: true }),
+      makeInventory({ adapterFiles: [".cursor/rules/hatch3r-test.mdc"], hatch3rDir: true }),
     );
     vi.mocked(inquirer.prompt).mockResolvedValueOnce({ proceed: false });
 
@@ -183,7 +185,7 @@ describe("cleanCommand", () => {
   });
 
   it("--yes skips confirmation and reinit prompt", async () => {
-    const inv = makeInventory({ adapterFiles: [".cursor/rules/hatch3r-test.mdc"], canonicalDir: true });
+    const inv = makeInventory({ adapterFiles: [".cursor/rules/hatch3r-test.mdc"], hatch3rDir: true });
     vi.mocked(inventoryArtifacts).mockResolvedValue(inv);
     vi.mocked(executeClean).mockResolvedValue({ removed: [".cursor/rules/hatch3r-test.mdc", ".agents/"], kept: [], errors: [] });
 
@@ -196,7 +198,7 @@ describe("cleanCommand", () => {
   });
 
   it("--dry-run shows what would be removed without executing", async () => {
-    const inv = makeInventory({ adapterFiles: [".cursor/rules/hatch3r-test.mdc"], canonicalDir: true });
+    const inv = makeInventory({ adapterFiles: [".cursor/rules/hatch3r-test.mdc"], hatch3rDir: true });
     vi.mocked(inventoryArtifacts).mockResolvedValue(inv);
     vi.mocked(executeClean).mockResolvedValue({
       removed: [".cursor/rules/hatch3r-test.mdc", ".agents/"],
@@ -216,7 +218,7 @@ describe("cleanCommand", () => {
     const manifest = makeManifest();
     const inv = makeInventory({
       adapterFiles: [".cursor/rules/hatch3r-test.mdc"],
-      canonicalDir: true,
+      hatch3rDir: true,
       manifest,
     });
     vi.mocked(inventoryArtifacts).mockResolvedValue(inv);
@@ -241,7 +243,7 @@ describe("cleanCommand", () => {
     const manifest = makeManifest();
     const inv = makeInventory({
       adapterFiles: [".cursor/rules/hatch3r-test.mdc"],
-      canonicalDir: true,
+      hatch3rDir: true,
       manifest,
     });
     const repoInfo = makeRepoInfo();
@@ -296,7 +298,7 @@ describe("cleanCommand", () => {
 
     const inv = makeInventory({
       adapterFiles: [".cursor/rules/hatch3r-test.mdc"],
-      canonicalDir: true,
+      hatch3rDir: true,
       manifest,
     });
 
@@ -341,7 +343,7 @@ describe("cleanCommand", () => {
     const manifest = makeManifest();
     const inv = makeInventory({
       adapterFiles: [".cursor/rules/hatch3r-test.mdc"],
-      canonicalDir: true,
+      hatch3rDir: true,
       manifest,
     });
 
@@ -364,7 +366,7 @@ describe("cleanCommand", () => {
     const manifest = makeManifest();
     const inv = makeInventory({
       adapterFiles: [".cursor/rules/hatch3r-test.mdc"],
-      canonicalDir: true,
+      hatch3rDir: true,
       manifest,
     });
 
@@ -387,7 +389,7 @@ describe("cleanCommand", () => {
   it("handles missing manifest (no reinit prompt)", async () => {
     const inv = makeInventory({
       adapterFiles: [".cursor/rules/hatch3r-test.mdc"],
-      canonicalDir: true,
+      hatch3rDir: true,
       manifest: null,
     });
 
@@ -420,7 +422,7 @@ describe("cleanCommand", () => {
 
     const inv = makeInventory({
       adapterFiles: [".cursor/rules/hatch3r-test.mdc"],
-      canonicalDir: true,
+      hatch3rDir: true,
       manifest,
     });
 
@@ -459,7 +461,7 @@ describe("cleanCommand", () => {
 
     const inv = makeInventory({
       adapterFiles: [".cursor/rules/hatch3r-test.mdc"],
-      canonicalDir: true,
+      hatch3rDir: true,
       manifest,
     });
 

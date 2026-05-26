@@ -3,7 +3,8 @@ id: hatch3r-security-patterns
 type: rule
 description: Security patterns including input validation, auth enforcement, and AI/agentic security for the project
 scope: "**/auth/**,**/security/**,**/middleware/**,**/*auth*,**/*guard*,**/*policy*,**/*permission*,**/*sanitiz*,**/*validat*"
-tags: [security]
+tags: [floor:security]
+precedence: critical
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true
 ---

@@ -128,7 +128,7 @@ export interface HatchManifest {
    * hatch3r versions tolerate absence (treated as zero counts).
    */
   userContent?: {
-    /** Total user-authored artifacts on disk under `.agents/user/`. */
+    /** Total user-authored artifacts on disk under `.hatch3r/overrides/`. */
     count: number;
     /** ISO-8601 timestamp of the most recent successful save. */
     lastModified: string;
@@ -192,13 +192,13 @@ export interface WorktreeConfig {
   nodeModules?: "symlink" | "skip";
 }
 
-export const TOOLS = ["cursor", "copilot", "claude", "opencode", "windsurf", "amp", "codex", "gemini", "cline", "aider", "kiro", "goose", "zed", "amazon-q", "antigravity"] as const;
+export const TOOLS = ["cursor", "copilot", "claude"] as const;
 export type Tool = (typeof TOOLS)[number];
 export const VALID_TOOLS = new Set<string>(TOOLS);
 export const TOOL_CHOICES = TOOLS.join(", ");
 
 /** Tools that support git worktree file isolation. Shared across init, update, and config. */
-export const WORKTREE_CAPABLE_TOOLS = new Set<string>(["claude"]);
+export const WORKTREE_CAPABLE_TOOLS = new Set<string>(["claude", "cursor", "copilot"]);
 
 export interface BoardConfig {
   owner: string;
@@ -329,7 +329,7 @@ export interface CanonicalFile {
   /**
    * Provenance of the canonical file. Defaults to "canonical" everywhere;
    * "user" only when the file was loaded from the project-local
-   * `.agents/user/` subtree (D20 user-content authoring).
+   * `.hatch3r/overrides/` subtree (D20 user-content authoring).
    */
   source?: "canonical" | "user";
   /**
@@ -362,7 +362,7 @@ export interface CanonicalMetadata {
   precedence?: RulePrecedence;
   /**
    * Provenance of the metadata source. Defaults to "canonical"; "user" only
-   * when loaded from `.agents/user/` (D20 user-content authoring).
+   * when loaded from `.hatch3r/overrides/` (D20 user-content authoring).
    */
   source?: "canonical" | "user";
   /**
@@ -509,7 +509,19 @@ export function getMarkersForPath(filePath?: string): ManagedBlockMarkers {
   return { start: MANAGED_BLOCK_START, end: MANAGED_BLOCK_END };
 }
 export const HATCH3R_PREFIX = "hatch3r-";
-export const AGENTS_DIR = ".agents";
+/**
+ * Wave 6: single visible hatch3r directory in user repos. Holds the manifest
+ * (`hatch.json`), per-project `learnings/`, `handoffs/`, filtered MCP config
+ * (`mcp/mcp.json`), and (Wave 5) user-authored content overrides
+ * (`overrides/`).
+ *
+ * Wave 7 removed the `AGENTS_DIR` constant. The legacy `.agents/` literal
+ * survives only as a local constant inside the migration shim
+ * (`src/migration/agentsToHatch3r.ts`) and as inline fallback probes in a
+ * handful of legacy-aware code paths (see grep `\.agents`); every other
+ * call site targets `HATCH3R_DIR` directly.
+ */
+export const HATCH3R_DIR = ".hatch3r";
 export const ARCHIVE_DIR = ".hatch3r-archive";
 export const CUSTOMIZE_DIR = ".hatch3r";
 

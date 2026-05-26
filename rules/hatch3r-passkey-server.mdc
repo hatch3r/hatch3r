@@ -2,6 +2,7 @@
 description: Server-side WebAuthn / passkey ceremony — registration, authentication, attestation, counter, RP-ID, recovery, FIDO CXP/CXF awareness
 globs: ["**/auth/**", "**/passkey*", "**/webauthn*", "**/fido*", "**/credentials/**", "**/api/**", "**/handlers/**"]
 alwaysApply: false
+precedence: high
 ---
 # Passkey Server — WebAuthn Ceremony
 

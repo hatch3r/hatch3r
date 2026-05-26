@@ -2,8 +2,8 @@
 id: hatch3r-tooling-hierarchy
 type: rule
 description: Platform MCP-first priority, documentation MCP for library APIs, web research for CVEs, and browser MCP for UI verification with fallback guidance
-scope: "**/.agents/**,**/mcp/**,**/mcp.json,**/.cursor/**,**/.github/copilot*,**/.windsurf/**,**/hatch.json,**/.claude/**"
-tags: [core]
+scope: "**/.hatch3r/**,**/mcp/**,**/mcp.json,**/.cursor/**,**/.github/copilot*,**/hatch.json,**/.claude/**"
+tags: [orchestration]
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true
 ---
@@ -13,7 +13,7 @@ cache_friendly: true
 
 **Prefer platform MCP tools over the platform CLI** when the MCP server provides typed tools with structured input/output. Use them as the primary interface for issue tracker and repository operations.
 
-Read `platform` from `.agents/hatch.json` to determine which platform tools to use.
+Read `platform` from `.hatch3r/hatch.json` to determine which platform tools to use.
 
 ### Prerequisites
 
@@ -82,7 +82,7 @@ Use web search to retrieve current, real-world information not available in proj
 - Internal project decisions (use project ADRs).
 
 **Fallback when web search is unavailable:**
-If no web search MCP server is configured (e.g., `brave-search` is not in `mcp.servers` in `.agents/hatch.json`), web research cannot be performed. In this case:
+If no web search MCP server is configured (e.g., `brave-search` is not in `mcp.servers` in `.hatch3r/hatch.json`), web research cannot be performed. In this case:
 - Note in your output when web research would have been valuable (e.g., "Web research recommended for CVE verification but not available").
 - Rely more heavily on Context7 documentation MCP and codebase exploration.
 - Flag security-sensitive decisions that would benefit from current advisory data.

@@ -43,7 +43,7 @@ Never under-fan-out to save tokens. Token cost is dominated by quality and compl
 | P2       | Partial degradation, limited impact         | Single flow broken, slow performance       |
 | P3       | Minor issue, workaround available            | Cosmetic bug, edge case                     |
 
-- Check for related issues or prior incidents using the platform tools (check `platform` in `.agents/hatch.json`):
+- Check for related issues or prior incidents using the platform tools (check `platform` in `.hatch3r/hatch.json`):
   - **GitHub:** Use **GitHub MCP** (`issue_read`, `search_issues`) or `gh issue list --search "..."`
   - **Azure DevOps:** `az boards query --wiql "SELECT [System.Id] FROM WorkItems WHERE [System.Title] CONTAINS '...'"` or `az boards work-item show --id N`
   - **GitLab:** `glab issue list --search "..."` or `glab issue view N`
@@ -86,7 +86,7 @@ Store in project incident docs or as an issue/wiki page on the platform. Follow 
 
 ## Step 6: Follow-Up Issues
 
-- Create follow-up issues/work items for each action item from the post-mortem (check `platform` in `.agents/hatch.json`):
+- Create follow-up issues/work items for each action item from the post-mortem (check `platform` in `.hatch3r/hatch.json`):
   - **GitHub:** `gh issue create --title "..." --body "..." --label "incident-follow-up"` (or use **GitHub MCP** `issue_create`)
   - **Azure DevOps:** `az boards work-item create --type "Bug" --title "..." --description "..." --fields "System.Tags=incident-follow-up"`
   - **GitLab:** `glab issue create --title "..." --description "..." --label "incident-follow-up"`

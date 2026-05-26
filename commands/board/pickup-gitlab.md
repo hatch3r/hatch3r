@@ -56,7 +56,7 @@ Follow the **GitLab Board Label-Based Sync** from `commands/board/shared-gitlab.
 **Create MR:**
 `glab mr create -R {namespace}/{project} --source-branch {branch} --target-branch {base} --title "..." --description "..."`. Use `Closes #N` syntax in the description for auto-close on merge.
 
-`{base}` = `board.defaultBranch` from `.agents/hatch.json` (fallback: `"main"`).
+`{base}` = `board.defaultBranch` from `.hatch3r/hatch.json` (fallback: `"main"`).
 
 **Link MR to epic:**
 Reference the epic issue number in the MR description. GitLab auto-links MRs to issues mentioned with `Closes #N`.

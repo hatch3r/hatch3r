@@ -5,13 +5,13 @@ import { dirname, join, sep } from "node:path";
 import chalk from "chalk";
 import inquirer from "inquirer";
 import { readManifest, writeManifest, addManagedFile } from "../../manifest/hatchJson.js";
-import { filterMcpJsonOnDisk } from "../../manifest/mcpFilter.js";
 import { getApplicableCheckpoints } from "../../version/checkpoints.js";
 import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
 import { safeWriteFile } from "../../merge/safeWrite.js";
 import { sweepOrphansForAdapter, formatOrphanCleanupDiagnostic, type OrphanCleanupEntry } from "../../merge/orphanCleanup.js";
-import { AGENTS_DIR, HATCH3R_PREFIX, HatchError, WORKTREE_CAPABLE_TOOLS, WORKTREE_INCLUDE_FILE, type HatchManifest, type Platform } from "../../types.js";
-import { generateCanonicalAgentsMd, generateRootAgentsMd } from "../shared/agentsContent.js";
+import { HATCH3R_DIR, HATCH3R_PREFIX, HatchError, WORKTREE_CAPABLE_TOOLS, WORKTREE_INCLUDE_FILE, type HatchManifest, type Platform } from "../../types.js";
+import { resolveBundledContentRoot } from "../../content/contentRoot.js";
+import { migrateAgentsToHatch3r } from "../../migration/agentsToHatch3r.js";
 import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
 import { ensureEnvMcp, ensureGitignoreEntry, getSourceEnvMcpCommand } from "../../env/mcpEnv.js";
 import { HATCH3R_VERSION } from "../../version.js";
@@ -55,10 +55,10 @@ import {
 } from "../shared/ui.js";
 import { findPackageRoot } from "../shared/paths.js";
 import { runSelfUpdate, pickReExecBin } from "../../install/selfUpdate.js";
-import { generateIntegrityManifest, writeIntegrityManifest, verifyIntegrity } from "../../integrity/index.js";
 import { pruneArchives } from "../../archive/index.js";
 import { buildSelectionsFromDisk } from "../../content/index.js";
 import { scanOrphanFiles, formatOrphanScanDiagnostic } from "../../content/orphanScan.js";
+import { isBack } from "../shared/initSteps.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONTENT_DIRS = ["agents", "commands", "rules", "skills", "prompts", "github-agents", "mcp", "hooks"];
@@ -255,60 +255,23 @@ export async function runRegenerate(
 ): Promise<UpdateResult> {
   const offset = options.stepOffset ?? 0;
   const total = options.totalSteps ?? 3;
-  const agentsDir = join(rootDir, AGENTS_DIR);
+  // Wave 6: idempotent migration shim. `updateCommand` already runs this,
+  // but `runRegenerate` is also called directly (e.g. from tests, batch
+  // pipelines) so re-run here to keep every entry point covered.
+  await migrateAgentsToHatch3r(rootDir);
+  // Wave 7: failure log writes target `.hatch3r/.failures.log`.
+  const hatch3rDir = join(rootDir, HATCH3R_DIR);
 
-  // Re-resolve the package root each invocation so that callers chaining
-  // runPackageUpdate -> runRegenerate see the freshly fetched content.
-  const contentRoot = findPackageRoot(__dirname);
-
-  const s1 = createSpinner(step(offset + 1, total, "Updating canonical files..."));
+  const s1 = createSpinner(step(offset + 1, total, "Resolving canonical content..."));
   s1.start();
 
-  // Build a set of selected IDs if manifest has content selections
-  let selectedIds: Set<string> | undefined;
-  if (manifest.content) {
-    selectedIds = new Set<string>();
-    for (const ids of Object.values(manifest.content.items)) {
-      for (const id of ids) selectedIds.add(id);
-    }
-  }
-
+  // Wave 3: canonical content lives inside the freshly installed hatch3r
+  // package. No more `.agents/` materialization; adapters source from
+  // resolveBundledContentRoot. No canonical or root AGENTS.md emission
+  // (per blueprint v2 decisions #3 and #8).
+  const canonicalContentRoot = resolveBundledContentRoot();
   const copied: string[] = [];
-  for (const dir of CONTENT_DIRS) {
-    const srcDir = join(contentRoot, dir);
-    try {
-      const dirCopied = await copyHatch3rFiles(srcDir, join(agentsDir, dir), false, selectedIds);
-      copied.push(...dirCopied.map((p) => join(dir, p)));
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
-    }
-  }
-
-  // Re-apply MCP filter: copyHatch3rFiles ships the unfiltered package mcp.json
-  // (every adapter MCP entry, including ones the user did not select). Without
-  // this step, `update` would silently re-introduce all MCP servers that
-  // `init` had previously pruned. The filter is idempotent and safe to run
-  // even when no servers are selected.
-  await filterMcpJsonOnDisk(
-    join(agentsDir, "mcp", "mcp.json"),
-    new Set(manifest.mcp.servers),
-  );
-
-  // Generate dynamic AGENTS.md based on what's on disk
-  const canonicalAgentsMd = await generateCanonicalAgentsMd(agentsDir);
-  await safeWriteFile(join(agentsDir, "AGENTS.md"), canonicalAgentsMd);
-  // Regenerate root AGENTS.md with inline agent/skill/command rosters for platform discovery
-  const rootAgentsMd = await generateRootAgentsMd(agentsDir);
-  await safeWriteFile(join(rootDir, "AGENTS.md"), rootAgentsMd.full, {
-    managedContent: rootAgentsMd.inner,
-  });
-  // 1.7.0 (Phase F): register root AGENTS.md so subsequent `clean` runs and
-  // status diagnostics see it. Init does this at the parallel call site;
-  // update was previously missing it, leaving AGENTS.md absent from
-  // `managedFiles` after a fresh `init` -> `update` cycle if init's entry
-  // had been pruned. addManagedFile is idempotent — duplicates are dropped.
-  addManagedFile(manifest, "AGENTS.md");
-  s1.succeed(step(offset + 1, total, `Updated ${copied.length} canonical files`));
+  s1.succeed(step(offset + 1, total, "Canonical content resolved"));
 
   // --diff: track file snapshots before and after generation
   const diffBefore = new Map<string, string | null>();
@@ -344,8 +307,22 @@ export async function runRegenerate(
       try {
         // Run adapter generation with per-adapter timeout and retry-with-backoff
         // for transient failures. Substantive failures propagate immediately.
+        // Wave 3: pass canonicalContentRoot (bundled-package path), not the
+        // user-repo `.agents/` dir.
         const generationResult = await retryWithBackoff(
-          () => generateWithTimeout(tool, adapter, agentsDir, manifest, "standard"),
+          // Wave 5: pass rootDir as userRepoRoot so D20 overrides at
+          // <rootDir>/.hatch3r/overrides/ are layered onto bundled canonical.
+          () =>
+            generateWithTimeout(
+              tool,
+              adapter,
+              canonicalContentRoot,
+              manifest,
+              "standard",
+              undefined,
+              undefined,
+              rootDir,
+            ),
           { maxAttempts: 2 },
         );
         if (!generationResult.completed) {
@@ -394,7 +371,7 @@ export async function runRegenerate(
           error: err instanceof Error ? err.message : String(err),
         });
         // Record to persistent failure log for post-hoc debugging
-        await appendFailure(agentsDir, "update:adapter-generate", err, tool);
+        await appendFailure(hatch3rDir, "update:adapter-generate", err, tool);
       }
     }
   });
@@ -475,17 +452,9 @@ export async function runRegenerate(
   manifest.hatch3rVersion = HATCH3R_VERSION;
   await writeManifest(rootDir, manifest);
 
-  // C7-H13 (D11): Only refresh the integrity manifest when every adapter
-  // succeeded. When adapter A succeeds and adapter B fails, A's output is
-  // freshly written to disk; regenerating the integrity manifest here would
-  // certify the partial state and cause a later `verify` run to flag A as
-  // "modified" even though it matches what we just produced.
-  if (adapterFailures.length === 0) {
-    const integrityManifest = await generateIntegrityManifest(agentsDir, HATCH3R_VERSION);
-    await writeIntegrityManifest(agentsDir, integrityManifest);
-  } else {
-    warn("Integrity manifest not updated due to adapter failures. Re-run update after resolving errors.");
-  }
+  // Wave 3: integrity manifest writes removed; Wave 7 will reintroduce a
+  // bundled-content integrity model. Adapter outputs are no longer covered
+  // by the legacy `.agents/`-scoped integrity manifest.
 
   // Prune stale archive entries
   await pruneArchives(rootDir);
@@ -527,23 +496,12 @@ export async function runUpdateDryRun(
   canonicalCandidates: string[];
   adapterChanges: Map<string, { added: string[]; modified: string[]; unchanged: string[]; error?: string }>;
 }> {
-  const agentsDir = join(rootDir, AGENTS_DIR);
-  const contentRoot = findPackageRoot(__dirname);
-
-  let selectedIds: Set<string> | undefined;
-  if (manifest.content) {
-    selectedIds = new Set<string>();
-    for (const ids of Object.values(manifest.content.items)) {
-      for (const id of ids) selectedIds.add(id);
-    }
-  }
-
+  // Wave 3: dry-run no longer enumerates `.agents/` canonical copy candidates
+  // because the materialization is gone. canonicalCandidates stays empty;
+  // TODO Wave 7: re-derive a meaningful "candidates" list from the bundled
+  // content root or drop this column entirely.
+  const canonicalContentRoot = resolveBundledContentRoot();
   const canonicalCandidates: string[] = [];
-  for (const dir of CONTENT_DIRS) {
-    const srcDir = join(contentRoot, dir);
-    const entries = await enumerateHatch3rFiles(srcDir, false, selectedIds);
-    for (const rel of entries) canonicalCandidates.push(join(dir, rel));
-  }
 
   const adapterChanges = new Map<
     string,
@@ -554,7 +512,18 @@ export async function runUpdateDryRun(
     const bucket = { added: [] as string[], modified: [] as string[], unchanged: [] as string[] };
     try {
       const adapter = getAdapter(tool);
-      const generationResult = await generateWithTimeout(tool, adapter, agentsDir, manifest, "standard");
+      // Wave 5: dry-run also threads rootDir as userRepoRoot so the candidate
+      // output set reflects D20 overrides under <rootDir>/.hatch3r/overrides/.
+      const generationResult = await generateWithTimeout(
+        tool,
+        adapter,
+        canonicalContentRoot,
+        manifest,
+        "standard",
+        undefined,
+        undefined,
+        rootDir,
+      );
       if (!generationResult.completed) {
         adapterChanges.set(tool, { ...bucket, error: generationResult.error ?? `Adapter ${tool} did not complete` });
         continue;
@@ -650,6 +619,8 @@ export async function runUpdate(
 ): Promise<UpdateResult> {
   const offset = options.stepOffset ?? 0;
   const total = options.totalSteps ?? 4;
+  // Wave 6: top-level entry point; relocate pre-1.9 `.agents/` state up front.
+  await migrateAgentsToHatch3r(rootDir);
   await runPackageUpdate(rootDir, { stepOffset: offset, totalSteps: total });
   return runRegenerate(rootDir, manifest, {
     stepOffset: offset + 1,
@@ -669,7 +640,9 @@ const MIGRATION_CHECKPOINTS: MigrationCheckpoint[] = [
     id: "content-selections-init",
     condition: async (manifest) => manifest.content === undefined,
     execute: async (manifest, rootDir, headless) => {
-      const agentsDir = join(rootDir, AGENTS_DIR);
+      // Wave 7: legacy `.agents/` probe — surviving for migration scans
+      // that detect pre-1.9 layouts. New installs never write here.
+      const agentsDir = join(rootDir, ".agents");
       const content = await buildSelectionsFromDisk(agentsDir);
 
       if (headless) {
@@ -690,6 +663,10 @@ const MIGRATION_CHECKPOINTS: MigrationCheckpoint[] = [
             default: "brownfield",
           },
         ]);
+        if (isBack(projectType)) {
+          info("Update cancelled (Shift+Tab).");
+          throw new HatchError("Update cancelled.", 0);
+        }
         const { teamSize } = await inquirer.prompt<{ teamSize: "solo" | "team" }>([
           {
             type: "select",
@@ -702,6 +679,10 @@ const MIGRATION_CHECKPOINTS: MigrationCheckpoint[] = [
             default: "team",
           },
         ]);
+        if (isBack(teamSize)) {
+          info("Update cancelled (Shift+Tab).");
+          throw new HatchError("Update cancelled.", 0);
+        }
         content.projectType = projectType;
         content.teamSize = teamSize;
       }
@@ -768,35 +749,42 @@ const MIGRATION_CHECKPOINTS: MigrationCheckpoint[] = [
   {
     id: "customize-yaml-size",
     condition: async (_manifest, rootDir) => {
-      const agentsDir = join(rootDir, AGENTS_DIR);
-      try {
-        const entries = await readdir(agentsDir, { recursive: true });
-        for (const entry of entries) {
-          if (typeof entry === "string" && entry.endsWith(".customize.yaml")) {
-            const s = await stat(join(agentsDir, entry));
-            if (s.size > 10240) return true;
+      // Customization snapshots live at `.hatch3r/{type}/{id}.customize.yaml`
+      // (Wave 6). Legacy `.agents/` layouts are also scanned so the size
+      // notice fires before migration relocates the files.
+      const scanRoots = [join(rootDir, ".hatch3r"), join(rootDir, ".agents")];
+      for (const root of scanRoots) {
+        try {
+          const entries = await readdir(root, { recursive: true });
+          for (const entry of entries) {
+            if (typeof entry === "string" && entry.endsWith(".customize.yaml")) {
+              const s = await stat(join(root, entry));
+              if (s.size > 10240) return true;
+            }
           }
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
         }
-      } catch (err) {
-        if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
       }
       return false;
     },
     execute: async (manifest, rootDir, _headless) => {
       const notices: string[] = [];
-      const agentsDir = join(rootDir, AGENTS_DIR);
-      try {
-        const entries = await readdir(agentsDir, { recursive: true });
-        for (const entry of entries) {
-          if (typeof entry === "string" && entry.endsWith(".customize.yaml")) {
-            const s = await stat(join(agentsDir, entry));
-            if (s.size > 10240) {
-              notices.push(`Large customize file detected: ${entry} (${Math.round(s.size / 1024)}KB) — consider splitting`);
+      const scanRoots = [join(rootDir, ".hatch3r"), join(rootDir, ".agents")];
+      for (const root of scanRoots) {
+        try {
+          const entries = await readdir(root, { recursive: true });
+          for (const entry of entries) {
+            if (typeof entry === "string" && entry.endsWith(".customize.yaml")) {
+              const s = await stat(join(root, entry));
+              if (s.size > 10240) {
+                notices.push(`Large customize file detected: ${entry} (${Math.round(s.size / 1024)}KB) — consider splitting`);
+              }
             }
           }
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
         }
-      } catch (err) {
-        if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
       }
       return { manifest, notices };
     },
@@ -807,36 +795,14 @@ const MIGRATION_CHECKPOINTS: MigrationCheckpoint[] = [
       if (manifest.worktree !== undefined) return false;
       return manifest.tools.some(t => WORKTREE_CAPABLE_TOOLS.has(t));
     },
-    execute: async (manifest, rootDir, headless) => {
-      let enabled: boolean;
-
-      if (headless) {
-        // Default to enabled in headless/CI mode
-        enabled = true;
-      } else {
-        const answer = await inquirer.prompt<{ enabled: boolean }>([{
-          type: "confirm",
-          name: "enabled",
-          message: "hatch3r now supports worktree file isolation for parallel agent sessions. Enable it?",
-          default: true,
-        }]);
-        enabled = answer.enabled;
-      }
-
+    execute: async (manifest, rootDir, _headless) => {
+      const enabled = true;
       const updated = { ...manifest, worktree: { enabled } };
-      const notices: string[] = [];
-
-      if (enabled) {
-        const wtContent = await generateWorktreeInclude(updated, rootDir);
-        await safeWriteFile(join(rootDir, WORKTREE_INCLUDE_FILE), wtContent, {
-          appendIfNoBlock: true,
-        });
-        notices.push("Worktree isolation enabled — .worktreeinclude generated");
-      } else {
-        notices.push("Worktree isolation skipped (enable later with `hatch3r config`)");
-      }
-
-      return { manifest: updated, notices };
+      const wtContent = await generateWorktreeInclude(updated, rootDir);
+      await safeWriteFile(join(rootDir, WORKTREE_INCLUDE_FILE), wtContent, {
+        appendIfNoBlock: true,
+      });
+      return { manifest: updated, notices: ["Worktree isolation enabled — .worktreeinclude generated"] };
     },
   },
 ];
@@ -892,12 +858,14 @@ export async function updateCommand(
   );
 
   const rootDir = process.cwd();
+  // Wave 6: relocate pre-1.9 `.agents/` state before reading the manifest.
+  await migrateAgentsToHatch3r(rootDir);
   const manifest = await readManifest(rootDir);
 
   if (!manifest) {
-    logError("No .agents/hatch.json found.");
+    logError(`No ${HATCH3R_DIR}/hatch.json found.`);
     console.log(chalk.dim("  Run `npx hatch3r init` to set up your project first.\n"));
-    throw new HatchError("No .agents/hatch.json found.", 1, "CONFIG_ERROR");
+    throw new HatchError(`No ${HATCH3R_DIR}/hatch.json found.`, 1, "CONFIG_ERROR");
   }
 
   const headless = !!(_opts?.yes);
@@ -908,41 +876,11 @@ export async function updateCommand(
     warn(notice);
   }
 
-  // C7-H5 (D15, OWASP ASI 2026): Preflight integrity check. If canonical
-  // files have drifted (modified, missing, or tampered manifest) we refuse
-  // the mutation operation unless the user opts in with --force. Update
-  // would overwrite the drifted files in-place, silently destroying any
-  // legitimate edits that were not yet integrated through `hatch3r config`
-  // or a `.customize.yaml` file.
-  //
-  // C9-M16: consume the discriminated-union return from `verifyIntegrity`.
-  // The `ok: false` branch already partitions the actionable drift rows by
-  // status, so we no longer post-filter the flat results array.
-  const agentsDir = join(rootDir, AGENTS_DIR);
-  const integrityVerification = await verifyIntegrity(agentsDir);
-  const modified = integrityVerification.ok ? [] : integrityVerification.errors.modified;
-  const missing = integrityVerification.ok ? [] : integrityVerification.errors.missing;
-  const tampered = integrityVerification.ok ? [] : integrityVerification.errors.tampered;
-  const driftDetected = !integrityVerification.ok;
-  if (driftDetected) {
-    warn("Integrity issues detected before update:");
-    for (const r of tampered) { warn(`  TAMPERED: ${r.file}`); }
-    for (const r of modified) { warn(`  MODIFIED: ${r.file}`); }
-    for (const r of missing) { warn(`  MISSING:  ${r.file}`); }
-    if (!_opts?.force) {
-      logError(
-        "Refusing to update with integrity drift. Run `hatch3r verify` to inspect, " +
-        "or re-run with --force to overwrite the drifted files with the latest canonical content.",
-      );
-      throw new HatchError(
-        "Integrity drift detected (use --force to override)",
-        1,
-        "INTEGRITY_ERROR",
-      );
-    }
-    warn("Continuing with --force: drifted files will be overwritten with canonical content.");
-    console.log();
-  }
+  // Wave 7: the canonical-content integrity preflight is gone — canonical
+  // content lives in the bundled package (read-only, verified by npm tarball
+  // signature). `hatch3r update` no longer needs to gate on `.agents/`
+  // drift because there is no user-side canonical tree to drift from.
+  void _opts?.force;
 
   const isUpToDate = m.hatch3rVersion === HATCH3R_VERSION;
   // Commander stores `--offline, --skip-fetch` under the last long name
@@ -1031,24 +969,13 @@ export async function updateCommand(
   }
 
   // C9-M26 (D11-SA11.4-01): Orphan-file scan across the canonical
-  // .agents/<canonical-subdir>/ subtree. Reports files that do not match
-  // the canonical-inventory naming convention (no `hatch3r-` prefix, not
-  // under a `hatch3r-*` parent, and not in ALWAYS_CANONICAL_BASENAMES).
-  // Walks only the nine canonical subdirs — never visits .agents/user/,
-  // .agents/policy/, .agents/learnings/ — so user-authored content is
-  // never flagged. Default emission is info(); --clean-orphans unlinks
-  // the offending files after a containment check. Skipped on dry-run
-  // (the function returns earlier above).
-  try {
-    const orphanScan = await scanOrphanFiles(agentsDir, { cleanOrphans: !!_opts?.cleanOrphans });
-    const diag = formatOrphanScanDiagnostic(orphanScan, { cleanOrphans: !!_opts?.cleanOrphans });
-    if (diag) info(diag);
-  } catch (err) {
-    // Scan failure must not break update. Surface via verbose so persistent
-    // failures still get attention from operators.
-    const message = err instanceof Error ? err.message : String(err);
-    verbose(`update: orphan-file scan skipped — ${message}`);
-  }
+  // Wave 7: orphan-file scan retired in user repos — no project-side
+  // canonical tree remains after Wave 3+4. The helper functions
+  // (`scanOrphanFiles`, `formatOrphanScanDiagnostic`) are still exercised
+  // by the `npx hatch3r validate` bundled-content gate.
+  void _opts?.cleanOrphans;
+  void scanOrphanFiles;
+  void formatOrphanScanDiagnostic;
 
   // Version checkpoint advisory: detect if a clean reinit is recommended
   const versionCheckpoints = getApplicableCheckpoints(m.hatch3rVersion, HATCH3R_VERSION);

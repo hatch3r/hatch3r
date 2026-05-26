@@ -100,41 +100,16 @@ describe("formatCommandHint", () => {
     expect(formatCommandHint(["cursor", "claude"], "project-spec")).toBe("/project-spec");
   });
 
-  it("emits per-tool segments when tools have mixed syntax", () => {
-    const out = formatCommandHint(["cursor", "windsurf"], "codebase-map");
-    // Each tool gets its own segment so users see the exact phrasing.
-    expect(out).toBe("Cursor: /codebase-map | Windsurf: run workflow codebase-map");
-  });
-
   it("returns slash syntax for single slash-command tool", () => {
     expect(formatCommandHint(["claude"], "review")).toBe("/review");
   });
 
-  it("returns single-tool invocation form for a non-slash tool", () => {
-    // Aider uses 'prompt with ' syntax — preserve the exact invocation
-    // instead of falling back to the ambiguous 'the X command' phrasing.
-    expect(formatCommandHint(["aider"], "review")).toBe("prompt with review");
-  });
-
-  it("returns single invocation form when all tools share non-slash syntax", () => {
-    // Windsurf + Cline both use 'run workflow '.
-    expect(formatCommandHint(["windsurf", "cline"], "scan")).toBe("run workflow scan");
-  });
-
-  it("returns single invocation form when all tools share 'prompt with' syntax", () => {
-    // Codex + Aider + Goose share 'prompt with ' invocation.
-    expect(formatCommandHint(["codex", "aider", "goose"], "fix")).toBe("prompt with fix");
-  });
-
-  it("emits one segment per distinct invocation when three syntax classes mix", () => {
-    const out = formatCommandHint(["claude", "windsurf", "aider"], "codebase-map");
-    expect(out).toBe(
-      "Claude Code: /codebase-map | Windsurf: run workflow codebase-map | Aider: prompt with codebase-map",
-    );
+  it("returns single slash invocation when all 3 retained tools share / syntax", () => {
+    expect(formatCommandHint(["cursor", "copilot", "claude"], "scan")).toBe("/scan");
   });
 
   it("returns no embedded newlines so it stays drop-in safe for box renderers", () => {
-    const out = formatCommandHint(["cursor", "aider", "windsurf"], "project-spec");
+    const out = formatCommandHint(["cursor", "claude", "copilot"], "project-spec");
     expect(out).not.toContain("\n");
   });
 
@@ -145,11 +120,11 @@ describe("formatCommandHint", () => {
 
 describe("formatCommandHintByTool", () => {
   it("returns one entry per requested tool with the exact invocation string", () => {
-    const out = formatCommandHintByTool(["claude", "aider", "windsurf"], "codebase-map");
+    const out = formatCommandHintByTool(["claude", "cursor", "copilot"], "codebase-map");
     expect(out).toEqual({
       claude: "/codebase-map",
-      aider: "prompt with codebase-map",
-      windsurf: "run workflow codebase-map",
+      cursor: "/codebase-map",
+      copilot: "/codebase-map",
     });
   });
 
@@ -158,7 +133,7 @@ describe("formatCommandHintByTool", () => {
   });
 
   it("handles a single tool", () => {
-    expect(formatCommandHintByTool(["kiro"], "review")).toEqual({ kiro: "/review" });
+    expect(formatCommandHintByTool(["claude"], "review")).toEqual({ claude: "/review" });
   });
 });
 

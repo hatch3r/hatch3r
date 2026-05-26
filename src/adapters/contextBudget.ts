@@ -10,35 +10,15 @@ import type { AdapterOutput, Tool } from "../types.js";
  *   - Claude Code: 200K context window
  *   - Cursor: ~120K effective for rules (model context shared with codebase)
  *   - Copilot: ~64K instruction budget (shared with workspace context)
- *   - Windsurf: ~128K context window
- *   - Codex: 200K context window
- *   - Gemini: 200K context window (Gemini 2.5 Pro)
- *   - Cline: ~128K (depends on model, conservative estimate)
- *   - Amp: ~128K context window
- *   - OpenCode: ~128K (model-dependent)
- *   - Aider: ~64K (CLI-based, model-dependent)
- *   - Kiro: ~128K context window
- *   - Goose: ~128K context window
- *   - Zed: ~64K (minimal adapter, limited instruction surface)
- *   - Amazon Q: ~128K context window
- *   - Antigravity: ~128K context window
+ *
+ * Trimmed to the three retained adapters in v2.0.0; the prior 15-adapter
+ * list (windsurf/codex/gemini/cline/amp/opencode/aider/kiro/goose/zed/
+ * amazon-q/antigravity) is gone after the W1-A adapter purge.
  */
 export const CONTEXT_BUDGET_TOKENS: Record<Tool, number> = {
   claude: 200_000,
   cursor: 120_000,
   copilot: 64_000,
-  windsurf: 128_000,
-  codex: 200_000,
-  gemini: 200_000,
-  cline: 128_000,
-  amp: 128_000,
-  opencode: 128_000,
-  aider: 64_000,
-  kiro: 128_000,
-  goose: 128_000,
-  zed: 64_000,
-  "amazon-q": 128_000,
-  antigravity: 128_000,
 };
 
 /**

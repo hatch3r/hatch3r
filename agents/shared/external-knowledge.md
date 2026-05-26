@@ -10,7 +10,7 @@ cache_friendly: true
 See [Tooling Hierarchy](../../rules/hatch3r-tooling-hierarchy.md) for the canonical reference (Platform MCP-first, documentation MCP, web research, browser verification, knowledge augmentation priority). Summary:
 
 - Follow the tooling hierarchy (specs > codebase > Context7 MCP > web research).
-- Use the project's configured platform CLI (check `platform` in `.agents/hatch.json`): GitHub (`gh`), Azure DevOps (`az devops` / `az boards` / `az repos`), GitLab (`glab`).
+- Use the project's configured platform CLI (check `platform` in `.hatch3r/hatch.json`): GitHub (`gh`), Azure DevOps (`az devops` / `az boards` / `az repos`), GitLab (`glab`).
 - Fall back to platform MCP only for operations not covered by the CLI (e.g., sub-issue management, project field mutations).
 
 ## Context7 MCP Protocol

@@ -11,7 +11,7 @@
  */
 import { vi, expect, type MockInstance } from "vitest";
 import type { ContentSelection, Features, HatchManifest } from "../../types.js";
-import { DEFAULT_FEATURES } from "../../types.js";
+import { DEFAULT_FEATURES, WORKTREE_CAPABLE_TOOLS } from "../../types.js";
 
 // Loose mock type used for helpers that accept any vi-mocked function without
 // pinning its exact signature (test code only).
@@ -320,7 +320,7 @@ export function setupStandardPrompts(
 
   // 9. Worktree prompt (only if tools include a worktree-capable tool)
   const selectedTools = overrides.tools ?? manifest.tools;
-  if (selectedTools.some((t: string) => t === "claude")) {
+  if (selectedTools.some((t: string) => WORKTREE_CAPABLE_TOOLS.has(t))) {
     inquirerMock.prompt.mockResolvedValueOnce({
       enabled: manifest.worktree?.enabled ?? true,
     });

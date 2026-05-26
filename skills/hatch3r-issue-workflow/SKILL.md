@@ -1,7 +1,7 @@
 ---
 id: hatch3r-issue-workflow
 description: Guides the 8-step agentic development workflow for issues/work items. Covers parsing issues, loading skills, reading specs, planning, implementing, testing, opening PRs/MRs, and addressing review. Use when working on any issue/work item or when the user mentions an issue number.
-tags: [core, implementation]
+tags: [implementation, orchestration]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
@@ -10,7 +10,7 @@ cache_friendly: true
 
 ## Quick Start
 
-When assigned an issue or work item (GitHub Issue, Azure DevOps Work Item, or GitLab Issue — check `platform` in `.agents/hatch.json`), follow these 8 steps in order:
+When assigned an issue or work item (GitHub Issue, Azure DevOps Work Item, or GitLab Issue — check `platform` in `.hatch3r/hatch.json`), follow these 8 steps in order:
 
 ```
 Task Progress:
@@ -108,8 +108,8 @@ Skip this step if the issue has no user-facing UI changes.
 
 - Use the project's PR/MR template. Fill every section.
 - Link to the issue/work item. Include plan, implementation summary, test evidence.
-- **Base branch:** Use `board.defaultBranch` from `.agents/hatch.json` (fallback: `"main"`).
-- Open a code review using the platform CLI (check `platform` in `.agents/hatch.json`):
+- **Base branch:** Use `board.defaultBranch` from `.hatch3r/hatch.json` (fallback: `"main"`).
+- Open a code review using the platform CLI (check `platform` in `.hatch3r/hatch.json`):
   - **GitHub:** `gh pr create --base {defaultBranch} --head {branch} --title "..." --body "..."`
   - **Azure DevOps:** `az repos pr create --source-branch {branch} --target-branch {defaultBranch} --title "..." --description "..."`
   - **GitLab:** `glab mr create --source-branch {branch} --target-branch {defaultBranch} --title "..." --description "..."`

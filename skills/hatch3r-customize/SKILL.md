@@ -5,11 +5,10 @@ tags: [customize]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
-canonical_for: [hatch3r-agent-customize, hatch3r-command-customize, hatch3r-rule-customize, hatch3r-skill-customize]
 ---
 # Artifact Customization Management
 
-> **Canonical entry point.** Four type-specific skills (`hatch3r-agent-customize`, `hatch3r-command-customize`, `hatch3r-rule-customize`, `hatch3r-skill-customize`) redirect here via `redirect_to: hatch3r-customize` frontmatter. Their body documents the rejected-merge alternative per `governance/audit/domains/D16-compound-system.md` SA 16.3.
+> **Canonical entry point.** This is the single skill for all per-artifact customization (agents, commands, rules, skills). The four prior type-specific skill stubs were removed in v1.9.0 per the Decision #13 Command-vs-Skill criterion; `governance/audit/domains/D16-compound-system.md` SA 16.3 documents the rejected-merge alternative.
 
 ## Quick Start
 
@@ -43,10 +42,10 @@ This skill handles customization for all artifact types. The `type` parameter de
 
 | Type | Source Directory | Customization Directory | YAML Fields |
 |------|-----------------|------------------------|-------------|
-| `agent` | `.agents/agents/` | `.hatch3r/agents/` | `model`, `description`, `enabled` |
-| `command` | `.agents/commands/` | `.hatch3r/commands/` | `description`, `enabled` |
-| `rule` | `.agents/rules/` | `.hatch3r/rules/` | `scope`, `description`, `enabled` |
-| `skill` | `.agents/skills/` | `.hatch3r/skills/` | `description`, `enabled` |
+| `agent` | `the canonical `agents/` directory or `.hatch3r/agents/` (for customizations)` | `.hatch3r/agents/` | `model`, `description`, `enabled` |
+| `command` | `the canonical `commands/` directory or `.hatch3r/commands/` (for customizations)` | `.hatch3r/commands/` | `description`, `enabled` |
+| `rule` | `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)` | `.hatch3r/rules/` | `scope`, `description`, `enabled` |
+| `skill` | `the canonical `skills/` directory or `.hatch3r/skills/` (for customizations)` | `.hatch3r/skills/` | `description`, `enabled` |
 
 **Protected agents:** Some agents have `protected: true` in their canonical frontmatter. For these agents, `description` and `enabled` overrides are ignored — only `model` and markdown instructions can be customized.
 

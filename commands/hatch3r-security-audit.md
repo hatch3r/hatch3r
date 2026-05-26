@@ -3,7 +3,7 @@ id: hatch3r-security-audit
 type: command
 orchestrator: false
 description: Open an OWASP ASI security epic reviewing auth boundaries, input validation, and supply-chain risks with one hardening sub-issue per module plus trust-boundary audit
-tags: [maintenance, security]
+tags: [maintenance, floor:security]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
@@ -34,7 +34,7 @@ Create a security audit epic on **{owner}/{repo}** with one sub-issue per logica
 
 ## Shared Context
 
-**Read the project's shared board context at the start of the run** (e.g., `.agents/commands/hatch3r-board-shared.md` or equivalent). It contains GitHub Context, Project Reference, Projects v2 sync procedure, and Board Overview template. Cache all values for the duration of this run.
+**Read the project's shared board context at the start of the run** (e.g., `the canonical `commands/` directory or `.hatch3r/commands/` (for customizations)hatch3r-board-shared/SKILL.md` or equivalent). It contains GitHub Context, Project Reference, Projects v2 sync procedure, and Board Overview template. Cache all values for the duration of this run.
 
 ## Token-Saving Directives
 

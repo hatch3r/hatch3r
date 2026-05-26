@@ -3,7 +3,8 @@ id: hatch3r-ux-states-and-flows
 type: rule
 description: Four-state surface contract (loading/empty/error/partial), user-flow decomposition before implementation, and microcopy + tone discipline for end-user UIs
 scope: "**/*.vue,**/*.jsx,**/*.tsx,**/*.svelte,**/components/**,**/*.html,**/messages/**,**/locales/**,**/copy/**"
-tags: [ux, ui, frontend]
+tags: [implementation, floor:ui-ux, ux, ui, frontend]
+precedence: high
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true
 ---

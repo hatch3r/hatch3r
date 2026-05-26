@@ -3,7 +3,7 @@ id: hatch3r-code-standards
 type: rule
 description: TypeScript typing discipline, naming, file size caps, Result types, barrel exports, import ordering, and monorepo boundary rules
 scope: always
-tags: [core, lang:typescript]
+tags: [implementation, lang:typescript]
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true
 ---

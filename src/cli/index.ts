@@ -4,7 +4,37 @@
 import { createProgram } from "./program.js";
 import { classifyCliError } from "./errorClassification.js";
 import { checkForUpdates } from "./shared/updateNotifier.js";
+import { registerBackablePrompts } from "./shared/backablePrompts.js";
 import { HatchError } from "../types.js";
+
+// Shift+Tab → back-nav. Each entry has been audited to either route every
+// prompt through the step machine in `cli/shared/initSteps.ts` (which
+// translates BACK into walk-back) or to defensively check `isBack` at each
+// inquirer.prompt site (which translates BACK into graceful cancellation).
+// Commands not in this set keep inquirer's stock prompts — a stray Shift+Tab
+// there has no special meaning, preventing the BACK sentinel from leaking
+// into string consumers like sanitizeInput().
+//
+//   init             — full step machine (single-repo + workspace flows)
+//   config           — step machine (main flow); defensive guards in the
+//                      workspace sub-flow at end of file
+//   worktree-cleanup — step machine (mode → picks → proceed)
+//   clean            — defensive (2 confirms, flat sequence)
+//   update           — defensive (2 prompts inside a migration checkpoint)
+//   mcp / cliTools   — defensive (single picker invocation each)
+const BACKABLE_COMMANDS = new Set([
+  "init",
+  "config",
+  "worktree-cleanup",
+  "clean",
+  "update",
+  "mcp",
+  "cli-tools",
+]);
+const invokedCommand = process.argv[2];
+if (invokedCommand && BACKABLE_COMMANDS.has(invokedCommand)) {
+  registerBackablePrompts();
+}
 
 const nodeVersion = parseInt(process.version.slice(1), 10);
 if (nodeVersion < 22) {

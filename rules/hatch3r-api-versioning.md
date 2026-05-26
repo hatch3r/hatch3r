@@ -4,6 +4,7 @@ type: rule
 description: API versioning, deprecation lifecycle, and idempotency — RFC 9457 errors, RFC 9745 Deprecation header, RFC 8594 Sunset, OAuth 2.1, Idempotency-Key, semver vs CalVer for APIs
 scope: "**/api/**,**/openapi*,**/asyncapi*,**/*.proto,**/routes/**,**/handlers/**,**/controllers/**"
 tags: [implementation, devops]
+precedence: high
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true
 ---

@@ -23,7 +23,6 @@ Pick the preset that matches the intent before editing any artifact:
 | Rename / split / merge / restructure | `/h4tcher-capability-refactor` |
 | Phase out an artifact | `/h4tcher-capability-remove` |
 | Holistic governance re-think (vision + pillars + audit + execution + lean + charters + anti-slop + closed-loop) | `/h4tcher-re-envision` |
-| Generate v2.0.0 clean-slate rebuild spec (12-layer sparring, ADR per fork) | `/h4tcher-blueprint-v2` |
 | Full framework audit cycle | `/h4tcher-audit-cycle` |
 
 When in doubt, run `/h4tcher-capability-discover` first — it is the only read-only lifecycle preset and surfaces duplication risk before any write.

@@ -3,8 +3,8 @@ id: hatch3r-create
 type: command
 orchestrator: true
 agentPipeline: [hatch3r-creator]
-description: Author a custom user-tier artifact (agent, skill, rule, command, or hook) for this project. Generates frontmatter and body skeleton, applies strict + gentle quality gates, writes to .agents/user/{type}/, and offers to sync to all enabled adapters.
-tags: [core, customize]
+description: Author a custom user-tier artifact (agent, skill, rule, command, or hook) for this project. Generates frontmatter and body skeleton, applies strict + gentle quality gates, writes to .hatch3r/overrides/{type}/, and offers to sync to all enabled adapters.
+tags: [customize]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
@@ -25,7 +25,7 @@ This command runs as an orchestrator. After collecting inputs in Phase 1, it del
 
 # `/hatch3r-create` — Author a User-Tier Artifact
 
-Use this command when you need a project-specific agent, skill, rule, command, or hook that does not exist in the canonical hatch3r corpus. The command writes one new artifact under `.agents/user/{type}/` per invocation, runs the same frontmatter/security/structural gates the framework uses on canonical content (strict — block on failure), and runs style/lean checks as warnings (gentle — save proceeds, warnings reported).
+Use this command when you need a project-specific agent, skill, rule, command, or hook that does not exist in the canonical hatch3r corpus. The command writes one new artifact under `.hatch3r/overrides/{type}/` per invocation, runs the same frontmatter/security/structural gates the framework uses on canonical content (strict — block on failure), and runs style/lean checks as warnings (gentle — save proceeds, warnings reported).
 
 The 5 supported types: **agent** (sub-agent invokable from orchestrators), **skill** (workflow recipe), **rule** (always or glob-scoped guidance), **command** (slash command, inline or orchestrator), **hook** (event-triggered agent invocation).
 
@@ -75,7 +75,7 @@ Cache the selection as `type`.
 Validate the name against the regex `^[a-z][a-z0-9-]*$`. Reject and re-ask if:
 
 - The name fails the regex (uppercase, underscores, leading digit, etc.).
-- The name starts with `hatch3r-` — this prefix is reserved for canonical framework content. Show: "Names starting with `hatch3r-` are reserved for canonical framework artifacts. Choose a different prefix or omit the prefix entirely. The framework will namespace the file path under `.agents/user/{type}/` automatically."
+- The name starts with `hatch3r-` — this prefix is reserved for canonical framework content. Show: "Names starting with `hatch3r-` are reserved for canonical framework artifacts. Choose a different prefix or omit the prefix entirely. The framework will namespace the file path under `.hatch3r/overrides/{type}/` automatically."
 
 Cache the validated name as `name`.
 
@@ -124,9 +124,9 @@ Cache as `adapters` (array, or `null` for full parity).
 Branch on the cached `type`:
 
 - **agent:** Ask for `model` preference (default: `standard`; options: `fast | standard | reasoning`). Ask for an optional tool-allowlist hint (free-text). Cache as `model` and `toolHint`. Then ask for a structured `tools` declaration (see §1.6a below) and cache as `tools`.
-- **skill:** Confirm the subdirectory layout. Show: "Skill files are stored as `.agents/user/skills/{name}/SKILL.md` (a new directory will be created). Continue?" — ASK Y/n.
+- **skill:** Confirm the subdirectory layout. Show: "Skill files are stored as `.hatch3r/overrides/skills/{name}/SKILL.md` (a new directory will be created). Continue?" — ASK Y/n.
 - **rule:** Ask for scope: `always` (loaded every session) or `conditional` (loaded by glob match). If `conditional`, ASK for a comma-separated glob list (e.g., `src/**/*.ts, src/**/*.tsx`). Then ASK for `precedence` (one of `critical | high | normal | low`, default `normal`). Cache as `ruleScope`, `ruleGlobs`, `rulePrecedence`.
-- **command:** ASK whether this is an orchestrator command. If yes, ASK for the agent pipeline as a comma-separated list of agent IDs (each ID must reference an existing agent — canonical or under `.agents/user/agents/`). Cache as `isOrchestrator` and `agentPipeline`.
+- **command:** ASK whether this is an orchestrator command. If yes, ASK for the agent pipeline as a comma-separated list of agent IDs (each ID must reference an existing agent — canonical or under `.hatch3r/overrides/agents/`). Cache as `isOrchestrator` and `agentPipeline`.
 - **hook:** ASK for the hook event from the enum: `pre-commit | post-merge | ci-failure | file-save | session-start | pre-push`. Reject any value outside this enum and re-ask. Cache as `hookEvent`.
 
 #### 1.6a: Structured Tool Declaration (C9-H81, D20-F20.1.3)
@@ -222,14 +222,14 @@ Print the absolute path(s) and the next-step pointer:
 
 ```
 Created:
-  /abs/path/.agents/user/{type}/{name}.md
-  /abs/path/.agents/user/rules/{name}.mdc   (rule only — paired companion)
+  /abs/path/.hatch3r/overrides/{type}/{name}.md
+  /abs/path/.hatch3r/overrides/rules/{name}.mdc   (rule only — paired companion)
 
 Next step:
   Run `hatch3r sync` to propagate this artifact to all enabled adapter outputs
   (.cursor/, .claude/, .github/copilot-instructions.md, etc.).
 
-Edit your artifact directly anytime — `.agents/user/` is preserved across
+Edit your artifact directly anytime — `.hatch3r/overrides/` is preserved across
 `hatch3r update` and `hatch3r clean`.
 ```
 
@@ -237,8 +237,8 @@ Edit your artifact directly anytime — `.agents/user/` is preserved across
 
 ## Constraints / Anti-Patterns
 
-- **Never overwrite an existing user file.** Collision with an existing path under `.agents/user/{type}/` is a strict-gate failure raised by `hatch3r-creator` (status `BLOCKED` with the conflicting path).
-- **Never write to canonical content directories.** All output goes under `.agents/user/`. Writes to `agents/`, `skills/`, `rules/`, `commands/`, or `hooks/` are rejected.
+- **Never overwrite an existing user file.** Collision with an existing path under `.hatch3r/overrides/{type}/` is a strict-gate failure raised by `hatch3r-creator` (status `BLOCKED` with the conflicting path).
+- **Never write to canonical content directories.** All output goes under `.hatch3r/overrides/`. Writes to `agents/`, `skills/`, `rules/`, `commands/`, or `hooks/` are rejected.
 - **Never bypass strict gates.** Strict failures (frontmatter, ID collision, deny patterns, paired-file parity, orchestrator contract, hook event enum, ≤10KB size, quality_charter reference, pillar declaration, structured `tools` field shape + category membership) block the save.
 - **Structured tool allowlist required (strict shape).** When `tools` is supplied for an `agent` artifact, every entry in `tools.allowed` and `tools.denied` must resolve to a canonical category from `ALL_TOOL_CATEGORIES` in `src/pipeline/agentToolAllowlist.ts` (`read | search | write | execute | web | mcp | git | board`). Overlap between the two lists is rejected. Strict-gate enforced at `saveUserContent` (C9-H81, D20-F20.1.3; depends on C9-H49 Hybrid allowlist).
 - **Pillar coverage required (strict).** Every user artifact must declare at least one of P1–P8 — via `pillars: [...]` in frontmatter (collected at Step 1.4a) or a `**Pillars:** ...` line in the body. The strict gate at `saveUserContent` blocks the save when neither is present (C9-H80, D20-F20.1.2).

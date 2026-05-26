@@ -111,5 +111,5 @@ Targets align with Google's "Good" thresholds (measured at p75 from real user da
 | Memory / CPU       | Chrome DevTools, profiler          | Infrastructure metrics (Prometheus) |
 | Visual regression  | Playwright screenshot diffing      | RUM CLS tracking                 |
 
-- Automated regression detection: compare each PR's metrics against the default branch baseline (`board.defaultBranch` from `.agents/hatch.json`; fallback: `"main"`). Flag regressions > 5% in any budget metric.
+- Automated regression detection: compare each PR's metrics against the default branch baseline (`board.defaultBranch` from `.hatch3r/hatch.json`; fallback: `"main"`). Flag regressions > 5% in any budget metric.
 - Review performance budgets quarterly and tighten thresholds as the application matures.

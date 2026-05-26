@@ -8,22 +8,20 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { HatchError } from "../../../types.js";
 
-const AGENTS_DIR = ".agents";
+// Wave 5/6: user content lives at .hatch3r/overrides/{type}/; manifest at .hatch3r/hatch.json.
+const HATCH3R_DIR = ".hatch3r";
+const OVERRIDES_DIR = "overrides";
 
 const VALID_DESC =
   "User-tier validate-test fixture description with enough content to clear the >=60 character minimum gate";
 
 async function createMinimalAgentsDir(root: string): Promise<void> {
-  const agentsDir = join(root, AGENTS_DIR);
-  await mkdir(agentsDir, { recursive: true });
-  await mkdir(join(agentsDir, "agents"), { recursive: true });
-  await mkdir(join(agentsDir, "skills"), { recursive: true });
-  await mkdir(join(agentsDir, "rules"), { recursive: true });
-  await mkdir(join(agentsDir, "commands"), { recursive: true });
-  await mkdir(join(agentsDir, "mcp"), { recursive: true });
+  const hatch3rDir = join(root, HATCH3R_DIR);
+  await mkdir(hatch3rDir, { recursive: true });
 
   const manifest = {
     version: "1.0.0",
+    schemaVersion: 3,
     hatch3rVersion: "1.0.0",
     owner: "test-org",
     repo: "test-repo",
@@ -42,18 +40,8 @@ async function createMinimalAgentsDir(root: string): Promise<void> {
     managedFiles: [],
   };
   await writeFile(
-    join(agentsDir, "hatch.json"),
+    join(hatch3rDir, "hatch.json"),
     JSON.stringify(manifest, null, 2),
-  );
-  await writeFile(
-    join(agentsDir, "AGENTS.md"),
-    "# AGENTS.md\n\nTest agents file.\n",
-  );
-
-  // Description >=60 chars to pass the description-quality lint.
-  await writeFile(
-    join(agentsDir, "rules", "hatch3r-test-rule.md"),
-    "---\nid: hatch3r-test-rule\ntype: rule\ndescription: Test fixture rule for exercising the validate command pipeline without triggering description-quality lint errors\nscope: always\n---\n# Test Rule\n\nTest content.\n",
   );
 }
 
@@ -62,7 +50,7 @@ async function seedUserAgent(
   name: string,
   bodyOrFm: { body?: string; frontmatter?: Record<string, unknown> } = {},
 ): Promise<void> {
-  const dir = join(rootDir, AGENTS_DIR, "user", "agents");
+  const dir = join(rootDir, HATCH3R_DIR, OVERRIDES_DIR, "agents");
   await mkdir(dir, { recursive: true });
   const fm = {
     id: name,
@@ -141,7 +129,7 @@ describe("validate command — user content", () => {
 
     const out = combinedOutput();
     // The managed-prefix lint asserts hatch3r- prefix on canonical files; user
-    // files in .agents/user/ are exempt and must not appear in any prefix
+    // files in .hatch3r/overrides/ are exempt and must not appear in any prefix
     // warning.
     expect(out).not.toMatch(/no-prefix-needed.*prefix/i);
   });
@@ -220,7 +208,7 @@ describe("validate command — user content", () => {
 
   it("errors when a user hook declares an invalid event", async () => {
     await createMinimalAgentsDir(tempDir);
-    const hooksDir = join(tempDir, AGENTS_DIR, "user", "hooks");
+    const hooksDir = join(tempDir, HATCH3R_DIR, OVERRIDES_DIR, "hooks");
     await mkdir(hooksDir, { recursive: true });
     await writeFile(
       join(hooksDir, "bad-hook.md"),
@@ -235,7 +223,7 @@ describe("validate command — user content", () => {
 
   it("errors when an orchestrator user command lacks agentPipeline", async () => {
     await createMinimalAgentsDir(tempDir);
-    const cmdDir = join(tempDir, AGENTS_DIR, "user", "commands");
+    const cmdDir = join(tempDir, HATCH3R_DIR, OVERRIDES_DIR, "commands");
     await mkdir(cmdDir, { recursive: true });
     await writeFile(
       join(cmdDir, "bad-orch.md"),

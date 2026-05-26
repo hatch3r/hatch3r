@@ -56,7 +56,7 @@ Follow the **GitHub Projects V2 Sync** from `commands/board/shared-github.md` fo
 **Create PR:**
 `gh pr create -R {owner}/{repo} --head {branch} --base {base} --title "..." --body "..."` (fall back to `create_pull_request` MCP).
 
-`{base}` = `board.defaultBranch` from `.agents/hatch.json` (fallback: `"main"`).
+`{base}` = `board.defaultBranch` from `.hatch3r/hatch.json` (fallback: `"main"`).
 
 **Link PR to epic:**
 `gh issue comment {epic} -R {owner}/{repo} --body "PR: #{pr_number}"` (fall back to `add_issue_comment` MCP).

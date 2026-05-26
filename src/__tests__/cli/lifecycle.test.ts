@@ -43,7 +43,10 @@ vi.mock("node:child_process", async (importOriginal) => {
   return { ...actual, execFileSync: vi.fn() };
 });
 
-const AGENTS_DIR = ".agents";
+// Wave 6: manifest moved from .agents/hatch.json to .hatch3r/hatch.json.
+// Wave 3: .agents/ no longer materialized in user repos.
+// Wave 5: user-authored overrides live under .hatch3r/overrides/{type}/.
+const HATCH3R_DIR = ".hatch3r";
 
 // Heavy filesystem I/O per test (mkdtemp + init creates 131 files + per-adapter
 // generation + integrity hashing + rm -rf teardown). On Windows Node 22 CI
@@ -82,18 +85,15 @@ describe("init -> sync -> update lifecycle", { timeout: 60_000 }, () => {
     const { initCommand } = await import("../../cli/commands/init.js");
     await initCommand({ yes: true, tools: "cursor" });
 
-    // Verify init created the project structure
-    await expect(access(join(tempDir, AGENTS_DIR))).resolves.toBeUndefined();
-    await expect(access(join(tempDir, AGENTS_DIR, "hatch.json"))).resolves.toBeUndefined();
+    // Verify init created the .hatch3r/ footprint (Wave 6) — no .agents/ tree (Wave 3).
+    await expect(access(join(tempDir, HATCH3R_DIR))).resolves.toBeUndefined();
+    await expect(access(join(tempDir, HATCH3R_DIR, "hatch.json"))).resolves.toBeUndefined();
+    await expect(access(join(tempDir, ".agents"))).rejects.toThrow();
 
-    const manifestRaw = await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8");
+    const manifestRaw = await readFile(join(tempDir, HATCH3R_DIR, "hatch.json"), "utf-8");
     const manifest = JSON.parse(manifestRaw);
     expect(manifest.tools).toContain("cursor");
     expect(manifest.features.rules).toBe(true);
-
-    // Verify canonical files were created
-    await expect(access(join(tempDir, AGENTS_DIR, "rules"))).resolves.toBeUndefined();
-    await expect(access(join(tempDir, AGENTS_DIR, "agents"))).resolves.toBeUndefined();
 
     // ── Phase 2: Sync ──────────────────────────────────────────
     consoleSpy.mockClear();
@@ -107,10 +107,8 @@ describe("init -> sync -> update lifecycle", { timeout: 60_000 }, () => {
     expect(bridgeContent).not.toBeNull();
     expect(bridgeContent).toContain("Hatch3r Bridge");
 
-    // Verify AGENTS.md was created with managed blocks
-    const agentsMd = await readFile(join(tempDir, "AGENTS.md"), "utf-8");
-    expect(agentsMd).toContain("<!-- HATCH3R:BEGIN -->");
-    expect(agentsMd).toContain("<!-- HATCH3R:END -->");
+    // Wave 3: root AGENTS.md is no longer emitted; each adapter writes only its native surface.
+    await expect(access(join(tempDir, "AGENTS.md"))).rejects.toThrow();
 
     const syncOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
     expect(syncOutput).toContain("Sync complete");
@@ -121,7 +119,7 @@ describe("init -> sync -> update lifecycle", { timeout: 60_000 }, () => {
     await updateCommand({ backup: false });
 
     // Verify update refreshed the manifest version
-    const updatedManifestRaw = await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8");
+    const updatedManifestRaw = await readFile(join(tempDir, HATCH3R_DIR, "hatch.json"), "utf-8");
     const updatedManifest = JSON.parse(updatedManifestRaw);
     expect(updatedManifest.hatch3rVersion).toBe(HATCH3R_VERSION);
 
@@ -158,12 +156,14 @@ describe("init -> sync -> update lifecycle", { timeout: 60_000 }, () => {
     expect(output).toContain("Sync complete");
   });
 
-  it("update preserves custom user files", async () => {
+  it("update preserves user override files under .hatch3r/overrides/", async () => {
     const { initCommand } = await import("../../cli/commands/init.js");
     await initCommand({ yes: true, tools: "cursor" });
 
-    // Add a custom rule file
-    const customRulePath = join(tempDir, AGENTS_DIR, "rules", "my-team-rule.md");
+    // Wave 5: user-authored content lives at .hatch3r/overrides/{type}/.
+    const overridesRulesDir = join(tempDir, HATCH3R_DIR, "overrides", "rules");
+    await mkdir(overridesRulesDir, { recursive: true });
+    const customRulePath = join(overridesRulesDir, "my-team-rule.md");
     await writeFile(
       customRulePath,
       "---\nid: my-team-rule\ntype: rule\ndescription: Team rule\nscope: always\n---\n# My Team Rule\n\nCustom team content.\n",
@@ -172,21 +172,22 @@ describe("init -> sync -> update lifecycle", { timeout: 60_000 }, () => {
     const { updateCommand } = await import("../../cli/commands/update.js");
     await updateCommand({ backup: false });
 
-    // Custom file should be preserved
+    // Custom file should be preserved under .hatch3r/overrides/.
     const customContent = await readFile(customRulePath, "utf-8");
     expect(customContent).toContain("My Team Rule");
     expect(customContent).toContain("Custom team content");
   });
 
-  it("update after sync refreshes hatch3r-prefixed canonical files", async () => {
+  it("update after sync refreshes hatch3r-prefixed adapter outputs", async () => {
     const { initCommand } = await import("../../cli/commands/init.js");
     await initCommand({ yes: true, tools: "cursor" });
 
     const { syncCommand } = await import("../../cli/commands/sync.js");
     await syncCommand();
 
-    // Capture the initial state of a hatch3r-prefixed rule
-    const rulesDir = join(tempDir, AGENTS_DIR, "rules");
+    // Wave 3: canonical files are no longer materialized in the user repo.
+    // The cursor adapter writes hatch3r-prefixed rules to .cursor/rules/ instead.
+    const rulesDir = join(tempDir, ".cursor", "rules");
     const ruleFiles = await readdir(rulesDir);
     const hatch3rRules = ruleFiles.filter((f) => f.startsWith("hatch3r-"));
     expect(hatch3rRules.length).toBeGreaterThan(0);
@@ -195,7 +196,7 @@ describe("init -> sync -> update lifecycle", { timeout: 60_000 }, () => {
     const { updateCommand } = await import("../../cli/commands/update.js");
     await updateCommand({ backup: false });
 
-    // hatch3r-prefixed files should still exist after update
+    // hatch3r-prefixed files should still exist after update.
     const updatedRuleFiles = await readdir(rulesDir);
     const updatedHatch3rRules = updatedRuleFiles.filter((f) => f.startsWith("hatch3r-"));
     expect(updatedHatch3rRules.length).toBeGreaterThan(0);

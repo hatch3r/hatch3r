@@ -1,3 +1,12 @@
+---
+id: content-authoring
+type: rule
+description: Canonical content authoring contract — required YAML frontmatter, filename prefix, quality charter, duplication check, skill/rule/command format conventions, .md/.mdc rule scope transform.
+tags: [maintainer, content, p2, p4]
+scope: always
+precedence: high
+---
+
 # Content Authoring
 
 **Pillars:** P4 (Lean Coverage), P2 (Scientific Quality)
@@ -11,7 +20,9 @@ When creating or modifying canonical content artifacts in `agents/`, `skills/`, 
 5. **Skills format:** `skills/hatch3r-{name}/SKILL.md` directory structure with Quick Start + Step pattern
 6. **Rules format:** Produce both `.md` (canonical) and `.mdc` (Cursor) variants. Body bytes must match (checked by `scripts/validate-rule-parity.ts`); frontmatter follows the scope transform below.
 7. **Pillar alignment:** Every artifact must serve at least one Binding Pillar (P1-P8). Document which
-8. **Commands — orchestrator marker (C8-D5-M1):** every file in `commands/hatch3r-*.md` MUST declare `orchestrator: true|false` in frontmatter. When `orchestrator: true`, add `agentPipeline: [hatch3r-agent-1, hatch3r-agent-2, ...]` listing every hatch3r-* sub-agent the command delegates to via the Task tool. Commands classified as `orchestrator: false` (inline-execution: customize commands, hooks, learn, release, recipe, board-init/groom/refresh/shared, healthcheck, security-audit, dep-audit, context-health, cost-tracking) omit `agentPipeline`. `board-fill` is `orchestrator: true` because Step 7.9 delegates to `hatch3r-reviewer` and `hatch3r-fixer` via the Task tool. Enforced by `src/cli/commands/validate.ts::validateCommandOrchestratorFrontmatter`: a missing marker is a warning; `orchestrator: true` without `agentPipeline`, an empty array, or non-boolean `orchestrator` is a validation error.
+8. **Commands — orchestrator marker (C8-D5-M1):** every file in `commands/hatch3r-*.md` MUST declare `orchestrator: true|false` in frontmatter. When `orchestrator: true`, add `agentPipeline: [hatch3r-agent-1, hatch3r-agent-2, ...]` listing every hatch3r-* sub-agent the command delegates to via the Task tool. `board-fill` is `orchestrator: true` because Step 7.9 delegates to `hatch3r-reviewer` and `hatch3r-fixer` via the Task tool. Enforced by `src/cli/commands/validate.ts::validateCommandOrchestratorFrontmatter`: a missing marker is a warning; `orchestrator: true` without `agentPipeline`, an empty array, or non-boolean `orchestrator` is a validation error.
+9. **Command vs Skill — authoring criterion (Decision #13):** a new artifact is a **command** ONLY when it orchestrates ≥1 hatch3r-* sub-agent via the Task tool (`orchestrator: true` + non-empty `agentPipeline`). Every other user-invocable workflow — single-pass procedures, dispatchers, inline-execution flows — MUST be authored as a **skill** (`skills/hatch3r-{name}/SKILL.md`). A `commands/hatch3r-*.md` file with `orchestrator: false` is a structural error: either promote it to `orchestrator: true` by spawning a sub-agent, or collapse it into the matching skill and delete the command shell. Validation gate to be added to `src/cli/commands/validate.ts` per `governance/inventory.json` drift probes.
+10. **Reputable-source reconnaissance (Decision #14):** before writing body content for a new agent, skill, or rule, web-research ≥2 independent reputable sources (official vendor documentation, established agent/skill libraries with named maintainers, peer-reviewed methodology) ≤12 months old per `governance/audit/templates/rigor-contract.md`. Synthesize patterns; never copy verbatim. Record sources in a `## References` section at the bottom of the new artifact with URL + access date + trust tier. Skip for trivial edits (typo, frontmatter-only, single-line clarification).
 
 ## Rule Scope Transform (`.md` -> `.mdc`)
 
@@ -31,5 +42,18 @@ Enforced by `scripts/validate-rule-parity.ts` (CI gate via `npm run validate:rul
 - `.mdc` files with `globs` carry `alwaysApply: false`.
 - `.mdc` `globs` is a JSON array of quoted strings (no bare CSV).
 - The set of globs on the `.mdc` side equals the set derived from the `.md` side via the transform above.
+
+## Rule Precedence Ranks and Assignment Policy
+
+Canonical `.md` rule frontmatter supports `precedence: critical|high|normal|low` (default `normal`). Adapters consume this field as the `NN-` filename prefix and ordering signal on every per-file rule emission (`src/adapters/canonical.ts::sortByPrecedence`).
+
+| Precedence | Rank | Filename prefix | Assignment policy |
+|------------|-----:|-----------------|-------------------|
+| `critical` | 100 | `10-` | Security and secrets rules — `hatch3r-security-patterns`, `hatch3r-secrets-management`, and any future rule with equivalent blast radius |
+| `high` | 300 | `30-` | Rules implementing CONSTITUTION §2 P2 hard-mandate floors (supply-chain, observability, migrations, API versioning, AI evals, accessibility, container hardening, dependency management, resilience patterns, design-system detection, ux-states-and-flows) AND framework-dev gatekeeper rules under `.claude/rules/` (pillar-compliance, governance-lean-thresholds, anti-slop-enforcement, security-patterns, content-authoring, test-requirements) AND pre-existing pipeline-protocol rules (agent-orchestration, iteration-summary, handoff-readiness, clarification-default, fan-out-discipline) |
+| `normal` | 500 | `50-` | Default. Cosmetic/style rules — theming, i18n, commit conventions, doc style |
+| `low` | 700 | `70-` | Deprecation hawks awaiting removal |
+
+The `.mdc` twin inherits `precedence` unchanged from the `.md` source. `scripts/validate-rule-parity.ts` (CI gate `npm run validate:rule-parity`) verifies parity across all rule pairs. D05 audits enforce assignment-policy compliance per cycle.
 
 D05 audit checklist (prompt engineering quality): `governance/audit/domains/D05-prompt-engineering.md`

@@ -41,7 +41,7 @@ Adding a pipeline pattern: append a new `P-PIPE-NN` row here, add the RegExp ent
 
 ### Section B — Learnings Storage Patterns (learningsValidation.ts)
 
-Scope: content written to `.agents/learnings/` files. These patterns defend against ASI06 (memory & context poisoning) — poisoned learnings load into every future session via the learnings-loader.
+Scope: content written to `.hatch3r/learnings/` files. These patterns defend against ASI06 (memory & context poisoning) — poisoned learnings load into every future session via the learnings-loader.
 
 | Pattern ID | Description | Regex (code canonical form) | ASI control |
 |-----------|-------------|-----------------------------|-------------|

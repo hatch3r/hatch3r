@@ -155,4 +155,4 @@ When no model is set, each tool uses its own default.
 ## Related
 
 - [adapter-capability-matrix.md](adapter-capability-matrix.md) — Platform support matrix and model emission per adapter
-- [hatch3r-agent-customize](../commands/hatch3r-agent-customize.md) — Per-agent customization including model overrides via `.hatch3r/agents/{id}.customize.yaml`
+- [hatch3r-customize](../skills/hatch3r-customize/SKILL.md) — Per-artifact customization (agents, commands, rules, skills) including model overrides via `.hatch3r/agents/{id}.customize.yaml`

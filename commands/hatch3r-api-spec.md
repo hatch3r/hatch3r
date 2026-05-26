@@ -36,7 +36,7 @@ Take a codebase with HTTP or RPC endpoints and produce a complete OpenAPI 3.1 sp
 
 ## Shared Context
 
-**Read the `hatch3r-board-shared` command at the start of the run** if it exists. Cache any values found (GitHub owner/repo, tooling directives).
+**Read the `hatch3r-board-shared` skill at the start of the run** if it exists. Cache any values found (GitHub owner/repo, tooling directives).
 
 **Read the `hatch3r-api-design` rule** if it exists. This rule contains the project's API design conventions (naming, versioning, error shapes, pagination patterns) that the generated spec must conform to.
 

@@ -42,8 +42,6 @@ describe("CONTEXT_BUDGET_TOKENS", () => {
     expect(CONTEXT_BUDGET_TOKENS.claude).toBe(200_000);
     expect(CONTEXT_BUDGET_TOKENS.cursor).toBe(120_000);
     expect(CONTEXT_BUDGET_TOKENS.copilot).toBe(64_000);
-    expect(CONTEXT_BUDGET_TOKENS.codex).toBe(200_000);
-    expect(CONTEXT_BUDGET_TOKENS.windsurf).toBe(128_000);
   });
 });
 

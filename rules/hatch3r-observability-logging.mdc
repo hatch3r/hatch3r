@@ -2,6 +2,7 @@
 description: Structured logging and error reporting conventions for the project
 globs: ["**/*log*", "**/*logger*", "**/*logging*", "**/*error*", "**/observability/**", "**/routes/**", "**/handlers/**", "**/services/**", "**/api/**", "**/middleware/**", "**/controllers/**", "**/lib/**"]
 alwaysApply: false
+precedence: high
 ---
 # Observability -- Logging & Error Reporting
 

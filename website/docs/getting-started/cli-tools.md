@@ -60,7 +60,7 @@ Never pre-checked. Opt in informed.
 
 | Tool | Probe | Description |
 |------|-------|-------------|
-| RTK | `rtk` | CLI output-compression proxy — ⚠ see pipe-output corruption caveat in the canonical `hatch3r-cli-rtk` skill |
+| RTK | `rtk` | CLI output-compression proxy — ⚠ see pipe-output corruption caveat in the `hatch3r-cli-toolbox` skill (rtk section) |
 | Stagehand | `stagehand` | Browserbase Stagehand — AI-driven browser automation |
 | aichat | `aichat` | Multi-provider LLM chat CLI with RAG and session memory |
 | mods | `mods` | Charm mods — Unix-friendly LLM pipeline tool |
@@ -90,7 +90,7 @@ Run `npx hatch3r cli-tools install` to print install commands for everything cur
 
 ## Decision tree — which tool for which job?
 
-The `hatch3r-cli-overview` skill that ships in every project includes the full decision tree. Summary:
+The `hatch3r-cli-toolbox` skill that ships in every project includes the full decision tree across 24 specialist tools (plus the five always-on standalone skills: `hatch3r-cli-ripgrep`, `hatch3r-cli-jq`, `hatch3r-cli-gh`, `hatch3r-cli-fd`, `hatch3r-cli-fzf`). Summary:
 
 - **Text search** → `rg` (fast literal/regex grep). For structural patterns (AST-aware) use `ast-grep` instead. For cross-language declarative rewrites, escalate to `comby`.
 - **Find files** → `fd` (sane defaults, gitignore-aware).
@@ -105,7 +105,7 @@ The `hatch3r-cli-overview` skill that ships in every project includes the full d
 - **LLM in a pipeline** → `llm` (simple), `mods` (Unix-friendly streaming), `aichat` (RAG + session memory).
 - **Containers** → `docker` (default) or `podman` (rootless / daemonless).
 
-The full umbrella skill (`skills/hatch3r-cli-overview/SKILL.md`) ships into every project and surfaces this decision tree directly to your agent at runtime.
+The full toolbox skill (`skills/hatch3r-cli-toolbox/SKILL.md`) ships into every project and surfaces this decision tree directly to your agent at runtime.
 
 ## Choosing between CLI tools and MCP
 
@@ -130,7 +130,7 @@ npx hatch3r cli-tools install   # print install commands for missing tools
 npx hatch3r cli-tools detect    # read-only detection report
 ```
 
-Selection is recorded in `hatch.json` under `cliTools.selected` and survives `npx hatch3r clean → npx hatch3r init` via `PreservedManifestFields`. The umbrella `hatch3r-cli-overview` skill plus the per-tool skills are emitted to the 13 skill-capable adapters during `sync`.
+Selection is recorded in `hatch.json` under `cliTools.selected` and survives `npx hatch3r clean → npx hatch3r init` via `PreservedManifestFields`. The consolidated `hatch3r-cli-toolbox` skill plus the five standalone per-tool skills are emitted to the 3 skill-capable adapters during `sync`.
 
 ## Upgrading from 1.7.1 or earlier
 

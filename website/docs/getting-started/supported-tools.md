@@ -5,7 +5,11 @@ title: Supported Tools
 
 # Supported Tools
 
-hatch3r generates native configuration for 15 AI coding platforms from a single canonical source.
+hatch3r generates native configuration for 3 AI coding platforms from a single bundled canonical source.
+
+:::info v1.9.0 scope cut
+As of 1.9.0 hatch3r supports only Claude Code, Cursor, and GitHub Copilot. Twelve adapters (aider, amazonq, amp, antigravity, cline, codex, gemini, goose, kiro, opencode, windsurf, zed) were removed in a hard cut. See the [CHANGELOG](https://github.com/hatch3r-dev/hatch3r/blob/main/CHANGELOG.md) for the full breaking-change list and migration notes.
+:::
 
 ## Platform Overview
 
@@ -14,20 +18,8 @@ hatch3r generates native configuration for 15 AI coding platforms from a single 
 | **Cursor** | Y | Y | Y | Y | Y | Y |
 | **GitHub Copilot** | Y | Y | Y | Y | Y | -- |
 | **Claude Code** | Y | Y | Y | Y | Y | Y |
-| **Cline / Roo Code** | Y | Y | Y | Y | Y | Y |
-| **OpenCode** | Y | Y | Y | Y | Y | -- |
-| **Codex CLI** | B | B | Y | -- | Y | -- |
-| **Gemini CLI** | Y | B | Y | Y | Y | Y |
-| **Windsurf** | Y | B | Y | Y | Y | -- |
-| **Amp** | B | B | Y | ~ | Y | -- |
-| **Aider** | B | B | Y | -- | -- | -- |
-| **Kiro** | Y | B | Y | -- | Y | Y |
-| **Goose** | B | B | B | -- | Y | -- |
-| **Zed** | B | B | -- | -- | -- | -- |
-| **Amazon Q** | B | B | Y | -- | Y | -- |
-| **Antigravity** | B | B | Y | -- | Y | -- |
 
-**Legend:** **Y** = adapter emits files, **B** = bridge (content folded into instruction file), **~** = platform reads canonical paths natively, **--** = no platform support
+**Legend:** **Y** = adapter emits files, **B** = bridge (content folded into instruction file), **--** = no platform support
 
 ## Output Paths
 
@@ -75,13 +67,12 @@ MCP server config location varies by tool:
 | Cursor plugin | `mcp.json` (project root) |
 | Claude Code | `.mcp.json` |
 | Copilot / VS Code | `.vscode/mcp.json` |
-| Cline / Roo | `.roo/mcp.json` |
 
 Since 1.7.5 MCP is opt-in (default No during `init`). See the [MCP Setup guide](../guides/mcp-setup) for connecting servers and managing secrets.
 
 ## CLI Tools
 
-Since 1.7.5, hatch3r ships a 29-tool CLI surface area as the token-efficient alternative to MCP. Each selected tool emits a per-tool skill to the 13 skill-capable adapters (Cursor, Claude Code, Copilot, Cline, OpenCode, Codex, Gemini, Windsurf, Kiro, Aider, Goose, Amazon Q, Antigravity) plus the `hatch3r-cli-overview` decision-tree skill.
+Since 1.7.5, hatch3r ships a 29-tool CLI surface area as the token-efficient alternative to MCP. In v1.9.0 the per-tool skills were consolidated: five high-frequency tools (`ripgrep`, `jq`, `gh`, `fd`, `fzf`) retain standalone skill files, and the remaining 24 are sections of the consolidated `hatch3r-cli-toolbox` reference skill. Canonical content is emitted to all 3 supported adapters (Cursor, Claude Code, Copilot).
 
 ### Tier-1 (default-on, 10 tools)
 

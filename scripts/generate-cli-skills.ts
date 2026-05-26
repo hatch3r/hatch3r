@@ -3,10 +3,13 @@
  * scripts/generate-cli-skills.ts — Wave 4a, plan §7 item 23
  *
  * Maintainer-only generator. Reads `AVAILABLE_CLI_TOOLS` from
- * `src/cliTools/registry.ts` and emits 30 skill files under `skills/`:
+ * `src/cliTools/registry.ts` and emits one standalone skill file per entry
+ * in `STANDALONE_TOOLS` (post v1.9.0 consolidation: ripgrep, jq, gh, fd, fzf):
  *
- *   - `skills/hatch3r-cli-{id}/SKILL.md` (one per registry entry)
- *   - `skills/hatch3r-cli-overview/SKILL.md` (umbrella catalog + decision tree)
+ *   - `skills/hatch3r-cli-{id}/SKILL.md` (one per standalone registry entry)
+ *
+ * Every other registry tool is covered by the hand-authored
+ * `skills/hatch3r-cli-toolbox/SKILL.md`, which this generator does NOT touch.
  *
  * Body content comes from `renderCliToolSkillBody(meta, currentOs)` in
  * `src/cliTools/skill.ts` — Wave 2 emits scaffolding with placeholders that
@@ -117,88 +120,12 @@ function renderPerToolFrontmatter(meta: CliToolMeta): string {
   return lines.join("\n");
 }
 
-function renderUmbrellaFrontmatter(): string {
-  const lines = [
-    "---",
-    "id: hatch3r-cli-overview",
-    'description: "Catalog of all hatch3r-recommended CLI tools — discovery entry with tier tables and decision tree."',
-    'tags: ["cli-tools", "core", "reference"]',
-    "quality_charter: agents/shared/quality-charter.md",
-    "efficiency_patterns: agents/shared/efficiency-patterns.md",
-    "cache_friendly: true",
-    "---",
-  ];
-  return lines.join("\n");
-}
-
 function renderPerToolFile(meta: CliToolMeta, os: OsKey): string {
   const frontmatter = renderPerToolFrontmatter(meta);
   const body = renderCliToolSkillBody(meta, os);
   // Marker sits between frontmatter and body so it is part of the generated
   // body — human-edits below the body still trip the refusal check.
   return `${frontmatter}\n${GENERATED_MARKER}\n${body}`;
-}
-
-interface TierRow {
-  toolId: string;
-  skillId: string;
-  description: string;
-}
-
-function tierRows(tier: 1 | 2 | 3): TierRow[] {
-  const rows: TierRow[] = [];
-  for (const meta of Object.values(AVAILABLE_CLI_TOOLS) as CliToolMeta[]) {
-    if (meta.tier !== tier) continue;
-    rows.push({
-      toolId: meta.id,
-      skillId: `hatch3r-cli-${meta.id}`,
-      description: meta.description,
-    });
-  }
-  rows.sort((a, b) => a.toolId.localeCompare(b.toolId));
-  return rows;
-}
-
-function renderTierTable(title: string, rows: TierRow[]): string {
-  if (rows.length === 0) return "";
-  const lines: string[] = [];
-  lines.push(`## ${title}`);
-  lines.push("");
-  lines.push("| Tool | Skill ID | Use for |");
-  lines.push("|------|----------|---------|");
-  for (const row of rows) {
-    lines.push(`| \`${row.toolId}\` | \`${row.skillId}\` | ${row.description} |`);
-  }
-  lines.push("");
-  return lines.join("\n");
-}
-
-function renderUmbrellaBody(): string {
-  const tier1 = tierRows(1);
-  const tier2 = tierRows(2);
-  const tier3 = tierRows(3);
-
-  const parts: string[] = [];
-  parts.push("# CLI Tool Catalog");
-  parts.push("");
-  parts.push(
-    "hatch3r recommends a small set of terminal-native CLI tools agents can call instead of MCP servers or wrapped APIs. Each tool listed below has its own skill file with recipes, anti-patterns, and per-OS install instructions. Run `npx hatch3r cli-tools` to (de)select tools, or `npx hatch3r cli-tools detect` for a read-only install report.",
-  );
-  parts.push("");
-  parts.push(renderTierTable("Tier 1 — default-on", tier1));
-  parts.push(renderTierTable("Tier 2 — conditional (offered on project signal)", tier2));
-  parts.push(renderTierTable("Tier 3 — opt-in advanced", tier3));
-  parts.push("## Decision Tree");
-  parts.push("");
-  parts.push(
-    "Need text search → `rg`. Structural → `ast-grep`. Files → `fd`. JSON → `jq`. YAML → `yq`. Replace → `sd`. Git/forge → `gh` / `glab` / `az-devops`. Browser → `playwright`. View → `bat`. Diff → `delta`. Archive → `zstd`.",
-  );
-  parts.push("");
-  return parts.join("\n");
-}
-
-function renderUmbrellaFile(): string {
-  return `${renderUmbrellaFrontmatter()}\n${GENERATED_MARKER}\n${renderUmbrellaBody()}`;
 }
 
 async function fileExists(path: string): Promise<boolean> {
@@ -237,16 +164,20 @@ async function classify(
   };
 }
 
+/**
+ * v1.9.0 toolbox consolidation: only the five standalone tools below are
+ * generator-emitted as their own per-tool skill file. Every other registry
+ * tool is covered by the hand-authored `skills/hatch3r-cli-toolbox/SKILL.md`
+ * (which the generator does NOT touch — it is human-maintained).
+ */
+const STANDALONE_TOOLS = new Set(["ripgrep", "jq", "gh", "fd", "fzf"]);
+
 async function buildPlan(force: boolean): Promise<PlanEntry[]> {
   const os = currentOs();
   const plan: PlanEntry[] = [];
 
-  // Umbrella first so it sorts above the per-tool entries when listed.
-  const umbrellaPath = join(SKILLS_DIR, "hatch3r-cli-overview", "SKILL.md");
-  const umbrellaContent = renderUmbrellaFile();
-  plan.push(await classify(umbrellaPath, umbrellaContent, force));
-
   for (const meta of Object.values(AVAILABLE_CLI_TOOLS) as CliToolMeta[]) {
+    if (!STANDALONE_TOOLS.has(meta.id)) continue;
     const path = join(SKILLS_DIR, `hatch3r-cli-${meta.id}`, "SKILL.md");
     const content = renderPerToolFile(meta, os);
     plan.push(await classify(path, content, force));
@@ -262,7 +193,6 @@ async function contentFor(planEntry: PlanEntry): Promise<string> {
     ? planEntry.path.slice(SKILLS_DIR.length + 1)
     : planEntry.path;
   const dir = relative.split(/[/\\]/)[0];
-  if (dir === "hatch3r-cli-overview") return renderUmbrellaFile();
   const toolId = dir.replace(/^hatch3r-cli-/, "");
   const meta = (AVAILABLE_CLI_TOOLS as Record<string, CliToolMeta | undefined>)[toolId];
   if (!meta) {

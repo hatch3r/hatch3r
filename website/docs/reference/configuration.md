@@ -322,7 +322,7 @@ hatch3r supports per-entity customization via YAML files in `.hatch3r/`. See the
     hatch3r-code-standards.customize.yaml
 ```
 
-Customization files take highest precedence in model resolution and allow project-specific behavior overrides without modifying managed agent definitions. Use `hatch3r-agent-customize`, `hatch3r-command-customize`, `hatch3r-skill-customize`, or `hatch3r-rule-customize` to manage them.
+Customization files take highest precedence in model resolution and allow project-specific behavior overrides without modifying managed agent definitions. Use the `hatch3r-customize` skill to manage them across all artifact types (agents, commands, rules, skills).
 
 ## Adapter Settings
 

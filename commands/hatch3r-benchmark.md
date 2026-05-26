@@ -36,7 +36,7 @@ Run performance benchmarks against a target (file, function, endpoint, or full s
 
 ## Shared Context
 
-**Read the `hatch3r-board-shared` command at the start of the run** if it exists. While this command does not perform board operations directly, it establishes patterns and context (GitHub owner/repo, tooling directives) that may be useful for regression issue creation. Cache any values found.
+**Read the `hatch3r-board-shared` skill at the start of the run** if it exists. While this command does not perform board operations directly, it establishes patterns and context (GitHub owner/repo, tooling directives) that may be useful for regression issue creation. Cache any values found.
 
 ## Token-Saving Directives
 
