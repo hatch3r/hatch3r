@@ -1,6 +1,6 @@
 # Closed-Loop Agent Templates
 
-> Last updated: 2026-04-19
+> Last updated: 2026-05-26
 
 **Pillars served:** P2 (primary), P5 (supporting).
 
@@ -113,6 +113,15 @@ Apply accepted Audit Self-Evolution Proposals to AUDIT.md and domain files.
    - New domain: create `governance/audit/domains/D{NN}-{name}.md` with scope, sub-agent table, and checklists.
    - Weight adjustments: recalculate all weights in the affected tier. Tier totals must sum to 1.00.
    - Sub-agent count changes: update Summary Table totals (parallel, sequential, total).
+
+   For accepted proposals, carry forward the source finding's `impact_horizon` and `progress_toward_pillar` fields into the proposal commit message footer (Conventional Commits trailer format):
+
+   ```
+   Impact-Horizon: medium
+   Progress: governance.P5+0.15
+   ```
+
+   This creates a cycle-over-cycle traceable chain from audit self-evolution → pillar progress (per Decision 17 + Decision 28 D24 governance self-audit).
 5. Run invariant checks:
    - All tier weight subtotals sum to 1.00
    - Total sub-agent count = sum of all domain sub-agent counts

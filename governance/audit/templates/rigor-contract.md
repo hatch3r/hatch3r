@@ -1,6 +1,6 @@
 # Scientific Rigor Contract & Web Research Mandate
 
-> Last updated: 2026-04-21
+> Last updated: 2026-05-26
 > Pillars: P2 (primary), P5 (supporting), P3 (supporting).
 > Canonical for: governance/AUDIT.md, governance/EVOLVE.md, governance/audit/domains/D*.md, governance/audit/templates/*.md, all sub-agent prompts.
 
@@ -58,6 +58,8 @@ sources:
     accessed: YYYY-MM-DD
     author: <author or organisation>
     trust_tier: official-docs | peer-reviewed | vendor-note | independent-analysis | blog-post
+impact_horizon: short | medium | long  # 2.0.0 (Decision 17) — mandatory pre-triage filter
+progress_toward_pillar: <axis>.<pillar_id>+<delta>  # 2.0.0 (Decision 17) — e.g., "governance.P5+0.15" or "content-quality.CQ3+0.20"
 ```
 
 The body of the finding may then describe the issue, file references, recommendation, and effort per the host prompt's finding format (AUDIT.md Tier 3 or EVOLVE.md §4.1).
@@ -70,6 +72,30 @@ The body of the finding may then describe the issue, file references, recommenda
 - EVOLVE.md §4.2 rejection filters reject any finding that cannot answer all six contract tests.
 - AUDIT-EXECUTE.md `Finding Registry` carries `confidence`, `causal_chain_depth`, and `sources` fields forward through the execution lifecycle. Missing fields block Phase 1 Triage.
 - AUDIT-EXECUTE.md `Sub-Agent Failure Handling` retries any sub-agent whose findings contain placeholder values (e.g. `confidence_basis: "based on analysis"` without a named basis).
+
+---
+
+## Impact-Gated Registration (Decision 17 — added 2026-05-26)
+
+Findings without both `impact_horizon` and `progress_toward_pillar` are DROPPED at sub-agent output time before orchestrator triage. The audit signals framework-level progress, not analytical depth without payoff. Behavioral charter directive 18 (`governance/AUDIT.md`) and Pillar Compliance Test Q5/Q6 (`governance/CONSTITUTION.md` §2) encode the enforcement.
+
+---
+
+## Proof Trace Contract (Decision 9 — added 2026-05-26)
+
+For every state-dependent claim (file existence, file content, grep match, type-check pass, test output, command exit code), emit a `proof_trace:` block under the finding body containing:
+
+```yaml
+proof_trace:
+  claim: <one-sentence assertion>
+  command: <bash invocation OR Read tool call OR grep pattern>
+  expected: <pattern OR quoted output>
+  actual: <verbatim ≤200 chars from command output>
+  verdict: matched | mismatched
+  accessed: <YYYY-MM-DD>
+```
+
+Sub-agents that omit proof_trace on state-dependent claims trigger Shallow Finding Detector. Reviewer Pass 1.5 (`governance/audit/templates/reviewer-sub-agent.md`) reads proof_trace blocks to verify implementation against documented runtime state. Citation alone insufficient — verification commands close the loop.
 
 ---
 
@@ -94,7 +120,7 @@ This template serves the framework's North Star through:
 
 - **P2 Scientific & Practical Quality (primary).** The six-test contract operationalises P2 at the per-finding level for every audit sub-agent and every EVOLVE proposal.
 - **P5 Governance Self-Quality (supporting).** Single source of truth eliminates duplication across AUDIT.md, EVOLVE.md, and 19 domain files.
-- **P3 Adapter & MCP Currency (supporting).** Web Research Mandate enforces source-and-date capture for all currency claims.
+- **P3 Adapter & External Tool Currency (supporting).** Web Research Mandate enforces source-and-date capture for platform docs, CLI tool releases, and CVE feeds (per CLAUDE.md current P3 name + CONSTITUTION §2 P3).
 
 Pillar Compliance Test answers per `governance/CONSTITUTION.md` §2: (1) P2 primary, P5 / P3 supporting. (2) Measurable improvement — every finding gains 6 enforcement gates and a 7-field schema; placeholder findings are detectable and retryable. (3) Net governance size impact: +85 lines for this file, offset by −20 in EVOLVE.md and −1+ across domain files via reference-instead-of-restate.
 

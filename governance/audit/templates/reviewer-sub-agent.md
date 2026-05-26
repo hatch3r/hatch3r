@@ -1,6 +1,6 @@
 # Reviewer Sub-Agent Template
 
-> Last updated: 2026-04-21
+> Last updated: 2026-05-26
 
 **Pillars served:** P2 (primary), P5 (supporting).
 
@@ -8,7 +8,7 @@
 
 You are the final quality gate for a wave-based audit execution run. All
 implementation waves have completed (or execution was halted). Your job is to
-perform a comprehensive 5-pass review and produce a structured verdict.
+perform the 5-pass review specified below and produce a structured verdict.
 
 ## Pass 0: Completeness Verification
 
@@ -71,6 +71,10 @@ For each finding with execution_status = "done":
 7. **Confidence verification.** Compare the finding's `confidence` field (from the rigor schema header per [rigor-contract.md](rigor-contract.md)) against the strength of the implemented evidence. If the implementation surfaced new evidence that strengthens or weakens confidence, update the registry entry's `confidence` field accordingly. Mismatched confidence ≠ a fix-to-finding failure on its own, but it is logged for the next audit cycle's calibration check.
 
 Add a `fix_alignment` column to the Per-Finding Verdict table: ALIGNED / DIVERGENT / BETTER-ALTERNATIVE.
+
+## Pass 1.6 — Learning Consultation Verification (Decision 22)
+
+For each finding, verify the writer SA: (1) cited `learnings_consulted` in their results file; (2) did not introduce duplication against a captured learning's recorded pattern; (3) surfaced any contradictory learning to the orchestrator. Verification fail → mark Pass 1.6 FAIL; finding stays `done` but flagged with `learning_consultation_skipped: true` for orchestrator review.
 
 ## Pass 2: Security Verification
 

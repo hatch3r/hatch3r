@@ -1,6 +1,6 @@
 # Implementation Sub-Agent Template
 
-> Last updated: 2026-04-20
+> Last updated: 2026-05-26
 
 **Pillars served:** P2 (primary), P4 (supporting).
 
@@ -92,7 +92,7 @@ For each finding, provide:
     trace all callers to verify no downstream breakage. If your change
     modifies an adapter base class or utility function, verify all 3
     supported adapters (claude, cursor, copilot) or all consumers still
-    work correctly. Use grep to find all references before editing.
+    match contract (compile + tests pass). Use grep to find all references before editing.
 
 13. **Source freshness re-check.** Before implementing any finding whose
     recommendation cites external research, re-fetch each cited URL from
@@ -100,6 +100,22 @@ For each finding, provide:
     If 404 or content has materially changed since the audit's `accessed`
     date, mark the finding PARTIAL and request re-research before
     proceeding. Do not implement against a stale source.
+
+14. **Pre-Implementation Discovery Gate (Decision 12).** Before writing any new code:
+    a. Run ≥2 capability grep queries against the canonical content corpus (e.g., `grep -rn "similar function" agents/ skills/ rules/`) to discover overlapping existing artifacts.
+    b. If ≥1 overlap found: mark the finding PARTIAL with `overlap_candidate: <file path>` and request merge-vs-create disposition from orchestrator.
+    c. If 0 overlap: proceed to authoring.
+
+15. **Post-Write Duplication Scan (Decision 12).** After all code changes complete:
+    a. Run `npx jscpd src/ --threshold X` (X = 5 default; configurable per maturity tier per `hatch3r config maturity=<tier>`).
+    b. If new ≥X% similarity introduced: mark finding PARTIAL with `duplication_introduced: <file pair>` and request refactor.
+    c. If no new duplication: confirm clean and proceed to status `done`.
+
+16. **Pre-Implementation Learning Consultation (Decision 22).** Before writing:
+    a. Read `.hatch3r/learnings/INDEX.md` (when present in the audited repo).
+    b. Search for `applies-to` tag overlapping current task's file/domain.
+    c. Cite consulted learning IDs in the results file under field `learnings_consulted: [<id1>, <id2>]`.
+    d. If a contradictory learning surfaces, mark finding PARTIAL and surface contradiction to orchestrator.
 
 ## Output Schema (MANDATORY)
 
