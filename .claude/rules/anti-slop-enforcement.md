@@ -26,4 +26,4 @@ Zero tolerance for filler phrases in all `.md` files under `governance/`, `agent
 | "carefully", "thoroughly" | Remove or replace with concrete action |
 | "it is important to note", "this section describes" | Remove — state the fact directly |
 
-This wordlist comes from `governance/AUDIT-EXECUTE.md` regression gate check 10. Any hit is a gate failure.
+This wordlist comes from `governance/AUDIT-EXECUTE.md` regression gate check 11. Any hit is a gate failure.
