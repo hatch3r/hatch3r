@@ -34,7 +34,7 @@ Create a security audit epic on **{owner}/{repo}** with one sub-issue per logica
 
 ## Shared Context
 
-**Read the project's shared board context at the start of the run** (e.g., `the canonical `commands/` directory or `.hatch3r/commands/` (for customizations)hatch3r-board-shared/SKILL.md` or equivalent). It contains GitHub Context, Project Reference, Projects v2 sync procedure, and Board Overview template. Cache all values for the duration of this run.
+**Read the project's shared board context at the start of the run** (e.g., `commands/hatch3r-board-shared/SKILL.md` or equivalent). It contains GitHub Context, Project Reference, Projects v2 sync procedure, and Board Overview template. Cache all values for the duration of this run.
 
 ## Token-Saving Directives
 

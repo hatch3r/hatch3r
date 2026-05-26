@@ -51,7 +51,7 @@ Browser verification provides ground-truth confirmation that cannot be achieved 
 
 ## Standards to Enforce
 
-Follow the full accessibility standards defined in `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)hatch3r-accessibility-standards.md` (WCAG 2.2 AA compliance, keyboard navigation, focus management, color/contrast, screen reader support, ARIA patterns, motion, forms). Summary of key thresholds:
+Follow the full accessibility standards defined in `rules/hatch3r-accessibility-standards.md` (WCAG 2.2 AA compliance, keyboard navigation, focus management, color/contrast, screen reader support, ARIA patterns, motion, forms). Summary of key thresholds:
 
 | Requirement         | Standard | Details                                                          |
 | ------------------- | -------- | ---------------------------------------------------------------- |

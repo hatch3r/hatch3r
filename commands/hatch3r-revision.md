@@ -127,7 +127,7 @@ Rebuild full context in the fresh window. No prior implementation context is ass
 
 #### 1c. Load Project Rules
 
-Read all `scope: always` rules from `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)`. These must be included in every sub-agent prompt in Step 6.
+Read all `scope: always` rules from `rules/`. These must be included in every sub-agent prompt in Step 6.
 
 #### 1d. Consult Learnings
 
