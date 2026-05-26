@@ -87,31 +87,43 @@ export function parseConstitutionPillars(content: string): {
   declaredHeadingLine: number;
 } {
   const lines = content.split("\n");
-  // Match "## 2. The 8 Binding Pillars" or any other section number / count.
-  // Capture group 1 = section number (e.g. "2"), 2 = pillar count (e.g. "8").
-  const HEADING_RE = /^##\s+(\d+)\.\s+The\s+(\d+)\s+Binding\s+Pillars\s*$/i;
+  // Match legacy "## 2. The 8 Binding Pillars" OR 2.0.0+ "## 2. Pillar Framework (Two-Axis)".
+  // Legacy: capture group 2 = pillar count from heading.
+  // 2.0.0+: heading carries no count; declaredCount derived from `### P{i}.` sectionCount.
+  const HEADING_RE =
+    /^##\s+(\d+)\.\s+(?:The\s+(\d+)\s+Binding\s+Pillars\s*|Pillar\s+Framework(?:\s*\([^)]+\))?\s*)$/i;
   let declaredCount = -1;
   let headingIdx = -1;
   for (let i = 0; i < lines.length; i++) {
     const m = lines[i].match(HEADING_RE);
     if (m) {
-      declaredCount = Number(m[2]);
+      // Legacy heading carries pillar count; 2.0.0+ heading sets -1 sentinel
+      // and we derive from sectionCount below.
+      declaredCount = m[2] !== undefined ? Number(m[2]) : -1;
       headingIdx = i;
       break;
     }
   }
   if (headingIdx === -1) {
     throw new Error(
-      `validate-rule-pillar-currency: could not locate "## N. The K Binding Pillars" heading in CONSTITUTION.md`,
+      `validate-rule-pillar-currency: could not locate "## N. The K Binding Pillars" or "## N. Pillar Framework" heading in CONSTITUTION.md`,
     );
   }
 
-  // Count `### P{i}.` sub-headings between this heading and the next `## ` heading.
+  // Count `### P{i}.` sub-headings (governance-axis pillars P1-P8) between this
+  // heading and the next `## ` heading. Content-quality `### CQ{i}.` pillars
+  // (introduced in 2.0.0 §2B) are not counted; this validator audits the
+  // governance-axis only. Future extension: separate CQ-pillar audit.
   const SECTION_RE = /^###\s+P(\d+)\.\s+/;
   let sectionCount = 0;
   for (let i = headingIdx + 1; i < lines.length; i++) {
     if (/^##\s+/.test(lines[i])) break;
     if (SECTION_RE.test(lines[i])) sectionCount++;
+  }
+
+  // 2.0.0+ two-axis framework: heading carries no count; derive from sectionCount.
+  if (declaredCount === -1) {
+    declaredCount = sectionCount;
   }
 
   return {
