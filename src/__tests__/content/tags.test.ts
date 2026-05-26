@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  // Capability tags
+  // Capability tags (1.x base)
   TAG_PLANNING,
   TAG_IMPLEMENTATION,
   TAG_REVIEW,
@@ -10,10 +10,43 @@ import {
   TAG_BOARD,
   TAG_PERFORMANCE,
   TAG_AI,
+  // Capability tags (2.0.0 expansion — CQ-vector + work-type)
+  TAG_ORCHESTRATOR,
+  TAG_SECURITY,
+  TAG_RELIABILITY,
+  TAG_TESTING,
+  TAG_SCALABILITY,
+  TAG_MAINTAINABILITY,
+  TAG_ENHANCABILITY,
+  TAG_OBSERVABILITY,
+  TAG_SUPPLY_CHAIN,
+  TAG_ACCESSIBILITY,
+  TAG_SPEC,
+  TAG_GREENFIELD,
+  TAG_BROWNFIELD,
+  TAG_MIGRATION,
+  TAG_TELEMETRY,
+  TAG_COST,
+  TAG_ANTI_DUPLICATION,
+  TAG_CODE_QUALITY,
+  TAG_CODE_STANDARDS,
+  TAG_ADAPTERS,
+  TAG_CAPABILITY,
+  TAG_CURRENCY,
+  TAG_ITERATION,
+  TAG_SUMMARY,
+  TAG_LEARNING,
+  TAG_KNOWLEDGE_CAPTURE,
+  TAG_PROOF,
+  TAG_VERIFICATION,
+  TAG_CITATION,
+  TAG_PLAYWRIGHT,
+  TAG_VISUAL_REGRESSION,
   // Floor tags
   TAG_FLOOR_SECURITY,
   TAG_FLOOR_UI_UX,
   TAG_FLOOR_PROTOCOL,
+  TAG_FLOOR_CONTENT_QUALITY,
   // Context tags
   TAG_CTX_GREENFIELD_ONLY,
   TAG_CTX_BROWNFIELD_ONLY,
@@ -220,14 +253,23 @@ describe("TAG_REGISTRY consistency", () => {
     expect(unique.size).toBe(ALL_TAGS.length);
   });
 
-  it("ALL_TAGS contains exactly 44 elements (9 capability + 3 floor + 3 context + 1 customize + 5 ui-ux + 4 cli-tool + 13 cli-cat + 6 language)", () => {
-    expect(ALL_TAGS).toHaveLength(44);
+  it("ALL_TAGS contains exactly 76 elements (40 capability + 4 floor + 3 context + 1 customize + 5 ui-ux + 4 cli-tool + 13 cli-cat + 6 language) — 2.0.0 expansion", () => {
+    expect(ALL_TAGS).toHaveLength(76);
   });
 
   it("facetOf returns 'capability' for every capability tag", () => {
     const capTags = [
+      // 1.x base
       TAG_PLANNING, TAG_IMPLEMENTATION, TAG_REVIEW, TAG_DEVOPS, TAG_MAINTENANCE,
       TAG_ORCHESTRATION, TAG_BOARD, TAG_PERFORMANCE, TAG_AI,
+      // 2.0.0 expansion
+      TAG_ORCHESTRATOR, TAG_SECURITY, TAG_RELIABILITY, TAG_TESTING, TAG_SCALABILITY,
+      TAG_MAINTAINABILITY, TAG_ENHANCABILITY, TAG_OBSERVABILITY, TAG_SUPPLY_CHAIN,
+      TAG_ACCESSIBILITY, TAG_SPEC, TAG_GREENFIELD, TAG_BROWNFIELD, TAG_MIGRATION,
+      TAG_TELEMETRY, TAG_COST, TAG_ANTI_DUPLICATION, TAG_CODE_QUALITY, TAG_CODE_STANDARDS,
+      TAG_ADAPTERS, TAG_CAPABILITY, TAG_CURRENCY, TAG_ITERATION, TAG_SUMMARY,
+      TAG_LEARNING, TAG_KNOWLEDGE_CAPTURE, TAG_PROOF, TAG_VERIFICATION, TAG_CITATION,
+      TAG_PLAYWRIGHT, TAG_VISUAL_REGRESSION,
     ];
     for (const tag of capTags) {
       expect(facetOf(tag)).toBe("capability");
@@ -238,6 +280,7 @@ describe("TAG_REGISTRY consistency", () => {
     expect(facetOf(TAG_FLOOR_SECURITY)).toBe("floor");
     expect(facetOf(TAG_FLOOR_UI_UX)).toBe("floor");
     expect(facetOf(TAG_FLOOR_PROTOCOL)).toBe("floor");
+    expect(facetOf(TAG_FLOOR_CONTENT_QUALITY)).toBe("floor");
   });
 
   it("facetOf returns 'context' for every context tag", () => {
@@ -288,34 +331,42 @@ describe("TAG_REGISTRY consistency", () => {
   it("facetOf returns undefined for unknown / legacy tag values", () => {
     expect(facetOf("core")).toBeUndefined();
     expect(facetOf("solo")).toBeUndefined();
-    expect(facetOf("security")).toBeUndefined();
     expect(facetOf("team")).toBeUndefined();
-    expect(facetOf("greenfield")).toBeUndefined();
-    expect(facetOf("brownfield")).toBeUndefined();
     expect(facetOf("not-a-tag")).toBeUndefined();
     expect(facetOf("")).toBeUndefined();
+    // Note: 2.0.0 expansion moved `security`, `greenfield`, `brownfield` from "unknown" to "capability"
+    // per Decision 13 (CQ-vector specialist agents) and Decision 14 (spec agents).
   });
 });
 
 // ── tagsForFacet — facet enumeration ─────────────────────────────
 
 describe("tagsForFacet", () => {
-  it("returns the 9 capability tags", () => {
+  it("returns the 40 capability tags (9 base + 31 2.0.0 expansion)", () => {
     const result = tagsForFacet("capability");
-    expect(result).toHaveLength(9);
+    expect(result).toHaveLength(40);
     expect(result.sort()).toEqual(
       [
+        // 1.x base
         TAG_PLANNING, TAG_IMPLEMENTATION, TAG_REVIEW, TAG_DEVOPS, TAG_MAINTENANCE,
         TAG_ORCHESTRATION, TAG_BOARD, TAG_PERFORMANCE, TAG_AI,
+        // 2.0.0 expansion
+        TAG_ORCHESTRATOR, TAG_SECURITY, TAG_RELIABILITY, TAG_TESTING, TAG_SCALABILITY,
+        TAG_MAINTAINABILITY, TAG_ENHANCABILITY, TAG_OBSERVABILITY, TAG_SUPPLY_CHAIN,
+        TAG_ACCESSIBILITY, TAG_SPEC, TAG_GREENFIELD, TAG_BROWNFIELD, TAG_MIGRATION,
+        TAG_TELEMETRY, TAG_COST, TAG_ANTI_DUPLICATION, TAG_CODE_QUALITY, TAG_CODE_STANDARDS,
+        TAG_ADAPTERS, TAG_CAPABILITY, TAG_CURRENCY, TAG_ITERATION, TAG_SUMMARY,
+        TAG_LEARNING, TAG_KNOWLEDGE_CAPTURE, TAG_PROOF, TAG_VERIFICATION, TAG_CITATION,
+        TAG_PLAYWRIGHT, TAG_VISUAL_REGRESSION,
       ].sort(),
     );
   });
 
-  it("returns the 3 floor tags", () => {
+  it("returns the 4 floor tags (3 base + floor:content-quality 2.0.0)", () => {
     const result = tagsForFacet("floor");
-    expect(result).toHaveLength(3);
+    expect(result).toHaveLength(4);
     expect(result.sort()).toEqual(
-      [TAG_FLOOR_SECURITY, TAG_FLOOR_UI_UX, TAG_FLOOR_PROTOCOL].sort(),
+      [TAG_FLOOR_SECURITY, TAG_FLOOR_UI_UX, TAG_FLOOR_PROTOCOL, TAG_FLOOR_CONTENT_QUALITY].sort(),
     );
   });
 

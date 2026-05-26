@@ -1,0 +1,107 @@
+---
+id: hatch3r-learning-system
+type: rule
+description: Project-level learning system with structured frontmatter, auto-consolidation triggers, and mandatory consultation gate for Implementer + Reviewer + Researcher agents.
+tags: [learning, knowledge-capture, floor:content-quality]
+precedence: high
+alwaysApply: true
+---
+# hatch3r Learning System
+
+**Pillars:** P5 (Governance Self-Quality), P4 (Lean Coverage)
+
+Project-level learnings live in the project's `.hatch3r/learnings/` directory. Canonical content authoring lives in this rule. Source: `governance/VISION.md` Principle 20, `governance/CONSTITUTION.md` §6 Decision #27.
+
+## Learning Capture Triggers
+
+1. **Non-trivial bug fix** — captures root cause + class + verified preventive measure
+2. **Surprising codebase behavior** — undocumented invariant, hidden constraint, version-specific quirk
+3. **User correction** — explicit feedback signaling a wrong assumption
+4. **Verified pattern that worked** — non-obvious approach the user accepted on first attempt
+
+Skip when: the finding is already documented in a rule, when the fix is purely cosmetic, when the context is too narrow to recur.
+
+## Structured Frontmatter
+
+Every learning in `.hatch3r/learnings/` carries:
+
+```yaml
+---
+id: <YYYY-MM-DD-short-slug>
+topic: <short topic, e.g., "vitest coverage thresholds">
+applies-to: <file globs OR module paths, e.g., "src/merge/**">
+confidence: high|medium|low
+supersedes: [<id1>, <id2>]  # optional; auto-consolidation candidate
+created: YYYY-MM-DD
+---
+
+<one-paragraph rule + Why: + How to apply: lines>
+```
+
+Field semantics:
+
+- `id` — date-prefixed short slug; collisions resolved by appending `-2`, `-3`, etc.
+- `topic` — match key for consultation lookup; one topic per learning. Multi-topic findings split into separate files.
+- `applies-to` — glob or path prefix the learning binds to; consulted agents test the current file path against this set.
+- `confidence` — high (verified via test or repeated observation), medium (single observation + reasoning), low (single anecdote, pending verification).
+- `supersedes` — when set, archives the listed older entries on next consolidation pass.
+- `created` — ISO date; used for age-based re-evaluation triggers.
+
+## Mandatory Consultation Gate
+
+Before answering project-specific questions, these agents MUST read `.hatch3r/learnings/INDEX.md` and any `applies-to` matched entries:
+
+- `hatch3r-implementer`
+- `hatch3r-reviewer`
+- `hatch3r-researcher`
+- `hatch3r-fixer`
+
+Bound agents cite consulted entry IDs in the iteration summary's `Open Questions / Blockers` or a dedicated `Consulted Learnings:` line. Citing zero entries when `applies-to` matched is a gate failure visible at audit time.
+
+When `.hatch3r/learnings/INDEX.md` does not exist or contains zero entries: consultation step is recorded as "no learnings available" in the iteration summary and the agent proceeds.
+
+## Auto-Consolidation
+
+Triggers consolidation when:
+
+1. Two or more learnings share the same `topic` AND overlapping `applies-to` — merge by retaining the highest-confidence entry plus a one-line summary referencing the merged IDs; archive the others to `.hatch3r/learnings/archive/`.
+2. A newer learning sets `supersedes:` — older entries archived to `.hatch3r/learnings/archive/` with a forwarding pointer in the archive header.
+3. Confidence on a 90-day-or-older learning is contradicted by recent commits or test runs — re-evaluate confidence; downgrade to `low` or archive if the contradiction is verified.
+
+Consolidation runs at the end of every meaningful skill or orchestrator session that captured a new learning, plus on demand via the future `hatch3r learnings consolidate` command. The pass is idempotent.
+
+## INDEX.md Format
+
+`.hatch3r/learnings/INDEX.md` is regenerated after every capture or consolidation. Format:
+
+```markdown
+# Learnings Index
+
+| ID | Topic | Applies-To | Confidence | Created |
+|----|-------|------------|------------|---------|
+| <id> | <topic> | <applies-to> | <confidence> | <created> |
+```
+
+Sorted by `created` descending. Archived entries are not listed. Bound agents scan the table first and read only matched-row files.
+
+## Capture Workflow
+
+When a trigger fires:
+
+1. The capturing agent writes a new file `.hatch3r/learnings/<id>.md` with the structured frontmatter and a body paragraph (rule + Why + How to apply).
+2. The agent regenerates `.hatch3r/learnings/INDEX.md` from the directory contents.
+3. The iteration summary records the captured learning ID under `Learnings Captured`.
+
+Project-local; learnings never escape the project boundary. The canonical framework repository's `agents/` and `rules/` do not consume project learnings.
+
+## Pillar Service
+
+- P5 — learning system applies to itself via auto-consolidation (no learning bloat)
+- CQ8 (content-quality.Maintainability) — patterns reused across iterations reduce duplication
+
+## References
+
+- `governance/VISION.md` §Learning System + Principle 20 (accessed 2026-05-26, trust tier: canonical)
+- `governance/CONSTITUTION.md` §6 Decision #27 + §2A P5 (accessed 2026-05-26, trust tier: canonical)
+- `agents/shared/quality-charter.md` §10 Consult Prior Learnings (accessed 2026-05-26, trust tier: canonical)
+- `rules/hatch3r-learning-consult.md` — companion rule for consultation procedure (accessed 2026-05-26, trust tier: canonical)

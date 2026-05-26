@@ -33,9 +33,45 @@ export const TAG_REVIEW         = "review";         // code review, QA, audits
 export const TAG_DEVOPS         = "devops";         // CI/CD, releases, deploy, observability
 export const TAG_MAINTENANCE    = "maintenance";    // dep audits, health checks, learnings, handoffs
 export const TAG_ORCHESTRATION  = "orchestration";  // the sub-agent pipeline itself (formerly "core")
+export const TAG_ORCHESTRATOR   = "orchestrator";   // orchestrator command marker (alias of orchestration for command frontmatter)
 export const TAG_BOARD          = "board";          // project board management
 export const TAG_PERFORMANCE    = "performance";    // perf budgets, profiling
 export const TAG_AI             = "ai";             // AI feature engineering (evals, prompt mgmt)
+
+// ── 2.0.0 content-quality vector capability tags (CQ1-CQ9 per CONSTITUTION §2B) ──
+// Each tag identifies an agent or rule operating on one of the 9 content-quality vectors.
+export const TAG_SECURITY        = "security";        // CQ3 — supply-chain + auth + OWASP ASI
+export const TAG_RELIABILITY     = "reliability";     // CQ4 — SLO, OTel, circuit breaker
+export const TAG_TESTING         = "testing";         // CQ5 — test-class mandate, eval coverage
+export const TAG_SCALABILITY     = "scalability";     // CQ6 — stateless, back-pressure, idempotency
+export const TAG_MAINTAINABILITY = "maintainability"; // CQ8 — jscpd, complexity, expand-contract
+export const TAG_ENHANCABILITY   = "enhancability";   // CQ9 — feature flags, semver, extension points
+export const TAG_OBSERVABILITY   = "observability";   // OTel + RED+USE + SLO (CQ4 supporting)
+export const TAG_SUPPLY_CHAIN    = "supply-chain";    // SBOM + provenance + SHA-pin (CQ3 supporting)
+export const TAG_ACCESSIBILITY   = "accessibility";   // WCAG 2.2 AA (CQ1 supporting; long form of a11y)
+
+// ── 2.0.0 work-type capability tags ───────────────────────────────
+export const TAG_SPEC             = "spec";             // specification authoring (greenfield/brownfield)
+export const TAG_GREENFIELD       = "greenfield";       // new-project capability marker
+export const TAG_BROWNFIELD       = "brownfield";       // existing-project capability marker
+export const TAG_MIGRATION        = "migration";        // expand-contract migration work
+export const TAG_TELEMETRY        = "telemetry";        // cost + observability emission (Decision 24)
+export const TAG_COST             = "cost";             // cost-visibility work (Decision 24)
+export const TAG_ANTI_DUPLICATION = "anti-duplication"; // duplication-scan + pattern-reuse (Decision 21)
+export const TAG_CODE_QUALITY     = "code-quality";     // code-quality reviews (alias for maintainability scope)
+export const TAG_CODE_STANDARDS   = "code-standards";   // code-standards enforcement
+export const TAG_ADAPTERS         = "adapters";         // adapter currency / capability matrix (Decision 21)
+export const TAG_CAPABILITY       = "capability";       // capability-matrix work (Decision 21)
+export const TAG_CURRENCY         = "currency";         // platform-doc currency (P3)
+export const TAG_ITERATION        = "iteration";        // iteration-summary work (Decision 28)
+export const TAG_SUMMARY          = "summary";          // summary-emission work (Decision 28)
+export const TAG_LEARNING         = "learning";         // learning-system work (Decision 27)
+export const TAG_KNOWLEDGE_CAPTURE = "knowledge-capture"; // structured learning capture
+export const TAG_PROOF            = "proof";            // proof-trace + verification (Decision 19)
+export const TAG_VERIFICATION     = "verification";     // pre-execution verification gates (Decision 19)
+export const TAG_CITATION         = "citation";         // citation + source recording
+export const TAG_PLAYWRIGHT       = "playwright";       // Playwright-driven verification (Decision 16)
+export const TAG_VISUAL_REGRESSION = "visual-regression"; // screenshot diff (Decision 16)
 
 // ── Floor tags (non-negotiable inclusion) ────────────────────────
 // Items carrying a floor:* tag are admitted in EVERY preset (except `custom`
@@ -43,9 +79,10 @@ export const TAG_AI             = "ai";             // AI feature engineering (e
 // enforcing the maintainer's locked floor decision (security + UI/UX in every
 // preset; pipeline-critical agents always present).
 
-export const TAG_FLOOR_SECURITY = "floor:security"; // P6 — security & trust
-export const TAG_FLOOR_UI_UX    = "floor:ui-ux";    // P1 — UI/UX excellence (includes a11y)
-export const TAG_FLOOR_PROTOCOL = "floor:protocol"; // pipeline-critical (researcher, implementer, reviewer, fixer, test-writer)
+export const TAG_FLOOR_SECURITY        = "floor:security";        // P6 — security & trust
+export const TAG_FLOOR_UI_UX           = "floor:ui-ux";           // P1 — UI/UX excellence (includes a11y)
+export const TAG_FLOOR_PROTOCOL        = "floor:protocol";        // pipeline-critical (researcher, implementer, reviewer, fixer, test-writer)
+export const TAG_FLOOR_CONTENT_QUALITY = "floor:content-quality"; // 2.0.0 — content-quality axis (CQ1-CQ9 specialist agents + supporting rules/skills)
 
 // ── Context tags (technical compatibility) ───────────────────────
 // Drive deterministic project-type / team-size filtering. These are NOT
@@ -138,13 +175,49 @@ export const TAG_REGISTRY: Record<string, TagFacet> = {
   [TAG_DEVOPS]:         "capability",
   [TAG_MAINTENANCE]:    "capability",
   [TAG_ORCHESTRATION]:  "capability",
+  [TAG_ORCHESTRATOR]:   "capability",
   [TAG_BOARD]:          "capability",
   [TAG_PERFORMANCE]:    "capability",
   [TAG_AI]:             "capability",
 
-  [TAG_FLOOR_SECURITY]: "floor",
-  [TAG_FLOOR_UI_UX]:    "floor",
-  [TAG_FLOOR_PROTOCOL]: "floor",
+  // 2.0.0 — content-quality vector + supporting capability tags
+  [TAG_SECURITY]:        "capability",
+  [TAG_RELIABILITY]:     "capability",
+  [TAG_TESTING]:         "capability",
+  [TAG_SCALABILITY]:     "capability",
+  [TAG_MAINTAINABILITY]: "capability",
+  [TAG_ENHANCABILITY]:   "capability",
+  [TAG_OBSERVABILITY]:   "capability",
+  [TAG_SUPPLY_CHAIN]:    "capability",
+  [TAG_ACCESSIBILITY]:   "capability",
+
+  // 2.0.0 — work-type capability tags
+  [TAG_SPEC]:             "capability",
+  [TAG_GREENFIELD]:       "capability",
+  [TAG_BROWNFIELD]:       "capability",
+  [TAG_MIGRATION]:        "capability",
+  [TAG_TELEMETRY]:        "capability",
+  [TAG_COST]:             "capability",
+  [TAG_ANTI_DUPLICATION]: "capability",
+  [TAG_CODE_QUALITY]:     "capability",
+  [TAG_CODE_STANDARDS]:   "capability",
+  [TAG_ADAPTERS]:         "capability",
+  [TAG_CAPABILITY]:       "capability",
+  [TAG_CURRENCY]:         "capability",
+  [TAG_ITERATION]:        "capability",
+  [TAG_SUMMARY]:          "capability",
+  [TAG_LEARNING]:         "capability",
+  [TAG_KNOWLEDGE_CAPTURE]: "capability",
+  [TAG_PROOF]:            "capability",
+  [TAG_VERIFICATION]:     "capability",
+  [TAG_CITATION]:         "capability",
+  [TAG_PLAYWRIGHT]:       "capability",
+  [TAG_VISUAL_REGRESSION]: "capability",
+
+  [TAG_FLOOR_SECURITY]:        "floor",
+  [TAG_FLOOR_UI_UX]:           "floor",
+  [TAG_FLOOR_PROTOCOL]:        "floor",
+  [TAG_FLOOR_CONTENT_QUALITY]: "floor",
 
   [TAG_CTX_GREENFIELD_ONLY]: "context",
   [TAG_CTX_BROWNFIELD_ONLY]: "context",

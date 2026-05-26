@@ -42,7 +42,7 @@ If any are unresolved, ask the user via the platform-native question tool per `a
 
 - **Reviewer pass on service-modifying PRs** — invoked by `hatch3r-reviewer` when the PR touches request handlers, outbound clients, OTel setup, SLO config, error handlers, retry/circuit-breaker wiring, or Kubernetes probe manifests.
 - **Implementer pre-write check on new services** — invoked by `hatch3r-implementer` before authoring a new service to confirm the OTel + SLO + error-format + resilience scaffolding is planned in the change spec.
-- **Verifier pre-merge gate** — invoked by `hatch3r-verifier` before merge to confirm `skills/hatch3r-reliability-verify` + `skills/hatch3r-observability-verify` both pass.
+- **Reviewer pre-merge gate** — invoked by `hatch3r-reviewer` before merge to confirm `skills/hatch3r-reliability-verify` + `skills/hatch3r-observability-verify` both pass.
 - **Post-incident audit** — invoked when an alert fired or an SLO burned to reconstruct which CQ4 floors were satisfied at incident time and which require strengthening.
 - **SLO definition review** — invoked when a new SLO is proposed or an existing SLO is revised (target change, window change, burn-rate threshold change).
 

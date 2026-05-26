@@ -1,0 +1,127 @@
+---
+id: hatch3r-cost-visibility
+type: rule
+description: Pre-execution cost estimate + post-execution actuals + delta surfacing in iteration summary. Every orchestrator command emits cost data.
+tags: [cost, telemetry, observability, floor:content-quality]
+precedence: high
+scope: always
+---
+# hatch3r Cost Visibility
+
+**Pillars:** P7 (Speed & Token Efficiency), P5 (Governance Self-Quality)
+
+Source: `governance/CONSTITUTION.md` §6 Decision #29; `governance/VISION.md` Principle 22.
+
+Every orchestrator command (`commands/hatch3r-*.md` with `orchestrator: true`) and every meaningful skill run that mutates state MUST emit cost data — pre-execution estimate at plan time and post-execution actuals + delta at completion time. The delta lands in the iteration summary's Fan-out + Cost section per `rules/hatch3r-iteration-summary.md` §2.
+
+## Pre-Execution Estimate
+
+Emit at plan time, before fan-out begins:
+
+```yaml
+cost_estimate:
+  expected_sa_count: <int>
+  estimated_input_tokens_static_frame: <int>
+  estimated_web_research_queries: <int>
+  triage_tier: light | standard | deep
+  estimated_duration_min: <int>
+```
+
+Derived from:
+
+- Frontmatter `sub_agents_spawned` declaration when present (static intent declared by the artifact).
+- Triage-tier heuristics: Light = 1-3 SAs, Standard = 4-9 SAs, Deep = 10+ SAs.
+- Past-cycle telemetry baseline from `src/pipeline/observability.ts` — phase-level `inputTokens` + `outputTokens` averaged across recent runs of the same artifact ID.
+- Static-prompt frame character count divided by `CHARS_PER_TOKEN` (default 4) per `src/pipeline/observability.ts::estimateTokens`.
+
+Triage tier maps directly to `triage_tiers` frontmatter declared per Decision 17 (CONSTITUTION §6 Decision #20 in 2.0.0 mapping) — the runtime-selected tier is the one emitted in the estimate block.
+
+## Post-Execution Actuals
+
+Emit at completion time, after the last sub-agent returns:
+
+```yaml
+cost_actuals:
+  actual_sa_count: <int>
+  actual_input_tokens: <int>
+  actual_output_tokens: <int>
+  actual_web_research_queries: <int>
+  actual_duration_min: <float>
+delta:
+  sa_count_delta: <int>
+  input_tokens_delta_percent: <float>
+  duration_delta_percent: <float>
+```
+
+`sa_count_delta` is `actual_sa_count - expected_sa_count` (signed integer). `input_tokens_delta_percent` is `(actual - estimated) / estimated * 100` rounded to one decimal. `duration_delta_percent` follows the same formula on duration.
+
+## Surfacing in Iteration Summary
+
+Per `rules/hatch3r-iteration-summary.md` §2 Fan-out + Cost: both blocks appear in the iteration summary's Cost section. Deltas exceeding 25% (absolute value) flag for review — they signal under- or over-estimation patterns that the next cycle should investigate. The flag is informational, not a gate failure.
+
+A run with no Cost section in its iteration summary fails the iteration-summary validation gate (`.claude/rules/capability-lifecycle.md` Gate Checklist).
+
+### Worked Example
+
+A Tier 2 capability-add run that spawns 5 sub-agents (1 researcher + 4 implementers) emits at plan time:
+
+```yaml
+cost_estimate:
+  expected_sa_count: 5
+  estimated_input_tokens_static_frame: 18000
+  estimated_web_research_queries: 2
+  triage_tier: standard
+  estimated_duration_min: 12
+```
+
+At completion (one extra implementer spawned due to scope expansion discovered mid-run, two extra web queries):
+
+```yaml
+cost_actuals:
+  actual_sa_count: 6
+  actual_input_tokens: 22400
+  actual_output_tokens: 8900
+  actual_web_research_queries: 4
+  actual_duration_min: 15.3
+delta:
+  sa_count_delta: 1
+  input_tokens_delta_percent: 24.4
+  duration_delta_percent: 27.5
+```
+
+`duration_delta_percent` exceeds 25% — flagged informational for next-cycle EVOLVE review. `input_tokens_delta_percent` is 24.4% — under threshold, no flag.
+
+## Source of Telemetry
+
+`src/pipeline/observability.ts` records:
+
+- Input + output tokens per LLM call via `createPhaseTokenEstimate` → `PhaseTokenEstimate`.
+- Per-pipeline aggregation via `createTokenSummary` → `PipelineTokenSummary` (`totalInputTokens`, `totalOutputTokens`, `grandTotal`).
+- Cost estimation via `estimateCost` → `CostEstimate` with `DEFAULT_INPUT_COST_PER_1M = 3.0` USD and `DEFAULT_OUTPUT_COST_PER_1M = 15.0` USD as default rates.
+- Opt-in `EfficiencyEvent` JSONL telemetry via `recordEfficiencyEvent` (env-gated by `HATCH3R_EFFICIENCY_TELEMETRY=1`) — fields: `artifactId`, `phase`, `tokensIn`, `tokensOut`, `latencyMs`, `modelHint?`, `cacheHit?`.
+- Sub-agent spawn count per orchestrator phase (consumed by `rules/hatch3r-agent-orchestration.md` Per-Turn Pipeline-State Header).
+- Web research query count per cycle (incremented by adapter web-research integrations).
+- Duration per phase via phase timeout instrumentation (`src/pipeline/phaseTimeout.ts`).
+
+Implementation contract: `src/pipeline/costEstimator.ts` (to be authored under Bucket 2.3) consumes the baseline from past `EfficiencyEvent` records and emits `cost_estimate`; `src/pipeline/observability.ts` already provides the actuals primitives.
+
+## End-User Visibility
+
+Cost data appears in user-facing iteration summaries by default. Suppressing via the `--quiet` CLI flag still records telemetry to `.hatch3r/telemetry/<session-id>.json` for later review — the channel is preserved per the Silent Failure Contract (CONSTITUTION.md §2 P5). Suppression at the user surface does not suppress at the persistence layer.
+
+Telemetry I/O failures route through `src/pipeline/failureLog.ts` per the Silent Failure Contract — never silently swallowed.
+
+## Acceptance Criteria
+
+A change to a `commands/hatch3r-*.md` orchestrator or to a meaningful state-mutating skill satisfies this rule when ALL hold:
+
+1. The artifact emits `cost_estimate` before the first sub-agent spawn.
+2. The artifact emits `cost_actuals` + `delta` before declaring iteration-summary status.
+3. The iteration summary's Fan-out + Cost section (per `rules/hatch3r-iteration-summary.md` §2) carries both blocks.
+4. Telemetry persists to `.hatch3r/telemetry/<session-id>.json` even under `--quiet`.
+5. Delta thresholds beyond 25% absolute value carry an explicit `flagged_for_review: true` annotation in the iteration summary.
+
+## Pillar Service
+
+- **P7** — surfaces token + duration measurements to the user; closes the loop on token-economy claims in VISION Principle 19 and CONSTITUTION §2 P7. Estimation accuracy improves cycle-over-cycle via the past-cycle telemetry baseline.
+- **P5** — every orchestrator measures itself; deltas become first-class governance signals consumed by EVOLVE.md prompt mechanics refinement.

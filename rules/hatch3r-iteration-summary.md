@@ -1,90 +1,42 @@
 ---
 id: hatch3r-iteration-summary
 type: rule
-description: Every user-facing iteration ends with the canonical Iteration Summary block — a 5-field contract exposing status, gaps, and confidence at a glance.
-scope: always
-tags: [orchestration, floor:protocol]
-quality_charter: agents/shared/quality-charter.md
+description: 9-section iteration summary template emitted by every orchestrator command and meaningful skill run — status, outcome, done/not-done, fan-out + cost, verifications, gates, pillar impact, open questions, learnings captured.
+tags: [iteration, summary, telemetry, floor:content-quality]
 precedence: high
-cache_friendly: true
+scope: always
 ---
-# Iteration Summary Contract
+# hatch3r Iteration Summary
 
-Every iteration with the user ends with the canonical block defined below — not a free-form prose paragraph. The block appears at the very end of the assistant turn, after any code, explanations, or tool-call results.
+**Pillars:** P5 (Governance Self-Quality), P7 (Speed & Token Efficiency — cost visibility)
 
-## When This Applies
+## When Required
 
-Every user-facing iteration, regardless of size — multi-step coding tasks, single-file edits, read-only answers, failed or blocked attempts. No exceptions.
+Every orchestrator command (`commands/hatch3r-*.md` with `orchestrator: true`) AND every meaningful skill run (`/h4tcher-*` or `/hatch3r-*` that mutates state) MUST emit the 9-section block as the final user-facing output.
 
-The per-turn pipeline-state header (defined in `hatch3r-agent-orchestration` → Per-Turn Pipeline-State Header) is a separate start-of-turn artifact and does not replace this end-of-turn block.
+## The 9 Sections
 
-## The Required Block
+1. **Request** — verbatim restatement of the user's ask in one sentence
+2. **Fan-out + Cost** — `sub_agents_spawned: { count, rationale }` + `cost: { estimated_input_tokens, actual_input_tokens, estimated_duration_min, actual_duration_min, delta_percent }`
+3. **Web Research** — every URL fetched with access date + trust tier (per `governance/audit/templates/rigor-contract.md`); count 0 acceptable if no research was needed
+4. **Files Mutated** — list with diff summary (lines added / removed / files created)
+5. **Gates Passed / Failed** — explicit list per `.claude/rules/capability-lifecycle.md` Gate Checklist
+6. **Pillar Impact Attribution** — `progress_toward_pillar: <axis>.<pillar_id>+<delta>` per Decision 17
+7. **Verification Commands** — exact commands run with exit codes + key output lines (≤200 chars)
+8. **Open Questions / Blockers** — explicit None if fully closed
+9. **Learnings Captured** — IDs of any learnings written to `.hatch3r/learnings/` this run; cross-reference `rules/hatch3r-learning-system.md`
 
-Use this exact shape with these exact field names:
+## Required Fields per quality-charter §11
 
-```markdown
-## Iteration Summary
+- **Status:** closed enum SUCCESS | PARTIAL | FAILED | BLOCKED
+- **Outcome:** one sentence
+- **Done / Not Done / Deferred / Unverified:** explicit lists
+- **Confidence + basis:** one of direct measurement | sampled observation | inference from analogue
 
-**Status:** SUCCESS | PARTIAL | FAILED | BLOCKED
-**Outcome:** {one sentence — the bottom line}
+## Validation Gate
 
-**Done:**
-- {what was completed this iteration}
+A skill or command that omits the 9-section block fails the lifecycle gate (`.claude/rules/capability-lifecycle.md`). Prose substitution is rejected. The orchestrator catches the omission before declaring SUCCESS.
 
-**Not Done / Deferred / Unverified:**
-- {required even if "None — full scope completed"}
-
-**Open Questions / Blockers:**
-- {required even if "None"}
-
-**Confidence:** high | medium | low — {one-sentence basis}
-```
-
-`Status` is a closed enum:
-
-- **SUCCESS** — all in-scope work completed and verified.
-- **PARTIAL** — some in-scope work completed; remainder listed under Not Done.
-- **FAILED** — attempted but did not produce a usable result; reason in Outcome.
-- **BLOCKED** — cannot proceed without user input or external resolution.
-
-## Optional Sections
-
-Append only when they carry information. Do not include empty headers.
-
-```markdown
-**Artifacts Touched:**
-| Path | Action | Notes |
-| ---- | ------ | ----- |
-| {file} | created/modified/deleted | {one line} |
-
-**Verifications Run:**
-| Check | Result |
-| ----- | ------ |
-| {command or test} | pass/fail/skipped |
-
-**Earliest Failure Point:** {file:line or step name}  ← only when Status ≠ SUCCESS
-
-**Suggested Next Action:** {one line}
-```
-
-The **End-of-Turn Delegation Attestation** (defined in `hatch3r-agent-orchestration` -> End-of-Turn Delegation Attestation) is conditionally required and appears immediately BEFORE this Iteration Summary block. It applies when the turn is on a Tier >= 2 tracked task AND caused at least one file mutation. The Iteration Summary's 5-field contract is unchanged — the Attestation lives in a separate block to preserve backward compatibility for the 15 adapter outputs.
-
-## Field Semantics
-
-- **Outcome** is one sentence. The user should grasp what happened from this line alone.
-- **Done** lists completed actions, not intentions. "Wrote tests" beats "Will write tests".
-- **Not Done / Deferred / Unverified** is required and may not be silently skipped. If full scope was completed, write `None — full scope completed`. If anything was attempted but not verified, list it here, not under Done.
-- **Open Questions / Blockers** surfaces ambiguity proactively. Write `None` only after checking.
-- **Confidence** uses the quality charter §1 scale. The one-sentence basis must name what was verified (high), what pattern was followed (medium), or that the answer is professional judgment (low).
-
-## Anti-Patterns
-
-- Substituting a prose paragraph for the block.
-- Omitting the `## Iteration Summary` anchor — downstream agents and orchestrators locate the block by this header.
-- Writing "None" reflexively without checking — list the uncertainty when in doubt.
-- Inflating confidence — if you did not verify, say medium and name the unknown.
-- Burying unverified work in `Done` — attempted-but-not-verified belongs in Not Done / Unverified.
-
-## Reference
-
-Confidence semantics: `agents/shared/quality-charter.md` §1.
+## Pillar Service
+- P5 — standardised reporting prevents drift across orchestrators
+- P7 — cost section surfaces token + duration deltas to user per Decision 24

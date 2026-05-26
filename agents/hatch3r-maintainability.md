@@ -40,7 +40,7 @@ If any are unresolved, ask the user via the platform-native question tool per `a
 
 - `hatch3r-reviewer` on every PR that mutates code, schema, or API spec — the reviewer fans out one maintainability sub-agent per concern and aggregates results.
 - `hatch3r-implementer` invokes this agent post-write to scan its own diff for duplication before declaring completion (anti-duplication procedure per `agents/shared/quality-charter.md` §12).
-- `hatch3r-verifier` runs the full CQ8 gate pre-merge — duplication + complexity + pattern-reuse + migration + API-breaking + ADR-presence — and blocks merge on any breach.
+- `hatch3r-reviewer` runs the full CQ8 gate pre-merge — duplication + complexity + pattern-reuse + migration + API-breaking + ADR-presence — and blocks merge on any breach.
 - Schema-change audits — any migration file under `migrations/`, `db/migrations/`, `prisma/migrations/`, or framework-equivalent path triggers an expand-contract conformance scan.
 - API-change audits — any diff touching `openapi.yaml`, `openapi.json`, `*.proto`, or GraphQL SDL triggers the breaking-change CI gate.
 - Release-prep audit — the release skill calls this agent as part of the CQ8 floor verification before publishing.
