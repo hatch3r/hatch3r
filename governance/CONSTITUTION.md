@@ -368,7 +368,7 @@ Identification and action are separated because audit is read-only (safe to run 
 
 `governance/` top level: `CONSTITUTION.md` (this file) · `VISION.md` (public identity) · `RE-ENVISION.md` (capture/refinement prompt) · `AUDIT.md` (domains, scoring, charter, CL phases) · `AUDIT-EXECUTE.md` (waves, gates, registry, learning) · `inventory.json` (filesystem-derived counts, drift-checked in CI) · `hatch3r-prd.md`/`COMPETITIVE-ANALYSIS.md`/`AUDIT-REPORT.md` (gitignored).
 
-`governance/audit/`: `domains/D01-D21.md` (21 domain definitions) · `templates/` (sub-agent templates incl. `rigor-contract.md`) · `baseline.json` · `finding-registry.json` · `execution-insights.json`. Trust delegation chain and compliance mapping live in D15 Part B (not separate files).
+`governance/audit/`: `domains/D01-D21.md` (21 domain definitions) plus `D15-trust-reference.md` (governed appendix to D15 per EVOLVE proposal P2, 2026-04-19) · `templates/` (sub-agent templates incl. `rigor-contract.md`) · `archive/` (archived sections per L6-F13 compression) · `baseline.json` · `finding-registry.json` · `execution-insights.json`. Trust delegation chain and compliance mapping live in `D15-trust-reference.md`. D22 Content Architecture + D23 Agentic Engineering Trends + D24 Governance Self-Audit domain files authored in subsequent audit cycles per Decision 19 (§6 Key Design Decision #26).
 
 ---
 

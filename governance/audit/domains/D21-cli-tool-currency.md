@@ -2,7 +2,7 @@
 
 > Last updated: 2026-05-15
 
-**Pillars served:** P3 (primary), P6 (supporting), P4 (supporting).
+**Pillars served:** governance-axis P3 (primary), P5 (supporting); content-quality-axis — (governance only).
 
 **Scope:** End-user-recommended CLI tools (`hatch3r-cli-*` skills) across six functional categories — search, file ops, data, http, forge, browser/sandbox. Verifies each tier-1 and tier-2 tool against latest vendor release notes (≤90 days), CVE feeds (≤90 days), alternative-tool emergence, and adapter rendering correctness. D02 owns adapter contracts; D09 owns per-adapter implementations; D15 owns supply-chain trust. D21 owns whether the tool catalog itself is current, accurate, and safe to recommend.
 **Sub-agents:** 7
@@ -24,6 +24,8 @@
 **Specific source set (D21-targeted):** vendor release notes (URL + access date YYYY-MM-DD) for each tool, GitHub release tags ≤90 days old, vendor CVE advisories ≤90 days, CVE feeds (NVD, GitHub Security Advisories) ≤90 days, install-channel changelogs (brew, apt, scoop, winget, cargo, pipx, npm). Single-source acceptable only when the trust tier is `official-docs` AND the claim is tool-specific.
 
 ## Audit Checklists
+
+> **Per-finding (Decision 17 / charter directive 18):** every finding declares `impact_horizon: short|medium|long` AND `progress_toward_pillar: <axis>.<pillar_id>+<delta>`; orchestrator DROPS at output time if either missing.
 
 ### Per-Category Sub-Agent Checklist (SA 21.1–21.6)
 

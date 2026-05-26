@@ -2,7 +2,7 @@
 
 > Last updated: 2026-04-28
 
-**Pillars served:** P1 (primary), P4 (supporting).
+**Pillars served:** governance-axis P1 (primary), P4 (supporting); content-quality-axis CQ2 UX (primary — UX content quality), CQ1 UI (supporting).
 
 **Scope:** All user-facing documentation, CLI UX, first-run experience, adoption friction, and developer experience metrics. The gap between "code works correctly" and "user succeeds" — tracing user journeys to find where correct code creates confusion, surprise, or failure.
 **Sub-agents:** 9
@@ -23,6 +23,8 @@
 > Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
 
 ## Audit Checklists
+
+> **Per-finding (Decision 17 / charter directive 18):** every finding declares `impact_horizon: short|medium|long` AND `progress_toward_pillar: <axis>.<pillar_id>+<delta>` (e.g., `governance.P5+0.15` or `content-quality.CQ4+0.20`); orchestrator DROPS at output time if either missing.
 
 ### 10.1 Documentation Accuracy
 - [ ] README accuracy — counts, examples, links all correct and current

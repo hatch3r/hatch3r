@@ -2,7 +2,7 @@
 
 > Last updated: 2026-04-19
 
-**Pillars served:** P2 (primary), P5 (supporting).
+**Pillars served:** governance-axis P2 (primary), P5 (supporting); content-quality-axis CQ8 Maintainability (supporting — code quality of canonical source).
 
 **Scope:** All `src/` TypeScript except adapters and content system. Covers all 9 CLI commands, merge infrastructure, manifest/model/detect modules, workspace/worktree modules, environment/hooks/shared utilities, and the CLI entry point.
 **Sub-agents:** 10
@@ -25,6 +25,8 @@
 > Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
 
 ## Audit Checklists
+
+> **Per-finding (Decision 17 / charter directive 18):** every finding declares `impact_horizon: short|medium|long` AND `progress_toward_pillar: <axis>.<pillar_id>+<delta>` (e.g., `governance.P5+0.15` or `content-quality.CQ8+0.20`); orchestrator DROPS at output time if either missing.
 
 ### 1.1 CLI Command: init
 - [ ] Init flow correctness — full lifecycle from invocation to completed installation
@@ -94,4 +96,4 @@
 
 ## Domain Boundary
 
-> D01 audits per-command error correctness: "Does this specific command handle this specific error correctly?" D08 audits cross-framework error patterns and resilience: "Does the framework have consistent error handling patterns across all commands, and are recovery mechanisms (retry, circuit breaker, watchdog, rollback) implemented?" A D01 finding about a specific command's missing error case is not a D08 finding unless it reveals a systemic pattern gap affecting multiple commands.
+> **Domain boundary with D08 — see [D08 §Domain Boundary](D08-error-recovery.md#domain-boundary).** D08 carries the canonical text (Anti-Bloat Principle 1 — single source of truth).

@@ -2,7 +2,7 @@
 
 > Last updated: 2026-04-19
 
-**Pillars served:** P4 (primary), P3 (supporting).
+**Pillars served:** governance-axis P4 (primary), P3 (supporting); content-quality-axis CQ9 Enhancability (primary), CQ6 Scalability (supporting).
 
 **Scope:** How well the framework works across different project types, sizes, and team configurations.
 **Sub-agents:** 4
@@ -17,6 +17,8 @@
 > Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
 
 ## Audit Checklists
+
+> **Per-finding (Decision 17 / charter directive 18):** every finding declares `impact_horizon: short|medium|long` AND `progress_toward_pillar: <axis>.<pillar_id>+<delta>`; orchestrator DROPS at output time if either missing.
 
 ### 14.1 Tech Stack Generalization
 - [ ] Does the framework work equally well for: React/Next.js, Vue/Nuxt, Angular, Svelte, Python/Django, Ruby/Rails, Go, Rust, Java/Spring, mobile (React Native, Flutter)?
@@ -35,6 +37,7 @@
 - [ ] Small team (2-10) — shared conventions, consistent output
 - [ ] Large team (10-100+) — governance, customization, role-based config
 - [ ] Team conventions management — can teams define and enforce their own conventions?
+- [ ] **Maturity-tier semantics (Decision 4):** verify framework behavior adapts per maturity tier (solo: minimal prompts, hostile-error-only; team: collaboration patterns; scaleup: ops monitoring patterns; enterprise: governance + RBAC overlay).
 
 ### 14.4 Convention Self-Discovery
 - [ ] Automatic detection of existing conventions (linting config, test framework, CI provider)

@@ -2,7 +2,7 @@
 
 > Last updated: 2026-04-19
 
-**Pillars served:** P2 (primary), P1, P8 (supporting).
+**Pillars served:** governance-axis P8 (primary), P2 (supporting); content-quality-axis CQ2 UX (primary), CQ8 Maintainability (supporting).
 
 **Scope:** How well the framework facilitates productive human-AI interaction, including proactive ambiguity detection.
 **Sub-agents:** 5
@@ -18,6 +18,8 @@
 > Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
 
 ## Audit Checklists
+
+> **Per-finding (Decision 17 / charter directive 18):** every finding declares `impact_horizon: short|medium|long` AND `progress_toward_pillar: <axis>.<pillar_id>+<delta>`; orchestrator DROPS at output time if either missing.
 
 ### 13.1 Interaction Patterns
 

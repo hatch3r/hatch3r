@@ -2,7 +2,7 @@
 
 > Last updated: 2026-05-20
 
-**Pillars served:** P3 (primary), P4 (supporting).
+**Pillars served:** governance-axis P3 (primary), P4 (supporting); content-quality-axis CQ9 Enhancability (supporting — adapter extensibility).
 
 **Scope:** The 3 retained adapters (claude, cursor, copilot) and the capability matrix. One sub-agent per adapter for depth; two sequential synthesis sub-agents (capability matrix verification + emerging platforms).
 **Sub-agents:** 5
@@ -19,11 +19,14 @@ Sub-agents 9.4 and 9.5 are **sequential** — they run only after 9.1–9.3 comp
 | 9.4 | **Capability Matrix Verification (SEQUENTIAL)** | `docs/adapter-capability-matrix.md` + per-adapter findings | Cross-adapter synthesis | n/a |
 | 9.5 | **Emerging Platforms (SEQUENTIAL)** | Web research on AI coding tools with significant traction | New candidate scan | n/a |
 
-> "see insights" = `governance/audit/execution-insights.json` → `d9_adapter_research_dates.{adapter}`. Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
+> "see insights" = `governance/audit/execution-insights.json` → `d9_adapter_research_dates.{adapter}`.
+> Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
 
 **Specific source set (D9-targeted):** official platform documentation for each adapter target (URL + access date YYYY-MM-DD), platform changelog diff vs prior audit cycle, vendor release notes <=12 months. Single-source acceptable only when the trust tier is `official-docs` AND the claim is platform-specific.
 
 ## Audit Checklists
+
+> **Per-finding (Decision 17 / charter directive 18):** every finding declares `impact_horizon: short|medium|long` AND `progress_toward_pillar: <axis>.<pillar_id>+<delta>` (e.g., `governance.P5+0.15` or `content-quality.CQ4+0.20`); orchestrator DROPS at output time if either missing.
 
 ### 9.1–9.3 Per-Adapter Checklist
 
@@ -37,6 +40,8 @@ Each adapter sub-agent MUST:
 - [ ] Model emission rendering matches platform-native preference syntax (native field if supported, guidance string fallback otherwise); MCP config transformation matches the platform's documented schema; secret loading method matches platform's documented secret-source
 - [ ] Hook/event mapping matches the platform's current hook taxonomy (event names, payload shape); new platform capabilities not yet supported by the adapter are flagged
 - [ ] User-question tool: verify platform's current native question tool via official docs. Confirm `ASK_USER_TOOLS[adapter]` in `src/pipeline/adapterToolTranslator.ts` and `nativeQuestionTool` in `src/adapters/index.ts` agree (both populated, or both null/false). Cite URL + access date.
+- [ ] **Capability utilization scan (Decision 21):** enumerate every native capability of {claude|cursor|copilot} from official docs (hooks, slash commands, tool-use modes, MCP transports, settings.json keys); map current adapter coverage (utilized/partially-utilized/unutilized); surface unutilized capabilities as Info or Medium findings depending on capability value. Cite vendor docs URL + access date per rigor contract.
+- [ ] **Comparable-artifact delta (Decision 20):** for the audited adapter (claude/cursor/copilot), web-research ≥2 reputable comparable platform-adapter implementations (e.g., Aider, CrewAI, GoodIdea adapters); tabulate feature/pattern delta vs current hatch3r adapter; surface deltas as findings.
 - [ ] Companion content emission: adapter calls `emitCompanionContent` for every support subdirectory in scope and emits each `.md` file to the per-adapter native path with `substituteCanonicalContent` applied
 - [ ] Test coverage: test file adequately covers adapter output paths
 
@@ -48,6 +53,7 @@ Runs after 9.1–9.3 complete. Owns cross-adapter synthesis.
 - [ ] Verify "Canonical Path Matches" remain accurate across the 3 retained adapters
 - [ ] Maintenance guide verified: every retained adapter listed, every command documented, every hook mapping shown, against filesystem actuals
 - [ ] Companion-content emission verified: each adapter's `emitCompanionContent` output appears under the per-adapter native path for `agents/modes/`, `agents/shared/`, `commands/board/`, `commands/revision/`, `checks/` (1.9.0 feature — see commit 8c92831)
+- [ ] **Utilization-gap aggregation:** collate unutilized capabilities across the 3 adapters; surface top 3-5 highest-value gaps as CL-2 candidates for next-cycle adapter enhancement.
 
 ### 9.5 Emerging Platforms (SEQUENTIAL)
 
@@ -59,4 +65,4 @@ Runs after 9.1–9.3 complete. Owns new-platform monitoring.
 
 ## Domain Boundary
 
-> D02 audits adapter contracts and abstractions (base.ts, canonical.ts, customization.ts, content system, integrity system): "Are the abstractions correct?" D09 audits per-adapter implementations: "Does each adapter correctly implement the contract for its target platform?" D11 audits end-to-end integration by tracing specific content types through the full pipeline: "When content flows from canonical source through adapter transformation to disk output, does it arrive correctly?" D11 findings must demonstrate cross-component failures that neither D02 nor D09 would catch independently.
+> **Domain boundary with D02 + D11 — see [D02 §Domain Boundary](D02-adapter-infrastructure.md#domain-boundary).** D02 carries the canonical text (Anti-Bloat Principle 1 — single source of truth).

@@ -2,7 +2,7 @@
 
 > Last updated: 2026-04-27
 
-**Pillars served:** P4 (primary), P1 (supporting), P5 (supporting), P6 (supporting).
+**Pillars served:** governance-axis P4 (primary), P1 (supporting), P5 (supporting), P6 (supporting); content-quality-axis CQ3 Security (supporting), CQ8 Maintainability (supporting).
 
 **Scope:** The `/hatch3r-create` orchestrator and the user-authored artifacts it produces under `<project>/.hatch3r/overrides/` (project-local agents, skills, rules, commands, hooks). Audits both the creation tool (D20.1) and the resulting end-user artifacts (D20.2). NOT re-auditing canonical framework content under `agents/`, `skills/`, etc. — that remains D05.
 
@@ -27,6 +27,8 @@ D10 audits CLI/command UX broadly. D20.1 audits the specific creator-command UX.
 
 ## Audit Checklists
 
+> **Per-finding (Decision 17 / charter directive 18):** every finding declares `impact_horizon: short|medium|long` AND `progress_toward_pillar: <axis>.<pillar_id>+<delta>`; orchestrator DROPS at output time if either missing.
+
 ### 20.1 Creation Tool Quality
 - [ ] Creator-command UX walkthrough (5 type branches, prompts unambiguous, defaults sensible, no dead-ends)
 - [ ] Creator-agent body structure (role, scope boundary, charter inheritance, pillar tags)
@@ -44,3 +46,4 @@ D10 audits CLI/command UX broadly. D20.1 audits the specific creator-command UX.
 - [ ] Lean compliance (user agent ≤150 lines, user skill SKILL.md ≤200 lines, user rule ≤80 lines)
 - [ ] Pillar tagging (every user artifact declares ≥1 of P1–P6 in tags or body)
 - [ ] Duplication against canonical (user artifact with ≥50% description-keyword overlap with canonical = Medium with rationale)
+- [ ] **Tier-aware user-artifact floor (Decision 4):** verify user-authored artifact does not enforce floor mandates beyond the project's declared maturity tier (`.hatch3r/hatch.json` `maturity` field). Solo tier admits a stripped-down floor; enterprise admits the full floor catalogue.

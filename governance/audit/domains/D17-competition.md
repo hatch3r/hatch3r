@@ -1,6 +1,10 @@
 # Domain 17: Competition & Market Intelligence
 
-> Last updated: 2026-04-19. **Pillars:** P3 (primary), P4 (supporting). **Scope:** competitive landscape, market positioning, strategic alignment. **Sub-agents:** 3 (17.3 sequential after 17.1/17.2).
+> Last updated: 2026-05-26
+
+**Pillars served:** governance-axis P3 (primary), P4 (supporting); content-quality-axis — (governance only).
+**Scope:** competitive landscape, market positioning, strategic alignment.
+**Sub-agents:** 3 (17.3 sequential after 17.1/17.2).
 
 | SA | Focus |
 |----|-------|
@@ -13,6 +17,8 @@
 **Specific source set (D17-targeted):** competitor product docs <=6 months, GitHub-stars trajectories with date snapshots, third-party benchmarks (independent-analysis trust tier), funding/release news (vendor-note tier).
 
 ## Audit Checklists
+
+> **Per-finding (Decision 17 / charter directive 18):** every finding declares `impact_horizon: short|medium|long` AND `progress_toward_pillar: <axis>.<pillar_id>+<delta>`; orchestrator DROPS at output time if either missing.
 
 ### 17.1 Direct Competitor Analysis
 Per competitor: scope / quality / community (stars, downloads) / approach (config-gen vs runtime vs curated) / feature gaps vs hatch3r.

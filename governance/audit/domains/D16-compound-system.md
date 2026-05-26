@@ -2,7 +2,7 @@
 
 > Last updated: 2026-04-27
 
-**Pillars served:** P4 (primary), P5 (supporting).
+**Pillars served:** governance-axis P5 (primary), P4 (supporting); content-quality-axis CQ8 Maintainability (supporting).
 
 **Scope:** Cross-domain insights that no single domain can produce. This domain synthesizes findings from all other domains to identify contradictions, systemic patterns, and closed-loop effectiveness. Explicitly NOT re-auditing scope covered by home domains.
 **Sub-agents:** 3
@@ -19,6 +19,8 @@ ALL sub-agents are **sequential** — run only after all Tier A and B domains co
 
 Before producing any 16.1 finding, sub-agent MUST read all 18 prior-tier synthesis files end-to-end (`.audit-workspace/D{1..15,17}-synthesis.md` plus any D19 synthesis). Reject any candidate pattern that cites fewer than 3 distinct domain syntheses — single-domain confirmations belong in their home domain, not D16.
 
+> **Decision-18 batching:** D16.1 SAs split by finding severity at execution time — 1 SA per Critical cross-domain contradiction (immediate Wave 1 dispatch), 1 SA per same-tier batch for High (≤8 contradictions), Medium (≤15), Low (≤30 — Tier 1), Info (≤50). D16.2 + D16.3 remain single-SA per cycle (workloads do not scale with finding count).
+
 ## Deduplication Gate
 
 Before creating any finding, verify:
@@ -30,6 +32,8 @@ If yes to either: log as "cross-domain confirmation of D{N} #{ID}" without creat
 > Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
 
 ## Audit Checklists
+
+> **Per-finding (Decision 17 / charter directive 18):** every finding declares `impact_horizon: short|medium|long` AND `progress_toward_pillar: <axis>.<pillar_id>+<delta>`; orchestrator DROPS at output time if either missing.
 
 ### 16.1 Cross-Domain Contradiction Detection
 - [ ] Read all 18 prior-tier synthesis files end-to-end before drafting findings; record which files were read in the sub-agent header

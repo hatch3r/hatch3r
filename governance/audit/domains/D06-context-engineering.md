@@ -2,7 +2,7 @@
 
 > Last updated: 2026-04-27
 
-**Pillars served:** P4 (primary), P7 (primary), P2 (supporting).
+**Pillars served:** governance-axis P4 (primary), P7 (primary), P2 (supporting); content-quality-axis CQ7 Performance (supporting — prompt-context efficiency).
 
 **Scope:** How the framework manages context windows, instruction density, token costs, and end-user runtime efficiency across the agent pipeline.
 **Sub-agents:** 6
@@ -21,6 +21,8 @@
 > Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
 
 ## Audit Checklists
+
+> **Per-finding (Decision 17 / charter directive 18):** every finding declares `impact_horizon: short|medium|long` AND `progress_toward_pillar: <axis>.<pillar_id>+<delta>` (e.g., `governance.P7+0.15` or `content-quality.CQ7+0.20`); orchestrator DROPS at output time if either missing.
 
 ### 6.1 Context Window Utilization
 - [ ] BRIDGE_ORCHESTRATION content token measurement — how many tokens does the full bridge content consume?

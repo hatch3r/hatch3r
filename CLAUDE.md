@@ -88,7 +88,7 @@ Ad-hoc multi-phase workflows do not exempt these requirements. If you are runnin
 | `governance/RE-ENVISION.md` | Holistic governance sparring engine — 10 parallel layer SAs + 20-theme dialog; hybrid edit authority (direct-edit / CL-3 / §8 amendment) |
 | `governance/EVOLVE.md` | Cross-cycle assessment + prompt mechanics refinement |
 | `governance/pack-trust-model.md` | Trust tiers + signing methods for distributed packs (referenced from D15) |
-| `governance/audit/domains/D01-D21` | Domain definitions with sub-agent checklists |
+| `governance/audit/domains/D01-D21` + `D15-trust-reference.md` | Domain definitions with sub-agent checklists; D15 trust delegation governed appendix (EVOLVE P2, 2026-04-19); D22/D23/D24 authored in subsequent audit cycles per Decision 19 |
 | `governance/audit/templates/` | Sub-agent role templates + `calibration-protocol.md` for finding scoring |
 
 Content fixes flow through the audit cycle (AUDIT.md then AUDIT-EXECUTE.md). No ad-hoc governance edits.

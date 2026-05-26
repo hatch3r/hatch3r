@@ -2,7 +2,7 @@
 
 > Last updated: 2026-04-19
 
-**Pillars served:** P4 (primary), P2 (supporting).
+**Pillars served:** governance-axis P2 (primary); content-quality-axis CQ4 Reliability (primary), CQ6 Scalability (supporting).
 
 **Scope:** The full data flow from canonical source through adapters to tool-specific output.
 **Sub-agents:** 4
@@ -21,6 +21,8 @@
 D11 Medium findings are capped at **8 per cycle** absent explicit justification per finding above the cap. Cycle 6 D11 produced 25 Mediums; Cycle 7 triage reduced to 6 by removing items where the impact was below the Medium threshold definition. If the cap is exceeded, the orchestrator MUST tag each Medium beyond #8 with a `cap_exception_rationale` referencing a specific user-impact scenario.
 
 ## Audit Checklists
+
+> **Per-finding (Decision 17 / charter directive 18):** every finding declares `impact_horizon: short|medium|long` AND `progress_toward_pillar: <axis>.<pillar_id>+<delta>` (e.g., `governance.P5+0.15` or `content-quality.CQ4+0.20`); orchestrator DROPS at output time if either missing.
 
 ### 11.1 Canonical to Adapter to Output Tracing
 - [ ] Trace every canonical file type (rules, agents, skills, prompts, commands, mcp, hooks, guardrails, learnings) through `readCanonicalFiles()` to `adapter.generate()` to `AdapterOutput[]` to file writes
@@ -54,4 +56,4 @@ D11 Medium findings are capped at **8 per cycle** absent explicit justification 
 
 ## Domain Boundary
 
-> D02 audits adapter contracts and abstractions (base.ts, canonical.ts, customization.ts, content system, integrity system): "Are the abstractions correct?" D09 audits per-adapter implementations: "Does each adapter correctly implement the contract for its target platform?" D11 audits end-to-end integration by tracing specific content types through the full pipeline: "When content flows from canonical source through adapter transformation to disk output, does it arrive correctly?" D11 findings must demonstrate cross-component failures that neither D02 nor D09 would catch independently.
+> **Domain boundary with D02 + D09 — see [D02 §Domain Boundary](D02-adapter-infrastructure.md#domain-boundary).** D02 carries the canonical text (Anti-Bloat Principle 1 — single source of truth).

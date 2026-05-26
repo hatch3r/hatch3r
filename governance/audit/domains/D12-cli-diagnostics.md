@@ -2,7 +2,7 @@
 
 > Last updated: 2026-04-19
 
-**Pillars served:** P1 (primary), P4 (supporting).
+**Pillars served:** governance-axis P1 (primary), P5 (supporting); content-quality-axis CQ2 UX (supporting).
 
 **Scope:** Can users understand what hatch3r did, diagnose problems, and trace generated output back to its source? This domain evaluates the framework's diagnostic and traceability capabilities appropriate for a setup-time CLI configuration generator.
 **Sub-agents:** 4
@@ -17,6 +17,8 @@
 > Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
 
 ## Audit Checklists
+
+> **Per-finding (Decision 17 / charter directive 18):** every finding declares `impact_horizon: short|medium|long` AND `progress_toward_pillar: <axis>.<pillar_id>+<delta>` (e.g., `governance.P5+0.15` or `content-quality.CQ4+0.20`); orchestrator DROPS at output time if either missing.
 
 ### 12.1 CLI Output Diagnostic Quality
 - [ ] Error messages include file path, severity, and actionable recovery steps for all CLI commands

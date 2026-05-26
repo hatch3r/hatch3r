@@ -2,7 +2,7 @@
 
 > Last updated: 2026-04-19
 
-**Pillars served:** P6 (primary), P4 (supporting).
+**Pillars served:** governance-axis P6 (primary), P2 (supporting); content-quality-axis CQ3 Security (primary).
 
 **Scope:** The security of the agentic system itself — not the security guidance hatch3r teaches to end-user projects (covered in D5), but whether hatch3r's own architecture is resilient against agentic attack vectors. Includes trust delegation architecture and compliance mapping.
 
@@ -30,6 +30,8 @@ This is a distinct concern from Domain 1 (source code quality) and Domain 4 (pro
 **Specific source set (D15-targeted):** OWASP ASI 2026 (URL + access date), CVE feeds for MCP and agentic frameworks, vendor security advisories <=12 months old.
 
 ## Audit Checklists
+
+> **Per-finding (Decision 17 / charter directive 18):** every finding declares `impact_horizon: short|medium|long` AND `progress_toward_pillar: <axis>.<pillar_id>+<delta>`; orchestrator DROPS at output time if either missing.
 
 ### 15.1 Prompt Injection & Instruction Integrity
 - [ ] **Managed block injection** — Can malicious content injected outside `HATCH3R:BEGIN`/`HATCH3R:END` blocks influence agent behavior in ways that bypass hatch3r's intended instructions?
@@ -105,6 +107,7 @@ Scope: whether hatch3r's end-user content (rules, skills, commands, agents) teac
 - [ ] **Container hardening** — end-user content mandates Wolfi/Chainguard or distroless base, digest pinning, non-root user, cosign signing, SBOM-in-image. Missing any control is a Medium finding; missing signing or digest pinning is High.
 - [ ] **OIDC cloud auth** — end-user content mandates OIDC trusted federation for CI cloud auth with no long-lived secrets. Long-lived-secret guidance is a High finding.
 - [ ] **License allow-list** — end-user content mandates SPDX allow-list (MIT, Apache-2.0, ISC, BSD-2/3-Clause, MPL-2.0, CC0-1.0) and denies copyleft (GPL, AGPL, SSPL) unless justified, enforced via `license-checker` or equivalent CI gate. Missing allow-list is a Medium finding.
+- [ ] **Tiered floor mandates (Decision 4):** for each floor item (npm provenance, SBOM, SLSA, malicious-pkg detection, SHA-pin, container hardening, OIDC, license allow-list), evaluate maturity-tier applicability. Solo defers items without security blast radius (SBOM emit, license allow-list); team+ enforces uniformly. Flag mandates currently tier-uniform that should be tier-conditional per Decision 4 audience model.
 
 Cross-references: `rules/hatch3r-dependency-management.md`, `rules/hatch3r-secrets-management.md`, `rules/hatch3r-container-hardening.md`, `rules/hatch3r-ci-cd.md`.
 

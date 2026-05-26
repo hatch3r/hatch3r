@@ -2,7 +2,7 @@
 
 > Last updated: 2026-04-19
 
-**Pillars served:** P3 (primary), P2 (supporting).
+**Pillars served:** governance-axis P3 (primary), P2 (supporting); content-quality-axis CQ9 Enhancability (supporting — adapter extensibility patterns).
 
 **Scope:** All adapter support code — the base contract, canonical reader, customization pipeline, utilities, registry, content system, and archive system / drift detection. Does NOT cover per-adapter implementations (those are Domain 9).
 **Sub-agents:** 7
@@ -22,6 +22,8 @@
 > Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
 
 ## Audit Checklists
+
+> **Per-finding (Decision 17 / charter directive 18):** every finding declares `impact_horizon: short|medium|long` AND `progress_toward_pillar: <axis>.<pillar_id>+<delta>` (e.g., `governance.P5+0.15` or `content-quality.CQ8+0.20`); orchestrator DROPS at output time if either missing.
 
 ### 2.1 Base Adapter Contract
 - [ ] Contract completeness — all required abstract methods defined

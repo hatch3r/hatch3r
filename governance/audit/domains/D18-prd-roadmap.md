@@ -2,7 +2,7 @@
 
 > Last updated: 2026-04-19
 
-**Pillars served:** P5 (primary), P4 (supporting).
+**Pillars served:** governance-axis P5 (primary), P4 (supporting); content-quality-axis — (governance only).
 
 **Scope:** Strategic alignment between product vision, roadmap, and current implementation.
 **Sub-agents:** 3
@@ -35,6 +35,8 @@ Before any 18.x sub-agent drafts a finding, the D18 orchestrator MUST capture a 
 - [ ] Any 18.3 distribution finding citing "zero npm presence" or "zero GitHub traction" MUST cite this snapshot, not a prior-cycle framing
 
 ## Audit Checklists
+
+> **Per-finding (Decision 17 / charter directive 18):** every finding declares `impact_horizon: short|medium|long` AND `progress_toward_pillar: <axis>.<pillar_id>+<delta>`; orchestrator DROPS at output time if either missing.
 
 ### 18.1 PRD Alignment
 - [ ] PRD vs implementation gap — what is specified but not built? What is built but not specified?
