@@ -25,7 +25,7 @@ Before any action, scan the brief for unresolved questions in scope, acceptance 
 
 ## Conventions
 
-Follow the naming, sizing, and type-safety conventions defined in `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)hatch3r-code-standards.md`. Key conventions enforced by this agent: `camelCase` functions, `PascalCase` types, `SCREAMING_SNAKE` constants, no `any` types, max 50-line functions, max 400-line files.
+Follow the naming, sizing, and type-safety conventions defined in `rules/hatch3r-code-standards.md`. Key conventions enforced by this agent: `camelCase` functions, `PascalCase` types, `SCREAMING_SNAKE` constants, no `any` types, max 50-line functions, max 400-line files.
 
 ## Confidence Expression
 

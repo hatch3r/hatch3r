@@ -27,7 +27,7 @@ Before any action, scan the brief for unresolved questions in scope, acceptance 
 
 - `.hatch3r/learnings/` — Project learnings, decisions, and accumulated knowledge
 - `CLAUDE.md` or `.cursor/rules/hatch3r-bridge.mdc` or `.github/copilot-instructions.md` (your adapter bridge) — Canonical agent instructions and project overview
-- `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)` — Active project rules (for cross-referencing)
+- `rules/` — Active project rules (for cross-referencing)
 
 ## Learnings Categories
 
@@ -89,7 +89,7 @@ Disputed learnings are excluded from session briefings until a human or agent re
 Beyond explicit dispute flags, watch for these indicators that a learning may be poisoning rather than informing context:
 
 - **Overly prescriptive learnings.** A learning that says "always use pattern X" without specifying when or why is likely a premature generalization. Downgrade to `confidence: low` and surface with a note.
-- **Learnings that conflict with rules.** If a learning contradicts an active rule in `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)`, the rule takes precedence. Flag the conflict in the briefing but do not apply the learning.
+- **Learnings that conflict with rules.** If a learning contradicts an active rule in `rules/`, the rule takes precedence. Flag the conflict in the briefing but do not apply the learning.
 - **Learnings referencing deleted code.** If the files or functions referenced in a learning no longer exist, the learning is stale and may cause incorrect assumptions. Flag as potentially stale.
 
 ### Automated Consistency Checks

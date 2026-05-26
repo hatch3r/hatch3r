@@ -60,7 +60,7 @@ It retains:
 - Quality checks (lint, typecheck, test) -- always mandatory
 - Adaptive sub-agent delegation (implementer for nontrivial items)
 - Light code review (reviewer for nontrivial items only)
-- `scope: always` rules from `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)`
+- `scope: always` rules from `rules/`
 - Soft scope guards to prevent misuse
 - Lightweight learnings consultation (file-path scan, 150-token budget)
 
@@ -231,7 +231,7 @@ No sub-agent delegation. No researcher. Implement and move on.
 
 For each nontrivial item (or group of related nontrivial items):
 
-1. Read `scope: always` rules from `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)`.
+1. Read `scope: always` rules from `rules/`.
 
 2. **Lightweight research (Tier 2 items only):** If the item scored Tier 2 in Step 2b and the user chose to proceed with lightweight research, spawn a `hatch3r-researcher` sub-agent with:
    - **Modes:** `similar-implementation` at `quick` depth (1 reference implementation)
@@ -291,7 +291,7 @@ For nontrivial items, run an iterative review loop (max 3 iterations) until 0 Cr
 The reviewer prompt MUST include:
 - The diff of all changes made (use `git diff` on the working tree).
 - Focus areas: **correctness and code quality only**. Skip security deep-dive, performance profiling, and documentation review.
-- All `scope: always` rule directives from `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)`.
+- All `scope: always` rule directives from `rules/`.
 - Iteration number and previous findings (if not the first iteration).
 - Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
 - Requirement that the reviewer output include a top-level `confidence: high | medium | low` field (not just per-finding) so the gate in step 2 can evaluate it deterministically.
@@ -317,7 +317,7 @@ After the review loop is clean, spawn both agents in parallel via the Task tool:
 
 Both prompts MUST include:
 - The diff of all changes made.
-- All `scope: always` rule directives from `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)`.
+- All `scope: always` rule directives from `rules/`.
 - Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
 
 Apply any resulting changes (new tests, security fixes). Re-run quality checks (Step 5a) if changes were made.

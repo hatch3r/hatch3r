@@ -17,7 +17,7 @@ Activate context-specific rules when a file is saved, applying relevant coding s
 
 When this hook fires, the assigned agent should:
 
-1. Determine the saved file's path and match it against the project's rule definitions in `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)`.
+1. Determine the saved file's path and match it against the project's rule definitions in `rules/`.
 2. Load all rules where `scope: always` applies, plus any rules with glob patterns matching the saved file's path.
 3. Evaluate the saved file's contents against the loaded rules — check for convention violations, pattern mismatches, or missing required elements (e.g., missing error handling in API routes, missing accessibility attributes in components).
 4. If violations are found, surface them as inline warnings or suggestions (not blocking — file-save hooks should be non-disruptive).
@@ -31,5 +31,5 @@ When this hook fires, the assigned agent should:
 ## Configuration
 
 - **Globs**: Controlled by the `globs` frontmatter field. Adjust to match your project's source file extensions.
-- **Rule sources**: Reads from `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)`. Rules with matching `globs` or `scope: always` are activated.
+- **Rule sources**: Reads from `rules/`. Rules with matching `globs` or `scope: always` are activated.
 - **Debounce**: To avoid excessive processing during rapid saves, the agent debounces with a 2-second window (configurable via `debounceMs`).

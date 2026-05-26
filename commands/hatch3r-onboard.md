@@ -117,7 +117,7 @@ Answer these now, or say 'skip' for any where you'd rather I omit that section f
    - `package.json` / `pyproject.toml` / `go.mod` / `Cargo.toml` — project metadata, scripts, dependencies
    - `.env.example` — environment variable template
    - `docs/` — any existing documentation
-   - `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)` — coding standards and conventions
+   - `rules/` — coding standards and conventions
    - `.hatch3r/learnings/` — team learnings and institutional knowledge
    - CI config (`.github/workflows/`, `.gitlab-ci.yml`, etc.) — CI/CD pipeline
 2. Scan the top-level directory structure to understand project organization.
@@ -131,7 +131,7 @@ Context Loaded:
   Package manifest: {type — with N scripts, M dependencies}
   Env template:     {found / not found}
   Docs:             {N} files in docs/ ({key ones listed})
-  Rules:            {N} files in the canonical `rules/` directory or `.hatch3r/rules/` (for customizations) ({areas covered})
+  Rules:            {N} files in rules/ ({areas covered})
   Learnings:        {N} relevant learnings
   CI:               {type — N workflows}
   Gaps:             {list any missing context — e.g., "no CONTRIBUTING.md", "no .env.example"}
