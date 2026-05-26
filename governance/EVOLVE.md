@@ -1,6 +1,6 @@
 # hatch3r — Evolve Prompt
 
-> Last updated: 2026-04-19
+> Last updated: 2026-05-26
 > Role: Constitutional self-check across the governance corpus, anchored in current-practice web research and the Scientific Rigor Contract. Proposal-only. Modifies no governance file except the report artefact.
 
 ## Purpose
@@ -90,7 +90,9 @@ Load and record line counts plus `Last updated` headers for:
 - Every file matching `governance/audit/domains/D*.md`
 - Every file matching `governance/audit/templates/*.md`
 
-**Explicitly out of scope, with rationale:** the gitignored PRD (`governance/hatch3r-prd.md`) and competitive analysis (`governance/COMPETITIVE-ANALYSIS.md`) carry operational detail and market context; state files (`governance/audit/finding-registry.json`, `governance/audit/execution-insights.json`, `governance/audit/baseline.json`) are per-run mutable data, not governance prompt content; `CLAUDE.md` and `.claude/*` are dev-setup for building hatch3r, not framework-governance; the canonical content corpus (`agents/`, `skills/`, `rules/`, `commands/`, `hooks/`, `checks/`, `prompts/`, `github-agents/`) is the responsibility of `governance/AUDIT.md` domains D1, D5, D9, and D19, not EVOLVE.
+RE-ENVISION.md is in scope for the nine-dimension assessment; proposals to edit RE-ENVISION prompt mechanics route Route C (CONSTITUTION amendment) per §6 routing rules.
+
+**Explicitly out of scope, with rationale:** the gitignored PRD (`governance/hatch3r-prd.md`) and competitive analysis (`governance/COMPETITIVE-ANALYSIS.md`) carry operational detail and market context; state files (`governance/audit/finding-registry.json`, `governance/audit/execution-insights.json`, `governance/audit/baseline.json`) are per-run mutable data, not governance prompt content; `CLAUDE.md` §Anti-Slop Wordlist and §Lean Thresholds sections are in scope for wordlist-parity and lean-threshold consistency checks only; other CLAUDE.md sections and `.claude/*` remain out of scope as dev-setup. The canonical content corpus (`agents/`, `skills/`, `rules/`, `commands/`, `hooks/`, `checks/`, `prompts/`, `github-agents/`) is the responsibility of `governance/AUDIT.md` domains D1, D5, D9, and D19, not EVOLVE.
 
 ### 1.2 Record inventory
 
@@ -99,7 +101,7 @@ For each file, record: line count, `Last updated` date if present, pillar refere
 ### 1.3 Load authoritative references BY REFERENCE
 
 The prompt does not restate these. It reads them from source:
-- Six Binding Pillars (P1–P6): `governance/CONSTITUTION.md` §2
+- 8 Binding Pillars (P1–P8): `governance/CONSTITUTION.md` §2
 - Lean thresholds table: `governance/CONSTITUTION.md` §2 Lean Thresholds
 - Pillar Compliance Test: `governance/CONSTITUTION.md` §2
 - Pillar-to-Governance Traceability Matrix: `governance/CONSTITUTION.md` §3
@@ -125,7 +127,7 @@ For every in-scope file, the executing agent runs the nine-dimension checklist. 
 
 For each file, record a row per dimension: **verdict** (Pass / Partial / Fail), **evidence** (quoted phrase or section reference), **severity** (Critical / High / Medium / Info).
 
-1. **Pillar alignment (P1–P6).** Does the file declare which pillars it serves? Is every section traceable to at least one pillar? Orphan content is a Medium finding.
+1. **Pillar alignment (P1–P8).** Does the file declare which pillars it serves? Is every section traceable to at least one pillar? Orphan content is a Medium finding.
 2. **Lean threshold compliance.** Is the line count within the threshold defined in `governance/CONSTITUTION.md` §2 Lean Thresholds? Overage without a pillar-backed rationale is a High finding.
 3. **Anti-slop compliance.** Apply the wordlist from `governance/AUDIT-EXECUTE.md` regression gate check 10. Each unqualified hit is a Medium finding. Count and list phrase-by-phrase.
 4. **Cross-file duplication.** Identify paragraphs, tables, or lists that restate concepts owned by another governance file. Reference over restatement is the target. Greater than 5% concept-level duplication across a pair is a High finding.
@@ -168,7 +170,7 @@ Produce an NxN matrix across all in-scope files. Each cell shows estimated conce
 
 ### 3.2 Pillar coverage redraw
 
-Redraw the Pillar-to-Governance Traceability Matrix (rows = P1–P6, columns = in-scope files) based on the pillar references recorded in Step 1.2. Compare cell-by-cell against `governance/CONSTITUTION.md` §3. Flag any pillar with no file coverage; flag any file serving zero pillars.
+Redraw the Pillar-to-Governance Traceability Matrix (rows = P1–P8, columns = in-scope files) based on the pillar references recorded in Step 1.2. Compare cell-by-cell against `governance/CONSTITUTION.md` §3. Flag any pillar with no file coverage; flag any file serving zero pillars.
 
 ### 3.3 Currency summary
 
@@ -203,7 +205,7 @@ Generate at most **15 proposals per run**. Rank by the formula:
 ```
 rank_score = severity_weight × pillar_impact × north_star_multiplier
   severity_weight      = Critical:25, High:10, Medium:3, Info:1
-  pillar_impact        = count of pillars served (1–6)
+  pillar_impact        = count of pillars served (1–8)
   north_star_multiplier = 1.5 if proposal advances a named North Star trait
                           with a measurable delta, else 1.0
 ```
@@ -218,7 +220,7 @@ Every proposal records:
 - **Target file.** Exact repository-relative path.
 - **Current state.** Quoted passage or section reference.
 - **Proposed change.** Diff-style description (add / remove / rewrite).
-- **Pillar served.** One or more of P1–P6.
+- **Pillar served.** One or more of P1–P8.
 - **North Star trait advanced.** One or more of the five enumerated traits, with the measurable delta stated.
 - **Line delta.** Estimated +/- lines.
 - **Routing recommendation.** Route A, B, or C (see §6).
@@ -280,9 +282,9 @@ Every proposal is routed to exactly one of three buckets. The report's routing t
 
 **Route B — Audit system.** Any proposal that touches `governance/AUDIT.md`, `governance/AUDIT-EXECUTE.md`, `governance/audit/domains/D*.md`, or `governance/audit/templates/*.md`: sub-agent counts, domain weights, scoring methodology, behavioral charter, regression gates, waves, closed-loop phases, template content. Next prompt: `governance/AUDIT-EXECUTE.md` Phase 7 (Audit Prompt Evolution / CL-3). The proposal is presented per-item for user consent.
 
-**Route C — Constitution and prompt mechanics.** Any proposal that touches `governance/CONSTITUTION.md`, `governance/RE-ENVISION.md` *as an artefact to edit* (prompt mechanics of RE-ENVISION itself, not vision content), or `governance/EVOLVE.md` itself: pillar wording, lean thresholds, anti-slop wordlist, Pillar Compliance Test, prompt mechanics. Next action: direct edit under the Amendment Protocol in `governance/CONSTITUTION.md` §8 with a dated rationale.
+**Route C — Constitution and prompt mechanics.** Any proposal that touches `governance/CONSTITUTION.md`, `governance/RE-ENVISION.md` *as an artefact to edit* (prompt mechanics of RE-ENVISION itself, not vision content), or `governance/EVOLVE.md` itself: pillar wording, lean thresholds, anti-slop principle (§2 P5 anti-slop entry in CONSTITUTION.md only — the wordlist content itself routes via Route A's atomic pair), Pillar Compliance Test, prompt mechanics. Next action: direct edit under the Amendment Protocol in `governance/CONSTITUTION.md` §8 with a dated rationale.
 
-**RE-ENVISION.md role boundaries — worked examples.** A proposal to clarify VISION.md's audience list → Route A (RE-ENVISION sparring engine direct-edits VISION.md with §6.1 per-file consent). A proposal to add a lean-threshold row for a new governance file → Route A (RE-ENVISION direct-edits the CONSTITUTION §2 P5 row with §6.1 per-file consent + §8 dated rationale). A proposal to refine a CONSTITUTION pillar definition → Route C (queue for framework-owner §8 amendment; RE-ENVISION's §6.3 emits a `constitution-amendment-queue.md` with pre-populated dated rationale, but does NOT direct-edit pillars). A proposal to add a new theme-block question to RE-ENVISION.md's §4 dialog → Route A (RE-ENVISION direct-edits its own prompt mechanics — `EVOLVE.md prompt mechanics` is in RE-ENVISION's direct-edit authority list; the same applies by analogy to RE-ENVISION's own mechanics). The destination of the change determines the route.
+**RE-ENVISION.md role boundaries — worked examples.** A proposal to clarify VISION.md's audience list → Route A (RE-ENVISION sparring engine direct-edits VISION.md with §6.1 per-file consent). A proposal to add a lean-threshold row for a new governance file → Route A (RE-ENVISION direct-edits the CONSTITUTION §2 P5 row with §6.1 per-file consent + §8 dated rationale). A proposal to refine a CONSTITUTION pillar definition → Route C (queue for framework-owner §8 amendment; RE-ENVISION's §6.3 emits a `constitution-amendment-queue.md` with pre-populated dated rationale, but does NOT direct-edit pillars). A proposal to add a new theme-block question to RE-ENVISION.md's §4 dialog → Route A (RE-ENVISION direct-edits its own prompt mechanics — `EVOLVE.md prompt mechanics` is in RE-ENVISION's direct-edit authority list; the same applies by analogy to RE-ENVISION's own mechanics). Worked example: A proposal to edit a row in the anti-slop wordlist table → Route A (atomic-pair direct-edit on AUDIT-EXECUTE.md gate 11 + CLAUDE.md §Anti-Slop), NOT Route C; Route C handles only the P5 anti-slop principle wording. The destination of the change determines the route.
 
 **Multi-route conflict resolution.** If a proposal targets files in multiple routes, split it into per-route sub-proposals so each sub-proposal is routed independently. If the proposal is atomic and cannot be split, route to the highest-risk route in precedence order C → B → A — the most restrictive amendment path governs.
 
@@ -338,7 +340,7 @@ This prompt serves the framework's North Star through the following pillars:
 - **P5 Governance Self-Quality (primary).** Structural self-check across nine measurable dimensions; surfaces drift that today has no other owner.
 - **P4 Comprehensive Lean Coverage (supporting).** Pairwise duplication matrix, pillar-gap detection, and per-file lean-threshold verification.
 - **P2 Scientific & Practical Quality (supporting).** Enforces the six-test Scientific Rigor Contract in §0 — falsifiability, citation, confidence expression, root-cause orientation, bias check, adversarial peer-review — on every finding and proposal.
-- **P3 Adapter & MCP Currency (supporting).** Enforces the Web Research Mandate in §0 — proposals that invoke current practice carry URL + access date + author/org + trust tier citations.
+- **P3 Adapter & External Tool Currency (supporting).** Enforces the Web Research Mandate in §0 — proposals that invoke current practice carry URL + access date + author/org + trust tier citations.
 
 **Pillar Compliance Test answers for this prompt file:** (1) Serves P5 primary plus P4, P2, P3 supporting. (2) Measurable improvement — surfaces drift in the governance corpus via the nine-dimension checklist and routes every actionable proposal to one of three defined amendment mechanisms; rejects proposals failing the Scientific Rigor Contract or Pillar Compliance Test so the governance system stays testable. (3) Yes, it increases governance size by roughly the line count of this file; net value exceeds cost because no other prompt owns constitutional self-check against current practice — absent this prompt, drift surfaces only incidentally during full audits (D16, D18, D19) where governance attention competes with framework-output findings.
 

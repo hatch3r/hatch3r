@@ -11,7 +11,7 @@ efficiency_patterns: agents/shared/efficiency-patterns.md
 
 # hatch3r — Audit Execution Prompt
 
-> Last updated: 2026-04-28
+> Last updated: 2026-05-26
 
 ## Purpose
 
@@ -489,6 +489,27 @@ After each wave commit, run 18-check gate comparing against Phase 0 baseline (NO
 
 > Gates 16 and 17 hard-exempt the audit-cycle file list: `governance/AUDIT.md`, `governance/AUDIT-EXECUTE.md`, `governance/RE-ENVISION.md`, and `commands/hatch3r-audit*.md`. The validator script `scripts/validate-efficiency-invariants.ts` enforces this exemption — depth in the audit cycle is non-negotiable per pillar P7.
 
+### Anti-Slop Wordlist (gate 11)
+
+The two-pass wordlist scan applies the following banned phrases. Each hit must have a measurable qualifier within 8 words; otherwise rollback is required per §6.1 Guardrail 7.
+
+| Banned | Use Instead |
+|--------|-------------|
+| "best possible", "best-in-class", "world-class" | Specific measurable target |
+| "comprehensive and thorough", "exhaustive" | Specific scope statement |
+| "robust and resilient" | Named resilience pattern (circuit breaker, retry with backoff) |
+| "high-quality" (no measure) | Specific quality metric |
+| "ensure" (no method) | Specific verification step |
+| "properly", "correctly" (no criterion) | Specific passing condition |
+| "as needed", "as appropriate" (no trigger) | Specific trigger condition |
+| "scalable" (no dimension) | Specific scale target (N users, M repos) |
+| "carefully", "thoroughly" | Remove or replace with specific action |
+| "it is important to note", "this section describes" | Remove — state the thing directly |
+| "obviously", "clearly", "naturally", "intuitively", "without doubt", "certainly" (when not citing a source) | Cite specific source (file:line OR URL with access date) |
+| "this might affect", "could be useful" (without specific impact) | Specify measurable impact prediction OR concrete use case |
+| "successfully completed", "everything works", "works as expected" (without verification) | Cite verification command + result (e.g., "npm test exit 0, 432/432 passing") |
+| "enterprise-grade", "production-grade" (without maturity tier) | Specify maturity tier per CONSTITUTION §2 P5 + Decision 4 (solo/team/scaleup/enterprise) |
+
 Report each check PASS/FAIL with baseline delta. Overall PASS = all checks pass. On FAIL: name the check, the delta, and whether it is a true regression or a pre-existing baseline condition.
 
 ### Gate Failure Protocol
@@ -522,7 +543,7 @@ new_score = baseline_score + (weighted_resolved / weighted_total) * (100 - basel
 Where severity_weight: Critical=25, High=10, Medium=3, Low=1 (matching AUDIT.md quality score formula)
 ```
 
-Where `resolved_findings_in_domain` = findings resolved across all completed waves for this domain, `all_findings_in_domain` = total findings in domain, `0.8` = diminishing returns factor. This ensures resolving a Critical finding improves the score more than resolving a Low finding.
+Where `resolved_findings_in_domain` = findings resolved across all completed waves for this domain, `all_findings_in_domain` = total findings in domain, `0.8` = diminishing returns factor. Under this construction, resolving a Critical finding raises the score more than resolving a Low finding.
 
 Flag any domain whose score decreased — indicates cross-domain side effects.
 

@@ -1,6 +1,7 @@
 # hatch3r — Constitution
 
 > Established: 2026-03-25 | Restructured: 2026-04-09 (Cycle 5 Reaudit) | Amended: 2026-05-18 (RE-ENVISION redesigned as holistic governance sparring engine — §2 P5 lean-threshold row recalibrated, §3 traceability cells updated, §6 Decision #11 added, §8 authorizes RE-ENVISION as direct-edit path for permitted layers)
+> Last updated: 2026-05-26
 > Design rationale for the hatch3r governance system. VISION.md defines what we aspire to. This Constitution defines why we made these choices and how the governance system holds itself accountable.
 
 ---
@@ -17,7 +18,7 @@ Every governance file, audit domain, and enhancement decision must serve at leas
 
 ### P1. CLI UI/UX Excellence
 
-Every lifecycle stage (init through release) delivers the best achievable CLI interface: clear prompts, actionable errors, progressive disclosure, accessible output.
+Every lifecycle stage (init through release) delivers a CLI interface measured by the metrics below (P1 Measurement): clear prompts, actionable errors, progressive disclosure, accessible output.
 
 **Measurement:** Time-to-first-value (steps from init to first useful output), decision count per flow, error recovery rate (% of errors with actionable next steps), first-run success rate.
 **Governance refs:** AUDIT.md D10 (UX & Documentation), charter directive 11 (user-facing perspective).
@@ -54,23 +55,29 @@ Governance and audit cycles apply the same quality standards, anti-slop, and ant
 
 | Metric | Limit | Calibration |
 |--------|-------|-------------|
-| CONSTITUTION.md | <=250 lines | +25 per binding pillar added (P8 baseline) |
+| CONSTITUTION.md | <=410 lines | +25 per governance pillar (P8 baseline) + 15 per content-quality vector + 5 per matrix-column added per new audit domain + 3 per finding field added to Required Finding Output Schema; recalibrated 2026-05-26 for 2.0.0 two-axis pillar framework |
 | VISION.md | <=250 lines | Stable; add principles rarely |
 | AUDIT.md | <=600 lines | ±4 lines per domain count delta |
-| AUDIT-EXECUTE.md | <=700 lines | ±50 lines per execution phase delta |
-| RE-ENVISION.md | <=550 lines | ±25 lines per theme-block delta (10 vision themes + 10 governance-layer sparring themes; recalibrated 2026-05-18 with redesign as holistic sparring engine) |
+| AUDIT-EXECUTE.md | <=720 lines | +20 lines per major regression-gate body addition (e.g., anti-slop wordlist inline per L10-F1); ±50 lines per execution phase delta; recalibrated 2026-05-26 for 2.0.0 wordlist embed |
+| RE-ENVISION.md | <=550 lines | ±25 lines per § section added OR per L-layer SA added; baseline 9 sections + 10 layer SAs = 19 units × ~27 lines = 513 baseline; ceiling 550 (recalibrated 2026-05-26 for verifiable units) |
 | EVOLVE.md | <=400 lines | ±20 lines per assessment-dimension delta |
 | pack-trust-model.md | <=300 lines | ±25 lines per trust-tier or signing-method addition |
+| rules/*.md (precedence: critical or high) | <=250 lines | ±25 lines per hard-mandate floor item added |
+| rules/*.md (precedence: normal or low) | <=120 lines | Style/cosmetic rules; tighter ceiling enforces compression |
+| CLAUDE.md | <=300 lines | +20 per pillar count delta; auto-derived counts excluded from line count via `scripts/validate-pillar-currency.ts` |
+| README.md | <=200 lines | Quickstart + 60-second + key concepts per Decision 25 |
+| docs/*.md per file | <=400 lines | Per-page reference scope; auto-generated frontmatter excluded |
 | Static-first prompt structure | required for `orchestrator: true` and `agents/*.md` | scripts/validate-efficiency-invariants.ts |
 | Parallel-tool-by-default directive | required when artifact uses ≥2 independent tool calls | Body-text scan |
 | Triage-first orchestrator | required when `orchestrator: true` | Frontmatter `triage_tiers` array |
-| Audit-execute tier classifier | closed `tier1_pattern` enum is authoritative | AUDIT-EXECUTE.md §Tier Classification — Tier 1 batch sub-agent groups Low/Info, effort=S, single-file, mechanical findings by pattern (≤30 per batch); orchestrator never edits |
+| Audit-execute SA-per-finding ratio (Critical/High/Medium/Low/Info) | 1:1 / ≤1:8 / ≤1:15 / ≤1:30 / ≤1:50 | Decision 18 closed enum; Tier 1 batch covers Low (`tier1_pattern` enum, ≤30) + Info (≤50); Tier 2H batches High (≤8 per same-pattern); Tier 2M batches Medium (≤15); same-file file-lock + dependency-chain serialization preserved across all tiers |
+| Finding impact-gating (Decision 17) | required: impact_horizon ∈ {short, medium, long} + progress_toward_pillar = <pillar_id>+<delta> | SA drops at output time per AUDIT.md charter directive 18; auditor inspection per cycle |
 | Anti-cache patterns | 0 per artifact | No volatile tokens above static frame |
 | Domain file (SA ≤5) | 30-80 lines | Limit authoritative |
 | Domain file (SA >5) | SA × 15 lines | Calibration supersedes Limit |
 | Template file | 80-200 lines | Role-specific; bounded by role scope |
 | Cross-file duplication | <5% | 0% ideal; audit per cycle |
-| Finding inflation | <2.0x pre-dedup/post-triage | Source-level dedup improvement |
+| Finding inflation | <2.0x pre-dedup/post-impact-gating/post-triage | Source-level dedup + Decision 17 impact-gating compounded improvement |
 | Governance total | <=3000 lines | Increasing across cycles = bloat signal |
 | Generated UI a11y violations (axe-core, serious/critical) | 0 | Per-component, per-route, applies to agent-produced output |
 | Design-token adoption in generated code (color, spacing, typography) | >=95% | Hard-coded values count against; semantic tokens count toward |
@@ -96,16 +103,16 @@ Governance and audit cycles apply the same quality standards, anti-slop, and ant
 
 1. **Single Source of Truth:** every concept defined in exactly one file; others reference it.
 2. **Earn Your Existence:** every file, section, row serves at least one pillar — if none, remove.
-3. **Compression Over Verbosity:** tables over prose; references over repetition.
-4. **Proportional Depth:** file size proportional to governed complexity.
+3. **Compression Over Verbosity:** tables required when ≥4 items share ≥2 columns; references over repetition when content appears in ≥2 files with >5% byte similarity (verified per `scripts/validate-efficiency-invariants.ts`).
+4. **Proportional Depth:** file lines ≤ (primary unit count × calibration constant) per the §2 P5 calibration column for the file's class (e.g., domain SA × 15 lines, theme-block × 25 lines).
 5. **Anti-Slop:** no filler phrases without measurable criteria (wordlist in AUDIT-EXECUTE.md regression gates).
 6. **Currency transparency:** every governance prompt/template carries `> Last updated: YYYY-MM-DD` as line 2 or 3; absence Low, >180-day staleness Medium (verified by AUDIT-EXECUTE.md regression gates).
 
 #### Silent Failure Contract
 
-Every `catch` block in `src/` MUST emit a diagnostic via one of: a `warnings[]` array returned to the caller, the observability channel (`src/pipeline/observability.ts`), or the failure log (`src/pipeline/failureLog.ts`). Catch-and-skip without channel emission is a contract violation — failures hidden from operators are indistinguishable from success and silently degrade the lean coverage guarantee (P4).
+Every `catch` block, `.catch()` Promise handler, and async failure path in `src/` (including unawaited rejections, resumability/checkpoint write failures, snapshot rollback failures per Decision 27, cost-telemetry emission failures per Decision 24) MUST emit a diagnostic via one of: a `warnings[]` array returned to the caller, the observability channel (`src/pipeline/observability.ts`), or the failure log (`src/pipeline/failureLog.ts`). Catch-and-skip without channel emission is a contract violation — failures hidden from operators are indistinguishable from success and silently degrade the lean coverage guarantee (P4).
 
-Acceptable patterns: re-throw after classification (e.g. `if (code !== "ENOENT") throw err`); emit then return a sentinel; push to a caller-visible warnings collection. Unacceptable patterns: empty catch body; catch that contains only `return null` / `return []` / `return undefined`. Enforced by ESLint rule `silent-failure/no-silent-catch` (warning severity; opt-out via `// eslint-disable-next-line silent-failure/no-silent-catch` requires a justification comment naming the diagnostic channel that replaces it).
+Acceptable patterns: re-throw after classification (e.g. `if (code !== "ENOENT") throw err`); emit then return a sentinel; push to a caller-visible warnings collection. Unacceptable patterns: empty catch body; catch that contains only `return null` / `return []` / `return undefined`; swallowed `.catch()` (e.g., `.catch(() => {})` without diagnostic emission). Enforced by ESLint rule `silent-failure/no-silent-catch` (warning severity; opt-out via `// eslint-disable-next-line silent-failure/no-silent-catch` requires a justification comment naming the diagnostic channel that replaces it).
 
 ### P6. Security & Trust Governance
 
@@ -165,8 +172,8 @@ The audit system operates on three layers so findings meet senior-engineer-level
 | Layer | Purpose | Concept Count | Canonical Location |
 |-------|---------|:------------:|-------------------|
 | 1. Audit System Mechanics | Structural completeness of the audit process | 16 | AUDIT.md §Execution Model |
-| 2. Senior Human Parity | Behavioral traits matching expert judgment | 6 | AUDIT.md §Behavioral Charter |
-| 3. Content Mirroring | Quality standards for audited content itself | 8 | agents/shared/quality-charter.md |
+| 2. Senior Human Parity | Behavioral traits matching expert judgment | 17 | AUDIT.md §Behavioral Charter |
+| 3. Content Mirroring | Quality standards for audited content itself | 13 numbered + 9 production-readiness sections | agents/shared/quality-charter.md |
 
 Layer 1 prevents mechanical gaps (missed domains, broken dependencies). Layer 2 prevents cognitive gaps (confirmation bias, shallow analysis). Layer 3 prevents output gaps (content that passes audit but fails users). All three must align for a finding to be valid.
 

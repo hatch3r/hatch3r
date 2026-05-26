@@ -1,5 +1,7 @@
 # hatch3r — Development Instructions
 
+> Last updated: 2026-05-26
+
 > This file governs framework development. It is NOT generated output — it is the agentic setup for developing hatch3r itself.
 
 hatch3r is an open-source CLI (TypeScript, Commander.js) that generates tool-agnostic agentic coding setups for 3 AI coding tools (Claude Code, Cursor, GitHub Copilot) from a canonical source model (this repo's top-level `agents/`, `skills/`, `rules/`, `commands/`, `hooks/`) and platform adapters. In v1.9.0 the adapter set was hard-cut from 15 to 3 and canonical content is shipped in the bundled npm package — end-user repos no longer materialize a `.agents/` mirror.
@@ -109,6 +111,10 @@ Zero tolerance in all `.md` files under `governance/`, `agents/`, `commands/`, `
 | "scalable" (no dimension) | Specific scale target (N users, M repos) |
 | "carefully", "thoroughly" | Remove or replace with specific action |
 | "it is important to note", "this section describes" | Remove — state the thing directly |
+| "obviously", "clearly", "naturally", "intuitively", "without doubt", "certainly" (when not citing a source) | Cite specific source (file:line OR URL with access date) |
+| "this might affect", "could be useful" (without specific impact) | Specify measurable impact prediction OR concrete use case |
+| "successfully completed", "everything works", "works as expected" (without verification) | Cite verification command + result (e.g., "npm test exit 0, 432/432 passing") |
+| "enterprise-grade", "production-grade" (without maturity tier) | Specify maturity tier per CONSTITUTION §2 P5 + Decision 4 (solo/team/scaleup/enterprise) |
 
 ---
 
