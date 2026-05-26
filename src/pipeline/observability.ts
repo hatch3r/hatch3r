@@ -543,3 +543,157 @@ export function recordEfficiencyEvent(
     }
   }
 }
+
+// ─── Cost-visibility telemetry hooks (Decision 24, 2.0.0 #29) ───
+// Pillar P7 (Speed & Token Efficiency) + P5 (Governance Self-Quality).
+//
+// The cost section of the iteration summary needs two run-time signals from
+// the orchestrator: (1) sub-agent spawn events (count + rationale) so
+// `actual_sa_count` is grounded in observation, and (2) phase boundaries so
+// `actual_duration_min` reflects measured wall-clock time. These hooks
+// piggy-back on the existing efficiency-telemetry JSONL channel so a single
+// log stream covers both efficiency and cost concerns.
+//
+// All hooks honour the Silent Failure Contract — failures are routed to the
+// failureLog channel and NEVER throw.
+
+/** A single sub-agent spawn record persisted alongside efficiency events. */
+export interface SubAgentSpawnEvent {
+  type: "subagent_spawn";
+  sessionId: string;
+  artifactId: string;
+  /** Number of sub-agents spawned in this Task tool invocation. */
+  count: number;
+  /** One-sentence task-decomposition rationale per P8 B2. */
+  rationale: string;
+  /** ISO-8601 timestamp captured at spawn time. */
+  timestamp: string;
+}
+
+/** A single phase-boundary record persisted alongside efficiency events. */
+export interface PhaseDurationEvent {
+  type: "phase_duration";
+  sessionId: string;
+  artifactId: string;
+  /** Phase identifier — e.g. "triage", "plan", "act", "review", or a PhaseName. */
+  phase: string;
+  /** Wall-clock duration of the phase in milliseconds. */
+  durationMs: number;
+  /** ISO-8601 timestamp captured at phase end. */
+  timestamp: string;
+}
+
+/**
+ * Record that an orchestrator spawned `count` sub-agents in a single
+ * Task-tool invocation. Persists a JSONL entry under
+ * `<projectRoot>/.hatch3r/efficiency-events.jsonl` when the env-gate is
+ * set; otherwise no-op. Silent Failure Contract on I/O failure.
+ *
+ * The orchestrator passes its own artifact id (e.g. `hatch3r-feature-plan`)
+ * so consumers can attribute spawns to a specific command.
+ */
+export function recordSubAgentSpawn(
+  sessionId: string,
+  artifactId: string,
+  count: number,
+  rationale: string,
+  projectRoot: string = process.cwd(),
+): void {
+  if (!isEfficiencyTelemetryEnabled()) return;
+  const event: SubAgentSpawnEvent = {
+    type: "subagent_spawn",
+    sessionId,
+    artifactId,
+    count: Number.isFinite(count) && count >= 0 ? Math.floor(count) : 0,
+    rationale,
+    timestamp: new Date().toISOString(),
+  };
+  appendCostTelemetry(event, projectRoot, artifactId);
+}
+
+/**
+ * Record the wall-clock duration of a phase. Persists a JSONL entry under
+ * `<projectRoot>/.hatch3r/efficiency-events.jsonl` when the env-gate is
+ * set; otherwise no-op. Silent Failure Contract on I/O failure.
+ */
+export function recordPhaseDuration(
+  sessionId: string,
+  artifactId: string,
+  phase: string,
+  durationMs: number,
+  projectRoot: string = process.cwd(),
+): void {
+  if (!isEfficiencyTelemetryEnabled()) return;
+  const event: PhaseDurationEvent = {
+    type: "phase_duration",
+    sessionId,
+    artifactId,
+    phase,
+    durationMs: Number.isFinite(durationMs) && durationMs >= 0 ? Math.floor(durationMs) : 0,
+    timestamp: new Date().toISOString(),
+  };
+  appendCostTelemetry(event, projectRoot, artifactId);
+}
+
+/**
+ * Lightweight token-cost helper that reuses {@link recordEfficiencyEvent}.
+ * Convenience wrapper for orchestrators that already know their tokens-in /
+ * tokens-out for a given phase and want a one-call recording site. Honours
+ * the same env-gate as `recordEfficiencyEvent`.
+ */
+export function recordTokenCost(
+  artifactId: string,
+  phase: string,
+  tokensIn: number,
+  tokensOut: number,
+  options: {
+    latencyMs?: number;
+    modelHint?: string;
+    cacheHit?: boolean;
+    projectRoot?: string;
+  } = {},
+): void {
+  recordEfficiencyEvent(
+    {
+      artifactId,
+      phase,
+      tokensIn: Math.max(0, Math.floor(tokensIn)),
+      tokensOut: Math.max(0, Math.floor(tokensOut)),
+      latencyMs: Math.max(0, Math.floor(options.latencyMs ?? 0)),
+      modelHint: options.modelHint,
+      cacheHit: options.cacheHit,
+    },
+    options.projectRoot ?? process.cwd(),
+  );
+}
+
+/**
+ * Shared writer for spawn + phase-duration events. Keeps a single JSONL
+ * channel so the consumer side only needs one parser. Silent Failure
+ * Contract: routes any I/O failure through the failureLog file.
+ */
+function appendCostTelemetry(
+  event: SubAgentSpawnEvent | PhaseDurationEvent,
+  projectRoot: string,
+  artifactId: string,
+): void {
+  const logPath = join(projectRoot, EFFICIENCY_LOG_RELATIVE);
+  const line = JSON.stringify(event) + "\n";
+  try {
+    mkdirSync(dirname(logPath), { recursive: true });
+    appendFileSync(logPath, line);
+  } catch (err) {
+    try {
+      const entry = createFailureLogEntry("cost-telemetry", err, {
+        tool: artifactId,
+      });
+      const failureLine = formatLogEntry(entry) + "\n";
+      const failurePath = join(projectRoot, ".hatch3r", FAILURE_LOG_FILE);
+      mkdirSync(dirname(failurePath), { recursive: true });
+      appendFileSync(failurePath, failureLine);
+    } catch {
+      // nested failure — nothing more we can do (Silent Failure Contract)
+      void err;
+    }
+  }
+}

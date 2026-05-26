@@ -3,10 +3,12 @@ import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import chalk from "chalk";
 import inquirer from "inquirer";
-import { readManifest, writeManifest, isValidGitBranchName } from "../../manifest/hatchJson.js";
+import { readManifest, writeManifest, isValidGitBranchName, readMaturityTier } from "../../manifest/hatchJson.js";
 import {
   DEFAULT_FEATURES,
   HatchError,
+  MATURITY_TIERS,
+  VALID_MATURITY_TIERS,
   WORKTREE_CAPABLE_TOOLS,
   WORKTREE_INCLUDE_FILE,
   type CliToolId,
@@ -14,6 +16,7 @@ import {
   type ContentSelection,
   type Features,
   type HatchManifest,
+  type MaturityTier,
   type Platform,
   type Tool,
 } from "../../types.js";
@@ -183,7 +186,169 @@ function printCurrentConfig(manifest: HatchManifest): void {
   printBox("Current configuration", lines, "info");
 }
 
-export async function configCommand(): Promise<void> {
+/**
+ * Known scalar config keys settable via `hatch3r config <key>=<value>` or
+ * `hatch3r config set <key> <value>`. Each entry validates its input and
+ * mutates the manifest in place; the caller persists with `writeManifest`.
+ *
+ * Today only `maturity` is exposed; the structure is shaped so further
+ * scalar keys (e.g. `costTracking.currency`) can be added without changing
+ * the dispatch layer.
+ */
+type ScalarConfigKey = "maturity";
+
+const SCALAR_CONFIG_KEYS = new Set<string>(["maturity"]);
+
+function isScalarConfigKey(key: string): key is ScalarConfigKey {
+  return SCALAR_CONFIG_KEYS.has(key);
+}
+
+/**
+ * Parse the first positional argument as either `<key>=<value>` (set form) or
+ * a bare key (get form when paired with the leading `get` verb at the CLI
+ * level). Returns null when the argument is absent or does not match the
+ * scalar key/value contract — caller falls back to the interactive flow.
+ */
+function parseScalarKeyValue(arg: string | undefined): { key: ScalarConfigKey; value: string } | null {
+  if (!arg) return null;
+  const eq = arg.indexOf("=");
+  if (eq === -1) return null;
+  const key = arg.slice(0, eq).trim();
+  const value = arg.slice(eq + 1).trim();
+  if (!isScalarConfigKey(key)) return null;
+  return { key, value };
+}
+
+/**
+ * Validate and apply a scalar config write to the in-memory manifest. Throws
+ * `HatchError` (VALIDATION_ERROR) on invalid input. Returns the previous
+ * value so the caller can render a before/after diff.
+ */
+function applyScalarConfigWrite(
+  manifest: HatchManifest,
+  key: ScalarConfigKey,
+  value: string,
+): { previous: string | undefined; next: string } {
+  if (key === "maturity") {
+    if (!VALID_MATURITY_TIERS.has(value)) {
+      throw new HatchError(
+        `Invalid maturity tier: "${value}". Valid: ${[...MATURITY_TIERS].join(", ")}`,
+        1,
+        "VALIDATION_ERROR",
+        `Re-run with one of: ${[...MATURITY_TIERS].join(", ")}.`,
+      );
+    }
+    const previous = manifest.maturity;
+    manifest.maturity = value as MaturityTier;
+    return { previous, next: value };
+  }
+  // Exhaustive guard for future keys — the type system enforces this branch
+  // is unreachable today.
+  throw new HatchError(`Unsupported config key: ${key}`, 1, "VALIDATION_ERROR");
+}
+
+/**
+ * Render the current value for a scalar config key. Used by the `get` form.
+ * Returns the persisted value, defaulting to the documented fallback when
+ * absent (e.g. `maturity` defaults to "solo" per Decision 4).
+ */
+function readScalarConfigValue(manifest: HatchManifest, key: ScalarConfigKey): string {
+  if (key === "maturity") {
+    return readMaturityTier(manifest);
+  }
+  throw new HatchError(`Unsupported config key: ${key}`, 1, "VALIDATION_ERROR");
+}
+
+/**
+ * Handle the non-interactive `hatch3r config <key>=<value>` and
+ * `hatch3r config get|set <key> [<value>]` forms. Returns true when the
+ * arguments were a known scalar form (caller short-circuits); false when
+ * the call should fall through to the interactive flow.
+ *
+ * Accepts:
+ *   configCommand("maturity=team")        — set form (single arg with `=`)
+ *   configCommand("set", "maturity team") — set form (verb + arg)
+ *   configCommand("get", "maturity")      — get form (verb + key)
+ */
+async function handleScalarConfig(
+  rootDir: string,
+  manifest: HatchManifest,
+  arg1?: string,
+  arg2?: string,
+): Promise<boolean> {
+  // Form 1: bare `key=value` ─ e.g. `hatch3r config maturity=team`
+  const inlineSet = parseScalarKeyValue(arg1);
+  if (inlineSet) {
+    const { previous, next } = applyScalarConfigWrite(manifest, inlineSet.key, inlineSet.value);
+    await writeManifest(rootDir, manifest);
+    if (previous === next) {
+      info(`${inlineSet.key} is already set to "${next}". No change.`);
+    } else {
+      info(`Set ${inlineSet.key}: ${chalk.dim(previous ?? "<default>")} ${chalk.cyan("→")} ${chalk.bold(next)}`);
+    }
+    return true;
+  }
+
+  // Form 2: `get <key>` ─ e.g. `hatch3r config get maturity`
+  if (arg1 === "get") {
+    const key = (arg2 ?? "").trim();
+    if (!isScalarConfigKey(key)) {
+      throw new HatchError(
+        `Unknown config key: "${key}". Valid: ${[...SCALAR_CONFIG_KEYS].join(", ")}`,
+        1,
+        "VALIDATION_ERROR",
+        `Re-run with one of: ${[...SCALAR_CONFIG_KEYS].join(", ")}.`,
+      );
+    }
+    const value = readScalarConfigValue(manifest, key);
+    console.log(value);
+    return true;
+  }
+
+  // Form 3: `set <key> <value>` ─ e.g. `hatch3r config set maturity team`
+  if (arg1 === "set") {
+    // Accept either `set maturity team` or `set maturity=team` shapes.
+    const rest = (arg2 ?? "").trim();
+    let key: string;
+    let value: string;
+    const eq = rest.indexOf("=");
+    if (eq !== -1) {
+      key = rest.slice(0, eq).trim();
+      value = rest.slice(eq + 1).trim();
+    } else {
+      const parts = rest.split(/\s+/);
+      key = parts[0] ?? "";
+      value = parts.slice(1).join(" ").trim();
+    }
+    if (!isScalarConfigKey(key)) {
+      throw new HatchError(
+        `Unknown config key: "${key}". Valid: ${[...SCALAR_CONFIG_KEYS].join(", ")}`,
+        1,
+        "VALIDATION_ERROR",
+        `Re-run with one of: ${[...SCALAR_CONFIG_KEYS].join(", ")}.`,
+      );
+    }
+    if (!value) {
+      throw new HatchError(
+        `Missing value for "${key}". Usage: hatch3r config set ${key} <value>`,
+        1,
+        "VALIDATION_ERROR",
+      );
+    }
+    const { previous, next } = applyScalarConfigWrite(manifest, key, value);
+    await writeManifest(rootDir, manifest);
+    if (previous === next) {
+      info(`${key} is already set to "${next}". No change.`);
+    } else {
+      info(`Set ${key}: ${chalk.dim(previous ?? "<default>")} ${chalk.cyan("→")} ${chalk.bold(next)}`);
+    }
+    return true;
+  }
+
+  return false;
+}
+
+export async function configCommand(arg1?: string, arg2?: string): Promise<void> {
   printBanner(true);
 
   const rootDir = process.cwd();
@@ -193,6 +358,14 @@ export async function configCommand(): Promise<void> {
     logError("No .agents/hatch.json found.");
     console.log(chalk.dim("  Run `npx hatch3r init` to set up your project first.\n"));
     throw new HatchError("No .agents/hatch.json found.", 1, "CONFIG_ERROR");
+  }
+
+  // Scalar key/value dispatch — handles `hatch3r config <key>=<value>`,
+  // `hatch3r config set <key> <value>`, and `hatch3r config get <key>`.
+  // Returns true when the call was handled; false drops through to the
+  // interactive flow below.
+  if (await handleScalarConfig(rootDir, manifest, arg1, arg2)) {
+    return;
   }
 
   // Detect workspace context early to drive UI flow

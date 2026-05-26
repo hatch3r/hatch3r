@@ -45,6 +45,16 @@ vi.mock("inquirer", () => {
 vi.mock("../../manifest/hatchJson.js", () => ({
   readManifest: vi.fn(),
   writeManifest: vi.fn(),
+  // Bucket 2.1: scalar config `get maturity` consults `readMaturityTier` so the
+  // mock surface needs to export it. Implementation matches the real helper:
+  // valid persisted value pass-through, anything else falls back to "solo".
+  readMaturityTier: vi.fn((m: { maturity?: string } | null | undefined) => {
+    const value = m?.maturity;
+    return value && ["solo", "team", "scaleup", "enterprise"].includes(value)
+      ? value
+      : "solo";
+  }),
+  isValidGitBranchName: vi.fn(() => true),
 }));
 
 vi.mock("../../cli/commands/update.js", () => ({
@@ -1742,6 +1752,210 @@ describe("config command", () => {
       const writtenManifest = getWrittenManifest(writeManifest);
       // No servers were picked because the gate defaulted to No.
       expect(writtenManifest.mcp.servers).toEqual([]);
+    });
+  });
+
+  // ── Maturity tier (Decision 4 / #16) ──────────────────────────
+  //
+  // `hatch3r config maturity=<tier>` is a non-interactive scalar setter that
+  // bypasses the prompt-driven interactive flow entirely. It validates the
+  // tier value, persists it under `manifest.maturity`, and short-circuits
+  // before reaching `runRegenerate` / the workspace flow.
+  describe("maturity tier (Decision 4 / #16)", () => {
+    it("sets maturity=solo via inline key=value form", async () => {
+      const manifest = makeManifest();
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+
+      const configCommand = await importConfigCommand();
+      await configCommand("maturity=solo");
+
+      const writtenManifest = getWrittenManifest(writeManifest);
+      expect(writtenManifest.maturity).toBe("solo");
+    });
+
+    it("sets maturity=team via inline key=value form", async () => {
+      const manifest = makeManifest();
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+
+      const configCommand = await importConfigCommand();
+      await configCommand("maturity=team");
+
+      const writtenManifest = getWrittenManifest(writeManifest);
+      expect(writtenManifest.maturity).toBe("team");
+    });
+
+    it("sets maturity=scaleup via inline key=value form", async () => {
+      const manifest = makeManifest();
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+
+      const configCommand = await importConfigCommand();
+      await configCommand("maturity=scaleup");
+
+      const writtenManifest = getWrittenManifest(writeManifest);
+      expect(writtenManifest.maturity).toBe("scaleup");
+    });
+
+    it("sets maturity=enterprise via inline key=value form", async () => {
+      const manifest = makeManifest();
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+
+      const configCommand = await importConfigCommand();
+      await configCommand("maturity=enterprise");
+
+      const writtenManifest = getWrittenManifest(writeManifest);
+      expect(writtenManifest.maturity).toBe("enterprise");
+    });
+
+    it("sets maturity via `set` verb form", async () => {
+      const manifest = makeManifest();
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+
+      const configCommand = await importConfigCommand();
+      await configCommand("set", "maturity team");
+
+      const writtenManifest = getWrittenManifest(writeManifest);
+      expect(writtenManifest.maturity).toBe("team");
+    });
+
+    it("rejects invalid maturity tier with HatchError(VALIDATION_ERROR)", async () => {
+      const manifest = makeManifest();
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+
+      const configCommand = await importConfigCommand();
+      await expect(configCommand("maturity=garbage")).rejects.toThrow(HatchError);
+      // Manifest is never persisted on validation failure.
+      expect(vi.mocked(writeManifest)).not.toHaveBeenCalled();
+    });
+
+    it("rejects empty maturity value with HatchError", async () => {
+      const manifest = makeManifest();
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+
+      const configCommand = await importConfigCommand();
+      await expect(configCommand("maturity=")).rejects.toThrow(HatchError);
+      expect(vi.mocked(writeManifest)).not.toHaveBeenCalled();
+    });
+
+    it("error message lists all valid tiers", async () => {
+      const manifest = makeManifest();
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+
+      const configCommand = await importConfigCommand();
+      try {
+        await configCommand("maturity=invalid");
+        expect.unreachable("Expected HatchError");
+      } catch (e) {
+        expect(e).toBeInstanceOf(HatchError);
+        const msg = (e as HatchError).message;
+        expect(msg).toContain("solo");
+        expect(msg).toContain("team");
+        expect(msg).toContain("scaleup");
+        expect(msg).toContain("enterprise");
+        expect((e as HatchError).exitCode).toBe(1);
+      }
+    });
+
+    it("prints current value via `get maturity` form", async () => {
+      const manifest = makeManifest({ maturity: "scaleup" });
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      const configCommand = await importConfigCommand();
+      await configCommand("get", "maturity");
+
+      expect(logSpy).toHaveBeenCalledWith("scaleup");
+      // `get` form does not mutate the manifest.
+      expect(vi.mocked(writeManifest)).not.toHaveBeenCalled();
+    });
+
+    it("`get maturity` defaults to 'solo' when manifest has no maturity field", async () => {
+      // Older manifests written before the maturity field existed return the
+      // documented default rather than `undefined` (CLI UX P1 — actionable).
+      const manifest = makeManifest();
+      // Verify there is no maturity field on the test fixture.
+      expect((manifest as unknown as Record<string, unknown>).maturity).toBeUndefined();
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      const configCommand = await importConfigCommand();
+      await configCommand("get", "maturity");
+
+      expect(logSpy).toHaveBeenCalledWith("solo");
+    });
+
+    it("rejects unknown config key on `get`", async () => {
+      const manifest = makeManifest();
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+
+      const configCommand = await importConfigCommand();
+      await expect(configCommand("get", "unknown-key")).rejects.toThrow(HatchError);
+    });
+
+    it("rejects unknown config key on `set`", async () => {
+      const manifest = makeManifest();
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+
+      const configCommand = await importConfigCommand();
+      await expect(configCommand("set", "unknown-key value")).rejects.toThrow(HatchError);
+    });
+
+    it("requires a value on `set` (missing value rejected)", async () => {
+      const manifest = makeManifest();
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+
+      const configCommand = await importConfigCommand();
+      await expect(configCommand("set", "maturity")).rejects.toThrow(HatchError);
+    });
+
+    it("persists maturity to manifest at .hatch3r/hatch.json path", async () => {
+      const manifest = makeManifest();
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+
+      const configCommand = await importConfigCommand();
+      await configCommand("maturity=team");
+
+      // writeManifest is called with rootDir + manifest body. The maturity
+      // field arrives via the manifest body — the persistence layer routes
+      // it to the on-disk JSON.
+      expect(vi.mocked(writeManifest)).toHaveBeenCalledWith(
+        tempDir,
+        expect.objectContaining({ maturity: "team" }),
+      );
+    });
+
+    it("no-op when maturity is already set to the requested value", async () => {
+      const manifest = makeManifest({ maturity: "team" });
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+
+      const configCommand = await importConfigCommand();
+      await configCommand("maturity=team");
+
+      // The scalar setter writes unconditionally — verifying via info()
+      // surfaces the same-value branch.
+      expect(vi.mocked(info)).toHaveBeenCalledWith(
+        expect.stringContaining("already set"),
+      );
+    });
+
+    it("scalar setter short-circuits before interactive flow (no inquirer prompts)", async () => {
+      const manifest = makeManifest();
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+
+      const configCommand = await importConfigCommand();
+      await configCommand("maturity=team");
+
+      // Interactive flow runs inquirer.prompt; scalar setter must not.
+      expect(vi.mocked(inquirer.prompt)).not.toHaveBeenCalled();
+      // And the regenerate pipeline is not invoked either — content tier
+      // gating is applied on next sync/update via the persisted manifest.
+      expect(vi.mocked(runRegenerate)).not.toHaveBeenCalled();
+    });
+
+    it("throws HatchError(CONFIG_ERROR) when manifest is absent on `maturity=<tier>`", async () => {
+      vi.mocked(readManifest).mockResolvedValue(null);
+
+      const configCommand = await importConfigCommand();
+      await expect(configCommand("maturity=team")).rejects.toThrow(HatchError);
     });
   });
 });

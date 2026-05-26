@@ -182,9 +182,19 @@ export async function syncCommand(
      * project-only (`policy`, `learnings`) subtrees are never visited.
      */
     cleanOrphans?: boolean;
+    /**
+     * Decision 27 (Bucket 2.2): resume the orchestrator from the last
+     * checkpoint recorded under `.sync-workspace/checkpoint.json`. The
+     * flag is accepted at the CLI surface today; resume semantics will
+     * be wired into the body when sync gains multi-wave decomposition.
+     * Pass-through ensures the option is not rejected as unknown by
+     * commander and downstream tooling can detect resume intent.
+     */
+    resume?: boolean;
   } = {},
 ): Promise<void> {
   setVerbose(!!opts.verbose);
+  void opts.resume;
   printBanner(true);
 
   // Pipeline-level timeout: track overall command duration and emit a warning

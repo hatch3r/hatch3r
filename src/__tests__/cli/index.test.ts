@@ -22,6 +22,8 @@ describe("createProgram() command registration", () => {
     "cli-tools",
     // Cycle 9 Wave 2 C9-H13: hatch3r explain --cost <command>
     "explain",
+    // Decision 27 (hatch3r 2.0.0 / Bucket 2.2): per-session snapshot rollback
+    "rollback",
   ] as const;
 
   it("registers all expected commands", () => {

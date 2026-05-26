@@ -1,9 +1,11 @@
 import { access, mkdir, readFile, rename } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
+  DEFAULT_MATURITY_TIER,
   HATCH3R_DIR,
   HatchError,
   MANIFEST_FILE,
+  VALID_MATURITY_TIERS,
   VALID_TOOLS,
   WORKTREE_CAPABLE_TOOLS,
   DEFAULT_FEATURES,
@@ -15,6 +17,7 @@ import {
   type CustomizationManifest,
   type HatchManifest,
   type HooksConfig,
+  type MaturityTier,
   type ModelConfig,
   type PackageEntry,
   type Platform,
@@ -631,4 +634,19 @@ export function applyPreservedManifestFields(
  */
 export function readCliToolsConfig(m: HatchManifest): CliToolsConfig {
   return m.cliTools ?? { enabled: false, selected: [] };
+}
+
+/**
+ * Read the manifest's maturity tier (Decision 4 / #16). Absence collapses to
+ * `DEFAULT_MATURITY_TIER` ("solo") so pre-2.0 manifests stay valid without a
+ * schema version bump. An invalid persisted value also falls back to "solo"
+ * — defensive against hand-edited manifests; the `config maturity=<tier>`
+ * setter rejects invalid input at write time.
+ */
+export function readMaturityTier(m: HatchManifest | null | undefined): MaturityTier {
+  const value = m?.maturity;
+  if (value && VALID_MATURITY_TIERS.has(value)) {
+    return value;
+  }
+  return DEFAULT_MATURITY_TIER;
 }

@@ -845,6 +845,15 @@ export async function initCommand(
      * CI badge tool wants the banner gone but the success box kept.
      */
     noBanner?: boolean;
+    /**
+     * Decision 27 (Bucket 2.2): re-enter the orchestrator at the last
+     * checkpoint recorded under `.init-workspace/checkpoint.json`.
+     * Surface-only here — the in-place init flow remains single-pass;
+     * the flag is reserved so existing scripts keep working when future
+     * waves wire checkpoint reads into the body. See
+     * `src/pipeline/checkpoint.ts`.
+     */
+    resume?: boolean;
   } = {},
 ): Promise<void> {
   // C9-H26 (D10-SA10.2-F1): chrome-suppression flags.
@@ -862,6 +871,10 @@ export async function initCommand(
   if (!skipBanner) {
     printBanner();
   }
+  // Decision 27 (Bucket 2.2): consume the --resume flag at the surface so
+  // commander does not reject it as unknown. Init remains single-pass; full
+  // resume wiring lands when init gains multi-wave decomposition.
+  void opts.resume;
 
   // C8-D1-M4: Validate `--preset`, `--project-type`, and `--team-size` flag
   // values eagerly, before any prompt or detection work runs. Previously

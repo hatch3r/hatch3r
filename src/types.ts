@@ -1,5 +1,32 @@
 export type Platform = "github" | "azure-devops" | "gitlab";
 
+/**
+ * Project maturity tier. Decision 4 / #16: gates content admission so install
+ * footprint and gate strictness scale with the project's operational maturity.
+ *
+ * - `solo`     — individual developer / hobby project. Drops items tagged
+ *                `floor:enterprise-only`. Default at init.
+ * - `team`     — small team with shared repo. Admits team-tagged items.
+ * - `scaleup`  — multi-team org with formal review processes.
+ * - `enterprise` — regulated environment, full audit/compliance posture.
+ *                  Admits every artifact regardless of tier tag.
+ *
+ * Persisted in `.hatch3r/hatch.json` under the `maturity` field.
+ * Set via `hatch3r config maturity=<tier>`.
+ */
+export const MATURITY_TIERS = ["solo", "team", "scaleup", "enterprise"] as const;
+export type MaturityTier = (typeof MATURITY_TIERS)[number];
+export const VALID_MATURITY_TIERS = new Set<string>(MATURITY_TIERS);
+export const DEFAULT_MATURITY_TIER: MaturityTier = "solo";
+
+/** Tier ordering — higher index = stricter / broader admission. */
+export const MATURITY_TIER_RANK: Record<MaturityTier, number> = {
+  solo: 0,
+  team: 1,
+  scaleup: 2,
+  enterprise: 3,
+};
+
 export interface ModelConfig {
   default?: string;
   agents?: Record<string, string>;
@@ -99,6 +126,14 @@ export interface HatchManifest {
   customization?: CustomizationManifest;
   /** Content selection from init. undefined = legacy "full" (backward compat). */
   content?: ContentSelection;
+  /**
+   * Project maturity tier (Decision 4 / #16). Gates content admission in
+   * `resolveSelection`: higher tiers admit broader sets, lower tiers drop
+   * `floor:enterprise-only` items. Absence is treated as `"solo"` by
+   * consumers — see `readMaturityTier` in `src/manifest/hatchJson.ts`.
+   * Set via `hatch3r config maturity=<tier>`.
+   */
+  maturity?: MaturityTier;
   /** Detected project languages from repo analysis. */
   languages?: string[];
   /**

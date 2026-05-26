@@ -11,6 +11,7 @@ import { validateCommand } from "./commands/validate.js";
 import { verifyCommand } from "./commands/verify.js";
 import { statusCommand } from "./commands/status.js";
 import { explainCommand } from "./commands/explain.js";
+import { rollbackCommand, rollbackListCommand } from "./commands/rollback.js";
 import {
   mcpSetupCommand,
   mcpListCommand,
@@ -77,6 +78,7 @@ export function createProgram(): Command {
     .option("--quiet", "Suppress stdout chrome (banner, spinner, success box); stderr diagnostics still emit (C9-H26)")
     .option("--json", "Emit a machine-readable JSON summary on stdout; implies --quiet (C9-H26)")
     .option("--no-banner", "Skip the ASCII banner at startup (C9-H26)")
+    .option("--resume", "Resume from the last checkpoint in .init-workspace/checkpoint.json (Decision 27)")
     .action(initCommand);
 
   program
@@ -90,6 +92,7 @@ export function createProgram(): Command {
     .option("--strict-budget", "Fail sync if any adapter's generated output exceeds its context budget (default: warn)")
     .option("--clean-orphans", "Remove files in .agents/<canonical-subdir>/ that do not match canonical-inventory naming (no hatch3r- prefix). Default is informational only.")
     .option("--verbose", "Show detailed output for each file processed")
+    .option("--resume", "Resume from the last checkpoint in .sync-workspace/checkpoint.json (Decision 27)")
     .action(syncCommand);
 
   program
@@ -134,9 +137,14 @@ export function createProgram(): Command {
     .action(verifyCommand);
 
   program
-    .command("config")
-    .description("Reconfigure tools, MCP servers, features, and platform")
-    .action(configCommand);
+    .command("config [arg1] [arg2]")
+    .description(
+      "Reconfigure tools, MCP servers, features, and platform. " +
+      "Accepts scalar key/value forms: `config maturity=<tier>`, " +
+      "`config get maturity`, `config set maturity <tier>`. " +
+      "With no args, runs the interactive flow.",
+    )
+    .action((arg1: string | undefined, arg2: string | undefined) => configCommand(arg1, arg2));
 
   program
     .command("clean")
@@ -226,6 +234,21 @@ export function createProgram(): Command {
     .command("detect")
     .description("Read-only detection report for the current CLI tool selection")
     .action(cliToolsDetectCommand);
+
+  // Decision 27 (Bucket 2.2): per-session snapshot rollback. Long-running
+  // orchestrators capture pre-mutation snapshots under .hatch3r/snapshots/;
+  // `hatch3r rollback --session=<id>` restores them, `rollback list` enumerates.
+  const rollbackCmd = program
+    .command("rollback")
+    .description("Restore files mutated during a recorded session (snapshot rollback)")
+    .option("--session <id>", "Session id to restore (see `hatch3r rollback list`)")
+    .option("--yes", "Skip the confirmation prompt")
+    .option("--dry-run", "Preview the rollback without writing")
+    .action(rollbackCommand);
+  rollbackCmd
+    .command("list")
+    .description("Enumerate snapshot sessions captured under .hatch3r/snapshots/")
+    .action(rollbackListCommand);
 
   // C9-H13: surface the triage-first cost model declared in canonical
   // command frontmatter (triage_tiers + agentPipeline) so users can answer

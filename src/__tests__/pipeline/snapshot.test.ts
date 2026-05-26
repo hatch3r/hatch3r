@@ -1,0 +1,463 @@
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { mkdtemp, mkdir, writeFile, readFile, rm, access, stat } from "node:fs/promises";
+import { join, resolve } from "node:path";
+import { tmpdir } from "node:os";
+import {
+  applyRollback,
+  createSnapshot,
+  listSnapshots,
+  sessionDir,
+  snapshotsRoot,
+  SNAPSHOT_FILES_DIR,
+  SNAPSHOT_META_FILE,
+  SNAPSHOT_SCHEMA_VERSION,
+} from "../../pipeline/snapshot.js";
+
+async function fileExists(p: string): Promise<boolean> {
+  try {
+    await access(p);
+    return true;
+  } catch (err) {
+    // Silent Failure Contract: surface non-ENOENT errors so a permission
+    // problem in a test fixture does not masquerade as "file absent".
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== "ENOENT") {
+      console.error(`fileExists(${p}) — non-ENOENT error: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    return false;
+  }
+}
+
+describe("pipeline/snapshot", () => {
+  let projectRoot: string;
+
+  beforeEach(async () => {
+    projectRoot = await mkdtemp(join(tmpdir(), "hatch3r-snapshot-test-"));
+  });
+
+  afterEach(async () => {
+    await rm(projectRoot, { recursive: true, force: true });
+  });
+
+  describe("path helpers", () => {
+    it("snapshotsRoot returns .hatch3r/snapshots under the project", () => {
+      expect(snapshotsRoot(projectRoot)).toBe(join(projectRoot, ".hatch3r", "snapshots"));
+    });
+
+    it("sessionDir composes <root>/<session-id>", () => {
+      expect(sessionDir("sess-1", projectRoot)).toBe(
+        join(projectRoot, ".hatch3r", "snapshots", "sess-1"),
+      );
+    });
+  });
+
+  describe("createSnapshot", () => {
+    it("captures existing files byte-for-byte", async () => {
+      const fileA = join(projectRoot, "a.txt");
+      const fileB = join(projectRoot, "subdir", "b.txt");
+      await writeFile(fileA, "hello from A");
+      await mkdir(join(projectRoot, "subdir"), { recursive: true });
+      await writeFile(fileB, "hello from B");
+
+      const result = await createSnapshot("sess-create", [fileA, fileB], { projectRoot });
+      expect(result.count).toBe(2);
+      expect(result.snapshotPath).toBe(sessionDir("sess-create", projectRoot));
+
+      const snappedA = await readFile(
+        join(result.snapshotPath, SNAPSHOT_FILES_DIR, "a.txt"),
+        "utf-8",
+      );
+      expect(snappedA).toBe("hello from A");
+      const snappedB = await readFile(
+        join(result.snapshotPath, SNAPSHOT_FILES_DIR, "subdir", "b.txt"),
+        "utf-8",
+      );
+      expect(snappedB).toBe("hello from B");
+    });
+
+    it("writes a meta.json with the captured paths", async () => {
+      const fileA = join(projectRoot, "a.txt");
+      await writeFile(fileA, "A");
+      const { snapshotPath } = await createSnapshot("sess-meta", [fileA], { projectRoot });
+      const meta = JSON.parse(
+        await readFile(join(snapshotPath, SNAPSHOT_META_FILE), "utf-8"),
+      );
+      expect(meta.schemaVersion).toBe(SNAPSHOT_SCHEMA_VERSION);
+      expect(meta.sessionId).toBe("sess-meta");
+      expect(meta.paths).toContain(fileA);
+      expect(meta.relativePaths).toContain("a.txt");
+    });
+
+    it("records a tombstone for files that do not yet exist", async () => {
+      const futurePath = join(projectRoot, "will-exist.txt");
+      const result = await createSnapshot("sess-tomb", [futurePath], { projectRoot });
+      const tombstonePath = join(
+        result.snapshotPath,
+        SNAPSHOT_FILES_DIR,
+        "will-exist.txt.tombstone",
+      );
+      expect(await fileExists(tombstonePath)).toBe(true);
+    });
+
+    it("accumulates paths when called twice with the same session id", async () => {
+      const fileA = join(projectRoot, "a.txt");
+      const fileB = join(projectRoot, "b.txt");
+      await writeFile(fileA, "A");
+      await writeFile(fileB, "B");
+      await createSnapshot("sess-accum", [fileA], { projectRoot });
+      const result = await createSnapshot("sess-accum", [fileB], { projectRoot });
+      expect(result.count).toBe(2);
+      const meta = JSON.parse(
+        await readFile(join(result.snapshotPath, SNAPSHOT_META_FILE), "utf-8"),
+      );
+      expect(meta.relativePaths).toContain("a.txt");
+      expect(meta.relativePaths).toContain("b.txt");
+    });
+
+    it("rejects an empty session id", async () => {
+      await expect(createSnapshot("", [], { projectRoot })).rejects.toThrow(
+        /invalid sessionId/,
+      );
+    });
+
+    it("rejects a session id with path separators", async () => {
+      await expect(createSnapshot("a/b", [], { projectRoot })).rejects.toThrow(
+        /invalid sessionId/,
+      );
+      await expect(createSnapshot("a\\b", [], { projectRoot })).rejects.toThrow(
+        /invalid sessionId/,
+      );
+    });
+
+    it("places paths outside the project under _external/", async () => {
+      // External path simulated by going up beyond projectRoot. Use a path
+      // that will not exist, so the tombstone branch records it.
+      const external = "/this/should/never/exist/external-file.txt";
+      const result = await createSnapshot("sess-ext", [external], { projectRoot });
+      const meta = JSON.parse(
+        await readFile(join(result.snapshotPath, SNAPSHOT_META_FILE), "utf-8"),
+      );
+      const externalRel = meta.relativePaths.find((p: string) =>
+        p.startsWith("_external"),
+      );
+      expect(externalRel).toBeDefined();
+    });
+
+    it("accepts relative paths and resolves them against projectRoot", async () => {
+      const target = join(projectRoot, "rel.txt");
+      await writeFile(target, "rel-content");
+      const result = await createSnapshot("sess-rel", ["rel.txt"], { projectRoot });
+      expect(result.count).toBe(1);
+      const snapped = await readFile(
+        join(result.snapshotPath, SNAPSHOT_FILES_DIR, "rel.txt"),
+        "utf-8",
+      );
+      expect(snapped).toBe("rel-content");
+    });
+
+    it("captures projectRoot itself as _external/root when passed in paths", async () => {
+      const result = await createSnapshot("sess-root", [projectRoot], { projectRoot });
+      const meta = JSON.parse(
+        await readFile(join(result.snapshotPath, SNAPSHOT_META_FILE), "utf-8"),
+      );
+      const rootRel = meta.relativePaths.find((p: string) => p.includes("_external"));
+      expect(rootRel).toBeDefined();
+    });
+
+    it("rejects existing snapshot dir with unreadable meta.json", async () => {
+      const dir = sessionDir("sess-bad-meta", projectRoot);
+      await mkdir(dir, { recursive: true });
+      // Write garbage that cannot be parsed.
+      await writeFile(join(dir, SNAPSHOT_META_FILE), "{not json{");
+      await expect(
+        createSnapshot("sess-bad-meta", [join(projectRoot, "x.txt")], { projectRoot }),
+      ).rejects.toThrow(/unreadable/);
+    });
+  });
+
+  describe("listSnapshots", () => {
+    it("returns empty array when the root does not exist", async () => {
+      const out = await listSnapshots({ projectRoot });
+      expect(out).toEqual([]);
+    });
+
+    it("lists all sessions sorted by timestamp descending", async () => {
+      const fileA = join(projectRoot, "a.txt");
+      await writeFile(fileA, "A");
+      await createSnapshot("sess-old", [fileA], { projectRoot });
+
+      // Hand-roll a newer timestamp so sort order is deterministic without sleeping.
+      const dirOld = sessionDir("sess-old", projectRoot);
+      const oldMeta = JSON.parse(
+        await readFile(join(dirOld, SNAPSHOT_META_FILE), "utf-8"),
+      );
+      oldMeta.timestamp = "2026-01-01T00:00:00.000Z";
+      await writeFile(join(dirOld, SNAPSHOT_META_FILE), JSON.stringify(oldMeta));
+
+      await createSnapshot("sess-new", [fileA], { projectRoot });
+      const dirNew = sessionDir("sess-new", projectRoot);
+      const newMeta = JSON.parse(
+        await readFile(join(dirNew, SNAPSHOT_META_FILE), "utf-8"),
+      );
+      newMeta.timestamp = "2027-01-01T00:00:00.000Z";
+      await writeFile(join(dirNew, SNAPSHOT_META_FILE), JSON.stringify(newMeta));
+
+      const out = await listSnapshots({ projectRoot });
+      expect(out.length).toBe(2);
+      expect(out[0].sessionId).toBe("sess-new");
+      expect(out[1].sessionId).toBe("sess-old");
+    });
+
+    it("skips sessions with malformed meta.json silently", async () => {
+      const dir = sessionDir("sess-broken", projectRoot);
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, SNAPSHOT_META_FILE), "{not json{");
+      const out = await listSnapshots({ projectRoot });
+      expect(out).toEqual([]);
+    });
+
+    it("skips sessions with mismatched schema version", async () => {
+      const dir = sessionDir("sess-old-schema", projectRoot);
+      await mkdir(dir, { recursive: true });
+      const bad = {
+        schemaVersion: 99,
+        sessionId: "sess-old-schema",
+        timestamp: "2026-01-01T00:00:00.000Z",
+        paths: [],
+        relativePaths: [],
+        projectRoot,
+      };
+      await writeFile(join(dir, SNAPSHOT_META_FILE), JSON.stringify(bad));
+      const out = await listSnapshots({ projectRoot });
+      expect(out).toEqual([]);
+    });
+  });
+
+  describe("applyRollback (round-trip)", () => {
+    it("restores file contents to the captured byte-for-byte state", async () => {
+      const fileA = join(projectRoot, "a.txt");
+      await writeFile(fileA, "original A");
+      await createSnapshot("sess-restore", [fileA], { projectRoot });
+
+      // Mutate
+      await writeFile(fileA, "mutated A");
+      const before = await readFile(fileA, "utf-8");
+      expect(before).toBe("mutated A");
+
+      // Restore
+      const result = await applyRollback("sess-restore", { projectRoot });
+      expect(result.errors).toEqual([]);
+      expect(result.filesRestored).toBe(1);
+      const after = await readFile(fileA, "utf-8");
+      expect(after).toBe("original A");
+    });
+
+    it("deletes a file that was created during the run via tombstone restore", async () => {
+      const newFile = join(projectRoot, "created.txt");
+      // Snapshot before file exists -> tombstone.
+      await createSnapshot("sess-delete", [newFile], { projectRoot });
+      // Now create the file.
+      await writeFile(newFile, "should be deleted");
+      expect(await fileExists(newFile)).toBe(true);
+
+      const result = await applyRollback("sess-delete", { projectRoot });
+      expect(result.errors).toEqual([]);
+      expect(result.filesRestored).toBe(1);
+      expect(await fileExists(newFile)).toBe(false);
+    });
+
+    it("dry-run does not modify disk state", async () => {
+      const fileA = join(projectRoot, "a.txt");
+      await writeFile(fileA, "original");
+      await createSnapshot("sess-dryrun", [fileA], { projectRoot });
+      await writeFile(fileA, "mutated");
+
+      const result = await applyRollback("sess-dryrun", { dryRun: true, projectRoot });
+      expect(result.errors).toEqual([]);
+      expect(result.filesRestored).toBe(1);
+      const content = await readFile(fileA, "utf-8");
+      expect(content).toBe("mutated");
+    });
+
+    it("returns an error when the session id is unknown", async () => {
+      const result = await applyRollback("does-not-exist", { projectRoot });
+      expect(result.filesRestored).toBe(0);
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0]).toContain("not found");
+    });
+
+    it("rejects a session with mismatched schema version", async () => {
+      const dir = sessionDir("sess-schema-mismatch", projectRoot);
+      await mkdir(dir, { recursive: true });
+      const bad = {
+        schemaVersion: 99,
+        sessionId: "sess-schema-mismatch",
+        timestamp: "2026-01-01T00:00:00.000Z",
+        paths: [],
+        relativePaths: [],
+        projectRoot,
+      };
+      await writeFile(join(dir, SNAPSHOT_META_FILE), JSON.stringify(bad));
+      const result = await applyRollback("sess-schema-mismatch", { projectRoot });
+      expect(result.filesRestored).toBe(0);
+      expect(result.errors[0]).toContain("schema");
+    });
+
+    it("survives a tombstone restore when the target is already absent", async () => {
+      const newFile = join(projectRoot, "already-gone.txt");
+      await createSnapshot("sess-tomb-absent", [newFile], { projectRoot });
+      // Do not create the file; tombstone restore should be a no-op.
+      const result = await applyRollback("sess-tomb-absent", { projectRoot });
+      expect(result.filesRestored).toBe(1);
+      expect(result.errors).toEqual([]);
+    });
+
+    it("handles multiple files in one session", async () => {
+      const fileA = join(projectRoot, "a.txt");
+      const fileB = join(projectRoot, "nested", "b.txt");
+      await writeFile(fileA, "orig A");
+      await mkdir(join(projectRoot, "nested"), { recursive: true });
+      await writeFile(fileB, "orig B");
+
+      await createSnapshot("sess-multi", [fileA, fileB], { projectRoot });
+      await writeFile(fileA, "mut A");
+      await writeFile(fileB, "mut B");
+
+      const result = await applyRollback("sess-multi", { projectRoot });
+      expect(result.errors).toEqual([]);
+      expect(result.filesRestored).toBe(2);
+      expect(await readFile(fileA, "utf-8")).toBe("orig A");
+      expect(await readFile(fileB, "utf-8")).toBe("orig B");
+    });
+
+    it("uses atomic writes (no .tmp orphans after restore)", async () => {
+      const fileA = join(projectRoot, "a.txt");
+      await writeFile(fileA, "orig");
+      await createSnapshot("sess-atomic", [fileA], { projectRoot });
+      await writeFile(fileA, "mut");
+      await applyRollback("sess-atomic", { projectRoot });
+      const { readdir } = await import("node:fs/promises");
+      const entries = await readdir(projectRoot);
+      const tmpOrphans = entries.filter((e) => e.includes(".tmp."));
+      expect(tmpOrphans).toEqual([]);
+    });
+  });
+
+  describe("end-to-end snapshot lifecycle", () => {
+    it("supports create -> mutate -> list -> rollback round-trip", async () => {
+      const fileA = join(projectRoot, "a.txt");
+      const fileB = join(projectRoot, "b.txt");
+      await writeFile(fileA, "ORIG A");
+      await writeFile(fileB, "ORIG B");
+
+      const created = await createSnapshot("sess-e2e", [fileA, fileB], { projectRoot });
+      expect(created.count).toBe(2);
+
+      const list = await listSnapshots({ projectRoot });
+      expect(list.find((s) => s.sessionId === "sess-e2e")).toBeDefined();
+
+      await writeFile(fileA, "MUTATED A");
+      await writeFile(fileB, "MUTATED B");
+
+      const restored = await applyRollback("sess-e2e", { projectRoot });
+      expect(restored.errors).toEqual([]);
+      expect(restored.filesRestored).toBe(2);
+      expect(await readFile(fileA, "utf-8")).toBe("ORIG A");
+      expect(await readFile(fileB, "utf-8")).toBe("ORIG B");
+    });
+  });
+
+  describe("dry-run tombstone branch", () => {
+    it("counts a dry-run tombstone restore even when target is absent", async () => {
+      const futurePath = join(projectRoot, "ghost.txt");
+      await createSnapshot("sess-dry-tomb", [futurePath], { projectRoot });
+      // No file at futurePath; dry-run should report 1 restored (tombstone counted).
+      const result = await applyRollback("sess-dry-tomb", { dryRun: true, projectRoot });
+      expect(result.errors).toEqual([]);
+      expect(result.filesRestored).toBe(1);
+    });
+
+    it("counts a dry-run tombstone restore when target exists", async () => {
+      const futurePath = join(projectRoot, "ghost2.txt");
+      await createSnapshot("sess-dry-tomb-exists", [futurePath], { projectRoot });
+      await writeFile(futurePath, "would be deleted");
+      const result = await applyRollback("sess-dry-tomb-exists", {
+        dryRun: true,
+        projectRoot,
+      });
+      expect(result.errors).toEqual([]);
+      expect(result.filesRestored).toBe(1);
+      // dry-run leaves it in place
+      const content = await readFile(futurePath, "utf-8");
+      expect(content).toBe("would be deleted");
+    });
+  });
+
+  describe("unlink error branch", () => {
+    it("reports an unlink error when the target is a non-empty directory", async () => {
+      const futurePath = join(projectRoot, "blocking-dir");
+      await createSnapshot("sess-unlink-fail", [futurePath], { projectRoot });
+      // Create a non-empty directory at the path so unlink fails with EISDIR/ENOTEMPTY.
+      await mkdir(futurePath, { recursive: true });
+      await writeFile(join(futurePath, "child.txt"), "blocker");
+      const result = await applyRollback("sess-unlink-fail", { projectRoot });
+      expect(result.errors.length).toBeGreaterThan(0);
+      expect(result.errors[0]).toMatch(/unlink/);
+    });
+  });
+
+  describe("paths defaults", () => {
+    it("uses process.cwd() when projectRoot is not passed to createSnapshot", async () => {
+      const originalCwd = process.cwd();
+      try {
+        process.chdir(projectRoot);
+        const fileA = join(process.cwd(), "cwd-file.txt");
+        await writeFile(fileA, "cwd-content");
+        const result = await createSnapshot("sess-cwd", [fileA]);
+        expect(result.count).toBe(1);
+        // Snapshot dir should be under process.cwd()/.hatch3r/snapshots/sess-cwd
+        // (process.cwd() may differ from `projectRoot` if macOS canonicalizes /tmp).
+        const expected = join(process.cwd(), ".hatch3r", "snapshots", "sess-cwd");
+        expect(result.snapshotPath).toBe(expected);
+      } finally {
+        process.chdir(originalCwd);
+      }
+    });
+
+    it("uses process.cwd() when projectRoot is not passed to listSnapshots", async () => {
+      const originalCwd = process.cwd();
+      try {
+        process.chdir(projectRoot);
+        const fileA = join(projectRoot, "cwd2.txt");
+        await writeFile(fileA, "x");
+        await createSnapshot("sess-list-cwd", [fileA]);
+        const out = await listSnapshots();
+        expect(out.find((s) => s.sessionId === "sess-list-cwd")).toBeDefined();
+      } finally {
+        process.chdir(originalCwd);
+      }
+    });
+
+    it("uses process.cwd() when projectRoot is not passed to applyRollback", async () => {
+      const originalCwd = process.cwd();
+      try {
+        process.chdir(projectRoot);
+        const fileA = join(projectRoot, "cwd3.txt");
+        await writeFile(fileA, "orig-cwd");
+        await createSnapshot("sess-roll-cwd", [fileA]);
+        await writeFile(fileA, "mut-cwd");
+        const result = await applyRollback("sess-roll-cwd");
+        expect(result.errors).toEqual([]);
+        expect(await readFile(fileA, "utf-8")).toBe("orig-cwd");
+      } finally {
+        process.chdir(originalCwd);
+      }
+    });
+  });
+
+  // Suppress unused import warnings under strict mode.
+  it("resolve helper exists for absolute-path normalization", () => {
+    expect(typeof resolve).toBe("function");
+    expect(typeof stat).toBe("function");
+  });
+});

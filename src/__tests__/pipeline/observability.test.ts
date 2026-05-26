@@ -31,6 +31,13 @@ import {
   isEfficiencyTelemetryEnabled,
   recordEfficiencyEvent,
   type EfficiencyEvent,
+
+  // Decision 24 — Cost-visibility telemetry hooks
+  recordSubAgentSpawn,
+  recordPhaseDuration,
+  recordTokenCost,
+  type SubAgentSpawnEvent,
+  type PhaseDurationEvent,
 } from "../../pipeline/observability.js";
 
 // ── Reasoning Block Persistence (Finding #63) ────────────────────
@@ -500,5 +507,183 @@ describe("recordEfficiencyEvent", () => {
     // The Silent Failure Contract requires we swallow without re-throwing.
     const unwritableRoot = "/dev/null/definitely-not-a-directory";
     expect(() => recordEfficiencyEvent(sampleEvent, unwritableRoot)).not.toThrow();
+  });
+});
+
+// ── Cost-visibility telemetry hooks (Decision 24) ────────────────
+
+describe("recordSubAgentSpawn", () => {
+  const ENV_KEY = "HATCH3R_EFFICIENCY_TELEMETRY";
+  let tmpRoot: string;
+  let originalEnv: string | undefined;
+
+  beforeEach(() => {
+    tmpRoot = mkdtempSync(join(tmpdir(), "hatch3r-spawn-"));
+    originalEnv = process.env[ENV_KEY];
+    delete process.env[ENV_KEY];
+  });
+
+  afterEach(() => {
+    if (originalEnv === undefined) delete process.env[ENV_KEY];
+    else process.env[ENV_KEY] = originalEnv;
+    rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  it("is a no-op when the telemetry env-gate is unset", () => {
+    recordSubAgentSpawn("session-1", "hatch3r-feature-plan", 3, "parallel slices", tmpRoot);
+    const logPath = join(tmpRoot, ".hatch3r", "efficiency-events.jsonl");
+    expect(existsSync(logPath)).toBe(false);
+  });
+
+  it("appends a subagent_spawn JSONL line when telemetry is enabled", () => {
+    process.env[ENV_KEY] = "1";
+    recordSubAgentSpawn("session-2", "hatch3r-feature-plan", 4, "fan-out for 4 modules", tmpRoot);
+
+    const logPath = join(tmpRoot, ".hatch3r", "efficiency-events.jsonl");
+    expect(existsSync(logPath)).toBe(true);
+    const lines = readFileSync(logPath, "utf-8").split("\n").filter(Boolean);
+    expect(lines).toHaveLength(1);
+    const parsed = JSON.parse(lines[0]) as SubAgentSpawnEvent;
+    expect(parsed.type).toBe("subagent_spawn");
+    expect(parsed.sessionId).toBe("session-2");
+    expect(parsed.artifactId).toBe("hatch3r-feature-plan");
+    expect(parsed.count).toBe(4);
+    expect(parsed.rationale).toBe("fan-out for 4 modules");
+    expect(parsed.timestamp).toBeTruthy();
+  });
+
+  it("clamps negative count to 0", () => {
+    process.env[ENV_KEY] = "1";
+    recordSubAgentSpawn("neg-count", "hatch3r-x", -3, "bug", tmpRoot);
+
+    const logPath = join(tmpRoot, ".hatch3r", "efficiency-events.jsonl");
+    const parsed = JSON.parse(readFileSync(logPath, "utf-8").trim()) as SubAgentSpawnEvent;
+    expect(parsed.count).toBe(0);
+  });
+
+  it("does not throw when the project root is unwritable", () => {
+    process.env[ENV_KEY] = "1";
+    const unwritable = "/dev/null/definitely-not-a-directory";
+    expect(() =>
+      recordSubAgentSpawn("sess", "hatch3r-x", 1, "test", unwritable),
+    ).not.toThrow();
+  });
+});
+
+describe("recordPhaseDuration", () => {
+  const ENV_KEY = "HATCH3R_EFFICIENCY_TELEMETRY";
+  let tmpRoot: string;
+  let originalEnv: string | undefined;
+
+  beforeEach(() => {
+    tmpRoot = mkdtempSync(join(tmpdir(), "hatch3r-phase-"));
+    originalEnv = process.env[ENV_KEY];
+    delete process.env[ENV_KEY];
+  });
+
+  afterEach(() => {
+    if (originalEnv === undefined) delete process.env[ENV_KEY];
+    else process.env[ENV_KEY] = originalEnv;
+    rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  it("is a no-op when telemetry is disabled", () => {
+    recordPhaseDuration("session-x", "hatch3r-feature-plan", "triage", 4200, tmpRoot);
+    const logPath = join(tmpRoot, ".hatch3r", "efficiency-events.jsonl");
+    expect(existsSync(logPath)).toBe(false);
+  });
+
+  it("appends a phase_duration JSONL line when telemetry is enabled", () => {
+    process.env[ENV_KEY] = "1";
+    recordPhaseDuration("session-y", "hatch3r-bug-plan", "review", 65_000, tmpRoot);
+
+    const logPath = join(tmpRoot, ".hatch3r", "efficiency-events.jsonl");
+    expect(existsSync(logPath)).toBe(true);
+    const lines = readFileSync(logPath, "utf-8").split("\n").filter(Boolean);
+    expect(lines).toHaveLength(1);
+    const parsed = JSON.parse(lines[0]) as PhaseDurationEvent;
+    expect(parsed.type).toBe("phase_duration");
+    expect(parsed.sessionId).toBe("session-y");
+    expect(parsed.artifactId).toBe("hatch3r-bug-plan");
+    expect(parsed.phase).toBe("review");
+    expect(parsed.durationMs).toBe(65_000);
+    expect(parsed.timestamp).toBeTruthy();
+  });
+
+  it("clamps non-finite duration to 0", () => {
+    process.env[ENV_KEY] = "1";
+    recordPhaseDuration("sess", "hatch3r-x", "act", Number.NaN, tmpRoot);
+    const logPath = join(tmpRoot, ".hatch3r", "efficiency-events.jsonl");
+    const parsed = JSON.parse(readFileSync(logPath, "utf-8").trim()) as PhaseDurationEvent;
+    expect(parsed.durationMs).toBe(0);
+  });
+
+  it("interleaves with subagent_spawn events in the same log file", () => {
+    process.env[ENV_KEY] = "1";
+    recordSubAgentSpawn("mixed-sess", "hatch3r-x", 2, "two slices", tmpRoot);
+    recordPhaseDuration("mixed-sess", "hatch3r-x", "plan", 10_000, tmpRoot);
+    recordSubAgentSpawn("mixed-sess", "hatch3r-x", 3, "three more", tmpRoot);
+
+    const logPath = join(tmpRoot, ".hatch3r", "efficiency-events.jsonl");
+    const lines = readFileSync(logPath, "utf-8").split("\n").filter(Boolean);
+    expect(lines).toHaveLength(3);
+    const types = lines.map((l) => (JSON.parse(l) as { type: string }).type);
+    expect(types).toEqual(["subagent_spawn", "phase_duration", "subagent_spawn"]);
+  });
+});
+
+describe("recordTokenCost", () => {
+  const ENV_KEY = "HATCH3R_EFFICIENCY_TELEMETRY";
+  let tmpRoot: string;
+  let originalEnv: string | undefined;
+
+  beforeEach(() => {
+    tmpRoot = mkdtempSync(join(tmpdir(), "hatch3r-token-"));
+    originalEnv = process.env[ENV_KEY];
+    delete process.env[ENV_KEY];
+  });
+
+  afterEach(() => {
+    if (originalEnv === undefined) delete process.env[ENV_KEY];
+    else process.env[ENV_KEY] = originalEnv;
+    rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  it("forwards to the existing efficiency-event channel as an EfficiencyEvent", () => {
+    process.env[ENV_KEY] = "1";
+    recordTokenCost("hatch3r-feature-plan", "act", 1200, 350, {
+      latencyMs: 5_000,
+      modelHint: "claude-opus-4-7",
+      cacheHit: false,
+      projectRoot: tmpRoot,
+    });
+
+    const logPath = join(tmpRoot, ".hatch3r", "efficiency-events.jsonl");
+    expect(existsSync(logPath)).toBe(true);
+    const parsed = JSON.parse(readFileSync(logPath, "utf-8").trim()) as EfficiencyEvent;
+    expect(parsed.artifactId).toBe("hatch3r-feature-plan");
+    expect(parsed.phase).toBe("act");
+    expect(parsed.tokensIn).toBe(1200);
+    expect(parsed.tokensOut).toBe(350);
+    expect(parsed.latencyMs).toBe(5_000);
+    expect(parsed.modelHint).toBe("claude-opus-4-7");
+    expect(parsed.cacheHit).toBe(false);
+  });
+
+  it("uses default latencyMs of 0 when unspecified", () => {
+    process.env[ENV_KEY] = "1";
+    recordTokenCost("hatch3r-x", "triage", 100, 50, { projectRoot: tmpRoot });
+    const logPath = join(tmpRoot, ".hatch3r", "efficiency-events.jsonl");
+    const parsed = JSON.parse(readFileSync(logPath, "utf-8").trim()) as EfficiencyEvent;
+    expect(parsed.latencyMs).toBe(0);
+  });
+
+  it("clamps negative token counts to 0", () => {
+    process.env[ENV_KEY] = "1";
+    recordTokenCost("hatch3r-x", "act", -50, -10, { projectRoot: tmpRoot });
+    const logPath = join(tmpRoot, ".hatch3r", "efficiency-events.jsonl");
+    const parsed = JSON.parse(readFileSync(logPath, "utf-8").trim()) as EfficiencyEvent;
+    expect(parsed.tokensIn).toBe(0);
+    expect(parsed.tokensOut).toBe(0);
   });
 });

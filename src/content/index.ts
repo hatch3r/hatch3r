@@ -8,8 +8,8 @@ import {
   PLATFORM_TOOL_MARKER,
   substituteCanonicalPlatformMarker,
 } from "../pipeline/adapterToolTranslator.js";
-import { HatchError } from "../types.js";
-import type { ContentSelection } from "../types.js";
+import { DEFAULT_MATURITY_TIER, HatchError, MATURITY_TIER_RANK } from "../types.js";
+import type { ContentSelection, MaturityTier } from "../types.js";
 import type { ContentPreset } from "./presets.js";
 import {
   TAG_CTX_BROWNFIELD_ONLY,
@@ -20,6 +20,54 @@ import {
   isCustomizeTag,
   isFloorTag,
 } from "./tags.js";
+
+/**
+ * Maturity-tier admission tags. These are plain string tag values consumed by
+ * `resolveSelection`'s tier gate (Decision 4 / #16). They are NOT registered
+ * in `TAG_REGISTRY` (yet) — admission is matched by string prefix below so the
+ * canonical corpus can adopt them without a parallel registry change. A
+ * follow-up commit will promote them into the registry once content carries
+ * the tags.
+ *
+ * - `tier:enterprise-only`     — admitted only at maturity=enterprise.
+ * - `tier:scaleup-plus`        — admitted at scaleup and enterprise.
+ * - `tier:team-plus`           — admitted at team, scaleup, enterprise.
+ *
+ * `floor:enterprise-only` is an alias used in the bucket spec; treated
+ * identically to `tier:enterprise-only` so either spelling drops the item at
+ * lower tiers.
+ */
+const TIER_TAG_REQUIREMENTS: ReadonlyArray<{ tag: string; minTier: MaturityTier }> = [
+  { tag: "tier:enterprise-only", minTier: "enterprise" },
+  { tag: "floor:enterprise-only", minTier: "enterprise" },
+  { tag: "tier:scaleup-plus", minTier: "scaleup" },
+  { tag: "tier:team-plus", minTier: "team" },
+];
+
+/**
+ * Determine whether an item's tier tags are admitted at the given maturity
+ * tier. Items with no tier tag are always admitted (default-admit). Items
+ * carrying a tier tag are admitted only when the project's maturity rank
+ * meets or exceeds the tag's minimum-tier rank.
+ *
+ * Protected items bypass tier gating — same invariant the floor admission
+ * stage already enforces.
+ */
+function isAdmittedByMaturityTier(
+  itemTags: ReadonlyArray<string>,
+  maturity: MaturityTier,
+  isProtected: boolean,
+): boolean {
+  if (isProtected) return true;
+  const projectRank = MATURITY_TIER_RANK[maturity];
+  for (const { tag, minTier } of TIER_TAG_REQUIREMENTS) {
+    if (!itemTags.includes(tag)) continue;
+    if (projectRank < MATURITY_TIER_RANK[minTier]) {
+      return false;
+    }
+  }
+  return true;
+}
 import { verbose } from "../cli/shared/ui.js";
 
 /**
@@ -532,9 +580,10 @@ export function resolveSelection(
   index: ContentIndex,
   customSelections?: string[],
   projectLanguages?: string[],
-  options?: { skipContextFilters?: boolean },
+  options?: { skipContextFilters?: boolean; maturity?: MaturityTier },
 ): ContentSelection {
   let selected: CatalogItem[];
+  const maturity = options?.maturity ?? DEFAULT_MATURITY_TIER;
 
   // ── Stage 1: Custom path ──
   if (preset.id === "custom" && customSelections) {
@@ -623,6 +672,20 @@ export function resolveSelection(
   if (!options?.skipContextFilters && projectLanguages && projectLanguages.length > 0) {
     selected = filterByLanguages(selected, projectLanguages);
   }
+
+  // ── Stage 6: Maturity-tier filter (Decision 4 / #16) ──
+  // Items carrying a `tier:*` / `floor:enterprise-only` admission tag are
+  // dropped when the project's maturity tier does not meet the tag's
+  // minimum-tier rank. Items without any tier tag pass through unchanged —
+  // tier gating is opt-in via tagging at the source artifact.
+  //
+  // Independent of `skipContextFilters`: tier gating reflects the project's
+  // stated operational posture (solo/team/scaleup/enterprise), not a
+  // technical compatibility filter, so a `hatch3r config` re-run still
+  // honours the persisted maturity tier.
+  selected = selected.filter((item) =>
+    isAdmittedByMaturityTier(item.tags, maturity, item.protected === true),
+  );
 
   // Build the selection items grouped by type
   const items: ContentSelection["items"] = {
@@ -1178,7 +1241,7 @@ export function estimatePresetItemCount(
   teamSize: "solo" | "team",
   index: ContentIndex,
   projectLanguages?: string[],
-  options?: { skipContextFilters?: boolean },
+  options?: { skipContextFilters?: boolean; maturity?: MaturityTier },
 ): number {
   const selection = resolveSelection(preset, projectType, teamSize, index, undefined, projectLanguages, options);
   return Object.values(selection.items).reduce((sum, arr) => sum + arr.length, 0);
