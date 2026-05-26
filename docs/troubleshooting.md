@@ -25,7 +25,7 @@ This guide helps you resolve common issues with the hatch3r CLI, MCP servers, bo
 
 **Cause:** Same as above — Node.js &lt; 22.
 
-**Solution:** Ensure Node.js 22+ is active. If using nvm: `nvm use 22` or `nvm install 22`. Then run `npm run build` again.
+**Solution:** Confirm Node.js 22+ is active by running `node --version` and reading a value `>= v22.0.0`. If using nvm: `nvm use 22` or `nvm install 22`. Then run `npm run build` again.
 
 ---
 
@@ -45,7 +45,7 @@ This guide helps you resolve common issues with the hatch3r CLI, MCP servers, bo
 
 **Cause:** The tool name is not supported.
 
-**Solution:** Use only valid tools: `cursor`, `copilot`, `claude`, `opencode`, `windsurf`, `amp`, `codex`, `gemini`, `cline`, `aider`, `kiro`, `goose`, `zed`, `amazon-q`, `antigravity`. Example: `npx hatch3r init --tools cursor,claude`.
+**Solution:** As of v1.9.0, hatch3r ships 3 adapters: `cursor`, `claude`, `copilot`. Pass one or more, comma-separated. Example: `npx hatch3r init --tools cursor,claude`. The 12 other adapters previously shipped (`aider`, `amazon-q`, `amp`, `antigravity`, `cline`, `codex`, `gemini`, `goose`, `kiro`, `opencode`, `windsurf`, `zed`) were removed in v1.9.0; pick one of the 3 supported targets instead.
 
 ### Not in a git repository
 
@@ -78,12 +78,12 @@ This guide helps you resolve common issues with the hatch3r CLI, MCP servers, bo
 
 **Symptom:** Sync or update fails with "Corrupted managed block: duplicate start marker found" (or "duplicate end marker found").
 
-**Cause:** A generated file (e.g. in `.cursor/`, `.claude/`, `.windsurf/`) was manually edited and now contains `<!-- HATCH3R:BEGIN -->` or `<!-- HATCH3R:END -->` more than once. hatch3r expects exactly one of each marker per file.
+**Cause:** A generated file (e.g. in `.cursor/`, `.claude/`, or `.github/`) was manually edited and now contains `<!-- HATCH3R:BEGIN -->` or `<!-- HATCH3R:END -->` more than once. hatch3r expects exactly one of each marker per file.
 
 **Solution:**
 1. Find files with duplicate markers (run from project root):
    ```bash
-   grep -rl "HATCH3R:BEGIN" .cursor .claude .windsurf 2>/dev/null | while read f; do
+   grep -rl "HATCH3R:BEGIN" .cursor .claude .github 2>/dev/null | while read f; do
      [ "$(grep -c "HATCH3R:BEGIN" "$f")" -gt 1 ] && echo "$f"
    done
    ```
@@ -114,7 +114,7 @@ Run `npx hatch3r validate` to check the `.agents/` structure. Below are common e
 
 **Symptom:** Validation reports "Invalid frontmatter (no closing ---)" for a specific file.
 
-**Solution:** Open the file (e.g. `.agents/rules/hatch3r-*.md`) and ensure the YAML frontmatter has both opening and closing `---`:
+**Solution:** Open the file (e.g. `.agents/rules/hatch3r-*.md`) and confirm the YAML frontmatter has both opening and closing `---` delimiters on their own lines:
 
 ```markdown
 ---
@@ -170,7 +170,7 @@ description: My rule
 **Solution:**
 1. Create a [Personal Access Token](https://github.com/settings/tokens/new)
 2. **Classic PAT:** Grant `repo` and `read:org`. For board commands, add `project`
-3. **Fine-grained PAT:** Grant repository permissions for Contents, Issues, Pull requests, Metadata. Add Organization → Members (read) for org projects. For board commands, ensure Projects access
+3. **Fine-grained PAT:** Grant repository permissions for Contents, Issues, Pull requests, Metadata. Add Organization → Members (read) for org projects. For board commands, grant Projects (Read & Write) under repository or organization permissions
 4. Add the token to `.env.mcp`: `GITHUB_PAT=ghp_xxxx`
 5. Source `.env.mcp` and restart your editor
 
@@ -220,7 +220,7 @@ Board commands (`board-init`, `board-fill`, `board-groom`, `board-pickup`, `boar
 
 **Solutions:**
 
-1. **Authentication:** Ensure `AZURE_DEVOPS_PAT` and `AZURE_DEVOPS_ORG` are set in `.env.mcp`. If using `az` CLI, run `az login` first
+1. **Authentication:** Set `AZURE_DEVOPS_PAT` and `AZURE_DEVOPS_ORG` in `.env.mcp`, then confirm both are exported with `grep -E '^(AZURE_DEVOPS_PAT|AZURE_DEVOPS_ORG)=' .env.mcp`. If using `az` CLI, run `az login` first
 2. **PAT permissions:** The PAT needs Work Items (Read & Write), Code (Read & Write), Build (Read), and Project and Team (Read) scopes
 3. **Work item types:** Azure DevOps uses different terminology (Epic, User Story, Task, Bug). hatch3r maps its type labels accordingly — if custom work item types are configured in your project, board commands may need the types configured in `hatch.json`
 4. **Organization URL:** Verify your org name matches the URL pattern `https://dev.azure.com/{org}`
@@ -234,7 +234,7 @@ Board commands (`board-init`, `board-fill`, `board-groom`, `board-pickup`, `boar
 1. **Token scopes:** `GITLAB_TOKEN` needs the `api` scope. Tokens with only `read_api` will fail on write operations
 2. **MR vs PR terminology:** GitLab uses "merge requests" (MRs) instead of "pull requests" (PRs). hatch3r handles this mapping automatically, but error messages from the GitLab API will reference MRs
 3. **Self-hosted instances:** Set `GITLAB_HOST=https://gitlab.example.com` in `.env.mcp` if not using gitlab.com
-4. **Board configuration:** GitLab boards use labels for columns. Ensure your project has the expected labels created by `hatch3r-board-init`
+4. **Board configuration:** GitLab boards use labels for columns. Run `hatch3r-board-init` once to create the expected labels, then verify them in the GitLab UI under Project → Labels
 
 ### Claude Code `.mcp.json` issues
 
@@ -242,7 +242,7 @@ Board commands (`board-init`, `board-fill`, `board-groom`, `board-pickup`, `boar
 
 **Cause:** Claude Code uses a different env var placeholder syntax (`${VAR}`) than other tools (`${env:VAR}`), and requires a `type` field on each server entry.
 
-**Solution:** Run `npx hatch3r sync` to regenerate `.mcp.json` with the correct format. The Claude adapter automatically applies the syntax transform. If you edited `.mcp.json` manually, ensure:
+**Solution:** Run `npx hatch3r sync` to regenerate `.mcp.json` with the expected format. The Claude adapter automatically applies the syntax transform. If you edited `.mcp.json` manually, verify two things:
 - Env vars use `${VAR}` syntax (not `${env:VAR}`)
 - Each server has a `"type": "stdio"` or `"type": "http"` field
 
@@ -264,7 +264,7 @@ Board commands (`board-init`, `board-fill`, `board-groom`, `board-pickup`, `boar
 
 ### Tool-specific behavior
 
-**Solution:** See [adapter-capability-matrix.md](adapter-capability-matrix.md) for per-tool output paths, capabilities, and limitations (e.g. Zed MCP is global-only; some tools don't support hooks). See [model-selection.md](model-selection.md) for per-agent model configuration.
+**Solution:** See [adapter-capability-matrix.md](adapter-capability-matrix.md) for per-tool output paths, capabilities, and limitations (e.g. Claude Code uses `${VAR}` env-var syntax in `.mcp.json` while Cursor uses `${env:VAR}` in `.cursor/mcp.json`; Copilot writes instructions only and does not consume an MCP config). See [model-selection.md](model-selection.md) for per-agent model configuration.
 
 ---
 
@@ -272,14 +272,14 @@ Board commands (`board-init`, `board-fill`, `board-groom`, `board-pickup`, `boar
 
 ### Build fails with module errors
 
-**Solution:** Ensure Node.js 22+: `node --version`. Run `npm run build` again.
+**Solution:** Confirm Node.js 22+ by running `node --version` and reading `>= v22.0.0`. Then run `npm run build` again.
 
 ### Tests fail with ENOENT or fixture errors
 
 **Symptom:** Tests fail with "ENOENT" or symlink-related errors.
 
 **Solution:**
-1. Run `npm run build` to ensure `dist/` is up to date
+1. Run `npm run build` to refresh `dist/` from current sources
 2. Run `npm test` again
 
 ### More contributor troubleshooting

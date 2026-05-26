@@ -2,7 +2,7 @@
 
 All notable changes to hatch3r are documented in this file.
 
-## [1.9.0] - 2026-05-20
+## [1.9.0] - 2026-05-26
 
 ### Headline
 
@@ -129,6 +129,37 @@ A capability-lifecycle iteration that codifies when an artifact belongs in `comm
 - **Total iteration:** approximately -3,500 LOC across canonical content + governance.
 
 Pillar service: P4 (removes overlapping artifacts; single source of truth per capability), P5 (criterion is testable via the new content-authoring rule and the discover/refactor lifecycle presets), P8 (B1 reputable-source mandate makes ambiguity-resolution part of authoring, not an afterthought).
+
+### RE-ENVISION Direct-Edit Pass + Two-Axis Pillar Framework (P5, P8)
+
+Holistic governance sweep run via `/h4tcher-re-envision` on the open release branch. The §6.1 direct-edit pass landed 48 atomic edits across 9 files (VISION, CONSTITUTION, AUDIT, AUDIT-EXECUTE, EVOLVE, CLAUDE.md, quality-charter, user-question-protocol), and the §8 amendment queue cluster A-1 then restructured CONSTITUTION §2 around a two-axis pillar framework for hatch3r 2.0.0 (governance axis P1-P8 + content-quality axis CQ1-CQ9).
+
+- **§6.1 direct-edit pass (commit 4f01064):** 48 edits across 9 files; lean thresholds satisfied (VISION 249/250, CONSTITUTION 244/410, AUDIT 549/600, AUDIT-EXECUTE 705/720, EVOLVE 361/400, quality-charter 263, user-question-protocol 97, CLAUDE.md 163/300). AUDIT-EXECUTE.md gate 11 anti-slop wordlist is now byte-identical to the CLAUDE.md §Anti-Slop block (atomic-pair invariant). EVOLVE §1.3 vs §6 CLAUDE.md scope contradiction closed; 6-pillar references updated to 8-pillar at 6 EVOLVE sites. Workspace artifacts persisted under `.re-envision-workspace/` (gitignored): refinement-plan, cl-3-handoff (60 CL-3 proposals queued), constitution-amendment-queue (9 §8 amendments queued), routing-table, direct-edits.log.
+- **§8 Cluster A-1 — two-axis pillar framework (commit 3ed378e):** CONSTITUTION.md +170 / -17 lines. §2 split into §2.0 Axis Overview + §2A Governance Pillars (P1-P8) + §2B Content-Quality Pillars (CQ1-CQ9: UI, UX, Security, Reliability, Testability, Scalability, Performance, Maintainability, Enhancability). §3 traceability widened to §3.1 (governance × 9 file classes) + §3.2 (content-quality × 9 file classes); P6↔VISION and P7↔VISION cells flipped from `—` to `S`. Pillar Compliance Test extended from 4 to 6 questions (Q5 impact_horizon, Q6 P8 dominance). §6 Key Design Decisions extended with 17 new entries (#15-#31). §2 P5 lean-threshold cap raised to ≤550 lines accommodating two-axis growth.
+
+Pillar service: P5 (governance corpus brought to one consistent state, atomic-pair invariants enforced by byte-diff), P8 (B1 ambiguity-resolution + B2 fan-out requirements now first-class entries in the Pillar Compliance Test).
+
+### Audit Cycle 10 Bootstrap — CL-3 Phase (P2, P5)
+
+Audit-self-evolution proposals from RE-ENVISION 2026-05-26 cl-3-handoff.md landed as 5 clusters (C-1 through C-5) ahead of the next audit cycle. CL-3 ships the orchestration scaffolding so Cycle 10 can run against 24 domains with impact-gated registration, SA batching by severity, proof-trace contracts, resumability, and learning consultation.
+
+- **CL-3 C-1 — AUDIT.md (commit 2f9419e):** 11 atomic edits, AUDIT.md +30 / -17 lines (562/600 lean). D22 Content Architecture admitted to Tier B (count 7→8), D23 Agentic Engineering Trends + D24 Governance Self-Audit admitted to Tier C (count 8→10). Tier-weight math 0.308 + 0.348 + 0.304 + 0.040 = 1.000 exact. SA count refreshed: D5 8→9, D7 5→6, D13 4→5; grand total 110→113. Charter directives 21 (Learning Consultation) + 22 (Post-Write Duplication Scan) added. Universal Audit Checklist proof_trace row added. Concurrency-model rate-limit guidance (Tier B 41-SA burst chunking to batches of 20 default, --max-parallel-sa configurable).
+- **CL-3 C-2 — AUDIT-EXECUTE.md (commit b309d5e):** 13 atomic edits, AUDIT-EXECUTE.md +127 / -116 lines (706/720 lean). Tier 2H (≤8 High per same-pattern batch) + Tier 2M (≤15 Medium) added, projecting 5x-15x SA spawn reduction for High/Medium severities. Impact-gated registration: Phase 1 Triage drops findings missing impact_horizon or progress_toward_pillar, logged to `.audit-workspace/phase-1-drops.log`. Resumability: `.audit-workspace/checkpoint.json` schema + `hatch3r audit-execute --resume` semantics. Cost projection per-wave (estimated_sa_count, input_tokens_static_frame, web_research_queries, duration_min, triage_tier). proof_trace field added to Sub-Agent Output Contract. Cycle Close Iteration Summary section with 9 mandatory sections (a-i). Execution History moved to `governance/audit/archive/execution-history.md` (+10 lines, single-line pointer from AUDIT-EXECUTE.md).
+- **CL-3 C-3 — audit/templates/* (commit 708d7ee):** 9 edit groups across 5 templates, +74 / -8 lines. rigor-contract.md (144/200) gains impact_horizon + progress_toward_pillar fields, Impact-Gated Registration section, Proof Trace Contract section (claim/command/expected/actual/verdict/accessed); P3 name fix `Adapter & MCP Currency` → `Adapter & External Tool Currency`. implementation-sub-agent.md (165/200) gains Pre-Implementation Discovery Gate, Post-Write Duplication Scan (jscpd, tunable per maturity tier), Pre-Implementation Learning Consultation. reviewer-sub-agent.md (198/200) gains Pass 1.6 Learning Consultation Verification. tier1-batch-sub-agent.md (95/200) gains Enum Extension Protocol (5-criteria spec for new tier1_pattern proposals via CL-3). closed-loop-agents.md (151/200) adds Phase 7 carry-forward: accepted proposals carry source finding's impact_horizon + progress_toward_pillar into Conventional Commits trailers (`Impact-Horizon:` + `Progress:`).
+- **CL-3 C-4 — audit/domains/* + cross-doc fix (commit ed90764):** 22 domain files updated via 4 parallel batch writer-SAs, +88 / -56 lines across 24 files (22 domains + CONSTITUTION.md +1/-1 + CLAUDE.md +1/-1). Universal edits: `**Pillars served:**` line gains two-axis tagging (`; content-quality-axis Qq (...)`) on the 19 domains with content-quality applicability (D17, D18, D21 governance-only). Impact-gating per-domain audit-checklist row added to 21/22 files. Per-file targeted edits: D01/D09/D11 §Domain Boundary replaced with pointers; D03 Test File Distribution table replaced with inventory.json pointer (88→64 lines); D05/D07/D09 comparable-artifact delta checklist; D09 capability-utilization scan + utilization-gap aggregation in SA 9.4; D14/D15/D20 maturity-tier semantics. All 22 files within lean thresholds. Cross-doc: CONSTITUTION §7 + CLAUDE.md governance refs row reference D15-trust-reference.md as governed appendix and note D22/D23/D24 future authoring.
+- **CL-3 C-5 — anti-slop-enforcement.md (commit 636a273):** 1 atomic edit, +1 / -1 line. Updated stale reference `regression gate check 10` → `regression gate check 11` matching AUDIT-EXECUTE.md gate-checks table position 11 after L6-F11 numbering normalization in C-2. Paired with EVOLVE.md gate-10→11 update applied in commit 4f01064.
+
+Pillar service: P2 (impact-gated registration drops untestable findings at Phase 1; proof_trace contract enforces falsifiable causal chains), P5 (Tier 2H/2M batching, resumability checkpoints, learning-consultation directives extend the audit self-evolution loop to 24 domains).
+
+### Validator + Inventory Refresh (P5)
+
+Phase B6 validation pass after the §8 A-1 amendment cluster restructured CONSTITUTION §2 heading from `## 2. The 8 Binding Pillars` to `## 2. Pillar Framework (Two-Axis)`.
+
+- **`scripts/validate-rule-pillar-currency.ts` (+19 / -7 lines, commit 0eb1441):** HEADING_RE regex now accepts both legacy (`## N. The K Binding Pillars`) and 2.0.0+ formats (`## N. Pillar Framework` or `## N. Pillar Framework (Two-Axis)`). In the 2.0.0+ format the heading carries no count; declaredCount is derived from `### P{i}.` sectionCount (governance-axis P1-P8 pillars in §2A). Content-quality `### CQ{i}.` pillars (introduced in §2B) are reserved for future extension and not counted by this script.
+- **Inventory regenerated via `npm run inventory`** (`governance/inventory.json` +1 / -1 line): 3 adapters, 19 agents, 39 skills (6 CLI), 40 rules (.md) / 40 (.mdc), 25 commands, 6 hooks, 18 pipeline modules, 14 CLI commands. Counts unchanged from pre-Phase-B state (Phase B authored no new content; new-content authoring deferred to fresh-session-prompt.md Bucket 1.5 per governance-only scope).
+- **Validation results post-fix:** validate-rule-parity 40 pairs / 0 drift; validate-rule-pillar-currency P1-P8 canonical, 0 errors, 0 warnings; `npm test` 131 files / 3363 tests passed; `npx tsc --noEmit` 0 errors; `npx hatch3r validate` 0 errors / 2 pre-existing warnings; `npm run lint` 0 errors / 72 pre-existing warnings (unrelated).
+
+Pillar service: P5 (rule-pillar-currency validator now matches the canonical CONSTITUTION §2 heading shape, restoring CI parity after the two-axis restructure).
 
 ---
 
