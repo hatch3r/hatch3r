@@ -5,14 +5,13 @@ title: Adapter Capability Matrix
 
 # Adapter Capability Matrix
 
-Living reference for framework capabilities vs. adapter implementations. Tracks what each adapter emits, what each platform supports natively, and where gaps remain.
+Living reference for framework capabilities vs. adapter implementations. As of 1.9.0 hatch3r supports 3 adapters: Cursor, GitHub Copilot, and Claude Code. Twelve adapters were removed in a hard cut — see the [CHANGELOG](https://github.com/hatch3r-dev/hatch3r/blob/main/CHANGELOG.md) for the full breaking-change list.
 
 ## Legend
 
 | Symbol | Meaning |
 |--------|---------|
 | **Y** | Adapter emits files for this capability |
-| **~** | Platform reads canonical `.agents/` paths natively; no adapter output needed |
 | **B** | Bridge: content folded into an instruction file the platform reads |
 | **--** | Platform has no known support for this capability |
 | **skip** | Platform supports this but only globally; intentionally omitted |
@@ -24,40 +23,16 @@ Living reference for framework capabilities vs. adapter implementations. Tracks 
 | **cursor** | Y | Y | Y | -- | Y | Y | -- | Y | Y | -- | -- |
 | **copilot** | Y | Y | Y | Y | Y | Y | -- | -- | Y | Y | Y |
 | **claude** | Y | Y | Y | -- | Y | Y | -- | Y | Y | -- | -- |
-| **cline** | Y | Y | Y | -- | Y | Y | -- | Y | Y | -- | -- |
-| **codex** | B | B | Y | -- | -- | Y | -- | -- | Y | -- | -- |
-| **gemini** | Y | B | Y | -- | Y | Y | -- | Y | Y | -- | -- |
-| **windsurf** | Y | B | Y | -- | Y | Y | -- | -- | Y | -- | -- |
-| **amp** | B | B | Y | -- | ~ | Y | -- | -- | Y | -- | -- |
-| **opencode** | Y | Y | Y | -- | Y | Y | -- | -- | Y | -- | -- |
-| **aider** | B | B | Y | -- | -- | -- | -- | -- | Y | -- | -- |
-| **kiro** | Y | B | Y | -- | -- | Y | -- | Y | Y | -- | -- |
-| **goose** | B | B | B | -- | -- | Y | -- | -- | Y | -- | -- |
-| **zed** | B | B | -- | -- | -- | -- | -- | -- | Y | -- | -- |
-| **amazon-q** | B | B | Y | -- | -- | Y | -- | -- | Y | -- | -- |
-| **antigravity** | B | B | Y | -- | -- | Y | -- | -- | Y | -- | -- |
 
 ## Agent Model Customization
 
-All adapters emit model preferences when configured. See [Model Selection](../guides/model-selection) for configuration and aliases.
+All 3 adapters emit model preferences when configured. See [Model Selection](../guides/model-selection) for configuration and aliases.
 
 | Adapter | Emission | Notes |
 |---------|----------|-------|
 | **cursor** | Native | `model:` in agent YAML frontmatter |
 | **copilot** | Native (VS Code) | `model:` in agent YAML; ignored on github.com |
-| **opencode** | Native | `model: provider/id` in agent config |
-| **codex** | Native | `model = "id"` in TOML agent section |
 | **claude** | Guidance | Text in agent content |
-| **cline** | Guidance | Text in `roleDefinition` |
-| **gemini** | Guidance | Text in GEMINI.md |
-| **windsurf** | Guidance | Text in .windsurfrules |
-| **amp** | Guidance | Text in .amp/AGENTS.md |
-| **aider** | Guidance | Text in CONVENTIONS.md |
-| **kiro** | Guidance | Text in .kiro/steering/hatch3r-agents.md |
-| **goose** | Guidance | Text in .goosehints |
-| **zed** | Guidance | Text in .rules |
-| **amazon-q** | Guidance | Text in .amazonq/rules/hatch3r-agents.md |
-| **antigravity** | Guidance | Text in .antigravity/rules.md |
 
 ## Secret Management {#secret-management}
 
@@ -68,18 +43,6 @@ All MCP secrets are centralized in `.env.mcp` at the project root.
 | **copilot** | `env` object per server | No |
 | **cursor** | `${env:VAR}` from process env | No |
 | **claude** | `${env:VAR}` from process env | No |
-| **cline** | `${env:VAR}` from process env | No |
-| **opencode** | `${env:VAR}` from process env | No |
-| **amp** | `${env:VAR}` from process env | No |
-| **gemini** | `${env:VAR}` from process env | No |
-| **codex** | `${env:VAR}` from process env | No |
-| **windsurf** | `${env:VAR}` from process env | No |
-| **aider** | N/A | No |
-| **kiro** | `${env:VAR}` from process env | No |
-| **goose** | `${env:VAR}` from process env | No |
-| **zed** | N/A (global MCP only) | No |
-| **amazon-q** | `${env:VAR}` from process env | No |
-| **antigravity** | `${env:VAR}` from process env | No |
 
 For editors that don't auto-load, source before launching:
 
@@ -91,19 +54,7 @@ set -a && source .env.mcp && set +a && <editor-command> .
 
 | Adapter | Capability | Reason |
 |---------|------------|--------|
-| windsurf | hooks | No documented hook/event system |
-| opencode | hooks | No documented hook/event system |
-| amp | hooks | No documented hook/event system |
-| codex | hooks | No documented hook/event system |
-| aider | mcp | No project-level MCP config format |
-| aider | hooks | No documented hook/event system |
-| goose | hooks | No documented hook/event system |
-| amazon-q | hooks | No documented hook/event system |
-| amazon-q | commands | No documented commands format |
-| antigravity | hooks | No documented hook/event system |
-| antigravity | commands | No documented commands format |
-| zed | mcp | Global-only MCP config |
-| zed | hooks | No documented hook/event system |
-| zed | skills | No skills concept; rules cover all guidance |
-| all | guardrails | Canonical location exists for future use |
-| all | prompts (except copilot) | Only Copilot has dedicated prompts format |
+| copilot | hooks | No documented hook/event system on GitHub Copilot Chat |
+| all | guardrails | Canonical location exists in bundled content for future use |
+| all | prompts (except copilot) | Only Copilot has a dedicated prompts format |
+| all | githubAgents (except copilot) | Copilot-specific capability |

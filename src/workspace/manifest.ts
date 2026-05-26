@@ -1,6 +1,6 @@
-import { readFile } from "node:fs/promises";
-import { join, normalize, isAbsolute } from "node:path";
-import { AGENTS_DIR, HatchError } from "../types.js";
+import { mkdir, readFile } from "node:fs/promises";
+import { dirname, join, normalize, isAbsolute } from "node:path";
+import { HATCH3R_DIR, HatchError } from "../types.js";
 import { HATCH3R_VERSION } from "../version.js";
 import { atomicWriteFile } from "../merge/safeWrite.js";
 import type { WorkspaceManifest } from "./types.js";
@@ -80,7 +80,7 @@ function validateWorkspaceManifest(data: unknown): data is WorkspaceManifest {
 export async function readWorkspaceManifest(
   rootDir: string,
 ): Promise<WorkspaceManifest | null> {
-  const manifestPath = join(rootDir, AGENTS_DIR, WORKSPACE_MANIFEST_FILE);
+  const manifestPath = join(rootDir, HATCH3R_DIR, WORKSPACE_MANIFEST_FILE);
 
   let raw: string;
   try {
@@ -114,12 +114,15 @@ export async function readWorkspaceManifest(
   return parsed;
 }
 
-/** Atomically write the workspace manifest to `.agents/workspace.json`. */
+/** Atomically write the workspace manifest to `.hatch3r/workspace.json`. */
 export async function writeWorkspaceManifest(
   rootDir: string,
   manifest: WorkspaceManifest,
 ): Promise<void> {
-  const manifestPath = join(rootDir, AGENTS_DIR, WORKSPACE_MANIFEST_FILE);
+  const manifestPath = join(rootDir, HATCH3R_DIR, WORKSPACE_MANIFEST_FILE);
+  // Wave 6: ensure `.hatch3r/` exists; workspace init may write the manifest
+  // before any other helper has created the directory on a fresh repo.
+  await mkdir(dirname(manifestPath), { recursive: true });
   await atomicWriteFile(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
 }
 

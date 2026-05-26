@@ -2,7 +2,7 @@
 
 > Last updated: 2026-04-19
 
-**Pillars served:** P4 (primary), P2 (supporting).
+**Pillars served:** governance-axis P4 (primary), P2 (supporting); content-quality-axis CQ4 Reliability (supporting — CI/CD reliability patterns).
 
 **Scope:** Build tooling, dependency health, CI workflows, release pipeline, and community readiness for open-source distribution.
 **Sub-agents:** 5
@@ -20,6 +20,8 @@
 > Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
 
 ## Audit Checklists
+
+> **Per-finding (Decision 17 / charter directive 18):** every finding declares `impact_horizon: short|medium|long` AND `progress_toward_pillar: <axis>.<pillar_id>+<delta>` (e.g., `governance.P5+0.15` or `content-quality.CQ4+0.20`); orchestrator DROPS at output time if either missing.
 
 ### 4.1 Build Configuration
 - [ ] tsup config correctness — entry points, output paths, format options

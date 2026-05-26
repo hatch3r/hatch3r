@@ -8,7 +8,11 @@ import {
   createWorkspaceManifest,
   isUnsafeRepoPath,
 } from "../../workspace/manifest.js";
-import { AGENTS_DIR, DEFAULT_FEATURES } from "../../types.js";
+import { HATCH3R_DIR, DEFAULT_FEATURES } from "../../types.js";
+
+// Wave 6: manifest moved from `.agents/` to `.hatch3r/`. The workspace
+// manifest tracks `workspace.json` under the same directory.
+const AGENTS_DIR = HATCH3R_DIR;
 
 describe("workspace manifest", () => {
   let tempDir: string;

@@ -4,7 +4,7 @@ type: command
 orchestrator: true
 agentPipeline: [hatch3r-researcher, hatch3r-docs-writer]
 description: Translate a greenfield vision into future-state design artifacts -- ADRs, domain model, API contracts, per-module technical specs, and a board-ready todo.md
-tags: [planning, greenfield]
+tags: [planning, ctx:greenfield-only]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
@@ -35,7 +35,7 @@ Take a project idea or vision and produce complete project documentation across 
 
 ## Shared Context
 
-**Read the `hatch3r-board-shared` command at the start of the run** if it exists. While this command does not perform board operations directly, it establishes patterns and context (GitHub owner/repo, tooling directives) that downstream commands like `hatch3r-board-fill` rely on. Cache any values found.
+**Read the `hatch3r-board-shared` skill at the start of the run** if it exists. While this command does not perform board operations directly, it establishes patterns and context (GitHub owner/repo, tooling directives) that downstream commands like `hatch3r-board-fill` rely on. Cache any values found.
 
 ## Token-Saving Directives
 
@@ -1194,7 +1194,7 @@ Which would you like to run next? (or none)"
 - **Sub-agent failure:** Retry the failed sub-agent once. If it fails again, present partial results from the remaining sub-agents and ask the user how to proceed (continue without that researcher's input / provide the missing information manually / abort).
 - **Conflicting researcher outputs:** Present both options side by side with trade-offs. Ask the user to decide. Do not silently pick one.
 - **File write failure:** Report the error and provide the full file content so the user can create the file manually.
-- **Missing project context:** If no `hatch3r-board-shared` or `.agents/hatch.json` exists, proceed without board context — this command does not require board configuration.
+- **Missing project context:** If no `hatch3r-board-shared` or `.hatch3r/hatch.json` exists, proceed without board context — this command does not require board configuration.
 - **Business context gaps:** If the user cannot answer business discovery questions, proceed with "TBD" markers and flag these as open items in the business specs.
 - **Stage assessment unclear:** Default to "early-revenue" if the user is unsure. This provides balanced analysis depth without over- or under-engineering recommendations.
 - **Competitor research gaps:** If web search returns insufficient data for a competitor, note it as "limited public information" and present what was found.

@@ -1,7 +1,7 @@
 ---
 id: hatch3r-refactor
 description: Internal code quality improvement workflow without changing external behavior. Use when refactoring code structure, simplifying modules, or improving maintainability.
-tags: [core, implementation]
+tags: [implementation, orchestration]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

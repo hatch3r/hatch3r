@@ -1,3 +1,12 @@
+---
+id: pillar-compliance
+type: rule
+description: Every change in governance/agents/skills/rules/commands/hooks must serve at least one of the 8 Binding Pillars and justify any net governance size increase.
+tags: [maintainer, governance, p5]
+scope: always
+precedence: high
+---
+
 # Pillar Compliance
 
 **Pillars:** P5 (Governance Self-Quality)

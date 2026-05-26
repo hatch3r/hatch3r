@@ -2,6 +2,7 @@
 description: Security patterns including input validation, auth enforcement, and AI/agentic security for the project
 globs: ["**/auth/**", "**/security/**", "**/middleware/**", "**/*auth*", "**/*guard*", "**/*policy*", "**/*permission*", "**/*sanitiz*", "**/*validat*"]
 alwaysApply: false
+precedence: critical
 ---
 # Security Patterns
 

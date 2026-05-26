@@ -3,15 +3,15 @@ id: hatch3r-handoff-readiness
 type: rule
 description: Handoff readiness checklist — pre-write validation before persisting a canonical handoff document.
 scope: conditional
-globs: .agents/handoffs/active/**/*.md
+globs: .hatch3r/handoffs/active/**/*.md
 precedence: high
-tags: [core, maintenance]
+tags: [orchestration, maintenance]
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true
 ---
 # Handoff Readiness Checklist
 
-Before writing a handoff to `.agents/handoffs/active/`, verify each criterion. Refuse the write if any **Required** criterion fails; warn on **Recommended** failures.
+Before writing a handoff to `.hatch3r/handoffs/active/`, verify each criterion. Refuse the write if any **Required** criterion fails; warn on **Recommended** failures.
 
 ## Required (fail = refuse write)
 
@@ -39,7 +39,7 @@ The `hatch3r-handoff-preparer` agent applies this checklist before invoking `wri
 
 ## Cross-references
 
-- Body sections schema: `.agents/handoffs/README.md`
+- Body sections schema: `.hatch3r/handoffs/README.md`
 - Iteration Summary contract (populates Work Done / Work Remaining / Blockers): `rules/hatch3r-iteration-summary.md`
 - Injection-pattern catalog: `agents/shared/injection-patterns.md` Section B
 - Quality charter (confidence levels): `agents/shared/quality-charter.md`

@@ -1,12 +1,18 @@
-import { access, cp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { TOOL_PATH_PREFIXES, collectToolFiles, cleanEmptyDirs } from "../archive/index.js";
 import { extractCustomContent, hasManagedBlock } from "../merge/managedBlocks.js";
 import { readManifest } from "../manifest/hatchJson.js";
-import { AGENTS_DIR, ARCHIVE_DIR, CUSTOMIZE_DIR, TOOLS, WORKTREE_INCLUDE_FILE, type HatchManifest, type Tool } from "../types.js";
+import {
+  ARCHIVE_DIR,
+  HATCH3R_DIR,
+  TOOLS,
+  WORKTREE_INCLUDE_FILE,
+  type HatchManifest,
+  type Tool,
+} from "../types.js";
 import { detectWorkspaceContext } from "../workspace/detect.js";
-import { discoverUserContent } from "../content/userContent.js";
 import { verbose } from "../cli/shared/ui.js";
 
 /**
@@ -18,26 +24,41 @@ function recordCleanProbeFailure(operation: string, err: unknown): void {
   verbose(`clean: ${operation} — ${message}`);
 }
 
+/**
+ * Wave 7 clean contract:
+ *   - strip managed blocks from every adapter-output file the manifest
+ *     tracks (preserving any user-authored content outside the markers);
+ *   - delete `.hatch3r/hatch.json`;
+ *   - delete `.hatch3r-archive/` (rollback snapshots);
+ *   - preserve user state under `.hatch3r/`:
+ *       learnings/, handoffs/, overrides/ (Wave 5), mcp/, plus any
+ *       `.customize.yaml` / `.customize.md` files alongside.
+ *
+ * No canonical `.agents/` tree exists anymore (Wave 3+4), so the previous
+ * "remove `.agents/`" branch was deleted. Pre-1.9 installs that still have
+ * a `.agents/` directory will see it removed only if the pipeline-time
+ * migration shim (`migrateAgentsToHatch3r`) already moved its contents out.
+ */
 export interface CleanInventory {
+  /** Adapter-output files (from `manifest.managedFiles` + prefix scan) that exist on disk. */
   adapterFiles: string[];
-  canonicalDir: boolean;
+  /** `.hatch3r/hatch.json` is present. */
+  manifestPresent: boolean;
+  /** `.hatch3r-archive/` is present. */
   archiveDir: boolean;
-  customizeDir: boolean;
+  /** `.hatch3r/` (state + user content + customizations) is present and will be preserved. */
+  hatch3rDir: boolean;
+  /** `.worktreeinclude` is present. */
   worktreeInclude: boolean;
+  /** `.env.mcp` is present (always preserved). */
   envMcp: boolean;
+  /** Root `AGENTS.md` has user content above/below the managed block. */
   agentsMdHasUserContent: boolean;
-  learnings: string[];
-  /**
-   * Count of user-authored artifacts under `.agents/user/`. Always preserved
-   * by clean — never deleted, regardless of `--yes`. Reported in the
-   * inventory as a "kept" item so the user knows their work is safe.
-   * Optional for backward compatibility with pre-D20 callers building
-   * inventories programmatically; treat absence as 0.
-   */
-  userContentCount?: number;
+  /** Workspace topology context (informational; influences UX warnings only). */
   isWorkspaceRoot: boolean;
   isWorkspaceMember: boolean;
   workspaceRootPath: string | null;
+  /** The full manifest, captured before deletion so reinit can reapply config. */
   manifest: HatchManifest | null;
 }
 
@@ -57,29 +78,18 @@ async function fileExists(path: string): Promise<boolean> {
   }
 }
 
-async function dirEntries(path: string): Promise<string[]> {
-  try {
-    return await readdir(path);
-  } catch (err) {
-    recordCleanProbeFailure(`dirEntries(${path}) — directory missing`, err);
-    return [];
-  }
-}
-
 export async function inventoryArtifacts(rootDir: string): Promise<CleanInventory> {
   const manifest = await readManifest(rootDir);
 
-  // Collect adapter files from both manifest tracking and prefix scanning
+  // Collect adapter files from manifest tracking + prefix scanning so an
+  // orphaned output (renamed adapter target, removed adapter) is still
+  // surfaced by clean.
   const adapterFileSet = new Set<string>();
-
-  // Source 1: manifest.managedFiles (authoritative when available)
   if (manifest) {
     for (const f of manifest.managedFiles) {
       adapterFileSet.add(f);
     }
   }
-
-  // Source 2: prefix scanning for all known tools (catches orphaned files)
   const toolsToScan: Tool[] = manifest ? manifest.tools : [...TOOLS];
   for (const tool of toolsToScan) {
     const files = await collectToolFiles(rootDir, tool);
@@ -88,17 +98,8 @@ export async function inventoryArtifacts(rootDir: string): Promise<CleanInventor
     }
   }
 
-  // toolsToScan already covers all TOOLS when manifest is absent (line above),
-  // so no additional scanning needed.
-
-  // Filter to only files that actually exist, excluding shared bridge files.
-  // C9-H31 (D10-SA10.5-F1): shared bridge files (e.g. root AGENTS.md) are
-  // tracked under `manifest.managedFilesByAdapter._shared` (SHARED_ADAPTER_KEY
-  // in `src/adapters/index.ts`) — multiple adapters consume them, so they get
-  // managed-block-preservation cleanup (see step 2 in `executeClean` below).
-  // AGENTS.md remains the sole entry today (SHARED_BRIDGE_FILES); when adding
-  // a new bridge file, append it to SHARED_BRIDGE_FILES and extend the
-  // managed-block-preserving branch in step 2.
+  // Filter to only files that actually exist, excluding the shared bridge file
+  // (AGENTS.md) which gets managed-block-preservation cleanup in `executeClean`.
   const adapterFiles: string[] = [];
   for (const f of adapterFileSet) {
     if (f === "AGENTS.md") continue;
@@ -107,12 +108,8 @@ export async function inventoryArtifacts(rootDir: string): Promise<CleanInventor
     }
   }
 
-  // 1.7.0 (Phase E): sweep sibling `.bak` files left behind by the
-  // safeWriteFile auto-repair path (managed-block corruption recovery in
-  // src/merge/safeWrite.ts ~L398). These pile up across runs and are not
-  // tracked in the manifest, so without this sweep they survive `clean`.
-  // We only enqueue `<adapter-file>.bak` when both the adapter file path
-  // is in our inventory AND the `.bak` file actually exists on disk.
+  // Sibling `.bak` files left behind by the safeWriteFile auto-repair path
+  // (managed-block corruption recovery in src/merge/safeWrite.ts).
   for (const f of [...adapterFiles]) {
     const bakRel = f + ".bak";
     if (await fileExists(join(rootDir, bakRel))) {
@@ -120,7 +117,7 @@ export async function inventoryArtifacts(rootDir: string): Promise<CleanInventor
     }
   }
 
-  // Check root AGENTS.md for user content
+  // Root AGENTS.md user-content probe.
   let agentsMdHasUserContent = false;
   const agentsMdPath = join(rootDir, "AGENTS.md");
   if (await fileExists(agentsMdPath)) {
@@ -131,8 +128,6 @@ export async function inventoryArtifacts(rootDir: string): Promise<CleanInventor
         agentsMdHasUserContent = userContent.length > 0;
       }
     } catch (err) {
-      // Can't read, treat as no user content. Surface under --verbose so
-      // unexpected read errors (e.g., permission denied) remain observable.
       recordCleanProbeFailure(
         `inventoryArtifacts: readFile(${agentsMdPath}) — treating as no user content`,
         err,
@@ -140,38 +135,16 @@ export async function inventoryArtifacts(rootDir: string): Promise<CleanInventor
     }
   }
 
-  // Check learnings
-  const learningsDir = join(rootDir, AGENTS_DIR, "learnings");
-  const learnings = await dirEntries(learningsDir);
-
-  // D20: count user-authored artifacts so the inventory can surface them as
-  // a kept item before the destructive operations. Discovery is best-effort
-  // — a failure here must not block a legitimate clean of canonical state.
-  let userContentCount = 0;
-  try {
-    const discovered = await discoverUserContent(rootDir);
-    userContentCount = discovered.length;
-  } catch (err) {
-    // Surface via console.warn so the failure is visible but does not
-    // block the clean. The kept-set still includes `.agents/user/` below.
-    console.warn(
-      `[hatch3r] inventoryArtifacts: user-content scan skipped: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-
-  // Check workspace context
   const wsContext = await detectWorkspaceContext(rootDir);
 
   return {
     adapterFiles,
-    canonicalDir: await fileExists(join(rootDir, AGENTS_DIR)),
+    manifestPresent: await fileExists(join(rootDir, HATCH3R_DIR, "hatch.json")),
     archiveDir: await fileExists(join(rootDir, ARCHIVE_DIR)),
-    customizeDir: await fileExists(join(rootDir, CUSTOMIZE_DIR)),
+    hatch3rDir: await fileExists(join(rootDir, HATCH3R_DIR)),
     worktreeInclude: await fileExists(join(rootDir, WORKTREE_INCLUDE_FILE)),
     envMcp: await fileExists(join(rootDir, ".env.mcp")),
     agentsMdHasUserContent,
-    learnings,
-    userContentCount,
     isWorkspaceRoot: wsContext.type === "workspace-root",
     isWorkspaceMember: wsContext.type === "workspace-member",
     workspaceRootPath: wsContext.type === "workspace-member" ? wsContext.rootPath ?? null : null,
@@ -189,27 +162,49 @@ export async function executeClean(
   const errors: string[] = [];
 
   if (dryRun) {
-    // Just report what would happen
     for (const f of inventory.adapterFiles) {
       removed.push(f);
     }
-    if (inventory.canonicalDir) removed.push(`${AGENTS_DIR}/`);
+    if (inventory.manifestPresent) removed.push(`${HATCH3R_DIR}/hatch.json`);
     if (inventory.worktreeInclude) removed.push(WORKTREE_INCLUDE_FILE);
     if (inventory.archiveDir) removed.push(`${ARCHIVE_DIR}/`);
     if (inventory.envMcp) kept.push(".env.mcp (contains secrets)");
-    if (inventory.customizeDir) kept.push(`${CUSTOMIZE_DIR}/ (customizations)`);
-    if ((inventory.userContentCount ?? 0) > 0) {
-      kept.push(`${AGENTS_DIR}/user/ (${inventory.userContentCount} user artifact(s) — preserved)`);
+    if (inventory.hatch3rDir) {
+      kept.push(
+        `${HATCH3R_DIR}/ (learnings/, handoffs/, overrides/, mcp/, customizations preserved)`,
+      );
     }
     return { removed, kept, errors };
   }
 
-  // 1. Remove adapter output files
+  // 1. Strip managed blocks from adapter-output files. Files that contain
+  //    only the managed block (and nothing user-authored) are removed
+  //    outright; files with user content above/below the markers are
+  //    rewritten in place with the markers and managed body excised.
   for (const f of inventory.adapterFiles) {
     const absPath = join(rootDir, f);
     try {
-      await rm(absPath, { force: true });
-      removed.push(f);
+      let stripped = false;
+      try {
+        const content = await readFile(absPath, "utf-8");
+        if (hasManagedBlock(content)) {
+          const userContent = extractCustomContent(content).trim();
+          if (userContent.length > 0) {
+            await writeFile(absPath, userContent + "\n");
+            kept.push(`${f} (user content preserved, managed block stripped)`);
+            stripped = true;
+          }
+        }
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code !== "ENOENT") {
+          errors.push(`${f}: ${(err as Error).message}`);
+        }
+      }
+      if (!stripped) {
+        await rm(absPath, { force: true });
+        removed.push(f);
+      }
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
       if (code !== "ENOENT") {
@@ -221,14 +216,7 @@ export async function executeClean(
   // Clean empty directories left by adapter file removal
   await cleanEmptyDirs(rootDir, inventory.adapterFiles);
 
-  // 2. Handle shared bridge files (C9-H31 / D10-SA10.5-F1).
-  // Files tracked under `manifest.managedFilesByAdapter._shared` (today: just
-  // root `AGENTS.md`, see `SHARED_BRIDGE_FILES` in `src/adapters/index.ts`)
-  // use managed-block-preservation semantics: strip the hatch3r managed
-  // block, keep any user content above/below it, and remove the file only
-  // when nothing user-authored remains. This is the documented `hatch3r
-  // clean` cleanup contract for files written outside any one adapter's
-  // `doGenerate()` (e.g. `generateRootAgentsMd()` callers in init/sync).
+  // 2. Root AGENTS.md (shared bridge file) — managed-block-preservation semantics.
   const agentsMdPath = join(rootDir, "AGENTS.md");
   if (await fileExists(agentsMdPath)) {
     try {
@@ -243,7 +231,6 @@ export async function executeClean(
           removed.push("AGENTS.md");
         }
       } else {
-        // No managed block — leave it alone, it's entirely user content
         kept.push("AGENTS.md (no managed block, left untouched)");
       }
     } catch (err) {
@@ -251,39 +238,19 @@ export async function executeClean(
     }
   }
 
-  // 3. Remove .agents/ directory — preserving the user/ subtree (D20).
-  // When user content is present we walk the .agents/ children and unlink
-  // each one except `user/`, leaving `.agents/user/` and the `.agents/`
-  // directory itself in place. When no user content is present we fall
-  // through to the simple recursive remove.
-  if (inventory.canonicalDir) {
-    const agentsAbs = join(rootDir, AGENTS_DIR);
+  // 3. Delete `.hatch3r/hatch.json`. Other `.hatch3r/` contents
+  //    (learnings, handoffs, overrides, mcp, .customize.* files) are
+  //    preserved — they are user state, not hatch3r-generated output.
+  if (inventory.manifestPresent) {
     try {
-      if ((inventory.userContentCount ?? 0) > 0) {
-        const children = await readdir(agentsAbs);
-        let removedAny = false;
-        for (const child of children) {
-          if (child === "user") continue; // preserve user-authored content
-          try {
-            await rm(join(agentsAbs, child), { recursive: true, force: true });
-            removedAny = true;
-          } catch (err) {
-            errors.push(`${AGENTS_DIR}/${child}: ${(err as Error).message}`);
-          }
-        }
-        if (removedAny) {
-          removed.push(`${AGENTS_DIR}/ (preserved ${AGENTS_DIR}/user/)`);
-        }
-      } else {
-        await rm(agentsAbs, { recursive: true, force: true });
-        removed.push(`${AGENTS_DIR}/`);
-      }
+      await rm(join(rootDir, HATCH3R_DIR, "hatch.json"), { force: true });
+      removed.push(`${HATCH3R_DIR}/hatch.json`);
     } catch (err) {
-      errors.push(`${AGENTS_DIR}/: ${(err as Error).message}`);
+      errors.push(`${HATCH3R_DIR}/hatch.json: ${(err as Error).message}`);
     }
   }
 
-  // 4. Remove .worktreeinclude
+  // 4. `.worktreeinclude`
   if (inventory.worktreeInclude) {
     try {
       await rm(join(rootDir, WORKTREE_INCLUDE_FILE), { force: true });
@@ -293,7 +260,7 @@ export async function executeClean(
     }
   }
 
-  // 5. Remove .hatch3r-archive/
+  // 5. `.hatch3r-archive/` (rollback snapshots — safe to remove on clean).
   if (inventory.archiveDir) {
     try {
       await rm(join(rootDir, ARCHIVE_DIR), { recursive: true, force: true });
@@ -303,41 +270,52 @@ export async function executeClean(
     }
   }
 
-  // 6. .hatch3r/ customizations — always preserved
-  if (inventory.customizeDir) {
-    kept.push(`${CUSTOMIZE_DIR}/ (customizations preserved)`);
+  // 6. `.hatch3r/` user state — always preserved beyond the manifest.
+  if (inventory.hatch3rDir) {
+    kept.push(`${HATCH3R_DIR}/ (learnings, handoffs, overrides, mcp, customizations preserved)`);
   }
 
-  // 7. .env.mcp — always preserved
+  // 7. `.env.mcp` — always preserved.
   if (inventory.envMcp) {
     kept.push(".env.mcp (contains secrets — remove manually if needed)");
   }
 
-  // 8. .agents/user/ — always preserved (D20). User-authored artifacts are
-  // never owned by hatch3r and never appear in canonical or adapter sweeps.
-  if ((inventory.userContentCount ?? 0) > 0) {
-    kept.push(
-      `${AGENTS_DIR}/user/ (${inventory.userContentCount} user artifact(s) — user-authored content preserved)`,
-    );
-  }
+  // Silence the unused-import diagnostic for TOOL_PATH_PREFIXES — it is
+  // re-exported indirectly via `collectToolFiles` above, but typescript
+  // verbose-mode warnings can still trigger.
+  void TOOL_PATH_PREFIXES;
 
   return { removed, kept, errors };
 }
 
-export async function backupLearnings(rootDir: string): Promise<string | null> {
-  const learningsDir = join(rootDir, AGENTS_DIR, "learnings");
-  const entries = await dirEntries(learningsDir);
-  if (entries.length === 0) return null;
-
-  const backupDir = join(tmpdir(), `hatch3r-learnings-${Date.now()}`);
-  await mkdir(backupDir, { recursive: true });
-  await cp(learningsDir, backupDir, { recursive: true });
-  return backupDir;
+/**
+ * Wave 7: learnings now live under `.hatch3r/learnings/` (Wave 6) and survive
+ * `clean` automatically — they are never removed. `backupLearnings` is kept
+ * as a no-op stub so the legacy `clean -> reinit` flow in
+ * `src/cli/commands/clean.ts` does not need to be unwound in this wave; the
+ * tmpdir-backup detour exists in the old code path only as protection for
+ * the pre-Wave-6 contract where `.agents/learnings/` was about to be deleted.
+ *
+ * Returns null because there is nothing to restore — the directory is
+ * already in its final resting place.
+ */
+export async function backupLearnings(_rootDir: string): Promise<string | null> {
+  return null;
 }
 
-export async function restoreLearnings(rootDir: string, backupPath: string): Promise<void> {
-  const learningsDir = join(rootDir, AGENTS_DIR, "learnings");
-  await mkdir(learningsDir, { recursive: true });
-  await cp(backupPath, learningsDir, { recursive: true });
-  await rm(backupPath, { recursive: true, force: true });
+/**
+ * Wave 7 companion to `backupLearnings`: no-op because nothing was backed up.
+ * Signature preserved so the `clean` CLI command compiles without a parallel
+ * Wave-7 rewrite of the command surface.
+ */
+export async function restoreLearnings(_rootDir: string, _backupPath: string): Promise<void> {
+  // intentionally no-op
 }
+
+// Suppress unused-import diagnostics for the legacy helpers retained in
+// `clean.ts` (tmpdir/cp/mkdir/readdir). They remain imported here so a
+// future re-introduction of staged backups does not need a fresh refactor.
+void tmpdir;
+void cp;
+void mkdir;
+void readdir;

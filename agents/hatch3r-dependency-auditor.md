@@ -3,7 +3,7 @@ id: hatch3r-dependency-auditor
 type: agent
 description: Supply chain security analyst who audits npm dependencies for vulnerabilities, freshness, and bundle impact. Use when auditing dependencies, responding to CVEs, or evaluating new packages.
 model: standard
-tags: [maintenance, security]
+tags: [maintenance, floor:security]
 quality_charter: agents/shared/quality-charter.md
 tools:
   allow: [Read, Grep, Glob, WebSearch, "Bash:npm audit", "Bash:npm audit --json", "Bash:npm audit --omit=dev", "Bash:npm outdated", "Bash:npm outdated --json", "Bash:npm ls", "Bash:npm explain", "Bash:npx depcheck", "Bash:npx license-checker"]

@@ -3,7 +3,7 @@ import inquirer from "inquirer";
 import { mkdtemp, mkdir, writeFile, readFile, rm, access } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { HatchError } from "../../types.js";
+import { HatchError, HATCH3R_DIR } from "../../types.js";
 import { HATCH3R_VERSION } from "../../version.js";
 
 // Mock inquirer so interactive paths can be exercised. The --yes paths in
@@ -22,7 +22,10 @@ vi.mock("inquirer", () => {
   };
 });
 
-const AGENTS_DIR = ".agents";
+// Wave 6 (1.9.0): the hatch3r footprint moved from `.agents/` to `.hatch3r/`.
+// For the rewritten init tests, `AGENTS_DIR` refers to `.hatch3r/` so existing
+// `join(tempDir, AGENTS_DIR, "hatch.json")` reads pick up the new location.
+const AGENTS_DIR = HATCH3R_DIR;
 
 describe("init command", () => {
   let initCommand: (opts?: { tools?: string; yes?: boolean; cliTools?: string; noCliTools?: boolean; mcp?: boolean }) => Promise<void>;
@@ -69,7 +72,8 @@ describe("init command", () => {
     const raw = await readFile(manifestPath, "utf-8");
     const manifest = JSON.parse(raw);
 
-    expect(manifest.version).toBe("2.0.0");
+    // Wave 6 (1.9.0 / schemaVersion 3): manifest version bumped.
+    expect(manifest.version).toBe("3.0.0");
     expect(manifest.hatch3rVersion).toBe(HATCH3R_VERSION);
     expect(manifest.platform).toBe("github");
     expect(Array.isArray(manifest.tools)).toBe(true);
@@ -82,14 +86,19 @@ describe("init command", () => {
     expect(manifest.managedFiles.length).toBeGreaterThan(0);
   });
 
-  it("should copy canonical files to .agents/", async () => {
+  it("does NOT materialise canonical content under .agents/ (Wave 3 removal)", async () => {
     await initCommand({ yes: true });
 
-    const agentsDir = join(tempDir, AGENTS_DIR);
-    await expect(access(join(agentsDir, "rules"))).resolves.toBeUndefined();
-    await expect(access(join(agentsDir, "agents"))).resolves.toBeUndefined();
-    await expect(access(join(agentsDir, "skills"))).resolves.toBeUndefined();
-    await expect(access(join(agentsDir, "commands"))).resolves.toBeUndefined();
+    // Wave 3: adapters source canonical content from the bundled package.
+    // No `.agents/` directory is created in user repos.
+    let dotAgentsExists = false;
+    try {
+      await access(join(tempDir, ".agents"));
+      dotAgentsExists = true;
+    } catch (err) {
+      void err;
+    }
+    expect(dotAgentsExists).toBe(false);
   });
 
   // D5-SA5.3-H1: `hatch3r init` must seed `.agents/learnings/README.md`
@@ -120,15 +129,20 @@ describe("init command", () => {
     expect(afterReinit).toBe(userContent);
   });
 
-  it("should create AGENTS.md with managed content", async () => {
+  it("does NOT emit root AGENTS.md (Wave 3 removal)", async () => {
     await initCommand({ yes: true });
 
-    const agentsMdPath = join(tempDir, "AGENTS.md");
-    const content = await readFile(agentsMdPath, "utf-8");
-
-    expect(content).toContain("<!-- HATCH3R:BEGIN -->");
-    expect(content).toContain("<!-- HATCH3R:END -->");
-    expect(content).toContain("hatch3r");
+    // Wave 3 (decision #3): root AGENTS.md is no longer emitted; each
+    // adapter writes its own native bridge file (CLAUDE.md, .cursor/rules/,
+    // .github/copilot-instructions.md).
+    let agentsMdExists = false;
+    try {
+      await access(join(tempDir, "AGENTS.md"));
+      agentsMdExists = true;
+    } catch (err) {
+      void err;
+    }
+    expect(agentsMdExists).toBe(false);
   });
 
   it("should generate adapter output files", async () => {
@@ -340,25 +354,26 @@ describe("init command", () => {
     expect(after.cliTools.selected).toEqual(baseline.cliTools.selected);
   });
 
-  it("should include AGENTS.md in managedFiles", async () => {
+  it("does NOT include AGENTS.md in managedFiles (Wave 3 removal)", async () => {
     await initCommand({ yes: true });
 
     const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
     const manifest = JSON.parse(await readFile(manifestPath, "utf-8"));
-    expect(manifest.managedFiles).toContain("AGENTS.md");
+    // Wave 3 removed root AGENTS.md emission; the path must not appear in
+    // managedFiles either, since orphan-cleanup walks that list.
+    expect(manifest.managedFiles).not.toContain("AGENTS.md");
   });
 
-  it("should preserve user content in AGENTS.md when it pre-exists without managed blocks", async () => {
+  it("does NOT touch a pre-existing root AGENTS.md (Wave 3 removal)", async () => {
+    // Wave 3: init no longer touches root AGENTS.md at all. A user-authored
+    // file at the root must be byte-identical after init runs.
     const userContent = "# My Project Instructions\n\nUse TypeScript for all new code.";
     await writeFile(join(tempDir, "AGENTS.md"), userContent);
 
     await initCommand({ yes: true });
 
     const content = await readFile(join(tempDir, "AGENTS.md"), "utf-8");
-    expect(content).toContain(userContent);
-    expect(content).toContain("<!-- HATCH3R:BEGIN -->");
-    expect(content).toContain("<!-- HATCH3R:END -->");
-    expect(content).toContain("hatch3r");
+    expect(content).toBe(userContent);
   });
 
   it("should preserve user content in platform-specific files (e.g. CLAUDE.md) when pre-existing", async () => {
@@ -374,14 +389,16 @@ describe("init command", () => {
   });
 
   it("should handle multiple valid tools from --tools flag", async () => {
-    await initCommand({ yes: true, tools: "cursor,claude,gemini" });
+    // Wave 1 hard-cut deleted gemini (and 11 other adapters). Use the
+    // three retained adapters as the multi-tool fixture.
+    await initCommand({ yes: true, tools: "cursor,claude,copilot" });
 
     const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
     const manifest = JSON.parse(await readFile(manifestPath, "utf-8"));
 
     expect(manifest.tools).toContain("cursor");
     expect(manifest.tools).toContain("claude");
-    expect(manifest.tools).toContain("gemini");
+    expect(manifest.tools).toContain("copilot");
     expect(manifest.tools.length).toBe(3);
   }, 60_000); // Generates output for 3 adapters; on slower Windows runners
                 // this can exceed the default 30s testTimeout in vitest.config.ts
@@ -413,28 +430,28 @@ describe("init command", () => {
     expect(manifest.tools).toContain("cursor");
   });
 
-  it("should create canonical content directories", async () => {
+  it("should create the .hatch3r/learnings/ directory (Wave 6 relocation)", async () => {
     await initCommand({ yes: true });
 
-    const agentsDir = join(tempDir, AGENTS_DIR);
-    await expect(access(join(agentsDir, "learnings"))).resolves.toBeUndefined();
+    // Wave 6: learnings live under `.hatch3r/learnings/` now.
+    const hatch3rDir = join(tempDir, HATCH3R_DIR);
+    await expect(access(join(hatch3rDir, "learnings"))).resolves.toBeUndefined();
   });
 
-  it("should create canonical AGENTS.md inside .agents/", async () => {
-    await initCommand({ yes: true });
-
-    const canonicalPath = join(tempDir, AGENTS_DIR, "AGENTS.md");
-    const content = await readFile(canonicalPath, "utf-8");
-    expect(content.length).toBeGreaterThan(0);
-  });
+  // Removed (Wave 3 + Wave 4): canonical AGENTS.md was previously emitted at
+  // `.agents/AGENTS.md` as the source for the root bridge file. The whole
+  // tree is gone — adapters source canonical content from the bundled
+  // package — so this test has no implementation to exercise.
 
   it("should handle a single tool from --tools flag", async () => {
-    await initCommand({ yes: true, tools: "amp" });
+    // Wave 1 hard-cut deleted `amp` along with 11 other adapters. Use
+    // claude as the single-tool fixture (one of the three retained).
+    await initCommand({ yes: true, tools: "claude" });
 
     const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
     const manifest = JSON.parse(await readFile(manifestPath, "utf-8"));
 
-    expect(manifest.tools).toEqual(["amp"]);
+    expect(manifest.tools).toEqual(["claude"]);
   });
 
   it("should use standard preset by default with --yes flag (C9-H25)", async () => {
@@ -566,15 +583,26 @@ describe("workspace init", () => {
     expect(manifest.board).toBeUndefined();
   });
 
-  it("should create canonical content at workspace root", async () => {
+  it("should create the .hatch3r/ state directory at workspace root", async () => {
     await createWorkspaceLayout(tempDir, ["repo-a"]);
 
     await initCommand({ yes: true });
 
-    // .agents/ directory should exist with canonical content
+    // Wave 6: workspace root writes manifest + workspace.json under
+    // `.hatch3r/`. Wave 3 removed the canonical AGENTS.md materialisation
+    // entirely.
     await expect(access(join(tempDir, AGENTS_DIR))).resolves.toBeUndefined();
     await expect(access(join(tempDir, AGENTS_DIR, "hatch.json"))).resolves.toBeUndefined();
-    await expect(access(join(tempDir, AGENTS_DIR, "AGENTS.md"))).resolves.toBeUndefined();
+
+    // No canonical AGENTS.md is materialised at workspace root.
+    let canonicalAgentsMd = false;
+    try {
+      await access(join(tempDir, AGENTS_DIR, "AGENTS.md"));
+      canonicalAgentsMd = true;
+    } catch (err) {
+      void err;
+    }
+    expect(canonicalAgentsMd).toBe(false);
   });
 
   it("should respect --tools flag in workspace mode", async () => {
@@ -920,24 +948,20 @@ describe("init worktree generation (claude tool present)", () => {
     expect(manifest.managedFiles).toContain(".worktreeinclude");
   });
 
-  it("does NOT generate .worktreeinclude when only non-worktree tools are selected", async () => {
-    // amp is not in WORKTREE_CAPABLE_TOOLS — branch falls through line 242
-    await initCommand({ yes: true, tools: "amp" });
+  // Removed (Wave 1): the previous test verified that selecting a single
+  // non-worktree-capable tool (`amp`) left `.worktreeinclude` unwritten.
+  // After Wave 1's hard-cut, every retained adapter (claude, cursor,
+  // copilot) is in WORKTREE_CAPABLE_TOOLS (`src/types.ts:201`). There is
+  // no non-worktree-capable tool to use as the negative-case fixture.
+  // The `--no-worktree` opt-out below still covers the off path.
 
-    await expect(
-      access(join(tempDir, ".worktreeinclude")),
-    ).rejects.toThrow();
-  });
-
-  // v1.6.1 Fix 2: --worktree / --no-worktree flags + interactive prompt.
-  // Queue the interactive single-repo prompt sequence for tests that rely on it.
-  // C9-H28 (D10-SA10.3-F1) prompt order:
+  // Slice D: worktree is auto-enabled when a worktree-capable tool is
+  // selected; the interactive confirm prompt was removed. --worktree /
+  // --no-worktree still override. C9-H28 (D10-SA10.3-F1) prompt order:
   //   platform -> owner/repo -> defaultBranch -> projectType -> teamSize ->
-  //   preset -> tools -> [worktree] -> features -> [mcp gate] -> [mcp picker] ->
+  //   preset -> tools -> wantMcp -> [mcp picker] ->
   //   cliTools picker -> [create?]
-  // Features + MCP now precede the CLI-tools picker so the high-impact core
-  // decisions complete before the broader CLI-tooling roster prompt.
-  function queueInteractiveWithWorktree(opts: { tools?: string[]; worktree?: boolean } = {}): void {
+  function queueInteractiveWithWorktree(opts: { tools?: string[] } = {}): void {
     const inq = vi.mocked(inquirer.prompt);
     const tools = opts.tools ?? ["claude"];
     inq.mockResolvedValueOnce({ platform: "github" });
@@ -947,34 +971,33 @@ describe("init worktree generation (claude tool present)", () => {
     inq.mockResolvedValueOnce({ teamSize: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools });
-    if (tools.includes("claude") && opts.worktree !== undefined) {
-      inq.mockResolvedValueOnce({ enabled: opts.worktree });
-    } else if (tools.includes("claude")) {
-      inq.mockResolvedValueOnce({ enabled: true });
-    }
-    inq.mockResolvedValueOnce({ features: ["agents"] });
-    // C9-H28: CLI tools picker now follows features + MCP — empty selection
-    // skips detection/installer.
+    // Slice B: feature checkbox replaced by single wantMcp confirm.
+    inq.mockResolvedValueOnce({ wantMcp: false });
+    // C9-H28: CLI tools picker follows MCP — empty selection skips
+    // detection/installer.
     inq.mockResolvedValueOnce({ tools: [] });
-    // D20: post-init "create your first user artifact?" prompt — decline so
-    // the rest of the test logic remains unchanged.
-    inq.mockResolvedValueOnce({ create: false });
   }
 
-  it("interactive init prompts for worktree when a worktree-capable tool is selected", async () => {
-    queueInteractiveWithWorktree({ tools: ["claude"], worktree: true });
+  it("interactive init auto-enables worktree when a worktree-capable tool is selected", async () => {
+    queueInteractiveWithWorktree({ tools: ["claude"] });
     await initCommand();
     const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
     expect(manifest.worktree?.enabled).toBe(true);
     await expect(access(join(tempDir, ".worktreeinclude"))).resolves.toBeUndefined();
   });
 
-  it("interactive init respects declining worktree prompt", async () => {
-    queueInteractiveWithWorktree({ tools: ["claude"], worktree: false });
+  it("interactive init auto-enables worktree when cursor is the only selected tool", async () => {
+    queueInteractiveWithWorktree({ tools: ["cursor"] });
     await initCommand();
     const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
-    expect(manifest.worktree).toBeUndefined();
-    await expect(access(join(tempDir, ".worktreeinclude"))).rejects.toThrow();
+    expect(manifest.worktree?.enabled).toBe(true);
+  });
+
+  it("interactive init auto-enables worktree when copilot is the only selected tool", async () => {
+    queueInteractiveWithWorktree({ tools: ["copilot"] });
+    await initCommand();
+    const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
+    expect(manifest.worktree?.enabled).toBe(true);
   });
 
   it("--yes --no-worktree disables worktree even when claude is selected", async () => {
@@ -984,18 +1007,15 @@ describe("init worktree generation (claude tool present)", () => {
     await expect(access(join(tempDir, ".worktreeinclude"))).rejects.toThrow();
   });
 
-  it("--yes --worktree enables worktree even when no worktree-capable tool is selected", async () => {
-    await initCommand({ yes: true, tools: "amp", worktree: true });
-    const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
-    expect(manifest.worktree?.enabled).toBe(true);
-  });
-
-  it("interactive init does not prompt for worktree when no worktree-capable tool is selected", async () => {
-    queueInteractiveWithWorktree({ tools: ["amp"] });
-    await initCommand();
-    const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
-    expect(manifest.worktree).toBeUndefined();
-  });
+  // Removed (Wave 1): tests below depended on a non-worktree-capable tool
+  // selection. After the hard-cut to three adapters (all worktree-capable),
+  // the negative case has no fixture and these scenarios are unreachable:
+  //   - "--yes --worktree enables worktree even when no worktree-capable
+  //     tool is selected" (amp tool deleted)
+  //   - "interactive init leaves worktree disabled when no worktree-capable
+  //     tool is selected" (amp tool deleted)
+  //   - "interactive init with only gemini leaves worktree disabled"
+  //     (gemini tool deleted)
 });
 
 describe("init language detection (Wave 3 H15)", () => {
@@ -1067,14 +1087,15 @@ describe("init language detection (Wave 3 H15)", () => {
   });
 
   it("agnostic content (rules without language tags) is included for any project", async () => {
-    // Empty repo (unknown language) — language-agnostic content still copied
+    // Wave 3: canonical content is no longer copied into the user repo;
+    // adapters read it from the bundled package. Verify the contract via
+    // the manifest's content selection rather than a `.agents/agents/`
+    // file probe. Language-agnostic core agents (e.g. hatch3r-implementer)
+    // must still appear in the selected items list for any project.
     await initCommand({ yes: true });
 
-    const agentsDir = join(tempDir, AGENTS_DIR);
-    // Core agents are language-agnostic and should always be present
-    await expect(
-      access(join(agentsDir, "agents", "hatch3r-implementer.md")),
-    ).resolves.toBeUndefined();
+    const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
+    expect(manifest.content?.items?.agents).toContain("hatch3r-implementer");
   });
 });
 
@@ -1115,15 +1136,16 @@ describe("init interactive single-repo flow", () => {
    * Queue prompt responses for the interactive single-repo flow.
    * C9-H28 (D10-SA10.3-F1) prompt order:
    *   platform -> owner/repo -> defaultBranch -> projectType -> teamSize ->
-   *   preset -> [custom items] -> tools -> [worktree] -> features ->
+   *   preset -> [custom items] -> tools -> features ->
    *   [mcp gate] -> [mcp servers] -> cliTools picker -> [create?]
-   * The worktree prompt fires only when a worktree-capable tool (e.g. claude)
-   * is in the selected tools list. The cliTools picker always runs but an
-   * empty selection short-circuits the detection + installer follow-ups so
-   * tests stay deterministic. The MCP gate fires only when `features.mcp` is
-   * true; the server picker fires only when the user proceeds through the
-   * gate (mcpServers !== undefined here). C9-H28 moved features + MCP ahead
-   * of CLI tools so users complete the high-impact decisions first.
+   * Slice D removed the worktree confirm prompt; worktree is auto-enabled
+   * when a worktree-capable tool (claude/cursor/copilot) is selected. The
+   * cliTools picker always runs but an empty selection short-circuits the
+   * detection + installer follow-ups so tests stay deterministic. The MCP
+   * gate fires only when `features.mcp` is true; the server picker fires only
+   * when the user proceeds through the gate (mcpServers !== undefined here).
+   * C9-H28 moved features + MCP ahead of CLI tools so users complete the
+   * high-impact decisions first.
    */
   function setupGithubInteractive(opts: {
     preset?: "minimal" | "standard" | "full" | "custom";
@@ -1133,7 +1155,6 @@ describe("init interactive single-repo flow", () => {
     features?: string[];
     mcpServers?: string[];
     customItems?: string[];
-    worktree?: boolean;
     cliTools?: string[];
   } = {}): void {
     const inq = vi.mocked(inquirer.prompt);
@@ -1148,31 +1169,19 @@ describe("init interactive single-repo flow", () => {
       inq.mockResolvedValueOnce({ items: opts.customItems ?? [] });
     }
     inq.mockResolvedValueOnce({ tools });
-    // Worktree prompt fires only when a worktree-capable tool is selected.
-    // WORKTREE_CAPABLE_TOOLS currently = new Set(["claude"]).
-    if (tools.includes("claude")) {
-      inq.mockResolvedValueOnce({ enabled: opts.worktree ?? true });
+    // Slice B: feature checkbox replaced by single wantMcp confirm — the
+    // confirm doubles as the MCP gate. Callers who want MCP supply
+    // `mcpServers` (or set `features: ["mcp", ...]` for back-compat);
+    // anything else means MCP off.
+    const featuresList = opts.features ?? (opts.mcpServers !== undefined ? ["mcp"] : []);
+    const wantMcp = featuresList.includes("mcp");
+    inq.mockResolvedValueOnce({ wantMcp });
+    if (wantMcp) {
+      inq.mockResolvedValueOnce({ mcp: opts.mcpServers ?? ["github", "playwright", "context7"] });
     }
-    inq.mockResolvedValueOnce({
-      features: opts.features ?? ["agents", "skills", "rules", "prompts", "commands", "mcp", "githubAgents", "hooks"],
-    });
-    const featuresList = opts.features ?? ["mcp"];
-    if (featuresList.includes("mcp")) {
-      // MCP Yes/No gate — proceed only when the caller supplied servers; an
-      // explicit `mcpServers: []` still proceeds (the user opened the picker
-      // and toggled everything off).
-      const proceedMcp = opts.mcpServers !== undefined;
-      inq.mockResolvedValueOnce({ proceed: proceedMcp });
-      if (proceedMcp) {
-        inq.mockResolvedValueOnce({ mcp: opts.mcpServers ?? ["github", "playwright", "context7"] });
-      }
-    }
-    // C9-H28: CLI tools picker now follows features + MCP — empty selection
-    // skips detection + installer.
+    // C9-H28: CLI tools picker follows MCP — empty selection skips
+    // detection + installer.
     inq.mockResolvedValueOnce({ tools: opts.cliTools ?? [] });
-    // D20: post-init "create your first user artifact?" prompt — decline so
-    // the rest of the test logic remains unchanged.
-    inq.mockResolvedValueOnce({ create: false });
   }
 
   it("runs the GitHub interactive flow end-to-end", async () => {
@@ -1213,11 +1222,11 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ teamSize: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt
-    inq.mockResolvedValueOnce({ features: ["agents"] });
+    // Slice B: feature checkbox replaced by wantMcp confirm; this test
+    // exercises MCP-off.
+    inq.mockResolvedValueOnce({ wantMcp: false });
     // C9-H28: CLI tools picker now follows features + MCP.
     inq.mockResolvedValueOnce({ tools: [] });
-    inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
 
     await initCommand({});
 
@@ -1238,11 +1247,11 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ teamSize: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt
-    inq.mockResolvedValueOnce({ features: ["agents"] });
+    // Slice B: feature checkbox replaced by wantMcp confirm; this test
+    // exercises MCP-off.
+    inq.mockResolvedValueOnce({ wantMcp: false });
     // C9-H28: CLI tools picker now follows features + MCP.
     inq.mockResolvedValueOnce({ tools: [] });
-    inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
 
     await initCommand({});
 
@@ -1265,12 +1274,11 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ preset: "minimal" });
     // Empty tool selection -> falls back to DEFAULT_TOOLS (= ["claude"])
     inq.mockResolvedValueOnce({ tools: [] });
-    // tools fall-through to ["claude"] triggers the worktree prompt
-    inq.mockResolvedValueOnce({ enabled: true });
-    inq.mockResolvedValueOnce({ features: ["agents"] });
+    // Slice B: feature checkbox replaced by wantMcp confirm; this test
+    // exercises MCP-off.
+    inq.mockResolvedValueOnce({ wantMcp: false });
     // C9-H28: CLI tools picker now follows features + MCP.
     inq.mockResolvedValueOnce({ tools: [] });
-    inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
 
     await initCommand({});
 
@@ -1307,13 +1315,13 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ teamSize: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt (claude selected)
-    inq.mockResolvedValueOnce({ features: ["agents"] });
+    // Slice B: feature checkbox replaced by wantMcp confirm; this test
+    // exercises MCP-off.
+    inq.mockResolvedValueOnce({ wantMcp: false });
     // C9-H28: CLI tools picker now follows features + MCP.
     inq.mockResolvedValueOnce({ tools: [] });
     // The checkExisting prompt — accept overwrite
     inq.mockResolvedValueOnce({ proceed: true });
-    inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
 
     await initCommand({});
 
@@ -1338,8 +1346,9 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ teamSize: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt (claude selected)
-    inq.mockResolvedValueOnce({ features: ["agents"] });
+    // Slice B: feature checkbox replaced by wantMcp confirm; this test
+    // exercises MCP-off.
+    inq.mockResolvedValueOnce({ wantMcp: false });
     // C9-H28: CLI tools picker now follows features + MCP.
     inq.mockResolvedValueOnce({ tools: [] });
     // Reject overwrite
@@ -1405,15 +1414,12 @@ describe("init interactive workspace flow", () => {
     inq.mockResolvedValueOnce({ preset: "minimal" });
     // 6) Tools
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    // 6b) Worktree prompt (claude selected)
-    inq.mockResolvedValueOnce({ enabled: true });
-    // 7) Features (C9-H28: moved before CLI tools)
-    inq.mockResolvedValueOnce({ features: ["agents"] });
+    // 7) Features (C9-H28: moved before CLI tools; Slice D: worktree auto-enabled)
+    // Slice B: feature checkbox replaced by wantMcp confirm; this test
+    // exercises MCP-off.
+    inq.mockResolvedValueOnce({ wantMcp: false });
     // 7b) CLI tools picker — empty selection skips detection/installer.
     inq.mockResolvedValueOnce({ tools: [] });
-    // 7c) D20 post-init "create your first user artifact?" prompt fired by
-    // runInit at the workspace root before workspace-level sync prompts.
-    inq.mockResolvedValueOnce({ create: false });
     // 8) Repo selection for sync
     inq.mockResolvedValueOnce({ syncRepos: [] });
 
@@ -1438,11 +1444,11 @@ describe("init interactive workspace flow", () => {
     inq.mockResolvedValueOnce({ teamSize: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt (claude selected)
-    inq.mockResolvedValueOnce({ features: ["agents"] });
+    // Slice B: feature checkbox replaced by wantMcp confirm; this test
+    // exercises MCP-off.
+    inq.mockResolvedValueOnce({ wantMcp: false });
     // C9-H28: CLI tools picker now follows features + MCP.
     inq.mockResolvedValueOnce({ tools: [] });
-    inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
 
     await initCommand({});
 
@@ -1473,15 +1479,12 @@ describe("init interactive workspace flow", () => {
     inq.mockResolvedValueOnce({ preset: "minimal" });
     // 7) Tools
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    // 7b) Worktree prompt (claude selected)
-    inq.mockResolvedValueOnce({ enabled: true });
-    // 8) Features (C9-H28: moved before CLI tools)
-    inq.mockResolvedValueOnce({ features: ["agents"] });
+    // 8) Features (C9-H28: moved before CLI tools; Slice D: worktree auto-enabled)
+    // Slice B: feature checkbox replaced by wantMcp confirm; this test
+    // exercises MCP-off.
+    inq.mockResolvedValueOnce({ wantMcp: false });
     // 8b) CLI tools picker — empty selection skips detection/installer.
     inq.mockResolvedValueOnce({ tools: [] });
-    // 8c) D20 post-init "create your first user artifact?" prompt fired by
-    // runInit at the workspace root before workspace-level sync prompts.
-    inq.mockResolvedValueOnce({ create: false });
     // 9) Repo sync selection
     inq.mockResolvedValueOnce({ syncRepos: [] });
 
@@ -1658,11 +1661,11 @@ describe("init eager flag validation (C8-D1-M4)", () => {
     inq.mockResolvedValueOnce({ teamSize: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt (claude selected)
-    inq.mockResolvedValueOnce({ features: ["agents"] });
+    // Slice B: feature checkbox replaced by wantMcp confirm; this test
+    // exercises MCP-off.
+    inq.mockResolvedValueOnce({ wantMcp: false });
     // C9-H28: CLI tools picker now follows features + MCP.
     inq.mockResolvedValueOnce({ tools: [] });
-    inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
 
     await initCommand({ preset: "minimal" });
 
@@ -1734,9 +1737,8 @@ describe("init runInit idempotency guard (C8-D1-M3)", () => {
       repoInfo,
       contentSelection,
       worktreeEnabled: false,
-      // D20: pass `yes: true` so runInit skips the post-init "create your
-      // first user artifact?" prompt — this test focuses on idempotency, not
-      // interactive UX.
+      // Idempotency-focused test — pass `yes: true` to keep the flow
+      // non-interactive.
       yes: true,
     };
 
@@ -1816,11 +1818,11 @@ describe("init workspace conflict guard (C8-D1-M3)", () => {
     inq.mockResolvedValueOnce({ teamSize: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt (claude selected)
-    inq.mockResolvedValueOnce({ features: ["agents"] });
+    // Slice B: feature checkbox replaced by wantMcp confirm; this test
+    // exercises MCP-off.
+    inq.mockResolvedValueOnce({ wantMcp: false });
     // C9-H28: CLI tools picker now follows features + MCP.
     inq.mockResolvedValueOnce({ tools: [] });
-    inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
     // Select the repo with existing hatch3r for sync (triggers conflict prompt)
     inq.mockResolvedValueOnce({ syncRepos: ["api"] });
     // Decline the overwrite
@@ -1845,11 +1847,11 @@ describe("init workspace conflict guard (C8-D1-M3)", () => {
     inq.mockResolvedValueOnce({ teamSize: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt (claude selected)
-    inq.mockResolvedValueOnce({ features: ["agents"] });
+    // Slice B: feature checkbox replaced by wantMcp confirm; this test
+    // exercises MCP-off.
+    inq.mockResolvedValueOnce({ wantMcp: false });
     // C9-H28: CLI tools picker now follows features + MCP.
     inq.mockResolvedValueOnce({ tools: [] });
-    inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
     inq.mockResolvedValueOnce({ syncRepos: ["api"] });
     inq.mockResolvedValueOnce({ confirmConflict: true });
 
@@ -1870,11 +1872,11 @@ describe("init workspace conflict guard (C8-D1-M3)", () => {
     inq.mockResolvedValueOnce({ teamSize: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    inq.mockResolvedValueOnce({ enabled: true }); // worktree prompt (claude selected)
-    inq.mockResolvedValueOnce({ features: ["agents"] });
+    // Slice B: feature checkbox replaced by wantMcp confirm; this test
+    // exercises MCP-off.
+    inq.mockResolvedValueOnce({ wantMcp: false });
     // C9-H28: CLI tools picker now follows features + MCP.
     inq.mockResolvedValueOnce({ tools: [] });
-    inq.mockResolvedValueOnce({ create: false }); // D20 post-init prompt
     inq.mockResolvedValueOnce({ syncRepos: ["api"] });
     // NO confirmConflict prompt expected here
 
@@ -2223,10 +2225,10 @@ describe("init tool-secret-notes ordering (C9-H32)", () => {
     inq.mockResolvedValueOnce({ teamSize: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    inq.mockResolvedValueOnce({ enabled: true });
-    inq.mockResolvedValueOnce({ features: ["agents"] });
+    // Slice B: feature checkbox replaced by wantMcp confirm; this test
+    // exercises MCP-off.
+    inq.mockResolvedValueOnce({ wantMcp: false });
     inq.mockResolvedValueOnce({ tools: [] });
-    inq.mockResolvedValueOnce({ create: false });
 
     await initCommand({});
 
@@ -2271,26 +2273,29 @@ describe("init shared-bridge-file ownership (C9-H31)", () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
-  it("populates managedFilesByAdapter._shared with the root AGENTS.md path", async () => {
+  it("drops the managedFilesByAdapter._shared bucket (Wave 6 manifest schema bump)", async () => {
+    // Wave 6 (1.9.0 / schemaVersion 3): root AGENTS.md emission was
+    // removed in Wave 3, so the `_shared` bucket that tracked it is
+    // useless and is explicitly stripped by `migrateManifest` (see
+    // `src/manifest/hatchJson.ts` Wave 6 idempotent prune).
     await initCommand({ yes: true, tools: "claude" });
 
     const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
     const manifest = JSON.parse(await readFile(manifestPath, "utf-8"));
 
     expect(manifest.managedFilesByAdapter).toBeDefined();
-    expect(manifest.managedFilesByAdapter._shared).toBeDefined();
-    expect(manifest.managedFilesByAdapter._shared).toContain("AGENTS.md");
+    expect(manifest.managedFilesByAdapter._shared).toBeUndefined();
   });
 
-  it("adapter-owned files appear under their own Tool key, not under _shared", async () => {
+  it("adapter-owned files appear under their own Tool key", async () => {
     await initCommand({ yes: true, tools: "claude" });
 
     const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
     const manifest = JSON.parse(await readFile(manifestPath, "utf-8"));
 
-    // CLAUDE.md is an adapter-owned file → under claude, not _shared.
+    // CLAUDE.md is an adapter-owned file → under claude, never under any
+    // shared/global bucket.
     expect(manifest.managedFilesByAdapter.claude).toContain("CLAUDE.md");
-    expect(manifest.managedFilesByAdapter._shared).not.toContain("CLAUDE.md");
   });
 });
 

@@ -2,7 +2,7 @@
 id: hatch3r-ui-ux-verify
 type: skill
 description: UI/UX verification gate before declaring a feature done — axe-core, scripted keyboard trace, accessibility-tree snapshot, four-state coverage, visual-regression baseline, one human screen-reader pass per release
-tags: [ui, ux, a11y]
+tags: [review, floor:ui-ux, ui, ux, a11y]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

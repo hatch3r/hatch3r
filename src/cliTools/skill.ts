@@ -21,8 +21,8 @@ export function renderCliToolSkillBody(meta: CliToolMeta, currentOs: OsKey): str
   if (meta.caveat === "pipe-output-corruption") {
     sections.push("## ⚠ Critical: pipe-output corruption (issue #1282)");
     sections.push("");
-    sections.push("rtk silently rewrites piped stdout which breaks downstream tooling.");
-    sections.push("Mitigation: `export RTK_DISABLE_PIPE_REWRITE=1` or invoke with `rtk --raw-output`.");
+    sections.push("rtk's compressed output can corrupt downstream consumers when stdout is piped or redirected.");
+    sections.push("Workaround: wrap piped or redirected invocations as `rtk proxy <cmd>` — `proxy` is a documented raw-passthrough subcommand that skips compression for that call.");
     sections.push("Track upstream: https://github.com/rtk-ai/rtk/issues/1282");
     sections.push("");
   }

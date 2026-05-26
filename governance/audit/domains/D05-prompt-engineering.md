@@ -2,7 +2,7 @@
 
 > Last updated: 2026-05-18
 
-**Pillars served:** P2 (primary), P4, P8 (supporting).
+**Pillars served:** governance-axis P2 (primary), P4, P8 (supporting); content-quality-axis CQ8 Maintainability (primary — content quality of agents/skills/rules/commands/hooks).
 
 **Scope:** 209 content artifacts evaluated for prompt engineering quality, instruction clarity, ambiguity-detection gates, LLM execution reliability.
 **Sub-agents:** 9
@@ -19,7 +19,7 @@
 | 5.8 | Cross-artifact consistency (209 artifacts, from D16) |
 | 5.9 | P8 B1 verification (ambiguity-detection gate, directive 17) |
 
-> Apply rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
+> Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
 
 ## Universal Checklist (all sub-agents)
 - [ ] One-shot success prediction — LLM executes correctly first attempt without clarification (1-5).
@@ -29,8 +29,11 @@
 - [ ] Handoff contracts — pipeline phase data schemas explicit.
 - [ ] Golden test case — deterministic test exists or rationale for absence.
 - [ ] Negative scenarios — missing prereqs, malformed inputs, absent referenced artifacts fail gracefully with guidance.
+- [ ] **Comparable-artifact delta (Decision 20):** web-research ≥2 reputable comparable artifacts (top public implementer-agent prompts, peer agentic libraries with named maintainers); tabulate feature/pattern delta vs current hatch3r artifact in a `## Comparative Gap Map` section of findings; surface deltas as Medium-or-higher findings. Citation alone is insufficient — comparison required.
 
 ## Audit Checklists
+
+> **Per-finding (Decision 17 / charter directive 18):** every finding declares `impact_horizon: short|medium|long` AND `progress_toward_pillar: <axis>.<pillar_id>+<delta>` (e.g., `governance.P5+0.15` or `content-quality.CQ8+0.20`); orchestrator DROPS at output time if either missing.
 
 ### 5.1 Pipeline Agents
 - [ ] Phase sequencing research→implement→review→final correct; context propagation lossless; review-loop termination criteria explicit; Phase 4 dispatch logic defined; token efficiency per AGENTS.md (6-10 rules, ≲150 lines).

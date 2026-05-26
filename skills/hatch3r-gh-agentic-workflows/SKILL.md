@@ -1,14 +1,14 @@
 ---
 id: hatch3r-gh-agentic-workflows
 description: Set up CI/CD agentic workflows for continuous AI-powered repository automation (GitHub Actions, Azure Pipelines, GitLab CI)
-tags: [devops, team]
+tags: [devops, ctx:team-only]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
 ---
 # CI/CD Agentic Workflows Integration
 
-> **Platform detection:** Check `platform` in `.agents/hatch.json` to determine which CI/CD system to use. Defaults to `"github"`.
+> **Platform detection:** Check `platform` in `.hatch3r/hatch.json` to determine which CI/CD system to use. Defaults to `"github"`.
 
 This skill guides setup for AI-powered CI/CD automation in hatch3r-managed projects. The core SKILL covers GitHub Actions (the default); non-GitHub platforms load on demand from `references/`.
 
@@ -33,7 +33,7 @@ Never under-fan-out to save tokens. Token cost is dominated by quality and compl
 | Azure DevOps Pipelines | `references/azure-devops.md` |
 | GitLab CI/CD | `references/gitlab-ci.md` |
 
-Load only the references file that matches `platform` in `.agents/hatch.json`. Do not eagerly load all three.
+Load only the references file that matches `platform` in `.hatch3r/hatch.json`. Do not eagerly load all three.
 
 ## Overview (GitHub Actions)
 
@@ -100,7 +100,7 @@ permissions:
 ---
 ```
 
-Replace `{defaultBranch}` with `board.defaultBranch` from `.agents/hatch.json` (fallback: `"main"`).
+Replace `{defaultBranch}` with `board.defaultBranch` from `.hatch3r/hatch.json` (fallback: `"main"`).
 
 After a PR is merged, check if documentation needs updating and open a follow-up PR.
 

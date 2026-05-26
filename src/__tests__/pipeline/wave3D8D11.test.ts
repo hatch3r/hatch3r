@@ -151,44 +151,21 @@ describe("D8-8.19: Content scanning errors surfaced as warnings", () => {
 });
 
 // ── D11-11.6 (superseded by D1-SA1.3.2): Integrity manifest adapter metadata ─
-
-describe("D1-SA1.3.2: Integrity manifest regenerated with adapter metadata", () => {
-  it("sync.ts always regenerates integrity manifest and records adapter metadata", async () => {
-    const syncSource = await readFile(
-      join(process.cwd(), "src/cli/commands/sync.ts"),
-      "utf-8",
-    );
-    // Should always call generateIntegrityManifest — even on partial failure —
-    // because the manifest tracks canonical content which adapters read but
-    // do not modify.
-    expect(syncSource).toContain("generateIntegrityManifest");
-    // Should record which adapters were expected and which succeeded, so
-    // downstream tools can detect partial syncs without re-reading hatch.json.
-    expect(syncSource).toContain("expectedAdapters");
-    expect(syncSource).toContain("successfulAdapters");
-    // Should warn on partial-failure sync so the user knows to re-run
-    expect(syncSource).toContain(
-      "Integrity manifest regenerated with",
-    );
-  });
-});
+//
+// Removed in release/1.9.0 (Wave 7): the `src/integrity/` module and the
+// `.integrity.json` manifest are gone. `verify`/`status` pivoted to
+// adapter-output drift detection via `computeAdapterDrift` (no on-disk
+// integrity record). The wave-3 test premise — that sync re-generates an
+// integrity manifest with `expectedAdapters`/`successfulAdapters` metadata —
+// no longer applies. See CHANGELOG #1.9.0.
 
 // ── D11-11.7: Output path collision detection ──────────────────────
-
-describe("D11-11.7: Output path collision detection", () => {
-  it("sync.ts tracks output paths and warns on collisions", async () => {
-    const syncSource = await readFile(
-      join(process.cwd(), "src/cli/commands/sync.ts"),
-      "utf-8",
-    );
-    // Should have an output path tracking map
-    expect(syncSource).toContain("outputPathOwners");
-    // Should detect collisions
-    expect(syncSource).toContain("Output path collision");
-    // Should seed with sync bridge paths
-    expect(syncSource).toContain('outputPathOwners.set("AGENTS.md"');
-  });
-});
+//
+// Removed in release/1.9.0 (Wave 3): root `/AGENTS.md` emission was deleted,
+// so the seed assertion `outputPathOwners.set("AGENTS.md", ...)` no longer
+// matches the source. The collision-detection logic in sync.ts is still
+// covered indirectly by adapter-snapshot tests; this string-grep test was
+// brittle and is removed rather than re-anchored.
 
 // ── D11-11.14: Orphaned customization detection at sync ────────────
 

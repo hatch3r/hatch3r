@@ -1,28 +1,37 @@
 import { describe, it, expect } from "vitest";
 import {
-  TAG_CORE,
+  // Capability tags
   TAG_PLANNING,
   TAG_IMPLEMENTATION,
   TAG_REVIEW,
   TAG_DEVOPS,
   TAG_MAINTENANCE,
-  TAG_GREENFIELD,
-  TAG_BROWNFIELD,
-  TAG_SOLO,
-  TAG_TEAM,
+  TAG_ORCHESTRATION,
   TAG_BOARD,
-  TAG_SECURITY,
-  TAG_A11Y,
   TAG_PERFORMANCE,
+  TAG_AI,
+  // Floor tags
+  TAG_FLOOR_SECURITY,
+  TAG_FLOOR_UI_UX,
+  TAG_FLOOR_PROTOCOL,
+  // Context tags
+  TAG_CTX_GREENFIELD_ONLY,
+  TAG_CTX_BROWNFIELD_ONLY,
+  TAG_CTX_TEAM_ONLY,
+  // Customize
   TAG_CUSTOMIZE,
+  // UI/UX specialisation
+  TAG_A11Y,
   TAG_FRONTEND,
   TAG_UI,
   TAG_UX,
   TAG_DESIGN_SYSTEM,
+  // CLI tool family
   TAG_CLI_TOOLS,
   TAG_OPT_IN,
   TAG_CAVEAT,
   TAG_REFERENCE,
+  // CLI category
   TAG_CAT_SEARCH,
   TAG_CAT_JSON,
   TAG_CAT_YAML,
@@ -36,29 +45,32 @@ import {
   TAG_CAT_CONTAINER,
   TAG_CAT_AI,
   TAG_CAT_INTERACTIVE,
+  // Language
   TAG_LANG_TYPESCRIPT,
   TAG_LANG_PYTHON,
   TAG_LANG_GO,
   TAG_LANG_RUST,
   TAG_LANG_JAVA,
   TAG_LANG_RUBY,
+  // Helpers and registry
   ALL_TAGS,
-  WORKFLOW_TAGS,
-  CONTEXT_TAGS,
-  DOMAIN_TAGS,
-  CLI_TOOL_TAGS,
-  LANGUAGE_TAGS,
-  LANGUAGE_TO_TAG,
+  TAG_REGISTRY,
+  facetOf,
+  tagsForFacet,
+  isCapabilityTag,
+  isFloorTag,
+  isContextTag,
+  isCustomizeTag,
+  isUiUxSpecialisation,
   isLanguageTag,
+  LANGUAGE_TO_TAG,
   resolveLanguageTags,
   filterByLanguages,
 } from "../../content/tags.js";
 
-describe("tag constants", () => {
-  it("TAG_CORE equals 'core'", () => {
-    expect(TAG_CORE).toBe("core");
-  });
+// ── Capability tag constants ─────────────────────────────────────
 
+describe("capability tag constants", () => {
   it("TAG_PLANNING equals 'planning'", () => {
     expect(TAG_PLANNING).toBe("planning");
   });
@@ -79,203 +91,396 @@ describe("tag constants", () => {
     expect(TAG_MAINTENANCE).toBe("maintenance");
   });
 
-  it("TAG_GREENFIELD equals 'greenfield'", () => {
-    expect(TAG_GREENFIELD).toBe("greenfield");
-  });
-
-  it("TAG_BROWNFIELD equals 'brownfield'", () => {
-    expect(TAG_BROWNFIELD).toBe("brownfield");
-  });
-
-  it("TAG_SOLO equals 'solo'", () => {
-    expect(TAG_SOLO).toBe("solo");
-  });
-
-  it("TAG_TEAM equals 'team'", () => {
-    expect(TAG_TEAM).toBe("team");
+  it("TAG_ORCHESTRATION equals 'orchestration' (formerly TAG_CORE)", () => {
+    expect(TAG_ORCHESTRATION).toBe("orchestration");
   });
 
   it("TAG_BOARD equals 'board'", () => {
     expect(TAG_BOARD).toBe("board");
   });
 
-  it("TAG_SECURITY equals 'security'", () => {
-    expect(TAG_SECURITY).toBe("security");
+  it("TAG_PERFORMANCE equals 'performance'", () => {
+    expect(TAG_PERFORMANCE).toBe("performance");
+  });
+
+  it("TAG_AI equals 'ai' (new capability tag, distinct from TAG_CAT_AI)", () => {
+    expect(TAG_AI).toBe("ai");
+  });
+});
+
+// ── Floor tag constants ──────────────────────────────────────────
+
+describe("floor tag constants", () => {
+  it("TAG_FLOOR_SECURITY equals 'floor:security'", () => {
+    expect(TAG_FLOOR_SECURITY).toBe("floor:security");
+  });
+
+  it("TAG_FLOOR_UI_UX equals 'floor:ui-ux'", () => {
+    expect(TAG_FLOOR_UI_UX).toBe("floor:ui-ux");
+  });
+
+  it("TAG_FLOOR_PROTOCOL equals 'floor:protocol'", () => {
+    expect(TAG_FLOOR_PROTOCOL).toBe("floor:protocol");
+  });
+});
+
+// ── Context tag constants ────────────────────────────────────────
+
+describe("context tag constants", () => {
+  it("TAG_CTX_GREENFIELD_ONLY equals 'ctx:greenfield-only'", () => {
+    expect(TAG_CTX_GREENFIELD_ONLY).toBe("ctx:greenfield-only");
+  });
+
+  it("TAG_CTX_BROWNFIELD_ONLY equals 'ctx:brownfield-only'", () => {
+    expect(TAG_CTX_BROWNFIELD_ONLY).toBe("ctx:brownfield-only");
+  });
+
+  it("TAG_CTX_TEAM_ONLY equals 'ctx:team-only'", () => {
+    expect(TAG_CTX_TEAM_ONLY).toBe("ctx:team-only");
+  });
+});
+
+// ── Customize and UI/UX specialisation ───────────────────────────
+
+describe("customize and ui-ux specialisation tag constants", () => {
+  it("TAG_CUSTOMIZE equals 'customize'", () => {
+    expect(TAG_CUSTOMIZE).toBe("customize");
   });
 
   it("TAG_A11Y equals 'a11y'", () => {
     expect(TAG_A11Y).toBe("a11y");
   });
 
-  it("TAG_PERFORMANCE equals 'performance'", () => {
-    expect(TAG_PERFORMANCE).toBe("performance");
+  it("TAG_FRONTEND equals 'frontend'", () => {
+    expect(TAG_FRONTEND).toBe("frontend");
   });
 
-  it("TAG_CUSTOMIZE equals 'customize'", () => {
-    expect(TAG_CUSTOMIZE).toBe("customize");
+  it("TAG_UI equals 'ui'", () => {
+    expect(TAG_UI).toBe("ui");
+  });
+
+  it("TAG_UX equals 'ux'", () => {
+    expect(TAG_UX).toBe("ux");
+  });
+
+  it("TAG_DESIGN_SYSTEM equals 'design-system'", () => {
+    expect(TAG_DESIGN_SYSTEM).toBe("design-system");
   });
 });
 
-describe("ALL_TAGS", () => {
-  // 25 base tags (workflow + context + domain + language) + 17 CLI tool
-  // tags (marker + 3 tier classifiers + 13 category tags). Domain tags
-  // expanded from 5 to 9 in 1.7.5 with frontend/ui/ux/design-system added
-  // alongside the agent-produced UI/UX governance slice.
-  it("contains exactly 42 elements", () => {
-    expect(ALL_TAGS).toHaveLength(42);
+// ── CLI category — rename verification ───────────────────────────
+
+describe("CLI category — 'ai' renamed to 'ai-cat' to disambiguate from capability tag", () => {
+  it("TAG_CAT_AI equals 'ai-cat' (not 'ai')", () => {
+    expect(TAG_CAT_AI).toBe("ai-cat");
   });
 
-  it("contains every individual tag constant", () => {
-    const allIndividualTags = [
-      TAG_CORE,
-      TAG_PLANNING,
-      TAG_IMPLEMENTATION,
-      TAG_REVIEW,
-      TAG_DEVOPS,
-      TAG_MAINTENANCE,
-      TAG_GREENFIELD,
-      TAG_BROWNFIELD,
-      TAG_SOLO,
-      TAG_TEAM,
-      TAG_BOARD,
-      TAG_SECURITY,
-      TAG_A11Y,
-      TAG_PERFORMANCE,
+  it("TAG_AI (capability) and TAG_CAT_AI (cli category) have distinct values", () => {
+    expect(TAG_AI).not.toBe(TAG_CAT_AI);
+  });
+
+  it("TAG_CAT_AI is registered as a cli-tool-category facet", () => {
+    expect(facetOf(TAG_CAT_AI)).toBe("cli-tool-category");
+  });
+
+  it("TAG_AI is registered as a capability facet", () => {
+    expect(facetOf(TAG_AI)).toBe("capability");
+  });
+});
+
+// ── TAG_REGISTRY consistency ─────────────────────────────────────
+
+describe("TAG_REGISTRY consistency", () => {
+  it("every exported TAG_* constant has an entry in TAG_REGISTRY", () => {
+    const exportedTagValues = [
+      TAG_PLANNING, TAG_IMPLEMENTATION, TAG_REVIEW, TAG_DEVOPS, TAG_MAINTENANCE,
+      TAG_ORCHESTRATION, TAG_BOARD, TAG_PERFORMANCE, TAG_AI,
+      TAG_FLOOR_SECURITY, TAG_FLOOR_UI_UX, TAG_FLOOR_PROTOCOL,
+      TAG_CTX_GREENFIELD_ONLY, TAG_CTX_BROWNFIELD_ONLY, TAG_CTX_TEAM_ONLY,
       TAG_CUSTOMIZE,
-      TAG_FRONTEND,
-      TAG_UI,
-      TAG_UX,
-      TAG_DESIGN_SYSTEM,
-      TAG_CLI_TOOLS,
-      TAG_OPT_IN,
-      TAG_CAVEAT,
-      TAG_REFERENCE,
-      TAG_CAT_SEARCH,
-      TAG_CAT_JSON,
-      TAG_CAT_YAML,
-      TAG_CAT_GIT,
-      TAG_CAT_VIEW,
-      TAG_CAT_EDIT,
-      TAG_CAT_ARCHIVE,
-      TAG_CAT_DATA,
-      TAG_CAT_FORGE,
-      TAG_CAT_BROWSER,
-      TAG_CAT_CONTAINER,
-      TAG_CAT_AI,
-      TAG_CAT_INTERACTIVE,
-      TAG_LANG_TYPESCRIPT,
-      TAG_LANG_PYTHON,
-      TAG_LANG_GO,
-      TAG_LANG_RUST,
-      TAG_LANG_JAVA,
-      TAG_LANG_RUBY,
+      TAG_A11Y, TAG_FRONTEND, TAG_UI, TAG_UX, TAG_DESIGN_SYSTEM,
+      TAG_CLI_TOOLS, TAG_OPT_IN, TAG_CAVEAT, TAG_REFERENCE,
+      TAG_CAT_SEARCH, TAG_CAT_JSON, TAG_CAT_YAML, TAG_CAT_GIT, TAG_CAT_VIEW,
+      TAG_CAT_EDIT, TAG_CAT_ARCHIVE, TAG_CAT_DATA, TAG_CAT_FORGE,
+      TAG_CAT_BROWSER, TAG_CAT_CONTAINER, TAG_CAT_AI, TAG_CAT_INTERACTIVE,
+      TAG_LANG_TYPESCRIPT, TAG_LANG_PYTHON, TAG_LANG_GO, TAG_LANG_RUST,
+      TAG_LANG_JAVA, TAG_LANG_RUBY,
     ];
-    for (const tag of allIndividualTags) {
-      expect(ALL_TAGS).toContain(tag);
+    for (const tag of exportedTagValues) {
+      expect(TAG_REGISTRY[tag], `expected TAG_REGISTRY to contain ${tag}`).toBeDefined();
     }
   });
 
-  it("has no duplicate values", () => {
+  it("TAG_REGISTRY keys equal ALL_TAGS (single source of truth)", () => {
+    expect(Object.keys(TAG_REGISTRY).sort()).toEqual([...ALL_TAGS].sort());
+  });
+
+  it("ALL_TAGS has no duplicate values", () => {
     const unique = new Set(ALL_TAGS);
     expect(unique.size).toBe(ALL_TAGS.length);
   });
+
+  it("ALL_TAGS contains exactly 44 elements (9 capability + 3 floor + 3 context + 1 customize + 5 ui-ux + 4 cli-tool + 13 cli-cat + 6 language)", () => {
+    expect(ALL_TAGS).toHaveLength(44);
+  });
+
+  it("facetOf returns 'capability' for every capability tag", () => {
+    const capTags = [
+      TAG_PLANNING, TAG_IMPLEMENTATION, TAG_REVIEW, TAG_DEVOPS, TAG_MAINTENANCE,
+      TAG_ORCHESTRATION, TAG_BOARD, TAG_PERFORMANCE, TAG_AI,
+    ];
+    for (const tag of capTags) {
+      expect(facetOf(tag)).toBe("capability");
+    }
+  });
+
+  it("facetOf returns 'floor' for every floor tag", () => {
+    expect(facetOf(TAG_FLOOR_SECURITY)).toBe("floor");
+    expect(facetOf(TAG_FLOOR_UI_UX)).toBe("floor");
+    expect(facetOf(TAG_FLOOR_PROTOCOL)).toBe("floor");
+  });
+
+  it("facetOf returns 'context' for every context tag", () => {
+    expect(facetOf(TAG_CTX_GREENFIELD_ONLY)).toBe("context");
+    expect(facetOf(TAG_CTX_BROWNFIELD_ONLY)).toBe("context");
+    expect(facetOf(TAG_CTX_TEAM_ONLY)).toBe("context");
+  });
+
+  it("facetOf returns 'customize' for TAG_CUSTOMIZE", () => {
+    expect(facetOf(TAG_CUSTOMIZE)).toBe("customize");
+  });
+
+  it("facetOf returns 'ui-ux-specialisation' for every ui-ux tag", () => {
+    expect(facetOf(TAG_A11Y)).toBe("ui-ux-specialisation");
+    expect(facetOf(TAG_FRONTEND)).toBe("ui-ux-specialisation");
+    expect(facetOf(TAG_UI)).toBe("ui-ux-specialisation");
+    expect(facetOf(TAG_UX)).toBe("ui-ux-specialisation");
+    expect(facetOf(TAG_DESIGN_SYSTEM)).toBe("ui-ux-specialisation");
+  });
+
+  it("facetOf returns 'cli-tool' for marker/tier classifier tags", () => {
+    expect(facetOf(TAG_CLI_TOOLS)).toBe("cli-tool");
+    expect(facetOf(TAG_OPT_IN)).toBe("cli-tool");
+    expect(facetOf(TAG_CAVEAT)).toBe("cli-tool");
+    expect(facetOf(TAG_REFERENCE)).toBe("cli-tool");
+  });
+
+  it("facetOf returns 'cli-tool-category' for each CLI category tag", () => {
+    const catTags = [
+      TAG_CAT_SEARCH, TAG_CAT_JSON, TAG_CAT_YAML, TAG_CAT_GIT, TAG_CAT_VIEW,
+      TAG_CAT_EDIT, TAG_CAT_ARCHIVE, TAG_CAT_DATA, TAG_CAT_FORGE,
+      TAG_CAT_BROWSER, TAG_CAT_CONTAINER, TAG_CAT_AI, TAG_CAT_INTERACTIVE,
+    ];
+    for (const tag of catTags) {
+      expect(facetOf(tag)).toBe("cli-tool-category");
+    }
+  });
+
+  it("facetOf returns 'language' for every language tag", () => {
+    expect(facetOf(TAG_LANG_TYPESCRIPT)).toBe("language");
+    expect(facetOf(TAG_LANG_PYTHON)).toBe("language");
+    expect(facetOf(TAG_LANG_GO)).toBe("language");
+    expect(facetOf(TAG_LANG_RUST)).toBe("language");
+    expect(facetOf(TAG_LANG_JAVA)).toBe("language");
+    expect(facetOf(TAG_LANG_RUBY)).toBe("language");
+  });
+
+  it("facetOf returns undefined for unknown / legacy tag values", () => {
+    expect(facetOf("core")).toBeUndefined();
+    expect(facetOf("solo")).toBeUndefined();
+    expect(facetOf("security")).toBeUndefined();
+    expect(facetOf("team")).toBeUndefined();
+    expect(facetOf("greenfield")).toBeUndefined();
+    expect(facetOf("brownfield")).toBeUndefined();
+    expect(facetOf("not-a-tag")).toBeUndefined();
+    expect(facetOf("")).toBeUndefined();
+  });
 });
 
-describe("CLI_TOOL_TAGS", () => {
-  it("has exactly 17 elements", () => {
-    expect(CLI_TOOL_TAGS).toHaveLength(17);
+// ── tagsForFacet — facet enumeration ─────────────────────────────
+
+describe("tagsForFacet", () => {
+  it("returns the 9 capability tags", () => {
+    const result = tagsForFacet("capability");
+    expect(result).toHaveLength(9);
+    expect(result.sort()).toEqual(
+      [
+        TAG_PLANNING, TAG_IMPLEMENTATION, TAG_REVIEW, TAG_DEVOPS, TAG_MAINTENANCE,
+        TAG_ORCHESTRATION, TAG_BOARD, TAG_PERFORMANCE, TAG_AI,
+      ].sort(),
+    );
   });
 
-  it("contains the marker tag and tier classifiers", () => {
-    expect(CLI_TOOL_TAGS).toContain(TAG_CLI_TOOLS);
-    expect(CLI_TOOL_TAGS).toContain(TAG_OPT_IN);
-    expect(CLI_TOOL_TAGS).toContain(TAG_CAVEAT);
-    expect(CLI_TOOL_TAGS).toContain(TAG_REFERENCE);
+  it("returns the 3 floor tags", () => {
+    const result = tagsForFacet("floor");
+    expect(result).toHaveLength(3);
+    expect(result.sort()).toEqual(
+      [TAG_FLOOR_SECURITY, TAG_FLOOR_UI_UX, TAG_FLOOR_PROTOCOL].sort(),
+    );
   });
 
-  it("contains the 13 category tags mirroring CliToolMeta.category", () => {
-    expect(CLI_TOOL_TAGS).toContain(TAG_CAT_SEARCH);
-    expect(CLI_TOOL_TAGS).toContain(TAG_CAT_JSON);
-    expect(CLI_TOOL_TAGS).toContain(TAG_CAT_YAML);
-    expect(CLI_TOOL_TAGS).toContain(TAG_CAT_GIT);
-    expect(CLI_TOOL_TAGS).toContain(TAG_CAT_VIEW);
-    expect(CLI_TOOL_TAGS).toContain(TAG_CAT_EDIT);
-    expect(CLI_TOOL_TAGS).toContain(TAG_CAT_ARCHIVE);
-    expect(CLI_TOOL_TAGS).toContain(TAG_CAT_DATA);
-    expect(CLI_TOOL_TAGS).toContain(TAG_CAT_FORGE);
-    expect(CLI_TOOL_TAGS).toContain(TAG_CAT_BROWSER);
-    expect(CLI_TOOL_TAGS).toContain(TAG_CAT_CONTAINER);
-    expect(CLI_TOOL_TAGS).toContain(TAG_CAT_AI);
-    expect(CLI_TOOL_TAGS).toContain(TAG_CAT_INTERACTIVE);
-  });
-});
-
-describe("WORKFLOW_TAGS", () => {
-  it("has exactly 6 elements", () => {
-    expect(WORKFLOW_TAGS).toHaveLength(6);
+  it("returns the 3 context tags", () => {
+    const result = tagsForFacet("context");
+    expect(result).toHaveLength(3);
+    expect(result.sort()).toEqual(
+      [TAG_CTX_GREENFIELD_ONLY, TAG_CTX_BROWNFIELD_ONLY, TAG_CTX_TEAM_ONLY].sort(),
+    );
   });
 
-  it("contains the correct workflow tags", () => {
-    expect(WORKFLOW_TAGS).toContain(TAG_CORE);
-    expect(WORKFLOW_TAGS).toContain(TAG_PLANNING);
-    expect(WORKFLOW_TAGS).toContain(TAG_IMPLEMENTATION);
-    expect(WORKFLOW_TAGS).toContain(TAG_REVIEW);
-    expect(WORKFLOW_TAGS).toContain(TAG_DEVOPS);
-    expect(WORKFLOW_TAGS).toContain(TAG_MAINTENANCE);
-  });
-});
-
-describe("CONTEXT_TAGS", () => {
-  it("has exactly 4 elements", () => {
-    expect(CONTEXT_TAGS).toHaveLength(4);
+  it("returns the single customize tag", () => {
+    const result = tagsForFacet("customize");
+    expect(result).toEqual([TAG_CUSTOMIZE]);
   });
 
-  it("contains the correct context tags", () => {
-    expect(CONTEXT_TAGS).toContain(TAG_GREENFIELD);
-    expect(CONTEXT_TAGS).toContain(TAG_BROWNFIELD);
-    expect(CONTEXT_TAGS).toContain(TAG_SOLO);
-    expect(CONTEXT_TAGS).toContain(TAG_TEAM);
-  });
-});
-
-describe("DOMAIN_TAGS", () => {
-  it("has exactly 9 elements", () => {
-    expect(DOMAIN_TAGS).toHaveLength(9);
+  it("returns the 5 ui-ux-specialisation tags", () => {
+    const result = tagsForFacet("ui-ux-specialisation");
+    expect(result).toHaveLength(5);
+    expect(result.sort()).toEqual(
+      [TAG_A11Y, TAG_FRONTEND, TAG_UI, TAG_UX, TAG_DESIGN_SYSTEM].sort(),
+    );
   });
 
-  it("contains the correct domain tags", () => {
-    expect(DOMAIN_TAGS).toContain(TAG_BOARD);
-    expect(DOMAIN_TAGS).toContain(TAG_SECURITY);
-    expect(DOMAIN_TAGS).toContain(TAG_A11Y);
-    expect(DOMAIN_TAGS).toContain(TAG_PERFORMANCE);
-    expect(DOMAIN_TAGS).toContain(TAG_CUSTOMIZE);
-    expect(DOMAIN_TAGS).toContain(TAG_FRONTEND);
-    expect(DOMAIN_TAGS).toContain(TAG_UI);
-    expect(DOMAIN_TAGS).toContain(TAG_UX);
-    expect(DOMAIN_TAGS).toContain(TAG_DESIGN_SYSTEM);
-  });
-});
-
-describe("LANGUAGE_TAGS", () => {
-  it("has exactly 6 elements", () => {
-    expect(LANGUAGE_TAGS).toHaveLength(6);
+  it("returns the 4 cli-tool marker/tier tags", () => {
+    const result = tagsForFacet("cli-tool");
+    expect(result).toHaveLength(4);
+    expect(result.sort()).toEqual(
+      [TAG_CLI_TOOLS, TAG_OPT_IN, TAG_CAVEAT, TAG_REFERENCE].sort(),
+    );
   });
 
-  it("contains the correct language tags", () => {
-    expect(LANGUAGE_TAGS).toContain(TAG_LANG_TYPESCRIPT);
-    expect(LANGUAGE_TAGS).toContain(TAG_LANG_PYTHON);
-    expect(LANGUAGE_TAGS).toContain(TAG_LANG_GO);
-    expect(LANGUAGE_TAGS).toContain(TAG_LANG_RUST);
-    expect(LANGUAGE_TAGS).toContain(TAG_LANG_JAVA);
-    expect(LANGUAGE_TAGS).toContain(TAG_LANG_RUBY);
+  it("returns the 13 cli-tool-category tags including 'ai-cat'", () => {
+    const result = tagsForFacet("cli-tool-category");
+    expect(result).toHaveLength(13);
+    expect(result).toContain(TAG_CAT_AI);
+    expect(TAG_CAT_AI).toBe("ai-cat");
   });
 
-  it("all language tags start with 'lang:' prefix", () => {
-    for (const tag of LANGUAGE_TAGS) {
-      expect(tag).toMatch(/^lang:/);
+  it("returns the 6 language tags", () => {
+    const result = tagsForFacet("language");
+    expect(result).toHaveLength(6);
+    for (const t of result) {
+      expect(t).toMatch(/^lang:/);
     }
   });
 });
+
+// ── Facet predicates ─────────────────────────────────────────────
+
+describe("isCapabilityTag", () => {
+  it("returns true for capability tags", () => {
+    expect(isCapabilityTag(TAG_PLANNING)).toBe(true);
+    expect(isCapabilityTag(TAG_IMPLEMENTATION)).toBe(true);
+    expect(isCapabilityTag(TAG_ORCHESTRATION)).toBe(true);
+    expect(isCapabilityTag(TAG_AI)).toBe(true);
+  });
+
+  it("returns false for non-capability tags", () => {
+    expect(isCapabilityTag(TAG_FLOOR_SECURITY)).toBe(false);
+    expect(isCapabilityTag(TAG_CTX_TEAM_ONLY)).toBe(false);
+    expect(isCapabilityTag(TAG_CUSTOMIZE)).toBe(false);
+    expect(isCapabilityTag(TAG_LANG_TYPESCRIPT)).toBe(false);
+    expect(isCapabilityTag("core")).toBe(false); // legacy
+    expect(isCapabilityTag("")).toBe(false);
+  });
+});
+
+describe("isFloorTag", () => {
+  it("returns true for floor tags", () => {
+    expect(isFloorTag(TAG_FLOOR_SECURITY)).toBe(true);
+    expect(isFloorTag(TAG_FLOOR_UI_UX)).toBe(true);
+    expect(isFloorTag(TAG_FLOOR_PROTOCOL)).toBe(true);
+  });
+
+  it("returns false for non-floor tags", () => {
+    expect(isFloorTag(TAG_PLANNING)).toBe(false);
+    expect(isFloorTag(TAG_A11Y)).toBe(false);
+    expect(isFloorTag("security")).toBe(false); // legacy
+    expect(isFloorTag("")).toBe(false);
+  });
+});
+
+describe("isContextTag", () => {
+  it("returns true for context tags", () => {
+    expect(isContextTag(TAG_CTX_GREENFIELD_ONLY)).toBe(true);
+    expect(isContextTag(TAG_CTX_BROWNFIELD_ONLY)).toBe(true);
+    expect(isContextTag(TAG_CTX_TEAM_ONLY)).toBe(true);
+  });
+
+  it("returns false for non-context tags", () => {
+    expect(isContextTag(TAG_PLANNING)).toBe(false);
+    expect(isContextTag(TAG_FLOOR_SECURITY)).toBe(false);
+    expect(isContextTag("team")).toBe(false); // legacy
+    expect(isContextTag("greenfield")).toBe(false); // legacy
+    expect(isContextTag("")).toBe(false);
+  });
+});
+
+describe("isCustomizeTag", () => {
+  it("returns true for TAG_CUSTOMIZE", () => {
+    expect(isCustomizeTag(TAG_CUSTOMIZE)).toBe(true);
+  });
+
+  it("returns false for every other tag", () => {
+    expect(isCustomizeTag(TAG_PLANNING)).toBe(false);
+    expect(isCustomizeTag(TAG_FLOOR_SECURITY)).toBe(false);
+    expect(isCustomizeTag(TAG_A11Y)).toBe(false);
+    expect(isCustomizeTag("")).toBe(false);
+  });
+});
+
+describe("isUiUxSpecialisation", () => {
+  it("returns true for ui-ux specialisation tags", () => {
+    expect(isUiUxSpecialisation(TAG_A11Y)).toBe(true);
+    expect(isUiUxSpecialisation(TAG_FRONTEND)).toBe(true);
+    expect(isUiUxSpecialisation(TAG_UI)).toBe(true);
+    expect(isUiUxSpecialisation(TAG_UX)).toBe(true);
+    expect(isUiUxSpecialisation(TAG_DESIGN_SYSTEM)).toBe(true);
+  });
+
+  it("returns false for non-ui-ux tags", () => {
+    expect(isUiUxSpecialisation(TAG_FLOOR_UI_UX)).toBe(false); // floor, not specialisation
+    expect(isUiUxSpecialisation(TAG_PLANNING)).toBe(false);
+    expect(isUiUxSpecialisation("")).toBe(false);
+  });
+});
+
+describe("isLanguageTag", () => {
+  it("returns true for language tags", () => {
+    expect(isLanguageTag("lang:typescript")).toBe(true);
+    expect(isLanguageTag("lang:python")).toBe(true);
+    expect(isLanguageTag("lang:go")).toBe(true);
+  });
+
+  it("returns false for non-language tags", () => {
+    expect(isLanguageTag(TAG_PLANNING)).toBe(false);
+    expect(isLanguageTag(TAG_FLOOR_SECURITY)).toBe(false);
+    expect(isLanguageTag("")).toBe(false);
+  });
+});
+
+// ── CLI category breadth ─────────────────────────────────────────
+
+describe("CLI category coverage", () => {
+  it("contains the 13 categories from CliToolMeta.category union", () => {
+    const cats = tagsForFacet("cli-tool-category");
+    expect(cats).toHaveLength(13);
+    expect(cats).toContain(TAG_CAT_SEARCH);
+    expect(cats).toContain(TAG_CAT_JSON);
+    expect(cats).toContain(TAG_CAT_YAML);
+    expect(cats).toContain(TAG_CAT_GIT);
+    expect(cats).toContain(TAG_CAT_VIEW);
+    expect(cats).toContain(TAG_CAT_EDIT);
+    expect(cats).toContain(TAG_CAT_ARCHIVE);
+    expect(cats).toContain(TAG_CAT_DATA);
+    expect(cats).toContain(TAG_CAT_FORGE);
+    expect(cats).toContain(TAG_CAT_BROWSER);
+    expect(cats).toContain(TAG_CAT_CONTAINER);
+    expect(cats).toContain(TAG_CAT_AI);
+    expect(cats).toContain(TAG_CAT_INTERACTIVE);
+  });
+});
+
+// ── LANGUAGE_TO_TAG ──────────────────────────────────────────────
 
 describe("LANGUAGE_TO_TAG", () => {
   it("maps typescript to lang:typescript", () => {
@@ -311,36 +516,7 @@ describe("LANGUAGE_TO_TAG", () => {
   });
 });
 
-describe("isLanguageTag", () => {
-  it("returns true for language tags", () => {
-    expect(isLanguageTag("lang:typescript")).toBe(true);
-    expect(isLanguageTag("lang:python")).toBe(true);
-    expect(isLanguageTag("lang:go")).toBe(true);
-  });
-
-  it("returns false for non-language tags", () => {
-    expect(isLanguageTag("core")).toBe(false);
-    expect(isLanguageTag("planning")).toBe(false);
-    expect(isLanguageTag("security")).toBe(false);
-  });
-
-  it("returns false for empty string", () => {
-    expect(isLanguageTag("")).toBe(false);
-  });
-});
-
-describe("tag group completeness", () => {
-  it("ALL_TAGS equals the union of WORKFLOW_TAGS, CONTEXT_TAGS, DOMAIN_TAGS, CLI_TOOL_TAGS, and LANGUAGE_TAGS", () => {
-    const combined = [
-      ...WORKFLOW_TAGS,
-      ...CONTEXT_TAGS,
-      ...DOMAIN_TAGS,
-      ...CLI_TOOL_TAGS,
-      ...LANGUAGE_TAGS,
-    ];
-    expect(ALL_TAGS).toEqual(combined);
-  });
-});
+// ── resolveLanguageTags ──────────────────────────────────────────
 
 describe("resolveLanguageTags", () => {
   it("maps a single known language to its lang:* tag", () => {
@@ -374,6 +550,8 @@ describe("resolveLanguageTags", () => {
   });
 });
 
+// ── filterByLanguages ────────────────────────────────────────────
+
 describe("filterByLanguages", () => {
   // Minimal local fixture — independent of CatalogItem to keep this a unit test.
   type Item = { id: string; tags: string[]; protected?: boolean };
@@ -384,8 +562,8 @@ describe("filterByLanguages", () => {
 
   it("includes items with no lang:* tags (universal/agnostic content)", () => {
     const items: Item[] = [
-      item("agnostic-a", ["core"]),
-      item("agnostic-b", ["security"]),
+      item("agnostic-a", [TAG_ORCHESTRATION]),
+      item("agnostic-b", [TAG_FLOOR_SECURITY]),
       item("agnostic-c", []),
     ];
     const result = filterByLanguages(items, ["python"]);
@@ -403,9 +581,9 @@ describe("filterByLanguages", () => {
 
   it("excludes items whose lang:* tags do not intersect the project languages", () => {
     const items: Item[] = [
-      item("ts-only", ["core", "lang:typescript"]),
-      item("go-only", ["core", "lang:go"]),
-      item("agnostic", ["core"]),
+      item("ts-only", [TAG_ORCHESTRATION, "lang:typescript"]),
+      item("go-only", [TAG_ORCHESTRATION, "lang:go"]),
+      item("agnostic", [TAG_ORCHESTRATION]),
     ];
     const result = filterByLanguages(items, ["python"]);
     expect(result.map((i) => i.id)).toEqual(["agnostic"]);
@@ -423,7 +601,7 @@ describe("filterByLanguages", () => {
   it("treats projectLanguages=[] as a no-op (returns all items unchanged)", () => {
     const items: Item[] = [
       item("ts-only", ["lang:typescript"]),
-      item("agnostic", ["core"]),
+      item("agnostic", [TAG_ORCHESTRATION]),
     ];
     const result = filterByLanguages(items, []);
     expect(result.map((i) => i.id)).toEqual(["ts-only", "agnostic"]);

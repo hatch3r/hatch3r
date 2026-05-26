@@ -2,7 +2,7 @@
 
 > Last updated: 2026-04-19
 
-**Pillars served:** P2 (primary), P4, P8 (supporting).
+**Pillars served:** governance-axis P8 (primary), P7 (supporting); content-quality-axis CQ8 Maintainability (supporting — orchestration patterns).
 
 **Scope:** Four-phase pipeline architecture, fan-out discipline, and orchestration optimization for task success rate.
 **Sub-agents:** 6
@@ -19,6 +19,10 @@
 > Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
 
 ## Audit Checklists
+
+> **Per-finding (Decision 17 / charter directive 18):** every finding declares `impact_horizon: short|medium|long` AND `progress_toward_pillar: <axis>.<pillar_id>+<delta>` (e.g., `governance.P5+0.15` or `content-quality.CQ4+0.20`); orchestrator DROPS at output time if either missing.
+
+- [ ] **Comparable-artifact delta (Decision 20):** web-research ≥2 reputable comparable orchestration artifacts; tabulate feature/pattern delta vs current hatch3r in `## Comparative Gap Map` section of findings; surface deltas as Medium-or-higher findings.
 
 ### 7.1 Pipeline Design
 - [ ] Is the four-phase pipeline optimally ordered? Should research and implementation be more tightly coupled?

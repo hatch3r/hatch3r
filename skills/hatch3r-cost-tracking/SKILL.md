@@ -53,7 +53,34 @@ Estimate tokens for the current session using these rules:
 
 **Subagent cost multiplier.** Each subagent spawn carries a base cost for the agent protocol, included rules, and context. A pipeline with 8 subagents (researcher + implementer + reviewer + fixer + 4 Phase 4 specialists) has significant overhead from context re-transmission. Factor this into budget estimates.
 
-Calculate estimated cost using the model tier rates from the `hatch3r-cost-tracking` command reference.
+Calculate estimated cost using these model tier rates (reference rates — update based on actual provider pricing):
+
+| Model Tier | Input (per 1M tokens) | Output (per 1M tokens) |
+|-----------|----------------------|----------------------|
+| Fast | $0.25 | $1.00 |
+| Standard | $3.00 | $15.00 |
+| Premium | $15.00 | $75.00 |
+
+### Default Budgets
+
+When `hatch.json` has no `costTracking` section, apply these defaults (report-only — no hard stop unless `hardStop: true`):
+
+| Budget Type | Default |
+|------------|---------|
+| `sessionBudget` | $10.00 |
+| `issueBudget` | $5.00 |
+| `epicBudget` | $25.00 |
+| `warningThresholds` | [0.5, 0.75, 0.9] |
+| `hardStop` | false |
+
+### Enforcement
+
+| Threshold | Action |
+|-----------|--------|
+| 50% | Log warning, continue |
+| 75% | Alert user, suggest optimization |
+| 90% | Strong warning, recommend delegation or checkpoint |
+| 100% | Stop (if `hardStop: true`) or alert and continue |
 
 ## Step 3: Identify Optimizations
 
@@ -67,11 +94,37 @@ Review usage patterns for savings:
 
 ## Step 4: Generate Report
 
-Produce a cost report using the output format from the `hatch3r-cost-tracking` command. Include:
-- Total estimated tokens (input + output)
-- Estimated cost at the current model tier
-- Budget status (if configured)
-- Top optimization opportunities
+Produce a cost report in this format:
+
+```
+## Cost Report: {scope}
+
+**Period:** {session/issue/sprint}
+
+**Token Usage:**
+- Input tokens: ~{n}
+- Output tokens: ~{n}
+- Total tokens: ~{n}
+
+**Estimated Cost:** ${amount}
+
+**Budget Status:** {amount} / {budget} ({percentage}%)
+
+**Breakdown:**
+
+| Phase | Tokens | Cost | % of Total |
+|-------|--------|------|-----------|
+| Planning | ~{n} | ${x} | {%} |
+| Implementation | ~{n} | ${x} | {%} |
+| Testing | ~{n} | ${x} | {%} |
+| Review | ~{n} | ${x} | {%} |
+| Sub-agents | ~{n} | ${x} | {%} |
+
+**Optimization Opportunities:**
+- {suggestions based on usage patterns}
+```
+
+Include total estimated tokens (input + output), estimated cost at current model tier, budget status (if configured), and top optimization opportunities. Always present estimated values with the `~` prefix. Never suppress threshold alerts.
 
 ## Error Handling
 
@@ -88,5 +141,4 @@ Produce a cost report using the output format from the `hatch3r-cost-tracking` c
 
 ## Related Skills & Agents
 
-- **Command**: `hatch3r-cost-tracking` — full cost tracking protocol with guardrails and budget enforcement
 - **Skill**: `hatch3r-context-health` — context health monitoring complements cost tracking for session management

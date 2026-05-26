@@ -4,7 +4,7 @@ type: command
 orchestrator: true
 agentPipeline: [hatch3r-researcher, hatch3r-docs-writer]
 description: Sequence delivery phases over time into a dependency-ordered milestone plan with business and technical lenses, emitting a todo.md rollout schedule rather than design docs
-tags: [planning, greenfield]
+tags: [planning, ctx:greenfield-only]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
@@ -35,7 +35,7 @@ Generate a dependency-aware, priority-ordered roadmap with **two parallel dimens
 
 ## Shared Context
 
-**Read the `hatch3r-board-shared` command at the start of the run.** It contains Board Configuration, GitHub Context, Project Reference, Projects v2 sync procedure, and tooling directives. Cache all values for the duration of this run.
+**Read the `hatch3r-board-shared` skill at the start of the run.** It contains Board Configuration, GitHub Context, Project Reference, Projects v2 sync procedure, and tooling directives. Cache all values for the duration of this run.
 
 ## Token-Saving Directives
 

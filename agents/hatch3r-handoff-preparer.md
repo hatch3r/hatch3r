@@ -3,7 +3,7 @@ id: hatch3r-handoff-preparer
 type: agent
 description: Prepare a canonical handoff document capturing mid-work session state. Invoked by the on-context-switch hook (context-health Orange/Red, board-pickup issue switch) and by `/hatch3r-handoff prepare`.
 model: fast
-tags: [core, maintenance]
+tags: [orchestration, maintenance]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 efficiency_tier: standard
@@ -26,7 +26,7 @@ Before any action, scan the brief for unresolved questions in scope, acceptance 
 
 The caller provides:
 
-1. **work_item (optional)** — `gh:owner/repo#42`, `ado:org/project:work-item/123`, or `gl:owner/repo!42`. If absent, infer from the current branch name or `.agents/hatch.json` board state, or leave blank.
+1. **work_item (optional)** — `gh:owner/repo#42`, `ado:org/project:work-item/123`, or `gl:owner/repo!42`. If absent, infer from the current branch name or `.hatch3r/hatch.json` board state, or leave blank.
 2. **summary hint (optional)** — text the user provided via `--summary "<text>"`. Truncate to 200 chars; otherwise self-author from the work in flight.
 3. **target_agent (optional)** — explicit named agent (e.g., `hatch3r-implementer`). If absent, default to the agent identity that most recently produced an Iteration Summary block.
 4. **confidence (optional)** — 0-1 numeric. If absent, self-assess from the readiness rule's outcome (1.0 if all required pass with no warnings; lower per missing recommended criterion).
@@ -67,7 +67,7 @@ The skill enforces all readiness criteria. If validation fails, surface the fail
 Report:
 
 ```
-Handoff written: .agents/handoffs/active/<id>.md
+Handoff written: .hatch3r/handoffs/active/<id>.md
 Summary: {summary}
 Warnings: {list or "none"}
 ```
@@ -83,7 +83,7 @@ Then emit the canonical Iteration Summary block per `rules/hatch3r-iteration-sum
 - Composed handoff body with 8 required sections
 - Validated against readiness rule (errors: 0, warnings: {n})
 - Computed SHA-256 integrity hash
-- Wrote atomically to .agents/handoffs/active/{id}.md
+- Wrote atomically to .hatch3r/handoffs/active/{id}.md
 **Not Done / Deferred / Unverified:**
 - {None — full scope completed | list of warnings}
 **Open Questions / Blockers:**
@@ -93,7 +93,7 @@ Then emit the canonical Iteration Summary block per `rules/hatch3r-iteration-sum
 
 ## Outputs
 
-- Path to the written handoff (`.agents/handoffs/active/<id>.md`)
+- Path to the written handoff (`.hatch3r/handoffs/active/<id>.md`)
 - Iteration Summary block
 
 ## Tool Allowlist
@@ -114,13 +114,13 @@ Before reporting Step 4:
 | Integrity hash | Present in frontmatter as `sha256:<hex>` |
 | 8 required sections | All present in body |
 | User-tier markers | Wrap the body |
-| File written | Exists at `.agents/handoffs/active/<id>.md` with byte size ≤ 61,440 |
+| File written | Exists at `.hatch3r/handoffs/active/<id>.md` with byte size ≤ 61,440 |
 
 ## Boundaries
 
 - **Always:** pass the body through `validateHandoffContent` before write, default `target_agent` to a named agent (refuse `any` unless the user opted in via explicit input), preserve `git_ref` accuracy at write time, emit the Iteration Summary block.
 - **Ask first:** when called manually with a `work_item` that conflicts with an existing active handoff less than 24 hours old, when the user provides `target_agent: any`.
-- **Never:** include full conversation transcripts (only structured fields from the last Iteration Summary), include secrets or credentials, write directly to `.agents/handoffs/archived/`, modify other active handoffs, set `target_agent: any` without explicit user input.
+- **Never:** include full conversation transcripts (only structured fields from the last Iteration Summary), include secrets or credentials, write directly to `.hatch3r/handoffs/archived/`, modify other active handoffs, set `target_agent: any` without explicit user input.
 
 ## Error Handling
 

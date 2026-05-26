@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from "vitest";
-import { mkdtemp, mkdir, writeFile, readFile, rm, readdir } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync, spawnSync } from "node:child_process";
-import { HatchError } from "../../types.js";
+import { HatchError, HATCH3R_DIR } from "../../types.js";
 import { HATCH3R_VERSION } from "../../version.js";
 import { _resetNpmGlobalRootCacheForTesting } from "../../detect/installContext.js";
 
@@ -12,21 +12,33 @@ vi.mock("node:child_process", async (importOriginal) => {
   return { ...actual, execFileSync: vi.fn(), spawnSync: vi.fn() };
 });
 
-const AGENTS_DIR = ".agents";
+// Wave 7 (1.9.0) rewrite contract for `update`:
+//   - Manifest lives at `.hatch3r/hatch.json` (Wave 6 relocation).
+//   - Canonical content is sourced from the bundled npm package — no
+//     `.agents/` materialisation, no per-rule recopy step. `runRegenerate`
+//     only regenerates adapter outputs.
+//   - Integrity-manifest subsystem deleted in Wave 7 — no preflight,
+//     no `.integrity.json`, no `--force` carve-out for drift.
+//   - The "orphan file scan" used to walk `.agents/<canonical-subdir>/`;
+//     that subtree no longer exists in user repos. The scan is retired.
+//
+// Removed tests (Wave 7 cleanup):
+//   - "should copy hatch3r-prefixed files from pack" (no .agents/ copy)
+//   - "should preserve custom (non-hatch3r-prefixed) files" (ditto)
+//   - "should update canonical files for multiple tools" (output message
+//     changed; replaced by an adapter-regeneration assertion)
+//   - integrity preflight describe block (subsystem deleted)
+//   - C9-M26 orphan-file scan describe block (scan retired in user repos)
 
 async function createTestProject(
   root: string,
   overrides: Record<string, unknown> = {},
 ): Promise<void> {
-  const agentsDir = join(root, AGENTS_DIR);
-  await mkdir(agentsDir, { recursive: true });
-  await mkdir(join(agentsDir, "rules"), { recursive: true });
-  await mkdir(join(agentsDir, "agents"), { recursive: true });
-  await mkdir(join(agentsDir, "skills"), { recursive: true });
-  await mkdir(join(agentsDir, "commands"), { recursive: true });
+  const hatch3rDir = join(root, HATCH3R_DIR);
+  await mkdir(hatch3rDir, { recursive: true });
 
   const manifest = {
-    version: "2.0.0",
+    version: "3.0.0",
     hatch3rVersion: "0.0.9",
     platform: "github",
     owner: "test-org",
@@ -43,6 +55,7 @@ async function createTestProject(
       mcp: true,
       githubAgents: true,
       hooks: true,
+      handoffs: true,
     },
     mcp: { servers: [] },
     worktree: { enabled: false },
@@ -58,12 +71,7 @@ async function createTestProject(
     managedFiles: [],
     ...overrides,
   };
-  await writeFile(join(agentsDir, "hatch.json"), JSON.stringify(manifest, null, 2));
-
-  await writeFile(
-    join(agentsDir, "rules", "hatch3r-test.md"),
-    "---\nid: hatch3r-test\ntype: rule\ndescription: test rule\nscope: always\n---\n# Test Rule\n\nOld test content.\n",
-  );
+  await writeFile(join(hatch3rDir, "hatch.json"), JSON.stringify(manifest, null, 2));
 }
 
 describe("update command", () => {
@@ -110,12 +118,12 @@ describe("update command", () => {
     await expect(updateCommand()).rejects.toThrow(HatchError);
     try { await updateCommand(); } catch (e) { expect((e as HatchError).exitCode).toBe(1); }
 
-    // D12-M1: error() routes to console.error (stderr) per POSIX convention.
+    // Wave 6: error message references the new manifest location.
     const allOutput = [
       ...consoleSpy.mock.calls.map((c) => String(c[0])),
       ...consoleErrorSpy.mock.calls.map((c) => String(c[0])),
     ].join(" ");
-    expect(allOutput).toContain("No .agents/hatch.json found");
+    expect(allOutput).toContain(".hatch3r/hatch.json");
   });
 
   it("should update hatch3rVersion in manifest", async () => {
@@ -125,34 +133,9 @@ describe("update command", () => {
     await updateCommand({ backup: false });
 
     const manifest = JSON.parse(
-      await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"),
+      await readFile(join(tempDir, HATCH3R_DIR, "hatch.json"), "utf-8"),
     );
     expect(manifest.hatch3rVersion).toBe(HATCH3R_VERSION);
-  });
-
-  it("should copy hatch3r-prefixed files from pack", async () => {
-    await createTestProject(tempDir);
-
-    const { updateCommand } = await import("../../cli/commands/update.js");
-    await updateCommand({ backup: false });
-
-    const rulesDir = join(tempDir, AGENTS_DIR, "rules");
-    const rules = await readdir(rulesDir);
-    const hatch3rRules = rules.filter((f) => f.startsWith("hatch3r-"));
-    expect(hatch3rRules.length).toBeGreaterThan(0);
-  });
-
-  it("should preserve custom (non-hatch3r-prefixed) files", async () => {
-    await createTestProject(tempDir);
-    const customRulePath = join(tempDir, AGENTS_DIR, "rules", "my-custom-rule.md");
-    await writeFile(customRulePath, "# My custom rule\n\nThis should be preserved.");
-
-    const { updateCommand } = await import("../../cli/commands/update.js");
-    await updateCommand({ backup: false });
-
-    const content = await readFile(customRulePath, "utf-8");
-    expect(content).toContain("My custom rule");
-    expect(content).toContain("This should be preserved");
   });
 
   it("should regenerate adapter output files after update", async () => {
@@ -167,6 +150,23 @@ describe("update command", () => {
     expect(bridgeContent).toContain("Hatch3r Bridge");
   });
 
+  it("does NOT materialise canonical content under .agents/ on update (Wave 3 removal)", async () => {
+    await createTestProject(tempDir);
+
+    const { updateCommand } = await import("../../cli/commands/update.js");
+    await updateCommand({ backup: false });
+
+    const stat = await import("node:fs/promises").then((m) => m.stat);
+    let dotAgentsExists = false;
+    try {
+      await stat(join(tempDir, ".agents"));
+      dotAgentsExists = true;
+    } catch (err) {
+      void err;
+    }
+    expect(dotAgentsExists).toBe(false);
+  });
+
   it("should report update summary", async () => {
     await createTestProject(tempDir);
 
@@ -175,7 +175,6 @@ describe("update command", () => {
 
     const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
     expect(output).toContain("Update complete");
-    expect(output).toContain("canonical files");
   });
 
   it("should note when already at latest version", async () => {
@@ -188,71 +187,24 @@ describe("update command", () => {
     expect(output).toContain("Already at");
   });
 
-  it("should update canonical files for multiple tools", async () => {
+  it("should regenerate adapter outputs for multiple tools", async () => {
     await createTestProject(tempDir, { tools: ["cursor", "claude"] });
 
     const { updateCommand } = await import("../../cli/commands/update.js");
     await updateCommand({ backup: false });
 
-    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
-    expect(output).toContain("2 tool(s) re-synced");
-  });
+    // Both tools' bridge files land on disk.
+    const cursorBridge = await readFile(
+      join(tempDir, ".cursor", "rules", "hatch3r-bridge.mdc"),
+      "utf-8",
+    ).catch(() => null);
+    expect(cursorBridge).not.toBeNull();
 
-  // C7-H5 (D15, OWASP ASI 2026): Preflight integrity check tests
-  describe("preflight integrity check", () => {
-    async function seedIntegrityManifest(root: string): Promise<void> {
-      const { generateIntegrityManifest, writeIntegrityManifest } = await import("../../integrity/index.js");
-      const agentsDir = join(root, AGENTS_DIR);
-      const manifest = await generateIntegrityManifest(agentsDir, "1.0.0");
-      await writeIntegrityManifest(agentsDir, manifest);
-    }
-
-    it("refuses to update when canonical file has been modified (no --force)", async () => {
-      await createTestProject(tempDir);
-      await seedIntegrityManifest(tempDir);
-      await writeFile(
-        join(tempDir, AGENTS_DIR, "rules", "hatch3r-test.md"),
-        "tampered content",
-      );
-
-      const { updateCommand } = await import("../../cli/commands/update.js");
-      await expect(updateCommand({})).rejects.toThrow(HatchError);
-
-      const combined = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ") +
-        " " + consoleErrorSpy.mock.calls.map((c) => String(c[0])).join(" ");
-      expect(combined).toMatch(/MODIFIED/);
-      expect(combined).toMatch(/--force/);
-    });
-
-    it("proceeds with --force despite integrity drift", async () => {
-      await createTestProject(tempDir);
-      await seedIntegrityManifest(tempDir);
-      await writeFile(
-        join(tempDir, AGENTS_DIR, "rules", "hatch3r-test.md"),
-        "tampered content",
-      );
-
-      const { updateCommand } = await import("../../cli/commands/update.js");
-      await expect(updateCommand({ force: true })).resolves.toBeUndefined();
-    });
-
-    it("emits HatchError with INTEGRITY_ERROR code on drift block", async () => {
-      await createTestProject(tempDir);
-      await seedIntegrityManifest(tempDir);
-      await writeFile(
-        join(tempDir, AGENTS_DIR, "rules", "hatch3r-test.md"),
-        "tampered",
-      );
-
-      const { updateCommand } = await import("../../cli/commands/update.js");
-      try {
-        await updateCommand({});
-      } catch (e) {
-        const err = e as HatchError;
-        expect(err.errorCode).toBe("INTEGRITY_ERROR");
-        expect(err.exitCode).toBe(1);
-      }
-    });
+    const claudeMd = await readFile(
+      join(tempDir, "CLAUDE.md"),
+      "utf-8",
+    ).catch(() => null);
+    expect(claudeMd).not.toBeNull();
   });
 
   // C7-H9 (D1): runPackageUpdate / runRegenerate split — verify the
@@ -268,7 +220,7 @@ describe("update command", () => {
       expect(typeof mod.runRegenerate).toBe("function");
     });
 
-    it("runRegenerate copies canonical files and regenerates adapter outputs without touching the network", async () => {
+    it("runRegenerate regenerates adapter outputs without touching the network", async () => {
       await createTestProject(tempDir);
 
       // Reset the execFileSync mock so prior tests in this file don't taint
@@ -281,10 +233,9 @@ describe("update command", () => {
       expect(manifest).not.toBeNull();
 
       const result = await runRegenerate(tempDir, manifest!);
-      expect(result.copiedFiles).toBeGreaterThan(0);
+      // Wave 7: there is no canonical-file copy step. The contract reduces
+      // to "no adapter failures + execFileSync never invoked (no network)".
       expect(result.failedTools).toBe(0);
-      // execFileSync is mocked at the top of this file. runRegenerate should
-      // never invoke it because there is no package fetch step.
       expect(vi.mocked(execFileSync)).not.toHaveBeenCalled();
     });
   });
@@ -388,7 +339,6 @@ describe("update command", () => {
       expect(manifest).not.toBeNull();
 
       const result = await runUpdateDryRun(tempDir, manifest!);
-      expect(result.canonicalCandidates.length).toBeGreaterThan(0);
       expect(result.adapterChanges.size).toBe(manifest!.tools.length);
     });
   });
@@ -635,90 +585,6 @@ describe("update command", () => {
       } finally {
         spy.mockRestore();
       }
-    });
-  });
-
-  // C9-M26 (D11-SA11.4-01): orphan-file scan reports + optionally removes
-  // files in `.agents/<canonical-subdir>/` that do not match the canonical
-  // naming convention (`hatch3r-` prefix / `hatch3r-*/` parent / `mcp.json`).
-  describe("orphan-file scan (C9-M26)", () => {
-    it("reports orphan files in canonical subdirs as informational only by default", async () => {
-      await createTestProject(tempDir);
-
-      await writeFile(
-        join(tempDir, AGENTS_DIR, "agents", "stray-note.md"),
-        "# stray\n",
-      );
-      await writeFile(
-        join(tempDir, AGENTS_DIR, "commands", "scratch.md"),
-        "# scratch\n",
-      );
-
-      const { updateCommand } = await import("../../cli/commands/update.js");
-      await updateCommand({ offline: true });
-
-      const combined = [
-        ...consoleSpy.mock.calls.map((c) => String(c[0])),
-        ...consoleErrorSpy.mock.calls.map((c) => String(c[0])),
-      ].join("\n");
-      expect(combined).toMatch(/orphan file/);
-      expect(combined).toContain(".agents/agents/stray-note.md");
-      expect(combined).toContain(".agents/commands/scratch.md");
-      expect(combined).toContain("--clean-orphans");
-
-      const stray1 = await readFile(
-        join(tempDir, AGENTS_DIR, "agents", "stray-note.md"),
-        "utf-8",
-      ).catch(() => null);
-      const stray2 = await readFile(
-        join(tempDir, AGENTS_DIR, "commands", "scratch.md"),
-        "utf-8",
-      ).catch(() => null);
-      expect(stray1).not.toBeNull();
-      expect(stray2).not.toBeNull();
-    });
-
-    it("removes orphans when --clean-orphans is set", async () => {
-      await createTestProject(tempDir);
-
-      await writeFile(
-        join(tempDir, AGENTS_DIR, "agents", "stray-note.md"),
-        "# stray\n",
-      );
-
-      const { updateCommand } = await import("../../cli/commands/update.js");
-      await updateCommand({ offline: true, cleanOrphans: true });
-
-      const stray = await readFile(
-        join(tempDir, AGENTS_DIR, "agents", "stray-note.md"),
-        "utf-8",
-      ).catch(() => null);
-      expect(stray).toBeNull();
-    });
-
-    it("never flags files under .agents/user/ even when --clean-orphans is set", async () => {
-      await createTestProject(tempDir);
-
-      const userDir = join(tempDir, AGENTS_DIR, "user", "agents");
-      await mkdir(userDir, { recursive: true });
-      const userPath = join(userDir, "my-agent.md");
-      await writeFile(userPath, "# user agent\n");
-
-      await writeFile(
-        join(tempDir, AGENTS_DIR, "agents", "stray.md"),
-        "# stray\n",
-      );
-
-      const { updateCommand } = await import("../../cli/commands/update.js");
-      await updateCommand({ offline: true, cleanOrphans: true });
-
-      const userStill = await readFile(userPath, "utf-8").catch(() => null);
-      expect(userStill).not.toBeNull();
-      const strayGone = await readFile(
-        join(tempDir, AGENTS_DIR, "agents", "stray.md"),
-        "utf-8",
-      ).catch(() => null);
-      expect(strayGone).toBeNull();
     });
   });
 });

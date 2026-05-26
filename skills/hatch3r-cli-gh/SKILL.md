@@ -1,7 +1,7 @@
 ---
 id: hatch3r-cli-gh
 description: "GitHub CLI — repos, issues, PRs, releases, gists. Use when drafting GitHub pull requests, issues, releases, gists, or workflow dispatches; invoke `gh`. Authenticates via the platform's native token mechanism (OAuth / PAT)."
-tags: ["cli-tools", "forge", "core"]
+tags: ["cli-tools", "forge", "orchestration"]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
@@ -60,7 +60,7 @@ Live-tail status checks for a PR — return value reflects the worst check state
 
 ## Wrong Choice When
 
-- Don't reach for `gh` against a GitLab or Azure DevOps remote. Reach for `glab` (`hatch3r-cli-glab`) or `az repos`/`az devops` (`hatch3r-cli-az-devops`).
+- Don't reach for `gh` against a GitLab or Azure DevOps remote. Reach for `glab` or `az repos`/`az devops` (both covered in `hatch3r-cli-toolbox` — Forges section).
 - Don't use `gh auth login` flows when an audit trail of who authorized what is required; OAuth scopes granted to the CLI are user-bound. Reach for the GitHub web UI plus org-level SSO logs.
 - Don't use `gh api` for high-volume bulk fetches (>10k records) — rate limits bite. Reach for the GraphQL endpoint via `gh api graphql -F query=@file.gql` with pagination, or a GitHub App token.
 
@@ -68,8 +68,8 @@ Live-tail status checks for a PR — return value reflects the worst check state
 
 | Tool | When to prefer |
 |------|----------------|
-| `glab` (`hatch3r-cli-glab`) | GitLab forges — same operations, different vendor. |
-| `az-devops` (`hatch3r-cli-az-devops`) | Azure DevOps forges. |
+| `glab` (toolbox section) | GitLab forges — same operations, different vendor. |
+| `az-devops` (toolbox section) | Azure DevOps forges. |
 | `git` + `curl` against REST | Minimal environment (CI runner) where installing `gh` is blocked; trade convenience for raw HTTP. |
 | GitHub web UI | Operations needing org-level approval flows or SAML re-auth that the CLI cannot proxy. |
 

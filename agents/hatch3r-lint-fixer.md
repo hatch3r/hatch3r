@@ -3,7 +3,7 @@ id: hatch3r-lint-fixer
 type: agent
 description: Code quality enforcer who fixes style, formatting, and type issues without changing logic. Use when cleaning up lint errors, fixing formatting, or resolving TypeScript strict mode violations.
 model: fast
-tags: [core, implementation]
+tags: [implementation, orchestration]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 efficiency_tier: standard
@@ -25,7 +25,7 @@ Before any action, scan the brief for unresolved questions in scope, acceptance 
 
 ## Conventions
 
-Follow the naming, sizing, and type-safety conventions defined in `.agents/rules/hatch3r-code-standards.md`. Key conventions enforced by this agent: `camelCase` functions, `PascalCase` types, `SCREAMING_SNAKE` constants, no `any` types, max 50-line functions, max 400-line files.
+Follow the naming, sizing, and type-safety conventions defined in `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)hatch3r-code-standards.md`. Key conventions enforced by this agent: `camelCase` functions, `PascalCase` types, `SCREAMING_SNAKE` constants, no `any` types, max 50-line functions, max 400-line files.
 
 ## Confidence Expression
 

@@ -2,7 +2,7 @@
 
 > Last updated: 2026-04-19
 
-**Pillars served:** P6 (primary), P4 (supporting).
+**Pillars served:** governance-axis P6 (primary), P2 (supporting); content-quality-axis CQ3 Security (primary).
 
 **Scope:** The security of the agentic system itself — not the security guidance hatch3r teaches to end-user projects (covered in D5), but whether hatch3r's own architecture is resilient against agentic attack vectors. Includes trust delegation architecture and compliance mapping.
 
@@ -31,11 +31,13 @@ This is a distinct concern from Domain 1 (source code quality) and Domain 4 (pro
 
 ## Audit Checklists
 
+> **Per-finding (Decision 17 / charter directive 18):** every finding declares `impact_horizon: short|medium|long` AND `progress_toward_pillar: <axis>.<pillar_id>+<delta>`; orchestrator DROPS at output time if either missing.
+
 ### 15.1 Prompt Injection & Instruction Integrity
 - [ ] **Managed block injection** — Can malicious content injected outside `HATCH3R:BEGIN`/`HATCH3R:END` blocks influence agent behavior in ways that bypass hatch3r's intended instructions?
 - [ ] **Customization override abuse** — Can `.hatch3r/{id}.customize.yaml` files override safety-critical agent behaviors (disabling security checks, bypassing the review loop)?
-- [ ] **Skill injection** — Can a malicious skill in `/.agents/skills/` escalate privileges, exfiltrate data, or override the orchestration pipeline?
-- [ ] **Agent instruction tampering** — If an agent's `.md` file is modified (compromised dependency, malicious PR), what is the blast radius? Are there integrity checks?
+- [ ] **Skill injection** — Can a malicious user-installed skill in `.hatch3r/overrides/skills/` (or a compromised bundled skill in the installed npm package) escalate privileges, exfiltrate data, or override the orchestration pipeline?
+- [ ] **Agent instruction tampering** — If an agent's `.md` file is modified (compromised dependency, malicious PR), what is the blast radius? What detects tampering? Drift detection (`hatch3r verify`) regenerates adapter outputs from the bundled canonical content and diffs against on-disk; npm package integrity is enforced via npm provenance (OIDC trusted publishing) + SHA-pinned dependency resolution.
 - [ ] **Content system as attack vector** — Can tag/preset manipulation cause malicious content to be included in or excluded from initialization?
 
 ### 15.2 Trust Boundaries Between Agents
@@ -54,7 +56,7 @@ Apply every category from the official OWASP Top 10 for Agentic Applications (AS
 - [ ] **ASI03: Identity & Privilege Abuse** — Do agents inherit the user's full system credentials? Can a sub-agent escalate privileges beyond what its role requires (implementer gaining reviewer-level trust)?
 - [ ] **ASI04: Agentic Supply Chain Vulnerabilities** — Are external components (MCP servers, npm dependencies, community packs, model APIs) validated? Could a compromised MCP server poison the pipeline?
 - [ ] **ASI05: Unexpected Code Execution (RCE)** — Can agents be tricked into generating or executing malicious code? Does the implementer agent have RCE safeguards when writing code to the user's project?
-- [ ] **ASI06: Memory & Context Poisoning** — Can the `/.agents/learnings/` system be poisoned to manipulate future agent behavior? Can corrupted context from one session persist and affect subsequent sessions?
+- [ ] **ASI06: Memory & Context Poisoning** — Can the `.hatch3r/learnings/` system be poisoned to manipulate future agent behavior? Can corrupted context from one session persist and affect subsequent sessions?
 - [ ] **ASI07: Insecure Inter-Agent Communication** — Are handoffs between agents (researcher to implementer, reviewer to fixer) validated? Can a compromised agent inject instructions into the next agent's prompt via its output?
 - [ ] **ASI08: Cascading Failures** — If one agent in the pipeline fails (reviewer crashes), does the entire workflow fail gracefully or does it cascade? Are there circuit breakers or fallback behaviors?
 - [ ] **ASI09: Human-Agent Trust Exploitation** — Does the framework create false confidence in agent output? Are users warned when agents are uncertain? Is the "0 Critical + 0 Warning" review gate trustworthy or can it be gamed?
@@ -63,10 +65,10 @@ Apply every category from the official OWASP Top 10 for Agentic Applications (AS
 - [ ] **Strong Observability check** — Goal state, tool-use patterns, and decision pathways logged with sufficient fidelity to reconstruct agent behavior post-hoc.
 
 ### 15.4 Supply Chain of Agent Definitions
-- [ ] **Update integrity** — When `hatch3r update` pulls new content from npm, is content integrity verified? Could a compromised npm publish inject malicious agent instructions?
+- [ ] **Update integrity** — `hatch3r update` pulls bundled content from the npm package. Is npm provenance verified at install time? Are SHA-pinned dependencies enforced? Could a compromised npm publish inject malicious agent instructions despite provenance (e.g., compromised maintainer OIDC token)?
 - [ ] **Pack system security** — The `hatch3r add [pack]` feature installs community-authored content. What is the trust model for community packs? Is there sandboxing, review, or signing?
 - [ ] **Version pinning** — Can users pin to a specific version of agent content to avoid unexpected behavioral changes?
-- [ ] **Integrity manifest tamper detection** — Does the integrity system (`src/integrity/`) provide reliable tamper detection for agent definitions?
+- [ ] **Drift-detection tamper sensitivity** — Does `hatch3r verify` (regenerate canonical → diff on-disk) reliably detect tamper attempts on adapter outputs? What is the false-negative rate when a managed block has been modified outside `HATCH3R:BEGIN`/`HATCH3R:END` markers?
 
 ### 15.5 MCP Trust Model
 - [ ] MCP server trust model — how are MCP servers authenticated and authorized?
@@ -105,6 +107,7 @@ Scope: whether hatch3r's end-user content (rules, skills, commands, agents) teac
 - [ ] **Container hardening** — end-user content mandates Wolfi/Chainguard or distroless base, digest pinning, non-root user, cosign signing, SBOM-in-image. Missing any control is a Medium finding; missing signing or digest pinning is High.
 - [ ] **OIDC cloud auth** — end-user content mandates OIDC trusted federation for CI cloud auth with no long-lived secrets. Long-lived-secret guidance is a High finding.
 - [ ] **License allow-list** — end-user content mandates SPDX allow-list (MIT, Apache-2.0, ISC, BSD-2/3-Clause, MPL-2.0, CC0-1.0) and denies copyleft (GPL, AGPL, SSPL) unless justified, enforced via `license-checker` or equivalent CI gate. Missing allow-list is a Medium finding.
+- [ ] **Tiered floor mandates (Decision 4):** for each floor item (npm provenance, SBOM, SLSA, malicious-pkg detection, SHA-pin, container hardening, OIDC, license allow-list), evaluate maturity-tier applicability. Solo defers items without security blast radius (SBOM emit, license allow-list); team+ enforces uniformly. Flag mandates currently tier-uniform that should be tier-conditional per Decision 4 audience model.
 
 Cross-references: `rules/hatch3r-dependency-management.md`, `rules/hatch3r-secrets-management.md`, `rules/hatch3r-container-hardening.md`, `rules/hatch3r-ci-cd.md`.
 

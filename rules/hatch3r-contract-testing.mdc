@@ -2,6 +2,7 @@
 description: Consumer-driven and spec-driven contract testing between services — Pact, Schemathesis, Dredd, pact-broker can-i-deploy gate
 globs: ["**/contracts/**", "**/pacts/**", "**/api/**", "**/openapi*", "**/asyncapi*", "**/*.proto", "**/__tests__/contract/**"]
 alwaysApply: false
+precedence: high
 ---
 # Contract Testing
 

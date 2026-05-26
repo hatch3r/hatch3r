@@ -5,20 +5,12 @@ import { tmpdir } from "node:os";
 import { createManifest } from "../../manifest/hatchJson.js";
 import type { HatchManifest, Tool } from "../../types.js";
 
-// Adapters that support MCP (from capability matrix in index.ts)
+// Adapters that support MCP (from capability matrix in index.ts).
+// After the 3-adapter pivot, only claude, cursor, copilot remain — all
+// support MCP.
 import { ClaudeAdapter } from "../../adapters/claude.js";
 import { CursorAdapter } from "../../adapters/cursor.js";
 import { CopilotAdapter } from "../../adapters/copilot.js";
-import { WindsurfAdapter } from "../../adapters/windsurf.js";
-import { ClineAdapter } from "../../adapters/cline.js";
-import { AmpAdapter } from "../../adapters/amp.js";
-import { CodexAdapter } from "../../adapters/codex.js";
-import { GeminiAdapter } from "../../adapters/gemini.js";
-import { OpenCodeAdapter } from "../../adapters/opencode.js";
-import { KiroAdapter } from "../../adapters/kiro.js";
-import { AmazonQAdapter } from "../../adapters/amazonq.js";
-import { AntigravityAdapter } from "../../adapters/antigravity.js";
-import { GooseAdapter } from "../../adapters/goose.js";
 
 /**
  * MCP Data Flow Integration Tests (Findings #21 and #22)
@@ -53,23 +45,17 @@ const MCP_CONFIG_WITH_HEADERS = {
 interface AdapterTestCase {
   name: string;
   tool: Tool;
-  adapter: ClaudeAdapter | CursorAdapter | CopilotAdapter | WindsurfAdapter
-    | ClineAdapter | AmpAdapter | CodexAdapter | GeminiAdapter
-    | OpenCodeAdapter | KiroAdapter | AmazonQAdapter | AntigravityAdapter | GooseAdapter;
+  adapter: ClaudeAdapter | CursorAdapter | CopilotAdapter;
   mcpOutputPath: string | ((outputs: { path: string; content: string }[]) => { path: string; content: string } | undefined);
 }
 
+// Copilot emits `.vscode/mcp.json` (VS Code format); claude + cursor use the
+// canonical `mcpServers` key in their respective files. All three are
+// retained adapters after the 3-adapter pivot.
 const JSON_ADAPTERS: AdapterTestCase[] = [
   { name: "Claude", tool: "claude", adapter: new ClaudeAdapter(), mcpOutputPath: ".mcp.json" },
   { name: "Cursor", tool: "cursor", adapter: new CursorAdapter(), mcpOutputPath: ".cursor/mcp.json" },
-  { name: "Windsurf", tool: "windsurf", adapter: new WindsurfAdapter(), mcpOutputPath: ".windsurf/mcp.json" },
-  { name: "Cline", tool: "cline", adapter: new ClineAdapter(), mcpOutputPath: ".roo/mcp.json" },
-  { name: "Amp", tool: "amp", adapter: new AmpAdapter(), mcpOutputPath: ".amp/settings.json" },
-  { name: "Gemini", tool: "gemini", adapter: new GeminiAdapter(), mcpOutputPath: ".gemini/settings.json" },
-  { name: "Kiro", tool: "kiro", adapter: new KiroAdapter(), mcpOutputPath: ".kiro/settings/mcp.json" },
-  { name: "AmazonQ", tool: "amazon-q", adapter: new AmazonQAdapter(), mcpOutputPath: ".amazonq/mcp.json" },
-  { name: "Antigravity", tool: "antigravity", adapter: new AntigravityAdapter(), mcpOutputPath: ".antigravity/settings.json" },
-  { name: "OpenCode", tool: "opencode", adapter: new OpenCodeAdapter(), mcpOutputPath: "opencode.json" },
+  { name: "Copilot", tool: "copilot", adapter: new CopilotAdapter(), mcpOutputPath: ".vscode/mcp.json" },
 ];
 
 function makeManifest(tool: Tool): HatchManifest {
@@ -118,12 +104,6 @@ describe("MCP header forwarding (#21)", () => {
 
       if (name === "Copilot") {
         authServer = parsed.servers?.["auth-server"];
-      } else if (name === "Amp") {
-        authServer = parsed["amp.mcpServers"]?.["auth-server"];
-      } else if (name === "Gemini") {
-        authServer = parsed.mcpServers?.["auth-server"];
-      } else if (name === "OpenCode") {
-        authServer = parsed.mcp?.["auth-server"];
       } else {
         authServer = parsed.mcpServers?.["auth-server"];
       }
@@ -151,30 +131,6 @@ describe("MCP header forwarding (#21)", () => {
     expect(parsed.servers["auth-server"].headers["X-Custom"]).toBe("static-value");
   });
 
-  it("Codex adapter includes headers in TOML table format", async () => {
-    const codex = new CodexAdapter();
-    const manifest = makeManifest("codex");
-    const outputs = await codex.generate(agentsDir, manifest);
-
-    const config = outputs.find((o) => o.path === ".codex/config.toml");
-    expect(config).toBeDefined();
-    // Codex v0.114+: headers use TOML table sections
-    expect(config!.content).toContain("[mcp_servers.auth-server.headers]");
-    expect(config!.content).toContain("static-value");
-    expect(config!.content).toContain("Authorization");
-  });
-
-  it("Goose adapter includes headers in extensions", async () => {
-    const goose = new GooseAdapter();
-    const manifest = makeManifest("goose");
-    const outputs = await goose.generate(agentsDir, manifest);
-
-    const profile = outputs.find((o) => o.path === ".goose/profiles/hatch3r.yaml");
-    expect(profile).toBeDefined();
-    expect(profile!.content).toContain("headers");
-    expect(profile!.content).toContain("X-Custom");
-    expect(profile!.content).toContain("static-value");
-  });
 });
 
 describe("${env:VAR} syntax transformation (#22)", () => {
@@ -234,33 +190,6 @@ describe("${env:VAR} syntax transformation (#22)", () => {
       expect(mcpOutput!.content).not.toContain("${env:");
     });
   }
-
-  it("Codex adapter transforms ${env:VAR} in TOML env values", async () => {
-    const codex = new CodexAdapter();
-    const manifest = makeManifest("codex");
-    const outputs = await codex.generate(agentsDir, manifest);
-
-    const config = outputs.find((o) => o.path === ".codex/config.toml");
-    expect(config).toBeDefined();
-
-    // Should not contain raw ${env:VAR} syntax
-    expect(config!.content).not.toContain("${env:");
-    // Should contain transformed env var reference
-    expect(config!.content).toContain("$SECRET_KEY");
-  });
-
-  it("Goose adapter does not leak ${env:VAR} in YAML output", async () => {
-    const goose = new GooseAdapter();
-    const manifest = makeManifest("goose");
-    const outputs = await goose.generate(agentsDir, manifest);
-
-    const profile = outputs.find((o) => o.path === ".goose/profiles/hatch3r.yaml");
-    expect(profile).toBeDefined();
-
-    // Goose uses env_keys (just key names), so env values shouldn't appear
-    // But headers should be transformed
-    expect(profile!.content).not.toContain("${env:");
-  });
 
   it("Copilot adapter transforms env vars in both env and headers", async () => {
     const copilot = new CopilotAdapter();

@@ -296,7 +296,7 @@ export class ClaudeAdapter extends BaseAdapter {
           "",
           "# Hatch3r Project Instructions",
           "",
-          "Instructions: `.agents/AGENTS.md`. Rules: `.claude/rules/`. Agents: `.claude/agents/`.",
+          "Instructions inlined below. Rules: `.claude/rules/`. Agents: `.claude/agents/`. Skills: `.claude/skills/`. Commands: `.claude/commands/`.",
           "",
           bridgeOrchestration,
           "",
@@ -307,8 +307,8 @@ export class ClaudeAdapter extends BaseAdapter {
           "",
           "# Hatch3r Project Instructions",
           "",
-          "Full canonical agent instructions are at `.agents/AGENTS.md`.",
-          "Rules are managed in `.claude/rules/` and agents in `.claude/agents/`.",
+          "Canonical agent orchestration is inlined in this file.",
+          "Rules are managed in `.claude/rules/`, agents in `.claude/agents/`, skills in `.claude/skills/`, commands in `.claude/commands/`.",
           "",
           bridgeOrchestration,
           "",
@@ -341,7 +341,7 @@ export class ClaudeAdapter extends BaseAdapter {
       // `this._trackedSourceFiles` and surfaces on each output's
       // `sourceFiles` field. Direct `readCanonicalFiles` calls bypass the
       // provenance tracker introduced by C8-D12-M3.
-      const rules = await this.readTrackedCanonicalFiles(ctx.agentsDir, "rules");
+      const rules = await this.readTrackedCanonicalFiles(ctx.canonicalRoot, "rules", ctx.userRepoRoot);
       // Wave B3: precedence-ordered emission + NN- numeric filename prefix on
       // .claude/rules/. critical=10, high=30, normal=50, low=70. Claude Code
       // loads rule files alphabetically; the prefix makes load order explicit.
@@ -369,7 +369,7 @@ export class ClaudeAdapter extends BaseAdapter {
     }
 
     if (ctx.features.agents) {
-      const agents = await this.readUserFacingCanonicalFiles(ctx.agentsDir, "agents");
+      const agents = await this.readUserFacingCanonicalFiles(ctx.canonicalRoot, "agents", ctx.userRepoRoot);
       for (const agent of agents) {
         // C9-H20: cooperative abort between agent files.
         this.throwIfAborted(ctx);
@@ -454,12 +454,24 @@ export class ClaudeAdapter extends BaseAdapter {
     // script handles category-specific deny decisions internally.
     // Source: https://code.claude.com/docs/en/plugins-reference#hooks
     // (PreToolUse exit 2 denies the call; accessed 2026-04-19).
+    //
+    // Launcher hardening: because the matcher is ".*", any failure in
+    // resolving or running the script becomes a per-tool-call error
+    // storm. Wrap the invocation in a Node-inline guard that (a) exits
+    // 0 silently if the .mjs is missing (fail-open + quiet — same
+    // security posture as the broken-install case today, minus the
+    // noise), (b) propagates the child's stdout (deny JSON) through
+    // stdio:'inherit', (c) keeps the child's stderr audit log only on
+    // a clean exit so script crashes don't leak stack traces on every
+    // tool call. Detection of a missing script remains the job of
+    // `hatch3r status` / `hatch3r verify`.
     if (!hooksConfig.PreToolUse) hooksConfig.PreToolUse = [];
     hooksConfig.PreToolUse.push({
       matcher: ".*",
       hooks: [{
         type: "command",
-        command: "node .claude/hooks/pretooluse-allowlist.mjs",
+        command:
+          "node -e \"const fs=require('fs'),cp=require('child_process'),p='.claude/hooks/pretooluse-allowlist.mjs';try{fs.statSync(p)}catch{process.exit(0)}const r=cp.spawnSync(process.execPath,[p],{stdio:['inherit','inherit','pipe']});if(r.status===0&&r.stderr)process.stderr.write(r.stderr);process.exit(0)\"",
       }],
     });
 
@@ -570,6 +582,32 @@ export class ClaudeAdapter extends BaseAdapter {
       (id) => `.claude/commands/${toPrefixedId(id)}.md`,
     );
     results.push(...commandOutputs.map(rewrapWithCacheBreakpoints));
+
+    // Companion/reference content (`agents/modes/`, `agents/shared/`,
+    // `commands/board/`, `commands/revision/`, `checks/`) is referenced by
+    // primary artifacts via plain `agents/shared/quality-charter.md`-style
+    // path strings. Without these subtrees on disk the runtime agent's
+    // Read/Grep cannot resolve those references — the bundled-content
+    // migration in 1.9.0 removed the `.agents/` mirror that previously
+    // materialised them. We re-emit each subtree under the per-adapter
+    // native path so references resolve and orphan cleanup tracks them.
+    //
+    // Gating: each subtree rides the same feature flag as the primary
+    // artifact it supports — disabling a feature also disables its
+    // companion subtree. `checks/` is referenced from both agents
+    // (reviewer) and commands (benchmark), so either gate keeps it.
+    const companionMappings: Array<[string, boolean, (f: string) => string]> = [
+      ["agents/modes", ctx.features.agents, (f) => `.claude/agents/modes/${f}`],
+      ["agents/shared", ctx.features.agents, (f) => `.claude/agents/shared/${f}`],
+      ["commands/board", ctx.features.commands, (f) => `.claude/commands/board/${f}`],
+      ["commands/revision", ctx.features.commands, (f) => `.claude/commands/revision/${f}`],
+      ["checks", ctx.features.agents || ctx.features.commands, (f) => `.claude/checks/${f}`],
+    ];
+    for (const [subdir, enabled, pathFn] of companionMappings) {
+      if (!enabled) continue;
+      const companionOutputs = await this.processCompanionSubdir(ctx, subdir, pathFn);
+      results.push(...companionOutputs.map(rewrapWithCacheBreakpoints));
+    }
 
     const mcp = await this.readFilteredMcp(ctx);
     if (mcp) {

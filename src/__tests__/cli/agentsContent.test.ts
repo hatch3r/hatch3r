@@ -53,20 +53,24 @@ function command(id: string, tags: string[]): CatalogItem {
 }
 
 describe("buildTaskRouterModel", () => {
-  it("produces one row per workflow tag that has at least one matching agent", () => {
+  it("produces one row per capability (workflow) tag that has at least one matching agent", () => {
+    // Wave 1 of the content-pack redesign renamed the capability tags:
+    // the old `core` tag is now `orchestration` (capability facet) per
+    // src/content/tags.ts. The router maps capability tags to workflow rows
+    // via tagsForFacet("capability"). The fixture exercises the new names.
     const index = makeIndex([
-      agent("hatch3r-implementer", ["core", "implementation"]),
-      agent("hatch3r-reviewer", ["core", "review"]),
+      agent("hatch3r-implementer", ["orchestration", "implementation"]),
+      agent("hatch3r-reviewer", ["orchestration", "review"]),
       agent("hatch3r-devops", ["devops"]),
-      skill("hatch3r-feature", ["core", "implementation"]),
-      rule("hatch3r-code-standards", ["core"]),
+      skill("hatch3r-feature", ["orchestration", "implementation"]),
+      rule("hatch3r-code-standards", ["orchestration"]),
     ]);
 
     const rows = buildTaskRouterModel(index);
     const byTag = new Map(rows.map((r) => [r.tag, r]));
 
-    // Workflow tags present: core, implementation, review, devops.
-    expect(byTag.has("core")).toBe(true);
+    // Capability tags present: orchestration, implementation, review, devops.
+    expect(byTag.has("orchestration")).toBe(true);
     expect(byTag.has("implementation")).toBe(true);
     expect(byTag.has("review")).toBe(true);
     expect(byTag.has("devops")).toBe(true);
@@ -94,21 +98,32 @@ describe("buildTaskRouterModel", () => {
     ]);
   });
 
-  it("produces domain-tag rows with specialist agents as primary", () => {
+  it("produces domain-tag rows for floor + customize + ui-ux specialisations", () => {
+    // Wave 1 split the old DOMAIN_TAGS array into floor markers (`floor:*`),
+    // customize, and ui-ux-specialisation tags; the router now concatenates
+    // the three facets when emitting domain rows. The `a11y` row still picks
+    // up the id-substring match (hatch3r-a11y-auditor) under the unchanged
+    // rankItemForTag scoring; the `floor:security` row no longer benefits
+    // from id substring matching (ids don't carry the `floor:` prefix), so
+    // the primary falls back to the alphabetical tie-break — that's the
+    // new behaviour and is exercised here so a regression is loud.
     const index = makeIndex([
-      agent("hatch3r-security-auditor", ["review", "security"]),
-      agent("hatch3r-dependency-auditor", ["maintenance", "security"]),
+      agent("hatch3r-security-auditor", ["review", "floor:security"]),
+      agent("hatch3r-dependency-auditor", ["maintenance", "floor:security"]),
       agent("hatch3r-a11y-auditor", ["review", "a11y"]),
       skill("hatch3r-a11y-audit", ["review", "a11y"]),
-      rule("hatch3r-security-patterns", ["security"]),
+      rule("hatch3r-security-patterns", ["floor:security"]),
     ]);
 
     const rows = buildTaskRouterModel(index);
-    const securityRow = rows.find((r) => r.tag === "security");
+    const securityRow = rows.find((r) => r.tag === "floor:security");
     expect(securityRow).toBeDefined();
     expect(securityRow!.tagKind).toBe("domain");
-    expect(securityRow!.primary).toEqual({ kind: "agent", id: "hatch3r-security-auditor" });
-    expect(securityRow!.fallbackAgents).toContain("hatch3r-dependency-auditor");
+    // Both `hatch3r-security-auditor` and `hatch3r-dependency-auditor` tie on
+    // the rank vector (neither id contains `floor:security` or its 5-char
+    // prefix `floor`); alphabetical id wins, so dependency-auditor is primary.
+    expect(securityRow!.primary).toEqual({ kind: "agent", id: "hatch3r-dependency-auditor" });
+    expect(securityRow!.fallbackAgents).toContain("hatch3r-security-auditor");
     expect(securityRow!.relevantRules).toEqual(["hatch3r-security-patterns"]);
 
     const a11yRow = rows.find((r) => r.tag === "a11y");
@@ -122,7 +137,7 @@ describe("buildTaskRouterModel", () => {
     const index = makeIndex([
       agent("hatch3r-implementer", ["core", "implementation"]),
       command("hatch3r-board-pickup", ["board", "team"]),
-      command("hatch3r-board-init", ["board", "team"]),
+      command("hatch3r-board-fill", ["board", "team"]),
       rule("hatch3r-board-hygiene", ["board"]),
     ]);
 
@@ -130,9 +145,9 @@ describe("buildTaskRouterModel", () => {
     const boardRow = rows.find((r) => r.tag === "board");
     expect(boardRow).toBeDefined();
     expect(boardRow!.primary.kind).toBe("command");
-    // `hatch3r-board-init` and `hatch3r-board-pickup` tie on rank vector;
-    // alphabetical tie-break puts "init" first in the prefixed id space.
-    expect(boardRow!.primary.id).toBe("cmd-hatch3r-board-init");
+    // `hatch3r-board-fill` and `hatch3r-board-pickup` tie on rank vector;
+    // alphabetical tie-break puts "fill" first in the prefixed id space.
+    expect(boardRow!.primary.id).toBe("cmd-hatch3r-board-fill");
     // Fallback agents list only contains agents — commands don't spill over.
     expect(boardRow!.fallbackAgents).toEqual([]);
     expect(boardRow!.relevantRules).toEqual(["hatch3r-board-hygiene"]);
@@ -156,7 +171,7 @@ describe("buildTaskRouterModel", () => {
     // All three content types tag `customize`; agent must win.
     const index = makeIndex([
       agent("hatch3r-customizer", ["customize"]),
-      command("hatch3r-agent-customize", ["customize"]),
+      command("hatch3r-customize-runner", ["customize"]),
       skill("hatch3r-customize", ["customize"]),
     ]);
 

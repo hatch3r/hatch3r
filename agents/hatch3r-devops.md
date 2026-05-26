@@ -39,8 +39,8 @@ Before any action, scan the brief for unresolved questions in scope, acceptance 
 
 ### 1. Assess Current State
 
-- Read `.agents/hatch.json` and use `board.defaultBranch` (fallback: `"main"`) as the default branch for all pipeline triggers, branch protection, and deployment targets.
-- Review existing CI/CD pipelines based on the project's platform (check `platform` in `.agents/hatch.json`):
+- Read `.hatch3r/hatch.json` and use `board.defaultBranch` (fallback: `"main"`) as the default branch for all pipeline triggers, branch protection, and deployment targets.
+- Review existing CI/CD pipelines based on the project's platform (check `platform` in `.hatch3r/hatch.json`):
   - **GitHub:** `.github/workflows/`
   - **Azure DevOps:** `azure-pipelines.yml`, `.azuredevops/pipelines/`
   - **GitLab:** `.gitlab-ci.yml`
@@ -85,7 +85,7 @@ Include confidence in the output: each pipeline change, infrastructure recommend
 
 ## Key Files
 
-CI/CD pipeline files by platform (check `platform` in `.agents/hatch.json`):
+CI/CD pipeline files by platform (check `platform` in `.hatch3r/hatch.json`):
 - **GitHub:** `.github/workflows/` — GitHub Actions CI/CD pipelines
 - **Azure DevOps:** `azure-pipelines.yml`, `.azuredevops/pipelines/` — Azure Pipelines
 - **GitLab:** `.gitlab-ci.yml` — GitLab CI/CD pipelines

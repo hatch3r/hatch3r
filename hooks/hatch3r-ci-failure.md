@@ -4,7 +4,7 @@ type: hook
 event: ci-failure
 agent: ci-watcher
 description: Diagnose CI pipeline failures
-tags: [core]
+tags: [devops]
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true
 ---
@@ -22,7 +22,7 @@ When this hook fires, the assigned agent should:
 4. For test failures: identify the specific failing test(s), expected vs. actual values, and the source file(s) involved.
 5. For build/type errors: extract the compiler error message and the source location.
 6. Produce a root-cause hypothesis with a concrete suggested fix (code change, config change, or retry recommendation for flaky failures).
-7. If the failure matches a known pattern from `.agents/learnings/`, reference the relevant learning.
+7. If the failure matches a known pattern from `.hatch3r/learnings/`, reference the relevant learning.
 
 ## Expected Output
 
@@ -33,7 +33,7 @@ A structured diagnostic report containing:
 - **Root cause**: Concise explanation of why the failure occurred.
 - **Error excerpt**: The relevant log output (truncated to key lines).
 - **Suggested fix**: Specific, actionable remediation steps.
-- **Related learnings**: Links to any matching entries in `.agents/learnings/` (if applicable).
+- **Related learnings**: Links to any matching entries in `.hatch3r/learnings/` (if applicable).
 
 ## Configuration
 

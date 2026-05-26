@@ -8,7 +8,27 @@ import {
   type ContentIndex,
   type CatalogItem,
 } from "../../content/index.js";
-import { WORKFLOW_TAGS, DOMAIN_TAGS } from "../../content/tags.js";
+import { tagsForFacet } from "../../content/tags.js";
+
+/**
+ * Capability tags drive the task-router "workflow" rows (formerly WORKFLOW_TAGS).
+ * Sourced from the capability facet in TAG_REGISTRY so additions are picked up
+ * automatically — Wave 1 of the content-pack redesign replaced the flat
+ * WORKFLOW_TAGS array with the capability facet of TAG_REGISTRY.
+ */
+const WORKFLOW_TAGS: string[] = tagsForFacet("capability");
+
+/**
+ * Domain-like specialisation tags drive the task-router "domain" rows. The new
+ * taxonomy splits the old DOMAIN_TAGS into floor markers (`floor:*`),
+ * customize, and UI/UX specialisations. The router needs every tag that can
+ * meaningfully label a task type, so we concatenate all three facets.
+ */
+const DOMAIN_TAGS: string[] = [
+  ...tagsForFacet("floor"),
+  ...tagsForFacet("customize"),
+  ...tagsForFacet("ui-ux-specialisation"),
+];
 import { verbose } from "./ui.js";
 
 /**
@@ -21,14 +41,71 @@ function recordAgentsContentProbeFailure(operation: string, err: unknown): void 
 }
 
 /**
- * Shared orchestration content inlined into adapter bridge files (CLAUDE.md, GEMINI.md,
- * .windsurfrules, .amp/AGENTS.md, .github/copilot-instructions.md, .cursor/rules/hatch3r-bridge.mdc).
- * Includes mandatory behaviors, agent quick reference, and canonical structure.
- * Ensures every platform receives inline orchestration guidance instead of relying solely
- * on "read /.agents/AGENTS.md" references.
+ * Wave 4: bridge orchestration is now adapter-aware. The 3 retained adapters
+ * (claude/cursor/copilot) materialise their canonical content under distinct
+ * native paths (`.claude/`, `.cursor/`, `.github/`), so the bridge text in
+ * each adapter's CLAUDE.md / `.cursor/rules/hatch3r-bridge.mdc` /
+ * `.github/copilot-instructions.md` references the correct on-disk locations.
+ *
+ * Per-adapter native paths used by {@link bridgeAdapterPaths}:
+ *   - claude:  rules `.claude/rules/`, agents `.claude/agents/`,
+ *              skills `.claude/skills/`, commands `.claude/commands/`
+ *   - cursor:  rules `.cursor/rules/`, agents `.cursor/agents/`,
+ *              skills `.cursor/skills/`, commands `.cursor/commands/`
+ *   - copilot: rules `.github/instructions/`, agents `.github/agents/`,
+ *              skills `.github/skills/`, commands `.github/prompts/`
+ *
+ * Shared `.hatch3r/` paths apply uniformly across adapters (learnings,
+ * handoffs, overrides, mcp). Wave 5+6 establish the `.hatch3r/` subtree;
+ * the bridge text references the destination paths now so the file is
+ * forward-compatible.
  */
-/** Static bridge orchestration (no skill index). Used as fallback. */
-export const BRIDGE_ORCHESTRATION = `## Sub-Agent Pipeline (mandatory, no exceptions)
+export type BridgeAdapter = "claude" | "cursor" | "copilot";
+
+interface BridgeAdapterPaths {
+  rulesDir: string;
+  agentsDir: string;
+  skillsDir: string;
+  commandsDir: string;
+}
+
+const BRIDGE_ADAPTER_PATHS: Record<BridgeAdapter, BridgeAdapterPaths> = {
+  claude: {
+    rulesDir: ".claude/rules/",
+    agentsDir: ".claude/agents/",
+    skillsDir: ".claude/skills/",
+    commandsDir: ".claude/commands/",
+  },
+  cursor: {
+    rulesDir: ".cursor/rules/",
+    agentsDir: ".cursor/agents/",
+    skillsDir: ".cursor/skills/",
+    commandsDir: ".cursor/commands/",
+  },
+  copilot: {
+    rulesDir: ".github/instructions/",
+    agentsDir: ".github/agents/",
+    skillsDir: ".github/skills/",
+    commandsDir: ".github/prompts/",
+  },
+};
+
+function bridgeAdapterPaths(adapter?: string): BridgeAdapterPaths {
+  // Default to claude paths when no adapter is named — keeps standalone
+  // callers (and the static BRIDGE_ORCHESTRATION export) compiling without
+  // forcing every caller to thread the adapter id immediately.
+  return BRIDGE_ADAPTER_PATHS[(adapter ?? "claude") as BridgeAdapter]
+    ?? BRIDGE_ADAPTER_PATHS.claude;
+}
+
+/**
+ * Build the bridge orchestration body with adapter-native paths. Templated
+ * over the four canonical content directories so each adapter's bridge file
+ * cites the on-disk paths the user actually has after sync.
+ */
+function buildBridgeOrchestration(adapter?: string): string {
+  const p = bridgeAdapterPaths(adapter);
+  return `## Sub-Agent Pipeline (mandatory, no exceptions)
 
 All tasks use this four-phase pipeline. Never implement inline; always delegate.
 
@@ -39,10 +116,10 @@ All tasks use this four-phase pipeline. Never implement inline; always delegate.
 
 ## Mandatory Behaviors
 
-1. **Load skill** from \`/.agents/skills/\` matching task type before implementation.
+1. **Load skill** from \`${p.skillsDir}\` matching task type before implementation.
 2. **Task tool** (\`subagent_type: "generalPurpose"\`) for all delegations. Max parallelism.
 3. **Propagate rules**: include \`scope: always\` directives in subagent prompts.
-4. **Consult learnings**: check \`/.agents/learnings/\` before implementation.
+4. **Consult learnings**: check \`.hatch3r/learnings/\` before implementation.
 5. **Consult specs**: if \`docs/specs/\` exists, read relevant specifications before implementation and cross-reference during review.
 
 ## Agent Quick Reference
@@ -64,12 +141,12 @@ All tasks use this four-phase pipeline. Never implement inline; always delegate.
 | \`hatch3r-ci-watcher\` | CI failures |
 | \`hatch3r-devops\` | Infra, deployment, CI/CD changes |
 
-Full protocol: \`hatch3r-agent-orchestration\` rule in \`/.agents/rules/\`.
+Full protocol: \`hatch3r-agent-orchestration\` rule in \`${p.rulesDir}\`.
 
 ## Canonical Structure
 
-- Rules: \`/.agents/rules/\` — Agents: \`/.agents/agents/\` — Skills: \`/.agents/skills/\`
-- Commands: \`/.agents/commands/\` — MCP: \`/.agents/mcp/mcp.json\` — Policy: \`/.agents/policy/\`
+- Rules: \`${p.rulesDir}\` — Agents: \`${p.agentsDir}\` — Skills: \`${p.skillsDir}\`
+- Commands: \`${p.commandsDir}\` — MCP: \`.hatch3r/mcp/mcp.json\` — Learnings: \`.hatch3r/learnings/\` — Handoffs: \`.hatch3r/handoffs/\` — Overrides: \`.hatch3r/overrides/\`
 
 Do not edit \`hatch3r-\` prefixed files — managed by hatch3r, overwritten on update.
 
@@ -78,9 +155,18 @@ Do not edit \`hatch3r-\` prefixed files — managed by hatch3r, overwritten on u
 New to hatch3r? Start here and expand as you go:
 
 **Day 1 — Core workflow:** Use the 4-phase pipeline above for any task. Start by invoking \`hatch3r-researcher\` for context, then \`hatch3r-implementer\` for changes.
-**Week 1 — Skills & commands:** Load skills from \`/.agents/skills/\` matching your task type. Try \`/hatch3r-feature-plan\` or \`/hatch3r-bug-plan\` commands.
-**Week 2 — Board & team:** If using project management, run \`/hatch3r-board-init\` to set up your board. Use \`/hatch3r-board-pickup\` for structured delivery.
-**Ongoing — Customization:** Override agent behavior via \`.hatch3r/{type}/{id}.customize.yaml\`. Add project learnings to \`/.agents/learnings/\`.`;
+**Week 1 — Skills & commands:** Load skills from \`${p.skillsDir}\` matching your task type. Try \`/hatch3r-feature-plan\` or \`/hatch3r-bug-plan\` commands.
+**Week 2 — Board & team:** If using project management, invoke the \`hatch3r-board-init\` skill to set up your board. Use \`/hatch3r-board-pickup\` for structured delivery.
+**Ongoing — Customization:** Override agent behavior via \`.hatch3r/overrides/{type}/{id}.customize.yaml\`. Add project learnings to \`.hatch3r/learnings/\`.`;
+}
+
+/**
+ * Backwards-compatible default export — equivalent to the claude-adapter
+ * shape. Kept exported because external tooling and tests may reference it.
+ * New callers should prefer {@link generateBridgeOrchestration} with an
+ * explicit adapter id, which routes through {@link buildBridgeOrchestration}.
+ */
+export const BRIDGE_ORCHESTRATION = buildBridgeOrchestration("claude");
 
 const GETTING_STARTED_MINIMAL = `## Getting Started (minimal preset)
 
@@ -328,7 +414,7 @@ function bestTaskTypeForSkill(skillTags: string[], rows: TaskRouterRow[]): strin
  * readers know how to invoke it:
  *   - agent:   `hatch3r-researcher`
  *   - command: `/hatch3r-board-pickup` (cmd- index prefix stripped)
- *   - skill:   `hatch3r-agent-customize` _(skill)_
+ *   - skill:   `hatch3r-customize` _(skill)_
  */
 function renderPrimary(primary: { kind: TaskRouterPrimaryKind; id: string }): string {
   switch (primary.kind) {
@@ -363,14 +449,25 @@ function renderIdList(ids: string[], max = 3): string {
 
 /**
  * Generate bridge orchestration with an inline skill dispatch table.
- * Falls back to the static BRIDGE_ORCHESTRATION if agentsDir is unavailable.
+ * Falls back to the adapter-shaped static template if `canonicalRoot` is
+ * unavailable (no skills directory).
  *
- * @param preset - Content preset from the manifest. When "minimal", the Getting
- *   Started section is replaced with minimal-specific messaging that sets
- *   expectations about reduced content and explains how to expand later.
+ * @param canonicalRoot - Bundled canonical-content root (see
+ *   `src/content/contentRoot.ts::resolveBundledContentRoot`). Used to read
+ *   the skills directory for the dispatch table.
+ * @param preset - Content preset from the manifest. When "minimal", the
+ *   Getting Started section is replaced with minimal-specific messaging.
+ * @param adapter - Adapter id (`claude` | `cursor` | `copilot`). Drives the
+ *   adapter-native path templating in the orchestration body. Defaults to
+ *   `claude` to preserve backwards-compatible output when the caller does
+ *   not name an adapter.
  */
-export async function generateBridgeOrchestration(agentsDir: string, preset?: string): Promise<string> {
-  let base = BRIDGE_ORCHESTRATION;
+export async function generateBridgeOrchestration(
+  canonicalRoot: string,
+  preset?: string,
+  adapter?: string,
+): Promise<string> {
+  let base = buildBridgeOrchestration(adapter);
 
   // Swap Getting Started section for minimal preset users (#99 D19)
   if (preset === "minimal") {
@@ -380,17 +477,17 @@ export async function generateBridgeOrchestration(agentsDir: string, preset?: st
     }
   }
 
-  const skills = await readSkillDirs(join(agentsDir, "skills"));
+  const skills = await readSkillDirs(join(canonicalRoot, "skills"));
   if (skills.length === 0) return base;
 
-  // Build the router model from the installed content index so the skill
+  // Build the router model from the bundled content index so the skill
   // dispatch table's `Task Type` column and the new routing section stay in
-  // sync with what the user actually has on disk. The index also feeds the
+  // sync with the canonical catalogue. The index also feeds the
   // skill-id → tags lookup used to fill the `Task Type` column.
   let routerRows: TaskRouterRow[] = [];
   const skillTagMap = new Map<string, string[]>();
   try {
-    const index = await buildContentIndex(agentsDir);
+    const index = await buildContentIndex(canonicalRoot);
     routerRows = buildTaskRouterModel(index);
     for (const s of index.byType["skill"] ?? []) {
       skillTagMap.set(s.id, s.tags);
@@ -405,9 +502,10 @@ export async function generateBridgeOrchestration(agentsDir: string, preset?: st
     }
   }
 
+  const p = bridgeAdapterPaths(adapter);
   const skillTable = [
     "\n## Skill Dispatch Table\n",
-    "Load the matching skill before implementation. Full content in `/.agents/skills/{id}/SKILL.md`.\n",
+    `Load the matching skill before implementation. Full content in \`${p.skillsDir}{id}/SKILL.md\`.\n`,
     "| Task Type | Skill | Description |",
     "|-----------|-------|-------------|",
   ];
@@ -446,18 +544,21 @@ export async function generateBridgeOrchestration(agentsDir: string, preset?: st
   );
 }
 
+// Wave 4: kept for back-compat with external tooling/tests. Sync paths no
+// longer emit a root AGENTS.md (W3). Paths reflect the claude-adapter shape;
+// adapter-specific call sites should prefer their own bridge file content.
 export const AGENTS_MD_INNER = [
   "# Project Agent Instructions",
   "",
   "This project uses hatch3r for agentic coding setup.",
-  "Full canonical instructions are at `/.agents/AGENTS.md`.",
+  "Per-adapter native paths hold the canonical instructions (e.g. `.claude/`, `.cursor/`, `.github/`).",
   "",
   "## Quick Reference",
   "",
-  "- Rules: `/.agents/rules/`",
-  "- Agents: `/.agents/agents/`",
-  "- Skills: `/.agents/skills/`",
-  "- Commands: `/.agents/commands/`",
+  "- Rules: `.claude/rules/` (or `.cursor/rules/`, `.github/instructions/`)",
+  "- Agents: `.claude/agents/` (or `.cursor/agents/`, `.github/agents/`)",
+  "- Skills: `.claude/skills/` (or `.cursor/skills/`, `.github/skills/`)",
+  "- Commands: `.claude/commands/` (or `.cursor/commands/`, `.github/prompts/`)",
 ].join("\n");
 
 export const AGENTS_MD_FULL = wrapInManagedBlock(AGENTS_MD_INNER);
@@ -465,10 +566,10 @@ export const AGENTS_MD_FULL = wrapInManagedBlock(AGENTS_MD_INNER);
 /**
  * Generate a rich root-level AGENTS.md from what's on disk.
  *
- * Platforms like GitHub Copilot, Cursor, and others scan for AGENTS.md at the
- * project root. This function produces inline agent/skill/command rosters so
- * those platforms discover available agents without following a pointer to
- * `/.agents/AGENTS.md`.
+ * Wave 4: sync paths no longer emit a root AGENTS.md; this helper is kept
+ * exported for back-compat with external tooling and tests. The output now
+ * names per-adapter native paths (`.claude/`, `.cursor/`, `.github/`) rather
+ * than the removed `.agents/` tree.
  *
  * The content is wrapped in a managed block so user-added content outside the
  * block is preserved across syncs.
@@ -482,7 +583,7 @@ export async function generateRootAgentsMd(agentsDir: string): Promise<{ full: s
   sections.push("# Project Agent Instructions");
   sections.push("");
   sections.push("This project uses [hatch3r](https://github.com/hatch3r/hatch3r) for agentic coding orchestration.");
-  sections.push("Full canonical instructions are at `/.agents/AGENTS.md`.");
+  sections.push("Per-adapter native paths (`.claude/`, `.cursor/`, `.github/`) hold the canonical instructions.");
 
   // Build agent roster from what's on disk
   const agents = await readDirFiles(join(agentsDir, "agents"));
@@ -532,12 +633,14 @@ export async function generateRootAgentsMd(agentsDir: string): Promise<{ full: s
   sections.push("");
   sections.push("## Directory Structure");
   sections.push("");
-  sections.push("- Rules: `/.agents/rules/`");
-  sections.push("- Agents: `/.agents/agents/`");
-  sections.push("- Skills: `/.agents/skills/`");
-  sections.push("- Commands: `/.agents/commands/`");
-  sections.push("- MCP: `/.agents/mcp/mcp.json`");
-  sections.push("- Learnings: `/.agents/learnings/`");
+  sections.push("- Rules: `.claude/rules/` / `.cursor/rules/` / `.github/instructions/`");
+  sections.push("- Agents: `.claude/agents/` / `.cursor/agents/` / `.github/agents/`");
+  sections.push("- Skills: `.claude/skills/` / `.cursor/skills/` / `.github/skills/`");
+  sections.push("- Commands: `.claude/commands/` / `.cursor/commands/` / `.github/prompts/`");
+  sections.push("- MCP: `.hatch3r/mcp/mcp.json`");
+  sections.push("- Learnings: `.hatch3r/learnings/`");
+  sections.push("- Handoffs: `.hatch3r/handoffs/`");
+  sections.push("- Overrides: `.hatch3r/overrides/`");
 
   // If nothing dynamic was found, fall back to the static stub
   if (agents.length === 0 && skills.length === 0 && commands.length === 0) {
@@ -552,8 +655,9 @@ export async function generateRootAgentsMd(agentsDir: string): Promise<{ full: s
 // ── Dynamic AGENTS.md generation ──────────────────────────────
 
 /**
- * Generate canonical AGENTS.md content based on what's actually installed on disk.
- * Reads agent, skill, and command files from the .agents/ directory.
+ * Generate canonical AGENTS.md content based on the bundled canonical
+ * content tree. Wave 4: kept exported for back-compat with external tooling
+ * and tests; sync paths no longer emit a root or `.agents/` AGENTS.md.
  */
 export async function generateCanonicalAgentsMd(agentsDir: string): Promise<string> {
   const sections: string[] = [];
@@ -576,14 +680,14 @@ Every task — board-pickup, workflow command, plain chat, single-task, or multi
 
 ## Orchestration Protocol
 
-1. **Load the matching skill** from \`/.agents/skills/\` based on task type before implementation.
+1. **Load the matching skill** from the adapter-native skills directory (\`.claude/skills/\`, \`.cursor/skills/\`, or \`.github/skills/\`) based on task type before implementation.
 2. **Score task complexity** per the \`hatch3r-deep-context\` rule.
 3. **Spawn a researcher subagent** (\`hatch3r-researcher\`) for context gathering.
 4. **Spawn an implementer subagent** (\`hatch3r-implementer\`) for code changes.
 5. **Run the review loop** (Phase 3).
 6. **Spawn final quality subagents** (Phase 4).
 7. **Propagate rules** to all subagent prompts.
-8. **Consult learnings** from \`/.agents/learnings/\`.`);
+8. **Consult learnings** from \`.hatch3r/learnings/\`.`);
 
   // Build agent roster from what's on disk
   const agents = await readDirFiles(join(agentsDir, "agents"));
@@ -613,7 +717,7 @@ Every task — board-pickup, workflow command, plain chat, single-task, or multi
     const skillsWithChecklists = skills.filter((s) => s.checklist);
     if (skillsWithChecklists.length > 0) {
       sections.push("\n## Skill Quick Reference\n");
-      sections.push("When loading a skill, follow its checklist steps below. Full skill content is in `/.agents/skills/{id}/SKILL.md`.\n");
+      sections.push("When loading a skill, follow its checklist steps below. Full skill content is in the adapter-native skills directory (`.claude/skills/{id}/SKILL.md`, `.cursor/skills/{id}/SKILL.md`, or `.github/skills/{id}/SKILL.md`).\n");
       for (const skill of skillsWithChecklists) {
         sections.push(`### \`${skill.id}\`\n`);
         sections.push(skill.checklist!);
@@ -639,13 +743,14 @@ Every task — board-pickup, workflow command, plain chat, single-task, or multi
   sections.push(`
 ## Directory Structure
 
-- \`/.agents/rules/\` — Rules (source of truth for all tool-specific rules)
-- \`/.agents/agents/\` — Agent definitions
-- \`/.agents/skills/\` — Skill workflows
-- \`/.agents/commands/\` — Executable commands
-- \`/.agents/mcp/\` — MCP server configuration
-- \`/.agents/policy/\` — Guardrails and deny lists
-- \`/.agents/learnings/\` — Project learnings (pitfalls, patterns, decisions)
+- Rules: \`.claude/rules/\` / \`.cursor/rules/\` / \`.github/instructions/\` — source of truth for all tool-specific rules
+- Agents: \`.claude/agents/\` / \`.cursor/agents/\` / \`.github/agents/\` — agent definitions
+- Skills: \`.claude/skills/\` / \`.cursor/skills/\` / \`.github/skills/\` — skill workflows
+- Commands: \`.claude/commands/\` / \`.cursor/commands/\` / \`.github/prompts/\` — executable commands
+- MCP: \`.hatch3r/mcp/mcp.json\` — MCP server configuration
+- Learnings: \`.hatch3r/learnings/\` — project learnings (pitfalls, patterns, decisions)
+- Handoffs: \`.hatch3r/handoffs/\` — cross-session task handoffs
+- Overrides: \`.hatch3r/overrides/\` — user-tier customizations
 `);
 
   return sections.join("\n");

@@ -4,7 +4,7 @@ type: command
 orchestrator: true
 agentPipeline: [hatch3r-implementer, hatch3r-lint-fixer, hatch3r-reviewer, hatch3r-fixer, hatch3r-test-writer, hatch3r-security-auditor]
 description: Lightweight command for small changes not worth tracking on the board. Adaptive ceremony with inline or sub-agent implementation, batch support, and soft scope guards.
-tags: [core, implementation]
+tags: [implementation, orchestration]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
@@ -60,7 +60,7 @@ It retains:
 - Quality checks (lint, typecheck, test) -- always mandatory
 - Adaptive sub-agent delegation (implementer for nontrivial items)
 - Light code review (reviewer for nontrivial items only)
-- `scope: always` rules from `.agents/rules/`
+- `scope: always` rules from `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)`
 - Soft scope guards to prevent misuse
 - Lightweight learnings consultation (file-path scan, 150-token budget)
 
@@ -163,7 +163,7 @@ Quick Change Scope:
 
 #### 2c. Lightweight Learnings Scan (Optional)
 
-If `.agents/learnings/` exists:
+If `.hatch3r/learnings/` exists:
 
 1. Collect the file paths from the affected areas identified in Step 1.
 2. Scan learning file frontmatter for `area` or `tags` that match the affected file paths or directories.
@@ -179,7 +179,7 @@ If `.agents/learnings/` exists:
 
 **Token budget:** Max 150 tokens for this entire step. Read frontmatter only — do not read learning bodies unless the frontmatter matches. Limit to 3 surfaced learnings. If more than 3 match, show the 3 with highest confidence.
 
-If `.agents/learnings/` does not exist, skip this step silently.
+If `.hatch3r/learnings/` does not exist, skip this step silently.
 
 **ASK:** "Proceed with these changes? (yes / adjust)"
 
@@ -231,7 +231,7 @@ No sub-agent delegation. No researcher. Implement and move on.
 
 For each nontrivial item (or group of related nontrivial items):
 
-1. Read `scope: always` rules from `.agents/rules/`.
+1. Read `scope: always` rules from `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)`.
 
 2. **Lightweight research (Tier 2 items only):** If the item scored Tier 2 in Step 2b and the user chose to proceed with lightweight research, spawn a `hatch3r-researcher` sub-agent with:
    - **Modes:** `similar-implementation` at `quick` depth (1 reference implementation)
@@ -291,7 +291,7 @@ For nontrivial items, run an iterative review loop (max 3 iterations) until 0 Cr
 The reviewer prompt MUST include:
 - The diff of all changes made (use `git diff` on the working tree).
 - Focus areas: **correctness and code quality only**. Skip security deep-dive, performance profiling, and documentation review.
-- All `scope: always` rule directives from `.agents/rules/`.
+- All `scope: always` rule directives from `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)`.
 - Iteration number and previous findings (if not the first iteration).
 - Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
 - Requirement that the reviewer output include a top-level `confidence: high | medium | low` field (not just per-finding) so the gate in step 2 can evaluate it deterministically.
@@ -317,7 +317,7 @@ After the review loop is clean, spawn both agents in parallel via the Task tool:
 
 Both prompts MUST include:
 - The diff of all changes made.
-- All `scope: always` rule directives from `.agents/rules/`.
+- All `scope: always` rule directives from `the canonical `rules/` directory or `.hatch3r/rules/` (for customizations)`.
 - Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
 
 Apply any resulting changes (new tests, security fixes). Re-run quality checks (Step 5a) if changes were made.

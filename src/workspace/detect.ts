@@ -1,6 +1,30 @@
 import { readdir, stat, access } from "node:fs/promises";
 import { join, dirname, relative } from "node:path";
-import { AGENTS_DIR } from "../types.js";
+import { HATCH3R_DIR } from "../types.js";
+
+/** Legacy `.agents/` directory name retained only for backward-compatible probes. */
+const LEGACY_AGENTS_DIR = ".agents";
+
+/**
+ * Wave 6/7: probe `.hatch3r/` first (new layout), fall back to `.agents/` so
+ * pre-1.9 installs still detect as workspaces / hatch3r repos until the
+ * migration shim relocates them on the next pipeline run.
+ */
+async function accessHatchOrLegacy(rootDir: string, relPath: string): Promise<boolean> {
+  for (const dir of [HATCH3R_DIR, LEGACY_AGENTS_DIR]) {
+    try {
+      await access(join(rootDir, dir, relPath));
+      return true;
+    } catch (err) {
+      // Continue to the legacy probe. Surface the per-probe failure via
+      // verbose() so silent fallbacks remain observable per the Silent
+      // Failure Contract (CONSTITUTION.md §2 P5).
+      const message = err instanceof Error ? err.message : String(err);
+      verbose(`workspace/detect: access(${join(rootDir, dir, relPath)}) — ${message}`);
+    }
+  }
+  return false;
+}
 import { verbose } from "../cli/shared/ui.js";
 import { WORKSPACE_MANIFEST_FILE } from "./types.js";
 
@@ -67,14 +91,16 @@ export async function detectSubRepos(rootDir: string): Promise<DetectedRepo[]> {
 
     if (!isGitRepo) continue;
 
-    let hasHatch3r = false;
-    try {
-      await access(join(subDir, AGENTS_DIR, "hatch.json"));
-      hasHatch3r = true;
-    } catch (err) {
+    // Wave 6: accept either `.hatch3r/hatch.json` (new layout) or
+    // `.agents/hatch.json` (pre-1.9 layout) as a hatch3r-managed repo.
+    const hasHatch3r = await accessHatchOrLegacy(subDir, "hatch.json");
+    if (!hasHatch3r) {
       // No existing hatch3r setup — expected for repos not yet onboarded.
       // Surface under --verbose so unexpected failures (e.g., permission) remain observable.
-      recordProbeFailure(`access(${subDir}/${AGENTS_DIR}/hatch.json) — no hatch3r setup`, err);
+      recordProbeFailure(
+        `access(${subDir}/{${HATCH3R_DIR},${LEGACY_AGENTS_DIR}}/hatch.json) — no hatch3r setup`,
+        new Error("ENOENT on both new and legacy paths"),
+      );
     }
 
     repos.push({
@@ -126,33 +152,29 @@ async function hasGitDir(dir: string): Promise<boolean> {
  * - "standalone" otherwise
  */
 export async function detectWorkspaceContext(dir: string): Promise<WorkspaceContext> {
-  // Check 1: Is this directory a workspace root?
-  try {
-    await access(join(dir, AGENTS_DIR, WORKSPACE_MANIFEST_FILE));
+  // Check 1: Is this directory a workspace root? (Wave 6: probe new + legacy.)
+  if (await accessHatchOrLegacy(dir, WORKSPACE_MANIFEST_FILE)) {
     return { type: "workspace-root", workspaceRoot: dir };
-  } catch (err) {
-    recordProbeFailure(
-      `access(${dir}/${AGENTS_DIR}/${WORKSPACE_MANIFEST_FILE}) — not a workspace root`,
-      err,
-    );
   }
+  recordProbeFailure(
+    `access(${dir}/{${HATCH3R_DIR},${LEGACY_AGENTS_DIR}}/${WORKSPACE_MANIFEST_FILE}) — not a workspace root`,
+    new Error("ENOENT on both new and legacy paths"),
+  );
 
   // Check 2: Walk up to 3 levels looking for workspace.json
   let current = dirname(dir);
   for (let i = 0; i < 3; i++) {
-    try {
-      await access(join(current, AGENTS_DIR, WORKSPACE_MANIFEST_FILE));
+    if (await accessHatchOrLegacy(current, WORKSPACE_MANIFEST_FILE)) {
       return {
         type: "workspace-member",
         workspaceRoot: current,
         rootPath: relative(dir, current),
       };
-    } catch (err) {
-      recordProbeFailure(
-        `access(${current}/${AGENTS_DIR}/${WORKSPACE_MANIFEST_FILE}) — continuing parent walk`,
-        err,
-      );
     }
+    recordProbeFailure(
+      `access(${current}/{${HATCH3R_DIR},${LEGACY_AGENTS_DIR}}/${WORKSPACE_MANIFEST_FILE}) — continuing parent walk`,
+      new Error("ENOENT on both new and legacy paths"),
+    );
     const parent = dirname(current);
     if (parent === current) break;
     current = parent;
@@ -177,14 +199,13 @@ export async function shouldSuggestWorkspace(dir: string): Promise<boolean> {
  * Check if a directory is a workspace root (has workspace.json).
  */
 export async function isWorkspaceRoot(dir: string): Promise<boolean> {
-  try {
-    await access(join(dir, AGENTS_DIR, WORKSPACE_MANIFEST_FILE));
+  // Wave 6: accept new (`.hatch3r/`) or legacy (`.agents/`) workspace marker.
+  if (await accessHatchOrLegacy(dir, WORKSPACE_MANIFEST_FILE)) {
     return true;
-  } catch (err) {
-    recordProbeFailure(
-      `isWorkspaceRoot(${dir}) — no ${AGENTS_DIR}/${WORKSPACE_MANIFEST_FILE}`,
-      err,
-    );
-    return false;
   }
+  recordProbeFailure(
+    `isWorkspaceRoot(${dir}) — no {${HATCH3R_DIR},${LEGACY_AGENTS_DIR}}/${WORKSPACE_MANIFEST_FILE}`,
+    new Error("ENOENT on both new and legacy paths"),
+  );
+  return false;
 }

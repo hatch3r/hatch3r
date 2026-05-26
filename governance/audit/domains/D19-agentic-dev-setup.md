@@ -2,7 +2,7 @@
 
 > Last updated: 2026-04-21
 
-**Pillars served:** P5 (primary), P2 (supporting).
+**Pillars served:** governance-axis P5 (primary), P1 (supporting); content-quality-axis CQ8 Maintainability (supporting — framework-dev maintainability).
 
 **Scope:** The agentic development environment used to develop hatch3r itself — CLAUDE.md, `.claude/` configuration (rules, skills, hooks, settings). Audits whether this setup correctly reflects the governance system it enforces.
 **Sub-agents:** 4
@@ -19,6 +19,8 @@
 > Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
 
 ## Audit Checklists
+
+> **Per-finding (Decision 17 / charter directive 18):** every finding declares `impact_horizon: short|medium|long` AND `progress_toward_pillar: <axis>.<pillar_id>+<delta>`; orchestrator DROPS at output time if either missing.
 
 ### 19.1 CLAUDE.md & Settings Accuracy
 - [ ] Architecture claims match reality — verify every directory reference, file count, and component name against the actual filesystem

@@ -19,13 +19,6 @@ All adapters that support MCP emit tool-specific configuration during `npx hatch
 | Cursor | `.cursor/mcp.json` | JSON (direct copy) | Also reads `mcp.json` at project root if using the Cursor plugin |
 | Claude Code | `.mcp.json` | JSON (direct copy) | Also generates `.claude/settings.json` with opinionated permissions (see [Claude Code Permissions](#claude-code-permissions)) |
 | Copilot / VS Code | `.vscode/mcp.json` | JSON with `env` object | Env vars passed via `env` object per server |
-| OpenCode | `opencode.json` | JSON (inline) | MCP servers embedded in the top-level config under `mcp` key |
-| Windsurf | `.windsurf/mcp.json` | JSON | Standard `mcpServers` format |
-| Amp | `.amp/settings.json` | JSON | MCP servers under `amp.mcpServers` key |
-| Codex | `.codex/config.toml` | TOML | MCP servers as `[mcp_servers.<name>]` sections |
-| Gemini | `.gemini/settings.json` | JSON | MCP servers under `mcpServers` key alongside context and hooks |
-| Cline / Roo | `.roo/mcp.json` | JSON | Standard `mcpServers` format; remote servers use `streamable-http` transport |
-| Kiro | `.kiro/settings/mcp.json` | JSON | Standard `mcpServers` format |
 
 ## Connecting MCP Servers
 
@@ -47,37 +40,7 @@ Config goes to `.mcp.json`. Claude Code reads it from the project root. Fill in 
 
 Config goes to `.vscode/mcp.json`. Env vars are passed via the `env` object per server entry. Source `.env.mcp` before launching or set vars in VS Code settings.
 
-### OpenCode
-
-MCP servers are embedded directly in `opencode.json` under the `mcp` key. STDIO servers use `type: "local"` with a combined `command` array; remote servers use `type: "remote"`. Source `.env.mcp` before launching.
-
-### Windsurf
-
-Config goes to `.windsurf/mcp.json` using the standard `mcpServers` format. Source `.env.mcp` before launching Windsurf.
-
-### Amp
-
-MCP config is written to `.amp/settings.json` under the `amp.mcpServers` key. Source `.env.mcp` before launching.
-
-### Codex
-
-MCP servers are written as `[mcp_servers.<name>]` sections in `.codex/config.toml`. Environment variables are specified as `env.<KEY>` entries.
-
-### Gemini
-
-Config goes to `.gemini/settings.json` under the `mcpServers` key. Source `.env.mcp` before launching.
-
-### Cline / Roo Code
-
-Config goes to `.roo/mcp.json` using the standard `mcpServers` format. Remote servers are configured with `streamable-http` transport.
-
-### Kiro
-
-Config goes to `.kiro/settings/mcp.json` using the standard `mcpServers` format.
-
-### Other tools
-
-Tools without native MCP support (aider, goose, zed) do not emit MCP configuration. See [adapter-capability-matrix.md](adapter-capability-matrix.md) for the full per-tool capability breakdown.
+All three supported adapters (Claude Code, Cursor, Copilot) emit MCP configuration natively. See [adapter-capability-matrix.md](adapter-capability-matrix.md) for the full per-tool capability breakdown.
 
 ## Claude Code Permissions
 
@@ -135,7 +98,7 @@ Alternatively, add your tokens to `~/.zshrc` / `~/.bashrc` for persistent access
 set -a && source .env.mcp && set +a && claude
 ```
 
-**Other editors** — Same sourcing pattern. See [adapter-capability-matrix.md](adapter-capability-matrix.md#secret-management) for per-tool details.
+See [adapter-capability-matrix.md](adapter-capability-matrix.md#secret-management) for per-tool details.
 
 ### Required environment variables
 
@@ -162,7 +125,7 @@ For the remote GitHub MCP server (repos, issues, pull_requests, projects):
 **Classic PAT** (Settings → Developer settings → Personal access tokens → Tokens (classic)):
 - `repo` — full control of private repositories (read/write code, issues, PRs)
 - `read:org` — read org and team membership (needed for org projects)
-- `project` — read/write access to GitHub Projects V2 (required for board commands: `hatch3r-board-init`, `hatch3r-board-fill`, `hatch3r-board-groom`, `hatch3r-board-pickup`, `hatch3r-board-refresh`)
+- `project` — read/write access to GitHub Projects V2 (required for board commands `hatch3r-board-fill`, `hatch3r-board-pickup` and board skills `hatch3r-board-init`, `hatch3r-board-groom`, `hatch3r-board-refresh`)
 
 **Fine-grained PAT** (recommended):
 
@@ -171,7 +134,7 @@ For the remote GitHub MCP server (repos, issues, pull_requests, projects):
 | Contents | Read and write | Code, file operations |
 | Issues | Read and write | Issue creation, labeling, assignment |
 | Pull requests | Read and write | PR creation, review, merge |
-| Projects | Read and write | Board commands (`hatch3r-board-init`, etc.) |
+| Projects | Read and write | Board commands and skills (`hatch3r-board-fill`, `hatch3r-board-init`, etc.) |
 | Metadata | Read | Repository metadata (auto-granted) |
 | Members (Organization) | Read | Org projects and team membership |
 
@@ -179,7 +142,7 @@ Fine-grained tokens have [limitations](https://docs.github.com/en/authentication
 
 **Note:** `read:packages` is only needed when running the GitHub MCP server locally via Docker. hatch3r uses the remote server, so you do not need it.
 
-**Note:** If board commands fail with GraphQL permission errors, the most likely cause is a missing `project` scope. For classic PATs, add the `project` scope. For fine-grained PATs, ensure Projects has read and write access. You can also run `gh auth refresh -s project` if using the GitHub CLI.
+**Note:** If board commands fail with GraphQL permission errors, the most likely cause is a missing `project` scope. For classic PATs, add the `project` scope. For fine-grained PATs, grant Projects read and write access. You can also run `gh auth refresh -s project` if using the GitHub CLI.
 
 **User-owned Projects V2 caveat:** As of 2026, fine-grained PATs still cannot access Projects V2 owned by a user account (only org-owned projects). For board commands targeting a user-owned project, use a classic PAT with the `project` scope.
 

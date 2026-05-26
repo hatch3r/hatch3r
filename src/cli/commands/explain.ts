@@ -29,7 +29,7 @@ import {
   estimateCost,
   type PipelineTokenSummary,
 } from "../../pipeline/observability.js";
-import { AGENTS_DIR, HatchError } from "../../types.js";
+import { HatchError } from "../../types.js";
 import { findPackageRoot } from "../shared/paths.js";
 import { printBanner, printBox, label, info, error as logError, setVerbose } from "../shared/ui.js";
 
@@ -81,7 +81,10 @@ async function resolveCommandPath(rootDir: string, commandId: string): Promise<s
   const filename = `${normalized}.md`;
 
   const candidates = [
-    join(rootDir, AGENTS_DIR, "commands", filename),
+    // Wave 7: legacy `.agents/commands/` probe for pre-1.9 installs that
+    // still ship a project-side canonical tree. New installs resolve via
+    // the bundled package root (second candidate).
+    join(rootDir, ".agents", "commands", filename),
     join(findPackageRoot(__dirname), "commands", filename),
   ];
 

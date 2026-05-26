@@ -126,7 +126,7 @@ My custom additions that should be preserved`;
     });
 
     it("returns empty result for tool with no existing output files", async () => {
-      const result = await archiveToolOutputs(tempDir, "windsurf");
+      const result = await archiveToolOutputs(tempDir, "claude");
 
       expect(result.archivedFiles).toHaveLength(0);
       expect(result.migrations).toHaveLength(0);
@@ -241,41 +241,9 @@ Always check for SQL injection`;
       const manifest = makeManifest(["cursor"]);
       manifest.managedFiles = ["AGENTS.md"];
 
-      const result = getManagedFilesForTool(manifest, "windsurf");
+      const result = getManagedFilesForTool(manifest, "copilot");
 
       expect(result).toEqual([]);
-    });
-
-    it("returns amp managed files including root AGENTS.md (#255, D9-9.26)", () => {
-      const manifest = makeManifest(["amp"]);
-      manifest.managedFiles = [
-        ".amp/settings.json",
-        "AGENTS.md",
-        ".cursor/rules/test.mdc",
-      ];
-
-      const result = getManagedFilesForTool(manifest, "amp");
-
-      expect(result).toContain("AGENTS.md");
-      expect(result).toContain(".amp/settings.json");
-      expect(result).not.toContain(".cursor/rules/test.mdc");
-    });
-
-    it("returns aider managed files including .aider/ directory (#256, D9-9.27)", () => {
-      const manifest = makeManifest(["aider"]);
-      manifest.managedFiles = [
-        "CONVENTIONS.md",
-        ".aider.conf.yml",
-        ".aider/skills/hatch3r-test/SKILL.md",
-        ".cursor/rules/test.mdc",
-      ];
-
-      const result = getManagedFilesForTool(manifest, "aider");
-
-      expect(result).toContain("CONVENTIONS.md");
-      expect(result).toContain(".aider.conf.yml");
-      expect(result).toContain(".aider/skills/hatch3r-test/SKILL.md");
-      expect(result).not.toContain(".cursor/rules/test.mdc");
     });
   });
 
@@ -346,20 +314,20 @@ Always check for SQL injection`;
           join(archiveRoot, "cursor"),
         );
         // A real tool dir with 6 timestamped entries -> 1 must be pruned.
-        const windsurfPath = join(archiveRoot, "windsurf");
-        await mkdir(windsurfPath, { recursive: true });
+        const copilotPath = join(archiveRoot, "copilot");
+        await mkdir(copilotPath, { recursive: true });
         for (let i = 0; i < 6; i++) {
           await mkdir(
-            join(windsurfPath, `2026-04-${String(10 + i).padStart(2, "0")}T00-00-00-000Z`),
+            join(copilotPath, `2026-04-${String(10 + i).padStart(2, "0")}T00-00-00-000Z`),
             { recursive: true },
           );
         }
 
         const pruned = await pruneArchives(tempDir);
 
-        // cursor skipped silently (stat threw). windsurf pruned its oldest.
+        // cursor skipped silently (stat threw). copilot pruned its oldest.
         expect(pruned).toHaveLength(1);
-        expect(pruned[0]).toBe("windsurf/2026-04-10T00-00-00-000Z");
+        expect(pruned[0]).toBe("copilot/2026-04-10T00-00-00-000Z");
       },
     );
 
@@ -438,9 +406,9 @@ Always check for SQL injection`;
       // Two tools with different entry counts in the same archive root.
       // Confirms the outer for-loop iterates over every tool directory.
       const cursorPath = join(tempDir, ARCHIVE_DIR, "cursor");
-      const windsurfPath = join(tempDir, ARCHIVE_DIR, "windsurf");
+      const copilotPath = join(tempDir, ARCHIVE_DIR, "copilot");
       await mkdir(cursorPath, { recursive: true });
-      await mkdir(windsurfPath, { recursive: true });
+      await mkdir(copilotPath, { recursive: true });
 
       // cursor: 6 entries -> 1 pruned
       for (let i = 0; i < 6; i++) {
@@ -448,9 +416,9 @@ Always check for SQL injection`;
           recursive: true,
         });
       }
-      // windsurf: 4 entries -> 0 pruned
+      // copilot: 4 entries -> 0 pruned
       for (let i = 0; i < 4; i++) {
-        await mkdir(join(windsurfPath, `2026-04-${String(10 + i).padStart(2, "0")}T00-00-00-000Z`), {
+        await mkdir(join(copilotPath, `2026-04-${String(10 + i).padStart(2, "0")}T00-00-00-000Z`), {
           recursive: true,
         });
       }
@@ -462,8 +430,8 @@ Always check for SQL injection`;
 
       const cursorRemaining = await readdir(cursorPath);
       expect(cursorRemaining).toHaveLength(5);
-      const windsurfRemaining = await readdir(windsurfPath);
-      expect(windsurfRemaining).toHaveLength(4);
+      const copilotRemaining = await readdir(copilotPath);
+      expect(copilotRemaining).toHaveLength(4);
     });
 
     it("prunes directories with nested content (exercises rm recursive:true)", async () => {

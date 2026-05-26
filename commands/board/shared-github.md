@@ -56,7 +56,7 @@ Use `gh` CLI and GitHub MCP tools. Issues = GitHub Issues. PRs = Pull Requests. 
 
 ## GitHub Context
 
-Derived from `.agents/hatch.json` board config:
+Derived from `.hatch3r/hatch.json` board config:
 
 - **Owner:** top-level `owner` (fallback: `board.owner`)
 - **Repository:** top-level `repo` (fallback: `board.repo`)
@@ -89,7 +89,7 @@ If `board.projectNumber` is not null, verify via `gh project view {board.project
 
 **Status label → Projects v2 option mapping:**
 
-Read the mapping from `board.statusOptions` in `.agents/hatch.json`:
+Read the mapping from `board.statusOptions` in `.hatch3r/hatch.json`:
 
 | Label                | Option ID from hatch.json          |
 | -------------------- | ---------------------------------- |

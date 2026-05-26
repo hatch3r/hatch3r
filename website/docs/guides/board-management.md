@@ -116,7 +116,7 @@ After a PR merges, `pickup-post-impl` confirms the board item has reached a term
 
 ### Board Sync Enforcement rules 8-10
 
-`commands/hatch3r-board-shared.md` adds three enforcement rules:
+`skills/hatch3r-board-shared/SKILL.md` adds three enforcement rules:
 
 - **Rule 8:** Retry-then-halt with rollback when an option mapping fails twice
 - **Rule 9:** Null-option abort — refuse to proceed when a required status/priority option resolves to null

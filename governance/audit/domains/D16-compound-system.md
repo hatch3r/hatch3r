@@ -2,7 +2,7 @@
 
 > Last updated: 2026-04-27
 
-**Pillars served:** P4 (primary), P5 (supporting).
+**Pillars served:** governance-axis P5 (primary), P4 (supporting); content-quality-axis CQ8 Maintainability (supporting).
 
 **Scope:** Cross-domain insights that no single domain can produce. This domain synthesizes findings from all other domains to identify contradictions, systemic patterns, and closed-loop effectiveness. Explicitly NOT re-auditing scope covered by home domains.
 **Sub-agents:** 3
@@ -19,6 +19,8 @@ ALL sub-agents are **sequential** — run only after all Tier A and B domains co
 
 Before producing any 16.1 finding, sub-agent MUST read all 18 prior-tier synthesis files end-to-end (`.audit-workspace/D{1..15,17}-synthesis.md` plus any D19 synthesis). Reject any candidate pattern that cites fewer than 3 distinct domain syntheses — single-domain confirmations belong in their home domain, not D16.
 
+> **Decision-18 batching:** D16.1 SAs split by finding severity at execution time — 1 SA per Critical cross-domain contradiction (immediate Wave 1 dispatch), 1 SA per same-tier batch for High (≤8 contradictions), Medium (≤15), Low (≤30 — Tier 1), Info (≤50). D16.2 + D16.3 remain single-SA per cycle (workloads do not scale with finding count).
+
 ## Deduplication Gate
 
 Before creating any finding, verify:
@@ -31,6 +33,8 @@ If yes to either: log as "cross-domain confirmation of D{N} #{ID}" without creat
 
 ## Audit Checklists
 
+> **Per-finding (Decision 17 / charter directive 18):** every finding declares `impact_horizon: short|medium|long` AND `progress_toward_pillar: <axis>.<pillar_id>+<delta>`; orchestrator DROPS at output time if either missing.
+
 ### 16.1 Cross-Domain Contradiction Detection
 - [ ] Read all 18 prior-tier synthesis files end-to-end before drafting findings; record which files were read in the sub-agent header
 - [ ] Identify findings spanning 3+ domains with shared root cause that no single domain reported
@@ -40,7 +44,7 @@ If yes to either: log as "cross-domain confirmation of D{N} #{ID}" without creat
 - [ ] Cross-command sub-agent prompts: do all commands specifying sub-agent prompt requirements include the same mandatory items?
 - [ ] Cross-command confidence expression: do all commands use the same three-level scale at the same structural points?
 - [ ] Cross-artifact contradiction detection: do any content artifacts give conflicting instructions?
-- [ ] Library-CLI divergence: do library modules (`src/merge/`, `src/integrity/`, `src/content/`) expose APIs that CLI commands (`src/cli/commands/`) do not exercise or exercise differently?
+- [ ] Library-CLI divergence: do library modules (`src/merge/`, `src/content/`, `src/migration/`) expose APIs that CLI commands (`src/cli/commands/`) do not exercise or exercise differently?
 - [ ] Consistency drift: are naming conventions, error patterns, and return types uniform across all `src/` modules?
 
 ### 16.2 Closed-Loop Effectiveness
@@ -49,7 +53,7 @@ If yes to either: log as "cross-domain confirmation of D{N} #{ID}" without creat
 - [ ] Audit evolution adoption rate: were CL-3 proposals reflected in current AUDIT.md and domain files?
 - [ ] Feedback loop latency: how many cycles from finding identification to resolution?
 - [ ] Diminishing returns: are scores improving? Is improvement rate slowing (healthy maturity) or stalling (broken loop)?
-- [ ] Learning system integration: are findings captured as learnings in `/.agents/learnings/`?
+- [ ] Learning system integration: are findings captured as learnings in `.hatch3r/learnings/`?
 - [ ] Two-speed detection: are tactical fixes (wave 1-2) progressing while strategic items (CL phases 5-7) remain stalled? Flag if CL phases have 0 executions for 2+ cycles
 
 ### 16.3 Artifact Inventory & Redundancy

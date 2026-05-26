@@ -1,6 +1,6 @@
 # Tier 1 Batch Sub-Agent Template
 
-> Last updated: 2026-04-28
+> Last updated: 2026-05-26
 
 **Pillars served:** P7 (primary — speed and token efficiency), P2 (rigor preservation), P4 (lean coverage).
 
@@ -33,6 +33,17 @@ Pick the procedure for your assigned `tier1_pattern`:
 - **`typo_fix`** — Read the file, locate the typo, replace with the corrected single word.
 - **`version_bump`** — Read the file (`package.json` or `hatch.json`), bump the version field per the finding's target.
 - **`lint_disable_removal`** — Read the file, remove the `// eslint-disable-next-line <rule>` comment. Run `npm run lint -- <file>` mentally to confirm the rule now passes; if it doesn't, mark this finding `failed` with `tier1_pattern_mismatch` and continue.
+
+## Enum Extension Protocol
+
+New `tier1_pattern` values flow via CL-3 proposal. Proposal MUST specify:
+1. **Pattern name** (snake_case verb_phrase, e.g., `references_section_add`)
+2. **Eligibility:** severity bucket (Low/Info only), effort=S, single-file, non-source
+3. **Verification command** — what the SA runs to confirm the pattern applies (e.g., `grep -c "^## References" $FILE`)
+4. **Failure mode** — what triggers `tier1_pattern_mismatch` (e.g., file has multiple ## References sections)
+5. **≥3-cycle observation** of recurrence justifying batch treatment
+
+Approved patterns added to `governance/AUDIT-EXECUTE.md` §Tier Classification §Tier 1 enum + this template's §Pattern Definitions in same CL-3 batch.
 
 ## Per-Finding Procedure
 

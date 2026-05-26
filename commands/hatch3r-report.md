@@ -112,7 +112,7 @@ Create `.hatch3r/reports/` if missing. Write the rendered markdown (executive su
 ### File Footprint
 
 - 12 distinct files read; 9 distinct files edited
-- Top 3 most-read: src/cli/commands/validate.ts (4x), commands/hatch3r-context-health.md (2x), CHANGELOG.md (2x)
+- Top 3 most-read: src/cli/commands/validate.ts (4x), skills/hatch3r-context-health/SKILL.md (2x), CHANGELOG.md (2x)
 
 ### Diagnostics
 

@@ -1,7 +1,7 @@
 ---
 id: hatch3r-cli-fd
 description: "User-friendly find replacement, gitignore-aware. Use when locating filenames or directories by glob with parallel walking; invoke `fd`. Outputs newline-separated hit records; bound results with `-c` or `--max-count`."
-tags: ["cli-tools", "search", "core"]
+tags: ["cli-tools", "search", "orchestration"]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

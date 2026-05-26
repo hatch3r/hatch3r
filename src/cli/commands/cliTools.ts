@@ -25,6 +25,7 @@ import {
   label,
 } from "../shared/ui.js";
 import { pickCliTools } from "../shared/pickers.js";
+import { isBack } from "../shared/initSteps.js";
 import { isWSL } from "../shared/constants.js";
 
 /**
@@ -61,10 +62,15 @@ export async function cliToolsCommand(): Promise<void> {
   requireManifest(rootDir, manifest);
 
   const existing = manifest.cliTools?.selected ?? [];
-  const selected = await pickCliTools({
+  const selectedResult = await pickCliTools({
     existing,
     wslTheme: wslThemeOrUndefined(),
   });
+  if (isBack(selectedResult)) {
+    info("CLI tools setup cancelled (Shift+Tab).");
+    return;
+  }
+  const selected = selectedResult;
 
   if (selected.length > 0) {
     const spinner = createSpinner(`Detecting ${selected.length} CLI tool(s)...`);

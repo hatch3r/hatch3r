@@ -1,237 +1,225 @@
 /**
- * Tag taxonomy for hatch3r content files.
+ * Tag taxonomy for hatch3r content files (v2 — Wave 1 of content-pack redesign).
  *
- * Workflow tags describe what phase of the dev lifecycle a content item serves.
- * Context tags describe what kind of project/team the item is relevant to.
- * Domain tags describe specialized areas.
+ * Three logically distinct facets, each driving a different filter decision:
+ *
+ *   1. Capability   — what the artifact does (formerly "workflow" + parts of "domain")
+ *   2. Floor        — non-negotiable inclusion markers; bypass preset shaping entirely
+ *   3. Context      — what kind of project/team the artifact fits (technical compatibility)
+ *
+ * Helper facets (customize, ui-ux-specialisation, cli-tool, cli-tool-category, language)
+ * carry their own admission rules but are not part of the capability/floor/context triad.
+ *
+ * Filenames, CLI-tool category tags, and language tags continue to use the existing flat
+ * string convention but are grouped into typed sets so callers can reason about them
+ * without hard-coded enumerations.
+ *
+ * TODO(Wave 2 — content re-tagging): Wave 1 only swaps the filter pipeline. The 175
+ * canonical artifacts still carry their legacy tag values (`core`, `team`, `solo`,
+ * `greenfield`, `brownfield`, `security` as a plain tag, `ai` as a CLI category). These
+ * legacy values are NOT in TAG_REGISTRY and therefore fail every facet predicate — items
+ * relying on them will not match the capability gate or floor admission stage and will
+ * appear MISSING from preset output until Wave 2 re-tags the corpus per
+ * `.audit-workspace/council-D-architect.md` §4. Wave 3 then rewrites the test suite.
  */
 
-// ── Workflow tags ──────────────────────────────────────────────
-/** Essential for any hatch3r project */
-export const TAG_CORE = "core";
-/** Spec creation, roadmapping, feature/bug/refactor planning */
-export const TAG_PLANNING = "planning";
-/** Code writing, fixing, refactoring */
-export const TAG_IMPLEMENTATION = "implementation";
-/** Code review, QA, security auditing */
-export const TAG_REVIEW = "review";
-/** CI/CD, releases, deployment */
-export const TAG_DEVOPS = "devops";
-/** Dependency auditing, health checks, context management */
-export const TAG_MAINTENANCE = "maintenance";
+// ── Capability tags (the artifact's job) ─────────────────────────
+// Each artifact MUST carry at least one capability tag (post-Wave-2) for the preset's
+// "what work does this preset cover?" decision to admit it.
 
-// ── Context tags ──────────────────────────────────────────────
-/** New project specific (project-spec, roadmap) */
-export const TAG_GREENFIELD = "greenfield";
-/** Existing project specific (codebase-map, onboard, migration) */
-export const TAG_BROWNFIELD = "brownfield";
-/** Solo developer */
-export const TAG_SOLO = "solo";
-/** Team collaboration */
-export const TAG_TEAM = "team";
+export const TAG_PLANNING       = "planning";       // specs, ADRs, roadmaps
+export const TAG_IMPLEMENTATION = "implementation"; // code writing, fixing, refactoring
+export const TAG_REVIEW         = "review";         // code review, QA, audits
+export const TAG_DEVOPS         = "devops";         // CI/CD, releases, deploy, observability
+export const TAG_MAINTENANCE    = "maintenance";    // dep audits, health checks, learnings, handoffs
+export const TAG_ORCHESTRATION  = "orchestration";  // the sub-agent pipeline itself (formerly "core")
+export const TAG_BOARD          = "board";          // project board management
+export const TAG_PERFORMANCE    = "performance";    // perf budgets, profiling
+export const TAG_AI             = "ai";             // AI feature engineering (evals, prompt mgmt)
 
-// ── Domain tags ──────────────────────────────────────────────
-/** Board/project management commands */
-export const TAG_BOARD = "board";
-/** Security-related agents/rules/skills */
-export const TAG_SECURITY = "security";
-/** Accessibility */
-export const TAG_A11Y = "a11y";
-/** Performance profiling/budgets */
-export const TAG_PERFORMANCE = "performance";
-/** Meta-customization commands/skills */
+// ── Floor tags (non-negotiable inclusion) ────────────────────────
+// Items carrying a floor:* tag are admitted in EVERY preset (except `custom`
+// with an explicit ID list). They bypass preset shaping. Structural mechanism
+// enforcing the maintainer's locked floor decision (security + UI/UX in every
+// preset; pipeline-critical agents always present).
+
+export const TAG_FLOOR_SECURITY = "floor:security"; // P6 — security & trust
+export const TAG_FLOOR_UI_UX    = "floor:ui-ux";    // P1 — UI/UX excellence (includes a11y)
+export const TAG_FLOOR_PROTOCOL = "floor:protocol"; // pipeline-critical (researcher, implementer, reviewer, fixer, test-writer)
+
+// ── Context tags (technical compatibility) ───────────────────────
+// Drive deterministic project-type / team-size filtering. These are NOT
+// preferences — they are compatibility statements. If an item is tagged
+// `ctx:greenfield-only`, it is unsafe in a brownfield project and is removed
+// regardless of preset.
+
+export const TAG_CTX_GREENFIELD_ONLY = "ctx:greenfield-only";
+export const TAG_CTX_BROWNFIELD_ONLY = "ctx:brownfield-only";
+export const TAG_CTX_TEAM_ONLY       = "ctx:team-only";
+// Note: there is no `ctx:solo-only` — nothing in the corpus is solo-exclusive.
+
+// ── Customize family (locked: standard + full only) ──────────────
+// The `customize` capability is materially distinct from other capabilities
+// because the maintainer locked it to specific presets. Encoded as its own
+// facet so the preset DSL can express "include customize" declaratively
+// (`ContentPreset.includeCustomize: boolean`).
+
 export const TAG_CUSTOMIZE = "customize";
-/** Frontend engineering (component code, browser runtimes, client-side rendering) */
-export const TAG_FRONTEND = "frontend";
-/** UI domain — visual design, components, theming, design tokens */
-export const TAG_UI = "ui";
-/** UX domain — user flows, microcopy, state design, interaction patterns */
-export const TAG_UX = "ux";
-/** Design-system adherence — tokens, primitives, component-library reuse */
+
+// ── UI/UX specialisation tags (sub-facet of floor:ui-ux) ─────────
+// Retained for the task-router and rule scoping; they do not drive preset
+// selection (the floor:ui-ux tag does that). Frontmatter authors apply both:
+// `tags: [floor:ui-ux, a11y, frontend]`.
+
+export const TAG_A11Y          = "a11y";
+export const TAG_FRONTEND      = "frontend";
+export const TAG_UI            = "ui";
+export const TAG_UX            = "ux";
 export const TAG_DESIGN_SYSTEM = "design-system";
 
-// ── CLI tool tags (plan §5, CLI-tooling pivot) ───────────────
-// Applied to skills under `skills/hatch3r-cli-*/SKILL.md`. The generator
-// in `scripts/generate-cli-skills.ts::tagsFor()` derives the per-skill
-// tag list from `AVAILABLE_CLI_TOOLS[id].category` plus tier classifiers
-// (`core` for tier-1, `opt-in` for tier-3, `caveat` for tier-3 with a
-// known caveat). The umbrella catalog (`hatch3r-cli-overview/SKILL.md`)
-// adds `reference` to mark it as discovery-only.
-/** Marker tag present on every CLI-tool skill (filters for picker UI). */
+// ── CLI tool tags ────────────────────────────────────────────────
 export const TAG_CLI_TOOLS = "cli-tools";
-/** Tier-3 opt-in advanced tool marker. */
-export const TAG_OPT_IN = "opt-in";
-/** Tier-3 tool with a known correctness caveat (e.g. rtk pipe rewrite). */
-export const TAG_CAVEAT = "caveat";
-/** Umbrella/index skill marker — discovery, not workflow. */
+export const TAG_OPT_IN    = "opt-in";
+export const TAG_CAVEAT    = "caveat";
 export const TAG_REFERENCE = "reference";
 
-// CLI tool category tags — mirror the union in
-// `src/cliTools/registry.ts::CliToolMeta["category"]`.
-export const TAG_CAT_SEARCH = "search";
-export const TAG_CAT_JSON = "json";
-export const TAG_CAT_YAML = "yaml";
-export const TAG_CAT_GIT = "git";
-export const TAG_CAT_VIEW = "view";
-export const TAG_CAT_EDIT = "edit";
-export const TAG_CAT_ARCHIVE = "archive";
-export const TAG_CAT_DATA = "data";
-export const TAG_CAT_FORGE = "forge";
-export const TAG_CAT_BROWSER = "browser";
-export const TAG_CAT_CONTAINER = "container";
-export const TAG_CAT_AI = "ai";
+// CLI tool category tags — mirror the union in `src/cliTools/registry.ts::CliToolMeta["category"]`.
+export const TAG_CAT_SEARCH      = "search";
+export const TAG_CAT_JSON        = "json";
+export const TAG_CAT_YAML        = "yaml";
+export const TAG_CAT_GIT         = "git";
+export const TAG_CAT_VIEW        = "view";
+export const TAG_CAT_EDIT        = "edit";
+export const TAG_CAT_ARCHIVE     = "archive";
+export const TAG_CAT_DATA        = "data";
+export const TAG_CAT_FORGE       = "forge";
+export const TAG_CAT_BROWSER     = "browser";
+export const TAG_CAT_CONTAINER   = "container";
+export const TAG_CAT_AI          = "ai-cat";   // renamed from "ai" to disambiguate from capability tag
 export const TAG_CAT_INTERACTIVE = "interactive";
 
-// ── Language tags (Finding #71, #74) ─────────────────────────
-/** TypeScript/JavaScript projects */
+// ── Language tags ────────────────────────────────────────────────
 export const TAG_LANG_TYPESCRIPT = "lang:typescript";
-/** Python projects */
-export const TAG_LANG_PYTHON = "lang:python";
-/** Go projects */
-export const TAG_LANG_GO = "lang:go";
-/** Rust projects */
-export const TAG_LANG_RUST = "lang:rust";
-/** Java projects */
-export const TAG_LANG_JAVA = "lang:java";
-/** Ruby projects */
-export const TAG_LANG_RUBY = "lang:ruby";
+export const TAG_LANG_PYTHON     = "lang:python";
+export const TAG_LANG_GO         = "lang:go";
+export const TAG_LANG_RUST       = "lang:rust";
+export const TAG_LANG_JAVA       = "lang:java";
+export const TAG_LANG_RUBY       = "lang:ruby";
 
-/** All valid tags */
-export const ALL_TAGS = [
-  TAG_CORE,
-  TAG_PLANNING,
-  TAG_IMPLEMENTATION,
-  TAG_REVIEW,
-  TAG_DEVOPS,
-  TAG_MAINTENANCE,
-  TAG_GREENFIELD,
-  TAG_BROWNFIELD,
-  TAG_SOLO,
-  TAG_TEAM,
-  TAG_BOARD,
-  TAG_SECURITY,
-  TAG_A11Y,
-  TAG_PERFORMANCE,
-  TAG_CUSTOMIZE,
-  TAG_FRONTEND,
-  TAG_UI,
-  TAG_UX,
-  TAG_DESIGN_SYSTEM,
-  TAG_CLI_TOOLS,
-  TAG_OPT_IN,
-  TAG_CAVEAT,
-  TAG_REFERENCE,
-  TAG_CAT_SEARCH,
-  TAG_CAT_JSON,
-  TAG_CAT_YAML,
-  TAG_CAT_GIT,
-  TAG_CAT_VIEW,
-  TAG_CAT_EDIT,
-  TAG_CAT_ARCHIVE,
-  TAG_CAT_DATA,
-  TAG_CAT_FORGE,
-  TAG_CAT_BROWSER,
-  TAG_CAT_CONTAINER,
-  TAG_CAT_AI,
-  TAG_CAT_INTERACTIVE,
-  TAG_LANG_TYPESCRIPT,
-  TAG_LANG_PYTHON,
-  TAG_LANG_GO,
-  TAG_LANG_RUST,
-  TAG_LANG_JAVA,
-  TAG_LANG_RUBY,
-] as const;
-
-export type ContentTag = (typeof ALL_TAGS)[number];
-
-/** Workflow tags — used in preset definitions */
-export const WORKFLOW_TAGS: ContentTag[] = [
-  TAG_CORE,
-  TAG_PLANNING,
-  TAG_IMPLEMENTATION,
-  TAG_REVIEW,
-  TAG_DEVOPS,
-  TAG_MAINTENANCE,
-];
-
-/** Context tags — used for project type / team size filtering */
-export const CONTEXT_TAGS: ContentTag[] = [
-  TAG_GREENFIELD,
-  TAG_BROWNFIELD,
-  TAG_SOLO,
-  TAG_TEAM,
-];
-
-/** Domain tags — specialized areas */
-export const DOMAIN_TAGS: ContentTag[] = [
-  TAG_BOARD,
-  TAG_SECURITY,
-  TAG_A11Y,
-  TAG_PERFORMANCE,
-  TAG_CUSTOMIZE,
-  TAG_FRONTEND,
-  TAG_UI,
-  TAG_UX,
-  TAG_DESIGN_SYSTEM,
-];
-
-/** Language tags — for language-specific content filtering (Finding #71) */
-export const LANGUAGE_TAGS: ContentTag[] = [
-  TAG_LANG_TYPESCRIPT,
-  TAG_LANG_PYTHON,
-  TAG_LANG_GO,
-  TAG_LANG_RUST,
-  TAG_LANG_JAVA,
-  TAG_LANG_RUBY,
-];
+// ── Facet registry — single source of truth ──────────────────────
 
 /**
- * CLI tool tags — applied to `skills/hatch3r-cli-*` artifacts per
- * plan §5. Includes the marker tag, tier classifiers, the umbrella
- * `reference` tag, and the 13 category tags that mirror
- * `CliToolMeta["category"]` in `src/cliTools/registry.ts`.
+ * Tag values remain plain strings so frontmatter authoring is unchanged.
+ * The TAG_REGISTRY below assigns each known tag to exactly one facet;
+ * unknown / legacy tag values return `undefined` from `facetOf()` and are
+ * skipped by every facet-predicate.
  */
-export const CLI_TOOL_TAGS: ContentTag[] = [
-  TAG_CLI_TOOLS,
-  TAG_OPT_IN,
-  TAG_CAVEAT,
-  TAG_REFERENCE,
-  TAG_CAT_SEARCH,
-  TAG_CAT_JSON,
-  TAG_CAT_YAML,
-  TAG_CAT_GIT,
-  TAG_CAT_VIEW,
-  TAG_CAT_EDIT,
-  TAG_CAT_ARCHIVE,
-  TAG_CAT_DATA,
-  TAG_CAT_FORGE,
-  TAG_CAT_BROWSER,
-  TAG_CAT_CONTAINER,
-  TAG_CAT_AI,
-  TAG_CAT_INTERACTIVE,
-];
+export type ContentTag = string;
+
+export type TagFacet =
+  | "capability"
+  | "floor"
+  | "context"
+  | "customize"
+  | "ui-ux-specialisation"
+  | "cli-tool"
+  | "cli-tool-category"
+  | "language";
+
+/**
+ * The single source of truth. Every recognised tag is registered with exactly
+ * one facet. Callers do not enumerate tags by name — they ask `facetOf(tag)`
+ * or `tagsForFacet(facet)`.
+ */
+export const TAG_REGISTRY: Record<string, TagFacet> = {
+  [TAG_PLANNING]:       "capability",
+  [TAG_IMPLEMENTATION]: "capability",
+  [TAG_REVIEW]:         "capability",
+  [TAG_DEVOPS]:         "capability",
+  [TAG_MAINTENANCE]:    "capability",
+  [TAG_ORCHESTRATION]:  "capability",
+  [TAG_BOARD]:          "capability",
+  [TAG_PERFORMANCE]:    "capability",
+  [TAG_AI]:             "capability",
+
+  [TAG_FLOOR_SECURITY]: "floor",
+  [TAG_FLOOR_UI_UX]:    "floor",
+  [TAG_FLOOR_PROTOCOL]: "floor",
+
+  [TAG_CTX_GREENFIELD_ONLY]: "context",
+  [TAG_CTX_BROWNFIELD_ONLY]: "context",
+  [TAG_CTX_TEAM_ONLY]:       "context",
+
+  [TAG_CUSTOMIZE]: "customize",
+
+  [TAG_A11Y]:          "ui-ux-specialisation",
+  [TAG_FRONTEND]:      "ui-ux-specialisation",
+  [TAG_UI]:            "ui-ux-specialisation",
+  [TAG_UX]:            "ui-ux-specialisation",
+  [TAG_DESIGN_SYSTEM]: "ui-ux-specialisation",
+
+  [TAG_CLI_TOOLS]: "cli-tool",
+  [TAG_OPT_IN]:    "cli-tool",
+  [TAG_CAVEAT]:    "cli-tool",
+  [TAG_REFERENCE]: "cli-tool",
+
+  [TAG_CAT_SEARCH]:      "cli-tool-category",
+  [TAG_CAT_JSON]:        "cli-tool-category",
+  [TAG_CAT_YAML]:        "cli-tool-category",
+  [TAG_CAT_GIT]:         "cli-tool-category",
+  [TAG_CAT_VIEW]:        "cli-tool-category",
+  [TAG_CAT_EDIT]:        "cli-tool-category",
+  [TAG_CAT_ARCHIVE]:     "cli-tool-category",
+  [TAG_CAT_DATA]:        "cli-tool-category",
+  [TAG_CAT_FORGE]:       "cli-tool-category",
+  [TAG_CAT_BROWSER]:     "cli-tool-category",
+  [TAG_CAT_CONTAINER]:   "cli-tool-category",
+  [TAG_CAT_AI]:          "cli-tool-category",
+  [TAG_CAT_INTERACTIVE]: "cli-tool-category",
+
+  [TAG_LANG_TYPESCRIPT]: "language",
+  [TAG_LANG_PYTHON]:     "language",
+  [TAG_LANG_GO]:         "language",
+  [TAG_LANG_RUST]:       "language",
+  [TAG_LANG_JAVA]:       "language",
+  [TAG_LANG_RUBY]:       "language",
+};
+
+export function facetOf(tag: string): TagFacet | undefined {
+  return TAG_REGISTRY[tag];
+}
+
+export function tagsForFacet(facet: TagFacet): string[] {
+  return Object.keys(TAG_REGISTRY).filter((t) => TAG_REGISTRY[t] === facet);
+}
+
+/** All registered tag values (no legacy tags). */
+export const ALL_TAGS: string[] = Object.keys(TAG_REGISTRY);
+
+/** Convenience predicates used by resolveSelection (no hard-coded string lists). */
+export const isCapabilityTag      = (t: string): boolean => facetOf(t) === "capability";
+export const isFloorTag           = (t: string): boolean => facetOf(t) === "floor";
+export const isContextTag         = (t: string): boolean => facetOf(t) === "context";
+export const isCustomizeTag       = (t: string): boolean => facetOf(t) === "customize";
+export const isUiUxSpecialisation = (t: string): boolean => facetOf(t) === "ui-ux-specialisation";
+export const isLanguageTag        = (t: string): boolean => facetOf(t) === "language";
+
+// ── Language helpers ─────────────────────────────────────────────
 
 /**
  * Map detected language names to their corresponding language tags.
  * Used by resolveSelection to filter content by project language (Finding #71).
  */
-export const LANGUAGE_TO_TAG: Record<string, ContentTag> = {
+export const LANGUAGE_TO_TAG: Record<string, string> = {
   typescript: TAG_LANG_TYPESCRIPT,
   javascript: TAG_LANG_TYPESCRIPT, // JS projects also benefit from TS rules
-  python: TAG_LANG_PYTHON,
-  go: TAG_LANG_GO,
-  rust: TAG_LANG_RUST,
-  java: TAG_LANG_JAVA,
-  kotlin: TAG_LANG_JAVA, // Kotlin shares Java ecosystem
-  ruby: TAG_LANG_RUBY,
+  python:     TAG_LANG_PYTHON,
+  go:         TAG_LANG_GO,
+  rust:       TAG_LANG_RUST,
+  java:       TAG_LANG_JAVA,
+  kotlin:     TAG_LANG_JAVA,       // Kotlin shares Java ecosystem
+  ruby:       TAG_LANG_RUBY,
 };
-
-/**
- * Check whether a tag is a language tag (prefixed with "lang:").
- */
-export function isLanguageTag(tag: string): boolean {
-  return tag.startsWith("lang:");
-}
 
 /**
  * Resolve a list of detected project language names to the set of `lang:*`
@@ -240,8 +228,8 @@ export function isLanguageTag(tag: string): boolean {
  * Example: `resolveLanguageTags(["typescript", "python"])`
  *   → `Set { "lang:typescript", "lang:python" }`
  */
-export function resolveLanguageTags(projectLanguages: readonly string[]): Set<ContentTag> {
-  const result = new Set<ContentTag>();
+export function resolveLanguageTags(projectLanguages: readonly string[]): Set<string> {
+  const result = new Set<string>();
   for (const lang of projectLanguages) {
     const tag = LANGUAGE_TO_TAG[lang];
     if (tag) result.add(tag);
@@ -274,6 +262,6 @@ export function filterByLanguages<T extends { tags: string[]; protected?: boolea
     if (item.protected) return true;
     const itemLangTags = item.tags.filter(isLanguageTag);
     if (itemLangTags.length === 0) return true;
-    return itemLangTags.some((t) => relevant.has(t as ContentTag));
+    return itemLangTags.some((t) => relevant.has(t));
   });
 }

@@ -1,7 +1,7 @@
 ---
 id: hatch3r-bug-fix
 description: Step-by-step bug fix workflow. Diagnose root cause, implement minimal fix, write regression test. Use when fixing bugs, working on bug report issues, or when the user mentions a bug.
-tags: [core, implementation]
+tags: [implementation, orchestration]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

@@ -4,6 +4,7 @@ type: rule
 description: AI feature evaluation, prompt versioning, cost telemetry, prompt caching, model fallback, and hallucination-as-SLI for end-user projects shipping LLM features
 scope: "**/ai/**,**/llm/**,**/chat/**,**/assistant/**,**/agents/**,**/copilot/**,**/evals/**,**/prompts/**,**/rag/**"
 tags: [review, implementation, ai]
+precedence: high
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true
 ---
@@ -67,7 +68,7 @@ Match the metric to the task class:
 
 Every LLM call logs: `tokens_in`, `tokens_out`, `cache_hit` (boolean + cached_tokens count), `model`, `cost_usd`, `latency_ms`, `cost_center` (feature ID), `prompt_version`, `prompt_hash`, `user_id_hash`.
 
-Aggregate dashboards in the observability stack — cross-reference `rules/hatch3r-observability-metrics.md` and `rules/hatch3r-observability-tracing-detail.md` for the SLI/SLO vocabulary, and `skills/hatch3r-observability-verify` for the wiring checklist. Per-feature budget alerts fire at 50%, 75%, and 90% of monthly budget; abuse-detection alert at 10x user p99 cost over a 1-hour window.
+Aggregate dashboards in the observability stack — cross-reference `rules/hatch3r-observability-metrics.md` and `rules/hatch3r-observability-tracing.md` for the SLI/SLO vocabulary, and `skills/hatch3r-observability-verify` for the wiring checklist. Per-feature budget alerts fire at 50%, 75%, and 90% of monthly budget; abuse-detection alert at 10x user p99 cost over a 1-hour window.
 
 ## Prompt Caching (Anthropic)
 

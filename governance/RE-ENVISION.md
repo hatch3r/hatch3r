@@ -124,7 +124,7 @@ Mode `occasional-check` reduces to SAs L1, L2, L3, L6, L9 (count 5, rationale: c
 | L2 | CONSTITUTION — Pillars | CONSTITUTION §2 P1–P8 | Definitions, measurement metrics, primary-owner attribution, pillar overlap, P7↔P8 tension resolution |
 | L3 | CONSTITUTION — Lean Thresholds + Anti-Bloat + Silent Failure | CONSTITUTION §2 P5 (table) + §Anti-Bloat Principles + §Silent Failure Contract | Row coverage per governance file, calibration math consistency, anti-bloat principle enforceability, silent-failure contract scope |
 | L4 | CONSTITUTION — Traceability + Amendment + Decisions | CONSTITUTION §3 + §6 + §8 | Matrix cell-by-cell coverage, primary-owner consistency, Key Design Decisions currency, Amendment Protocol scope clarity |
-| L5 | AUDIT | `governance/AUDIT.md` + every `governance/audit/domains/D*.md` | 21 domains × 121 SAs consistency, tier weights total 1.000, behavioral charter directive count, CL-1/2/3 phase scope |
+| L5 | AUDIT | `governance/AUDIT.md` + every `governance/audit/domains/D*.md` | 21 domains × 110 SAs consistency (D9 = 5 SAs aligned with 3 supported adapters per CONSTITUTION §6 Decision #12), tier weights total 1.000, behavioral charter directive count, CL-1/2/3 phase scope |
 | L6 | AUDIT-EXECUTE | `governance/AUDIT-EXECUTE.md` | 4 waves, 18 regression gates, finding registry schema, tier classification (Tier 1/2/3), SHIP gate criteria, Phases 5/6/7 |
 | L7 | TEMPLATES | every `governance/audit/templates/*.md` | Rigor contract referenced from every prompt, severity-mapping consistency, SA template alignment with current AUDIT/AUDIT-EXECUTE |
 | L8 | DOMAINS | every `governance/audit/domains/D*.md` + `governance/audit/domains/D15-trust-reference.md` | Per-file pillars block, 4–8 checklist items per SA, line count within 30–80 or SA×15, `> Last updated:` header presence |
@@ -222,7 +222,7 @@ Current state: VISION §Cadence + AUDIT.md cycle, CL-1/2/3 phases. Drift: L1/L5/
 Current state: VISION §Content Maintenance (audit-cycle-driven, artifact types). Drift: L1 IDs. **Question:** Is content fixing exclusively through audit cycles still the right policy?
 
 ### T7. Platform Strategy | L1 | direct-edit VISION
-Current state: VISION §Supported Platforms (15 adapters, parity policy). Drift: L1 IDs. **Question:** Is parity policy uniform, tiered, or per-platform?
+Current state: VISION §Supported Platforms (3 adapters: claude, cursor, copilot — scope reduced in 1.9.0 per CONSTITUTION §6 Decision #12; parity policy uniform within the supported set). Drift: L1 IDs. **Question:** Is parity policy uniform, tiered, or per-platform, and is the 3-adapter supported set still the right scope?
 
 ### T8. CLI Scope | L1 | direct-edit VISION
 Current state: VISION §CLI Scope (generator vs runtime boundary, 13 commands). Drift: L1 IDs. **Question:** Where does the CLI end and the AI tool begin — still a generator-only boundary?
@@ -246,7 +246,7 @@ Current state: §2 P5 Anti-Bloat Principles (6 principles) + Silent Failure Cont
 Current state: CONSTITUTION §3 8×9 matrix. Drift: L4 IDs (known gaps P6↔VISION, P7↔VISION). **Question:** Should each known gap be filled, accepted, or restructured?
 
 ### T15. Audit Domain Coverage | L5 + L8 | CL-3
-Current state: 21 domains, 121 SAs across 4 tiers (A=27 / B=52 / C=36 / D=6). Drift: L5/L8 IDs. **Question:** Are 21 domains still the right partition — add, merge, or split?
+Current state: 21 domains, 110 SAs across 4 tiers (A=27 / B=41 / C=36 / D=6) post 1.9.0 D9 recalibration. Drift: L5/L8 IDs. **Question:** Are 21 domains still the right partition — add, merge, or split?
 
 ### T16. Execution Model Currency | L6 | CL-3
 Current state: AUDIT-EXECUTE 4 waves, 18 regression gates, Tier 1/2/3 classification, SHIP gate. Drift: L6 IDs. **Question:** Does the wave + gate + tier structure still match audit-cycle reality?

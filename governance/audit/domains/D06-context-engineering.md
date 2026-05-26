@@ -2,7 +2,7 @@
 
 > Last updated: 2026-04-27
 
-**Pillars served:** P4 (primary), P7 (primary), P2 (supporting).
+**Pillars served:** governance-axis P4 (primary), P7 (primary), P2 (supporting); content-quality-axis CQ7 Performance (supporting — prompt-context efficiency).
 
 **Scope:** How the framework manages context windows, instruction density, token costs, and end-user runtime efficiency across the agent pipeline.
 **Sub-agents:** 6
@@ -21,6 +21,8 @@
 > Apply the rigor contract per [../templates/rigor-contract.md](../templates/rigor-contract.md) on every finding.
 
 ## Audit Checklists
+
+> **Per-finding (Decision 17 / charter directive 18):** every finding declares `impact_horizon: short|medium|long` AND `progress_toward_pillar: <axis>.<pillar_id>+<delta>` (e.g., `governance.P7+0.15` or `content-quality.CQ7+0.20`); orchestrator DROPS at output time if either missing.
 
 ### 6.1 Context Window Utilization
 - [ ] BRIDGE_ORCHESTRATION content token measurement — how many tokens does the full bridge content consume?
@@ -42,7 +44,7 @@
 - [ ] Optimization opportunities — identify the highest-cost areas with room for reduction
 
 ### 6.4 Context Integrity & Isolation
-- [ ] Learnings poisoning prevention — can `/.agents/learnings/` be weaponized to manipulate future agent behavior?
+- [ ] Learnings poisoning prevention — can `.hatch3r/learnings/` be weaponized to manipulate future agent behavior?
 - [ ] Context injection via user-controlled files — can project files inject instructions into agent context?
 - [ ] Session isolation — does corrupted context from one session persist and affect subsequent sessions?
 - [ ] Memory safety boundaries — are there limits on what learnings can contain?
@@ -57,10 +59,10 @@
 - [ ] Conditional sub-agent invocation (dispatch-gating, NOT fan-out narrowing) — Phase 4 specialists are dispatch-gated on task relevance signals (e.g., a11y-auditor skipped when no UI changes); a finding requires the gate to be wrong, not narrow. Under-fan-out of independent work for cost reasons is a P8 violation, not a P7 win (see Pillar note below).
 
 ### 6.6 Cross-Adapter Efficiency Consistency
-- [ ] All 15 adapter outputs preserve static-first ordering after canonical-to-adapter transformation; no adapter rewrites the prompt frame to inject volatile metadata at the top
+- [ ] All 3 adapter outputs (claude, cursor, copilot) preserve static-first ordering after canonical-to-adapter transformation; no adapter rewrites the prompt frame to inject volatile metadata at the top
 - [ ] Provider-specific cache hints (Anthropic prompt caching, OpenAI Responses caching) are surfaced where supported but graceful when absent — model-agnostic claim
 - [ ] Governance-only: `triage_tiers`, `efficiency_tier`, `cache_friendly`, `parallel_tool_default`, and `efficiency_patterns` frontmatter fields remain declared on canonical artifacts (verified by `scripts/validate-efficiency-invariants.ts`). Adapter outputs are NOT required to echo these signals — they are advisory metadata for the audit layer, not adapter contract.
-- [ ] Cross-adapter parity check — same canonical artifact yields semantically equivalent efficiency-relevant prompt structure across all 15 adapters
+- [ ] Cross-adapter parity check — same canonical artifact yields semantically equivalent efficiency-relevant prompt structure across all 3 adapters (claude, cursor, copilot)
 
 ## Universal Checklist
 - [ ] Every published artifact passes static-first ordering; no anti-cache patterns (mid-prompt timestamps, ephemeral counters, per-run UUIDs above stable frames)

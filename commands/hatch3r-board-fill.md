@@ -4,7 +4,7 @@ type: command
 orchestrator: true
 agentPipeline: [hatch3r-reviewer, hatch3r-fixer]
 description: Create epics and issues/work items from todo.md, reorganize the board with dependency analysis, readiness assessment, and implementation ordering. Supports GitHub, Azure DevOps, and GitLab.
-tags: [board, team]
+tags: [board, ctx:team-only]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
@@ -31,7 +31,7 @@ All issue operations MUST follow the Board Sync Enforcement rules defined in `ha
 
 # Board Fill -- Create Epics & Issues from todo.md + Board Reorganization
 
-Create epics (with sub-issues) or standalone issues/work items from items in `todo.md`, using the platform's CLI and MCP tools against **{owner}/{repo}** (read from `.agents/hatch.json` board config). The `platform` field determines whether to use GitHub Issues, Azure DevOps Work Items, or GitLab Issues. Before creating anything, board-fill **triages each item through interactive questioning** to extract scope, intent, unknowns, and acceptance criteria from the user -- ensuring issues are genuinely ready for implementation, not just structurally complete. On every run, board-fill also performs a **full board reorganization**: grouping standalone issues into epics, decomposing oversized items, analyzing dependencies, setting implementation order, identifying parallel work, and marking issues as `status:ready` when all readiness criteria (structural + substantive) are met. AI proposes groupings, dependencies, and ordering; user confirms before anything is created or updated. Duplicate topics are detected and skipped.
+Create epics (with sub-issues) or standalone issues/work items from items in `todo.md`, using the platform's CLI and MCP tools against **{owner}/{repo}** (read from `.hatch3r/hatch.json` board config). The `platform` field determines whether to use GitHub Issues, Azure DevOps Work Items, or GitLab Issues. Before creating anything, board-fill **triages each item through interactive questioning** to extract scope, intent, unknowns, and acceptance criteria from the user -- ensuring issues are genuinely ready for implementation, not just structurally complete. On every run, board-fill also performs a **full board reorganization**: grouping standalone issues into epics, decomposing oversized items, analyzing dependencies, setting implementation order, identifying parallel work, and marking issues as `status:ready` when all readiness criteria (structural + substantive) are met. AI proposes groupings, dependencies, and ordering; user confirms before anything is created or updated. Duplicate topics are detected and skipped.
 
 ---
 
@@ -52,7 +52,7 @@ GitHub Agentic Workflows and hatch3r are complementary: use agentic workflows fo
 
 ## Shared Context
 
-**Read the `hatch3r-board-shared` command at the start of the run.** It contains Board Configuration, Platform Detection, Platform Context, Board Sync Procedure, and tooling directives. Cache all values for the duration of this run.
+**Read the `hatch3r-board-shared` skill at the start of the run.** It contains Board Configuration, Platform Detection, Platform Context, Board Sync Procedure, and tooling directives. Cache all values for the duration of this run.
 
 ## Token-Saving Directives
 
@@ -86,7 +86,7 @@ If Tier 1, run only Steps 1–3, 5–6, and 7 (skip the heavy production-readine
 
 #### 1a. Product Vision Input (Optional)
 
-1. Check if a product vision document exists at `.agents/product-vision.md`.
+1. Check if a product vision document exists at `.hatch3r/product-vision.md`.
 2. If found, read and cache the vision document for use in Steps 2.5 and 4.
 3. If not found, check whether the user provided a vision statement inline with the board-fill invocation (e.g., as a quoted string or file path argument).
 4. If a vision is available from either source, note: "Product vision loaded — will use for triage context and issue scoping."
@@ -276,7 +276,7 @@ If the user flagged unresolved unknowns or research needs in triage, consider wh
 
 **Priority:** `priority:p0` (critical/security) / `priority:p1` (broken, no workaround) / `priority:p2` (degraded, default) / `priority:p3` (cosmetic, nice-to-have). Use the user's stated urgency and impact from triage (Value/Why answers) to override keyword defaults. Default `p2` only when both the todo text AND triage answers are ambiguous; security defaults to `p1`+.
 
-**Area:** Read area labels from `board.areas` in `.agents/hatch.json`. If the list is empty, infer areas from the repository's directory structure. Assign all relevant area labels.
+**Area:** Read area labels from `board.areas` in `.hatch3r/hatch.json`. If the list is empty, infer areas from the repository's directory structure. Assign all relevant area labels.
 
 **Risk:** `risk:low` (isolated, easy rollback) / `risk:med` (shared modules, moderate scope) / `risk:high` (architectural, security-critical). Incorporate triage context: if the user surfaced unknowns, external dependencies, or broad blast radius, escalate risk accordingly. Items with unresolved spikes default to `risk:med`+.
 
@@ -300,7 +300,7 @@ Use explore subagents or direct file reads to understand the current state of so
 
 #### 4b.5. Consult Project Learnings
 
-1. If `.agents/learnings/` exists, scan for learnings relevant to the areas touched by the todo items.
+1. If `.hatch3r/learnings/` exists, scan for learnings relevant to the areas touched by the todo items.
 2. Match by `area` and `tags` in learning frontmatter against the area labels assigned in Step 3.
 3. Surface relevant learnings in the Context Summary output:
    - **Pitfalls** for areas being touched (highest priority -- include specific warnings)
@@ -785,7 +785,7 @@ If yes, edit `todo.md` to remove lines for created issues. Preserve skipped/excl
 
 - **Never create issues for topics already covered** without explicit user approval.
 - **Never skip ASK checkpoints.**
-- **Use correct labels** from the label taxonomy defined in `.agents/hatch.json` (type, priority, area, risk, executor, status, has-dependencies, meta labels).
+- **Use correct labels** from the label taxonomy defined in `.hatch3r/hatch.json` (type, priority, area, risk, executor, status, has-dependencies, meta labels).
 - **Keep issue bodies concise.** Acceptance criteria must be grounded in user-stated requirements from triage, not fabricated from the todo text alone.
 - **No dependency cycles.** Flag and resolve before proceeding.
 - **Never downgrade issue status.** Only upgrade `status:triage` → `status:ready`.

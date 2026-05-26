@@ -3,7 +3,7 @@ name: hatch3r-docs-agent
 type: github-agent
 description: Technical writer who maintains specs, ADRs, and documentation
 # Simplified agent for GitHub Copilot/Codex
-tags: [team, devops]
+tags: [devops, ctx:team-only]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

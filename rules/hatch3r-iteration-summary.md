@@ -3,7 +3,7 @@ id: hatch3r-iteration-summary
 type: rule
 description: Every user-facing iteration ends with the canonical Iteration Summary block — a 5-field contract exposing status, gaps, and confidence at a glance.
 scope: always
-tags: [core]
+tags: [orchestration, floor:protocol]
 quality_charter: agents/shared/quality-charter.md
 precedence: high
 cache_friendly: true

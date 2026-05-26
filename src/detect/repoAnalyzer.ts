@@ -121,18 +121,6 @@ const TOOL_INDICATORS: { tool: Tool; paths: string[] }[] = [
   { tool: "cursor", paths: [".cursor"] },
   { tool: "copilot", paths: [join(".github", "copilot-instructions.md")] },
   { tool: "claude", paths: ["CLAUDE.md", ".claude"] },
-  { tool: "opencode", paths: ["opencode.json", "opencode.jsonc"] },
-  { tool: "windsurf", paths: [".windsurfrules"] },
-  { tool: "amp", paths: [".amp"] },
-  { tool: "codex", paths: [".codex"] },
-  { tool: "gemini", paths: [".gemini", "GEMINI.md"] },
-  { tool: "cline", paths: [".clinerules", ".roo", ".roomodes"] },
-  { tool: "aider", paths: [".aider", ".aider.conf.yml"] },
-  { tool: "kiro", paths: [".kiro"] },
-  { tool: "goose", paths: [".goosehints", ".goose"] },
-  { tool: "zed", paths: [".rules"] },
-  { tool: "amazon-q", paths: [".amazonq"] },
-  { tool: "antigravity", paths: [".antigravity"] },
 ];
 
 /** Detect which AI coding tools already have configuration in the repo. */

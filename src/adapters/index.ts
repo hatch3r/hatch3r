@@ -1,20 +1,8 @@
 import { HatchError, type HatchManifest, type Tool } from "../types.js";
 import type { Adapter } from "./base.js";
-import { AiderAdapter } from "./aider.js";
-import { AmazonQAdapter } from "./amazonq.js";
-import { AmpAdapter } from "./amp.js";
-import { AntigravityAdapter } from "./antigravity.js";
 import { ClaudeAdapter } from "./claude.js";
-import { ClineAdapter } from "./cline.js";
-import { CodexAdapter } from "./codex.js";
 import { CopilotAdapter } from "./copilot.js";
 import { CursorAdapter } from "./cursor.js";
-import { GeminiAdapter } from "./gemini.js";
-import { GooseAdapter } from "./goose.js";
-import { KiroAdapter } from "./kiro.js";
-import { OpenCodeAdapter } from "./opencode.js";
-import { WindsurfAdapter } from "./windsurf.js";
-import { ZedAdapter } from "./zed.js";
 
 // Adapter factory map — instantiates adapters lazily on first access to avoid
 // allocating all adapters at module load time (#117).
@@ -22,18 +10,6 @@ const adapterFactories: Record<Tool, () => Adapter> = {
   cursor: () => new CursorAdapter(),
   copilot: () => new CopilotAdapter(),
   claude: () => new ClaudeAdapter(),
-  opencode: () => new OpenCodeAdapter(),
-  windsurf: () => new WindsurfAdapter(),
-  amp: () => new AmpAdapter(),
-  codex: () => new CodexAdapter(),
-  gemini: () => new GeminiAdapter(),
-  cline: () => new ClineAdapter(),
-  aider: () => new AiderAdapter(),
-  kiro: () => new KiroAdapter(),
-  goose: () => new GooseAdapter(),
-  zed: () => new ZedAdapter(),
-  "amazon-q": () => new AmazonQAdapter(),
-  antigravity: () => new AntigravityAdapter(),
 };
 
 const adapterCache = new Map<Tool, Adapter>();
@@ -84,40 +60,11 @@ interface AdapterCapability {
   /**
    * Whether the adapter participates in the CLI-tooling pivot — i.e. emits
    * the per-tool `hatch3r-cli-*` skills filtered by `manifest.cliTools.selected`.
-   * `true` for the 13 adapters with native `skills: true` output;
-   * `false` for `amp` (reads canonical skills natively) and `zed` (skills:
-   * false; gets a one-line reference in its rules output instead).
+   * `true` for the 3 supported adapters (claude, cursor, copilot), all of
+   * which expose a native `skills: true` output surface.
    */
   cliTools: boolean;
 }
-
-/**
- * C9-H31 (D10-SA10.5-F1): Sentinel key under `manifest.managedFilesByAdapter`
- * for files written outside any single adapter's `doGenerate()` but read by
- * multiple adapters (the "bridge" surface). Today the only shared bridge file
- * is the root `AGENTS.md` (written by `generateRootAgentsMd()` in init/sync,
- * read natively by `amp`, `codex`, `gemini`, `antigravity`, and consulted by
- * `aider`, `cline`, `copilot`, `cursor`, `goose`, `opencode`, `windsurf`).
- *
- * Cleanup contract: `hatch3r clean` MUST treat every path under the
- * `_shared` key with managed-block-preservation semantics (strip the managed
- * block, keep user content). Adapter-owned files (under a specific `Tool`
- * key) follow the normal `hatch3r clean` removal path. See
- * `src/clean/index.ts::inventoryArtifacts` and `executeClean`.
- */
-export const SHARED_ADAPTER_KEY = "_shared" as const;
-
-/**
- * C9-H31 (D10-SA10.5-F1): The current list of bridge files registered under
- * `SHARED_ADAPTER_KEY` in `manifest.managedFilesByAdapter._shared`. Keep in
- * sync with init/sync code that writes outside an adapter
- * (`generateRootAgentsMd` callers). When adding a new shared file:
- * 1. Append the relative path here.
- * 2. Confirm it appears in `manifest.managedFilesByAdapter._shared` after init.
- * 3. Verify `hatch3r clean` cleanup handles user-content preservation for it
- *    (or extend `executeClean` in `src/clean/index.ts` accordingly).
- */
-export const SHARED_BRIDGE_FILES: readonly string[] = ["AGENTS.md"] as const;
 
 // Adapter capability matrix — last updated for hatch3r v1.6.0.
 // #260 (D9-9.31): Updated "last verified" version from v1.2.0 to v1.4.0.
@@ -127,34 +74,7 @@ export const SHARED_BRIDGE_FILES: readonly string[] = ["AGENTS.md"] as const;
 export const ADAPTER_CAPABILITIES: Record<Tool, AdapterCapability> = {
   cursor:   { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false, worktree: true,  customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: true  },
   claude:   { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false, worktree: true,  customization: true,  modelOverride: true,  nativeQuestionTool: true,  cliTools: true  },
-  gemini:   { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false, worktree: true,  customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: true  },
-  cline:    { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false, worktree: true,  customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: true  },
-  codex:      { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: true  },
-  "amazon-q": { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: true  },
   copilot:  { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: true,  prompts: true,  githubAgents: true,  worktree: true,  customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: true  },
-  opencode: { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: true,  prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: true  },
-  // C7.5-W2B2-H31 (D9-SA9.7.1): Windsurf shipped Cascade Hooks in v1.13.12 (2026-01-25).
-  // Hatch3r emits `.windsurf/hooks.json` per docs.windsurf.com/windsurf/cascade/hooks.md.
-  windsurf: { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false, worktree: true,  customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: true  },
-  // Amp reads AGENTS.md natively; the root file is written by generateRootAgentsMd()
-  // in init/update, not by this adapter. Amp also reads skills natively from
-  // `.agents/skills/` — populated by copyHatch3rFiles, not re-emitted by this
-  // adapter (re-emission corrupts SKILL.md frontmatter via managed-block wrap).
-  // doGenerate() emits MCP settings only. cliTools: false — Amp reads
-  // `hatch3r-cli-*` skills from the canonical `.agents/skills/` tree directly.
-  // commands: false — Amp deprecated custom slash commands on 2026-01-29
-  // (https://ampcode.com/news/slashing-custom-commands); skills are the
-  // documented replacement. C9-H23 / D9-SA9.8.F1: re-verified 2026-05-18
-  // against ampcode.com/manual and the deprecation news post.
-  amp:      { agents: false, skills: false, rules: false, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: false },
-  kiro:     { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: true  },
-  aider:    { agents: true, skills: true, rules: true, hooks: false, mcp: false, commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: true  },
-  goose:    { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: true  },
-  // Zed has no skills surface (skills: false). cliTools: false — Wave 3 will
-  // emit a one-line "Available CLI tool guides: ..." reference inside the
-  // rules output instead of per-tool skill files.
-  zed:      { agents: true, skills: false, rules: true, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: false, modelOverride: false, nativeQuestionTool: false, cliTools: false },
-  antigravity: { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: false, prompts: false, githubAgents: false, worktree: false, customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: true  },
 };
 
 /**
@@ -211,21 +131,9 @@ export function getUnsupportedFeatureWarnings(tool: string, manifest: HatchManif
   return [`${tool}: ${noun} enabled but not supported by this adapter: ${unsupported.join(", ")}`];
 }
 
-export { AiderAdapter } from "./aider.js";
-export { AmazonQAdapter } from "./amazonq.js";
-export { AmpAdapter } from "./amp.js";
-export { AntigravityAdapter } from "./antigravity.js";
 export { ClaudeAdapter } from "./claude.js";
-export { ClineAdapter } from "./cline.js";
-export { CodexAdapter } from "./codex.js";
 export { CopilotAdapter } from "./copilot.js";
 export { CursorAdapter } from "./cursor.js";
-export { GeminiAdapter } from "./gemini.js";
-export { GooseAdapter } from "./goose.js";
-export { KiroAdapter } from "./kiro.js";
-export { OpenCodeAdapter } from "./opencode.js";
-export { WindsurfAdapter } from "./windsurf.js";
-export { ZedAdapter } from "./zed.js";
 export type { Adapter, AdapterContext } from "./base.js";
 export { BaseAdapter, output } from "./base.js";
 export { readCanonicalFiles, readCanonicalFilesDetailed } from "./canonical.js";

@@ -3,7 +3,7 @@ id: hatch3r-fixer
 type: agent
 description: Targeted fix agent that takes structured reviewer output and implements fixes for Critical and Warning findings. Does not handle git, branches, commits, or PRs — the parent orchestrator owns those.
 model: fast
-tags: [core, implementation]
+tags: [implementation, floor:protocol]
 protected: true
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
@@ -102,7 +102,7 @@ For each Critical and Warning finding:
 - If reference conventions are available, verify the fix follows established patterns rather than introducing divergent approaches.
 - Use Context7 MCP (`resolve-library-id` then `query-docs`) for API patterns relevant to the fix.
 - Use web research for security advisories, CVE details, or best practices when the finding involves security or novel patterns.
-- Use the platform CLI to fetch additional context if needed (check `platform` in `.agents/hatch.json`):
+- Use the platform CLI to fetch additional context if needed (check `platform` in `.hatch3r/hatch.json`):
   - **GitHub:** `gh issue view`, `gh search code`
   - **Azure DevOps:** `az boards work-item show --id`, `az repos show`
   - **GitLab:** `glab issue view`, `glab search`

@@ -5,7 +5,7 @@ event: pre-commit
 agent: lint-fixer
 description: Auto-fix lint and formatting issues before commit
 globs: "**/*.ts, **/*.tsx, **/*.js, **/*.jsx"
-tags: [core]
+tags: [implementation]
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true
 ---

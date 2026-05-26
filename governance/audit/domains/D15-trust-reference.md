@@ -2,7 +2,7 @@
 
 > Last updated: 2026-04-20
 
-**Pillars served:** P6 (primary), P4 (supporting).
+**Pillars served:** governance-axis P6 (primary); content-quality-axis CQ3 Security (supporting).
 
 > Companion to `D15-agentic-security.md`. Absorbed from standalone trust-delegation-chain.md (finding #84) and trust-framework-compliance.md (finding #85) per governance proposal P17; extracted from D15 Part B to a governed appendix per EVOLVE proposal P2 (2026-04-19).
 

@@ -6,8 +6,8 @@ import { AVAILABLE_CLI_TOOLS, type CliToolMeta } from "../../cliTools/registry.j
  * Wave 5 Item 28: `src/cliTools/skill.ts::renderCliToolSkillBody` tests.
  *
  * Snapshots the body output for one tier-1 representative (ripgrep) and
- * verifies RTK's caveat heading + `RTK_DISABLE_PIPE_REWRITE` mitigation
- * appear in the rendered output. Also checks the scaffold's placeholder
+ * verifies RTK's caveat heading + `rtk proxy` mitigation appear in the
+ * rendered output. Also checks the scaffold's placeholder
  * contract for non-caveat tools — Wave 4 cleanup replaces these inline,
  * but the renderer itself must continue to emit them so the generator
  * script remains idempotent.
@@ -82,18 +82,19 @@ describe("renderCliToolSkillBody — ripgrep (tier-1 representative)", () => {
     const jq = AVAILABLE_CLI_TOOLS.jq as CliToolMeta;
     const body = renderCliToolSkillBody(jq, "mac");
     expect(body).not.toContain("⚠ Critical");
-    expect(body).not.toContain("RTK_DISABLE_PIPE_REWRITE");
+    expect(body).not.toContain("rtk proxy");
   });
 });
 
 describe("renderCliToolSkillBody — rtk (tier-3 with caveat)", () => {
-  it("includes the ⚠ Critical heading and mitigation env var", () => {
+  it("includes the ⚠ Critical heading and the verified `rtk proxy` mitigation", () => {
     const rtk = AVAILABLE_CLI_TOOLS.rtk as CliToolMeta;
     const body = renderCliToolSkillBody(rtk, "mac");
 
     expect(body).toContain("## ⚠ Critical: pipe-output corruption (issue #1282)");
-    expect(body).toContain("RTK_DISABLE_PIPE_REWRITE");
+    expect(body).toContain("rtk proxy");
     expect(body).toContain("https://github.com/rtk-ai/rtk/issues/1282");
+    expect(body).not.toContain("RTK_DISABLE_PIPE_REWRITE");
   });
 
   it("places the caveat block BEFORE the When-to-Use section", () => {

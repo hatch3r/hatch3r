@@ -22,6 +22,9 @@ coverage/
 *.swp
 *.swo
 
+# Claude Code local scheduler state
+.claude/scheduled_tasks.lock
+
 # OS files
 Thumbs.db
 
@@ -39,3 +42,4 @@ governance/EVOLVE-REPORT.md
 .agents/
 .hatch3r/
 skills-lock.json
+2.0.0.md

@@ -23,7 +23,7 @@ hatch3r distinguishes two pack tiers. Consumers receive different, named guarant
 | Guarantee | Canonical | Marketplace | Verification |
 |-----------|:---------:|:-----------:|--------------|
 | npm provenance (Sigstore + Rekor inclusion) | required | required for npm-published packs | `npm audit signatures` post-fetch (C9-H51) |
-| SHA-256 per-file manifest | required | required | `src/integrity/index.ts::verifyIntegrity` (manifest-level checksum + per-file hash) |
+| SHA-256 per-file manifest | required | required | Schema defined in §2.2 below; runtime implementation deferred to pack-distribution feature (not shipped as of 1.9.0) |
 | Body scan against `DENY_PATTERNS` | enforced at sync (`src/merge/safeWrite.ts:393`, `src/content/userContent.ts:307`) | enforced at pack-install time (§3) | `scanForDeniedPatterns()` (`src/adapters/customization.ts:340`) — 30+ deny regexes |
 | `preinstall` / `postinstall` ban | opt-in only with documented justification | forbidden (§4) | static scan of pack `package.json` before unpack |
 | Capability declaration | declared in `agents/*.md` frontmatter and `hatch.json` | required upfront in pack manifest (§5) | `src/cli/commands/validate.ts::validateCommandOrchestratorFrontmatter` (already enforces orchestrator + agentPipeline) |
@@ -62,8 +62,17 @@ Consumer-side verification: `hatch3r update` runs `npm audit signatures` program
 When `hatch3r add` resolves to a git ref or local directory, npm provenance is unavailable. Required substitutes:
 
 - **Sigstore keyless signing** of the pack tarball via `cosign sign-blob --yes` against the OIDC identity of the pack-author's CI. Verified via `cosign verify-blob --certificate-identity <author> --certificate-oidc-issuer <issuer>`.
-- **SHA-256 manifest** committed under `pack-manifest.json` at the pack root listing every file path + hash. Reused format: `src/integrity/index.ts::IntegrityManifest` (`files: Record<string, string>`, `checksum`).
-- **`pack-manifest.json` itself signed** via Sigstore (`cosign sign-blob`) — manifest-level integrity matches the canonical hatch3r model.
+- **SHA-256 manifest** committed under `pack-manifest.json` at the pack root listing every file path + hash. Logical schema (runtime implementation deferred to when pack distribution ships):
+
+  ```typescript
+  // pack-manifest.json structure — logical schema for pack-distribution
+  // (runtime implementation deferred to when pack distribution ships).
+  interface IntegrityManifest {
+    files: Record<string, string>;   // path → SHA-256 hex digest
+    checksum: string;                // SHA-256 of the sorted files map, hex
+  }
+  ```
+- **`pack-manifest.json` itself signed** via Sigstore (`cosign sign-blob`) — manifest-level integrity follows the schema above.
 - **Pinned git ref** in `hatch.json` records the 40-character commit SHA, never a tag or branch. `hatch3r update` fails closed if the resolved commit differs from the recorded SHA.
 
 ### 2.3 Marketplace registries
@@ -76,7 +85,7 @@ Anthropic and Cursor marketplaces apply their own ingestion checks. hatch3r addi
 
 ### 3.1 Mandatory scan at pack-install time
 
-`hatch3r add <pack>` runs `scanForDeniedPatterns()` over every `.md`, `.mdc`, `.yaml`, and `.json` file in the candidate pack BEFORE writing any file to `/.agents/`. The scan is a hard gate: any hit refuses install with non-zero exit and surfaces the matched pattern.
+`hatch3r add <pack>` runs `scanForDeniedPatterns()` over every `.md`, `.mdc`, `.yaml`, and `.json` file in the candidate pack BEFORE installing pack content into the user's repository under `.hatch3r/overrides/` or any adapter native path. The scan is a hard gate: any hit refuses install with non-zero exit and surfaces the matched pattern.
 
 Implementation reuse: `src/adapters/customization.ts:340-365` (`scanForDeniedPatterns(content: string): string[]`). Already wired into `src/merge/safeWrite.ts:393` for user-content writes and `src/content/userContent.ts:307` for body + frontmatter scans. `hatch3r add` extends the same call site to the pack tarball.
 
@@ -193,7 +202,7 @@ The queue is a sequential pipeline; no stage is skipped. State machine recorded 
 |-------|------|----------|--------|
 | 1. Submission | PR opened against `hatch3r/pack-marketplace` with signed `pack-manifest.json` and tarball SHA-256 | Author | PR with manifest + tarball |
 | 2. Automated security review | `scanForDeniedPatterns` over pack body; static-scan `package.json` for banned lifecycle scripts; signature verification (`npm audit signatures` or `cosign verify-blob`) | CI | CI status check + log |
-| 3. Policy match | Declared capabilities + tool footprint cross-checked against the closed enum and the unpacked artifact count; integrity manifest verified against tarball | CI | CI status check + diff |
+| 3. Policy match | Declared capabilities + tool footprint cross-checked against the closed enum and the unpacked artifact count; pack manifest verified against tarball | CI | CI status check + diff |
 | 4. Manual sign-off | Human reviewer reads pack body, runs adversarial-thinking pass per `agents/shared/quality-charter.md`, applies the pillar-compliance test (P6 + at least one of P1-P4-P8) | Maintainer | Sign-off comment + label `pack:approved` |
 | 5. Publish | Pack tarball + manifest mirrored to marketplace; signing record archived under `governance/pack-reviews/` | Maintainer | Marketplace listing live; signatures discoverable |
 
@@ -205,7 +214,7 @@ The human reviewer applies the same charter directive used in audit-cycle sub-ag
 
 1. **Prompt-injection scan beyond DENY_PATTERNS** — does the pack body describe scenarios that DENY_PATTERNS would not catch (steganographic encodings outside the listed classes, novel social-engineering wording)?
 2. **Privilege-escalation surface** — does the pack request capabilities (`mcp`, `hooks`) whose declared use case is plausible? A `slashCommands` pack requesting `mcp` without a documented MCP use case is a reject.
-3. **Sandbox-escape surface** — does any skill or command instruct the agent to read files outside `/.agents/` or execute commands outside a documented project root? Reference: D15.7 sub-agent checklist `governance/audit/domains/D15-agentic-security.md:90-95`.
+3. **Sandbox-escape surface** — does any skill or command instruct the agent to read files outside the user's project root or `.hatch3r/` tree, or execute commands outside the documented project boundary? Reference: D15.7 sub-agent checklist `governance/audit/domains/D15-agentic-security.md:90-95`.
 4. **Trust delegation** — does the pack introduce a sub-agent that bypasses the orchestrator (e.g., direct tool invocation from a skill body)? Reference: `governance/audit/domains/D15-trust-reference.md` invariant 1 (monotonically decreasing privilege).
 
 ### 6.4 Revocation
@@ -230,7 +239,7 @@ Revocation does not auto-uninstall; the consumer retains control. This matches t
 | `governance/AUDIT-REPORT.md` Cycle 9 findings C9-H52, C9-H59, C9-H62, C9-H73 | Originating findings; this file closes C9-H52 (and C9-H59 by absorption) and unblocks C9-H62 + C9-H73 |
 | `governance/hatch3r-prd.md` §8.4 | `hatch3r add <source>` flow the trust model governs |
 | `src/adapters/customization.ts:340` | `scanForDeniedPatterns` referenced in §3 |
-| `src/integrity/index.ts` | `IntegrityManifest` schema reused in §2.2 |
+| §2.2 (this document) | `IntegrityManifest` schema defined inline; runtime implementation deferred to pack-distribution shipping |
 | `src/cli/commands/add.ts` | Install-time gate runs trust-contract checks |
 | `src/pipeline/agentToolAllowlist.ts` | Tool allowlist surface enforced per §5.4 |
 | `rules/hatch3r-dependency-management.md` | Signing + provenance + lifecycle-script policy reused upstream |
