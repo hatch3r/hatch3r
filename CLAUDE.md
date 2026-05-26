@@ -43,9 +43,12 @@ Commits: Conventional Commits (`feat|fix|refactor|test|docs|chore|audit(scope): 
 
 ---
 
-## The 8 Binding Pillars
+## Two-Axis Pillar Framework (2.0.0)
 
-Every change must serve at least one pillar. Full definitions: `governance/CONSTITUTION.md` §2 P1-P8.
+Every change must serve at least one pillar on at least one axis. Full definitions: `governance/CONSTITUTION.md` §2.
+
+**Governance axis (§2A — P1-P8):** how the framework operates.
+**Content-quality axis (§2B — CQ1-CQ9):** what the framework produces in end-user code (UI / UX / Security / Reliability / Testability / Scalability / Performance / Maintainability / Enhancability). Each CQ pillar carries measurable thresholds and a specialist agent under `agents/hatch3r-{ui,ux,security,reliability,testability,scalability,performance,maintainability,enhancability}.md`.
 
 | Pillar | Name | Enforcement | Primary Ref |
 |--------|------|-------------|-------------|
@@ -58,10 +61,13 @@ Every change must serve at least one pillar. Full definitions: `governance/CONST
 | P7 | Speed & Token Efficiency | Static-first prompts, parallel tools, triage-first orchestration | D06 |
 | P8 | Clarification & Fan-out Discipline | B1 ambiguity gate via `agents/shared/user-question-protocol.md`; B2 sub-agent count + rationale emission on delegating artifacts | D5,D7,D13 |
 
-**Pillar Compliance Test** (required for governance/content changes):
-1. Which pillar(s) does this change serve? If none → reject.
+**Pillar Compliance Test** (required for governance/content changes — extended in 2.0.0):
+1. Which pillar(s) does this change serve, on which axis (governance and/or content-quality)? If none → reject.
 2. What measurable improvement does it produce?
 3. Does it increase governance size? If yes → justify net value exceeding size cost.
+4. Does it degrade end-user runtime efficiency? If yes → reject or document offset.
+5. **Impact horizon (Decision 17):** short | medium | long? If unanswerable → reject.
+6. **P8 dominance over P7:** does this change under-fan-out for token-cost reasons? If yes → reject (P8 dominates).
 
 ---
 
