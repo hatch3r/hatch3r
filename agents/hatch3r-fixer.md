@@ -10,6 +10,7 @@ efficiency_patterns: agents/shared/efficiency-patterns.md
 efficiency_tier: standard
 cache_friendly: true
 parallel_tool_default: true
+wall_clock_advisory_ms: 900000
 ---
 > **Severity vocabulary:** see [governance/audit/templates/severity-mapping.md](../governance/audit/templates/severity-mapping.md) for canonical 5-column mapping.
 
@@ -83,6 +84,15 @@ Example in a fix result:
 Apply this format whenever the fix involves choosing between approaches, when the suggested fix is modified, or when a finding is marked BLOCKED.
 
 ## Fix Protocol
+
+### 0b. Consult Prior Learnings
+
+`rules/hatch3r-learning-system.md` (Mandatory Consultation Gate) and `agents/shared/quality-charter.md` §10 bind this agent to consult project learnings before any code-touch. Run this step after §0 Detect Ambiguity and before Step 1:
+
+1. Read `.hatch3r/learnings/INDEX.md` if present; if absent or empty, record "no learnings available" and proceed.
+2. For each index row, test the finding's target file paths against the row's `applies-to` glob (canonical match key per `rules/hatch3r-learning-system.md` → Canonical Schema). Until every consumer migrates to the unified schema, also accept legacy `tags`/`area` matches.
+3. Read the full content of every matched learning file.
+4. Cite each consulted learning ID in the structured result's `Consulted Learnings:` line. Citing zero entries when `applies-to` matched is a gate failure visible at audit time.
 
 ### 1. Parse Reviewer Findings
 
@@ -174,9 +184,16 @@ The `Reviewer re-run required` field is a structured signal to the parent orches
 - Typecheck: PASS | FAIL (details)
 - Tests: PASS | FAIL (details)
 
+**Consulted Learnings:**
+- (learning IDs matched in Step 0b, or "none available" / "none matched")
+
 **Notes:**
 - (any context the parent needs for re-review or PR description)
 ```
+
+## Wall-Clock Advisory
+
+This agent runs under the `fix` phase budget (`src/pipeline/phaseTimeout.ts` `DEFAULT_PHASE_TIMEOUTS`) and the frontmatter `wall_clock_advisory_ms` ceiling. The per-tool loop timeout bounds individual tool calls; it does not bound this agent's total wall-clock. If you observe yourself approaching the advisory before every Critical and Warning finding is addressed, return `Status: PARTIAL` with the resolved findings under `Findings addressed`, the unresolved findings under `Findings unresolved`, and `Reviewer re-run required: true` — a partial result with a visible remainder beats exhausting the budget with no structured output.
 
 ## External Knowledge
 
@@ -239,7 +256,15 @@ When producing fix results, be aware that a PARTIAL status with unresolved findi
 - Typecheck: PASS
 - Tests: PASS (42 passed, 0 failed)
 
+**Consulted Learnings:**
+- none matched
+
 **Notes:**
 - toInvoiceResponse() allowlists only: id, amount, currency, status, createdAt, dueDate
 - Pagination uses createdAt cursor with stable ordering
 ```
+
+## References
+
+- Conventional Comments. "Conventional Comments — a standard for formatting review feedback." `https://conventionalcomments.org/` (accessed 2026-05-28, Conventional Comments maintainers, established-library). Source for the labeled-finding model this agent consumes from `hatch3r-reviewer` — `issue` / `suggestion` / `nitpick` labels map to the Critical/Warning/Suggestion triage that decides which findings this agent fixes versus surfaces.
+- Google. "The Standard of Code Review." `https://google.github.io/eng-practices/review/reviewer/standard.html` (accessed 2026-05-28, Google Engineering Practices, peer-reviewed-methodology). Source for the minimal-targeted-fix principle this agent applies — address exactly the cited defect, do not refactor surrounding code or expand scope, and treat root-cause resolution over symptom suppression as the bar (no `eslint-disable`/`as any`/`.skip()` escape hatches).

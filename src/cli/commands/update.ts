@@ -265,7 +265,7 @@ export async function runPackageUpdate(
 export async function runRegenerate(
   rootDir: string,
   manifest: HatchManifest,
-  options: { stepOffset?: number; totalSteps?: number; diff?: boolean; snapshotCommandName?: string } = {},
+  options: { stepOffset?: number; totalSteps?: number; diff?: boolean; snapshotCommandName?: string; force?: boolean } = {},
 ): Promise<UpdateResult> {
   const offset = options.stepOffset ?? 0;
   const total = options.totalSteps ?? 3;
@@ -386,12 +386,18 @@ export async function runRegenerate(
             diffBefore.set(out.path, await readFileOrNull(join(rootDir, out.path)));
           }
           const fullPath = join(rootDir, out.path);
+          // D11-H-1 (D11): thread `--force` into the write so update's flag
+          // means the same thing sync's does — overwrite a hatch3r-prefixed
+          // managed file even if the user stripped its HATCH3R:BEGIN/END
+          // markers. Without `--force`, the safeWrite filename-prefix guard
+          // still protects unmarked files.
           if (out.managedContent) {
             await safeWriteFile(fullPath, out.content, {
               managedContent: out.managedContent,
+              force: options.force,
             });
           } else {
-            await safeWriteFile(fullPath, out.content);
+            await safeWriteFile(fullPath, out.content, { force: options.force });
           }
           addManagedFile(manifest, out.path);
           toolPaths.push(out.path);
@@ -478,7 +484,7 @@ export async function runRegenerate(
     await safeWriteFile(
       join(rootDir, WORKTREE_INCLUDE_FILE),
       wtContent,
-      { managedContent: wtManaged },
+      { managedContent: wtManaged, force: options.force },
     );
   }
 
@@ -662,7 +668,7 @@ async function enumerateHatch3rFiles(
 export async function runUpdate(
   rootDir: string,
   manifest: HatchManifest,
-  options: { stepOffset?: number; totalSteps?: number; diff?: boolean; snapshotCommandName?: string } = {},
+  options: { stepOffset?: number; totalSteps?: number; diff?: boolean; snapshotCommandName?: string; force?: boolean } = {},
 ): Promise<UpdateResult> {
   const offset = options.stepOffset ?? 0;
   const total = options.totalSteps ?? 4;
@@ -674,6 +680,7 @@ export async function runUpdate(
     totalSteps: total,
     diff: options.diff,
     snapshotCommandName: options.snapshotCommandName ?? "update",
+    force: options.force,
   });
 }
 
@@ -939,9 +946,14 @@ export async function updateCommand(
 
   // Wave 7: the canonical-content integrity preflight is gone — canonical
   // content lives in the bundled package (read-only, verified by npm tarball
-  // signature). `hatch3r update` no longer needs to gate on `.agents/`
-  // drift because there is no user-side canonical tree to drift from.
-  void _opts?.force;
+  // signature). `hatch3r update` no longer gates on `.agents/` drift because
+  // there is no user-side canonical tree to drift from.
+  //
+  // D11-H-1 (D11): `--force` is now threaded into the regenerate write path
+  // (below) so it carries the same contract `hatch3r sync --force` does —
+  // overwrite a hatch3r-prefixed managed file even when the user stripped its
+  // HATCH3R:BEGIN/END markers. The flag is no longer a dead no-op.
+  const force = !!_opts?.force;
 
   const isUpToDate = m.hatch3rVersion === HATCH3R_VERSION;
   // Commander stores `--offline, --skip-fetch` under the last long name
@@ -1019,7 +1031,7 @@ export async function updateCommand(
     // and invokes runRegenerate directly, so update can still repair
     // drifted output without network access (e.g. air-gapped CI, slow/offline
     // networks). Re-exec children also take this branch.
-    result = await runRegenerate(rootDir, m, { diff: !!_opts?.diff });
+    result = await runRegenerate(rootDir, m, { diff: !!_opts?.diff, force });
   } else {
     // Multi-install self-update: refreshes the running install plus any
     // other hatch3r install reachable on the system (project-local +
@@ -1049,6 +1061,7 @@ export async function updateCommand(
       stepOffset: 1,
       totalSteps: 4,
       diff: !!_opts?.diff,
+      force,
     });
   }
 

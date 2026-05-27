@@ -378,6 +378,17 @@ If yes, instruct the user to invoke the `hatch3r-board-fill` command. Board-fill
 
 ---
 
+## Cost estimate (Decision 24)
+
+This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 24/29:
+
+- **Pre-execution `cost_estimate`** — emitted in Step 0.5 before the first researcher dispatch.
+- **Post-execution `cost_actuals` + `delta`** — appended to the iteration summary's Fan-out + Cost section per `rules/hatch3r-iteration-summary.md` §2.
+
+Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.count: 3` × tier heuristic in `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate): Tier 1 ≈ 1 (two researchers, architect skipped when no breaking changes); Tier 2 ≈ 3 (two parallel researchers + architect, docs-writer); Tier 3 up to 3 (same fan-out, deeper changelog + incremental-vs-direct analysis). Deltas beyond 25% absolute value carry `flagged_for_review: true`. Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
+
+---
+
 ## Error Handling
 
 - **No changelog available:** Fall back to git diff of the source repository between version tags. If unavailable, rely on community migration guide researcher output only and warn the user that the breaking change inventory may be incomplete.

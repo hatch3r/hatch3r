@@ -175,6 +175,8 @@ The 8 deliverables are independent under the three parallel-safety conditions (d
 
 **P8 B2 cost-dominance clause:** token cost of fan-out never justifies serializing independent deliverables. Cost governs HOW MUCH context each sub-agent receives (P7 static-first frame), not WHETHER to spawn.
 
+**Effort Override (Decision 17).** When the `/hatch3r-spec` orchestrator passes an `--effort=light|standard|deep` signal in this agent's prompt context, it sets the research-depth budget: `light` → researcher depth `quick` on the four research-backed deliverables and 2 personas / ≥3 competitors at the floor; `standard` → researcher depth `standard`; `deep` → researcher depth `deep` with the full source-count and persona ceiling from §0. Absent an explicit signal, default to `standard`. The override never drops a deliverable — it scales depth per deliverable, never count.
+
 Emit `sub_agents_spawned: {count, rationale}` in the output contract.
 
 ## Output contract

@@ -122,3 +122,8 @@ Follow the shared protocol in `agents/shared/external-knowledge.md` (tooling hie
 - Typecheck: PASS
 - Tests: PASS (no behavior changes)
 ```
+
+## References
+
+- typescript-eslint. "typescript-eslint — Tooling that enables ESLint and Prettier to support TypeScript." `https://typescript-eslint.io/` (accessed 2026-05-28, typescript-eslint maintainers, established-library). Source for the type-aware lint-rule semantics this agent resolves (e.g., `no-explicit-any`, `no-floating-promises`, strict-mode rule families) without altering runtime logic, and the rule-vs-formatter separation behind the fix-then-verify sequence.
+- Google. "The Standard of Code Review." `https://google.github.io/eng-practices/review/reviewer/standard.html` (accessed 2026-05-28, Google Engineering Practices, peer-reviewed-methodology). Source for the style-conformance-without-scope-creep principle this agent honors — fix the style/type defect, do not refactor behavior in the same pass.

@@ -63,9 +63,9 @@ Canonical content (agents, skills, rules, commands, hooks) is no longer material
 
 | Profile | What's included | Best for |
 |---------|----------------|----------|
-| **Minimal** | Core agents and core rules only (`core` tag) | Quick setup, minimal footprint |
-| **Standard** (recommended) | Full development lifecycle without niche audits | Most projects |
-| **Full** | Everything including board management and all audits | Large teams, full coverage |
+| **Minimal** | Core orchestration + implementation, plus the security & UI/UX floor. Drops 7 capability clusters: planning, review, devops, maintenance, board, AI feature engineering, performance | Quick setup, minimal footprint |
+| **Standard** (recommended) | Full development lifecycle (planning, implementation, review, devops, maintenance, board, customize) + floor. **Drops 2 capability clusters: AI feature engineering + performance** — pick Full if you need those | Most projects |
+| **Full** | Every capability, including AI feature engineering and performance, plus floor and customize | Large teams, full coverage |
 | **Custom** | Interactive picker per artifact type | Fine-grained control |
 
 The profile is combined with greenfield/brownfield and solo/team filters, so a `solo + greenfield + standard` install carries materially less content than `team + brownfield + full`.

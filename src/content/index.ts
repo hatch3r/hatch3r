@@ -847,7 +847,7 @@ async function detectUserEditOverwrite(
 
   return (
     `Overwriting locally-edited canonical file "${relativePath}" with package content. ` +
-    `Canonical files under .agents/ are regenerated on each sync/init — place ` +
+    `Canonical files are regenerated from the bundled package on each sync/init — place ` +
     `project-specific customizations under .hatch3r/ instead.`
   );
 }

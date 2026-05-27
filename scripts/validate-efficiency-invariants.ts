@@ -19,8 +19,25 @@
  *                     `Delegation proof ID` field in their structured-result
  *                     section (P8 B2 forgery-resistant attestation; audit
  *                     Cycle 10 F5.1-H1).
+ *   --rule-narrative  Rule bodies (`rules/hatch3r-*.md`) must not justify
+ *                     serializing independent work with a token/context-cost
+ *                     rationale (P8 dominates P7). Catches the affirmative
+ *                     "cap/serialize ... for context cost" construction while
+ *                     allowing the negated correct form ("cost never
+ *                     serializes ..."). Audit Cycle 10 F16.1-H6 — a validator
+ *                     must check rule narrative text against the principle it
+ *                     enforces, not only its frontmatter.
+ *   --orch-contract   Orchestrator commands (`orchestrator: true`) carry the
+ *                     four 2.0.0 Constitutional contracts: a Cost Estimate
+ *                     block, an Iteration Summary reference, a §0 B1
+ *                     ambiguity gate, and a Resumability section. The first
+ *                     three are error-level (uniformly present); Resumability
+ *                     is warning-level pending the per-command retrofit
+ *                     (Cycle 10 F16.1-H1 — 19/23 commands still lack it; the
+ *                     command retrofit lands in a separate work unit, so a
+ *                     hard error here would block on out-of-scope debt).
  *
- * No flags → all four modes run. Exit 0 unless >=1 error-level finding;
+ * No flags → all six modes run. Exit 0 unless >=1 error-level finding;
  * warnings never block. The audit-cycle prompt (`governance/AUDIT.md`,
  * `governance/RE-ENVISION.md`, `commands/hatch3r-audit-cycle*.md`) remains
  * hard-exempt; `governance/AUDIT-EXECUTE.md` is no longer exempt as of
@@ -41,6 +58,7 @@ const __dirname = dirname(__filename);
 const ROOT = resolve(__dirname, "..");
 const COMMANDS_DIR = join(ROOT, "commands");
 const AGENTS_DIR = join(ROOT, "agents");
+const RULES_DIR = join(ROOT, "rules");
 const AUDIT_EXECUTE_REL = "governance/AUDIT-EXECUTE.md";
 
 // ── Audit-cycle exempt list (hard-coded) ──────────────────────────
@@ -88,12 +106,18 @@ interface ModeFlags {
   staticFirst: boolean;
   parallelTool: boolean;
   proofId: boolean;
+  /** Mode E — rule-narrative cost-as-serialization-rationale scan (F16.1-H6). */
+  ruleNarrative?: boolean;
+  /** Mode F — orchestrator-command Constitutional-contract scan (F16.1-H1). */
+  orchContract?: boolean;
 }
 
 interface RunOptions {
   flags: ModeFlags;
   commandsDir?: string;
   agentsDir?: string;
+  /** Rule directory for Mode E (`rules/`); test fixtures inject a tmpdir. */
+  rulesDir?: string;
   /**
    * Absolute paths to extra orchestrator-style files outside `commandsDir` /
    * `agentsDir` (typically `governance/AUDIT-EXECUTE.md`). Each is loaded as
@@ -113,16 +137,24 @@ interface RunResult {
 // ── CLI parsing ───────────────────────────────────────────────────
 
 function parseArgs(argv: readonly string[]): ModeFlags {
-  const known = new Set(["--triage-first", "--static-first", "--parallel-tool", "--proof-id"]);
+  const known = new Set([
+    "--triage-first", "--static-first", "--parallel-tool", "--proof-id",
+    "--rule-narrative", "--orch-contract",
+  ]);
   const requested = new Set(argv.filter((a) => known.has(a)));
   if (requested.size === 0) {
-    return { triageFirst: true, staticFirst: true, parallelTool: true, proofId: true };
+    return {
+      triageFirst: true, staticFirst: true, parallelTool: true, proofId: true,
+      ruleNarrative: true, orchContract: true,
+    };
   }
   return {
     triageFirst: requested.has("--triage-first"),
     staticFirst: requested.has("--static-first"),
     parallelTool: requested.has("--parallel-tool"),
     proofId: requested.has("--proof-id"),
+    ruleNarrative: requested.has("--rule-narrative"),
+    orchContract: requested.has("--orch-contract"),
   };
 }
 
@@ -295,6 +327,132 @@ function checkProofId(file: ParsedFile): Finding[] {
   }];
 }
 
+// ── Mode E: rule-narrative ─────────────────────────────────────────
+//
+// Audit Cycle 10 F16.1-H6 — a validator must verify a rule's narrative text
+// against the principle it enforces, not only its frontmatter. CONSTITUTION
+// §2 P8 establishes that P8 (fan-out) dominates P7 (efficiency): token cost
+// is never a valid reason to serialize independent work. A rule body that
+// justifies serializing / capping / throttling parallelism *with* a
+// token-or-context-cost rationale contradicts that principle.
+//
+// The check is intentionally negation-aware. The correct, principle-aligned
+// phrasing — "token cost never serializes independent work", "NOT
+// per-orchestrator context cost", "cost does not govern WHETHER to
+// parallelize" — must NOT trip. Only the affirmative violation forms trip:
+//   (A) `<cost noun> … <serialize/cap verb>`  with no intervening/leading negator
+//   (B) `<serialize/cap verb> … (because|to reduce|for) … <cost noun>` (un-negated)
+// Verified zero false positives across the full `rules/hatch3r-*.md` corpus
+// at authoring time (6703 lines scanned).
+
+const RN_COST =
+  "(?:token cost|context cost|per-orchestrator (?:concurrent )?context cost|" +
+  "concurrent context cost|context-window cost|context window cost)";
+const RN_SERIAL =
+  "(?:serializ\\w*|cap(?:ping|s|ped)?|throttl\\w*|" +
+  "reduce[ds]? (?:the )?(?:fan-?out|parallel\\w*)|" +
+  "limit(?:s|ed|ing)? (?:the )?(?:fan-?out|parallel\\w*))";
+const RN_NEG = "(?:never|not|n.t|no longer|cannot|without|nor )";
+
+function checkRuleNarrative(file: ParsedFile): Finding[] {
+  // Only scans rule artifacts; commands/agents are handled by other modes.
+  if (!file.relPath.startsWith("rules/")) return [];
+  const out: Finding[] = [];
+  const lines = file.body.split("\n");
+  const reA = new RegExp(RN_COST + "([^.]{0,80}?)" + RN_SERIAL, "i");
+  const reB = new RegExp(
+    RN_SERIAL + "([^.]{0,80}?)" +
+    "(?:because|due to|in order to (?:reduce|save|lower|cut|limit)|" +
+    "to (?:reduce|save|lower|cut|limit)|for)([^.]{0,40}?)" + RN_COST,
+    "i",
+  );
+  const negRe = new RegExp(RN_NEG, "i");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    let m = reA.exec(line);
+    if (m) {
+      const between = m[1] ?? "";
+      const pre = line.slice(Math.max(0, m.index - 30), m.index).trim();
+      const negPre =
+        new RegExp(RN_NEG + "\\s*$|—\\s*$|-\\s*$", "i").test(pre) || /\bNOT\b\s*$/i.test(pre);
+      if (!negRe.test(between) && !negPre) {
+        out.push({
+          level: "error", code: "P8-RULE-NARRATIVE-VIOL", file: file.relPath,
+          line: file.bodyStartLine + i,
+          message:
+            "rule narrative justifies serializing/capping parallelism with a " +
+            "token/context-cost rationale; P8 dominates P7 — token cost never " +
+            "serializes independent work (CONSTITUTION §2 P8)",
+        });
+        continue; // one finding per line is enough
+      }
+    }
+    m = reB.exec(line);
+    if (m) {
+      const win = (m[1] ?? "") + (m[2] ?? "");
+      if (!negRe.test(win)) {
+        out.push({
+          level: "error", code: "P8-RULE-NARRATIVE-VIOL", file: file.relPath,
+          line: file.bodyStartLine + i,
+          message:
+            "rule narrative serializes/caps parallelism for a token/context-cost " +
+            "reason; P8 dominates P7 (CONSTITUTION §2 P8)",
+        });
+      }
+    }
+  }
+  return out;
+}
+
+// ── Mode F: orchestrator-contract ──────────────────────────────────
+//
+// Audit Cycle 10 F16.1-H1 — the four 2.0.0 Constitutional contracts each
+// landed on only 1-3 of the orchestrator commands at audit time. This mode
+// asserts every `orchestrator: true` command carries all four:
+//   - Cost Estimate block      (P7 cost-visibility)
+//   - Iteration Summary ref    (closed-loop reporting)
+//   - §0 B1 ambiguity gate     (P8 clarification-default)
+//   - Resumability section     (mid-flight resume contract)
+//
+// Severity split: the first three are error-level — verified uniformly
+// present across all 23 orchestrator commands, so a missing one is a real
+// regression. Resumability is warning-level: 19/23 commands still lack the
+// section at authoring time and the per-command retrofit is a separate work
+// unit, so emitting an error here would block `npm run validate` on
+// out-of-scope debt. Promote Resumability to error once the retrofit lands.
+
+interface OrchContractProbe {
+  readonly label: string;
+  readonly re: RegExp;
+  readonly level: Severity;
+  readonly code: string;
+}
+
+const ORCH_CONTRACT_PROBES: readonly OrchContractProbe[] = [
+  { label: "Cost Estimate block", level: "error", code: "P7-ORCH-COST-MISS",
+    re: /Cost\s+(?:Estimate|Preview)|cost[_-]estimate|##\s+Cost/i },
+  { label: "Iteration Summary reference", level: "error", code: "P5-ORCH-ITER-MISS",
+    re: /Iteration\s+Summary|iteration-summary/i },
+  { label: "B1 ambiguity gate", level: "error", code: "P8-ORCH-B1-MISS",
+    re: /\bB1\b|ambiguity|user-question-protocol|clarification/i },
+  { label: "Resumability section", level: "warning", code: "P5-ORCH-RESUME-MISS",
+    re: /Resumab\w+|##\s+Resume|\bresume\b/i },
+];
+
+function checkOrchContract(file: ParsedFile): Finding[] {
+  if (!isOrchestrator(file.frontmatter)) return [];
+  const out: Finding[] = [];
+  for (const probe of ORCH_CONTRACT_PROBES) {
+    if (!probe.re.test(file.body)) {
+      out.push({
+        level: probe.level, code: probe.code, file: file.relPath,
+        message: `orchestrator command missing ${probe.label} (2.0.0 Constitutional contract; Cycle 10 F16.1-H1)`,
+      });
+    }
+  }
+  return out;
+}
+
 // ── Orchestrator ──────────────────────────────────────────────────
 
 async function loadDir(dir: string, baseDir: string, sink: Finding[]): Promise<ParsedFile[]> {
@@ -349,6 +507,14 @@ export async function runValidator(opts: RunOptions): Promise<RunResult> {
   const commandFiles = await loadDir(cmdDir, cmdBase, findings);
   const agentFiles = await loadDir(agtDir, agtBase, findings);
 
+  // Rule files are only loaded when Mode E is requested (avoids reading the
+  // 55-file rules corpus on runs that don't need it).
+  let ruleFiles: ParsedFile[] = [];
+  if (opts.flags.ruleNarrative) {
+    const ruleDir = opts.rulesDir ?? RULES_DIR;
+    ruleFiles = await loadDir(ruleDir, resolve(ruleDir, ".."), findings);
+  }
+
   for (const abs of opts.extraOrchestratorFiles ?? []) {
     // baseDir is two levels up from the file (e.g., parent of `governance/`),
     // so relPath comes out as `governance/AUDIT-EXECUTE.md` — the same shape
@@ -375,6 +541,12 @@ export async function runValidator(opts: RunOptions): Promise<RunResult> {
   }
   if (opts.flags.proofId) {
     for (const f of agentFiles) findings.push(...checkProofId(f));
+  }
+  if (opts.flags.ruleNarrative) {
+    for (const f of ruleFiles) findings.push(...checkRuleNarrative(f));
+  }
+  if (opts.flags.orchContract) {
+    for (const f of commandFiles) findings.push(...checkOrchContract(f));
   }
 
   let errorCount = 0, warningCount = 0;

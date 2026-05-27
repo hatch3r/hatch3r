@@ -198,3 +198,8 @@ Your role is design, authoring, and dry-run validation — not apply/deploy. The
 - Node version pinned via .nvmrc
 - npm ci with --ignore-scripts, followed by explicit build step
 ```
+
+## References
+
+- OpenSSF / SLSA. "Supply-chain Levels for Software Artifacts (SLSA) v1.0 — Build Track." `https://slsa.dev/spec/v1.0/levels` (accessed 2026-05-28, OpenSSF, official-docs; v1.0 released 2023-04). Source for the build-pipeline provenance ladder this agent applies to deployment configuration — L1 documented provenance, L2 signed provenance from a hosted build, L3 isolated/tamper-resistant builds behind the cosign + OIDC trusted-publishing recommendations.
+- Open Source Security Foundation. "OpenSSF Scorecard." `https://scorecard.dev/` (accessed 2026-05-28, OpenSSF, established-library). Source for the pipeline-hardening checks this agent reports on when reviewing CI/CD — token-permission scoping, pinned build dependencies, and required code review as automatable repository-health signals.

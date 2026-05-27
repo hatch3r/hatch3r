@@ -48,26 +48,19 @@ When you run `npx hatch3r init`, step 6 asks which MCP servers to enable:
 1. hatch3r detects your platform (GitHub, Azure DevOps, or GitLab) and pre-selects the matching platform MCP server
 2. The three default servers (Playwright, Context7, Filesystem) are pre-checked
 3. You can toggle any server on or off using the interactive checkbox prompt
-4. After selection, hatch3r writes only the chosen servers to `.agents/mcp/mcp.json`
+4. After selection, hatch3r writes only the chosen servers to `.hatch3r/mcp/mcp.json`
 
 To change MCP servers after init, run `npx hatch3r config`. This re-presents the MCP server selection prompt pre-populated with your current choices.
 
 ## Where MCP Config Lives
 
-All adapters that support MCP emit tool-specific configuration during `npx hatch3r init` or `npx hatch3r sync`. The canonical MCP source is `.agents/mcp/mcp.json`; each adapter transforms it into the format and path the tool expects.
+All adapters that support MCP emit tool-specific configuration during `npx hatch3r init` or `npx hatch3r sync`. The resolved MCP source is `.hatch3r/mcp/mcp.json`; each adapter transforms it into the format and path the tool expects.
 
 | Tool | Config path | Format | Notes |
 |------|-------------|--------|-------|
 | Cursor | `.cursor/mcp.json` | JSON (direct copy) | Also reads `mcp.json` at project root if using the Cursor plugin |
 | Claude Code | `.mcp.json` | JSON (direct copy) | Also generates `.claude/settings.json` with opinionated permissions |
 | Copilot / VS Code | `.vscode/mcp.json` | JSON with `env` object | Env vars passed via `env` object per server |
-| OpenCode | `opencode.json` | JSON (inline) | MCP servers embedded in the top-level config under `mcp` key |
-| Windsurf | `.windsurf/mcp.json` | JSON | Standard `mcpServers` format |
-| Amp | `.amp/settings.json` | JSON | MCP servers under `amp.mcpServers` key |
-| Codex | `.codex/config.toml` | TOML | MCP servers as `[mcp_servers.<name>]` sections |
-| Gemini | `.gemini/settings.json` | JSON | MCP servers under `mcpServers` key alongside context and hooks |
-| Cline / Roo | `.roo/mcp.json` | JSON | Standard `mcpServers` format; remote servers use `streamable-http` transport |
-| Kiro | `.kiro/settings/mcp.json` | JSON | Standard `mcpServers` format |
 
 ## Connecting MCP Servers
 
@@ -236,9 +229,9 @@ For self-hosted GitLab, also set `GITLAB_HOST=https://gitlab.example.com` in `.e
 
 ## How MCP Config Is Distributed to Adapters
 
-During `hatch3r init` or `hatch3r sync`, the canonical MCP config at `.agents/mcp/mcp.json` is transformed into tool-specific formats for each selected adapter. The process works as follows:
+During `hatch3r init` or `hatch3r sync`, the resolved MCP config at `.hatch3r/mcp/mcp.json` is transformed into tool-specific formats for each selected adapter. The process works as follows:
 
-1. **Canonical source** -- `.agents/mcp/mcp.json` contains the `mcpServers` object with only the servers you selected during init
+1. **Resolved source** -- `.hatch3r/mcp/mcp.json` contains the `mcpServers` object with only the servers you selected during init
 2. **Adapter transformation** -- each adapter reads the canonical config and writes it to the tool-specific path and format
 3. **Secret injection** -- environment variable placeholders (`${env:VAR}`) are preserved in all generated configs. The actual values are read from `.env.mcp` at runtime
 
@@ -249,19 +242,12 @@ The adapter capability matrix determines which adapters emit MCP config:
 | Cursor | Yes | `.cursor/mcp.json` | Direct JSON copy |
 | Claude Code | Yes | `.mcp.json` | Direct JSON copy |
 | Copilot / VS Code | Yes | `.vscode/mcp.json` | Env vars via `env` object per server |
-| OpenCode | Yes | `opencode.json` | Embedded under `mcp` key |
-| Windsurf | Yes | `.windsurf/mcp.json` | Standard `mcpServers` format |
-| Amp | Yes | `.amp/settings.json` | Under `amp.mcpServers` key |
-| Codex | Yes | `.codex/config.toml` | TOML `[mcp_servers.<name>]` sections |
-| Gemini | Yes | `.gemini/settings.json` | Under `mcpServers` key |
-| Cline / Roo | Yes | `.roo/mcp.json` | Standard `mcpServers` format |
-| Kiro | Yes | `.kiro/settings/mcp.json` | Standard `mcpServers` format |
 
-When you run `hatch3r sync` or `hatch3r config`, all adapter MCP configs are regenerated from the canonical source, ensuring consistency across tools.
+All 3 supported adapters emit MCP config. When you run `hatch3r sync` or `hatch3r config`, every adapter MCP config is regenerated from the resolved source, producing identical server sets across tools.
 
 ## Adding Custom MCP Servers
 
-You can add custom MCP servers by editing `.agents/mcp/mcp.json` directly. Add your server definition to the `mcpServers` object:
+You can add custom MCP servers by editing `.hatch3r/mcp/mcp.json` directly. Add your server definition to the `mcpServers` object:
 
 ```json
 {

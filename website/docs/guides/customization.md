@@ -73,7 +73,7 @@ Use the `rule-customize` command for interactive setup.
 
 ### Rule precedence and generated filenames
 
-Rules declare an optional `precedence: critical|high|normal|low` field in canonical frontmatter (default `normal`). Per-file rule adapters (cursor, windsurf, copilot, claude, cline) emit filenames prefixed with a two-digit rank — `10-` (critical), `30-` (high), `50-` (normal), `70-` (low) — so generated output loads in precedence order. Inline adapters (gemini, aider, amp, goose, zed, antigravity, amazon-q, codex) sort by precedence before concatenation.
+Rules declare an optional `precedence: critical|high|normal|low` field in canonical frontmatter (default `normal`). Per-file rule adapters (cursor, copilot) emit filenames prefixed with a two-digit rank — `10-` (critical), `30-` (high), `50-` (normal), `70-` (low) — so generated output loads in precedence order. The Claude adapter inlines always-apply rules into `CLAUDE.md` in precedence order.
 
 Validate with `npx hatch3r validate`. Parity between `.md` and `.mdc` variants is enforced by `npm run validate:rule-parity`. See [Rules reference](../reference/rules#rule-precedence-and-description-quality).
 
@@ -93,12 +93,12 @@ The `*-customize` commands above adjust hatch3r's stock content. To author a bra
 
 `/hatch3r-create` walks you through type selection (agent, skill, rule, command, or hook), name, description, tags, adapter scope, and type-specific fields. It then delegates to the `hatch3r-creator` sub-agent, which composes the frontmatter and body skeleton, runs the same strict frontmatter/security/structural gates the framework uses on canonical content (block on failure) plus style/lean checks as warnings, and atomic-writes the file.
 
-Outputs land under `.agents/user/{type}/{name}.md`:
+Outputs land under `.hatch3r/overrides/{type}/{name}.md`:
 
 - Rule artifacts also receive a paired `.mdc` companion via the `.md → .mdc` scope transform.
 - Skill artifacts create a `{name}/SKILL.md` subdirectory.
 
-Files under `.agents/user/` are preserved across `hatch3r update` and `hatch3r clean`. Names beginning with `hatch3r-` are reserved for canonical framework content and rejected at validation. Run `hatch3r sync` after creation to propagate the artifact to all enabled adapter outputs.
+Files under `.hatch3r/overrides/` are preserved across `hatch3r update` and `hatch3r clean`. Names beginning with `hatch3r-` are reserved for canonical framework content and rejected at validation. Run `hatch3r sync` after creation to propagate the artifact to all enabled adapter outputs.
 
 See the [create command reference](../reference/commands/agent-commands#create) for the full input contract and gate behavior.
 
@@ -112,11 +112,11 @@ Hooks trigger agents on specific lifecycle events (e.g., post-commit, pre-push, 
 
 ## Presets
 
-hatch3r ships with 4 content presets: **Minimal** (core only), **Standard** (recommended, full dev lifecycle without niche audits), **Full** (everything including board management and all audits), and **Custom** (pick exactly what you need). Select during `hatch3r init` or change later with `hatch3r config`.
+hatch3r ships with 4 content presets: **Minimal** (core orchestration + implementation plus floor), **Standard** (recommended — full dev lifecycle plus floor; drops 2 capability clusters: AI feature engineering + performance), **Full** (every capability, including AI feature engineering and performance), and **Custom** (pick exactly what you need). Select during `hatch3r init` or change later with `hatch3r config`.
 
 ## Task-Type Routing
 
-`hatch3r sync` emits a `## Task Type → Routing` table into `.agents/AGENTS.md` (inherited by Claude, Cursor, Windsurf, and Copilot bridges). Each row maps a workflow or domain tag (planning, implementation, review, devops, maintenance, board, security-review, accessibility, performance, customize, core-workflow) to:
+`hatch3r sync` emits a `## Task Type → Routing` table into each adapter's bridge instruction file (`CLAUDE.md` for Claude Code, `copilot-instructions.md` for Copilot, the inlined orchestration doc for Cursor). Each row maps a workflow or domain tag (planning, implementation, review, devops, maintenance, board, security-review, accessibility, performance, customize, core-workflow) to:
 
 - **Primary** — the best-matching agent, slash-command, or skill for that task type
 - **Fallback Agents** — other agents carrying the same tag

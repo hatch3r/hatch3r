@@ -44,6 +44,37 @@ Classify the handoff request by subcommand and operation size before routing:
 
 There is no Tier 3 for this command — multi-issue or epic-scale handoffs are out of scope; the caller decomposes into per-work-item handoffs upstream.
 
+### Step 0.5: Emit Pre-Execution Cost Preview
+
+The `prepare` subcommand is the only one that dispatches a sub-agent. Before invoking `hatch3r-handoff-preparer`, surface the cost preview per `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate. The Tier-1 read/list/rename subcommands (`list`, `complete`, `prune --dry-run`) run inline with `expected_sa_count: 0` and may emit a one-line cost note instead of the full block:
+
+```yaml
+cost_estimate:
+  expected_sa_count: <prepare ~1; list/complete/prune-dry-run = 0>
+  estimated_input_tokens_static_frame: <int>
+  estimated_web_research_queries: 0                # handoff is local-only — no web research
+  triage_tier: light | standard
+  estimated_duration_min: <int>
+```
+
+Post-execution actuals + delta land in the Iteration Summary's Fan-out + Cost section per `rules/hatch3r-cost-visibility.md` Post-Execution Actuals. Token telemetry sources from `src/pipeline/observability.ts`.
+
+### Effort Override (Decision 17)
+
+This command has no Tier 3, so `--effort` maps only `light` ↔ `standard`. The override is the recovery path mandated by `governance/CONSTITUTION.md` §6 Decision 17 ("User overridable via `--effort` flag"):
+
+- `--effort=light|standard` forces the named tier, bypassing the subcommand-derived auto-classification (Step 0). `--effort=deep` is rejected — Tier 3 is out of scope for this command.
+- The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
+- No override passed → the subcommand-derived classification stands.
+
+## Confidence Propagation Contract
+
+The `prepare` subcommand's `hatch3r-handoff-preparer` delegation prompt MUST include the confidence expression requirement below (verbatim), per the quality charter §1 rule (the inline subcommands produce no graded findings and are exempt).
+
+> Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
+
+The preparer's readiness assessment and the `resume` drift-check verdict carry a high/medium/low confidence rating; dropping the signal into the Iteration Summary is a gate failure.
+
 ## Workflow
 
 Execute these steps in order. **Do not skip any step.** Ask the user at every checkpoint marked with **ASK**.
@@ -116,6 +147,17 @@ ID                                              STATUS         BRANCH           
 **ASK:** "Proceed with prune? Will archive {n} active and delete {m} archived. (y/N)"
 
 6. On confirm: archive each expired active (prepend `Expired on {date}` notice, move to `archived/`); delete each over-90-day archive.
+
+---
+
+## Cost estimate (Decision 24)
+
+This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 24/29:
+
+- **Pre-execution `cost_estimate`** — emitted in Step 0.5 before the `prepare` subcommand invokes `hatch3r-handoff-preparer`. Inline subcommands emit a one-line `expected_sa_count: 0` cost note.
+- **Post-execution `cost_actuals` + `delta`** — appended to the Iteration Summary's Fan-out + Cost section per `rules/hatch3r-iteration-summary.md` §2.
+
+Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.count: 1` × tier heuristic in `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate): `prepare` ≈ 1 (one preparer delegation); `resume` ≈ 0 (inline drift check + status transition); `list`/`complete`/`prune` ≈ 0 (filesystem read or single-file rename). This command is local-only — `estimated_web_research_queries` is always 0. Deltas beyond 25% absolute value carry `flagged_for_review: true`. Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
 
 ---
 

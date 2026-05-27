@@ -138,3 +138,8 @@ When invoked as a Phase 4 specialist, use these guidelines to determine the scop
 **New Documents Created:**
 - docs/adr/0012-rate-limiting-strategy.md — ADR for rate limiting approach decision
 ```
+
+## References
+
+- Procida, Daniele. "Diátaxis: A systematic framework for technical documentation authoring." `https://diataxis.fr/` (accessed 2026-05-28, diataxis.fr, peer-reviewed-methodology). Source for the four-mode documentation model this agent classifies output into — tutorials (learning), how-to guides (task), reference (information), explanation (understanding) — so a doc is written to one user need rather than blending modes.
+- Google. "What to look for in a code review — Comments." `https://google.github.io/eng-practices/review/reviewer/looking-for.html` (accessed 2026-05-28, Google Engineering Practices, peer-reviewed-methodology). Source for the comments-explain-why-not-what principle this agent applies when documenting code and reviewing inline-comment quality in changed files.

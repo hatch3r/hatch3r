@@ -38,7 +38,7 @@ Review criteria for evaluating security posture in pull requests.
 
 - `[CRITICAL]` New dependencies are from trusted sources with active maintenance (recent commits, multiple maintainers).
 - `[CRITICAL]` No known critical or high vulnerabilities in new or updated dependencies (`npm audit`, `pip audit`, etc.).
-- `[RECOMMENDED]` Dependency count increase is justified — prefer standard library solutions when adequate.
+- `[RECOMMENDED]` Each added runtime dependency is justified in the PR description; a standard-library or already-present-dependency equivalent that covers the same use case is preferred over a new transitive dependency tree.
 - `[RECOMMENDED]` New dependencies carry an OSI-approved license compatible with the project license (no GPL/AGPL copyleft in a permissively-licensed product unless legal-approved).
 
 ## Data Exposure
@@ -58,4 +58,4 @@ Review criteria for evaluating security posture in pull requests.
 ## Error Handling
 
 - `[CRITICAL]` Error responses to clients do not include stack traces, internal paths, or database details.
-- `[RECOMMENDED]` Security-relevant errors (auth failures, permission denials) are logged with sufficient context for incident investigation.
+- `[RECOMMENDED]` Security-relevant errors (auth failures, permission denials) are logged with the five fields an incident responder needs — timestamp, actor/subject identifier, action attempted, resource, and outcome — and never the secret or credential that was rejected.

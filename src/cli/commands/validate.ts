@@ -1284,6 +1284,44 @@ const MEASURABLE_QUALIFIER_RE =
  * Walk the supplied directory recursively, returning the absolute paths
  * of every `.md` file (excluding `.mdc` siblings and dotfiles).
  */
+/**
+ * F16.3-H3 (D16) / Decision 13: returns true when the command file at
+ * `commandPath` is a genuine orchestrator — frontmatter `orchestrator: true`
+ * with a non-empty `agentPipeline` array. Used to decide whether a
+ * command↔skill ID collision is a legitimate delegation/inline pair or a
+ * Decision-13 duplicate. A read/parse failure returns false (fail toward
+ * surfacing the collision) and records a diagnostic on `result.warnings`
+ * (Silent Failure Contract, CONSTITUTION §2 P5) rather than swallowing it.
+ */
+async function commandOrchestrates(commandPath: string, result: ValidationResult): Promise<boolean> {
+  let raw: string;
+  try {
+    raw = await readFile(commandPath, "utf-8");
+  } catch (err) {
+    result.warnings.push(
+      `Could not read command ${commandPath} to verify Decision-13 orchestrator status — treating its id collision as a duplicate (${err instanceof Error ? err.message : String(err)})`,
+    );
+    return false;
+  }
+  if (!raw.startsWith("---")) return false;
+  const endIdx = raw.indexOf("---", 3);
+  if (endIdx === -1) return false;
+  let fm: Record<string, unknown> | null;
+  try {
+    fm = parseYaml(raw.slice(3, endIdx).trim()) as Record<string, unknown> | null;
+  } catch (err) {
+    result.warnings.push(
+      `Could not parse frontmatter of command ${commandPath} to verify Decision-13 orchestrator status — treating its id collision as a duplicate (${err instanceof Error ? err.message : String(err)})`,
+    );
+    return false;
+  }
+  if (!fm) return false;
+  const orchestrator = fm.orchestrator === true;
+  const pipeline = fm.agentPipeline;
+  const hasPipeline = Array.isArray(pipeline) && pipeline.length > 0;
+  return orchestrator && hasPipeline;
+}
+
 async function listMarkdownFiles(dirPath: string): Promise<string[]> {
   const found: string[] = [];
   try {
@@ -1414,8 +1452,75 @@ async function validateContentBody(
           `${fileLabel}: missing pillar reference — declare at least one of P1..P8 via 'pillars: [P1, ...]' in frontmatter or a '**Pillars:** P1, ...' line in the body (CLAUDE.md "7 Binding Pillars")`,
         );
       }
+
+      // F13.5-F01 (D13, P8 B1): the §0 ambiguity-detection gate is mandated on
+      // every published agent / command / skill by
+      // `rules/hatch3r-clarification-default.md`. Enforce it here so an artifact
+      // that drops the gate fails CI rather than silently shipping without
+      // clarification-default behavior. Reference subdirectories
+      // (agents/shared, agents/modes, commands/board, commands/revision) are
+      // companion material, not standalone mutating artifacts, so they are
+      // exempt — matching the prefix-exemption split in content-authoring.
+      if (requiresAmbiguityGate(dir, fileLabel)) {
+        const gate = checkAmbiguityGate(body);
+        if (!gate.hasMarker) {
+          // Missing the gate entirely is always an error: it is a hard floor.
+          result.errors.push(
+            `${fileLabel}: missing §0 ambiguity-detection gate — every agent/command/skill must declare a "§0"/"Step 0 — Ambiguity" block (or reference agents/shared/user-question-protocol.md) per rules/hatch3r-clarification-default.md (P8 B1)`,
+          );
+        } else if (!gate.referencesProtocol) {
+          // Marker present but no protocol reference is weak prose: warn so the
+          // author wires it to the canonical "how to ask" surface.
+          result.warnings.push(
+            `${fileLabel}: §0 ambiguity gate present but does not reference agents/shared/user-question-protocol.md — wire the gate to the canonical question protocol (P8 B1)`,
+          );
+        }
+      }
     }
   }
+}
+
+/**
+ * F13.5-F01 (D13): which scanned files must carry the §0 ambiguity gate.
+ * Applies to top-level published agents, commands, and skills. Companion
+ * material under reference subdirectories (agents/shared, agents/modes,
+ * commands/board, commands/revision) is exempt — it is not a standalone
+ * mutating artifact, mirroring the filename-prefix exemption in
+ * `.claude/rules/content-authoring.md`.
+ */
+function requiresAmbiguityGate(dir: string, fileLabel: string): boolean {
+  if (dir !== "agents" && dir !== "commands" && dir !== "skills") return false;
+  const EXEMPT_SUBDIRS = [
+    "agents/shared/",
+    "agents/modes/",
+    "commands/board/",
+    "commands/revision/",
+    "skills/hatch3r-board-shared/", // board companion skill (parity with commands/board/)
+  ];
+  if (EXEMPT_SUBDIRS.some((prefix) => fileLabel.startsWith(prefix))) return false;
+  // Skill reference material is companion content, not a standalone mutating
+  // entry point: only the top-level SKILL.md carries the §0 gate. This exempts
+  // every `skills/<id>/references/**` (and any non-SKILL.md file under a skill).
+  if (dir === "skills" && !fileLabel.endsWith("/SKILL.md")) return false;
+  return true;
+}
+
+/**
+ * F13.5-F01 (D13): detect the §0 ambiguity-detection gate in an artifact body.
+ * `hasMarker` is true when a recognizable gate heading/marker is present;
+ * `referencesProtocol` is true when the body points at the canonical
+ * `agents/shared/user-question-protocol.md` (the "how to ask" surface). The
+ * matchers are deliberately broad so authors can phrase the heading naturally
+ * (e.g. "§0 — Ambiguity & Safety Gate", "Step 0 — Ambiguity gate").
+ */
+function checkAmbiguityGate(body: string): { hasMarker: boolean; referencesProtocol: boolean } {
+  const hasMarker =
+    /§0/.test(body) ||
+    /step\s*0\b[^\n]*ambig/i.test(body) ||
+    /\bambiguity[- ](detection|gate|&)/i.test(body) ||
+    /\bambiguity\b[^\n]*\bgate\b/i.test(body);
+  const referencesProtocol = /user-question-protocol/.test(body);
+  return { hasMarker, referencesProtocol };
 }
 
 /**
@@ -1744,15 +1849,33 @@ export async function validateCommand(opts?: {
       verbose("Checking user content (D20 gates)...");
       await validateUserContent(rootDir, canonicalRoot, result, index);
 
-      // Content ID collision validation
-      // Expected: command/skill cross-type pairs (by design, commands and skills share IDs)
-      // Unexpected: same-type duplicates, or cross-type pairs that aren't command↔skill
-      const EXPECTED_CROSS_TYPE_PAIRS = new Set(["command", "skill"]);
+      // Content ID collision validation.
+      //
+      // F16.3-H3 (D16) / Decision 13: a command↔skill ID pair is legitimate
+      // ONLY when the command genuinely orchestrates — `orchestrator: true`
+      // with a non-empty `agentPipeline` — so the command (delegation) and the
+      // skill (inline execution) are distinct artifacts, not a duplicate. A
+      // bare command↔skill pair where the command does NOT orchestrate is a
+      // Decision-13 violation (a duplicate that should collapse to one
+      // artifact) and is surfaced as a warning. Previously ALL command↔skill
+      // pairs were silently exempted, which let undocumented duplicates ship.
+      // Same-type duplicates and other cross-type pairs are always warnings.
       for (const collision of index.collisions) {
         if (collision.kind === "cross-type") {
           const types = new Set([collision.existingType, collision.duplicateType]);
-          if (types.size === 2 && [...types].every(t => EXPECTED_CROSS_TYPE_PAIRS.has(t))) {
-            // Expected command/skill collision — skip
+          if (types.size === 2 && types.has("command") && types.has("skill")) {
+            const commandPath = collision.existingType === "command"
+              ? collision.existingPath
+              : collision.duplicatePath;
+            const qualifies = await commandOrchestrates(join(canonicalRoot, commandPath), result);
+            if (qualifies) {
+              // Legitimate Decision-13 command/skill pair — the command
+              // delegates via agentPipeline; the skill is its inline sibling.
+              continue;
+            }
+            result.warnings.push(
+              `Content ID collision: "${collision.id}" exists as both a command (${collision.existingType === "command" ? collision.existingPath : collision.duplicatePath}) and a skill (${collision.existingType === "skill" ? collision.existingPath : collision.duplicatePath}), but the command is not orchestrator:true with a non-empty agentPipeline — per Decision 13 this is a duplicate: collapse to one artifact or promote the command to a real orchestrator (.claude/rules/content-authoring.md item 9)`,
+            );
             continue;
           }
         }

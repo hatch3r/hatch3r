@@ -13,11 +13,11 @@ hatch3r is an open-source CLI and Cursor plugin that installs a tool-agnostic ag
 Requires Node.js 22+.
 
 ```bash
-npx hatch3r init            # interactive (asks <=5 questions)
-npx hatch3r init --default  # zero-prompt setup with standard profile
+npx hatch3r init --default  # recommended: zero-prompt setup with the standard profile
+npx hatch3r init            # interactive: customize tools, profile, and MCP (asks <=5 questions)
 ```
 
-`init` detects your repo, asks about your project context (greenfield/brownfield, solo/team), lets you choose a content profile (minimal/standard/full/custom), and generates everything. The platform (GitHub, Azure DevOps, or GitLab) is auto-detected from your git remote. Run into issues? See [Troubleshooting](https://docs.hatch3r.com/docs/troubleshooting).
+`--default` generates a working standard-profile setup with no questions — the fastest path to a configured repo. The interactive `init` detects your repo, asks about your project context (greenfield/brownfield, solo/team), lets you choose a content profile (minimal/standard/full/custom), and generates everything. The platform (GitHub, Azure DevOps, or GitLab) is auto-detected from your git remote either way. Run into issues? See [Troubleshooting](https://docs.hatch3r.com/docs/troubleshooting).
 
 ## What You Get
 

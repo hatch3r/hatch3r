@@ -1,0 +1,72 @@
+name: Release Please
+
+# Cycle 10 H F4.4.1 (D4): implements CONSTITUTION §6 Decision 31 — the
+# Conventional-Commit → automated-SemVer mechanism that was declared but
+# unimplemented. release-please reads the Conventional Commit history on
+# `main`, opens (and grooms) a single "Release PR" that bumps the
+# package.json version per the commit types (feat → minor, fix → patch,
+# `!`/BREAKING CHANGE → major) and assembles the CHANGELOG entry. The
+# version bump + changelog land only when a maintainer reviews and merges
+# that PR — keeping release authorship human-gated.
+#
+# Division of labour with release.yml (the downstream publish stage):
+#   - THIS workflow owns the PR-time concern: version bump + changelog
+#     assembly from commit history. `skip-github-release: true` means it
+#     never tags or publishes — a GITHUB_TOKEN-created tag would not fire
+#     release.yml's `push: tags` trigger anyway (GitHub loop-prevention),
+#     so tagging stays a deliberate maintainer action.
+#   - release.yml owns the tag → npm-publish concern (provenance + SBOM +
+#     attestation). After merging the Release PR, the maintainer pushes the
+#     `v<version>` tag release-please staged in package.json, which triggers
+#     release.yml to build, test, and publish.
+#
+# Dual-tier changelog (Decision 31 "Highlights for users + Technical for
+# contributors"): release-type `node` here uses release-please's default
+# changelog grouping. Customising the section split requires a root
+# `release-please-config.json` with `changelog-sections` — that root file is
+# a follow-up owned outside this workflow's edit scope; this workflow
+# delivers the automated-SemVer mechanism the finding flags as missing.
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # The release-please action needs write access to open/groom the Release
+    # PR (contents) and label it (pull-requests). Scoped at the job level so
+    # the workflow default stays read-only per least-privilege.
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      # Cycle 10 H F4.3.2 (D4): step-security/harden-runner as the first step,
+      # matching every other workflow in this repo. Audit mode builds a
+      # per-job egress baseline without blocking; pinned to the v2.19.3 commit
+      # SHA used repo-wide per the actions-pinning policy.
+      - name: Harden Runner
+        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2.19.3
+        with:
+          egress-policy: audit
+
+      # release-please-action v5.0.0 (2026-04-22), pinned to its release commit
+      # SHA per the CONSTITUTION §2 P5 + §CQ3 supply-chain floor (SHA-pinned
+      # actions). `release-type: node` runs single-package root mode: no
+      # `.release-please-manifest.json` / `release-please-config.json` required.
+      - name: Run release-please
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          release-type: node
+          skip-github-release: true

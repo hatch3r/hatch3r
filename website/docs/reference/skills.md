@@ -11,7 +11,7 @@ On-demand instruction bundles for specific tasks. Skills are loaded by agents wh
 
 | Skill | Description |
 |-------|-------------|
-| **a11y-audit** | Comprehensive WCAG AA audit with automated scanning, manual verification, and fix implementation. |
+| **a11y-audit** | WCAG 2.2 AA audit across all four POUR principles with automated scanning, manual verification, and fix implementation. |
 | **agent-customize** | Configure per-agent customization via `.customize.yaml` files. |
 | **api-spec** | Generate and validate OpenAPI specifications from codebase. Covers endpoint design, schema validation, and documentation generation. |
 | **architecture-review** | Evaluate architectural decisions, compare options with pros/cons, and produce ADRs following the project template. |
@@ -40,7 +40,7 @@ On-demand instruction bundles for specific tasks. Skills are loaded by agents wh
 
 ## Canonical Location
 
-Skills live in `.agents/skills/hatch3r-{id}/SKILL.md`. Each skill is a self-contained instruction document that agents read when performing a specific type of work.
+Skills live in the canonical `skills/hatch3r-{id}/SKILL.md` content (bundled npm package; user-tier overrides mirror this layout under `.hatch3r/overrides/skills/`). Each skill is a self-contained instruction document that agents read when performing a specific type of work.
 
 ## Customization
 

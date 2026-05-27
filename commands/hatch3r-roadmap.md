@@ -12,7 +12,7 @@ parallel_tool_default: true
 triage_tiers: [1, 2, 3]
 sub_agents_spawned:
   count: 2
-  rationale: Two parallel hatch3r-researcher modes (business-priority + technical-readiness) in Step 3 to inform sequencing; one hatch3r-docs-writer in Step 6 assembles todo.md on their merged output (serialized on the research → assembly dependency edge).
+  rationale: Two parallel hatch3r-researcher modes (business-priority + technical-readiness) in Step 3 to inform sequencing; one hatch3r-docs-writer in Step 6 assembles todo.md on their merged output (serialized on the research → assembly dependency edge). Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -31,6 +31,8 @@ Generate a dependency-aware, priority-ordered roadmap with **two parallel dimens
 | 2. Document Generation | `hatch3r-docs-writer` (todo.md generation) | No | Yes |
 | 3. AGENTS.md | `hatch3r-docs-writer` (AGENTS.md generation/rework) | No | Yes |
 
+**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
+
 ---
 
 ## Shared Context
@@ -40,6 +42,14 @@ Generate a dependency-aware, priority-ordered roadmap with **two parallel dimens
 ## Token-Saving Directives
 
 Follow the **Token-Saving Directives** in `hatch3r-board-shared`.
+
+## Confidence Propagation Contract
+
+Every sub-agent delegation prompt in this command MUST include the confidence expression requirement below (verbatim). Sub-agents are invoked with the `quality_charter: agents/shared/quality-charter.md` reference in their frontmatter, but the orchestrator repeats the directive to override runtime prompt defaults per the charter §1 rule.
+
+> Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
+
+Downstream propagation: every business-priority and technical-readiness recommendation (market-timing, revenue-impact ordering, debt-velocity estimate) carries a high/medium/low confidence rating sourced from the researcher sub-agent — web-sourced market estimates are medium at best unless tied to a cited benchmark. The Step 4 roadmap presentation and Step 6 summary MUST preserve the signal. Dropping it between stages is a gate failure.
 
 ---
 
@@ -56,6 +66,29 @@ Classify the roadmap request before delegating:
 - **Tier 3 (deep)**: enterprise/scale company with regulatory deadlines, multi-quarter horizon, or 50+ backlog items; full pipeline with deep web research and confirm milestones with the user before writing files.
 
 If Tier 1, run the reduced researcher set and skip Step 7 (AGENTS.md) unless requested. If Tier 2, run the standard pipeline below. If Tier 3, run the full pipeline with deep research, surface market-timing intelligence, and confirm phased plan with the user before file writes.
+
+### Step 0.5: Emit Pre-Execution Cost Preview
+
+Before the first sub-agent dispatch (Step 3 parallel researchers), surface the cost preview so a deep-research roadmap run is never started blind. Emit the `cost_estimate` block per `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate, calibrated to the Step 0 triage tier:
+
+```yaml
+cost_estimate:
+  expected_sa_count: <triage tier → Tier 1 ~1 (technical-readiness only), Tier 2 ~2-3, Tier 3 up to 3 (+ AGENTS.md docs-writer)>
+  estimated_input_tokens_static_frame: <int>
+  estimated_web_research_queries: <int>            # market + benchmark research; Tier 3 is web-heavy
+  triage_tier: light | standard | deep
+  estimated_duration_min: <int>
+```
+
+The Step 1 business-discovery interview is user-driven and excluded from the duration estimate. Post-execution actuals + delta land in the Step 6 summary's Fan-out + Cost section per `rules/hatch3r-cost-visibility.md` Post-Execution Actuals. Token telemetry sources from `src/pipeline/observability.ts`.
+
+### Effort Override (Decision 17)
+
+Auto-tiering can misclassify — a focused single-dimension roadmap scored as Deep, or an enterprise multi-quarter roadmap scored as Light. The user override is the recovery path mandated by `governance/CONSTITUTION.md` §6 Decision 17 ("User overridable via `--effort` flag"):
+
+- `--effort=light|standard|deep` forces the named tier, bypassing the Step 0 auto-classification (which controls researcher count and web-research depth).
+- The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
+- No override passed → the Step 0 auto-classification stands.
 
 ---
 
@@ -560,6 +593,17 @@ If `AGENTS.md` already exists, **ASK** before overwriting: "Root `AGENTS.md` alr
 Which would you like to run next? (or none)"
 
 **Future command:** `hatch3r-test-plan` — generates a test plan from the current task context (issue, spec references, acceptance criteria) covering unit, integration, and E2E test scenarios. Not yet implemented; tracked for a future release.
+
+---
+
+## Cost estimate (Decision 24)
+
+This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 24/29:
+
+- **Pre-execution `cost_estimate`** — emitted in Step 0.5 before the first researcher dispatch (Step 3).
+- **Post-execution `cost_actuals` + `delta`** — appended to the Step 6 summary's Fan-out + Cost section per `rules/hatch3r-iteration-summary.md` §2.
+
+Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.count: 2` × tier heuristic in `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate): Tier 1 ≈ 1 (technical-readiness researcher only, condensed todo.md); Tier 2 ≈ 2-3 (both researchers + todo.md docs-writer); Tier 3 up to 3 (both researchers with deep web research + AGENTS.md docs-writer). This command is web-research-heavy at Tier 3 — `estimated_web_research_queries` typically dominates the cost delta. Deltas beyond 25% absolute value carry `flagged_for_review: true`. Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
 
 ---
 

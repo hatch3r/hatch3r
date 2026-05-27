@@ -95,6 +95,29 @@ Classify the pickup request before delegating:
 
 If Tier 1, run the standard delegation path (Step 6a) with reduced research depth. If Tier 2, run the standard pipeline below with parallel fanout where dependencies allow. If Tier 3, run the full pipeline with deep research and confirm batch composition with the user before branching.
 
+### Step 0.5: Emit Pre-Execution Cost Preview
+
+Before the first sub-agent dispatch (Step 6 delegation), surface the cost preview so a multi-issue batch pickup is never started blind. Emit the `cost_estimate` block per `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate, calibrated to the Step 0 triage tier and the selected batch size:
+
+```yaml
+cost_estimate:
+  expected_sa_count: <triage tier → Tier 1 ~2, Tier 2 ~6, Tier 3 up to 12 × batch-issue count>
+  estimated_input_tokens_static_frame: <int>
+  estimated_web_research_queries: <int>
+  triage_tier: light | standard | deep
+  estimated_duration_min: <int>
+```
+
+Post-execution actuals + delta land in the Step 7 / post-impl iteration summary's Fan-out + Cost section per `rules/hatch3r-cost-visibility.md` Post-Execution Actuals. Token telemetry sources from `src/pipeline/observability.ts`.
+
+### Effort Override (Decision 17)
+
+Auto-tiering can misclassify — an isolated sub-issue scored as Deep, or a cross-cutting epic scored as Light. The user override is the recovery path mandated by `governance/CONSTITUTION.md` §6 Decision 17 ("User overridable via `--effort` flag"):
+
+- `--effort=light|standard|deep` forces the named tier, bypassing the Step 0 auto-classification.
+- The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
+- No override passed → the Step 0 auto-classification stands.
+
 ---
 
 ### Step 1: List Available Work (Dependency-Aware)
@@ -321,6 +344,17 @@ Execute Steps 7-10 in order after all implementation completes:
 - **Step 8a:** Transition labels to `status:in-review` and sync board. See platform sub-files.
 - **Step 9:** Post-PR housekeeping: epic link verification, board dashboard refresh (9a, mandatory), end-of-run reconciliation (9b, mandatory).
 - **Step 10:** Capture learnings in `.hatch3r/learnings/` if any were identified.
+
+---
+
+## Cost estimate (Decision 24)
+
+This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 24/29:
+
+- **Pre-execution `cost_estimate`** — emitted in Step 0.5 before the first sub-agent dispatch (Step 6 delegation).
+- **Post-execution `cost_actuals` + `delta`** — appended to the Step 7 / post-impl iteration summary's Fan-out + Cost section per `rules/hatch3r-iteration-summary.md` §2.
+
+Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.count: 12` × tier heuristic in `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate): Tier 1 ≈ 2 (researcher + implementer, reviewer/fixer/test-writer/security-auditor when triggered); Tier 2 ≈ 6 (researcher + implementer + review loop + mandatory final-quality); Tier 3 up to 12 per issue (full pipeline including the Phase-4b specialist batch bounded by `max_phase4_parallel`), scaling with batch-issue count. Deltas beyond 25% absolute value carry `flagged_for_review: true`. Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
 
 ---
 

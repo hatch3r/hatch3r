@@ -1,9 +1,10 @@
 import { access, readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import chalk from "chalk";
 import { readManifest } from "../../manifest/hatchJson.js";
 import { getAdapter } from "../../adapters/index.js";
-import { HatchError, type HatchManifest } from "../../types.js";
+import { HATCH3R_DIR, HatchError, type HatchManifest } from "../../types.js";
 import { extractManagedBlock } from "../../merge/managedBlocks.js";
 import { resolveBundledContentRoot } from "../../content/contentRoot.js";
 import { discoverUserContent } from "../../content/userContent.js";
@@ -34,11 +35,81 @@ export interface DriftEntry {
    *  `unexpected` — file present on disk but no longer produced by any adapter.
    */
   status: "in-sync" | "modified" | "missing" | "unexpected";
+  /**
+   * F2.7-F5 (D2): for `modified` entries, attributes WHY the file drifted by
+   * comparing the on-disk file and a fresh regeneration against the emit-time
+   * baseline hash recorded in `.hatch3r/provenance.json`:
+   *   - `user-modified`     — on-disk differs from baseline; regeneration matches it (the user hand-edited; canonical content is unchanged).
+   *   - `canonical-outdated`— on-disk matches baseline; regeneration differs (canonical content changed since last sync; the user did not touch the file).
+   *   - `both`             — on-disk differs from baseline AND regeneration differs (the user edited and canonical also moved).
+   *   - `unknown`          — no baseline recorded (file predates the provenance writer, or `sync` has not run since the upgrade).
+   * Absent for non-`modified` statuses.
+   */
+  driftKind?: "user-modified" | "canonical-outdated" | "both" | "unknown";
 }
 
 export interface DriftReport {
   entries: DriftEntry[];
   counts: { synced: number; modified: number; missing: number; unexpected: number };
+  /**
+   * F2.7-F5 (D2): sub-counts of the `modified` total by drift attribution.
+   * The sum of these four equals `counts.modified`.
+   */
+  driftKindCounts: {
+    userModified: number;
+    canonicalOutdated: number;
+    both: number;
+    unknown: number;
+  };
+}
+
+/**
+ * F2.7-F5 / SA12.4-F1 (D2/D12): canonical normalization used by BOTH the
+ * provenance writer (`sync.ts`) and this drift reader, so the emit-time hash
+ * matches the hash derived from an on-disk file. Hashes the trimmed managed
+ * block when one is present (the part hatch3r owns and overwrites), else the
+ * full content. The same logic mirrors the comparison in
+ * {@link computeAdapterDrift}: there, on-disk block is compared to expected
+ * block; here we reduce each side to a stable sha256 so a stored baseline can
+ * be compared across runs without retaining full file bodies.
+ */
+export function hashEmittedContent(content: string, managedContent?: string): string {
+  const block = extractManagedBlock(content) ?? managedContent ?? null;
+  const payload = block !== null ? block.trim() : content;
+  return createHash("sha256").update(payload).digest("hex");
+}
+
+/**
+ * F2.7-F5 (D2): one entry of the emit-time provenance baseline read from
+ * `.hatch3r/provenance.json`. Only `path` + `contentHash` are needed for
+ * drift attribution; the writer also stores `adapter` + `sourceFiles`.
+ */
+interface ProvenanceBaselineEntry {
+  path: string;
+  contentHash?: string;
+}
+
+/**
+ * F2.7-F5 (D2): load the emit-time content-hash baseline keyed by output path.
+ * Returns an empty map when the manifest is absent or unreadable so drift
+ * attribution degrades to `unknown` rather than throwing — status must still
+ * render its drift summary without a baseline.
+ */
+async function loadProvenanceBaseline(rootDir: string): Promise<Map<string, string>> {
+  const baseline = new Map<string, string>();
+  try {
+    const raw = await readFile(join(rootDir, HATCH3R_DIR, "provenance.json"), "utf-8");
+    const parsed = JSON.parse(raw) as { outputs?: ProvenanceBaselineEntry[] };
+    for (const entry of parsed.outputs ?? []) {
+      if (typeof entry.path === "string" && typeof entry.contentHash === "string") {
+        baseline.set(entry.path, entry.contentHash);
+      }
+    }
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException | undefined)?.code ?? "UNKNOWN";
+    verbose(`status: provenance baseline unavailable (${code}); drift attribution = unknown`);
+  }
+  return baseline;
 }
 
 /**
@@ -55,9 +126,13 @@ export async function computeAdapterDrift(
   manifest: HatchManifest,
 ): Promise<DriftReport> {
   const counts = { synced: 0, modified: 0, missing: 0, unexpected: 0 };
+  const driftKindCounts = { userModified: 0, canonicalOutdated: 0, both: 0, unknown: 0 };
   const entries: DriftEntry[] = [];
 
   const canonicalContentRoot = resolveBundledContentRoot();
+  // F2.7-F5 (D2): emit-time content-hash baseline (path -> sha256). Used to
+  // attribute the direction of every `modified` entry below.
+  const baseline = await loadProvenanceBaseline(rootDir);
   const seenPaths = new Set<string>();
 
   for (const tool of manifest.tools) {
@@ -89,7 +164,39 @@ export async function computeAdapterDrift(
           entries.push({ path: out.path, tool, status: "in-sync" });
           counts.synced++;
         } else {
-          entries.push({ path: out.path, tool, status: "modified" });
+          // F2.7-F5 (D2): attribute drift direction against the emit-time
+          // baseline. `onDiskHash` and `regeneratedHash` are both reduced via
+          // the same normalization the baseline used, so a clean comparison is
+          // possible without retaining full file bodies.
+          const baselineHash = baseline.get(out.path);
+          const onDiskHash = hashEmittedContent(existing);
+          const regeneratedHash = hashEmittedContent(out.content, out.managedContent ?? undefined);
+          let driftKind: NonNullable<DriftEntry["driftKind"]>;
+          if (!baselineHash) {
+            driftKind = "unknown";
+            driftKindCounts.unknown++;
+          } else {
+            const userTouched = onDiskHash !== baselineHash;
+            const canonicalMoved = regeneratedHash !== baselineHash;
+            if (userTouched && canonicalMoved) {
+              driftKind = "both";
+              driftKindCounts.both++;
+            } else if (userTouched) {
+              driftKind = "user-modified";
+              driftKindCounts.userModified++;
+            } else if (canonicalMoved) {
+              driftKind = "canonical-outdated";
+              driftKindCounts.canonicalOutdated++;
+            } else {
+              // On-disk and regeneration both match the baseline yet the
+              // block comparison above flagged a difference — a normalization
+              // edge (e.g. trailing-whitespace-only). Treat as unknown rather
+              // than asserting a false attribution.
+              driftKind = "unknown";
+              driftKindCounts.unknown++;
+            }
+          }
+          entries.push({ path: out.path, tool, status: "modified", driftKind });
           counts.modified++;
         }
       } catch (err) {
@@ -121,7 +228,26 @@ export async function computeAdapterDrift(
     }
   }
 
-  return { entries, counts };
+  return { entries, counts, driftKindCounts };
+}
+
+/**
+ * F2.7-F5 (D2): one-word drift-attribution tag rendered next to a `modified`
+ * file so the operator can tell a hand edit (keep it) from an outdated
+ * canonical block (safe to regenerate) at a glance.
+ */
+function driftKindTag(kind: DriftEntry["driftKind"]): string {
+  switch (kind) {
+    case "user-modified":
+      return chalk.yellow(" (your edit)");
+    case "canonical-outdated":
+      return chalk.cyan(" (canonical changed)");
+    case "both":
+      return chalk.red(" (your edit + canonical changed)");
+    case "unknown":
+    default:
+      return chalk.dim(" (no baseline)");
+  }
 }
 
 /** Render the per-file drift lines for printing in status / verify output. */
@@ -141,7 +267,7 @@ function renderDriftLines(report: DriftReport): string[] {
           lines.push(`  ${chalk.green("=")} ${entry.path}`);
           break;
         case "modified":
-          lines.push(`  ${chalk.yellow("~")} ${entry.path} ${chalk.dim("(drifted)")}`);
+          lines.push(`  ${chalk.yellow("~")} ${entry.path} ${chalk.dim("(drifted)")}${driftKindTag(entry.driftKind)}`);
           break;
         case "missing":
           lines.push(`  ${chalk.red("+")} ${entry.path} ${chalk.dim("(missing)")}`);
@@ -193,6 +319,14 @@ export async function statusCommand(opts?: { verbose?: boolean }): Promise<void>
   ];
   if (report.counts.modified > 0) {
     summaryLines.push(`${chalk.yellow("~")} Drifted:    ${report.counts.modified}`);
+    // F2.7-F5 (D2): break the drifted total down by attribution so the
+    // operator sees, at the summary level, how many files carry their own
+    // edits (keep) versus an outdated canonical block (safe to regenerate).
+    const dk = report.driftKindCounts;
+    if (dk.userModified > 0) summaryLines.push(`    ${chalk.yellow("•")} your edits:        ${dk.userModified}`);
+    if (dk.canonicalOutdated > 0) summaryLines.push(`    ${chalk.cyan("•")} canonical changed: ${dk.canonicalOutdated}`);
+    if (dk.both > 0) summaryLines.push(`    ${chalk.red("•")} edits + canonical: ${dk.both}`);
+    if (dk.unknown > 0) summaryLines.push(`    ${chalk.dim("•")} no baseline:       ${dk.unknown}`);
   }
   if (report.counts.missing > 0) {
     summaryLines.push(`${chalk.red("+")} Missing:    ${report.counts.missing}`);
@@ -206,19 +340,35 @@ export async function statusCommand(opts?: { verbose?: boolean }): Promise<void>
   printBox("Status", summaryLines, style);
 
   if (report.counts.modified > 0) {
-    // F2.7-F5 (Cycle 10 Wave 2, partial): the `modified` status alone does not
-    // attribute drift direction — `computeAdapterDrift` cannot tell a user edit
-    // from an outdated canonical block without a stored emit-time baseline
-    // (none exists yet; the manifest tracks paths, not per-file content hashes).
-    // Until that provenance lands (sidecar `.hatch3r/.drift-baseline.json` or an
-    // embedded hash+version line), surface the overwrite risk explicitly so the
-    // operator does not lose hand edits by running `sync` blind.
-    info(
-      `Run ${chalk.bold("hatch3r sync")} to regenerate drifted files. ` +
-      `${chalk.yellow("Drifted")} files differ from the regenerated output — this can mean either ` +
-      `your hand edits inside the managed block OR an outdated block from a newer canonical version. ` +
-      `${chalk.bold("sync overwrites the managed block")}; back up local edits first if unsure.`,
-    );
+    // F2.7-F5 (D2): the emit-time baseline in `.hatch3r/provenance.json` now
+    // lets status attribute drift direction, so the hint is tailored per
+    // sub-state instead of the prior blanket overwrite warning.
+    const dk = report.driftKindCounts;
+    if (dk.canonicalOutdated > 0 && dk.userModified === 0 && dk.both === 0 && dk.unknown === 0) {
+      // Pure canonical drift — regenerating is safe; nothing of the user's to lose.
+      info(
+        `Run ${chalk.bold("hatch3r sync")} to update ${dk.canonicalOutdated} file(s) whose ` +
+        `${chalk.cyan("canonical content changed")}. No local edits were detected, so regenerating is safe.`,
+      );
+    } else if ((dk.userModified > 0 || dk.both > 0) && dk.canonicalOutdated === 0 && dk.unknown === 0) {
+      // Only user edits — sync would overwrite them.
+      info(
+        `${chalk.bold("hatch3r sync overwrites the managed block.")} ` +
+        `${dk.userModified + dk.both} drifted file(s) carry ${chalk.yellow("your edits")}` +
+        `${dk.both > 0 ? " (some also have newer canonical content)" : ""} — ` +
+        `back them up before running sync if you want to keep them.`,
+      );
+    } else {
+      // Mixed or no-baseline — give the per-tag legend so the operator reads
+      // the inline tags above and decides file-by-file.
+      info(
+        `Drifted files are tagged above: ` +
+        `${chalk.cyan("(canonical changed)")} is safe to ${chalk.bold("hatch3r sync")}; ` +
+        `${chalk.yellow("(your edit)")} / ${chalk.red("(your edit + canonical changed)")} would be ` +
+        `overwritten — back up first. ${chalk.dim("(no baseline)")} means sync has not run since this file was tracked; ` +
+        `run sync once to record a baseline for future attribution.`,
+      );
+    }
     console.log();
   }
   if (report.counts.missing > 0) {

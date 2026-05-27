@@ -12,7 +12,7 @@ This document records the rationale behind that choice and the project's stance 
 
 Three reasons drive the MIT choice:
 
-1. **The governance pattern is the asset, not the code.** hatch3r's differentiator is the 21-domain audit cycle, the 7 Binding Pillars (see [`governance/CONSTITUTION.md`](../governance/CONSTITUTION.md)), the closed-loop self-evolution model, and the canonical-source / adapter-output separation. The TypeScript implementation under `src/` is replaceable; the governance corpus under `governance/` and the canonical content under `agents/`, `skills/`, `rules/`, `commands/`, and `hooks/` is what makes the framework valuable. Permissive licensing on the implementation maximizes the surface area on which that governance pattern can be observed, copied, and refined by others.
+1. **The governance pattern is the asset, not the code.** hatch3r's differentiator is the 24-domain audit cycle, the 8 Binding Pillars (see [`governance/CONSTITUTION.md`](../governance/CONSTITUTION.md)), the closed-loop self-evolution model, and the canonical-source / adapter-output separation. The TypeScript implementation under `src/` is replaceable; the governance corpus under `governance/` and the canonical content under `agents/`, `skills/`, `rules/`, `commands/`, and `hooks/` is what makes the framework valuable. Permissive licensing on the implementation maximizes the surface area on which that governance pattern can be observed, copied, and refined by others.
 
 2. **Adoption flywheel beats license-extraction revenue.** The framework's quality bar is one-shot success rate of agent-generated code (see [`governance/VISION.md`](../governance/VISION.md) §Quality Bar). That metric improves with usage: more projects exercising the canonical content under more conditions surfaces more findings, which feed audit cycles, which raise the quality bar further. A copyleft or source-available license would suppress downstream usage in proprietary products, which would suppress the feedback signal. MIT removes that friction.
 
@@ -46,7 +46,7 @@ This permissiveness is deliberate. The framework's value compounds with adoption
 hatch3r is not monetized today and has no roadmap toward monetization. Specifically:
 
 - **No enterprise tier.** There is no closed-source enterprise edition, no paid feature gate, and no plan to introduce one.
-- **No closed-source upsell.** Every artifact the framework ships — including the audit prompt, the 21 domain files, and the execution model in [`governance/AUDIT-EXECUTE.md`](../governance/AUDIT-EXECUTE.md) — is part of the open repository.
+- **No closed-source upsell.** Every artifact the framework ships — including the audit prompt, the 24 domain files, and the execution model in [`governance/AUDIT-EXECUTE.md`](../governance/AUDIT-EXECUTE.md) — is part of the open repository.
 - **No proprietary cloud service.** The CLI generates configuration locally; there is no hosted service collecting telemetry or gating capabilities behind authentication. Per [`governance/VISION.md`](../governance/VISION.md) §CLI Scope, "the CLI is NOT a runtime. It generates configuration; it does not execute agents."
 - **No dual-license trick.** hatch3r is not offered under MIT with a parallel commercial license that includes additional rights. The MIT license is the only license; everyone gets identical terms.
 

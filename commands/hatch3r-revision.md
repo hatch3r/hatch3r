@@ -98,6 +98,29 @@ Classify the revision request before delegating:
 
 If Tier 1, run the reduced pipeline. If Tier 2, run the standard pipeline below. If Tier 3, run the full pipeline including all quality specialists and confirm merge readiness with the user before commit.
 
+### Step 0.5: Emit Pre-Execution Cost Preview
+
+Before the first sub-agent dispatch (Step 6 fix delegation), surface the cost preview so a multi-finding revision is never started blind. Emit the `cost_estimate` block per `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate, calibrated to the Step 0 triage tier. A cleanup-only revision with no [FIX NOW] items spawns no sub-agents, so `expected_sa_count: 0` is correct for it.
+
+```yaml
+cost_estimate:
+  expected_sa_count: <triage tier → Tier 1 cleanup-only ~0, Tier 2 ~4, Tier 3 up to 9>
+  estimated_input_tokens_static_frame: <int>
+  estimated_web_research_queries: <int>
+  triage_tier: light | standard | deep
+  estimated_duration_min: <int>
+```
+
+The Step 3 user-feedback interview is user-driven and excluded from the duration estimate. Post-execution actuals + delta land in the Step 9 merge-readiness assessment's Fan-out + Cost section per `rules/hatch3r-cost-visibility.md` Post-Execution Actuals. Token telemetry sources from `src/pipeline/observability.ts`.
+
+### Effort Override (Decision 17)
+
+Auto-tiering can misclassify — a cleanup-only revision scored as Deep, or a revision with critical findings scored as Light. The user override is the recovery path mandated by `governance/CONSTITUTION.md` §6 Decision 17 ("User overridable via `--effort` flag"):
+
+- `--effort=light|standard|deep` forces the named tier, bypassing the Step 0 auto-classification.
+- The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
+- No override passed → the Step 0 auto-classification stands.
+
 ---
 
 ### Step 1: Context Reconstruction
@@ -468,6 +491,17 @@ Capture revision-specific learnings. Focus on patterns that inform future implem
    - Tag with relevant area labels.
 
 3. If no significant learnings: skip silently. Not every revision produces learnings.
+
+---
+
+## Cost estimate (Decision 24)
+
+This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 24/29:
+
+- **Pre-execution `cost_estimate`** — emitted in Step 0.5 before the first sub-agent dispatch (Step 6 fix delegation).
+- **Post-execution `cost_actuals` + `delta`** — appended to the Step 9 merge-readiness assessment's Fan-out + Cost section per `rules/hatch3r-iteration-summary.md` §2.
+
+Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.count: 9` × tier heuristic in `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate): Tier 1 cleanup-only ≈ 0 (inline fixes, no sub-agent); Tier 2 ≈ 4 (implementer/lint-fixer/test-writer fix group + reviewer); Tier 3 up to 9 (full pipeline including the parallel Stage 2 final-quality specialists bounded by `max_phase4_parallel`). Deltas beyond 25% absolute value carry `flagged_for_review: true`. Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
 
 ---
 

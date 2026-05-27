@@ -12,6 +12,7 @@ efficiency_patterns: agents/shared/efficiency-patterns.md
 efficiency_tier: standard
 cache_friendly: true
 parallel_tool_default: true
+wall_clock_advisory_ms: 600000
 phase_4_trigger:
   mode: conditional
   conditions:
@@ -108,6 +109,8 @@ When the in-scope diff spans multiple concerns or directories, fan out:
 
 **Cost-dominance (P8 B2).** Sub-agent count tracks concern count, not token cost. Token cost of additional sub-agents is dominated by the quality gain from independent specialist contexts (a duplication-only sub-agent does not lose focus to a complexity reading). Serialization is valid only on dependency edges (aggregation runs after per-concern scans complete) or shared-resource contention (two ESLint passes on the same files race). The `sub_agents_spawned` field records count + per-concern rationale.
 
+**Wall-clock advisory (`specialist-eval` phase).** This agent runs under the `specialist-eval` phase budget (`src/pipeline/phaseTimeout.ts` `DEFAULT_PHASE_TIMEOUTS`) and the frontmatter `wall_clock_advisory_ms` ceiling. The jscpd duplication scan over a large tree is the longest sub-agent; if you observe yourself approaching the advisory before every concern is scanned, return `status: FINDINGS` with the scanned concerns marked and the unscanned concerns listed under a `deferred:` note rather than exhausting the budget silently — a partial gate with a visible remainder beats a TIMEOUT with no result.
+
 ## Audit checklist
 
 Run each row; the verifying command appears next to the threshold per CONSTITUTION §2B CQ8.
@@ -186,6 +189,8 @@ status: PASS | FINDINGS | CRITICAL
 ```
 
 Per `governance/audit/templates/rigor-contract.md` §Impact-Gated Registration, findings missing `impact_horizon` or `progress_toward_pillar` are dropped at sub-agent output time.
+
+**Severity vocabulary:** the `PASS | FINDINGS | CRITICAL` status maps to canonical audit severity via the **Specialist Status** column in `governance/audit/templates/severity-mapping.md` — `CRITICAL → Critical`, `FINDINGS → High + Medium`, `PASS → Low + Info`. Map through that table when escalating to `hatch3r-fixer` or feeding the release decision.
 
 ## Boundaries
 

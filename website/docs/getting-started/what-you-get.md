@@ -89,7 +89,7 @@ Workflows invoked inside your coding tool or via CLI.
 | **board-pickup** | Auto-pick next issue, delegate to sub-agents, create PR |
 | **project-spec** | Generate project documentation from a vision |
 | **feature-plan** | Plan a single feature with parallel researchers |
-| **test-plan** | Plan a comprehensive test strategy with parallel researchers |
+| **test-plan** | Plan a test strategy (coverage targets, strategy matrix, prioritized cases) with parallel researchers |
 | **release** | Cut a versioned release with changelog |
 
 ...and 16 more. See the full [Commands reference](../reference/commands/agent-commands).

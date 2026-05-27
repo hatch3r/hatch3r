@@ -90,6 +90,14 @@ If the user declines, skip all browser steps. Do not ask again during the sessio
 4. **No shared context loading.** Do NOT read `hatch3r-board-shared`. This is a standalone command.
 5. **Targeted file reads only.** Read only files in the affected area identified in Stage 1.
 
+## Confidence Propagation Contract
+
+Every sub-agent delegation prompt in this command MUST include the confidence expression requirement below (verbatim). Sub-agents are invoked with the `quality_charter: agents/shared/quality-charter.md` reference in their frontmatter, but the orchestrator repeats the directive to override runtime prompt defaults per the charter §1 rule.
+
+> Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
+
+Downstream propagation: every ASK checkpoint that reports diagnosis quality (Stage 4b root cause confidence), every gate that evaluates a sub-agent verdict (Stage 5c review loop), and the Stage 5f fix summary MUST carry a high/medium/low confidence rating sourced from the upstream sub-agent. Dropping the signal between stages is a gate failure.
+
 ---
 
 ## Workflow
@@ -105,6 +113,29 @@ Classify the debug request before delegating:
 - **Tier 3 (deep)**: cross-module or intermittent bug requiring deep root-cause analysis; full pipeline with `deep` researcher depth and confirm fix approach with the user before mutating files.
 
 If Tier 1, run the standard stages with reduced researcher depth. If Tier 2, run the full pipeline below. If Tier 3, expand researcher modes (add `regression` if relevant) and confirm the diagnosis with the user before Stage 5.
+
+### Pre-Execution Cost Preview
+
+Before the first sub-agent dispatch (Stage 2a researcher), surface the cost preview so a multi-stage debug session is never started blind. Emit the `cost_estimate` block per `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate, calibrated to the Triage tier:
+
+```yaml
+cost_estimate:
+  expected_sa_count: <triage tier → Tier 1 ~3, Tier 2 ~5, Tier 3 up to 6>
+  estimated_input_tokens_static_frame: <int>
+  estimated_web_research_queries: <int>
+  triage_tier: light | standard | deep
+  estimated_duration_min: <int>
+```
+
+The log-collection checkpoint (Stage 3) is user-driven and excluded from the duration estimate. Post-execution actuals + delta land in the Stage 5f fix summary's Fan-out + Cost section per `rules/hatch3r-cost-visibility.md` Post-Execution Actuals. Token telemetry sources from `src/pipeline/observability.ts`.
+
+### Effort Override (Decision 17)
+
+Auto-tiering can misclassify — a single-file bug scored as Deep, or an intermittent cross-module bug scored as Light. The user override is the recovery path mandated by `governance/CONSTITUTION.md` §6 Decision 17 ("User overridable via `--effort` flag"):
+
+- `--effort=light|standard|deep` forces the named tier, bypassing the Triage auto-classification (which sets researcher depth and mode breadth).
+- The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
+- No override passed → the Triage auto-classification stands.
 
 ---
 
@@ -422,6 +453,17 @@ Debug & Fix Complete:
 If the user chooses to commit:
 - Use commit message format: `fix: {short description of the bug fix}`
 - Include a commit body with: root cause summary, affected files, and a note that debug instrumentation was added and removed during diagnosis.
+
+---
+
+## Cost estimate (Decision 24)
+
+This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 24/29:
+
+- **Pre-execution `cost_estimate`** — emitted in the Pre-Execution Cost Preview above before the first researcher dispatch.
+- **Post-execution `cost_actuals` + `delta`** — appended to the Stage 5f fix summary's Fan-out + Cost section per `rules/hatch3r-iteration-summary.md` §2.
+
+Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.count: 6` × tier heuristic in `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate): Tier 1 ≈ 3 (researcher + implementer + one review pass); Tier 2 ≈ 5 (researcher ×2 + implementer + reviewer/fixer); Tier 3 up to 6 (full pipeline including the parallel test-writer + security-auditor final-quality pass). Deltas beyond 25% absolute value carry `flagged_for_review: true`. Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
 
 ---
 

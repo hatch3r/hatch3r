@@ -2,6 +2,13 @@ import { appendFile, readFile, stat, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import chalk from "chalk";
+// SA12.4-F1 / F2.7-F5 (D12/D2): the provenance writer records an emit-time
+// content hash per output so `hatch3r status` can later attribute drift
+// direction (user edit vs outdated canonical). `hashEmittedContent` is the
+// single normalization both the writer (here) and the reader (status.ts)
+// share, so the hash computed at emit time matches the hash status.ts derives
+// from the on-disk managed block.
+import { hashEmittedContent } from "./status.js";
 import { readManifest, writeManifest, addManagedFile } from "../../manifest/hatchJson.js";
 import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
 import { checkContextBudget, formatBudgetWarning } from "../../adapters/contextBudget.js";
@@ -758,6 +765,12 @@ export async function syncCommand(
             path: out.path,
             adapter: entry.adapter,
             sourceFiles: [...(out.sourceFiles ?? [])].sort(),
+            // F2.7-F5 (D2): emit-time hash of the normalized managed block (or
+            // full content when the output has no block). `status` re-derives
+            // this from the on-disk file to tell a user edit (on-disk differs
+            // from this baseline) from an outdated canonical block (a fresh
+            // regeneration differs from this baseline).
+            contentHash: hashEmittedContent(out.content, out.managedContent),
           })),
         )
         .sort((a, b) => {
@@ -775,7 +788,7 @@ export async function syncCommand(
           schemaVersion?: number;
           hatch3rVersion?: string;
           generatedAt?: string;
-          outputs?: Array<{ path: string; adapter: string; sourceFiles: string[] }>;
+          outputs?: Array<{ path: string; adapter: string; sourceFiles: string[]; contentHash?: string }>;
         };
         if (
           prev.schemaVersion === 1 &&
@@ -787,6 +800,10 @@ export async function syncCommand(
             return (
               p.adapter === c.adapter &&
               p.path === c.path &&
+              // F2.7-F5: the emit-time hash participates in the idempotency
+              // check so a content change refreshes both the baseline hash and
+              // the timestamp; identical re-syncs stay byte-identical.
+              p.contentHash === c.contentHash &&
               p.sourceFiles.length === c.sourceFiles.length &&
               p.sourceFiles.every((s, j) => s === c.sourceFiles[j])
             );

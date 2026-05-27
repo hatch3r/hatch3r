@@ -5,7 +5,7 @@ title: Hooks
 
 # Hooks
 
-Event-triggered automation that activates a specific agent on a lifecycle event (session start, file save, pre-commit, pre-push, post-merge, CI failure). Hook definitions live in `.agents/hooks/` and are emitted into each supported adapter's native hook system during `hatch3r sync`.
+Event-triggered automation that activates a specific agent on a lifecycle event (session start, file save, pre-commit, pre-push, post-merge, CI failure). Hook definitions live in the canonical `hooks/` content (bundled npm package) and are emitted into each supported adapter's native hook system during `hatch3r sync`.
 
 Hooks are non-interactive: the configured agent runs with its standard tool allowlist and writes back into the editor's hook output channel. Disable a hook per-project by setting `enabled: false` in `.hatch3r/hooks/{id}.customize.yaml`.
 
@@ -13,8 +13,8 @@ Hooks are non-interactive: the configured agent runs with its standard tool allo
 
 | Hook | Event | Agent invoked | Purpose |
 |------|-------|---------------|---------|
-| **session-start** | New coding session opens | `learnings-loader` | Index `.agents/learnings/`, surface up to 5 relevant entries scoped to recently changed files; silent when nothing matches. |
-| **file-save** | TS/JS/TSX/JSX file saved (configurable globs) | `context-rules` | Match the saved path against `.agents/rules/` (always-apply plus glob-scoped) and emit non-blocking inline suggestions for violations; 2 s debounce. |
+| **session-start** | New coding session opens | `learnings-loader` | Index `.hatch3r/learnings/`, surface up to 5 relevant entries scoped to recently changed files; silent when nothing matches. |
+| **file-save** | TS/JS/TSX/JSX file saved (configurable globs) | `context-rules` | Match the saved path against the canonical `rules/` content (always-apply plus glob-scoped) and emit non-blocking inline suggestions for violations; 2 s debounce. |
 | **pre-commit** | Before commit, on staged TS/JS files | `lint-fixer` | Run the project linter and formatter on staged files, auto-fix what is fixable, re-stage the fixes, report unfixable violations with file and line. |
 | **pre-push** | Before push, on outgoing commits | `security-auditor` | Scan the outgoing diff for high-entropy strings and known secret patterns (API keys, tokens, private keys, `.env`, `*.pem`); block the push on detection. |
 | **post-merge** | After a merge completes | `ci-watcher` | Poll the CI pipeline for the merge SHA with exponential backoff (30 s -- 5 min, 15 min timeout) and report failures with a root-cause summary. |
@@ -35,21 +35,18 @@ Override defaults per-project in `.hatch3r/hooks/{id}.customize.yaml`. See [Cust
 
 ## Adapter Support
 
-Not every coding tool exposes a hook/event API. The adapters that emit hook files today:
+Not every coding tool exposes a hook/event API. Of the 3 supported adapters, two emit hook files today:
 
 | Adapter | Hook output |
 |---------|-------------|
 | **cursor** | `.cursor/hooks/*` |
 | **claude** | `.claude/settings.json` hook entries |
-| **cline** | `.cline/hooks/*` |
-| **gemini** | `.gemini/hooks/*` |
-| **kiro** | `.kiro/hooks/*` |
 
-The following adapters have no documented hook system and are intentionally skipped: `copilot`, `codex`, `opencode`, `windsurf`, `amp`, `aider`, `goose`, `zed`, `amazon-q`, `antigravity`. Track the full picture in the [Adapter Capability Matrix](./adapter-capability-matrix#implementation-matrix).
+GitHub Copilot has no PreToolUse or pre-edit hook surface (`hooks: false` in `ADAPTER_CAPABILITIES`), so the Copilot adapter emits no hook files. Track the full picture in the [Adapter Capability Matrix](./adapter-capability-matrix#implementation-matrix).
 
 ## Canonical Location
 
-Hook definitions live in `.agents/hooks/hatch3r-{event}.md` with YAML frontmatter declaring `id`, `type: hook`, `event`, `agent`, and `description`:
+Hook definitions live in the canonical `hooks/hatch3r-{event}.md` content (bundled npm package) with YAML frontmatter declaring `id`, `type: hook`, `event`, `agent`, and `description`:
 
 ```yaml
 ---

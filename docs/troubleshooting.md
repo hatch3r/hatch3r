@@ -33,9 +33,9 @@ This guide helps you resolve common issues with the hatch3r CLI, MCP servers, bo
 
 ### `npx hatch3r init` — when to use sync instead
 
-**Symptom:** You ran `init` but `.agents/` already exists.
+**Symptom:** You ran `init` but `.hatch3r/` already exists.
 
-**Cause:** Init is for first-time setup. If `.agents/` is present, you should sync or update instead.
+**Cause:** Init is for first-time setup. If `.hatch3r/` is present, you should sync or update instead.
 
 **Solution:** Run `npx hatch3r sync` to regenerate tool outputs from the existing canonical source. Use `npx hatch3r update` to pull the latest hatch3r templates.
 
@@ -53,15 +53,15 @@ This guide helps you resolve common issues with the hatch3r CLI, MCP servers, bo
 
 **Cause:** hatch3r reads owner/repo from `git remote get-url origin`. Without a git repo or remote, these stay empty.
 
-**Solution:** Run init from a git repository root. If you need board config later, you can edit `.agents/hatch.json` and add `owner`, `repo`, and `board.owner`, `board.repo` manually.
+**Solution:** Run init from a git repository root. If you need board config later, you can edit `.hatch3r/hatch.json` and add `owner`, `repo`, and `board.owner`, `board.repo` manually.
 
-### No .agents/hatch.json found
+### No .hatch3r/hatch.json found
 
-**Symptom:** `sync`, `update`, or `status` fails with "No .agents/hatch.json found."
+**Symptom:** `sync`, `update`, or `status` fails with a missing-manifest error (`Missing hatch.json manifest (run hatch3r init to create one)`).
 
 **Cause:** The project has not been initialized, or the manifest was removed.
 
-**Solution:** Run `npx hatch3r init` first. If you had a working setup before, recover `hatch.json` from git history: `git show HEAD:.agents/hatch.json > .agents/hatch.json`.
+**Solution:** Run `npx hatch3r init` first. If you had a working setup before, recover `hatch.json` from git history: `git show HEAD:.hatch3r/hatch.json > .hatch3r/hatch.json`.
 
 ### Failed to generate {tool} output
 
@@ -94,27 +94,25 @@ This guide helps you resolve common issues with the hatch3r CLI, MCP servers, bo
 
 ## Validation (`npx hatch3r validate`)
 
-Run `npx hatch3r validate` to check the `.agents/` structure. Below are common errors and how to fix them.
+Run `npx hatch3r validate` to check structural correctness of the bundled canonical content and your project's `.hatch3r/hatch.json` manifest. Below are common errors and how to fix them.
 
-> **validate vs verify:** `validate` checks structural correctness (frontmatter, directories, cross-references). `verify` checks file integrity (SHA-256 hashes against the manifest). Use `validate` for content issues, `verify` for tampering detection.
+> **validate vs verify:** `validate` checks structural correctness (frontmatter, directories, cross-references). `verify` regenerates adapter outputs from the bundled canonical content and diffs them against the on-disk copy to detect drift or tampering. Use `validate` for content issues, `verify` for drift detection.
 
-### .agents/ directory not found
+### Missing hatch.json manifest
 
-**Solution:** Run `npx hatch3r init` to create the canonical structure.
+**Symptom:** Validation warns "Missing hatch.json manifest (run `hatch3r init` to create one)."
 
-### Missing .agents/hatch.json manifest
+**Solution:** Init may not have run in this project, or the manifest was removed. Re-run `npx hatch3r init`, or restore the manifest from git history: `git show HEAD:.hatch3r/hatch.json > .hatch3r/hatch.json`.
 
-**Solution:** Init may have been interrupted. Re-run `npx hatch3r init`, or restore `hatch.json` from git history: `git show HEAD:.agents/hatch.json > .agents/hatch.json`.
+### hatch.json: missing 'version' field / no tools configured
 
-### Required directory missing: .agents/agents/, .agents/skills/, or .agents/rules/
-
-**Solution:** Restore from git history (e.g., `git checkout HEAD -- .agents/agents/ .agents/skills/ .agents/rules/`) or re-run `npx hatch3r init` to recreate the structure.
+**Solution:** Open `.hatch3r/hatch.json` and confirm it has a `version` string and a non-empty `tools` array (e.g. `["cursor", "claude"]`). Re-run `npx hatch3r init` to regenerate a valid manifest if it was hand-edited into an invalid state.
 
 ### Invalid frontmatter (no closing ---)
 
 **Symptom:** Validation reports "Invalid frontmatter (no closing ---)" for a specific file.
 
-**Solution:** Open the file (e.g. `.agents/rules/hatch3r-*.md`) and confirm the YAML frontmatter has both opening and closing `---` delimiters on their own lines:
+**Solution:** Open the affected file (e.g. a `.hatch3r/overrides/rules/hatch3r-*.md` override) and confirm the YAML frontmatter has both opening and closing `---` delimiters on their own lines:
 
 ```markdown
 ---
@@ -129,9 +127,9 @@ description: My rule
 
 **Solution:** Add `id:` and `type:` to the YAML frontmatter of the affected file. Required fields: `id`, `type`, and typically `description`.
 
-### Invalid JSON in .agents/mcp/mcp.json
+### Invalid JSON in mcp/mcp.json
 
-**Solution:** Validate JSON syntax (e.g. with `jq . .agents/mcp/mcp.json` or an online validator). Fix trailing commas, unquoted keys, or malformed strings. Restore from git history if needed: `git checkout HEAD -- .agents/mcp/mcp.json`.
+**Solution:** Validate JSON syntax of your resolved MCP config (e.g. with `jq . .hatch3r/mcp/mcp.json` or an online validator). Fix trailing commas, unquoted keys, or malformed strings. Restore from git history if needed: `git checkout HEAD -- .hatch3r/mcp/mcp.json`.
 
 ### Managed file missing from disk
 
@@ -202,7 +200,7 @@ Board commands (`board-init`, `board-fill`, `board-groom`, `board-pickup`, `boar
 
 **Cause:** `hatch.json` is missing `owner`/`repo` or `board.owner`/`board.repo`.
 
-**Solution:** Provide owner and repo when prompted. To persist: edit `.agents/hatch.json` and add:
+**Solution:** Provide owner and repo when prompted. To persist: edit `.hatch3r/hatch.json` and add:
 ```json
 {
   "owner": "your-org",
@@ -258,7 +256,7 @@ Board commands (`board-init`, `board-fill`, `board-groom`, `board-pickup`, `boar
 
 ### Drift between canonical and generated files
 
-**Symptom:** You're unsure if generated files are in sync with `.agents/`.
+**Symptom:** You're unsure if generated files are in sync with the bundled canonical content.
 
 **Solution:** Run `npx hatch3r status` to see synced, drifted, or missing files. Run `npx hatch3r sync` to fix drift.
 

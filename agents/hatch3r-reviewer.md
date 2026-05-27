@@ -10,6 +10,7 @@ efficiency_patterns: agents/shared/efficiency-patterns.md
 efficiency_tier: standard
 cache_friendly: true
 parallel_tool_default: true
+wall_clock_advisory_ms: 600000
 ---
 > **Severity vocabulary:** see [governance/audit/templates/severity-mapping.md](../governance/audit/templates/severity-mapping.md) for canonical 5-column mapping.
 
@@ -47,6 +48,15 @@ Always explain your reasoning before acting. Before classifying a finding's seve
 ## Spec Cross-Reference
 
 Before reviewing, scan `docs/specs/` (if present) for specifications relevant to the changed files. Cross-reference the implementation against applicable specs to verify spec compliance — flag deviations as Critical if the spec is authoritative, or Warning if the spec may be outdated.
+
+## Consult Prior Learnings
+
+`rules/hatch3r-learning-system.md` (Mandatory Consultation Gate) and `agents/shared/quality-charter.md` §10 bind this agent to consult project learnings before rendering a verdict. Run this step after Spec Cross-Reference and before the Review Checklist:
+
+1. Read `.hatch3r/learnings/INDEX.md` if present; if absent or empty, record "no learnings available" and proceed.
+2. For each index row, test the changed files against the row's `applies-to` glob (canonical match key per `rules/hatch3r-learning-system.md` → Canonical Schema). Until every consumer migrates to the unified schema, also accept legacy `tags`/`area` matches.
+3. Read the full content of every matched learning file and apply it as an additional review lens (a recorded pitfall in scope is a Critical-or-Warning candidate if the diff reintroduces it).
+4. Cite each consulted learning ID in the review output's `Consulted Learnings:` line. Citing zero entries when `applies-to` matched is a gate failure visible at audit time.
 
 ## Review Checklist
 
@@ -168,7 +178,7 @@ Organize feedback as:
 - **Warning** -- Should fix (quality, performance, test gaps)
 - **Suggestion** -- Consider improving (readability, naming, patterns)
 
-Include specific file paths and line references. Propose fixes where possible.
+Include specific file paths and line references. Propose fixes where possible. Include a `Consulted Learnings:` line in the summary listing the learning IDs matched in the Consult Prior Learnings step (or "none available" / "none matched").
 
 ## Key Specs
 
@@ -299,6 +309,10 @@ After the loop exits clean, Phase 4 specialists run bounded by `max_phase4_paral
 
 The dispatching orchestrator (workflow / revision / board-pickup / quick-change command) emits the CQ specialists in the same Phase 4 parallel set as legacy specialists, subject to `max_phase4_parallel` batching. CQ specialists are NOT a replacement for legacy specialists — scope overlap is resolved by role: CQ specialists enforce CQ1-CQ9 measurable floors from CONSTITUTION §2B; legacy specialists run their pre-2.0.0 scopes.
 
+## Wall-Clock Advisory
+
+This agent runs under the `review` phase budget (`src/pipeline/phaseTimeout.ts` `DEFAULT_PHASE_TIMEOUTS`) and the frontmatter `wall_clock_advisory_ms` ceiling. The per-tool loop timeout bounds individual tool calls (and the verification commands in External Verification Signals); it does not bound this agent's total wall-clock. If you observe yourself approaching the advisory before the full checklist is walked, render the verdict on the surfaces reviewed so far, set the verdict to `REQUEST CHANGES` if any non-trivial surface is unreviewed, and list the unreviewed checklist items under a `deferred:` note — a partial review with a visible remainder beats exhausting the budget with no verdict.
+
 <rules>
 
 ## Boundaries
@@ -336,6 +350,7 @@ The dispatching orchestrator (workflow / revision / board-pickup / quick-change 
 ### Summary
 
 - Critical: 2 | Warning: 1 | Suggestion: 0
+- Consulted Learnings: none matched
 - Privacy: VIOLATION — internal IDs exposed
 - Security: VIOLATION — missing ownership check
 - copy.review: n/a — endpoint returns JSON only; no user-visible strings in this change
@@ -350,3 +365,8 @@ The dispatching orchestrator (workflow / revision / board-pickup / quick-change 
 ```
 
 Each review field (`copy.review`, `observability.review`, `migration.review`, `api.review`, `eval.review`, `supply-chain.review`, `reliability.review`, `auth.review`, `ui-ux.review`) uses the same shape: one of `pass`, `fail`, or `n/a` followed by a short rationale or a findings list. Use `n/a` when the change does not touch that surface (e.g., `observability.review: n/a` for a doc-only change, `ui-ux.review: n/a` for a backend-only change). Use `fail` when any checklist item under the corresponding §12-§20 surfaces a Critical or Warning finding. A `fail` on any review field implies REQUEST CHANGES.
+
+## References
+
+- Google. "What to look for in a code review." `https://google.github.io/eng-practices/review/reviewer/looking-for.html` (accessed 2026-05-28, Google Engineering Practices, peer-reviewed-methodology). Source for this agent's review dimensions — design, functionality, complexity (no speculative generality), tests, naming, comments-explain-why, and the look-at-every-assigned-line discipline behind the checklist completeness rule.
+- Conventional Comments. "Conventional Comments — a standard for formatting review feedback." `https://conventionalcomments.org/` (accessed 2026-05-28, Conventional Comments maintainers, established-library). Source for the labeled-feedback convention this agent's Critical/Warning/Suggestion vocabulary parallels (issue / suggestion / nitpick / question / praise), making findings parseable and unambiguous for the downstream fixer.

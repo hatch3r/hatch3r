@@ -2,6 +2,7 @@
   "mcpServers": {
     "github": {
       "_description": "Test GitHub MCP",
+      "_trust_bypass": true,
       "url": "https://api.githubcopilot.com/mcp/"
     }
   }

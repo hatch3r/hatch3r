@@ -7,16 +7,22 @@
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, mkdir, writeFile, readFile, stat, rm, access } from "node:fs/promises";
-import { join } from "node:path";
+import { join, dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import {
   saveUserContent,
   discoverUserContent,
   validateUserArtifact,
   validateContentBody,
+  LEAN_LINE_THRESHOLDS,
   type UserContentArtifact,
 } from "../../content/userContent.js";
 import { buildContentIndex, resolveUserContentRoot } from "../../content/index.js";
+import { VALID_HOOK_EVENTS } from "../../hooks/types.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const VALID_DESCRIPTION =
   "A user-tier sample artifact authored for the D20 unit-test suite to satisfy the >=60 character disambiguation rule.";
@@ -284,6 +290,10 @@ describe("saveUserContent — happy paths", () => {
         name: "happy-orch",
         isOrchestrator: true,
         agentPipeline: ["hatch3r-researcher", "hatch3r-implementer"],
+        // §0 ambiguity gate (F20.1.B1): orchestrator commands must open with
+        // the clarification-first block referencing the user-question-protocol.
+        body:
+          "**Pillars:** P4\n\n## §0 Detect Ambiguity\n\nResolve ambiguity via `agents/shared/user-question-protocol.md` before delegating.\n",
       }),
     );
     expect(result.strictFailures).toEqual([]);
@@ -540,6 +550,158 @@ describe("saveUserContent — promoted strict gates (C9-H79, C9-H80)", () => {
     );
     expect(result.strictFailures).toEqual([]);
     expect(result.written).toHaveLength(1);
+  });
+});
+
+describe("saveUserContent — §0 ambiguity gate for orchestrator commands (F20.1.B1)", () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-uc-section0-"));
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("REJECTS an orchestrator command whose body has no §0 block", async () => {
+    const result = await saveUserContent(
+      tempDir,
+      makeArtifact({
+        type: "command",
+        name: "no-section-zero",
+        isOrchestrator: true,
+        agentPipeline: ["hatch3r-researcher"],
+        // Valid pillar + charter, but NO §0 / Step 0 / user-question-protocol.
+        body: "**Pillars:** P8\n\nThis orchestrator command jumps straight to work without a clarification gate.\n",
+      }),
+    );
+    expect(result.written).toEqual([]);
+    expect(result.strictFailures.some((s) => /§0 ambiguity-detection block/.test(s))).toBe(true);
+  });
+
+  it("ACCEPTS an orchestrator command with a `## §0 Detect Ambiguity` heading", async () => {
+    const result = await saveUserContent(
+      tempDir,
+      makeArtifact({
+        type: "command",
+        name: "has-section-zero-heading",
+        isOrchestrator: true,
+        agentPipeline: ["hatch3r-researcher"],
+        body: "**Pillars:** P8\n\n## §0 Detect Ambiguity\n\nResolve ambiguity first.\n",
+      }),
+    );
+    expect(result.strictFailures).toEqual([]);
+    expect(result.written).toHaveLength(1);
+  });
+
+  it("ACCEPTS an orchestrator command that references user-question-protocol", async () => {
+    const result = await saveUserContent(
+      tempDir,
+      makeArtifact({
+        type: "command",
+        name: "has-uqp-reference",
+        isOrchestrator: true,
+        agentPipeline: ["hatch3r-researcher"],
+        body: "**Pillars:** P8\n\nBefore delegating, follow `agents/shared/user-question-protocol.md`.\n",
+      }),
+    );
+    expect(result.strictFailures).toEqual([]);
+    expect(result.written).toHaveLength(1);
+  });
+
+  it("does NOT require a §0 block for non-orchestrator commands", async () => {
+    const result = await saveUserContent(
+      tempDir,
+      makeArtifact({
+        type: "command",
+        name: "plain-command",
+        isOrchestrator: false,
+        body: "**Pillars:** P8\n\nA single-pass command with no sub-agent delegation.\n",
+      }),
+    );
+    expect(result.strictFailures.some((s) => /§0 ambiguity-detection block/.test(s))).toBe(false);
+    expect(result.written).toHaveLength(1);
+  });
+});
+
+describe("saveUserContent — pillar-enum parity (F20.1.A2 / F20.2.A2, two-axis)", () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-uc-pillar-enum-"));
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("REJECTS an unknown governance-axis pillar id (P9)", async () => {
+    const result = await saveUserContent(
+      tempDir,
+      makeArtifact({
+        name: "bad-pillar",
+        frontmatter: {
+          tags: ["core"],
+          quality_charter: "agents/shared/quality-charter.md",
+          pillars: ["P9"],
+        },
+        body: "A body whose pillar declaration carries an out-of-range id.\n",
+      }),
+    );
+    expect(result.written).toEqual([]);
+    expect(result.strictFailures.some((s) => /Unknown pillar id "P9"/.test(s))).toBe(true);
+  });
+
+  it("ACCEPTS the full governance-axis range P7 and P8 (was P1–P6 drift)", async () => {
+    const result = await saveUserContent(
+      tempDir,
+      makeArtifact({
+        name: "p7-p8-pillar",
+        frontmatter: {
+          tags: ["core"],
+          quality_charter: "agents/shared/quality-charter.md",
+          pillars: ["P7", "P8"],
+        },
+        body: "A body declaring the governance-axis pillars added in the P8 baseline.\n",
+      }),
+    );
+    expect(result.strictFailures).toEqual([]);
+    expect(result.written).toHaveLength(1);
+  });
+
+  it("ACCEPTS a content-quality-axis pillar id (CQ3)", async () => {
+    const result = await saveUserContent(
+      tempDir,
+      makeArtifact({
+        name: "cq3-pillar",
+        frontmatter: {
+          tags: ["core"],
+          quality_charter: "agents/shared/quality-charter.md",
+          pillars: ["CQ3"],
+        },
+        body: "A body declaring a content-quality-axis pillar per CONSTITUTION §2B.\n",
+      }),
+    );
+    expect(result.strictFailures).toEqual([]);
+    expect(result.written).toHaveLength(1);
+  });
+
+  it("REJECTS a value outside the P1–P8 ∪ CQ1–CQ9 union (CQ99)", async () => {
+    const result = await saveUserContent(
+      tempDir,
+      makeArtifact({
+        name: "bad-cq-pillar",
+        frontmatter: {
+          tags: ["core"],
+          quality_charter: "agents/shared/quality-charter.md",
+          pillars: ["CQ99"],
+        },
+        body: "A body whose content-quality pillar id is out of the valid range.\n",
+      }),
+    );
+    expect(result.written).toEqual([]);
+    expect(result.strictFailures.some((s) => /Unknown pillar id "CQ99"/.test(s))).toBe(true);
   });
 });
 
@@ -1245,5 +1407,86 @@ describe("validateContentBody — pre-flight body scan (C9-H84 / D20-F20.2.2)", 
     const violations = await validateContentBody(tempDir);
     // No deny pattern in an empty body — must return no errors.
     expect(violations.filter((v) => v.severity === "error")).toEqual([]);
+  });
+});
+
+describe("hook-event enum parity (F20.1.A1)", () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-uc-hookenum-"));
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  // The orchestrator (`commands/hatch3r-create.md`) advertises 8 hook events;
+  // the gate enforces `VALID_HOOK_EVENTS`. The audit flagged a "told 6, enforced
+  // 8" drift. Pin the enforced set so any future shrink/expand of the runtime
+  // enum is a test failure that forces a matching orchestrator-doc update.
+  const EXPECTED_HOOK_EVENTS = [
+    "pre-commit",
+    "post-merge",
+    "ci-failure",
+    "file-save",
+    "session-start",
+    "pre-push",
+    "worktree-create",
+    "worktree-remove",
+  ];
+
+  it("the enforced VALID_HOOK_EVENTS set is exactly the 8 advertised events", () => {
+    expect([...VALID_HOOK_EVENTS].sort()).toEqual([...EXPECTED_HOOK_EVENTS].sort());
+  });
+
+  it("accepts every advertised hook event through the gate", async () => {
+    for (const event of EXPECTED_HOOK_EVENTS) {
+      const result = await saveUserContent(
+        tempDir,
+        makeArtifact({
+          type: "hook",
+          name: `hook-${event}`,
+          hookEvent: event,
+          body: "**Pillars:** P5\n\nA hook body exercising the advertised lifecycle event.\n",
+        }),
+      );
+      expect(result.strictFailures, `event ${event} should be accepted`).toEqual([]);
+    }
+  });
+});
+
+describe("lean-threshold doc round-trip (F20.1.E1)", () => {
+  // The D20.2 audit checklist names `LEAN_LINE_THRESHOLDS` as the single source
+  // of truth and inlines the per-type numbers (agent 350, command 200, skill
+  // 200, rule 100, hook 100). Parse that doc line and assert it matches the
+  // runtime map so drift between the audit doc and the gate is a CI failure
+  // (recommendation step 2).
+  it("D20-user-content-authoring.md lean row matches the runtime LEAN_LINE_THRESHOLDS", async () => {
+    // src/__tests__/content/userContent.test.ts → repo root is three levels up.
+    const repoRoot = resolve(__dirname, "..", "..", "..");
+    const docPath = join(
+      repoRoot,
+      "governance",
+      "audit",
+      "domains",
+      "D20-user-content-authoring.md",
+    );
+    const doc = await readFile(docPath, "utf-8");
+
+    // Extract every "<type> <number>" pair the lean row inlines.
+    const docThresholds: Partial<Record<string, number>> = {};
+    for (const type of Object.keys(LEAN_LINE_THRESHOLDS)) {
+      const m = doc.match(new RegExp(`${type}\\s+(\\d+)`));
+      if (m) docThresholds[type] = Number(m[1]);
+    }
+
+    // Every runtime type must appear in the doc with the same number.
+    for (const [type, runtimeValue] of Object.entries(LEAN_LINE_THRESHOLDS)) {
+      expect(
+        docThresholds[type],
+        `D20 doc must state the ${type} lean threshold`,
+      ).toBe(runtimeValue);
+    }
   });
 });

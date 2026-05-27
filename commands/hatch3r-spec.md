@@ -67,6 +67,18 @@ Auto-tiering can misclassify — a trivial brief scored as Deep, or a multi-doma
 - When `--effort=deep` lands on a Light-classified scope (or `--effort=light` on a Deep-classified scope), accept the override and emit the resized `estimated_input_tokens_static_frame` in the Cost estimate block.
 - No override passed → the Triage auto-classification stands.
 
+## Confidence Propagation Contract
+
+The Phase 2 spec-agent delegation prompt MUST include the confidence expression requirement below (verbatim), per the quality charter §1 rule.
+
+> Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
+
+Downstream propagation: the Phase 0 project-state classification (already scored against the brownfield-signal table), each of the 8 deliverables' risk and acceptance-criteria confidence, and the Phase 6 iteration-summary Confidence field MUST carry a high/medium/low rating sourced from the spec agent. Market-research figures (greenfield) are medium at best unless tied to a cited source per Decision 14. Dropping the signal between stages is a gate failure.
+
+## Phase 1.5 — Emit Pre-Execution Cost Preview
+
+Before the Phase 2 dispatch, surface the `cost_estimate` block (the pre-execution half of the Cost estimate section below) so the spec run is never started blind. The Phase 0 detection + §0 ASK gate are user-driven and excluded from the duration estimate. This is the explicit pre-execution emission point mandated by `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate.
+
 ## Phase 2 — Delegate to chosen spec agent
 
 Spawn exactly one spec agent via the Task tool. Routing is mutually exclusive:

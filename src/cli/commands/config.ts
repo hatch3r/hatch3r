@@ -815,9 +815,15 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
                 : 0;
               const countHint = estimated > 0 ? ` (~${estimated} items)` : "";
               const suffix = excluded > 0 ? ` (excludes ${excluded} of ${totalItems})` : "";
+              // F10.6-1 (D10): surface the omitted capability clusters by name
+              // (not just a count) so reconfiguring a preset is an informed choice.
+              // Optional-chain `omits` so a preset lacking the field (or a test
+              // mock that omits it) renders no omit line instead of throwing.
+              const omitLine = p.omits?.length ? `omits: ${p.omits.join(", ")}` : undefined;
               return {
                 name: `${p.name} — ${p.description}${countHint}${suffix}`,
                 value: p.id,
+                description: omitLine,
               };
             }),
             default: previous ?? (manifest.content!.preset as PresetId),

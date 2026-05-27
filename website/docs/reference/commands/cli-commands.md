@@ -40,11 +40,11 @@ The init flow asks:
 4. **Project type** -- greenfield (new project) or brownfield (existing codebase)
 5. **Team size** -- solo developer or team collaboration
 6. **Content profile** -- Minimal, Standard (recommended), Full, or Custom
-7. **Tools** -- select from 15 supported coding tools
-8. **Features** -- agents, skills, rules, commands, prompts, MCP, hooks, GitHub agents
+7. **Tools** -- select from the 3 supported adapters (Cursor, Claude Code, GitHub Copilot)
+8. **Features** -- agents, skills, rules, commands, MCP, hooks, GitHub agents
 9. **MCP servers** -- optionally configure up to 10 MCP servers
 
-Only the content matching your profile and context is copied to `.agents/`. Use `hatch3r config` to add or remove items later.
+Only the content matching your profile and context is generated into your adapter outputs (canonical content is read from the bundled npm package, not copied into your repo). Use `hatch3r config` to add or remove items later.
 
 With `--yes`, init auto-detects greenfield/brownfield, defaults to solo + standard preset, and skips all prompts.
 
@@ -65,7 +65,7 @@ npx hatch3r config
 
 ## hatch3r sync
 
-Re-generates tool-specific files from the canonical `.agents/` source.
+Re-generates tool-specific files from the bundled canonical content plus your `.hatch3r/overrides/`.
 
 ```bash
 npx hatch3r sync
@@ -86,21 +86,21 @@ npx hatch3r sync --force                     # overwrite even if unchanged
 | `--strict-budget` | — | off | Fail sync if any adapter's generated output exceeds its context budget (default: warn) |
 | `--verbose` | — | off | Show detailed output for each file processed |
 
-:::info Preflight integrity check (1.6.0)
-Since 1.6.0, `sync` runs `verifyIntegrity()` before executing. If drift is detected, the command halts with `HatchError INTEGRITY_ERROR`. Use `--force` to override and proceed.
+:::info Drift gate
+There is no integrity-checksum preflight (the `.agents/`-scoped integrity manifest was removed in the Wave 7 bundled-content model). Drift is detected by regenerating each adapter output and diffing it against the on-disk copy. `--force` overwrites target files even when unchanged.
 :::
 
 :::info Orphan cleanup (1.6.0)
 Since 1.6.0, `sync` unlinks files previously emitted by hatch3r but no longer produced, tracked per-adapter via `managedFilesByAdapter` in `hatch.json`. Four safety refusals prevent accidental deletion: user-wrapped content, paths outside adapter roots, non-`hatch3r-` basenames, and no-history first-run.
 :::
 
-Run after manually editing canonical files or when generated files get out of sync. Preserves content outside managed blocks in markdown files. Warns if project specs in `docs/specs/` are stale (>7 days without update).
+Run after editing anything under `.hatch3r/overrides/`, upgrading hatch3r, or when generated files get out of sync. Preserves content outside managed blocks in markdown files. Warns if project specs in `docs/specs/` are stale (>7 days without update).
 
-In a workspace, sync cascades content from the workspace `.agents/` into each sub-repo, applying per-repo overrides from `workspace.json`. Sub-repos receive independent copies (not symlinks).
+In a workspace, sync generates tool-specific files in each sub-repo from the bundled canonical content plus the workspace-level selection and any per-repo overrides from `workspace.json`. Sub-repos receive independent copies (not symlinks).
 
 ## hatch3r update
 
-Pulls the latest hatch3r templates and merges them with your canonical source.
+Pulls the latest hatch3r package and regenerates adapter outputs from the updated bundled content, safe-merging into your customizations.
 
 ```bash
 npx hatch3r update
@@ -114,17 +114,13 @@ Uses the safe merge system: managed blocks are updated, your customizations are 
 |------|-------------|
 | `--yes` | Skip interactive prompts, use defaults |
 | `--diff` | Show a before/after diff summary for each generated file |
-| `--force` | Override the preflight integrity check and proceed despite drift |
+| `--force` | Overwrite generated outputs even when unchanged |
 | `--offline`, `--skip-fetch` | Skip the package fetch step; regenerate only from already-installed canonical content |
 | `--dry-run` | Preview what would change (added/modified/unchanged per adapter) without writing files |
 
-:::info Preflight integrity check (1.6.0)
-Like `sync`, `update` runs `verifyIntegrity()` before executing. Use `--force` to override on drift.
-:::
-
 ## hatch3r status
 
-Checks sync status between canonical `.agents/` and generated tool files.
+Checks sync status by regenerating each adapter output from the bundled canonical content (plus your overrides) and diffing it against the generated tool files on disk.
 
 ```bash
 npx hatch3r status
@@ -137,13 +133,13 @@ npx hatch3r status --deep      # byte-for-byte comparison
 | Flag | Description |
 |------|-------------|
 | `--verbose` | Show detailed per-file status information |
-| `--deep` | Regenerate every adapter's output in-memory to compare byte-for-byte (slower; default uses integrity-manifest fast path) |
+| `--deep` | Compare byte-for-byte by regenerating every adapter's output in-memory (regeneration is the only drift path since the integrity manifest was removed in Wave 7) |
 
 Reports synced, drifted, and missing files for each configured tool. When a `workspace.json` manifest exists, also displays workspace topology -- listing each sub-repo, its sync status, and any per-repo overrides.
 
 ## hatch3r validate
 
-Validates the `.agents/` directory structure and file contents.
+Validates content structure and file contents — bundled canonical content plus your `.hatch3r/overrides/`.
 
 ```bash
 npx hatch3r validate
@@ -170,26 +166,26 @@ Checks for:
 
 ## hatch3r verify
 
-Verifies file integrity by comparing canonical files against stored checksums.
+A thin drift-detection wrapper over `status`: it regenerates each adapter output from the bundled canonical content and diffs it against the on-disk copy, then exits non-zero if any output is drifted or missing. There is no `.integrity.json` checksum file — drift is computed by regeneration, not stored hashes.
 
 ```bash
 npx hatch3r verify
-npx hatch3r verify --fix                        # auto-fix via update regenerate cycle
+npx hatch3r verify --fix                        # auto-repair drift by regenerating output
 npx hatch3r verify --fix --max-fix-attempts 3   # raise the default 2-cycle cap
 ```
 
-Requires `.agents/.integrity.json` (generated by init and update). Reports each file as PASS, MODIFIED, MISSING, NEW, or TAMPERED. Exit code 1 if any integrity issues are found.
+Reports each adapter output as synced, drifted, or missing. Exit code 1 if any drift is found.
 
 **Flags:**
 
 | Flag | Description |
 |------|-------------|
-| `--fix` | Auto-fix integrity issues by running `hatch3r update` (regenerate path only, no npm fetch) |
-| `--max-fix-attempts <n>` | Maximum verify-fix cycles (default: 2, max: 5) |
+| `--fix` | Auto-repair drifted/missing output by regenerating it (the same in-memory regeneration `hatch3r sync` performs), re-checking drift after each pass |
+| `--max-fix-attempts <n>` | Maximum regenerate-then-recheck cycles (default: 2, clamped to 1–5) |
 
 Recovery:
-- **Modified/Tampered:** Run `hatch3r update` to restore originals
-- **Missing:** Run `hatch3r update` to regenerate
+- **Drifted:** Run `hatch3r verify --fix` (or `hatch3r sync`) to regenerate the on-disk output
+- **Missing:** Run `hatch3r sync` to regenerate
 
 ## hatch3r clean
 
@@ -208,11 +204,11 @@ npx hatch3r clean --dry-run   # preview without modifying files
 | `--yes` | Skip confirmation prompts (cleans without reinit) |
 | `--dry-run` | Show what would be removed without modifying files |
 
-Removes `.agents/`, all generated tool files, and archive directories. Optionally offers to reinitialize after cleanup.
+Removes `.hatch3r/hatch.json`, all generated tool files, and archive directories (`.hatch3r-archive/`). Keeps the rest of `.hatch3r/` — learnings, handoffs, overrides, mcp, and `.customize.yaml` files. Optionally offers to reinitialize after cleanup.
 
 ## hatch3r worktree-setup
 
-Sets up gitignored files (`.env.mcp`, `.agents/.integrity.json`, etc.) in a new git worktree.
+Sets up gitignored files (`.env.mcp` and other `.env.*`, plus the shared `.hatch3r/` state) in a new git worktree, per the patterns in `.worktreeinclude`.
 
 ```bash
 npx hatch3r worktree-setup [worktree-path]

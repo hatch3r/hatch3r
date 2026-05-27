@@ -12,7 +12,7 @@ parallel_tool_default: true
 triage_tiers: [1, 2, 3]
 sub_agents_spawned:
   count: 19
-  rationale: Full 4-phase delivery pipeline — researcher (Phase 1), implementer (one per independent module, Phase 3), reviewer ↔ fixer review loop (Phase 4a), then a parallel Phase-4b final-quality batch (legacy specialists test-writer + security-auditor + docs-writer + lint-fixer + a11y-auditor + perf-profiler PLUS CQ1-CQ9 vector specialists ui/ux/security/reliability/testability/scalability/performance/maintainability/enhancability) bounded by max_phase4_parallel.
+  rationale: Full 4-phase delivery pipeline — researcher (Phase 1), implementer (one per independent module, Phase 3), reviewer ↔ fixer review loop (Phase 4a), then a parallel Phase-4b final-quality batch (legacy specialists test-writer + security-auditor + docs-writer + lint-fixer + a11y-auditor + perf-profiler PLUS CQ1-CQ9 vector specialists ui/ux/security/reliability/testability/scalability/performance/maintainability/enhancability) bounded by max_phase4_parallel. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -36,6 +36,8 @@ Optional guided development lifecycle command that walks through structured phas
 | 3c. Final Quality — Security | `hatch3r-security-auditor` | Yes | Yes (code changes) |
 | 3d. Final Quality — Docs | `hatch3r-docs-writer` | Yes | When APIs/architecture/UX affected |
 | 3e. Final Quality — Conditional | `hatch3r-lint-fixer`, `hatch3r-a11y-auditor`, `hatch3r-perf-profiler` | Yes | When triggered |
+
+**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above (multi-module implementers in Phase 3, the Phase-4b final-quality batch) holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
 
 ## Browser Automation
 
@@ -130,6 +132,15 @@ cost_estimate:
 ```
 
 Post-execution actuals + delta land in the Phase 4 / Quick Step 3 iteration summary's Fan-out + Cost section per `rules/hatch3r-cost-visibility.md` Post-Execution Actuals. Token telemetry sources from `src/pipeline/observability.ts`.
+
+### Step 0.6: Effort Override (Decision 17)
+
+Auto-tiering (Step 0 mode selection) can misclassify — a single-file edit scored as Full Mode, or a cross-cutting refactor scored as Quick Mode. The user override is the recovery path mandated by `governance/CONSTITUTION.md` §6 Decision 17 ("User overridable via `--effort` flag"):
+
+- `--effort=light|standard|deep` forces the named tier (light → Quick Tier 1, standard → Quick Tier 2, deep → Full Tier 3), bypassing the Step 0 auto-classification. This composes with the existing `--mode=full|quick` flag: an explicit `--mode` wins over the `--effort`-derived mode.
+- The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
+- The override never disables the Safety Guardrails (destructive operations, breaking changes, open questions, quality-gate failures always stop) — those are mode-independent.
+- No override passed → the Step 0 auto-classification stands.
 
 ---
 

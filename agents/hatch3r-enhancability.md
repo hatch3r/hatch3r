@@ -12,6 +12,7 @@ efficiency_patterns: agents/shared/efficiency-patterns.md
 efficiency_tier: standard
 cache_friendly: true
 parallel_tool_default: true
+wall_clock_advisory_ms: 600000
 phase_4_trigger:
   mode: conditional
   conditions:
@@ -93,6 +94,8 @@ When the review surface spans multiple enhancability dimensions, fan out one sub
 4. Aggregate per-surface verdicts into a single status (PASS / FINDINGS / CRITICAL) with per-surface confidence preserved.
 
 **Cost-dominance (P8 B2).** Sub-agent count tracks present surfaces — never reduce below the surface count to save tokens. Token cost of additional specialists is dominated by quality gain from isolated tool contexts (oasdiff output does not contaminate flag-evaluation output). Serialization is only valid on dependency edges (aggregation runs after per-surface measurement completes). The `sub_agents_spawned` output field records count + per-surface rationale.
+
+**Wall-clock advisory (`specialist-eval` phase).** This agent runs under the `specialist-eval` phase budget (`src/pipeline/phaseTimeout.ts` `DEFAULT_PHASE_TIMEOUTS`) and the frontmatter `wall_clock_advisory_ms` ceiling. The oasdiff / API-surface diff is the longest sub-agent; if you observe yourself approaching the advisory before every surface is measured, return `status: FINDINGS` with the measured surfaces marked and the unmeasured surfaces listed under a `deferred:` note rather than exhausting the budget silently — a partial gate with a visible remainder beats a TIMEOUT with no result.
 
 ## Audit checklist
 
@@ -179,6 +182,8 @@ status: PASS | FINDINGS | CRITICAL
 ```
 
 Status mapping: `PASS` when every checklist row passes with High or Medium confidence; `FINDINGS` when one or more non-critical rows fail; `CRITICAL` when a behavior change ships without a flag, a stable-endpoint contract breaks without a major bump, a credential is hardcoded, the schema validator falls back silently, a CI spec-diff gate is missing, or a contract test fails on a stable surface.
+
+**Severity vocabulary:** the `PASS | FINDINGS | CRITICAL` status maps to canonical audit severity via the **Specialist Status** column in `governance/audit/templates/severity-mapping.md` — `CRITICAL → Critical`, `FINDINGS → High + Medium`, `PASS → Low + Info`. Map through that table when escalating to `hatch3r-fixer` or feeding the release decision.
 
 ## Boundaries
 

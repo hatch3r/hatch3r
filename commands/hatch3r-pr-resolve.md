@@ -154,6 +154,30 @@ Classify the run before delegating. Counts and severity come from the Step 4 eva
 
 Tier assignment is recomputed after Step 4 (when severity is known). If the initial Step 0 read of raw counts says Tier 1 but Step 4 reveals a Critical-severity item, upgrade to Tier 3 before the Step 5 ASK.
 
+### Step 0.5: Emit Pre-Execution Cost Preview
+
+Before the Step 5 ASK gate (the only mutation gate, after which fan-out begins in Step 6), surface the cost preview so a large comment-resolution run is never approved blind. Emit the `cost_estimate` block per `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate, calibrated to the Step 0 tier (recomputed in Step 4e once severities are known). A PR with zero unresolved comments short-circuits at Step 2d and spawns nothing, so `expected_sa_count: 0` is correct for that case.
+
+```yaml
+cost_estimate:
+  expected_sa_count: <tier → Tier 1 ~1, Tier 2 ~4, Tier 3 up to 9; 0 when no unresolved comments>
+  estimated_input_tokens_static_frame: <int>
+  estimated_web_research_queries: <int>
+  triage_tier: light | standard | deep
+  estimated_duration_min: <int>
+```
+
+Post-execution actuals + delta land in the Step 10 Resolution Summary's Fan-out + Cost section per `rules/hatch3r-cost-visibility.md` Post-Execution Actuals. Token telemetry sources from `src/pipeline/observability.ts`.
+
+### Effort Override (Decision 17)
+
+Auto-tiering can misclassify — a 40-comment PR of pure nits scored as Tier 3, or a 3-comment PR with a hidden Critical scored as Tier 1. The user override is the recovery path mandated by `governance/CONSTITUTION.md` §6 Decision 17 ("User overridable via `--effort` flag"):
+
+- `--effort=light|standard|deep` forces the named tier, bypassing the Step 0/Step 4e auto-classification.
+- The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
+- The override does NOT suppress the Critical-severity upgrade: a `--effort=light` run that surfaces a Critical item in Step 4 still runs the Tier-3 specialist mandate (Step 5). Safety dominates the cost override.
+- No override passed → the Step 0/Step 4e auto-classification stands.
+
 ---
 
 ## Step 1: Resolve PR Identity
@@ -646,6 +670,17 @@ Status decision rules:
 - **PARTIAL** — some FIX NOW findings BLOCKED/PARTIAL, OR some replies failed to post, OR Step 7a gates ended on a retry-limit miss.
 - **FAILED** — Step 6 sub-agents all returned BLOCKED, no code changed, replies could not be drafted.
 - **BLOCKED** — cannot proceed without user input (e.g., Critical-deferred rationale not provided, semantic conflict requiring a design decision).
+
+---
+
+## Cost estimate (Decision 24)
+
+This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 24/29:
+
+- **Pre-execution `cost_estimate`** — emitted in Step 0.5 before the Step 5 ASK gate (the only mutation gate; fan-out begins in Step 6).
+- **Post-execution `cost_actuals` + `delta`** — appended to the Step 10 Resolution Summary's Fan-out + Cost section per `rules/hatch3r-iteration-summary.md` §2.
+
+Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.count: 9` × tier heuristic in `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate): Tier 1 ≈ 1 (one specialist, no review loop); Tier 2 ≈ 4 (FIX NOW fix group + review loop); Tier 3 up to 9 (full pipeline including the parallel Tier-3 final-quality specialist mandate). A no-comment short-circuit (Step 2d) emits `actual_sa_count: 0`. Deltas beyond 25% absolute value carry `flagged_for_review: true`. Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
 
 ---
 

@@ -482,6 +482,10 @@ Applies to API code and protobufs.`,
         JSON.stringify({
           mcpServers: {
             github: {
+              // F15.5-H2: HTTP transport survives the readFilteredMcp pin gate
+              // via _trust_bypass (mirrors production mcp.json — rotating API,
+              // pinning impossible). Marker is stripped on emission.
+              _trust_bypass: true,
               url: "https://api.githubcopilot.com/mcp/",
               headers: {
                 Authorization: "Bearer ${env:GITHUB_PAT}",
@@ -525,6 +529,9 @@ Applies to API code and protobufs.`,
         JSON.stringify({
           mcpServers: {
             "url-server": {
+              // F15.5-H2: HTTP transport requires a pin or trust-bypass to
+              // survive the readFilteredMcp emission gate.
+              _trust_bypass: true,
               url: "https://example.com/mcp",
             },
             "cmd-server": {
@@ -544,6 +551,62 @@ Applies to API code and protobufs.`,
 
       expect(parsed.mcpServers["url-server"].type).toBe("http");
       expect(parsed.mcpServers["cmd-server"].type).toBe("stdio");
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  // F15.5-H2 (D15 / Pillar P6): an HTTP-transport MCP entry that is neither
+  // SHA-256 pinned nor trust-bypassed is REFUSED at emission (dropped from the
+  // generated config), not merely warned. A stdio entry in the same config is
+  // unaffected, and the drop is surfaced as an auditable warning.
+  it("refuses an unpinned HTTP MCP entry at emission and warns (does not emit it)", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-claude-mcp-pin-"));
+    try {
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "mcp"), { recursive: true });
+      await writeFile(
+        join(agentsDir, "mcp", "mcp.json"),
+        JSON.stringify({
+          mcpServers: {
+            "unpinned-http": {
+              // No _pinned_sha256 and no _trust_bypass → must be dropped.
+              url: "https://untrusted.example.com/mcp",
+            },
+            "pinned-http": {
+              _pinned_sha256: "b".repeat(64),
+              url: "https://pinned.example.com/mcp",
+            },
+            "safe-stdio": {
+              command: "npx",
+              args: ["-y", "@scope/pkg@1.0.0"],
+            },
+          },
+        }),
+        "utf-8",
+      );
+      const localAdapter = new ClaudeAdapter();
+      const manifest = makeManifest({
+        mcpServers: ["unpinned-http", "pinned-http", "safe-stdio"],
+      });
+      const outputs = await localAdapter.generate(agentsDir, manifest);
+
+      const mcp = outputs.find((o) => o.path === ".mcp.json");
+      expect(mcp).toBeDefined();
+      const parsed = JSON.parse(mcp!.content);
+
+      // The unpinned HTTP entry is NOT emitted.
+      expect(parsed.mcpServers["unpinned-http"]).toBeUndefined();
+      // The pinned HTTP entry and the stdio entry survive.
+      expect(parsed.mcpServers["pinned-http"]).toBeDefined();
+      expect(parsed.mcpServers["safe-stdio"]).toBeDefined();
+
+      // The drop is auditable.
+      const dropWarn = localAdapter.warnings.find(
+        (w) => w.includes("unpinned-http") && w.includes("omitted from generated config"),
+      );
+      expect(dropWarn).toBeDefined();
+      expect(dropWarn).toMatch(/missing _pinned_sha256/);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }

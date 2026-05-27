@@ -8,7 +8,7 @@ slug: introduction
 
 **Crack the egg. Hatch better agents.**
 
-hatch3r is an open-source CLI and Cursor plugin that installs a battle-tested, tool-agnostic agentic coding setup into any repository. One command gives you agents, skills, rules, commands, and MCP integrations -- optimized for your coding tool of choice.
+hatch3r is an open-source CLI and Cursor plugin that installs a tool-agnostic agentic coding setup into any repository — 30 agents, 43 skills, 55 rules, 23 commands, and 6 hooks generated from one canonical source. One command gives you agents, skills, rules, commands, and MCP integrations -- optimized for your coding tool of choice.
 
 ## What is hatch3r?
 

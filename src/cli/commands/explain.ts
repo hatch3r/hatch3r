@@ -42,7 +42,7 @@ import {
   DEFAULT_OUTPUT_COST_PER_1M,
   estimateUsdCost,
 } from "../../pipeline/costEstimator.js";
-import { HatchError } from "../../types.js";
+import { HatchError, HATCH3R_DIR } from "../../types.js";
 import { findPackageRoot } from "../shared/paths.js";
 import { printBanner, printBox, label, info, error as logError, setVerbose } from "../shared/ui.js";
 import {
@@ -118,6 +118,7 @@ async function resolveCommandPath(rootDir: string, commandId: string): Promise<s
     `Command not found: ${commandId}. Looked in ${candidates.join(" and ")}.`,
     1,
     "FS_ERROR",
+    "Run `hatch3r explain --cost <id>` with a known command id (e.g. hatch3r-quick-change), or check the `commands/` directory for the exact filename.",
   );
 }
 
@@ -133,6 +134,7 @@ function parseCommandFrontmatter(raw: string, filePath: string): CommandFrontmat
       `Missing frontmatter in ${filePath}. Cost estimation requires id + orchestrator + triage_tiers.`,
       1,
       "VALIDATION_ERROR",
+      "Add a YAML frontmatter block with `id`, `orchestrator`, and `triage_tiers` to the command file, then re-run.",
     );
   }
 
@@ -144,6 +146,7 @@ function parseCommandFrontmatter(raw: string, filePath: string): CommandFrontmat
       `Invalid frontmatter in ${filePath}: expected YAML object.`,
       1,
       "VALIDATION_ERROR",
+      "Fix the frontmatter so it parses to a YAML mapping (key: value pairs between the `---` fences), then re-run.",
     );
   }
 
@@ -165,6 +168,7 @@ function parseCommandFrontmatter(raw: string, filePath: string): CommandFrontmat
       `${id || filePath} is declared orchestrator: true but has no triage_tiers — cost cannot be split per tier.`,
       1,
       "VALIDATION_ERROR",
+      "Add a `triage_tiers` array (e.g. [1, 2, 3]) to the command frontmatter, or set `orchestrator: false` if it does not fan out.",
     );
   }
 
@@ -272,19 +276,28 @@ function formatUsd(usd: number): string {
 interface ExplainOptions {
   cost?: string;
   customizations?: boolean;
+  /**
+   * SA12.4-F1 (D12): output path (relative to the repo root, e.g.
+   * `CLAUDE.md` or `.cursor/rules/hatch3r-bridge.mdc`) whose canonical
+   * provenance should be printed. Reads `.hatch3r/provenance.json`
+   * written by `hatch3r sync`. The empty string form (`--source` with no
+   * value, or `--source all`) lists every recorded output.
+   */
+  source?: string;
   verbose?: boolean;
   inputRate?: string;
   outputRate?: string;
 }
 
 /**
- * `hatch3r explain` entry point. Dispatches to one of two modes:
- *   - `--cost <command-id>` → per-tier sub-agent fan-out + USD cost table
- *   - `--customizations`    → per-artifact customize.{yaml,md} state table
+ * `hatch3r explain` entry point. Dispatches to one of three modes:
+ *   - `--cost <command-id>`     → per-tier sub-agent fan-out + USD cost table
+ *   - `--customizations`        → per-artifact customize.{yaml,md} state table
+ *   - `--source <output-path>`  → canonical source files behind a generated file
  *
- * The two modes are mutually exclusive; passing both or neither is a usage
- * error (exit code 2). The mode selector is checked before any I/O so a
- * missing flag returns immediately with an actionable message.
+ * The three modes are mutually exclusive; passing more than one or none is
+ * a usage error (exit code 2). The mode selector is checked before any I/O
+ * so a missing flag returns immediately with an actionable message.
  */
 export async function explainCommand(opts?: ExplainOptions): Promise<void> {
   setVerbose(!!opts?.verbose);
@@ -292,32 +305,45 @@ export async function explainCommand(opts?: ExplainOptions): Promise<void> {
 
   const costRequested = typeof opts?.cost === "string" && opts.cost.trim().length > 0;
   const customizationsRequested = !!opts?.customizations;
+  // `--source` is mode-active whenever the flag is present, including the
+  // valueless / `all` form (commander stores `true` when the option takes
+  // an optional value and none is supplied). Normalize to a string subject.
+  const sourceRequested = opts?.source !== undefined;
+  const modesRequested = [costRequested, customizationsRequested, sourceRequested].filter(Boolean).length;
 
-  if (costRequested && customizationsRequested) {
-    logError("Conflicting flags: --cost and --customizations are mutually exclusive.");
+  if (modesRequested > 1) {
+    logError("Conflicting flags: --cost, --customizations, and --source are mutually exclusive.");
     console.log(chalk.dim("  Pick one mode per invocation."));
     console.log();
     throw new HatchError(
-      "Conflicting flags: --cost and --customizations",
+      "Conflicting flags: --cost, --customizations, --source",
       2,
       "VALIDATION_ERROR",
+      "Pass exactly one mode flag per invocation: `--cost <id>`, `--customizations`, or `--source <output-path>`.",
     );
   }
 
-  if (!costRequested && !customizationsRequested) {
-    logError("Missing required mode flag: pass --cost <command-id> OR --customizations.");
+  if (modesRequested === 0) {
+    logError("Missing required mode flag: pass --cost <command-id>, --customizations, OR --source <output-path>.");
     console.log(chalk.dim("  Example: hatch3r explain --cost hatch3r-quick-change"));
     console.log(chalk.dim("  Example: hatch3r explain --customizations"));
+    console.log(chalk.dim("  Example: hatch3r explain --source CLAUDE.md"));
     console.log();
     throw new HatchError(
-      "Missing required mode flag: --cost or --customizations",
+      "Missing required mode flag: --cost, --customizations, or --source",
       2,
       "VALIDATION_ERROR",
+      "Pass one of: `--cost <id>`, `--customizations`, or `--source <output-path>` (run `hatch3r --help` for usage).",
     );
   }
 
   if (customizationsRequested) {
     await explainCustomizationsMode();
+    return;
+  }
+
+  if (sourceRequested) {
+    await explainSourceMode(opts!.source);
     return;
   }
 
@@ -343,6 +369,7 @@ export async function explainCommand(opts?: ExplainOptions): Promise<void> {
       `Invalid --input-rate: ${opts?.inputRate} (expected non-negative number USD per 1M tokens)`,
       2,
       "VALIDATION_ERROR",
+      "Pass --input-rate as a non-negative number, e.g. `--input-rate 3.0` for $3/1M input tokens.",
     );
   }
   if (!Number.isFinite(outputRate) || outputRate < 0) {
@@ -350,6 +377,7 @@ export async function explainCommand(opts?: ExplainOptions): Promise<void> {
       `Invalid --output-rate: ${opts?.outputRate} (expected non-negative number USD per 1M tokens)`,
       2,
       "VALIDATION_ERROR",
+      "Pass --output-rate as a non-negative number, e.g. `--output-rate 15.0` for $15/1M output tokens.",
     );
   }
 
@@ -512,4 +540,141 @@ async function explainCustomizationsMode(): Promise<void> {
       chalk.dim(`Run \`hatch3r status\` for a one-line summary.`),
   );
   console.log();
+}
+
+/**
+ * SA12.4-F1 (D12): one provenance record for a generated output file. Mirrors
+ * the schema written by `hatch3r sync` to `.hatch3r/provenance.json`
+ * (`src/cli/commands/sync.ts` → SA12.4-F1 writer).
+ */
+interface ProvenanceEntry {
+  path: string;
+  adapter: string;
+  sourceFiles: string[];
+}
+
+interface ProvenanceManifest {
+  schemaVersion?: number;
+  hatch3rVersion?: string;
+  generatedAt?: string;
+  outputs?: ProvenanceEntry[];
+}
+
+/**
+ * SA12.4-F1 (D12): render the canonical-source provenance for a generated
+ * adapter output. Reads `.hatch3r/provenance.json` (written by `hatch3r sync`)
+ * and prints, for the requested output path, the adapter that produced it and
+ * the sorted canonical `sourceFiles[]` that shaped it. This closes the gap
+ * where `sourceFiles` provenance was captured in memory by `BaseAdapter` then
+ * discarded, leaving operators with no user-visible canonical-source trace.
+ *
+ * Subject forms:
+ *   - a specific output path (`CLAUDE.md`, `.cursor/rules/hatch3r-bridge.mdc`)
+ *   - `all` or the valueless flag → one block per recorded output
+ */
+async function explainSourceMode(subject: string | undefined): Promise<void> {
+  const rootDir = process.cwd();
+  const provenancePath = join(rootDir, HATCH3R_DIR, "provenance.json");
+
+  let manifest: ProvenanceManifest;
+  try {
+    const raw = await readFile(provenancePath, "utf-8");
+    manifest = JSON.parse(raw) as ProvenanceManifest;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") {
+      logError(`No provenance manifest found at ${HATCH3R_DIR}/provenance.json.`);
+      console.log(chalk.dim("  Run `hatch3r sync` to generate adapter outputs and record their canonical sources."));
+      console.log();
+      throw new HatchError(
+        `No ${HATCH3R_DIR}/provenance.json found`,
+        1,
+        "FS_ERROR",
+        "Run `hatch3r sync` to generate adapter outputs and record their canonical sources, then re-run `hatch3r explain --source`.",
+      );
+    }
+    logError(`Could not read ${HATCH3R_DIR}/provenance.json: ${err instanceof Error ? err.message : String(err)}`);
+    console.log();
+    throw new HatchError(
+      `Unreadable ${HATCH3R_DIR}/provenance.json`,
+      1,
+      "FS_ERROR",
+      "Re-run `hatch3r sync` to regenerate the provenance manifest; if it remains unreadable, delete it and sync again.",
+    );
+  }
+
+  const outputs = Array.isArray(manifest.outputs) ? manifest.outputs : [];
+  if (outputs.length === 0) {
+    printBox(
+      "Source provenance",
+      [chalk.dim(`No outputs recorded in ${HATCH3R_DIR}/provenance.json. Run \`hatch3r sync\` first.`)],
+      "info",
+    );
+    return;
+  }
+
+  const normalized = (subject ?? "").trim();
+  const wantAll = normalized === "" || normalized.toLowerCase() === "all";
+
+  if (wantAll) {
+    const headerLines = [
+      label("Manifest", `${HATCH3R_DIR}/provenance.json`),
+      label("hatch3r", manifest.hatch3rVersion ?? "(unknown)"),
+      label("Generated", manifest.generatedAt ?? "(unknown)"),
+      label("Outputs", String(outputs.length)),
+    ];
+    printBox("Source provenance — all outputs", headerLines, "info");
+    // Stable order: by adapter then path (matches the writer's sort).
+    const sorted = [...outputs].sort((a, b) => {
+      const byAdapter = a.adapter.localeCompare(b.adapter);
+      return byAdapter !== 0 ? byAdapter : a.path.localeCompare(b.path);
+    });
+    for (const entry of sorted) {
+      printSourceBlock(entry);
+    }
+    return;
+  }
+
+  const match = outputs.find((o) => o.path === normalized);
+  if (!match) {
+    logError(`Output path not recorded in provenance: ${normalized}`);
+    const known = outputs.map((o) => o.path).sort();
+    const preview = known.slice(0, 8).join(", ") + (known.length > 8 ? `, … (${known.length} total)` : "");
+    console.log(chalk.dim(`  Recorded outputs: ${preview}`));
+    console.log(chalk.dim("  Tip: run `hatch3r explain --source all` to list every recorded output."));
+    console.log();
+    throw new HatchError(
+      `Output path not recorded: ${normalized}`,
+      1,
+      "CONFIG_ERROR",
+      "Pass an output path exactly as recorded (run `hatch3r explain --source all` to list them), or re-run `hatch3r sync`.",
+    );
+  }
+
+  printSourceBlock(match, manifest);
+}
+
+/**
+ * SA12.4-F1 (D12): print a single output's provenance block — the generated
+ * path, the adapter that emitted it, and each canonical source file. Used by
+ * both the single-path and `--source all` forms.
+ */
+function printSourceBlock(entry: ProvenanceEntry, manifest?: ProvenanceManifest): void {
+  const lines: string[] = [
+    label("Output", entry.path),
+    label("Adapter", entry.adapter),
+  ];
+  if (manifest) {
+    lines.push(label("hatch3r", manifest.hatch3rVersion ?? "(unknown)"));
+    lines.push(label("Generated", manifest.generatedAt ?? "(unknown)"));
+  }
+  if (entry.sourceFiles.length === 0) {
+    lines.push(label("Sources", chalk.dim("(none recorded)")));
+  } else {
+    lines.push(label("Sources", `${entry.sourceFiles.length} canonical file(s):`));
+    for (const src of entry.sourceFiles) {
+      lines.push(`    ${chalk.cyan("•")} ${src}`);
+    }
+  }
+  printBox(`Source: ${entry.path}`, lines, "info");
 }

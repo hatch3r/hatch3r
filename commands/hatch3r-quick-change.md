@@ -100,6 +100,29 @@ Classify the change request before delegating. Detailed tier scoring runs in Ste
 
 If Tier 1, run inline. If Tier 2, run the implementer-only pipeline below. If Tier 3, exit and recommend `hatch3r-workflow`.
 
+### Pre-Execution Cost Preview
+
+Before any sub-agent dispatch (Step 4b implementer), surface the cost preview so a nontrivial change is never started blind. Emit the `cost_estimate` block per `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate, calibrated to the Triage tier. Tier 1 trivial inline edits skip the sub-agent path entirely, so `expected_sa_count: 0` is the correct value for them.
+
+```yaml
+cost_estimate:
+  expected_sa_count: <Tier 1 inline ~0, Tier 2 ~3 (researcher + implementer + reviewer), up to 15 when CQ specialists trigger>
+  estimated_input_tokens_static_frame: <int>
+  estimated_web_research_queries: <int>
+  triage_tier: light | standard | deep
+  estimated_duration_min: <int>
+```
+
+Post-execution actuals + delta land in the Step 8 summary's Fan-out + Cost section per `rules/hatch3r-cost-visibility.md` Post-Execution Actuals. Token telemetry sources from `src/pipeline/observability.ts`.
+
+### Effort Override (Decision 17)
+
+Auto-tiering can misclassify — a multi-file change scored as Tier 1, or a one-line edit scored as Tier 2. The user override is the recovery path mandated by `governance/CONSTITUTION.md` §6 Decision 17 ("User overridable via `--effort` flag"):
+
+- `--effort=light|standard` forces the named tier, bypassing the Triage auto-classification. `--effort=deep` is rejected here — quick-change hard-blocks Tier 3 and routes to `hatch3r-workflow`.
+- The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
+- No override passed → the Triage auto-classification stands.
+
 ---
 
 ## Workflow
@@ -378,6 +401,17 @@ Quick Change Complete:
   Git: {committed on {branch} / committed and pushed / skipped}
   Confidence: {high/medium/low — overall assessment of change correctness}
 ```
+
+---
+
+## Cost estimate (Decision 24)
+
+This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 24/29:
+
+- **Pre-execution `cost_estimate`** — emitted in the Pre-Execution Cost Preview above before the first sub-agent dispatch.
+- **Post-execution `cost_actuals` + `delta`** — appended to the Step 8 summary's Fan-out + Cost section per `rules/hatch3r-iteration-summary.md` §2.
+
+Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.count: 15` × tier heuristic in `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate): Tier 1 trivial inline ≈ 0 (no sub-agent); Tier 2 ≈ 3 (researcher + implementer + reviewer, plus lint-fixer/fixer/test-writer/security-auditor when triggered); up to 15 when the conditional CQ vector specialists fire per their trigger conditions. Deltas beyond 25% absolute value carry `flagged_for_review: true`. Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
 
 ---
 

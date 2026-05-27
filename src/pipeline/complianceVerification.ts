@@ -21,6 +21,12 @@ import { AGENT_TOOL_POLICIES, validateToolPolicies } from "./agentToolAllowlist.
 import { HARD_MAX_REVIEW_ITERATIONS, DEFAULT_MAX_REVIEW_ITERATIONS } from "./reviewLoop.js";
 import { MAX_PHASE_INPUT_LENGTH, MAX_AGENT_OUTPUT_LENGTH } from "./promptGuard.js";
 import { DEFAULT_PIPELINE_TIMEOUT_MS, MAX_PIPELINE_TIMEOUT_MS } from "./pipelineTimeout.js";
+import {
+  computeDiffHash,
+  createHandoffPayload,
+  verifyHandoff,
+  type DiffEntry,
+} from "./diffHash.js";
 import { verbose } from "../cli/shared/ui.js";
 
 // Six resilience modules whose CLI invocation is checked. Each entry maps
@@ -292,12 +298,67 @@ export async function runComplianceChecks(): Promise<ComplianceReport> {
   }
 
   // ── Diff-hash verification ──
+  // F15.2-H2 (D15, High): the prior check hard-coded `status: "pass"` with a
+  // detail that claimed "disk verification enabled" — a tautology that passed
+  // regardless of whether the diffHash contract worked or was reachable. The
+  // check now EARNS its verdict two ways:
+  //   1. Functional self-test — round-trip a known diff through
+  //      `createHandoffPayload` → `verifyHandoff` and confirm (a) a clean
+  //      payload verifies, and (b) a tampered payload is rejected. If the
+  //      SHA-256 contract regressed (e.g. a non-deterministic serialise), this
+  //      FAILS rather than silently passing.
+  //   2. Truthful enforcement boundary — `diffHash.ts` is
+  //      `@library_export_only`: it is consumed by the hatch3r-fixer /
+  //      hatch3r-reviewer agent prompts, not by a CLI runtime path. The detail
+  //      states this explicitly and points at the runtime checkpoint that
+  //      actually gates the loop (the fixer's `Reviewer re-run required`
+  //      structured-result field), so the check no longer implies a CLI
+  //      enforcement path that does not exist.
+  const diffHashSelfTest = ((): { ok: boolean; detail: string } => {
+    const sample: DiffEntry[] = [
+      { filePath: "b.ts", before: "old-b", after: "new-b" },
+      { filePath: "a.ts", before: "", after: "new-a" },
+    ];
+    const payload = createHandoffPayload(sample, 1);
+    const cleanVerify = verifyHandoff(payload);
+    if (!cleanVerify.valid) {
+      return {
+        ok: false,
+        detail: `diffHash contract regressed: a clean handoff payload failed verification (${cleanVerify.error ?? "no error detail"})`,
+      };
+    }
+    // Order independence: the same diffs in a different order must hash equal.
+    const reordered = computeDiffHash([...sample].reverse());
+    if (reordered !== payload.diffHash) {
+      return {
+        ok: false,
+        detail: "diffHash contract regressed: hash is order-dependent (sort invariant broken)",
+      };
+    }
+    // Tamper detection: mutating a diff after hashing must be rejected.
+    const tampered = { ...payload, diffs: [{ ...sample[0], after: "tampered" }, sample[1]] };
+    const tamperVerify = verifyHandoff(tampered);
+    if (tamperVerify.valid) {
+      return {
+        ok: false,
+        detail: "diffHash contract regressed: a tampered handoff payload passed verification",
+      };
+    }
+    return {
+      ok: true,
+      detail:
+        "SHA-256 handoff hashing verified by round-trip self-test (clean payload accepted, " +
+        "reordered diffs hash-equal, tampered payload rejected). Runtime enforcement is " +
+        "agent-delegated: diffHash is consumed by the hatch3r-fixer/hatch3r-reviewer prompts " +
+        "(not a CLI path); the review loop is gated by the fixer's `Reviewer re-run required` field.",
+    };
+  })();
   checks.push({
     id: "diff-hash-verify",
-    description: "Diff-hash verification is available for fixer handoffs",
+    description: "Diff-hash handoff verification contract is intact (round-trip self-test)",
     controlRef: "ASI-INTEGRITY",
-    status: "pass",
-    detail: "SHA-256 diff hashing with disk verification enabled",
+    status: diffHashSelfTest.ok ? "pass" : "fail",
+    detail: diffHashSelfTest.detail,
   });
 
   // ── D17 Medium (#406-#414): Content safety deny patterns ──

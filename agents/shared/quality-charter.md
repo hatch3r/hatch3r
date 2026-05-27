@@ -104,7 +104,7 @@ When modifying code that is consumed by other modules, agents, or external syste
 
 ### 10. Consult Prior Learnings
 
-Before answering project-specific questions about prior work, decisions, or resolved issues, read `.hatch3r/learnings/INDEX.md` (when present) and any topic-applies index entries matched against the current task. Cite the consulted entry IDs in the structured output. Implementer + Reviewer + Researcher agents are bound; other roles consult when context applies.
+Before answering project-specific questions about prior work, decisions, or resolved issues, read `.hatch3r/learnings/INDEX.md` (when present) and any topic-applies index entries matched against the current task. Cite the consulted entry IDs in the structured output via a `Consulted Learnings:` line. Implementer + Reviewer + Researcher + Fixer agents are bound (the four Phase-1/2/3 protocol agents); other roles consult when context applies.
 
 ### 11. Standardized Iteration Summary
 

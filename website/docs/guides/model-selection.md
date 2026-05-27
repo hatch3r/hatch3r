@@ -9,7 +9,7 @@ hatch3r lets you configure preferred AI models for your agents. You can set a gl
 
 ## Overview
 
-When you configure a model, hatch3r includes it in the generated config for each tool (Cursor, Copilot, Claude Code, etc.). Some platforms support native model selection in their config; others receive the recommendation as guidance text. Either way, the preference is preserved across `npx hatch3r sync` runs.
+When you configure a model, hatch3r includes it in the generated config for each tool (Cursor, Copilot, Claude Code). Some platforms support native model selection in their config; others receive the recommendation as guidance text. Either way, the preference is preserved across `npx hatch3r sync` runs.
 
 When no model is configured at any level, hatch3r does not emit a model preference. Each platform uses its own default.
 
@@ -19,7 +19,7 @@ When no model is configured at any level, hatch3r does not emit a model preferen
 |--------|------|------------|
 | Customization YAML | `.hatch3r/agents/{agent-id}.customize.yaml` | Highest |
 | Manifest per-agent | `hatch.json` -> `models.agents.{agent-id}` | 2nd |
-| Canonical agent | `.agents/agents/{agent-id}.md` frontmatter `model:` | 3rd |
+| Canonical agent | `agents/{agent-id}.md` frontmatter `model:` (bundled content; override under `.hatch3r/overrides/agents/`) | 3rd |
 | Manifest default | `hatch.json` -> `models.default` | 4th |
 | (none) | -- | Platform auto-select |
 
@@ -27,7 +27,7 @@ When no model is configured at any level, hatch3r does not emit a model preferen
 
 1. **Customization file** -- `.hatch3r/agents/{agent-id}.customize.yaml` with a `model` field wins
 2. **Manifest per-agent** -- `hatch.json` -> `models.agents[agent-id]`
-3. **Canonical agent frontmatter** -- `model:` in `.agents/agents/{agent-id}.md`
+3. **Canonical agent frontmatter** -- `model:` in the bundled `agents/{agent-id}.md` (or its `.hatch3r/overrides/agents/` override)
 4. **Manifest default** -- `hatch.json` -> `models.default`
 5. **No model** -- platform uses its own default
 
@@ -68,7 +68,7 @@ Unknown values are passed through as-is.
 
 ### Canonical agent frontmatter
 
-In `.agents/agents/hatch3r-implementer.md`:
+In the canonical `agents/hatch3r-implementer.md` (bundled content):
 
 ```yaml
 ---
@@ -116,7 +116,7 @@ Override at any higher precedence level:
 
 ### Cross-Platform Override
 
-Built-in defaults resolve to Anthropic model IDs. On platforms that only support their own models (Codex CLI, Gemini CLI), set a project-wide override:
+Built-in defaults resolve to Anthropic model IDs. Cursor and Copilot can also drive non-Anthropic providers (e.g. OpenAI GPT models) — to run hatch3r agents on those, set a project-wide override:
 
 ```json
 {
@@ -136,13 +136,7 @@ Built-in defaults resolve to Anthropic model IDs. On platforms that only support
 |----------|:--------------:|-------------------|
 | Cursor | Yes | `model:` in agent YAML frontmatter |
 | Copilot | Yes (VS Code) | `model:` in agent YAML; ignored on github.com |
-| OpenCode | Yes | `model: provider/id` in agent config |
-| Codex | Yes | `model = "id"` in TOML |
 | Claude Code | No | Guidance: `/model` command and env var |
-| Cline/Roo | No | Guidance in role definition |
-| Gemini | No | Guidance in GEMINI.md |
-| Windsurf | No | Guidance in .windsurfrules |
-| Amp | No | Guidance in .amp/AGENTS.md |
 
 - **Native config** -- the tool can apply the model directly
 - **Guidance** -- the model is included as instructional text; users set it manually

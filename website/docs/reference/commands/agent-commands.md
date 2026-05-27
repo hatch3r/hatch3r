@@ -79,7 +79,7 @@ Plan a database or system migration with backward-compatible schema changes, ide
 
 ### test-plan
 
-Plan a comprehensive test strategy for a feature, module, or codebase area. Spawns parallel researchers (coverage analysis, complexity & risk mapping, test pattern extraction, boundary analysis, risk-based prioritization). Produces a test plan spec with coverage targets, strategy matrix, prioritized test case outlines, and `todo.md` entries. Supports feature-scoped planning (often chained from `feature-plan`) and module/codebase-level coverage auditing. Optionally chains to `hatch3r-test-writer` for immediate implementation or `hatch3r-board-fill` for issue creation.
+Plan a test strategy for a feature, module, or codebase area across coverage, risk, and boundary dimensions. Spawns parallel researchers (coverage analysis, complexity & risk mapping, test pattern extraction, boundary analysis, risk-based prioritization). Produces a test plan spec with coverage targets, strategy matrix, prioritized test case outlines, and `todo.md` entries. Supports feature-scoped planning (often chained from `feature-plan`) and module/codebase-level coverage auditing. Optionally chains to `hatch3r-test-writer` for immediate implementation or `hatch3r-board-fill` for issue creation.
 
 ## Quality Commands
 
@@ -141,7 +141,7 @@ Read all open PR comments (inline + review summary + general discussion) across 
 
 ### handoff
 
-Added in 1.7.5 (Slice 1 of 3). Capture mid-work session state into a tool-agnostic handoff artifact under `.agents/handoffs/active/<id>.md` so any of the 15 supported coding tools can resume the work cleanly later — same tool, different tool, same developer, different developer.
+Added in 1.7.5 (Slice 1 of 3). Capture mid-work session state into a tool-agnostic handoff artifact under `.hatch3r/handoffs/active/<id>.md` so any of the 3 supported coding tools (Cursor, Claude Code, Copilot) can resume the work cleanly later — same tool, different tool, same developer, different developer.
 
 ```
 /hatch3r-handoff prepare           # capture current session state into a new handoff
@@ -177,11 +177,11 @@ Create and manage composable workflow recipes that chain commands and skills.
 
 ### create
 
-Author a new user-tier artifact (agent, skill, rule, command, or hook) for this project. Collects type, name, description, tags, adapter scope, and type-specific fields, then delegates to `hatch3r-creator` to compose frontmatter + body skeleton, run the strict + gentle gate funnel, and atomic-write the file under `.agents/user/{type}/`.
+Author a new user-tier artifact (agent, skill, rule, command, or hook) for this project. Collects type, name, description, tags, adapter scope, and type-specific fields, then delegates to `hatch3r-creator` to compose frontmatter + body skeleton, run the strict + gentle gate funnel, and atomic-write the file under `.hatch3r/overrides/{type}/`.
 
 When to use: you need a project-specific artifact that does not exist in the canonical hatch3r corpus, and you want it preserved across `hatch3r update` and `hatch3r clean`.
 
-Outputs: one new file under `.agents/user/{type}/{name}.md` (rules also write a paired `.mdc`; skills create a `{name}/SKILL.md` subdirectory). Run `hatch3r sync` afterward to propagate the artifact to all enabled adapter outputs.
+Outputs: one new file under `.hatch3r/overrides/{type}/{name}.md` (rules also write a paired `.mdc`; skills create a `{name}/SKILL.md` subdirectory). Run `hatch3r sync` afterward to propagate the artifact to all enabled adapter outputs.
 
 ### agent-customize
 

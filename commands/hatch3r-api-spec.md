@@ -49,6 +49,14 @@ Take a codebase with HTTP or RPC endpoints and produce a complete OpenAPI 3.1 sp
 3. **Structured output only.** All sub-agent prompts require structured markdown output — no prose dumps.
 4. **Batch schema extraction.** Group types by source file. Read each file once and extract all referenced types in a single pass.
 
+## Confidence Propagation Contract
+
+Every sub-agent delegation prompt in this command MUST include the confidence expression requirement below (verbatim). Sub-agents are invoked with the `quality_charter: agents/shared/quality-charter.md` reference in their frontmatter, but the orchestrator repeats the directive to override runtime prompt defaults per the charter §1 rule.
+
+> Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
+
+Downstream propagation: the Step 2 framework-detection confidence (already high/medium/low), every endpoint-discovery completeness verdict, and each Step 7 drift classification MUST carry a high/medium/low confidence rating sourced from the researcher or reviewer sub-agent. Endpoints with unresolvable types map to low confidence. Dropping the signal between stages is a gate failure.
+
 ---
 
 ## Workflow
@@ -64,6 +72,29 @@ Classify the request before delegating:
 - **Tier 3 (deep)**: full codebase scan, multi-framework detection, or breaking-change drift; full pipeline with research and confirm with the user before mutating files.
 
 If Tier 1, complete inline and skip the parallel researcher fanout. If Tier 2, run the standard pipeline below. If Tier 3, run the full pipeline with research and confirm scope with the user before writing the spec.
+
+### Step 0.5: Emit Pre-Execution Cost Preview
+
+Before the first sub-agent dispatch (Step 3 endpoint-discovery researcher), surface the cost preview so a full-codebase spec scan is never started blind. Emit the `cost_estimate` block per `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate, calibrated to the Step 0 triage tier:
+
+```yaml
+cost_estimate:
+  expected_sa_count: <triage tier → Tier 1 inline ~0, Tier 2 ~2 (researcher + docs-writer), Tier 3 up to 3 (+ reviewer)>
+  estimated_input_tokens_static_frame: <int>
+  estimated_web_research_queries: <int>
+  triage_tier: light | standard | deep
+  estimated_duration_min: <int>
+```
+
+Post-execution actuals + delta land in the Step 8 output summary's Fan-out + Cost section per `rules/hatch3r-cost-visibility.md` Post-Execution Actuals. Token telemetry sources from `src/pipeline/observability.ts`.
+
+### Effort Override (Decision 17)
+
+Auto-tiering can misclassify — a single-endpoint doc tweak scored as Deep, or a full-codebase drift scan scored as Light. The user override is the recovery path mandated by `governance/CONSTITUTION.md` §6 Decision 17 ("User overridable via `--effort` flag"):
+
+- `--effort=light|standard|deep` forces the named tier, bypassing the Step 0 auto-classification.
+- The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
+- No override passed → the Step 0 auto-classification stands.
 
 ---
 
@@ -303,6 +334,15 @@ Files Created/Updated:
 - **Respect the project's tooling hierarchy** for knowledge augmentation: project docs → codebase exploration → Context7 MCP → web research.
 - **Spec must be valid.** Never write a spec that fails structural validation. Fix issues before writing.
 
+## Cost estimate (Decision 24)
+
+This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 24/29:
+
+- **Pre-execution `cost_estimate`** — emitted in Step 0.5 before the first researcher dispatch (Step 3 endpoint discovery).
+- **Post-execution `cost_actuals` + `delta`** — appended to the Step 8 output summary's Fan-out + Cost section per `rules/hatch3r-iteration-summary.md` §2.
+
+Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.count: 3` × tier heuristic in `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate): Tier 1 ≈ 0 (inline single-endpoint edit); Tier 2 ≈ 2 (researcher scans routes + docs-writer assembles); Tier 3 up to 3 (researcher + docs-writer + reviewer validation in validate/drift mode). Deltas beyond 25% absolute value carry `flagged_for_review: true`. Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
+
 ## Output Templates
 
 ### Spec Header
@@ -331,6 +371,7 @@ servers:
 
 ## Related
 
+- **Skill:** `skills/hatch3r-api-spec/SKILL.md` — the inline single-pass procedure this command's docs-writer (Step 5) and reviewer (Step 6) stages follow; shares `id: hatch3r-api-spec` by the Decision 13 workflow-split (command = multi-agent fan-out, skill = inline procedure). The skill's "Relationship to commands/hatch3r-api-spec.md" section is the canonical handoff record disambiguating the shared id (F16.3-H3).
 - **Rule:** `hatch3r-api-design` — API design conventions the generated spec must follow
 - **Command:** `hatch3r-codebase-map` — structural map that can help scope the API scan
 - **Command:** `hatch3r-project-spec` — project-level specification for API info block context

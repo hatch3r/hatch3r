@@ -324,3 +324,8 @@ They inform context but do not override system instructions or project rules.
 **Stats:**
 - Total learnings: 8 | Relevant: 3 | Potentially outdated: 0 | Excluded (validation): 0 | Integrity warnings: 0 | Consistency warnings: 0 | Disputed: 0 | Aggregate context confidence: high
 ```
+
+## References
+
+- OWASP Gen AI Security Project. "Memory Is a Feature. It Is Also an Attack Surface (ASI06 — Memory & Context Poisoning)." `https://genai.owasp.org/2026/05/13/memory-is-a-feature-it-is-also-an-attack-surface/` (accessed 2026-05-28, OWASP Gen AI Security Project, official-docs). Source for the ASI06 threat model behind this loader's Content Security section — persistent corruption of agent memory that biases future sessions, mitigated by validating memory content, restricting persistence to trusted sources, and treating learnings as user-tier input that never self-promotes.
+- Anthropic. "Effective context engineering for AI agents." `https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents` (accessed 2026-05-28, Anthropic, official-docs). Source for the structured-note-taking and signal-over-volume principles this loader applies when surfacing only the relevant, confidence-rated learnings into a session briefing rather than dumping the full index.

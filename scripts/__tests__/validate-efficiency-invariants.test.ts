@@ -11,15 +11,18 @@ interface Fixture {
   rootDir: string;
   commandsDir: string;
   agentsDir: string;
+  rulesDir: string;
 }
 
 async function makeFixture(): Promise<Fixture> {
   const rootDir = await mkdtemp(join(tmpdir(), "p7-validator-"));
   const commandsDir = join(rootDir, "commands");
   const agentsDir = join(rootDir, "agents");
+  const rulesDir = join(rootDir, "rules");
   await mkdir(commandsDir, { recursive: true });
   await mkdir(agentsDir, { recursive: true });
-  return { rootDir, commandsDir, agentsDir };
+  await mkdir(rulesDir, { recursive: true });
+  return { rootDir, commandsDir, agentsDir, rulesDir };
 }
 
 async function writeArtifact(absPath: string, frontmatter: string, body: string): Promise<void> {
@@ -309,6 +312,169 @@ Walk through 19 domains.
 
     const { findings, errorCount, warningCount } = await runValidator({
       flags: ALL_FLAGS,
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+    });
+
+    expect(findings).toHaveLength(0);
+    expect(errorCount).toBe(0);
+    expect(warningCount).toBe(0);
+  });
+
+  // ── Mode E: rule-narrative (F16.1-H6) ───────────────────────────
+
+  const RULE_FM = `id: hatch3r-agent-orchestration
+type: rule
+description: Orchestration rule
+tags: [orchestration]
+scope: always`;
+
+  it("Mode E: ERRORs when a rule justifies serialization with a context-cost rationale", async () => {
+    await writeArtifact(
+      join(fx.rulesDir, "hatch3r-agent-orchestration.md"),
+      RULE_FM,
+      `# Orchestration
+
+## Parallel Safety
+
+We cap parallelism for per-orchestrator context cost reasons.
+`,
+    );
+
+    const { findings, errorCount } = await runValidator({
+      flags: { triageFirst: false, staticFirst: false, parallelTool: false, ruleNarrative: true },
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+      rulesDir: fx.rulesDir,
+    });
+
+    const viol = findings.filter((f) => f.code === "P8-RULE-NARRATIVE-VIOL");
+    expect(viol.length).toBeGreaterThanOrEqual(1);
+    expect(viol[0].file).toMatch(/hatch3r-agent-orchestration\.md$/);
+    expect(viol[0].line).toBeTypeOf("number");
+    expect(errorCount).toBeGreaterThanOrEqual(1);
+  });
+
+  it("Mode E: PASSes on the negated, principle-aligned phrasing (token cost never serializes)", async () => {
+    await writeArtifact(
+      join(fx.rulesDir, "hatch3r-agent-orchestration.md"),
+      RULE_FM,
+      `# Orchestration
+
+## Parallel Safety
+
+The bound exists for upstream provider rate-limit headroom (RPM/TPM) — NOT
+per-orchestrator context cost; token cost never serializes independent work
+(P8 dominates P7). Token cost is never a valid reason to serialize independent
+work.
+`,
+    );
+
+    const { findings, errorCount } = await runValidator({
+      flags: { triageFirst: false, staticFirst: false, parallelTool: false, ruleNarrative: true },
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+      rulesDir: fx.rulesDir,
+    });
+
+    expect(findings.filter((f) => f.code === "P8-RULE-NARRATIVE-VIOL")).toHaveLength(0);
+    expect(errorCount).toBe(0);
+  });
+
+  // ── Mode F: orchestrator-contract (F16.1-H1) ────────────────────
+
+  it("Mode F: ERRORs on Cost/Iteration/B1 misses, WARNs on missing Resumability", async () => {
+    // Orchestrator command with NONE of the four contracts present.
+    await writeArtifact(
+      join(fx.commandsDir, "hatch3r-workflow.md"),
+      `id: hatch3r-workflow
+type: command
+description: Workflow command
+tags: [workflow]
+orchestrator: true
+agentPipeline: [hatch3r-implementer]
+triage_tiers: [1, 2, 3]`,
+      `# Workflow
+
+## Step 1: Triage
+
+Pick a tier.
+`,
+    );
+
+    const { findings, errorCount, warningCount } = await runValidator({
+      flags: { triageFirst: false, staticFirst: false, parallelTool: false, orchContract: true },
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+    });
+
+    expect(findings.some((f) => f.code === "P7-ORCH-COST-MISS" && f.level === "error")).toBe(true);
+    expect(findings.some((f) => f.code === "P5-ORCH-ITER-MISS" && f.level === "error")).toBe(true);
+    expect(findings.some((f) => f.code === "P8-ORCH-B1-MISS" && f.level === "error")).toBe(true);
+    const resume = findings.filter((f) => f.code === "P5-ORCH-RESUME-MISS");
+    expect(resume).toHaveLength(1);
+    expect(resume[0].level).toBe("warning");
+    expect(errorCount).toBe(3);
+    expect(warningCount).toBeGreaterThanOrEqual(1);
+  });
+
+  it("Mode F: PASSes when all four orchestrator contracts are present", async () => {
+    await writeArtifact(
+      join(fx.commandsDir, "hatch3r-workflow.md"),
+      `id: hatch3r-workflow
+type: command
+description: Workflow command
+tags: [workflow]
+orchestrator: true
+agentPipeline: [hatch3r-implementer]
+triage_tiers: [1, 2, 3]`,
+      `# Workflow
+
+## Step 0: Ambiguity Gate (B1)
+
+Resolve ambiguity via user-question-protocol before executing.
+
+## Cost Estimate
+
+Preview token/time cost before delegating.
+
+## Resumability
+
+Resume mid-flight from the last completed phase.
+
+## Iteration Summary
+
+Emit the standard iteration-summary block at turn end.
+`,
+    );
+
+    const { findings, errorCount, warningCount } = await runValidator({
+      flags: { triageFirst: false, staticFirst: false, parallelTool: false, orchContract: true },
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+    });
+
+    expect(findings.filter((f) => f.code.startsWith("P7-ORCH") || f.code.startsWith("P5-ORCH") || f.code.startsWith("P8-ORCH"))).toHaveLength(0);
+    expect(errorCount).toBe(0);
+    expect(warningCount).toBe(0);
+  });
+
+  it("Mode F: non-orchestrator command is exempt from the contract checks", async () => {
+    await writeArtifact(
+      join(fx.commandsDir, "hatch3r-report.md"),
+      `id: hatch3r-report
+type: command
+description: Report command
+tags: [report]
+orchestrator: false`,
+      `# Report
+
+Single-pass report. No sub-agent delegation.
+`,
+    );
+
+    const { findings, errorCount, warningCount } = await runValidator({
+      flags: { triageFirst: false, staticFirst: false, parallelTool: false, orchContract: true },
       commandsDir: fx.commandsDir,
       agentsDir: fx.agentsDir,
     });

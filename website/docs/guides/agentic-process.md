@@ -20,11 +20,11 @@ flowchart LR
     A["npx hatch3r init"]:::accent --> B["Detect repo\n(git remote)"]
     B --> B2["Project context\n(greenfield/brownfield,\nsolo/team)"]
     B2 --> B3["Content profile\n(minimal/standard/full/custom)"]
-    B3 --> C["Select tools\n(Cursor, Copilot, Claude, ...)"]
+    B3 --> C["Select tools\n(Cursor, Copilot, Claude Code)"]
     C --> D["Select MCP servers\n(GitHub, Brave, ...)"]
-    D --> E["Copy selected content\nto .agents/"]
+    D --> E["Resolve selection\n(bundled content\n+ .hatch3r/overrides)"]
     E --> F["Run adapters"]:::accent
-    F --> G[".cursor/\n.github/\nCLAUDE.md\n.windsurfrules\n..."]:::output
+    F --> G[".cursor/\n.github/\nCLAUDE.md"]:::output
     F --> H[".env.mcp\n(secrets template)"]:::output
 ```
 
@@ -38,42 +38,32 @@ flowchart TB
     classDef accent fill:#0f3460,stroke:#4ecdc4,color:#fff
     classDef output fill:#16213e,stroke:#3aafa9,color:#e0e0e0
 
-    subgraph canonical[".agents/ (canonical source, selectively installed)"]
+    subgraph canonical["Bundled npm package (canonical source) + .hatch3r/ (your repo)"]
         agents["agents/\nAgent definitions"]
         skills["skills/\nSkill bundles"]
         rules["rules/\nRule files"]
         commands["commands/\nCommand workflows"]
-        mcp["mcp/\nMCP server config"]
-        prompts["prompts/\nReusable templates"]
         hooks["hooks/\nEvent triggers"]
-        manifest["hatch.json\nProject manifest\n+ content selection"]
+        checks["checks/\nReview criteria"]
+        manifest[".hatch3r/hatch.json\nManifest + selection;\noverrides/ + mcp/mcp.json"]
     end
 
-    subgraph adapters["Adapter Layer"]
+    subgraph adapters["Adapter Layer (3)"]
         cursor_a["Cursor adapter"]:::accent
         copilot_a["Copilot adapter"]:::accent
         claude_a["Claude adapter"]:::accent
-        opencode_a["OpenCode adapter"]:::accent
-        windsurf_a["Windsurf adapter"]:::accent
-        others_a["+ 8 more adapters"]:::accent
     end
 
     subgraph outputs["Generated Outputs"]
         cursor_o[".cursor/\nrules, agents, skills,\ncommands, mcp.json"]:::output
         copilot_o[".github/\ninstructions, agents,\nprompts, mcp.json"]:::output
         claude_o["CLAUDE.md\n.mcp.json\n.claude/"]:::output
-        opencode_o["opencode.json\n.opencode/"]:::output
-        windsurf_o[".windsurfrules\n.windsurf/"]:::output
-        others_o["AGENTS.md, GEMINI.md,\n.clinerules, ..."]:::output
     end
 
     canonical --> adapters
     cursor_a --> cursor_o
     copilot_a --> copilot_o
     claude_a --> claude_o
-    opencode_a --> opencode_o
-    windsurf_a --> windsurf_o
-    others_a --> others_o
 ```
 
 ## Board Workflow

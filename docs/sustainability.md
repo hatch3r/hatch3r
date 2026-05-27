@@ -6,7 +6,7 @@
 
 hatch3r is maintained by volunteer contributors and sponsor-funded labor. It is not monetized, has no paid plan, and is not on a roadmap toward monetization (see [`docs/license-rationale.md`](./license-rationale.md) for the licensing stance). This document records the structural reasons the project expects to remain maintainable under that model.
 
-The short version: hatch3r's quality is enforced by an automated 21-domain audit cycle that runs against the codebase itself. Maintenance work is therefore findable, scopeable, and parallelizable across one-shot contributors — not gated on a single maintainer's continuous attention.
+The short version: hatch3r's quality is enforced by an automated 24-domain audit cycle that runs against the codebase itself. Maintenance work is therefore findable, scopeable, and parallelizable across one-shot contributors — not gated on a single maintainer's continuous attention.
 
 ## Funding model
 
@@ -25,7 +25,7 @@ Many open-source projects collapse when the lead maintainer's attention drops be
 
 ### 1. The audit cycle replaces continuous maintainer attention
 
-The framework's primary quality mechanism is the audit cycle defined in [`governance/AUDIT.md`](../governance/AUDIT.md) and executed via [`governance/AUDIT-EXECUTE.md`](../governance/AUDIT-EXECUTE.md). One cycle deploys 121 sub-agents across 21 domains and produces a structured `AUDIT-REPORT.md` with severity-tagged findings. Execution follows a 4-wave progression (Critical → High → Medium → Low) with 18-check regression gates between waves.
+The framework's primary quality mechanism is the audit cycle defined in [`governance/AUDIT.md`](../governance/AUDIT.md) and executed via [`governance/AUDIT-EXECUTE.md`](../governance/AUDIT-EXECUTE.md). One cycle deploys 124 sub-agents across 24 domains and produces a structured `AUDIT-REPORT.md` with severity-tagged findings. Execution follows a 4-wave progression (Critical → High → Medium → Low) with 18-check regression gates between waves.
 
 Practical consequence: a single async contributor can pick up a single finding (one work-unit), implement it under the implementation sub-agent template, run the regression gate, and ship the result — without coordinating with the maintainer in real time. The audit cycle does the prioritization, scoping, and acceptance criteria up front. Contribution latency is bounded by the contributor's available hours, not by the maintainer's.
 
@@ -46,19 +46,19 @@ These thresholds are enforced by `npm run inventory` (which regenerates `governa
 
 ### 3. Canonical-source separation isolates platform churn
 
-hatch3r maintains a strict split between canonical content (under `agents/`, `skills/`, `rules/`, `commands/`, `hooks/` — the source of truth) and adapter output (generated per platform under `.cursor/`, `CLAUDE.md`, `.github/`, etc.). All 15 platform adapters consume the same canonical source and produce platform-native output via the contract in `src/adapters/base.ts`.
+hatch3r maintains a strict split between canonical content (under `agents/`, `skills/`, `rules/`, `commands/`, `hooks/` — the source of truth) and adapter output (generated per platform under `.cursor/`, `CLAUDE.md`, `.github/`, etc.). All 3 platform adapters consume the same canonical source and produce platform-native output via the contract in `src/adapters/base.ts`.
 
-Practical consequence: when Claude Code, Cursor, or any of the other 13 supported platforms ships a breaking change, the fix lives in exactly one adapter file under `src/adapters/`. Canonical content is unchanged. Contributors with no exposure to the broader framework can land an adapter fix in a single PR. This is the basis for the "currency" pillar (P3, see [`governance/CONSTITUTION.md`](../governance/CONSTITUTION.md) §2 P3) which requires each adapter, CLI tool, and MCP server to be web-research-verified against vendor documentation each audit cycle.
+Practical consequence: when Claude Code, Cursor, or the remaining supported platform ships a breaking change, the fix lives in exactly one adapter file under `src/adapters/`. Canonical content is unchanged. Contributors with no exposure to the broader framework can land an adapter fix in a single PR. This is the basis for the "currency" pillar (P3, see [`governance/CONSTITUTION.md`](../governance/CONSTITUTION.md) §2 P3) which requires each adapter, CLI tool, and MCP server to be web-research-verified against vendor documentation each audit cycle.
 
 ### 4. Frozen contracts at module boundaries
 
 Critical modules carry stricter test-coverage thresholds in `vitest.config.ts`:
 
-- `src/merge/` and `src/integrity/`: 90% statements, 80% branches, 90% functions, 90% lines
+- `src/merge/`: 90% statements, 80% branches, 90% functions, 90% lines
 - `src/content/` and `src/adapters/customization.ts`: 85/75/85/85
 - Global floor: 78/65/80/80
 
-Combined with the managed-block contract (`HATCH3R:BEGIN` / `HATCH3R:END` markers preserve user content across regenerations, per `src/merge/managedBlocks.ts`) and the SHA-256 per-file integrity model (`src/integrity/index.ts`), these contracts mean a refactor of one subsystem cannot silently corrupt downstream behavior. The test suite catches it before merge.
+Combined with the managed-block contract (`HATCH3R:BEGIN` / `HATCH3R:END` markers preserve user content across regenerations, per `src/merge/managedBlocks.ts`) and the regenerate-and-diff drift model (`hatch3r status` / `hatch3r verify` regenerate adapter outputs from bundled content and compare against the on-disk copy — no `.integrity.json` checksum file), these contracts mean a refactor of one subsystem cannot silently corrupt downstream behavior. The test suite catches it before merge.
 
 ## Contributor pipeline
 
@@ -96,6 +96,6 @@ There is no "premium tier" of contribution; all four paths land in the same MIT-
 - [`docs/license-rationale.md`](./license-rationale.md) — why MIT and the explicit anti-monetization signal
 - [`governance/VISION.md`](../governance/VISION.md) §The Closed Loop — audit cycle as continuous quality mechanism
 - [`governance/CONSTITUTION.md`](../governance/CONSTITUTION.md) §2 P4 / P5 — lean coverage and governance self-quality pillars
-- [`governance/AUDIT.md`](../governance/AUDIT.md) — audit prompt: 21 domains, 121 sub-agents
+- [`governance/AUDIT.md`](../governance/AUDIT.md) — audit prompt: 24 domains, 124 sub-agents
 - [`governance/AUDIT-EXECUTE.md`](../governance/AUDIT-EXECUTE.md) — 4-wave execution model with regression gates
 - [`CONTRIBUTING.md`](../CONTRIBUTING.md) — DCO sign-off, commit conventions

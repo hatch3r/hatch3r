@@ -12,7 +12,9 @@ Canonical reference for the body and frontmatter shapes `hatch3r-creator` produc
 
 ### 1. Agent Skeleton
 
-**Path:** `.hatch3r/overrides/agents/<NAME>.md`. **Required:** `id`, `description`, `model`, `tags`. **Optional:** `protected` (always `false` for user agents), `quality_charter` (auto-injected), `adapters` (restricts adapter propagation when present).
+**Path:** `.hatch3r/overrides/agents/<NAME>.md`. **Required:** `id`, `description`, `model`, `tags`. **Optional:** `protected` (always `false` for user agents), `quality_charter` (auto-injected), `adapters` (restricts adapter propagation when present), `tools` (per-agent allow/deny allowlist — when `tools.allow` cardinality exceeds 3, a **Security baseline:** body reference is required, see below).
+
+**Security baseline (tool-grant inheritance).** A user agent that grants more than 3 tools in `tools.allow` MUST cite `rules/hatch3r-security-patterns.md` in a `**Security baseline:**` body line and inherit its deny-by-default posture (no unscoped `Bash`, no destructive subcommands, secrets via `${env:VAR}` only). `hatch3r-creator` surfaces a gentle warning when a wide `tools.allow` ships without this citation; at maturity tier `team`/`scaleup`/`enterprise` the warning is promoted to a strict gate per F20.2.A1's tier-aware floor (gate path: `src/content/userContent.ts`). Without this slot a broad tool grant is an unbounded-grant risk (audit Cycle 10 F20.2.A3).
 
 ```yaml
 ---
@@ -54,6 +56,7 @@ Prompt structure follows `agents/shared/prompt-structure.md` — `<task>`, `<con
 ## Boundaries
 - **Always:** <ALWAYS-1>
 - **Never:** <NEVER-1>
+- **Security baseline:** inherits `rules/hatch3r-security-patterns.md` (deny-by-default tools, no destructive subcommands, secrets via `${env:VAR}`). Required line when `tools.allow` grants more than 3 tools.
 </rules>
 
 ## Confidence Expression
@@ -245,7 +248,7 @@ The strict gate `validateCommandOrchestratorFrontmatter` (`src/cli/commands/vali
 
 ### 5. Hook Skeleton
 
-**Path:** `.hatch3r/overrides/hooks/<NAME>.md`. **Required:** `id`, `type`, `event`, `agent`, `description`, `tags`. **Optional:** `globs` (file-save filtering), `condition`, `quality_charter` (auto-injected). **Event enum:** `pre-commit | post-merge | ci-failure | file-save | session-start | pre-push`, enforced by `isValidHookEvent` (`src/hooks/types.ts:30`).
+**Path:** `.hatch3r/overrides/hooks/<NAME>.md`. **Required:** `id`, `type`, `event`, `agent`, `description`, `tags`. **Optional:** `globs` (file-save filtering), `condition`, `quality_charter` (auto-injected). **Event enum:** `pre-commit | post-merge | ci-failure | file-save | session-start | pre-push | worktree-create | worktree-remove` (8 values), enforced by `isValidHookEvent` (`src/hooks/types.ts:30`).
 
 ```yaml
 ---

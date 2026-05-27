@@ -1532,9 +1532,16 @@ export async function initCommand(
               const estimated = p.id !== "custom" ? estimatePresetItemCount(p, projectType2, teamSize2, filterIndex, projectLanguages) : 0;
               const countHint = estimated > 0 ? ` (~${estimated} items)` : "";
               const suffix = excluded > 0 ? ` (excludes ${excluded} of ${totalItems})` : "";
+              // F10.6-1 (D10): name WHAT each preset drops, not just a count, so
+              // a user picking "Standard" sees it omits AI + performance before
+              // committing. `p.omits` is the audited cluster list from presets.ts.
+              // Optional-chain so a preset (or test mock) without the field
+              // renders no omit line rather than throwing.
+              const omitLine = p.omits?.length ? `omits: ${p.omits.join(", ")}` : undefined;
               return {
                 name: `${p.name} — ${p.description}${countHint}${suffix}`,
                 value: p.id,
+                description: omitLine,
               };
             }),
             default: previous ?? ("standard" as PresetId),
@@ -1991,9 +1998,14 @@ async function runWorkspaceInit(
                 const wsEstimated = p.id !== "custom" ? estimatePresetItemCount(p, pt, ts, wsFilterIndex, projectLanguages) : 0;
                 const wsCountHint = wsEstimated > 0 ? ` (~${wsEstimated} items)` : "";
                 const suffix = excluded > 0 ? ` (excludes ${excluded} of ${wsTotalItems})` : "";
+                // F10.6-1 (D10): name the omitted capability clusters (not just a
+                // count) so the workspace operator sees what each preset drops.
+                // Optional-chain to tolerate a preset (or test mock) lacking it.
+                const omitLine = p.omits?.length ? `omits: ${p.omits.join(", ")}` : undefined;
                 return {
                   name: `${p.name} — ${p.description}${wsCountHint}${suffix}`,
                   value: p.id,
+                  description: omitLine,
                 };
               }),
               default: previous ?? ("standard" as PresetId),

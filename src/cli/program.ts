@@ -108,7 +108,7 @@ export function createProgram(): Command {
     .description("Pull latest hatch3r templates with safe merge (preserves customizations)")
     .option("--yes", "Skip interactive prompts, use defaults")
     .option("--diff", "Show a before/after diff summary for each generated file")
-    .option("--force", "Override the preflight integrity check and proceed despite drift")
+    .option("--force", "Overwrite hatch3r-prefixed managed files even if their HATCH3R:BEGIN/END markers were stripped (same contract as `hatch3r sync --force`)")
     .option("--offline, --skip-fetch", "Skip the package fetch step; regenerate only from already-installed canonical content")
     .option("--dry-run", "Preview what would change (added/modified/unchanged per adapter) without writing files")
     .option("--skip-audit-signatures", "EMERGENCY OVERRIDE: skip `npm audit signatures` verification on the freshly-fetched package. Default is to refuse update on signature failure.")
@@ -268,9 +268,10 @@ export function createProgram(): Command {
   // exclusive and the action validates that exactly one is provided.
   program
     .command("explain")
-    .description("Explain a hatch3r command's cost model OR the customization-applied state")
+    .description("Explain a hatch3r command's cost model, the customization-applied state, OR a generated file's canonical sources")
     .option("--cost <command-id>", "Command id to explain (e.g. hatch3r-quick-change, quick-change)")
     .option("--customizations", "List every .customize.yaml/.customize.md pair with applied state and reasons")
+    .option("--source [output-path]", "Show the canonical source files behind a generated output (e.g. CLAUDE.md); omit the path or pass `all` to list every recorded output")
     .option("--input-rate <usd-per-1m>", "Override input rate in USD per 1M tokens (--cost only)")
     .option("--output-rate <usd-per-1m>", "Override output rate in USD per 1M tokens (--cost only)")
     .option("--verbose", "Show detailed output")

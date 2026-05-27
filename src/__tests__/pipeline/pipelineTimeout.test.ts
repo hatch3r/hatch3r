@@ -9,6 +9,8 @@ import {
   markPhaseSkipped,
   terminatePipeline,
   pipelineProgressSummary,
+  runWithPipelineDeadman,
+  PipelineTimeoutError,
   DEFAULT_PIPELINE_TIMEOUT_MS,
   MIN_PIPELINE_TIMEOUT_MS,
   MAX_PIPELINE_TIMEOUT_MS,
@@ -228,6 +230,86 @@ describe("pipelineTimeout", () => {
       state = markPhaseCompleted(markPhaseStarted(state, "merge"), "merge", 500);
       const summary = pipelineProgressSummary(state);
       expect(summary).toContain("2/3 completed");
+    });
+  });
+
+  // F8.3.4: top-level deadman timer that fires on wall-clock time even when an
+  // inner phase hangs without yielding back to the post-loop timeout check.
+  describe("runWithPipelineDeadman (F8.3.4)", () => {
+    it("returns the body result when the body resolves before the deadman", async () => {
+      const result = await runWithPipelineDeadman(async () => 42);
+      expect(result).toBe(42);
+    });
+
+    it("passes a non-aborted AbortSignal to the body on the happy path", async () => {
+      let observed: AbortSignal | undefined;
+      const result = await runWithPipelineDeadman(async (signal) => {
+        observed = signal;
+        return "ok";
+      });
+      expect(result).toBe("ok");
+      expect(observed).toBeInstanceOf(AbortSignal);
+      expect(observed?.aborted).toBe(false);
+    });
+
+    it("propagates a body rejection unchanged (deadman does not mask it)", async () => {
+      await expect(
+        runWithPipelineDeadman(async () => {
+          throw new Error("body failed");
+        }),
+      ).rejects.toThrow("body failed");
+    });
+
+    it("rejects with PipelineTimeoutError and aborts the signal when the budget elapses", async () => {
+      vi.useFakeTimers();
+      try {
+        let abortedDuringRun = false;
+        const promise = runWithPipelineDeadman((signal) => {
+          // A body that never resolves on its own — only the deadman can end it.
+          return new Promise<never>((_resolve, reject) => {
+            signal.addEventListener("abort", () => {
+              abortedDuringRun = true;
+              reject(new PipelineTimeoutError(MIN_PIPELINE_TIMEOUT_MS, MIN_PIPELINE_TIMEOUT_MS));
+            });
+          });
+        }, MIN_PIPELINE_TIMEOUT_MS);
+
+        // Attach the rejection expectation before advancing timers so the
+        // unhandled-rejection guard does not trip.
+        const assertion = expect(promise).rejects.toBeInstanceOf(PipelineTimeoutError);
+        await vi.advanceTimersByTimeAsync(MIN_PIPELINE_TIMEOUT_MS + 1);
+        await assertion;
+        expect(abortedDuringRun).toBe(true);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("clamps a sub-minimum budget up to MIN before arming the deadman", async () => {
+      vi.useFakeTimers();
+      try {
+        const promise = runWithPipelineDeadman(
+          () => new Promise<never>(() => {}),
+          10, // below MIN; clamps to MIN_PIPELINE_TIMEOUT_MS
+        );
+        const assertion = expect(promise).rejects.toBeInstanceOf(PipelineTimeoutError);
+        // Just under MIN: deadman must NOT have fired yet.
+        await vi.advanceTimersByTimeAsync(MIN_PIPELINE_TIMEOUT_MS - 1);
+        // Cross MIN: now it fires.
+        await vi.advanceTimersByTimeAsync(2);
+        await assertion;
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("PipelineTimeoutError carries the budget and elapsed time", () => {
+      const err = new PipelineTimeoutError(30_000, 31_000);
+      expect(err).toBeInstanceOf(Error);
+      expect(err.name).toBe("PipelineTimeoutError");
+      expect(err.timeoutMs).toBe(30_000);
+      expect(err.elapsedMs).toBe(31_000);
+      expect(err.message).toContain("deadman");
     });
   });
 });

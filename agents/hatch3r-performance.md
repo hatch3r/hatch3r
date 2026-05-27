@@ -12,6 +12,7 @@ efficiency_patterns: agents/shared/efficiency-patterns.md
 efficiency_tier: standard
 cache_friendly: true
 parallel_tool_default: true
+wall_clock_advisory_ms: 600000
 phase_4_trigger:
   mode: conditional
   conditions:
@@ -110,6 +111,8 @@ When auditing a service with frontend + backend + DB surfaces:
 
 **Cost-dominance (P8 B2).** Sub-agent count tracks surface count — never reduce below surface count to save tokens. Token cost of additional sub-agents is dominated by quality gain from independent specialist contexts. Serialization is only valid on dependency edges (aggregation runs after per-surface measurements) or on shared-resource contention (two Lighthouse runs against the same preview deployment skewing each other's timing). The `sub_agents_spawned` field in the output schema records the count and the per-surface rationale.
 
+**Wall-clock advisory (`specialist-eval` phase).** This agent runs under the `specialist-eval` phase budget (`src/pipeline/phaseTimeout.ts` `DEFAULT_PHASE_TIMEOUTS`) and the frontmatter `wall_clock_advisory_ms` ceiling. Lighthouse CI runs and load-test measurements are the longest sub-agents; if you observe yourself approaching the advisory before every surface is measured, return `status: FINDINGS` with the measured surfaces marked and the unmeasured surfaces listed under a `deferred:` note rather than exhausting the budget silently — a partial gate with a visible remainder beats a TIMEOUT with no result.
+
 ## Audit checklist
 
 Each item carries a named tool, a threshold, and a citation. Failing any item produces a finding sized to severity.
@@ -148,6 +151,8 @@ status: PASS | FINDINGS | CRITICAL
 ```
 
 `status: PASS` requires every checklist item green. `status: CRITICAL` is produced when any item shows a Critical-severity finding (e.g., p99 ≥2s on a checkout route, LCP ≥4s on a public landing page). `status: FINDINGS` covers the middle ground — Medium/High findings present, no Critical.
+
+**Severity vocabulary:** the `PASS | FINDINGS | CRITICAL` status maps to canonical audit severity via the **Specialist Status** column in `governance/audit/templates/severity-mapping.md` — `CRITICAL → Critical`, `FINDINGS → High + Medium`, `PASS → Low + Info`. Map through that table when escalating to `hatch3r-fixer` or feeding the release decision.
 
 ### Severity mapping for CQ7 findings
 

@@ -64,6 +64,23 @@ describe("complianceVerification", () => {
       expect(hashCheck!.status).toBe("pass");
     });
 
+    // F15.2-H2: the diff-hash-verify check must EARN its pass via a round-trip
+    // self-test, not the prior hard-coded tautology. Guard against regression
+    // to the old static string and assert the detail reflects the real check
+    // plus the truthful (agent-delegated) enforcement boundary.
+    it("diff-hash-verify is de-tautologized: pass is earned by a round-trip self-test", async () => {
+      const report = await runComplianceChecks();
+      const hashCheck = report.checks.find((c) => c.id === "diff-hash-verify");
+      expect(hashCheck).toBeDefined();
+      // The old tautological detail must be gone.
+      expect(hashCheck!.detail).not.toBe("SHA-256 diff hashing with disk verification enabled");
+      // The detail now describes the self-test and the agent-delegated boundary.
+      expect(hashCheck!.detail).toMatch(/round-trip self-test|tampered payload rejected/);
+      expect(hashCheck!.detail).toMatch(/agent-delegated|Reviewer re-run required/);
+      // The description names the self-test, not a generic "available" claim.
+      expect(hashCheck!.description).toMatch(/self-test|contract is intact/);
+    });
+
     it("should include least privilege check", async () => {
       const report = await runComplianceChecks();
       const lpCheck = report.checks.find((c) => c.id === "asi02-least-privilege");

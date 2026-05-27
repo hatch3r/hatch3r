@@ -5,7 +5,7 @@ title: Agents
 
 # Agents
 
-Specialized agents that handle distinct responsibilities in your development workflow. Each agent is defined in `.agents/agents/` and adapted to your coding tool's native format.
+Specialized agents that handle distinct responsibilities in your development workflow. Each agent is defined in the canonical `agents/` content (shipped in the bundled npm package) and adapted to your coding tool's native format.
 
 ## Agent Reference
 
@@ -15,7 +15,7 @@ Specialized agents that handle distinct responsibilities in your development wor
 | **architect** | Architecture design and ADR production. Evaluates system structure, proposes changes, and produces architecture decision records. |
 | **ci-watcher** | CI/CD specialist who monitors GitHub Actions runs, reads failure logs to identify root causes, and suggests focused fixes with local verification commands. |
 | **context-rules** | Dynamic context rule generation agent. Analyzes project patterns and automatically creates context-aware rules for improved agent performance. |
-| **creator** | User-content authoring agent invoked by `/hatch3r-create`. Authors one user-tier artifact (agent, skill, rule, command, or hook) under `.agents/user/`, runs strict and gentle quality gates via `saveUserContent`, and writes only when strict gates pass. |
+| **creator** | User-content authoring agent invoked by `/hatch3r-create`. Authors one user-tier artifact (agent, skill, rule, command, or hook) under `.hatch3r/overrides/`, runs strict and gentle quality gates via `saveUserContent`, and writes only when strict gates pass. |
 | **dependency-auditor** | Supply chain security analyst who scans for CVEs, evaluates upgrade paths, assesses bundle size impact, and verifies lockfile integrity. |
 | **devops** | CI/CD and deployment operations agent. Manages pipeline configuration, deployment scripts, infrastructure-as-code, and environment provisioning. |
 | **docs-writer** | Technical writer who maintains specs, ADRs, glossary, and process documentation, keeping them in sync with code changes. |
@@ -46,7 +46,7 @@ Agents without a default use the platform's own default. Override any agent's mo
 
 ## Canonical Location
 
-Agent definitions live in `.agents/agents/hatch3r-{id}.md` with YAML frontmatter:
+Agent definitions live in the canonical `agents/hatch3r-{id}.md` content (bundled npm package; user-tier overrides mirror this layout under `.hatch3r/overrides/agents/`) with YAML frontmatter:
 
 ```yaml
 ---
@@ -62,7 +62,7 @@ Override agent behavior per-project using `.hatch3r/agents/{id}.customize.yaml`.
 
 ## Agent Modes
 
-Modes are orchestration-depth profiles that `hatch3r-researcher` selects per task. Each mode constrains the researcher's output structure and tool usage to a single research dimension. Files live in `.agents/agents/modes/{mode}.md`.
+Modes are orchestration-depth profiles that `hatch3r-researcher` selects per task. Each mode constrains the researcher's output structure and tool usage to a single research dimension. Files live in the canonical `agents/modes/{mode}.md` content (bundled npm package).
 
 | Mode | Purpose | Used by |
 |------|---------|---------|
@@ -89,7 +89,7 @@ Modes are orchestration-depth profiles that `hatch3r-researcher` selects per tas
 
 ## Shared Agent Resources
 
-Reference documents under `.agents/agents/shared/` provide cross-agent canonical authority. Agents include them via frontmatter fields such as `quality_charter:` and `efficiency_patterns:` rather than copying content.
+Reference documents under the canonical `agents/shared/` content (bundled npm package) provide cross-agent canonical authority. Agents include them via frontmatter fields such as `quality_charter:` and `efficiency_patterns:` rather than copying content.
 
 | File | Purpose |
 |------|---------|
@@ -99,5 +99,5 @@ Reference documents under `.agents/agents/shared/` provide cross-agent canonical
 | `external-knowledge.md` | Tooling hierarchy for external lookups: specs first, then codebase, Context7 MCP, web research, and the platform CLI (`gh` / `az` / `glab`) for issue and PR operations. |
 | `injection-patterns.md` | Canonical catalog of prompt-injection patterns kept in lockstep with `src/pipeline/promptGuard.ts` and `src/content/learningsValidation.ts`. OWASP ASI01/ASI06/ASI07 coverage. |
 | `user-content-templates.md` | Body and frontmatter skeletons for the 5 user-authored content types (agent, skill, rule, command, hook). Consumed by `hatch3r-creator`. |
-| `user-question-protocol.md` | Protocol for surfacing clarifying questions across the 15 supported platforms: when to ask, native-tool preference, and plain-text fallback shape. |
+| `user-question-protocol.md` | Protocol for surfacing clarifying questions across the 3 supported platforms (Cursor, Claude Code, Copilot): when to ask, native-tool preference, and plain-text fallback shape. |
 

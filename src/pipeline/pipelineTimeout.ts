@@ -13,6 +13,31 @@ import type { PhaseName } from "./phaseTimeout.js";
 
 // ── Constants ────────────────────────────────────────────────────
 
+/**
+ * Error thrown by {@link runWithPipelineDeadman} when the overall pipeline
+ * budget elapses before the wrapped body resolves (F8.3.4 / D8).
+ *
+ * Distinct from a per-phase {@link import("./phaseTimeout.js")} timeout: this
+ * is the top-level deadman that fires even when an inner phase hangs without
+ * ever yielding back to the loop, which is the failure mode the post-loop
+ * {@link isPipelineTimedOut} check could not catch.
+ */
+export class PipelineTimeoutError extends Error {
+  /** The budget that elapsed, in milliseconds. */
+  readonly timeoutMs: number;
+  /** Elapsed wall-clock time when the deadman fired, in milliseconds. */
+  readonly elapsedMs: number;
+  constructor(timeoutMs: number, elapsedMs: number) {
+    super(
+      `Pipeline exceeded its ${Math.round(timeoutMs / 1000)}s deadman budget ` +
+        `(elapsed ${Math.round(elapsedMs / 1000)}s) and was aborted.`,
+    );
+    this.name = "PipelineTimeoutError";
+    this.timeoutMs = timeoutMs;
+    this.elapsedMs = elapsedMs;
+  }
+}
+
 /** Default maximum pipeline execution time in milliseconds (15 minutes). */
 export const DEFAULT_PIPELINE_TIMEOUT_MS = 15 * 60 * 1000;
 
@@ -73,6 +98,64 @@ export interface PipelineTerminationReport {
  */
 export function clampPipelineTimeout(timeoutMs: number): number {
   return Math.max(MIN_PIPELINE_TIMEOUT_MS, Math.min(timeoutMs, MAX_PIPELINE_TIMEOUT_MS));
+}
+
+/**
+ * Run a pipeline body under a top-level deadman timer (F8.3.4 / D8).
+ *
+ * Wraps `body` in `Promise.race([body, deadman])` where the deadman REJECTS
+ * with a {@link PipelineTimeoutError} once `timeoutMs` (clamped to the allowed
+ * range) elapses. Unlike the post-loop {@link isPipelineTimedOut} check — which
+ * is only consulted between loop iterations and therefore cannot interrupt a
+ * phase that hangs without yielding — this race fires on wall-clock time
+ * regardless of what the body is doing.
+ *
+ * An {@link AbortController} is signalled the moment the deadman fires so the
+ * body can observe `signal.aborted` (or attach an `abort` listener) and unwind
+ * cooperatively — e.g. abort an in-flight `executeWithPhaseTimeout(..., signal)`
+ * or a child process. The body receives the signal as its sole argument. The
+ * deadman timer is `unref()`-ed so it never keeps the Node event loop alive on
+ * its own, and is always cleared once the race settles (success or failure) so
+ * no dangling timer leaks.
+ *
+ * Resolution semantics:
+ *   - Body resolves first → its value is returned; the timer is cleared.
+ *   - Deadman fires first → rejects with {@link PipelineTimeoutError}; the
+ *     controller is aborted so the still-running body can stop.
+ *   - Body rejects first → that error propagates unchanged; the timer is
+ *     cleared.
+ *
+ * @param body       Receives an {@link AbortSignal}; returns the pipeline result.
+ * @param timeoutMs  Deadman budget; defaults to {@link DEFAULT_PIPELINE_TIMEOUT_MS}.
+ *                   Clamped to `[MIN_PIPELINE_TIMEOUT_MS, MAX_PIPELINE_TIMEOUT_MS]`.
+ * @param controller Optional caller-supplied controller (e.g. to share the
+ *                   signal with sibling work); a fresh one is created otherwise.
+ * @throws {PipelineTimeoutError} when the budget elapses before `body` settles.
+ */
+export async function runWithPipelineDeadman<T>(
+  body: (signal: AbortSignal) => Promise<T>,
+  timeoutMs: number = DEFAULT_PIPELINE_TIMEOUT_MS,
+  controller: AbortController = new AbortController(),
+): Promise<T> {
+  const budget = clampPipelineTimeout(timeoutMs);
+  const startedAt = Date.now();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const deadman = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      const elapsed = Date.now() - startedAt;
+      controller.abort();
+      reject(new PipelineTimeoutError(budget, elapsed));
+    }, budget);
+    // Do not let the deadman timer alone keep the process alive.
+    (timer as { unref?: () => void }).unref?.();
+  });
+
+  try {
+    return await Promise.race([body(controller.signal), deadman]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }
 
 /**

@@ -9,15 +9,15 @@ How hatch3r agent definitions integrate with Claude Code Agent Teams (multi-agen
 
 ## Agent-to-Teammate Mapping
 
-Hatch3r agent definitions in `.agents/agents/` map directly to teammate spawn prompts.
+Hatch3r's canonical agent definitions (bundled `agents/` content, surfaced in your repo as each adapter's generated agent files — e.g. `.cursor/agents/`, `.claude/agents/`, `.github/agents/`) map directly to teammate spawn prompts.
 
 | Hatch3r Concept | Agent Teams Equivalent |
 |-----------------|----------------------|
-| Agent definition (`.agents/agents/*.md`) | Teammate spawn prompt |
+| Agent definition (canonical `agents/*.md`) | Teammate spawn prompt |
 | Agent `description` frontmatter | Teammate role summary |
 | Agent content body | Teammate system instructions |
 | Skill (`SKILL.md`) | Context file referenced in spawn prompt |
-| Rule (`.agents/rules/*.md`) | Included in teammate instructions or referenced |
+| Rule (canonical `rules/*.md`) | Included in teammate instructions or referenced |
 
 ## Spawn Prompt Best Practices
 
@@ -34,8 +34,8 @@ Example spawn prompt:
 You are the hatch3r-implementer agent. Your task is to implement the
 feature described in issue #42.
 
-Read /.agents/skills/hatch3r-feature/SKILL.md for the implementation workflow.
-Read /.agents/rules/hatch3r-code-standards.md for coding conventions.
+Read .claude/skills/hatch3r-feature/SKILL.md for the implementation workflow.
+Read .claude/rules/hatch3r-code-standards.md for coding conventions.
 
 Focus on: src/api/ and src/services/
 Do not modify: tests/, docs/, config/
@@ -57,7 +57,7 @@ Teammates operate independently. Pass context explicitly:
 - **Task context** -- include the issue body, requirements, or relevant excerpts
 - **Codebase context** -- list the key files the teammate needs to read
 - **Cross-teammate results** -- if B depends on A's output, spawn A first, include A's results in B's prompt
-- **Project conventions** -- reference `/.agents/AGENTS.md` and specific rules files
+- **Project conventions** -- reference the generated bridge instruction file (`CLAUDE.md` for Claude Code) and specific rules files
 
 ## Limitations
 

@@ -155,8 +155,13 @@ const MIN_DESCRIPTION_LENGTH = 60;
  *
  * Falls back to {@link LEAN_LINE_THRESHOLD_DEFAULT} when the type is not in
  * the map (defensive — every value of {@link UserArtifactType} is keyed).
+ *
+ * Exported (F20.1.E1) as the single source of truth so the D20.2 audit-doc
+ * lean-threshold row (`governance/audit/domains/D20-user-content-authoring.md`
+ * line 46) can be round-tripped against the runtime values by a CI unit test —
+ * doc-vs-runtime drift becomes a test failure rather than a silent inconsistency.
  */
-const LEAN_LINE_THRESHOLDS: Record<UserArtifactType, number> = {
+export const LEAN_LINE_THRESHOLDS: Record<UserArtifactType, number> = {
   agent: 350,
   rule: 100,
   skill: 200,
@@ -169,6 +174,22 @@ const LEAN_LINE_THRESHOLD_DEFAULT = 120;
 
 /** Slug regex: lowercase kebab-case, must start with [a-z]. */
 const SLUG_REGEX = /^[a-z][a-z0-9-]*$/;
+
+/**
+ * §0 ambiguity-gate detection for orchestrator commands (F20.1.B1, CONSTITUTION
+ * §2 P8 B1). An `orchestrator: true` user command delegates to sub-agents, so it
+ * must open with the clarification-first gate the canonical
+ * `agents/shared/user-content-templates.md` §0 skeleton models: a `## §0` /
+ * `## 0` / `## Step 0` heading OR a verbatim reference to
+ * `agents/shared/user-question-protocol.md`. The audit (D20-F20.1.B1) flagged
+ * that `agents/shared/user-content-templates.md:242` claimed this was a strict
+ * gate while `runUserContentGates` never enforced it — a hand-written
+ * orchestrator command missing the §0 block rode to disk unchallenged. This
+ * pattern closes that gap; the matching strict push lives in the command branch
+ * of {@link runUserContentGates}.
+ */
+const ORCHESTRATOR_SECTION_ZERO_PATTERN =
+  /^\s*##\s*(?:§\s*0|0\b|step\s*0)|user-question-protocol/im;
 
 /**
  * Tool-allowlist cardinality above which an agent artifact must cite a security
@@ -610,6 +631,17 @@ async function runUserContentGates(
       if (!Array.isArray(artifact.agentPipeline) || artifact.agentPipeline.length === 0) {
         strict.push(
           "Orchestrator commands must declare a non-empty agentPipeline (list of delegated sub-agent IDs)",
+        );
+      }
+      // §0 ambiguity gate (F20.1.B1, CONSTITUTION §2 P8 B1). An orchestrator
+      // command delegates to sub-agents, so it must open with the
+      // clarification-first §0 block (a `## §0` / `## 0` / `## Step 0` heading
+      // or a `user-question-protocol` reference). The canonical template's
+      // strict-gate claim is now backed by code rather than authoring
+      // discipline alone.
+      if (!ORCHESTRATOR_SECTION_ZERO_PATTERN.test(artifact.body)) {
+        strict.push(
+          "Orchestrator commands must contain a §0 ambiguity-detection block — add a `## §0 Detect Ambiguity` section that references `agents/shared/user-question-protocol.md` (CONSTITUTION §2 P8 B1)",
         );
       }
     }

@@ -12,7 +12,7 @@ parallel_tool_default: true
 triage_tiers: [1, 2, 3]
 sub_agents_spawned:
   count: 11
-  rationale: Per-issue review cycle (reviewer + fixer) plus 9 CQ vector specialists (ui/ux/security/reliability/testability/scalability/performance/maintainability/enhancability) consulted on readiness assessment so that issue acceptance criteria encode the measurable floors the implementation must meet; batch mode scales reviewer count to N issues with serialization only on the per-issue reviewer→fixer hand-off.
+  rationale: Per-issue review cycle (reviewer + fixer) plus 9 CQ vector specialists (ui/ux/security/reliability/testability/scalability/performance/maintainability/enhancability) consulted on readiness assessment so that issue acceptance criteria encode the measurable floors the implementation must meet; batch mode scales reviewer count to N issues with serialization only on the per-issue reviewer→fixer hand-off. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -26,6 +26,8 @@ Before any action, scan the user's request and provided context for unresolved q
 | 1. Context Gathering | Explore sub-agents (codebase exploration) | Yes | When application context needed |
 | 2. Issue Creation | Orchestrator (inline, GitHub MCP) | No | Yes |
 | 3. Board Sync | Orchestrator (Projects v2 sync) | No | Yes |
+
+**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out (Step 1 explore sub-agents, the Step 7.9 per-issue reviewer/fixer loops where N issues = N parallel loops) holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
 
 All issue operations MUST follow the Board Sync Enforcement rules defined in `hatch3r-board-shared`.
 
@@ -58,6 +60,14 @@ GitHub Agentic Workflows and hatch3r are complementary: use agentic workflows fo
 
 Follow the **Token-Saving Directives** in `hatch3r-board-shared`.
 
+## Confidence Propagation Contract
+
+Every sub-agent delegation prompt in this command (the Step 7.9 reviewer/fixer loops and any Step 1 explore sub-agents) MUST include the confidence expression requirement below (verbatim). Sub-agents are invoked with the `quality_charter: agents/shared/quality-charter.md` reference in their frontmatter, but the orchestrator repeats the directive to override runtime prompt defaults per the charter §1 rule.
+
+> Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
+
+Downstream propagation: every readiness-assessment verdict (Step 5.6), every production-readiness reviewer verdict (Step 7.9b), and every flagged AI-inferred acceptance criterion MUST carry a high/medium/low confidence rating sourced from the upstream sub-agent. Dropping the signal between stages is a gate failure.
+
 ---
 
 ## Workflow
@@ -73,6 +83,29 @@ Classify the board-fill request before delegating:
 - **Tier 3 (deep)**: large board reorganization, vision-driven greenfield batching, or 15+ items with decomposition; full pipeline with deep triage and confirm scope with the user before any GitHub mutations.
 
 If Tier 1, run only Steps 1–3, 5–6, and 7 (skip the heavy production-readiness review). If Tier 2, run the standard pipeline below. If Tier 3, run the full pipeline including Steps 5.5, 5.6, and 7.9, and confirm batch composition with the user before executing.
+
+### Step 0.5: Emit Pre-Execution Cost Preview
+
+Before the first sub-agent dispatch (Step 7.9 reviewer/fixer loops, or Step 1 explore sub-agents when application context is needed), surface the cost preview so a large board-fill batch is never started blind. Emit the `cost_estimate` block per `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate, calibrated to the Step 0 triage tier and the item count selected in Step 1:
+
+```yaml
+cost_estimate:
+  expected_sa_count: <triage tier → Tier 1 ~0 (no Step 7.9 review), Tier 2 ~2 per issue, Tier 3 up to 11 × issue count>
+  estimated_input_tokens_static_frame: <int>
+  estimated_web_research_queries: <int>
+  triage_tier: light | standard | deep
+  estimated_duration_min: <int>
+```
+
+The Step 2.5 triage interview and the per-step ASK checkpoints are user-driven and excluded from the duration estimate. Post-execution actuals + delta land in the end-of-run iteration summary's Fan-out + Cost section per `rules/hatch3r-cost-visibility.md` Post-Execution Actuals. Token telemetry sources from `src/pipeline/observability.ts`.
+
+### Effort Override (Decision 17)
+
+Auto-tiering can misclassify — a 3-item todo scored as Tier 3, or a 20-item greenfield batch scored as Tier 1. The user override is the recovery path mandated by `governance/CONSTITUTION.md` §6 Decision 17 ("User overridable via `--effort` flag"):
+
+- `--effort=light|standard|deep` forces the named tier, bypassing the Step 0 auto-classification (which gates whether Steps 5.5/5.6/7.9 run).
+- The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
+- No override passed → the Step 0 auto-classification stands.
 
 ---
 
@@ -812,6 +845,17 @@ board-fill is long-running — a Tier 3 batch can span 15+ items with per-issue 
 4. **Snapshot rollback:** pre-mutation snapshots land in `.hatch3r/snapshots/<session-id>/`; `hatch3r rollback --session=<id>` reverts this run's mutations. Diff preview precedes every mutation per Decision 30.
 
 If `--resume` is passed with no checkpoint, `verifyResumability` returns `drift: "no checkpoint found"` — treat as a cold start.
+
+---
+
+## Cost estimate (Decision 24)
+
+This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 24/29:
+
+- **Pre-execution `cost_estimate`** — emitted in Step 0.5 before the first sub-agent dispatch (Step 7.9 reviewer/fixer loops or Step 1 explore sub-agents).
+- **Post-execution `cost_actuals` + `delta`** — appended to the end-of-run iteration summary's Fan-out + Cost section per `rules/hatch3r-iteration-summary.md` §2.
+
+Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.count: 11` × tier heuristic in `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate): Tier 1 ≈ 0 (Step 7.9 production-readiness review skipped); Tier 2 ≈ 2 per issue (reviewer + fixer); Tier 3 up to 11 per issue (reviewer/fixer plus the 9 CQ vector specialists consulted on readiness), scaling with issue count. Deltas beyond 25% absolute value carry `flagged_for_review: true`. Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
 
 ---
 

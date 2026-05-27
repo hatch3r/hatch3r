@@ -171,3 +171,8 @@ Include the root-cause classification in the Diagnosis section. If the root caus
 1. Add `return DEFAULT_USER_PREFS` as fallback in `getUserPrefs` when document is missing
 2. Change `theme` parameter type from `string` to `Theme` union type
 ```
+
+## References
+
+- Micco, John (Google). "Flaky Tests at Google and How We Mitigate Them." `https://testing.googleblog.com/2016/05/flaky-tests-at-google-and-how-we.html` (accessed 2026-05-28, Google Testing Blog, peer-reviewed-methodology). Source for the flaky-vs-real-failure distinction this agent applies when triaging a red CI run (84% of pass→fail transitions are flaky), and the identify → notify → triage → prevent flow behind the watcher's quarantine-and-rerun recommendations.
+- GitHub. "Security hardening for GitHub Actions." `https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions` (accessed 2026-05-28, GitHub Docs, official-docs). Source for the workflow-hardening checks this agent reports on (SHA-pinned actions, least-privilege `GITHUB_TOKEN` permissions, untrusted-input handling) when investigating CI configuration changes.

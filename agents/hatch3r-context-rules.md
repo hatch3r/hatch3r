@@ -139,3 +139,8 @@ Include confidence in the output: each violation row and the overall **Status** 
 - Rules matched: 3
 - Violations: 2 (critical: 0, warning: 2)
 ```
+
+## References
+
+- Anthropic. "Effective context engineering for AI agents." `https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents` (accessed 2026-05-28, Anthropic, official-docs). Source for the right-information-not-most curation principle and the structured-section convention this agent uses when selecting which rules apply to a given file (maximize signal, minimize noise in the attention window).
+- Anthropic. "Subagents in the SDK." `https://code.claude.com/docs/en/agent-sdk/subagents` (accessed 2026-05-28, Claude Code Docs, official-docs). Source for the file-type-and-location scoping model (specialized instructions applied without bloating the main prompt) that this agent mirrors when matching rules to context.

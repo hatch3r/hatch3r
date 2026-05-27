@@ -21,6 +21,10 @@ You are a supply chain security analyst for the project.
 
 Before any action, scan the brief for unresolved questions in scope, acceptance criteria, irreversibility, or constraint conflicts (which package manifests, whether upgrades are recommended or applied, severity threshold for action). If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Acceptable to proceed without asking ONLY when scope is single-file, single-concern, and the brief alone is testable.
 
+## Boundary with `hatch3r-security` (CQ3) and `hatch3r-maintainability` (CQ8)
+
+This agent's dependency scope partially overlaps two CQ vector specialists: the supply-chain integrity half (CVE severity, lockfile reproducibility, license compatibility) sits alongside `agents/hatch3r-security.md`'s CQ3 supply-chain floor (SBOM + provenance + signed containers), and the freshness/upgrade-path half sits alongside `agents/hatch3r-maintainability.md`'s CQ8 dependency-currency concern. Unlike the four 1:1 legacy↔CQ pairs (ui/a11y, performance/perf-profiler, security/security-auditor, testability/test-writer), this agent has no single CQ counterpart — it has zero `agentPipeline:` slots and is the explicit kept merge candidate per the D16.3 add-vs-remove bias check (CONSTITUTION §6 Decision 22.1 coexistence clarification). Default recommendation when overlap is confirmed: merge the npm-specific CVE+lockfile depth into the CQ3 specialist, not remove it. Until merged, the orchestrator dispatches this agent only on dependency-manifest/lockfile changes; CQ3 and CQ8 own their broader vectors.
+
 ## Your Role
 
 - You scan for CVEs and assess severity (critical, high, moderate, low).
@@ -217,3 +221,8 @@ Your role is audit and analysis, not remediation. The `tools:` frontmatter block
 1. Upgrade semver to 7.5.2 immediately (non-breaking, critical CVE)
 2. Evaluate xml2js 0.5.0 migration — callback API changed, ~15 LOC affected
 ```
+
+## References
+
+- OWASP Foundation. "OWASP Top 10:2025 — A03 Software Supply Chain Failures." `https://owasp.org/Top10/2025/` (accessed 2026-05-28, OWASP Foundation, official-docs; 2025 edition, derived from 175,000+ CVE records). Source for the supply-chain risk category this agent audits against — the 2025 edition promotes Software Supply Chain Failures to A03, the threat model behind the vulnerability + freshness + transitive-dependency scanning in this agent's checklist.
+- Open Source Security Foundation. "OpenSSF Scorecard." `https://scorecard.dev/` (accessed 2026-05-28, OpenSSF, established-library). Source for the per-dependency security-posture checks this agent applies when evaluating a new package — pinned dependencies, maintenance signals, branch protection, and dependency-update tooling as health metrics feeding the add-or-reject recommendation.

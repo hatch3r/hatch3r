@@ -198,3 +198,8 @@ When designing architecture for new modules or services, include error handling 
 | Transport | WebSocket | Server-Sent Events | Need bidirectional communication for read receipts |
 | Pub/Sub | Redis | In-memory | Must support horizontal scaling across server instances |
 ```
+
+## References
+
+- Fowler, Martin. "Parallel Change." `https://martinfowler.com/bliki/ParallelChange.html` (accessed 2026-05-28, martinfowler.com, peer-reviewed-methodology; bliki entry, originally 2014). Source for the expand → migrate → contract sequencing this agent recommends for backward-incompatible interface changes and the resumable-refactoring property cited under safe API evolution.
+- Nygard, Michael; Fowler, Martin. "Architecture Decision Records." `https://adr.github.io/` (accessed 2026-05-28, adr.github.io / GitHub ADR organization, established-library). Source for the ADR structure (context / decision / status / consequences) this agent emits, including the immutable-record + superseding-link convention used in the ADR examples above.

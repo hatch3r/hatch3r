@@ -12,7 +12,7 @@ parallel_tool_default: true
 triage_tiers: [1, 2, 3]
 sub_agents_spawned:
   count: 1
-  rationale: Single hatch3r-creator delegation in Phase 2 — body composition plus the strict + gentle gate funnel run as one atomic Task per artifact; multi-artifact runs invoke one creator per artifact in parallel.
+  rationale: Single hatch3r-creator delegation in Phase 2 — body composition plus the strict + gentle gate funnel run as one atomic Task per artifact; multi-artifact runs invoke one creator per artifact in parallel. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -46,6 +46,39 @@ Classify the artifact-authoring request before delegating:
 If Tier 1, run Phase 1 with reduced prompts (skip optional dimensions). If Tier 2, run the standard pipeline below. If Tier 3, expand Phase 1 dimension probing and confirm the plan summary explicitly with the user before delegating.
 
 **Parallel-dispatch directive:** When two or more steps below are independent (no shared files, no data dependency), issue all tool calls or sub-agent spawns in a single turn. Sequential dispatch of independent work is a finding under P7 (efficiency charter §P2).
+
+**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out (multi-artifact runs spawning one creator per artifact) holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
+
+### Step 0.5: Emit Pre-Execution Cost Preview
+
+Before the Phase 2 `hatch3r-creator` delegation, surface the cost preview per `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate. One artifact = one creator; a multi-artifact run scales `expected_sa_count` with the artifact count:
+
+```yaml
+cost_estimate:
+  expected_sa_count: <1 per artifact authored>
+  estimated_input_tokens_static_frame: <int>
+  estimated_web_research_queries: <int>            # Decision 14 reputable-source recon for new agent/skill/rule bodies; 0 for trivial edits
+  triage_tier: light | standard | deep
+  estimated_duration_min: <int>
+```
+
+The Phase 1 input-collection ASKs are user-driven and excluded from the duration estimate. Post-execution actuals + delta land in the Phase 3 housekeeping summary's Fan-out + Cost section per `rules/hatch3r-cost-visibility.md` Post-Execution Actuals. Token telemetry sources from `src/pipeline/observability.ts`.
+
+### Effort Override (Decision 17)
+
+Auto-tiering can misclassify — a snippet rule scored as Deep, or a tool-allowlisted agent scored as Light. The user override is the recovery path mandated by `governance/CONSTITUTION.md` §6 Decision 17 ("User overridable via `--effort` flag"):
+
+- `--effort=light|standard|deep` forces the named tier, bypassing the Step 0 auto-classification (which controls Phase 1 dimension-probing depth).
+- The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
+- No override passed → the Step 0 auto-classification stands.
+
+## Confidence Propagation Contract
+
+The Phase 2 `hatch3r-creator` delegation prompt MUST include the confidence expression requirement below (verbatim), per the quality charter §1 rule.
+
+> Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
+
+The creator's strict/gentle gate verdict and any Decision-14 reputable-source synthesis carry a high/medium/low confidence rating; the Phase 3 validate report MUST preserve the signal. Strict-gate pass/fail (a hard gate) is distinct from and additional to this confidence signal.
 
 ---
 
@@ -232,6 +265,17 @@ Next step:
 Edit your artifact directly anytime — `.hatch3r/overrides/` is preserved across
 `hatch3r update` and `hatch3r clean`.
 ```
+
+---
+
+## Cost estimate (Decision 24)
+
+This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 24/29:
+
+- **Pre-execution `cost_estimate`** — emitted in Step 0.5 before the Phase 2 `hatch3r-creator` delegation.
+- **Post-execution `cost_actuals` + `delta`** — appended to the Phase 3 housekeeping summary's Fan-out + Cost section per `rules/hatch3r-iteration-summary.md` §2.
+
+Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.count: 1` × artifact count): one `hatch3r-creator` per artifact authored. `estimated_web_research_queries` reflects the Decision 14 reputable-source reconnaissance for new agent/skill/rule bodies (≥2 sources), and is 0 for trivial frontmatter-only or single-line edits. Deltas beyond 25% absolute value carry `flagged_for_review: true`. Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
 
 ---
 

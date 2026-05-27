@@ -14,7 +14,12 @@ import { generateBridgeOrchestration } from "../cli/shared/agentsContent.js";
 import { resolveUserContentRoot } from "../content/index.js";
 import { filterUserFacing, readCanonicalFiles, sortByPrecedence, type CanonicalType } from "./canonical.js";
 import { applyCustomization, applyCustomizationRaw } from "./customization.js";
-import { readMcpConfig, transformEnvVarSyntax, type McpServerEntry } from "./mcp-utils.js";
+import {
+  readMcpConfig,
+  transformEnvVarSyntax,
+  validateMcpHttpEndpoint,
+  type McpServerEntry,
+} from "./mcp-utils.js";
 import { readHookDefinitions } from "../hooks/index.js";
 import { PLATFORM_TOOL_MARKER, toAskUserPlatformNote } from "../pipeline/adapterToolTranslator.js";
 import {
@@ -753,7 +758,25 @@ export abstract class BaseAdapter implements Adapter {
     return results;
   }
 
-  /** Read MCP server config and filter to only the servers selected in the manifest. */
+  /**
+   * Read MCP server config and filter to only the servers selected in the
+   * manifest.
+   *
+   * Three drop gates run per entry, each `continue`-skipping the entry so it
+   * is never emitted into an adapter artifact:
+   *   1. `_disabled` — operator-disabled in canonical `mcp.json`.
+   *   2. not selected — absent from `ctx.manifest.mcp.servers`.
+   *   3. **HTTP endpoint policy (F15.5-H2 / C9-M34, Pillar P6)** — an HTTP
+   *      transport (`url` set, `command` unset) that is neither SHA-256
+   *      pinned (`_pinned_sha256`) nor explicitly opted out (`_trust_bypass:
+   *      true`) is REFUSED at emission, not merely warned. Previously
+   *      {@link validateMcpEntry} only pushed a warning while the unpinned
+   *      entry still shipped; this gate makes the refusal effective so a
+   *      generated client config never points at an unverifiable remote
+   *      endpoint. The drop is auditable: the policy reason is appended to
+   *      `this.warnings` (Silent Failure Contract, CONSTITUTION §2 P5) so the
+   *      operator sees which server was withheld and why.
+   */
   protected async readFilteredMcp(
     ctx: AdapterContext,
   ): Promise<Record<string, CleanMcpEntry> | null> {
@@ -766,6 +789,17 @@ export abstract class BaseAdapter implements Adapter {
     for (const [name, entry] of Object.entries(mcpServers)) {
       if (entry._disabled) continue;
       if (!selectedSet.has(name)) continue;
+      // F15.5-H2 (D15 / Pillar P6): refuse-grade HTTP endpoint pin gate.
+      // Parallel to the `_disabled` drop above — an unpinned HTTP transport
+      // is dropped (not just warned) so the adapter never emits a client
+      // config that trusts an unverifiable remote endpoint.
+      const httpPolicy = validateMcpHttpEndpoint(entry);
+      if (!httpPolicy.ok) {
+        this.warnings.push(
+          `MCP server "${name}" omitted from generated config: ${httpPolicy.reason ?? "HTTP endpoint pin policy violation"}`,
+        );
+        continue;
+      }
       const { _disabled, _description, ...clean } = entry;
       filtered[name] = clean;
     }

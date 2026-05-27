@@ -175,6 +175,71 @@ describe("pipeline/snapshot", () => {
         createSnapshot("sess-bad-meta", [join(projectRoot, "x.txt")], { projectRoot }),
       ).rejects.toThrow(/unreadable/);
     });
+
+    // F1.5-H2: two inputs that collapse to the same `_external/` mirror path
+    // (the cross-drive Windows scenario) must not silently overwrite each
+    // other. The second input is skipped, a warning is surfaced, and only the
+    // first capture is recorded in the manifest.
+    describe("mirror-path collision dedup (F1.5-H2)", () => {
+      it("skips the second of two inputs that map to the same mirror and warns", async () => {
+        const fileA = join(projectRoot, "dup.txt");
+        await writeFile(fileA, "first capture");
+        const warns: string[] = [];
+
+        // Same path listed twice → identical mirror. The dedup guard fires on
+        // the second occurrence (the platform-independent reproduction of the
+        // Windows cross-drive collision the `seen` map defends against).
+        const result = await createSnapshot("sess-collision", [fileA, fileA], {
+          projectRoot,
+          onWarn: (m) => warns.push(m),
+        });
+
+        // Only the first capture is recorded — count reflects accepted paths.
+        expect(result.count).toBe(1);
+        expect(warns).toHaveLength(1);
+        expect(warns[0]).toContain("mirror collision");
+        expect(warns[0]).toContain("Skipping the second capture");
+
+        // The manifest advertises exactly one relative path (not a duplicate).
+        const meta = JSON.parse(
+          await readFile(join(result.snapshotPath, SNAPSHOT_META_FILE), "utf-8"),
+        );
+        expect(meta.relativePaths).toEqual(["dup.txt"]);
+        // The first capture's bytes are intact on disk.
+        const snapped = await readFile(
+          join(result.snapshotPath, SNAPSHOT_FILES_DIR, "dup.txt"),
+          "utf-8",
+        );
+        expect(snapped).toBe("first capture");
+      });
+
+      it("collects collision warnings in the returned warnings[] array", async () => {
+        const fileA = join(projectRoot, "x.txt");
+        await writeFile(fileA, "content");
+        // No onWarn callback supplied → the warning must still surface via the
+        // returned `warnings[]` (Silent Failure Contract: never swallowed).
+        const result = await createSnapshot("sess-collision-arr", [fileA, fileA], {
+          projectRoot,
+        });
+        expect(result.warnings).toHaveLength(1);
+        expect(result.warnings[0]).toContain("maps to the same snapshot path");
+      });
+
+      it("does not warn when every input maps to a distinct mirror", async () => {
+        const fileA = join(projectRoot, "a.txt");
+        const fileB = join(projectRoot, "b.txt");
+        await writeFile(fileA, "A");
+        await writeFile(fileB, "B");
+        const warns: string[] = [];
+        const result = await createSnapshot("sess-no-collision", [fileA, fileB], {
+          projectRoot,
+          onWarn: (m) => warns.push(m),
+        });
+        expect(result.count).toBe(2);
+        expect(warns).toEqual([]);
+        expect(result.warnings).toEqual([]);
+      });
+    });
   });
 
   describe("listSnapshots", () => {
@@ -342,6 +407,71 @@ describe("pipeline/snapshot", () => {
       const entries = await readdir(projectRoot);
       const tmpOrphans = entries.filter((e) => e.includes(".tmp."));
       expect(tmpOrphans).toEqual([]);
+    });
+  });
+
+  // F1.5-H3 / F8.2.4: applyRollback is a two-phase commit with all-or-nothing
+  // semantics and a per-file disposition table.
+  describe("rollback disposition table + all-or-nothing (F1.5-H3 / F8.2.4)", () => {
+    it("reports original-restored disposition for every file on a clean live rollback", async () => {
+      const fileA = join(projectRoot, "a.txt");
+      const fileB = join(projectRoot, "b.txt");
+      await writeFile(fileA, "orig A");
+      await writeFile(fileB, "orig B");
+      await createSnapshot("sess-disp-ok", [fileA, fileB], { projectRoot });
+      await writeFile(fileA, "mut A");
+      await writeFile(fileB, "mut B");
+
+      const result = await applyRollback("sess-disp-ok", { projectRoot });
+      expect(result.errors).toEqual([]);
+      expect(result.filesRestored).toBe(2);
+      expect(result.dispositions).toBeDefined();
+      const states = (result.dispositions ?? []).map((d) => d.state).sort();
+      expect(states).toEqual(["original-restored", "original-restored"]);
+      // Targets are reported in the disposition table.
+      const targets = (result.dispositions ?? []).map((d) => d.target).sort();
+      expect(targets).toEqual([fileA, fileB].sort());
+    });
+
+    it("dry-run returns a disposition table without touching disk", async () => {
+      const fileA = join(projectRoot, "a.txt");
+      await writeFile(fileA, "orig");
+      await createSnapshot("sess-disp-dry", [fileA], { projectRoot });
+      await writeFile(fileA, "mut");
+
+      const result = await applyRollback("sess-disp-dry", { dryRun: true, projectRoot });
+      expect(result.errors).toEqual([]);
+      expect(result.filesRestored).toBe(1);
+      expect(result.dispositions).toHaveLength(1);
+      expect(result.dispositions?.[0].state).toBe("original-restored");
+      // Disk untouched by the dry run.
+      expect(await readFile(fileA, "utf-8")).toBe("mut");
+    });
+
+    it("aborts the entire live rollback (mutated-still) when prepare finds an unreadable mirror", async () => {
+      const fileA = join(projectRoot, "a.txt");
+      const fileB = join(projectRoot, "b.txt");
+      await writeFile(fileA, "orig A");
+      await writeFile(fileB, "orig B");
+      const snap = await createSnapshot("sess-disp-abort", [fileA, fileB], { projectRoot });
+      await writeFile(fileA, "mut A");
+      await writeFile(fileB, "mut B");
+
+      // Corrupt the prepare phase: remove one mirror so readFile(source) fails.
+      // All-or-nothing means NEITHER file may be restored.
+      const { rm: rmFile } = await import("node:fs/promises");
+      await rmFile(join(snap.snapshotPath, SNAPSHOT_FILES_DIR, "a.txt"));
+
+      const result = await applyRollback("sess-disp-abort", { projectRoot });
+      expect(result.filesRestored).toBe(0);
+      // The abort error names the prepare failure and states no files changed.
+      expect(result.errors.some((e) => /aborted|read snapshot/.test(e))).toBe(true);
+      // Every entry reports mutated-still — disk left in pre-rollback state.
+      const states = (result.dispositions ?? []).map((d) => d.state);
+      expect(states.every((s) => s === "mutated-still")).toBe(true);
+      // Both files still hold the mutation (not rolled back).
+      expect(await readFile(fileA, "utf-8")).toBe("mut A");
+      expect(await readFile(fileB, "utf-8")).toBe("mut B");
     });
   });
 

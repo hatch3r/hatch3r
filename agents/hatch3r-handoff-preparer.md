@@ -132,3 +132,8 @@ Before reporting Step 4:
 | `git_ref` cannot be read (detached HEAD, missing repo) | Surface the git command output; abort write; report BLOCKED |
 | Schema validation failure | Name the offending field; abort write; report FAILED |
 | Injection pattern detected (P-LEARN-01..05) | Name the matching pattern id; abort write; report BLOCKED — content rephrase required |
+
+## References
+
+- Anthropic. "Effective context engineering for AI agents." `https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents` (accessed 2026-05-28, Anthropic, official-docs). Source for the compaction lever this agent implements at the context-health Orange/Red trigger — summarizing a conversation nearing the window limit into a high-fidelity handoff so a new context window preserves long-term coherence.
+- Anthropic. "Effective harnesses for long-running agents." `https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents` (accessed 2026-05-28, Anthropic, official-docs). Source for the externalized-state discipline behind the canonical handoff schema this agent writes — capturing done/not-done, open questions, and next steps as durable structured notes rather than relying on in-context memory.

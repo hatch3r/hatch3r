@@ -19,10 +19,14 @@ import { CopilotAdapter } from "../../adapters/copilot.js";
  * #22: Verify that ${env:VAR} syntax is transformed for non-Claude adapters.
  */
 
-// MCP config fixture with headers and ${env:VAR} references
+// MCP config fixture with headers and ${env:VAR} references.
+// F15.5-H2: the HTTP `auth-server` carries `_trust_bypass: true` so it survives
+// the readFilteredMcp pin gate (this suite exercises header/env-var forwarding,
+// not the pin policy); the marker is stripped on emission.
 const MCP_CONFIG_WITH_HEADERS = {
   mcpServers: {
     "auth-server": {
+      _trust_bypass: true,
       url: "https://api.example.com/mcp/",
       headers: {
         Authorization: "Bearer ${env:API_TOKEN}",

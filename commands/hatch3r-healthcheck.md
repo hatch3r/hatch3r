@@ -46,6 +46,37 @@ Classify the healthcheck request before fan-out:
 
 Tier is derived from Module Discovery output (Step 2). Tier 1 is not supported — single-target QA fixes belong to `hatch3r-quick-change`.
 
+### Pre-Execution Cost Preview
+
+Before the first sub-agent dispatch (Step 4 module audit-authoring fan-out), surface the cost preview so a wide module fan-out is never started blind. Emit the `cost_estimate` block per `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate, calibrated to the Tier derived from module count:
+
+```yaml
+cost_estimate:
+  expected_sa_count: <module count + 2 cross-cutting axes; Tier 2 ~module-count<=8, Tier 3 module-count>8, bounded by max_phase4_parallel per batch>
+  estimated_input_tokens_static_frame: <int>
+  estimated_web_research_queries: <int>
+  triage_tier: standard | deep
+  estimated_duration_min: <int>
+```
+
+Post-execution actuals + delta land in the Step 6 finalization summary's Fan-out + Cost section per `rules/hatch3r-cost-visibility.md` Post-Execution Actuals. Token telemetry sources from `src/pipeline/observability.ts`.
+
+### Effort Override (Decision 17)
+
+Auto-tiering derives from discovered module count, which can misclassify — a monorepo with many small modules over-scored, or a dense single-package repo under-scored. The user override is the recovery path mandated by `governance/CONSTITUTION.md` §6 Decision 17 ("User overridable via `--effort` flag"):
+
+- `--effort=standard|deep` forces the named tier, bypassing the module-count auto-classification. `--effort=light` is rejected — Tier 1 is unsupported here (single-target QA fixes route to `hatch3r-quick-change`).
+- The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
+- No override passed → the module-count auto-classification stands.
+
+## Confidence Propagation Contract
+
+Every sub-agent delegation prompt in this command MUST include the confidence expression requirement below (verbatim). Sub-agents are invoked with the `quality_charter: agents/shared/quality-charter.md` reference in their frontmatter, but the orchestrator repeats the directive to override runtime prompt defaults per the charter §1 rule.
+
+> Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
+
+Downstream propagation: every authored module-audit sub-issue body and each cross-cutting axis finding MUST carry a high/medium/low confidence rating sourced from the authoring sub-agent. Dropping the signal between stages is a gate failure.
+
 # Healthcheck — Full Product QA & Testing Audit
 
 Create a healthcheck epic on **{owner}/{repo}** with one sub-issue per logical project module, plus cross-module wiring and vision/roadmap alignment audits. Each sub-issue is a deep static-analysis audit task that, when picked up by the board workflow, produces a findings epic with actionable sub-issues for achieving full QA and testing coverage. The command only creates the initial audit epic — it does NOT execute any audits.
@@ -330,6 +361,17 @@ All issue and epic operations in this command MUST follow the Projects v2 Enforc
 1. **Projects v2 Sync:** Follow the **Projects v2 Sync Procedure** from `hatch3r-board-shared` (gh CLI primary) for the healthcheck epic and ALL sub-issues. Set status to Ready using the project's status field option ID.
 
 2. **Board Overview Regeneration:** Regenerate the Board Overview using the **Board Overview Template** from the shared context. Use cached board data from Step 1, updated with the newly created healthcheck epic. Skip silently if no board overview issue exists.
+
+---
+
+## Cost estimate (Decision 24)
+
+This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 24/29:
+
+- **Pre-execution `cost_estimate`** — emitted in the Pre-Execution Cost Preview above before the first module audit-authoring dispatch (Step 4).
+- **Post-execution `cost_actuals` + `delta`** — appended to the Step 6 finalization summary's Fan-out + Cost section per `rules/hatch3r-iteration-summary.md` §2.
+
+Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.count: 3`, which is the static floor; actual fan-out scales with discovered module count per `rules/fan-out-discipline.md` P8 B2): one `hatch3r-implementer` Task per module sub-issue body + `hatch3r-a11y-auditor` + `hatch3r-dependency-auditor` for the two cross-cutting axes. Tier 2 (module count ≤8) and Tier 3 (module count >8) both bound the parallel module batch by `max_phase4_parallel`. Deltas beyond 25% absolute value carry `flagged_for_review: true`. Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
 
 ---
 

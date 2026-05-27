@@ -52,7 +52,7 @@ The orchestrator (`/hatch3r-create`) provides:
   rulePrecedence: "critical" | "high" | "normal" | "low", // rule only
   isOrchestrator: true | false,                       // command only
   agentPipeline:  ["hatch3r-researcher", ...],        // command only (orchestrator)
-  hookEvent:      "pre-commit" | "post-merge" | "ci-failure" | "file-save" | "session-start" | "pre-push"  // hook only
+  hookEvent:      "pre-commit" | "post-merge" | "ci-failure" | "file-save" | "session-start" | "pre-push" | "worktree-create" | "worktree-remove"  // hook only
 }
 ```
 
@@ -61,6 +61,10 @@ The framework root is the current working directory. Reference templates live at
 </context>
 
 ## Authoring Protocol
+
+### 0b. Consult Prior Learnings (CONSTITUTION §6 Decision 27)
+
+Before authoring, consult `.hatch3r/learnings/INDEX.md` per `rules/hatch3r-learning-system.md` — creator output is artifact-affecting (it writes agent/skill/rule/command/hook files), so it shares the consult cohort with Implementer/Reviewer/Researcher/Fixer. Read the index if present (skip silently if absent or empty); test the target artifact path against each learning's `applies-to` set, read the full content of every matched learning, and cite consulted entry IDs on the **Status** line of the structured result (or record "no learnings available"). Citing zero entries when `applies-to` matched is a gate failure visible at audit time.
 
 ### 1. Read Templates
 
@@ -205,7 +209,7 @@ Pull from `user-content-templates.md` §4. Two variants:
 |------|---|-------|
 | `id` | yes | matches `name` |
 | `type` | yes | literal `hook` |
-| `event` | yes | one of `pre-commit | post-merge | ci-failure | file-save | session-start | pre-push` |
+| `event` | yes | one of `pre-commit | post-merge | ci-failure | file-save | session-start | pre-push | worktree-create | worktree-remove` |
 | `agent` | yes | the agent invoked when the hook fires |
 | `description` | yes | ≥60 chars |
 | `globs` | optional | CSV string for file-save event filtering |
@@ -243,7 +247,10 @@ The gentle gate set surfaces warnings without blocking:
 1. Anti-slop wordlist (12 banned phrases per `governance/CONSTITUTION.md` §2 P5).
 2. Lean line thresholds per type (above).
 3. Quality-charter reference present (auto-injected, but warned if user override drops it).
-4. Pillar declaration (≥1 of P1–P6 in tags or body).
+4. Pillar declaration (≥1 of P1–P8 in tags or body).
+5. Security-baseline citation (agent only): when `tools.allow` grants more than 3 tools, the body must cite `rules/hatch3r-security-patterns.md` in a `**Security baseline:**` line per `agents/shared/user-content-templates.md` §1. A wide grant without the citation is a gentle warning (audit Cycle 10 F20.2.A3).
+
+**Tier-aware floor (Decision 4 / F20.2.A1).** At maturity tier `solo` the gentle gates above stay advisory. At `team`/`scaleup`/`enterprise` the gate path (`runUserContentGates` reading `readMaturityTier(readManifest(rootDir))` in `src/content/userContent.ts`) progressively promotes gentle gates to strict — the security-baseline citation (gate 5), an explicit pillar declaration (gate 4), and a `## References` section become blocking. This agent reads the project's manifest tier and, when above `solo`, assembles the artifact to satisfy the promoted gates on the first call rather than relying on the gentle warning.
 
 The agent's job is to assemble the artifact so every strict gate above passes on the first call and any gentle warnings surfaced in `gentleWarnings` cite a specific line and gate ID the user can act on.
 
@@ -271,7 +278,7 @@ The agent does **not** need WebFetch or WebSearch. The creator focuses on user i
 - **Never mutate `.hatch3r/hatch.json` directly.** `saveUserContent` updates the `userContent` counter (`{count, lastModified, types}`) atomically alongside the artifact write. Direct edits to `hatch.json` from this agent are prohibited.
 - **Always inject `quality_charter: agents/shared/quality-charter.md`** into generated frontmatter. v1.7.0 does not support user override of the charter reference.
 - **Surface but do not block on anti-slop.** If user-supplied body content contains any of the 12 banned phrases enumerated in `governance/CONSTITUTION.md` §Anti-Slop Wordlist, report each match in `gentleWarnings` with the line number and the matched phrase ID. The save proceeds.
-- **Do not infer pillar coverage.** If the user did not declare a pillar-aligned tag and the body lacks an explicit P1–P6 reference, surface a gentle warning. Do not auto-tag.
+- **Do not infer pillar coverage.** If the user did not declare a pillar-aligned tag and the body lacks an explicit P1–P8 reference, surface a gentle warning. Do not auto-tag.
 - **One artifact per invocation.** Multiple types or names per call are rejected. The orchestrator must re-invoke for additional artifacts.
 
 </rules>
@@ -307,3 +314,8 @@ Per `agents/shared/quality-charter.md` §1, rate every authoring decision as **h
 7. Return `{ status: "WRITTEN", paths: ["/abs/.hatch3r/overrides/agents/pr-summarizer.md"], strictErrors: [], gentleWarnings: [...] }` to the orchestrator.
 
 The orchestrator then runs `hatch3r validate` in Phase 3.
+
+## References
+
+- Anthropic. "Subagents in the SDK." `https://code.claude.com/docs/en/agent-sdk/subagents` (accessed 2026-05-28, Claude Code Docs, official-docs). Source for the agent-file authoring model this creator emits — markdown files with YAML frontmatter, tailored system prompts with specific expertise, and the minimal-viable-tool-set principle behind the Tool Allowlist section.
+- Anthropic. "Effective context engineering for AI agents." `https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents` (accessed 2026-05-28, Anthropic, official-docs). Source for the structured-section convention (`## Output format`, `<instructions>`-style framing) the creator injects into generated artifacts so the produced content is readable and modular rather than a prose dump.

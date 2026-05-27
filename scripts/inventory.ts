@@ -304,6 +304,19 @@ const DRIFT_PROBES: DriftProbe[] = [
     expected: "commands",
     regex: /(\d+)\s+commands/,
   },
+  // Cycle 10 H F16.1-H2 (D16, Track B): the plugin.json description embeds the
+  // full count set ("30 agents, 43 skills, 55 rules, 23 commands, 6 hooks") but
+  // the hooks figure had no drift guard — a stale "6 hooks" would ship to the
+  // Cursor marketplace undetected. This probe closes that gap against the real
+  // embedded literal. (CONTRIBUTING.md / SECURITY.md carry no inventory-count
+  // literals, so they are out of the count-probe model; their currency is held
+  // by the anti-slop + version-drift gates instead.)
+  {
+    file: ".cursor-plugin/plugin.json",
+    label: "plugin.json hooks count",
+    expected: "hooks",
+    regex: /(\d+)\s+hooks/,
+  },
 ];
 
 interface DriftResult {
