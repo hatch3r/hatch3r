@@ -17,6 +17,17 @@ cli_tool:
 
 JSON processor and query language
 
+## §0 — Ambiguity & Safety Gate (P8 B1)
+
+Before invoking `jq`, resolve these via `agents/shared/user-question-protocol.md` (default behavior, not exception-driven):
+- **Scope:** when the input JSON path is ambiguous (a glob like `*.json` or a slurp over several shards), confirm which files feed the filter before running.
+- **Irreversibility:** `jq` reads stdin and writes stdout, so it is non-destructive by itself — but redirecting its output over the source (`jq … input.json > input.json`) truncates the file before `jq` reads it. Write to a temp file and rename, never redirect over the input.
+- **Ambiguity:** when the request maps to two or more filter expressions with materially different output shape (raw `-r` vs JSON, `select` vs `map`), ask which one.
+
+## Fan-out Discipline (P8 B2)
+
+Tier 1 reference card — no fan-out. This skill is a single-tool usage reference an agent consults inline; it spawns no sub-agents. Fan-out is owned by the calling workflow per its own Fan-out Discipline block. Source: `.claude/rules/fan-out-discipline.md` (P8 B2).
+
 ## When to Use
 
 Reach for `jq` when the task is in the **json** category and the agent would otherwise call an MCP tool or read large outputs into context.
@@ -68,10 +79,6 @@ Compact (`-c`) one-object-per-line projection — perfect input for `xargs -L1` 
 | `dasel` | Single binary across JSON/YAML/TOML/XML with a path-query DSL — handy in CI where you do not want jq+yq. Pin to >=3.11.0 (CVE-2026-46377 / -46378 / -33320 fixed there). |
 | `fx` | Interactive JSON browsing in a TTY; jq is the right call in scripts. |
 
-## Known Issues
-
-- **Multiple unfixed advisories on jq 1.8.1 (the only tagged release as of 2026-05-27):** the upstream advisories tab listed 10+ GHSA entries through April-May 2026 — all stack-overflow, integer-overflow, or NUL-truncation classes triggerable by attacker-controlled JSON or attacker-controlled jq filter paths. Validate JSON inputs externally (e.g. `python -m json.tool`, `jaq`) or sandbox jq in a network-isolated container before running on untrusted input. Canonical roster: https://github.com/jqlang/jq/security/advisories.
-
 ## Detection / Install
 
 Verify with:
@@ -101,3 +108,9 @@ scoop install jq
 ```
 
 Homepage: https://github.com/jqlang/jq
+
+## Security
+
+Minimum recommended version: `>=1.8.1`. Builds below this floor carry known unpatched advisories — upgrade before relying on the tool.
+
+Multiple unfixed advisories on jq 1.8.1 (the only tagged release as of 2026-05-27). See https://github.com/jqlang/jq/security/advisories for the canonical roster — at audit time the upstream tab listed 10+ GHSA entries (April-May 2026), all stack-overflow / integer-overflow / NUL-truncation classes triggerable by attacker-controlled JSON or attacker-controlled jq filter paths. Validate JSON inputs externally (e.g. python json.tool or jaq) or sandbox jq in a network-isolated container before running on untrusted input.

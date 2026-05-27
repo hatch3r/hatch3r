@@ -5,7 +5,7 @@ title: Multi-Repo Workspaces
 
 # Multi-Repo Workspaces
 
-hatch3r can manage multiple git repositories from a single workspace root. A shared `.agents/` directory holds canonical content and a `workspace.json` manifest, and `hatch3r sync` cascades configuration into each sub-repo.
+hatch3r can manage multiple git repositories from a single workspace root. A shared `.hatch3r/` directory at the workspace root holds the `workspace.json` manifest and shared state, and `hatch3r sync` cascades configuration into each sub-repo. Canonical content itself is read from the bundled npm package (not materialized at the workspace root).
 
 ## What is a workspace?
 
@@ -13,26 +13,25 @@ A workspace is a non-git directory that contains multiple git repositories as su
 
 ```
 my-platform/               <- Workspace root (not a git repo)
-  .agents/                  <- Shared canonical source
+  .hatch3r/                 <- Shared workspace state
     workspace.json          <- Workspace manifest
-    hatch.json
-    agents/
-    rules/
-    skills/
-    commands/
-    mcp/
-    AGENTS.md
+    hatch.json              <- Workspace-level content selection
+    overrides/              <- Shared user-tier overrides (optional)
+    mcp/mcp.json            <- Resolved MCP config
   frontend/                 <- Git repo
-    .agents/                <- Synced subset
-    .cursor/
-    CLAUDE.md
+    .hatch3r/hatch.json     <- Per-repo manifest
+    .cursor/                <- Generated adapter output
+    CLAUDE.md               <- Generated adapter output
   backend/                  <- Git repo
-    .agents/                <- Synced subset
+    .hatch3r/hatch.json
     CLAUDE.md
   infra/                    <- Git repo
+    .hatch3r/hatch.json
     .cursor/
     CLAUDE.md
 ```
+
+Canonical content (agents, skills, rules, commands, hooks) is read from the bundled npm package by each adapter — neither the workspace root nor any sub-repo materializes a `.agents/` content tree.
 
 ## Setting up a workspace
 
@@ -53,7 +52,7 @@ Init walks through the standard setup flow (platform, tools, content profile, fe
 
 ## Workspace manifest
 
-The workspace manifest lives at `.agents/workspace.json`. It tracks which repos are managed, their per-repo overrides, and the sync strategy.
+The workspace manifest lives at `.hatch3r/workspace.json`. It tracks which repos are managed, their per-repo overrides, and the sync strategy.
 
 ```json
 {
@@ -89,7 +88,7 @@ The workspace manifest lives at `.agents/workspace.json`. It tracks which repos 
 
 ## Syncing content to sub-repos
 
-`hatch3r sync` copies content from the workspace `.agents/` into each sub-repo and generates tool-specific files.
+`hatch3r sync` generates tool-specific files in each sub-repo from the bundled canonical content plus the workspace-level selection and any per-repo overrides.
 
 ```bash
 npx hatch3r sync                          # sync all repos
@@ -137,7 +136,7 @@ Different coding tools handle file inheritance differently, and workspace layout
 
 - **Claude Code** walks up the directory tree looking for `CLAUDE.md`. A sub-repo `CLAUDE.md` can be lean because Claude will also find the workspace-level instructions if the workspace root is an ancestor directory.
 - **Cursor** does not inherit from parent directories. Each sub-repo needs a complete `.cursor/` directory with all rules, agents, and MCP config. hatch3r sync handles this automatically.
-- **Other tools** -- most tools (Copilot, Windsurf, Cline, etc.) read configuration from the project root only. Sync generates complete files in each sub-repo.
+- **Copilot** reads configuration from the project root only. Sync generates complete files in each sub-repo.
 
 ## Managing repos via hatch3r config
 
@@ -155,7 +154,7 @@ The config flow includes workspace management options:
 - Change per-repo tool and content overrides
 - Switch the sync strategy
 
-You can also edit `.agents/workspace.json` directly.
+You can also edit `.hatch3r/workspace.json` directly.
 
 ## Sync strategies
 

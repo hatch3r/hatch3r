@@ -14,7 +14,7 @@ When you configure a model, hatch3r includes it in the generated config for each
 |--------|------|------------|
 | Customization YAML | `.hatch3r/agents/{agent-id}.customize.yaml` | Highest |
 | Manifest per-agent | `hatch.json` → `models.agents.{agent-id}` | 2nd |
-| Canonical agent | `.agents/agents/{agent-id}.md` frontmatter `model:` | 3rd |
+| Canonical agent | bundled `agents/{agent-id}.md` frontmatter `model:` | 3rd |
 | Manifest default | `hatch.json` → `models.default` | 4th |
 | (none) | — | Platform auto-select |
 
@@ -22,7 +22,7 @@ When you configure a model, hatch3r includes it in the generated config for each
 
 1. **Customization file** — If `.hatch3r/agents/{agent-id}.customize.yaml` exists and has a `model` field, that value wins.
 2. **Manifest per-agent** — `hatch.json` → `models.agents[agent-id]`
-3. **Canonical agent frontmatter** — `model:` in `.agents/agents/{agent-id}.md`
+3. **Canonical agent frontmatter** — `model:` in the bundled `agents/{agent-id}.md`
 4. **Manifest default** — `hatch.json` → `models.default`
 5. **No model** — hatch3r emits nothing; the platform uses its own default.
 
@@ -63,7 +63,7 @@ Unknown values are passed through as-is.
 
 ### Canonical agent frontmatter
 
-In `.agents/agents/hatch3r-implementer.md`:
+In the bundled `agents/hatch3r-implementer.md` (or a `.hatch3r/overrides/agents/hatch3r-implementer.md` override):
 
 ```yaml
 ---

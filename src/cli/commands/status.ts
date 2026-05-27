@@ -165,7 +165,12 @@ export async function statusCommand(opts?: { verbose?: boolean }): Promise<void>
   if (!manifest) {
     logError("No .hatch3r/hatch.json found.");
     console.log(chalk.dim("  Run `npx hatch3r init` to set up your project first.\n"));
-    throw new HatchError("No .hatch3r/hatch.json found.", 1, "CONFIG_ERROR");
+    throw new HatchError(
+      "No .hatch3r/hatch.json found.",
+      1,
+      "CONFIG_ERROR",
+      "Run `npx hatch3r init` to set up your project first.",
+    );
   }
 
   const spinner = createSpinner("Checking adapter-output drift...");

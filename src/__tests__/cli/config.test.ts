@@ -308,7 +308,7 @@ describe("config command", () => {
       const configCommand = await importConfigCommand();
       try { await configCommand(); } catch (err) { /* expected throw */ expect(err).toBeDefined(); }
 
-      expect(vi.mocked(logError)).toHaveBeenCalledWith(expect.stringContaining("No .agents/hatch.json found"));
+      expect(vi.mocked(logError)).toHaveBeenCalledWith(expect.stringContaining("No .hatch3r/hatch.json found"));
     });
 
     it("should throw with exit code 1", async () => {

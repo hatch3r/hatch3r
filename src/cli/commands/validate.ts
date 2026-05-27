@@ -1610,7 +1610,12 @@ export async function validateCommand(opts?: {
         spinner?.fail("Documentation count mismatches found");
         for (const m of mismatches) logError(m);
       }
-      throw new HatchError("Documentation counts do not match", 1, "VALIDATION_ERROR");
+      throw new HatchError(
+        "Documentation counts do not match",
+        1,
+        "VALIDATION_ERROR",
+        "Run `npm run inventory` to regenerate the counts, then re-run validation.",
+      );
     }
     if (jsonMode) {
       emitJson({
@@ -1665,7 +1670,12 @@ export async function validateCommand(opts?: {
       logError(message);
       console.log();
     }
-    throw new HatchError(message, 1, "CONFIG_ERROR");
+    throw new HatchError(
+      message,
+      1,
+      "CONFIG_ERROR",
+      "Re-run `hatch3r update` to refresh bundled content, or reinstall hatch3r if the package is corrupted.",
+    );
   }
 
   // Manifest is now read from `.hatch3r/hatch.json` (Wave 6 will finalize the
@@ -1825,7 +1835,12 @@ export async function validateCommand(opts?: {
       },
     });
     if (hasErrors) {
-      throw new HatchError("Validation failed", 1, "VALIDATION_ERROR");
+      throw new HatchError(
+        "Validation failed",
+        1,
+        "VALIDATION_ERROR",
+        "Fix the errors listed in the JSON `errors` array, then re-run `hatch3r validate`.",
+      );
     }
     return;
   }
@@ -1872,7 +1887,12 @@ export async function validateCommand(opts?: {
       `${chalk.yellow("⚠")} ${result.warnings.length} warning(s)`,
     ];
     printBox("Validation failed", summaryLines, "error");
-    throw new HatchError("Validation failed", 1, "VALIDATION_ERROR");
+    throw new HatchError(
+      "Validation failed",
+      1,
+      "VALIDATION_ERROR",
+      "Fix the errors listed above, then re-run `hatch3r validate`.",
+    );
   } else {
     const summaryLines = [
       `${chalk.green("✔")} 0 errors`,

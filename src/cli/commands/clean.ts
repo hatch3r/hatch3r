@@ -343,7 +343,12 @@ export async function cleanCommand(
         // moved by clean, so no rollback message is needed when a reinit
         // fails. `learningsBackup` is always null on the new code path.
         void learningsBackup;
-        throw new HatchError("Reinit failed during clean.", 1, "CLEAN_ERROR");
+        throw new HatchError(
+          "Reinit failed during clean.",
+          1,
+          "CLEAN_ERROR",
+          "Re-run `npx hatch3r init` to complete setup, or `--verbose` for the underlying failure.",
+        );
       }
       return;
     }

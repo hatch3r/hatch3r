@@ -313,6 +313,35 @@ export interface CostTelemetryRecord {
 }
 
 /**
+ * Tier-accuracy record persisted under `.hatch3r/telemetry/<session-id>-tier.json`
+ * (F7.4-H3 / D7). Captures the triage tier an orchestrator started with, the
+ * tier it ended at after mid-run adjustments, and the reasons for any
+ * adjustment, so the post-pipeline learning loop in
+ * `rules/hatch3r-agent-orchestration-detail.md` §Post-Pipeline Learning can
+ * detect systematic mis-triage. A tier mismatch beyond ±10% across 50 tasks is
+ * the documented CL-3 signal-weight recalibration trigger; the aggregating
+ * `scripts/calibrate-tier-weights.ts` script consumes these files (authored
+ * separately — outside this module).
+ *
+ * Atomic write (tmp+rename); each call REWRITES the file with the latest
+ * snapshot, mirroring {@link CostTelemetryRecord}.
+ */
+export interface TierAccuracyRecord {
+  /** Stable identifier for the orchestrated task (correlation id alias). */
+  taskId: string;
+  /** Triage tier computed up-front, before any phase ran. */
+  initialTier: TriageTier;
+  /** Triage tier in force at wrap-up (equals `initialTier` when no adjustment). */
+  finalTier: TriageTier;
+  /** Human-readable reasons for each tier adjustment (empty when none). */
+  adjustmentReasons: string[];
+  /** Correlation id tying this record to the cost telemetry for the same run. */
+  correlationId: string;
+  /** ISO-8601 timestamp captured when the record was written. */
+  ts: string;
+}
+
+/**
  * Sanitise a session id for use as a filename. Allow `[A-Za-z0-9_.-]`, replace
  * everything else with `_`. Trim to 80 chars to keep the filename portable.
  */
@@ -380,6 +409,45 @@ export function recordActuals(
   } catch (err) {
     routeTelemetryFailure(projectRoot, "cost-record-actuals", err, {
       session: sessionId,
+    });
+    return false;
+  }
+}
+
+/**
+ * Persist (or overwrite) the tier-accuracy record for a task via atomic write
+ * (F7.4-H3 / D7). The orchestrator calls this at wrap-up with the tier it
+ * started at, the tier it ended at, and the adjustment reasons. The file lands
+ * at `.hatch3r/telemetry/<task-id>-tier.json` — a sibling of the cost telemetry
+ * file for the same run, suffixed `-tier` so the two never collide.
+ *
+ * Silent Failure Contract: I/O failures are caught and routed through the
+ * failureLog channel; this function NEVER throws. Returns `true` on success,
+ * `false` on failure so the caller can surface a warning in its iteration
+ * summary.
+ *
+ * @param record               The tier-accuracy snapshot to persist.
+ * @param options.projectRoot  Project root; defaults to `process.cwd()`.
+ */
+export function recordTierAccuracy(
+  record: TierAccuracyRecord,
+  options: { projectRoot?: string } = {},
+): boolean {
+  const projectRoot = options.projectRoot ?? process.cwd();
+  const filename = safeSessionFilename(record.taskId) + "-tier.json";
+  const filePath = join(projectRoot, TELEMETRY_DIR_RELATIVE, filename);
+
+  const payload = JSON.stringify(record, null, 2) + "\n";
+
+  const tmpPath = filePath + ".tmp." + randomBytes(4).toString("hex");
+  try {
+    mkdirSync(dirname(filePath), { recursive: true });
+    writeFileSync(tmpPath, payload, "utf-8");
+    renameSync(tmpPath, filePath);
+    return true;
+  } catch (err) {
+    routeTelemetryFailure(projectRoot, "tier-accuracy-record", err, {
+      session: record.taskId,
     });
     return false;
   }

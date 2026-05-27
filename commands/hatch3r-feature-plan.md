@@ -69,6 +69,29 @@ Classify the feature-planning request before delegating:
 
 If Tier 1, run the reduced researcher set and skip Step 6 (ADRs). If Tier 2, run the standard pipeline below. If Tier 3, run the full pipeline including ADR generation and confirm spec scope explicitly before writing files.
 
+### Step 0.5: Emit Pre-Execution Cost Preview
+
+Before the first sub-agent dispatch (Step 3), surface the cost preview so a multi-researcher feature-planning run is never started blind. Emit the `cost_estimate` block per `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate, calibrated to the Step 0 triage tier:
+
+```yaml
+cost_estimate:
+  expected_sa_count: <triage tier → Tier 1 ~2, Tier 2 ~6, Tier 3 up to 13>
+  estimated_input_tokens_static_frame: <int>
+  estimated_web_research_queries: <int>
+  triage_tier: light | standard | deep
+  estimated_duration_min: <int>
+```
+
+Post-execution actuals + delta land in the iteration summary's Fan-out + Cost section per `rules/hatch3r-cost-visibility.md` Post-Execution Actuals. Token telemetry sources from `src/pipeline/observability.ts`.
+
+### Effort Override (Decision 17)
+
+Auto-tiering can misclassify — a single-module feature scored as Deep, or a cross-cutting feature scored as Light. The user override is the recovery path mandated by `governance/CONSTITUTION.md` §6 Decision 17 ("User overridable via `--effort` flag"):
+
+- `--effort=light|standard|deep` forces the named tier, bypassing the Step 0 auto-classification.
+- The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
+- No override passed → the Step 0 auto-classification stands.
+
 ---
 
 ### Step 1: Gather Feature Description
@@ -450,6 +473,17 @@ Files Created/Updated:
 **ASK:** "All files written. Run `hatch3r-board-fill` to create GitHub issues from the new todo.md entries? (yes / not now)"
 
 If yes, instruct the user to invoke the `hatch3r-board-fill` command. Note that board-fill will perform its own deduplication, grouping, dependency analysis, and readiness assessment on the entries.
+
+---
+
+## Cost estimate (Decision 24)
+
+This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 24/29:
+
+- **Pre-execution `cost_estimate`** — emitted in Step 0.5 before the first researcher dispatch.
+- **Post-execution `cost_actuals` + `delta`** — appended to the iteration summary's Fan-out + Cost section per `rules/hatch3r-iteration-summary.md` §2.
+
+Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.count: 13` × tier heuristic in `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate): Tier 1 ≈ 2 (reduced researcher set + docs-writer); Tier 2 ≈ 6; Tier 3 up to 13 (4-5 parallel researcher modes + docs-writer + the 9 CQ vector specialists advising pre-write). Deltas beyond 25% absolute value carry `flagged_for_review: true`. Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
 
 ---
 

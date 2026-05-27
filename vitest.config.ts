@@ -30,14 +30,13 @@ export default defineConfig({
         functions: 80,
         lines: 80,
 
-        // Per-directory thresholds for critical modules (#41)
+        // Per-directory thresholds for critical modules (#41).
+        // `src/integrity/**` was removed in Cycle 10 F19.2.1 (D19): the
+        // directory no longer exists — SHA-256 manifest integrity was replaced
+        // by adapter-output drift detection (`hatch3r status` / `hatch3r
+        // verify` regenerate from bundled content and diff against on-disk).
+        // A threshold key for a non-existent directory is dead config.
         "src/merge/**": {
-          statements: 90,
-          branches: 80,
-          functions: 90,
-          lines: 90,
-        },
-        "src/integrity/**": {
           statements: 90,
           branches: 80,
           functions: 90,

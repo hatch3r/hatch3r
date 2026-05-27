@@ -47,6 +47,16 @@ Take a test planning scope (feature, module, or codebase area) and produce a com
 
 ---
 
+## Confidence Propagation Contract
+
+Every sub-agent delegation prompt in this command MUST include the confidence expression requirement below (verbatim). Sub-agents are invoked with the `quality_charter: agents/shared/quality-charter.md` reference in their frontmatter, but the orchestrator repeats the directive to override runtime prompt defaults per the charter §1 rule.
+
+> Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
+
+Downstream propagation: every ASK checkpoint that reports verification quality, every gate that evaluates a sub-agent verdict, and every output block that surfaces plan readiness MUST carry a high/medium/low confidence rating sourced from the upstream sub-agent. Dropping the signal between stages is a gate failure.
+
+---
+
 ## Workflow
 
 Execute these steps in order. **Do not skip any step.** Ask the user at every checkpoint marked with ASK.
@@ -60,6 +70,29 @@ Classify the test-planning request before delegating:
 - **Tier 3 (deep)**: full-suite restructure, mutation-testing rollout, contract testing, or coverage uplift across the whole codebase; full pipeline with deep research and confirm test plan scope with the user before writing files.
 
 If Tier 1, run the reduced researcher set and skip Step 6 (ADRs). If Tier 2, run the standard pipeline below. If Tier 3, run the full pipeline including ADR generation for testing infrastructure decisions and confirm scope with the user before writing files.
+
+### Step 0.5: Emit Pre-Execution Cost Preview
+
+Before the first researcher dispatch (Step 3), surface the cost preview so a multi-researcher test-planning run is never started blind. Emit the `cost_estimate` block per `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate, calibrated to the Step 0 triage tier:
+
+```yaml
+cost_estimate:
+  expected_sa_count: <triage tier → Tier 1 ~2, Tier 2 ~5, Tier 3 up to 5>
+  estimated_input_tokens_static_frame: <int>
+  estimated_web_research_queries: <int>
+  triage_tier: light | standard | deep
+  estimated_duration_min: <int>
+```
+
+Post-execution actuals + delta land in the iteration summary's Fan-out + Cost section per `rules/hatch3r-cost-visibility.md` Post-Execution Actuals. Token telemetry sources from `src/pipeline/observability.ts`.
+
+### Effort Override (Decision 17)
+
+Auto-tiering can misclassify — a single-module test plan scored as Deep, or a full-suite restructure scored as Light. The user override is the recovery path mandated by `governance/CONSTITUTION.md` §6 Decision 17 ("User overridable via `--effort` flag"):
+
+- `--effort=light|standard|deep` forces the named tier, bypassing the Step 0 auto-classification.
+- The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
+- No override passed → the Step 0 auto-classification stands.
 
 ---
 
@@ -528,6 +561,17 @@ Files Created/Updated:
 If `hatch3r-test-writer`: instruct the user to invoke `hatch3r-test-writer`, passing the P0 test cases from the test plan spec as the scope.
 
 If `hatch3r-board-fill`: instruct the user to invoke `hatch3r-board-fill`. Note that board-fill will perform its own deduplication, grouping, dependency analysis, and readiness assessment on the entries.
+
+---
+
+## Cost estimate (Decision 24)
+
+This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 24/29:
+
+- **Pre-execution `cost_estimate`** -- emitted in Step 0.5 before the first researcher dispatch.
+- **Post-execution `cost_actuals` + `delta`** -- appended to the iteration summary's Fan-out + Cost section per `rules/hatch3r-iteration-summary.md` §2.
+
+Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.count: 5` × tier heuristic in `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate): Tier 1 ≈ 2 (coverage-analysis + risk-prioritization); Tier 2/3 spawn up to 5 parallel researcher modes. Deltas beyond 25% absolute value carry `flagged_for_review: true`. Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
 
 ---
 

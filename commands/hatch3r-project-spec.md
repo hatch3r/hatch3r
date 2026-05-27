@@ -47,6 +47,16 @@ Take a project idea or vision and produce complete project documentation across 
 
 ---
 
+## Confidence Propagation Contract
+
+Every sub-agent delegation prompt in this command MUST include the confidence expression requirement below (verbatim). Sub-agents are invoked with the `quality_charter: agents/shared/quality-charter.md` reference in their frontmatter, but the orchestrator repeats the directive to override runtime prompt defaults per the charter §1 rule.
+
+> Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
+
+Downstream propagation: every ASK checkpoint that reports verification quality, every gate that evaluates a sub-agent verdict, and every output block that surfaces spec readiness MUST carry a high/medium/low confidence rating sourced from the upstream sub-agent. Dropping the signal between stages is a gate failure.
+
+---
+
 ## Workflow
 
 Execute these steps in order. **Do not skip any step.** Ask the user at every checkpoint marked with ASK. When in doubt, **ASK** — it is better to ask one question too many than to make one wrong assumption. Discovery questions are never wasted.
@@ -60,6 +70,29 @@ Classify the project-spec request before delegating:
 - **Tier 3 (deep)**: enterprise-scale, multi-platform, or regulated greenfield (HIPAA/PCI/FedRAMP); full pipeline with all researchers, deep web research for compliance, and confirm spec scope with the user before file writes.
 
 If Tier 1, run the reduced researcher set and skip Sub-Agents 6–7 unless the user opts in. If Tier 2, run the standard pipeline below. If Tier 3, run the full pipeline including the production-blueprint and confirm scope with the user before generating ADRs.
+
+### Step 0.5: Emit Pre-Execution Cost Preview
+
+Before the first researcher dispatch (Step 3), surface the cost preview so a multi-researcher project-spec run is never started blind. Emit the `cost_estimate` block per `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate, calibrated to the Step 0 triage tier:
+
+```yaml
+cost_estimate:
+  expected_sa_count: <triage tier → Tier 1 ~3-4, Tier 2 ~7, Tier 3 up to 7>
+  estimated_input_tokens_static_frame: <int>
+  estimated_web_research_queries: <int>
+  triage_tier: light | standard | deep
+  estimated_duration_min: <int>
+```
+
+Post-execution actuals + delta land in the iteration summary's Fan-out + Cost section per `rules/hatch3r-cost-visibility.md` Post-Execution Actuals. Token telemetry sources from `src/pipeline/observability.ts`.
+
+### Effort Override (Decision 17)
+
+Auto-tiering can misclassify — a focused greenfield scored as Deep, or a regulated multi-platform project scored as Light. The user override is the recovery path mandated by `governance/CONSTITUTION.md` §6 Decision 17 ("User overridable via `--effort` flag"):
+
+- `--effort=light|standard|deep` forces the named tier, bypassing the Step 0 auto-classification.
+- The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
+- No override passed → the Step 0 auto-classification stands.
 
 ---
 
@@ -1188,6 +1221,17 @@ The generated `AGENTS.md` should follow this structure:
 - Run `hatch3r-board-fill` to create GitHub issues from the todo.md
 
 Which would you like to run next? (or none)"
+
+---
+
+## Cost estimate (Decision 24)
+
+This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 24/29:
+
+- **Pre-execution `cost_estimate`** — emitted in Step 0.5 before the first researcher dispatch.
+- **Post-execution `cost_actuals` + `delta`** — appended to the iteration summary's Fan-out + Cost section per `rules/hatch3r-iteration-summary.md` §2.
+
+Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.count: 7` × tier heuristic in `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate): Tier 1 ≈ 3-4 (reduced researcher set, no production-blueprint); Tier 2/3 spawn up to 7 parallel researchers plus the production-blueprint sub-agent. Deltas beyond 25% absolute value carry `flagged_for_review: true`. Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
 
 ---
 

@@ -12,6 +12,7 @@ efficiency_patterns: agents/shared/efficiency-patterns.md
 efficiency_tier: standard
 cache_friendly: true
 parallel_tool_default: true
+wall_clock_advisory_ms: 600000
 phase_4_trigger:
   mode: conditional
   conditions:
@@ -117,6 +118,8 @@ When reviewing a service graph with N services or M dependency layers:
 4. **Aggregate** into a single CQ4 reliability report with per-service / per-layer rows and a single roll-up status.
 5. **Cost-dominance clause (P8 B2).** Sub-agent count tracks unit count — never reduce below unit count to save tokens. Token cost is dominated by quality gain from independent specialist contexts. Serialization is only valid on dependency edges (e.g., the cross-service trace-propagation check runs after per-service span emission is verified). The `sub_agents_spawned` field in the output schema records the count and rationale.
 
+**Wall-clock advisory (`specialist-eval` phase).** This agent runs under the `specialist-eval` phase budget (`src/pipeline/phaseTimeout.ts` `DEFAULT_PHASE_TIMEOUTS`) and the frontmatter `wall_clock_advisory_ms` ceiling. If you observe yourself approaching the advisory before the checklist completes, return `status: FINDINGS` with audited services/layers marked and the unaudited remainder listed under a `deferred:` note rather than exhausting the budget silently — a partial gate with a visible remainder beats a TIMEOUT with no result.
+
 **Worked examples of fan-out:**
 
 - 3-service review (auth gateway, profile service, payment service) → 3 parallel sub-agents, each running the 8-item checklist against one service, plus one Phase-2 aggregator sub-agent that validates `trace_id` propagation across the 3 services using a shared trace-store query.
@@ -183,6 +186,10 @@ status: PASS | FINDINGS | CRITICAL
 ```
 
 Status mapping per `agents/shared/quality-charter.md` §14 Severity Discipline: any Critical → `CRITICAL`; any High/Medium/Low/Info without Critical → `FINDINGS`; zero findings → `PASS`.
+
+**Severity vocabulary:** the `PASS | FINDINGS | CRITICAL` status maps to canonical audit severity via the **Specialist Status** column in `governance/audit/templates/severity-mapping.md` — `CRITICAL → Critical`, `FINDINGS → High + Medium`, `PASS → Low + Info`. Map through that table when escalating to `hatch3r-fixer` or feeding the release decision.
+
+**Verification harness:** `skills/hatch3r-reliability-verify` + `skills/hatch3r-observability-verify` are the executable verification harnesses for this CQ4 gate — they produce the trace-store, SLO-validation, and induced-failure evidence captured in `proof_trace.actual`. This agent owns the CQ4 budget decision (span coverage, SLO definition, RFC 9457 shape, resilience pattern); those skills own the measurement (the inverse-citation appears under each skill's `## Invoked by`).
 
 ## Boundaries
 

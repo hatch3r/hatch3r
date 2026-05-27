@@ -27,6 +27,14 @@ This skill delegates per task size:
 
 Never under-fan-out to save tokens. Token cost is dominated by quality and completeness gains. Emit `sub_agents_spawned: { count, rationale }` in your output.
 
+## Invoked by
+
+This skill is the verification HARNESS — it declares HOW each observability gate is checked. The DISPATCHER that decides WHEN to run it is the CQ specialist agent:
+
+- `agents/hatch3r-reliability.md` — invokes this skill as the telemetry sub-vector gate of CQ4 (OTel span coverage, structured-log + trace-id correlation, RED/USE metrics, GenAI semconv), alongside `skills/hatch3r-reliability-verify` for the SLO/probes/runbook sub-vector. The agent contributes the review trigger and Phase-4 dispatch; this skill contributes the 9-gate procedure.
+
+No duplication: the agent decides WHEN, this skill defines HOW. The agent body cites this skill (`agents/hatch3r-reliability.md` — "cite ... `skills/hatch3r-observability-verify` as the closing gates"); this subsection is the symmetric upstream citation per `rules/hatch3r-agent-orchestration.md` (Phase-4 dispatch).
+
 ## Gate 1: OTel span on request path
 
 - Every HTTP server entry point, every RPC handler, and every queue consumer emits a root span. Every outbound DB / cache / queue / external HTTP call is wrapped in a child span.

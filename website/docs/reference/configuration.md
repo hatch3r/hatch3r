@@ -8,7 +8,7 @@ hatch3r is configured through `hatch.json` (the project manifest), `.env.mcp` (s
 
 ## hatch.json
 
-The project manifest lives at `.agents/hatch.json` and is created by `npx hatch3r init`. It controls which tools are enabled, which MCP servers are active, board configuration, and model preferences.
+The project manifest lives at `.hatch3r/hatch.json` and is created by `npx hatch3r init`. It controls which tools are enabled, which MCP servers are active, board configuration, and model preferences.
 
 To change your configuration after init, run `npx hatch3r config`. This interactive command walks through all settings (platform, tools, features, MCP servers, content items) pre-populated with current values, archives removed tool outputs, migrates any manual customizations, and runs a full update.
 
@@ -52,7 +52,7 @@ To change your configuration after init, run `npx hatch3r config`. This interact
 | `project` | `string` | Project name (Azure DevOps project or GitLab group) |
 | `repo` | `string` | Repository name |
 | `owner` | `string` | *(deprecated)* GitHub organization or user -- use `namespace` instead |
-| `tools` | `string[]` | Enabled coding tools (`cursor`, `copilot`, `claude`, `opencode`, `windsurf`, `amp`, `codex`, `gemini`, `cline`, `aider`, `kiro`, `goose`, `zed`) |
+| `tools` | `string[]` | Enabled coding tools: `cursor`, `copilot`, `claude` (the adapter set was hard-cut to these 3 in 1.9.0) |
 | `features` | `object` | Feature flags for content types |
 | `mcp` | `object` | MCP server configuration |
 | `board` | `object` | GitHub Projects V2 board configuration |
@@ -155,7 +155,7 @@ When `content` is `undefined` (legacy projects), `hatch3r update` and `hatch3r s
 
 ### Workspace configuration
 
-When `hatch3r init --workspace` is run in a directory containing multiple git repos, hatch3r creates a `workspace.json` manifest in `.agents/`. This file tracks workspace-level configuration and per-repo overrides.
+When `hatch3r init --workspace` is run in a directory containing multiple git repos, hatch3r creates a `workspace.json` manifest in `.hatch3r/`. This file tracks workspace-level configuration and per-repo overrides.
 
 ```json
 {

@@ -12,6 +12,7 @@ efficiency_patterns: agents/shared/efficiency-patterns.md
 efficiency_tier: standard
 cache_friendly: true
 parallel_tool_default: true
+wall_clock_advisory_ms: 600000
 phase_4_trigger:
   mode: conditional
   conditions:
@@ -108,6 +109,8 @@ When the review surface spans multiple mandate-map classes, fan out one sub-agen
 
 **Cost-dominance (P8 B2).** Sub-agent count tracks present mandate classes — never reduce below the class count to save tokens. Token cost of additional specialists is dominated by quality gain from isolated tool contexts (Stryker stdout does not contaminate Pact stdout; mutation kill counts do not bleed into eval pass-rates). Serialization is only valid on dependency edges (aggregation runs after per-class measurement completes) or on shared-resource contention (two specialists hitting the same staging endpoint at the same time will skew each other's latencies). The `sub_agents_spawned` output field records count + per-class rationale.
 
+**Wall-clock advisory (`specialist-eval` phase).** This agent runs under the `specialist-eval` phase budget (`src/pipeline/phaseTimeout.ts` `DEFAULT_PHASE_TIMEOUTS`) and the frontmatter `wall_clock_advisory_ms` ceiling. Mutation and fuzz runs are the longest specialists; if you observe yourself approaching the advisory before every mandate class is measured, return `status: FINDINGS` with the measured classes marked and the unmeasured classes listed under a `deferred:` note rather than exhausting the budget silently — a partial gate with a visible remainder beats a TIMEOUT with no result.
+
 ## Audit Checklist
 
 Run every check below. Each row is measurable; cite the command and the report path in the proof_trace.
@@ -154,6 +157,8 @@ Status mapping:
 - `PASS` when every checklist row passes with High or Medium confidence; a single Low-confidence row downgrades the overall status to FINDINGS with the row flagged for re-measurement.
 - `FINDINGS` when one or more non-critical rows fail — real-deal-ratio drop, coverage threshold miss outside critical modules, mutation kill-rate floor breach on non-critical paths, missing property test, missing visual-regression baseline, or unowned flake.
 - `CRITICAL` when a mandate-map class is missing (parser without fuzz, payment without mutation, RPC without contract, state-machine without property, UI without visual regression), when AI eval coverage is below 100% on a release-bound prompt or model change, when a contract on auth/payment is broken (broker can-i-deploy=false), or when coverage on a `src/merge/`-class critical module falls below the per-module floor.
+
+**Severity vocabulary:** the `PASS | FINDINGS | CRITICAL` status maps to canonical audit severity via the **Specialist Status** column in `governance/audit/templates/severity-mapping.md` — `CRITICAL → Critical`, `FINDINGS → High + Medium`, `PASS → Low + Info`. Map through that table when escalating to `hatch3r-fixer` or feeding the release decision.
 
 The orchestrator integrating this agent's output reads `status` first to short-circuit on CRITICAL; otherwise it iterates findings by severity and emits a per-PR comment grouped by CQ5 sub-area (mandate map, real-deal ratio, coverage, AI eval, mutation, property, contract, determinism).
 

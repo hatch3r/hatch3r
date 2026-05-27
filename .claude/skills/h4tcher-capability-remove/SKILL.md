@@ -13,6 +13,10 @@ quality_charter: agents/shared/quality-charter.md
 
 Maintainer preset for phasing out a hatch3r artifact. Hardest preset to invoke: a D16.3 gate blocks removal unless three criteria all hold, and migration notes plus reference scrubbing run before the maintainer is allowed to commit.
 
+## §0.1: Ambiguity Gate (P8 B1)
+
+Per CONSTITUTION §2 P8 B1: every framework-dev workflow mutating canonical artifacts detects and resolves ambiguity via `agents/shared/user-question-protocol.md` BEFORE executing — default behavior, not exception-driven. Apply the protocol when any hold: (a) ambiguous scope (which artifact, and remove vs merge-then-deprecate per D16.3 add-vs-remove bias), (b) multiple valid interpretations with materially different migration cost, (c) irreversible action — removal is inherently destructive, so confirm the target id and that no consumer depends on it, or (d) missing acceptance criteria (no migration-note target, no definition of done). Use the platform-native question tool; one question per turn; 2-4 numbered options with one-line trade-offs; declare the default-if-no-response. Do NOT proceed to Step 0 until resolved or the default is confirmed.
+
 ## Step 0: Triage
 
 Classify the removal target before any work runs.

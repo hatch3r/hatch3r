@@ -322,7 +322,7 @@ describe("manifest-missing error path & P1 actionable formatting (C9-H8)", () =>
         const he = e as HatchError;
         expect(he.errorCode).toBe("CONFIG_ERROR");
         expect(he.exitCode).toBe(1);
-        expect(he.message).toContain(".agents/hatch.json");
+        expect(he.message).toContain(".hatch3r/hatch.json");
       }
     });
 
@@ -332,7 +332,7 @@ describe("manifest-missing error path & P1 actionable formatting (C9-H8)", () =>
       await expect(fn()).rejects.toBeInstanceOf(HatchError);
       // P1: actionable error names what failed (hatch.json missing).
       expect(vi.mocked(logError)).toHaveBeenCalledWith(
-        expect.stringContaining(".agents/hatch.json"),
+        expect.stringContaining(".hatch3r/hatch.json"),
       );
     });
 

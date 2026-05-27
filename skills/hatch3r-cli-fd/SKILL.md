@@ -17,6 +17,17 @@ cli_tool:
 
 User-friendly find replacement, gitignore-aware
 
+## §0 — Ambiguity & Safety Gate (P8 B1)
+
+Before invoking `fd`, resolve these via `agents/shared/user-question-protocol.md` (default behavior, not exception-driven):
+- **Scope:** when the search root or pattern matches more files than intended (a bare glob over the repo root, `-H` including dotfiles), confirm the target path before running.
+- **Irreversibility:** `fd` is read-only on its own, but `fd … -x` / `-X` runs an arbitrary command per match. `fd <pat> -x rm` or any mutating `--exec` is destructive and fan-out-wide — confirm the command and the match set before running, and prefer printing the list first.
+- **Ambiguity:** when the request maps to two or more matchers with materially different result sets (regex vs `-g` glob, `-e ext` vs path regex), ask which one.
+
+## Fan-out Discipline (P8 B2)
+
+Tier 1 reference card — no fan-out. This skill is a single-tool usage reference an agent consults inline; it spawns no sub-agents. Fan-out is owned by the calling workflow per its own Fan-out Discipline block. Source: `.claude/rules/fan-out-discipline.md` (P8 B2).
+
 ## When to Use
 
 Reach for `fd` when the task is in the **search** category and the agent would otherwise call an MCP tool or read large outputs into context.

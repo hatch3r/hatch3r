@@ -89,7 +89,7 @@ Ad-hoc multi-phase workflows do not exempt these requirements. If you are runnin
 |------|---------|
 | `governance/VISION.md` | North star: identity, audience, quality bar, principles |
 | `governance/CONSTITUTION.md` | Design rationale: 8 pillars (P1-P8), traceability matrix, lean thresholds |
-| `governance/AUDIT.md` | Audit prompt: 24 domains, 113 sub-agents, behavioral charter |
+| `governance/AUDIT.md` | Audit prompt: 24 domains, 124 sub-agents, behavioral charter |
 | `governance/AUDIT-EXECUTE.md` | Execution: 4-wave model, regression gates, closed-loop phases |
 | `governance/RE-ENVISION.md` | Holistic governance sparring engine — 10 parallel layer SAs + 20-theme dialog; hybrid edit authority (direct-edit / CL-3 / §8 amendment) |
 | `governance/EVOLVE.md` | Cross-cycle assessment + prompt mechanics refinement |

@@ -415,7 +415,12 @@ export async function worktreeCleanupCommand(
     if (isCwdInside(c.entry.path, cwd)) {
       logError(`You are inside ${shortPath(c.entry.path, mainRoot)}; cd out of it first.`);
       console.log(chalk.dim(`  Try: cd ${mainRoot}\n`));
-      throw new HatchError("cwd is inside a candidate worktree", 1, "VALIDATION_ERROR");
+      throw new HatchError(
+        "cwd is inside a candidate worktree",
+        1,
+        "VALIDATION_ERROR",
+        `cd to the main repo (${mainRoot}) and re-run the cleanup.`,
+      );
     }
   }
 
@@ -463,6 +468,11 @@ export async function worktreeCleanupCommand(
   printBox("Worktree cleanup", lines.length ? lines : [chalk.dim("Nothing changed.")], result.failed.length ? "error" : "success");
 
   if (result.failed.length > 0) {
-    throw new HatchError(`${result.failed.length} worktree(s) failed to clean.`, 1, "FS_ERROR");
+    throw new HatchError(
+      `${result.failed.length} worktree(s) failed to clean.`,
+      1,
+      "FS_ERROR",
+      "Resolve the per-worktree reasons listed above (e.g. uncommitted changes), then re-run the cleanup.",
+    );
   }
 }

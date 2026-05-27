@@ -58,6 +58,27 @@ const SKIPPED_BASENAMES: ReadonlySet<string> = new Set<string>([]);
 // CONSTITUTION P4 lean-threshold row added in this cycle.
 const LIBRARY_TAG = "@library_export_only";
 
+// ── Legacy-import guard (Cycle 10 F16.1-H3, D16 cross-domain) ──────
+//
+// Modules removed in the 1.9.0 hard cut (`src/adapters/zed`) and the
+// SHA-256-integrity removal (`src/integrity/`) must never be re-imported by
+// production code. This guard fails on any *import specifier* under `src/`
+// (excluding tests) that resolves to a removed module path. It deliberately
+// does NOT flag the `.agents/` string literal: `.agents/` survives as a
+// legitimate backward-compatible probe target in `src/workspace/detect.ts`,
+// `src/workspace/sync.ts`, and `src/detect/repoAnalyzer.ts` (pre-1.9 layout
+// detection), so a string-literal sweep would false-positive on intentional
+// migration shims. Import specifiers, by contrast, point at code that no
+// longer exists — any match is genuinely dead/regressed.
+//
+// Each forbidden entry is a substring matched against the resolved import
+// specifier (after stripping a `.js`/`.ts` suffix and a leading `./`).
+const FORBIDDEN_IMPORT_SUBSTRINGS: readonly { needle: string; reason: string }[] = [
+  { needle: "/integrity/", reason: "src/integrity/ was removed (drift detection replaced SHA-256 manifest integrity; Cycle 10 F19.2.1)" },
+  { needle: "integrity/index", reason: "src/integrity/index was removed (Cycle 10 F19.2.1)" },
+  { needle: "adapters/zed", reason: "the zed adapter was removed in the 1.9.0 hard cut (3 adapters: claude, cursor, copilot)" },
+];
+
 // ── Types ─────────────────────────────────────────────────────────
 
 type Severity = "error" | "warning";
@@ -319,6 +340,47 @@ async function ingestModules(rootDir: string, scannedDirs: readonly string[]): P
   return out;
 }
 
+// ── Legacy-import scan ────────────────────────────────────────────
+
+/**
+ * Walk every non-test `*.ts` file under `src/` and emit one ERROR finding per
+ * import specifier that resolves to a removed module path
+ * (`FORBIDDEN_IMPORT_SUBSTRINGS`). Matches both `from "..."` and `import("...")`
+ * forms, relative and bare. Comments are not import statements, so the
+ * `from`/`import(` anchors keep documentation references (e.g. a `.agents/`
+ * mention in a JSDoc block) out of scope.
+ */
+async function scanLegacyImports(rootDir: string, srcDir: string): Promise<Finding[]> {
+  const findings: Finding[] = [];
+  const files = await collectImporterFiles(rootDir, srcDir);
+  const importRe = /(?:from\s+|import\s*\()\s*['"]([^'"]+)['"]/g;
+  for (const abs of files) {
+    let raw: string;
+    try {
+      raw = await readFile(abs, "utf-8");
+    } catch {
+      continue;
+    }
+    const relFromRepo = toPosixRel(abs, rootDir);
+    importRe.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = importRe.exec(raw)) !== null) {
+      const spec = m[1].replace(/\.(js|ts)$/, "").replace(/^\.\//, "");
+      for (const forbidden of FORBIDDEN_IMPORT_SUBSTRINGS) {
+        if (spec.includes(forbidden.needle)) {
+          findings.push({
+            level: "error",
+            code: "WIRING-LEGACY-IMPORT",
+            file: relFromRepo,
+            message: `imports removed module path "${m[1]}" — ${forbidden.reason}`,
+          });
+        }
+      }
+    }
+  }
+  return findings;
+}
+
 // ── Core check ────────────────────────────────────────────────────
 
 export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
@@ -331,6 +393,8 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
   const findings: Finding[] = [];
   let wiredModules = 0;
   let libraryOnlyModules = 0;
+
+  findings.push(...(await scanLegacyImports(rootDir, join(rootDir, "src"))));
 
   for (const m of modules) {
     const wired = (importers.get(m.importPath) ?? []).length > 0;

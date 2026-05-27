@@ -167,7 +167,7 @@ export function formatActionableError(
     lines.push(`  Run "hatch3r --help" for usage information.`);
   } else {
     lines.push("  For help, see: https://github.com/hatch3r/hatch3r#troubleshooting");
-    lines.push("  Check .agents/.failure-log.jsonl for recent failure details.");
+    lines.push("  Check .hatch3r/.failure-log.jsonl for recent failure details.");
     lines.push("  Set DEBUG=1 for a full stack trace.");
   }
   return {

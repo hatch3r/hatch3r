@@ -9,11 +9,11 @@ How `npx hatch3r init` sets up a project:
 ```mermaid
 flowchart LR
     A["npx hatch3r init"] --> B["Detect repo\n(git remote)"]
-    B --> C["Select tools\n(Cursor, Copilot, Claude, ...)"]
+    B --> C["Select tools\n(Cursor, Copilot, Claude)"]
     C --> D["Select MCP servers\n(GitHub, Brave, ...)"]
-    D --> E["Copy canonical content\nto .agents/"]
-    E --> F["Run adapters"]
-    F --> G[".cursor/\n.github/\nCLAUDE.md\n.windsurfrules\n..."]
+    D --> E["Write manifest\nto .hatch3r/hatch.json"]
+    E --> F["Run adapters\n(read bundled content)"]
+    F --> G[".cursor/\n.github/\nCLAUDE.md\n.claude/"]
     F --> H[".env.mcp\n(secrets template)"]
 ```
 
@@ -23,15 +23,14 @@ One source of truth generates outputs for all tools:
 
 ```mermaid
 flowchart TB
-    subgraph canonical[".agents/ (canonical source)"]
-        agents["agents/\n16 agent definitions"]
-        skills["skills/\n25 skill bundles"]
-        rules["rules/\n22 rule files"]
-        commands["commands/\n33 command workflows"]
+    subgraph canonical["bundled npm package (canonical source)"]
+        agents["agents/\n30 agent definitions"]
+        skills["skills/\n43 skill bundles"]
+        rules["rules/\n55 rule files"]
+        commands["commands/\n23 command workflows"]
         mcp["mcp/\nMCP server config"]
-        prompts["prompts/\nReusable templates"]
         hooks["hooks/\nEvent triggers"]
-        manifest["hatch.json\nProject manifest"]
+        manifest[".hatch3r/hatch.json\nProject manifest"]
     end
 
     subgraph adapters["Adapter Layer"]

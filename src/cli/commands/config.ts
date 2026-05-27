@@ -292,7 +292,12 @@ function applyScalarConfigWrite(
   }
   // Exhaustive guard for future keys — the type system enforces this branch
   // is unreachable today.
-  throw new HatchError(`Unsupported config key: ${key}`, 1, "VALIDATION_ERROR");
+  throw new HatchError(
+    `Unsupported config key: ${key}`,
+    1,
+    "VALIDATION_ERROR",
+    `Use one of: ${[...SCALAR_CONFIG_KEYS].join(", ")}.`,
+  );
 }
 
 /**
@@ -304,7 +309,12 @@ function readScalarConfigValue(manifest: HatchManifest, key: ScalarConfigKey): s
   if (key === "maturity") {
     return readMaturityTier(manifest);
   }
-  throw new HatchError(`Unsupported config key: ${key}`, 1, "VALIDATION_ERROR");
+  throw new HatchError(
+    `Unsupported config key: ${key}`,
+    1,
+    "VALIDATION_ERROR",
+    `Use one of: ${[...SCALAR_CONFIG_KEYS].join(", ")}.`,
+  );
 }
 
 /**
@@ -393,6 +403,7 @@ async function handleScalarConfig(
         `Missing value for "${key}". Usage: hatch3r config set ${key} <value>`,
         1,
         "VALIDATION_ERROR",
+        `Re-run as \`hatch3r config set ${key} <value>\` with a value.`,
       );
     }
     const { previous, next } = applyScalarConfigWrite(manifest, key, value);
@@ -461,9 +472,14 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
   const manifest = await readManifest(rootDir);
 
   if (!manifest) {
-    logError("No .agents/hatch.json found.");
+    logError("No .hatch3r/hatch.json found.");
     console.log(chalk.dim("  Run `npx hatch3r init` to set up your project first.\n"));
-    throw new HatchError("No .agents/hatch.json found.", 1, "CONFIG_ERROR");
+    throw new HatchError(
+      "No .hatch3r/hatch.json found.",
+      1,
+      "CONFIG_ERROR",
+      "Run `npx hatch3r init` to set up your project first.",
+    );
   }
 
   // Scalar key/value dispatch — handles `hatch3r config <key>=<value>`,
@@ -843,7 +859,12 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
 
   if (tools.length === 0) {
     logError("At least one tool must be selected.");
-    throw new HatchError("At least one tool must be selected.", 1, "VALIDATION_ERROR");
+    throw new HatchError(
+      "At least one tool must be selected.",
+      1,
+      "VALIDATION_ERROR",
+      "Re-run `hatch3r config` and select at least one tool (claude, cursor, or copilot).",
+    );
   }
 
   // --- CLI tools (plan §4.4) ---

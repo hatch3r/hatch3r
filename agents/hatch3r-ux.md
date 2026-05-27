@@ -13,6 +13,7 @@ efficiency_tier: standard
 cache_friendly: true
 parallel_tool_default: true
 browser_capability: opt-in
+wall_clock_advisory_ms: 600000
 phase_4_trigger:
   mode: conditional
   conditions:
@@ -105,6 +106,8 @@ When auditing a feature that ships multiple distinct user flows (e.g., sign-up +
 
 **End-of-Turn Delegation Attestation:** when this agent delegates per the Sub-Agent Delegation protocol above, the orchestrator quotes the `delegation_proof_id` returned by each spawned flow-audit sub-agent in the attestation block per [rules/hatch3r-agent-orchestration.md](../rules/hatch3r-agent-orchestration.md). Skipping the attestation while claiming fan-out is a self-declared P8 B2 violation.
 
+**Wall-clock advisory (`specialist-eval` phase).** This agent runs under the `specialist-eval` phase budget (`src/pipeline/phaseTimeout.ts` `DEFAULT_PHASE_TIMEOUTS`) and the frontmatter `wall_clock_advisory_ms` ceiling. If you observe yourself approaching the advisory before the checklist completes, return `status: FINDINGS` with audited flows marked and unaudited flows listed under a `deferred:` note rather than exhausting the budget silently — a partial gate with a visible remainder beats a TIMEOUT with no result.
+
 ## Audit checklist
 
 Each item carries a named tool + threshold (or cited source). Apply in order; report findings against [governance/CONSTITUTION.md](../governance/CONSTITUTION.md) §2B CQ2 measurement targets.
@@ -143,6 +146,10 @@ status: PASS | FINDINGS | CRITICAL
 ```
 
 Severity calibration: missing recovery message on a high-traffic path = High; decisions-per-flow at 4 with reduction available = Medium; missing `aria-live` on a non-critical status update = Low. Critical reserved for production-blocking (e.g., focus lost into the void on every error state, blocking screen-reader users from progressing).
+
+**Severity vocabulary:** the `PASS | FINDINGS | CRITICAL` status maps to canonical audit severity via the **Specialist Status** column in [governance/audit/templates/severity-mapping.md](../governance/audit/templates/severity-mapping.md) — `CRITICAL → Critical`, `FINDINGS → High + Medium`, `PASS → Low + Info`. Map through that table when escalating to `hatch3r-fixer` or feeding the release decision.
+
+**Verification harness:** [skills/hatch3r-ui-ux-verify](../skills/hatch3r-ui-ux-verify) is the executable verification harness for this CQ2 gate — its keyboard-trace, microcopy-lint, four-state, and human-screen-reader gates produce the `proof_trace.actual` evidence this agent cites. This agent owns the CQ2 budget decision (decisions-per-flow, recovery rate, announcement coverage); the skill owns the measurement (the inverse-citation appears under that skill's `## Invoked by`).
 
 ### Worked proof_trace example
 

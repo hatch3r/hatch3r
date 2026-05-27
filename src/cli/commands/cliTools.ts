@@ -38,9 +38,14 @@ import { isWSL } from "../shared/constants.js";
 
 function requireManifest(_rootDir: string, manifest: HatchManifest | null): asserts manifest {
   if (!manifest) {
-    logError("No .agents/hatch.json found.");
+    logError("No .hatch3r/hatch.json found.");
     console.log(chalk.dim(`  Run \`npx hatch3r init\` to set up your project first.\n`));
-    throw new HatchError("No .agents/hatch.json found.", 1, "CONFIG_ERROR");
+    throw new HatchError(
+      "No .hatch3r/hatch.json found.",
+      1,
+      "CONFIG_ERROR",
+      "Run `npx hatch3r init` to set up your project first.",
+    );
   }
 }
 
@@ -109,7 +114,7 @@ export async function cliToolsCommand(): Promise<void> {
     "CLI tools configured",
     [
       label("Selected", selected.length > 0 ? selected.join(", ") : "none"),
-      label("Manifest", ".agents/hatch.json"),
+      label("Manifest", ".hatch3r/hatch.json"),
       label("Next", "Run `npx hatch3r sync` so adapters re-emit the filtered skill set"),
     ],
     "success",

@@ -191,6 +191,68 @@ const SECURITY_BASELINE_PATTERNS: readonly RegExp[] = [
 ];
 
 /**
+ * Valid pillar identifiers for a user artifact's `pillars` frontmatter array
+ * (F20.1.A2, F20.2.A2). The two-axis framework (CONSTITUTION §2A/§2B, Key
+ * Design Decision 15 / 2.0.0) accepts either a governance-axis pillar (P1–P8)
+ * OR a content-quality-axis pillar (CQ1–CQ9). The orchestrator
+ * (`commands/hatch3r-create.md`) collects P1–P8; the prior gate text said
+ * "[P1...P6]" — drift the audit flagged. `validateStructuredPillars` rejects
+ * any value outside this union so the advertised enum and the enforced enum
+ * match. The error string lists the union and offers a Levenshtein
+ * "Did you mean?" suggestion for near-misses (mirrors `validateStructuredTools`).
+ */
+const VALID_PILLAR_IDS: readonly string[] = [
+  "P1",
+  "P2",
+  "P3",
+  "P4",
+  "P5",
+  "P6",
+  "P7",
+  "P8",
+  "CQ1",
+  "CQ2",
+  "CQ3",
+  "CQ4",
+  "CQ5",
+  "CQ6",
+  "CQ7",
+  "CQ8",
+  "CQ9",
+];
+
+/**
+ * Strict validator for a structured `pillars` frontmatter array (F20.1.A2 /
+ * F20.2.A2). Rejects any entry outside the two-axis union (P1–P8 governance,
+ * CQ1–CQ9 content-quality) so the advertised enum and the enforced enum match.
+ * Mirrors `validateStructuredTools`: returns one violation string per offending
+ * entry, each listing the valid union.
+ */
+function validateStructuredPillars(pillars: unknown): string[] {
+  if (!Array.isArray(pillars)) {
+    return [
+      `Invalid \`pillars\` field — expected an array of pillar ids (got ${typeof pillars})`,
+    ];
+  }
+  const violations: string[] = [];
+  const known = new Set<string>(VALID_PILLAR_IDS);
+  for (const entry of pillars) {
+    if (typeof entry !== "string") {
+      violations.push(
+        `Invalid \`pillars\` entry — every entry must be a string (got ${typeof entry})`,
+      );
+      continue;
+    }
+    if (!known.has(entry)) {
+      violations.push(
+        `Unknown pillar id "${entry}" in \`pillars\` — valid ids: ${VALID_PILLAR_IDS.join(", ")}`,
+      );
+    }
+  }
+  return violations;
+}
+
+/**
  * D20 anti-slop wordlist for the gentle gate. Mirrors the 12-entry list in
  * the implementation plan and the canonical CLAUDE.md banned-phrase table.
  * Case-insensitive substring match — we intentionally err on the side of
@@ -623,14 +685,26 @@ async function runUserContentGates(
     );
   }
 
-  // Pillar declaration (strict).
+  // Pillar declaration (strict). F20.2.A2: the two-axis framework accepts a
+  // governance-axis pillar (P1–P8) AND/OR a content-quality-axis pillar
+  // (CQ1–CQ9) per CONSTITUTION §2A/§2B.
   const hasPillarFm = Array.isArray(fm.pillars) && fm.pillars.length > 0;
   const hasPillarBody = /(^|\n)\s*##\s*Pillar/i.test(artifact.body) ||
     /\*\*Pillars?:\*\*/i.test(artifact.body);
   if (!hasPillarFm && !hasPillarBody) {
     strict.push(
-      "Missing pillar declaration — add `pillars: [P1...P6]` to frontmatter or a `**Pillars:**` line in the body",
+      "Missing pillar declaration — add `pillars: [P1...P8]` or `[CQ1...CQ9]` to frontmatter or a `**Pillars:**` line in the body",
     );
+  }
+
+  // Pillar enum validation (strict). F20.1.A2 / F20.2.A2: when the author
+  // declares a structured `pillars` frontmatter array, every entry must be a
+  // known pillar id (governance P1–P8 or content-quality CQ1–CQ9). This closes
+  // the drift where the orchestrator advertised P1–P8 but the gate text said
+  // P1–P6 and never enforced an enum, so a typo'd pillar id (e.g. `P9`, `Pq`)
+  // rode silently into adapter output.
+  if (hasPillarFm) {
+    for (const v of validateStructuredPillars(fm.pillars)) strict.push(v);
   }
 
   // ── Structured tools field (C9-H81, D20-F20.1.3) ───────────────

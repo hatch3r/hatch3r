@@ -14,6 +14,21 @@ scope: always
 
 Every orchestrator command (`commands/hatch3r-*.md` with `orchestrator: true`) AND every meaningful skill run (`/h4tcher-*` or `/hatch3r-*` that mutates state) MUST emit the 9-section block as the final user-facing output.
 
+## Pre-Execution Cost Preview
+
+Every orchestrator command MUST emit a one-block cost preview BEFORE its first sub-agent dispatch (Decision 24 at the user-facing surface), so the user sees the cost envelope before any agent spawns:
+
+```yaml
+cost_preview:
+  expected_sa_count: <integer>
+  estimated_input_tokens_static_frame: <integer>
+  triage_tier: 1 | 2 | 3
+  web_research_budget: <integer queries, 0 if none>
+  estimated_duration_min: <integer>
+```
+
+Calibrate the fields to the triage tier (see `rules/hatch3r-deep-context`); source token estimates from `src/pipeline/observability.ts` / `src/pipeline/costEstimator.ts`. The post-run §2 "Fan-out + Cost" section closes the loop by reporting actuals + `delta_percent` against this preview. Commands wire the preview as an explicit pre-dispatch step (e.g., `commands/hatch3r-workflow.md` Step 0.5).
+
 ## The 9 Sections
 
 1. **Request** — verbatim restatement of the user's ask in one sentence
@@ -32,6 +47,7 @@ Every orchestrator command (`commands/hatch3r-*.md` with `orchestrator: true`) A
 - **Outcome:** one sentence
 - **Done / Not Done / Deferred / Unverified:** explicit lists
 - **Confidence + basis:** one of direct measurement | sampled observation | inference from analogue
+- **Consulted Learnings:** IDs of `.hatch3r/learnings/` entries the bound agents (implementer / reviewer / researcher / fixer) read this run per the `rules/hatch3r-learning-system.md` Mandatory Consultation Gate; `none` when INDEX.md is absent or zero `applies-to` rows matched. Distinct from §9 Learnings Captured (entries written this run). Citing zero when `applies-to` matched is a gate failure.
 
 ## Validation Gate
 

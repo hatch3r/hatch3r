@@ -1,5 +1,6 @@
 ---
 id: hatch3r-browser-verify
+name: hatch3r-browser-verify
 type: skill
 description: Opt-in browser verification skill — Playwright-driven visual checks, axe-core a11y audits, screenshot regression diffs, and E2E test scaffolds. Default ON for UI-affecting agent invocations; disable globally via hatch3r config browser=off.
 tags: [browser, playwright, accessibility, visual-regression, floor:content-quality]
@@ -48,6 +49,14 @@ Before any browser action, scan the invocation for unresolved questions per `age
 ## Fan-out Discipline (P8 B2)
 
 Delegate per task size: Tier 1 (single route, single check) inline; Tier 2 (multi-route or multi-check) spawn parallel sub-agents per route or per capability via the Task tool; Tier 3 (full-app verification + a11y + visual diff + E2E scaffold) one fresh sub-agent per capability with the orchestrator integrating only. Emit `sub_agents_spawned: { count, rationale }` in the result.
+
+## Invoked by
+
+This skill is the verification HARNESS for the browser sub-vector of CQ1 — it declares HOW Playwright-driven visual, a11y, regression, and E2E checks run against a built artifact. The DISPATCHER that decides WHEN to run it is the CQ specialist agent:
+
+- `agents/hatch3r-ui.md` — invokes this skill when a UI-affecting change reaches a verification gate (frontmatter `default_on_for: [hatch3r-ui, hatch3r-ux]`). The agent contributes the review trigger; this skill contributes the Playwright + axe-core procedure.
+
+Kept standalone (not merged into `hatch3r-ui-ux-verify`): Playwright is also a general `hatch3r-feature` workflow tool, not exclusively a CQ1 gate. No duplication: the agent decides WHEN, this skill defines HOW.
 
 ## Step 1: Install Playwright (if not present)
 

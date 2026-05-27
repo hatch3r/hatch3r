@@ -27,6 +27,15 @@ This skill delegates per task size:
 
 Never under-fan-out to save tokens. Token cost is dominated by quality and completeness gains. Emit `sub_agents_spawned: { count, rationale }` in your output.
 
+## Invoked by
+
+This skill is the verification HARNESS — it declares HOW each UI/UX gate is checked. The DISPATCHERS that decide WHEN to run it are the CQ specialist agents:
+
+- `agents/hatch3r-ui.md` — invokes this skill as the axe-core + keyboard-trace + four-state + visual-regression + Core Web Vitals gate (CQ1). The agent contributes trigger conditions and Phase-4 dispatch; this skill contributes the 9-gate procedure.
+- `agents/hatch3r-ux.md` — invokes this skill when keyboard-trace, microcopy-lint, or human-screen-reader-pass gates flag a UX-pillar delta (CQ2).
+
+No duplication: the agent decides WHEN, this skill defines HOW. The agent bodies cite this skill in their Phase-4 output contract; this subsection is the symmetric upstream citation per `rules/hatch3r-agent-orchestration.md` (Phase-4 dispatch).
+
 ## Gate 1: Automated a11y scan (axe-core via Playwright)
 
 - Command: `npx playwright test --grep @a11y` with `@axe-core/playwright` integration on every interactive route.

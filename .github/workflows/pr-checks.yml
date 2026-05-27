@@ -11,12 +11,24 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
+# Cycle 10 H F4.3.2 (D4): step-security/harden-runner installed as the first
+# step of every job — release.yml and deploy-docs.yml already carry it; this
+# closes the defense-in-depth gap so PR-check jobs that run `npm ci` (size-check)
+# or fetch git history (dco-check) get the same runtime egress/process
+# monitoring as ci.yml. Audit mode builds a per-job traffic baseline without
+# blocking; pinned to the v2.19.3 commit SHA used repo-wide. harden-runner ships
+# behavioral guards only on Linux runners (all jobs here are ubuntu-latest).
 jobs:
   lint-commits:
     name: Validate PR title (conventional commits)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2.19.3
+        with:
+          egress-policy: audit
+
       - name: Check PR title
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
@@ -35,6 +47,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2.19.3
+        with:
+          egress-policy: audit
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
         with:
@@ -83,6 +100,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2.19.3
+        with:
+          egress-policy: audit
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
         with:

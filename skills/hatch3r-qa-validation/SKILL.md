@@ -34,6 +34,10 @@ This skill delegates per task size:
 
 Never under-fan-out to save tokens. Token cost is dominated by quality and completeness gains. Emit `sub_agents_spawned: { count, rationale }` in your output.
 
+## Invoked by
+
+This skill is a standalone generic E2E validation harness — it has NO 1:1 CQ specialist agent dispatcher (unlike `hatch3r-ui-ux-verify`, `hatch3r-reliability-verify`, `hatch3r-observability-verify`, and `hatch3r-browser-verify`, which each map to a CQ specialist). It is invoked directly by release-prep and acceptance-testing flows, and it delegates the UI/UX sub-gate to `hatch3r-ui-ux-verify` (Step 3c). Kept standalone per the cross-artifact overlap review (F16.3-H4): its pass/fail report spans API, data-integrity, and background-job test cases that no single CQ specialist covers.
+
 ## Step 1: Read Inputs
 
 - Parse the issue body: validation scope, test matrix, environments, preconditions, pass/fail criteria, evidence requirements.

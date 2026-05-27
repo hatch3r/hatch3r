@@ -13,9 +13,13 @@
  *       files/
  *         <relative-mirror-of-touched-paths>
  *
- * **Atomicity:** rollback uses `atomicWriteFile` (tmp + rename) so a
- * partially-applied rollback is not observable on disk. Pre-existing
- * files outside the snapshot are left untouched.
+ * **Atomicity:** rollback uses `atomicWriteFile` (tmp + rename) per file
+ * and is a two-phase commit across files (prepare verifies every entry,
+ * commit only proceeds on a clean prepare, and a mid-commit failure rolls
+ * the already-applied entries forward). The disk is therefore either fully
+ * restored or left in its pre-rollback state — never a mixed half-restore
+ * (F1.5-H3 / F8.2.4, Decision 27). Pre-existing files outside the snapshot
+ * are left untouched.
  *
  * **Local-only:** snapshots live entirely under `.hatch3r/snapshots/`
  * inside the user's repo. No network egress, no external storage. The
@@ -29,7 +33,8 @@
  */
 
 import { join, dirname, relative, resolve, isAbsolute, sep } from "node:path";
-import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, readdir, stat, unlink, writeFile } from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
 import { atomicWriteFile } from "../merge/safeWrite.js";
 import { HATCH3R_DIR, HatchError } from "../types.js";
 
@@ -55,18 +60,66 @@ export interface SnapshotMeta {
 }
 
 /**
+ * Per-file outcome of a rollback (F1.5-H3 / F8.2.4). Surfaced so the CLI
+ * can print a disposition table when a rollback does not complete cleanly.
+ *
+ * - `original-restored` — the pre-run state was written back (or the file
+ *   was re-deleted for a tombstone).
+ * - `mutated-still` — the rollback never touched this entry (prepare aborted
+ *   before commit, or commit failed before reaching it); the file still
+ *   holds the orchestrator's mutation.
+ * - `rolled-forward` — a commit-phase failure forced this already-applied
+ *   entry back to its pre-rollback (mutated) bytes to preserve all-or-nothing
+ *   semantics.
+ * - `unknown` — the entry's final state could not be determined (e.g. its
+ *   pre-rollback bytes were unreadable during roll-forward).
+ */
+export interface RollbackFileDisposition {
+  target: string;
+  state: "original-restored" | "mutated-still" | "rolled-forward" | "unknown";
+  error?: string;
+}
+
+/**
  * Result of {@link applyRollback}: count of files successfully restored
  * plus per-file errors. An empty `errors` array means full success.
+ *
+ * `dispositions` carries a per-file final-state row so callers (the CLI
+ * failure-path table, scripted recoveries) can report exactly which files
+ * were restored, which were rolled forward, and which still hold the
+ * mutation. The field is optional for backward compatibility — existing
+ * callers that only read `filesRestored`/`errors` are unaffected.
  */
 export interface RollbackResult {
   filesRestored: number;
   errors: string[];
+  dispositions?: RollbackFileDisposition[];
 }
 
-/** Result of {@link createSnapshot}. */
+/**
+ * Result of {@link createSnapshot}. `warnings` carries non-fatal capture
+ * diagnostics (e.g. mirror-path collisions where a second input would have
+ * overwritten an earlier capture, F1.5-H2).
+ */
 export interface CreateSnapshotResult {
   snapshotPath: string;
   count: number;
+  warnings: string[];
+}
+
+/** Options accepted by {@link createSnapshot}. */
+export interface CreateSnapshotOptions {
+  /** Override the resolved project root (defaults to `process.cwd()`). */
+  projectRoot?: string;
+  /**
+   * Silent Failure Contract hook for non-fatal capture diagnostics. When a
+   * second input collapses to the same `_external/` mirror path as an
+   * earlier input (cross-drive Windows scenario, F1.5-H2), the second write
+   * is skipped and a warning is routed here (defaults to `console.warn`).
+   * Production callers wire this to the per-command `warn()` UI helper so
+   * the diagnostic lands in the same channel as other orchestrator output.
+   */
+  onWarn?: (message: string) => void;
 }
 
 // ── Constants ────────────────────────────────────────────────────
@@ -111,6 +164,15 @@ export function sessionDir(sessionId: string, projectRoot: string = process.cwd(
  * path are rejected. The mirror is computed from `relative(projectRoot,
  * absPath)` which collapses traversal, but we re-check defensively in
  * case the caller passes an already-relative path.
+ *
+ * **Collision lossiness (F1.5-H2):** the `_external/` derivation strips the
+ * drive prefix (`C:` / `D:` etc.), so two inputs on different Windows drives
+ * with otherwise-identical paths collapse to the same mirror. {@link
+ * createSnapshot} guards against this by tracking already-seen mirror paths
+ * per call and skipping the second write (routing a warning through
+ * `onWarn`) rather than overwriting the first capture — otherwise the
+ * manifest would advertise a path whose mirror bytes belong to a different
+ * input.
  */
 function mirrorRelativePath(projectRoot: string, absPath: string): string {
   const abs = isAbsolute(absPath) ? absPath : resolve(projectRoot, absPath);
@@ -175,7 +237,7 @@ async function listSessionDirs(projectRoot: string = process.cwd()): Promise<str
 export async function createSnapshot(
   sessionId: string,
   paths: string[],
-  options: { projectRoot?: string } = {},
+  options: CreateSnapshotOptions = {},
 ): Promise<CreateSnapshotResult> {
   if (!sessionId || sessionId.includes("/") || sessionId.includes("\\")) {
     throw new HatchError(
@@ -186,6 +248,12 @@ export async function createSnapshot(
     );
   }
   const projectRoot = options.projectRoot ?? process.cwd();
+  const warnings: string[] = [];
+  const emitWarning = (message: string): void => {
+    warnings.push(message);
+    if (options.onWarn) options.onWarn(message);
+    else console.warn(message);
+  };
   const dir = sessionDir(sessionId, projectRoot);
   const filesDir = join(dir, SNAPSHOT_FILES_DIR);
   await mkdir(filesDir, { recursive: true });
@@ -214,10 +282,31 @@ export async function createSnapshot(
   }
 
   const absPaths = paths.map((p) => (isAbsolute(p) ? p : resolve(projectRoot, p)));
-  const relPaths: string[] = [];
+  // Only paths whose mirror was actually captured this call are recorded in
+  // the manifest. A second input that collapses to a mirror already written
+  // this call (F1.5-H2 cross-drive collision) is skipped — recording it
+  // would advertise a path whose mirror bytes belong to a different input.
+  const acceptedAbs: string[] = [];
+  const acceptedRel: string[] = [];
+  const seen = new Map<string, string>(); // mirror rel -> first abs that claimed it
   for (const abs of absPaths) {
     const rel = mirrorRelativePath(projectRoot, abs);
-    relPaths.push(rel);
+    const prior = seen.get(rel);
+    if (prior !== undefined) {
+      // Mirror collision: a previous input already wrote these bytes. Skip
+      // the second write so the first capture is preserved, and surface a
+      // warning so the operator can rename one input.
+      emitWarning(
+        `Snapshot mirror collision: ${abs} maps to the same snapshot path as ${prior} ` +
+          `(both -> ${join(SNAPSHOT_FILES_DIR, rel)}). Skipping the second capture; ` +
+          `\`hatch3r rollback --session=${sessionId}\` will restore ${prior}, not ${abs}. ` +
+          `Rename one input to capture both.`,
+      );
+      continue;
+    }
+    seen.set(rel, abs);
+    acceptedAbs.push(abs);
+    acceptedRel.push(rel);
     const destPath = join(filesDir, rel);
     await mkdir(dirname(destPath), { recursive: true });
     try {
@@ -250,10 +339,11 @@ export async function createSnapshot(
 
   // Union with prior paths so a repeated call accumulates rather than
   // replaces. De-duplicate by relative path to keep meta.json compact.
-  const unionAbs = existing ? Array.from(new Set([...existing.paths, ...absPaths])) : absPaths;
+  // Derived from the ACCEPTED paths so a skipped collision is never recorded.
+  const unionAbs = existing ? Array.from(new Set([...existing.paths, ...acceptedAbs])) : acceptedAbs;
   const unionRel = existing
-    ? Array.from(new Set([...existing.relativePaths, ...relPaths]))
-    : relPaths;
+    ? Array.from(new Set([...existing.relativePaths, ...acceptedRel]))
+    : acceptedRel;
 
   const meta: SnapshotMeta = {
     schemaVersion: SNAPSHOT_SCHEMA_VERSION,
@@ -265,7 +355,7 @@ export async function createSnapshot(
   };
   await atomicWriteFile(join(dir, SNAPSHOT_META_FILE), JSON.stringify(meta, null, 2) + "\n");
 
-  return { snapshotPath: dir, count: unionAbs.length };
+  return { snapshotPath: dir, count: unionAbs.length, warnings };
 }
 
 /**
@@ -384,10 +474,16 @@ export async function withSnapshot<T>(
   paths: string[],
   mutator: (sessionId: string | null) => Promise<T>,
   options: WithSnapshotOptions = {},
-): Promise<{ result: T; sessionId: string | null; snapshotPath: string | null; count: number }> {
+): Promise<{
+  result: T;
+  sessionId: string | null;
+  snapshotPath: string | null;
+  count: number;
+  warnings: string[];
+}> {
   if (options.dryRun) {
     const result = await mutator(null);
-    return { result, sessionId: null, snapshotPath: null, count: 0 };
+    return { result, sessionId: null, snapshotPath: null, count: 0, warnings: [] };
   }
 
   const projectRoot = options.projectRoot ?? process.cwd();
@@ -397,11 +493,16 @@ export async function withSnapshot<T>(
   const filtered = paths.filter((p) => typeof p === "string" && p.length > 0);
   let snapshotPath: string | null = null;
   let count = 0;
+  let warnings: string[] = [];
   let capturedSessionId: string | null = sessionId;
   try {
-    const captured = await createSnapshot(sessionId, filtered, { projectRoot });
+    const captured = await createSnapshot(sessionId, filtered, {
+      projectRoot,
+      onWarn: options.onWarn,
+    });
     snapshotPath = captured.snapshotPath;
     count = captured.count;
+    warnings = captured.warnings;
   } catch (err) {
     // Programming-bug class (invalid session id) propagates per the doc
     // contract — a malformed session id indicates the caller composed the
@@ -425,23 +526,53 @@ export async function withSnapshot<T>(
     else console.warn(warning);
   }
   const result = await mutator(capturedSessionId);
-  return { result, sessionId: capturedSessionId, snapshotPath, count };
+  return { result, sessionId: capturedSessionId, snapshotPath, count, warnings };
+}
+
+/** A snapshot entry resolved during the prepare phase of {@link applyRollback}. */
+interface PreparedEntry {
+  /** Project-relative mirror path. */
+  rel: string;
+  /** Absolute destination the entry restores to. */
+  target: string;
+  /** Absolute mirror path inside the snapshot. */
+  source: string;
+  /** True when the entry is a tombstone (file absent pre-run; restore = delete). */
+  isTombstone: boolean;
+  /** Snapshot bytes pre-loaded for a regular entry (undefined for tombstones). */
+  sourceContent?: Buffer;
+  /** Prepare-phase error (mirror unreadable, destination not writable, etc.). */
+  error?: string;
 }
 
 /**
- * Restore every file captured in the named session. Returns the count
- * of files restored plus any per-file errors encountered. Unknown
- * session ids produce a single-entry error array and a zero count.
+ * Restore every file captured in the named session. Returns the count of
+ * files restored plus any per-file errors and a per-file disposition table.
+ * Unknown session ids produce a single-entry error array and a zero count.
  *
- * **Dry-run mode (`opts.dryRun=true`):** verifies that every file in
- * the snapshot can be opened and that the destination directory is
- * writable, but performs no writes. Useful for previewing the effect of
- * a rollback before committing.
+ * **Dry-run mode (`opts.dryRun=true`):** runs the prepare phase only —
+ * verifies that every mirror is readable and every destination directory is
+ * writable — and performs no writes. `filesRestored` reflects the entries
+ * that would restore cleanly; prepare errors are surfaced in `errors[]` so a
+ * dry run accurately predicts the live outcome.
  *
- * **Atomicity:** each individual file restore uses `atomicWriteFile`
- * (tmp+rename). The overall rollback is best-effort across files: a
- * write failure on one file does not roll back files already restored.
- * The caller surfaces this via the returned error array.
+ * **All-or-nothing semantics (F1.5-H3 / F8.2.4, Decision 27):** a live
+ * rollback is a two-phase commit:
+ *   1. **Prepare** — walk `meta.relativePaths`; for each entry verify the
+ *      mirror is readable (regular files) and the destination parent is
+ *      writable (or unlink-able for tombstones), pre-loading source bytes.
+ *      Any prepare error aborts the live restore before a single write — the
+ *      disk is left in the pre-rollback (mutated) state and every entry is
+ *      reported `mutated-still`.
+ *   2. **Commit** — only when prepare reported zero errors. Before any write
+ *      the pre-rollback bytes of every target are captured so a commit-phase
+ *      failure can roll the already-applied entries forward to that captured
+ *      state. The net effect is all-or-nothing: a `hatch3r rollback` either
+ *      restores every file or leaves the disk in its pre-rollback state — it
+ *      never produces a mixed half-restored state.
+ *
+ * Each individual restore uses `atomicWriteFile` (tmp+rename). The returned
+ * `dispositions[]` records the final state of every entry.
  */
 export async function applyRollback(
   sessionId: string,
@@ -470,17 +601,16 @@ export async function applyRollback(
   }
 
   const filesDir = join(dir, SNAPSHOT_FILES_DIR);
-  const errors: string[] = [];
-  let restored = 0;
 
+  // ── Prepare phase ──────────────────────────────────────────────
+  // Resolve every entry and verify it can be restored before touching disk.
+  const prepared: PreparedEntry[] = [];
   for (let i = 0; i < meta.relativePaths.length; i++) {
     const rel = meta.relativePaths[i];
     const target = meta.paths[i] ?? resolve(projectRoot, rel);
     const source = join(filesDir, rel);
     const tombstone = source + ".tombstone";
 
-    // Tombstone case: the file did not exist before the run; rollback
-    // means deleting it if it now exists.
     let isTombstone = false;
     try {
       await stat(tombstone);
@@ -488,49 +618,176 @@ export async function applyRollback(
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
       if (code !== "ENOENT") {
-        errors.push(`stat ${tombstone}: ${err instanceof Error ? err.message : String(err)}`);
+        prepared.push({
+          rel,
+          target,
+          source,
+          isTombstone: false,
+          error: `stat ${tombstone}: ${err instanceof Error ? err.message : String(err)}`,
+        });
         continue;
       }
     }
 
     if (isTombstone) {
-      if (opts.dryRun) {
-        restored++;
-        continue;
-      }
+      // Rollback = delete the target if it exists. Verify the parent dir is
+      // writable so we surface EACCES before commit. A missing parent is
+      // benign (target already absent / consistent with pre-state).
+      const entry: PreparedEntry = { rel, target, source, isTombstone: true };
       try {
-        const { unlink } = await import("node:fs/promises");
-        await unlink(target);
-        restored++;
+        await access(dirname(target), fsConstants.W_OK);
       } catch (err) {
         const code = (err as NodeJS.ErrnoException).code;
-        if (code === "ENOENT") {
-          // Already absent — consistent with the snapshot's pre-state.
-          restored++;
-        } else {
-          errors.push(`unlink ${target}: ${err instanceof Error ? err.message : String(err)}`);
+        if (code !== "ENOENT") {
+          entry.error = `parent not writable for ${target}: ${err instanceof Error ? err.message : String(err)}`;
         }
       }
+      prepared.push(entry);
       continue;
     }
 
-    // Regular case: read snapshot bytes and restore atomically.
+    // Regular entry: mirror must be readable and the destination parent
+    // writable (or creatable). Pre-load bytes so commit has one source.
+    const entry: PreparedEntry = { rel, target, source, isTombstone: false };
     try {
-      const content = await readFile(source);
-      if (opts.dryRun) {
-        // Touch the destination directory so we surface permission
-        // errors before commit. mkdir is idempotent and cheap.
-        await mkdir(dirname(target), { recursive: true });
-        restored++;
-        continue;
-      }
-      await mkdir(dirname(target), { recursive: true });
-      await atomicWriteFile(target, content.toString("utf-8"));
-      restored++;
+      entry.sourceContent = await readFile(source);
     } catch (err) {
-      errors.push(`restore ${target}: ${err instanceof Error ? err.message : String(err)}`);
+      entry.error = `read snapshot ${source}: ${err instanceof Error ? err.message : String(err)}`;
+      prepared.push(entry);
+      continue;
+    }
+    try {
+      await mkdir(dirname(target), { recursive: true });
+      await access(dirname(target), fsConstants.W_OK);
+    } catch (err) {
+      entry.error = `destination not writable for ${target}: ${err instanceof Error ? err.message : String(err)}`;
+    }
+    prepared.push(entry);
+  }
+
+  const prepareErrors = prepared.filter((e) => e.error);
+
+  // Dry-run: report what would restore cleanly + every prepare error. No writes.
+  if (opts.dryRun) {
+    const dispositions: RollbackFileDisposition[] = prepared.map((e) => ({
+      target: e.target,
+      state: e.error ? "mutated-still" : "original-restored",
+      ...(e.error ? { error: e.error } : {}),
+    }));
+    return {
+      filesRestored: prepared.length - prepareErrors.length,
+      errors: prepareErrors.map((e) => e.error as string),
+      dispositions,
+    };
+  }
+
+  // Live mode: abort entirely if prepare found any unrecoverable entry. Disk
+  // is untouched, so every entry is still in its mutated state.
+  if (prepareErrors.length > 0) {
+    const errors = [
+      `Rollback aborted: prepare phase reported ${prepareErrors.length} unrecoverable error(s); ` +
+        `no files were modified (disk left in pre-rollback state).`,
+      ...prepareErrors.map((e) => e.error as string),
+    ];
+    const dispositions: RollbackFileDisposition[] = prepared.map((e) => ({
+      target: e.target,
+      state: "mutated-still",
+      ...(e.error ? { error: e.error } : {}),
+    }));
+    return { filesRestored: 0, errors, dispositions };
+  }
+
+  // ── Commit phase ───────────────────────────────────────────────
+  // Capture pre-rollback bytes of every target so a mid-commit failure can
+  // roll the already-applied entries forward to this captured state.
+  interface MutatedSnap {
+    /** Pre-rollback bytes, or null when the target was absent pre-rollback. */
+    bytes: Buffer | null;
+    /** True when we could not read the pre-rollback state (roll-forward = unknown). */
+    unreadable?: boolean;
+  }
+  const mutatedSnaps = new Map<string, MutatedSnap>();
+  for (const e of prepared) {
+    try {
+      const bytes = await readFile(e.target);
+      mutatedSnaps.set(e.target, { bytes });
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === "ENOENT") {
+        mutatedSnaps.set(e.target, { bytes: null });
+      } else {
+        // Cannot read pre-rollback state — roll-forward of this target would
+        // be unknown. Record so a later roll-forward marks it accurately.
+        mutatedSnaps.set(e.target, { bytes: null, unreadable: true });
+      }
     }
   }
 
-  return { filesRestored: restored, errors };
+  const errors: string[] = [];
+  const dispositions: RollbackFileDisposition[] = prepared.map((e) => ({
+    target: e.target,
+    state: "mutated-still",
+  }));
+  const applied: number[] = []; // indices restored so far (for roll-forward)
+  let restored = 0;
+  let commitFailedAt = -1;
+
+  for (let i = 0; i < prepared.length; i++) {
+    const e = prepared[i];
+    try {
+      if (e.isTombstone) {
+        try {
+          await unlink(e.target);
+        } catch (err) {
+          const code = (err as NodeJS.ErrnoException).code;
+          if (code !== "ENOENT") throw err;
+          // Already absent — consistent with the snapshot's pre-state.
+        }
+      } else {
+        await atomicWriteFile(e.target, (e.sourceContent as Buffer).toString("utf-8"));
+      }
+      dispositions[i].state = "original-restored";
+      applied.push(i);
+      restored++;
+    } catch (err) {
+      commitFailedAt = i;
+      errors.push(`restore ${e.target}: ${err instanceof Error ? err.message : String(err)}`);
+      break;
+    }
+  }
+
+  // ── Roll-forward ───────────────────────────────────────────────
+  // A commit-phase write failed: undo the already-applied entries so the disk
+  // returns to its pre-rollback (mutated) state — all-or-nothing.
+  if (commitFailedAt >= 0) {
+    for (const idx of applied) {
+      const e = prepared[idx];
+      const snap = mutatedSnaps.get(e.target);
+      if (!snap || snap.unreadable) {
+        dispositions[idx].state = "unknown";
+        dispositions[idx].error = `pre-rollback bytes unreadable; cannot roll forward ${e.target}`;
+        continue;
+      }
+      try {
+        if (snap.bytes === null) {
+          // Target was absent pre-rollback — re-delete to undo the restore.
+          await unlink(e.target).catch((err) => {
+            const code = (err as NodeJS.ErrnoException).code;
+            if (code !== "ENOENT") throw err;
+          });
+        } else {
+          await atomicWriteFile(e.target, snap.bytes.toString("utf-8"));
+        }
+        dispositions[idx].state = "rolled-forward";
+        restored--;
+      } catch (err) {
+        dispositions[idx].state = "unknown";
+        const msg = err instanceof Error ? err.message : String(err);
+        dispositions[idx].error = `roll-forward failed for ${e.target}: ${msg}`;
+        errors.push(`roll-forward ${e.target}: ${msg}`);
+      }
+    }
+  }
+
+  return { filesRestored: restored, errors, dispositions };
 }

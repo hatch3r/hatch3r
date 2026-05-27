@@ -111,6 +111,20 @@ jobs:
       - name: MCP package CVE check
         run: npm run mcp:cve-check
 
+      # Cycle 10 H F15.7-H1 (D15-SA15.7): CLI tools selected during `init`
+      # (ripgrep, fd, gh, jq, ... — declared in src/cliTools/registry.ts) are
+      # installed by the end user from their package manager and never enter
+      # package-lock.json, so neither `npm audit` nor the dependency-review
+      # action above can see them. scripts/check-cli-cves.ts queries OSV.dev
+      # (Google-maintained, multi-ecosystem: crates.io / Go / PyPI / npm) for
+      # each pinned (tool, minVersion) pair and fails the gate if any
+      # Critical/High advisory has been public longer than 30 days against a
+      # version hatch3r still recommends. Mirrors the mcp:cve-check step above;
+      # transient api.osv.dev failures surface as warnings (queryErrors), not
+      # gate failures.
+      - name: CLI-tool package CVE check
+        run: npm run cli-tools:cve-check
+
       # Cycle 10 H F4.2.3 (D4): the five gates above (lockfile-lint, npm audit
       # x2, dependency-review-action, mcp:cve-check) are all reactive CVE/SHA
       # lookups — they flag a package only after a GHSA/OSV advisory exists.

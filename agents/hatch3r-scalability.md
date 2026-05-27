@@ -12,6 +12,7 @@ efficiency_patterns: agents/shared/efficiency-patterns.md
 efficiency_tier: standard
 cache_friendly: true
 parallel_tool_default: true
+wall_clock_advisory_ms: 600000
 phase_4_trigger:
   mode: conditional
   conditions:
@@ -105,6 +106,8 @@ When reviewing a service surface with multiple scaling concerns or multiple serv
 
 **Cost-dominance (P8 B2).** Sub-agent count tracks concern count — never reduce below concern count to save tokens. Token cost is dominated by quality gain from independent specialist contexts and from parallel execution time. Serialization is only valid on dependency edges (load test runs after handler-statelessness fix lands) or shared-resource contention (two load tests on the same staging env skew each other). The `sub_agents_spawned` field in the output schema records count and per-concern rationale.
 
+**Wall-clock advisory (`specialist-eval` phase).** This agent runs under the `specialist-eval` phase budget (`src/pipeline/phaseTimeout.ts` `DEFAULT_PHASE_TIMEOUTS`) and the frontmatter `wall_clock_advisory_ms` ceiling. The load-test verifier is the longest sub-agent; if you observe yourself approaching the advisory before the load test completes, return `status: FINDINGS` with the static-scan concerns marked and the load-test verification listed under a `deferred:` note rather than exhausting the budget silently — a partial gate with a visible remainder beats a TIMEOUT with no result.
+
 **Decomposition examples.** A 6-service mesh review fans out to 6 sub-agents — one per service, each running the full 8-item checklist in its slice. A single-service deep audit fans out to 5 concern-level sub-agents — handler-statelessness, pool-sizing, queue-offloading, idempotency-key, bulkhead — plus 1 verifier sub-agent running the load test. Aggregation runs after all per-concern sub-agents complete; the load-test verifier runs last because its inputs depend on the others' findings.
 
 ## Audit checklist
@@ -152,6 +155,10 @@ status: PASS | FINDINGS | CRITICAL
 ```
 
 A `PASS` status requires every audit checklist item to carry a green verdict at the documented threshold. `FINDINGS` is the default when ≥1 Medium/High item is open. `CRITICAL` is reserved for active production-blocking gaps (e.g., user-facing POST endpoint with zero idempotency-key handling under retry storm conditions).
+
+**Severity vocabulary:** the `PASS | FINDINGS | CRITICAL` status maps to canonical audit severity via the **Specialist Status** column in `governance/audit/templates/severity-mapping.md` — `CRITICAL → Critical`, `FINDINGS → High + Medium`, `PASS → Low + Info`. Map through that table when escalating to `hatch3r-fixer` or feeding the release decision.
+
+**Verification harness:** the load-test runner (k6 / Locust / Gatling) named in audit item 8 is this agent's executable verification harness — it produces the p99, error-rate, and pool-saturation evidence captured in `proof_trace.actual`. For the saturation-telemetry half of CQ6 (audit item 7, USE-method metrics), `skills/hatch3r-observability-verify` is the shared harness with `hatch3r-reliability`. This agent owns the CQ6 budget decision (stateless ratio, back-pressure, pool sizing, idempotency, offloading); the harnesses own the measurement (the inverse-citation appears under `skills/hatch3r-observability-verify` `## Invoked by`).
 
 Every finding carries a `proof_trace` per `governance/audit/templates/rigor-contract.md` Decision 9 — a citation alone does not close the loop. State-dependent claims (handler count, pool size, queue depth observed) require the command that produced the measurement and the verbatim ≤200 char actual output. The `progress_toward_pillar` delta records the contribution of this finding (or its resolution) to CQ6 — positive for closing a gap, negative when the finding records a regression.
 

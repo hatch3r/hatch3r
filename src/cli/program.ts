@@ -58,7 +58,7 @@ export function createProgram(): Command {
 
   program
     .command("init")
-    .description("Install a complete agent setup into the current repo (first-run: creates .agents/ directory)")
+    .description("Install a complete agent setup into the current repo (first-run: creates .hatch3r/ state + per-tool output files)")
     .option(
       "--tools <tools>",
       `Comma-separated tools (${TOOL_CHOICES})`,
@@ -84,21 +84,21 @@ export function createProgram(): Command {
 
   program
     .command("sync")
-    .description("Re-generate tool outputs from canonical .agents/ state (run after editing .agents/)")
+    .description("Re-generate tool outputs from bundled canonical content (run after updating hatch3r or editing .hatch3r/ overrides)")
     .option("--repos [paths...]", "Sync workspace content to sub-repos (all opted-in if no paths given)")
     .option("--dry-run", "Show what would change without modifying files")
     .option("--diff", "Show a before/after diff summary for each generated file")
     .option("--force", "Overwrite locally modified files in sub-repos")
     .option("--minimal", "Generate stripped-down output (no comments, minimal formatting) to reduce token usage")
     .option("--strict-budget", "Fail sync if any adapter's generated output exceeds its context budget (default: warn)")
-    .option("--clean-orphans", "Remove files in .agents/<canonical-subdir>/ that do not match canonical-inventory naming (no hatch3r- prefix). Default is informational only.")
+    .option("--clean-orphans", "Remove generated adapter output files that no longer match canonical-inventory naming (no hatch3r- prefix). Default is informational only.")
     .option("--verbose", "Show detailed output for each file processed")
     .option("--resume", "Resume from the last checkpoint in .sync-workspace/checkpoint.json (Decision 27)")
     .action(syncCommand);
 
   program
     .command("status")
-    .description("Check sync status between canonical .agents/ and generated files")
+    .description("Check sync status between bundled canonical content and generated files")
     .option("--verbose", "Show detailed per-file status information")
     .option("--deep", "Regenerate every adapter's output in-memory to compare byte-for-byte (slower; default uses integrity-manifest fast path)")
     .action(statusCommand);
@@ -112,12 +112,12 @@ export function createProgram(): Command {
     .option("--offline, --skip-fetch", "Skip the package fetch step; regenerate only from already-installed canonical content")
     .option("--dry-run", "Preview what would change (added/modified/unchanged per adapter) without writing files")
     .option("--skip-audit-signatures", "EMERGENCY OVERRIDE: skip `npm audit signatures` verification on the freshly-fetched package. Default is to refuse update on signature failure.")
-    .option("--clean-orphans", "Remove files in .agents/<canonical-subdir>/ that do not match canonical-inventory naming (no hatch3r- prefix). Default is informational only.")
+    .option("--clean-orphans", "Remove generated adapter output files that no longer match canonical-inventory naming (no hatch3r- prefix). Default is informational only.")
     .action(updateCommand);
 
   program
     .command("validate")
-    .description("Check .agents/ structure: frontmatter, cross-references, content safety, compliance")
+    .description("Check canonical content structure: frontmatter, cross-references, content safety, compliance")
     .option("--verbose", "Show detailed validation output for each check")
     .option(
       "--format <format>",
@@ -292,9 +292,9 @@ export function createProgram(): Command {
         `\n  Run "hatch3r --help" for available commands.` +
         `\n\n  Common commands:` +
         `\n    hatch3r init      Set up agent configuration in current repo` +
-        `\n    hatch3r sync      Regenerate tool outputs from .agents/` +
+        `\n    hatch3r sync      Regenerate tool outputs from canonical content` +
         `\n    hatch3r status    Check sync status` +
-        `\n    hatch3r validate  Check .agents/ structure and content` +
+        `\n    hatch3r validate  Check canonical content structure and safety` +
         `\n    hatch3r verify    Check file integrity (SHA-256)` +
         `\n    hatch3r config    Reconfigure tools, features, MCP` +
         `\n    hatch3r clean     Remove hatch3r artifacts\n`,

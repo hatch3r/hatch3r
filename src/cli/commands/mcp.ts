@@ -43,7 +43,12 @@ function requireManifest(rootDir: string, manifest: HatchManifest | null): asser
   if (!manifest) {
     logError("No .hatch3r/hatch.json found.");
     console.log(chalk.dim(`  Run \`npx hatch3r init\` to set up your project first.\n`));
-    throw new HatchError("No .hatch3r/hatch.json found.", 1, "CONFIG_ERROR");
+    throw new HatchError(
+      "No .hatch3r/hatch.json found.",
+      1,
+      "CONFIG_ERROR",
+      "Run `npx hatch3r init` to set up your project first.",
+    );
   }
 }
 
@@ -143,7 +148,12 @@ export async function mcpRemoveCommand(id: string): Promise<void> {
   if (!before.includes(id)) {
     logError(`MCP server "${id}" is not configured.`);
     console.log(chalk.dim(`  Current servers: ${before.length > 0 ? before.join(", ") : "(none)"}\n`));
-    throw new HatchError(`MCP server "${id}" not configured`, 1, "VALIDATION_ERROR");
+    throw new HatchError(
+      `MCP server "${id}" not configured`,
+      1,
+      "VALIDATION_ERROR",
+      "Run `npx hatch3r mcp list` to see configured servers, or `npx hatch3r mcp add <id>` to add one.",
+    );
   }
 
   manifest.mcp = { servers: before.filter((s) => s !== id) };

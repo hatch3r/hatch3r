@@ -97,11 +97,12 @@ export function defaultSyncConcurrency(): number {
 }
 
 /**
- * Sync journal filename written under `<workspaceRoot>/.agents/`. The journal
- * is an append-only JSONL log; each line records one sub-repo's terminal
- * sync state for the run. On crash-recovery, the next run can scan the
- * journal to identify in-flight repos whose `.agents/hatch.json` may be
- * partially written. Older runs' lines are preserved.
+ * Sync journal filename written under `<workspaceRoot>/.hatch3r/` (see
+ * `appendJournalEntry`, which joins on `HATCH3R_DIR`). The journal is an
+ * append-only JSONL log; each line records one sub-repo's terminal sync state
+ * for the run. On crash-recovery, the next run can scan the journal to identify
+ * in-flight repos whose `.hatch3r/hatch.json` may be partially written. Older
+ * runs' lines are preserved.
  */
 export const WORKSPACE_SYNC_JOURNAL_FILE = ".workspace-sync-journal.jsonl";
 
@@ -145,10 +146,12 @@ async function appendJournalEntry(
  *
  * For each repo with sync=true:
  * 1. Resolve effective config (workspace defaults + repo overrides)
- * 2. Copy canonical content from workspace .agents/ to sub-repo .agents/
- * 3. Write sub-repo hatch.json with workspace provenance
- * 4. Run adapter generation for the sub-repo
- * 5. Generate integrity manifest
+ * 2. Write sub-repo `.hatch3r/hatch.json` with workspace provenance
+ * 3. Run adapter generation for the sub-repo (adapters read canonical content
+ *    from the bundled package via resolveBundledContentRoot — Wave 3 removed
+ *    the per-repo `.agents/` content materialization, so nothing is copied
+ *    into the sub-repo content tree)
+ * 4. Persist managedFiles back into the manifest
  */
 export async function syncWorkspaceRepos(
   workspaceRoot: string,
@@ -167,7 +170,9 @@ export async function syncWorkspaceRepos(
     .update(JSON.stringify(wsManifest))
     .digest("hex");
 
-  // Build content index from workspace .agents/ (which has the canonical content)
+  // Build the content index from the bundled package content root (CONTENT_ROOT
+  // = findPackageRoot). Wave 3 removed the workspace `.agents/` canonical tree;
+  // canonical content now ships read-only inside the npm package.
   const index = await buildContentIndex(CONTENT_ROOT);
   const protectedIds = new Set(
     index.items.filter((item) => item.protected).map((item) => item.id),
@@ -488,9 +493,19 @@ async function syncSingleRepo(
         options.onWarn?.(w);
       }
       for (const out of outputs) {
+        // D11-H-1 (Cycle 10 D11): thread the workspace-cascade `force` flag
+        // into the per-write call. `WorkspaceSyncOptions.force` ("Overwrite
+        // locally modified canonical files in sub-repos") is set by `hatch3r
+        // sync --force` (src/cli/commands/sync.ts passes `force: opts.force`
+        // into syncWorkspaceRepos) but was previously dropped here — the flag
+        // was dead on the user-content side. Passing it through makes the
+        // documented contract real: with --force, a sub-repo managed file whose
+        // HATCH3R:BEGIN/END markers were stripped is regenerated rather than
+        // skipped (safeWriteFile honours `force` regardless of marker presence).
         await safeWriteFile(join(repoDir, out.path), out.content, {
           managedContent: out.managedContent,
           appendIfNoBlock: true,
+          force: options.force,
         });
         addManagedFile(manifest, out.path);
       }

@@ -162,9 +162,10 @@ async function copyHatch3rFiles(
   // contract for future contributors who might mistakenly add one.
   if (srcDir.includes(sep + "user" + sep) || srcDir.endsWith(sep + "user")) {
     throw new HatchError(
-      `Invariant violation: package source path '${srcDir}' contains a 'user/' segment. User content must live project-side under .agents/user/, not in the package.`,
+      `Invariant violation: package source path '${srcDir}' contains a 'user/' segment. User content must live project-side under .hatch3r/overrides/, not in the package.`,
       1,
       "FS_ERROR",
+      "This indicates a packaging bug — report it at https://github.com/hatch3r/hatch3r/issues with your hatch3r version.",
     );
   }
 
@@ -370,7 +371,12 @@ export async function runRegenerate(
           for (const w of generationResult.warnings) { warn(w); }
           breaker = recordFailure(breaker, classifyFailure(new Error(errMessage)));
           breakers.set(tool, breaker);
-          throw new HatchError(errMessage, 1, "ADAPTER_ERROR");
+          throw new HatchError(
+            errMessage,
+            1,
+            "ADAPTER_ERROR",
+            `Re-run with --verbose for ${tool} detail, or run \`npx hatch3r validate\` to check canonical content.`,
+          );
         }
         const outputs = generationResult.outputs ?? [];
         for (const w of generationResult.warnings) { warn(w); }
@@ -452,7 +458,7 @@ export async function runRegenerate(
       const aggregateGuidance = allTransient
         ? "All failures appear transient. Retry `hatch3r update`, or run with --offline to regenerate without the package fetch."
         : "One or more failures are substantive. Inspect the per-adapter messages above and resolve before retrying.";
-      throw new HatchError(`All adapters failed. ${aggregateGuidance}`, 1, "ADAPTER_ERROR");
+      throw new HatchError(`All adapters failed. ${aggregateGuidance}`, 1, "ADAPTER_ERROR", aggregateGuidance);
     }
   }
   s2.succeed(step(offset + 2, total, adapterFailures.length > 0
@@ -915,7 +921,12 @@ export async function updateCommand(
   if (!manifest) {
     logError(`No ${HATCH3R_DIR}/hatch.json found.`);
     console.log(chalk.dim("  Run `npx hatch3r init` to set up your project first.\n"));
-    throw new HatchError(`No ${HATCH3R_DIR}/hatch.json found.`, 1, "CONFIG_ERROR");
+    throw new HatchError(
+      `No ${HATCH3R_DIR}/hatch.json found.`,
+      1,
+      "CONFIG_ERROR",
+      "Run `npx hatch3r init` to set up your project first.",
+    );
   }
 
   const headless = !!(_opts?.yes);

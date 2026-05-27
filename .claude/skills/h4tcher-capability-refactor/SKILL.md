@@ -13,6 +13,10 @@ quality_charter: agents/shared/quality-charter.md
 
 Lifecycle preset for renaming, splitting, merging, or restructuring an existing artifact (agent, skill, rule, command, hook, adapter, pipeline module, governance file). Owns the cross-reference scrubber. Stops before commit so the maintainer reviews the rename map and diff.
 
+## §0.1: Ambiguity Gate (P8 B1)
+
+Per CONSTITUTION §2 P8 B1: every framework-dev workflow mutating canonical artifacts detects and resolves ambiguity via `agents/shared/user-question-protocol.md` BEFORE executing — default behavior, not exception-driven. Apply the protocol when any hold: (a) ambiguous scope (rename vs split vs merge unclear, or which artifact is the target), (b) multiple valid interpretations with materially different cross-reference blast radius, (c) irreversible action (public artifact id rename, frontmatter-field drop, `agentPipeline:` member rename), or (d) missing acceptance criteria (no rename map, no definition of done). Use the platform-native question tool; one question per turn; 2-4 numbered options with one-line trade-offs; declare the default-if-no-response. Do NOT proceed to Step 0 until resolved or the default is confirmed.
+
 ## Step 0: Triage
 
 Classify the refactor scope first:

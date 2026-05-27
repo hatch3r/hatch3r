@@ -116,7 +116,12 @@ async function readIncludeOrThrow(mainRoot: string): Promise<string> {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
       logError(`No ${WORKTREE_INCLUDE_FILE} found in ${mainRoot}`);
       console.log(chalk.dim("  Run `hatch3r init` or `hatch3r sync` to generate it.\n"));
-      throw new HatchError(`Missing ${WORKTREE_INCLUDE_FILE}`, 1, "FS_ERROR");
+      throw new HatchError(
+        `Missing ${WORKTREE_INCLUDE_FILE}`,
+        1,
+        "FS_ERROR",
+        "Run `hatch3r init` or `hatch3r sync` to generate the worktree-include file.",
+      );
     }
     throw err;
   }
@@ -230,7 +235,12 @@ async function runFromPath(targetPath: string, opts: SetupOptions): Promise<void
   if (!(await pathExists(targetPath))) {
     logError(`--from-path target does not exist: ${targetPath}`);
     console.log(chalk.dim("  Did you run `git worktree add` first?\n"));
-    throw new HatchError("from-path target missing", 1, "FS_ERROR");
+    throw new HatchError(
+      "from-path target missing",
+      1,
+      "FS_ERROR",
+      "Run `git worktree add <path>` first, then point --from-path at that path.",
+    );
   }
 
   const includeContent = await readIncludeOrThrow(mainRoot);
@@ -254,7 +264,12 @@ async function runFromPath(targetPath: string, opts: SetupOptions): Promise<void
   printSetupSuccessBox(targetPath, result, sync.ok, sync.output, tool);
 
   if (!sync.ok) {
-    throw new HatchError("Adapter sync failed inside the new worktree.", 1, "FS_ERROR");
+    throw new HatchError(
+      "Adapter sync failed inside the new worktree.",
+      1,
+      "FS_ERROR",
+      "cd into the worktree and run `hatch3r sync --verbose` to see the adapter failure.",
+    );
   }
 }
 
@@ -267,7 +282,12 @@ async function runByName(name: string, opts: SetupOptions): Promise<void> {
   if (!isValidBranchName(name)) {
     logError(`Invalid worktree name: '${name}'`);
     console.log(chalk.dim("  Names must be valid git branch names (no spaces, no '..', no leading '-').\n"));
-    throw new HatchError("Invalid worktree name", 1, "VALIDATION_ERROR");
+    throw new HatchError(
+      "Invalid worktree name",
+      1,
+      "VALIDATION_ERROR",
+      "Use a valid git branch name (no spaces, no '..', no leading '-').",
+    );
   }
 
   const targetRoot = join(mainRoot, WORKTREES_DIR, name);
@@ -275,7 +295,12 @@ async function runByName(name: string, opts: SetupOptions): Promise<void> {
   if (await pathExists(targetRoot)) {
     logError(`Target path already exists: ${targetRoot}`);
     console.log(chalk.dim("  Pick a different name, or run `hatch3r worktree-cleanup` to remove the existing worktree first.\n"));
-    throw new HatchError("Target path exists", 1, "FS_ERROR");
+    throw new HatchError(
+      "Target path exists",
+      1,
+      "FS_ERROR",
+      "Pick a different name, or run `hatch3r worktree-cleanup` to remove the existing worktree first.",
+    );
   }
 
   const includeContent = await readIncludeOrThrow(mainRoot);
@@ -314,7 +339,12 @@ async function runByName(name: string, opts: SetupOptions): Promise<void> {
   printSetupSuccessBox(targetRoot, result, sync.ok, sync.output, tool);
 
   if (!sync.ok) {
-    throw new HatchError("Adapter sync failed inside the new worktree.", 1, "FS_ERROR");
+    throw new HatchError(
+      "Adapter sync failed inside the new worktree.",
+      1,
+      "FS_ERROR",
+      "cd into the worktree and run `hatch3r sync --verbose` to see the adapter failure.",
+    );
   }
 }
 
@@ -337,7 +367,12 @@ export async function worktreeSetupCommand(
     logError("Worktree name is required.");
     console.log(chalk.dim("  Usage: hatch3r worktree-setup <name>"));
     console.log(chalk.dim("         hatch3r worktree-setup --from-path <existing-worktree-path>\n"));
-    throw new HatchError("Missing worktree name", 1, "VALIDATION_ERROR");
+    throw new HatchError(
+      "Missing worktree name",
+      1,
+      "VALIDATION_ERROR",
+      "Provide a name: `hatch3r worktree-setup <name>` (or use --from-path <path>).",
+    );
   }
 
   return runByName(nameOrUndefined, opts);

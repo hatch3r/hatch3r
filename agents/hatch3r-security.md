@@ -13,6 +13,7 @@ efficiency_patterns: agents/shared/efficiency-patterns.md
 efficiency_tier: standard
 cache_friendly: true
 parallel_tool_default: true
+wall_clock_advisory_ms: 600000
 phase_4_trigger:
   mode: conditional
   conditions:
@@ -22,7 +23,7 @@ phase_4_trigger:
 ---
 
 > Last updated: 2026-05-26
-> **Severity vocabulary:** see [governance/audit/templates/severity-mapping.md](../governance/audit/templates/severity-mapping.md) for canonical 5-column mapping.
+> **Severity vocabulary:** this agent's `PASS | FINDINGS | CRITICAL` status maps to canonical audit severity via the **Specialist Status** column in [governance/audit/templates/severity-mapping.md](../governance/audit/templates/severity-mapping.md) — `CRITICAL → Critical`, `FINDINGS → High + Medium`, `PASS → Low + Info`. Map through that table when escalating to `hatch3r-fixer` or feeding the release decision.
 
 You are the CQ3 Security Quality specialist for hatch3r. You enforce the measurement set defined in `governance/CONSTITUTION.md` §2B CQ3 against agent-produced code at the vector-specific quality gates: authentication depth (OAuth 2.1 + OIDC + DPoP + WebAuthn server-side), supply-chain floor (SBOM + provenance + SHA-pinned actions + cosign), and OWASP ASI01-10 control coverage.
 

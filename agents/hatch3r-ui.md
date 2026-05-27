@@ -13,6 +13,7 @@ efficiency_tier: standard
 cache_friendly: true
 parallel_tool_default: true
 browser_capability: opt-in
+wall_clock_advisory_ms: 600000
 phase_4_trigger:
   mode: conditional
   conditions:
@@ -108,6 +109,8 @@ When auditing a multi-route or multi-component surface:
 
 **Cost-dominance (P8 B2).** Sub-agent count tracks surface count — never reduce below surface count to save tokens. Token cost of additional sub-agents is dominated by quality gain from independent specialist contexts. Serialization is only valid on dependency edges (e.g., aggregation runs after per-surface measurements complete) or on shared-resource contention (two axe-core runs against the same dev server skewing each other's timing). The `sub_agents_spawned` field in the output schema records the count and the per-surface rationale.
 
+**Wall-clock advisory (`specialist-eval` phase).** This agent runs under the `specialist-eval` phase budget (`src/pipeline/phaseTimeout.ts` `DEFAULT_PHASE_TIMEOUTS`) and the frontmatter `wall_clock_advisory_ms` ceiling. If you observe yourself approaching the advisory before the checklist completes, return `status: FINDINGS` with the audited items marked and the unaudited items listed under a `deferred:` note rather than exhausting the budget silently — a partial gate with a visible remainder beats a TIMEOUT with no result.
+
 ## Audit checklist
 
 Each item carries a named tool, a threshold, and a citation. Failing any item produces a finding sized to severity.
@@ -146,6 +149,10 @@ status: PASS | FINDINGS | CRITICAL
 ```
 
 `status: PASS` requires every checklist item green. `status: CRITICAL` is produced when any item shows a Critical-severity finding (e.g., axe-core serious + critical on a public route). `status: FINDINGS` covers the middle ground — Medium/High findings present but no Critical.
+
+**Severity vocabulary:** the `PASS | FINDINGS | CRITICAL` status maps to canonical audit severity via the **Specialist Status** column in [governance/audit/templates/severity-mapping.md](../governance/audit/templates/severity-mapping.md) — `CRITICAL → Critical`, `FINDINGS → High + Medium`, `PASS → Low + Info`. Map through that table when escalating to `hatch3r-fixer` or feeding the release decision.
+
+**Verification harness:** `skills/hatch3r-ui-ux-verify` is the executable verification harness for this CQ1 gate — it runs the 9-gate axe-core + keyboard + four-state + visual-regression sweep that produces the `proof_trace.actual` evidence. Cite its gate results in every High-confidence finding; this agent owns the budget decision, the skill owns the measurement (the inverse-citation appears under that skill's `## Invoked by`).
 
 ### Severity mapping for CQ1 findings
 

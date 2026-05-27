@@ -14,7 +14,7 @@ Review criteria for evaluating performance in pull requests.
 
 - `[CRITICAL]` New dependencies do not increase the total bundle size (gzipped) beyond the defined budget. Measure before and after.
 - `[CRITICAL]` No unintentional import of full libraries when a subpath import or tree-shakable alternative exists (e.g., `import _ from "lodash"` vs `import groupBy from "lodash/groupBy"`).
-- `[RECOMMENDED]` Images and static assets are optimized (compressed, appropriately sized, modern formats like WebP/AVIF).
+- `[RECOMMENDED]` Images and static assets are compressed and served in WebP or AVIF, with intrinsic dimensions no larger than the maximum rendered size at 2x device pixel ratio (no downscaling a >2x-oversized source in the browser).
 - `[RECOMMENDED]` CSS and JavaScript are minified and dead-code-eliminated in production builds.
 
 ## Render and Paint Performance
@@ -35,7 +35,7 @@ Review criteria for evaluating performance in pull requests.
 
 - `[CRITICAL]` No N+1 request patterns — batch or aggregate related requests instead of issuing one per item.
 - `[CRITICAL]` API response payloads return only required fields. No over-fetching of large objects when a subset is needed.
-- `[RECOMMENDED]` Cacheable responses include appropriate cache headers (`Cache-Control`, `ETag`). Client-side caching (query cache, service worker) is used where applicable.
+- `[RECOMMENDED]` Cacheable responses set `Cache-Control` with an explicit `max-age` (immutable static assets `max-age=31536000, immutable`; mutable API responses `no-cache` or a documented TTL) plus an `ETag` or `Last-Modified` validator. Responses that mutate state or carry per-user data set `Cache-Control: private` or `no-store`.
 - `[RECOMMENDED]` Request waterfalls are minimized — parallelize independent requests and preload critical resources.
 
 ## Database Query Performance
@@ -49,7 +49,7 @@ Review criteria for evaluating performance in pull requests.
 ## Runtime Performance
 
 - `[CRITICAL]` No synchronous blocking operations (heavy computation, synchronous I/O) on the main thread or event loop.
-- `[CRITICAL]` Hot-path code (called per-request, per-frame, or per-event) does not perform redundant computation — memoize or cache where appropriate.
+- `[CRITICAL]` Hot-path code (called per-request, per-frame, or per-event) does not recompute a pure result whose inputs are unchanged since the last call — memoize or cache any such repeated pure computation, and bound the cache with an eviction policy (size cap or TTL).
 - `[RECOMMENDED]` CPU-intensive work is offloaded to workers, background jobs, or streaming pipelines.
 - `[RECOMMENDED]` Object allocation in tight loops is minimized — reuse buffers and avoid creating short-lived objects per iteration.
 

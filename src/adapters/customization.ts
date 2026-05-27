@@ -1,6 +1,8 @@
 import type { CanonicalFile } from "../types.js";
 import {
   readCustomizationSnapshot,
+  MAX_CUSTOMIZE_MD_BYTES,
+  MAX_PROTECTED_CUSTOMIZE_MD_BYTES,
   type Customization,
   type CustomizableType,
 } from "../models/customize.js";
@@ -125,8 +127,9 @@ const ANY_CYRILLIC_CHAR = /[Ѐ-ӿ]/;
 
 const ZERO_WIDTH_CHARS = /[\u200B\u200C\u200D\uFEFF\u00AD]/g;
 
-const MAX_CUSTOMIZE_MD_BYTES = 10_240;
-const MAX_PROTECTED_CUSTOMIZE_MD_BYTES = 2_048;
+// Byte limits are owned by src/models/customize.ts (single source of truth,
+// CONSTITUTION \u00A72 P5 Anti-Bloat Principle 1) and imported above. F2.3-H4
+// removed the duplicate literals that previously lived here.
 
 const HOMOGLYPH_MAP: Record<string, string> = {
   // Cyrillic → Latin

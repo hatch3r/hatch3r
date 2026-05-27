@@ -11,6 +11,16 @@ cache_friendly: true
 
 # API Specification Workflow
 
+## Relationship to `commands/hatch3r-api-spec.md` (Decision 13 handoff)
+
+This skill shares the `id: hatch3r-api-spec` with the orchestrator command `commands/hatch3r-api-spec.md`. The two are NOT duplicates — they split the OpenAPI workflow by execution model per CONSTITUTION §6 Decision 13:
+
+- **`commands/hatch3r-api-spec.md` (orchestrator entry):** the canonical multi-agent pipeline — researcher scans routes, docs-writer assembles the spec, reviewer validates (`agentPipeline: [hatch3r-researcher, hatch3r-docs-writer, hatch3r-reviewer]`). Use the command when the workflow warrants sub-agent fan-out (Tier 2/3 framework detection, drift detection, breaking-change review).
+- **This skill (inline procedure):** the single-pass reference body the command's docs-writer and reviewer stages follow when assembling and validating the spec. Use the skill directly for Tier 1 single-endpoint spec edits where no fan-out is needed, OR as the step-by-step procedure cited inside the command's Step 5 (OpenAPI Assembly) and Step 6 (Validation).
+- **Unique to this skill:** Step 6 (`oasdiff` breaking-change CI gate wiring) is the inline-procedure detail the command references rather than restates.
+
+The merge-candidate review (F16.3-H3) flagged the shared id; this handoff documentation is the explicit workflow-split declaration that disambiguates the pair. A future collapse into a single command appendix requires coordinated edits to the command body, `governance/inventory.json` (skills count), and the Decision-13 anti-duplicate-id gate in `src/cli/commands/validate.ts`.
+
 ## Quick Start
 
 ```

@@ -37,6 +37,14 @@ This document provides per-server capability analysis and security guidance.
   - Rotate tokens regularly (90-day maximum)
   - Monitor GitHub audit log for unexpected API activity
 
+#### GitHub toolset scoping
+
+The canonical `github` entry in `mcp/mcp.json` sets `X-MCP-Toolsets: "repos,issues,pull_requests"` rather than `all`. This is the least-privilege baseline: the three write-capable toolsets a coding agent needs, excluding the read-only `context`/`users` toolsets and every high-blast-radius toolset (`code_security`, `secret_protection`, `actions`, `orgs`, `projects`). The header is a comma-separated subset of the toolset names enumerated by the upstream `github/github-mcp-server` (`all` enables every toolset; an explicit subset narrows the granted tool surface). Operators who need more must widen the header explicitly — `all` re-grants secret-scanning, Actions, and org-admin tools, raising the blast radius beyond the High classification above.
+
+#### Trust Rationale (HTTP endpoint, unpinned)
+
+The canonical entry targets the live remote endpoint `https://api.githubcopilot.com/mcp/` over HTTP transport and carries `_trust_bypass: true`. Under the C9-M34 policy (`src/adapters/mcp-utils.ts::validateMcpHttpEndpoint`), an HTTP endpoint (where `url` is set and `command` is not) requires a `_pinned_sha256` artifact hash unless `_trust_bypass: true` is set. SHA-256 pinning is not viable here because GitHub's hosted MCP API serves rotating content with no stable artifact to pin — the exact "pinning impossible" case the policy documents. The `_trust_bypass` opt-out is therefore the intended resolution: it accepts the entry while `validateMcpEntry` emits an auditable warning (Silent Failure Contract), so the bypass remains visible rather than silently shipping an unpinned endpoint that survives only as a soft warning. The accepted residual risk is upstream compromise of the GitHub-hosted endpoint; mitigations are the toolset scoping above plus the fine-grained, rotated PAT.
+
 ### azure-devops
 
 - **Blast Radius**: High

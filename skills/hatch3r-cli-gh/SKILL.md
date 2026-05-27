@@ -17,6 +17,17 @@ cli_tool:
 
 GitHub CLI — repos, issues, PRs, releases, gists
 
+## §0 — Ambiguity & Safety Gate (P8 B1)
+
+Before invoking `gh`, resolve these via `agents/shared/user-question-protocol.md` (default behavior, not exception-driven):
+- **Scope:** when the target repo/PR/issue number is not explicit (e.g. "close the PR" with several open), confirm which one before acting — never guess the number.
+- **Irreversibility:** `gh pr close`, `gh pr merge`, `gh release create`, `gh issue close`, `gh repo delete`, and `gh api -X DELETE/POST/PATCH` mutate remote state. Confirm intent before running any of these; they are not safe to assume.
+- **Ambiguity:** when the request maps to two or more flag combinations with materially different blast radius (e.g. `--squash` vs `--rebase` on `gh pr merge`), ask which one.
+
+## Fan-out Discipline (P8 B2)
+
+Tier 1 reference card — no fan-out. This skill is a single-tool usage reference an agent consults inline; it spawns no sub-agents. Fan-out is owned by the calling workflow per its own Fan-out Discipline block. Source: `.claude/rules/fan-out-discipline.md` (P8 B2).
+
 ## When to Use
 
 Reach for `gh` when the task is in the **forge** category and the agent would otherwise call an MCP tool or read large outputs into context.
@@ -102,3 +113,9 @@ winget install GitHub.cli
 ```
 
 Homepage: https://cli.github.com/
+
+## Security
+
+Minimum recommended version: `>=2.92.0`. Builds below this floor carry known unpatched advisories — upgrade before relying on the tool.
+
+GHSA-crc3-h8v6-qh57: gh CLI before 2.92.0 may leak authentication tokens via auxiliary host extension calls. Upgrade to 2.92.0 or later before using gh against untrusted GitHub Enterprise hosts.

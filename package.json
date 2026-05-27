@@ -1,7 +1,7 @@
 {
   "name": "hatch3r",
   "version": "2.0.0",
-  "description": "Battle-tested agentic coding setup framework. One command to hatch your agent stack -- agents, skills, rules, commands, and MCP for every major AI coding tool.",
+  "description": "Agentic coding setup framework audited each release across 24 governance domains. One command to hatch your agent stack -- agents, skills, rules, commands, and MCP for Claude Code, Cursor, and GitHub Copilot.",
   "type": "module",
   "exports": {
     ".": {
@@ -27,8 +27,9 @@
     "validate:efficiency": "tsx scripts/validate-efficiency-invariants.ts && tsx scripts/validate-bridge-budget.ts && tsx scripts/validate-fanout-emission.ts",
     "validate:cli-skills": "tsx scripts/validate-cli-skills.ts",
     "validate:wiring": "tsx scripts/validate-wiring.ts",
+    "validate:anti-slop": "tsx scripts/validate-anti-slop.ts",
     "generate:cli-skills": "tsx scripts/generate-cli-skills.ts",
-    "validate": "npm run validate:rule-parity && npm run validate:efficiency && npm run validate:cli-skills && npm run validate:wiring",
+    "validate": "npm run validate:rule-parity && npm run validate:efficiency && npm run validate:cli-skills && npm run validate:wiring && npm run validate:anti-slop",
     "audit:validate-registry": "tsx scripts/validate-finding-registry.ts",
     "audit:migrate": "tsx scripts/migrate-finding-registry.ts",
     "audit:archive": "tsx scripts/audit-archive.ts",

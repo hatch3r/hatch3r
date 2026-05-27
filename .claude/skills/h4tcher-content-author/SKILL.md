@@ -9,6 +9,10 @@ allowed-tools: Read Grep Glob Bash(*) Write Edit
 
 Author or modify a hatch3r canonical content artifact.
 
+## §0.1: Ambiguity Gate (P8 B1)
+
+Per CONSTITUTION §2 P8 B1: every framework-dev workflow mutating canonical artifacts detects and resolves ambiguity via `agents/shared/user-question-protocol.md` BEFORE executing — default behavior, not exception-driven. Apply the protocol when any hold: (a) ambiguous scope (which artifact type — agent vs skill vs command per the Decision #13 discriminator — or new-vs-edit), (b) multiple valid interpretations with materially different cost/scope/risk, (c) irreversible action (public artifact id rename, frontmatter-field drop), or (d) missing acceptance criteria (no testable definition of done). Use the platform-native question tool; one question per turn; 2-4 numbered options with one-line trade-offs; declare the default-if-no-response. Do NOT proceed to Step 1 until resolved or the default is confirmed.
+
 ## Step 1: Determine Artifact Type
 
 Identify the content type from user input:

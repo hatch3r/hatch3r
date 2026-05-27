@@ -24,7 +24,7 @@ Common issues and solutions for the hatch3r CLI, MCP servers, board commands, an
 
 ### `npx hatch3r init` -- re-init and reconfiguration
 
-Running `hatch3r init` on an existing `.agents/` directory is supported. It detects the previous configuration, prompts for confirmation (showing how many content items will change), and cleans up stale content from the previous preset automatically.
+Running `hatch3r init` on an existing `.hatch3r/` setup is supported. It detects the previous configuration, prompts for confirmation (showing how many content items will change), and cleans up stale content from the previous preset automatically.
 
 For lighter reconfiguration without re-initializing, use:
 
@@ -34,7 +34,7 @@ For lighter reconfiguration without re-initializing, use:
 
 ### Invalid tool(s)
 
-Use only valid tools: `cursor`, `copilot`, `claude`, `opencode`, `windsurf`, `amp`, `codex`, `gemini`, `cline`, `aider`, `kiro`, `goose`, `zed`, `amazon-q`, `antigravity`.
+Use only valid tools: `cursor`, `copilot`, `claude`. (The adapter set was hard-cut to these 3 in 1.9.0.)
 
 ```bash
 npx hatch3r init --tools cursor,claude
@@ -42,22 +42,21 @@ npx hatch3r init --tools cursor,claude
 
 ### Not in a git repository
 
-Init reads owner/repo from `git remote get-url origin`. Without a git remote, these stay empty. Edit `.agents/hatch.json` to add them manually.
+Init reads owner/repo from `git remote get-url origin`. Without a git remote, these stay empty. Edit `.hatch3r/hatch.json` to add them manually.
 
-### No .agents/hatch.json found
+### No .hatch3r/hatch.json found
 
-Run `npx hatch3r init` first. If you had a working setup before, check your git history (`git log --all -- .agents/hatch.json`).
+Run `npx hatch3r init` first. If you had a working setup before, check your git history (`git log --all -- .hatch3r/hatch.json`).
 
-## Integrity and Validation
+## Drift and Validation
 
-Run `npx hatch3r verify` to check file integrity against stored checksums. This detects modified, missing, or tampered canonical files and provides recovery guidance (run `hatch3r update` to restore).
+Run `npx hatch3r verify` (or `npx hatch3r status`) to detect drift: hatch3r regenerates each adapter output from the bundled canonical content and diffs it against the on-disk copy. There is no `.integrity.json` checksum file — drift is detected by regeneration, not stored hashes. To fix drift, run `npx hatch3r sync`.
 
-Run `npx hatch3r validate` to check the `.agents/` structure.
+Run `npx hatch3r validate` to check content structure and frontmatter (bundled content plus your `.hatch3r/overrides/`).
 
 | Error | Solution |
 |-------|----------|
-| `.agents/` directory not found | Run `npx hatch3r init` |
-| Missing manifest | Re-run `npx hatch3r init` or restore from git history |
+| Missing manifest (`.hatch3r/hatch.json`) | Re-run `npx hatch3r init` or restore from git history |
 | Required directory missing | Re-run `npx hatch3r init` or `npx hatch3r update` |
 | Invalid frontmatter | Ensure both opening and closing `---` delimiters exist |
 | Missing `id` or `type` | Add required fields to YAML frontmatter |
@@ -96,7 +95,7 @@ The GitHub PAT lacks the `project` scope for Projects V2 operations.
 
 ### Board config missing
 
-Edit `.agents/hatch.json`:
+Edit `.hatch3r/hatch.json`:
 
 ```json
 {
@@ -166,22 +165,22 @@ Starting in 1.6.0, `board-init` verifies that the GitHub Project's built-in work
 
 ### `board-fill` or `board-pickup` halts with "retry budget exceeded"
 
-Board Sync Enforcement rule 10 aborts batch sync once per-run retry count exceeds 20% of batch size. Inspect `.agents/.failure-log.jsonl` for the underlying GraphQL errors (option-mapping race, null option, auth), resolve the root cause, and re-run. Rules 8 and 9 (retry-then-halt with rollback, null-option abort) surface specific halts — treat each as a substantive failure, not a transient retry.
+Board Sync Enforcement rule 10 aborts batch sync once per-run retry count exceeds 20% of batch size. Inspect `.hatch3r/.failure-log.jsonl` for the underlying GraphQL errors (option-mapping race, null option, auth), resolve the root cause, and re-run. Rules 8 and 9 (retry-then-halt with rollback, null-option abort) surface specific halts — treat each as a substantive failure, not a transient retry.
 
 ## Diagnostics and Failure Logs
 
 ### Reading the failure log
 
-When pipeline operations fail, hatch3r writes structured entries to `.agents/.failure-log.jsonl`. Each line is a JSON object with timestamp, command, error message, and context.
+When pipeline operations fail, hatch3r writes structured entries to `.hatch3r/.failure-log.jsonl`. Each line is a JSON object with timestamp, command, error message, and context.
 
 To inspect recent failures:
 
 ```bash
 # View the last 10 failures
-tail -10 .agents/.failure-log.jsonl | jq .
+tail -10 .hatch3r/.failure-log.jsonl | jq .
 
 # Filter by command
-grep '"command":"sync"' .agents/.failure-log.jsonl | jq .
+grep '"command":"sync"' .hatch3r/.failure-log.jsonl | jq .
 ```
 
 Include relevant failure log entries when reporting issues.

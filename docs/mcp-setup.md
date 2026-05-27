@@ -12,7 +12,7 @@ hatch3r ships with 10 MCP servers: 3 enabled by default (no env vars required) a
 
 ## Where MCP Config Lives
 
-All adapters that support MCP emit tool-specific configuration during `npx hatch3r init` or `npx hatch3r sync`. The canonical MCP source is `.agents/mcp/mcp.json`; each adapter transforms it into the format and path the tool expects.
+All adapters that support MCP emit tool-specific configuration during `npx hatch3r init` or `npx hatch3r sync`. The MCP source is the bundled `mcp/mcp.json` (defaults), resolved into `.hatch3r/mcp/mcp.json` for your project; each adapter transforms it into the format and path the tool expects.
 
 | Tool | Config path | Format | Notes |
 |------|-------------|--------|-------|

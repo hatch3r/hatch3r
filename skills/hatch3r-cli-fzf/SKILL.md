@@ -17,6 +17,17 @@ cli_tool:
 
 Interactive fuzzy finder for TTY pickers
 
+## §0 — Ambiguity & Safety Gate (P8 B1)
+
+Before invoking `fzf`, resolve these via `agents/shared/user-question-protocol.md` (default behavior, not exception-driven):
+- **Scope:** confirm the input stream piped into `fzf` is the intended candidate set; a wrong upstream command silently changes what gets ranked.
+- **Irreversibility:** `fzf` only selects — it never mutates files. The real hazard is invoking interactive `fzf` (no `--filter`) in a non-TTY context (CI, agent loop): it blocks on stdin forever. Always use `--filter` headless mode from an autonomous agent; treat any downstream action on the selection (the command you pipe the pick into) under its own irreversibility check.
+- **Ambiguity:** when more than one match scores closely and the workflow needs a single deterministic pick, pin it with `--filter … | head -1` rather than relying on interactive choice.
+
+## Fan-out Discipline (P8 B2)
+
+Tier 1 reference card — no fan-out. This skill is a single-tool usage reference an agent consults inline; it spawns no sub-agents. Fan-out is owned by the calling workflow per its own Fan-out Discipline block. Source: `.claude/rules/fan-out-discipline.md` (P8 B2).
+
 ## When to Use
 
 Reach for `fzf` when the task is in the **interactive** category and the agent would otherwise call an MCP tool or read large outputs into context.

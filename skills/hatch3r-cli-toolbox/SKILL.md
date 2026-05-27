@@ -12,6 +12,17 @@ Compact decision reference for 29 specialist CLI tools agents may reach for in a
 
 Each entry below states a single discriminator ("When to use"), one representative recipe, and the better alternative ("Wrong choice when"). Tools are installed via `npx hatch3r cli-tools`; this skill governs *selection*, not installation.
 
+## §0 — Ambiguity & Safety Gate (P8 B1)
+
+Before invoking any tool below, resolve these via `agents/shared/user-question-protocol.md` (default behavior, not exception-driven):
+- **Scope:** when the target file/glob/repo matches more than one candidate (an in-place edit over a glob, a forge command without an explicit number), confirm the intended target before running.
+- **Irreversibility:** several tools here mutate in place or against remote state — `sd … <file>`, `comby -i`, `yq -i`, `taplo` writes, `glab mr`/`az repos pr`, and any `docker run`/`podman run` with a writable host mount. Confirm intent before running these; in-place and remote mutations are not safe to assume. Honor each tool's own caveat (e.g. `rtk proxy` for piped output, container hardening flags for untrusted images).
+- **Ambiguity:** when the request maps to two or more tools or flag sets with materially different output or blast radius (e.g. `ast-grep` vs `comby` vs `sd` for a rename), pick per the discriminators below or ask which one.
+
+## Fan-out Discipline (P8 B2)
+
+Tier 1 reference card — no fan-out. This skill is a category-indexed selection reference an agent consults inline; it spawns no sub-agents. Fan-out is owned by the calling workflow per its own Fan-out Discipline block. Source: `.claude/rules/fan-out-discipline.md` (P8 B2).
+
 ## Category index
 
 | Category | Tools |

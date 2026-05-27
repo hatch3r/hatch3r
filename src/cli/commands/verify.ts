@@ -91,7 +91,12 @@ export async function verifyCommand(options: VerifyOptions = {}): Promise<void> 
   if (!manifest) {
     logError("No .hatch3r/hatch.json found — run `hatch3r init` first.");
     console.log();
-    throw new HatchError("No .hatch3r/hatch.json found", 1, "CONFIG_ERROR");
+    throw new HatchError(
+      "No .hatch3r/hatch.json found",
+      1,
+      "CONFIG_ERROR",
+      "Run `npx hatch3r init` to set up your project first.",
+    );
   }
 
   let report: DriftReport;
@@ -123,5 +128,6 @@ export async function verifyCommand(options: VerifyOptions = {}): Promise<void> 
     `Adapter output drift detected (${driftCount} file(s))`,
     1,
     "INTEGRITY_ERROR",
+    "Run `hatch3r sync` to regenerate drifted/missing files, or `hatch3r verify --fix` to auto-repair.",
   );
 }
