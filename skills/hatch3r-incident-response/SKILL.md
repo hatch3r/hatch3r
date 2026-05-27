@@ -14,12 +14,15 @@ cache_friendly: true
 Task Progress:
 - [ ] Step 0: Detect ambiguity (P8 B1)
 - [ ] Step 1: Classify severity (P0-P3) based on impact
+- [ ] Step 1b: Capture topology context — impacted service graph + upstream/downstream deps
 - [ ] Step 2: Triage — identify affected systems, user impact, blast radius
 - [ ] Step 3: Mitigate — apply hotfix or rollback, verify mitigation works
 - [ ] Step 4: Root cause analysis — trace the failure chain
 - [ ] Step 5: Write post-mortem with timeline, root cause, action items
 - [ ] Step 6: Create follow-up issues for permanent fixes and preventive measures
 ```
+
+Two policies bound this workflow before any remediation action runs: the **Bounded Autonomy & Escalation** matrix (which actions auto-execute vs require a human gate, by severity) and the **Telemetry Sources** adapter (where to read signal, by capability class). Both are defined below; read them before Step 3.
 
 ## Step 0 — Detect Ambiguity (P8 B1)
 
@@ -33,6 +36,38 @@ This skill delegates per task size:
 - Tier 3 (multi-module / high-risk): one fresh sub-agent per independent module or gate; orchestrator integrates only.
 
 Never under-fan-out to save tokens. Token cost is dominated by quality and completeness gains. Emit `sub_agents_spawned: { count, rationale }` in your output.
+
+## Bounded Autonomy & Escalation
+
+An agent acting in a live incident operates under bounded autonomy: actions are bounded, reversible-first, and gated on a human-in-the-loop for high-blast-radius severities. This matrix sets the auto-action vs escalation threshold by severity. Match the row to the severity assigned in Step 1.
+
+| Severity | Autonomy bound | Required gate before action |
+| -------- | -------------- | --------------------------- |
+| P0 | No autonomous mutation. Investigate, build the timeline, propose a diff — do not apply. | Human approval required before any mitigation. Page on-call; do not self-execute. |
+| P1 | Confidence-routed. High-confidence reversible action (flag flip, scale-up, documented rollback) may auto-apply WITH a diff preview emitted first; low-confidence or irreversible action escalates. | Human gate when confidence is medium/low OR the action writes data / is irreversible. |
+| P2 | Auto-remediation acceptable for reversible actions with a diff preview emitted before apply. | Human gate only for irreversible (data-write, schema, destructive) actions. |
+| P3 | Auto-remediation acceptable. | None for reversible actions; flag irreversible actions for review. |
+
+Rules that hold across all rows:
+
+- **Reversibility-first.** Prefer the reversible mitigation (feature-flag flip, config revert, scale-up, deploy rollback) over an irreversible one (data write, schema change). An irreversible action escalates one severity band on the gate column.
+- **Diff preview before apply.** Any auto-applied mutation emits the exact change (command, flag, config delta) before execution, never after.
+- **Confidence routing.** State confidence (high/medium/low per `agents/shared/quality-charter.md` section 1) on every proposed mitigation. Medium/low confidence on P1 routes to a human gate.
+- **Audit trail.** Every action (auto or gated) is recorded in the incident timeline (Step 5) with actor, timestamp, and the gate decision.
+
+## Telemetry Sources
+
+Capture signal from the project's observability stack before declaring blast radius (Step 1b) and when verifying mitigation (Step 3). Read the configured stack from project conventions; do not assume a vendor. Adapter patterns by capability class:
+
+| Capability class | What to read | Common providers |
+| ---------------- | ------------ | ---------------- |
+| Distributed traces | Request path spans, `trace_id`/`span_id` correlation, latency percentiles | OpenTelemetry-compatible backend, Datadog APM, Grafana Tempo |
+| Metrics (RED/USE) | Rate, Errors, Duration per route; Utilization, Saturation, Errors per resource | Prometheus/Grafana, CloudWatch, Datadog |
+| Logs | Structured JSON with `trace_id`, service+version+environment, error-level stack traces | Splunk, CloudWatch Logs, Loki |
+| Error tracking | Grouped exceptions with release + environment tags | Sentry-class tracker |
+| Deploy/change history | Recent deploys, config changes, dependency bumps correlated to incident start | Platform CLI (`gh`/`az`/`glab`), CI deploy log |
+
+Reference `rules/hatch3r-observability-tracing.md` and `rules/hatch3r-observability-logging.md` for the end-user instrumentation floor these sources read from. When a capability class is not instrumented in the project, record the gap as a post-mortem action item rather than assuming data exists.
 
 ## Step 1: Classify Severity
 
@@ -48,6 +83,17 @@ Never under-fan-out to save tokens. Token cost is dominated by quality and compl
   - **Azure DevOps:** `az boards query --wiql "SELECT [System.Id] FROM WorkItems WHERE [System.Title] CONTAINS '...'"` or `az boards work-item show --id N`
   - **GitLab:** `glab issue list --search "..."` or `glab issue view N`
 - For external library docs and current best practices, follow the project's tooling hierarchy.
+
+## Step 1b: Capture Topology Context
+
+Before declaring blast radius in Step 2, map the impacted service graph. A correct blast-radius estimate depends on knowing what the failing component talks to — upstream callers amplify user impact, downstream dependencies are candidate root causes.
+
+1. **Identify the impacted node(s):** which service, function, or resource is emitting the failure signal (from the Telemetry Sources above).
+2. **Trace upstream:** which services/clients call the impacted node? These define the user-facing blast radius — a failure in a shared dependency fans out to every caller.
+3. **Trace downstream:** which dependencies does the impacted node call (database, queue, third-party API, RPC peer)? A downstream failure is a candidate root cause, not a symptom site.
+4. **Record the graph:** capture the upstream/downstream edges (from distributed traces, a service catalog, or an architecture ADR in project docs) before estimating blast radius. If no service map exists, reconstruct it from trace spans and note the absence as a post-mortem action item.
+
+Output a one-line topology summary: `impacted: {node} | upstream callers: {list} | downstream deps: {list}`. Step 2 blast-radius estimation consumes this directly.
 
 ## Step 2: Triage
 

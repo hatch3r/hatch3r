@@ -1,5 +1,6 @@
 ---
 id: hatch3r-cost-tracking
+name: hatch3r-cost-tracking
 description: Track token usage and estimate costs for agent sessions. Use when monitoring spend, approaching budget limits, or generating cost reports.
 tags: [maintenance, tier:enterprise-only]
 quality_charter: agents/shared/quality-charter.md

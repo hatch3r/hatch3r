@@ -12,7 +12,7 @@ parallel_tool_default: true
 triage_tiers: [1, 2, 3]
 sub_agents_spawned:
   count: 9
-  rationale: Per-revision fanout — implementer, lint-fixer, test-writer (Stage 1 fix group), reviewer ↔ fixer review loop, then parallel Stage 2 final-quality specialists (security-auditor, docs-writer, a11y-auditor, perf-profiler) bounded by max_phase4_parallel.
+  rationale: Per-revision fanout — implementer, lint-fixer, test-writer (Stage 1 fix group), reviewer ↔ fixer review loop, then parallel Stage 2 final-quality specialists (security-auditor, docs-writer, a11y-auditor, perf-profiler) bounded by max_phase4_parallel. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -32,6 +32,8 @@ Before any action, scan the user's request and provided context for unresolved q
 | 5c. Final Quality — Security | `hatch3r-security-auditor` | Yes | Yes (code changes) |
 | 5d. Final Quality — Docs | `hatch3r-docs-writer` | Yes | When APIs/architecture/UX affected |
 | 5e. Final Quality — Conditional | `hatch3r-lint-fixer`, `hatch3r-a11y-auditor`, `hatch3r-perf-profiler` | Yes | When triggered |
+
+**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
 
 ## Browser Automation
 

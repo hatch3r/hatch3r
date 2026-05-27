@@ -11,6 +11,7 @@ import {
   writeCheckpoint,
   type CheckpointMeta,
 } from "../../pipeline/checkpoint.js";
+import { HatchError } from "../../types.js";
 
 const sampleMeta = (overrides: Partial<CheckpointMeta> = {}): CheckpointMeta => ({
   baselineSha: "abc123def456",
@@ -187,6 +188,58 @@ describe("pipeline/checkpoint", () => {
       await (await import("node:fs/promises")).mkdir(workspace, { recursive: true });
       await writeFile(checkpointPath(workspace), "42");
       await expect(readCheckpoint(workspace)).rejects.toThrow(/not an object/);
+    });
+
+    // F1.5-H1 (Cycle 10 D1): a malformed checkpoint is preserved to
+    // `checkpoint.json.corrupt-<ISO>` before the throw so the operator and a
+    // future migration tool can inspect the original; the recovery hint names
+    // the preserved copy.
+    it("preserves a corrupt (unparseable) checkpoint and names the backup in the recovery hint", async () => {
+      const { mkdir, readdir } = await import("node:fs/promises");
+      await mkdir(workspace, { recursive: true });
+      await writeFile(checkpointPath(workspace), "not json {");
+      try {
+        await readCheckpoint(workspace);
+        throw new Error("expected readCheckpoint to throw on corrupt JSON");
+      } catch (e) {
+        expect(e).toBeInstanceOf(HatchError);
+        expect((e as HatchError).recoveryHint).toMatch(/preserved at .*checkpoint\.json\.corrupt-/);
+      }
+      const entries = await readdir(workspace);
+      const backups = entries.filter((e) => /^checkpoint\.json\.corrupt-/.test(e));
+      expect(backups.length).toBe(1);
+      // The preserved copy holds the exact bytes that were on disk.
+      const backupRaw = await readFile(join(workspace, backups[0]), "utf-8");
+      expect(backupRaw).toBe("not json {");
+    });
+
+    // Schema-version mismatch is the realistic upgrade case: a checkpoint from
+    // an older hatch3r version takes the validation-error branch. It too must
+    // be preserved (not just "delete and re-run") so the operator does not lose
+    // the only artifact a future migration shim could read.
+    it("preserves a schema-version-mismatch checkpoint for migration on upgrade", async () => {
+      const { mkdir, readdir } = await import("node:fs/promises");
+      await mkdir(workspace, { recursive: true });
+      const futureSchema = {
+        schemaVersion: 99,
+        phase: "wave-1",
+        wave: 1,
+        status: "passed",
+        meta: sampleMeta(),
+      };
+      await writeFile(checkpointPath(workspace), JSON.stringify(futureSchema, null, 2));
+      try {
+        await readCheckpoint(workspace);
+        throw new Error("expected readCheckpoint to throw on schema mismatch");
+      } catch (e) {
+        expect(e).toBeInstanceOf(HatchError);
+        expect((e as HatchError).recoveryHint).toMatch(/preserved at .*checkpoint\.json\.corrupt-.*migration/);
+      }
+      const entries = await readdir(workspace);
+      const backups = entries.filter((e) => /^checkpoint\.json\.corrupt-/.test(e));
+      expect(backups.length).toBe(1);
+      const backupParsed = JSON.parse(await readFile(join(workspace, backups[0]), "utf-8"));
+      expect(backupParsed.schemaVersion).toBe(99);
     });
   });
 

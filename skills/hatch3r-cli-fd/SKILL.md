@@ -75,11 +75,25 @@ Verify with:
 command -v fd
 ```
 
-Install (mac):
+Install (macOS — default for this machine):
 
 ```bash
 # brew
 brew install fd
+```
+
+Install (Linux):
+
+```bash
+# apt
+sudo apt install fd-find
+```
+
+Install (Windows):
+
+```bash
+# scoop
+scoop install fd
 ```
 
 Homepage: https://github.com/sharkdp/fd

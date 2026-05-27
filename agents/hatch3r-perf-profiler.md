@@ -98,6 +98,9 @@ When profiling a large application with multiple modules or surfaces:
 
 **sub_agents_spawned:** { count: <int>, rationale: "<one-line: e.g., 'one per target area, 4 targets profiled'>" }
 
+**impact_horizon:** short | medium | long
+**progress_toward_pillar:** content-quality.CQ7+<delta>
+
 **Budget Compliance:**
 
 | Metric | Budget | Actual | Status | Delta |
@@ -121,6 +124,10 @@ When profiling a large application with multiple modules or surfaces:
 **Notes:**
 - (deferred optimizations, architecture constraints)
 ```
+
+## Iteration Summary
+
+When this audit run mutates state (applies optimizations), emit the canonical 9-section iteration summary per `rules/hatch3r-iteration-summary.md` as the final output — preserving the fan-out + cost, gates, and pillar-impact attribution trail per CONSTITUTION §6 Decision #28.
 
 ## Optimization Decision Framework
 

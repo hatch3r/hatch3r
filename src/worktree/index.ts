@@ -1,4 +1,5 @@
 import { readFile, mkdir, copyFile, symlink, lstat, unlink, writeFile, appendFile } from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join, relative, dirname } from "node:path";
 import {
@@ -32,6 +33,28 @@ const EXCLUDE_BLOCK_END = "# HATCH3R:END";
 
 /** Subdirectory of the main repo where hatch3r-managed worktrees live. */
 export const WORKTREES_DIR = ".worktrees";
+
+/**
+ * Detects whether a `.worktreeinclude` pattern uses gitignore-style glob
+ * syntax (`*`, `?`, `[...]`). Per git-scm.com/docs/gitignore (accessed
+ * 2026-05-27) the include-file format honours these wildcards, but
+ * `setupWorktree`'s strategy lookup only supports literal-prefix matching.
+ * A glob entry tagged `# hatch3r:symlink` therefore falls through silently
+ * to the default `copy` strategy (F1.10-H2, D1, audit cycle 10 wave 2).
+ *
+ * Backslash-escaped wildcards (per gitignore syntax) are treated as literals.
+ */
+function hasGlobChars(pattern: string): boolean {
+  for (let i = 0; i < pattern.length; i += 1) {
+    const ch = pattern[i];
+    if (ch === "\\") {
+      i += 1; // skip escaped literal
+      continue;
+    }
+    if (ch === "*" || ch === "?" || ch === "[") return true;
+  }
+  return false;
+}
 
 // ─── Adapter worktree patterns ───────────────────────────────────────────────
 
@@ -235,6 +258,24 @@ export async function setupWorktree(
   const entries = parseWorktreeInclude(content);
   if (entries.length === 0) return result;
 
+  // F1.10-H2 (D1, audit cycle 10 wave 2): glob patterns are unsupported by
+  // the symlink-strategy lookup. The strategy resolver below uses
+  // literal-prefix matching only, so an entry like `.cache/*.log
+  // # hatch3r:symlink` would silently fall through to the default `copy`
+  // strategy with no signal to the user. Reject glob+symlink combinations
+  // at parse time by recording a structured error and forcing matches
+  // against the offending entry to use the default `copy` strategy.
+  // Reference: https://git-scm.com/docs/gitignore (accessed 2026-05-27).
+  const symlinkGlobOffenders = new Set<string>();
+  for (const entry of entries) {
+    if (entry.strategy === "symlink" && hasGlobChars(entry.pattern)) {
+      symlinkGlobOffenders.add(entry.pattern);
+      result.errors.push(
+        `${entry.pattern}: glob patterns are unsupported with the symlink strategy — split into literal subpaths or change to copy strategy`,
+      );
+    }
+  }
+
   const patterns: string[] = [];
   for (const entry of entries) {
     patterns.push(entry.pattern);
@@ -247,56 +288,102 @@ export async function setupWorktree(
     const srcPath = join(mainRoot, relPath);
     const destPath = join(worktreeRoot, relPath);
 
-    // Determine strategy: find the most specific matching pattern
+    // Determine strategy: find the most specific matching pattern.
+    // Symlink-glob offenders (F1.10-H2) are skipped — the literal-prefix
+    // matcher cannot reliably correlate `relPath` against a glob pattern, so
+    // any match against an offender entry falls back to the default `copy`
+    // strategy. The per-pattern error recorded above informs the user.
     let strategy: "copy" | "symlink" = "copy";
     for (const entry of entries) {
       const pat = entry.pattern.replace(/\/$/, "");
       if (relPath === pat || relPath.startsWith(pat + "/") || relPath === entry.pattern) {
+        if (entry.strategy === "symlink" && symlinkGlobOffenders.has(entry.pattern)) {
+          continue;
+        }
         strategy = entry.strategy;
         // Don't break — later entries can override (e.g., .agents/learnings/ overrides .agents/)
       }
     }
 
     try {
-      // Skip if destination already exists (idempotent re-run), unless --force
-      let destExists = false;
-      try {
-        await lstat(destPath);
-        destExists = true;
-      } catch (err) {
-        recordWorktreeProbeFailure(`lstat(${destPath}) — destination missing`, err);
-      }
-      if (destExists && !options.force) {
-        result.skipped.push(relPath);
-        continue;
-      }
-      if (destExists && options.force) {
-        // Remove existing file/symlink before overwriting
-        await unlink(destPath);
-      }
-
+      // F1.10-H3 (D1, audit cycle 10 wave 2): close the TOCTOU window
+      // between the legacy `lstat` probe and the subsequent
+      // `unlink`/`symlink`/`copyFile`. Rely on syscall-level atomicity:
+      // `symlink()` throws EEXIST natively, and `copyFile()` does the same
+      // when called with the `COPYFILE_EXCL` flag. Per OWASP race-conditions
+      // and SEI CERT FIO45-C (both accessed 2026-05-27), removing the check
+      // entirely is the recommended fix — "no check means no TOCTOU window."
       await mkdir(dirname(destPath), { recursive: true });
 
-      if (strategy === "symlink") {
-        const relTarget = relative(dirname(destPath), srcPath);
-        try {
-          await symlink(relTarget, destPath);
-          result.symlinked.push(relPath);
-        } catch (err) {
-          const code = (err as NodeJS.ErrnoException).code;
-          if (code === "EPERM") {
-            // Fall back to copy on permission errors (e.g., Windows without dev mode)
-            await copyFile(srcPath, destPath);
-            result.copied.push(relPath);
-          } else if (code === "EEXIST") {
-            result.skipped.push(relPath);
-          } else {
+      type WriteResult =
+        | { outcome: "created"; actualStrategy: "symlink" | "copy" }
+        | { outcome: "exists" };
+      const writeOnce = async (): Promise<WriteResult> => {
+        if (strategy === "symlink") {
+          const relTarget = relative(dirname(destPath), srcPath);
+          try {
+            await symlink(relTarget, destPath);
+            return { outcome: "created", actualStrategy: "symlink" };
+          } catch (err) {
+            const code = (err as NodeJS.ErrnoException).code;
+            if (code === "EPERM") {
+              // Fall back to copy on permission errors (e.g., Windows without
+              // dev mode). Use COPYFILE_EXCL so the fallback is itself
+              // atomic-on-existence — no TOCTOU window per F1.10-H3.
+              try {
+                await copyFile(srcPath, destPath, fsConstants.COPYFILE_EXCL);
+                return { outcome: "created", actualStrategy: "copy" };
+              } catch (innerErr) {
+                const innerCode = (innerErr as NodeJS.ErrnoException).code;
+                if (innerCode === "EEXIST") return { outcome: "exists" };
+                throw innerErr;
+              }
+            }
+            if (code === "EEXIST") return { outcome: "exists" };
             throw err;
           }
         }
+        try {
+          await copyFile(srcPath, destPath, fsConstants.COPYFILE_EXCL);
+          return { outcome: "created", actualStrategy: "copy" };
+        } catch (err) {
+          const code = (err as NodeJS.ErrnoException).code;
+          if (code === "EEXIST") return { outcome: "exists" };
+          throw err;
+        }
+      };
+
+      const recordCreated = (actualStrategy: "symlink" | "copy"): void => {
+        if (actualStrategy === "symlink") result.symlinked.push(relPath);
+        else result.copied.push(relPath);
+      };
+
+      const first = await writeOnce();
+      if (first.outcome === "created") {
+        recordCreated(first.actualStrategy);
+        continue;
+      }
+
+      // first.outcome === "exists": destination already present. Honor
+      // --force by unlinking and retrying; otherwise treat as skipped.
+      if (!options.force) {
+        result.skipped.push(relPath);
+        continue;
+      }
+      try {
+        await unlink(destPath);
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code !== "ENOENT") throw err;
+        // Raced with another process that already cleared it — proceed to retry.
+      }
+      const retry = await writeOnce();
+      if (retry.outcome === "created") {
+        recordCreated(retry.actualStrategy);
       } else {
-        await copyFile(srcPath, destPath);
-        result.copied.push(relPath);
+        // Another writer beat us to it after the unlink — accept the
+        // existing entry and record as skipped rather than overwriting blindly.
+        result.skipped.push(relPath);
       }
     } catch (err) {
       result.errors.push(`${relPath}: ${(err as Error).message}`);

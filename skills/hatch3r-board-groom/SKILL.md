@@ -1,5 +1,6 @@
 ---
 id: hatch3r-board-groom
+name: hatch3r-board-groom
 description: Ongoing backlog refinement for existing board items. Re-prioritize, reclassify, re-scope, archive stale items, decompose oversized issues, merge duplicates, refresh dependencies, and remediate board health findings.
 tags: [board, ctx:team-only]
 quality_charter: agents/shared/quality-charter.md
@@ -682,6 +683,15 @@ Board Groom Complete:
 ```
 
 ---
+
+## Fan-out Discipline (P8 B2)
+
+This skill delegates per task size:
+- Tier 1 (single-issue re-scope): inline execution acceptable.
+- Tier 2 (multi-issue grooming with reclassification across lanes): spawn parallel sub-agents per lane via the Task tool.
+- Tier 3 (full-board re-grooming): one fresh sub-agent per lane or epic; orchestrator integrates only.
+
+Source: `.claude/rules/fan-out-discipline.md` (P8 B2); `agents/shared/efficiency-patterns.md`.
 
 ## Error Handling
 

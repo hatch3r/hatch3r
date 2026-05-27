@@ -1,5 +1,6 @@
 ---
 id: hatch3r-feature
+name: hatch3r-feature
 description: End-to-end feature implementation workflow. Covers data model, domain logic, API, and UI as a vertical slice. Use when implementing new features or working on feature request issues.
 tags: [implementation, orchestration]
 quality_charter: agents/shared/quality-charter.md
@@ -132,6 +133,15 @@ Use the project's PR template. Include:
 - Screenshots/recordings (if UI)
 - Test evidence
 - Rollout plan (feature flag if specified)
+
+## Fan-out Discipline (P8 B2)
+
+This skill delegates per task size:
+- Tier 1 (trivial single-file feature): inline execution acceptable.
+- Tier 2 (multi-file or multi-concern feature): spawn parallel sub-agents per concern (researcher modes, one implementer per sub-issue) via the Task tool.
+- Tier 3 (multi-module / cross-cutting feature): one fresh sub-agent per independent module or CQ gate; orchestrator integrates only.
+
+Source: `.claude/rules/fan-out-discipline.md` (P8 B2); `agents/shared/efficiency-patterns.md`.
 
 ## Required Agent Delegation
 

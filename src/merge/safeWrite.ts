@@ -39,6 +39,17 @@ const LOCK_RETRY_MAX_MS = 1500;
 const LOCK_STALE_MS = 15_000;
 
 /**
+ * F1.2-H1 (Cycle 10): Tracks file paths whose cross-process advisory lock is
+ * currently held by THIS Node process. When `acquireWriteLock` is called for
+ * a path already in the set, it short-circuits to a no-op release so the
+ * outer holder owns the lifecycle. Makes the lock reentrant within a single
+ * process (e.g. `configCommand` holds the manifest lock, then `writeManifest
+ * -> atomicWriteFile -> acquireWriteLock` re-enters on the same path) while
+ * still serializing across processes via the on-disk lockfile.
+ */
+const HELD_LOCKS = new Set<string>();
+
+/**
  * D1-SA1.5.1: Acquire a cross-process advisory lock for {@link filePath} when
  * the `HATCH3R_LOCK=1` opt-in env var is set. Default (unset) is a no-op so
  * existing behavior is preserved.
@@ -48,10 +59,19 @@ const LOCK_STALE_MS = 15_000;
  *
  * Throws {@link HatchError} with code `LOCK_TIMEOUT` when contention exceeds
  * the retry budget (~5s).
+ *
+ * F1.2-H1 (Cycle 10): exported so multi-step read-modify-write critical
+ * sections (e.g. `configCommand`) can hold the lock across the full
+ * interactive window. Reentrant within a single process: a nested acquire
+ * for an already-held `filePath` returns a no-op release so the outer
+ * holder owns the lifecycle.
  */
-async function acquireWriteLock(filePath: string): Promise<() => Promise<void>> {
+export async function acquireWriteLock(filePath: string): Promise<() => Promise<void>> {
   if (process.env.HATCH3R_LOCK !== "1") {
     return async () => { /* locking disabled */ };
+  }
+  if (HELD_LOCKS.has(filePath)) {
+    return async () => { /* outer scope holds the real lock */ };
   }
   // proper-lockfile's `lock()` requires the target to exist; we may be
   // creating a new file, so put the lock file beside it instead.
@@ -70,7 +90,14 @@ async function acquireWriteLock(filePath: string): Promise<() => Promise<void>> 
         factor: 2,
       },
     });
-    return release;
+    HELD_LOCKS.add(filePath);
+    return async () => {
+      try {
+        await release();
+      } finally {
+        HELD_LOCKS.delete(filePath);
+      }
+    };
   } catch (err) {
     // proper-lockfile surfaces contention as ELOCKED once retries are exhausted.
     const code = (err as NodeJS.ErrnoException).code;
@@ -411,6 +438,23 @@ export async function safeWriteFile(
     }
     const customContent = extractCustomContent(existingContent);
     const deniedFindings = customContent ? scanForDeniedPatterns(customContent) : [];
+    // F15.1-H1 (Cycle 10 D15-SA15.1, Pillar P6): symmetric fail-closed
+    // disposition with the appendIfNoBlock branch above. Refusing the
+    // write is the correct disposition: user-side text outside the
+    // markers is the surface an attacker controls on subsequent syncs.
+    // The error message mirrors the first-sync branch verbatim so
+    // operators see one consistent remediation flow. OWASP ASI 2025
+    // LLM01 / 2026-12-09 AAI04 untrusted-input guidance + CONSTITUTION
+    // §2 P5 Silent Failure Contract.
+    if (deniedFindings.length > 0) {
+      throw new HatchError(
+        `Refusing to update ${filePath}: content outside the hatch3r-managed block contains denied pattern(s): ${deniedFindings.join("; ")}. ` +
+          `Review the file for prompt-injection or instruction-override content, remove the offending text, then re-run the command. ` +
+          `If this is a false positive, move the suspect text into the hatch3r-managed block manually or open an issue with the matching snippet.`,
+        1,
+        "VALIDATION_ERROR",
+      );
+    }
     let merged: string;
     try {
       merged = insertManagedBlock(existingContent, options.managedContent, filePath);
@@ -440,19 +484,13 @@ export async function safeWriteFile(
         warning: `Auto-repaired corrupted managed block in ${filePath} (backup saved to ${bakPath})`,
       };
     }
+    // F15.1-H1: any denied finding already threw above (fail-closed), so by
+    // here `deniedFindings` is empty — no warning branch is reachable.
     if (skipIfUnchanged && merged === existingContent) {
-      const result: MergeResult = { path: filePath, action: "unchanged" };
-      if (deniedFindings.length > 0) {
-        result.warning = `Content outside managed block in ${filePath} contains suspicious patterns: ${deniedFindings.join("; ")}`;
-      }
-      return result;
+      return { path: filePath, action: "unchanged" };
     }
     await atomicWriteFile(filePath, merged);
-    const result: MergeResult = { path: filePath, action: "updated" };
-    if (deniedFindings.length > 0) {
-      result.warning = `Content outside managed block in ${filePath} contains suspicious patterns: ${deniedFindings.join("; ")}`;
-    }
-    return result;
+    return { path: filePath, action: "updated" };
   }
 
   const fileName = basename(filePath) ?? "";

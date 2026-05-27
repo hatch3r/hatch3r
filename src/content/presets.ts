@@ -59,6 +59,16 @@ export interface ContentPreset {
    * launch.
    */
   excludeIds?: ReadonlyArray<string>;
+  /**
+   * Human-readable names of the capability clusters this preset OMITS relative
+   * to `full` (the capability superset). Lets the prompt renderer name what a
+   * preset drops — e.g. "AI feature engineering", "performance" — instead of
+   * only emitting a `(excludes N of M)` count (D10 F10.6-1 / F10.6-10). Empty
+   * for `full` (omits nothing) and `custom` (user picks; nothing is implied).
+   * Derived from the gap between this preset's `capabilities` and `full`'s; see
+   * `omittedCapabilityClusters` for the audited invariant tying the two.
+   */
+  omits: ReadonlyArray<string>;
 }
 
 export const PRESETS: ContentPreset[] = [
@@ -67,16 +77,27 @@ export const PRESETS: ContentPreset[] = [
     name: "Minimal",
     description:
       "Core orchestration pipeline plus the security & UI/UX floor. " +
-      "Smallest viable preset that still ships the non-negotiable invariants.",
+      "Drops planning, review, devops, maintenance, board, AI, and " +
+      "performance — pick Standard or Full to add them.",
     capabilities: [TAG_ORCHESTRATION, TAG_IMPLEMENTATION],
     includeCustomize: false,
+    omits: [
+      "planning",
+      "review",
+      "devops",
+      "maintenance",
+      "board",
+      "AI feature engineering",
+      "performance",
+    ],
   },
   {
     id: "standard",
     name: "Standard (recommended)",
     description:
-      "Full development lifecycle including board, customize, and the " +
-      "security & UI/UX floor. The default for most projects.",
+      "Full development lifecycle (planning, implementation, review, devops, " +
+      "maintenance, board, customize) plus the security & UI/UX floor. Drops " +
+      "AI feature engineering + performance — pick Full if you need those.",
     capabilities: [
       TAG_ORCHESTRATION,
       TAG_PLANNING,
@@ -87,6 +108,7 @@ export const PRESETS: ContentPreset[] = [
       TAG_BOARD,
     ],
     includeCustomize: true,
+    omits: ["AI feature engineering", "performance"],
   },
   {
     id: "full",
@@ -106,6 +128,8 @@ export const PRESETS: ContentPreset[] = [
       TAG_AI,
     ],
     includeCustomize: true,
+    // Full is the capability superset, so it omits nothing.
+    omits: [],
     // v1.9.0 toolbox consolidation: tier-3 CLI tools are now sections inside
     // `hatch3r-cli-toolbox` (consolidated from the 25 former per-tool skill
     // files). The toolbox skill is itself capability-tagged so the gate
@@ -118,6 +142,8 @@ export const PRESETS: ContentPreset[] = [
     description: "Choose exactly what you need.",
     capabilities: [],
     includeCustomize: false,
+    // Custom is user-driven; nothing is implied as omitted.
+    omits: [],
   },
 ];
 
@@ -126,4 +152,28 @@ export function getPreset(id: PresetId): ContentPreset {
   const preset = PRESETS.find((p) => p.id === id);
   if (!preset) throw new HatchError(`Unknown preset: ${id}`, 1, "VALIDATION_ERROR");
   return preset;
+}
+
+/**
+ * Capability tags carried by `full` — the capability superset every other
+ * preset is measured against. `custom` is excluded from the comparison set
+ * because it carries no implied capabilities (the user picks explicitly).
+ */
+const FULL_CAPABILITY_SUPERSET: ReadonlyArray<CapabilityTag> =
+  PRESETS.find((p) => p.id === "full")?.capabilities ?? [];
+
+/**
+ * Capability tags this preset drops relative to `full`. The single source of
+ * truth tying the human-readable `omits` labels to the actual `capabilities`
+ * arrays so the two cannot silently diverge (D10 F10.6-1: exclusion data must
+ * be derivable, not implicit). `full` returns `[]`; `custom` returns `[]`
+ * (no implied capabilities to omit). Verified against `omits` length in
+ * `src/__tests__/content/presets.test.ts`.
+ */
+export function omittedCapabilityClusters(
+  preset: ContentPreset,
+): ReadonlyArray<CapabilityTag> {
+  if (preset.id === "custom") return [];
+  const present = new Set<string>(preset.capabilities);
+  return FULL_CAPABILITY_SUPERSET.filter((cap) => !present.has(cap));
 }

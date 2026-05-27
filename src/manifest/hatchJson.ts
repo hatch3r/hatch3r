@@ -257,6 +257,21 @@ function validateManifest(data: unknown): data is HatchManifest {
     if (typeof tool !== "string" || !VALID_TOOLS.has(tool)) return false;
   }
 
+  // F1.2-H2 (Cycle 10 D1): Validate the optional `maturity` scalar at the
+  // persistence boundary. Previously `validateManifest` never inspected
+  // `obj.maturity`, so a hand-edited `.hatch3r/hatch.json` carrying
+  // `"maturity": "enterprice"` (typo) loaded without diagnostic and
+  // `readMaturityTier` silently fell back to "solo" — the user got the
+  // solo content surface with zero signal that their tier was discarded.
+  // Reject an out-of-enum or non-string value here so `readManifest`
+  // throws HatchError(CONFIG_ERROR) instead of degrading silently
+  // (CONSTITUTION §2 P5 Silent Failure Contract).
+  if (obj.maturity !== undefined) {
+    if (typeof obj.maturity !== "string" || !VALID_MATURITY_TIERS.has(obj.maturity)) {
+      return false;
+    }
+  }
+
   // #108: Validate board sub-schema when present
   if (obj.board !== undefined) {
     if (typeof obj.board !== "object" || obj.board === null) return false;
@@ -649,9 +664,15 @@ export function readCliToolsConfig(m: HatchManifest): CliToolsConfig {
 /**
  * Read the manifest's maturity tier (Decision 4 / #16). Absence collapses to
  * `DEFAULT_MATURITY_TIER` ("solo") so pre-2.0 manifests stay valid without a
- * schema version bump. An invalid persisted value also falls back to "solo"
- * — defensive against hand-edited manifests; the `config maturity=<tier>`
- * setter rejects invalid input at write time.
+ * schema version bump.
+ *
+ * As of F1.2-H2 (Cycle 10) an out-of-enum persisted `maturity` is rejected at
+ * the persistence boundary by `validateManifest`, so a manifest that reaches
+ * this function has already passed that membership check. The fallback here is
+ * retained as defense-in-depth for the `null`/`undefined` manifest callers
+ * (e.g. callers that pass a not-yet-read manifest) and for the absent-field
+ * case; the `config maturity=<tier>` setter also rejects invalid input at
+ * write time.
  */
 export function readMaturityTier(m: HatchManifest | null | undefined): MaturityTier {
   const value = m?.maturity;

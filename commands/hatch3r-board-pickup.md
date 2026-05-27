@@ -12,7 +12,7 @@ parallel_tool_default: true
 triage_tiers: [1, 2, 3]
 sub_agents_spawned:
   count: 12
-  rationale: Full delivery pipeline — researcher, implementer (one per independent issue in batch mode), reviewer ↔ fixer review loop, then a parallel final-quality batch (test-writer, security-auditor, docs-writer, lint-fixer, a11y-auditor, hatch3r-ui (CQ1), hatch3r-ux (CQ2), perf-profiler) bounded by max_phase4_parallel.
+  rationale: Full delivery pipeline — researcher, implementer (one per independent issue in batch mode), reviewer ↔ fixer review loop, then a parallel final-quality batch (test-writer, security-auditor, docs-writer, lint-fixer, a11y-auditor, hatch3r-ui (CQ1), hatch3r-ux (CQ2), perf-profiler) bounded by max_phase4_parallel. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -36,6 +36,8 @@ Pick up an epic (with all sub-issues), a single sub-issue, a standalone issue, o
 | 3c. Final Quality — Security | `hatch3r-security-auditor` | Yes | Yes (code changes) |
 | 3d. Final Quality — Docs | `hatch3r-docs-writer` | Yes | When APIs/architecture/UX affected |
 | 3e. Final Quality — Conditional | `hatch3r-lint-fixer`, `hatch3r-a11y-auditor`, `hatch3r-perf-profiler` | Yes | When triggered |
+
+**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
 
 ## Browser Automation
 

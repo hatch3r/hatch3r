@@ -54,6 +54,15 @@ Always explain your reasoning before acting. Before writing or modifying code, s
 
 ## Implementation Protocol
 
+### 0b. Consult Prior Learnings
+
+`rules/hatch3r-learning-system.md` (Mandatory Consultation Gate) and `agents/shared/quality-charter.md` §10 bind this agent to consult project learnings before any code-touch. Run this step after §0 Detect Ambiguity and before Step 1:
+
+1. Read `.hatch3r/learnings/INDEX.md` if present; if absent or empty, record "no learnings available" and proceed.
+2. For each index row, test the current issue's target file paths against the row's `applies-to` glob (canonical match key per `rules/hatch3r-learning-system.md` → Canonical Schema). Until every consumer migrates to the unified schema, also accept legacy `tags`/`area` matches.
+3. Read the full content of every matched learning file.
+4. Cite each consulted learning ID in the structured result's `Consulted Learnings:` line. Citing zero entries when `applies-to` matched is a gate failure visible at audit time.
+
 ### 1. Read Inputs and Specs
 
 - Parse the issue body: acceptance criteria, scope (in/out), edge cases.
@@ -201,6 +210,9 @@ The `Delegation proof ID` field below is a short identifier the orchestrator quo
 - GATE_9 human screen-reader pass: PASS | DEFERRED-TO-RELEASE
 - (FAIL details: failing assertion verbatim, route, component, repro command)
 
+**Consulted Learnings:**
+- (learning IDs matched in Step 0b, or "none available" / "none matched")
+
 **Issues encountered:**
 - (any blockers, spec conflicts, or escalation items)
 
@@ -251,7 +263,7 @@ Apply this format whenever the implementation involves choosing between approach
 
 After this agent completes Phase 2, the orchestrator runs the Phase 3 review loop (`hatch3r-reviewer` + `hatch3r-fixer`, max 3 iterations). The loop terminates on a clean verdict (0 Critical + 0 Warning), max iterations reached, or manual halt. Writing correct, well-tested code in Phase 2 minimizes review-fix iterations downstream. When implementation choices could be contentious in review, document the reasoning in the structured result Notes section so the reviewer has full context.
 
-After the review loop, Phase 4 specialists run bounded by `max_phase4_parallel` (default `3`, env-overridable via `HATCH3R_MAX_PHASE4_PARALLEL`). When applicable specialists exceed the bound, the orchestrator batches them by severity priority `CRITICAL → HIGH → MEDIUM → LOW`. Implementer Notes that surface high-risk surfaces (security, perf, a11y, content-quality CQ1-CQ9) help the orchestrator schedule the right specialists into the earliest batch. See `rules/hatch3r-agent-orchestration.md` Phase 4 — Final Quality for batching semantics.
+After the review loop, Phase 4 specialists run bounded by `max_phase4_parallel` (default `8`, env-overridable via `HATCH3R_MAX_PHASE4_PARALLEL`). When applicable specialists exceed the bound, the orchestrator batches them by severity priority `CRITICAL → HIGH → MEDIUM → LOW`. Implementer Notes that surface high-risk surfaces (security, perf, a11y, content-quality CQ1-CQ9) help the orchestrator schedule the right specialists into the earliest batch. See `rules/hatch3r-agent-orchestration.md` Phase 4 — Final Quality for batching semantics.
 
 **Phase 4 specialist enumeration** — legacy + CQ floor specialists dispatched in parallel per CONSTITUTION §2B (CQ1-CQ9) and KDD #22:
 
@@ -319,6 +331,9 @@ When encountering errors during implementation, follow these protocols:
 
 **UI/UX verification gate (Step 5c):**
 - VERDICT: SKIPPED (non-UI)
+
+**Consulted Learnings:**
+- 2026-05-12-redis-pool-reuse — reuse existing pool, do not open a second connection
 
 **Issues encountered:**
 - None

@@ -20,6 +20,7 @@ Task Progress:
 - [ ] Step 3: Update version in package.json and any other version references
 - [ ] Step 4: Verify quality gates (lint, typecheck, all tests)
 - [ ] Step 5: Create git tag and platform release with changelog
+- [ ] Step 5b: Generate supply-chain artifacts (SBOM + provenance + SLSA + cosign)
 - [ ] Step 6: Deploy and verify (staging first if applicable, then production)
 - [ ] Step 7: Monitor post-deploy for errors/regressions
 ```
@@ -88,6 +89,79 @@ npm run build
   - **GitLab:** `glab release create vX.Y.Z --name "vX.Y.Z" --notes "{changelog}"`
 - Attach build artifacts if applicable.
 
+## Step 5b: Generate Supply-Chain Artifacts
+
+F15.8-H4 (Cycle 10 D15-SA15.8): every release surface MUST emit an SBOM + provenance + SLSA attestation + container signature before deploy. Skipping these produces un-attested artifacts that fail consumer-side `npm audit signatures` and SLSA-Build-L3 verification.
+
+Maturity-tier gating (per `governance/CONSTITUTION.md` §2 P5 + Decision 4):
+- `solo` — MAY defer SBOM emission and SLSA generator for a single-maintainer release. Provenance (`--provenance` flag below) and `cosign` for any container image remain mandatory.
+- `team`, `scaleup`, `enterprise` — MUST execute every sub-step below; consumer verification depends on these artifacts being present.
+
+### 5b.1 — Emit CycloneDX SBOM (npm packages)
+
+```
+npm sbom --sbom-format=cyclonedx --sbom-type=application > dist/sbom.cdx.json
+```
+
+Attach `dist/sbom.cdx.json` to the GitHub release. Reference: `npm sbom` (npm CLI >=10.5.0) emits CycloneDX 1.5 or SPDX 2.3.
+
+### 5b.2 — npm provenance via Trusted Publishing (OIDC)
+
+Configure Trusted Publisher once on the npm settings page, then publish via GitHub Actions only:
+
+```yaml
+permissions:
+  id-token: write   # OIDC token for Sigstore signing
+  contents: read
+steps:
+  - run: npm publish --provenance --access public
+```
+
+`--provenance` emits a Sigstore-signed attestation through Fulcio + Rekor. Reference: https://docs.npmjs.com/trusted-publishers/ (accessed 2026-05-27).
+
+### 5b.3 — SLSA Build Level 3 attestation
+
+Pin the slsa-github-generator action by 40-character commit SHA — never a tag:
+
+```yaml
+uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@<40-char-SHA>
+with:
+  base64-subjects: ${{ needs.publish.outputs.digest }}
+  upload-assets: true
+```
+
+Reference: https://github.com/slsa-framework/slsa-github-generator.
+
+### 5b.4 — Container image signing (cosign keyless)
+
+When the release ships a container image:
+
+```
+cosign sign --yes \
+  --oidc-issuer https://token.actions.githubusercontent.com \
+  ghcr.io/<owner>/<image>@<digest>
+```
+
+Reference: https://github.com/sigstore/cosign (cosign 2.x keyless flow).
+
+### 5b.5 — Consumer verification snippet
+
+Document the verification commands in the release notes:
+
+```
+npm audit signatures
+slsa-verifier verify-artifact --provenance-path attestation.intoto.jsonl --source-uri github.com/<owner>/<repo> --source-tag <tag> <artifact-file>
+cosign verify --certificate-identity-regexp 'https://github\.com/<owner>/<repo>/' --certificate-oidc-issuer https://token.actions.githubusercontent.com ghcr.io/<owner>/<image>:<tag>
+```
+
+### 5b.6 — Mark gates satisfied
+
+- [ ] `dist/sbom.cdx.json` attached to platform release
+- [ ] `npm publish --provenance` exit 0; `npm view <pkg>@<version> --json | jq .dist.signatures` returns a signature
+- [ ] SLSA attestation uploaded; `slsa-verifier verify-artifact` exit 0
+- [ ] Container image signed (when applicable); `cosign verify` exit 0
+- [ ] Verification snippet copied into the release notes
+
 ## Step 6: Deploy and Verify
 
 - Deploy to staging first (if applicable). Run smoke tests.
@@ -148,6 +222,7 @@ If a release introduces critical issues:
 - [ ] Changelog generated and included in release
 - [ ] Git tag created and pushed
 - [ ] Release published with changelog (GitHub Release / ADO wiki + tag / GitLab Release)
+- [ ] Supply-chain artifacts emitted (SBOM + npm provenance + SLSA + cosign per Step 5b; solo MAY defer SBOM + SLSA, team+ MUST execute all)
 - [ ] Deployed to production and verified
 - [ ] Post-deploy monitoring completed (no critical regressions)
 - [ ] All release gates satisfied

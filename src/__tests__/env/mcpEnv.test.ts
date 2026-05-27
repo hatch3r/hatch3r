@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -203,6 +203,41 @@ describe("ensureEnvMcp", () => {
     expect(content).toContain("BRAVE_API_KEY=key123");
     expect(content).toContain("SENTRY_AUTH_TOKEN=");
   });
+
+  // F1.7-H1 (D1, P6): `.env.mcp` is a secret-bearing file. ensureEnvMcp runs
+  // `chmod(envPath, 0o600)` after the atomic write so the resulting file is
+  // owner-read/write only on POSIX hosts (CWE-552 mitigation, matches
+  // ssh-keygen / .netrc conventions). Windows is skipped because Node's
+  // chmod has limited semantics there and the call is best-effort
+  // (EPERM/ENOTSUP/EINVAL swallowed under --verbose).
+  it.skipIf(process.platform === "win32")(
+    "writes .env.mcp with mode 0o600 on POSIX (F1.7-H1)",
+    async () => {
+      const result = await ensureEnvMcp(tempDir, ["github", "brave-search"]);
+      expect(result.action).toBe("created");
+
+      const fileStat = await stat(join(tempDir, ".env.mcp"));
+      expect(fileStat.mode & 0o777).toBe(0o600);
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "re-applies mode 0o600 when adding a new server (F1.7-H1)",
+    async () => {
+      // First call creates the file at 0o600.
+      await ensureEnvMcp(tempDir, ["github"]);
+      const before = await stat(join(tempDir, ".env.mcp"));
+      expect(before.mode & 0o777).toBe(0o600);
+
+      // Second call triggers the `updated` path through atomicWriteFile, which
+      // writes a fresh file via tmp+rename. chmod fires again afterwards.
+      const result = await ensureEnvMcp(tempDir, ["github", "brave-search"]);
+      expect(result.action).toBe("updated");
+
+      const after = await stat(join(tempDir, ".env.mcp"));
+      expect(after.mode & 0o777).toBe(0o600);
+    },
+  );
 });
 
 describe("ensureGitignoreEntry", () => {
@@ -216,44 +251,87 @@ describe("ensureGitignoreEntry", () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
-  it("creates .gitignore with .env.mcp when file does not exist", async () => {
+  // F2.7-F3 (D2, P1): `ensureGitignoreEntry` registers all four hatch3r
+  // entries — `.env.mcp` (MCP secrets), `.hatch3r-archive/` (archive trees),
+  // `.hatch3r/snapshots/` (snapshot dirs), `.hatch3r/handoffs/` (handoff
+  // payloads). Without these, `git add .` silently commits operational
+  // state + secrets per the Silent Failure Contract.
+
+  it("creates .gitignore with all required hatch3r entries when file does not exist (F2.7-F3)", async () => {
     await ensureGitignoreEntry(tempDir);
     const content = await readFile(join(tempDir, ".gitignore"), "utf-8");
-    expect(content).toBe(".env.mcp\n");
+    expect(content).toBe(".env.mcp\n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n");
   });
 
-  it("appends .env.mcp to existing .gitignore", async () => {
+  it("appends required entries to existing .gitignore (F2.7-F3)", async () => {
     await writeFile(join(tempDir, ".gitignore"), "node_modules/\ndist/\n", "utf-8");
     await ensureGitignoreEntry(tempDir);
     const content = await readFile(join(tempDir, ".gitignore"), "utf-8");
-    expect(content).toBe("node_modules/\ndist/\n.env.mcp\n");
+    expect(content).toBe(
+      "node_modules/\ndist/\n.env.mcp\n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n",
+    );
   });
 
-  it("adds newline separator when existing file lacks trailing newline", async () => {
+  it("adds newline separator when existing file lacks trailing newline (F2.7-F3)", async () => {
     await writeFile(join(tempDir, ".gitignore"), "node_modules/", "utf-8");
     await ensureGitignoreEntry(tempDir);
     const content = await readFile(join(tempDir, ".gitignore"), "utf-8");
-    expect(content).toBe("node_modules/\n.env.mcp\n");
+    expect(content).toBe(
+      "node_modules/\n.env.mcp\n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n",
+    );
   });
 
-  it("skips when .env.mcp is already present", async () => {
-    await writeFile(join(tempDir, ".gitignore"), "node_modules/\n.env.mcp\n", "utf-8");
+  it("skips entries already present (F2.7-F3)", async () => {
+    await writeFile(
+      join(tempDir, ".gitignore"),
+      "node_modules/\n.env.mcp\n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n",
+      "utf-8",
+    );
     await ensureGitignoreEntry(tempDir);
     const content = await readFile(join(tempDir, ".gitignore"), "utf-8");
-    expect(content).toBe("node_modules/\n.env.mcp\n");
+    expect(content).toBe(
+      "node_modules/\n.env.mcp\n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n",
+    );
   });
 
-  it("skips when .env.* pattern covers .env.mcp", async () => {
+  it("skips .env.mcp when .env.* pattern dominates, still adds the others (F2.7-F3)", async () => {
     await writeFile(join(tempDir, ".gitignore"), ".env.*\n", "utf-8");
     await ensureGitignoreEntry(tempDir);
     const content = await readFile(join(tempDir, ".gitignore"), "utf-8");
-    expect(content).toBe(".env.*\n");
+    expect(content).toBe(".env.*\n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n");
   });
 
-  it("handles .env.mcp with surrounding whitespace in gitignore", async () => {
+  it("skips .hatch3r/* subdir entries when .hatch3r/ dominates (F2.7-F3)", async () => {
+    await writeFile(join(tempDir, ".gitignore"), ".env.mcp\n.hatch3r/\n", "utf-8");
+    await ensureGitignoreEntry(tempDir);
+    const content = await readFile(join(tempDir, ".gitignore"), "utf-8");
+    // .hatch3r/ dominates .hatch3r/snapshots/ and .hatch3r/handoffs/.
+    // .hatch3r-archive/ is a sibling directory, NOT dominated, so still added.
+    expect(content).toBe(".env.mcp\n.hatch3r/\n.hatch3r-archive/\n");
+  });
+
+  it("is idempotent across repeated invocations (F2.7-F3)", async () => {
+    await ensureGitignoreEntry(tempDir);
+    const first = await readFile(join(tempDir, ".gitignore"), "utf-8");
+    await ensureGitignoreEntry(tempDir);
+    const second = await readFile(join(tempDir, ".gitignore"), "utf-8");
+    expect(second).toBe(first);
+  });
+
+  it("adds only the missing subset when some entries already present (F2.7-F3)", async () => {
+    await writeFile(join(tempDir, ".gitignore"), ".env.mcp\n.hatch3r-archive/\n", "utf-8");
+    await ensureGitignoreEntry(tempDir);
+    const content = await readFile(join(tempDir, ".gitignore"), "utf-8");
+    expect(content).toBe(".env.mcp\n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n");
+  });
+
+  it("handles .env.mcp with surrounding whitespace in gitignore (F2.7-F3)", async () => {
     await writeFile(join(tempDir, ".gitignore"), "  .env.mcp  \n", "utf-8");
     await ensureGitignoreEntry(tempDir);
     const content = await readFile(join(tempDir, ".gitignore"), "utf-8");
-    expect(content).toBe("  .env.mcp  \n");
+    // .env.mcp covered by whitespace-trimmed match; other entries still appended.
+    expect(content).toBe(
+      "  .env.mcp  \n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n",
+    );
   });
 });

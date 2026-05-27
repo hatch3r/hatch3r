@@ -41,6 +41,7 @@ import {
   TAG_FLOOR_SECURITY,
   TAG_FLOOR_UI_UX,
   TAG_FLOOR_PROTOCOL,
+  TAG_FLOOR_CONTENT_QUALITY,
   TAG_CTX_GREENFIELD_ONLY,
   TAG_CTX_BROWNFIELD_ONLY,
   TAG_CTX_TEAM_ONLY,
@@ -623,6 +624,49 @@ describe("content/index", () => {
       // security-rule carries only floor:security (no capability tag) and
       // still ships under minimal because floor admission is structural.
       expect(allIds.has("security-rule")).toBe(true);
+    });
+
+    // F3.3-H1 (D3 Cycle 10 Wave 2): floor:protocol and floor:content-quality
+    // admission previously rode entirely on isFloorTag() being tested at the
+    // predicate level — no test exercised them through resolveSelection's
+    // Stage-2 floor admission (custom path) AND Stage-2 floor admission
+    // (non-custom path). A refactor of either admission stage could silently
+    // regress these two of the four floor tags. These tests close the gap by
+    // asserting both tags ship under minimal AND under custom-with-no-selections
+    // (preset.id === "custom" + empty customSelections), the two structurally
+    // distinct admission branches (index.ts:589-606).
+    it("floor:protocol items are admitted by minimal and custom-with-no-selections", () => {
+      const protocolItem = makeCatalogItem({
+        id: "floor-protocol-item",
+        type: "agent",
+        tags: [TAG_FLOOR_PROTOCOL],
+        relativePath: "agents/floor-protocol-item.md",
+      });
+      const floorIndex = makeIndex([protocolItem]);
+
+      // Non-custom branch (minimal): admitted unconditionally.
+      const minimal = resolveSelection(getPreset("minimal"), "brownfield", "team", floorIndex);
+      expect(getAllContentIds(minimal).has("floor-protocol-item")).toBe(true);
+
+      // Custom branch with an empty selection list: floor still applies.
+      const custom = resolveSelection(getPreset("custom"), "brownfield", "team", floorIndex, []);
+      expect(getAllContentIds(custom).has("floor-protocol-item")).toBe(true);
+    });
+
+    it("floor:content-quality items are admitted by minimal and custom-with-no-selections", () => {
+      const cqItem = makeCatalogItem({
+        id: "floor-content-quality-item",
+        type: "rule",
+        tags: [TAG_FLOOR_CONTENT_QUALITY],
+        relativePath: "rules/floor-content-quality-item.md",
+      });
+      const floorIndex = makeIndex([cqItem]);
+
+      const minimal = resolveSelection(getPreset("minimal"), "brownfield", "team", floorIndex);
+      expect(getAllContentIds(minimal).has("floor-content-quality-item")).toBe(true);
+
+      const custom = resolveSelection(getPreset("custom"), "brownfield", "team", floorIndex, []);
+      expect(getAllContentIds(custom).has("floor-content-quality-item")).toBe(true);
     });
 
     it("floor admission bypasses team-size context filter (UI/UX ships to solo too)", () => {

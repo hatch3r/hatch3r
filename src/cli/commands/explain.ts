@@ -1,9 +1,10 @@
 // C9-H13 (D6-SA6.3-F1): `hatch3r explain --cost <command>` surfaces the
 // triage-first cost model declared in canonical command frontmatter. The
-// `estimateCost` helper from `src/pipeline/observability.ts` already produces
-// per-token USD figures; this command wires it to the `triage_tiers` array so
-// users can answer "what will this command cost at each triage tier?" without
-// running the command.
+// `estimateUsdCost` helper from `src/pipeline/costEstimator.ts` (the canonical
+// cost module per Decision 24; F3.4-F2 merged the former observability copy
+// into it) produces per-token USD figures; this command wires it to the
+// `triage_tiers` array so users can answer "what will this command cost at each
+// triage tier?" without running the command.
 //
 // Cost model (deterministic, character-heuristic based — no provider lookup):
 //   tier 1 (trivial / single-agent):  1 sub-agent invocation
@@ -15,6 +16,13 @@
 // tokens are estimated as one-quarter of input — a conservative ratio that
 // matches typical plan/act split ratios documented in
 // `agents/shared/efficiency-patterns.md` P5.
+//
+// SA12.3-F03 (Cycle 10 Wave 2): `hatch3r explain --customizations` surfaces
+// the per-artifact customization-applied state (yaml + md overrides, skips,
+// fail-closed drops) that previously stayed silent under the Silent Failure
+// Contract. The mode shares no logic with `--cost`; it dry-calls
+// `applyCustomization` across the bundled content root and renders the
+// result via `buildCustomizationSummary` (`src/adapters/customizationSummary.ts`).
 
 import { readFile, access } from "node:fs/promises";
 import { join, dirname } from "node:path";
@@ -23,15 +31,24 @@ import chalk from "chalk";
 import { parse as parseYaml } from "yaml";
 import {
   CHARS_PER_TOKEN,
-  DEFAULT_INPUT_COST_PER_1M,
-  DEFAULT_OUTPUT_COST_PER_1M,
   estimateTokens,
-  estimateCost,
   type PipelineTokenSummary,
 } from "../../pipeline/observability.js";
+// F3.4-F2 (Cycle 10 Wave 2): cost computation comes from the canonical cost
+// module (Decision 24), not the observability shadow copy. estimateUsdCost +
+// the DEFAULT_* rate constants are the single source of truth for token→USD.
+import {
+  DEFAULT_INPUT_COST_PER_1M,
+  DEFAULT_OUTPUT_COST_PER_1M,
+  estimateUsdCost,
+} from "../../pipeline/costEstimator.js";
 import { HatchError } from "../../types.js";
 import { findPackageRoot } from "../shared/paths.js";
 import { printBanner, printBox, label, info, error as logError, setVerbose } from "../shared/ui.js";
+import {
+  buildCustomizationSummary,
+  type CustomizationStatus,
+} from "../../adapters/customizationSummary.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -226,7 +243,7 @@ function computeTierRows(
       totalOutputTokens: outputTokens,
       grandTotal: inputTokens + outputTokens,
     };
-    const cost = estimateCost(summary, {
+    const cost = estimateUsdCost(summary, {
       inputCostPer1M: options.inputCostPer1M,
       outputCostPer1M: options.outputCostPer1M,
     });
@@ -254,31 +271,57 @@ function formatUsd(usd: number): string {
 
 interface ExplainOptions {
   cost?: string;
+  customizations?: boolean;
   verbose?: boolean;
   inputRate?: string;
   outputRate?: string;
 }
 
 /**
- * `hatch3r explain --cost <command-id>` entry point. Reads the canonical
- * command file's `triage_tiers` array, computes per-tier sub-agent fan-out
- * and USD spend, and prints a boxed summary table.
+ * `hatch3r explain` entry point. Dispatches to one of two modes:
+ *   - `--cost <command-id>` → per-tier sub-agent fan-out + USD cost table
+ *   - `--customizations`    → per-artifact customize.{yaml,md} state table
+ *
+ * The two modes are mutually exclusive; passing both or neither is a usage
+ * error (exit code 2). The mode selector is checked before any I/O so a
+ * missing flag returns immediately with an actionable message.
  */
 export async function explainCommand(opts?: ExplainOptions): Promise<void> {
   setVerbose(!!opts?.verbose);
   printBanner(true);
 
-  const commandId = opts?.cost?.trim();
-  if (!commandId) {
-    logError("Missing required flag: --cost <command-id>");
-    console.log(chalk.dim("  Example: hatch3r explain --cost hatch3r-quick-change"));
+  const costRequested = typeof opts?.cost === "string" && opts.cost.trim().length > 0;
+  const customizationsRequested = !!opts?.customizations;
+
+  if (costRequested && customizationsRequested) {
+    logError("Conflicting flags: --cost and --customizations are mutually exclusive.");
+    console.log(chalk.dim("  Pick one mode per invocation."));
     console.log();
     throw new HatchError(
-      "Missing required flag: --cost <command-id>",
+      "Conflicting flags: --cost and --customizations",
       2,
       "VALIDATION_ERROR",
     );
   }
+
+  if (!costRequested && !customizationsRequested) {
+    logError("Missing required mode flag: pass --cost <command-id> OR --customizations.");
+    console.log(chalk.dim("  Example: hatch3r explain --cost hatch3r-quick-change"));
+    console.log(chalk.dim("  Example: hatch3r explain --customizations"));
+    console.log();
+    throw new HatchError(
+      "Missing required mode flag: --cost or --customizations",
+      2,
+      "VALIDATION_ERROR",
+    );
+  }
+
+  if (customizationsRequested) {
+    await explainCustomizationsMode();
+    return;
+  }
+
+  const commandId = opts!.cost!.trim();
 
   const rootDir = process.cwd();
   const commandPath = await resolveCommandPath(rootDir, commandId);
@@ -371,6 +414,102 @@ export async function explainCommand(opts?: ExplainOptions): Promise<void> {
       `Rates: $${inputRate}/1M input, $${outputRate}/1M output. ` +
         `Token counts use CHARS_PER_TOKEN=${CHARS_PER_TOKEN} (English prose heuristic).`,
     ),
+  );
+  console.log();
+}
+
+/**
+ * SA12.3-F03 (Cycle 10 Wave 2): render the per-artifact customization-applied
+ * state. Each row reports the canonical artifact id, type, outcome class
+ * (active | skipped | failed), and a reason string. Failures and skips appear
+ * first so the user sees rejections at a glance; `active` rows follow.
+ */
+async function explainCustomizationsMode(): Promise<void> {
+  const rootDir = process.cwd();
+  const summary = await buildCustomizationSummary(rootDir);
+
+  if (summary.entries.length === 0) {
+    printBox(
+      "Customizations",
+      [chalk.dim("No .customize.yaml or .customize.md files found under .hatch3r/{agents,skills,commands,rules}/.")],
+      "info",
+    );
+    return;
+  }
+
+  // Sort: failed > skipped > active, then by type, then by id.
+  const outcomeRank: Record<CustomizationStatus["outcome"], number> = {
+    failed: 0,
+    skipped: 1,
+    active: 2,
+    none: 3,
+  };
+  const sorted = [...summary.entries].sort((a, b) => {
+    if (outcomeRank[a.outcome] !== outcomeRank[b.outcome]) {
+      return outcomeRank[a.outcome] - outcomeRank[b.outcome];
+    }
+    if (a.type !== b.type) return a.type.localeCompare(b.type);
+    return a.id.localeCompare(b.id);
+  });
+
+  // Column widths chosen to fit a 100-col terminal cleanly. Reason is the
+  // widest column so failures/skips have room to be actionable.
+  const COL_TYPE = 10;
+  const COL_ID = 32;
+  const COL_OUTCOME = 10;
+  const COL_OVERRIDES = 18;
+  const COL_REASON = 50;
+
+  const tableLines: string[] = [];
+  tableLines.push(
+    `${"Type".padEnd(COL_TYPE)}${"Id".padEnd(COL_ID)}${"Outcome".padEnd(COL_OUTCOME)}${"Overrides".padEnd(COL_OVERRIDES)}${"Reason".padEnd(COL_REASON)}`,
+  );
+  tableLines.push(chalk.dim("─".repeat(COL_TYPE + COL_ID + COL_OUTCOME + COL_OVERRIDES + COL_REASON)));
+
+  for (const entry of sorted) {
+    const overridesParts: string[] = [];
+    if (entry.appliedOverrides.description !== undefined) overridesParts.push("desc");
+    if (entry.appliedOverrides.model !== undefined) overridesParts.push("model");
+    if (entry.appliedOverrides.scope !== undefined) overridesParts.push("scope");
+    if (entry.appliedOverrides.enabled !== undefined) overridesParts.push(`enabled=${entry.appliedOverrides.enabled}`);
+    if (entry.hasMd && !overridesParts.includes("md")) overridesParts.push("md");
+    const overridesCell = overridesParts.length > 0 ? overridesParts.join(",") : chalk.dim("—");
+
+    const outcomeCell = (() => {
+      switch (entry.outcome) {
+        case "failed":
+          return chalk.red("failed");
+        case "skipped":
+          return chalk.yellow("skipped");
+        case "active":
+          return chalk.green("active");
+        default:
+          return chalk.dim("none");
+      }
+    })();
+
+    const reasonRaw = entry.reason ?? "";
+    // Truncate the reason to the column width minus an ellipsis budget so
+    // long warnings do not break the layout on narrow terminals.
+    const reasonCell = reasonRaw.length > COL_REASON - 1 ? `${reasonRaw.slice(0, COL_REASON - 2)}…` : reasonRaw;
+
+    tableLines.push(
+      `${entry.type.padEnd(COL_TYPE)}` +
+        `${entry.id.padEnd(COL_ID)}` +
+        // chalk-wrapped strings have ANSI codes that inflate length; pad manually.
+        `${outcomeCell}${" ".repeat(Math.max(0, COL_OUTCOME - entry.outcome.length))}` +
+        `${overridesCell.padEnd(COL_OVERRIDES)}` +
+        `${reasonCell.padEnd(COL_REASON)}`,
+    );
+  }
+
+  printBox("Customizations", tableLines, summary.counts.failed > 0 ? "warning" : "info");
+
+  const summaryLine =
+    `${summary.counts.active} active, ${summary.counts.skipped} skipped, ${summary.counts.failed} failed`;
+  info(
+    `${chalk.bold("Customizations:")} ${summaryLine}. ` +
+      chalk.dim(`Run \`hatch3r status\` for a one-line summary.`),
   );
   console.log();
 }

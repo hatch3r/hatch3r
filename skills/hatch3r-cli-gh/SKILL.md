@@ -80,11 +80,25 @@ Verify with:
 command -v gh
 ```
 
-Install (mac):
+Install (macOS — default for this machine):
 
 ```bash
 # brew
 brew install gh
+```
+
+Install (Linux):
+
+```bash
+# apt
+sudo apt install gh
+```
+
+Install (Windows):
+
+```bash
+# winget
+winget install GitHub.cli
 ```
 
 Homepage: https://cli.github.com/

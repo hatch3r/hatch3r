@@ -515,6 +515,62 @@ describe("compound system content validation", () => {
       expect(totalItems).toBe(contentIndex.items.length - greenfieldOnly - tierGated);
     });
 
+    // F3.3-H4 (D3 Cycle 10 Wave 2): the "full preset … context filter" test
+    // above only asserts the brownfield+team direction. If a future content
+    // artifact adds a `ctx:brownfield-only` tag, the brownfield+team count test
+    // still passes (brownfield admits brownfield-only items) while the
+    // symmetric greenfield+team direction silently regresses (greenfield must
+    // DROP brownfield-only items). This describe.each parameterises BOTH
+    // directions over one body so neither can drift unguarded. It asserts the
+    // directional context-filter invariant via set membership — robust to the
+    // unrelated global item-count fluctuations the count-based test above is
+    // sensitive to.
+    describe.each([
+      { projectType: "brownfield" as const, includeTag: "ctx:brownfield-only", excludeTag: "ctx:greenfield-only" },
+      { projectType: "greenfield" as const, includeTag: "ctx:greenfield-only", excludeTag: "ctx:brownfield-only" },
+    ])("full preset context-filter symmetry ($projectType+team)", ({ projectType, includeTag, excludeTag }) => {
+      it(`admits every ctx:${projectType}-only item and drops every opposite-context item`, () => {
+        const preset = getPreset("full");
+        const selection = resolveSelection(preset, projectType, "team", contentIndex);
+        const selectedIds = new Set(
+          Object.values(selection.items).flat() as string[],
+        );
+
+        // Items declaring the SAME-context tag (and not gated out by maturity
+        // tier / protected exemptions) must be admitted under this projectType.
+        const sameContext = contentIndex.items.filter(
+          (i) =>
+            i.tags.includes(includeTag) &&
+            !i.tags.includes(excludeTag) &&
+            !i.protected &&
+            !i.tags.includes("tier:team-plus") &&
+            !i.tags.includes("tier:scaleup-plus") &&
+            !i.tags.includes("tier:enterprise-only") &&
+            !i.tags.includes("floor:enterprise-only"),
+        );
+        // Must have ≥1 same-context item or the symmetry assertion is vacuous —
+        // both ctx:greenfield-only and ctx:brownfield-only exist in the corpus.
+        expect(sameContext.length).toBeGreaterThan(0);
+        for (const item of sameContext) {
+          expect(
+            selectedIds.has(item.id),
+            `${item.id} (${includeTag}) should be admitted under ${projectType}+team`,
+          ).toBe(true);
+        }
+
+        // Items declaring ONLY the opposite-context tag must be dropped.
+        const oppositeContextOnly = contentIndex.items.filter(
+          (i) => i.tags.includes(excludeTag) && !i.tags.includes(includeTag) && !i.protected,
+        );
+        for (const item of oppositeContextOnly) {
+          expect(
+            selectedIds.has(item.id),
+            `${item.id} (${excludeTag}) should be dropped under ${projectType}+team`,
+          ).toBe(false);
+        }
+      });
+    });
+
     it("standard preset selects more than minimal but not necessarily all", () => {
       const minPreset = getPreset("minimal");
       const stdPreset = getPreset("standard");

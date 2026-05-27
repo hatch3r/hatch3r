@@ -127,7 +127,7 @@ Branch on the cached `type`:
 - **skill:** Confirm the subdirectory layout. Show: "Skill files are stored as `.hatch3r/overrides/skills/{name}/SKILL.md` (a new directory will be created). Continue?" — ASK Y/n.
 - **rule:** Ask for scope: `always` (loaded every session) or `conditional` (loaded by glob match). If `conditional`, ASK for a comma-separated glob list (e.g., `src/**/*.ts, src/**/*.tsx`). Then ASK for `precedence` (one of `critical | high | normal | low`, default `normal`). Cache as `ruleScope`, `ruleGlobs`, `rulePrecedence`.
 - **command:** ASK whether this is an orchestrator command. If yes, ASK for the agent pipeline as a comma-separated list of agent IDs (each ID must reference an existing agent — canonical or under `.hatch3r/overrides/agents/`). Cache as `isOrchestrator` and `agentPipeline`.
-- **hook:** ASK for the hook event from the enum: `pre-commit | post-merge | ci-failure | file-save | session-start | pre-push`. Reject any value outside this enum and re-ask. Cache as `hookEvent`.
+- **hook:** ASK for the hook event from the enum: `pre-commit | post-merge | ci-failure | file-save | session-start | pre-push | worktree-create | worktree-remove`. This 8-value enum mirrors `VALID_HOOK_EVENTS` in `src/hooks/types.ts` exactly — the strict gate at `saveUserContent` enforces the same set, so any value outside it is a strict-gate failure. Reject any value outside this enum and re-ask. Cache as `hookEvent`.
 
 #### 1.6a: Structured Tool Declaration (C9-H81, D20-F20.1.3)
 

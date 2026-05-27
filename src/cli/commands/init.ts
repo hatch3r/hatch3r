@@ -20,8 +20,10 @@ import { safeWriteFile } from "../../merge/safeWrite.js";
 import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
 import {
   DEFAULT_FEATURES,
+  DEFAULT_MATURITY_TIER,
   HATCH3R_DIR,
   HatchError,
+  MATURITY_TIERS,
   VALID_TOOLS,
   WORKTREE_CAPABLE_TOOLS,
   WORKTREE_INCLUDE_FILE,
@@ -30,6 +32,7 @@ import {
   type ContentSelection,
   type CustomizationManifest,
   type Features,
+  type MaturityTier,
   type Platform,
   type RepoInfo,
   type Tool,
@@ -83,6 +86,7 @@ import type { WorkspaceRepoEntry } from "../../workspace/types.js";
 import { parseGitRemote, parseGitDefaultBranch, getGitRemoteUrl, detectPlatformFromRemote, detectRepoGitIdentity } from "../../workspace/git.js";
 import { createSnapshot } from "../../pipeline/snapshot.js";
 import { estimateCost, formatCostBlock } from "../../pipeline/costEstimator.js";
+import { readCheckpoint, checkpointPath } from "../../pipeline/checkpoint.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONTENT_ROOT = findPackageRoot(__dirname);
@@ -364,6 +368,13 @@ export interface RunInitOptions {
    * exhausted stdin (e.g. `--yes`, CI workflows, tests).
    */
   yes?: boolean;
+  /**
+   * F1.1-H1 / F14.3-H1 (Decision 4 / #16): operational maturity tier of the
+   * project. Persisted in `.hatch3r/hatch.json` so `resolveSelection` (called
+   * by `sync`, `update`, `config`, `add`) honours the same tier without
+   * re-prompting. Default `DEFAULT_MATURITY_TIER` ("solo") when omitted.
+   */
+  maturity?: MaturityTier;
 }
 
 // C8-D1-M3: Guard against a double `runInit` on the same target directory.
@@ -397,7 +408,7 @@ export async function runInit(options: RunInitOptions): Promise<void> {
 }
 
 async function runInitInner(options: RunInitOptions): Promise<void> {
-  const { rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, customization, cliTools } = options;
+  const { rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, customization, cliTools, maturity } = options;
   const totalSteps = 4;
 
   // Decision 24 / Bucket 2.x: surface a pre-execution cost estimate so an
@@ -485,6 +496,15 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     ?? (existingManifest ? extractPreservedManifestFields(existingManifest) : undefined);
   if (preservedFields) {
     applyPreservedManifestFields(manifest, preservedFields);
+  }
+  // F1.1-H1 / F14.3-H1 (Decision 4 / #16): persist maturity tier so
+  // `resolveSelection` honours it across `sync` / `update` / `config`.
+  // Init-supplied `maturity` wins over a preserved/legacy value; omission
+  // falls back to the existing manifest's tier or "solo" via readMaturityTier.
+  if (maturity) {
+    manifest.maturity = maturity;
+  } else if (existingManifest?.maturity) {
+    manifest.maturity = existingManifest.maturity;
   }
   s2.succeed(step(2, totalSteps, "Manifest prepared"));
 
@@ -783,12 +803,18 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     summaryLines.push(label("Snapshot", `${sessionId} (revert with: hatch3r rollback --session=${sessionId})`));
   }
 
-  // C9-H29 (D10-SA10.3-F2): Multi-CTA post-init hint based on context.
-  // Surfaces the 4 README paths (greenfield: project-spec + roadmap;
-  // brownfield: codebase-map; single feature: feature-plan; small change:
-  // quick-change) so the user can pick the route that matches their
-  // immediate intent. The primary CTA stays at the top (highest signal for
-  // context) and the remaining three render as dimmed alternates.
+  // F10.3-1 (Decision 23 / 2.0.0): post-init primary CTA points at the
+  // unified `hatch3r-spec` orchestrator (`commands/hatch3r-spec.md`) which
+  // routes greenfield to `hatch3r-greenfield-spec` and brownfield to
+  // `hatch3r-brownfield-spec` automatically. Legacy `project-spec` and
+  // `codebase-map` paths render as a dimmed alternate with a "Legacy
+  // split-flow" qualifier so callers using `formatCommandHint`-based
+  // scripts keep working while new users discover the 2.0.0 entry point.
+  //
+  // The original C9-H29 multi-CTA contract is preserved — greenfield and
+  // brownfield both still surface roadmap / feature-plan / quick-change /
+  // project-spec / codebase-map so the four-CTA substring assertions in
+  // init.test.ts (multi-CTA post-init hint) keep matching.
   const isGreenfield =
     repoInfo.languages.length === 1 &&
     repoInfo.languages[0] === "unknown" &&
@@ -796,15 +822,15 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     !repoInfo.hasExistingAgents;
   summaryLines.push("");
   if (isGreenfield) {
-    summaryLines.push(`${chalk.cyan("→")} Run ${chalk.bold(formatCommandHint(tools, "project-spec"))} to define your new project, then ${chalk.bold(formatCommandHint(tools, "roadmap"))}`);
-    summaryLines.push(`${chalk.dim("·")} ${chalk.dim("Existing codebase later? ")}${chalk.bold(formatCommandHint(tools, "codebase-map"))}`);
+    summaryLines.push(`${chalk.cyan("→")} Run ${chalk.bold(formatCommandHint(tools, "hatch3r-spec"))} to define your new project (routes greenfield/brownfield automatically), then ${chalk.bold(formatCommandHint(tools, "roadmap"))}`);
     summaryLines.push(`${chalk.dim("·")} ${chalk.dim("Single feature: ")}${chalk.bold(formatCommandHint(tools, "feature-plan"))}`);
     summaryLines.push(`${chalk.dim("·")} ${chalk.dim("Small change: ")}${chalk.bold(formatCommandHint(tools, "quick-change"))}`);
+    summaryLines.push(`${chalk.dim("·")} ${chalk.dim("Legacy split-flow: ")}${chalk.bold(formatCommandHint(tools, "project-spec"))} ${chalk.dim("or")} ${chalk.bold(formatCommandHint(tools, "codebase-map"))}`);
   } else {
-    summaryLines.push(`${chalk.cyan("→")} Run ${chalk.bold(formatCommandHint(tools, "codebase-map"))} to map your existing codebase`);
+    summaryLines.push(`${chalk.cyan("→")} Run ${chalk.bold(formatCommandHint(tools, "hatch3r-spec"))} to map your existing codebase (routes greenfield/brownfield automatically)`);
     summaryLines.push(`${chalk.dim("·")} ${chalk.dim("Single feature: ")}${chalk.bold(formatCommandHint(tools, "feature-plan"))}`);
     summaryLines.push(`${chalk.dim("·")} ${chalk.dim("Small change: ")}${chalk.bold(formatCommandHint(tools, "quick-change"))}`);
-    summaryLines.push(`${chalk.dim("·")} ${chalk.dim("Greenfield project? ")}${chalk.bold(formatCommandHint(tools, "project-spec"))}`);
+    summaryLines.push(`${chalk.dim("·")} ${chalk.dim("Legacy split-flow: ")}${chalk.bold(formatCommandHint(tools, "codebase-map"))} ${chalk.dim("or")} ${chalk.bold(formatCommandHint(tools, "project-spec"))}`);
   }
 
   if (envResult && envResult.newVars.length > 0) {
@@ -836,20 +862,35 @@ async function checkExisting(rootDir: string, skipPrompt: boolean, newSelection?
     if (!skipPrompt) {
       let message = `Existing ${HATCH3R_DIR}/ found. This will overwrite managed files. Continue?`;
 
-      // Compute removal count if we have both old and new selections
+      // F10.6-5: compute BOTH addCount and removeCount so a user upgrading
+      // Minimal → Standard (net +45 items, 0 removed) no longer sees a
+      // misleading "0 items will be removed" prompt. Structured message
+      // surfaces additions and removals with explicit +/− directions.
       if (newSelection) {
         const existingManifest = await readManifest(rootDir);
         if (existingManifest?.content) {
           const oldIds = getAllContentIds(existingManifest.content);
           const newIds = getAllContentIds(newSelection);
           let removeCount = 0;
+          let addCount = 0;
           for (const id of oldIds) {
             if (!newIds.has(id)) removeCount++;
           }
-          if (removeCount > 0) {
+          for (const id of newIds) {
+            if (!oldIds.has(id)) addCount++;
+          }
+          if (addCount > 0 || removeCount > 0) {
             const oldPreset = existingManifest.content.preset.charAt(0).toUpperCase() + existingManifest.content.preset.slice(1);
             const newPreset = newSelection.preset.charAt(0).toUpperCase() + newSelection.preset.slice(1);
-            message = `Existing ${HATCH3R_DIR}/ found. ${removeCount} content item(s) will be removed (switching from ${oldPreset} to ${newPreset}). Continue?`;
+            const directionParts: string[] = [];
+            if (addCount > 0) directionParts.push(`+${addCount} added`);
+            if (removeCount > 0) directionParts.push(`−${removeCount} removed`);
+            const directionLabel = directionParts.join(", ");
+            if (oldPreset !== newPreset) {
+              message = `Existing ${HATCH3R_DIR}/ found. Switching ${oldPreset} → ${newPreset} (${directionLabel}). Continue?`;
+            } else {
+              message = `Existing ${HATCH3R_DIR}/ found. ${directionLabel} for ${newPreset} profile. Continue?`;
+            }
           }
         }
       }
@@ -885,6 +926,115 @@ function validateFlag<T extends string>(value: string | undefined, valid: T[], f
     );
   }
   return value as T;
+}
+
+/**
+ * F1.1-H2 (B1 ambiguity-detection gate per CONSTITUTION §2 P8 B1).
+ *
+ * Resolves three flag-combination ambiguities at the entry point of
+ * `initCommand` so the user is not surprised by a late-stage rejection.
+ * Implements the multiple-choice shape from
+ * `agents/shared/user-question-protocol.md` — at most one question per
+ * turn, 2-4 numbered options, each with a trade-off, an explicit
+ * default-if-no-response.
+ *
+ * Under `--yes` we cannot prompt — incompatible flag combinations abort
+ * with `HatchError` + a recovery hint. Under interactive mode we ask via
+ * `inquirer.prompt` and let the user pick.
+ *
+ * Checks performed:
+ *   1. `--yes --preset=custom` — `custom` requires per-item selection
+ *      which has no headless analog.
+ *   2. `--workspace=true` on a repo whose root already has a `.git/`
+ *      directory — workspace mode expects a workspace root with
+ *      sub-repos, not a repo root with a workspace flag.
+ *   3. `--workspace=false` but ≥2 git sub-repos detected — the user
+ *      likely meant to opt into workspace mode.
+ */
+async function detectAmbiguity(opts: {
+  yes?: boolean;
+  preset?: string;
+  workspace?: boolean;
+}): Promise<void> {
+  // Check 1: `--yes --preset=custom`.
+  if (opts.yes && opts.preset === "custom") {
+    throw new HatchError(
+      "Ambiguous flags: --yes is incompatible with --preset=custom (custom requires interactive per-item selection).",
+      1,
+      "VALIDATION_ERROR",
+      "Re-run with one of: (a) drop `--yes` to pick items interactively; (b) replace `--preset=custom` with `--preset=minimal|standard|full`.",
+    );
+  }
+
+  const cwd = process.cwd();
+
+  // Check 2: `--workspace=true` on a repo with `.git/` already present.
+  if (opts.workspace === true) {
+    try {
+      await access(join(cwd, ".git"));
+      if (opts.yes) {
+        throw new HatchError(
+          "Ambiguous flags: --workspace=true on a repo with `.git/` already present (workspace mode expects a workspace root, not a single-repo root).",
+          1,
+          "VALIDATION_ERROR",
+          "Re-run with one of: (a) drop `--workspace` for a single-repo init; (b) run from the workspace root (one directory up).",
+        );
+      }
+      const { workspaceChoice } = await inquirer.prompt<{ workspaceChoice: "single" | "workspace" }>([
+        {
+          type: "select",
+          name: "workspaceChoice",
+          message:
+            "This directory already has its own .git/ — workspace mode usually targets a workspace root with multiple sub-repos. Continue?",
+          choices: [
+            { name: "Single-repo init (drop --workspace)", value: "single" },
+            { name: "Workspace init anyway (treat this repo as a single-member workspace)", value: "workspace" },
+          ],
+          default: "single",
+        },
+      ]);
+      if (workspaceChoice === "single") {
+        opts.workspace = false;
+      }
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== "ENOENT") {
+        if (err instanceof HatchError) throw err;
+        throw err;
+      }
+    }
+  }
+
+  // Check 3: `--workspace=false` but ≥2 git sub-repos detected.
+  if (opts.workspace === false) {
+    const detected = await detectSubRepos(cwd);
+    if (detected.length >= 2) {
+      if (opts.yes) {
+        warn(
+          `--workspace=false on a directory with ${detected.length} git sub-repos detected. ` +
+          `Continuing as a single-repo init; sub-repos will not be configured. ` +
+          `Re-run with --workspace if you intended workspace mode.`,
+        );
+      } else {
+        const { workspaceChoice } = await inquirer.prompt<{ workspaceChoice: "single" | "workspace" }>([
+          {
+            type: "select",
+            name: "workspaceChoice",
+            message:
+              `--workspace=false but ${detected.length} git sub-repo(s) detected. Workspace mode would configure all sub-repos together. Continue?`,
+            choices: [
+              { name: "Workspace init (configure all sub-repos together)", value: "workspace" },
+              { name: "Single-repo init (sub-repos are not configured)", value: "single" },
+            ],
+            default: "workspace",
+          },
+        ]);
+        if (workspaceChoice === "workspace") {
+          opts.workspace = true;
+        }
+      }
+    }
+  }
 }
 
 export async function initCommand(
@@ -936,13 +1086,21 @@ export async function initCommand(
     noBanner?: boolean;
     /**
      * Decision 27 (Bucket 2.2): re-enter the orchestrator at the last
-     * checkpoint recorded under `.init-workspace/checkpoint.json`.
-     * Surface-only here — the in-place init flow remains single-pass;
-     * the flag is reserved so existing scripts keep working when future
-     * waves wire checkpoint reads into the body. See
-     * `src/pipeline/checkpoint.ts`.
+     * checkpoint recorded under `.init-workspace/checkpoint.json`. When set
+     * and a checkpoint exists, init surfaces the recorded phase/wave and
+     * proceeds as a fresh single-pass run (init has no mid-run pause point
+     * yet). Absence of a checkpoint emits a `warn()` and continues as a
+     * fresh init. See `src/pipeline/checkpoint.ts`.
      */
     resume?: boolean;
+    /**
+     * F1.1-H1 / F14.3-H1 (Decision 4 / #16): operational maturity tier.
+     * Valid: `solo` | `team` | `scaleup` | `enterprise`. Default `solo`.
+     * Gates content admission in `resolveSelection` so install footprint and
+     * gate strictness scale with the project's posture. Persisted in
+     * `.hatch3r/hatch.json` under `maturity`.
+     */
+    maturity?: string;
   } = {},
 ): Promise<void> {
   // C9-H26 (D10-SA10.2-F1): chrome-suppression flags.
@@ -960,30 +1118,47 @@ export async function initCommand(
   if (!skipBanner) {
     printBanner();
   }
-  // Decision 27 (Bucket 2.2): `--resume` is reserved CLI surface. Init
-  // currently runs as a single-pass orchestrator that captures a snapshot
-  // (rollback works) but does not write checkpoints (no mid-run pause point).
-  // Surface the gap explicitly rather than silently discarding the flag —
-  // a documented-but-inert option is a stronger contract violation than
-  // simply not shipping it (per D1 synthesis F1.1 / Cycle 10 C1
-  // recommendation). When init learns multi-wave decomposition, this branch
-  // becomes the dispatch path that reads `.init-workspace/checkpoint.json`
-  // via `readCheckpoint()` from `src/pipeline/checkpoint.ts`.
+  // D11-H-7 (Decision 27 / Bucket 2.2): `--resume` reads the recorded
+  // checkpoint at `.init-workspace/checkpoint.json` via `readCheckpoint()`
+  // from `src/pipeline/checkpoint.ts`. Init runs as a single-pass
+  // orchestrator with no mid-run pause point, so resume surfaces the
+  // recorded phase/wave to the operator and proceeds as a fresh init that
+  // captures a new pre-mutation snapshot (rollback-revertable). When init
+  // learns multi-wave decomposition, this branch becomes the dispatch path
+  // that skips earlier phases the checkpoint records as completed. Absence
+  // of a checkpoint is reported via warn() and falls through to fresh init.
   if (opts.resume) {
-    warn(
-      "`hatch3r init --resume` is not yet wired in 2.0.0: init runs as a " +
-      "single-pass orchestrator with no checkpoint write. Continuing as a " +
-      "fresh init. Use `hatch3r rollback --session=<id>` after the run if " +
-      "you need to revert.",
-    );
+    const cwd = process.cwd();
+    const initWorkspace = join(cwd, ".init-workspace");
+    const checkpoint = await readCheckpoint(initWorkspace);
+    if (checkpoint === null) {
+      warn(
+        `\`hatch3r init --resume\` requested but no checkpoint found at ` +
+        `${checkpointPath(initWorkspace)}. Continuing as a fresh init. ` +
+        `Use \`hatch3r rollback --session=<id>\` after the run if you need to revert.`,
+      );
+    } else {
+      info(chalk.dim(
+        `Resuming from checkpoint: phase=${checkpoint.phase} wave=${checkpoint.wave} ` +
+        `status=${checkpoint.status} (baseline=${checkpoint.meta.baselineSha.slice(0, 7)})`,
+      ));
+      if (checkpoint.status === "failed") {
+        warn(
+          `Checkpoint records a failed status at phase=${checkpoint.phase} wave=${checkpoint.wave}. ` +
+          `Init is single-pass — re-running may not reproduce the failure but the prior failure cause is not auto-detected. ` +
+          `Triage the recorded failure before treating success as conclusive.`,
+        );
+      }
+      // Init has no mid-run pause point yet — we surface the checkpoint
+      // and continue with a fresh single-pass run that captures a new
+      // snapshot. Multi-wave decomposition lands in a later release.
+    }
   }
 
-  // C8-D1-M4: Validate `--preset`, `--project-type`, and `--team-size` flag
-  // values eagerly, before any prompt or detection work runs. Previously
-  // these flags were only validated on the `--yes` branch, so an interactive
-  // invocation with `--preset kitchen-sink` silently discarded the bad flag
-  // and still prompted the user. Per CLI Guidelines fail-fast validation,
-  // invalid values abort with exit 1 before any side-effect.
+  // C8-D1-M4: Validate `--preset`, `--project-type`, `--team-size`, and
+  // `--maturity` flag values eagerly, before any prompt or detection work
+  // runs. Per CLI Guidelines fail-fast validation, invalid values abort
+  // with exit 1 before any side-effect.
   if (opts.preset !== undefined) {
     validateFlag(opts.preset, ["minimal", "standard", "full", "custom"], "standard", "preset");
   }
@@ -993,6 +1168,15 @@ export async function initCommand(
   if (opts.teamSize !== undefined) {
     validateFlag(opts.teamSize, ["solo", "team"], "solo", "team-size");
   }
+  // F1.1-H1 / F14.3-H1: validate `--maturity` against the canonical tier set.
+  if (opts.maturity !== undefined) {
+    validateFlag(opts.maturity, [...MATURITY_TIERS], DEFAULT_MATURITY_TIER, "maturity");
+  }
+
+  // F1.1-H2 (B1 ambiguity-detection gate). Resolve flag-combination
+  // ambiguities at the entry point before any side-effect runs. See
+  // `detectAmbiguity` above + `agents/shared/user-question-protocol.md`.
+  await detectAmbiguity(opts);
 
   // C8-D10-M2: `--quick` / `--default` collapses the 9-prompt interactive
   // flow to smart defaults by routing to the existing `--yes` path. This
@@ -1117,10 +1301,13 @@ export async function initCommand(
     const presetId = validateFlag(opts.preset, ["minimal", "standard", "full"], "standard", "preset");
     const projectType = validateFlag(opts.projectType, ["greenfield", "brownfield"], detection.type, "project-type");
     const teamSize = validateFlag(opts.teamSize, ["solo", "team"], "solo", "team-size");
+    // F1.1-H1 / F14.3-H1: read `--maturity` (already validated above) with
+    // canonical default "solo".
+    const maturity: MaturityTier = validateFlag(opts.maturity, [...MATURITY_TIERS], DEFAULT_MATURITY_TIER, "maturity");
     const preset = getPreset(presetId);
     const index = await buildContentIndex(CONTENT_ROOT);
     const projectLanguages = languagesForSelection(repoInfo);
-    const contentSelection = resolveSelection(preset, projectType, teamSize, index, undefined, projectLanguages);
+    const contentSelection = resolveSelection(preset, projectType, teamSize, index, undefined, projectLanguages, { maturity });
 
     // Warn if orchestration-critical agents are missing from selection
     const orchWarnings = validateOrchestrationDependencies(contentSelection);
@@ -1129,7 +1316,7 @@ export async function initCommand(
     warnBoardPrerequisites(contentSelection);
 
     await checkExisting(rootDir, true, contentSelection);
-    await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: true });
+    await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: true, maturity });
     return;
   }
 
@@ -1169,9 +1356,19 @@ export async function initCommand(
     defaultBranch: string;
     projectType: "greenfield" | "brownfield";
     teamSize: "solo" | "team";
+    // F1.1-H1 / F14.3-H1: new maturity slot. Populated by the maturity step
+    // (skipped under `--maturity`); orchestrator reads it after the
+    // step-machine returns.
+    maturity: MaturityTier;
     preset: PresetId;
     customItems: string[] | undefined;
     tools: Tool[];
+    // F10.3-2 (PARTIAL): the ≤5-prompt ceiling recommendation collapses
+    // `wantMcp` + `mcpServers` into a single multi-select. Deferred to a
+    // follow-up PR because the existing init-test corpus queues `wantMcp`
+    // answers in 11+ places — adjusting them is a higher-risk refactor
+    // tracked separately. The wantMcp step stays for now so vitest queue
+    // offsets remain valid.
     wantMcp: boolean;
     mcpServers: string[];
     cliTools: CliToolId[];
@@ -1298,6 +1495,29 @@ export async function initCommand(
       },
     },
     {
+      // F1.1-H1 / F14.3-H1 (Decision 4 / #16): maturity tier gates content
+      // admission. Skipped when `--maturity=<tier>` is passed on the CLI.
+      id: "maturity",
+      skip: () => opts.maturity !== undefined,
+      async run(_state, previous): Promise<StepResult<MaturityTier>> {
+        const answer = await inquirer.prompt<{ maturity: MaturityTier | typeof BACK }>([
+          {
+            type: "select",
+            name: "maturity",
+            message: "Project maturity tier (gates content admission):",
+            choices: [
+              { name: "Solo — individual developer / hobby project (default)", value: "solo" as const },
+              { name: "Team — small team with shared repo", value: "team" as const },
+              { name: "Scaleup — multi-team org with formal review", value: "scaleup" as const },
+              { name: "Enterprise — regulated environment, full audit posture", value: "enterprise" as const },
+            ],
+            default: previous ?? DEFAULT_MATURITY_TIER,
+          },
+        ]);
+        return isBack(answer.maturity) ? BACK : (answer.maturity as MaturityTier);
+      },
+    },
+    {
       id: "preset",
       async run(state, previous): Promise<StepResult<PresetId>> {
         const projectType2 = state.projectType!;
@@ -1364,6 +1584,11 @@ export async function initCommand(
       },
     },
     {
+      // F10.3-2 (PARTIAL): per the ≤5-prompt ceiling, this `wantMcp`
+      // confirm + the conditional `mcpServers` picker below should
+      // collapse into a single multi-select with `(none)`. Deferred to a
+      // follow-up PR — test fixtures queue wantMcp answers in 11+ places
+      // so the collapse is a higher-risk refactor tracked separately.
       id: "wantMcp",
       async run(): Promise<StepResult<boolean>> {
         const { wantMcp } = await inquirer.prompt<{ wantMcp: boolean | typeof BACK }>([
@@ -1401,9 +1626,17 @@ export async function initCommand(
   const defaultBranch = stepState.defaultBranch;
   const projectType = stepState.projectType;
   const teamSize = stepState.teamSize;
+  // F1.1-H1 / F14.3-H1: pick `--maturity` over the step-machine prompt
+  // result, then fall back to canonical default. The step-machine slot is
+  // only populated when the user runs interactively without `--maturity`.
+  const maturity: MaturityTier = opts.maturity !== undefined
+    ? validateFlag(opts.maturity, [...MATURITY_TIERS], DEFAULT_MATURITY_TIER, "maturity")
+    : (stepState.maturity ?? DEFAULT_MATURITY_TIER);
   const selectedPreset = getPreset(stepState.preset);
   const customSelections = stepState.customItems;
   const tools = stepState.tools;
+  // F10.3-2 (PARTIAL): `wantMcp` retained for test-compat; the finding's
+  // collapse recommendation is tracked in a follow-up PR.
   const features: Features = { ...DEFAULT_FEATURES, mcp: stepState.wantMcp };
 
   // C9-H32 (D10-SA10.5-F2): Surface MCP secret-loading divergence at
@@ -1458,7 +1691,10 @@ export async function initCommand(
   };
 
   // --- Resolve content selection ---
-  const contentSelection = resolveSelection(selectedPreset, projectType, teamSize, filterIndex, customSelections, projectLanguages);
+  // F1.1-H1 / F14.3-H1: thread maturity into resolveSelection so the tier
+  // gate (Stage 6 in `src/content/index.ts`) drops `floor:enterprise-only`
+  // items for solo projects and admits the full set for enterprise tier.
+  const contentSelection = resolveSelection(selectedPreset, projectType, teamSize, filterIndex, customSelections, projectLanguages, { maturity });
 
   // Warn if orchestration-critical agents are missing from selection
   const orchWarnings = validateOrchestrationDependencies(contentSelection);
@@ -1467,7 +1703,7 @@ export async function initCommand(
   warnBoardPrerequisites(contentSelection);
 
   await checkExisting(rootDir, false, contentSelection);
-  await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: false });
+  await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: false, maturity });
 }
 
 // ── Workspace initialization ──────────────────────────────────────
@@ -1476,7 +1712,7 @@ async function runWorkspaceInit(
   rootDir: string,
   detectedRepos: Awaited<ReturnType<typeof detectSubRepos>>,
   repoInfo: RepoInfo,
-  opts: { tools?: string; yes?: boolean; preset?: string; projectType?: string; teamSize?: string; worktree?: boolean; cliTools?: string; noCliTools?: boolean; mcp?: boolean },
+  opts: { tools?: string; yes?: boolean; preset?: string; projectType?: string; teamSize?: string; worktree?: boolean; cliTools?: string; noCliTools?: boolean; mcp?: boolean; maturity?: string },
 ): Promise<void> {
   const headless = !!opts.yes;
 
@@ -1508,7 +1744,14 @@ async function runWorkspaceInit(
         })();
     const index = await buildContentIndex(CONTENT_ROOT);
     const projectLanguages = languagesForSelection(repoInfo);
-    const contentSelection = resolveSelection(getPreset("standard"), "brownfield", "solo", index, undefined, projectLanguages);
+    // F1.1-H1 / F14.3-H1: thread `--maturity` into the no-sub-repo workspace path.
+    const emptyWsMaturity: MaturityTier = validateFlag(
+      opts.maturity,
+      [...MATURITY_TIERS],
+      DEFAULT_MATURITY_TIER,
+      "maturity",
+    );
+    const contentSelection = resolveSelection(getPreset("standard"), "brownfield", "solo", index, undefined, projectLanguages, { maturity: emptyWsMaturity });
     const wsManifest = createWorkspaceManifest(
       basename(rootDir) || "workspace",
       { platform, tools, features, mcp: { servers: mcpServers }, cliTools: cliToolsBase, content: contentSelection },
@@ -1596,6 +1839,9 @@ async function runWorkspaceInit(
   let contentSelection: ContentSelection;
   let worktreeEnabled: boolean;
   let wsCliTools: CliToolsConfig;
+  // F1.1-H1 / F14.3-H1: shared workspace-level maturity resolved before
+  // either headless/interactive branch so the runInit call forwards it.
+  let wsMaturity: MaturityTier = DEFAULT_MATURITY_TIER;
 
   if (headless) {
     tools = resolveToolsFromOpts(opts.tools, repoInfo);
@@ -1623,10 +1869,13 @@ async function runWorkspaceInit(
     const presetId = validateFlag(opts.preset, ["minimal", "standard", "full"], "standard", "preset");
     const projectType = validateFlag(opts.projectType, ["greenfield", "brownfield"], wsDetection.type, "project-type");
     const teamSize = validateFlag(opts.teamSize, ["solo", "team"], "solo", "team-size");
+    // F1.1-H1 / F14.3-H1: read `--maturity` (validated earlier) on the
+    // headless workspace branch with canonical "solo" default.
+    wsMaturity = validateFlag(opts.maturity, [...MATURITY_TIERS], DEFAULT_MATURITY_TIER, "maturity");
     const preset = getPreset(presetId);
     const index = await buildContentIndex(CONTENT_ROOT);
     const projectLanguages = languagesForSelection(repoInfo);
-    contentSelection = resolveSelection(preset, projectType, teamSize, index, undefined, projectLanguages);
+    contentSelection = resolveSelection(preset, projectType, teamSize, index, undefined, projectLanguages, { maturity: wsMaturity });
   } else {
     // Interactive workspace-wide config prompts — driven by the
     // step-machine for back-navigation. The per-repo identity-edit loop
@@ -1655,9 +1904,13 @@ async function runWorkspaceInit(
     interface WorkspaceState {
       projectType: "greenfield" | "brownfield";
       teamSize: "solo" | "team";
+      // F1.1-H1 / F14.3-H1: workspace flow maturity slot.
+      maturity: MaturityTier;
       preset: PresetId;
       customItems: string[] | undefined;
       tools: Tool[];
+      // F10.3-2 (PARTIAL): collapse deferred; wantMcp retained for
+      // test-compat.
       wantMcp: boolean;
       mcpServers: string[];
       cliTools: CliToolId[];
@@ -1698,6 +1951,29 @@ async function runWorkspaceInit(
             },
           ]);
           return isBack(answer.teamSize) ? BACK : (answer.teamSize as "solo" | "team");
+        },
+      },
+      {
+        // F1.1-H1 / F14.3-H1: workspace flow maturity prompt; mirrors the
+        // single-repo flow. Skipped when `--maturity=<tier>` is supplied.
+        id: "maturity",
+        skip: () => opts.maturity !== undefined,
+        async run(_state, previous): Promise<StepResult<MaturityTier>> {
+          const answer = await inquirer.prompt<{ maturity: MaturityTier | typeof BACK }>([
+            {
+              type: "select",
+              name: "maturity",
+              message: "Workspace maturity tier (gates content admission):",
+              choices: [
+                { name: "Solo — individual developer / hobby project (default)", value: "solo" as const },
+                { name: "Team — small team with shared repo", value: "team" as const },
+                { name: "Scaleup — multi-team org with formal review", value: "scaleup" as const },
+                { name: "Enterprise — regulated environment, full audit posture", value: "enterprise" as const },
+              ],
+              default: previous ?? DEFAULT_MATURITY_TIER,
+            },
+          ]);
+          return isBack(answer.maturity) ? BACK : (answer.maturity as MaturityTier);
         },
       },
       {
@@ -1767,6 +2043,9 @@ async function runWorkspaceInit(
         },
       },
       {
+        // F10.3-2 (PARTIAL): collapse deferred — wantMcp + mcpServers
+        // stays as two prompts for now; test fixtures rely on the two-
+        // prompt ordering.
         id: "wantMcp",
         async run(): Promise<StepResult<boolean>> {
           const { wantMcp } = await inquirer.prompt<{ wantMcp: boolean | typeof BACK }>([
@@ -1804,6 +2083,11 @@ async function runWorkspaceInit(
 
     const projectType = wsState.projectType;
     const teamSize = wsState.teamSize;
+    // F1.1-H1 / F14.3-H1: pick `--maturity` over the step-machine prompt
+    // result; falls back to default when neither is set.
+    wsMaturity = opts.maturity !== undefined
+      ? validateFlag(opts.maturity, [...MATURITY_TIERS], DEFAULT_MATURITY_TIER, "maturity")
+      : (wsState.maturity ?? DEFAULT_MATURITY_TIER);
     const selectedPreset = getPreset(wsState.preset);
     const customSelections = wsState.customItems;
     tools = wsState.tools;
@@ -1820,6 +2104,8 @@ async function runWorkspaceInit(
     }
 
     worktreeEnabled = opts.worktree ?? tools.some(t => WORKTREE_CAPABLE_TOOLS.has(t));
+    // F10.3-2 (PARTIAL): collapse deferred — `features.mcp` continues to
+    // mirror the `wantMcp` confirm answer rather than `mcpServers.length`.
     features = { ...DEFAULT_FEATURES, mcp: wsState.wantMcp };
     mcpServers = wsState.mcpServers ?? [];
 
@@ -1840,7 +2126,7 @@ async function runWorkspaceInit(
       selected: wsSelectedCliTools,
     };
 
-    contentSelection = resolveSelection(selectedPreset, projectType, teamSize, wsFilterIndex, customSelections, projectLanguages);
+    contentSelection = resolveSelection(selectedPreset, projectType, teamSize, wsFilterIndex, customSelections, projectLanguages, { maturity: wsMaturity });
   }
 
   // Warn if orchestration-critical agents are missing from selection
@@ -1867,6 +2153,10 @@ async function runWorkspaceInit(
     worktreeEnabled,
     cliTools: wsCliTools,
     yes: headless,
+    // F1.1-H1 / F14.3-H1: forward the resolved workspace maturity tier
+    // to the workspace runInit call so the workspace root manifest
+    // persists it.
+    maturity: wsMaturity,
   });
 
   // Step 7: Build repo entries and select which to sync

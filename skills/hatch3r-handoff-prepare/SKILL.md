@@ -1,5 +1,6 @@
 ---
 id: hatch3r-handoff-prepare
+name: hatch3r-handoff-prepare
 description: Capture mid-work session state into a canonical handoff document at .hatch3r/handoffs/active/. Use when ending a session mid-work, switching tools, or after context-health Orange/Red.
 tags: [orchestration, maintenance]
 quality_charter: agents/shared/quality-charter.md

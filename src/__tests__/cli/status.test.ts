@@ -125,6 +125,10 @@ describe("status command", () => {
     const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
     expect(output).toContain("drifted");
     expect(output).toContain("Drifted:");
+    // F2.7-F5 (Cycle 10 Wave 2, partial): the drifted hint must warn that sync
+    // overwrites the managed block, since status cannot yet attribute drift
+    // direction (user edit vs. outdated canonical) without an emit-time baseline.
+    expect(output).toContain("sync overwrites the managed block");
   });
 
   it("should report missing when a generated file is deleted", async () => {

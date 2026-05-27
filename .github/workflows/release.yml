@@ -12,6 +12,12 @@ concurrency:
 permissions:
   contents: write
   id-token: write
+  # attestations: write lets actions/attest-sbom record a signed SBOM
+  # attestation through the same Sigstore/OIDC path that backs npm
+  # provenance (id-token: write), tying the component inventory to the
+  # published tarball (Cycle 10 H F4.3.1+F4.4.3 — CONSTITUTION §2 P5
+  # + §CQ3 supply-chain floor: npm provenance + SBOM + SHA-pinned actions).
+  attestations: write
 
 jobs:
   release:
@@ -20,6 +26,22 @@ jobs:
     environment: npm-publish
 
     steps:
+      # Cycle 10 H F4.3.2 (D4): step-security/harden-runner installed as the
+      # first step so the release job — the only workflow holding the npm OIDC
+      # token (id-token: write) and contents: write — gets the same runtime
+      # egress/process monitoring already present on every ci.yml job. Audit
+      # mode builds a per-job traffic baseline without blocking on the first
+      # landing; escalation to egress-policy: block with an explicit allowlist
+      # (registry.npmjs.org, api.github.com, objects.githubusercontent.com,
+      # fulcio.sigstore.dev, rekor.sigstore.dev) is the follow-up after one
+      # audit-mode cycle, per the finding's staged-rollout recommendation.
+      # Pinned to the v2.19.3 commit SHA (2026-05-14) per the actions-pinning
+      # policy applied to every third-party action in this repo.
+      - name: Harden Runner
+        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2.19.3
+        with:
+          egress-policy: audit
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
         with:
@@ -62,8 +84,49 @@ jobs:
       - name: Security audit
         run: npm audit --audit-level=moderate --omit=dev
 
+      # Pack the exact tarball that will be published so the SBOM attestation
+      # subject digest matches the artifact npm receives (publish uses this
+      # same file below). --pack-destination keeps it at the workspace root
+      # for the attestation glob and the GitHub Release upload.
+      - name: Pack tarball
+        run: |
+          npm pack --pack-destination .
+          TARBALL=$(ls -1 *.tgz | head -1)
+          echo "TARBALL=$TARBALL" >> "$GITHUB_ENV"
+          echo "Packed: $TARBALL ($(wc -c < "$TARBALL") bytes)"
+
+      # Cycle 10 H F4.3.1+F4.4.3 (D4): emit a CycloneDX SBOM of the package
+      # that is about to be published so end users can verify the component
+      # inventory of the hatch3r tarball — a hard item in the CONSTITUTION
+      # §2 P5 + §CQ3 100% supply-chain floor (npm provenance + SBOM + SHA-
+      # pinned actions + cosign). @cyclonedx/cyclonedx-npm walks the installed
+      # dependency tree (npm ci ran above) and writes CycloneDX 1.6 JSON.
+      # --omit dev keeps the SBOM scoped to what actually ships in the
+      # published package (the same scope as `npm publish`).
+      - name: Generate SBOM (CycloneDX)
+        run: |
+          npx --yes @cyclonedx/cyclonedx-npm@4.2.1 \
+            --omit dev \
+            --spec-version 1.6 \
+            --output-format JSON \
+            --output-file sbom.cdx.json
+          echo "SBOM generated: $(wc -c < sbom.cdx.json) bytes"
+
       - name: Publish to npm (with provenance)
-        run: npm publish --access public --provenance
+        run: npm publish "$TARBALL" --access public --provenance
+
+      # Attest the SBOM through the same Sigstore/OIDC path that backs npm
+      # provenance, binding the signed component inventory to the exact
+      # published tarball (packed above, published as-is). Runs after publish
+      # so a release is not blocked on a transient Sigstore outage during
+      # attestation; the attestation is recorded against the immutable
+      # packed artifact regardless.
+      - name: Attest SBOM
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-path: ${{ env.TARBALL }}
+          sbom-path: sbom.cdx.json
+        continue-on-error: true
 
       # Extract the CHANGELOG section matching this tag and use it as the
       # GitHub release body. The release-prep skill (Step 6) writes a
@@ -85,9 +148,14 @@ jobs:
           echo "Release notes ($(wc -l < release-notes.md) lines):"
           head -5 release-notes.md
 
+      # Attach the CycloneDX SBOM to the GitHub Release so consumers can fetch
+      # the component inventory of this exact version without re-running the
+      # workflow (F4.3.1+F4.4.3 recommendation step 2 — SBOM as a release
+      # artifact). The tarball is attested above; the SBOM rides alongside it.
       - name: Create GitHub Release
         uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v2
         with:
           body_path: release-notes.md
+          files: sbom.cdx.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

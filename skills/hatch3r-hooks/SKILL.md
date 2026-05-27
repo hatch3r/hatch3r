@@ -1,5 +1,6 @@
 ---
 id: hatch3r-hooks
+name: hatch3r-hooks
 type: skill
 description: Define, edit, and manage event-driven hooks that activate agents on project events. Tool-agnostic — adapters translate hook definitions into tool-native configurations during `npx hatch3r sync`.
 tags: [devops, orchestration]

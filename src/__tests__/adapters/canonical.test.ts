@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   filterUserFacing,
+  parseFrontmatter,
   readCanonicalFiles,
   readCanonicalFilesDetailed,
   precedenceRank,
@@ -866,6 +867,90 @@ describe("parseFrontmatter precedence field", () => {
     const results = await readCanonicalFiles(tempDir, "rules");
     expect(results).toHaveLength(1);
     expect(results[0]!.precedence).toBeUndefined();
+  });
+});
+
+// F2.2-F3 (Cycle 10 Wave 2): a leading UTF-8 BOM must not silently disable
+// frontmatter parsing. Windows authoring tools (PowerShell `Set-Content`,
+// "UTF-8 with BOM" in VS Code) prepend U+FEFF, which would otherwise push the
+// `---` delimiter off byte 0 and make the anchored FRONTMATTER_REGEX fail —
+// dropping the declared id, type, description, tags, and precedence in silence.
+describe("parseFrontmatter UTF-8 BOM handling (F2.2-F3)", () => {
+  let tempDir: string;
+
+  afterEach(async () => {
+    if (tempDir) {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  const BOM = "﻿";
+
+  it("strips a leading BOM so frontmatter still parses", () => {
+    const parsed = parseFrontmatter(
+      `${BOM}---\nid: bom-rule\ntype: rule\ndescription: declared\n---\n# Body`,
+    );
+    expect(parsed.metadata.id).toBe("bom-rule");
+    expect(parsed.metadata.type).toBe("rule");
+    expect(parsed.metadata.description).toBe("declared");
+    expect(parsed.content.trim()).toBe("# Body");
+  });
+
+  it("pushes an ENCODING note onto the diagnostics channel when a BOM is present", () => {
+    const diagnostics: string[] = [];
+    parseFrontmatter(
+      `${BOM}---\nid: bom-rule\ntype: rule\ndescription: d\n---\n# Body`,
+      diagnostics,
+    );
+    expect(diagnostics.some((d) => d.includes("ENCODING") && d.includes("BOM"))).toBe(true);
+  });
+
+  it("does not emit an ENCODING note for a BOM-free file", () => {
+    const diagnostics: string[] = [];
+    parseFrontmatter("---\nid: clean\ntype: rule\ndescription: d\n---\n# Body", diagnostics);
+    expect(diagnostics.some((d) => d.includes("ENCODING"))).toBe(false);
+  });
+
+  it("strips a leading BOM from a body-only file (no frontmatter)", () => {
+    const parsed = parseFrontmatter(`${BOM}# Just a body, no frontmatter`);
+    expect(parsed.content.startsWith("#")).toBe(true);
+    expect(parsed.content.charCodeAt(0)).not.toBe(0xfeff);
+  });
+
+  it("loads a BOM-prefixed canonical rule with its declared id and precedence, not the filename fallback", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-canonical-bom-"));
+    await mkdir(join(tempDir, "rules"), { recursive: true });
+    await writeFile(
+      join(tempDir, "rules", "hatch3r-security-patterns.md"),
+      `${BOM}---\nid: hatch3r-security-patterns\ntype: rule\ndescription: security floor\nprecedence: critical\ntags: ["floor:security"]\n---\n# Body`,
+    );
+
+    const warnings: string[] = [];
+    const results = await readCanonicalFiles(tempDir, "rules", warnings);
+
+    expect(results).toHaveLength(1);
+    // Declared id is preserved (without the fix this would fall back to the
+    // filename-derived "hatch3r-security-patterns" by accident, but type would
+    // default to "rule" and precedence/tags would be dropped).
+    expect(results[0]!.id).toBe("hatch3r-security-patterns");
+    expect(results[0]!.precedence).toBe("critical");
+    expect(results[0]!.tags).toContain("floor:security");
+    // The encoding mistake surfaces as a warning rather than staying silent.
+    expect(warnings.some((w) => w.includes("ENCODING") && w.includes("BOM"))).toBe(true);
+  });
+
+  it("stores BOM-free rawContent so adapters re-emitting it do not leak the BOM", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-canonical-bom-raw-"));
+    await mkdir(join(tempDir, "rules"), { recursive: true });
+    await writeFile(
+      join(tempDir, "rules", "bom-raw.md"),
+      `${BOM}---\nid: bom-raw\ntype: rule\ndescription: d\n---\n# Body`,
+    );
+
+    const results = await readCanonicalFiles(tempDir, "rules");
+    expect(results).toHaveLength(1);
+    expect(results[0]!.rawContent.charCodeAt(0)).not.toBe(0xfeff);
+    expect(results[0]!.rawContent.startsWith("---")).toBe(true);
   });
 });
 

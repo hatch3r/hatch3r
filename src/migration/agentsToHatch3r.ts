@@ -1,5 +1,5 @@
-import { access, mkdir, readdir, rename, rmdir, stat } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { access, mkdir, readFile, readdir, rename, rmdir, stat } from "node:fs/promises";
+import { dirname, join, relative } from "node:path";
 import { HATCH3R_DIR, MANIFEST_FILE } from "../types.js";
 
 /**
@@ -34,12 +34,50 @@ const AGENTS_DIR = ".agents";
  * Returns the list of repo-relative paths that moved so callers can surface
  * a single consolidated warning to the operator.
  */
+
+/**
+ * D8-F8.1.2 conflict report. Surfaced to the operator when a destination-exists
+ * branch hides divergent content between the legacy `.agents/` source and the
+ * already-present `.hatch3r/` destination — the Silent Failure Contract
+ * requires the operator to see this rather than silently keep the destination.
+ */
+export interface MigrationConflict {
+  /** Repo-relative legacy path that could not be moved. */
+  sourcePath: string;
+  /** Repo-relative destination path that already existed. */
+  destPath: string;
+  /** Whether the conflict involved a file or a directory subtree. */
+  kind: "file" | "directory";
+  /** Human-readable description of the divergence. */
+  reason: string;
+}
+
 export interface AgentsToHatch3rMigrationResult {
   /** Repo-relative paths that were moved from `.agents/` to `.hatch3r/`. */
   moved: string[];
   /** True when the now-empty `.agents/` directory was removed. */
   removedLegacyDir: boolean;
+  /**
+   * Conflicts where both `.agents/` source and `.hatch3r/` destination existed
+   * with divergent content — the move was skipped and the operator must
+   * decide whether to discard the legacy copy or reconcile. Surfaced to
+   * stderr by `migrateAgentsToHatch3r` and exposed here for programmatic
+   * callers (workspace sync, future re-init flows). Empty in the steady state.
+   */
+  conflicts: MigrationConflict[];
 }
+
+/**
+ * Discriminated-union result for an individual move attempt. Lets the caller
+ * distinguish a no-op (source missing, fast path) from a swallowed conflict
+ * (destination present with divergent content) — fix for D8-F8.1.2.
+ */
+type MoveOutcome =
+  | { moved: true }
+  | { moved: false; reason: "source-missing" }
+  | { moved: false; reason: "destination-exists"; identical: true }
+  | { moved: false; reason: "destination-exists"; identical: false; detail: string }
+  | { moved: false; reason: "not-a-directory" };
 
 async function exists(path: string): Promise<boolean> {
   try {
@@ -51,28 +89,162 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
+/**
+ * Byte-by-byte equality between two regular files. Read fully into memory
+ * because the migration shim only handles small bookkeeping files
+ * (`hatch.json`, `mcp.json`) — multi-MB payloads are out of scope.
+ */
+async function filesEqual(a: string, b: string): Promise<boolean> {
+  const [aStat, bStat] = await Promise.all([stat(a), stat(b)]);
+  if (aStat.size !== bStat.size) return false;
+  const [aBuf, bBuf] = await Promise.all([readFile(a), readFile(b)]);
+  return aBuf.equals(bBuf);
+}
+
+/**
+ * Recursive byte-equal comparison for directory subtrees. Walks both trees in
+ * lockstep; any size/structure divergence short-circuits to false.
+ */
+async function directoriesEqual(
+  a: string,
+  b: string,
+): Promise<{ equal: true } | { equal: false; detail: string }> {
+  const [aEntries, bEntries] = await Promise.all([
+    readdir(a, { withFileTypes: true }),
+    readdir(b, { withFileTypes: true }),
+  ]);
+  const aNames = aEntries.map((e) => e.name).sort();
+  const bNames = bEntries.map((e) => e.name).sort();
+  if (aNames.length !== bNames.length || aNames.some((n, i) => n !== bNames[i])) {
+    return {
+      equal: false,
+      detail: `entry set differs (legacy: [${aNames.join(", ")}] vs destination: [${bNames.join(", ")}])`,
+    };
+  }
+  const aMap = new Map(aEntries.map((e) => [e.name, e]));
+  const bMap = new Map(bEntries.map((e) => [e.name, e]));
+  for (const name of aNames) {
+    const ae = aMap.get(name)!;
+    const be = bMap.get(name)!;
+    if (ae.isDirectory() !== be.isDirectory()) {
+      return { equal: false, detail: `entry "${name}" type differs (file vs directory)` };
+    }
+    const childA = join(a, name);
+    const childB = join(b, name);
+    if (ae.isDirectory()) {
+      const sub = await directoriesEqual(childA, childB);
+      if (!sub.equal) return sub;
+    } else if (ae.isFile()) {
+      if (!(await filesEqual(childA, childB))) {
+        return { equal: false, detail: `file "${name}" bytes differ` };
+      }
+    }
+    // Symlinks / other entry types: treat as opaque equal-by-name to avoid
+    // false positives on platform-specific filesystem oddities — the rename()
+    // itself will surface a real error when we attempt the move.
+  }
+  return { equal: true };
+}
+
 async function moveFileIfPossible(
   oldPath: string,
   newPath: string,
-): Promise<boolean> {
-  if (!(await exists(oldPath))) return false;
-  if (await exists(newPath)) return false;
+): Promise<MoveOutcome> {
+  if (!(await exists(oldPath))) return { moved: false, reason: "source-missing" };
+  if (await exists(newPath)) {
+    // D8-F8.1.2: compare bytes so a duplicate-but-identical state stays silent
+    // (idempotent re-run) while a divergent state surfaces a conflict warning.
+    let identical: boolean;
+    try {
+      identical = await filesEqual(oldPath, newPath);
+    } catch (err) {
+      // I/O failure while comparing: treat as divergent — Silent Failure
+      // Contract forbids swallowing the case where the destination might
+      // differ from the source.
+      const message = err instanceof Error ? err.message : String(err);
+      return {
+        moved: false,
+        reason: "destination-exists",
+        identical: false,
+        detail: `byte-compare failed — ${message}`,
+      };
+    }
+    if (identical) {
+      return { moved: false, reason: "destination-exists", identical: true };
+    }
+    return {
+      moved: false,
+      reason: "destination-exists",
+      identical: false,
+      detail: "destination file bytes differ from legacy source",
+    };
+  }
   await mkdir(dirname(newPath), { recursive: true });
   await rename(oldPath, newPath);
-  return true;
+  return { moved: true };
 }
 
 async function moveDirIfPossible(
   oldDir: string,
   newDir: string,
-): Promise<boolean> {
-  if (!(await exists(oldDir))) return false;
-  if (await exists(newDir)) return false;
+): Promise<MoveOutcome> {
+  if (!(await exists(oldDir))) return { moved: false, reason: "source-missing" };
   const oldStat = await stat(oldDir);
-  if (!oldStat.isDirectory()) return false;
+  if (!oldStat.isDirectory()) return { moved: false, reason: "not-a-directory" };
+  if (await exists(newDir)) {
+    let result: { equal: true } | { equal: false; detail: string };
+    try {
+      result = await directoriesEqual(oldDir, newDir);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return {
+        moved: false,
+        reason: "destination-exists",
+        identical: false,
+        detail: `subtree compare failed — ${message}`,
+      };
+    }
+    if (result.equal) {
+      return { moved: false, reason: "destination-exists", identical: true };
+    }
+    return {
+      moved: false,
+      reason: "destination-exists",
+      identical: false,
+      detail: result.detail,
+    };
+  }
   await mkdir(dirname(newDir), { recursive: true });
   await rename(oldDir, newDir);
-  return true;
+  return { moved: true };
+}
+
+/**
+ * Push a destination-exists conflict, when divergent, into the shared
+ * conflicts[] array so the top-level summary surfaces it to the operator.
+ * Identical-destination cases are silent — they represent a re-run of an
+ * already-completed migration step.
+ */
+function recordIfConflict(
+  outcome: MoveOutcome,
+  rootDir: string,
+  sourcePath: string,
+  destPath: string,
+  kind: "file" | "directory",
+  conflicts: MigrationConflict[],
+): void {
+  if (
+    outcome.moved === false &&
+    outcome.reason === "destination-exists" &&
+    outcome.identical === false
+  ) {
+    conflicts.push({
+      sourcePath: relative(rootDir, sourcePath),
+      destPath: relative(rootDir, destPath),
+      kind,
+      reason: outcome.detail,
+    });
+  }
 }
 
 /**
@@ -88,51 +260,60 @@ export async function migrateAgentsToHatch3r(
   rootDir: string,
 ): Promise<AgentsToHatch3rMigrationResult> {
   const moved: string[] = [];
+  const conflicts: MigrationConflict[] = [];
   const oldRoot = join(rootDir, AGENTS_DIR);
 
   // Fast path: no legacy directory at all.
   if (!(await exists(oldRoot))) {
-    return { moved, removedLegacyDir: false };
+    return { moved, removedLegacyDir: false, conflicts };
   }
 
   // hatch.json
-  if (
-    await moveFileIfPossible(
-      join(oldRoot, MANIFEST_FILE),
-      join(rootDir, HATCH3R_DIR, MANIFEST_FILE),
-    )
-  ) {
-    moved.push(`${AGENTS_DIR}/${MANIFEST_FILE} -> ${HATCH3R_DIR}/${MANIFEST_FILE}`);
+  {
+    const oldP = join(oldRoot, MANIFEST_FILE);
+    const newP = join(rootDir, HATCH3R_DIR, MANIFEST_FILE);
+    const outcome = await moveFileIfPossible(oldP, newP);
+    if (outcome.moved) {
+      moved.push(`${AGENTS_DIR}/${MANIFEST_FILE} -> ${HATCH3R_DIR}/${MANIFEST_FILE}`);
+    } else {
+      recordIfConflict(outcome, rootDir, oldP, newP, "file", conflicts);
+    }
   }
 
   // learnings/ (whole subtree)
-  if (
-    await moveDirIfPossible(
-      join(oldRoot, "learnings"),
-      join(rootDir, HATCH3R_DIR, "learnings"),
-    )
-  ) {
-    moved.push(`${AGENTS_DIR}/learnings/ -> ${HATCH3R_DIR}/learnings/`);
+  {
+    const oldP = join(oldRoot, "learnings");
+    const newP = join(rootDir, HATCH3R_DIR, "learnings");
+    const outcome = await moveDirIfPossible(oldP, newP);
+    if (outcome.moved) {
+      moved.push(`${AGENTS_DIR}/learnings/ -> ${HATCH3R_DIR}/learnings/`);
+    } else {
+      recordIfConflict(outcome, rootDir, oldP, newP, "directory", conflicts);
+    }
   }
 
   // handoffs/ (whole subtree)
-  if (
-    await moveDirIfPossible(
-      join(oldRoot, "handoffs"),
-      join(rootDir, HATCH3R_DIR, "handoffs"),
-    )
-  ) {
-    moved.push(`${AGENTS_DIR}/handoffs/ -> ${HATCH3R_DIR}/handoffs/`);
+  {
+    const oldP = join(oldRoot, "handoffs");
+    const newP = join(rootDir, HATCH3R_DIR, "handoffs");
+    const outcome = await moveDirIfPossible(oldP, newP);
+    if (outcome.moved) {
+      moved.push(`${AGENTS_DIR}/handoffs/ -> ${HATCH3R_DIR}/handoffs/`);
+    } else {
+      recordIfConflict(outcome, rootDir, oldP, newP, "directory", conflicts);
+    }
   }
 
   // mcp/mcp.json (single file under mcp/)
-  if (
-    await moveFileIfPossible(
-      join(oldRoot, "mcp", "mcp.json"),
-      join(rootDir, HATCH3R_DIR, "mcp", "mcp.json"),
-    )
-  ) {
-    moved.push(`${AGENTS_DIR}/mcp/mcp.json -> ${HATCH3R_DIR}/mcp/mcp.json`);
+  {
+    const oldP = join(oldRoot, "mcp", "mcp.json");
+    const newP = join(rootDir, HATCH3R_DIR, "mcp", "mcp.json");
+    const outcome = await moveFileIfPossible(oldP, newP);
+    if (outcome.moved) {
+      moved.push(`${AGENTS_DIR}/mcp/mcp.json -> ${HATCH3R_DIR}/mcp/mcp.json`);
+    } else {
+      recordIfConflict(outcome, rootDir, oldP, newP, "file", conflicts);
+    }
   }
   // If `.agents/mcp/` is now empty (we just moved its only file), drop it
   // so the legacy-dir emptiness check below has a chance to clear `.agents/`.
@@ -157,17 +338,20 @@ export async function migrateAgentsToHatch3r(
   // The whole `.agents/user/` subtree relocates wholesale; `resolveUserContentRoot`
   // now resolves to `.hatch3r/overrides/` so adapter reads + saveUserContent
   // follow the new path automatically.
-  if (
-    await moveDirIfPossible(
-      join(oldRoot, "user"),
-      join(rootDir, HATCH3R_DIR, "overrides"),
-    )
-  ) {
-    moved.push(`${AGENTS_DIR}/user/ -> ${HATCH3R_DIR}/overrides/`);
+  {
+    const oldP = join(oldRoot, "user");
+    const newP = join(rootDir, HATCH3R_DIR, "overrides");
+    const outcome = await moveDirIfPossible(oldP, newP);
+    if (outcome.moved) {
+      moved.push(`${AGENTS_DIR}/user/ -> ${HATCH3R_DIR}/overrides/`);
+    } else {
+      recordIfConflict(outcome, rootDir, oldP, newP, "directory", conflicts);
+    }
   }
 
   // Attempt to remove the now-empty `.agents/` shell. Anything left behind
-  // (e.g. `.agents/.integrity.json` until Wave 7) keeps the directory.
+  // (e.g. `.agents/.integrity.json` until Wave 7, or any of the
+  // destination-exists conflicts above) keeps the directory.
   let removedLegacyDir = false;
   try {
     const remaining = await readdir(oldRoot);
@@ -191,5 +375,17 @@ export async function migrateAgentsToHatch3r(
     );
   }
 
-  return { moved, removedLegacyDir };
+  // D8-F8.1.2: surface every divergent destination-exists case to the
+  // operator. Silent skips violate the Silent Failure Contract because the
+  // operator cannot distinguish a successful migration from a partial one.
+  if (conflicts.length > 0) {
+    const lines = conflicts.map(
+      (c) => `  - ${c.sourcePath} vs ${c.destPath} (${c.kind}): ${c.reason}`,
+    );
+    console.warn(
+      `[hatch3r] Migration conflicts detected — both ${AGENTS_DIR}/ source and ${HATCH3R_DIR}/ destination exist with divergent content. The legacy copy was kept in place; reconcile manually before re-running:\n${lines.join("\n")}`,
+    );
+  }
+
+  return { moved, removedLegacyDir, conflicts };
 }

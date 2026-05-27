@@ -114,10 +114,25 @@ export async function detectSubRepos(rootDir: string): Promise<DetectedRepo[]> {
 }
 
 /**
+ * F1.9-H2 (Cycle 10 D1): maximum number of parent directories to walk when
+ * classifying a directory as a workspace member. The prior hard cap of 3 was
+ * undocumented and too shallow: a real monorepo layout such as
+ * `apps/<area>/<name>/src/` puts a member 4+ levels below the workspace root,
+ * so the walk exited early and mis-classified the repo as `standalone`. A
+ * value of 10 covers observed nesting depths in pnpm/nx/turborepo layouts
+ * (sources in the finding) with margin; the walk still terminates early at the
+ * filesystem root (`parent === current`). Raising rather than removing the cap
+ * keeps a bounded upper limit on filesystem probes per call.
+ */
+const MAX_WORKSPACE_PARENT_WALK = 10;
+
+/**
  * Classification of a directory's relationship to a workspace.
  *
  * - `workspace-root`: directory contains `.agents/workspace.json`
- * - `workspace-member`: directory is inside a workspace root (up to 3 levels up)
+ * - `workspace-member`: directory is inside a workspace root (up to
+ *   {@link MAX_WORKSPACE_PARENT_WALK} levels up, or the filesystem root,
+ *   whichever comes first)
  * - `standalone`: no workspace relationship detected
  */
 export interface WorkspaceContext {
@@ -161,9 +176,14 @@ export async function detectWorkspaceContext(dir: string): Promise<WorkspaceCont
     new Error("ENOENT on both new and legacy paths"),
   );
 
-  // Check 2: Walk up to 3 levels looking for workspace.json
+  // Check 2: Walk up toward the filesystem root looking for workspace.json.
+  // F1.9-H2: cap raised from 3 to MAX_WORKSPACE_PARENT_WALK so deeply-nested
+  // monorepo members (e.g. `apps/<area>/<name>/src/`) are still classified as
+  // members instead of falling through to `standalone`.
   let current = dirname(dir);
-  for (let i = 0; i < 3; i++) {
+  const visited: string[] = [dir];
+  for (let i = 0; i < MAX_WORKSPACE_PARENT_WALK; i++) {
+    visited.push(current);
     if (await accessHatchOrLegacy(current, WORKSPACE_MANIFEST_FILE)) {
       return {
         type: "workspace-member",
@@ -180,6 +200,15 @@ export async function detectWorkspaceContext(dir: string): Promise<WorkspaceCont
     current = parent;
   }
 
+  // F1.9-H2: emit a single verbose() summary of the search path when the walk
+  // terminates without a workspace root, so an operator who expected a member
+  // classification can see how far the walk reached (Silent Failure Contract,
+  // CONSTITUTION §2 P5).
+  verbose(
+    `workspace/detect: ${dir} classified standalone — no ${WORKSPACE_MANIFEST_FILE} ` +
+      `found walking ${visited.length} dir(s) up to ${current} ` +
+      `(cap ${MAX_WORKSPACE_PARENT_WALK})`,
+  );
   return { type: "standalone" };
 }
 

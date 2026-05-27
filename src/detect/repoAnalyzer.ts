@@ -1,6 +1,6 @@
 import { access, readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
-import type { Framework, RepoInfo, Tool } from "../types.js";
+import type { Framework, PackageEntry, RepoInfo, Tool } from "../types.js";
 import { detectPackageManager } from "./packageManager.js";
 
 /**
@@ -110,6 +110,193 @@ async function detectMonorepo(rootDir: string): Promise<boolean> {
   }
 
   return false;
+}
+
+/**
+ * F14.2-H1 (D14): Enumerate the package directories of a monorepo so the
+ * manifest's `packages: PackageEntry[]` can be populated as a first-class
+ * structure rather than a `detectMonorepo()` boolean.
+ *
+ * Resolution order follows the package-manager workspace definition, which is
+ * the authoritative source per Turborepo's repository-structure guide
+ * (https://turborepo.dev/docs/crafting-your-repository/structuring-a-repository,
+ * accessed 2026-05-27): `turbo.json`/`nx.json` flag a monorepo but defer the
+ * package globs to the package manager. Globs are read from
+ * `pnpm-workspace.yaml` (`packages:` list — https://pnpm.io/workspaces,
+ * accessed 2026-05-27), the root `package.json` `workspaces` field, and the
+ * `lerna.json` `packages` array. A candidate directory qualifies only when it
+ * contains its own `package.json` (the Turborepo "directory with a
+ * package.json" rule).
+ *
+ * Only single-level patterns (`dir/*`, trailing `/**`, and exact paths) are
+ * expanded — this covers the dominant `packages/*` / `apps/*` convention.
+ * Deeper recursive globs collapse to their first directory segment. Returns an
+ * empty array when no workspace globs resolve to a package directory.
+ *
+ * @param rootDir - Absolute path to the repository root directory.
+ */
+export async function detectMonorepoPackages(rootDir: string): Promise<PackageEntry[]> {
+  const patterns = await collectWorkspaceGlobs(rootDir);
+  if (patterns.length === 0) return [];
+
+  // Map first-path-segment prefix → set of glob remainders, so each parent
+  // directory is read at most once regardless of how many patterns target it.
+  const byPrefix = new Map<string, boolean>();
+  for (const pattern of patterns) {
+    const normalized = pattern.replace(/\\/g, "/").replace(/\/+$/, "");
+    if (normalized.length === 0 || normalized.startsWith("/")) continue;
+    const segments = normalized.split("/").filter(Boolean);
+    if (segments.length === 0) continue;
+
+    // Exact path with no wildcard segment → treat as a single package dir.
+    if (!normalized.includes("*")) {
+      byPrefix.set(normalized, false);
+      continue;
+    }
+
+    // Wildcard pattern (e.g. "packages/*", "apps/**"): enumerate one level
+    // under the leading non-wildcard prefix.
+    const prefixSegments: string[] = [];
+    for (const seg of segments) {
+      if (seg.includes("*")) break;
+      prefixSegments.push(seg);
+    }
+    byPrefix.set(prefixSegments.join("/"), true);
+  }
+
+  const found = new Map<string, PackageEntry>();
+
+  for (const [prefix, isWildcard] of byPrefix) {
+    if (!isWildcard) {
+      await addPackageIfPresent(rootDir, prefix, found);
+      continue;
+    }
+
+    const parentRel = prefix;
+    const parentAbs = parentRel.length > 0 ? join(rootDir, parentRel) : rootDir;
+    let entries: { name: string; isDirectory: () => boolean }[];
+    try {
+      entries = await readdir(parentAbs, { withFileTypes: true });
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT" || (err as NodeJS.ErrnoException).code === "ENOTDIR") continue;
+      throw err;
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
+      const rel = parentRel.length > 0 ? `${parentRel}/${entry.name}` : entry.name;
+      await addPackageIfPresent(rootDir, rel, found);
+    }
+  }
+
+  return [...found.values()].sort((a, b) => a.path.localeCompare(b.path));
+}
+
+/**
+ * Collect the raw workspace glob patterns declared by the repo's package
+ * manager. Reads `pnpm-workspace.yaml` (`packages:` list), root `package.json`
+ * `workspaces` (array form or `{ packages: [...] }` object form), and
+ * `lerna.json` `packages`. Missing/malformed files contribute nothing.
+ */
+async function collectWorkspaceGlobs(rootDir: string): Promise<string[]> {
+  const globs: string[] = [];
+
+  // pnpm-workspace.yaml — minimal `packages:` list parser (no YAML dep available).
+  try {
+    const raw = await readFile(join(rootDir, "pnpm-workspace.yaml"), "utf-8");
+    globs.push(...parsePnpmWorkspacePackages(raw));
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  }
+
+  // package.json workspaces (array or { packages: [...] }).
+  try {
+    const raw = await readFile(join(rootDir, "package.json"), "utf-8");
+    const pkg = JSON.parse(raw);
+    const ws = pkg.workspaces;
+    if (Array.isArray(ws)) {
+      globs.push(...ws.filter((w: unknown): w is string => typeof w === "string"));
+    } else if (ws && typeof ws === "object" && Array.isArray(ws.packages)) {
+      globs.push(...ws.packages.filter((w: unknown): w is string => typeof w === "string"));
+    }
+  } catch (err) {
+    const isExpected = (err as NodeJS.ErrnoException).code === "ENOENT" || err instanceof SyntaxError;
+    if (!isExpected) throw err;
+  }
+
+  // lerna.json packages.
+  try {
+    const raw = await readFile(join(rootDir, "lerna.json"), "utf-8");
+    const lerna = JSON.parse(raw);
+    if (Array.isArray(lerna.packages)) {
+      globs.push(...lerna.packages.filter((w: unknown): w is string => typeof w === "string"));
+    }
+  } catch (err) {
+    const isExpected = (err as NodeJS.ErrnoException).code === "ENOENT" || err instanceof SyntaxError;
+    if (!isExpected) throw err;
+  }
+
+  return globs;
+}
+
+/**
+ * Parse the `packages:` block of a `pnpm-workspace.yaml` file into a list of
+ * glob strings. Handles the common shape:
+ *
+ *   packages:
+ *     - "packages/*"
+ *     - 'apps/*'
+ *
+ * Stops at the next top-level key. Comments and blank lines are ignored. This
+ * is a targeted parser, not a general YAML reader — non-list `packages:` shapes
+ * yield nothing.
+ */
+function parsePnpmWorkspacePackages(raw: string): string[] {
+  const lines = raw.split(/\r?\n/);
+  const result: string[] = [];
+  let inPackages = false;
+  for (const line of lines) {
+    if (/^\s*#/.test(line) || line.trim().length === 0) continue;
+    if (!inPackages) {
+      if (/^packages\s*:/.test(line)) inPackages = true;
+      continue;
+    }
+    // A new top-level key (no leading whitespace, contains a colon) ends the block.
+    if (/^\S.*:/.test(line)) break;
+    const m = line.match(/^\s*-\s*(.+)\s*$/);
+    if (m) {
+      const value = m[1].trim().replace(/^["']|["']$/g, "");
+      if (value.length > 0) result.push(value);
+    }
+  }
+  return result;
+}
+
+/**
+ * Add `{ name, path }` for `relPath` to `found` when `relPath/package.json`
+ * exists. `name` is the package.json `name` field when present, else the
+ * directory basename. `path` is the POSIX-style relative path from rootDir.
+ */
+async function addPackageIfPresent(
+  rootDir: string,
+  relPath: string,
+  found: Map<string, PackageEntry>,
+): Promise<void> {
+  const normalized = relPath.replace(/\\/g, "/");
+  if (found.has(normalized)) return;
+  const pkgJsonPath = join(rootDir, normalized, "package.json");
+  let name = normalized.split("/").filter(Boolean).pop() ?? normalized;
+  try {
+    const raw = await readFile(pkgJsonPath, "utf-8");
+    const pkg = JSON.parse(raw);
+    if (typeof pkg.name === "string" && pkg.name.length > 0) name = pkg.name;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") return; // not a package dir
+    if (!(err instanceof SyntaxError)) throw err;
+    // Malformed package.json: still a package dir, fall back to basename name.
+  }
+  found.set(normalized, { name, path: normalized });
 }
 
 /** Check whether a `.agents/` directory already exists in the repo root. */

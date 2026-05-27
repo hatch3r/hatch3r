@@ -143,10 +143,18 @@ npm run lint && npm run typecheck && npm run test
 
 Report back to the parent orchestrator with:
 
+The `Delegation proof ID` field below is a short identifier the orchestrator quotes verbatim in its closing End-of-Turn Delegation Attestation (defined in `rules/hatch3r-agent-orchestration.md` -> End-of-Turn Delegation Attestation). Set it to a memorable token derived from the review iteration or task (e.g., `fix-#34-pr-iter2` or `fix-feat-followup-stream-1`); the orchestrator cannot fabricate a plausible value without spawning this agent first, so the field functions as a forgery-resistant attribution token for files mutated by Phase 3 (closes the gap previously left by emitting no analogue to the implementer's proof field — audit Cycle 10 F5.1-H1).
+
+The `Reviewer re-run required` field is a structured signal to the parent orchestrator: when `true`, the orchestrator MUST spawn another `hatch3r-reviewer` pass before declaring the review loop clean — fixer self-approval (`Status: SUCCESS` plus a unilateral `Verification: Tests PASS`) is not sufficient evidence on its own. Set `false` ONLY when no files were modified (e.g., all findings reported BLOCKED). This closes the fixer self-approval loophole flagged in audit Cycle 10 F15.2-H2 by carrying an explicit reviewer-loop continuation signal in the structured result rather than relying solely on the orchestrator-LLM to remember the protocol.
+
 ```
 ## Fix Result
 
 **Status:** SUCCESS | PARTIAL | BLOCKED
+
+**Delegation proof ID:** <short identifier — orchestrator quotes this verbatim in its End-of-Turn Delegation Attestation>
+
+**Reviewer re-run required:** true | false (default true when Status = SUCCESS | PARTIAL; false only when no files were modified)
 
 **Findings addressed:**
 - [CRITICAL #1] file:line -- description of fix applied
@@ -204,6 +212,10 @@ When producing fix results, be aware that a PARTIAL status with unresolved findi
 ## Fix Result
 
 **Status:** SUCCESS
+
+**Delegation proof ID:** fix-#34-pr-iter2
+
+**Reviewer re-run required:** true
 
 **Findings addressed:**
 - [CRITICAL #1] src/routes/billing.ts:42 -- added toInvoiceResponse() DTO to filter internal billing IDs and provider tokens from response

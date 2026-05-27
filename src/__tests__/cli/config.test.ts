@@ -117,6 +117,9 @@ vi.mock("../../cli/shared/agentsContent.js", () => ({
 
 vi.mock("../../merge/safeWrite.js", () => ({
   safeWriteFile: vi.fn(),
+  // F1.2-H1 (Cycle 10): configCommand wraps its body in an outer manifest
+  // lock; mock returns a no-op release so tests do not need HATCH3R_LOCK=1.
+  acquireWriteLock: vi.fn().mockResolvedValue(async () => {}),
 }));
 
 vi.mock("../../env/mcpEnv.js", () => ({
@@ -663,7 +666,13 @@ describe("config command", () => {
       expect(writtenManifest.content?.items.agents).toContain("hatch3r-test-writer");
     });
 
-    it("should regenerate AGENTS.md after content changes", async () => {
+    it("should NOT emit AGENTS.md after content changes (F10.5-1 Cycle 10)", async () => {
+      // F10.5-1 (Cycle 10): config.ts no longer emits canonical or root
+      // AGENTS.md after content changes — aligns with sync.ts:303 +
+      // init.ts:509-510 + update.ts:304-306 Wave 3 contract. Adapters source
+      // canonical content from the bundled package via
+      // resolveBundledContentRoot(); writing AGENTS.md from config left a
+      // dangling root AGENTS.md after tool switches or `hatch3r clean`.
       const contentItems = makeContentSelection({
         items: { agents: ["hatch3r-implementer"], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
       });
@@ -676,14 +685,16 @@ describe("config command", () => {
 
       await (await importConfigCommand())();
 
-      expect(vi.mocked(generateCanonicalAgentsMd)).toHaveBeenCalled();
-      expect(vi.mocked(safeWriteFile)).toHaveBeenCalledWith(
-        expect.stringContaining("AGENTS.md"),
-        "# AGENTS.md content",
+      // Neither canonical nor root AGENTS.md should be written by config.
+      expect(vi.mocked(generateCanonicalAgentsMd)).not.toHaveBeenCalled();
+      expect(vi.mocked(generateRootAgentsMd)).not.toHaveBeenCalled();
+      const agentsMdWrites = vi.mocked(safeWriteFile).mock.calls.filter(
+        ([p]) => typeof p === "string" && p.endsWith("AGENTS.md"),
       );
+      expect(agentsMdWrites).toHaveLength(0);
     });
 
-    it("should not regenerate AGENTS.md when no content changes", async () => {
+    it("should not regenerate AGENTS.md when no content changes (F10.5-1 Cycle 10)", async () => {
       const contentItems = makeContentSelection({
         items: { agents: ["hatch3r-implementer"], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
       });

@@ -206,7 +206,10 @@ describe("findMainWorktree", () => {
     writeFileSync(join(tempDir, ".git"), `gitdir: ${gitdirPath}\n`, "utf-8");
 
     const result = findMainWorktree(tempDir);
-    expect(result).toBe(mainRepoDir);
+    // F1.10-H1: findMainWorktree now canonicalises via realpathSync.native,
+    // so the expected value must be canonicalised too (on macOS the temp dir
+    // is under /var which realpath resolves to /private/var).
+    expect(result).toBe(realpathSync.native(mainRepoDir));
 
     rmSync(mainRepoDir, { recursive: true, force: true });
   });
@@ -227,7 +230,8 @@ describe("findMainWorktree", () => {
     writeFileSync(join(tempDir, ".git"), `gitdir: ${relPath}\n`, "utf-8");
 
     const result = findMainWorktree(tempDir);
-    expect(result).toBe(mainRepoDir);
+    // F1.10-H1: canonicalised return (see note above).
+    expect(result).toBe(realpathSync.native(mainRepoDir));
 
     rmSync(mainRepoDir, { recursive: true, force: true });
   });
@@ -242,6 +246,29 @@ describe("findMainWorktree", () => {
 
   it("throws when .git file does not exist", () => {
     expect(() => findMainWorktree(tempDir)).toThrow();
+  });
+
+  // F1.10-H1 (Cycle 10 D1): findMainWorktree must return a path that compares
+  // byte-for-byte against listWorktrees (which already realpath.native's every
+  // porcelain path). On macOS os.tmpdir() lives under /var → /private/var; an
+  // un-canonicalised findMainWorktree would diverge and break the
+  // worktree-setup/cleanup pairing's string comparison.
+  it("returns a path byte-for-byte equal to listWorktrees()[0].path for a real worktree", () => {
+    const mainRoot = makeTempGitRepo();
+    try {
+      commitInitial(mainRoot);
+      const wtPath = join(mainRoot, WORKTREES_DIR, "feat-parity");
+      addGitWorktree(mainRoot, "feat-parity", wtPath);
+
+      // The worktree's .git file points back at the main repo; findMainWorktree
+      // resolves it. Its result must equal listWorktrees(mainRoot)[0].path —
+      // the canonicalised main-worktree path — exactly.
+      const fromFind = findMainWorktree(wtPath);
+      const fromList = listWorktrees(mainRoot)[0].path;
+      expect(fromFind).toBe(fromList);
+    } finally {
+      rmSync(mainRoot, { recursive: true, force: true });
+    }
   });
 });
 

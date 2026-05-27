@@ -25,7 +25,7 @@
  */
 
 import { join } from "node:path";
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir, readFile, copyFile } from "node:fs/promises";
 import { atomicWriteFile } from "../merge/safeWrite.js";
 import { HatchError } from "../types.js";
 
@@ -171,11 +171,49 @@ export async function writeCheckpoint(
 }
 
 /**
+ * F1.5-H1 (Cycle 10 D1): Before {@link readCheckpoint} throws on a malformed
+ * (unparseable or schema-invalid) checkpoint, preserve a copy at
+ * `<workspace>/checkpoint.json.corrupt-<ISO>` so the operator — and a future
+ * migration tool — can inspect what was on disk. The original throw branch
+ * previously instructed "Delete the file and re-run from scratch" with no
+ * backup; a schema-version mismatch during an upgrade takes the same branch,
+ * so the only recoverable artifact would otherwise be destroyed. Returns the
+ * backup path on success or `null` when the copy itself fails (best-effort —
+ * a failed backup must not mask the underlying corruption error).
+ */
+async function preserveCorruptCheckpoint(path: string): Promise<string | null> {
+  // Colons in an ISO timestamp are illegal on Windows file systems; replace
+  // them with hyphens so the backup path is portable.
+  const stamp = new Date().toISOString().replace(/:/g, "-");
+  const backupPath = `${path}.corrupt-${stamp}`;
+  try {
+    await copyFile(path, backupPath);
+    return backupPath;
+  } catch (err) {
+    // Silent Failure Contract (CONSTITUTION §2 P5): the backup is best-effort
+    // — its failure must not mask the corruption error that is about to throw
+    // — but the operator still needs to know the copy did not happen, so the
+    // recovery hint does not promise a preserved file that is not there.
+    console.error(
+      `hatch3r: could not preserve corrupt checkpoint ${path} to ${backupPath}: ` +
+        `${err instanceof Error ? err.message : String(err)}`,
+    );
+    return null;
+  }
+}
+
+/**
  * Read `<workspace>/checkpoint.json` and return the parsed checkpoint,
  * or `null` if the file is absent. Throws when the file exists but is
  * malformed — silently swallowing a corrupt checkpoint would let an
  * operator resume into an undefined state, violating P5 Silent Failure
  * Contract.
+ *
+ * F1.5-H1 (Cycle 10): on a malformed checkpoint the corrupt file is first
+ * copied to `<workspace>/checkpoint.json.corrupt-<ISO>` (see
+ * {@link preserveCorruptCheckpoint}); the thrown recovery hint names the
+ * preserved copy so a schema-version mismatch hit during an upgrade does not
+ * cost the operator the only inspectable artifact.
  */
 export async function readCheckpoint(workspace: string): Promise<Checkpoint | null> {
   const path = checkpointPath(workspace);
@@ -192,20 +230,28 @@ export async function readCheckpoint(workspace: string): Promise<Checkpoint | nu
     parsed = JSON.parse(raw);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    const backupPath = await preserveCorruptCheckpoint(path);
+    const recovery = backupPath
+      ? `The corrupt file was preserved at ${backupPath} for inspection. Delete ${path} and re-run from scratch, or restore the file from a known-good source.`
+      : `Delete ${path} and re-run from scratch, or restore the file from a known-good source.`;
     throw new HatchError(
       `checkpoint.json at ${path} is not valid JSON: ${msg}`,
       1,
       "VALIDATION_ERROR",
-      `Delete ${path} and re-run from scratch, or restore the file from a known-good source.`,
+      recovery,
     );
   }
   const validationError = validateCheckpoint(parsed);
   if (validationError !== null) {
+    const backupPath = await preserveCorruptCheckpoint(path);
+    const recovery = backupPath
+      ? `The mismatched file was preserved at ${backupPath} for inspection or migration. Delete ${path} and re-run from scratch.`
+      : `Delete ${path} and re-run from scratch.`;
     throw new HatchError(
       `checkpoint.json at ${path} failed validation: ${validationError}`,
       1,
       "VALIDATION_ERROR",
-      `Delete ${path} and re-run from scratch.`,
+      recovery,
     );
   }
   return parsed as Checkpoint;

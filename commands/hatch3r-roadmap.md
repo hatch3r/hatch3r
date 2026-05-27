@@ -575,9 +575,9 @@ Which would you like to run next? (or none)"
 - **Stage assessment unclear:** Default to "early-revenue" if the user is unsure. This provides balanced prioritization without over- or under-engineering the roadmap.
 - **No business specs found:** If only technical specs exist (legacy layout), generate a technical-only roadmap and recommend running `hatch3r-project-spec` or `hatch3r-codebase-map` to create business specs.
 
-## Adapter Breadth as Differentiation
+## Adapter Parity Within the Supported Set
 
-Hatch3r's breadth across 13+ adapters (Claude, Cursor, Windsurf, Cline, Copilot, Codex, Gemini, Amp, Aider, Goose, Kiro, OpenCode, Zed) is a core differentiation strategy. To maintain this moat, recommend periodic adapter parity audits as part of any roadmap that includes hatch3r-internal work. The audit should verify that no adapter has fallen behind in feature support (e.g., missing MCP, hooks, or skills support that other adapters already handle). Adapter parity gaps should be tracked as `[TECH]` items at P2 priority or higher.
+hatch3r supports 3 adapters as of 1.9.0 (Cursor, Claude Code, Copilot). Adapter parity within that supported set is enforced by capability-matrix tests; no adapter-parity work should land in roadmaps unless those tests detect a regression. If a regression is detected, track the gap as a `[TECH]` item at P2 priority or higher.
 
 ## Guardrails
 

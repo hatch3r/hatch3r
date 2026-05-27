@@ -58,7 +58,7 @@ Verify compliance with `rules/hatch3r-security-patterns.md`, `rules/hatch3r-code
 4. **Code quality:** Per code-standards rule — TypeScript strict, no `any`, naming conventions, function/file size limits.
 5. **Tests:** Per testing rule — regression tests for bug fixes, new logic has unit tests, edge cases covered, coverage thresholds met.
 6. **Performance:** No hot-path regressions. Bundle size impact. No per-keystroke cloud writes.
-7. **Accessibility:** Reduced motion respected. WCAG AA contrast. Keyboard accessible. ARIA attributes.
+7. **Accessibility (quick-scan):** Reduced motion respected, WCAG 2.2 AA contrast, keyboard accessible, ARIA attributes present. Full UI/UX conformance — axe-core, WCAG 2.2 SC 2.5.8/2.4.11/2.5.7, four-state contract, design-token adoption, AI-UX patterns, Core Web Vitals — is reviewed under the `ui-ux.review` surface (item 20).
 8. **Dead code:** No unused imports, obsolete comments, or abandoned logic.
 9. **Root-cause verification:** Do the changes address the underlying cause of the issue, not just the symptom? Identify what the original issue was (from the issue body, acceptance criteria, or diff context), then verify the change fixes the root cause. Flag superficial fixes -- e.g., adding a try-catch that swallows errors, adding a comment saying "fixed", disabling a test, or suppressing a warning without resolving the underlying condition. If the change treats only the symptom, classify as Critical and specify what root-cause fix is needed.
 10. **Error handling completeness:** Verify that new code paths have appropriate error handling. Check for: unhandled promise rejections, missing catch blocks on async operations, error swallowing (catch with empty body), missing error propagation to callers, and missing user-facing error messages for operations that can fail. Reference the error handling patterns in `hatch3r-code-standards` (Result types, custom error classes, error boundaries).
@@ -141,6 +141,16 @@ Verify compliance with `rules/hatch3r-security-patterns.md`, `rules/hatch3r-code
     - **WebAuthn server-side ceremony:** passkey flows implement challenge generation, RP ID binding, attestation verification, sign-count monotonicity, transports check. Missing any step is Critical.
 
     Cross-reference: `rules/hatch3r-auth-patterns.md`, `rules/hatch3r-passkey-server.md`, `agents/hatch3r-security-auditor.md`.
+
+20. **ui-ux.review** (promotes item 7 Accessibility to a full surface for UI/UX-touching diffs — files matching `**/*.{tsx,jsx,vue,svelte}`, `**/components/**`, route handlers, or async views):
+    - **axe-core clean:** the change ran axe-core (or `@axe-core/playwright`) with 0 serious/critical violations per route per component; a serious/critical violation on a public route is Critical, a missing axe-core run on a UI diff is Warning.
+    - **WCAG 2.2 AA new criteria:** SC 2.5.8 Target Size (≥24×24 CSS px hit area or 24px spacing exception), SC 2.4.11 Focus Not Obscured (focused control not hidden by sticky chrome), SC 2.5.7 Dragging Movements (single-pointer non-drag alternative). Any unmet criterion on an interactive surface is Warning; lost/trapped focus is Critical.
+    - **Four-state contract:** every async view renders loading + empty + error + partial states per `rules/hatch3r-ux-states-and-flows.md`; a missing error or empty state on a data-fetching surface is Warning.
+    - **Design-token adoption:** ≥95% of color, spacing, and typography values resolve to a design token (not a hex literal, raw `px`, or font-name literal) per `rules/hatch3r-design-system-detection.md`; adoption below 80% on color is Warning.
+    - **AI-UX patterns** (when the surface renders LLM output): streaming UI, tool-call cards, cancel/abort/undo affordances, span-grounded citations per `rules/hatch3r-ai-ux-patterns.md`; missing cancel on a streaming surface is Critical.
+    - **Core Web Vitals at p75:** LCP ≤2.5s, INP ≤200ms, CLS ≤0.1 measured at the 75th percentile per CONSTITUTION §2B CQ7; a regression past budget on a user-facing route is Warning.
+
+    Cross-reference: `skills/hatch3r-ui-ux-verify` (9-gate release check), `rules/hatch3r-accessibility-standards.md`, `agents/hatch3r-ui.md` (CQ1), `agents/hatch3r-ux.md` (CQ2). Findings reuse the severity vocabulary above. Audited under D10 SA10.9.
 
 ## Review Verdicts
 
@@ -228,6 +238,17 @@ Rate every finding, severity classification, and verdict as **high**, **medium**
 
 Apply this directly to every row in the Critical/Warning/Suggestion tables. A Critical finding at Low confidence must include a request for reproduction steps rather than an immediate REQUEST CHANGES verdict.
 
+### Runtime Confidence Calibration (second-pass on clean PASS)
+
+Your confidence rating is self-assigned by the same model that produced the verdict — without an out-of-band check it is structurally over-trusted, and over-confident models systematically under-emit `confidence: low` (arxiv:2508.06225). The cycle-close calibration sampling in `governance/audit/templates/calibration-protocol.md` measures this drift after the fact; it does not bound it at runtime. Close the runtime gap before exiting the loop on a clean PASS:
+
+- **Trigger:** every Nth consecutive clean PASS verdict (default `N=5`, project-overridable) on a review-loop exit. Track the count across the loop, not per-iteration.
+- **Action:** run one second-pass review of the same diff with a different model class when the orchestrator can route one, else the same model class re-rolled at higher temperature. The second pass renders an independent verdict + confidence.
+- **Divergence handling:** if the second pass surfaces any Critical or Warning the first pass did not, do NOT exit clean — return to `REQUEST CHANGES` and record both verdicts. If the verdicts agree, exit clean and record alignment.
+- **Logging:** append one record per second-pass to `.hatch3r/calibration-log.jsonl` (project-local) with first-pass verdict, second-pass verdict, divergence flag, and timestamp.
+
+Directive and N-default source: `rules/hatch3r-reviewer-calibration.md` (authored as a separate artifact — see Cross-reference). The project-local over-claim rate from this log feeds the iteration-summary `Confidence` field per `rules/hatch3r-iteration-summary.md`. Skip the second pass when no second model class is available AND the orchestrator has disabled same-model re-roll; in that case emit `calibration: skipped (no second pass available)` in the verdict so the gap is visible rather than silent.
+
 ## Structured Reasoning
 
 Include structured reasoning in review findings when the severity classification, verdict, or a specific recommendation requires justification:
@@ -253,14 +274,14 @@ Apply this format whenever the review verdict is non-obvious, when downgrading o
 
 This agent participates in the Phase 3 review loop (see `hatch3r-agent-orchestration`). The loop terminates when any of these conditions is met:
 
-1. **Clean verdict** -- 0 Critical + 0 Warning findings. The loop exits successfully, followed by a confirmation pass for fix-driven regressions.
+1. **Clean verdict** -- 0 Critical + 0 Warning findings. The loop exits successfully, followed by a confirmation pass for fix-driven regressions. On every Nth consecutive clean PASS (default `N=5`), run the Runtime Confidence Calibration second pass (see Confidence Expression) before exiting; a divergent second pass reverts the exit to `REQUEST CHANGES`.
 2. **Design objection** -- Verdict is `DESIGN_OBJECTION`. The loop exits immediately without fixer iteration. The objection and alternative approaches are surfaced to the user for an architectural decision.
 3. **Max iterations reached** -- After 3 review-fix cycles (default, configurable up to 10), the loop exits with status UNRESOLVED. Remaining findings are surfaced to the user.
 4. **Manual termination** -- The orchestrator or user explicitly halts the loop.
 
 Accurate severity classification directly affects loop termination. Over-classifying findings as Critical or Warning when they should be Suggestions causes unnecessary fix-review iterations. Under-classifying causes real issues to slip through. Use structured reasoning (above) when severity is non-obvious.
 
-After the loop exits clean, Phase 4 specialists run bounded by `max_phase4_parallel` (default `3`, env-overridable via `HATCH3R_MAX_PHASE4_PARALLEL`). When applicable specialists exceed the bound, the orchestrator batches them by severity priority `CRITICAL → HIGH → MEDIUM → LOW`. Severities propagated from this review (Critical / Warning / Suggestion → CRITICAL / HIGH / MEDIUM in the orchestration vocabulary) feed the orchestrator's batch scheduling — accurate classification here directly affects which specialists land in the first Phase 4 batch. See `rules/hatch3r-agent-orchestration.md` Phase 4 — Final Quality for batching semantics.
+After the loop exits clean, Phase 4 specialists run bounded by `max_phase4_parallel` (default `8`, env-overridable via `HATCH3R_MAX_PHASE4_PARALLEL`). When applicable specialists exceed the bound, the orchestrator batches them by severity priority `CRITICAL → HIGH → MEDIUM → LOW`. Severities propagated from this review (Critical / Warning / Suggestion → CRITICAL / HIGH / MEDIUM in the orchestration vocabulary) feed the orchestrator's batch scheduling — accurate classification here directly affects which specialists land in the first Phase 4 batch. See `rules/hatch3r-agent-orchestration.md` Phase 4 — Final Quality for batching semantics.
 
 **Phase 4 specialist enumeration** — legacy + CQ floor specialists dispatched in parallel per CONSTITUTION §2B (CQ1-CQ9) and KDD #22:
 
@@ -325,6 +346,7 @@ The dispatching orchestrator (workflow / revision / board-pickup / quick-change 
 - supply-chain.review: n/a — PR does not touch release pipeline
 - reliability.review: fail — no SLO file for the billing service; no timeout on the Postgres call
 - auth.review: fail — endpoint accepts bearer token without DPoP; ID token validation skips `azp` check
+- ui-ux.review: n/a — endpoint returns JSON only; no UI surface, route, or async view in this change
 ```
 
-Each review field (`copy.review`, `observability.review`, `migration.review`, `api.review`, `eval.review`, `supply-chain.review`, `reliability.review`, `auth.review`) uses the same shape: one of `pass`, `fail`, or `n/a` followed by a short rationale or a findings list. Use `n/a` when the change does not touch that surface (e.g., `observability.review: n/a` for a doc-only change). Use `fail` when any checklist item under the corresponding §12-§19 surfaces a Critical or Warning finding. A `fail` on any review field implies REQUEST CHANGES.
+Each review field (`copy.review`, `observability.review`, `migration.review`, `api.review`, `eval.review`, `supply-chain.review`, `reliability.review`, `auth.review`, `ui-ux.review`) uses the same shape: one of `pass`, `fail`, or `n/a` followed by a short rationale or a findings list. Use `n/a` when the change does not touch that surface (e.g., `observability.review: n/a` for a doc-only change, `ui-ux.review: n/a` for a backend-only change). Use `fail` when any checklist item under the corresponding §12-§20 surfaces a Critical or Warning finding. A `fail` on any review field implies REQUEST CHANGES.

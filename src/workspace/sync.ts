@@ -380,17 +380,45 @@ async function syncSingleRepo(
 
   // 2. Fallback: auto-detect from sub-repo's git remote
   if (!gitOwner && !gitRepo) {
-    const identity = detectRepoGitIdentity(repoDir);
+    // F1.9-H3 (Cycle 10 D1): thread a warnings accumulator into
+    // detectRepoGitIdentity. Previously this call discarded the function's
+    // optional `warnings` channel, so when git remote/origin was missing the
+    // helper silently returned `{ owner: "", repo: "" }` and the empty strings
+    // were persisted to the manifest with no operator signal — board/PR
+    // features then emit broken links. Forward each git-detection warning to
+    // the caller's onWarn so the failure is audible (Silent Failure Contract,
+    // CONSTITUTION §2 P5).
+    const identityWarnings: string[] = [];
+    const identity = detectRepoGitIdentity(repoDir, identityWarnings);
     gitOwner = identity.owner;
     gitRepo = identity.repo;
     gitBranch = gitBranch || identity.defaultBranch;
     gitPlatform = gitPlatform ?? identity.platform;
+    for (const w of identityWarnings) {
+      options.onWarn?.(`[${repoEntry.path}] ${w}`);
+    }
   }
 
   // 3. Fallback: existing manifest values
   if (!gitOwner && !gitRepo && existingManifest) {
     gitOwner = existingManifest.owner;
     gitRepo = existingManifest.repo;
+  }
+
+  // F1.9-H3 (Cycle 10 D1): after ALL three fallback tiers (workspace.json
+  // entry, git remote, existing manifest) — when owner AND repo are still
+  // empty — surface one consolidated, sub-repo-scoped warning. Emitting here
+  // (not inside the git-detect block) avoids a false warning when tier 3
+  // recovers the identity from an existing manifest. Without this the empty
+  // strings are persisted silently and board/PR features emit broken links
+  // (Silent Failure Contract, CONSTITUTION §2 P5).
+  if (!gitOwner && !gitRepo) {
+    options.onWarn?.(
+      `[${repoEntry.path}] could not detect git owner/repo (no remote, unparseable origin, ` +
+        `and no prior manifest identity); manifest will carry empty owner/repo and board/PR ` +
+        `links for this repo will be broken. ` +
+        `Set owner/repo for this repo in .hatch3r/workspace.json or add a git origin remote.`,
+    );
   }
 
   if (!gitBranch) gitBranch = "main";

@@ -12,7 +12,7 @@ parallel_tool_default: true
 triage_tiers: [1, 2, 3]
 sub_agents_spawned:
   count: 4
-  rationale: Four parallel hatch3r-researcher modes per refactoring brief — current-state, refactoring-strategy, impact-and-risk, migration-path — dispatched concurrently in Step 3; a docs-writer composes the refactoring spec on their merged output.
+  rationale: Four parallel hatch3r-researcher modes per refactoring brief — current-state, refactoring-strategy, impact-and-risk, migration-path — dispatched concurrently in Step 3; a docs-writer composes the refactoring spec on their merged output. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -26,6 +26,8 @@ Before any action, scan the user's request and provided context for unresolved q
 | 1. Research | `hatch3r-researcher` (4 parallel: current-state, refactoring-strategy, risk-assessment, migration-path) | Yes | Yes |
 | 2. Document Generation | `hatch3r-docs-writer` (refactoring spec, ADRs) | Yes | Yes |
 | 3. Todo Generation | Orchestrator (inline) | No | Yes |
+
+**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
 
 # Refactor Plan — Refactoring & Migration Specification from Problem to Phased Execution
 

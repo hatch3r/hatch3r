@@ -13,6 +13,16 @@ vi.mock("inquirer", () => {
   };
 });
 
+// MOCK: readManifest/writeManifest stubbed for the interaction-unit describe
+// blocks below because those tests inject manifest-missing (null) and empty/
+// populated cliTools shapes to drive picker/installer branch coverage in
+// isolation — exercising the real fs round-trip in every branch would couple
+// branch coverage to disk I/O. Per CONSTITUTION §2 P2 Decision 20 (real-deal-
+// first), the schema-version-drift masking this mock would otherwise hide is
+// closed by the "real manifest round-trip (Decision 20)" describe block at the
+// bottom of this file, which un-mocks via vi.importActual and asserts the
+// cliTools shape the command persists survives the real writeManifest →
+// readManifest validator path.
 vi.mock("../../manifest/hatchJson.js", () => ({
   readManifest: vi.fn(),
   writeManifest: vi.fn(),
@@ -388,5 +398,86 @@ describe("cliToolsCommand interactive picker flow (C9-H8)", () => {
     });
     // Final disclaimer probe runs but disclaimer treats empty missing as no-op.
     expect(printMissingCliToolsDisclaimer).toHaveBeenCalledWith([], 1);
+  });
+});
+
+// F3.2-F2 (D3 Cycle 10 Wave 2): the describe blocks above stub readManifest/
+// writeManifest, so a regression that breaks the real manifest writer — or one
+// where cliToolsCommand builds a structurally invalid `cliTools` shape the real
+// validateManifest would reject — would pass silently. Per CONSTITUTION §2 P2
+// Decision 20 (real-deal-first) this block un-mocks the manifest module via
+// vi.importActual and round-trips the exact `cliTools` shape the command writes
+// (manifest.cliTools = { enabled, selected }) through the REAL writeManifest →
+// readManifest path (which runs validateManifest on both write and read).
+// A schema-version drift or an invalid cliTools sub-schema now fails here.
+describe("real manifest round-trip (Decision 20 real-deal-first)", () => {
+  it("the cliTools shape the command persists survives real writeManifest → readManifest", async () => {
+    const { mkdtemp, rm } = await import("node:fs/promises");
+    const { join } = await import("node:path");
+    const { tmpdir } = await import("node:os");
+    // vi.importActual returns the real module, bypassing the top-of-file mock.
+    const realManifest = await vi.importActual<
+      typeof import("../../manifest/hatchJson.js")
+    >("../../manifest/hatchJson.js");
+
+    const root = await mkdtemp(join(tmpdir(), "hatch3r-clitools-real-"));
+    try {
+      // Build a baseline valid manifest, then attach the SAME cliTools shape
+      // cliToolsCommand assigns at cliTools.ts:101-105.
+      const manifest = realManifest.createManifest({
+        platform: "github",
+        owner: "acme",
+        repo: "widget",
+        tools: ["claude"],
+        cliTools: { enabled: true, selected: ["ripgrep", "fd"] as never },
+      });
+
+      await realManifest.writeManifest(root, manifest);
+      const reloaded = await realManifest.readManifest(root);
+
+      expect(reloaded).not.toBeNull();
+      // The cliTools sub-schema must survive the validateManifest gate on both
+      // write and read — proving the persisted shape is structurally valid.
+      expect(reloaded!.cliTools).toEqual({
+        enabled: true,
+        selected: ["ripgrep", "fd"],
+      });
+      // schemaVersion drift guard: the writer stamps version "3.0.0"; a future
+      // bump that the reader's migrate path does not handle would surface here.
+      expect(reloaded!.version).toBe("3.0.0");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("a structurally invalid manifest is rejected by the real writeManifest validator (mask removed)", async () => {
+    const { mkdtemp, rm } = await import("node:fs/promises");
+    const { join } = await import("node:path");
+    const { tmpdir } = await import("node:os");
+    const realManifest = await vi.importActual<
+      typeof import("../../manifest/hatchJson.js")
+    >("../../manifest/hatchJson.js");
+
+    const root = await mkdtemp(join(tmpdir(), "hatch3r-clitools-bad-"));
+    try {
+      const manifest = realManifest.createManifest({
+        platform: "github",
+        owner: "acme",
+        repo: "widget",
+        tools: ["claude"],
+        cliTools: { enabled: true, selected: ["ripgrep"] as never },
+      });
+      // Corrupt a validated field (`tools` must contain only VALID_TOOLS
+      // strings — hatchJson.ts:256-258). Under the stubbed writeManifest the
+      // whole cli-tools flow would persist this silently; the REAL writer runs
+      // validateManifest and must reject it so the bug cannot reach disk.
+      (manifest as unknown as { tools: unknown }).tools = ["not-a-real-tool"];
+
+      await expect(realManifest.writeManifest(root, manifest)).rejects.toThrow(
+        HatchError,
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

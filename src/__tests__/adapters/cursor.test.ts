@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { CursorAdapter } from "../../adapters/cursor.js";
 import { createManifest } from "../../manifest/hatchJson.js";
 import type { HatchManifest } from "../../types.js";
+import { MANAGED_BLOCK_START, MANAGED_BLOCK_END } from "../../types.js";
 import { resolveTestPath } from "../fixtures.js";
 
 const FIXTURES_DIR = resolveTestPath(import.meta.url, "../fixtures/agents");
@@ -70,6 +71,63 @@ describe("CursorAdapter", () => {
     expect(scopedRule!.content).toContain("globs:");
     expect(scopedRule!.content).toContain("**/*.ts");
     expect(scopedRule!.content).not.toContain("alwaysApply: true");
+  });
+
+  // F3.1.3 (D3 Cycle 10 Wave 2): cursor.test.ts previously asserted
+  // `managedContent` field presence 6 times but never asserted the rendered
+  // `content` string actually contains the literal HATCH3R:BEGIN/END markers
+  // (unlike claude.test.ts / copilot.test.ts). A regression where the adapter
+  // populates managedContent but stops wrapping output in markers would have
+  // passed every prior assertion while silently breaking `hatch3r sync`
+  // managed-block round-tripping for every Cursor project. This test closes
+  // the false-negative gap by asserting marker containment on representative
+  // rule output paths (`mdcOutput` wraps body via `wrapInManagedBlock`,
+  // src/adapters/cursor.ts:120).
+  it("wraps rule output in managed-block markers", async () => {
+    const manifest = makeManifest();
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    // Representative per-file rule emissions: a normal canonical rule and the
+    // always-emitted bridge rule. Both flow through `mdcOutput`, so both must
+    // carry the marker pair around the body while keeping the YAML frontmatter
+    // outside the managed block (frontmatter is appended before the wrap).
+    const ruleProbes = [
+      outputs.find((o) => o.path.includes("hatch3r-test-rule.mdc")),
+      outputs.find((o) => o.path === ".cursor/rules/hatch3r-bridge.mdc"),
+    ];
+
+    for (const probe of ruleProbes) {
+      expect(probe).toBeDefined();
+      const content = probe!.content;
+      const startIdx = content.indexOf(MANAGED_BLOCK_START);
+      const endIdx = content.indexOf(MANAGED_BLOCK_END);
+      expect(startIdx).toBeGreaterThanOrEqual(0);
+      expect(endIdx).toBeGreaterThan(startIdx);
+      // Frontmatter precedes the managed block — the `description:` key must
+      // appear before the BEGIN marker, never inside the managed body.
+      expect(content.indexOf("description:")).toBeLessThan(startIdx);
+    }
+  });
+
+  // F3.1.3 companion: agent and skill per-file emissions also wrap their body
+  // in managed-block markers (same `output()` 3-arg contract). Asserting
+  // containment here guards the non-rule emission paths against the same
+  // false-negative class.
+  it("wraps agent and skill output in managed-block markers", async () => {
+    const manifest = makeManifest();
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const agent = outputs.find((o) => o.path === ".cursor/agents/hatch3r-test-agent.md");
+    const skill = outputs.find((o) => o.path.includes("hatch3r-test-skill"));
+
+    for (const probe of [agent, skill]) {
+      expect(probe).toBeDefined();
+      expect(probe!.content).toContain(MANAGED_BLOCK_START);
+      expect(probe!.content).toContain(MANAGED_BLOCK_END);
+      expect(probe!.content.indexOf(MANAGED_BLOCK_END)).toBeGreaterThan(
+        probe!.content.indexOf(MANAGED_BLOCK_START),
+      );
+    }
   });
 
   it("generates agent files", async () => {

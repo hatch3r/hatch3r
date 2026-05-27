@@ -12,7 +12,7 @@ parallel_tool_default: true
 triage_tiers: [1, 2, 3]
 sub_agents_spawned:
   count: 15
-  rationale: Six-stage core pipeline (implementer + lint-fixer + reviewer ↔ fixer + test-writer + security-auditor) plus 9 CQ vector specialists (ui/ux/security/reliability/testability/scalability/performance/maintainability/enhancability) dispatched conditionally per their trigger conditions. Tier 1 trivial edits skip CQ specialists per Phase Skip Criteria.
+  rationale: Six-stage core pipeline (implementer + lint-fixer + reviewer ↔ fixer + test-writer + security-auditor) plus 9 CQ vector specialists (ui/ux/security/reliability/testability/scalability/performance/maintainability/enhancability) dispatched conditionally per their trigger conditions. Tier 1 trivial edits skip CQ specialists per Phase Skip Criteria. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -28,6 +28,8 @@ Before any action, scan the user's change description for unresolved questions i
 | 3. Lint Fix | `hatch3r-lint-fixer` | No | When lint/type errors |
 | 4a. Review Loop | `hatch3r-reviewer` -> `hatch3r-fixer` (max 3 iterations) | No (sequential) | Nontrivial only |
 | 4b. Final Quality | `hatch3r-test-writer` + `hatch3r-security-auditor` | Yes | Nontrivial code changes |
+
+**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
 
 ## Browser Automation
 

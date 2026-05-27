@@ -1,5 +1,6 @@
 ---
 id: hatch3r-issue-workflow
+name: hatch3r-issue-workflow
 description: Guides the 8-step agentic development workflow for issues/work items. Covers parsing issues, loading skills, reading specs, planning, implementing, testing, opening PRs/MRs, and addressing review. Use when working on any issue/work item or when the user mentions an issue number.
 tags: [implementation, orchestration]
 quality_charter: agents/shared/quality-charter.md
@@ -120,6 +121,15 @@ Skip this step if the issue has no user-facing UI changes.
 - Respond to every review comment.
 - Push fixes as new commits (don't force-push during review).
 - Re-request review after addressing all comments.
+
+## Fan-out Discipline (P8 B2)
+
+This skill delegates per task size (see Step 4b):
+- Tier 1 (trivial single-file issue): inline execution acceptable.
+- Tier 2 (multi-file or multi-concern issue): spawn parallel sub-agents per concern (researcher, implementer, reviewer) via the Task tool.
+- Tier 3 (multi-module / high-risk issue): one fresh sub-agent per independent module or gate; orchestrator integrates only.
+
+Source: `.claude/rules/fan-out-discipline.md` (P8 B2); `agents/shared/efficiency-patterns.md`.
 
 ## Error Handling
 

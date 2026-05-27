@@ -47,6 +47,23 @@ Field semantics:
 - `supersedes` — when set, archives the listed older entries on next consolidation pass.
 - `created` — ISO date; used for age-based re-evaluation triggers.
 
+## Canonical Schema — Single Source of Truth
+
+The frontmatter block above is the sole authoritative schema for every learning file written to `.hatch3r/learnings/`. CONSTITUTION §6 Decision #27 names this rule as the canonical author. When a writer (the `hatch3r-learn` skill), a reader (`hatch3r-learnings-loader`, `hatch3r-learning-consult`), or a consultation gate (`agents/shared/quality-charter.md` §10) declares fields that diverge from this block, this rule wins; the other artifact is the defect.
+
+Migration targets — fields some consumers still emit or scan that MUST converge on this block:
+
+| Divergent field (consumer) | Canonical replacement |
+|----------------------------|------------------------|
+| `date` (learn skill) | `created` |
+| `recorded` (learnings-loader provenance) | `created` |
+| `category` + `area` + `tags` as match keys (learn skill / consult / loader) | `topic` (match key) + `applies-to` (path-glob binding) |
+| `confidence: proven\|experimental\|hypothesis` (learn skill) | `confidence: high\|medium\|low` |
+| `source` + `author` (learnings-loader) | derive from capture context; not part of the match schema |
+| `supersedes` vs `superseded_by`/`deprecated` (learn skill) | `supersedes: [<id>, ...]` |
+
+Enforcement gap (open): no validator binds learning files to this schema. A schema check (proposed for `scripts/` alongside `validate-rule-parity.ts`) must assert every `.hatch3r/learnings/*.md` carries `id`/`topic`/`applies-to`/`confidence`/`created` and rejects the divergent field names above. Until that validator ships, schema conformance is audit-time only.
+
 ## Mandatory Consultation Gate
 
 Before answering project-specific questions, these agents MUST read `.hatch3r/learnings/INDEX.md` and any `applies-to` matched entries:

@@ -52,6 +52,17 @@ interface RunOptions {
    * flag. Default false (audit is enforced).
    */
   skipAuditSignatures?: boolean;
+  /**
+   * F15.4-H2 (Cycle 10 D15-SA15.4, Pillar P6): explicit version pin
+   * passed via `hatch3r update --pin-version <semver>` or sourced from
+   * `.hatch3r/hatch.json::versionConstraint`. When set, the npm install
+   * invocation becomes `hatch3r@<semver>` instead of `hatch3r@latest`,
+   * giving consumers a pinning channel that defends against silent
+   * downstream content regressions and unannounced CVEs in canonical
+   * agent content (Bastion 2026 npm-supply-chain report, npm-audit
+   * docs).
+   */
+  versionConstraint?: string;
 }
 
 interface PmInvocation {
@@ -62,20 +73,26 @@ interface PmInvocation {
 async function buildInvocation(
   loc: InstallLocation,
   rootDir: string,
+  versionConstraint?: string,
 ): Promise<PmInvocation> {
   const isWin = process.platform === "win32";
+  // F15.4-H2: pinned spec when a constraint is supplied; otherwise the
+  // legacy `@latest` is preserved.
+  const spec = versionConstraint ? `hatch3r@${versionConstraint}` : "hatch3r@latest";
   if (loc.kind === "global") {
-    // Global installs always go through the system npm. pnpm/yarn/bun
-    // globals live in different roots and are out of scope for v1 — see
-    // installContext.ts for the survey contract.
     return {
       cmd: isWin ? "npm.cmd" : "npm",
-      args: ["install", "-g", "hatch3r@latest"],
+      args: ["install", "-g", spec],
     };
   }
-  // project-local: respect the project's detected package manager.
   const pm = await detectPackageManager(rootDir);
   const cmd = isWin && pm.name !== "bun" ? `${pm.updateCmd}.cmd` : pm.updateCmd;
+  // F15.4-H2: project-local pin requires an explicit `install <spec>`
+  // — the pm.updateArgs path is unpinned by design.
+  if (versionConstraint) {
+    const installArgs = pm.name === "pnpm" ? ["add", spec] : ["install", spec];
+    return { cmd, args: installArgs };
+  }
   return { cmd, args: pm.updateArgs };
 }
 
@@ -269,7 +286,9 @@ export async function runSelfUpdate(
     const s = createSpinner(step(offset + 1, total, `Updating ${label}...`));
     s.start();
     try {
-      const inv = await buildInvocation(target, rootDir);
+      // F15.4-H2: propagate the user-supplied or manifest-stored
+      // versionConstraint so every target lands on the same pinned spec.
+      const inv = await buildInvocation(target, rootDir, options.versionConstraint);
       // Retry transient registry/network errors (ECONNRESET, 503,
       // EAI_AGAIN). Substantive failures (auth, missing package, EPERM)
       // surface on the first attempt unchanged.

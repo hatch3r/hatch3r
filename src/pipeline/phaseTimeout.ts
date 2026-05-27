@@ -22,12 +22,14 @@ export const MAX_PHASE_TIMEOUT_MS = 30 * 60 * 1000;
 
 export type PhaseName =
   | "generation"
+  | "research"
   | "merge"
   | "review"
   | "fix"
   | "validation"
   | "integrity"
-  | "adapter";
+  | "adapter"
+  | "specialist-eval";
 
 export interface PhaseTimeoutConfig {
   /** Timeout in milliseconds. Clamped to [MIN, MAX]. */
@@ -50,13 +52,15 @@ export interface PhaseTimeoutResult<T> {
 // ── Default timeout map ──────────────────────────────────────────
 
 const DEFAULT_PHASE_TIMEOUTS: Record<PhaseName, number> = {
-  generation: 5 * 60 * 1000,   // 5 min
-  merge: 2 * 60 * 1000,        // 2 min
-  review: 10 * 60 * 1000,      // 10 min
-  fix: 10 * 60 * 1000,         // 10 min
-  validation: 2 * 60 * 1000,   // 2 min
-  integrity: 1 * 60 * 1000,    // 1 min
-  adapter: 3 * 60 * 1000,      // 3 min
+  generation: 5 * 60 * 1000,        // 5 min
+  research: 5 * 60 * 1000,          // 5 min (D8-H8.3.1: per-agent researcher wall-clock)
+  merge: 2 * 60 * 1000,             // 2 min
+  review: 10 * 60 * 1000,           // 10 min
+  fix: 10 * 60 * 1000,              // 10 min
+  validation: 2 * 60 * 1000,        // 2 min
+  integrity: 1 * 60 * 1000,         // 1 min
+  adapter: 3 * 60 * 1000,           // 3 min
+  "specialist-eval": 10 * 60 * 1000, // 10 min (D8-H8.3.1: Phase-4 specialist wall-clock)
 };
 
 // ── Implementation ───────────────────────────────────────────────

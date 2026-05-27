@@ -21,6 +21,14 @@ export async function addCommand(_opts: { force?: boolean } = {}): Promise<void>
   // Sources re-verified 2026-04-20:
   //   - https://tldp.org/LDP/abs/html/exitcodes.html (exit 2 = Bash misuse)
   //   - https://man.freebsd.org/cgi/man.cgi?query=sysexits (EX_OK = 0)
+  //
+  // F15.4-H3 (Cycle 10 D15-SA15.4): governance/pack-trust-model.md §1
+  // documents body-scan + lifecycle-script ban + capability validation
+  // gates that this stub does NOT execute. The pack-trust-model.md §1
+  // banner labels the document SPEC ONLY so end-users do not infer a
+  // runtime safety net that is absent until this command is wired. When
+  // implementing, replicate the §3 + §4 + §5 gates here BEFORE unpacking
+  // pack content under `.hatch3r/overrides/`.
   console.log();
   info("Community pack installation is coming in a future hatch3r release.");
   console.log(chalk.dim("  Track progress: https://github.com/hatch3r/hatch3r/releases"));

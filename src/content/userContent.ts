@@ -19,11 +19,18 @@
  *   - `isValidHookEvent`       (src/hooks/types.ts)
  *   - `cursorCompanionFrontmatter`, `buildContentIndex`, `resolveUserContentRoot`
  *     (src/content/index.ts)
- *   - `readManifest`, `writeManifest` (src/manifest/hatchJson.ts)
+ *   - `readManifest`, `writeManifest`, `readMaturityTier` (src/manifest/hatchJson.ts)
+ *   - `MATURITY_TIER_RANK`, `DEFAULT_MATURITY_TIER` (src/types.ts)
+ *
+ * The gate funnel is tier-aware (F20.2.A1, Decision 4 / #16): `solo` (default)
+ * is the Cycle-9 baseline; `team` | `scaleup` | `enterprise` progressively
+ * promote References, impact-horizon, and agent tool-grant baseline checks from
+ * gentle warnings to strict failures.
  *
  * Pillars served: P4 (Lean Coverage — single-source-of-truth gate funnel),
- * P5 (Governance Self-Quality — strict gates enforce charter), P6 (Security
- * — deny-pattern scan + path-traversal guard + size cap).
+ * P5 (Governance Self-Quality — strict gates enforce charter + tier floor), P6
+ * (Security — deny-pattern scan + path-traversal guard + size cap + agent
+ * tool-grant baseline).
  */
 
 import { readdir, mkdir, stat, readFile } from "node:fs/promises";
@@ -41,7 +48,12 @@ import {
   resolveUserContentRoot,
   type ContentIndex,
 } from "./index.js";
-import { readManifest, writeManifest } from "../manifest/hatchJson.js";
+import { readManifest, writeManifest, readMaturityTier } from "../manifest/hatchJson.js";
+import {
+  DEFAULT_MATURITY_TIER,
+  MATURITY_TIER_RANK,
+  type MaturityTier,
+} from "../types.js";
 
 // ── Public types ───────────────────────────────────────────────
 
@@ -98,6 +110,15 @@ export interface UserContentArtifact {
    * (Claude PreToolUse hook, Cursor tool-allowlist rule).
    */
   tools?: { allowed?: string[]; denied?: string[] };
+  /**
+   * Project maturity tier (Decision 4 / #16) the artifact is authored against.
+   * Drives the tier-aware floor in {@link runUserContentGates}: `solo` (default)
+   * keeps the Cycle-9 baseline gate set; `team` | `scaleup` | `enterprise`
+   * progressively promote gentle nudges to strict failures. When omitted,
+   * {@link saveUserContent} populates it from the project manifest via
+   * {@link readMaturityTier}; direct callers default to `solo`.
+   */
+  tier?: MaturityTier;
 }
 
 export interface SaveResult {
@@ -150,6 +171,26 @@ const LEAN_LINE_THRESHOLD_DEFAULT = 120;
 const SLUG_REGEX = /^[a-z][a-z0-9-]*$/;
 
 /**
+ * Tool-allowlist cardinality above which an agent artifact must cite a security
+ * baseline (F20.2.A3, D20.2 item 2). At or below this width the grant is
+ * considered narrow enough to skip the baseline-citation requirement; above it
+ * the artifact is granting a broad-enough tool surface that the unbounded-grant
+ * disposition applies (gentle at `solo`, strict at `team`+ per F20.2.A1).
+ */
+const AGENT_TOOL_BASELINE_THRESHOLD = 3;
+
+/**
+ * Body-reference patterns that satisfy the F20.2.A3 security-baseline citation.
+ * Either a reference to the canonical `hatch3r-security-patterns` rule or an
+ * explicit `**Security baseline:**` slot (the skeleton slot added to the agent
+ * template) clears the requirement.
+ */
+const SECURITY_BASELINE_PATTERNS: readonly RegExp[] = [
+  /hatch3r-security-patterns/i,
+  /\*\*Security baseline:\*\*/i,
+];
+
+/**
  * D20 anti-slop wordlist for the gentle gate. Mirrors the 12-entry list in
  * the implementation plan and the canonical CLAUDE.md banned-phrase table.
  * Case-insensitive substring match — we intentionally err on the side of
@@ -190,7 +231,14 @@ export async function saveUserContent(
     userRoot: resolveUserContentRoot(rootDir),
   });
 
-  const { strict, gentle } = await runUserContentGates(artifact, index);
+  // Resolve the project maturity tier (Decision 4 / #16). An explicit
+  // artifact.tier wins (caller override); otherwise read it from the manifest.
+  // A missing or unreadable manifest collapses to the "solo" baseline via
+  // readMaturityTier(null) — the gate stays permissive, never harder, when the
+  // tier cannot be determined.
+  const maturityTier = artifact.tier ?? (await resolveProjectMaturityTier(rootDir));
+
+  const { strict, gentle } = await runUserContentGates(artifact, index, maturityTier);
   if (strict.length > 0) {
     return { written: [], strictFailures: strict, gentleWarnings: gentle };
   }
@@ -273,12 +321,17 @@ export async function discoverUserContent(
 /**
  * Run only the strict + gentle gates against an artifact (no write).
  * Useful for "preview" UX before committing the save.
+ *
+ * `maturityTier` drives the tier-aware floor (Decision 4 / #16). When omitted
+ * it defaults to `artifact.tier`, then to the `solo` baseline — matching the
+ * permissive default used everywhere the project tier is unknown.
  */
 export async function validateUserArtifact(
   artifact: UserContentArtifact,
   index: ContentIndex,
+  maturityTier: MaturityTier = artifact.tier ?? DEFAULT_MATURITY_TIER,
 ): Promise<{ strict: string[]; gentle: string[] }> {
-  return runUserContentGates(artifact, index);
+  return runUserContentGates(artifact, index, maturityTier);
 }
 
 // ── Public API: pre-flight body validation (C9-H84) ────────────
@@ -388,8 +441,14 @@ function relativizeUnderRoot(rootDir: string, absPath: string): string {
 async function runUserContentGates(
   artifact: UserContentArtifact,
   index: ContentIndex,
+  maturityTier: MaturityTier = DEFAULT_MATURITY_TIER,
 ): Promise<{ strict: string[]; gentle: string[] }> {
   const strict: string[] = [];
+  // Tier rank gates the progressive floor (Decision 4 / #16): `solo` (rank 0)
+  // is the Cycle-9 baseline; `team`+ (rank >= 1) promote selected gentle
+  // nudges to strict failures.
+  const tierRank = MATURITY_TIER_RANK[maturityTier];
+  const isTeamPlus = tierRank >= MATURITY_TIER_RANK.team;
 
   // 1. Frontmatter schema — slug, type, description.
   if (!SLUG_REGEX.test(artifact.name)) {
@@ -585,7 +644,93 @@ async function runUserContentGates(
     for (const v of toolsViolations) strict.push(v);
   }
 
+  // ── Tier-aware floor (F20.2.A1, Decision 4 / #16) ──────────────
+  // The `solo` baseline (rank 0) stops at the gates above. `team`+ (rank >= 1)
+  // promote the closed-loop floor mandates that the Cycle-9 gate set left
+  // unenforced. Each requirement here is checkable from the artifact body /
+  // frontmatter alone (no filesystem dependency), so the gate stays
+  // deterministic and the tier branch is the only behavioural difference.
+  if (isTeamPlus) {
+    // References section (content-authoring Decision #14): agents, skills, and
+    // rules at team+ must cite their reputable-source reconnaissance.
+    const requiresReferences =
+      artifact.type === "agent" ||
+      artifact.type === "skill" ||
+      artifact.type === "rule";
+    if (
+      requiresReferences &&
+      !("references" in fm) &&
+      !/(^|\n)\s*##\s*References/i.test(artifact.body)
+    ) {
+      strict.push(
+        `Maturity tier '${maturityTier}' requires a References section for ${artifact.type} artifacts — add a '## References' section (Decision #14 reputable-source reconnaissance) or downgrade the project tier`,
+      );
+    }
+
+    // Impact horizon (Decision 17): scaleup+ (rank >= 2) must declare the
+    // change's impact horizon so reviewers can weigh long-lived artifacts.
+    if (tierRank >= MATURITY_TIER_RANK.scaleup) {
+      const hasHorizonFm = "impact_horizon" in fm || "impactHorizon" in fm;
+      const hasHorizonBody = /impact[_-]horizon/i.test(artifact.body);
+      if (!hasHorizonFm && !hasHorizonBody) {
+        strict.push(
+          `Maturity tier '${maturityTier}' requires an impact_horizon declaration (short|medium|long, Decision 17) — add 'impact_horizon: <horizon>' to frontmatter or reference it in the body`,
+        );
+      }
+    }
+  }
+
+  // ── Agent tool-grant security baseline (F20.2.A3, D20.2 item 2) ─
+  // A wide tool allowlist on an agent artifact without a cited security
+  // baseline is the unbounded-grant scenario. The width check + baseline-
+  // citation requirement closes the gap the membership/overlap check left
+  // open. Gentle at `solo`; promoted to strict at `team`+ per F20.2.A1.
+  if (artifact.type === "agent") {
+    const allowedWidth = Array.isArray(artifact.tools?.allowed)
+      ? artifact.tools.allowed.length
+      : 0;
+    if (allowedWidth > AGENT_TOOL_BASELINE_THRESHOLD) {
+      const hasBaseline = SECURITY_BASELINE_PATTERNS.some((re) =>
+        re.test(artifact.body),
+      );
+      if (!hasBaseline) {
+        const message =
+          `Agent declares ${allowedWidth} tool categories (> ${AGENT_TOOL_BASELINE_THRESHOLD}) without a security baseline — ` +
+          "cite `hatch3r-security-patterns` or add a `**Security baseline:**` line scoping the grant";
+        if (isTeamPlus) {
+          strict.push(
+            `${message} (required at maturity tier '${maturityTier}')`,
+          );
+        } else {
+          gentle.push(message);
+        }
+      }
+    }
+  }
+
   return { strict, gentle };
+}
+
+/**
+ * Resolve the project maturity tier for the gate funnel. Reads the manifest
+ * best-effort and collapses any read failure (or absent manifest) to the
+ * `solo` baseline via {@link readMaturityTier} — the tier-aware floor only ever
+ * tightens at `team`+, so an unknown tier must never make the gate stricter.
+ */
+async function resolveProjectMaturityTier(
+  rootDir: string,
+): Promise<MaturityTier> {
+  try {
+    const manifest = await readManifest(rootDir);
+    return readMaturityTier(manifest);
+  } catch (err) {
+    // Malformed/unreadable manifest — fall back to the permissive baseline.
+    // Surfaced per the Silent Failure Contract so operators see the fallback.
+    console.warn(
+      `[hatch3r] saveUserContent: could not read maturity tier (defaulting to '${DEFAULT_MATURITY_TIER}'): ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return DEFAULT_MATURITY_TIER;
+  }
 }
 
 /**

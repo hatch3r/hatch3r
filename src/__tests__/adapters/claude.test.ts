@@ -85,6 +85,65 @@ describe("ClaudeAdapter", () => {
     expect(testRule!.content).toContain("A test rule for unit testing");
   });
 
+  // F6.6-H1 (D6, P7): Claude Code `.claude/rules/` `paths:` frontmatter so
+  // glob-scoped rules lazy-load on matching file reads instead of loading
+  // every scoped body at session start. The fixtures provide a glob-scoped
+  // rule (`scoped-rule`, scope `**/*.ts`) and an always-scoped rule
+  // (`test-rule`, scope `always`).
+  it("emits paths: frontmatter on glob-scoped rules and omits it on scope:always", async () => {
+    const manifest = makeManifest();
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const scopedRule = outputs.find((o) => o.path.includes("scoped-rule"));
+    expect(scopedRule).toBeDefined();
+    // Glob scope `**/*.ts` -> `paths:` frontmatter (flow-sequence form),
+    // placed above the managed block (frontmatter is not managed content).
+    expect(scopedRule!.content).toMatch(/^---\npaths: \["\*\*\/\*\.ts"\]\n---\n/);
+    expect(scopedRule!.content.indexOf("paths:")).toBeLessThan(
+      scopedRule!.content.indexOf(MANAGED_BLOCK_START),
+    );
+    // The body stays inside the managed block for drift detection.
+    expect(scopedRule!.managedContent).toBeDefined();
+    expect(scopedRule!.managedContent).not.toContain("paths:");
+
+    const alwaysRule = outputs.find((o) => o.path.includes("test-rule"));
+    expect(alwaysRule).toBeDefined();
+    // scope:always loads unconditionally -> no paths: frontmatter.
+    expect(alwaysRule!.content).not.toContain("paths:");
+    expect(alwaysRule!.content.startsWith(MANAGED_BLOCK_START)).toBe(true);
+  });
+
+  it("splits CSV scope into a multi-glob paths: array", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-claude-paths-"));
+    try {
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "rules"), { recursive: true });
+      await writeFile(
+        join(agentsDir, "rules", "csv-rule.md"),
+        `---
+id: csv-rule
+type: rule
+description: A CSV-scoped rule
+scope: "src/api/**,**/*.proto"
+---
+# CSV Rule
+
+Applies to API code and protobufs.`,
+        "utf-8",
+      );
+      const manifest = makeManifest();
+      const outputs = await adapter.generate(agentsDir, manifest);
+
+      const rule = outputs.find((o) => o.path.includes("csv-rule"));
+      expect(rule).toBeDefined();
+      expect(rule!.content).toMatch(
+        /^---\npaths: \["src\/api\/\*\*", "\*\*\/\*\.proto"\]\n---\n/,
+      );
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("generates agent files in .claude/agents/", async () => {
     const manifest = makeManifest();
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
@@ -227,6 +286,56 @@ describe("ClaudeAdapter", () => {
     expect(parsed.teammateMode).toBe("auto");
   });
 
+  // D9-H-2 (D9, P3): Agent Teams reached GA in Claude Code v2.1.120+ where
+  // CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS is no longer required. Default
+  // emission must omit the legacy env var; it is emitted only on explicit
+  // experimental opt-in, with a deprecation warning.
+  describe("D9-H-2 Agent Teams GA env-var emission", () => {
+    function parsedSettings(outputs: Awaited<ReturnType<typeof adapter.generate>>) {
+      const settings = outputs.find((o) => o.path === ".claude/settings.json");
+      expect(settings).toBeDefined();
+      return JSON.parse(settings!.content) as { env?: Record<string, string> };
+    }
+
+    it("omits the legacy env var by default (agentTeams unset)", async () => {
+      const manifest = makeManifest();
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const parsed = parsedSettings(outputs);
+      expect(parsed.env?.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS).toBeUndefined();
+    });
+
+    it("omits the legacy env var when agentTeams is 'ga'", async () => {
+      const manifest = makeManifest({ claude: { agentTeams: "ga" } });
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const parsed = parsedSettings(outputs);
+      expect(parsed.env?.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS).toBeUndefined();
+    });
+
+    it("omits the legacy env var when agentTeams is false", async () => {
+      const manifest = makeManifest({ claude: { agentTeams: false } });
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const parsed = parsedSettings(outputs);
+      expect(parsed.env?.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS).toBeUndefined();
+    });
+
+    it("emits the legacy env var with a deprecation warning when agentTeams is true", async () => {
+      // Fresh adapter so `warnings` reflects only this generation
+      // (BaseAdapter.generate resets `this.warnings` per run).
+      const localAdapter = new ClaudeAdapter();
+      const manifest = makeManifest({ claude: { agentTeams: true } });
+      const outputs = await localAdapter.generate(FIXTURES_DIR, manifest);
+      const settings = outputs.find((o) => o.path === ".claude/settings.json");
+      const parsed = JSON.parse(settings!.content);
+      expect(parsed.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS).toBe("1");
+      expect(
+        localAdapter.warnings.some((w) =>
+          w.includes("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS") &&
+          w.includes("no longer required"),
+        ),
+      ).toBe(true);
+    });
+  });
+
   it("includes hooks config in settings.json when hooks are enabled", async () => {
     const manifest = makeManifest();
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
@@ -326,6 +435,33 @@ describe("ClaudeAdapter", () => {
 
     const parsed = JSON.parse(mcp!.content);
     expect(parsed.mcpServers.github).toBeDefined();
+  });
+
+  // F17.2.3 (D17, P3): generated .mcp.json declares an explicit MCP protocol
+  // version (most-recent stable revision by default) so the config pins to a
+  // known revision ahead of the 2026-07-28 RC GA, instead of leaving the
+  // field absent.
+  it("emits protocolVersion (default stable revision) in .mcp.json", async () => {
+    const manifest = makeManifest({ mcpServers: ["github"] });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const mcp = outputs.find((o) => o.path === ".mcp.json");
+    expect(mcp).toBeDefined();
+    const parsed = JSON.parse(mcp!.content);
+    expect(parsed.protocolVersion).toBe("2025-11-25");
+    // mcpServers still rides alongside the version field.
+    expect(parsed.mcpServers.github).toBeDefined();
+  });
+
+  it("honors mcp.protocolVersion override from the manifest", async () => {
+    const manifest = makeManifest({ mcpServers: ["github"] });
+    manifest.mcp.protocolVersion = "2026-07-28";
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const mcp = outputs.find((o) => o.path === ".mcp.json");
+    expect(mcp).toBeDefined();
+    const parsed = JSON.parse(mcp!.content);
+    expect(parsed.protocolVersion).toBe("2026-07-28");
   });
 
   it("does not generate .mcp.json when no servers configured", async () => {
@@ -559,6 +695,10 @@ describe("ClaudeAdapter", () => {
 
     const agentFile = outputs.find((o) => o.path === ".claude/agents/hatch3r-test-agent.md");
     expect(agentFile).toBeDefined();
+    // D9-H-1 (D9, P3): native subagent `model:` frontmatter is emitted and is
+    // authoritative; the `## Recommended Model` prose is retained for the
+    // per-session override path.
+    expect(agentFile!.content).toMatch(/^---\n[\s\S]*\nmodel: claude-sonnet-4-6\n[\s\S]*?---/);
     expect(agentFile!.content).toContain("## Recommended Model");
     expect(agentFile!.content).toContain("Preferred: `claude-sonnet-4-6`");
     expect(agentFile!.content).toContain("CLAUDE_CODE_SUBAGENT_MODEL=claude-sonnet-4-6");
@@ -588,6 +728,8 @@ You are a test agent.`,
 
       const agentFile = outputs.find((o) => o.path === ".claude/agents/hatch3r-test-agent.md");
       expect(agentFile).toBeDefined();
+      // D9-H-1: native `model:` frontmatter from the manifest per-agent model.
+      expect(agentFile!.content).toMatch(/^---\n[\s\S]*\nmodel: gpt-4\n[\s\S]*?---/);
       expect(agentFile!.content).toContain("## Recommended Model");
       expect(agentFile!.content).toContain("Preferred: `gpt-4`");
       expect(agentFile!.content).toContain("CLAUDE_CODE_SUBAGENT_MODEL=gpt-4");
@@ -1101,24 +1243,28 @@ Low priority rule body.
       expect(parsed.hooks.PreToolUse).toBeDefined();
       // The allowlist hook fires on every tool call (matcher ".*"), so it
       // appears as one of the PreToolUse entries.
+      // D9-H-3: the script path now rides in the exec-form `args` vector,
+      // not the `command` string (which is the Node executable).
       const allowlistEntry = parsed.hooks.PreToolUse.find(
-        (e: { hooks: Array<{ command: string }> }) =>
+        (e: { hooks: Array<{ command: string; args?: string[] }> }) =>
           e.hooks.some((h) =>
-            h.command.includes("pretooluse-allowlist.mjs"),
+            (h.args ?? []).some((a) => a.includes("pretooluse-allowlist.mjs")),
           ),
       );
       expect(allowlistEntry).toBeDefined();
       expect(allowlistEntry.matcher).toBe(".*");
       expect(allowlistEntry.hooks[0].type).toBe("command");
-      // Launcher is a node-inline guard that references the script path
-      // and fails open silently if it's missing — see claude.ts comment
-      // block above the PreToolUse hook registration.
-      expect(allowlistEntry.hooks[0].command).toContain(
+      // D9-H-3 (D9, P7): exec form. `command` is the Node executable and
+      // `args` is the script path, so Claude Code spawns the hook in a
+      // single cold-start with no shell — no inline `node -e` wrapper that
+      // would cold-start Node twice per tool call.
+      expect(allowlistEntry.hooks[0].command).toBe(process.execPath);
+      expect(allowlistEntry.hooks[0].args).toEqual([
         ".claude/hooks/pretooluse-allowlist.mjs",
-      );
-      expect(allowlistEntry.hooks[0].command).toMatch(/^node -e /);
-      expect(allowlistEntry.hooks[0].command).toContain("fs.statSync");
-      expect(allowlistEntry.hooks[0].command).toContain("process.exit(0)");
+      ]);
+      // The old inline-guard markers must be gone.
+      expect(allowlistEntry.hooks[0].command).not.toMatch(/^node -e /);
+      expect(allowlistEntry.hooks[0].command).not.toContain("fs.statSync");
     });
 
     it("emits policies.json + hook script independently of features.hooks", async () => {

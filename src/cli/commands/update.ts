@@ -76,6 +76,7 @@ function buildReExecPassThroughArgs(opts?: {
   force?: boolean;
   dryRun?: boolean;
   skipAuditSignatures?: boolean;
+  pinVersion?: string;
 }): string[] {
   const args: string[] = [];
   if (opts?.yes) args.push("--yes");
@@ -89,6 +90,9 @@ function buildReExecPassThroughArgs(opts?: {
   // a no-op (audit ran in the parent), but propagating keeps the flag
   // semantically consistent and supports future inner runs.
   if (opts?.skipAuditSignatures) args.push("--skip-audit-signatures");
+  // F15.4-H2: propagate the version-pin so the re-exec child writes the
+  // manifest under the same pin (or clears it on `--pin-version latest`).
+  if (opts?.pinVersion) args.push("--pin-version", opts.pinVersion);
   return args;
 }
 
@@ -884,6 +888,14 @@ export async function updateCommand(
      * project-only (`policy`, `learnings`) subtrees are never visited.
      */
     cleanOrphans?: boolean;
+    /**
+     * F15.4-H2 (Cycle 10 D15-SA15.4, Pillar P6): explicit semver pin for the
+     * `npm install hatch3r@<spec>` invocation. When supplied via
+     * `--pin-version <semver>`, the manifest's `versionConstraint` field
+     * is updated so subsequent `hatch3r update` runs continue to honor
+     * the pin until the user passes `--pin-version latest` to clear it.
+     */
+    pinVersion?: string;
   },
 ): Promise<void> {
   printBanner(true);
@@ -938,6 +950,26 @@ export async function updateCommand(
       "Remove this flag once the upstream audit-signatures issue is resolved.",
     );
   }
+  // F15.4-H2 (Cycle 10 D15-SA15.4, Pillar P6): resolve the effective
+  // version pin. The `--pin-version <semver>` CLI flag takes precedence
+  // over the manifest's `versionConstraint` field; both default to
+  // `undefined` which preserves the legacy `hatch3r@latest` install spec.
+  // When the flag is supplied, persist it back to the manifest so
+  // subsequent runs honor the pin without re-passing the flag.
+  let versionConstraint: string | undefined = _opts?.pinVersion ?? m.versionConstraint;
+  if (_opts?.pinVersion) {
+    if (_opts.pinVersion === "latest") {
+      versionConstraint = undefined;
+      info("Cleared version pin: future `hatch3r update` runs will install hatch3r@latest.");
+    } else {
+      info(`Pinning hatch3r to '${_opts.pinVersion}' (persisted to .hatch3r/hatch.json::versionConstraint).`);
+    }
+    const persisted: HatchManifest = { ...m, versionConstraint };
+    await writeManifest(rootDir, persisted);
+    m.versionConstraint = versionConstraint;
+  } else if (versionConstraint) {
+    info(`Using pinned version '${versionConstraint}' from .hatch3r/hatch.json. Pass --pin-version latest to remove the pin.`);
+  }
   if (isUpToDate) {
     info(`Already at hatch3r v${HATCH3R_VERSION}`);
   } else if (offlineMode) {
@@ -988,6 +1020,9 @@ export async function updateCommand(
       stepOffset: 0,
       totalSteps: 4,
       skipAuditSignatures,
+      // F15.4-H2: thread the resolved version pin into the npm install
+      // invocation. Undefined preserves `hatch3r@latest`.
+      versionConstraint,
     });
     const reExecBin = !isReExec ? pickReExecBin(selfUpdate) : null;
     if (reExecBin) {

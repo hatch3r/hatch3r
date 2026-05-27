@@ -12,7 +12,7 @@ parallel_tool_default: true
 triage_tiers: [1, 2, 3]
 sub_agents_spawned:
   count: 3
-  rationale: Three parallel hatch3r-researcher modes (codebase-overview, architecture-mapping, conventions-extraction) in Step 3 followed by one hatch3r-docs-writer to assemble the tailored onboarding guide; researchers fan out in a single Task batch.
+  rationale: Three parallel hatch3r-researcher modes (codebase-overview, architecture-mapping, conventions-extraction) in Step 3 followed by one hatch3r-docs-writer to assemble the tailored onboarding guide; researchers fan out in a single Task batch. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -26,6 +26,8 @@ Before any action, scan the user's request and provided context for unresolved q
 | 1. Project Analysis | `hatch3r-researcher` (3 parallel: codebase-overview, architecture, conventions) | Yes | Yes |
 | 2. Setup Verification | Orchestrator (inline) | No | Yes |
 | 3. Guide Generation | `hatch3r-docs-writer` | No | Yes |
+
+**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
 
 # Onboarding Guide Generator — Tailored Developer Onboarding from Codebase Analysis to Ready-to-Work Guide
 

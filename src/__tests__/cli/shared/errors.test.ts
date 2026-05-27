@@ -14,6 +14,8 @@ import { describe, it, expect } from "vitest";
 import {
   formatActionableError,
   writeFormattedCliError,
+  resolveRecoveryHint,
+  DEFAULT_RECOVERY_HINT,
   type FormattedCliError,
 } from "../../../cli/shared/errors.js";
 import { HatchError } from "../../../types.js";
@@ -51,8 +53,10 @@ describe("formatActionableError() — HatchError with recoveryHint", () => {
 });
 
 describe("formatActionableError() — HatchError without recoveryHint", () => {
-  it("returns the structured exitCode silently (no stderr output)", () => {
-    const err = new HatchError("integrity mismatch", undefined, "INTEGRITY_ERROR");
+  it("returns the structured exitCode silently for UNKNOWN_ERROR (no default hint)", () => {
+    // UNKNOWN_ERROR intentionally has NO entry in DEFAULT_RECOVERY_HINT, so a
+    // hint-less UNKNOWN_ERROR keeps the legacy silent-structured behavior.
+    const err = new HatchError("something opaque failed", undefined, "UNKNOWN_ERROR");
     const result = formatActionableError(err);
     expect(result.kind).toBe("hatch-error");
     expect(result.exitCode).toBe(1);
@@ -68,6 +72,74 @@ describe("formatActionableError() — HatchError without recoveryHint", () => {
     expect(result.exitCode).toBe(0);
     expect(result.lines).toEqual([]);
     expect(result.box).toBeUndefined();
+  });
+});
+
+describe("formatActionableError() — SA12.1-F01 default recovery hint", () => {
+  it("falls back to the errorCode default hint when no explicit hint is given (INTEGRITY_ERROR)", () => {
+    // Previously this surfaced silently (the 53%-miss gap). It must now emit
+    // the boxed INTEGRITY_ERROR default hint.
+    const err = new HatchError("integrity mismatch", undefined, "INTEGRITY_ERROR");
+    const result = formatActionableError(err);
+    expect(result.kind).toBe("hatch-error");
+    expect(result.exitCode).toBe(1);
+    expect(result.hint).toBe(DEFAULT_RECOVERY_HINT.INTEGRITY_ERROR);
+    expect(result.box).toBeDefined();
+    expect(result.box).toContain("integrity mismatch");
+    expect(result.box).toContain("npx hatch3r verify");
+    expect(result.lines).toEqual([]);
+  });
+
+  it("emits the CONFIG_ERROR default hint for a hint-less 'No hatch.json' failure", () => {
+    // Mirrors the finding's canonical example: a missing-manifest CONFIG_ERROR
+    // should point the user at `npx hatch3r init`.
+    const err = new HatchError("No .hatch3r/hatch.json found.", 1, "CONFIG_ERROR");
+    const result = formatActionableError(err);
+    expect(result.hint).toBe(DEFAULT_RECOVERY_HINT.CONFIG_ERROR);
+    expect(result.box).toContain("npx hatch3r init");
+  });
+
+  it("prefers an explicit recoveryHint over the errorCode default", () => {
+    const explicit = "Run 'npx hatch3r init --tool cursor' first.";
+    const err = new HatchError("No .hatch3r/hatch.json found.", 1, "CONFIG_ERROR", explicit);
+    const result = formatActionableError(err);
+    expect(result.hint).toBe(explicit);
+    expect(result.hint).not.toBe(DEFAULT_RECOVERY_HINT.CONFIG_ERROR);
+    expect(result.box).toContain(explicit);
+  });
+
+  it("provides a default hint for every fatal errorCode except UNKNOWN_ERROR", () => {
+    const fatalCodes = [
+      "VALIDATION_ERROR",
+      "CONFIG_ERROR",
+      "FS_ERROR",
+      "INTEGRITY_ERROR",
+      "ADAPTER_ERROR",
+      "NETWORK_ERROR",
+      "CLEAN_ERROR",
+      "LOCK_TIMEOUT",
+    ] as const;
+    for (const code of fatalCodes) {
+      expect(DEFAULT_RECOVERY_HINT[code], `missing default hint for ${code}`).toBeTruthy();
+    }
+    expect(DEFAULT_RECOVERY_HINT.UNKNOWN_ERROR).toBeUndefined();
+  });
+});
+
+describe("resolveRecoveryHint()", () => {
+  it("returns the explicit hint when present", () => {
+    const err = new HatchError("x", 1, "FS_ERROR", "do the thing");
+    expect(resolveRecoveryHint(err)).toBe("do the thing");
+  });
+
+  it("returns the errorCode default when no explicit hint is present", () => {
+    const err = new HatchError("x", 1, "LOCK_TIMEOUT");
+    expect(resolveRecoveryHint(err)).toBe(DEFAULT_RECOVERY_HINT.LOCK_TIMEOUT);
+  });
+
+  it("returns undefined for UNKNOWN_ERROR with no explicit hint", () => {
+    const err = new HatchError("x", 1, "UNKNOWN_ERROR");
+    expect(resolveRecoveryHint(err)).toBeUndefined();
   });
 });
 

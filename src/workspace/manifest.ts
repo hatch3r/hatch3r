@@ -2,7 +2,7 @@ import { mkdir, readFile } from "node:fs/promises";
 import { dirname, join, normalize, isAbsolute } from "node:path";
 import { HATCH3R_DIR, HatchError } from "../types.js";
 import { HATCH3R_VERSION } from "../version.js";
-import { atomicWriteFile } from "../merge/safeWrite.js";
+import { atomicWriteFile, acquireWriteLock } from "../merge/safeWrite.js";
 import type { WorkspaceManifest } from "./types.js";
 import { WORKSPACE_MANIFEST_FILE, WORKSPACE_MANIFEST_VERSION } from "./types.js";
 
@@ -114,7 +114,22 @@ export async function readWorkspaceManifest(
   return parsed;
 }
 
-/** Atomically write the workspace manifest to `.hatch3r/workspace.json`. */
+/**
+ * Atomically write the workspace manifest to `.hatch3r/workspace.json`.
+ *
+ * **Cross-process concurrency (F1.9-H1, Cycle 10 D1):** the in-process mutex
+ * in `workspace/sync.ts` (`runSerialized`) plus `pLimit` only serialize writes
+ * *within* one Node process. Two CI runners — or two operator shells — running
+ * `hatch3r sync` against the same workspace root concurrently would otherwise
+ * race the read-modify-write of `lastSync` entries and silently drop the slower
+ * writer's timestamps. This function takes the same cross-process advisory lock
+ * `atomicWriteFile` uses (opt-in via `HATCH3R_LOCK=1`, D1-SA1.5.1) explicitly
+ * around the write so the protection is visible at this call site and survives
+ * future refactors of `atomicWriteFile`'s internals. When the env var is unset
+ * the lock is a no-op (single-process default unchanged); when set, a second
+ * concurrent writer surfaces an `ELOCKED` → `HatchError(LOCK_TIMEOUT)` after the
+ * existing 5×500 ms retry budget rather than clobbering silently.
+ */
 export async function writeWorkspaceManifest(
   rootDir: string,
   manifest: WorkspaceManifest,
@@ -123,7 +138,16 @@ export async function writeWorkspaceManifest(
   // Wave 6: ensure `.hatch3r/` exists; workspace init may write the manifest
   // before any other helper has created the directory on a fresh repo.
   await mkdir(dirname(manifestPath), { recursive: true });
-  await atomicWriteFile(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
+  // F1.9-H1: explicit cross-process lock. acquireWriteLock is reentrant within
+  // a single process (HELD_LOCKS set), so the nested acquire inside
+  // atomicWriteFile short-circuits to a no-op — the lock is taken exactly once
+  // and released once here.
+  const release = await acquireWriteLock(manifestPath);
+  try {
+    await atomicWriteFile(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
+  } finally {
+    await release();
+  }
 }
 
 /** Create a new workspace manifest with the given configuration. */

@@ -33,7 +33,7 @@ Thank you for your interest in contributing to hatch3r. This document provides g
 ## Project structure
 
 - `src/cli/` - CLI entry point and commands
-- `src/adapters/` - Tool-specific adapters (Cursor, Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline/Roo Code, Aider, Kiro, Goose, Zed, Amazon Q, Antigravity)
+- `src/adapters/` - 3 platform adapters: Cursor, GitHub Copilot, Claude Code
 - `src/merge/` - Safe merge logic for template updates
 - `src/detect/` - Tool detection utilities
 - `src/manifest/` - Manifest and pack metadata handling

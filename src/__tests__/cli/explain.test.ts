@@ -55,7 +55,9 @@ describe("explainCommand", () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
-  it("rejects when --cost flag is omitted", async () => {
+  it("rejects when neither --cost nor --customizations is provided", async () => {
+    // SA12.3-F03 (Cycle 10 Wave 2): the mode selector now accepts two flags;
+    // omitting both is a usage error and the message names both modes.
     const { explainCommand } = await import("../../cli/commands/explain.js");
     await expect(explainCommand({})).rejects.toThrow(HatchError);
     try {
@@ -63,6 +65,21 @@ describe("explainCommand", () => {
     } catch (e) {
       expect((e as HatchError).exitCode).toBe(2);
       expect((e as HatchError).message).toContain("--cost");
+      expect((e as HatchError).message).toContain("--customizations");
+    }
+  });
+
+  it("rejects when both --cost and --customizations are passed", async () => {
+    // Mutual exclusion: the two modes do disjoint things and cannot compose.
+    const { explainCommand } = await import("../../cli/commands/explain.js");
+    await expect(
+      explainCommand({ cost: "anything", customizations: true }),
+    ).rejects.toThrow(HatchError);
+    try {
+      await explainCommand({ cost: "anything", customizations: true });
+    } catch (e) {
+      expect((e as HatchError).exitCode).toBe(2);
+      expect((e as HatchError).message).toContain("Conflicting flags");
     }
   });
 
@@ -255,5 +272,57 @@ describe("explainCommand", () => {
     expect(output).toContain("Tier 1");
     expect(output).toContain("Tier 2");
     expect(output).toContain("Tier 3");
+  });
+
+  // SA12.3-F03 (Cycle 10 Wave 2): `--customizations` mode tests.
+  it("--customizations: renders 'no files found' box when no customize.{yaml,md} exist", async () => {
+    const { explainCommand } = await import("../../cli/commands/explain.js");
+    await explainCommand({ customizations: true });
+
+    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(output).toContain("Customizations");
+    expect(output).toContain("No .customize.yaml or .customize.md files");
+  });
+
+  it("--customizations: reports an active md-body row for a non-protected canonical artifact", async () => {
+    // Create a customize.md for `hatch3r-reviewer` (a canonical agent that
+    // ships with the bundled package). The dry-call should pick it up,
+    // classify the outcome as `active`, and surface the artifact in the table.
+    const customDir = join(tempDir, ".hatch3r", "agents");
+    await mkdir(customDir, { recursive: true });
+    await writeFile(
+      join(customDir, "hatch3r-reviewer.customize.md"),
+      "Focus on security review patterns.",
+      "utf-8",
+    );
+
+    const { explainCommand } = await import("../../cli/commands/explain.js");
+    await explainCommand({ customizations: true });
+
+    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(output).toContain("hatch3r-reviewer");
+    expect(output).toContain("active");
+    expect(output).toMatch(/1 active/);
+  });
+
+  it("--customizations: reports a failed row when enabled: false is set on a protected/floor artifact", async () => {
+    // hatch3r-security-auditor is protected + floor:security-tagged in the
+    // canonical content. enabled: false on it must be rejected by
+    // applyCustomization (F2.3-C1) and surface as a `failed` outcome.
+    const customDir = join(tempDir, ".hatch3r", "agents");
+    await mkdir(customDir, { recursive: true });
+    await writeFile(
+      join(customDir, "hatch3r-security-auditor.customize.yaml"),
+      "enabled: false\n",
+      "utf-8",
+    );
+
+    const { explainCommand } = await import("../../cli/commands/explain.js");
+    await explainCommand({ customizations: true });
+
+    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(output).toContain("hatch3r-security-auditor");
+    expect(output).toContain("failed");
+    expect(output).toMatch(/[1-9]\d* failed/);
   });
 });

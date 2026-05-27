@@ -1,0 +1,102 @@
+---
+description: PHP 8.3+ and Laravel 11.x conventions covering typed properties, attributes, Eloquent ORM, Service Container DI, Pest testing, queue workers, and Laravel Pint formatting
+globs: ["**/*.php", "**/composer.json", "**/composer.lock", "**/artisan", "**/phpunit.xml", "**/phpunit.xml.dist", "**/phpstan.neon", "**/phpstan.neon.dist", "**/pint.json", "**/.php-cs-fixer.php", "**/app/**", "**/bootstrap/**", "**/config/**", "**/database/migrations/**", "**/routes/**", "**/tests/**"]
+alwaysApply: false
+---
+# PHP / Laravel Patterns
+
+> Applies when the project ships a PHP application. Detection signals: `composer.json` at repo root, `artisan` script (Laravel), or any `*.php` source file. Symfony and Symfony-based projects also follow most of the language-level guidance here.
+
+## PHP Language Floor
+
+- Target PHP 8.3+ (8.4 recommended for new projects). Use typed properties, constructor property promotion, enums, readonly classes, first-class callable syntax. Avoid PHP 7.x patterns in new code.
+- Enable strict types in every file (`declare(strict_types=1);` as the first statement after `<?php`). The IDE / Pint config enforces presence.
+- Static analysis: PHPStan level 8 or Psalm level 1 in CI. Treat warnings as errors. Configure via `phpstan.neon` with project-specific baselines for legacy code.
+- Format with Laravel Pint (Laravel projects) or PHP-CS-Fixer with PER 2.0 / PSR-12 ruleset. Run in CI; reformat-on-save in editors.
+
+## Project Layout (Laravel)
+
+- Default Laravel structure:
+  - `app/Models/` — Eloquent models.
+  - `app/Http/Controllers/` — controllers (HTTP only, thin orchestration).
+  - `app/Services/<Domain>/` — domain services and business logic.
+  - `app/Actions/` — single-purpose action classes (one public `execute()` method).
+  - `app/Jobs/` — queue jobs.
+  - `app/Policies/` — authorization policies.
+- Keep controllers thin: receive request → call action / service → return response. Business logic in services or action classes, not controllers.
+- Public API of the app: HTTP routes (`routes/api.php`, `routes/web.php`), Artisan commands (`app/Console/Commands/`), broadcast channels (`routes/channels.php`).
+
+## Laravel 11.x
+
+- Laravel 11 is the floor (Feb 2024 release, supported through 2026). Migrate from earlier versions via the official upgrade guide; do not skip major versions.
+- Use the streamlined application skeleton: `bootstrap/app.php` with `withRouting`, `withMiddleware`, `withExceptions` configuration callbacks. Avoid restoring the legacy `kernel.php` files for new projects.
+- Configuration: `config/*.php` returns arrays; access via `config('key.path')`. Never call `env()` outside `config/*.php` — `php artisan config:cache` invalidates direct `env()` calls in app code.
+- Environment-specific config: `.env.local`, `.env.production`. Never commit `.env` files to VCS.
+
+## Eloquent ORM
+
+- Define models with explicit `$fillable` (allowlist) — never `$guarded = []`. Mass-assignment vulnerabilities are real.
+- Type-hint relationship return types: `public function orders(): HasMany { ... }`. The static analyzer catches relationship typos.
+- N+1 query prevention: eager-load relationships explicitly (`User::with('orders.items')->...`). Use the Laravel debug bar or `LazyEagerLoad::enforce()` in tests to catch N+1 violations in CI.
+- Avoid mass operations through Eloquent (`Model::all()`, then iterating). Use the query builder, chunked queries (`->chunk(100, function ($users) { ... })`), or lazy collections for large result sets.
+- Migrations are forward-only in production. Never `php artisan migrate:rollback` against production. For destructive schema changes, write a forward-only migration that achieves the same outcome.
+
+## Service Container & DI
+
+- Constructor injection via type-hinted parameters. The container auto-resolves bindings declared in service providers.
+- Define bindings in `app/Providers/AppServiceProvider.php` (or feature-specific providers). Use `bind` for transient services, `singleton` for app-wide singletons, `scoped` for request-scoped.
+- Contextual bindings via `$this->app->when(MyController::class)->needs(LoggerInterface::class)->give(...)`. Stops type-hint hacks.
+- Avoid `app()` and `resolve()` helpers in app code — they obscure dependencies. Reserve for service providers and one-off scripts.
+
+## HTTP Layer
+
+- Form Requests (`php artisan make:request StoreUserRequest`) for input validation. Define `rules()`, `authorize()`, and `messages()` methods. Controllers receive the validated request, never `$request->all()` blindly.
+- Resource classes (`php artisan make:resource UserResource`) for API responses. Stop returning raw Eloquent models — Resources control the shape and protect against accidental field leaks.
+- Use route model binding (`Route::get('/users/{user}', [UserController::class, 'show'])` with type-hinted `User $user`). Automatic 404s and stable URL conventions.
+- Middleware: composable via `bootstrap/app.php` `withMiddleware()`. Avoid global middleware unless it applies to all routes — prefer route groups.
+
+## Queues & Jobs
+
+- Use Laravel queues for any work over 200ms: emails, third-party API calls, image processing, report generation. Synchronous handling blocks the HTTP response.
+- Job classes implement `ShouldQueue`. Configure retry counts (`public int $tries = 3`) and backoff (`public function backoff(): array { return [60, 300, 1800]; }`). Idempotency keys for jobs touching external APIs.
+- Driver choice: Redis (`predis/predis` or `phpredis`) for high throughput, Database for low-volume / dev. Avoid Beanstalkd / SQS unless infrastructure requires it.
+- Run workers via Horizon (`laravel/horizon`) for production observability and balanced auto-scaling. Configure tags, supervisors, and memory limits in `config/horizon.php`.
+
+## Testing
+
+- Use Pest (`pestphp/pest`) for new test suites — terser syntax than PHPUnit, runs on top of PHPUnit. PHPUnit alone is acceptable for legacy projects.
+- Test types under `tests/`:
+  - `tests/Unit/` — pure logic, no Laravel bootstrap.
+  - `tests/Feature/` — full HTTP / queue / database flows with `RefreshDatabase` trait.
+  - `tests/Browser/` — Dusk for end-to-end browser tests.
+- Database tests: `RefreshDatabase` trait wraps each test in a transaction and rolls back. Never use `DatabaseMigrations` in CI — too slow.
+- Mock external services with Laravel's HTTP facade (`Http::fake([...])`). Never hit real network in tests.
+- Coverage: `php artisan test --coverage --min=80`. Floor: 80% line coverage; 90% in critical modules (auth, billing, persistence).
+
+## Security
+
+- Validate every user input via Form Requests. Never trust `$request->all()` direct to a model.
+- Authorization via Policies (`app/Policies/`) registered in `AuthServiceProvider`. Controllers call `$this->authorize('update', $post)`. Never authorize in views — too late.
+- CSRF protection: Laravel adds it by default to web routes. Do not disable globally.
+- Mass-assignment: `$fillable` allowlist on every model. Audit `$guarded = []` patterns and migrate.
+- Encryption: `Crypt::encryptString()` for sensitive at-rest data. Never reinvent symmetric encryption.
+
+## Composer & Dependency Hygiene
+
+- Pin versions in `composer.json` to caret ranges (`^11.0` for Laravel itself, `^1.2` for stable libraries). Avoid `*` and `dev-` requirements in production.
+- Lock file (`composer.lock`) committed for applications. Library packages typically omit the lock.
+- Vulnerability scanning: `composer audit` (PHP 8.2+, Composer 2.4+) in CI against the FriendsOfPHP/security-advisories database. Block merge on advisories.
+- License compliance: `composer-license-checker` with an allowlist. Block GPL contamination.
+
+## References
+
+- PHP 8.3 release notes: https://www.php.net/releases/8.3/en.php (accessed 2026-05-27, official-docs)
+- Laravel 11 upgrade guide: https://laravel.com/docs/11.x/upgrade (accessed 2026-05-27, official-docs)
+- Laravel docs: https://laravel.com/docs/11.x (accessed 2026-05-27, official-docs)
+- Pest: https://pestphp.com/docs/installation (accessed 2026-05-27, official-docs)
+
+## Cross-References
+
+- `rules/hatch3r-api-design.md` — REST/GraphQL/gRPC contract floors apply to Laravel API endpoints.
+- `rules/hatch3r-testing.md` — coverage thresholds carry over to `php artisan test --coverage`.
+- `rules/hatch3r-secrets-management.md` — `.env` handling and secret rotation patterns.

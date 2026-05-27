@@ -971,6 +971,200 @@ describe("validateUserArtifact", () => {
   });
 });
 
+describe("tier-aware floor (F20.2.A1 / F20.2.A3, Decision 4 / #16)", () => {
+  // Build a minimal canonical-only index once per test by pointing at an empty
+  // dir — the collision check then has no canonical to compare against, so the
+  // gates exercise only the tier-aware floor.
+  async function emptyIndex() {
+    const fakeRoot = await mkdtemp(join(tmpdir(), "hatch3r-uc-tier-canon-"));
+    const index = await buildContentIndex(fakeRoot);
+    return { index, cleanup: () => rm(fakeRoot, { recursive: true, force: true }) };
+  }
+
+  // A "minimal" artifact: passes every solo-baseline gate (slug, description,
+  // pillar, quality_charter) but carries no References / impact_horizon.
+  function minimalArtifact(overrides: Partial<UserContentArtifact> = {}): UserContentArtifact {
+    return makeArtifact({
+      name: "tier-sample",
+      body: "**Pillars:** P4\n\nquality-charter applies. A minimal body with no References section.\n",
+      ...overrides,
+    });
+  }
+
+  it("solo accepts a minimal agent (baseline unchanged)", async () => {
+    const { index, cleanup } = await emptyIndex();
+    try {
+      const result = await validateUserArtifact(minimalArtifact(), index, "solo");
+      expect(result.strict).toEqual([]);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("team rejects the same minimal agent (missing References)", async () => {
+    const { index, cleanup } = await emptyIndex();
+    try {
+      const result = await validateUserArtifact(minimalArtifact(), index, "team");
+      expect(result.strict.some((s) => /requires a References section/i.test(s))).toBe(true);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("team accepts an agent that carries a References section", async () => {
+    const { index, cleanup } = await emptyIndex();
+    try {
+      const body =
+        "**Pillars:** P4\n\nquality-charter applies.\n\n## References\n- https://example.com (accessed 2026-05-27, primary)\n";
+      const result = await validateUserArtifact(minimalArtifact({ body }), index, "team");
+      expect(result.strict).toEqual([]);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("scaleup additionally requires an impact_horizon declaration", async () => {
+    const { index, cleanup } = await emptyIndex();
+    try {
+      const body =
+        "**Pillars:** P4\n\nquality-charter applies.\n\n## References\n- https://example.com (accessed 2026-05-27, primary)\n";
+      const result = await validateUserArtifact(minimalArtifact({ body }), index, "scaleup");
+      expect(result.strict.some((s) => /impact_horizon/i.test(s))).toBe(true);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("enterprise accepts an artifact with References + impact_horizon", async () => {
+    const { index, cleanup } = await emptyIndex();
+    try {
+      const body =
+        "**Pillars:** P4\n\nquality-charter applies. impact_horizon: short\n\n## References\n- https://example.com (accessed 2026-05-27, primary)\n";
+      const result = await validateUserArtifact(minimalArtifact({ body }), index, "enterprise");
+      expect(result.strict).toEqual([]);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("team waives References for non-agent/skill/rule types (hook)", async () => {
+    const { index, cleanup } = await emptyIndex();
+    try {
+      const result = await validateUserArtifact(
+        minimalArtifact({ type: "hook", name: "tier-hook", hookEvent: "pre-commit" }),
+        index,
+        "team",
+      );
+      // Hooks are not subject to the References requirement; with no impact
+      // horizon they still pass at team (scaleup is the horizon floor).
+      expect(result.strict.some((s) => /References section/i.test(s))).toBe(false);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  // ── F20.2.A3: agent tool-grant security baseline ───────────────
+
+  it("solo warns (gentle) on a wide agent tool grant without a security baseline", async () => {
+    const { index, cleanup } = await emptyIndex();
+    try {
+      const result = await validateUserArtifact(
+        minimalArtifact({ tools: { allowed: ["read", "write", "execute", "git"] } }),
+        index,
+        "solo",
+      );
+      expect(result.strict).toEqual([]);
+      expect(result.gentle.some((g) => /without a security baseline/i.test(g))).toBe(true);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("solo does NOT warn on a narrow agent tool grant (<= threshold)", async () => {
+    const { index, cleanup } = await emptyIndex();
+    try {
+      const result = await validateUserArtifact(
+        minimalArtifact({ tools: { allowed: ["read", "search", "write"] } }),
+        index,
+        "solo",
+      );
+      expect(result.gentle.some((g) => /security baseline/i.test(g))).toBe(false);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("solo does NOT warn when a wide grant cites hatch3r-security-patterns", async () => {
+    const { index, cleanup } = await emptyIndex();
+    try {
+      const body =
+        "**Pillars:** P6\n\nquality-charter applies. Inherits hatch3r-security-patterns baseline.\n\n## References\n- x\n";
+      const result = await validateUserArtifact(
+        minimalArtifact({ body, tools: { allowed: ["read", "write", "execute", "git"] } }),
+        index,
+        "solo",
+      );
+      expect(result.gentle.some((g) => /security baseline/i.test(g))).toBe(false);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("team promotes the wide-grant baseline check to a strict failure", async () => {
+    const { index, cleanup } = await emptyIndex();
+    try {
+      const body =
+        "**Pillars:** P6\n\nquality-charter applies.\n\n## References\n- https://example.com (accessed 2026-05-27, primary)\n";
+      const result = await validateUserArtifact(
+        minimalArtifact({ body, tools: { allowed: ["read", "write", "execute", "git"] } }),
+        index,
+        "team",
+      );
+      expect(result.strict.some((s) => /without a security baseline/i.test(s))).toBe(true);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("saveUserContent reads maturity from the manifest (enterprise rejects minimal)", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-uc-tier-save-"));
+    try {
+      const hatch3rDir = join(tempDir, ".hatch3r");
+      await mkdir(hatch3rDir, { recursive: true });
+      await writeFile(
+        join(hatch3rDir, "hatch.json"),
+        JSON.stringify({
+          version: "3.0.0",
+          hatch3rVersion: "1.9.0",
+          platform: "github",
+          tools: [],
+          features: {},
+          mcp: { servers: [] },
+          managedFiles: [],
+          maturity: "enterprise",
+        }),
+        "utf-8",
+      );
+      const result = await saveUserContent(tempDir, minimalArtifact());
+      expect(result.written).toEqual([]);
+      expect(result.strictFailures.some((s) => /requires a References section/i.test(s))).toBe(true);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("saveUserContent defaults to solo when the manifest is absent (minimal accepted)", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-uc-tier-nomani-"));
+    try {
+      const result = await saveUserContent(tempDir, minimalArtifact());
+      expect(result.strictFailures).toEqual([]);
+      expect(result.written.length).toBeGreaterThan(0);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("validateContentBody — pre-flight body scan (C9-H84 / D20-F20.2.2)", () => {
   let tempDir: string;
 

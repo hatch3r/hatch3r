@@ -94,6 +94,15 @@ export interface CustomizationManifest {
 export interface HatchManifest {
   version: string;
   hatch3rVersion: string;
+  /**
+   * F15.4-H2 (Cycle 10 D15-SA15.4, Pillar P6): optional pinned semver
+   * range or exact version that `hatch3r update` honors when present.
+   * When set, the npm install spec becomes `hatch3r@<versionConstraint>`
+   * instead of `hatch3r@latest`. Format: any valid npm semver expression.
+   * Set via `hatch3r update --pin-version <semver>` or by hand-editing
+   * `.hatch3r/hatch.json`.
+   */
+  versionConstraint?: string;
   platform?: Platform;
   owner: string;
   repo: string;
@@ -289,6 +298,17 @@ export interface Features {
 
 export interface McpConfig {
   servers: string[];
+  /**
+   * Optional MCP protocol version emitted into generated client config
+   * (`.mcp.json` `protocolVersion` field for Claude Code; cursor/copilot
+   * mirror it). Defaults to the most-recent stable spec revision
+   * (`MCP_DEFAULT_PROTOCOL_VERSION` in `src/adapters/mcp-utils.ts`) when
+   * absent. Operators override via `.hatch3r/hatch.json` to pin a server
+   * fleet to a specific revision ahead of the 2026-07-28 RC GA
+   * (blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate,
+   * accessed 2026-05-27). F17.2.3 (Cycle 10, D17, P3).
+   */
+  protocolVersion?: string;
 }
 
 /**

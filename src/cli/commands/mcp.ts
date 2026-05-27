@@ -41,9 +41,9 @@ import { isWSL } from "../shared/constants.js";
 
 function requireManifest(rootDir: string, manifest: HatchManifest | null): asserts manifest {
   if (!manifest) {
-    logError("No .agents/hatch.json found.");
+    logError("No .hatch3r/hatch.json found.");
     console.log(chalk.dim(`  Run \`npx hatch3r init\` to set up your project first.\n`));
-    throw new HatchError("No .agents/hatch.json found.", 1, "CONFIG_ERROR");
+    throw new HatchError("No .hatch3r/hatch.json found.", 1, "CONFIG_ERROR");
   }
 }
 
@@ -87,7 +87,7 @@ export async function mcpSetupCommand(): Promise<void> {
     "MCP configured",
     [
       label("Servers", selected.length > 0 ? selected.join(", ") : "none"),
-      label("Manifest", ".agents/hatch.json"),
+      label("Manifest", ".hatch3r/hatch.json"),
       label("Next", "Run `npx hatch3r sync` to regenerate adapter MCP configs"),
     ],
     "success",

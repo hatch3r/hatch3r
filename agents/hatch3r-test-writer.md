@@ -64,6 +64,8 @@ This interactive verification complements automated E2E test suites — use it t
 
 Follow the shared protocol in `agents/shared/external-knowledge.md` (tooling hierarchy, platform CLI, Context7 MCP, web research).
 
+**Learning consultation (CONSTITUTION §6 Decision 27):** Before writing tests, consult `.hatch3r/learnings/INDEX.md` per `rules/hatch3r-learning-system.md` — test-writer output is code-affecting (it writes test files), so it shares the consult cohort with Implementer/Reviewer/Researcher. Test the current file path against each learning's `applies-to` set; cite consulted entry IDs on the **Status** line (or record "no learnings available" when the index is empty or absent). Citing zero entries when `applies-to` matched is a gate failure visible at audit time.
+
 **Context7 focus for this agent:**
 - Testing framework APIs (Vitest, Jest, Playwright, Cypress, Testing Library), assertion libraries, and mocking utilities
 - Library-recommended testing patterns (React Testing Library queries, Playwright locators, Supertest assertion chains)

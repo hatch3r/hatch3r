@@ -57,12 +57,14 @@ Detection first — skip install if `@playwright/test` is already in `devDepende
 jq -r '.devDependencies["@playwright/test"], .devDependencies["@axe-core/playwright"]' package.json
 ```
 
-If either returns `null`, ask the user before installing (binaries are large; user machine state changes). On confirmation:
+If either returns `null`, ask the user before installing (binaries are large; user machine state changes). On confirmation, pin to the tested-against versions (see Configuration "Tested-against versions" row) so verification outcomes and the bundled Chromium CVE surface stay reproducible across machines:
 
 ```
-npm install -D @playwright/test @axe-core/playwright
+npm install -D @playwright/test@~1.60.0 @axe-core/playwright@~4.11.3
 npx playwright install chromium
 ```
+
+The `~` pin floats patch releases within the tested minor line but blocks an uncontrolled minor bump that would swap the bundled Chromium build (and its CVE exposure) out from under the verification gate. Bump the pin deliberately when upstream Playwright ships a Chromium roll that closes a tracked advisory — see "Known Issues — Browser CVE Awareness".
 
 Use Chromium-only by default — adds ~280MB. Add `firefox` and `webkit` only when the project's browser-support matrix demands them. Record the installed Playwright version AND the bundled Chromium revision (`npx playwright --version` plus `cat node_modules/playwright-core/browsers.json | jq '.browsers[] | select(.name=="chromium")'`) in the verification output for traceability. See "Known Issues — Browser CVE Awareness" below before targeting untrusted or third-party content; the bundled Chromium is intentionally not a security boundary per upstream maintainer guidance.
 
@@ -208,6 +210,7 @@ Cross-reference the scaffold in the PR description and link it to the feature ti
 | Screenshot baseline | branch `main` | `--baseline=<ref>` |
 | Pixel-diff tolerance | `maxDiffPixelRatio: 0.01`, `threshold: 0.2` | per-test override in spec |
 | `minBrowserVersion` advisory | Chromium ≥145.0.7632.75 (CVE-2026-2441 fix floor; bundled with Playwright ≥1.59.0) | bump when upstream Chrome stable channel ships a new high-severity advisory; verify via `npx playwright --version` + `node_modules/playwright-core/browsers.json` |
+| Tested-against versions | `@playwright/test@~1.60.0` (bundled Chromium 148.0.7778.96) + `@axe-core/playwright@~4.11.3` — cycle 10, verified 2026-05-27 | re-pin on the next D21 cycle when upstream releases a Playwright minor that rolls Chromium past a tracked advisory |
 | Trust posture for `target_url` | first-party content only | use `channel: "chrome"` (or `channel: "chromium-tip-of-tree"`) when the verified UI loads third-party scripts/iframes — see "Known Issues — Browser CVE Awareness" |
 
 ## Output contract

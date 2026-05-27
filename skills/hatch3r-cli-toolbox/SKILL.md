@@ -155,6 +155,25 @@ CLI tools return structured stdout that fits in <1 KB for typical queries; equiv
 - **Recipe:** `docker run --rm -v "$PWD":/app -w /app node:22 npm test`
 - **Wrong choice when:** rootless / daemonless required — use `podman`; Kubernetes deploy — use `kubectl`/`helm`.
 
+#### Sandbox callout — host-mount + privilege
+
+The recipe above bind-mounts the entire repo root read-write, which exposes `.env`, `.git`, `.hatch3r/learnings/`, and `node_modules` to a compromised post-install script inside the container. F15.7-H5 (Cycle 10 D15-SA15.7) hardening — copy the relevant flags into your runs when the workload comes from untrusted sources (third-party image, agent-generated `docker run` command, public Dockerfile):
+
+- Read-only filesystem: `--read-only --tmpfs /tmp` keeps the container from writing back to the host even via `/app`.
+- Drop root: `--user "$(id -u):$(id -g)"` or rely on the image's non-root `USER` directive. Without it, a process inside the container runs as host root on Linux when Docker Desktop's user remapping is disabled.
+- Block privilege escalation: `--security-opt no-new-privileges:true` neutralises setuid binaries inside the image.
+- Mount the smallest necessary sub-tree: `-v "$PWD/src:/app/src:ro"` instead of the full repo root. Never bind-mount `~`, `/`, or `/var/run/docker.sock` to an untrusted container — the socket grants host root.
+- Reference: https://docs.docker.com/engine/security/rootless/ (rootless Docker Engine), https://docs.docker.com/engine/reference/run/#security-configuration (no-new-privileges + capability drop).
+
+Hardened equivalent of the recipe above:
+```
+docker run --rm --read-only --tmpfs /tmp \
+  --user "$(id -u):$(id -g)" \
+  --security-opt no-new-privileges:true \
+  --cap-drop ALL \
+  -v "$PWD/src:/app/src:ro" -w /app node:22 npm test
+```
+
 ### podman
 - **When to use:** rootless OCI-image execution without a privileged daemon — ideal for hardened CI workers.
 - **Recipe:** `podman run --rm -v "$PWD:/app:Z" -w /app node:22 npm test` (`:Z` triggers SELinux relabel on Fedora/RHEL).
@@ -219,6 +238,23 @@ CLI tools return structured stdout that fits in <1 KB for typical queries; equiv
 - **When to use:** end-to-end browser test execution capturing screenshots and traces; deterministic locators, multi-browser.
 - **Recipe:** `npx playwright test --grep '@smoke' --workers=1 --reporter=line`
 - **Wrong choice when:** API-only system — use `curl` + `jq`; agent-driven natural-language browsing — use `stagehand`.
+
+#### Sandbox callout — credential isolation when navigating untrusted URLs
+
+Playwright launches real Chrome / Firefox / WebKit processes that inherit the host user's environment (`HOME`, `~/.aws`, browser profiles under `~/.config/google-chrome/`). Visiting an attacker-controlled URL with the host user's credential store is the equivalent of granting that URL read access to every site you are logged into. F15.7-H5 (Cycle 10 D15-SA15.7) hardening — apply when navigating to URLs the agent has not vetted:
+
+- Disposable profile: pass `userDataDir: tmp.dirSync().name` (or `--user-data-dir=$(mktemp -d)`) so the browser sees no saved sessions, no autofill, no cookies from the host profile.
+- Run inside the official sandbox image: Microsoft maintains pinned, signed Playwright containers — `mcr.microsoft.com/playwright:v1.49.0-jammy` (pin the exact tag). The image preinstalls every browser binary and isolates filesystem + network from the host. Reference: https://playwright.dev/docs/docker (Microsoft's official Playwright image is the maintained surface; pin to the immutable digest).
+- Disable hardware acceleration / GPU access on untrusted runs: `args: ['--disable-gpu', '--no-sandbox']` is acceptable inside a hardened container, never on the host.
+- Reset between scenarios: `await context.close(); context = await browser.newContext();` between unvetted URLs so cookie state does not leak across hops.
+- Reference: https://playwright.dev/docs/release-notes (current release surface), https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/ (AAI04 untrusted-input handling).
+
+Hardened equivalent of the recipe above (inside Microsoft's pinned image):
+```
+docker run --rm --network none -v "$PWD:/work:ro" -w /work \
+  mcr.microsoft.com/playwright:v1.49.0-jammy \
+  npx playwright test --grep '@smoke' --workers=1 --reporter=line
+```
 
 ### stagehand
 - **When to use:** natural-language browser steering with on-the-fly DOM reasoning; v3 (2025-10-29) talks Chrome DevTools Protocol directly. Drivers (`playwright-core`, `puppeteer-core`, `patchright-core`) are peer deps — install only the one you need.

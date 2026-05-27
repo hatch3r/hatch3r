@@ -7,6 +7,7 @@ import { HatchError, type HatchManifest } from "../../types.js";
 import { extractManagedBlock } from "../../merge/managedBlocks.js";
 import { resolveBundledContentRoot } from "../../content/contentRoot.js";
 import { discoverUserContent } from "../../content/userContent.js";
+import { buildCustomizationSummary } from "../../adapters/customizationSummary.js";
 import {
   printBanner,
   createSpinner,
@@ -199,8 +200,24 @@ export async function statusCommand(opts?: { verbose?: boolean }): Promise<void>
   const style = hasDrift ? "info" as const : "success" as const;
   printBox("Status", summaryLines, style);
 
-  if (report.counts.modified > 0 || report.counts.missing > 0) {
-    info(`Run ${chalk.bold("hatch3r sync")} to regenerate drifted/missing files.`);
+  if (report.counts.modified > 0) {
+    // F2.7-F5 (Cycle 10 Wave 2, partial): the `modified` status alone does not
+    // attribute drift direction — `computeAdapterDrift` cannot tell a user edit
+    // from an outdated canonical block without a stored emit-time baseline
+    // (none exists yet; the manifest tracks paths, not per-file content hashes).
+    // Until that provenance lands (sidecar `.hatch3r/.drift-baseline.json` or an
+    // embedded hash+version line), surface the overwrite risk explicitly so the
+    // operator does not lose hand edits by running `sync` blind.
+    info(
+      `Run ${chalk.bold("hatch3r sync")} to regenerate drifted files. ` +
+      `${chalk.yellow("Drifted")} files differ from the regenerated output — this can mean either ` +
+      `your hand edits inside the managed block OR an outdated block from a newer canonical version. ` +
+      `${chalk.bold("sync overwrites the managed block")}; back up local edits first if unsure.`,
+    );
+    console.log();
+  }
+  if (report.counts.missing > 0) {
+    info(`Run ${chalk.bold("hatch3r sync")} to regenerate missing files.`);
     console.log();
   }
   if (report.counts.unexpected > 0) {
@@ -266,6 +283,49 @@ export async function statusCommand(opts?: { verbose?: boolean }): Promise<void>
       userLines.push(`${"Total:".padEnd(12)}${userTotal} item(s)`);
     }
     printBox("User content", userLines, "info");
+  }
+
+  // ── Customizations (SA12.3-F03) ─────────────────────────────
+  // Surface the per-artifact .customize.{yaml,md} state that previously stayed
+  // silent under the Silent Failure Contract. Default mode prints a one-line
+  // "N active (M skipped, K failed)" row; --verbose expands to the per-artifact
+  // table identical to `hatch3r explain --customizations`. Skipped when no
+  // customization files exist so the status output stays compact for fresh
+  // installs.
+  try {
+    const customizationSummary = await buildCustomizationSummary(rootDir);
+    if (customizationSummary.entries.length > 0) {
+      const c = customizationSummary.counts;
+      const oneLine =
+        `${chalk.bold(String(c.active))} active` +
+        (c.skipped > 0 ? `, ${chalk.yellow(String(c.skipped))} skipped` : "") +
+        (c.failed > 0 ? `, ${chalk.red(String(c.failed))} failed` : "");
+      const customLines: string[] = [oneLine];
+      if (opts?.verbose) {
+        customLines.push("");
+        for (const entry of customizationSummary.entries) {
+          const icon =
+            entry.outcome === "failed"
+              ? chalk.red("✗")
+              : entry.outcome === "skipped"
+                ? chalk.yellow("○")
+                : entry.outcome === "active"
+                  ? chalk.green("✓")
+                  : chalk.dim("·");
+          const reason = entry.reason ? chalk.dim(` — ${entry.reason}`) : "";
+          customLines.push(`  ${icon} ${entry.type}/${entry.id}${reason}`);
+        }
+      } else if (c.failed > 0 || c.skipped > 0) {
+        customLines.push(chalk.dim(`  Run \`hatch3r explain --customizations\` for the per-artifact table.`));
+      }
+      printBox(
+        "Customizations",
+        customLines,
+        c.failed > 0 ? "warning" : c.skipped > 0 ? "info" : "success",
+      );
+    }
+  } catch (err) {
+    verbose(`Customization summary skipped: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   // ── Workspace topology ──────────────────────────────────────

@@ -12,7 +12,7 @@ parallel_tool_default: true
 triage_tiers: [1, 2, 3]
 sub_agents_spawned:
   count: 4
-  rationale: Four parallel hatch3r-researcher modes per bug brief — symptom-trace, root-cause-hypothesis, impact-assessment, regression-research — dispatched concurrently in Step 3; a docs-writer assembles the investigation report on their merged output.
+  rationale: Four parallel hatch3r-researcher modes per bug brief — symptom-trace, root-cause-hypothesis, impact-assessment, regression-research — dispatched concurrently in Step 3; a docs-writer assembles the investigation report on their merged output. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -26,6 +26,8 @@ Before any action, scan the user's request and provided context for unresolved q
 | 1. Research | `hatch3r-researcher` (4 parallel: symptom-trace, root-cause, impact-analysis, regression) | Yes | Yes |
 | 2. Document Generation | `hatch3r-docs-writer` (investigation report, ADRs) | Yes | Yes |
 | 3. Todo Generation | Orchestrator (inline) | No | Yes |
+
+**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
 
 # Bug Plan — Complex Bug Investigation from Symptom to Board-Ready Fix Items
 

@@ -74,11 +74,25 @@ Verify with:
 command -v fzf
 ```
 
-Install (mac):
+Install (macOS — default for this machine):
 
 ```bash
 # brew
 brew install fzf
+```
+
+Install (Linux):
+
+```bash
+# apt
+sudo apt install fzf
+```
+
+Install (Windows):
+
+```bash
+# scoop
+scoop install fzf
 ```
 
 Homepage: https://github.com/junegunn/fzf

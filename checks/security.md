@@ -20,10 +20,10 @@ Review criteria for evaluating security posture in pull requests.
 
 ## Authentication and Authorization
 
-- `[CRITICAL]` New endpoints have appropriate authentication guards. No accidental public exposure of protected resources.
+- `[CRITICAL]` New endpoints enforce authentication and resource-level authorization per an OAuth 2.1 / RBAC rubric — every non-public route rejects unauthenticated requests (401) and out-of-scope authenticated requests (403). No accidental public exposure of protected resources.
 - `[CRITICAL]` Authorization checks verify the authenticated user has access to the specific resource, not just that they're logged in.
 - `[CRITICAL]` Authentication tokens are not logged, included in URLs, or exposed in error messages.
-- `[RECOMMENDED]` Session tokens use secure attributes: `HttpOnly`, `Secure`, `SameSite=Strict`, appropriate `Max-Age`.
+- `[RECOMMENDED]` Session tokens use secure attributes: `HttpOnly`, `Secure`, `SameSite=Strict`, and a `Max-Age` no longer than the session policy (default ≤24h for access tokens, ≤30d for refresh tokens).
 - `[RECOMMENDED]` Rate limiting is applied to authentication endpoints (login, password reset, OTP verification).
 
 ## Secrets and Credentials
@@ -39,7 +39,7 @@ Review criteria for evaluating security posture in pull requests.
 - `[CRITICAL]` New dependencies are from trusted sources with active maintenance (recent commits, multiple maintainers).
 - `[CRITICAL]` No known critical or high vulnerabilities in new or updated dependencies (`npm audit`, `pip audit`, etc.).
 - `[RECOMMENDED]` Dependency count increase is justified — prefer standard library solutions when adequate.
-- `[RECOMMENDED]` New dependencies have appropriate licenses compatible with the project.
+- `[RECOMMENDED]` New dependencies carry an OSI-approved license compatible with the project license (no GPL/AGPL copyleft in a permissively-licensed product unless legal-approved).
 
 ## Data Exposure
 

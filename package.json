@@ -35,7 +35,8 @@
     "audit:find": "tsx scripts/audit-find.ts",
     "audit:reset": "tsx scripts/clean-audit-workspace.ts",
     "lockfile:check": "lockfile-lint --path package-lock.json --type npm --allowed-hosts npm --validate-https",
-    "mcp:cve-check": "tsx scripts/check-mcp-cves.ts"
+    "mcp:cve-check": "tsx scripts/check-mcp-cves.ts",
+    "cli-tools:cve-check": "tsx scripts/check-cli-cves.ts"
   },
   "keywords": [
     "agents",

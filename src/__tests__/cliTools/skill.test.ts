@@ -55,11 +55,25 @@ describe("renderCliToolSkillBody — ripgrep (tier-1 representative)", () => {
       command -v rg
       \`\`\`
 
-      Install (mac):
+      Install (macOS — default for this machine):
 
       \`\`\`bash
       # brew
       brew install ripgrep
+      \`\`\`
+
+      Install (Linux):
+
+      \`\`\`bash
+      # apt
+      sudo apt install ripgrep
+      \`\`\`
+
+      Install (Windows):
+
+      \`\`\`bash
+      # scoop
+      scoop install ripgrep
       \`\`\`
 
       Homepage: https://github.com/BurntSushi/ripgrep
@@ -109,18 +123,47 @@ describe("renderCliToolSkillBody — rtk (tier-3 with caveat)", () => {
   });
 });
 
+describe("renderCliToolSkillBody — Security section (F15.7-H7, Cycle 10 D15-SA15.7)", () => {
+  it("renders a ## Security section surfacing securityNote + minVersion when present", () => {
+    // jq carries both a securityNote and a minVersion floor — the generated
+    // skill must surface them so the unsigned-channel / unpatched-version
+    // context is not silently dropped next to the install recipe.
+    const jq = AVAILABLE_CLI_TOOLS.jq as CliToolMeta;
+    const body = renderCliToolSkillBody(jq, "mac");
+    expect(body).toContain("## Security");
+    expect(body).toContain("Minimum recommended version");
+    expect(body).toContain(jq.minVersion as string);
+    expect(body).toContain(jq.securityNote as string);
+    // Security block sits after the install recipe, not before it.
+    expect(body.indexOf("## Security")).toBeGreaterThan(body.indexOf("## Detection / Install"));
+  });
+
+  it("omits the ## Security section for tools with no securityNote or minVersion", () => {
+    // ripgrep has neither field — its body must stay free of the Security
+    // heading so the no-advisory path is unchanged.
+    const ripgrep = AVAILABLE_CLI_TOOLS.ripgrep as CliToolMeta;
+    const body = renderCliToolSkillBody(ripgrep, "mac");
+    expect(body).not.toContain("## Security");
+  });
+});
+
 describe("renderCliToolSkillBody — OS-specific install rendering", () => {
   it("renders linux install commands when currentOs is 'linux'", () => {
+    // F15.7-H3 (Cycle 10): the renderer emits canonical OS labels and marks
+    // the host OS as "default for this machine"; the Linux block carries that
+    // suffix when currentOs is "linux".
     const ripgrep = AVAILABLE_CLI_TOOLS.ripgrep as CliToolMeta;
     const body = renderCliToolSkillBody(ripgrep, "linux");
-    expect(body).toContain("Install (linux):");
+    expect(body).toContain("Install (Linux — default for this machine):");
     expect(body).toContain("sudo apt install ripgrep");
   });
 
   it("renders win install commands when currentOs is 'win'", () => {
+    // F15.7-H3 (Cycle 10): canonical "Windows" label, marked default when
+    // currentOs is "win".
     const ripgrep = AVAILABLE_CLI_TOOLS.ripgrep as CliToolMeta;
     const body = renderCliToolSkillBody(ripgrep, "win");
-    expect(body).toContain("Install (win):");
+    expect(body).toContain("Install (Windows — default for this machine):");
     expect(body).toContain("scoop install ripgrep");
   });
 });

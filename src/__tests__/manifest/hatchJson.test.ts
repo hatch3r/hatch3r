@@ -573,6 +573,94 @@ describe("hatchJson", () => {
       expect(result!.content?.preset).toBe("standard");
       expect(result!.content?.items.agents).toContain("hatch3r-researcher");
     });
+
+    // F1.2-H2 (Cycle 10 D1): a hand-edited manifest with an out-of-enum
+    // `maturity` (e.g. the typo "enterprice") must be rejected at the
+    // persistence boundary with HatchError(CONFIG_ERROR) instead of silently
+    // falling back to the "solo" content surface.
+    it("rejects an invalid maturity tier (typo) with CONFIG_ERROR", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "3.0.0",
+        hatch3rVersion: "2.0.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        maturity: "enterprice",
+      });
+      try {
+        await readManifest(rootDir);
+        throw new Error("expected readManifest to throw on invalid maturity");
+      } catch (e) {
+        expect(e).toBeInstanceOf(HatchError);
+        expect((e as HatchError).errorCode).toBe("CONFIG_ERROR");
+        expect((e as Error).message).toMatch(/Invalid manifest.*required fields missing or malformed/);
+      }
+    });
+
+    it("rejects a non-string maturity value", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "3.0.0",
+        hatch3rVersion: "2.0.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        maturity: 3,
+      });
+      await expect(readManifest(rootDir)).rejects.toThrow(
+        /Invalid manifest.*required fields missing or malformed/,
+      );
+    });
+
+    it("accepts a valid maturity tier", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "3.0.0",
+        hatch3rVersion: "2.0.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        maturity: "enterprise",
+      });
+      const result = await readManifest(rootDir);
+      expect(result).not.toBeNull();
+      expect(result!.maturity).toBe("enterprise");
+    });
+
+    it("accepts a manifest with no maturity field (pre-2.0 shape)", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "3.0.0",
+        hatch3rVersion: "2.0.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+      });
+      const result = await readManifest(rootDir);
+      expect(result).not.toBeNull();
+      expect(result!.maturity).toBeUndefined();
+    });
   });
 
   // Wave 6 (1.9.0): one-shot relocation of `.agents/hatch.json` ->
@@ -1072,6 +1160,130 @@ describe("hatchJson", () => {
       const result = await readManifest(rootDir);
       expect(result).not.toBeNull();
       expect(result!.mcp.servers).toEqual(["github", "context7"]);
+    });
+  });
+
+  // F3.3-H3 (Cycle 10 Wave 2): validateManifest has 9 optional sub-schema
+  // branches; before this block only `tools` + `mcp` (F3.3-C1) + board +
+  // worktree.extraPatterns were negative-tested. Six branches — costTracking,
+  // customization, specs, workspace, managedFilesByAdapter, detected,
+  // userContent — had zero malformed-input rejection coverage, so a malformed
+  // manifest carrying any of those fields slipped through readManifest and
+  // crashed downstream with TypeError instead of HatchError CONFIG_ERROR
+  // (violates P1 actionable-errors + P6 trust-boundary). Each row below pins
+  // one malformed branch; the validator must reject every one. Source of truth
+  // for each guard: src/manifest/hatchJson.ts:312-404.
+  describe("manifest validation — exhaustive sub-schema negative paths", () => {
+    let tempDir: string;
+
+    afterEach(async () => {
+      if (tempDir) {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    async function setup(): Promise<string> {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-subschema-validate-"));
+      await mkdir(join(tempDir, ".hatch3r"), { recursive: true });
+      return tempDir;
+    }
+
+    function baseManifest(): Record<string, unknown> {
+      return {
+        version: "2.0.0",
+        hatch3rVersion: "1.5.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+      };
+    }
+
+    // [description, field, malformed value] — each value violates exactly one
+    // guard in validateManifest's optional sub-schema branches.
+    const malformed: Array<[string, string, unknown]> = [
+      // costTracking (hatchJson.ts:312-324)
+      ["costTracking is not an object", "costTracking", "nope"],
+      ["costTracking.sessionBudget is not a number", "costTracking", { sessionBudget: "10" }],
+      ["costTracking.warningThresholds is not an array", "costTracking", { warningThresholds: 0.5 }],
+      ["costTracking.warningThresholds has a non-number entry", "costTracking", { warningThresholds: [0.5, "x"] }],
+      ["costTracking.hardStop is not a boolean", "costTracking", { hardStop: "yes" }],
+      // customization (hatchJson.ts:326-342)
+      ["customization is not an object", "customization", 5],
+      ["customization.schemaVersion is not 1", "customization", { schemaVersion: 2 }],
+      ["customization.agents is an array (not a record)", "customization", { schemaVersion: 1, agents: [] }],
+      ["customization.agents inner entry is not an object", "customization", { schemaVersion: 1, agents: { x: "scalar" } }],
+      ["customization.integrations is an array", "customization", { schemaVersion: 1, integrations: [] }],
+      // specs (hatchJson.ts:344-350)
+      ["specs is not an object", "specs", "nope"],
+      ["specs.paths is not an array", "specs", { paths: "x" }],
+      ["specs.paths has a non-string entry", "specs", { paths: [1] }],
+      ["specs.lastGenerated is not a string", "specs", { paths: [], lastGenerated: 123 }],
+      // workspace (hatchJson.ts:352-367)
+      ["workspace is not an object", "workspace", 1],
+      ["workspace.rootPath is not a string", "workspace", { rootPath: 1, lastSync: "x", syncVersion: "x", workspaceChecksum: "x" }],
+      ["workspace.excludedContent has a non-string entry", "workspace", { rootPath: "/r", lastSync: "x", syncVersion: "x", workspaceChecksum: "x", excludedContent: [1] }],
+      // managedFilesByAdapter (hatchJson.ts:369-376)
+      ["managedFilesByAdapter value is not an array", "managedFilesByAdapter", { cursor: "x" }],
+      ["managedFilesByAdapter value has a non-string entry", "managedFilesByAdapter", { cursor: [1] }],
+      // detected (hatchJson.ts:381-391)
+      ["detected is not an object", "detected", "x"],
+      ["detected.linters is not an array", "detected", { linters: "eslint" }],
+      ["detected.linters has a non-string entry", "detected", { linters: [1] }],
+      // userContent (hatchJson.ts:393-404)
+      ["userContent is not an object", "userContent", 9],
+      ["userContent.count is not a number", "userContent", { count: "1", lastModified: "x", types: {} }],
+      ["userContent.lastModified is not a string", "userContent", { count: 1, lastModified: 0, types: {} }],
+      ["userContent.types value is not a number", "userContent", { count: 1, lastModified: "x", types: { agents: "x" } }],
+    ];
+
+    for (const [desc, field, value] of malformed) {
+      it(`rejects malformed ${field}: ${desc}`, async () => {
+        const rootDir = await setup();
+        const data = baseManifest();
+        data[field] = value;
+        await writeFile(
+          join(rootDir, ".hatch3r", "hatch.json"),
+          JSON.stringify(data, null, 2),
+          "utf-8",
+        );
+        try {
+          await readManifest(rootDir);
+          throw new Error(`expected HatchError for malformed ${field} (${desc})`);
+        } catch (e) {
+          expect(e).toBeInstanceOf(HatchError);
+          expect((e as HatchError).errorCode).toBe("CONFIG_ERROR");
+          expect((e as HatchError).exitCode).toBe(1);
+        }
+      });
+    }
+
+    // Positive control: a manifest carrying well-formed instances of all six
+    // previously-untested sub-schemas loads cleanly (the validator did not
+    // over-restrict the happy path).
+    it("accepts well-formed instances of all six previously-untested sub-schemas", async () => {
+      const rootDir = await setup();
+      const data = baseManifest();
+      data.costTracking = { sessionBudget: 5, warningThresholds: [0.5, 0.9], hardStop: true };
+      data.customization = { schemaVersion: 1, agents: { "hatch3r-reviewer": { enabled: true } }, integrations: {} };
+      data.specs = { paths: ["specs/foo.md"], lastGenerated: "2026-05-27T00:00:00.000Z" };
+      data.workspace = { rootPath: "/repo", lastSync: "2026-05-27T00:00:00.000Z", syncVersion: "3.0.0", workspaceChecksum: "abc", excludedContent: ["x"] };
+      data.managedFilesByAdapter = { cursor: [".cursor/rules/a.mdc"] };
+      data.detected = { linters: ["eslint"], testFrameworks: ["vitest"], ciProviders: ["github-actions"] };
+      data.userContent = { count: 2, lastModified: "2026-05-27T00:00:00.000Z", types: { agents: 1, rules: 1 } };
+      await writeFile(
+        join(rootDir, ".hatch3r", "hatch.json"),
+        JSON.stringify(data, null, 2),
+        "utf-8",
+      );
+      const result = await readManifest(rootDir);
+      expect(result).not.toBeNull();
+      expect(result!.costTracking?.sessionBudget).toBe(5);
+      expect(result!.detected?.linters).toEqual(["eslint"]);
     });
   });
 

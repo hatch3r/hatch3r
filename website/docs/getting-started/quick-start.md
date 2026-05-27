@@ -5,10 +5,10 @@ title: Quick Start
 
 # Quick Start
 
-A copy-paste-runnable walkthrough that takes a project from empty to released using hatch3r. The path is the same for greenfield and brownfield work — only the second step branches.
+A copy-paste-runnable walkthrough that takes a project from empty to released using hatch3r. The path is the same for greenfield and brownfield work — the spec step (Step 4) auto-detects which one you are in and branches for you.
 
 :::info Last verified
-2026-04-28 against hatch3r 1.7.0. URLs and credential flows reverified each audit cycle (P3 — Adapter & MCP Currency).
+2026-05-27 against hatch3r 2.0.0. URLs and credential flows reverified each audit cycle (P3 — Adapter & MCP Currency).
 :::
 
 ## Prerequisites
@@ -138,25 +138,24 @@ Verify connection: most editors show MCP status in their Tools / Settings panel.
 
 Pick the path that matches the work in front of you.
 
-### Greenfield (new project)
+### Full project — greenfield or brownfield
 
 ```
-/hatch3r-project-spec   # Generate specs from your project vision
-/hatch3r-roadmap        # Phased plan with epics, broken into milestones
+/hatch3r-spec       # Auto-detects greenfield vs brownfield and runs the matching spec flow
+/hatch3r-roadmap    # Phased plan with epics, broken into milestones
 ```
 
-### Brownfield (existing codebase)
+`hatch3r-spec` is the 2.0.0 unified spec orchestrator: on a new project it generates specs from your vision; on an existing codebase it reverse-engineers specs from the current code. It picks the branch by detecting project state — you do not choose greenfield vs brownfield yourself.
 
-```
-/hatch3r-codebase-map   # Reverse-engineer specs from the current code
-/hatch3r-roadmap        # Plan improvements off the analysis
-```
+If you need to force one branch, the split commands still exist as a legacy path: `/hatch3r-project-spec` (greenfield only) or `/hatch3r-codebase-map` (brownfield only), each followed by `/hatch3r-roadmap`.
 
 ### Single feature (no full project)
 
 ```
 /hatch3r-feature-plan   # Plan one feature in depth — no board needed
 ```
+
+After `/hatch3r-feature-plan` produces the plan, run `/hatch3r-workflow` (Quick Mode) — it walks the implement → review → test pipeline standalone, no board required.
 
 ### Tiny change (typo / config tweak / one-file refactor)
 
@@ -216,7 +215,7 @@ Repeat this step until the board drains.
 
 ## Step 8 — Maintain canonical state
 
-Day-to-day commands you will run as you edit `.agents/` content or rotate tools:
+Day-to-day commands you will run as you edit `.hatch3r/overrides/` content or rotate tools:
 
 | Command | When to run |
 |---------|-------------|

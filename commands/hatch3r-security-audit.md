@@ -12,7 +12,7 @@ parallel_tool_default: true
 triage_tiers: [2, 3]
 sub_agents_spawned:
   count: 3
-  rationale: Module-taxonomy discovery and audit-sub-issue authoring delegate to `hatch3r-implementer`; the two cross-cutting security axes fan out in parallel to `hatch3r-dependency-auditor` (supply-chain + dependency-CVE posture) and `hatch3r-security` (CQ3 OWASP ASI01-10 coverage). Fan-out is disjoint across module and cross-cutting axes; serialization would violate P8 B2 task decomposition.
+  rationale: Module-taxonomy discovery and audit-sub-issue authoring delegate to `hatch3r-implementer`; the two cross-cutting security axes fan out in parallel to `hatch3r-dependency-auditor` (supply-chain + dependency-CVE posture) and `hatch3r-security` (CQ3 OWASP ASI01-10 coverage). Fan-out is disjoint across module and cross-cutting axes; serialization would violate P8 B2 task decomposition. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -30,6 +30,8 @@ This command discovers the module taxonomy via static analysis, then delegates s
 | 3. Cross-Cutting Security Axes | `hatch3r-dependency-auditor` + `hatch3r-security` (parallel sub-issue authoring) | Yes | Yes |
 | 4. Issue Creation | Orchestrator (GitHub MCP) | No | Yes |
 | 5. Board Sync | Orchestrator (Projects v2 sync) | No | Yes |
+
+**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
 
 All issue operations MUST follow the Projects v2 Enforcement rules defined in `hatch3r-board-shared`.
 

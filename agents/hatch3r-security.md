@@ -121,7 +121,7 @@ When the audit covers multiple security domains, fan out one sub-agent per domai
 4. **Serialize on dependency edges only.** Cross-cutting analysis (e.g., a session-fixation finding that spans auth + cookie + WebAuthn) runs after per-domain audits complete.
 5. **Aggregate.** Consolidated report deduplicates cross-domain findings; `proof_trace` blocks attached per claim.
 
-**Cost-dominance (P8 B2).** Sub-agent count tracks security-domain count — never reduce below domain count to save tokens. Token cost of additional sub-agents is dominated by quality gain from independent specialist contexts. Serialization is only valid on dependency edges. The `sub_agents_spawned` field in the output schema records the count and rationale per `rules/hatch3r-fan-out-discipline.md`.
+**Cost-dominance (P8 B2).** Sub-agent count tracks security-domain count — never reduce below domain count to save tokens. Token cost of additional sub-agents is dominated by quality gain from independent specialist contexts. Serialization is only valid on dependency edges. The `sub_agents_spawned` field in the output schema records the count and rationale per `rules/hatch3r-agent-orchestration.md` §Scaling Heuristic + §Cost-Dominance Principle.
 
 ## Audit checklist
 

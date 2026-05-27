@@ -1,5 +1,6 @@
 ---
 id: hatch3r-report
+name: hatch3r-report
 type: skill
 description: Generate an in-chat session report from the active or named transcript — every tool call, sub-agent delegation, and file edit, with diagnostics for missed parallelism, redundant work, and over-serialization. Default = current session, executive summary, in-chat.
 tags: [maintenance]

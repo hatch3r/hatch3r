@@ -21,8 +21,55 @@
 
 import chalk from "chalk";
 import boxen from "boxen";
-import { HatchError } from "../../types.js";
+import { HatchError, type HatchErrorCode } from "../../types.js";
 import { classifyCliError, type CliErrorKind } from "../errorClassification.js";
+
+/**
+ * SA12.1-F01 (D12, Cycle 10 Wave 2): default recovery hint keyed by
+ * {@link HatchErrorCode}. The audit found 53% of fatal `HatchError`
+ * instantiations (28 of 53) omit an explicit `recoveryHint`, so those
+ * failures previously surfaced through the funnel with no actionable next
+ * step (violating P1 CLI UX, `.claude/rules/cli-ux-standards.md:6`). Adding
+ * the fallback HERE — at the single centralized funnel all 14 commands flow
+ * through — closes the gap systemically without editing 28 call sites
+ * (each of which is owned by a concurrent Wave-2 file-lock work unit).
+ *
+ * An explicit per-call-site `recoveryHint` always wins; this map is the
+ * floor, not a ceiling. Each hint is a single-line imperative next step that
+ * does NOT restate the failure message (same contract as `HatchError`'s
+ * `recoveryHint` JSDoc in `src/types.ts`). `UNKNOWN_ERROR` intentionally has
+ * NO default: an unclassified failure has no reliable next step, so it keeps
+ * the pre-existing silent-structured-return behavior rather than emitting a
+ * misleading generic hint.
+ */
+export const DEFAULT_RECOVERY_HINT: Partial<Record<HatchErrorCode, string>> = {
+  VALIDATION_ERROR:
+    "Re-run with --verbose to see the failing checks, then fix the listed errors and re-run.",
+  CONFIG_ERROR:
+    "Run 'npx hatch3r init' to set up the project, or check that .hatch3r/hatch.json exists and is valid.",
+  FS_ERROR:
+    "Check the path exists and you have write permission, then re-run; pass --force to overwrite where supported.",
+  INTEGRITY_ERROR:
+    "Run 'npx hatch3r verify' to see which files drifted, then 'npx hatch3r sync' to restore them.",
+  ADAPTER_ERROR:
+    "Re-run with --verbose for the per-adapter error, or run 'npx hatch3r sync' to regenerate adapter output.",
+  NETWORK_ERROR: "Check your network connection and retry; set DEBUG=1 for the full request trace.",
+  CLEAN_ERROR:
+    "Re-run 'npx hatch3r clean' with --verbose, or remove the listed paths manually and retry.",
+  LOCK_TIMEOUT:
+    "Another hatch3r process may be running — wait for it to finish or remove the stale lock, then retry.",
+};
+
+/**
+ * Resolve the recovery hint for a fatal {@link HatchError}: the explicit
+ * per-call-site `recoveryHint` if present, otherwise the
+ * {@link DEFAULT_RECOVERY_HINT} for the error's `errorCode`. Returns
+ * `undefined` only when neither exists (e.g. `UNKNOWN_ERROR` with no explicit
+ * hint), preserving the legacy silent path for that case.
+ */
+export function resolveRecoveryHint(err: HatchError): string | undefined {
+  return err.recoveryHint ?? DEFAULT_RECOVERY_HINT[err.errorCode];
+}
 
 /** Structured result emitted by {@link formatActionableError}. */
 export interface FormattedCliError {
@@ -60,12 +107,17 @@ export function formatActionableError(
     if (err.exitCode === 0) {
       return { lines: [], exitCode: 0, kind: "hatch-cancel" };
     }
-    if (err.recoveryHint) {
+    // SA12.1-F01: resolve the explicit per-call-site hint OR the
+    // errorCode-keyed DEFAULT_RECOVERY_HINT floor. This converts the former
+    // silent path (53% of fatal HatchErrors had no hint) into an actionable
+    // boxed next step at the single funnel.
+    const hint = resolveRecoveryHint(err);
+    if (hint) {
       // Box format: red title + bold message + dim "Try:" hint. Boxen
       // bounds the message visually in terminals and keeps each hint
       // grep-able in plain-text CI logs.
       const title = chalk.red.bold("hatch3r error");
-      const body = `${err.message}\n\n${chalk.dim("Try:")} ${err.recoveryHint}`;
+      const body = `${err.message}\n\n${chalk.dim("Try:")} ${hint}`;
       const box = boxen(body, {
         title,
         titleAlignment: "left",
@@ -79,13 +131,13 @@ export function formatActionableError(
         box,
         exitCode: err.exitCode,
         kind: "hatch-error",
-        hint: err.recoveryHint,
+        hint,
       };
     }
-    // HatchError without a hint — keep parity with the pre-funnel
-    // behavior (silent exit with structured code) so already-passing
-    // tests that throw `new HatchError("msg")` without a hint don't
-    // suddenly start emitting two-line stderr.
+    // No explicit hint AND no default for this errorCode (e.g.
+    // UNKNOWN_ERROR) — keep parity with the pre-funnel behavior (silent exit
+    // with structured code) so an unclassified failure does not emit a
+    // misleading generic hint.
     return {
       lines: [],
       exitCode: err.exitCode,

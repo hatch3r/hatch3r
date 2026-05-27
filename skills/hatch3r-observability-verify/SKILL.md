@@ -1,5 +1,6 @@
 ---
 id: hatch3r-observability-verify
+name: hatch3r-observability-verify
 type: skill
 description: Verification gate before declaring an agent-produced service done — OTel span coverage on request path, structured-log + trace-id correlation, SLO definition, error-tracking integration, GenAI semconv on AI features
 tags: [review, performance, devops, tier:team-plus]

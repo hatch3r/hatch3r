@@ -1,5 +1,6 @@
 ---
 id: hatch3r-bug-fix
+name: hatch3r-bug-fix
 description: Step-by-step bug fix workflow. Diagnose root cause, implement minimal fix, write regression test. Use when fixing bugs, working on bug report issues, or when the user mentions a bug.
 tags: [implementation, orchestration]
 quality_charter: agents/shared/quality-charter.md
@@ -114,6 +115,15 @@ Use the project's PR template. Include:
 - Fix description with before/after behavior
 - Test evidence
 - Rollback plan (required for P0/P1)
+
+## Fan-out Discipline (P8 B2)
+
+This skill delegates per task size:
+- Tier 1 (trivial single-file fix): inline execution acceptable.
+- Tier 2 (multi-file or multi-concern fix): spawn parallel sub-agents per concern (researcher, implementer, reviewer, test-writer) via the Task tool.
+- Tier 3 (multi-module / high-risk fix): one fresh sub-agent per independent module or gate; orchestrator integrates only.
+
+Source: `.claude/rules/fan-out-discipline.md` (P8 B2); `agents/shared/efficiency-patterns.md`.
 
 ## Required Agent Delegation
 

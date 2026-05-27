@@ -86,6 +86,8 @@ describe("init post-init tip", () => {
     inq.mockResolvedValueOnce({ defaultBranch: "main" });
     inq.mockResolvedValueOnce({ projectType: "brownfield" });
     inq.mockResolvedValueOnce({ teamSize: "solo" });
+    // F1.1-H1 / F14.3-H1: maturity step (Decision 4 / #16).
+    inq.mockResolvedValueOnce({ maturity: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     // Slice D removed the interactive worktree confirm — auto-enabled when a

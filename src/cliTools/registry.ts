@@ -374,6 +374,12 @@ export const AVAILABLE_CLI_TOOLS = {
       linux: [{ manager: "curl", command: "curl https://install.duckdb.org | sh" }],
       win: [{ manager: "winget", command: "winget install DuckDB.cli" }],
     },
+    // Cycle 10 D15-SA15.7-F (F15.7-H7): the linux recipe pipes
+    // install.duckdb.org straight to sh with no signature or checksum gate, so
+    // a CDN compromise or DNS hijack would execute attacker code. brew (mac)
+    // and winget (win) are signed channels and should be preferred.
+    securityNote:
+      "Unsigned install channel: the linux `curl https://install.duckdb.org | sh` recipe has no signature or checksum verification — a CDN compromise or DNS hijack would run attacker code. Prefer the signed brew (mac) / winget (win) channels, or download the release binary and verify its published SHA-256 from https://github.com/duckdb/duckdb/releases before executing.",
     homepage: "https://duckdb.org/",
   },
   qsv: {
@@ -432,6 +438,12 @@ export const AVAILABLE_CLI_TOOLS = {
       win: [{ manager: "winget", command: "winget install Microsoft.AzureCLI && az extension add --name azure-devops" }],
     },
     requiresEnv: ["AZURE_DEVOPS_PAT", "AZURE_DEVOPS_ORG"],
+    // Cycle 10 D15-SA15.7-F (F15.7-H7): the linux recipe pipes the aka.ms
+    // redirect to `sudo bash` — root execution with no signature or checksum
+    // gate (highest blast radius of the unsigned recipes). Microsoft also
+    // publishes a signed apt repo (packages.microsoft.com, signed-by key).
+    securityNote:
+      "Unsigned install channel (runs as root): the linux `curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash` recipe executes a redirected script as root with no signature or checksum verification. Prefer Microsoft's signed apt repository per https://learn.microsoft.com/cli/azure/install-azure-cli-linux (adds packages.microsoft.com with a signed-by GPG key), or the signed winget (win) / brew (mac) channels.",
     homepage: "https://learn.microsoft.com/en-us/cli/azure/azure-devops",
   },
   docker: {
@@ -448,9 +460,17 @@ export const AVAILABLE_CLI_TOOLS = {
     },
     // Cycle 9 D21-SA21.6-F02 (C9-H91): Docker engine 29.5.0 patches
     // CVE-2026-32288 — DoS via crafted image manifest in earlier builds.
-    minVersion: "29.5.0",
+    // Cycle 10 D21-SA21.6-F02 (F21.6.F02): the 2026-05-18 Docker security
+    // announcement disclosed three host-root `docker cp` escape paths fixed
+    // in 29.5.1 — CVE-2026-41567 (PATH-resolved decompression binaries run as
+    // host root), CVE-2026-41568 (TOCTOU host file/dir creation), and
+    // CVE-2026-42306 (TOCTOU bind-mount redirection). 29.5.1 introduced a
+    // `docker cp` regression ("mkdirat: file exists") that 29.5.2 (2026-05-20)
+    // fixes, so the floor is raised to >=29.5.2 — the first build that is both
+    // patched and regression-free per docs.docker.com/engine/release-notes/29.
+    minVersion: ">=29.5.2",
     securityNote:
-      "CVE-2026-32288: Docker engine before 29.5.0 is vulnerable to a denial-of-service via a crafted image manifest. Upgrade to 29.5.0 or later before pulling images from untrusted registries.",
+      "CVE-2026-32288: Docker engine before 29.5.0 is vulnerable to a denial-of-service via a crafted image manifest. CVE-2026-41567 / CVE-2026-41568 / CVE-2026-42306 (Docker Engine <=29.5.0): docker cp can be coerced to execute container binaries as host root or write to arbitrary host paths via TOCTOU on bind mounts (fixed in 29.5.1; 29.5.2 fixes the 29.5.1 docker cp regression). Upgrade to 29.5.2 or later before pulling images from untrusted registries or invoking docker cp on untrusted container filesystems. Unsigned install channel (runs as root): the linux `curl -fsSL https://get.docker.com | sudo sh` recipe has no signature or checksum gate — prefer Docker's signed apt repository per https://docs.docker.com/engine/install/ubuntu/ (adds download.docker.com with a signed-by GPG key) or the signed brew (mac) / winget (win) channels.",
     homepage: "https://docs.docker.com/get-docker/",
   },
   llm: {
@@ -523,6 +543,12 @@ export const AVAILABLE_CLI_TOOLS = {
       linux: [{ manager: "curl", command: "curl -fsSL https://rtk.dev/install.sh | sh" }],
       win: [{ manager: "scoop", command: "scoop install rtk" }],
     },
+    // Cycle 10 D15-SA15.7-F (F15.7-H7): the linux recipe pipes rtk.dev to sh
+    // with no signature or checksum gate; rtk publishes no signed apt/dnf
+    // channel, so the signed brew (mac) / scoop (win) manifests are the only
+    // verified paths.
+    securityNote:
+      "Unsigned install channel: the linux `curl -fsSL https://rtk.dev/install.sh | sh` recipe has no signature or checksum verification, and rtk ships no signed Linux package repository. Prefer the signed brew (mac) / scoop (win) channels, or on Linux download the release asset and verify its SHA-256 against the checksum published at https://github.com/rtk-ai/rtk/releases before executing.",
     homepage: "https://github.com/rtk-ai/rtk",
   },
   stagehand: {
@@ -575,6 +601,13 @@ export const AVAILABLE_CLI_TOOLS = {
       linux: [{ manager: "curl", command: "bash <(curl -sL get.comby.dev)" }],
       win: [{ manager: "scoop", command: "scoop install comby" }],
     },
+    // Cycle 10 D15-SA15.7-F (F15.7-H7): the linux recipe runs
+    // `bash <(curl -sL get.comby.dev)` — process-substitution execution with
+    // no signature or checksum gate. comby ships no signed Linux package
+    // repository, so the signed brew (mac) / scoop (win) manifests are the
+    // only verified paths.
+    securityNote:
+      "Unsigned install channel: the linux `bash <(curl -sL get.comby.dev)` recipe executes a fetched script with no signature or checksum verification, and comby ships no signed Linux package repository. Prefer the signed brew (mac) / scoop (win) channels, or on Linux download the release binary and verify its SHA-256 against the checksum published at https://github.com/comby-tools/comby/releases before executing.",
     homepage: "https://comby.dev/",
   },
   miller: {
@@ -666,8 +699,14 @@ export const AVAILABLE_CLI_TOOLS = {
     // even though the tool is pre-1.0. releaseCadence intentionally NOT
     // "stable" so the staleness heuristic keeps emitting amber flags
     // until upstream resumes tagging.
+    // Cycle 10 D15-SA15.7-F (F15.7-H7): both the linux and win recipes pipe
+    // the raw.githubusercontent.com install script to bash with no signature
+    // or checksum gate; upstream publishes no signed package channel and no
+    // SECURITY.md (see caveat), so brew (mac) is the only signed path.
     minVersion: ">=0.4.2",
     releaseCadence: "quarterly",
+    securityNote:
+      "Unsigned install channel: the linux and win recipes pipe `raw.githubusercontent.com/dagger/container-use/main/install.sh` to bash with no signature or checksum verification, and the pre-1.0 project publishes no signed package channel. Prefer the signed brew (mac) channel, or pin the install script to a tagged commit SHA and verify the downloaded binary's SHA-256 against the asset checksum at https://github.com/dagger/container-use/releases before executing.",
     homepage: "https://github.com/dagger/container-use",
   },
 } as const satisfies Record<CliToolId, CliToolMeta>;

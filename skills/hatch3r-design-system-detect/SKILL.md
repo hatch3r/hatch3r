@@ -1,5 +1,6 @@
 ---
 id: hatch3r-design-system-detect
+name: hatch3r-design-system-detect
 type: skill
 description: Detect existing design tokens, component library, and theming convention in a project before authoring new UI primitives — output a concise inventory for downstream implementers
 tags: [implementation, floor:ui-ux, ui, design-system, frontend]

@@ -1,5 +1,6 @@
 ---
 id: hatch3r-visual-refactor
+name: hatch3r-visual-refactor
 description: UI/UX change workflow matching design, accessibility, and responsiveness requirements. Use when making visual changes, updating components, working on UI issues, or implementing design mockups.
 tags: [implementation, floor:ui-ux]
 quality_charter: agents/shared/quality-charter.md

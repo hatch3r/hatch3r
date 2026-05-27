@@ -142,14 +142,20 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     expect(gh.securityNote).toContain("2.92.0");
   });
 
-  it("docker entry carries minVersion + securityNote citing CVE-2026-32288 (D21-SA21.6-F02)", () => {
+  it("docker entry floors at >=29.5.2 + securityNote cites the docker cp host-root CVE cluster (D21-SA21.6-F02, Cycle 10)", () => {
     // C9-H91: Docker engine 29.5.0 patches CVE-2026-32288 (DoS via crafted
-    // image manifest). minVersion surfaces the requirement before pulling
-    // images from untrusted registries.
+    // image manifest). Cycle 10 F21.6.F02: the 2026-05-18 announcement added
+    // three host-root `docker cp` escapes (CVE-2026-41567/41568/42306) fixed
+    // in 29.5.1; 29.5.2 (2026-05-20) fixes the 29.5.1 docker cp regression, so
+    // the recommended floor is raised to >=29.5.2 — the first patched and
+    // regression-free build.
     const docker = AVAILABLE_CLI_TOOLS.docker;
-    expect(docker.minVersion).toBe("29.5.0");
+    expect(docker.minVersion).toBe(">=29.5.2");
     expect(docker.securityNote).toBeDefined();
     expect(docker.securityNote).toContain("CVE-2026-32288");
+    expect(docker.securityNote).toContain("CVE-2026-41567");
+    expect(docker.securityNote).toContain("CVE-2026-42306");
+    expect(docker.securityNote).toContain("29.5.2");
   });
 
   it("curl entry registered as tier-1 with minVersion >=8.20.0 + securityNote citing the seven Mar-Apr 2026 CVEs (D21-SA21.4-F02, Cycle 10)", () => {

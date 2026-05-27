@@ -8,7 +8,7 @@ import { BaseAdapter, output, type AdapterContext } from "./base.js";
 import { sortByPrecedence, precedenceRank } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
 import { applyCustomization } from "./customization.js";
-import { transformEnvVarSyntax } from "./mcp-utils.js";
+import { transformEnvVarSyntax, MCP_DEFAULT_PROTOCOL_VERSION } from "./mcp-utils.js";
 import { toClaudeToolsFrontmatter } from "../pipeline/adapterToolTranslator.js";
 import {
   buildAgentToolPoliciesJson,
@@ -44,6 +44,39 @@ import { HATCH3R_VERSION } from "../version.js";
 export const CACHE_BREAKPOINT_SENTINEL = "<!-- HATCH3R-CACHE-BREAKPOINT -->";
 export const CACHE_BREAKPOINT_SENTINEL_START = "<!-- HATCH3R-CACHE-BREAKPOINT-START -->";
 export const CACHE_BREAKPOINT_SENTINEL_END = "<!-- HATCH3R-CACHE-BREAKPOINT-END -->";
+
+/**
+ * F6.6-H1 (Cycle 10, D6, P7): map a canonical rule `scope` to Claude Code's
+ * `.claude/rules/` `paths:` frontmatter so glob-scoped rules lazy-load only
+ * when Claude reads a matching file, instead of loading every scoped rule
+ * body unconditionally at session start.
+ *
+ * Claude Code primitive (code.claude.com/docs/en/memory#path-specific-rules,
+ * accessed 2026-05-27): "Rules can be scoped to specific files using YAML
+ * frontmatter with the `paths` field. These conditional rules only apply
+ * when Claude is working with files matching the specified patterns. Rules
+ * without a `paths` field are loaded unconditionally."
+ *
+ * Mapping mirrors the cursor `globs:` / copilot `applyTo:` scope transform
+ * already in `cursor.ts::cursorRuleFrontmatter` and `copilot.ts`:
+ *   - `scope: always`              -> "" (omit `paths:`; load unconditionally)
+ *   - `scope: "<csv>"` (glob CSV)  -> `paths: ["g1", "g2", ...]` (flow array)
+ *   - `scope: conditional`/absent  -> "" (no glob shape; load unconditionally)
+ *
+ * Returns the frontmatter block (including the `---` fences and a trailing
+ * newline) ready to prepend to the rule body, or "" when no `paths:` applies.
+ * The flow-sequence form (`["a", "b"]`) is valid YAML and matches the
+ * single-line frontmatter rendering the cursor/copilot adapters already use.
+ */
+function claudeRulePathsFrontmatter(scope: string | undefined): string {
+  if (!scope || scope === "always" || scope === "conditional") return "";
+  const globs = scope.includes(",")
+    ? scope.split(",").map((g) => g.trim()).filter((g) => g.length > 0)
+    : [scope.trim()];
+  if (globs.length === 0) return "";
+  const arr = globs.map((g) => `"${g}"`).join(", ");
+  return `---\npaths: [${arr}]\n---\n`;
+}
 
 /**
  * Wrap a body string with the cache-breakpoint sentinel pair so the entire
@@ -91,8 +124,9 @@ const AGENT_TEAMS_SECTION = [
   "",
   "### Enabling Agent Teams",
   "",
-  "Agent Teams is enabled via `.claude/settings.json`. The env var `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`",
-  "is set automatically by hatch3r. Once enabled, request a team in the prompt:",
+  "Agent Teams is generally available in Claude Code v2.1.120+ — no env var or opt-in flag is required.",
+  "(The legacy `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` flag is emitted only if you set `claude.agentTeams: true`",
+  "in `.hatch3r/hatch.json`, which hatch3r flags as deprecated.) Request a team in the prompt:",
   "",
   "```",
   'Create an agent team for this task. Use the hatch3r 4-phase pipeline.',
@@ -161,7 +195,7 @@ const AGENT_TEAMS_SECTION = [
 const AGENT_TEAMS_SECTION_MINIMAL = [
   "## Agent Teams",
   "",
-  "Pipeline maps to Claude Code Agent Teams. Enable via `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`.",
+  "Pipeline maps to Claude Code Agent Teams (GA in v2.1.120+; no env var required).",
   "",
   "| Phase | Role | Agents |",
   "|-------|------|--------|",
@@ -364,7 +398,20 @@ export class ClaudeAdapter extends BaseAdapter {
         // managed-block payload fingerprint stays stable for prompt-cache reuse.
         const body = withCacheBreakpoints(rawBody);
         const nn = precedenceRank(rule.precedence) / 10;
-        results.push(output(`.claude/rules/${nn}-${toPrefixedId(rule.id)}.md`, wrapInManagedBlock(body), body));
+        // F6.6-H1 (D6, P7): prepend Claude Code `paths:` frontmatter for
+        // glob-scoped rules so they lazy-load on matching file reads instead
+        // of loading every scoped body at session start. `scope: always` and
+        // unscoped rules emit no frontmatter (load unconditionally), matching
+        // Claude Code's documented default. Customization-layer scope override
+        // takes precedence over canonical scope (parity with cursor.ts).
+        const pathsFm = claudeRulePathsFrontmatter(overrides.scope ?? rule.scope);
+        results.push(
+          output(
+            `.claude/rules/${nn}-${toPrefixedId(rule.id)}.md`,
+            `${pathsFm}${wrapInManagedBlock(body)}`,
+            body,
+          ),
+        );
       }
     }
 
@@ -390,6 +437,16 @@ export class ClaudeAdapter extends BaseAdapter {
         const toolsFm = toClaudeToolsFrontmatter(agentId);
         const fmLines = [`description: ${desc}`];
         if (toolsFm) fmLines.push(`tools: ${toolsFm}`);
+        // D9-H-1 (D9, P3): emit Claude Code's native `model:` subagent
+        // frontmatter when a model resolves, so per-agent model preferences
+        // are authoritative rather than advisory prose. Claude Code resolves
+        // the subagent model as CLAUDE_CODE_SUBAGENT_MODEL > per-invocation
+        // param > definition frontmatter `model:` > main conversation
+        // (code.claude.com/docs/en/sub-agents#choose-a-model, accessed
+        // 2026-05-27). The `## Recommended Model` prose below is retained in
+        // non-minimal mode so the env-var/`/model` override path stays
+        // documented for operators who want a different model per session.
+        if (model) fmLines.push(`model: ${model}`);
         const fm = `---\n${fmLines.join("\n")}\n---`;
         // C9-M47 (P7): cache-breakpoint sentinels wrap every agent body so the
         // emitted managed block fingerprints stably across syncs.
@@ -434,7 +491,14 @@ export class ClaudeAdapter extends BaseAdapter {
       teammateMode,
     };
 
-    const hooksConfig: Record<string, Array<{ matcher: string; hooks: Array<{ type: string; command: string }> }>> = {};
+    // D9-H-3 (D9, P7): hook entries may carry an `args` vector (exec form,
+    // Claude Code v2.1.139+). When `args` is present, `command` is the
+    // executable spawned directly with no shell
+    // (code.claude.com/docs/en/hooks, accessed 2026-05-26).
+    const hooksConfig: Record<
+      string,
+      Array<{ matcher: string; hooks: Array<{ type: string; command: string; args?: string[] }> }>
+    > = {};
     const hooks = await this.readHooks(ctx);
     for (const hook of hooks) {
       const claudeEvent = mapToClaudeEvent(hook.event);
@@ -453,25 +517,32 @@ export class ClaudeAdapter extends BaseAdapter {
     // with matcher ".*" so the hook fires on every tool call; the
     // script handles category-specific deny decisions internally.
     // Source: https://code.claude.com/docs/en/plugins-reference#hooks
-    // (PreToolUse exit 2 denies the call; accessed 2026-04-19).
+    // (PreToolUse exit 2 denies the call; accessed 2026-04-19) and
+    // https://code.claude.com/docs/en/hooks (exec form via `args`,
+    // accessed 2026-05-26).
     //
-    // Launcher hardening: because the matcher is ".*", any failure in
-    // resolving or running the script becomes a per-tool-call error
-    // storm. Wrap the invocation in a Node-inline guard that (a) exits
-    // 0 silently if the .mjs is missing (fail-open + quiet — same
-    // security posture as the broken-install case today, minus the
-    // noise), (b) propagates the child's stdout (deny JSON) through
-    // stdio:'inherit', (c) keeps the child's stderr audit log only on
-    // a clean exit so script crashes don't leak stack traces on every
-    // tool call. Detection of a missing script remains the job of
-    // `hatch3r status` / `hatch3r verify`.
+    // D9-H-3 (D9, P7): emit the launcher in exec form. With `args`
+    // present, Claude Code resolves `command` as an executable and
+    // spawns it directly with `args` as the argument vector — no shell
+    // involved. This runs the hook script in a single Node cold-start
+    // per tool call. The previous inline `node -e` guard cold-started
+    // Node twice (the wrapper plus the spawnSync of the real script),
+    // doubling per-call latency on a matcher that fires on every tool
+    // use including read-only Read/Grep/Glob.
+    //
+    // Fail-open posture: the hook script is self-fail-safe (malformed
+    // stdin -> exit 0; out-of-scope agent -> exit 0). A missing script
+    // makes Node exit with code 1, which is a non-blocking hook error
+    // (only exit 2 blocks the tool call per the hooks contract above),
+    // so the call still proceeds. Detection of a missing script remains
+    // the job of `hatch3r status` / `hatch3r verify`.
     if (!hooksConfig.PreToolUse) hooksConfig.PreToolUse = [];
     hooksConfig.PreToolUse.push({
       matcher: ".*",
       hooks: [{
         type: "command",
-        command:
-          "node -e \"const fs=require('fs'),cp=require('child_process'),p='.claude/hooks/pretooluse-allowlist.mjs';try{fs.statSync(p)}catch{process.exit(0)}const r=cp.spawnSync(process.execPath,[p],{stdio:['inherit','inherit','pipe']});if(r.status===0&&r.stderr)process.stderr.write(r.stderr);process.exit(0)\"",
+        command: process.execPath,
+        args: [".claude/hooks/pretooluse-allowlist.mjs"],
       }],
     });
 
@@ -512,16 +583,26 @@ export class ClaudeAdapter extends BaseAdapter {
 
     settingsObj.hooks = hooksConfig;
 
-    // Agent Teams: when agentTeams is "ga", omit the experimental env var
-    // (the feature is natively available). Otherwise, set the experimental flag
-    // to enable Agent Teams unless explicitly disabled (agentTeams === false).
+    // D9-H-2 (D9, P3): Agent Teams reached GA in Claude Code v2.1.120+, where
+    // CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS is "no longer required"
+    // (code.claude.com/docs/en/changelog, accessed 2026-05-26). Default to
+    // GA treatment: omit the experimental env var so operators do not inherit
+    // confusing legacy state. The env var is emitted only when an operator
+    // explicitly opts back into the experimental flag (agentTeams === true),
+    // in which case we also surface a deprecation warning. agentTeams === "ga"
+    // and undefined both omit the flag; agentTeams === false also omits it
+    // (Agent Teams is GA and not gated by the env var, so there is nothing to
+    // suppress).
     const agentTeamsSetting = ctx.manifest.claude?.agentTeams;
-    if (agentTeamsSetting === "ga") {
-      // GA mode: no experimental flag needed, Agent Teams is natively available.
-      // Only set env if there are other env vars to include.
-    } else if (agentTeamsSetting !== false) {
+    if (agentTeamsSetting === true) {
+      this.warnings.push(
+        "claude: agentTeams=true sets the legacy CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS env var, " +
+        "which is no longer required (Agent Teams is GA in Claude Code v2.1.120+). " +
+        "Remove the setting (or set agentTeams: \"ga\") to drop the deprecated flag.",
+      );
       settingsObj.env = { CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1" };
     }
+    // agentTeamsSetting of undefined | "ga" | false: GA-native, emit no env var.
     results.push(output(".claude/settings.json", JSON.stringify(settingsObj, null, 2)));
 
     // C7-H17 + C7.5-W2B2-H50 (D9, D17, P3): Emit Claude Code plugin-style hooks
@@ -653,7 +734,21 @@ export class ClaudeAdapter extends BaseAdapter {
         };
         claudeMcp[name] = transformEnvVarSyntax(withType, "claude");
       }
-      results.push(output(".mcp.json", JSON.stringify({ mcpServers: claudeMcp }, null, 2)));
+      // F17.2.3 (D17, P3): declare an explicit MCP protocol version so
+      // hatch3r-generated `.mcp.json` pins to a known revision rather than
+      // inheriting whatever the client/server negotiate by default. Defaults
+      // to the most-recent stable spec revision; operators override via
+      // `.hatch3r/hatch.json::mcp.protocolVersion` to track the 2026-07-28 RC
+      // ahead of its Q3 2026 GA (see MCP_DEFAULT_PROTOCOL_VERSION and
+      // docs/MIGRATION-mcp-2026-07-28.md).
+      const protocolVersion =
+        ctx.manifest.mcp.protocolVersion ?? MCP_DEFAULT_PROTOCOL_VERSION;
+      results.push(
+        output(
+          ".mcp.json",
+          JSON.stringify({ protocolVersion, mcpServers: claudeMcp }, null, 2),
+        ),
+      );
     }
 
     // C9-M47 (P7): agent-team command body gets cache-breakpoint sentinels too.

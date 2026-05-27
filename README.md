@@ -22,9 +22,9 @@ That's it. hatch3r detects your repo, asks about your project context (greenfiel
 
 | Category | Count | Highlights |
 |----------|-------|-----------|
-| **Agents** | 19 | Code reviewer, test writer, security auditor, implementer (sub-agentic), fixer, researcher, architect, DevOps, handoff loader / preparer, and more |
-| **Skills** | 39 | Bug fix, feature implementation, issue workflow, release, incident response, context health, cost tracking, handoff prepare / resume, recipes, API spec, CI pipeline, migration, customization, board lifecycle (init/groom/refresh/shared), 5 standalone CLI-tool skills (ripgrep, jq, gh, fd, fzf) + a 24-tool `cli-toolbox`, and more |
-| **Rules** | 40 | Code standards, testing, API design, observability, theming, i18n, security patterns, agent orchestration, deep context analysis, handoff readiness, and more |
+| **Agents** | 30 | Code reviewer, test writer, security auditor, implementer (sub-agentic), fixer, researcher, architect, DevOps, handoff loader / preparer, 9 content-quality specialists (UI/UX/security/reliability/testability/scalability/performance/maintainability/enhancability), and more |
+| **Skills** | 43 | Bug fix, feature implementation, issue workflow, release, incident response, context health, cost tracking, handoff prepare / resume, recipes, API spec, CI pipeline, migration, customization, board lifecycle (init/groom/refresh/shared), 5 standalone CLI-tool skills (ripgrep, jq, gh, fd, fzf) + a 24-tool `cli-toolbox`, and more |
+| **Rules** | 55 | Code standards, testing, API design, observability, theming, i18n, security patterns, agent orchestration, deep context analysis, handoff readiness, mobile + backend stack rules, and more |
 | **Commands** | 23 | Board management, planning (feature, bug, refactor, test), workflow, quick-change, revision, debug, healthcheck, security-audit, onboard, benchmark, handoff (prepare/resume/list/complete/prune), and more |
 | **CLI tools** | 29 across 3 tiers | Tier-1 default (ripgrep, fd, jq, yq, gh, delta, bat, sd, ast-grep, zstd); tier-2 conditional (Playwright, duckdb, qsv, taplo, glab, az-devops, Docker, llm, fzf, lazygit, difftastic); tier-3 opt-in (RTK, Stagehand, aichat, mods, Comby, miller, csvkit, Podman) -- emitted as per-tool canonical skills + a decision-tree overview |
 | **MCP Servers** | 10 (opt-in) | Playwright, Context7, Filesystem, GitHub, Brave Search, Sentry, Postgres, Linear, Azure DevOps, GitLab -- gated behind a Yes/No prompt during `init` (default No since 1.7.5; pass `--mcp` to restore prior `--yes` behavior) |
@@ -121,7 +121,7 @@ npx hatch3r config        # Reconfigure tools, MCP servers, features, and platfo
 npx hatch3r sync          # Re-generate from canonical state
 npx hatch3r update        # Pull latest templates (safe merge)
 npx hatch3r status        # Check sync status between canonical and generated files
-npx hatch3r validate      # Validate bundled canonical content + on-disk adapter outputs
+npx hatch3r validate      # Validate bundled canonical content + on-disk adapter outputs (consumer-facing). Framework-dev invariants — `.md`/`.mdc` rule parity, P7 efficiency, CLI-skill parity, wiring — live in `scripts/validate-*.ts` and are aggregated under `npm run validate`; run BOTH for full coverage when authoring canonical content.
 npx hatch3r verify        # Drift check on adapter outputs (non-zero exit on drift)
 npx hatch3r clean                 # Remove generated files (optional --reinit)
 npx hatch3r worktree-setup <path>  # Set up gitignored files in a worktree

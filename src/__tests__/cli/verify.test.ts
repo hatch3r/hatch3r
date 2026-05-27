@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from "vitest";
-import { mkdtemp, mkdir, writeFile, readdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { HatchError, HATCH3R_DIR } from "../../types.js";
@@ -169,5 +169,78 @@ describe("verify command", () => {
       ...consoleErrorSpy.mock.calls.map((c) => String(c[0])),
     ].join("\n");
     expect(output).toMatch(/verify: FAIL/);
+  });
+
+  // Cycle 10 / D11-H-6: the advertised `--fix` flag (declared in program.ts)
+  // was silently ignored — `hatch3r verify --fix` behaved identically to a
+  // plain drift report (Silent-Failure-Contract, P5). `--fix` now repairs
+  // drift by regenerating adapter output (the same in-memory regeneration
+  // `sync` performs) up to `--max-fix-attempts` times, re-checking after each
+  // pass.
+  it("repairs drift and exits PASS when run with --fix", async () => {
+    await createTestProject(tempDir);
+
+    const { syncCommand } = await import("../../cli/commands/sync.js");
+    await syncCommand();
+
+    // Introduce genuine drift INSIDE the managed block while preserving the
+    // HATCH3R:BEGIN/END markers — this is the drift `--fix` regenerates.
+    // (Destroying the markers entirely is a separate, fail-closed case:
+    // safeWriteFile refuses to clobber a marker-less file by design, so
+    // `--fix` cannot and must not auto-repair that.)
+    const cursorRulesDir = join(tempDir, ".cursor", "rules");
+    const entries = await readdir(cursorRulesDir);
+    const ruleFile = entries.find((f) => f.endsWith(".mdc"));
+    expect(ruleFile).toBeDefined();
+    const rulePath = join(cursorRulesDir, ruleFile!);
+    const original = await readFile(rulePath, "utf-8");
+    // Insert AFTER the full begin marker comment so the marker itself stays
+    // intact and the injected line lands inside the managed block (the
+    // regenerable region). Splicing inside the `<!-- ... -->` marker text
+    // would instead corrupt the marker — a separate fail-closed case.
+    const beginMarker = "<!-- HATCH3R:BEGIN -->";
+    const beginIdx = original.indexOf(beginMarker);
+    expect(beginIdx).toBeGreaterThan(-1);
+    const insertAt = beginIdx + beginMarker.length;
+    const tampered =
+      original.slice(0, insertAt) + "\ndrifted-inside-block-line" + original.slice(insertAt);
+    await writeFile(rulePath, tampered);
+
+    consoleSpy.mockClear();
+    consoleErrorSpy.mockClear();
+
+    const { verifyCommand } = await import("../../cli/commands/verify.js");
+    // --fix must regenerate the drifted block and exit cleanly (no throw).
+    await expect(verifyCommand({ fix: true })).resolves.toBeUndefined();
+
+    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(output).toMatch(/--fix attempt 1\//);
+    expect(output).toContain("verify: PASS");
+
+    // The drifted line must be gone and a subsequent plain verify confirms
+    // the repair persisted on disk.
+    const repaired = await readFile(rulePath, "utf-8");
+    expect(repaired).not.toContain("drifted-inside-block-line");
+    await expect(verifyCommand()).resolves.toBeUndefined();
+  });
+
+  it("repairs a missing adapter output when run with --fix", async () => {
+    await createTestProject(tempDir);
+
+    const { syncCommand } = await import("../../cli/commands/sync.js");
+    await syncCommand();
+
+    const cursorRulesDir = join(tempDir, ".cursor", "rules");
+    const entries = await readdir(cursorRulesDir);
+    const ruleFile = entries.find((f) => f.endsWith(".mdc"));
+    expect(ruleFile).toBeDefined();
+    await rm(join(cursorRulesDir, ruleFile!));
+
+    const { verifyCommand } = await import("../../cli/commands/verify.js");
+    // The missing file must be regenerated; verify --fix exits 0.
+    await expect(verifyCommand({ fix: true, maxFixAttempts: 1 })).resolves.toBeUndefined();
+
+    const restored = await readdir(cursorRulesDir);
+    expect(restored).toContain(ruleFile!);
   });
 });

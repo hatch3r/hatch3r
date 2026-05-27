@@ -53,18 +53,29 @@ Browser verification provides ground-truth confirmation that cannot be achieved 
 
 Follow the full accessibility standards defined in `rules/hatch3r-accessibility-standards.md` (WCAG 2.2 AA compliance, keyboard navigation, focus management, color/contrast, screen reader support, ARIA patterns, motion, forms). Summary of key thresholds:
 
-| Requirement         | Standard | Details                                                          |
-| ------------------- | -------- | ---------------------------------------------------------------- |
-| Reduced motion      | WCAG 2.2 | All animations respect `prefers-reduced-motion` and user setting |
-| Color contrast      | WCAG AA  | Text contrast ratio >= 4.5:1, non-text >= 3:1                   |
-| Keyboard navigation | WCAG 2.2 | All interactive elements focusable with visible focus indicator  |
-| Screen reader       | WCAG 2.2 | Dynamic state announced via `aria-live` regions                  |
-| High contrast mode  | Custom   | User-configurable high contrast theme supported                  |
+| Requirement          | Standard       | Details                                                                                                              |
+| -------------------- | -------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Reduced motion       | WCAG 2.2       | All animations respect `prefers-reduced-motion` and user setting                                                     |
+| Color contrast       | WCAG AA        | Text contrast ratio >= 4.5:1, non-text >= 3:1                                                                         |
+| Keyboard navigation  | WCAG 2.2       | All interactive elements focusable with visible focus indicator                                                      |
+| Screen reader        | WCAG 2.2       | Dynamic state announced via `aria-live` regions                                                                      |
+| High contrast mode   | Custom         | User-configurable high contrast theme supported                                                                      |
+| Target size          | WCAG 2.2 SC 2.5.8 AA | Pointer targets >= 24x24 CSS px, or spaced/inline per the exception (touch surfaces: 44pt iOS / 48dp Android) |
+| Focus not obscured   | WCAG 2.2 SC 2.4.11 AA | Focused control not entirely hidden by author content (sticky headers, banners, fixed bars)                  |
+| Dragging movements   | WCAG 2.2 SC 2.5.7 AA | Every drag operation has a single-pointer non-drag alternative (arrow buttons, numeric input)                  |
+
+## Required Tools
+
+Automated scanning is mandatory before any PASS verdict — static reasoning alone cannot issue PASS:
+
+- **axe-core** (`@axe-core/cli` for routes, `@axe-core/playwright` or `jest-axe` for component tests): run against every audited route and every interactive component. Passing threshold: **0 violations at impact `serious` and `critical`** per route and per component. `moderate`/`minor` impacts are reported as Minor findings, not blockers.
+- Coverage caveat: axe-core auto-detects ~57% of WCAG issues (Deque, axe-core 4.11.4). A clean axe-core run is necessary but not sufficient — pair it with the keyboard, contrast, and screen-reader checks above. Never issue PASS on an axe-core clean run alone.
 
 ## Commands
 
 - Run tests to verify no regression after a11y changes
 - Run lint to catch a11y lint rules (e.g., vuejs-accessibility, eslint-plugin-jsx-a11y)
+- Run `npx @axe-core/cli <url>` (or the Playwright/jest-axe equivalent) per audited route; gate on 0 serious + 0 critical violations
 
 ## External Knowledge
 
@@ -157,3 +168,8 @@ When auditing multiple pages or surfaces:
 - WCAG AA compliance: NO (1 keyboard blocker)
 - Reduced motion: VERIFIED — all animations respect prefers-reduced-motion
 ```
+
+## References
+
+- W3C. "Web Content Accessibility Guidelines (WCAG) 2.2." `https://www.w3.org/TR/WCAG22/` (accessed 2026-05-27, W3C, official-docs; W3C Recommendation 2024-12-12). Source for the WCAG 2.2 AA conformance baseline and the three Success Criteria added to the Standards table: SC 2.5.8 Target Size (Minimum, AA), SC 2.4.11 Focus Not Obscured (Minimum, AA), SC 2.5.7 Dragging Movements (AA).
+- Deque Systems. "axe-core — Accessibility engine for automated Web UI testing." `https://github.com/dequelabs/axe-core` (accessed 2026-05-27, Deque Systems, official-docs; v4.11.4 released 2026-04-28). Source for axe-core's WCAG 2.0/2.1/2.2 rule coverage at A/AA/AAA, the `@axe-core/cli` + `@axe-core/playwright` + `jest-axe` automation surface, and the ~57% auto-detection coverage caveat cited in Required Tools.

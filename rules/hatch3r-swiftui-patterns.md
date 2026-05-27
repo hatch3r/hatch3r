@@ -1,0 +1,96 @@
+---
+id: hatch3r-swiftui-patterns
+type: rule
+description: SwiftUI and Swift conventions covering Swift 6 concurrency, @Observable + @Bindable, navigation stacks, Swift Package Manager, modular architecture, and XCTest
+scope: conditional
+globs: "**/*.swift,**/*.swiftinterface,**/Package.swift,**/Package.resolved,**/*.xcodeproj/**,**/*.xcworkspace/**,**/Info.plist,**/*.entitlements,**/Tuist/**,**/Project.swift,**/Workspace.swift,**/ios/**,**/macos/**,**/visionOS/**,**/watchOS/**,**/tvOS/**"
+tags: [implementation]
+quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
+---
+# SwiftUI Patterns
+
+> Applies when the project ships a SwiftUI/UIKit app or Swift package. Detection signals: `Package.swift`, `*.xcodeproj`, `*.xcworkspace`, or `*.swift` files at repo root.
+
+## Swift Language Floor
+
+- Target Swift 6.0+ with strict concurrency checking enabled (`SWIFT_STRICT_CONCURRENCY=complete`). Data-race-safety is the default; opt-out (`@unchecked Sendable`) requires a code comment justifying thread-safety reasoning.
+- Adopt `async/await` throughout. Wrap legacy completion-handler APIs with `withCheckedThrowingContinuation` at the boundary; do not propagate completion-handler signatures into new code.
+- Use `Sendable` conformance for types crossing actor boundaries. `actor` for shared mutable state; `MainActor`-isolated types for UI state.
+- Strict typing: no `Any` outside of bridging code. Prefer `some Protocol` (opaque return types) over existential `any Protocol` when the concrete type is known at compile time.
+
+## SwiftUI App Architecture
+
+- Use `@Observable` macro (Swift 5.9+) for view-model state classes; `@Bindable` for two-way binding in views. `ObservableObject` + `@Published` is legacy — migrate during regular refactors.
+- Pick ONE app-state pattern per app and document it in `docs/architecture.md`:
+  - **MV (Model–View) with `@Observable`** — recommended default. View-models are simple `@Observable` classes; views observe by reference.
+  - **TCA (The Composable Architecture)** — when the team wants unidirectional data flow with reducers + effects.
+  - **MVVM with Combine** — when the team already has heavy Combine investment. Avoid in greenfield code.
+- View body is a pure function of state. Never perform side effects in `body`; use `.task { ... }` or `.onChange(of:) { ... }` modifiers.
+- Compose small `View` types — a view exceeding 200 lines is a refactor signal. Extract subviews and use `@ViewBuilder` for conditional content.
+
+## Navigation
+
+- Use `NavigationStack` (iOS 16+) with path-driven navigation: bind a `[Destination]` path to the stack and push routes by appending to the array. `NavigationView` is deprecated — migrate.
+- Type the navigation destination via `navigationDestination(for:)` modifiers. Avoid `NavigationLink(destination:)` for stack-pushed views — it bypasses path binding.
+- Deep links: parse incoming URLs in the `.onOpenURL { ... }` modifier on the root view and update the navigation path. Test universal links on a real device — simulators do not honor associated-domains entitlements reliably.
+- Sheets and popovers via `.sheet(item:)` with an `Identifiable` payload — never pass a `Bool` and a separate state variable.
+
+## Concurrency
+
+- Long-running work: `Task { ... }` for fire-and-forget, `await Task { ... }.value` for cancelable async work. Always check `Task.isCancelled` inside loops.
+- Detached tasks (`Task.detached`) only when you need to escape MainActor isolation; document why in a comment. They inherit no priority or actor isolation.
+- `TaskGroup` for parallel fan-out: prefer `withThrowingTaskGroup` for error propagation. Limit concurrency explicitly (`group.addTask` with a semaphore) when the workload could overload the network or disk.
+- Use AsyncStream / AsyncSequence for event streams. Wrap delegate-based APIs (CLLocationManager, etc.) with `AsyncStream.makeStream(of:)` rather than maintaining ad-hoc callback caches.
+
+## Modular Architecture
+
+- Swift Package Manager (SPM) is the dependency floor. Vendor packages via local Swift packages, not CocoaPods or Carthage (both in maintenance for new projects).
+- Project structure (Tuist or hand-rolled):
+  - `App/` — main app target (UI + composition root only).
+  - `Features/<Feature>/` — feature modules, each its own SwiftPM target.
+  - `Core/` — shared utilities, networking, persistence.
+- Each feature module exports a public API via `public` types; everything else is `internal`. Cross-feature imports go through `Core/` interfaces.
+- Tuist (`Project.swift`, `Workspace.swift`) for multi-target projects above 5 modules. Hand-managed `.xcodeproj` files are merge-conflict prone — Tuist regenerates them deterministically.
+
+## Performance
+
+- Profile with Instruments (Time Profiler, Allocations, SwiftUI). Target 60fps on the oldest supported device class.
+- Avoid heavy work in `View.body`. Cache derived values with `@State` initialized via `init` or compute once in `.task { ... }`.
+- Lists: `List` with stable `Identifiable` IDs and `id: \.id` explicit key paths. Use `LazyVStack` inside `ScrollView` for non-Sectioned lists.
+- Images: `AsyncImage` for network images, `Image(systemName:)` for SF Symbols. For high-frequency reload, use `nuke` or `Kingfisher` with disk cache configured.
+- View identity: stable IDs prevent SwiftUI from re-creating views on every state change. `ForEach(items, id: \.id)` — never use `ForEach(items.indices)` for mutable arrays.
+
+## Accessibility
+
+- Every interactive view has an `.accessibilityLabel(_:)`, `.accessibilityHint(_:)`, and an appropriate `.accessibilityIdentifier(_:)` for UI tests.
+- Group decorative views with `.accessibilityElement(children: .ignore)` so VoiceOver does not stop on every visual element.
+- Dynamic Type: prefer `.font(.body)` and the semantic font modifiers over fixed-point sizes. Test with the largest accessibility size (`accessibility5`).
+- Reduced Motion: gate animations on `@Environment(\.accessibilityReduceMotion)` — disable parallax, springy bounces, and decorative transitions when set.
+
+## Testing
+
+- Unit tests with XCTest (`*Tests/`). Use `swift-testing` (Swift 6) for new test suites when you need parameterized tests, traits, or parallel execution semantics.
+- UI tests with XCUITest under `*UITests/`. Use accessibility identifiers for query stability — never use text labels for selectors.
+- Snapshot tests via `swift-snapshot-testing` (pointfreeco) for SwiftUI view regressions. Configure per-device snapshots in CI.
+- Mock HTTP with `URLProtocol` subclass or `swift-openapi-generator` mock transport. Never hit real network in unit tests.
+
+## Builds & Distribution
+
+- Sign with App Store Connect API keys, not Apple ID password. Configure via `xcrun altool --apiKey` or fastlane `app_store_connect_api_key`.
+- Bitcode is removed (Xcode 14+) — do not enable. dSYM archive every release for crash symbolication; upload to Crashlytics / Sentry / TestFlight automatically in CI.
+- App size: enable `SWIFT_OPTIMIZATION_LEVEL=-O` for release builds. Track size via `xcodebuild -resultBundlePath` JSON output in CI.
+- TestFlight for beta distribution. Use external groups for QA, internal groups for engineering — never share builds via plain `.ipa` files.
+
+## References
+
+- Swift 6 concurrency: https://www.swift.org/migration/documentation/migrationguide/ (accessed 2026-05-27, official-docs)
+- SwiftUI `@Observable`: https://developer.apple.com/documentation/observation (accessed 2026-05-27, official-docs)
+- NavigationStack: https://developer.apple.com/documentation/swiftui/navigationstack (accessed 2026-05-27, official-docs)
+- swift-testing: https://developer.apple.com/xcode/swift-testing/ (accessed 2026-05-27, official-docs)
+
+## Cross-References
+
+- `rules/hatch3r-component-conventions.md` — four-state surface contract maps to SwiftUI `phase`-based async views.
+- `rules/hatch3r-testing.md` — coverage thresholds and determinism rules apply to XCTest / swift-testing.
+- `rules/hatch3r-accessibility-standards.md` — WCAG mapping for SwiftUI `accessibility*` modifiers.

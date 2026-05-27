@@ -38,6 +38,24 @@ export const DEFAULT_MCP_TIMEOUT_MS = 30_000;
 export const MAX_MCP_TIMEOUT_MS = 300_000;
 
 /**
+ * Most-recent stable MCP protocol revision emitted into generated client
+ * config when the operator does not pin one via
+ * `.hatch3r/hatch.json::mcp.protocolVersion`. F17.2.3 (Cycle 10, D17, P3).
+ *
+ * The 2026-07-28 release candidate (largest revision since launch) removes
+ * the `initialize`/`initialized` handshake, drops protocol-level sessions,
+ * moves Tasks to an extension, and changes the missing-resource JSON-RPC
+ * code from -32002 to the standard -32602; it is tentatively GA in Q3 2026
+ * (blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate, accessed
+ * 2026-05-27). Until that GA lands, the most-recent *stable* revision is
+ * `2025-11-25` (same source, "Most Recent Stable Version"). Emitting the
+ * stable string lets hatch3r-generated `.mcp.json` declare an explicit,
+ * forward-pinnable protocol version instead of leaving the field absent and
+ * inheriting whatever the client/server negotiate by default.
+ */
+export const MCP_DEFAULT_PROTOCOL_VERSION = "2025-11-25";
+
+/**
  * Default maximum recursion depth for {@link transformEnvVarSyntax}.
  *
  * C8-D2-M5 (D2-SA2.4-2, Pillar P6): MCP config JSON in the wild nests at

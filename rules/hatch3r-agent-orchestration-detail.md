@@ -193,9 +193,9 @@ The pipeline should adapt its behavior based on observed task complexity, not ju
 
 ### Post-Pipeline Learning
 
-After pipeline completion, the orchestrator should capture lessons for future runs:
+After pipeline completion, the orchestrator captures lessons for future runs:
 
-1. **Tier accuracy:** Was the initial tier correct? If the pipeline needed adaptation (above), log the mismatch for the learnings system.
+1. **Tier accuracy:** Was the initial tier correct? If the pipeline needed adaptation (above), persist a tier-accuracy record (`taskId`, `initialTier`, `finalTier`, `adjustmentReasons`, `correlationId`, `ts`) to `.hatch3r/telemetry/<session-id>-tier.json` via the atomic-write path in `src/pipeline/costEstimator.ts` (sibling of `CostTelemetryRecord`). Tier mismatch beyond ±10% across 50 tasks triggers a CL-3 signal-weight recalibration proposal.
 2. **Phase duration ratios:** Record time spent per phase. Anomalous ratios (e.g., Phase 3 taking 5x Phase 2) indicate systemic issues worth investigating.
 3. **Specialist value:** Record which Phase 4 specialists produced actionable findings vs. clean reports. Over time, this data informs smarter specialist dispatch.
 

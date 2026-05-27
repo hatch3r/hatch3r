@@ -56,7 +56,7 @@ All 3 adapters emit model preferences when configured via `hatch.json`, agent fr
 |---------|----------|-------|
 | **cursor** | Native | `model:` in agent YAML frontmatter. Also emits `readonly:` and `background:` for v2.5+ subagent control. |
 | **copilot** | Native (VS Code) | `model:` in agent YAML; ignored on github.com |
-| **claude** | Guidance | Text in agent content: `/model` and env var |
+| **claude** | Native (frontmatter `model:`) | Emits `model:` in subagent YAML frontmatter (authoritative per [sub-agents docs](https://code.claude.com/docs/en/sub-agents#choose-a-model), accessed 2026-05-27); also retains `## Recommended Model` prose (`/model` + `CLAUDE_CODE_SUBAGENT_MODEL`) in non-minimal mode for per-session override. |
 
 ### Native User-Question / Triage Tool
 

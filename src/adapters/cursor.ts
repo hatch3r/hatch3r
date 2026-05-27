@@ -1,17 +1,20 @@
-// Last updated: 2026-05-19 (P3 platform-currency anchor; cursor.com/docs/agents
-// access dates inside this file remain authoritative for individual claims).
+// Last updated: 2026-05-27 (P3 platform-currency anchor; cursor.com/docs/hooks
+// + cursor.com/docs/agents access dates inside this file remain authoritative
+// for individual claims).
 import type {
   AdapterOutput,
   CanonicalFile,
 } from "../types.js";
 import { toPrefixedId } from "../types.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
+import { readMaturityTier } from "../manifest/hatchJson.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
 import { sortByPrecedence, precedenceRank } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
 import { applyCustomization } from "./customization.js";
 import { transformEnvVarSyntax } from "./mcp-utils.js";
 import { toCursorReadonlyFrontmatter } from "../pipeline/adapterToolTranslator.js";
+import type { HookDefinition, HookEvent } from "../hooks/types.js";
 import {
   buildAgentToolPoliciesJson,
   buildCursorAllowlistRule,
@@ -24,6 +27,79 @@ import {
  * based on their scope. Agents get `name`, `description`, `model`, `readonly`,
  * and `is_background` frontmatter fields.
  */
+
+/**
+ * F14.3-H2 (Cycle 10 D14, Pillar P3): per-tier output marker.
+ *
+ * Adapter outputs were byte-identical across maturity tiers (Decision 4 /
+ * #16) — an enterprise install received the same `.cursor/rules/` content
+ * as a solo install with no signal of the declared tier. Emit a one-line
+ * header comment carrying `manifest.maturity` (absence collapses to
+ * `"solo"` via {@link readMaturityTier}) at the top of every per-rule body
+ * so the tier travels with the generated artifact. The marker is a markdown
+ * comment so it renders invisibly in Cursor's rule view while remaining
+ * greppable for drift checks. Paired with F14.3-C1's admission tagging so
+ * the tier shown here matches the content actually selected.
+ */
+function cursorMaturityHeader(ctx: AdapterContext): string {
+  const tier = readMaturityTier(ctx.manifest);
+  return `<!-- Maturity tier: ${tier}. See governance/CONSTITUTION.md Decision 16 for tier semantics. -->`;
+}
+
+/**
+ * D9-H-4 (Cycle 10 D9, Pillar P3): canonical hook event → Cursor 1.7+
+ * `hooks.json` lifecycle event (camelCase taxonomy per
+ * https://cursor.com/docs/hooks accessed 2026-05-27).
+ *
+ * Cursor's hook surface runs a shell `command` and reads a permission
+ * decision (`{permission: allow|deny|ask}`) — it does NOT spawn an agent.
+ * hatch3r hooks declare an `agent:` to activate, which has no native
+ * command equivalent, so the emitted `command` surfaces the activation
+ * directive on stdout and the `.cursor/rules/hook-*.mdc` rule (still
+ * emitted below) carries the actual agent-spawn instruction. Events with
+ * no Cursor lifecycle equivalent (`post-merge`, `ci-failure`,
+ * `worktree-create`, `worktree-remove`) are absent from this map and fall
+ * through to the `.mdc` fallback only.
+ */
+interface CursorHookMapping {
+  /** Cursor lifecycle event name. */
+  event: string;
+  /** Optional shell-command matcher (Cursor narrows `beforeShellExecution` by command text). */
+  matcher?: string;
+}
+const CURSOR_HOOK_EVENT_MAP: Partial<Record<HookEvent, CursorHookMapping>> = {
+  "pre-commit": { event: "beforeShellExecution", matcher: "git commit" },
+  "pre-push": { event: "beforeShellExecution", matcher: "git push" },
+  "file-save": { event: "afterFileEdit" },
+  "session-start": { event: "sessionStart" },
+};
+
+/**
+ * Build a single `.cursor/hooks.json` entry for a canonical hook.
+ *
+ * Cursor hook entries are `{type: "command", command, matcher?}`. Because
+ * Cursor runs the command rather than spawning an agent, the command is a
+ * `printf` that surfaces the hatch3r activation directive to the agent
+ * transcript (the paired `.mdc` rule carries the binding spawn protocol).
+ * Exit 0 with no JSON keeps Cursor's default permission flow (`allow`),
+ * so the notification never blocks the user's action. The directive text
+ * is single-quoted and the agent id interpolated through `toPrefixedId`,
+ * which restricts output to the `hatch3r-[a-z0-9-]` namespace, so no shell
+ * metacharacters can reach the command string.
+ */
+function buildCursorHookEntry(
+  hook: HookDefinition,
+  mapping: CursorHookMapping,
+): Record<string, unknown> {
+  const directive = `hatch3r hook ${hook.id}: spawn the ${hook.agent} agent (see .cursor/rules/${toPrefixedId(`hook-${hook.id}`)}.mdc)`;
+  const entry: Record<string, unknown> = {
+    type: "command",
+    command: `printf '%s\\n' '${directive}'`,
+  };
+  if (mapping.matcher) entry.matcher = mapping.matcher;
+  return entry;
+}
+
 function cursorRuleFrontmatter(rule: CanonicalFile, scopeOverride?: string): string {
   const scope = scopeOverride ?? rule.scope;
   const lines: string[] = [`description: ${rule.description}`];
@@ -74,7 +150,11 @@ export class CursorAdapter extends BaseAdapter {
         // C9-H47 (D14-SA14.4-H01): substitute detected toolchain tokens so
         // canonical content carries `${HATCH3R:LINTER}` etc. and adapter
         // output carries the resolved value.
-        const content = this.substituteDetectedRepoTokens(rawContent, ctx);
+        const substituted = this.substituteDetectedRepoTokens(rawContent, ctx);
+        // F14.3-H2 (D14, P3): prepend the per-tier maturity header so the
+        // declared tier travels with each rule body (was byte-identical
+        // across tiers before).
+        const content = `${cursorMaturityHeader(ctx)}\n\n${substituted}`;
         const desc = overrides.description ?? rule.description;
         const ruleWithDesc = { ...rule, description: desc };
         const nn = precedenceRank(rule.precedence) / 10;
@@ -156,7 +236,21 @@ export class CursorAdapter extends BaseAdapter {
       results.push(output(".cursor/mcp.json", JSON.stringify({ mcpServers: transformed }, null, 2)));
     }
 
+    // D9-H-4 (D9, P3): Cursor 1.7+ exposes a native hook surface at
+    // `.cursor/hooks.json` (version 1, camelCase lifecycle events,
+    // `{permission: allow|deny|ask}` outputs — cursor.com/docs/hooks
+    // accessed 2026-05-27). Cursor hooks run a shell `command` and read a
+    // permission decision; they do NOT spawn agents, and hatch3r hooks
+    // carry an `agent:` to activate rather than a script. So we emit BOTH:
+    //   1. `.cursor/hooks.json` — wires each mappable canonical event
+    //      (pre-commit/pre-push/file-save/session-start) into Cursor's
+    //      lifecycle via a `command` that prints the activation directive.
+    //   2. `.cursor/rules/hook-*.mdc` — the instructional rule that carries
+    //      the actual agent-spawn protocol (also the only surface for
+    //      events with no Cursor equivalent: post-merge, ci-failure,
+    //      worktree-create, worktree-remove).
     const hookResults = await this.readHooks(ctx);
+    const hooksJsonEvents: Record<string, Array<Record<string, unknown>>> = {};
     for (const hook of hookResults) {
       const globs = hook.condition?.globs || [];
       const globLine =
@@ -166,16 +260,31 @@ export class CursorAdapter extends BaseAdapter {
       const fm = `---\ndescription: "Hook: ${hook.description}"\n${globLine}\n---`;
       const body = `# Hook: ${hook.id}\n\n**Event:** ${hook.event}\n**Agent:** ${hook.agent}\n\n${hook.description}\n\nHATCH3R_HOOK_ACTIVATED: When this hook's event (${hook.event}) is triggered${globs.length > 0 ? ` for files matching ${globs.join(", ")}` : ""}, you MUST spawn the ${hook.agent} agent now. Read and follow the ${hook.agent} agent protocol in \`.cursor/agents/${toPrefixedId(hook.agent)}.md\`.`;
       results.push(mdcOutput(`.cursor/rules/${toPrefixedId(`hook-${hook.id}`)}.mdc`, fm, body));
+
+      const mapping = CURSOR_HOOK_EVENT_MAP[hook.event as HookEvent];
+      if (mapping) {
+        const entry = buildCursorHookEntry(hook, mapping);
+        (hooksJsonEvents[mapping.event] ??= []).push(entry);
+      }
+    }
+    if (Object.keys(hooksJsonEvents).length > 0) {
+      const hooksJson = { version: 1, hooks: hooksJsonEvents };
+      results.push(output(".cursor/hooks.json", JSON.stringify(hooksJson, null, 2) + "\n"));
     }
 
     // C9-H49 (D15-SA15.2, P6): emit the per-adapter MCP / tool gating
-    // artifacts. Cursor has no PreToolUse hook primitive
-    // (cursor.com/docs/agents accessed 2026-04-19), so enforcement is
-    // rule-delegated: an alwaysApply rule plus a machine-readable
-    // `agents-policy.json` document. Pairs with the `readonly: true`
-    // frontmatter primitive already emitted by
-    // `toCursorReadonlyFrontmatter` for agents whose policy lacks
-    // both `write` and `execute`.
+    // artifacts. Cursor 1.7+ exposes a `preToolUse` hook in
+    // `.cursor/hooks.json` (cursor.com/docs/hooks accessed 2026-05-27),
+    // but it gates tool calls by running a shell command per event rather
+    // than by per-agent allowlist — there is no native primitive that maps
+    // a hatch3r agent id to its permitted tool categories. So per-agent
+    // ASI02 enforcement stays rule-delegated: an alwaysApply rule plus a
+    // machine-readable `agents-policy.json` document. Pairs with the
+    // `readonly: true` frontmatter primitive already emitted by
+    // `toCursorReadonlyFrontmatter` for agents whose policy lacks both
+    // `write` and `execute`. (Lifecycle-event wiring — pre-commit, file-save,
+    // session-start — IS emitted natively to `.cursor/hooks.json` above
+    // per D9-H-4.)
     const allowlistFm = `---\ndescription: Per-agent tool allowlist (ASI02). Enforced by the Cursor agent runtime — out-of-policy tool calls must be refused.\nalwaysApply: true\n---`;
     results.push(mdcOutput(
       ".cursor/rules/hatch3r-tool-allowlist.mdc",

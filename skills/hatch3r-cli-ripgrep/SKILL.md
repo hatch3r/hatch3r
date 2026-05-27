@@ -75,11 +75,25 @@ Verify with:
 command -v rg
 ```
 
-Install (mac):
+Install (macOS — default for this machine):
 
 ```bash
 # brew
 brew install ripgrep
+```
+
+Install (Linux):
+
+```bash
+# apt
+sudo apt install ripgrep
+```
+
+Install (Windows):
+
+```bash
+# scoop
+scoop install ripgrep
 ```
 
 Homepage: https://github.com/BurntSushi/ripgrep

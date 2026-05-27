@@ -12,7 +12,7 @@ parallel_tool_default: true
 triage_tiers: [1, 2]
 sub_agents_spawned:
   count: 1
-  rationale: Single hatch3r-handoff-preparer delegation for the `prepare` Tier-2 subcommand; `resume`, `list`, `complete`, `prune` run inline with no sub-agent fan-out (filesystem-read or single-file rename per the Triage table).
+  rationale: Single hatch3r-handoff-preparer delegation for the `prepare` Tier-2 subcommand; `resume`, `list`, `complete`, `prune` run inline with no sub-agent fan-out (filesystem-read or single-file rename per the Triage table). Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -22,6 +22,8 @@ Before any action, scan the user's request and provided context for unresolved q
 ## Agent Pipeline
 
 The `prepare` subcommand delegates to `hatch3r-handoff-preparer` via the Task tool. The other four subcommands (`resume`, `list`, `complete`, `prune`) run inline within this command — they read, list, transition status, or archive files and do not require a sub-agent.
+
+**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): any parallel fan-out holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
 
 ## Learnings Consultation
 

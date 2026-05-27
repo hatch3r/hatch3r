@@ -58,7 +58,14 @@ Resolve the triage tier from scope answer (or auto-detect):
 - **Standard** — subsystem-level spec covering a coherent module. All 8 deliverables produced. Default budget ~12,000 tokens.
 - **Deep** — full-project spec, multi-domain. All 8 deliverables plus depth on risk inventory (≥5 named risks with mitigation owners) and test plan (per-layer coverage matrix). Default budget ~24,000 tokens.
 
-User overrides via `--effort=light|standard|deep`. When the user passes `--effort=deep` on a Light-classified scope, accept the override and note the budget delta in the Cost Estimate block.
+## Effort Override (Decision 17)
+
+Auto-tiering can misclassify — a trivial brief scored as Deep, or a multi-domain brief scored as Light. The user override is the recovery path mandated by `governance/CONSTITUTION.md` §6 Decision 17 ("User overridable via `--effort` flag"):
+
+- `--effort=light|standard|deep` forces the named tier, bypassing the Triage auto-classification above.
+- The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
+- When `--effort=deep` lands on a Light-classified scope (or `--effort=light` on a Deep-classified scope), accept the override and emit the resized `estimated_input_tokens_static_frame` in the Cost estimate block.
+- No override passed → the Triage auto-classification stands.
 
 ## Phase 2 — Delegate to chosen spec agent
 
@@ -151,18 +158,33 @@ The directory is the unit of versioning — re-running `/hatch3r-spec` produces 
 
 ## Cost estimate (Decision 24)
 
-Emit pre-execution estimate before Phase 2 dispatch:
+Field names match the canonical contract in `rules/hatch3r-cost-visibility.md` (Pre-Execution Estimate + Post-Execution Actuals). Emit the pre-execution block before Phase 2 dispatch:
 
 ```yaml
 cost_estimate:
   expected_sa_count: 1
-  estimated_input_tokens: 12000  # standard tier; light ~6000, deep ~24000
+  estimated_input_tokens_static_frame: 12000  # standard tier; light ~6000, deep ~24000
+  estimated_web_research_queries: 4            # greenfield 2-6; brownfield is local-only (0)
   triage_tier: light | standard | deep
-  estimated_duration_min: 4-12   # standard tier
-  web_research_budget: 2-6 sources  # greenfield only; brownfield is local-only
+  estimated_duration_min: 8                    # standard tier; light ~4, deep ~12
 ```
 
-Post-execution: append actuals (input/output tokens emitted, sub-agent wall time, deliverable count) and the delta. Token telemetry sources from `src/pipeline/observability.ts`.
+Post-execution: emit the actuals + delta block per `rules/hatch3r-cost-visibility.md` before declaring iteration-summary status. Token telemetry sources from `src/pipeline/observability.ts`:
+
+```yaml
+cost_actuals:
+  actual_sa_count: <int>
+  actual_input_tokens: <int>
+  actual_output_tokens: <int>
+  actual_web_research_queries: <int>
+  actual_duration_min: <float>
+delta:
+  sa_count_delta: <int>
+  input_tokens_delta_percent: <float>
+  duration_delta_percent: <float>
+```
+
+Both blocks land in the iteration summary's Fan-out + Cost section per `rules/hatch3r-iteration-summary.md` §2. Deltas beyond 25% absolute value carry `flagged_for_review: true`.
 
 ## References
 
@@ -172,4 +194,6 @@ Post-execution: append actuals (input/output tokens emitted, sub-agent wall time
 - `agents/shared/quality-charter.md` §1, §3, §7, §8 (confidence, ambiguity, measurable criteria)
 - `rules/hatch3r-agent-orchestration.md` (Per-Turn Pipeline-State Header, End-of-Turn Delegation Attestation, Mandatory Delegation Directive)
 - `rules/hatch3r-iteration-summary.md` (canonical end-of-turn block)
+- `rules/hatch3r-cost-visibility.md` (Decision 24 cost_estimate / cost_actuals / delta field contract)
+- `governance/CONSTITUTION.md` §6 Decision 17 (`--effort` universal override + triage_tiers)
 - `commands/hatch3r-board-fill.md` (orchestrator pattern reference)

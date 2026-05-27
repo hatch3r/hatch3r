@@ -72,13 +72,19 @@ function currentOs(): OsKey {
 
 /**
  * Derive per-tool tag list per plan §5:
- *   tier-1 = [cli-tools, <category>, core]
+ *   tier-1 = [cli-tools, <category>, orchestration]
  *   tier-2 = [cli-tools, <category>]
  *   tier-3 = [cli-tools, <category>, opt-in] (+ "ai" and "caveat" for RTK)
+ *
+ * Wave 1 renamed the legacy `core` capability tag to `orchestration`
+ * (src/content/tags.ts TAG_ORCHESTRATION). The tier-1 always-on tools are
+ * part of the orchestration pipeline, so they carry the orchestration tag
+ * — `core` is no longer in TAG_REGISTRY and fails compound.test.ts tag
+ * validity + every facet predicate.
  */
 function tagsFor(meta: CliToolMeta): string[] {
   const base = ["cli-tools", meta.category];
-  if (meta.tier === 1) return [...base, "core"];
+  if (meta.tier === 1) return [...base, "orchestration"];
   if (meta.tier === 2) return base;
   // tier 3
   const tags = [...base, "opt-in"];

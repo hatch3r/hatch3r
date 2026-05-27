@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import chalk from "chalk";
 import inquirer from "inquirer";
@@ -8,6 +8,7 @@ import {
   DEFAULT_FEATURES,
   HATCH3R_DIR,
   HatchError,
+  MANIFEST_FILE,
   MATURITY_TIERS,
   VALID_MATURITY_TIERS,
   WORKTREE_CAPABLE_TOOLS,
@@ -68,8 +69,7 @@ import {
   getAllContentIds,
 } from "../../content/index.js";
 import { PRESETS, getPreset, type PresetId } from "../../content/presets.js";
-import { generateCanonicalAgentsMd, generateRootAgentsMd } from "../shared/agentsContent.js";
-import { safeWriteFile } from "../../merge/safeWrite.js";
+import { acquireWriteLock, safeWriteFile } from "../../merge/safeWrite.js";
 import { withSnapshot } from "../../pipeline/snapshot.js";
 import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
 
@@ -155,7 +155,44 @@ function isDiffEmpty(diff: ConfigDiff): boolean {
   );
 }
 
-function printCurrentConfig(manifest: HatchManifest): void {
+/**
+ * F10.4-2 (Cycle 10): Customization types scanned for `.customize.yaml` and
+ * `.customize.md` overrides under `.hatch3r/<type>/`. Mirrors validate.ts's
+ * CUSTOMIZATION_TYPES; duplicated here to avoid pulling the validate module
+ * into the config-command code path.
+ */
+const CONFIG_CUSTOMIZATION_DIRS = ["agents", "commands", "skills", "rules"] as const;
+
+/**
+ * F10.4-2 (Cycle 10): Count `.customize.yaml` / `.customize.md` files present
+ * under `.hatch3r/<type>/` for each customizable artifact type. Returns one
+ * entry per type that has ≥1 override; types with zero overrides are omitted.
+ * Missing directories (ENOENT) are silently treated as zero; other read
+ * errors surface via verbose() per the Silent Failure Contract.
+ */
+async function countCustomizationsByType(
+  rootDir: string,
+): Promise<Array<{ type: string; count: number }>> {
+  const results: Array<{ type: string; count: number }> = [];
+  for (const type of CONFIG_CUSTOMIZATION_DIRS) {
+    const dir = join(rootDir, HATCH3R_DIR, type);
+    let entries: string[];
+    try {
+      entries = await readdir(dir);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
+      verbose(`config: countCustomizationsByType(${dir}) skipped — ${err instanceof Error ? err.message : String(err)}`);
+      continue;
+    }
+    const count = entries.filter(
+      (f) => f.endsWith(".customize.yaml") || f.endsWith(".customize.md"),
+    ).length;
+    if (count > 0) results.push({ type, count });
+  }
+  return results;
+}
+
+async function printCurrentConfig(rootDir: string, manifest: HatchManifest): Promise<void> {
   const platformLabel = manifest.platform
     ? `${PLATFORM_DISPLAY_NAMES[manifest.platform]} (${manifest.namespace || manifest.owner}/${manifest.project || manifest.repo})`
     : "Not set";
@@ -183,6 +220,15 @@ function printCurrentConfig(manifest: HatchManifest): void {
   if (manifest.content) {
     const total = countSelectionItems(manifest.content);
     lines.push(label("Content", `${total} items (${selectionSummary(manifest.content)})`));
+  }
+
+  // F10.4-2 (Cycle 10): enumerate `.customize.yaml` / `.customize.md` overrides
+  // per type so users see existing behavior-overrides BEFORE deciding whether
+  // to remove an item from selection (which would also lose the override).
+  const customizationCounts = await countCustomizationsByType(rootDir);
+  if (customizationCounts.length > 0) {
+    const summary = customizationCounts.map((c) => `${c.type}: ${c.count}`).join(", ");
+    lines.push(label("Customizations", summary));
   }
 
   printBox("Current configuration", lines, "info");
@@ -376,6 +422,42 @@ export async function configCommand(arg1?: string, arg2?: string): Promise<void>
   printBanner(true);
 
   const rootDir = process.cwd();
+  // F1.2-H1 (Cycle 10): Hold a cross-process advisory lock on `hatch.json`
+  // across the full read-modify-write window — `readManifest` happens after
+  // acquire, every `writeManifest` happens before release. Without this, a
+  // concurrent `hatch3r config | init | sync` running between our read and
+  // write silently clobbers one side (safeWrite.ts: documented silent-clobber
+  // risk is opt-in-only). Locking is opt-in via `HATCH3R_LOCK=1` so the
+  // default single-process behavior is unchanged. The lock is reentrant
+  // within this process so inner `atomicWriteFile` calls (invoked by
+  // `writeManifest`) re-use the held lock instead of self-deadlocking.
+  const manifestPath = join(rootDir, HATCH3R_DIR, MANIFEST_FILE);
+  const releaseManifestLock = await acquireWriteLock(manifestPath);
+  try {
+    await configCommandImpl(rootDir, arg1, arg2);
+  } finally {
+    try {
+      await releaseManifestLock();
+    } catch (releaseErr) {
+      // Silent Failure Contract (P5): surface release failures so operators
+      // can clear a stale lockfile before re-running.
+      if (process.env.HATCH3R_LOCK === "1") {
+        console.error(
+          `hatch3r: failed to release manifest write lock at ${manifestPath}: ` +
+            `${releaseErr instanceof Error ? releaseErr.message : String(releaseErr)}`,
+        );
+      }
+    }
+  }
+}
+
+/**
+ * Body of `configCommand`. Lifted into a helper so the outer function can
+ * acquire the cross-process manifest lock (F1.2-H1) once and hold it across
+ * the full critical section — including every early `return` path — without
+ * duplicating the `try/finally` release at every exit point.
+ */
+async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string): Promise<void> {
   const manifest = await readManifest(rootDir);
 
   if (!manifest) {
@@ -391,6 +473,24 @@ export async function configCommand(arg1?: string, arg2?: string): Promise<void>
   if (await handleScalarConfig(rootDir, manifest, arg1, arg2)) {
     return;
   }
+
+  // F10.4-2 (Cycle 10): Surface the selection-vs-customization distinction
+  // up front — promoted from a dim one-liner buried mid-flow (which only
+  // printed when `manifest.content` was set) to a top-level info box on
+  // every interactive `hatch3r config` invocation. 1.6.x→1.8.x history shows
+  // recurring confusion where users removed items from selection to change
+  // behavior (losing the override); rendering this distinction before any
+  // prompt nudges them to `.customize.yaml` / `.customize.md` instead.
+  printBox(
+    "Two ways to change content",
+    [
+      "Selection — adds or removes content items in this config flow.",
+      "Customization — overrides an item's behavior without removing it.",
+      "  Place .hatch3r/<type>/<id>.customize.yaml (settings) or",
+      "  .hatch3r/<type>/<id>.customize.md (content append).",
+    ],
+    "info",
+  );
 
   // Detect workspace context early to drive UI flow
   const wsContext = await detectWorkspaceContext(rootDir);
@@ -439,7 +539,7 @@ export async function configCommand(arg1?: string, arg2?: string): Promise<void>
     );
   }
 
-  printCurrentConfig(manifest);
+  await printCurrentConfig(rootDir, manifest);
 
   const wslTheme = isWSL()
     ? { icon: { checked: chalk.green("[x]"), unchecked: "[ ]", cursor: ">" } }
@@ -469,13 +569,10 @@ export async function configCommand(arg1?: string, arg2?: string): Promise<void>
   let contentProjectType: ContentSelection["projectType"] | undefined;
   let contentTeamSize: ContentSelection["teamSize"] | undefined;
   if (manifest.content) {
-    // #145 (D19-16): Explain config vs .customize.yaml distinction
-    info(
-      chalk.dim("Config adds/removes content items. To customize an item's behavior without ") +
-      chalk.dim("removing it, use .hatch3r/<type>/<id>.customize.yaml instead."),
-    );
-    console.log();
-
+    // #145 (D19-16) / F10.4-2 (Cycle 10): the selection-vs-customization
+    // distinction is now surfaced at the top of `configCommandImpl` via a
+    // printBox(..., 'info') visible on every interactive invocation; no need
+    // to restate the one-liner mid-flow.
     contentRoot = findPackageRoot(__dirname);
     // Wave 7: legacy `.agents/` literal — the `addContentItem` / canonical
     // AGENTS.md materialization block below operates on the pre-1.9
@@ -893,15 +990,13 @@ export async function configCommand(arg1?: string, arg2?: string): Promise<void>
       previousContent.projectType !== newSelection.projectType ||
       previousContent.teamSize !== newSelection.teamSize;
 
-    // Regenerate canonical and root AGENTS.md after content changes
-    if (contentChanges.added.length > 0 || contentChanges.removed.length > 0) {
-      const canonicalAgentsMd = await generateCanonicalAgentsMd(agentsDirLocal);
-      await safeWriteFile(join(agentsDirLocal, "AGENTS.md"), canonicalAgentsMd);
-      const rootAgentsMd = await generateRootAgentsMd(agentsDirLocal);
-      await safeWriteFile(join(rootDir, "AGENTS.md"), rootAgentsMd.full, {
-        managedContent: rootAgentsMd.inner,
-      });
-    }
+    // F10.5-1 (Cycle 10): No canonical or root AGENTS.md emission here,
+    // aligning with sync.ts:303 + init.ts:509-510 + update.ts:304-306 Wave 3
+    // contract. Adapters source canonical content from the bundled package
+    // via `resolveBundledContentRoot()`; archive `TOOL_PATH_PREFIXES` has no
+    // AGENTS.md entry, so writing one from config left a dangling root
+    // `AGENTS.md` after tool switches or `hatch3r clean`. `addContentItem` /
+    // `removeContentItem` above already handle per-item materialization.
   }
 
   // --- Compute diff ---

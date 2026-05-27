@@ -124,7 +124,7 @@ The integrity verification system (`src/integrity/index.ts`) is **content-addres
 ### In Scope
 
 - hatch3r CLI (`npx hatch3r init/sync/update/add/status/validate/verify/config/clean/worktree-setup`)
-- Tool adapters (Cursor, Copilot, Claude Code, OpenCode, Windsurf, Amp, Codex CLI, Gemini CLI, Cline/Roo Code, Aider, Kiro, Goose, Zed, Amazon Q, Antigravity)
+- Tool adapters (Cursor, Copilot, Claude Code)
 - Content validation and safe merging logic
 - Content safety deny patterns and secret detection
 - MCP configuration generation

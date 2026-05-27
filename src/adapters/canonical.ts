@@ -235,6 +235,19 @@ function describeYamlType(v: unknown): string {
  * wrong YAML type. The field is still coerced to its empty fallback; the
  * warning exposes the offending input so adversarial canonical content
  * cannot silently impersonate another id via `id: 123` or `id: [a, b]`.
+ *
+ * F2.2-F3 (Cycle 10 Wave 2): a leading UTF-8 BOM (U+FEFF) is stripped before
+ * the FRONTMATTER_REGEX test. The regex is anchored with `^---`, so a BOM
+ * inserted by a Windows editor (PowerShell `Set-Content`, VS Code "UTF-8 with
+ * BOM") would push the `---` off byte 0 and make the match fail silently — the
+ * file would then load with a filename-derived id, default `type: rule`, empty
+ * description, and no tags/precedence, dropping security-critical metadata
+ * (rule precedence, hook `type`, `floor:*` tags) without any signal. Stripping
+ * the BOM matches the asymmetry already present for customization YAML
+ * (`src/models/customize.ts` reads `utf-8` and the parser tolerates a BOM).
+ * When a BOM is observed and `typeMismatches` is supplied, an ENCODING note is
+ * pushed onto that channel so the file's encoding mistake surfaces as a
+ * warning rather than staying silent.
  */
 export function parseFrontmatter(
   rawContent: string,
@@ -251,11 +264,25 @@ export function parseFrontmatter(
    */
   rawType?: string;
 } {
-  const match = rawContent.match(FRONTMATTER_REGEX);
+  // F2.2-F3: strip a single leading UTF-8 BOM (U+FEFF) so the anchored
+  // FRONTMATTER_REGEX can still see `^---` on byte 0. Surface the encoding
+  // mistake on the warning channel — silently honoring it would still parse,
+  // but operators should know their authoring tool injected a BOM.
+  let cleaned = rawContent;
+  if (cleaned.charCodeAt(0) === 0xfeff) {
+    cleaned = cleaned.slice(1);
+    if (typeMismatches) {
+      typeMismatches.push(
+        "ENCODING: leading UTF-8 BOM (U+FEFF) stripped before frontmatter parse — re-save the file as UTF-8 without BOM",
+      );
+    }
+  }
+
+  const match = cleaned.match(FRONTMATTER_REGEX);
   if (!match) {
     return {
       metadata: { id: "", type: "rule", description: "" },
-      content: rawContent,
+      content: cleaned,
     };
   }
 
@@ -433,10 +460,22 @@ async function readSingleMd(
   let parsed;
   const typeMismatches: string[] = [];
   try {
+    // parseFrontmatter strips a leading BOM internally and pushes an ENCODING
+    // note onto `typeMismatches` (F2.2-F3); the raw bytes are passed through
+    // unmodified so the warning fires for the on-disk read path.
     parsed = parseFrontmatter(rawContent, typeMismatches);
   } catch (err) {
     const errorResult = makeErrorResult(fullPath, err, "YAML_PARSE_ERROR");
     return errorResult;
+  }
+
+  // F2.2-F3: normalise the stored raw bytes too. A BOM that reached the parser
+  // would also reach adapters that re-emit `rawContent` verbatim
+  // (`src/adapters/copilot.ts` prompt/agent bodies), leaking the BOM into
+  // generated output. Strip it once here so re-emission is BOM-free while the
+  // warning above still records that the source file carried one.
+  if (rawContent.charCodeAt(0) === 0xfeff) {
+    rawContent = rawContent.slice(1);
   }
 
   const { metadata, content, rawType } = parsed;

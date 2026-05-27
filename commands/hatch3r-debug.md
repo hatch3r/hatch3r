@@ -12,7 +12,7 @@ parallel_tool_default: true
 triage_tiers: [1, 2, 3]
 sub_agents_spawned:
   count: 6
-  rationale: Six-stage pipeline per agentPipeline — researcher → implementer → reviewer ↔ fixer review loop (max 3 iterations) → parallel final-quality pass (test-writer + security-auditor); serialization only across true dependency edges (logs → root cause → fix → verify).
+  rationale: Six-stage pipeline per agentPipeline — researcher → implementer → reviewer ↔ fixer review loop (max 3 iterations) → parallel final-quality pass (test-writer + security-auditor); serialization only across true dependency edges (logs → root cause → fix → verify). Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
 ---
 ## §0 Detect Ambiguity (P8 B1)
 
@@ -41,6 +41,8 @@ Standalone debug-and-fix command that instruments the codebase with strategic de
 | 5a. Fix | `hatch3r-implementer` | No | Yes |
 | 5b. Review Loop | `hatch3r-reviewer` → `hatch3r-fixer` (max 3) | No | Yes |
 | 5c. Final Quality | `hatch3r-test-writer` + `hatch3r-security-auditor` | Yes | Yes |
+
+**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
 
 ---
 

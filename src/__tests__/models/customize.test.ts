@@ -3,6 +3,8 @@ import { mkdtemp, mkdir, writeFile, rm, utimes } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
+  MAX_CUSTOMIZE_MD_BYTES,
+  MAX_PROTECTED_CUSTOMIZE_MD_BYTES,
   readCustomization,
   readCustomizationMarkdown,
   readCustomizationSnapshot,
@@ -335,5 +337,25 @@ describe("readCustomizationSnapshot (C8-D2-M4 TOCTOU guard)", () => {
     expect(result.yaml).toBeUndefined();
     expect(result.md).toBeUndefined();
     expect(result.warnings).toEqual([]);
+  });
+});
+
+// F2.3-H4 (Cycle 10 Wave 2): the .customize.md byte limits are exported from
+// this module as the single source of truth (CONSTITUTION §2 P5 Anti-Bloat
+// Principle 1). The adapter layer (src/adapters/customization.ts) consumes
+// these exports instead of re-declaring its own literals. Pinning the values
+// here makes any future divergence a test failure rather than a silent
+// read-time vs apply-time mismatch.
+describe("customize byte-limit single source of truth (F2.3-H4)", () => {
+  it("exports MAX_CUSTOMIZE_MD_BYTES as 10240", () => {
+    expect(MAX_CUSTOMIZE_MD_BYTES).toBe(10_240);
+  });
+
+  it("exports MAX_PROTECTED_CUSTOMIZE_MD_BYTES as 2048", () => {
+    expect(MAX_PROTECTED_CUSTOMIZE_MD_BYTES).toBe(2_048);
+  });
+
+  it("keeps the protected cap strictly below the default cap", () => {
+    expect(MAX_PROTECTED_CUSTOMIZE_MD_BYTES).toBeLessThan(MAX_CUSTOMIZE_MD_BYTES);
   });
 });

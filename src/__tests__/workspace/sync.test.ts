@@ -513,7 +513,11 @@ describe("workspace sync", () => {
     ], "manual");
     await writeWorkspaceManifest(tempDir, wsManifest);
 
-    await syncWorkspaceRepos(tempDir);
+    // F1.9-H3 (Cycle 10 D1): capture warnings — the empty-string identity
+    // fallback must surface an audible onWarn line, not persist empty
+    // owner/repo silently (board/PR links would be broken otherwise).
+    const warnings: string[] = [];
+    await syncWorkspaceRepos(tempDir, { onWarn: (m) => warnings.push(m) });
 
     const raw = await readFile(join(tempDir, "api", AGENTS_DIR, "hatch.json"), "utf-8");
     const manifest = JSON.parse(raw);
@@ -521,6 +525,13 @@ describe("workspace sync", () => {
     expect(manifest.owner).toBe("");
     expect(manifest.repo).toBe("");
     expect(manifest.board?.defaultBranch).toBe("main");
+    // F1.9-H3: a consolidated owner/repo-detection warning, scoped to the
+    // sub-repo path, must have been surfaced.
+    const identityWarn = warnings.find(
+      (w) => w.includes("[api]") && /owner\/repo/.test(w),
+    );
+    expect(identityWarn).toBeDefined();
+    expect(identityWarn).toMatch(/board\/PR links/);
   });
 
   it("returns empty result when no repos are eligible", async () => {

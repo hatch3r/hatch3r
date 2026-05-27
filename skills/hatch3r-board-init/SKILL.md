@@ -1,5 +1,6 @@
 ---
 id: hatch3r-board-init
+name: hatch3r-board-init
 description: Initialize a project board (GitHub Projects V2, Azure Boards, or GitLab Issue Boards) with hatch3r's label taxonomy, status fields, and board structure. Platform detected from hatch.json.
 tags: [board, ctx:team-only]
 quality_charter: agents/shared/quality-charter.md
@@ -526,6 +527,15 @@ Board Init Complete:
 ```
 
 ---
+
+## Fan-out Discipline (P8 B2)
+
+This skill delegates per task size:
+- Tier 1 (single-board scaffold with defaults): inline execution acceptable.
+- Tier 2 (board + multiple lanes + seed issues): spawn parallel sub-agents per concern via the Task tool.
+- Tier 3 (multi-board or migration-from-existing init): one fresh sub-agent per board or lane; orchestrator integrates only.
+
+Source: `.claude/rules/fan-out-discipline.md` (P8 B2); `agents/shared/efficiency-patterns.md`.
 
 ## Error Handling
 

@@ -22,11 +22,11 @@ The `external_plugins/` PR convention referenced in the original C7-H16 finding 
 
 ### One-line description
 
-Battle-tested agentic coding setup: 17 agents, 26 skills, 28 rules, 37 commands, 6 hooks, and MCP integrations for Claude Code.
+Battle-tested agentic coding setup: 30 agents, 43 skills, 55 rules, 23 commands, 6 hooks, and MCP integrations for Claude Code.
 
 ### Long description
 
-hatch3r is an open-source CLI and Claude Code plugin that installs a tool-agnostic agentic coding setup into any repository. One command installs 17 agents, 26 skills, 28 rules, 37 commands, 6 lifecycle hooks, and MCP integrations. Selective install lets users choose only what their project needs (greenfield vs brownfield, solo vs team, minimal/standard/full presets).
+hatch3r is an open-source CLI and Claude Code plugin that installs a tool-agnostic agentic coding setup into any repository. One command installs 30 agents, 43 skills, 55 rules, 23 commands, 6 lifecycle hooks, and MCP integrations. Selective install lets users choose only what their project needs (greenfield vs brownfield, solo vs team, minimal/standard/full presets).
 
 The plugin packages a 4-phase sub-agent pipeline (Research → Implement → Review → Quality) that maps directly to Claude Code Agent Teams, board-management commands for GitHub/Azure DevOps/GitLab, security-audit and accessibility-audit skills, and customization via `.hatch3r/{type}/{id}.customize.yaml` without editing managed files.
 
@@ -76,8 +76,8 @@ The submission requires a valid `.claude-plugin/plugin.json`. The current manife
 ```json
 {
   "name": "hatch3r",
-  "description": "Battle-tested agentic coding setup: 17 agents, 26 skills, 28 rules, 37 commands, 6 hooks, and MCP integrations. Counts derived from governance/inventory.json.",
-  "version": "1.9.0",
+  "description": "Battle-tested agentic coding setup: 30 agents, 43 skills, 55 rules, 23 commands, 6 hooks, and MCP integrations. Counts derived from governance/inventory.json.",
+  "version": "2.0.0",
   "author": {
     "name": "hatch3r",
     "email": "support@hatch3r.com"
@@ -118,7 +118,7 @@ If the marketplace later requires a PR to `anthropics/claude-plugins-official/ex
 ```markdown
 ## hatch3r
 
-**Description:** Battle-tested agentic coding setup framework. One command installs 17 agents, 26 skills, 28 rules, 37 commands, 6 hooks, and MCP integrations into any repo.
+**Description:** Battle-tested agentic coding setup framework. One command installs 30 agents, 43 skills, 55 rules, 23 commands, 6 hooks, and MCP integrations into any repo.
 
 **License:** MIT
 **Repository:** https://github.com/hatch3r/hatch3r

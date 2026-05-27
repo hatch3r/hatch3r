@@ -79,11 +79,25 @@ Verify with:
 command -v jq
 ```
 
-Install (mac):
+Install (macOS — default for this machine):
 
 ```bash
 # brew
 brew install jq
+```
+
+Install (Linux):
+
+```bash
+# apt
+sudo apt install jq
+```
+
+Install (Windows):
+
+```bash
+# scoop
+scoop install jq
 ```
 
 Homepage: https://github.com/jqlang/jq

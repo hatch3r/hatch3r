@@ -116,6 +116,21 @@ Evaluate the task against both signal sets. Count matching signals to determine 
 
 **ASK:** "Task: {user's task description}. Complexity assessment: {assessment}. Recommended mode: {Full/Quick}. Proceed with {recommended}? (yes / switch to {other} / let me decide per phase)"
 
+### Step 0.5: Emit Pre-Execution Cost Preview
+
+Before the first sub-agent dispatch (Phase 1 / Quick Step 1), surface the cost preview to the user so a multi-agent run is never started blind. Emit the `cost_estimate` block per `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate, calibrated to the triage tier selected in Step 0:
+
+```yaml
+cost_estimate:
+  expected_sa_count: <triage tier → Quick Tier 1 ~2, Quick Tier 2 ~6, Full Tier 3 up to 19>
+  estimated_input_tokens_static_frame: <int>
+  estimated_web_research_queries: <int>
+  triage_tier: light | standard | deep
+  estimated_duration_min: <int>
+```
+
+Post-execution actuals + delta land in the Phase 4 / Quick Step 3 iteration summary's Fan-out + Cost section per `rules/hatch3r-cost-visibility.md` Post-Execution Actuals. Token telemetry sources from `src/pipeline/observability.ts`.
+
 ---
 
 ## Full Mode
@@ -317,7 +332,7 @@ Each reviewer/fixer sub-agent prompt MUST include:
 
 #### 4b. Final Quality (Parallel Specialists)
 
-**ONLY after the review loop (4a) reports 0 Critical + 0 Warning findings**, spawn the remaining specialist sub-agents. Use the Task tool with `subagent_type: "generalPurpose"`. Dispatch is bounded by `max_phase4_parallel` (default `3`, env-overridable via `HATCH3R_MAX_PHASE4_PARALLEL`, valid range 1-16) per `rules/hatch3r-agent-orchestration.md` Phase 4 — Final Quality. When the applicable specialists exceed the bound, batch by severity priority `CRITICAL → HIGH → MEDIUM → LOW`; each batch runs to completion before the next.
+**ONLY after the review loop (4a) reports 0 Critical + 0 Warning findings**, spawn the remaining specialist sub-agents. Use the Task tool with `subagent_type: "generalPurpose"`. Dispatch is bounded by `max_phase4_parallel` (default `8`, env-overridable via `HATCH3R_MAX_PHASE4_PARALLEL`, valid range 1-16) per `rules/hatch3r-agent-orchestration.md` Phase 4 — Final Quality. The bound exists for upstream provider rate-limit headroom, not per-orchestrator context cost (P8 dominates P7). When the applicable specialists exceed the bound, batch by severity priority `CRITICAL → HIGH → MEDIUM → LOW`; each batch runs to completion before the next.
 
 **Always spawn (mandatory for every code change):**
 
@@ -479,6 +494,17 @@ At the end of an auto workflow session, generate a summary:
 - Acceptance criteria: {N/M met}
 - Learnings captured: {count}
 - Time in auto mode: {duration}
+
+---
+
+## Cost estimate (Decision 24)
+
+This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 24/29:
+
+- **Pre-execution `cost_estimate`** — emitted in Step 0.5 before the first sub-agent dispatch (both Full and Quick Mode).
+- **Post-execution `cost_actuals` + `delta`** — appended to the Phase 4 / Quick Step 3 iteration summary's Fan-out + Cost section.
+
+Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.count: 19` × tier heuristic in `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate): Quick Tier 1 ≈ 2 (researcher + implementer, reviewer/fixer/test-writer/security-auditor when triggered), Quick Tier 2 ≈ 6 (researcher + implementer + reviewer + fixer + test-writer + security-auditor), Full Tier 3 up to 19 (full pipeline including the Phase-4b CQ1-CQ9 specialist batch bounded by `max_phase4_parallel`). Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
 
 ---
 

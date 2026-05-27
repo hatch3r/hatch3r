@@ -325,6 +325,79 @@ describe("setupWorktree", () => {
       rmSync(wtPath, { recursive: true, force: true });
     }
   });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // F1.10-H2 (cycle 10 wave 2) — glob patterns paired with the symlink
+  // strategy must surface a structured error instead of silently falling
+  // back to copy. The strategy-resolution loop only does literal-prefix
+  // matching, so `.cache/*.log  # hatch3r:symlink` cannot be honoured —
+  // record an error and downgrade to copy.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  it("records error for symlink-strategy entries with glob metacharacters (F1.10-H2)", async () => {
+    writeFileSync(join(mainRepo, ".gitignore"), ".cache/\n", "utf-8");
+    mkdirSync(join(mainRepo, ".cache"));
+    writeFileSync(join(mainRepo, ".cache", "a.log"), "log\n", "utf-8");
+    execFileSync("git", ["add", ".gitignore"], { cwd: mainRepo, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "init"], { cwd: mainRepo, stdio: "ignore" });
+
+    // Glob pattern (`*.log`) with symlink annotation — must be rejected.
+    writeIncludeFile(mainRepo, [
+      { pattern: ".cache/*.log", strategy: "symlink", reason: "glob symlink" },
+    ]);
+
+    const result = await setupWorktree(mainRepo, worktreeDir);
+    expect(
+      result.errors.some((e) => e.includes(".cache/*.log") && /glob/.test(e)),
+    ).toBe(true);
+    // Anything that did get resolved must NOT have been symlinked.
+    expect(result.symlinked).toEqual([]);
+  });
+
+  it("accepts globs with copy strategy (no error)", async () => {
+    writeFileSync(join(mainRepo, ".gitignore"), ".cache/\n", "utf-8");
+    mkdirSync(join(mainRepo, ".cache"));
+    writeFileSync(join(mainRepo, ".cache", "a.log"), "log\n", "utf-8");
+    execFileSync("git", ["add", ".gitignore"], { cwd: mainRepo, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "init"], { cwd: mainRepo, stdio: "ignore" });
+
+    writeIncludeFile(mainRepo, [
+      { pattern: ".cache/*.log", strategy: "copy", reason: "glob copy" },
+    ]);
+
+    const result = await setupWorktree(mainRepo, worktreeDir);
+    expect(result.errors).toEqual([]);
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // F1.10-H3 (cycle 10 wave 2) — TOCTOU hardening. The pre-write lstat
+  // probe is gone; setup relies on syscall-level atomicity (copyFile
+  // COPYFILE_EXCL, symlink throws EEXIST). The pre-existing idempotency,
+  // mixed-strategy, and force-overwrite tests above already cover the
+  // observable outcomes; this case pins the "exists" branch behaviour for
+  // a copy with --force to detect any future regression in the unlink +
+  // retry path.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  it("re-runs with --force replace existing target atomically (F1.10-H3)", async () => {
+    writeFileSync(join(mainRepo, ".gitignore"), ".env\n", "utf-8");
+    writeFileSync(join(mainRepo, ".env"), "NEW=value\n", "utf-8");
+    execFileSync("git", ["add", ".gitignore"], { cwd: mainRepo, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "init"], { cwd: mainRepo, stdio: "ignore" });
+
+    writeIncludeFile(mainRepo, [{ pattern: ".env", strategy: "copy" }]);
+
+    // Pre-create the file in the target so the copy hits EEXIST first.
+    await writeFile(join(worktreeDir, ".env"), "OLD=value\n");
+
+    const result = await setupWorktree(mainRepo, worktreeDir, { force: true });
+    expect(result.copied).toContain(".env");
+    expect(result.skipped).not.toContain(".env");
+
+    // Verify the contents really were replaced (no silent skip).
+    const content = await readFile(join(worktreeDir, ".env"), "utf-8");
+    expect(content).toBe("NEW=value\n");
+  });
 });
 
 // ── cleanupWorktree ──────────────────────────────────────────────────────────

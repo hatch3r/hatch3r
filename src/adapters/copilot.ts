@@ -4,6 +4,7 @@ import type {
 } from "../types.js";
 import { toPrefixedId } from "../types.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
+import { readMaturityTier } from "../manifest/hatchJson.js";
 import { BaseAdapter, output, type AdapterContext } from "./base.js";
 import { sortByPrecedence, precedenceRank } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
@@ -40,6 +41,41 @@ Self-detectable drift indicators (halt the current turn if any appear):
 On any drift, halt and re-delegate via \`hatch3r-implementer\` (Phase 2)
 or \`hatch3r-fixer\` (Phase 3). The only carve-out is \`hatch3r-quick-change\`
 Tier 1 trivial single-line edits per its declared scope.`;
+
+/**
+ * D9-H-7 (Cycle 10 D9, Pillar P6): orchestrator-only hatch3r sub-agents that
+ * MUST NOT be model-auto-invocable on the Copilot surface.
+ *
+ * GitHub's custom-agent configuration documents `target`,
+ * `disable-model-invocation`, and `user-invocable` as the fields that gate
+ * auto-invocation (https://docs.github.com/en/copilot/reference/custom-agents-configuration
+ * accessed 2026-05-27). Without them every hatch3r agent emits as
+ * auto-invocable on BOTH VS Code and github.com, so Copilot could spawn an
+ * implementer/fixer directly — bypassing the Orchestrator Self-Discipline
+ * protocol (CLAUDE.md → Mandatory Delegation Directive; CHANGELOG #73) that
+ * requires these agents to run only when an orchestrator delegates to them
+ * via the Task tool.
+ *
+ * These agents are the Phase-2/3/4 producer + gate roles the orchestrator
+ * drives; they stay user-invocable (a human can still select them
+ * deliberately) but are removed from the model's automatic-selection pool.
+ * The set is intentionally narrow — the 5 ids the D9-H-7 finding names. A
+ * future enhancement (deferred to the frontmatter-parser work unit) will let
+ * canonical agents declare an explicit `copilot_invocation_policy` to
+ * override this default per-agent.
+ *
+ * Stored in canonical prefixed form (`hatch3r-…`) and matched against the
+ * loop's `prefixedId` (always normalised via `toPrefixedId`), so the gate
+ * fires identically whether the canonical agent declares `id: implementer`
+ * or `id: hatch3r-implementer`.
+ */
+const COPILOT_ORCHESTRATOR_ONLY_AGENTS = new Set<string>([
+  "hatch3r-implementer",
+  "hatch3r-fixer",
+  "hatch3r-reviewer",
+  "hatch3r-test-writer",
+  "hatch3r-security-auditor",
+]);
 
 export class CopilotAdapter extends BaseAdapter {
   readonly name = "copilot";
@@ -82,7 +118,15 @@ export class CopilotAdapter extends BaseAdapter {
     }
 
     const bridgeOrchestration = await this.bridgeOrchestration(ctx);
+    // F14.3-H2 (Cycle 10 D14, Pillar P3): per-tier output marker. Copilot
+    // output was byte-identical across maturity tiers (Decision 4 / #16);
+    // emit the declared tier (absence → "solo" via readMaturityTier) as the
+    // first managed-block line so the tier travels with the artifact. Paired
+    // with F14.3-C1's admission tagging so the marker is meaningful.
+    const maturityTier = readMaturityTier(ctx.manifest);
     const innerContent = [
+      "",
+      `> Maturity tier: ${maturityTier}. See governance/CONSTITUTION.md Decision 16 for tier semantics.`,
       "",
       "# Hatch3r Project Instructions",
       "",
@@ -178,6 +222,19 @@ jobs:
         const copilotTools = toCopilotToolsFrontmatter(prefixedId);
         if (copilotTools) {
           lines.push(`tools: [${copilotTools.map((t) => `"${t}"`).join(", ")}]`);
+        }
+        // D9-H-7 (D9, P6): gate auto-invocation for orchestrator-only
+        // sub-agents. `disable-model-invocation: true` removes the agent
+        // from Copilot's automatic-selection pool on both VS Code and
+        // github.com; `user-invocable: true` keeps it selectable by a human
+        // (verified field names per
+        // https://docs.github.com/en/copilot/reference/custom-agents-configuration
+        // accessed 2026-05-27). Without this, Copilot could auto-spawn the
+        // implementer/fixer/reviewer/test-writer/security-auditor directly,
+        // bypassing the Orchestrator Self-Discipline delegation protocol.
+        if (COPILOT_ORCHESTRATOR_ONLY_AGENTS.has(prefixedId)) {
+          lines.push("disable-model-invocation: true");
+          lines.push("user-invocable: true");
         }
         const fm = `---\n${lines.join("\n")}\n---`;
         results.push(output(`.github/agents/${prefixedId}.agent.md`, `${fm}\n\n${wrapInManagedBlock(content)}`, content));

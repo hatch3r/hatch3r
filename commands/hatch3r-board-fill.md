@@ -774,6 +774,47 @@ If yes, edit `todo.md` to remove lines for created issues. Preserve skipped/excl
 
 ---
 
+## Per-Turn Pipeline-State Header (Bypass Protection)
+
+For Tier 2 and Tier 3 runs, emit the header at the start of every assistant turn that touches this task, per `rules/hatch3r-agent-orchestration.md` -> Per-Turn Pipeline-State Header. Format:
+
+```
+[hatch3r-pipeline: phase {1|2|3|4} | last: {agent} → {SUCCESS|PARTIAL|FAILED|BLOCKED|n/a} | next: {agent or "user-confirmation" or "complete"}]
+```
+
+Phase mapping for board-fill: `1` = parse + board scan + triage (Steps 0–2.5), `2` = classification + context + grouping + dependency + readiness (Steps 3–5.6), `3` = create/update + production-readiness review (Steps 6–7.9, reviewer/fixer sub-agent loops), `4` = reconciliation + dashboard + cleanup + summary (Steps 7.8–8). Tier 1 runs are exempt per the Tier 1 exemption.
+
+## End-of-Turn Delegation Attestation (Bypass Protection)
+
+Every turn that mutated files (`todo.md` edits in Step 8) or board state at Tier 2 or Tier 3 emits the attestation block immediately before the Iteration Summary, per `rules/hatch3r-agent-orchestration.md` -> End-of-Turn Delegation Attestation. Quote the per-file `delegation_proof_id` returned by each spawned sub-agent (Step 7.9 reviewer/fixer loops) verbatim:
+
+```
+[hatch3r-delegation-attestation]
+files_mutated_this_turn:
+  - <relative path or issue ref>: via hatch3r-{reviewer|fixer} (proof: <delegation_proof_id>)
+mutating_subagent_invocations: <integer>
+inline_edits_by_orchestrator: none
+```
+
+Issue-body mutations applied after a reviewer/fixer verdict (Step 7.9c) cite the spawning sub-agent invocation. Unattributable rows are a self-declared P8 B2 violation — halt and queue re-delegation.
+
+---
+
+## Resumability (Decision 27/30)
+
+board-fill is long-running — a Tier 3 batch can span 15+ items with per-issue reviewer/fixer loops (Step 7.9) and dozens of platform mutations (Step 7). Per `governance/CONSTITUTION.md` §6 Decision 30 (Workspace-checkpointed resumability), checkpoint progress so an interrupted run re-enters at the last completed phase rather than re-creating issues.
+
+**Checkpoint contract** (`src/pipeline/checkpoint.ts`):
+
+1. **Workspace + file:** write `.board-fill-workspace/checkpoint.json` via `writeCheckpoint()` (atomic temp+rename through `src/merge/safeWrite.ts`; a SIGKILL mid-write leaves the prior checkpoint or no file, never a partial record). Schema (`schemaVersion: 1`): `phase` (the 1–4 mapping above), `wave` (batch index when items are processed in dependency levels), `status` (`in-progress` | `passed` | `failed`), and `meta` `{ baselineSha, lastPassedGateN, registrySha, timestamp }`.
+2. **Write points:** after each ASK checkpoint is confirmed and after each Step 7 mutation phase (epics created, sub-issues linked, board synced) so created-issue numbers and `link_results` survive a crash and are not re-created on resume.
+3. **`--resume` invocation:** `hatch3r board-fill --resume` calls `readCheckpoint()` then `verifyResumability(workspace, currentSha)`. Baseline drift fails closed (the `todo.md` / board state changed since the checkpoint) — re-run from scratch or rebase to the checkpoint baseline. A `failed` status halts for operator triage before resuming.
+4. **Snapshot rollback:** pre-mutation snapshots land in `.hatch3r/snapshots/<session-id>/`; `hatch3r rollback --session=<id>` reverts this run's mutations. Diff preview precedes every mutation per Decision 30.
+
+If `--resume` is passed with no checkpoint, `verifyResumability` returns `drift: "no checkpoint found"` — treat as a cold start.
+
+---
+
 ## Error Handling
 
 - **Search failure** (GitHub `search_issues` / Azure DevOps `az boards query` / GitLab `glab issue list --search`): retry once, then warn and proceed without dedup.

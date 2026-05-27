@@ -9,9 +9,17 @@ import { atomicWriteFile } from "../merge/safeWrite.js";
  * the `_disabled` marker on each retained entry, and atomically rewrite. When
  * the file does not exist, no-op (ENOENT). Any other error is re-thrown.
  *
- * Used by `init` (initial filter after copying canonical content) and by
- * `update` (re-applying the filter after `update` re-copies the unfiltered
- * `mcp.json` from the package payload).
+ * **Caller wiring (F1.6-H1, Cycle 10 D1).** This function is called only by
+ * `init` (initial filter after copying the bundled `mcp.json` to
+ * `.hatch3r/mcp/mcp.json` — see `init.ts` runInit MCP block). It is NOT called
+ * by `update`: since Wave 3 the update path no longer materializes canonical
+ * content into the repo (`runRegenerate` regenerates adapter outputs from the
+ * bundled content root and does not re-copy `.hatch3r/mcp/mcp.json`), so there
+ * is no unfiltered re-copy for `update` to re-filter. The earlier doc claim
+ * that `update` re-applies this filter described the pre-Wave-3 `.agents/`
+ * materialization flow that no longer exists. If a future change reintroduces
+ * an `update`-time copy of `mcp.json`, wire `filterMcpJsonOnDisk` into that
+ * path immediately after the copy to preserve the user's filtered subset.
  */
 export async function filterMcpJsonOnDisk(
   targetPath: string,

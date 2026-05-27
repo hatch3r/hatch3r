@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { analyzeRepo, formatRepoSummary, detectLinters, detectTestFrameworks, detectCIProviders } from "../../detect/repoAnalyzer.js";
+import { analyzeRepo, formatRepoSummary, detectLinters, detectTestFrameworks, detectCIProviders, detectMonorepoPackages } from "../../detect/repoAnalyzer.js";
 
 describe("analyzeRepo", () => {
   let tempDir: string;
@@ -902,5 +902,191 @@ describe("detectCIProviders", () => {
     const providers = await detectCIProviders(root);
     expect(providers).toContain("github-actions");
     expect(providers).toContain("gitlab-ci");
+  });
+});
+
+// ── F14.2-H1 (D14): Monorepo package enumeration ──────────────────
+
+describe("detectMonorepoPackages", () => {
+  let tempDir: string;
+
+  afterEach(async () => {
+    if (tempDir) {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  async function createTempRepo(): Promise<string> {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-pkgs-"));
+    return tempDir;
+  }
+
+  async function makePackage(root: string, dir: string, name?: string): Promise<void> {
+    await mkdir(join(root, dir), { recursive: true });
+    await writeFile(
+      join(root, dir, "package.json"),
+      JSON.stringify(name ? { name } : {}),
+    );
+  }
+
+  it("enumerates packages from package.json workspaces array", async () => {
+    const root = await createTempRepo();
+    await writeFile(
+      join(root, "package.json"),
+      JSON.stringify({ workspaces: ["packages/*"] }),
+    );
+    await makePackage(root, "packages/alpha", "@scope/alpha");
+    await makePackage(root, "packages/beta", "@scope/beta");
+
+    const packages = await detectMonorepoPackages(root);
+    expect(packages).toEqual([
+      { name: "@scope/alpha", path: "packages/alpha" },
+      { name: "@scope/beta", path: "packages/beta" },
+    ]);
+  });
+
+  it("enumerates packages from package.json workspaces object form", async () => {
+    const root = await createTempRepo();
+    await writeFile(
+      join(root, "package.json"),
+      JSON.stringify({ workspaces: { packages: ["apps/*"] } }),
+    );
+    await makePackage(root, "apps/web", "web");
+
+    const packages = await detectMonorepoPackages(root);
+    expect(packages).toEqual([{ name: "web", path: "apps/web" }]);
+  });
+
+  it("enumerates packages from pnpm-workspace.yaml packages list", async () => {
+    const root = await createTempRepo();
+    await writeFile(
+      join(root, "pnpm-workspace.yaml"),
+      "packages:\n  - \"packages/*\"\n  - 'apps/*'\n",
+    );
+    await makePackage(root, "packages/core", "core");
+    await makePackage(root, "apps/site", "site");
+
+    const packages = await detectMonorepoPackages(root);
+    expect(packages).toEqual([
+      { name: "site", path: "apps/site" },
+      { name: "core", path: "packages/core" },
+    ]);
+  });
+
+  it("stops the pnpm packages list at the next top-level key", async () => {
+    const root = await createTempRepo();
+    await writeFile(
+      join(root, "pnpm-workspace.yaml"),
+      "packages:\n  - \"packages/*\"\ncatalog:\n  react: ^18\n",
+    );
+    await makePackage(root, "packages/only", "only");
+
+    const packages = await detectMonorepoPackages(root);
+    expect(packages).toEqual([{ name: "only", path: "packages/only" }]);
+  });
+
+  it("enumerates packages from lerna.json packages array", async () => {
+    const root = await createTempRepo();
+    await writeFile(join(root, "lerna.json"), JSON.stringify({ packages: ["modules/*"] }));
+    await makePackage(root, "modules/m1", "m1");
+
+    const packages = await detectMonorepoPackages(root);
+    expect(packages).toEqual([{ name: "m1", path: "modules/m1" }]);
+  });
+
+  it("resolves an exact (non-wildcard) workspace path", async () => {
+    const root = await createTempRepo();
+    await writeFile(
+      join(root, "package.json"),
+      JSON.stringify({ workspaces: ["server"] }),
+    );
+    await makePackage(root, "server", "server");
+
+    const packages = await detectMonorepoPackages(root);
+    expect(packages).toEqual([{ name: "server", path: "server" }]);
+  });
+
+  it("falls back to directory basename when package.json has no name", async () => {
+    const root = await createTempRepo();
+    await writeFile(
+      join(root, "package.json"),
+      JSON.stringify({ workspaces: ["packages/*"] }),
+    );
+    await makePackage(root, "packages/nameless");
+
+    const packages = await detectMonorepoPackages(root);
+    expect(packages).toEqual([{ name: "nameless", path: "packages/nameless" }]);
+  });
+
+  it("skips candidate directories that lack a package.json", async () => {
+    const root = await createTempRepo();
+    await writeFile(
+      join(root, "package.json"),
+      JSON.stringify({ workspaces: ["packages/*"] }),
+    );
+    await makePackage(root, "packages/real", "real");
+    await mkdir(join(root, "packages", "empty"), { recursive: true });
+
+    const packages = await detectMonorepoPackages(root);
+    expect(packages).toEqual([{ name: "real", path: "packages/real" }]);
+  });
+
+  it("ignores dotfiles and node_modules under a wildcard prefix", async () => {
+    const root = await createTempRepo();
+    await writeFile(
+      join(root, "package.json"),
+      JSON.stringify({ workspaces: ["packages/*"] }),
+    );
+    await makePackage(root, "packages/keep", "keep");
+    await makePackage(root, "packages/node_modules", "should-skip");
+    await makePackage(root, "packages/.hidden", "should-skip-too");
+
+    const packages = await detectMonorepoPackages(root);
+    expect(packages).toEqual([{ name: "keep", path: "packages/keep" }]);
+  });
+
+  it("collapses a recursive glob to its leading directory segment", async () => {
+    const root = await createTempRepo();
+    await writeFile(
+      join(root, "package.json"),
+      JSON.stringify({ workspaces: ["packages/**"] }),
+    );
+    await makePackage(root, "packages/top", "top");
+
+    const packages = await detectMonorepoPackages(root);
+    expect(packages).toEqual([{ name: "top", path: "packages/top" }]);
+  });
+
+  it("deduplicates a package matched by overlapping globs", async () => {
+    const root = await createTempRepo();
+    await writeFile(join(root, "pnpm-workspace.yaml"), "packages:\n  - \"packages/*\"\n");
+    await writeFile(
+      join(root, "package.json"),
+      JSON.stringify({ workspaces: ["packages/*"] }),
+    );
+    await makePackage(root, "packages/dup", "dup");
+
+    const packages = await detectMonorepoPackages(root);
+    expect(packages).toEqual([{ name: "dup", path: "packages/dup" }]);
+  });
+
+  it("returns an empty array when no workspace config declares packages", async () => {
+    const root = await createTempRepo();
+    await writeFile(join(root, "package.json"), JSON.stringify({ name: "standalone" }));
+
+    const packages = await detectMonorepoPackages(root);
+    expect(packages).toEqual([]);
+  });
+
+  it("returns an empty array when workspace globs resolve to no package dirs", async () => {
+    const root = await createTempRepo();
+    await writeFile(
+      join(root, "package.json"),
+      JSON.stringify({ workspaces: ["packages/*"] }),
+    );
+    // packages/ dir absent entirely.
+
+    const packages = await detectMonorepoPackages(root);
+    expect(packages).toEqual([]);
   });
 });

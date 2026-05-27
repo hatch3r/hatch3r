@@ -1,0 +1,105 @@
+---
+id: hatch3r-android-patterns
+type: rule
+description: Android Kotlin conventions covering Jetpack Compose, coroutines + Flow, Hilt DI, Room, modular Gradle, AGP 8.x, target SDK 35, and Compose testing
+scope: conditional
+globs: "**/*.kt,**/*.kts,**/build.gradle,**/build.gradle.kts,**/settings.gradle,**/settings.gradle.kts,**/gradle.properties,**/AndroidManifest.xml,**/proguard-rules.pro,**/app/src/**,**/android/app/**,**/libs.versions.toml"
+tags: [implementation, lang:java]
+quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
+---
+# Android Patterns
+
+> Applies when the project ships an Android app or Kotlin library. Detection signals: `build.gradle` / `build.gradle.kts`, `AndroidManifest.xml`, `app/` module, or any `*.kt` file paired with Gradle wrapper. Native Android takes precedence over Flutter/React-Native cross-platform shells.
+
+## Kotlin Language Floor
+
+- Target Kotlin 2.0+ with K2 compiler (`kotlin.experimental.tryK2=true`). Treat warnings as errors in CI.
+- Use `data class` for value-equality types, `sealed class` / `sealed interface` for closed-set hierarchies (UI state, events, errors). Exhaust `when` over sealed types — the compiler enforces it.
+- Coroutines + Flow for concurrency. Never use `Thread` directly. Wrap legacy callback APIs with `suspendCancellableCoroutine` at the boundary.
+- Nullability: explicit `?` for nullable types; avoid `!!` (force-unwrap) outside test fixtures. Platform types from Java interop annotated with `@Nullable` / `@NonNull` where possible.
+
+## Build Tooling
+
+- Android Gradle Plugin (AGP) 8.7+ with Gradle 8.10+. Use the version catalog (`gradle/libs.versions.toml`) for every dependency — no hard-coded versions in `build.gradle.kts`.
+- Kotlin DSL (`build.gradle.kts`) for new modules. Migrate Groovy scripts during regular refactors; do not mix dialects in a single module's chain.
+- Target SDK 35 (Android 15) — Google Play requires `targetSdk = 35` for new apps and updates in 2025. Set `compileSdk = 35` alongside.
+- Min SDK: 24 (Android 7.0) covers >97% of active devices per Android Distribution Dashboard. Going below 24 means losing modern Kotlin stdlib calls that require API 24.
+
+## Architecture
+
+- Pick ONE app-architecture pattern per app and document it in `docs/architecture.md`:
+  - **MVI / Unidirectional Data Flow with Compose + ViewModel + StateFlow** — recommended default.
+  - **MVVM with LiveData** — only for legacy apps that haven't migrated to Compose.
+- Modular Gradle structure: `app/` (entry point), `feature:<name>/` (feature modules), `core:<network|database|design-system>/` (shared modules). Cross-feature imports go through `core:` interfaces.
+- Composition root in `app/` wires Hilt graphs. Feature modules expose `@Module @InstallIn(SingletonComponent::class)` providers; they never instantiate dependencies directly.
+
+## Dependency Injection
+
+- Use Hilt for runtime DI (annotation-processor based, sits on top of Dagger). Configure `@HiltAndroidApp` on the `Application` class and `@AndroidEntryPoint` on Activities, Fragments, Services.
+- Constructor injection for ViewModels via `@HiltViewModel` + `@Inject constructor`. Do not use `ViewModelProvider.Factory` manually unless integrating with a non-Hilt host.
+- Scoped bindings: `@SingletonComponent` for app-wide singletons, `@ViewModelScoped` for per-ViewModel instances. Never share `@SingletonComponent` state with UI lifecycle.
+
+## Jetpack Compose
+
+- Compose is the UI floor for new screens. Migrate XML views during regular refactors; do not mix `ConstraintLayout` XML with Compose for a single screen.
+- State hoisting: `@Composable` functions are stateless by default. Hoist `MutableState` to the ViewModel; pass values + lambdas down.
+- Use `collectAsStateWithLifecycle()` on Flow → State conversions inside composables. Plain `collectAsState()` ignores lifecycle and leaks during backgrounded screens.
+- Recompose discipline: stable types only as composable parameters. Use `@Stable` / `@Immutable` annotations or `kotlinx-collections-immutable` for lists. `MutableList<T>` parameters force every consumer to recompose on any mutation.
+- Material 3 (`androidx.compose.material3`) is the design system floor for Compose. Material 2 is legacy.
+
+## Coroutines & Flow
+
+- Structured concurrency: every coroutine launched in a `CoroutineScope` tied to a lifecycle. Use `viewModelScope` (auto-cancels on `onCleared()`), `lifecycleScope` (auto-cancels on lifecycle destroy), and `WorkManager` for background tasks.
+- Never launch from `GlobalScope`. Never call `runBlocking` on the main thread.
+- Cold flows (`flow { }`, `flowOf`) for one-shot streams; hot flows (`MutableStateFlow`, `MutableSharedFlow`) for UI state and event buses. `LiveData` is legacy — use `StateFlow` for new code.
+- Use `Dispatchers.IO` for blocking I/O, `Dispatchers.Default` for CPU-bound work. The main dispatcher is for UI updates only; no blocking work there.
+
+## Persistence
+
+- Room is the SQL persistence floor. Define `@Entity`, `@Dao`, and a `@Database` class with a versioned schema. Migration paths via `Migration` objects committed to VCS.
+- DataStore (Preferences or Proto) for key-value and structured preferences. SharedPreferences is legacy — do not adopt for new code.
+- For network sync: WorkManager with `Constraints` (network, charging, battery) + exponential backoff. Never use `JobScheduler` directly — WorkManager wraps it and handles edge cases.
+- Bind Room DAOs and DataStore to coroutines / Flow — suspend functions for one-shot queries, `Flow<T>` for observed reads.
+
+## Networking
+
+- Use Retrofit 2.11+ with kotlinx-serialization-converter or Moshi (Gson is in maintenance — prefer one of the modern serializers). Configure OkHttp logging interceptor only in debug builds.
+- Ktor Client is the alternative when the app shares a multi-platform stack with Kotlin Multiplatform.
+- Configure timeouts on every OkHttp client: connect (10s), read (30s), write (15s). Default timeouts are unbounded — production apps must override.
+- Certificate pinning (`CertificatePinner`) for high-security endpoints. Always include a backup pin and a rotation schedule.
+
+## Testing
+
+- Unit tests with JUnit 5 (`org.junit.jupiter:junit-jupiter`) + MockK for mocking. JUnit 4 + Mockito is legacy — do not add for new modules.
+- Coroutine tests with `kotlinx-coroutines-test` (`runTest`, `TestDispatcher`). Never use `Thread.sleep` to wait for async work.
+- Compose UI tests with `androidx.compose.ui:ui-test-junit4`. Use semantics-based matchers (`hasContentDescription`, `hasTestTag`) — avoid text matchers for resilience.
+- Instrumented tests via `androidTest/` source set on emulators or Firebase Test Lab matrices. Configure `testCoverage` in the AGP block; floor 80% line coverage in `feature:` modules.
+- Screenshot tests via Paparazzi (host-side, no emulator needed) or Roborazzi. Update goldens through PR review.
+
+## Accessibility
+
+- Every interactive composable has `Modifier.semantics { contentDescription = "..." }` or uses Material 3 widgets that provide semantics by default.
+- TalkBack tested on every PR touching UI. The TalkBack-on screenshot test in Paparazzi catches regressions automatically.
+- Dynamic font scaling: respect `MaterialTheme.typography` and avoid hard-coded `.sp` values in layouts. Test with the largest accessibility font size in the system settings.
+- Touch targets: minimum 48dp × 48dp per Material 3 guidelines. `Modifier.minimumInteractiveComponentSize()` enforces this when composables are below 48dp.
+
+## Distribution
+
+- Sign release builds with Play App Signing — Google holds the upload key, you hold the signing key in escrow. Configure via Play Console.
+- App Bundle (`*.aab`) for Play Store, APK only for sideload / direct distribution. Enable `bundle { language { enableSplit = true } }`.
+- ProGuard / R8 on release builds (`isMinifyEnabled = true`, `isShrinkResources = true`). Maintain `proguard-rules.pro` per module; verify post-shrink builds in CI before publishing.
+- Use Crashlytics or Sentry for crash reporting. Symbolicate native crashes via NDK symbol upload in CI.
+
+## References
+
+- AGP 8.x release notes: https://developer.android.com/build/releases/gradle-plugin (accessed 2026-05-27, official-docs)
+- Jetpack Compose: https://developer.android.com/jetpack/compose (accessed 2026-05-27, official-docs)
+- Coroutines + Flow: https://kotlinlang.org/docs/coroutines-overview.html (accessed 2026-05-27, official-docs)
+- Google Play target SDK 35 requirement: https://developer.android.com/google/play/requirements/target-sdk (accessed 2026-05-27, official-docs)
+
+## Cross-References
+
+- `rules/hatch3r-component-conventions.md` — four-state surface contract maps to Compose `StateFlow<UiState>` patterns.
+- `rules/hatch3r-testing.md` — coverage thresholds and determinism rules apply to JUnit / Compose tests.
+- `rules/hatch3r-accessibility-standards.md` — WCAG mapping for Compose `semantics { ... }` modifiers.

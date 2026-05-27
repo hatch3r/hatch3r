@@ -118,7 +118,7 @@ try {
     console.error(`  Run "hatch3r --help" for usage information.`);
   } else {
     console.error("  For help, see: https://github.com/hatch3r/hatch3r#troubleshooting");
-    console.error("  Check .agents/.failure-log.jsonl for recent failure details.");
+    console.error("  Check .hatch3r/.failure-log.jsonl for recent failure details.");
     console.error("  Set DEBUG=1 for a full stack trace.");
   }
   if (process.env.DEBUG) {

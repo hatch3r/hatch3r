@@ -93,8 +93,27 @@ export async function readCustomizationWithWarnings(
   }
 }
 
-/** D15 Medium (#15.37): Maximum size for .customize.md files in bytes. */
-const MAX_CUSTOMIZE_MD_BYTES = 10_240;
+/**
+ * D15 Medium (#15.37): Maximum size for `.customize.md` files in bytes.
+ *
+ * F2.3-H4 (Cycle 10 Wave 2): single source of truth per CONSTITUTION §2 P5
+ * Anti-Bloat Principle 1. This constant was duplicated as a private `const` in
+ * `src/adapters/customization.ts` — two independent `10_240` literals that a
+ * future maintainer could change in one place and not the other, producing a
+ * read-time vs apply-time byte-limit mismatch. Exported here so the adapter
+ * layer imports the limit rather than re-declaring it.
+ */
+export const MAX_CUSTOMIZE_MD_BYTES = 10_240;
+
+/**
+ * F2.3-H4 (Cycle 10 Wave 2): protected-artifact byte cap for `.customize.md`.
+ *
+ * Protected canonical artifacts (e.g. security floors) accept a smaller user
+ * append than ordinary artifacts. The value lives here alongside
+ * {@link MAX_CUSTOMIZE_MD_BYTES} so both customization byte limits share one
+ * declaration site; `src/adapters/customization.ts` consumes it at apply time.
+ */
+export const MAX_PROTECTED_CUSTOMIZE_MD_BYTES = 2_048;
 
 export interface CustomizationMdReadResult {
   value: string | undefined;

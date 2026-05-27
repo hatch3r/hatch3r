@@ -275,10 +275,17 @@ describe("safeWriteFile additional branches", () => {
     return tempDir;
   }
 
-  describe("denied patterns warning", () => {
-    it("returns warning when custom content outside block matches deny patterns", async () => {
-      // Import the real (unmocked) module
+  describe("denied patterns fail-closed", () => {
+    it("throws HatchError when custom content outside block matches deny patterns (F15.1-H1)", async () => {
+      // F15.1-H1 (Cycle 10 D15-SA15.1, Pillar P6): the subsequent-sync deny
+      // path was made symmetric with the first-sync (appendIfNoBlock) branch —
+      // both now REFUSE the write (fail-closed) instead of returning a warning.
+      // User-side text outside the markers is the surface an attacker controls
+      // on subsequent syncs, so the write must abort with a HatchError rather
+      // than silently overwrite while emitting a non-blocking warning.
+      // Import the real (unmocked) modules
       const { safeWriteFile } = await import("../../merge/safeWrite.js");
+      const { HatchError } = await import("../../types.js");
 
       const dir = await createTempDir();
       const filePath = join(dir, "AGENTS.md");
@@ -294,13 +301,14 @@ describe("safeWriteFile additional branches", () => {
       ].join("\n");
       await writeFile(filePath, existing, "utf-8");
 
-      const result = await safeWriteFile(filePath, "", {
-        managedContent: "new managed content",
-      });
+      await expect(
+        safeWriteFile(filePath, "", { managedContent: "new managed content" }),
+      ).rejects.toBeInstanceOf(HatchError);
 
-      expect(result.action).toBe("updated");
-      expect(result.warning).toBeDefined();
-      expect(result.warning).toContain("suspicious patterns");
+      // Fail-closed disposition: the on-disk file is left untouched (the
+      // denied user content is preserved verbatim, not overwritten).
+      const onDisk = await readFile(filePath, "utf-8");
+      expect(onDisk).toBe(existing);
     });
 
     it("no warning when custom content is clean", async () => {

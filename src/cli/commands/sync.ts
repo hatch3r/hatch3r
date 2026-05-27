@@ -2,7 +2,7 @@ import { appendFile, readFile, stat, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import chalk from "chalk";
-import { readManifest, writeManifest } from "../../manifest/hatchJson.js";
+import { readManifest, writeManifest, addManagedFile } from "../../manifest/hatchJson.js";
 import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
 import { checkContextBudget, formatBudgetWarning } from "../../adapters/contextBudget.js";
 import { safeWriteFile } from "../../merge/safeWrite.js";
@@ -152,6 +152,21 @@ async function appendFailure(agentsDir: string, phase: string, error: unknown, t
 }
 
 /**
+ * F10.4-1: classify a {@link MergeResult.action} into the user-visible
+ * disposition we render in the sync summary. `safeWriteFile` returns
+ * action ∈ {created, updated, unchanged, skipped} without distinguishing
+ * managed-block merges from full-file rewrites. We resolve the
+ * distinction at the sync.ts call-site using `out.managedContent`:
+ * - `updated` + managed-block merge → `merged` (user content preserved)
+ * - `updated` + full-file rewrite   → `regenerated`
+ * Everything else passes through verbatim.
+ */
+function renderAction(action: string, isManagedMerge: boolean): string {
+  if (action !== "updated") return action;
+  return isManagedMerge ? "merged" : "regenerated";
+}
+
+/**
  * Read a file's content, returning null if the file does not exist.
  */
 async function readFileOrNull(filePath: string): Promise<string | null> {
@@ -195,7 +210,19 @@ export async function syncCommand(
   } = {},
 ): Promise<void> {
   setVerbose(!!opts.verbose);
-  void opts.resume;
+  // F1.3-H1 (Decision 27 / Bucket 2.2): `--resume` is reserved CLI surface.
+  // Sync currently runs as a single-pass orchestrator that captures a
+  // snapshot (rollback works) but does not write checkpoints (no mid-run
+  // pause point). Surface the gap explicitly rather than silently
+  // discarding the flag. Mirrors init.ts:972-979.
+  if (opts.resume) {
+    warn(
+      "`hatch3r sync --resume` is not yet wired in 2.0.0: sync runs as a " +
+      "single-pass orchestrator with no checkpoint write. Continuing as a " +
+      "fresh sync. Use `hatch3r rollback --session=<id>` after the run if " +
+      "you need to revert.",
+    );
+  }
   printBanner(true);
 
   // Pipeline-level timeout: track overall command duration and emit a warning
@@ -228,7 +255,12 @@ export async function syncCommand(
   if (!manifest) {
     logError(`No ${HATCH3R_DIR}/hatch.json found.`);
     console.log(chalk.dim("  Run `npx hatch3r init` to set up your project first.\n"));
-    throw new HatchError(`No ${HATCH3R_DIR}/hatch.json found.`, 1, "CONFIG_ERROR");
+    throw new HatchError(
+      `No ${HATCH3R_DIR}/hatch.json found.`,
+      1,
+      "CONFIG_ERROR",
+      "Run `npx hatch3r init` to set up your project first.",
+    );
   }
 
   const m = manifest;
@@ -271,6 +303,7 @@ export async function syncCommand(
           "User-content pre-flight scan failed (use --force to override)",
           1,
           "VALIDATION_ERROR",
+          "Edit the offending file(s) listed above, delete via `rm`, or re-run with `--force` to propagate as-is.",
         );
       }
       warn("Continuing with --force: denied patterns in user content will be propagated.");
@@ -287,9 +320,15 @@ export async function syncCommand(
   // source content directly from the bundled package (`resolveBundledContentRoot`),
   // which is read-only and verified by npm's tarball signature. Drift is
   // detected per-output by `hatch3r status` / `hatch3r verify`, not per
-  // canonical-input by a sha256 manifest. The `--force` flag is preserved
-  // for future use (orphan-cleanup overrides etc.).
-  void opts.force;
+  // canonical-input by a sha256 manifest.
+  //
+  // D11-H-1: `--force` now serves two contracts at the sync surface:
+  //   1. Pre-flight denied-pattern bypass (handled above at the user-content
+  //      pre-flight gate).
+  //   2. Per-write `safeWriteFile.options.force` pass-through so a
+  //      hatch3r-prefixed filename rule does not silently skip a file the
+  //      user has stripped of managed-block markers but still wants
+  //      overwritten. Threaded into every `safeWriteFile` call below.
 
   const results: { path: string; action: string }[] = [];
   // Wave 3: no AGENTS.md bridge step; one step per adapter.
@@ -424,7 +463,12 @@ export async function syncCommand(
         for (const w of generationResult.warnings) { warn(w); }
         breaker = recordFailure(breaker, classifyFailure(new Error(errMessage)));
         breakers.set(tool, breaker);
-        throw new HatchError(errMessage, 1, "ADAPTER_ERROR");
+        throw new HatchError(
+          errMessage,
+          1,
+          "ADAPTER_ERROR",
+          `Re-run with --verbose for ${tool} detail, or run \`npx hatch3r validate\` to check canonical content.`,
+        );
       }
       const outputs = generationResult.outputs ?? [];
       for (const w of generationResult.warnings) { warn(w); }
@@ -479,19 +523,42 @@ export async function syncCommand(
             diffBefore.set(out.path, await readFileOrNull(join(rootDir, out.path)));
           }
           const fullPath = join(rootDir, out.path);
+          // D11-H-1 + F10.4-1: thread opts.force per-write and classify the
+          // user-visible disposition (merged vs regenerated).
+          const isManagedMerge = Boolean(out.managedContent);
           if (out.managedContent) {
             const result = await safeWriteFile(fullPath, out.content, {
               managedContent: out.managedContent,
+              // D11-H-3: splice the managed block back into a user file whose
+              // markers were stripped, matching init.ts:614-617,
+              // update.ts:845, and workspace/sync.ts:493. Without this the
+              // managedContent + no-marker branch in safeWrite.ts:432-437
+              // returns action: "skipped" and a re-sync never restores the
+              // block — `hatch3r verify` then reports permanent drift.
+              appendIfNoBlock: true,
+              force: opts.force,
             });
             if (result.warning) warn(result.warning);
             verbose(`${out.path}: ${result.action}`);
-            results.push({ path: out.path, action: result.action });
+            results.push({
+              path: out.path,
+              action: renderAction(result.action, isManagedMerge),
+            });
           } else {
-            const result = await safeWriteFile(fullPath, out.content);
+            const result = await safeWriteFile(fullPath, out.content, {
+              force: opts.force,
+            });
             if (result.warning) warn(result.warning);
             verbose(`${out.path}: ${result.action}`);
-            results.push({ path: out.path, action: result.action });
+            results.push({
+              path: out.path,
+              action: renderAction(result.action, isManagedMerge),
+            });
           }
+          // D11-H-2: record every emitted output in manifest.managedFiles so
+          // a sync-only adoption path populates the flat list. Mirrors
+          // init.ts:598 and update.ts:386. addManagedFile is idempotent.
+          addManagedFile(m, out.path);
           if (opts.diff) {
             diffAfter.set(out.path, await readFileOrNull(join(rootDir, out.path)));
           }
@@ -564,7 +631,12 @@ export async function syncCommand(
         : allTransient
           ? "All failures appear transient. Retry `hatch3r sync`, or run `hatch3r update --offline` to refresh from canonical content."
           : "One or more failures are substantive. Inspect the per-adapter messages above and resolve before retrying.";
-      throw new HatchError(`All adapters failed. ${aggregateGuidance}`, exitCode, "ADAPTER_ERROR");
+      throw new HatchError(
+        `All adapters failed. ${aggregateGuidance}`,
+        exitCode,
+        "ADAPTER_ERROR",
+        aggregateGuidance,
+      );
     }
     // #253 (D8-8.20): Partial adapter failures should not silently report success.
     // We continue to generate a summary but track that partial failure occurred.
@@ -583,13 +655,23 @@ export async function syncCommand(
     if (m.worktree?.enabled) {
       const wtContent = await generateWorktreeInclude(m, rootDir);
       const wtManaged = extractManagedContent(wtContent);
+      // D11-H-1: thread opts.force into the worktree write.
+      // D11-H-3: appendIfNoBlock restores the managed block when a user has
+      // stripped the .worktreeinclude markers, matching init.ts:640-643 so
+      // sync and init share one marker-recovery contract.
       const wtResult = await safeWriteFile(
         join(rootDir, WORKTREE_INCLUDE_FILE),
         wtContent,
-        { managedContent: wtManaged },
+        { managedContent: wtManaged, appendIfNoBlock: true, force: opts.force },
       );
       if (wtResult.warning) warn(wtResult.warning);
-      results.push({ path: WORKTREE_INCLUDE_FILE, action: wtResult.action });
+      results.push({
+        path: WORKTREE_INCLUDE_FILE,
+        action: renderAction(wtResult.action, true),
+      });
+      // D11-H-2: mirror init.ts:624 — register the worktree include in
+      // managedFiles so a sync-only adoption path populates the flat list.
+      addManagedFile(m, WORKTREE_INCLUDE_FILE);
     }
 
     if (m.features.mcp && m.mcp.servers.length > 0) {
@@ -627,18 +709,117 @@ export async function syncCommand(
       (t) => !adapterFailures.some((f) => f.tool === t),
     );
     if (adapterFailures.length > 0) {
+      // D11-H-4: the adapter loop is non-transactional — successful adapters
+      // already wrote new bytes to disk while failed adapters left their
+      // prior outputs in place. Emit a per-adapter disposition so the
+      // operator has the actionable half-state list (which files are new
+      // vs stale), then point at the pre-sync snapshot (captured by
+      // withSnapshot above, D11-C-3) as the all-or-nothing recovery. The
+      // generic "N successful" line alone hid which on-disk files changed.
+      const failedTools = adapterFailures.map((f) => f.tool);
       warn(
-        `Adapter outputs: ${successfulAdapters.length}/${m.tools.length} adapters successful. ` +
-        `Re-run sync after resolving errors.`,
+        `Adapter outputs: ${successfulAdapters.length}/${m.tools.length} adapters successful — repo is in a partial state.`,
       );
+      if (successfulAdapters.length > 0) {
+        warn(`  Updated on disk (new output): ${successfulAdapters.join(", ")}`);
+      }
+      warn(`  Unchanged (prior output retained): ${failedTools.join(", ")}`);
+      if (syncSessionId) {
+        warn(
+          `  To revert the whole repo to its pre-sync state, run ` +
+          `\`hatch3r rollback --session=${syncSessionId}\`. ` +
+          `Otherwise re-run \`hatch3r sync\` after resolving the failed adapter(s).`,
+        );
+      } else {
+        warn(`  Re-run \`hatch3r sync\` after resolving the failed adapter(s).`);
+      }
     }
 
-    // Wave 7: the `.agents/.provenance.json` writer was removed alongside
-    // the integrity subsystem. Per-adapter source-file attribution is now
-    // available via the BaseAdapter `sourceFiles` field on AdapterOutput
-    // (in-memory only) and via the bundled-content root, which is the
-    // single immutable source of truth for canonical inputs.
-    void perAdapterOutputs;
+    // SA12.4-F1 (D12): Restore a minimal on-disk provenance manifest at
+    // `.hatch3r/provenance.json`. Wave 7 (1.9.0) removed the old
+    // `.agents/.provenance.json` writer alongside the integrity
+    // subsystem, leaving operators unable to trace a generated adapter
+    // file back to the canonical content that shaped it. We persist a
+    // ≤200-bytes-per-entry record built from the per-adapter outputs
+    // collected during the loop above; each entry pairs the output
+    // path with the adapter that produced it and the sorted
+    // `sourceFiles[]` set populated by `BaseAdapter.generate()`.
+    //
+    // Out of lock scope for this work unit (`src/cli/commands/sync.ts`):
+    // mirroring the writer into init.ts/update.ts and adding the
+    // `hatch3r explain --source` reader flag. Those landings belong to
+    // their respective work units; the writer here makes the file
+    // available for any consumer to read once those land.
+    try {
+      const provenancePath = join(rootDir, HATCH3R_DIR, "provenance.json");
+      const outputs = perAdapterOutputs
+        .flatMap((entry) =>
+          entry.outputs.map((out) => ({
+            path: out.path,
+            adapter: entry.adapter,
+            sourceFiles: [...(out.sourceFiles ?? [])].sort(),
+          })),
+        )
+        .sort((a, b) => {
+          const byAdapter = a.adapter.localeCompare(b.adapter);
+          if (byAdapter !== 0) return byAdapter;
+          return a.path.localeCompare(b.path);
+        });
+      // Read previous manifest for idempotency comparison. Failure to
+      // read (missing or malformed) is treated as "no previous" so the
+      // new manifest writes with a fresh timestamp.
+      let previousGeneratedAt: string | null = null;
+      try {
+        const prevRaw = await readFile(provenancePath, "utf-8");
+        const prev = JSON.parse(prevRaw) as {
+          schemaVersion?: number;
+          hatch3rVersion?: string;
+          generatedAt?: string;
+          outputs?: Array<{ path: string; adapter: string; sourceFiles: string[] }>;
+        };
+        if (
+          prev.schemaVersion === 1 &&
+          prev.hatch3rVersion === HATCH3R_VERSION &&
+          Array.isArray(prev.outputs) &&
+          prev.outputs.length === outputs.length &&
+          prev.outputs.every((p, i) => {
+            const c = outputs[i];
+            return (
+              p.adapter === c.adapter &&
+              p.path === c.path &&
+              p.sourceFiles.length === c.sourceFiles.length &&
+              p.sourceFiles.every((s, j) => s === c.sourceFiles[j])
+            );
+          })
+        ) {
+          previousGeneratedAt = typeof prev.generatedAt === "string" ? prev.generatedAt : null;
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        verbose(`sync: provenance idempotency read skipped — ${message}`);
+      }
+      const provenance = {
+        schemaVersion: 1 as const,
+        hatch3rVersion: HATCH3R_VERSION,
+        generatedAt: previousGeneratedAt ?? new Date().toISOString(),
+        outputs,
+      };
+      await safeWriteFile(
+        provenancePath,
+        JSON.stringify(provenance, null, 2) + "\n",
+        { force: true },
+      );
+    } catch (err) {
+      // Silent Failure Contract (P5): a provenance write failure must
+      // not break sync. Surface via warn() so operators see the gap;
+      // the per-output `sourceFiles` field remains available in-memory
+      // to any caller that re-runs sync.
+      warn(
+        `Failed to write .hatch3r/provenance.json: ` +
+        `${err instanceof Error ? err.message : String(err)}. ` +
+        `Source-file attribution will not be available for this run.`,
+      );
+    }
 
     // Task #11 orphan-cleanup: emit an aggregated diagnostic for every
     // orphan candidate we inspected this run. `unlinked` entries are
@@ -710,7 +891,16 @@ export async function syncCommand(
 
   const icons: Record<string, string> = {
     created: chalk.green("+"),
+    // F10.4-1: split the prior `updated` icon into `merged` (managed-block
+    // merge — user content preserved) and `regenerated` (full-file
+    // overwrite) so the customization-preservation messaging in the
+    // summary is unambiguous. `updated` itself remains in the map as a
+    // fallback for any call-path that has not yet adopted the
+    // `renderAction()` heuristic at the call-site (none in this file
+    // after F10.4-1; reserved for forward-compatibility).
     updated: chalk.yellow("~"),
+    merged: chalk.cyan("*"),
+    regenerated: chalk.yellow("~"),
     // G5: "unchanged" is a no-op action returned by safeWriteFile when the
     // computed bytes match the file on disk. We render it the same as
     // "skipped" (dim "=") so the human summary remains readable while still
@@ -797,6 +987,7 @@ export async function syncCommand(
       `Sync completed with ${adapterFailures.length} adapter failure(s). ${aggregateGuidance}`,
       2,
       "ADAPTER_ERROR",
+      aggregateGuidance,
     );
   }
 

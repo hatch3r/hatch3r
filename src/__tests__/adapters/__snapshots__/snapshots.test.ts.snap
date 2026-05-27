@@ -106,6 +106,7 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
   {
     "action": "create",
     "contentMarkers": [
+      "FRONTMATTER",
       "MANAGED_BLOCK",
     ],
     "hasManagedContent": true,
@@ -304,6 +305,7 @@ exports[`adapter output snapshots > CursorAdapter > file paths match snapshot 1`
   ".cursor/commands/board/pickup-fake.md",
   ".cursor/commands/hatch3r-test-command.md",
   ".cursor/environment.json",
+  ".cursor/hooks.json",
   ".cursor/mcp.json",
   ".cursor/rules/50-hatch3r-scoped-rule.mdc",
   ".cursor/rules/50-hatch3r-test-rule.mdc",
@@ -385,6 +387,14 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
     ],
     "hasManagedContent": false,
     "path": ".cursor/environment.json",
+  },
+  {
+    "action": "create",
+    "contentMarkers": [
+      "VALID_JSON",
+    ],
+    "hasManagedContent": false,
+    "path": ".cursor/hooks.json",
   },
   {
     "action": "create",

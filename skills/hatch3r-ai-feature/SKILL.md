@@ -1,5 +1,6 @@
 ---
 id: hatch3r-ai-feature
+name: hatch3r-ai-feature
 type: skill
 description: Eval-driven development workflow for shipping AI features — write eval before prompt, measure, iterate, ship with caching + cost telemetry + model fallback + hallucination SLI
 tags: [implementation, ai]

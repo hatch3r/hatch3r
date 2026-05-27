@@ -8,10 +8,16 @@ on:
       - '.github/workflows/deploy-docs.yml'
   workflow_dispatch:
 
+# Cycle 10 H F4.3.6 (D4): id-token: write is the OIDC-token grant that
+# actions/deploy-pages exchanges for a Pages deployment credential. It was
+# previously declared at workflow scope, which handed the token to the build
+# job too — yet the build job only runs `npm ci` + `npm run build` and uploads
+# an artifact, so a compromised build-time dependency could mint a deployment
+# OIDC token it has no need for. Permissions are narrowed per job below: the
+# build job keeps contents: read only; the deploy job holds pages: write +
+# id-token: write (both required by actions/deploy-pages per its README).
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: pages
@@ -21,10 +27,25 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: website
     steps:
+      # Cycle 10 H F4.3.6 (D4): same runtime egress/process monitoring already
+      # present on every ci.yml and release.yml job — this workflow installs
+      # npm dependencies and publishes the user-facing docs site, so a
+      # compromised dependency altering install instructions on the published
+      # pages is the threat shape. Audit mode builds a per-job baseline without
+      # blocking; pinned to the v2.19.3 commit SHA used repo-wide for a single
+      # pinned harden-runner version (v2.19.4 landed 2026-05-21; bump repo-wide
+      # in one change next cycle). harden-runner ships behavioral guards only
+      # on Linux runners (both jobs here are ubuntu-latest).
+      - name: Harden Runner
+        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2.19.3
+        with:
+          egress-policy: audit
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
         with:
           persist-credentials: false
@@ -45,9 +66,22 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # F4.3.6: id-token: write + pages: write held only here — both required by
+    # actions/deploy-pages (README). This is the only job that mints the
+    # deployment OIDC token.
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      # F4.3.6: harden-runner on the deploy job too — it holds the id-token:
+      # write OIDC grant, the highest-value credential in this workflow.
+      - name: Harden Runner
+        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2.19.3
+        with:
+          egress-policy: audit
       - id: deployment
         uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0

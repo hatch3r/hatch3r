@@ -25,6 +25,10 @@ import { dirname, join } from "node:path";
 import { randomBytes } from "node:crypto";
 
 import { createFailureLogEntry, FAILURE_LOG_FILE, formatLogEntry } from "./failureLog.js";
+// Type-only import (erased at compile — no runtime cycle with observability,
+// which imports the USD-cost helpers below at run time). PipelineTokenSummary
+// is the token-estimation aggregate produced by observability's token helpers.
+import type { PipelineTokenSummary } from "./observability.js";
 
 // ── Triage tier baselines ────────────────────────────────────────
 
@@ -479,4 +483,84 @@ export function formatCostBlock(estimate: CostEstimate, actuals?: CostActuals): 
   }
 
   return lines.join("\n");
+}
+
+// ── Token → USD cost conversion (single source of truth) ─────────
+// F3.4-F2 (Cycle 10 Wave 2): merged from pipeline/observability.ts so the
+// canonical cost module (Decision 24) owns ALL cost computation. The
+// observability copy predated Decision 24; it now re-exports the symbols below
+// (estimateUsdCost as estimateCost, UsdCostEstimate as CostEstimate, the two
+// DEFAULT_* rate constants) to preserve its public API. `hatch3r explain`
+// imports estimateUsdCost from here so the user-facing cost block exercises the
+// canonical module rather than the shadow copy.
+
+/**
+ * USD cost estimate derived from a {@link PipelineTokenSummary}. Distinct from
+ * {@link CostEstimate} (the pre-execution fan-out estimate): this shape carries
+ * input/output/total USD figures plus an optional budget-threshold warning.
+ */
+export interface UsdCostEstimate {
+  /** Estimated input cost in `currency`. */
+  inputCost: number;
+  /** Estimated output cost in `currency`. */
+  outputCost: number;
+  /** Total estimated cost in `currency`. */
+  totalCost: number;
+  /** Currency code (default "USD"). */
+  currency: string;
+  /** Whether any budget threshold was exceeded. */
+  budgetWarning: boolean;
+  /** Warning message when a budget threshold was exceeded. */
+  warningMessage?: string;
+}
+
+/** Default cost per 1M input tokens in USD. */
+export const DEFAULT_INPUT_COST_PER_1M = 3.0;
+
+/** Default cost per 1M output tokens in USD. */
+export const DEFAULT_OUTPUT_COST_PER_1M = 15.0;
+
+/**
+ * Convert a token summary to a USD cost estimate using configurable per-1M
+ * rates, optionally flagging budget-threshold breaches. Pure function — no
+ * I/O, never throws.
+ *
+ * Behaviour is identical to the former `observability.estimateCost`: input and
+ * output costs are `tokens * rate / 1_000_000`; when `budgetLimit` is supplied
+ * the highest crossed threshold (default 0.5/0.75/0.9) sets `budgetWarning`.
+ */
+export function estimateUsdCost(
+  summary: PipelineTokenSummary,
+  options?: {
+    inputCostPer1M?: number;
+    outputCostPer1M?: number;
+    currency?: string;
+    budgetLimit?: number;
+    warningThresholds?: number[];
+  },
+): UsdCostEstimate {
+  const inputRate = (options?.inputCostPer1M ?? DEFAULT_INPUT_COST_PER_1M) / 1_000_000;
+  const outputRate = (options?.outputCostPer1M ?? DEFAULT_OUTPUT_COST_PER_1M) / 1_000_000;
+  const currency = options?.currency ?? "USD";
+
+  const inputCost = summary.totalInputTokens * inputRate;
+  const outputCost = summary.totalOutputTokens * outputRate;
+  const totalCost = inputCost + outputCost;
+
+  let budgetWarning = false;
+  let warningMessage: string | undefined;
+
+  if (options?.budgetLimit) {
+    const thresholds = options.warningThresholds ?? [0.5, 0.75, 0.9];
+    const ratio = totalCost / options.budgetLimit;
+    for (const t of thresholds.sort((a, b) => b - a)) {
+      if (ratio >= t) {
+        budgetWarning = true;
+        warningMessage = `Estimated cost (${totalCost.toFixed(4)} ${currency}) has reached ${(ratio * 100).toFixed(0)}% of budget (${options.budgetLimit} ${currency}).`;
+        break;
+      }
+    }
+  }
+
+  return { inputCost, outputCost, totalCost, currency, budgetWarning, warningMessage };
 }

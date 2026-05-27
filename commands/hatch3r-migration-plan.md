@@ -12,7 +12,7 @@ parallel_tool_default: true
 triage_tiers: [1, 2, 3]
 sub_agents_spawned:
   count: 3
-  rationale: Two parallel hatch3r-researcher modes (changelog-analysis + breaking-change-inventory) in Step 3 followed by a hatch3r-architect for codebase impact mapping and a hatch3r-docs-writer for the plan; serialization only on the research → impact-mapping dependency edge.
+  rationale: Two parallel hatch3r-researcher modes (changelog-analysis + breaking-change-inventory) in Step 3 followed by a hatch3r-architect for codebase impact mapping and a hatch3r-docs-writer for the plan; serialization only on the research → impact-mapping dependency edge. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -26,6 +26,8 @@ Before any action, scan the user's request and provided context for unresolved q
 | 1. Research | `hatch3r-researcher` (2 parallel: dependency-analysis, breaking-changes) | Yes | Yes |
 | 2. Impact Analysis | `hatch3r-architect` | No | Yes |
 | 3. Plan Generation | `hatch3r-docs-writer` | No | Yes |
+
+**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
 
 # Migration Plan — Dependency or Framework Upgrade from Assessment to Phased Execution
 

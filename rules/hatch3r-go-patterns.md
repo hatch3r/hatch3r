@@ -1,0 +1,96 @@
+---
+id: hatch3r-go-patterns
+type: rule
+description: Go 1.23+ conventions covering modules, error wrapping, context propagation, generics, testing with table-driven tests, and the standard library net/http + log/slog
+scope: conditional
+globs: "**/*.go,**/go.mod,**/go.sum,**/go.work,**/go.work.sum,**/Makefile,**/.golangci.yml,**/.golangci.yaml"
+tags: [implementation, lang:go]
+quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
+---
+# Go Patterns
+
+> Applies when the project ships a Go module or binary. Detection signals: `go.mod` at repo root, `*.go` source files, or `go.work` for multi-module workspaces.
+
+## Go Language Floor
+
+- Target Go 1.23+ (range-over-int and range-over-func now stable). Use Go modules — `GO111MODULE=on` is the default and `GOPATH` mode is end-of-life for new code.
+- Treat `go vet` and `staticcheck` errors as build failures. Configure `golangci-lint` with `errcheck`, `gosimple`, `govet`, `ineffassign`, `staticcheck`, `unused`, `gosec`, `gocritic` enabled.
+- Use generics (Go 1.18+) for collection / container utilities. Prefer the standard library `slices` / `maps` packages over hand-rolled helpers. Do not retrofit generics onto existing interface-based code without measurable benefit.
+- Format with `gofumpt` (stricter than `gofmt`) in CI. `goimports` for import ordering.
+
+## Project Layout
+
+- Follow the Standard Project Layout pattern (community convention, not an official Go spec):
+  - `cmd/<binary>/main.go` — entrypoints per binary.
+  - `internal/` — code not importable outside this module (compiler-enforced).
+  - `pkg/` — reusable code imported by other modules. Only create when there is a concrete external consumer; default is `internal/`.
+  - `api/` — `.proto` or OpenAPI specs.
+  - `web/` — static assets if any.
+- Public API lives in `pkg/`; everything else under `internal/`. Internal-by-default reduces surface area and prevents accidental coupling.
+- Avoid deep nesting. Three levels under `internal/` is a refactor signal.
+
+## Error Handling
+
+- Always handle errors at the call site. Never use `_ = err` to discard.
+- Wrap with `fmt.Errorf("context: %w", err)` to preserve the chain. Use `errors.Is` / `errors.As` to inspect at the boundary — never compare error strings.
+- Define sentinel errors as `var ErrXyz = errors.New("xyz")` package variables for stable error contracts. For richer payloads, define typed error structs implementing `error` + a `Code() string` method.
+- The error is part of the function signature — design it deliberately. Returning `error` from every function is fine; returning generic `error` when callers need to distinguish causes is a smell.
+
+## Concurrency
+
+- Use `context.Context` as the first parameter of every function that does I/O or blocking work. Propagate cancellation through every layer.
+- Never call `context.Background()` in library code — accept a context from the caller. `context.TODO()` is only acceptable as a temporary stand-in marked with a `// TODO:` comment.
+- Goroutine lifecycle: every `go func()` has a clear shutdown path. Use `errgroup.Group` for fan-out with error propagation, or `sync.WaitGroup` for fire-and-forget patterns.
+- Channels for ownership-transfer / signaling, mutexes for shared state. Do not chain channels into pseudo-state-machines — use a sync package primitive when the operation is "read/modify/write".
+- Race detector enabled in CI: `go test -race ./...`. A failing race-detector run blocks merge.
+
+## HTTP Servers
+
+- Use the standard `net/http` + `ServeMux` (Go 1.22+) for new services. The 1.22 `ServeMux` supports method-scoped routes (`POST /users/{id}`) — no third-party router needed for typical APIs.
+- For complex routing requirements: chi (`go-chi/chi`) — minimal, std-lib-compatible. Avoid frameworks that hide `net/http` semantics (gin, fiber) unless the team has explicit performance evidence.
+- Middleware: function composition pattern — `func(http.Handler) http.Handler`. Order matters: logging → recovery → auth → rate-limit → handler.
+- Server timeouts: always set `ReadHeaderTimeout`, `ReadTimeout`, `WriteTimeout`, `IdleTimeout` on `http.Server`. Default timeouts are 0 (unbounded) — production servers must override.
+- Graceful shutdown: `server.Shutdown(ctx)` on `SIGTERM` / `SIGINT`. Bound shutdown with a context timeout (e.g., 30s) and force-close on expiry.
+
+## Logging & Observability
+
+- Use `log/slog` (standard library, Go 1.21+) for structured logging. Configure a JSON handler in production, text handler in development.
+- Always emit a request-scoped logger from middleware: `logger := slog.With("request_id", id)` and store in `context`. Handlers retrieve via `slog.Default()` from context. Never use the package-level logger inside request paths.
+- Tracing: OpenTelemetry Go SDK (`go.opentelemetry.io/otel`). Wrap HTTP handlers with `otelhttp.NewHandler` and outbound HTTP clients with `otelhttp.NewTransport`. Avoid handcrafted span creation in business logic.
+
+## Testing
+
+- Table-driven tests are the floor: `tests := []struct { name string; ... }` + `for _, tc := range tests { t.Run(tc.name, ...) }`. Subtests give per-case isolation.
+- Use `t.Parallel()` inside subtests for I/O-bound suites. Race-detector in CI catches data races introduced by parallelism.
+- Mocking: prefer hand-rolled fakes implementing the interface. `gomock` / `mockery` only when the interface surface is wide (>5 methods) and stable.
+- HTTP tests with `httptest.NewServer` for integration, `httptest.NewRecorder` + handler call for unit tests. Never start a real network listener for unit tests.
+- Coverage: `go test -coverprofile=cover.out ./...`. Floor: 80% statement coverage in `pkg/` and `internal/`; critical paths (auth, billing) at 90%.
+- `go test -fuzz=Fuzz` for fuzz testing untrusted-input parsers — at least one fuzz target per public parser.
+
+## Concurrency Idioms
+
+- Errgroup for parallel work that must all succeed or fail together: `g, ctx := errgroup.WithContext(ctx)`; on first error, the context cancels remaining workers.
+- Semaphore (`golang.org/x/sync/semaphore`) for bounded concurrency: limit DB connections, HTTP calls, file handles.
+- Singleflight (`golang.org/x/sync/singleflight`) to deduplicate concurrent fetches of the same key (cache miss storms).
+- Avoid `time.Sleep` for backoff — use `time.NewTimer` with context-aware cancellation. Sleep cannot be interrupted by context cancellation.
+
+## Dependency Hygiene
+
+- `go mod tidy` on every PR — drift between `go.mod` and imports is a merge blocker.
+- Pin dependencies via `go.sum`. Use `go mod verify` in CI to catch supply-chain tampering.
+- Vulnerability scanning: `govulncheck` (official Go tool) in CI. Block merge on known CVE matches in the dependency graph.
+- Avoid `replace` directives in `go.mod` for production builds — they suggest unresolved upstream issues. Acceptable in development with a `// TODO: remove when upstream merges PR#X` comment.
+
+## References
+
+- Go 1.23 release notes: https://go.dev/doc/go1.23 (accessed 2026-05-27, official-docs)
+- log/slog: https://pkg.go.dev/log/slog (accessed 2026-05-27, official-docs)
+- net/http ServeMux 1.22+: https://go.dev/blog/routing-enhancements (accessed 2026-05-27, official-docs)
+- Effective Go: https://go.dev/doc/effective_go (accessed 2026-05-27, official-docs)
+
+## Cross-References
+
+- `rules/hatch3r-api-design.md` — REST/GraphQL/gRPC contract floors apply to Go services.
+- `rules/hatch3r-testing.md` — coverage thresholds carry over to `go test -cover`.
+- `rules/hatch3r-observability-logging.md` — slog integration with the canonical logging contract.

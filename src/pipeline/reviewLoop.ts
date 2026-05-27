@@ -1,10 +1,27 @@
 /**
- * Review loop iteration counter with programmatic enforcement.
+ * Review loop iteration state-model and decision contract.
  *
  * The pipeline's Phase 3 (Review Loop) cycles between hatch3r-reviewer and
- * hatch3r-fixer. This module provides a counter that enforces a hard maximum
- * on iterations to prevent infinite loops when the fixer cannot resolve
- * all findings.
+ * hatch3r-fixer. This module provides the iteration-counter state model and
+ * the pure decision functions (cap clamping, oscillation detection,
+ * confidence derivation, gate evaluation) that model a hard maximum on
+ * iterations to prevent infinite loops when the fixer cannot resolve all
+ * findings.
+ *
+ * Execution-boundary note (Cycle 10, findings F7.2-H1 / F15.2-H1):
+ * The hatch3r pipeline is LLM-orchestrator-driven — Phase 3 reviewer/fixer
+ * rounds are spawned via the Task tool under the prompt directives in
+ * `rules/hatch3r-agent-orchestration.md` (Phase 3 step 3) and the per-command
+ * loop bodies (`commands/hatch3r-*.md`). No TypeScript CLI command drives the
+ * loop in code. These exports are therefore a typed state-model + decision
+ * contract for the LLM orchestrator and downstream AI-tool consumption — the
+ * same disposition as the phase-shape contracts typed in `pipelineContext.ts`
+ * (see `phaseOutputSchema.ts`). They are NOT an in-process runtime gate that
+ * intercepts Task-tool spawns; the iteration cap is enforced by the prompt
+ * directive, kept in lockstep with `DEFAULT_MAX_REVIEW_ITERATIONS` by the
+ * rule-parity assertion in `reviewLoop.test.ts`. Infrastructure-level
+ * enforcement (a Stop/PostToolUse hook that refuses to spawn a further fixer
+ * pass past the cap) is tracked as out-of-module work in F15.2-H1.
  *
  * Finding #76 (D15, High): Add iteration counter with programmatic enforcement.
  * Finding #68 (D13, High): Add iteration-count-based confidence signal to review gate output.
@@ -12,9 +29,10 @@
  *   calibration as a reproducible module artifact (`CALIBRATION`).
  * Finding C7.5-W2B2-H26 (D7-SA7.2-2, High): Raise DEFAULT_MAX_REVIEW_ITERATIONS
  *   from 3 to 4 so the oscillation detector is reachable in default config.
- * Finding C7.5-W2B2-H40 (D15-F15.2-02, High): Expose runtime-enforcement
- *   entry points (`enforceReviewIteration`, `assertReviewIterationAllowed`)
- *   so production callers do not rely on prompt-advisory iteration limits.
+ * Finding C7.5-W2B2-H40 (D15-F15.2-02, High): Expose the iteration-gate
+ *   decision functions (`enforceReviewIteration`, `assertReviewIterationAllowed`)
+ *   as the canonical state-model the orchestrator's loop body is checked
+ *   against — superseded by the execution-boundary note above.
  */
 
 import { HatchError } from "../types.js";
@@ -301,15 +319,17 @@ export function recordReviewIteration(
   return newState;
 }
 
-// ── Runtime Enforcement (Finding C7.5-W2B2-H40) ─────────────────
+// ── Iteration-Gate Decision Contract (Finding C7.5-W2B2-H40) ────
+// Execution boundary: LLM-orchestrator-driven, not an in-process TS loop.
+// See the module header execution-boundary note (F7.2-H1 / F15.2-H1).
 
 /**
  * Return type from `enforceReviewIteration`.
  *
  * `allowed` is false when the loop has already terminated or the
- * incoming iteration would exceed `maxIterations`. Callers in
- * production paths use this as the gate: spawn the next reviewer +
- * fixer pass only when `allowed === true`.
+ * incoming iteration would exceed `maxIterations`. A loop body uses this
+ * as the gate: proceed to the next reviewer + fixer pass only when
+ * `allowed === true`.
  */
 export interface EnforceReviewResult {
   allowed: boolean;
@@ -318,24 +338,33 @@ export interface EnforceReviewResult {
 }
 
 /**
- * Production-path runtime enforcement entry point.
+ * Iteration-gate decision function for the review loop.
  *
- * Finding C7.5-W2B2-H40 (D15-F15.2-02): The review-loop iteration limit
- * was prompt-advisory — agents/hatch3r-implementer.md told the orchestrator
- * "max 3 iterations" but no production code path invoked
- * `recordReviewIteration`. This function is the runtime-enforced entry
- * point that callers invoke per-iteration instead of trusting prompt text.
+ * Finding C7.5-W2B2-H40 (D15-F15.2-02): models the per-iteration gate as a
+ * single pure function the orchestrator's loop body is checked against,
+ * rather than re-deriving the cap logic ad hoc per command.
+ *
+ * Execution boundary (F7.2-H1 / F15.2-H1): this function is NOT invoked from
+ * an in-process TypeScript loop driver — the hatch3r pipeline is
+ * LLM-orchestrator-driven (Task-tool spawns under
+ * `rules/hatch3r-agent-orchestration.md` Phase 3 step 3). It is the typed
+ * decision contract for that prompt-driven loop and for downstream AI-tool
+ * consumption; the runtime cap itself is enforced by the prompt directive,
+ * held in lockstep with `DEFAULT_MAX_REVIEW_ITERATIONS` by the rule-parity
+ * assertion in `reviewLoop.test.ts`. See the module header execution-boundary
+ * note. A caller embedding this in a real TS loop uses `allowed` as the gate:
+ * spawn the next reviewer + fixer pass only when `allowed === true`.
  *
  * Behaviour:
  * 1. If the loop is already terminated, return `{allowed: false}` without
- *    throwing — production paths must handle clean termination gracefully.
+ *    throwing — callers must handle clean termination gracefully.
  * 2. If the loop has reached `maxIterations` without terminating, return
  *    `{allowed: false, reason: "max_iterations_exceeded"}` with the state
  *    advanced and marked terminated via `recordReviewIteration`.
  * 3. Otherwise record the iteration and return `{allowed: true, state}`.
  *
- * The strict runtime gate is the `canContinueReview` predicate inside
- * this function — a caller that attempts to continue after `allowed=false`
+ * The decision is driven by the `canContinueReview` predicate inside this
+ * function — a caller that records a further iteration after `allowed=false`
  * gets a `HatchError` via the underlying `recordReviewIteration` guard.
  */
 export function enforceReviewIteration(
@@ -361,17 +390,18 @@ export function enforceReviewIteration(
 /**
  * Assert that the caller may begin a review iteration.
  *
- * Finding C7.5-W2B2-H40: Hard runtime check for orchestrators that want
- * a throw-on-violation shape rather than the boolean-returning
- * `enforceReviewIteration`. Throws a `HatchError` when the loop is
- * terminated or at max iterations. Production code paths that cannot
- * inline the `enforceReviewIteration` result should call this first.
+ * Finding C7.5-W2B2-H40: throw-on-violation variant of the iteration-gate
+ * decision for callers that want a fail-fast shape rather than the
+ * boolean-returning `enforceReviewIteration`. Throws a `HatchError` when the
+ * loop is terminated or at max iterations. Same execution boundary as
+ * `enforceReviewIteration` (F7.2-H1 / F15.2-H1): this is a state-contract
+ * assertion, not an in-process gate intercepting Task-tool spawns.
  */
 export function assertReviewIterationAllowed(state: ReviewLoopState): void {
   if (state.terminated) {
     throw new HatchError(
       `Review loop already terminated (reason: ${state.terminationReason}). ` +
-      `Runtime-enforcement check: no further iterations permitted.`,
+      `Iteration-gate check: no further iterations permitted.`,
       1,
       "VALIDATION_ERROR",
     );
@@ -379,7 +409,7 @@ export function assertReviewIterationAllowed(state: ReviewLoopState): void {
   if (!canContinueReview(state)) {
     throw new HatchError(
       `Review loop at maximum iterations (${state.maxIterations}). ` +
-      `Runtime-enforcement check: further review passes would exceed the iteration limit. ` +
+      `Iteration-gate check: further review passes would exceed the iteration limit. ` +
       `See src/pipeline/reviewLoop.ts CALIBRATION for the basis of this default.`,
       1,
       "VALIDATION_ERROR",

@@ -1,5 +1,6 @@
 ---
 id: hatch3r-board-shared
+name: hatch3r-board-shared
 description: Shared context and procedures for all board commands. Provides platform-agnostic board config, label taxonomy, branch conventions, sync enforcement, and tooling directives. Platform-specific details are in commands/board/shared-{platform}.md.
 tags: [board, ctx:team-only]
 quality_charter: agents/shared/quality-charter.md
@@ -296,6 +297,12 @@ The export is idempotent and safe to re-set. `GH_PAGER` is scoped to `gh`; `PAGE
 - Short title: max ~50 chars, strip `[Type]:` prefix.
 - Priority: `P0`-`P3` or `--`.
 - The board overview issue itself is never listed.
+
+---
+
+## Fan-out Discipline (P8 B2)
+
+Reference library — no fan-out. This skill ships shared board context (configuration, sync procedures, tooling directives) consumed by the delegating board commands (`board-fill`, `board-pickup`, `board-init`, `board-refresh`, `board-groom`). It spawns no sub-agents itself; fan-out is owned by the consuming command per its own Fan-out Discipline block. Source: `.claude/rules/fan-out-discipline.md` (P8 B2).
 
 ---
 

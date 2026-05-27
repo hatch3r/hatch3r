@@ -12,7 +12,7 @@ parallel_tool_default: true
 triage_tiers: [1, 2, 3]
 sub_agents_spawned:
   count: 3
-  rationale: Three-stage pipeline per agentPipeline — researcher gathers prior baselines, perf-profiler executes the suite, docs-writer assembles the report; each receives the run cache and emits a structured slice.
+  rationale: Three-stage pipeline per agentPipeline — researcher gathers prior baselines, perf-profiler executes the suite, docs-writer assembles the report; each receives the run cache and emits a structured slice. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -27,6 +27,8 @@ Before any action, scan the user's request and provided context for unresolved q
 | 2. Execution | Orchestrator (inline, runs benchmarks) | No | Yes |
 | 3. Analysis | `hatch3r-perf-profiler` | No | Yes |
 | 4. Reporting | `hatch3r-docs-writer` | No | If regressions found |
+
+**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
 
 # Performance Benchmark — Run, Compare, and Report on Performance Metrics
 

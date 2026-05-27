@@ -79,6 +79,7 @@ export function createProgram(): Command {
     .option("--json", "Emit a machine-readable JSON summary on stdout; implies --quiet (C9-H26)")
     .option("--no-banner", "Skip the ASCII banner at startup (C9-H26)")
     .option("--resume", "Resume from the last checkpoint in .init-workspace/checkpoint.json (Decision 27)")
+    .option("--maturity <tier>", "Project maturity tier: solo, team, scaleup, enterprise (default: solo) — gates content admission (Decision 4)")
     .action(initCommand);
 
   program
@@ -126,6 +127,15 @@ export function createProgram(): Command {
     .option(
       "--strict-content",
       "Escalate content-body lint (anti-slop wordlist + missing pillar references) from warnings to errors",
+    )
+    .addHelpText(
+      "after",
+      "\nNote: `hatch3r validate` covers structural validation of the bundled canonical\n" +
+        "content (frontmatter, cross-refs, anti-slop, deny patterns, command\n" +
+        "orchestrator marker). Framework-development checks (`.md`/`.mdc` rule parity,\n" +
+        "P7 efficiency invariants, CLI-skill parity, wiring) live in separate\n" +
+        "`npm run validate:*` scripts and are aggregated by `npm run validate`. CI\n" +
+        "should run BOTH `hatch3r validate` AND `npm run validate` for full coverage.\n",
     )
     .action(validateCommand);
 
@@ -253,12 +263,16 @@ export function createProgram(): Command {
   // C9-H13: surface the triage-first cost model declared in canonical
   // command frontmatter (triage_tiers + agentPipeline) so users can answer
   // "what will this command cost at each tier?" without running it.
+  // SA12.3-F03 (Cycle 10 Wave 2): add `--customizations` mode for the
+  // per-artifact customize.{yaml,md} state table. The two modes are mutually
+  // exclusive and the action validates that exactly one is provided.
   program
     .command("explain")
-    .description("Explain the per-tier cost model of a hatch3r command (reads triage_tiers from frontmatter)")
-    .requiredOption("--cost <command-id>", "Command id to explain (e.g. hatch3r-quick-change, quick-change)")
-    .option("--input-rate <usd-per-1m>", "Override input rate in USD per 1M tokens")
-    .option("--output-rate <usd-per-1m>", "Override output rate in USD per 1M tokens")
+    .description("Explain a hatch3r command's cost model OR the customization-applied state")
+    .option("--cost <command-id>", "Command id to explain (e.g. hatch3r-quick-change, quick-change)")
+    .option("--customizations", "List every .customize.yaml/.customize.md pair with applied state and reasons")
+    .option("--input-rate <usd-per-1m>", "Override input rate in USD per 1M tokens (--cost only)")
+    .option("--output-rate <usd-per-1m>", "Override output rate in USD per 1M tokens (--cost only)")
     .option("--verbose", "Show detailed output")
     .action(explainCommand);
 

@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, chmod } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { AVAILABLE_MCP_SERVERS, ENV_VAR_HELP } from "../types.js";
@@ -123,8 +123,52 @@ export function parseEnvFile(content: string): Record<string, string> {
 }
 
 /**
- * Appends `.env.mcp` to the project's `.gitignore` if not already covered
- * by an existing `.env.mcp` or `.env.*` entry.
+ * F2.7-F3 (D2, P1): Paths that must be ignored by git in every hatch3r-managed
+ * repo. `.env.mcp` carries MCP secrets. `.hatch3r-archive/` accumulates
+ * archive trees on every sync (5 syncs × 3 tools ≈ 15 directories). The
+ * `.hatch3r/` user-state directories (snapshots, handoffs) grow without
+ * bound under normal use. Without these entries the default `git add .`
+ * silently commits operational state and secrets — breaks P1 first-run
+ * success and the Silent Failure Contract.
+ *
+ * The trailing slash on directory entries makes the gitignore match
+ * directory-scoped per `https://git-scm.com/docs/gitignore` (accessed
+ * 2026-05-26). `.env.mcp` stays unsuffixed because it is a file.
+ */
+const REQUIRED_GITIGNORE_ENTRIES = [
+  ".env.mcp",
+  ".hatch3r-archive/",
+  ".hatch3r/snapshots/",
+  ".hatch3r/handoffs/",
+] as const;
+
+/**
+ * Returns true when `entry` is already covered by an existing line in
+ * `lines`. A dominating pattern is either the literal entry text or one
+ * of the family-level globs that subsume the entry (e.g. `.env.*` covers
+ * `.env.mcp`, `.hatch3r/` covers `.hatch3r/snapshots/`).
+ */
+function isCoveredByGitignore(entry: string, lines: string[]): boolean {
+  const trimmedEntries = lines.map((l) => l.trim());
+  if (trimmedEntries.includes(entry)) return true;
+  if (entry === ".env.mcp" && trimmedEntries.includes(".env.*")) return true;
+  if (entry.startsWith(".hatch3r/")) {
+    if (trimmedEntries.includes(".hatch3r/") || trimmedEntries.includes(".hatch3r")) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Appends the required hatch3r entries to the project's `.gitignore` when
+ * not already covered. Idempotent: each entry is checked individually so a
+ * pre-existing line scan never duplicates entries on re-run.
+ *
+ * Entries registered: `.env.mcp` (MCP secrets), `.hatch3r-archive/`
+ * (archive trees from sync/update), `.hatch3r/snapshots/` (per-session
+ * snapshots), `.hatch3r/handoffs/` (handoff payloads). See
+ * {@link REQUIRED_GITIGNORE_ENTRIES} for rationale.
  */
 export async function ensureGitignoreEntry(rootDir: string): Promise<void> {
   const gitignorePath = join(rootDir, ".gitignore");
@@ -138,17 +182,17 @@ export async function ensureGitignoreEntry(rootDir: string): Promise<void> {
     verbose(`mcpEnv: ensureGitignoreEntry readFile(${gitignorePath}) — will create — ${message}`);
   }
 
-  const dominated = content
-    .split("\n")
-    .some((l) => {
-      const trimmed = l.trim();
-      return trimmed === ".env.mcp" || trimmed === ".env.*";
-    });
-  if (dominated) return;
+  const existingLines = content.split("\n");
+  const missing = REQUIRED_GITIGNORE_ENTRIES.filter(
+    (entry) => !isCoveredByGitignore(entry, existingLines),
+  );
+
+  if (missing.length === 0) return;
 
   const separator = content.length > 0 && !content.endsWith("\n") ? "\n" : "";
+  const additions = missing.join("\n") + "\n";
   // #240 (D8-8.7): Route through atomicWriteFile for crash-safe writes
-  await atomicWriteFile(gitignorePath, `${content}${separator}.env.mcp\n`);
+  await atomicWriteFile(gitignorePath, `${content}${separator}${additions}`);
 }
 
 export interface EnsureResult {
@@ -189,6 +233,28 @@ export async function ensureEnvMcp(
 
   const content = generateEnvMcpContent(vars, existing);
   await atomicWriteFile(envPath, content);
+  // F1.7-H1 (D1, P6): `.env.mcp` holds MCP API tokens. atomicWriteFile leaves
+  // the file at the umask-derived default (typically `0o644` on POSIX with
+  // umask `0o022`), exposing secrets to every other user on a shared host
+  // (CWE-552). Tighten to `0o600` (owner-read/write only) — the standard
+  // secret-file permission, matching `ssh-keygen` and `.netrc` conventions.
+  //
+  // chmod runs AFTER atomicWriteFile completes the rename. There is a brief
+  // window (microseconds) where the new `.env.mcp` exists at `0o644` before
+  // chmod fires; recommendation step 2 (extending atomicWriteFile with a
+  // `mode` option that runs before rename) is the systemic fix and is
+  // tracked outside this work unit's file-lock (src/merge/safeWrite.ts).
+  //
+  // Windows chmod has limited semantics — Node maps a subset of POSIX modes.
+  // EPERM/ENOTSUP/EINVAL are swallowed under --verbose; other errors throw
+  // so genuine I/O failures surface.
+  try {
+    await chmod(envPath, 0o600);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== "EPERM" && code !== "ENOTSUP" && code !== "EINVAL") throw err;
+    verbose(`mcpEnv: chmod(${envPath}, 0o600) skipped — ${code}`);
+  }
 
   return {
     action: hadFile ? "updated" : "created",

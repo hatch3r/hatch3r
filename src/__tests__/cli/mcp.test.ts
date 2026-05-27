@@ -22,6 +22,17 @@ vi.mock("inquirer", () => {
   };
 });
 
+// MOCK: readManifest/writeManifest stubbed for the per-subcommand describe
+// blocks below because those tests drive picker / env-file / removal branch
+// coverage in isolation and assert the manifest the handler passes to
+// writeManifest — not the on-disk result. This file also globally mocks
+// node:fs + node:fs/promises (existsSync/readFile), so a real writeManifest
+// round-trip cannot run here without breaking that isolation. Per CONSTITUTION
+// §2 P2 Decision 20 (real-deal-first), the schema-version-drift masking this
+// mock would hide is closed by the companion file
+// src/__tests__/cli/mcp.realManifest.test.ts, which carries no fs mocks and
+// round-trips the exact mcp.servers shape these commands persist through the
+// REAL writeManifest → readManifest validator path.
 vi.mock("../../manifest/hatchJson.js", () => ({
   readManifest: vi.fn(),
   writeManifest: vi.fn(),
@@ -180,7 +191,7 @@ describe("mcpSetupCommand", () => {
       expect((e as HatchError).errorCode).toBe("CONFIG_ERROR");
     }
 
-    expect(logError).toHaveBeenCalledWith(expect.stringContaining("No .agents/hatch.json"));
+    expect(logError).toHaveBeenCalledWith(expect.stringContaining("No .hatch3r/hatch.json"));
     expect(pickMcpServers).not.toHaveBeenCalled();
     expect(writeManifest).not.toHaveBeenCalled();
   });
@@ -387,3 +398,10 @@ describe("mcpEnvCheckCommand", () => {
     await expect(mcpEnvCheckCommand()).rejects.toThrow(HatchError);
   });
 });
+
+// F3.2-F2 (D3 Cycle 10 Wave 2): the real writeManifest → readManifest round-trip
+// for the mcp.servers shape lives in the companion file
+// src/__tests__/cli/mcp.realManifest.test.ts. It cannot live in this file
+// because the node:fs / node:fs/promises mocks above (existsSync/readFile)
+// would intercept the real manifest writer's fs calls. See that file for the
+// real-deal coverage that closes the schema-version-drift masking.

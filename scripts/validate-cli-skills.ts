@@ -163,6 +163,25 @@ async function checkStandaloneSkills(): Promise<Failure[]> {
         });
       }
     }
+
+    // F15.7-H3 (Cycle 10 D15-SA15.7): every standalone skill body must
+    // present install commands for all three supported OS keys (mac,
+    // linux, win) — silently shipping mac-only blocks violated the
+    // "vendor-signed channel" trust assertion on Linux + Windows. The
+    // renderer in `src/cliTools/skill.ts::renderCliToolSkillBody` was
+    // patched to emit all three; this gate keeps it from regressing.
+    for (const os of ["mac", "linux", "win"] as const) {
+      if ((meta.install[os] ?? []).length === 0) continue;
+      const osLabel = os === "mac" ? "macOS" : os === "linux" ? "Linux" : "Windows";
+      const labelPattern = new RegExp(`^Install \\(${osLabel}[ :)]`, "m");
+      if (!labelPattern.test(skill.body)) {
+        failures.push({
+          file: skill.path,
+          reason: "missing per-OS install block",
+          detail: `expected an "Install (${osLabel}...)" section in the body; registry lists ${meta.install[os].length} install command(s) for ${os} but the skill body does not surface them`,
+        });
+      }
+    }
   }
   return failures;
 }

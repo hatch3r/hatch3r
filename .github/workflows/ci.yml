@@ -56,6 +56,25 @@ jobs:
       - name: Lockfile lint
         run: npm run lockfile:check
 
+      # Cycle 10 H F4.2.1 (D4): package-lock.json drifted to 1.8.0 while
+      # package.json declared 2.0.0 because the release version was
+      # hand-bumped without regenerating the lockfile. A stale lockfile
+      # version trips npm provenance, PackageGate signals, and
+      # lockfile-aware analysers on publish. This gate fails the PR before
+      # merge if the two `.version` fields diverge, so the drift can never
+      # reach main (and therefore never reaches the publish step in
+      # release.yml). jq is preinstalled on ubuntu-latest runners.
+      - name: Lockfile version parity
+        run: |
+          pkg=$(jq -r '.version' package.json)
+          lock_top=$(jq -r '.version' package-lock.json)
+          lock_root=$(jq -r '.packages[""].version' package-lock.json)
+          echo "package.json=$pkg lockfile.version=$lock_top lockfile.packages[\"\"].version=$lock_root"
+          if [ "$pkg" != "$lock_top" ] || [ "$pkg" != "$lock_root" ]; then
+            echo "::error::package-lock.json version ($lock_top / $lock_root) does not match package.json ($pkg). Run 'npm install --package-lock-only' and commit the regenerated lockfile."
+            exit 1
+          fi
+
       - name: Security audit (production)
         run: npm audit --audit-level=high --omit=dev
 
@@ -91,6 +110,29 @@ jobs:
       # (queryErrors), not gate failures.
       - name: MCP package CVE check
         run: npm run mcp:cve-check
+
+      # Cycle 10 H F4.2.3 (D4): the five gates above (lockfile-lint, npm audit
+      # x2, dependency-review-action, mcp:cve-check) are all reactive CVE/SHA
+      # lookups — they flag a package only after a GHSA/OSV advisory exists.
+      # That leaves the malicious-install class (typosquatting, dependency
+      # confusion, compromised-maintainer payloads — Shai-Hulud, Axios 1.14.1,
+      # crypto-js 4.2.1) detectable only hours-to-days late. Socket performs
+      # install-time behavioral/AST analysis of newly-introduced dependencies
+      # on the PR diff, catching exfil/obfuscation/install-script risk before
+      # an advisory is published. Gated to pull_request (the action diffs
+      # against the base ref) and guarded on SOCKET_API_KEY availability so it
+      # is a clean no-op on fork PRs (where secrets are withheld) and until the
+      # maintainer provisions the org secret — it never fails closed for
+      # external contributors. Pinned to the v1.3.2 commit SHA (2026-03-27);
+      # SocketDev/socket-security-action from the finding was superseded by
+      # SocketDev/action. Vendor-decision record: D04 next cycle.
+      - name: Socket supply-chain scan
+        if: github.event_name == 'pull_request' && env.SOCKET_API_KEY != ''
+        env:
+          SOCKET_API_KEY: ${{ secrets.SOCKET_API_KEY }}
+        uses: SocketDev/action@ba6de6cc0565af1f42295590380973573297e31f # v1.3.2
+        with:
+          socket-token: ${{ secrets.SOCKET_API_KEY }}
 
   build:
     runs-on: ${{ matrix.os }}

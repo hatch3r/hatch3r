@@ -12,7 +12,7 @@ parallel_tool_default: true
 triage_tiers: [1, 2, 3]
 sub_agents_spawned:
   count: 3
-  rationale: Three-stage pipeline per agentPipeline — researcher scans routes, docs-writer assembles the OpenAPI spec, reviewer validates structure; researcher and reviewer fanned out concurrently around the shared docs-writer dependency.
+  rationale: Three-stage pipeline per agentPipeline — researcher scans routes, docs-writer assembles the OpenAPI spec, reviewer validates structure; researcher and reviewer fanned out concurrently around the shared docs-writer dependency. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -27,6 +27,8 @@ Before any action, scan the user's request and provided context for unresolved q
 | 2. Schema Extraction | Orchestrator (inline) | No | Yes |
 | 3. Spec Generation | `hatch3r-docs-writer` | No | Yes |
 | 4. Validation | `hatch3r-reviewer` | No | Yes (if validate mode) |
+
+**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
 
 # API Specification Generator — OpenAPI from Code or Code-vs-Spec Drift Detection
 

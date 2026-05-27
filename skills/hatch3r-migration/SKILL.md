@@ -1,5 +1,6 @@
 ---
 id: hatch3r-migration
+name: hatch3r-migration
 type: skill
 description: Plan and execute migrations for databases, frameworks, and dependencies. Covers breaking change analysis, phased rollout, and rollback procedures.
 tags: [implementation, ctx:brownfield-only]

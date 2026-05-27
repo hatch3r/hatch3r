@@ -36,8 +36,13 @@ import {
  * `floor:enterprise-only` is an alias used in the bucket spec; treated
  * identically to `tier:enterprise-only` so either spelling drops the item at
  * lower tiers.
+ *
+ * Exported (F3.3-H2, Cycle 10 Wave 2) so `isAdmittedByMaturityTier`'s truth
+ * table can be unit-tested directly instead of only end-to-end through
+ * `resolveSelection`. A refactor that reorders these rows or adds a fifth tier
+ * rank now has direct test signal (`content/maturityTier.test.ts`).
  */
-const TIER_TAG_REQUIREMENTS: ReadonlyArray<{ tag: string; minTier: MaturityTier }> = [
+export const TIER_TAG_REQUIREMENTS: ReadonlyArray<{ tag: string; minTier: MaturityTier }> = [
   { tag: "tier:enterprise-only", minTier: "enterprise" },
   { tag: "floor:enterprise-only", minTier: "enterprise" },
   { tag: "tier:scaleup-plus", minTier: "scaleup" },
@@ -52,8 +57,10 @@ const TIER_TAG_REQUIREMENTS: ReadonlyArray<{ tag: string; minTier: MaturityTier 
  *
  * Protected items bypass tier gating — same invariant the floor admission
  * stage already enforces.
+ *
+ * Exported (F3.3-H2, Cycle 10 Wave 2) for direct truth-table unit coverage.
  */
-function isAdmittedByMaturityTier(
+export function isAdmittedByMaturityTier(
   itemTags: ReadonlyArray<string>,
   maturity: MaturityTier,
   isProtected: boolean,

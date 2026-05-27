@@ -12,7 +12,7 @@ parallel_tool_default: true
 triage_tiers: [1, 2, 3]
 sub_agents_spawned:
   count: 5
-  rationale: Five parallel hatch3r-researcher modes per test-planning brief — coverage-analysis, complexity-and-risk, test-pattern, boundary-analysis, risk-prioritization — dispatched concurrently in Step 3; a docs-writer composes the test plan on their merged output.
+  rationale: Five parallel hatch3r-researcher modes per test-planning brief — coverage-analysis, complexity-and-risk, test-pattern, boundary-analysis, risk-prioritization — dispatched concurrently in Step 3; a docs-writer composes the test plan on their merged output. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -26,6 +26,8 @@ Before any action, scan the user's request and provided context for unresolved q
 | 1. Research | `hatch3r-researcher` (5 parallel: coverage-analysis, complexity-risk, test-pattern, boundary-analysis, risk-prioritization) | Yes | Yes |
 | 2. Document Generation | `hatch3r-docs-writer` (test plan spec, ADRs) | Yes | Yes |
 | 3. Todo Generation | Orchestrator (inline) | No | Yes |
+
+**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
 
 # Test Plan -- Comprehensive Test Strategy from Scope to Board-Ready Epic
 

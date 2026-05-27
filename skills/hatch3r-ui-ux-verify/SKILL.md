@@ -1,5 +1,6 @@
 ---
 id: hatch3r-ui-ux-verify
+name: hatch3r-ui-ux-verify
 type: skill
 description: UI/UX verification gate before declaring a feature done — axe-core, scripted keyboard trace, accessibility-tree snapshot, four-state coverage, visual-regression baseline, one human screen-reader pass per release
 tags: [review, floor:ui-ux, ui, ux, a11y]

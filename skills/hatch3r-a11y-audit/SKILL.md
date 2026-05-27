@@ -1,5 +1,6 @@
 ---
 id: hatch3r-a11y-audit
+name: hatch3r-a11y-audit
 description: Run a WCAG AA accessibility audit with findings and fixes across 7 scan categories (keyboard, contrast, ARIA, reduced motion, screen reader, high contrast, automated axe). Use when auditing accessibility or verifying WCAG compliance.
 tags: [review, floor:ui-ux, a11y]
 quality_charter: agents/shared/quality-charter.md

@@ -22,12 +22,13 @@ const ROOT = resolve(__dirname, "..");
 /**
  * Adapter utility files that live alongside platform adapters but do not
  * implement the BaseAdapter contract. Excluded from the adapter count so the
- * inventory matches the canonical "15 platform adapters" surface.
+ * inventory matches the canonical 3 platform adapters (claude/cursor/copilot).
  */
 const ADAPTER_UTILITIES = new Set<string>([
   "base.ts",
   "canonical.ts",
   "customization.ts",
+  "customizationSummary.ts", // customization-precedence summary helper, not a platform adapter
   "index.ts",
   "capabilityMatrix.ts",
   "mcp-utils.ts",

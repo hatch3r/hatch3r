@@ -521,11 +521,13 @@ describe("init command", () => {
       expect(combined).toMatch(/init-/);
     }, 90_000);
 
-    it("`--resume` surfaces a warning instead of silently discarding", async () => {
-      // Synthesis F1.1: prior behaviour was `void opts.resume;` which
-      // discarded the flag with no signal. The fix surfaces a warn() so
-      // users see that resume is reserved-but-not-yet-implemented.
-      // Capture stderr (warn routes through `info` ui module helper).
+    it("`--resume` reads checkpoint and warns when none exists", async () => {
+      // D11-H-7 (Wave 2 RETRY): prior Wave 1 F1.1-C1 behaviour was a fixed
+      // "not yet wired" warn(). D11-H-7 wires `--resume` to read
+      // `.init-workspace/checkpoint.json` via `readCheckpoint()`. Absence
+      // of a checkpoint surfaces a warn() naming the checkpoint path and
+      // falls through to a fresh init (rollback is the supported revert
+      // mechanism for the single-pass run).
       await initCommand({ yes: true, resume: true });
       // Init still completes normally — `--resume` is documented as
       // reserved surface, not a hard error.
@@ -537,7 +539,7 @@ describe("init command", () => {
       const stderr = consoleErrorSpy.mock.calls.map((c) => String(c[0])).join("\n");
       const combined = stdout + "\n" + stderr;
       expect(combined).toMatch(/--resume/);
-      expect(combined).toMatch(/not yet wired/);
+      expect(combined).toMatch(/no checkpoint found/);
     }, 90_000);
   });
 
@@ -1032,6 +1034,7 @@ describe("init worktree generation (claude tool present)", () => {
     inq.mockResolvedValueOnce({ defaultBranch: "main" });
     inq.mockResolvedValueOnce({ projectType: "brownfield" });
     inq.mockResolvedValueOnce({ teamSize: "solo" });
+    inq.mockResolvedValueOnce({ maturity: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools });
     // Slice B: feature checkbox replaced by single wantMcp confirm.
@@ -1214,6 +1217,7 @@ describe("init interactive single-repo flow", () => {
     preset?: "minimal" | "standard" | "full" | "custom";
     projectType?: "greenfield" | "brownfield";
     teamSize?: "solo" | "team";
+    maturity?: "solo" | "team" | "scaleup" | "enterprise";
     tools?: string[];
     features?: string[];
     mcpServers?: string[];
@@ -1227,6 +1231,7 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ defaultBranch: "main" });
     inq.mockResolvedValueOnce({ projectType: opts.projectType ?? "brownfield" });
     inq.mockResolvedValueOnce({ teamSize: opts.teamSize ?? "solo" });
+    inq.mockResolvedValueOnce({ maturity: opts.maturity ?? "solo" });
     inq.mockResolvedValueOnce({ preset: opts.preset ?? "full" });
     if (opts.preset === "custom") {
       inq.mockResolvedValueOnce({ items: opts.customItems ?? [] });
@@ -1283,6 +1288,7 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ defaultBranch: "main" });
     inq.mockResolvedValueOnce({ projectType: "brownfield" });
     inq.mockResolvedValueOnce({ teamSize: "solo" });
+    inq.mockResolvedValueOnce({ maturity: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     // Slice B: feature checkbox replaced by wantMcp confirm; this test
@@ -1308,6 +1314,7 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ defaultBranch: "main" });
     inq.mockResolvedValueOnce({ projectType: "brownfield" });
     inq.mockResolvedValueOnce({ teamSize: "solo" });
+    inq.mockResolvedValueOnce({ maturity: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     // Slice B: feature checkbox replaced by wantMcp confirm; this test
@@ -1334,6 +1341,7 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ defaultBranch: "" });
     inq.mockResolvedValueOnce({ projectType: "brownfield" });
     inq.mockResolvedValueOnce({ teamSize: "solo" });
+    inq.mockResolvedValueOnce({ maturity: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     // Empty tool selection -> falls back to DEFAULT_TOOLS (= ["claude"])
     inq.mockResolvedValueOnce({ tools: [] });
@@ -1376,6 +1384,7 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ defaultBranch: "main" });
     inq.mockResolvedValueOnce({ projectType: "brownfield" });
     inq.mockResolvedValueOnce({ teamSize: "solo" });
+    inq.mockResolvedValueOnce({ maturity: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     // Slice B: feature checkbox replaced by wantMcp confirm; this test
@@ -1407,6 +1416,7 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ defaultBranch: "main" });
     inq.mockResolvedValueOnce({ projectType: "brownfield" });
     inq.mockResolvedValueOnce({ teamSize: "solo" });
+    inq.mockResolvedValueOnce({ maturity: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     // Slice B: feature checkbox replaced by wantMcp confirm; this test
@@ -1473,6 +1483,8 @@ describe("init interactive workspace flow", () => {
     inq.mockResolvedValueOnce({ projectType: "brownfield" });
     // 4) Team size
     inq.mockResolvedValueOnce({ teamSize: "solo" });
+    // 4b) Maturity tier (F1.1-H1 / F14.3-H1)
+    inq.mockResolvedValueOnce({ maturity: "solo" });
     // 5) Preset
     inq.mockResolvedValueOnce({ preset: "minimal" });
     // 6) Tools
@@ -1505,6 +1517,7 @@ describe("init interactive workspace flow", () => {
     inq.mockResolvedValueOnce({ defaultBranch: "main" });
     inq.mockResolvedValueOnce({ projectType: "brownfield" });
     inq.mockResolvedValueOnce({ teamSize: "solo" });
+    inq.mockResolvedValueOnce({ maturity: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     // Slice B: feature checkbox replaced by wantMcp confirm; this test
@@ -1538,6 +1551,8 @@ describe("init interactive workspace flow", () => {
     inq.mockResolvedValueOnce({ projectType: "brownfield" });
     // 5) Team size
     inq.mockResolvedValueOnce({ teamSize: "solo" });
+    // 5b) Maturity tier (F1.1-H1 / F14.3-H1)
+    inq.mockResolvedValueOnce({ maturity: "solo" });
     // 6) Preset
     inq.mockResolvedValueOnce({ preset: "minimal" });
     // 7) Tools
@@ -1722,6 +1737,7 @@ describe("init eager flag validation (C8-D1-M4)", () => {
     inq.mockResolvedValueOnce({ defaultBranch: "main" });
     inq.mockResolvedValueOnce({ projectType: "brownfield" });
     inq.mockResolvedValueOnce({ teamSize: "solo" });
+    inq.mockResolvedValueOnce({ maturity: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     // Slice B: feature checkbox replaced by wantMcp confirm; this test
@@ -1879,6 +1895,7 @@ describe("init workspace conflict guard (C8-D1-M3)", () => {
     inq.mockResolvedValueOnce({ acceptIdentity: true });
     inq.mockResolvedValueOnce({ projectType: "brownfield" });
     inq.mockResolvedValueOnce({ teamSize: "solo" });
+    inq.mockResolvedValueOnce({ maturity: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     // Slice B: feature checkbox replaced by wantMcp confirm; this test
@@ -1908,6 +1925,7 @@ describe("init workspace conflict guard (C8-D1-M3)", () => {
     inq.mockResolvedValueOnce({ acceptIdentity: true });
     inq.mockResolvedValueOnce({ projectType: "brownfield" });
     inq.mockResolvedValueOnce({ teamSize: "solo" });
+    inq.mockResolvedValueOnce({ maturity: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     // Slice B: feature checkbox replaced by wantMcp confirm; this test
@@ -1933,6 +1951,7 @@ describe("init workspace conflict guard (C8-D1-M3)", () => {
     inq.mockResolvedValueOnce({ acceptIdentity: true });
     inq.mockResolvedValueOnce({ projectType: "brownfield" });
     inq.mockResolvedValueOnce({ teamSize: "solo" });
+    inq.mockResolvedValueOnce({ maturity: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     // Slice B: feature checkbox replaced by wantMcp confirm; this test
@@ -2289,6 +2308,7 @@ describe("init tool-secret-notes ordering (C9-H32)", () => {
     inq.mockResolvedValueOnce({ defaultBranch: "main" });
     inq.mockResolvedValueOnce({ projectType: "brownfield" });
     inq.mockResolvedValueOnce({ teamSize: "solo" });
+    inq.mockResolvedValueOnce({ maturity: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     // Slice B: feature checkbox replaced by wantMcp confirm; this test

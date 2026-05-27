@@ -12,7 +12,7 @@ parallel_tool_default: true
 triage_tiers: [1, 2, 3]
 sub_agents_spawned:
   count: 9
-  rationale: Per-PR fanout — implementer, lint-fixer, test-writer (FIX NOW group, parallel), reviewer ↔ fixer review loop (max 3 iterations), then parallel Tier-3 final-quality specialists (security-auditor, docs-writer, a11y-auditor, perf-profiler) per the Tier-3 specialist mandate.
+  rationale: Per-PR fanout — implementer, lint-fixer, test-writer (FIX NOW group, parallel), reviewer ↔ fixer review loop (max 3 iterations), then parallel Tier-3 final-quality specialists (security-auditor, docs-writer, a11y-auditor, perf-profiler) per the Tier-3 specialist mandate. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -35,6 +35,8 @@ Before any action, scan the user's request and provided context for unresolved q
 | 8. Post replies | Orchestrator (inline, platform CLI) | Per comment | Yes |
 | 9. Commit and push | Orchestrator (inline) | No | When code changed |
 | 10. Iteration Summary | Orchestrator (inline) | No | Yes |
+
+**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
 
 ---
 

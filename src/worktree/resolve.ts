@@ -105,7 +105,26 @@ export function findMainWorktree(worktreeDir: string): string {
 
   // Traverse: .git/worktrees/<name> → .git/worktrees → .git → repo root
   const mainRoot = dirname(dirname(dirname(absGitdir)));
-  return mainRoot;
+
+  // F1.10-H1 (Cycle 10 D1): canonicalise via the native realpath so this
+  // return value can be compared byte-for-byte against `listWorktrees`, which
+  // already runs `realpathSync.native` on every porcelain path (resolve.ts
+  // listWorktrees). Without parity the two diverge on macOS (`/var` vs
+  // `/private/var`) and Windows (8.3 short form vs long form), so the
+  // worktree-setup/cleanup pairing — which calls findMainWorktree then
+  // listWorktrees — would fail string comparison and mis-identify the main
+  // worktree. Falls back to the un-canonicalised path when the main repo is
+  // prunable/missing (realpath throws ENOENT), matching listWorktrees'
+  // best-effort behavior for prunable worktrees.
+  try {
+    return realpathSync.native(mainRoot);
+  } catch (err) {
+    recordWorktreeProbeFailure(
+      `findMainWorktree(${worktreeDir}) realpath(${mainRoot}) — main repo may be prunable/missing`,
+      err,
+    );
+    return mainRoot;
+  }
 }
 
 /**

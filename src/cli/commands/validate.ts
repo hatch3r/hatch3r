@@ -42,7 +42,7 @@ const DEFAULT_KNOWN_AGENTS = new Set([
   "hatch3r-researcher", "hatch3r-reviewer", "hatch3r-security-auditor", "hatch3r-test-writer",
 ]);
 
-interface ValidationResult {
+export interface ValidationResult {
   errors: string[];
   warnings: string[];
 }
@@ -149,8 +149,11 @@ async function validateFrontmatter(
               // C8-D5-M1: Commands must declare orchestrator marker so adapters
               // and runtime gates can distinguish orchestrator commands (which
               // delegate to sub-agents) from inline-execution commands.
+              // F1.4-H1 (Cycle 10 Wave 2): canonical commands additionally must
+              // satisfy Decision #13 (orchestrator: true + non-empty
+              // agentPipeline), enforced via `isCanonicalCommand=true`.
               if (dir === "commands" && parsedFm && typeof parsedFm === "object") {
-                validateCommandOrchestratorFrontmatter(parsedFm, label, result);
+                validateCommandOrchestratorFrontmatter(parsedFm, label, result, { isCanonicalCommand: true });
               }
               // P7: Recognize and type-check the five new optional efficiency
               // frontmatter fields. Unknown values produce warnings only; the
@@ -192,14 +195,24 @@ async function validateFrontmatter(
  * `agentPipeline:` as a non-empty array of sub-agent IDs (e.g.
  * `hatch3r-researcher`) so adapters and the validate gate know which agents
  * must be selected for the command to function.
+ *
+ * F1.4-H1 (Cycle 10 Wave 2, D1 High): when invoked against canonical commands
+ * (`isCanonicalCommand: true`), this helper additionally enforces Decision #13
+ * from `.claude/rules/content-authoring.md` §9: every `commands/hatch3r-*.md`
+ * MUST be orchestrator-tier — `orchestrator: false` is a structural error.
+ * Inline-execution flows belong in `skills/hatch3r-{name}/SKILL.md`. User
+ * overrides under `.hatch3r/overrides/commands/` MAY be inline (legacy
+ * carve-out), so the gate flips off there.
  */
-function validateCommandOrchestratorFrontmatter(
+export function validateCommandOrchestratorFrontmatter(
   parsedFm: Record<string, unknown>,
   fileLabel: string,
   result: ValidationResult,
+  opts?: { isCanonicalCommand?: boolean },
 ): void {
   const orchestrator = parsedFm.orchestrator;
   const agentPipeline = parsedFm.agentPipeline;
+  const isCanonical = !!opts?.isCanonicalCommand;
 
   if (orchestrator === undefined) {
     result.warnings.push(
@@ -240,11 +253,21 @@ function validateCommandOrchestratorFrontmatter(
         `Invalid 'agentPipeline' entry in ${fileLabel}: all entries must be strings (sub-agent IDs)`,
       );
     }
-  } else if (Array.isArray(agentPipeline) && agentPipeline.length > 0) {
-    // orchestrator: false — agentPipeline should not list sub-agents
-    result.warnings.push(
-      `Unused 'agentPipeline' in ${fileLabel}: command declares orchestrator: false but lists sub-agents; either set orchestrator: true or remove the agentPipeline field`,
-    );
+  } else {
+    // orchestrator === false branch.
+    if (isCanonical) {
+      // F1.4-H1: Decision #13 enforcement on canonical commands. A canonical
+      // command MUST be orchestrator-tier; inline-execution flows MUST be
+      // re-authored as skills under `skills/hatch3r-{name}/SKILL.md`.
+      result.errors.push(
+        `${fileLabel} violates Decision #13: a canonical command MUST have orchestrator: true + non-empty agentPipeline. orchestrator: false is a structural error — promote to orchestrator: true by delegating to a sub-agent OR collapse into skills/hatch3r-{name}/SKILL.md per .claude/rules/content-authoring.md §9.`,
+      );
+    } else if (Array.isArray(agentPipeline) && agentPipeline.length > 0) {
+      // orchestrator: false — agentPipeline should not list sub-agents
+      result.warnings.push(
+        `Unused 'agentPipeline' in ${fileLabel}: command declares orchestrator: false but lists sub-agents; either set orchestrator: true or remove the agentPipeline field`,
+      );
+    }
   }
 }
 
@@ -264,7 +287,7 @@ function validateCommandOrchestratorFrontmatter(
  */
 const EFFICIENCY_TIER_VALUES = new Set(["light", "standard", "deep"]);
 
-function validateEfficiencyFrontmatter(
+export function validateEfficiencyFrontmatter(
   parsedFm: Record<string, unknown>,
   fileLabel: string,
   dir: string,
@@ -1286,7 +1309,7 @@ async function listMarkdownFiles(dirPath: string): Promise<string[]> {
  * window for a measurable qualifier per CONSTITUTION §2 P5. Returns one
  * finding string per surviving hit.
  */
-function scanAntiSlopHits(body: string, fileLabel: string): string[] {
+export function scanAntiSlopHits(body: string, fileLabel: string): string[] {
   const findings: string[] = [];
   for (const entry of ANTI_SLOP_WORDLIST) {
     // Walk every match position so multiple hits in the same body are caught.
@@ -1314,7 +1337,7 @@ function scanAntiSlopHits(body: string, fileLabel: string): string[] {
  * Pillar-reference detection: returns true when the file declares at least
  * one P1..P8 reference via frontmatter `pillars:` or any body mention.
  */
-function hasPillarReference(parsedFm: Record<string, unknown> | null, body: string): boolean {
+export function hasPillarReference(parsedFm: Record<string, unknown> | null, body: string): boolean {
   if (parsedFm) {
     const fmPillars = parsedFm.pillars;
     if (Array.isArray(fmPillars) && fmPillars.some((v) => typeof v === "string" && /^P[1-8]$/.test(v))) {
@@ -1811,6 +1834,18 @@ export async function validateCommand(opts?: {
     printBox("Validation", [chalk.green("All checks passed")], "success");
     if (hasCustomizations) {
       printCustomizationHint();
+    }
+    // F1.4-H2 (Cycle 10 Wave 2): framework-dev surface coverage hint. The
+    // `hatch3r validate` CLI covers consumer-facing structural validation; the
+    // framework-dev invariants (rule-parity, P7 efficiency, CLI-skill parity,
+    // wiring) live in `scripts/validate-*.ts` and are aggregated under
+    // `npm run validate`. Emit in verbose mode only to avoid distracting end
+    // users who do not author canonical content.
+    if (opts?.verbose) {
+      console.log();
+      verbose(
+        "Framework-dev invariants (.md/.mdc rule parity, P7 efficiency, CLI-skill parity, wiring) live in separate `npm run validate:*` scripts — run `npm run validate` for full canonical-content coverage.",
+      );
     }
     return;
   }
