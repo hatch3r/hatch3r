@@ -12,7 +12,7 @@ This file is the canonical human-readable catalog of prompt-injection patterns u
 
 1. `src/pipeline/promptGuard.ts` — pipeline phase input/output sanitization (`INJECTION_PATTERNS` constant). OWASP ASI01.
 2. `src/content/learningsValidation.ts` — stored-learnings content validation (`LEARNINGS_INJECTION_PATTERNS` constant). OWASP ASI06.
-3. `commands/hatch3r-learn.md` — user-facing injection screening prose at Step 3 "Injection pattern screening". OWASP ASI06.
+3. `skills/hatch3r-learn/SKILL.md` — user-facing injection screening prose at Step 3 "Injection pattern screening". OWASP ASI06.
 
 The code constants remain the executable source of truth (typed `RegExp` with TypeScript validation). This file is the governance contract — when threat patterns evolve, update this catalog first, then update the code and prose in lockstep. A test in `src/__tests__/pipeline/injectionPatternsSync.test.ts` asserts that every ID in Section A and Section B below appears as a `// pattern-id: <id>` comment in the corresponding code constant, preventing silent drift.
 
@@ -51,9 +51,9 @@ Scope: content written to `.hatch3r/learnings/` files. These patterns defend aga
 | P-LEARN-04 | Fake managed block markers (merge output injection) | `HATCH3R:(BEGIN|END)` | ASI06 |
 | P-LEARN-05 | Injected tool invocations | `<(?:tool_use|function_call|antml:invoke)\b` (i) | ASI06 |
 
-### Section C — User-Facing Screening Categories (hatch3r-learn.md)
+### Section C — User-Facing Screening Categories (hatch3r-learn)
 
-Scope: user-facing prose categories presented at `commands/hatch3r-learn.md` Step 3 before any file is written. The command operator prompts the user to rephrase; there is no regex enforcement at this layer, so patterns are described qualitatively.
+Scope: user-facing prose categories presented at `skills/hatch3r-learn/SKILL.md` Step 3 before any file is written. The skill operator prompts the user to rephrase; there is no regex enforcement at this layer, so patterns are described qualitatively.
 
 | Category ID | Description | Example triggers |
 |-------------|-------------|------------------|
@@ -62,13 +62,13 @@ Scope: user-facing prose categories presented at `commands/hatch3r-learn.md` Ste
 | C-UI-03 | Attempts to redefine tool access, security policies, or agent roles | Redefining allowed tool lists, reassigning permissions, rewriting agent scope |
 | C-UI-04 | Encoded payloads | Base64-encoded blocks, unusual Unicode sequences, zero-width characters |
 
-Category C-UI-04 (encoded payloads) is not covered by regex Section A or B — it requires the operator to recognize structural anomalies. Adding a new category here requires a corresponding update to `commands/hatch3r-learn.md:59-65` Step 3.
+Category C-UI-04 (encoded payloads) is not covered by regex Section A or B — it requires the operator to recognize structural anomalies. Adding a new category here requires a corresponding update to `skills/hatch3r-learn/SKILL.md` Step 3 (Section "Injection pattern screening").
 
 ### Change Protocol
 
 1. Edit this catalog first — add rows, renumber IDs additively (never renumber existing IDs).
 2. Update the matching code constant (`INJECTION_PATTERNS` or `LEARNINGS_INJECTION_PATTERNS`) with the new RegExp and a `// pattern-id: <ID>` line comment.
-3. Update `commands/hatch3r-learn.md:59-65` if the change affects user-facing screening categories.
+3. Update `skills/hatch3r-learn/SKILL.md` Step 3 (Section "Injection pattern screening") if the change affects user-facing screening categories.
 4. Run `npm test -- injectionPatternsSync` to verify synchronization.
 5. Run the full test suite (`npm test`), typecheck (`npx tsc --noEmit`), and lint (`npm run lint`).
 

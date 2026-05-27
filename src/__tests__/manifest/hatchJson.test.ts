@@ -933,6 +933,148 @@ describe("hatchJson", () => {
     });
   });
 
+  // F3.3-C1 (Cycle 10 Wave 1 Critical): validateManifest previously accepted
+  // an entire class of malformed `mcp` shapes (array masquerading as object,
+  // missing `servers`, non-array `servers`, mixed-type entries). Five
+  // negative-path assertions below pin the tightened validator. The structural
+  // pattern mirrors the `tools` validation already enforced at hatchJson.ts:246.
+  describe("manifest validation (mcp sub-schema)", () => {
+    let tempDir: string;
+
+    afterEach(async () => {
+      if (tempDir) {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    async function setup(): Promise<string> {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-mcp-validate-"));
+      await mkdir(join(tempDir, ".hatch3r"), { recursive: true });
+      return tempDir;
+    }
+
+    async function writeManifestJson(rootDir: string, data: unknown): Promise<void> {
+      await writeFile(
+        join(rootDir, ".hatch3r", "hatch.json"),
+        JSON.stringify(data, null, 2),
+        "utf-8",
+      );
+    }
+
+    function baseManifest(): Record<string, unknown> {
+      return {
+        version: "2.0.0",
+        hatch3rVersion: "1.5.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+      };
+    }
+
+    // Negative case 1: invalid schema shape — mcp is null. Pre-fix, the
+    // validator short-circuited at `obj.mcp === null` and returned false here,
+    // but never produced a structured HatchError because no test pinned it.
+    it("rejects mcp=null with HatchError CONFIG_ERROR", async () => {
+      const rootDir = await setup();
+      const data = baseManifest();
+      data.mcp = null;
+      await writeManifestJson(rootDir, data);
+      try {
+        await readManifest(rootDir);
+        throw new Error("expected throw did not occur");
+      } catch (e) {
+        expect(e).toBeInstanceOf(HatchError);
+        expect((e as HatchError).errorCode).toBe("CONFIG_ERROR");
+        expect((e as HatchError).exitCode).toBe(1);
+      }
+    });
+
+    // Negative case 2: invalid schema shape — mcp is an array masquerading as
+    // an object. `typeof [] === "object"` so the pre-fix validator accepted
+    // this; the tightened validator rejects via Array.isArray(obj.mcp).
+    it("rejects mcp=[] (array masquerading as object) with HatchError CONFIG_ERROR", async () => {
+      const rootDir = await setup();
+      const data = baseManifest();
+      data.mcp = [];
+      await writeManifestJson(rootDir, data);
+      try {
+        await readManifest(rootDir);
+        throw new Error("expected throw did not occur");
+      } catch (e) {
+        expect(e).toBeInstanceOf(HatchError);
+        expect((e as HatchError).errorCode).toBe("CONFIG_ERROR");
+        expect((e as HatchError).exitCode).toBe(1);
+      }
+    });
+
+    // Negative case 3: missing required field — mcp.servers is null. Adapters
+    // call `manifest.mcp.servers.length` and threw TypeError pre-fix.
+    it("rejects mcp.servers=null with HatchError CONFIG_ERROR", async () => {
+      const rootDir = await setup();
+      const data = baseManifest();
+      data.mcp = { servers: null };
+      await writeManifestJson(rootDir, data);
+      try {
+        await readManifest(rootDir);
+        throw new Error("expected throw did not occur");
+      } catch (e) {
+        expect(e).toBeInstanceOf(HatchError);
+        expect((e as HatchError).errorCode).toBe("CONFIG_ERROR");
+        expect((e as HatchError).exitCode).toBe(1);
+      }
+    });
+
+    // Negative case 4: unexpected type — mcp.servers is a number, not an array.
+    it("rejects mcp.servers=123 (unexpected type) with HatchError CONFIG_ERROR", async () => {
+      const rootDir = await setup();
+      const data = baseManifest();
+      data.mcp = { servers: 123 };
+      await writeManifestJson(rootDir, data);
+      try {
+        await readManifest(rootDir);
+        throw new Error("expected throw did not occur");
+      } catch (e) {
+        expect(e).toBeInstanceOf(HatchError);
+        expect((e as HatchError).errorCode).toBe("CONFIG_ERROR");
+        expect((e as HatchError).exitCode).toBe(1);
+      }
+    });
+
+    // Negative case 5: mixed-type entries — mcp.servers contains a non-string.
+    // Mirrors the per-entry guard already in place for `tools` at hatchJson.ts:246.
+    it("rejects mcp.servers=[123, 'github'] (mixed-type entries) with HatchError CONFIG_ERROR", async () => {
+      const rootDir = await setup();
+      const data = baseManifest();
+      data.mcp = { servers: [123, "github"] };
+      await writeManifestJson(rootDir, data);
+      try {
+        await readManifest(rootDir);
+        throw new Error("expected throw did not occur");
+      } catch (e) {
+        expect(e).toBeInstanceOf(HatchError);
+        expect((e as HatchError).errorCode).toBe("CONFIG_ERROR");
+        expect((e as HatchError).exitCode).toBe(1);
+      }
+    });
+
+    // Positive control: a well-formed mcp block still loads. Pins the fact
+    // that the tightened validator did not over-restrict the happy path.
+    it("accepts well-formed mcp={ servers: ['github', 'context7'] }", async () => {
+      const rootDir = await setup();
+      const data = baseManifest();
+      data.mcp = { servers: ["github", "context7"] };
+      await writeManifestJson(rootDir, data);
+      const result = await readManifest(rootDir);
+      expect(result).not.toBeNull();
+      expect(result!.mcp.servers).toEqual(["github", "context7"]);
+    });
+  });
+
   // 1.7.1: Bug fix for clean+reinit losing GitHub Projects v2 IDs and other
   // user/platform-specific manifest fields. Helpers below are the centralized
   // extract/apply pair called from src/cli/commands/clean.ts (capture path)

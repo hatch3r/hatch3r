@@ -169,17 +169,18 @@ export const AVAILABLE_CLI_TOOLS = {
       linux: [{ manager: "apt", command: "sudo apt install jq" }],
       win: [{ manager: "scoop", command: "scoop install jq" }],
     },
-    // Release-watch: monitor jqlang/jq releases for a tagged build past 1.8.1
-    // that includes the upstream patches for CVE-2026-32316 et al; remove the
-    // securityNote once the recommended install version is on a patched tag.
-    // Cycle 9 D21-SA21.3-F03 (C9-H87): the 2026-04-15 oss-sec batch enumerated
-    // CVE-2026-40612 (stack overflow in jv_contains), CVE-2026-43894 (integer
-    // overflow), and CVE-2026-43896 (stack overflow in recursive object merge)
-    // explicitly; three additional CVE IDs from the same batch were not
-    // assigned canonical IDs in the audit sources and remain referenced by
-    // batch (seclists.org/oss-sec/2026/q2/141).
+    // Cycle 10 D21-SA21.3-F-21.3.1/F-21.3.2 (F-21.7.1): jq 1.8.1 (2025-07-01)
+    // remains the only tagged release at 2026-05-27 (330 days). The April-May
+    // 2026 disclosure cluster on https://github.com/jqlang/jq/security/advisories
+    // listed 10+ GHSA entries covering stack-overflow, integer-overflow, and
+    // NUL-truncation classes — all triggerable by attacker-controlled JSON or
+    // jq-filter inputs. Until a tagged release supersedes 1.8.1, mitigations
+    // are install-side (input validation, sandbox isolation) rather than
+    // tool-version-side. minVersion floors the install at the only tag that
+    // patches the 2024 CVE-2023-49355 + CVE-2024-53427 1.7.x cluster.
+    minVersion: ">=1.8.1",
     securityNote:
-      "CVE-2026-32316: jq 1.8.1 ships with a heap buffer overflow in expression evaluation; six additional CVEs disclosed 2026-04-15 are patched on main but no tagged release yet — three confirmed by ID (CVE-2026-40612 stack overflow in jv_contains, CVE-2026-43894 integer overflow, CVE-2026-43896 stack overflow in recursive object merge); the remaining three are referenced by oss-sec batch (https://seclists.org/oss-sec/2026/q2/141). Avoid invoking on untrusted JSON inputs until the next jq tagged release supersedes 1.8.1.",
+      "Multiple unfixed advisories on jq 1.8.1 (the only tagged release as of 2026-05-27). See https://github.com/jqlang/jq/security/advisories for the canonical roster — at audit time the upstream tab listed 10+ GHSA entries (April-May 2026), all stack-overflow / integer-overflow / NUL-truncation classes triggerable by attacker-controlled JSON or attacker-controlled jq filter paths. Validate JSON inputs externally (e.g. python json.tool or jaq) or sandbox jq in a network-isolated container before running on untrusted input.",
     homepage: "https://github.com/jqlang/jq",
   },
   yq: {
@@ -284,8 +285,29 @@ export const AVAILABLE_CLI_TOOLS = {
     },
     homepage: "https://github.com/facebook/zstd",
   },
+  curl: {
+    id: "curl",
+    probe: "curl",
+    description: "HTTP/S transfer tool — POST/GET/PUT, file upload, custom headers, cookies, scripting",
+    category: "http",
+    tier: 1,
+    install: {
+      mac: [{ manager: "brew", command: "brew install curl" }],
+      linux: [{ manager: "apt", command: "sudo apt install curl" }],
+      win: [{ manager: "winget", command: "winget install cURL.cURL" }],
+    },
+    // Cycle 10 D21-SA21.4-F02: curl 8.20.0 (released 2026-04-29) supersedes
+    // a seven-CVE batch disclosed Mar-Apr 2026 — five Medium credential-leak
+    // and connection-reuse advisories plus two SMB / netrc redirect issues —
+    // affecting versions 7.12.0 through 8.19.0. The fix version 8.20.0 is
+    // documented clean in curl.se/docs/vuln-8.20.0.html.
+    minVersion: ">=8.20.0",
+    securityNote:
+      "CVE-2026-7168 / 7009 / 6429 / 6253 / 6276 / 3805 / 3783: curl <8.20.0 carries seven Medium-and-Low credential-leak and connection-reuse vulnerabilities (cross-proxy Digest leak, OCSP stapling bypass, netrc credential leak, redirect-to-proxy credential leak, stale-cookie leak, SMB use-after-free, netrc token leakage on redirect). Upgrade to 8.20.0 (released 2026-04-29) before using curl against authenticated endpoints over untrusted networks.",
+    homepage: "https://curl.se/",
+  },
 
-  // ── Tier 2 (11 tools, conditional) ──────────────────────────────
+  // ── Tier 2 (13 tools, conditional) ──────────────────────────────
   playwright: {
     id: "playwright",
     probe: "playwright",
@@ -299,6 +321,46 @@ export const AVAILABLE_CLI_TOOLS = {
       win: [{ manager: "npm", command: "npm install -D @playwright/test && npx playwright install" }],
     },
     homepage: "https://playwright.dev/",
+  },
+  httpie: {
+    id: "httpie",
+    probe: "http",
+    description: "Human-friendly HTTP/S client with intuitive UI, JSON output, syntax highlighting, and session management",
+    category: "http",
+    tier: 2,
+    trigger: "web-project",
+    install: {
+      mac: [{ manager: "brew", command: "brew install httpie" }],
+      linux: [{ manager: "snap", command: "sudo snap install httpie" }],
+      win: [{ manager: "pipx", command: "pipx install httpie" }],
+    },
+    // Cycle 10 D21-SA21.4-F03: httpie/cli last published 3.2.4 on 2024-11-01
+    // (572 days at audit). Project still under maintenance — 3.2.4 itself was
+    // a certificate-loading fix — but cadence has slowed. Tag stable so the
+    // staleness heuristic does not auto-flag the long gap as abandonment.
+    releaseCadence: "stable",
+    homepage: "https://httpie.io/",
+  },
+  xh: {
+    id: "xh",
+    probe: "xh",
+    description: "Fast Rust HTTP/S client with HTTPie-compatible syntax — HTTP/2 + HTTP/3 support, single-binary install",
+    category: "http",
+    tier: 2,
+    trigger: "web-project",
+    install: {
+      mac: [{ manager: "brew", command: "brew install xh" }],
+      linux: [{ manager: "cargo", command: "cargo install xh --locked" }],
+      win: [{ manager: "winget", command: "winget install ducaale.xh" }],
+    },
+    // Cycle 10 D21-SA21.4-F04: xh v0.25.3 (2025-12-16) — 162 days at audit,
+    // mid-Medium-band per D21 currency check (90-180 days). Cadence is roughly
+    // quarterly per release history (v0.24.0 Feb 2025, v0.24.1 May 2025,
+    // v0.25.0 Sep 2025, v0.25.3 Dec 2025). minVersion floors at the latest
+    // stable so Windows / Linux installs upgrade past any earlier 0.24.x build.
+    minVersion: ">=0.25.3",
+    releaseCadence: "quarterly",
+    homepage: "https://github.com/ducaale/xh",
   },
   duckdb: {
     id: "duckdb",
@@ -448,7 +510,7 @@ export const AVAILABLE_CLI_TOOLS = {
     homepage: "https://difftastic.wilfred.me.uk/",
   },
 
-  // ── Tier 3 (8 tools, opt-in advanced) ───────────────────────────
+  // ── Tier 3 (10 tools, opt-in advanced) ──────────────────────────
   rtk: {
     id: "rtk",
     probe: "rtk",
@@ -562,6 +624,52 @@ export const AVAILABLE_CLI_TOOLS = {
       "CVE-2026-33414 (Windows only): Podman before 5.8.2 is vulnerable to PowerShell command injection in `podman machine init --image` on the Hyper-V backend, allowing Hyper-V VM escape. Upgrade to 5.8.2 or later on Windows; mac and linux builds are unaffected.",
     homepage: "https://podman.io/",
   },
+  dasel: {
+    id: "dasel",
+    probe: "dasel",
+    description: "Cross-format selector — JSON / YAML / TOML / XML / CSV under one path-query DSL",
+    category: "data",
+    tier: 3,
+    install: {
+      mac: [{ manager: "brew", command: "brew install dasel" }],
+      linux: [{ manager: "go", command: "go install github.com/tomwright/dasel/v3/cmd/dasel@latest" }],
+      win: [{ manager: "scoop", command: "scoop install dasel" }],
+    },
+    // Cycle 10 D21-SA21.3-F-21.3.5/F-21.3.6 (F-21.7.1): dasel v3.11.0
+    // (2026-05-19) closes a 3-CVE cluster credited to researcher kq5y on
+    // the upstream security tab — GHSA-m6xr-fvfg-5g64 (CVE-2026-46378,
+    // High, selector-lexer DoS), GHSA-m5j3-4634-c2vq (CVE-2026-46377,
+    // High, index-out-of-range panic), GHSA-4fcp-jxh7-23x8
+    // (CVE-2026-33320, Moderate, YAML alias expansion DoS).
+    minVersion: ">=3.11.0",
+    securityNote:
+      "CVE-2026-46377 / CVE-2026-46378 / CVE-2026-33320 (all fixed in v3.11.0): dasel before 3.11.0 has selector-lexer DoS and panic vulnerabilities on attacker-controlled input plus an unbounded YAML alias-expansion DoS. Avoid running dasel on untrusted input until upgraded to 3.11.0 or later.",
+    homepage: "https://github.com/TomWright/dasel",
+  },
+  "container-use": {
+    id: "container-use",
+    probe: "container-use",
+    description: "Dagger sandbox runtime for agentic coding environments (pre-1.0; see caveat)",
+    category: "container",
+    tier: 3,
+    caveat: "pre-1.0-stale-no-security-policy",
+    install: {
+      mac: [{ manager: "brew", command: "brew install dagger/tap/container-use" }],
+      linux: [{ manager: "curl", command: "curl -fsSL https://raw.githubusercontent.com/dagger/container-use/main/install.sh | bash" }],
+      win: [{ manager: "curl", command: "curl -fsSL https://raw.githubusercontent.com/dagger/container-use/main/install.sh | bash" }],
+    },
+    // Cycle 10 D21-SA21.6-F03/F07 (F-21.7.1): dagger/container-use v0.4.2
+    // shipped 2025-08-19 — 281 days at audit. Upstream README flags
+    // "in early development and actively evolving"; no SECURITY.md is
+    // published. D15 sandbox-escape control references container-use
+    // alongside playwright and docker, so the catalog needs an entry
+    // even though the tool is pre-1.0. releaseCadence intentionally NOT
+    // "stable" so the staleness heuristic keeps emitting amber flags
+    // until upstream resumes tagging.
+    minVersion: ">=0.4.2",
+    releaseCadence: "quarterly",
+    homepage: "https://github.com/dagger/container-use",
+  },
 } as const satisfies Record<CliToolId, CliToolMeta>;
 
 /** Tier-1 default-on tools (the picker pre-checks these). */
@@ -576,6 +684,7 @@ export const TIER1_CLI_TOOLS: readonly CliToolId[] = [
   "sd",
   "ast-grep",
   "zstd",
+  "curl",
 ] as const;
 
 /**
@@ -584,7 +693,7 @@ export const TIER1_CLI_TOOLS: readonly CliToolId[] = [
  * condition holds for the active `RepoInfo`/`Platform`.
  */
 export const TIER2_CLI_TOOLS_BY_TRIGGER: Readonly<Record<Tier2Trigger, readonly CliToolId[]>> = {
-  "web-project": ["playwright"],
+  "web-project": ["playwright", "httpie", "xh"],
   "data-project": ["duckdb", "qsv"],
   "rust-project": ["taplo"],
   "python-project": ["taplo"],
@@ -605,6 +714,8 @@ export const TIER3_CLI_TOOLS: readonly CliToolId[] = [
   "miller",
   "csvkit",
   "podman",
+  "dasel",
+  "container-use",
 ] as const;
 
 /**

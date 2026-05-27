@@ -2,7 +2,7 @@
 id: hatch3r-feature-plan
 type: command
 orchestrator: true
-agentPipeline: [hatch3r-researcher, hatch3r-docs-writer]
+agentPipeline: [hatch3r-researcher, hatch3r-docs-writer, hatch3r-ui, hatch3r-ux, hatch3r-security, hatch3r-reliability, hatch3r-testability, hatch3r-scalability, hatch3r-performance, hatch3r-maintainability, hatch3r-enhancability]
 description: Design a new capability -- draft user stories, acceptance criteria, data model, API surface, and sub-issue breakdown as an epic-shaped todo.md for greenfield features
 tags: [planning, orchestration]
 quality_charter: agents/shared/quality-charter.md
@@ -11,8 +11,8 @@ cache_friendly: true
 parallel_tool_default: true
 triage_tiers: [1, 2, 3]
 sub_agents_spawned:
-  count: 4
-  rationale: Four parallel hatch3r-researcher modes per feature brief — codebase-impact, feature-design, architecture, risk-pitfalls — dispatched concurrently in Step 3; a docs-writer composes the spec on their merged output.
+  count: 13
+  rationale: Four parallel hatch3r-researcher modes per feature brief — codebase-impact, feature-design, architecture, risk-pitfalls — dispatched concurrently in Step 3; a docs-writer composes the spec on their merged output; the 9 CQ vector specialists (ui/ux/security/reliability/testability/scalability/performance/maintainability/enhancability) advise pre-write on the measurable floors that the spec must encode (axe-core threshold, OAuth depth, OTel + SLO scaffolding, mandate-map test class, etc.).
 ---
 
 ## §0 Detect Ambiguity (P8 B1)

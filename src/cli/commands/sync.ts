@@ -6,6 +6,7 @@ import { readManifest, writeManifest } from "../../manifest/hatchJson.js";
 import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
 import { checkContextBudget, formatBudgetWarning } from "../../adapters/contextBudget.js";
 import { safeWriteFile } from "../../merge/safeWrite.js";
+import { withSnapshot } from "../../pipeline/snapshot.js";
 import { sweepOrphansForAdapter, formatOrphanCleanupDiagnostic, type OrphanCleanupEntry } from "../../merge/orphanCleanup.js";
 import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
 import { HATCH3R_DIR, HatchError, WORKTREE_INCLUDE_FILE, type AdapterOutput, type GenerationMode } from "../../types.js";
@@ -303,6 +304,34 @@ export async function syncCommand(
   // emission, per blueprint v2 decision #3). Adapters source canonical
   // content from the bundled package via resolveBundledContentRoot.
   const canonicalContentRoot = resolveBundledContentRoot();
+
+  // Decision 27 (Bucket 2.2) wiring: snapshot every file `sync` is about
+  // to overwrite before the adapter loop runs. Captures the manifest plus
+  // every path the prior run recorded in managedFiles +
+  // managedFilesByAdapter so a single `hatch3r rollback --session=<id>`
+  // reverts the whole sync. `--dry-run` skips capture since nothing
+  // mutates. Worktree include is included whenever worktree is enabled;
+  // tombstones handle the "did not exist before" case for first-run
+  // adapter additions.
+  const syncSnapshotPaths: string[] = [join(rootDir, HATCH3R_DIR, "hatch.json")];
+  if (m.worktree?.enabled) {
+    syncSnapshotPaths.push(join(rootDir, WORKTREE_INCLUDE_FILE));
+  }
+  for (const rel of m.managedFiles) {
+    syncSnapshotPaths.push(join(rootDir, rel));
+  }
+  if (m.managedFilesByAdapter) {
+    for (const paths of Object.values(m.managedFilesByAdapter)) {
+      for (const rel of paths) syncSnapshotPaths.push(join(rootDir, rel));
+    }
+  }
+  const syncSnapshot = await withSnapshot(
+    "sync",
+    Array.from(new Set(syncSnapshotPaths)),
+    async (_sessionId) => undefined,
+    { projectRoot: rootDir, dryRun: !!opts.dryRun, onWarn: warn },
+  );
+  const syncSessionId = syncSnapshot.sessionId;
 
   const generationMode: GenerationMode = opts.minimal ? "minimal" : "standard";
   if (opts.minimal) {
@@ -735,6 +764,14 @@ export async function syncCommand(
   const boxTitle = opts.dryRun
     ? "Sync dry run complete"
     : adapterFailures.length > 0 ? "Sync complete (with warnings)" : "Sync complete";
+
+  // Decision 27 (Bucket 2.2): when a snapshot was captured, surface the
+  // session id so the operator knows the rollback target without scanning
+  // `hatch3r rollback list`.
+  if (syncSessionId) {
+    summaryLines.push("");
+    summaryLines.push(`${chalk.dim("Snapshot:")} ${syncSessionId} ${chalk.dim(`(revert: hatch3r rollback --session=${syncSessionId})`)}`);
+  }
 
   printBox(
     boxTitle,

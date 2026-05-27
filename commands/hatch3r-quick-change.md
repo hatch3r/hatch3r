@@ -2,7 +2,7 @@
 id: hatch3r-quick-change
 type: command
 orchestrator: true
-agentPipeline: [hatch3r-implementer, hatch3r-lint-fixer, hatch3r-reviewer, hatch3r-fixer, hatch3r-test-writer, hatch3r-security-auditor]
+agentPipeline: [hatch3r-implementer, hatch3r-lint-fixer, hatch3r-reviewer, hatch3r-fixer, hatch3r-test-writer, hatch3r-security-auditor, hatch3r-ui, hatch3r-ux, hatch3r-security, hatch3r-reliability, hatch3r-testability, hatch3r-scalability, hatch3r-performance, hatch3r-maintainability, hatch3r-enhancability]
 description: Lightweight command for small changes not worth tracking on the board. Adaptive ceremony with inline or sub-agent implementation, batch support, and soft scope guards.
 tags: [implementation, orchestration]
 quality_charter: agents/shared/quality-charter.md
@@ -11,8 +11,8 @@ cache_friendly: true
 parallel_tool_default: true
 triage_tiers: [1, 2, 3]
 sub_agents_spawned:
-  count: 6
-  rationale: Six-stage pipeline per agentPipeline — implementer (one per independent area in batch mode), lint-fixer, reviewer ↔ fixer review loop, then parallel test-writer + security-auditor; final-quality runs in parallel where independent.
+  count: 15
+  rationale: Six-stage core pipeline (implementer + lint-fixer + reviewer ↔ fixer + test-writer + security-auditor) plus 9 CQ vector specialists (ui/ux/security/reliability/testability/scalability/performance/maintainability/enhancability) dispatched conditionally per their trigger conditions. Tier 1 trivial edits skip CQ specialists per Phase Skip Criteria.
 ---
 
 ## §0 Detect Ambiguity (P8 B1)

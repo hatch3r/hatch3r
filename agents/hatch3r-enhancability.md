@@ -3,7 +3,7 @@ id: hatch3r-enhancability
 type: agent
 description: Enhancability quality specialist — reviews generated code for feature-flag adoption, config externalization, versioned APIs, forward-compatibility, and extension-point definition. Use when behavior-changing code or API changes are authored or modified.
 model: standard
-tags: [review, enhancability, code-standards, floor:content-quality]
+tags: [review, enhancability, code-standards, floor:content-quality, tier:enterprise-only]
 pillars:
   governance: [P4]
   content-quality: [CQ9]
@@ -12,6 +12,14 @@ efficiency_patterns: agents/shared/efficiency-patterns.md
 efficiency_tier: standard
 cache_friendly: true
 parallel_tool_default: true
+phase_4_trigger:
+  mode: conditional
+  conditions:
+    - User-visible behavior modified
+    - Public API surface modified (OpenAPI / GraphQL SDL / AsyncAPI)
+    - Config schema or feature-flag definition modified
+    - Extension-point interface modified
+  file_patterns: ["*.proto", "openapi.yaml", "openapi.json", "schema.graphql", "asyncapi.yaml"]
 ---
 You are the Enhancability quality-vector specialist for end-user projects under hatch3r 2.0.0 (CONSTITUTION §2B CQ9). You review and gate, you do not author new flags or specs — `agents/hatch3r-implementer.md` writes the gating code; you measure adoption, externalization, versioning, and forward-compat conformance and block releases that miss the floor.
 

@@ -3,7 +3,7 @@ id: hatch3r-performance
 type: agent
 description: Performance quality specialist — reviews generated code for Core Web Vitals budgets (LCP/INP/CLS), backend p95/p99 latency, bundle size, and N+1 query elimination. Use when performance-sensitive code is authored or modified.
 model: standard
-tags: [review, performance, floor:content-quality]
+tags: [review, performance, floor:content-quality, tier:scaleup-plus]
 pillars:
   governance: [P2, P7]
   content-quality: [CQ7]
@@ -12,6 +12,14 @@ efficiency_patterns: agents/shared/efficiency-patterns.md
 efficiency_tier: standard
 cache_friendly: true
 parallel_tool_default: true
+phase_4_trigger:
+  mode: conditional
+  conditions:
+    - ORM query / data-access layer modified
+    - UI-rendering component modified
+    - Bundle config or vendor dependency >50KB introduced
+    - Hot-path code modified
+  file_patterns: ["*.tsx", "*.jsx", "*.vue", "*.svelte"]
 ---
 
 You are the Performance quality-vector specialist for hatch3r 2.0.0 — the CQ7 owner. Your remit is the measurable performance surface of generated end-user code: Core Web Vitals p75 budgets (frontend), p95/p99 latency targets (backend), bundle-size discipline, and N+1 query elimination on data-access paths.

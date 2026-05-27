@@ -44,6 +44,15 @@ Every task MUST follow this four-phase pipeline: **Phase 1 — Research** (`hatc
 | `hatch3r-ci-watcher` | CI failure diagnosis | Conditional — CI fails |
 | `hatch3r-architect` | Architecture design | Conditional — architectural decisions needed |
 | `hatch3r-devops` | CI/CD and deployment | Conditional — infrastructure tasks |
+| `hatch3r-ui` | CQ1 — WCAG 2.2 AA + design-token + four-state + reuse | Conditional — UI component / theme / token files modified |
+| `hatch3r-ux` | CQ2 — error-recovery, first-run success, decisions-per-flow, announcements | Conditional — flow / modal / route-transition / error-state files modified |
+| `hatch3r-security` | CQ3 — OAuth 2.1 + OIDC + DPoP, supply-chain (SBOM / cosign), OWASP ASI | Conditional — auth / release-workflow / cookie / session code modified |
+| `hatch3r-reliability` | CQ4 — OTel, SLO, RED+USE, RFC 9457 errors, circuit-breaker / retry | Conditional — service handler / OTel / SLO / resilience code modified |
+| `hatch3r-testability` | CQ5 — mandate-map test class, real-deal-first, coverage, AI eval coverage | Conditional — test code modified or mandate-map feature class added |
+| `hatch3r-scalability` | CQ6 — stateless handlers, back-pressure, idempotency keys, pool sizing | Conditional — request handler / queue / connection-pool / cache code modified |
+| `hatch3r-performance` | CQ7 — CWV (LCP / INP / CLS), p95/p99 latency, bundle size, N+1 elimination | Conditional — data-access / UI-rendering / bundle config modified |
+| `hatch3r-maintainability` | CQ8 — duplication, complexity, pattern reuse, expand-contract migrations | Conditional — any code mutation; schema / API spec changes |
+| `hatch3r-enhancability` | CQ9 — feature flags, config externalization, versioned APIs, extension points | Conditional — user-visible behavior / public API / config schema modified |
 
 ## Deep Context Integration
 
@@ -186,6 +195,21 @@ Launch Phase 4 specialists in parallel, bounded by `max_phase4_parallel` (defaul
 | `hatch3r-dependency-auditor` | Conditional | Dependency files modified (package.json, go.mod, Cargo.toml, requirements.txt, Gemfile, pom.xml, pubspec.yaml, mix.exs, composer.json, and their lockfiles) |
 | `hatch3r-architect` | Conditional | Architectural decisions, new modules/services |
 | `hatch3r-devops` | Conditional | CI/CD or infrastructure changes |
+| `hatch3r-ui` (CQ1) | Conditional | UI component / theme / token files modified (`*.{tsx,jsx,vue,svelte}`, `tailwind.config.*`, design-token registries) |
+| `hatch3r-ux` (CQ2) | Conditional | Flow / modal / route-transition / error-state files modified; microcopy or i18n strings changed |
+| `hatch3r-security` (CQ3) | Conditional | Auth / JWT / OAuth / WebAuthn code modified; release workflow modified; cookie or session handling modified |
+| `hatch3r-reliability` (CQ4) | Conditional | Service handler / OTel / SLO / retry / circuit-breaker code modified; Kubernetes probe manifests modified |
+| `hatch3r-testability` (CQ5) | Conditional | Test code added or modified; mandate-map feature class introduced; coverage threshold or runner config modified |
+| `hatch3r-scalability` (CQ6) | Conditional | Request handler / queue client / connection-pool / cache / background-job code modified |
+| `hatch3r-performance` (CQ7) | Conditional | ORM query / data-access layer / UI-rendering component / bundle config modified; vendor dependency >50KB introduced |
+| `hatch3r-maintainability` (CQ8) | Conditional | Any code mutation (duplication + complexity scan); schema / migration / API spec (OpenAPI / GraphQL SDL / Protobuf) modified |
+| `hatch3r-enhancability` (CQ9) | Conditional | User-visible behavior modified; public API surface modified (OpenAPI / GraphQL SDL / AsyncAPI); config schema or feature-flag definition modified |
+
+**Scope disambiguation (legacy vs CQ specialists).** Some legacy specialists overlap in scope with CQ-vector specialists; the orchestrator dispatches BOTH when triggered — each operates within its declared boundary:
+- `hatch3r-a11y-auditor` runs the deep ARIA / reduced-motion sweep; `hatch3r-ui` runs the broader CQ1 vector (axe-core + design-token + four-state + component reuse).
+- `hatch3r-security-auditor` runs the always-on Phase 4 security floor; `hatch3r-security` runs the CQ3 vector (OAuth 2.1 + OIDC + DPoP, supply-chain SBOM/provenance/cosign, OWASP ASI controls).
+- `hatch3r-perf-profiler` runs the conditional performance profile; `hatch3r-performance` runs the CQ7 vector (CWV budgets, p95/p99 latency, bundle size, N+1 elimination).
+Per-agent scope boundaries are documented in each agent file's opening section.
 
 **Project-Type-Aware Specialist Selection:**
 

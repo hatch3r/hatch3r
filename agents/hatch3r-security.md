@@ -13,6 +13,12 @@ efficiency_patterns: agents/shared/efficiency-patterns.md
 efficiency_tier: standard
 cache_friendly: true
 parallel_tool_default: true
+phase_4_trigger:
+  mode: conditional
+  conditions:
+    - Auth / JWT / OAuth / WebAuthn code modified
+    - Release workflow modified
+    - Cookie / session handling modified
 ---
 
 > Last updated: 2026-05-26

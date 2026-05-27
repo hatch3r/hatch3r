@@ -613,8 +613,44 @@ export class ClaudeAdapter extends BaseAdapter {
     if (mcp) {
       const claudeMcp: Record<string, unknown> = {};
       for (const [name, entry] of Object.entries(mcp)) {
+        // D9-C-1 (Pillar P6): Claude Code's MCP loader reads the
+        // tool-execution timeout from the public `timeout` field in
+        // milliseconds — per https://code.claude.com/docs/en/mcp
+        // (accessed 2026-05-27): "Set a per-server tool execution
+        // timeout by adding a `timeout` field in milliseconds to that
+        // server's `.mcp.json` entry". Our canonical schema stores the
+        // operator-supplied value as the private-prefixed `_timeout`
+        // (validated by `mcp-utils.ts::validateMcpEntry`) so that the
+        // underscore-prefixed `_` namespace remains the contract for
+        // hatch3r-internal fields. The Claude adapter is therefore the
+        // last hop where the private name must be translated to the
+        // public one before emission. Without this translation the
+        // operator-configured timeout was silently dropped (Claude
+        // Code ignores unknown underscore-prefixed keys), with the
+        // server falling back to the runtime default.
+        //
+        // Other private-prefixed fields preserved by `readFilteredMcp`
+        // (`_pinned_sha256`, `_trust_bypass`) are framework-internal
+        // policy markers consumed by `validateMcpHttpEndpoint` at
+        // generation time; they have no Claude Code runtime meaning
+        // and are stripped here so they do not surface in the emitted
+        // `.mcp.json`. `_description` and `_disabled` are already
+        // stripped upstream by `readFilteredMcp` (see
+        // `BaseAdapter.readFilteredMcp` in `base.ts`).
+        const { _timeout, _pinned_sha256, _trust_bypass, ...publicEntry } = entry;
         const type = entry.command ? "stdio" : entry.url ? "http" : undefined;
-        const withType = type ? { type, ...entry } : { ...entry };
+        const timeout =
+          typeof _timeout === "number" && _timeout > 0 ? _timeout : undefined;
+        // Suppress unused-binding lint for the stripped policy markers
+        // — referencing them here documents that the destructure is
+        // intentional rather than dead code.
+        void _pinned_sha256;
+        void _trust_bypass;
+        const withType: Record<string, unknown> = {
+          ...(type !== undefined ? { type } : {}),
+          ...(timeout !== undefined ? { timeout } : {}),
+          ...publicEntry,
+        };
         claudeMcp[name] = transformEnvVarSyntax(withType, "claude");
       }
       results.push(output(".mcp.json", JSON.stringify({ mcpServers: claudeMcp }, null, 2)));

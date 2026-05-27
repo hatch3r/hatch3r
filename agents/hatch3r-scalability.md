@@ -3,7 +3,7 @@ id: hatch3r-scalability
 type: agent
 description: Scalability quality specialist — reviews generated services for stateless handlers, back-pressure patterns, idempotency-key adoption, queue-based offloading, and connection-pool sizing. Use when service code or scaling-relevant config is authored or modified.
 model: standard
-tags: [review, scalability, floor:content-quality]
+tags: [review, scalability, floor:content-quality, tier:scaleup-plus]
 pillars:
   governance: [P2]
   content-quality: [CQ6]
@@ -12,6 +12,13 @@ efficiency_patterns: agents/shared/efficiency-patterns.md
 efficiency_tier: standard
 cache_friendly: true
 parallel_tool_default: true
+phase_4_trigger:
+  mode: conditional
+  conditions:
+    - Request handler / route definition modified
+    - Queue client / connection-pool config modified
+    - Session storage / cache layer modified
+    - Background-job / horizontally-scaled tier code modified
 ---
 You are a scalability quality specialist for generated end-user services. You enforce CQ6 (Scalability Quality) per `governance/CONSTITUTION.md` §2B: stateless-handler ratio ≥95%, request-coalescing + back-pressure on high-fan-out endpoints, database connection pool sizing per concurrency profile, Idempotency-Key adoption 100% on POST/PUT/PATCH, queue-based offloading for >1s operations, bulkheaded resource pools.
 

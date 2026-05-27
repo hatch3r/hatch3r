@@ -15,12 +15,14 @@ cache_friendly: true
 ```
 Task Progress:
 - [ ] Step 1: Read the issue and all relevant specs
+- [ ] Step 1c: Design System Inventory (if UI) — invoke `hatch3r-design-system-detect`
 - [ ] Step 2: Produce an implementation plan
 - [ ] Step 2b: Test-first approach (TDD alternative — optional)
 - [ ] Step 3: Implement the vertical slice
 - [ ] Step 4: Write tests (unit, integration, security, E2E)
 - [ ] Step 5: Verify quality gates
 - [ ] Step 5b: Browser verification (if UI)
+- [ ] Step 5c: UI/UX Verification Gate (if UI) — invoke `hatch3r-ui-ux-verify`; all 9 gates must pass before Step 6
 - [ ] Step 6: Open PR
 ```
 
@@ -34,6 +36,14 @@ Task Progress:
 - For external library docs and current best practices, follow the project's tooling hierarchy.
 
 > **Ambiguity detection (P8 B1):** This skill's Step 1 already requires reading `requirements-elicitation` answers and stopping on ambiguity per the Error Handling block. The canonical ambiguity protocol is `agents/shared/user-question-protocol.md` — use the platform-native question tool when scope, acceptance criteria, or irreversibility remain unresolved after Step 1.
+
+## Step 1c: Design System Inventory (if UI)
+
+Skip this step if acceptance criteria do not touch UI (no new component, no new page or route, no modification to an existing component or visual surface, no design-token change). Trigger: any file path matching `**/*.{tsx,jsx,vue,svelte}` or `**/components/**` would be created or modified.
+
+- Invoke `skills/hatch3r-design-system-detect` BEFORE writing any UI code. The skill produces a Design System Inventory: token source, component-library version, breakpoint set, theming convention, reuse-vs-extend-vs-create verdict.
+- Embed the inventory in the Step 2 plan under "Convention alignment" so the implementer can choose reuse > extend > create per `rules/hatch3r-design-system-detection.md`.
+- Skipping detection is a regression — features that invent new tokens or duplicate primitives are rejected at the Step 5c verdict.
 
 ## Step 2: Implementation Plan
 
@@ -104,6 +114,15 @@ Skip this step if the feature has no user-facing UI changes.
 - If the feature is responsive, test at different viewport sizes.
 - Capture screenshots showing the feature working as expected.
 
+## Step 5c: UI/UX Verification Gate (if UI)
+
+Skip this step if the feature has no user-facing UI changes. Trigger: same surface match as Step 1c (`**/*.{tsx,jsx,vue,svelte}` or `**/components/**`). Browser verification (Step 5b) records that the surface renders; this step records that the surface meets the CQ1/CQ2/CQ7 measurement floor.
+
+- Invoke `skills/hatch3r-ui-ux-verify` after Step 5b and BEFORE Step 6 (PR open).
+- Record a single-line verdict per gate in the format `GATE_N: PASS|FAIL <evidence-path>` and aggregate them in the PR description.
+- A single FAIL on a required gate blocks PR opening regardless of browser-verification screenshots or QA-validation status. Resolve the failing gate or surface a BLOCKED report to the orchestrator with the failing gate + evidence; do not open the PR.
+- Gate 9 (manual screen-reader pass) is required at release-cut time only; PR-time runs skip Gate 9 per the skill's "When this skill runs" section.
+
 ## Step 6: Open PR
 
 Use the project's PR template. Include:
@@ -140,8 +159,18 @@ You MUST spawn these agents via the Task tool (`subagent_type: "generalPurpose"`
 - [ ] Unit + integration tests cover new logic
 - [ ] Security rules tested (if data model changed)
 - [ ] Entitlement gates enforced server-side (if gated)
-- [ ] Accessibility requirements met (if UI)
+- [ ] Design System Inventory recorded via `skills/hatch3r-design-system-detect` (if UI)
 - [ ] Browser-verified against acceptance criteria (if UI)
+- [ ] UI/UX Verification Gate (`skills/hatch3r-ui-ux-verify`) — all 9 gates report PASS (if UI):
+  - [ ] **Gate 1** — Automated a11y scan (axe-core via Playwright): 0 serious + 0 critical violations on every interactive route; WCAG 2.2 AA target including SC 2.5.8 / SC 2.4.11 / SC 2.5.7. Specialist: `hatch3r-ui` (CQ1). Trigger: any change touching a route or component file in scope.
+  - [ ] **Gate 2** — Scripted keyboard trace: 100% interactive elements reached, 0 traps, 0 focus-visibility failures. Specialist: `hatch3r-ux` (CQ2 flow ownership) cross-referenced with `hatch3r-ui` (focus management). Trigger: any keyboard-reachable element added or modified.
+  - [ ] **Gate 3** — Accessibility-tree snapshot: exactly one `<h1>` per route, landmark coverage (`banner`/`main`/`nav`/`contentinfo`), every form input labelled, every image has `alt` or `role="presentation"`. Specialist: `hatch3r-ui` (CQ1). Trigger: structural change to a route or page.
+  - [ ] **Gate 4** — Four-state coverage check: `loading` + `empty` + `error` + `partial` snapshots present for every async surface per `rules/hatch3r-ux-states-and-flows.md`. Specialist: `hatch3r-ui` (CQ1 four-state contract owner). Trigger: any `useQuery` / `useSWR` / `fetch` / `axios` introduced or modified.
+  - [ ] **Gate 5** — Visual regression baseline: 0 unintentional drift via `playwright.toHaveScreenshot()` or Chromatic/Percy; baselines committed. Specialist: `hatch3r-ui` (CQ1). Trigger: layout-affecting CSS, template, or token change.
+  - [ ] **Gate 6** — Microcopy lint: no filler tokens ("oops", "whoops", "something went wrong"), corrective verb in every error string, `autocomplete` attribute on `email`/`password`/`name`/`address` inputs. Specialist: `hatch3r-ux` (CQ2 microcopy owner). Trigger: any user-facing string added or modified.
+  - [ ] **Gate 7** — Core Web Vitals (p75, mobile slow-4G + 4x CPU throttle): LCP ≤2.5s, INP ≤200ms, CLS ≤0.1 per `governance/CONSTITUTION.md` §2B CQ7. Specialist: `hatch3r-performance` (CQ7). Trigger: any change to the route's render tree, hydration, or critical-path asset.
+  - [ ] **Gate 8** — AI-UX checks (when feature ships LLM-driven UI): streaming hooks in use, tool-call cards visible by default, human-approval gates on side-effectful tools, cancel/abort wired to an `AbortController`. Specialist: `hatch3r-ui` (CQ1) cross-referenced with `hatch3r-ux` (CQ2) per `rules/hatch3r-ai-ux-patterns.md`. Trigger: any `useChat` / `useCompletion` / `streamUI` import or LLM-output rendering surface.
+  - [ ] **Gate 9** — Manual screen-reader pass (per release, not per PR): one human pass with VoiceOver or NVDA on the key user flow; trace documented in release notes. Specialist: `hatch3r-ux` (CQ2 human verification owner). Trigger: release-cut; skipped on per-PR runs.
 - [ ] Performance budgets maintained
 - [ ] Privacy invariants respected
 - [ ] Rollout plan documented

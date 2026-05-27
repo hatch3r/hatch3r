@@ -3,7 +3,7 @@ import { mkdtemp, writeFile, readFile, rm, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { HatchError } from "../../types.js";
-import { createSnapshot } from "../../pipeline/snapshot.js";
+import { createSnapshot, withSnapshot } from "../../pipeline/snapshot.js";
 
 // inquirer is mocked per-test so we can drive the confirmation prompt
 // without TTY interaction. Use `vi.mock` against the same module path the
@@ -177,6 +177,87 @@ describe("rollback command", () => {
       const out = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
       expect(out).toContain("list-one");
       expect(out).toContain("list-two");
+    });
+  });
+
+  // Decision 27 (Bucket 2.2) wiring integration: when a mutation command
+  // (init / sync / update / config / clean) wraps its disk writes with
+  // `withSnapshot`, `hatch3r rollback list` must enumerate the captured
+  // session, and `hatch3r rollback --session=<id>` must round-trip the
+  // mutations. Pre-fix, the same call chain produced an empty
+  // `.hatch3r/snapshots/` directory and `rollback list` always returned
+  // 0 sessions (F2.7-F1 / D11-C-3).
+  describe("orchestrator → rollback wiring (Decision 27)", () => {
+    it("a `sync`-namespaced withSnapshot run shows up in rollback list", async () => {
+      const fileA = join(projectRoot, "sync-output.txt");
+      await writeFile(fileA, "before-sync");
+
+      // Simulate the sync orchestrator's pre-mutation snapshot.
+      const captured = await withSnapshot(
+        "sync",
+        [fileA],
+        async () => {
+          // Simulate the adapter loop's mutation.
+          await writeFile(fileA, "after-sync");
+        },
+        { projectRoot },
+      );
+      expect(captured.sessionId).not.toBeNull();
+      expect(captured.sessionId!.startsWith("sync-")).toBe(true);
+
+      // rollback list must enumerate the session — pre-wiring this was empty.
+      const { rollbackListCommand } = await import("../../cli/commands/rollback.js");
+      await rollbackListCommand();
+      const out = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(out).toContain(captured.sessionId!);
+    });
+
+    it("each mutation-command namespace (init/sync/update/config/clean) is enumerated by rollback list", async () => {
+      const fileA = join(projectRoot, "all-cmds.txt");
+      await writeFile(fileA, "shared");
+
+      const base = Date.now();
+      const captured: string[] = [];
+      const commands = ["init", "sync", "update", "config", "clean"] as const;
+      let i = 0;
+      for (const cmd of commands) {
+        i += 1;
+        const stamped = new Date(base + i * 1000);
+        const out = await withSnapshot(
+          cmd,
+          [fileA],
+          async () => undefined,
+          { projectRoot, now: () => stamped },
+        );
+        captured.push(out.sessionId!);
+      }
+
+      const { rollbackListCommand } = await import("../../cli/commands/rollback.js");
+      await rollbackListCommand();
+      const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      for (const sid of captured) {
+        expect(stdout).toContain(sid);
+      }
+    });
+
+    it("`rollback --session=<id>` round-trips a captured mutation", async () => {
+      const fileA = join(projectRoot, "round-trip.txt");
+      await writeFile(fileA, "original-content");
+
+      const captured = await withSnapshot(
+        "update",
+        [fileA],
+        async () => {
+          await writeFile(fileA, "mutated-content");
+        },
+        { projectRoot },
+      );
+      expect(captured.sessionId).not.toBeNull();
+      expect(await readFile(fileA, "utf-8")).toBe("mutated-content");
+
+      const { rollbackCommand } = await import("../../cli/commands/rollback.js");
+      await rollbackCommand({ session: captured.sessionId!, yes: true });
+      expect(await readFile(fileA, "utf-8")).toBe("original-content");
     });
   });
 });

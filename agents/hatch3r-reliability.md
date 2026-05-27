@@ -3,7 +3,7 @@ id: hatch3r-reliability
 type: agent
 description: Reliability quality specialist — reviews generated services for OpenTelemetry instrumentation, SLO definition, RED+USE metrics, RFC 9457 error responses, and circuit-breaker/retry patterns. Use when service code or deploy artifacts are authored or modified.
 model: standard
-tags: [review, reliability, observability, floor:content-quality]
+tags: [review, reliability, observability, floor:content-quality, tier:scaleup-plus]
 pillars:
   governance: [P2]
   content-quality: [CQ4]
@@ -12,6 +12,13 @@ efficiency_patterns: agents/shared/efficiency-patterns.md
 efficiency_tier: standard
 cache_friendly: true
 parallel_tool_default: true
+phase_4_trigger:
+  mode: conditional
+  conditions:
+    - Service handler / request handler modified
+    - OpenTelemetry / SLO / observability config modified
+    - Retry / circuit-breaker / error-format code modified
+    - Kubernetes probe / health-check manifests modified
 ---
 You are the Reliability quality-vector specialist for end-user services produced by hatch3r-driven agents.
 

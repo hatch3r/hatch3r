@@ -235,12 +235,22 @@ function validateManifest(data: unknown): data is HatchManifest {
     !Array.isArray(obj.tools) ||
     obj.features === null ||
     typeof obj.features !== "object" ||
+    Array.isArray(obj.features) ||
     obj.mcp === null ||
     typeof obj.mcp !== "object" ||
+    Array.isArray(obj.mcp) ||
     !Array.isArray(obj.managedFiles)
   ) {
     return false;
   }
+
+  // F3.3-C1: Validate `mcp.servers` sub-schema — required, must be string[].
+  // Mirrors the pattern used for `tools` below. Previously `mcp` was permitted
+  // as `{}` with no servers field, leaving downstream consumers (adapters that
+  // read `manifest.mcp.servers.length`) to throw TypeError instead of HatchError.
+  const mcp = obj.mcp as Record<string, unknown>;
+  if (!Array.isArray(mcp.servers)) return false;
+  if (!(mcp.servers as unknown[]).every((s) => typeof s === "string")) return false;
 
   // #108: Validate tools array entries are known tool strings
   for (const tool of obj.tools as unknown[]) {

@@ -81,6 +81,8 @@ import { createWorkspaceManifest, writeWorkspaceManifest } from "../../workspace
 import { syncWorkspaceRepos } from "../../workspace/sync.js";
 import type { WorkspaceRepoEntry } from "../../workspace/types.js";
 import { parseGitRemote, parseGitDefaultBranch, getGitRemoteUrl, detectPlatformFromRemote, detectRepoGitIdentity } from "../../workspace/git.js";
+import { createSnapshot } from "../../pipeline/snapshot.js";
+import { estimateCost, formatCostBlock } from "../../pipeline/costEstimator.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONTENT_ROOT = findPackageRoot(__dirname);
@@ -398,6 +400,30 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   const { rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, customization, cliTools } = options;
   const totalSteps = 4;
 
+  // Decision 24 / Bucket 2.x: surface a pre-execution cost estimate so an
+  // operator sees the fan-out and token envelope before mutations begin.
+  // `init` is a single-pass orchestrator with no sub-agent fan-out — use the
+  // "light" triage tier baseline with an explicit `subAgentDeclared: 0` so the
+  // emitted block reflects in-process work (no sub-agents).
+  const costEstimate = estimateCost({
+    triageTier: "light",
+    subAgentDeclared: 0,
+    webResearchDeclared: 0,
+  });
+  if (!isQuiet()) {
+    info(chalk.dim(`Pre-execution cost estimate:\n${formatCostBlock(costEstimate)}`));
+  }
+
+  // Decision 27 / Bucket 2.2: every long-running orchestrator captures a
+  // pre-mutation snapshot under `.hatch3r/snapshots/<sessionId>/` so a single
+  // `hatch3r rollback --session=<id>` can revert the run. Session id format
+  // matches the canonical pattern used by `src/pipeline/snapshot.ts` examples
+  // (`init-<ISO-timestamp>`, alphanumeric + hyphen, no path separators).
+  const initSessionId = `init-${new Date()
+    .toISOString()
+    .replace(/[:.]/g, "-")
+    .replace(/-Z$/, "Z")}`;
+
   // Wave 6: relocate any pre-1.9 `.agents/` state (hatch.json, learnings/,
   // handoffs/, mcp/mcp.json) to `.hatch3r/` before reading the manifest so a
   // re-init over a legacy install discovers the manifest at the new path.
@@ -467,6 +493,13 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   );
   s3.start();
 
+  // Decision 27 (Bucket 2.2) wiring coordination: the pre-mutation
+  // snapshot for init is captured below as part of F1.1-C1's two-pass
+  // adapter handling (Pass 1 collects outputs, Pass 2 snapshots then
+  // writes). The session id is defined further up (`initSessionId`) so
+  // the success summary can surface it as the rollback target.
+  const sessionId = initSessionId;
+
   const adapterFailures: { tool: string; error: string }[] = [];
   // Task #11 orphan-cleanup: populate managedFilesByAdapter on init so the
   // first sync has a history to diff against (otherwise first-run behaviour
@@ -477,23 +510,28 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   // from a user-repo `.agents/` directory. No root AGENTS.md is emitted at
   // init time (per blueprint v2 decision #3).
   const canonicalContentRoot = resolveBundledContentRoot();
+
+  // Decision 27 wiring: two-pass adapter handling so we can snapshot the
+  // pre-mutation state of every file we are about to write. Pass 1 calls
+  // `adapter.generate(...)` (in-memory, no disk writes) and collects outputs.
+  // Pass 2 captures the snapshot then issues the actual `safeWriteFile`
+  // calls. Failure semantics from the prior single-pass loop are preserved:
+  // a per-adapter throw in Pass 1 is recorded and propagated through the
+  // existing `adapterFailures` accounting; all-adapters-failed still throws
+  // HatchError before the manifest is written (C7-H8 invariant).
+  type PendingAdapter = {
+    tool: Tool;
+    warnings: string[];
+    outputs: Awaited<ReturnType<ReturnType<typeof getAdapter>["generate"]>>;
+  };
+  const pendingAdapters: PendingAdapter[] = [];
   for (const tool of tools) {
     const adapter = getAdapter(tool);
     try {
       // Wave 5: pass rootDir as userRepoRoot so D20 overrides under
       // .hatch3r/overrides/ are picked up by readCanonicalFiles.
       const outputs = await adapter.generate(canonicalContentRoot, manifest, rootDir);
-      for (const w of adapter.warnings) { warn(w); }
-      const toolPaths: string[] = [];
-      for (const out of outputs) {
-        await safeWriteFile(join(rootDir, out.path), out.content, {
-          managedContent: out.managedContent,
-          appendIfNoBlock: true,
-        });
-        addManagedFile(manifest, out.path);
-        toolPaths.push(out.path);
-      }
-      manifest.managedFilesByAdapter[tool] = toolPaths;
+      pendingAdapters.push({ tool, warnings: adapter.warnings.slice(), outputs });
     } catch (err) {
       adapterFailures.push({
         tool: TOOL_DISPLAY_NAMES[tool] ?? tool,
@@ -514,6 +552,53 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
         "Re-run with `--verbose` to see per-adapter detail, then check `npx hatch3r validate` for upstream content errors.",
       );
     }
+  }
+
+  // Decision 27: capture a pre-mutation snapshot of every file we are about
+  // to write. The snapshot module's tombstone mode records "did not exist"
+  // for files we will create, so `hatch3r rollback --session=<id>` deletes
+  // newly-created files and restores pre-existing files byte-for-byte.
+  // Silent Failure Contract: snapshot I/O failures route through warn() and
+  // never abort init. The mutation phase remains best-effort revertable but
+  // an unwritable `.hatch3r/snapshots/` does not block a fresh install.
+  const mutationPaths: string[] = [];
+  for (const pa of pendingAdapters) {
+    for (const out of pa.outputs) {
+      mutationPaths.push(join(rootDir, out.path));
+    }
+  }
+  if (manifest.worktree?.enabled) {
+    mutationPaths.push(join(rootDir, WORKTREE_INCLUDE_FILE));
+  }
+  mutationPaths.push(join(rootDir, HATCH3R_DIR, "hatch.json"));
+  mutationPaths.push(join(rootDir, HATCH3R_DIR, "learnings", "README.md"));
+  mutationPaths.push(join(rootDir, HATCH3R_DIR, "handoffs", "README.md"));
+  if (features.mcp && mcpServers.length > 0) {
+    mutationPaths.push(join(rootDir, HATCH3R_DIR, "mcp", "mcp.json"));
+  }
+  try {
+    await createSnapshot(initSessionId, mutationPaths, { projectRoot: rootDir });
+  } catch (err) {
+    warn(
+      `Pre-mutation snapshot failed for session ${initSessionId}: ` +
+      `${err instanceof Error ? err.message : String(err)}. ` +
+      `Continuing init; \`hatch3r rollback --session=${initSessionId}\` will not be available.`,
+    );
+  }
+
+  // Pass 2: write the adapter outputs we collected in Pass 1.
+  for (const pa of pendingAdapters) {
+    for (const w of pa.warnings) { warn(w); }
+    const toolPaths: string[] = [];
+    for (const out of pa.outputs) {
+      await safeWriteFile(join(rootDir, out.path), out.content, {
+        managedContent: out.managedContent,
+        appendIfNoBlock: true,
+      });
+      addManagedFile(manifest, out.path);
+      toolPaths.push(out.path);
+    }
+    manifest.managedFilesByAdapter[pa.tool] = toolPaths;
   }
   s3.succeed(step(3, totalSteps, adapterFailures.length > 0
     ? `Adapter output generated (${adapterFailures.length} failed)`
@@ -658,6 +743,7 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
       // of a non-existent `.agents/`.
       canonicalDir: HATCH3R_DIR,
       manifestPath: `${HATCH3R_DIR}/hatch.json`,
+      snapshotSessionId: sessionId,
     };
     console.log(JSON.stringify(payload));
     return;
@@ -693,6 +779,9 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   summaryLines.push("");
   summaryLines.push(label("State dir", `${HATCH3R_DIR}/`));
   summaryLines.push(label("Manifest", `${HATCH3R_DIR}/hatch.json`));
+  if (sessionId) {
+    summaryLines.push(label("Snapshot", `${sessionId} (revert with: hatch3r rollback --session=${sessionId})`));
+  }
 
   // C9-H29 (D10-SA10.3-F2): Multi-CTA post-init hint based on context.
   // Surfaces the 4 README paths (greenfield: project-spec + roadmap;
@@ -871,10 +960,23 @@ export async function initCommand(
   if (!skipBanner) {
     printBanner();
   }
-  // Decision 27 (Bucket 2.2): consume the --resume flag at the surface so
-  // commander does not reject it as unknown. Init remains single-pass; full
-  // resume wiring lands when init gains multi-wave decomposition.
-  void opts.resume;
+  // Decision 27 (Bucket 2.2): `--resume` is reserved CLI surface. Init
+  // currently runs as a single-pass orchestrator that captures a snapshot
+  // (rollback works) but does not write checkpoints (no mid-run pause point).
+  // Surface the gap explicitly rather than silently discarding the flag —
+  // a documented-but-inert option is a stronger contract violation than
+  // simply not shipping it (per D1 synthesis F1.1 / Cycle 10 C1
+  // recommendation). When init learns multi-wave decomposition, this branch
+  // becomes the dispatch path that reads `.init-workspace/checkpoint.json`
+  // via `readCheckpoint()` from `src/pipeline/checkpoint.ts`.
+  if (opts.resume) {
+    warn(
+      "`hatch3r init --resume` is not yet wired in 2.0.0: init runs as a " +
+      "single-pass orchestrator with no checkpoint write. Continuing as a " +
+      "fresh init. Use `hatch3r rollback --session=<id>` after the run if " +
+      "you need to revert.",
+    );
+  }
 
   // C8-D1-M4: Validate `--preset`, `--project-type`, and `--team-size` flag
   // values eagerly, before any prompt or detection work runs. Previously

@@ -1,38 +1,36 @@
 ---
 id: hatch3r-hooks
-type: command
-orchestrator: false
-description: Define and manage event-driven hooks that activate agents on project events
+type: skill
+description: Define, edit, and manage event-driven hooks that activate agents on project events. Tool-agnostic — adapters translate hook definitions into tool-native configurations during `npx hatch3r sync`.
 tags: [devops, orchestration]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
-parallel_tool_default: true
 ---
 
-## §0 Detect Ambiguity (P8 B1)
+# Hooks — Event-Driven Agent Activation
+
+## Quick Start
+
+```
+Task Progress:
+- [ ] Step 0: Detect ambiguity (P8 B1)
+- [ ] Step 1: Discover current state
+- [ ] Step 2: Define a hook (add) — select event, agent, conditions, write definition file
+- [ ] Step 3: Edit an existing hook
+- [ ] Step 4: Remove a hook
+- [ ] Step 5: Sync hooks to tools
+```
+
+## Step 0 — Detect Ambiguity (P8 B1)
 
 Before any action, scan the user's request and provided context for unresolved questions in scope, acceptance criteria, irreversibility, or constraint conflicts (contradictory inputs, missing target, unknown convention). If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Acceptable to proceed without asking ONLY when scope is single-target, single-concern, and the brief alone is testable. Any residual ambiguity discovered mid-workflow invokes the same protocol.
-
-## Agent Pipeline
-
-This command runs as a single orchestrator without sub-agent delegation. Hook definition and management are performed inline.
 
 ## Learnings Consultation
 
 If `.hatch3r/learnings/` exists, scan for learnings related to hook configurations, event trigger patterns, or prior hook issues before starting.
 
-# Hooks — Event-Driven Agent Activation
-
-Define, edit, and manage event-driven hooks that automatically activate hatch3r agents when specific project events occur. Hook definitions are tool-agnostic — the adapter pipeline translates them into tool-native configurations during `npx hatch3r sync`.
-
----
-
-## Workflow
-
-Execute these steps in order. **Do not skip any step.** Ask the user at every checkpoint marked with ASK.
-
-### Step 1: Discover Current State
+## Step 1: Discover Current State
 
 1. Check `hooks/` for existing hook definition files (`.md` files with frontmatter).
 2. Read `.hatch3r/hatch.json` for configured tools and features.
@@ -48,13 +46,11 @@ Hooks Feature: {enabled/disabled}
 
 **ASK:** "Current hooks: {list or 'none'}. Tools: {list}. What would you like to do? (a) Add a new hook, (b) Edit existing hook, (c) Remove a hook, (d) List all hooks, (e) Sync hooks to tools"
 
----
-
-### Step 2: Define Hook
+## Step 2: Define Hook
 
 For adding a new hook:
 
-#### 2a. Select Event
+### 2a. Select Event
 
 Present available events with descriptions:
 
@@ -81,7 +77,7 @@ Present available events with descriptions:
 
 **ASK:** "Select an event for this hook."
 
-#### 2b. Select Agent
+### 2b. Select Agent
 
 Present available hatch3r agents:
 
@@ -99,14 +95,14 @@ If the user wants a custom agent name not in this list, accept it but warn that 
 
 **ASK:** "Select an agent to activate when this event fires."
 
-#### 2c. Define Conditions (Optional)
+### 2c. Define Conditions (Optional)
 
 - **Glob patterns:** Which files trigger this hook (e.g., `src/**/*.ts`, `*.css`)
 - **Branch patterns:** Which branches (e.g., `main`, `release/*`)
 
 **ASK:** "Add conditions? (glob patterns, branch patterns, or skip for 'always activate')"
 
-#### 2d. Write Hook Definition File
+### 2d. Write Hook Definition File
 
 Generate the hook definition file at `hooks/{event}-{agent-short-name}.md`:
 
@@ -141,9 +137,7 @@ Claude Code event mapping: **Claude Code's native hook events (PreToolUse, PostT
 
 **ASK:** "Hook definition: {summary}. Create? (yes / adjust / cancel)"
 
----
-
-### Step 3: Edit Existing Hook
+## Step 3: Edit Existing Hook
 
 For editing an existing hook:
 
@@ -154,9 +148,7 @@ For editing an existing hook:
 
 **ASK:** "Updated hook: {summary}. Save? (yes / revert / cancel)"
 
----
-
-### Step 4: Remove a Hook
+## Step 4: Remove a Hook
 
 1. List all hooks and ask which to remove.
 2. Show the hook definition.
@@ -165,9 +157,7 @@ For editing an existing hook:
 
 3. Delete the file. Warn that tool-specific generated files (e.g., `.cursor/rules/hatch3r-hook-*.mdc`) will be cleaned up on the next `npx hatch3r sync`.
 
----
-
-### Step 5: Sync Hooks to Tools
+## Step 5: Sync Hooks to Tools
 
 1. Read all hook definitions from `hooks/`.
 2. For each configured tool in `hatch.json`, describe what will be generated:
@@ -179,8 +169,6 @@ For editing an existing hook:
 **ASK:** "Hooks will generate these files: {list}. Run `npx hatch3r sync` to apply. (understood / sync now)"
 
 If user chooses "sync now", instruct them to run `npx hatch3r sync` in the terminal.
-
----
 
 ## Custom Events
 
@@ -210,8 +198,6 @@ In `hatch.json`:
 ```
 
 Custom events follow the same hook definition format as built-in events — create a hook file in `hooks/` with `event: custom:{domain}:{action}`.
-
----
 
 ## Hook Chaining
 
@@ -247,8 +233,6 @@ In `hatch.json`:
 
 Chains are triggered by referencing the chain ID as the hook target. Individual hook results (`pass`, `fail`, `skip`) determine whether the chain continues.
 
----
-
 ## Hook Execution Ordering
 
 When multiple hooks are registered for the same event:
@@ -280,8 +264,6 @@ For `pre-commit` with three hooks:
 2. `security-auditor` (priority 20) — runs second
 3. `test-writer` (priority 50) and `reviewer` (priority 50) — run in parallel, third
 
----
-
 ## Error Handling
 
 - `hooks/` doesn't exist: create it automatically.
@@ -297,5 +279,5 @@ For `pre-commit` with three hooks:
 - Never delete hook files without explicit user confirmation.
 - Always validate event names against the known events list.
 - Hook IDs must be unique across all hook definitions.
-- The command creates hook DEFINITIONS only — actual hook registration happens via `npx hatch3r sync`.
+- The skill creates hook DEFINITIONS only — actual hook registration happens via `npx hatch3r sync`.
 - Do not modify adapter output files directly — they are managed by the sync pipeline.

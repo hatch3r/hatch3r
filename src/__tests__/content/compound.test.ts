@@ -489,6 +489,11 @@ describe("compound system content validation", () => {
       // type. brownfield+team here drops ctx:greenfield-only items; the rest
       // ship. Items dropped by context are counted via
       // countProjectTypeExclusions + countTeamSizeExclusions.
+      //
+      // Cycle 10 F14.3-C1: the Decision 16 maturity-tier gate (`tier:*` /
+      // `floor:enterprise-only`) also drops items at the default maturity
+      // tier (solo). Non-protected items carrying any tier admission tag
+      // are subtracted alongside the greenfield-only set.
       const preset = getPreset("full");
       const selection = resolveSelection(preset, "brownfield", "team", contentIndex);
       const totalItems = Object.values(selection.items).reduce(
@@ -498,7 +503,16 @@ describe("compound system content validation", () => {
       const greenfieldOnly = contentIndex.items.filter(
         (i) => !i.protected && i.tags.includes("ctx:greenfield-only"),
       ).length;
-      expect(totalItems).toBe(contentIndex.items.length - greenfieldOnly);
+      const tierGated = contentIndex.items.filter(
+        (i) =>
+          !i.protected &&
+          !i.tags.includes("ctx:greenfield-only") &&
+          (i.tags.includes("tier:team-plus") ||
+            i.tags.includes("tier:scaleup-plus") ||
+            i.tags.includes("tier:enterprise-only") ||
+            i.tags.includes("floor:enterprise-only")),
+      ).length;
+      expect(totalItems).toBe(contentIndex.items.length - greenfieldOnly - tierGated);
     });
 
     it("standard preset selects more than minimal but not necessarily all", () => {

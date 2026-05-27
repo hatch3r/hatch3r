@@ -1,4 +1,5 @@
 import { rm } from "node:fs/promises";
+import { join } from "node:path";
 import chalk from "chalk";
 import inquirer from "inquirer";
 import {
@@ -11,12 +12,13 @@ import {
   step,
   label,
 } from "../shared/ui.js";
-import { HatchError, type CliToolsConfig, type ContentSelection, type CustomizationManifest, type Features, type Platform, type Tool } from "../../types.js";
+import { HATCH3R_DIR, HatchError, WORKTREE_INCLUDE_FILE, type CliToolsConfig, type ContentSelection, type CustomizationManifest, type Features, type Platform, type Tool } from "../../types.js";
 import { inventoryArtifacts, executeClean, backupLearnings, restoreLearnings, type CleanInventory } from "../../clean/index.js";
 import { runInit, type RunInitOptions } from "./init.js";
 import { analyzeRepo } from "../../detect/repoAnalyzer.js";
 import { extractPreservedManifestFields, type PreservedManifestFields } from "../../manifest/hatchJson.js";
 import { isBack } from "../shared/initSteps.js";
+import { withSnapshot } from "../../pipeline/snapshot.js";
 
 interface CapturedConfig {
   platform: Platform;
@@ -207,6 +209,27 @@ export async function cleanCommand(
   }
 
   // 7. Execute cleanup
+  // Decision 27 (Bucket 2.2): capture every file `executeClean` is about
+  // to delete BEFORE the rm calls run. The snapshot covers each adapter
+  // output, the manifest, and the worktree include — the same surface
+  // `inventoryArtifacts` enumerates. A subsequent `hatch3r rollback
+  // --session=<id>` restores all removed files (tombstone semantics do not
+  // apply because every captured path existed at snapshot time).
+  const cleanSnapshotPaths: string[] = inventory.adapterFiles.map((rel) => join(rootDir, rel));
+  if (inventory.manifestPresent) {
+    cleanSnapshotPaths.push(join(rootDir, HATCH3R_DIR, "hatch.json"));
+  }
+  if (inventory.worktreeInclude) {
+    cleanSnapshotPaths.push(join(rootDir, WORKTREE_INCLUDE_FILE));
+  }
+  const cleanSnap = await withSnapshot(
+    "clean",
+    cleanSnapshotPaths,
+    async (_sessionId) => undefined,
+    { projectRoot: rootDir, onWarn: warn },
+  );
+  const cleanSessionId = cleanSnap.sessionId;
+
   const s2 = createSpinner(step(2, 3, "Cleaning artifacts..."));
   s2.start();
   const result = await executeClean(rootDir, inventory, false);
@@ -305,6 +328,11 @@ export async function cleanCommand(
         if (inventory.envMcp) {
           summaryLines.push(`${chalk.green("✓")} .env.mcp preserved`);
         }
+        if (cleanSessionId) {
+          summaryLines.push(
+            `${chalk.dim("Pre-clean snapshot:")} ${cleanSessionId} ${chalk.dim(`(revert: hatch3r rollback --session=${cleanSessionId})`)}`,
+          );
+        }
 
         printBox("Reinit complete", summaryLines, "success");
       } catch (err) {
@@ -334,6 +362,10 @@ export async function cleanCommand(
   }
   if (inventory.hatch3rDir) {
     summaryLines.push(`${chalk.green("✓")} .hatch3r/ customizations preserved`);
+  }
+  if (cleanSessionId) {
+    summaryLines.push(`${chalk.dim("Snapshot:")} ${cleanSessionId}`);
+    summaryLines.push(`${chalk.dim("Revert with:")} hatch3r rollback --session=${cleanSessionId}`);
   }
   summaryLines.push("");
   summaryLines.push(`${chalk.cyan("→")} Run ${chalk.bold("hatch3r init")} when ready to set up again.`);

@@ -446,6 +446,89 @@ describe("ClaudeAdapter", () => {
     }
   });
 
+  // D9-C-1 (Pillar P6): the canonical schema stores the operator-configured
+  // MCP tool timeout under the private `_timeout` field, but Claude Code's
+  // MCP loader reads it from the public `timeout` field in milliseconds
+  // (https://code.claude.com/docs/en/mcp, accessed 2026-05-27).
+  // Regression test asserts that the Claude adapter translates `_timeout`
+  // -> `timeout` on emission and does not leak the private key — without
+  // this translation, operator timeouts are silently ignored and other
+  // private-prefixed framework-internal markers (`_pinned_sha256`,
+  // `_trust_bypass`) surface in the emitted artifact.
+  it("translates _timeout to public timeout field and strips private framework markers in .mcp.json", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-claude-mcp-timeout-"));
+    try {
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "mcp"), { recursive: true });
+      await writeFile(
+        join(agentsDir, "mcp", "mcp.json"),
+        JSON.stringify({
+          mcpServers: {
+            "stdio-server": {
+              command: "npx",
+              args: ["-y", "@scope/pkg@1.0.0"],
+              _timeout: 60000,
+            },
+            "http-server": {
+              url: "https://example.com/mcp",
+              _timeout: 120000,
+              _pinned_sha256: "a".repeat(64),
+              _trust_bypass: false,
+            },
+            "no-timeout-server": {
+              command: "npx",
+              args: ["-y", "@scope/other@1.0.0"],
+            },
+            "invalid-timeout-server": {
+              command: "npx",
+              args: ["-y", "@scope/third@1.0.0"],
+              _timeout: -1,
+            },
+          },
+        }),
+        "utf-8",
+      );
+      const manifest = makeManifest({
+        mcpServers: [
+          "stdio-server",
+          "http-server",
+          "no-timeout-server",
+          "invalid-timeout-server",
+        ],
+      });
+      const outputs = await adapter.generate(agentsDir, manifest);
+
+      const mcp = outputs.find((o) => o.path === ".mcp.json");
+      expect(mcp).toBeDefined();
+      const parsed = JSON.parse(mcp!.content);
+
+      // Valid positive _timeout is translated to public `timeout` field
+      // (milliseconds preserved 1:1 per docs).
+      expect(parsed.mcpServers["stdio-server"].timeout).toBe(60000);
+      expect(parsed.mcpServers["http-server"].timeout).toBe(120000);
+
+      // Private `_timeout` key never appears in the emitted JSON.
+      expect(parsed.mcpServers["stdio-server"]._timeout).toBeUndefined();
+      expect(parsed.mcpServers["http-server"]._timeout).toBeUndefined();
+      expect(mcp!.content).not.toContain("_timeout");
+
+      // Other private framework markers are stripped from emission.
+      expect(parsed.mcpServers["http-server"]._pinned_sha256).toBeUndefined();
+      expect(parsed.mcpServers["http-server"]._trust_bypass).toBeUndefined();
+      expect(mcp!.content).not.toContain("_pinned_sha256");
+      expect(mcp!.content).not.toContain("_trust_bypass");
+
+      // No timeout source means no public timeout key on the emission.
+      expect(parsed.mcpServers["no-timeout-server"].timeout).toBeUndefined();
+
+      // Invalid (non-positive) _timeout is dropped, not coerced.
+      expect(parsed.mcpServers["invalid-timeout-server"].timeout).toBeUndefined();
+      expect(parsed.mcpServers["invalid-timeout-server"]._timeout).toBeUndefined();
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("skips rules when features.rules is false", async () => {
     const manifest = makeManifest({ features: { rules: false } });
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);

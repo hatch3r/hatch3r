@@ -146,6 +146,25 @@ Skip this step if the issue has no user-facing UI changes.
 - Check the browser console for errors or warnings.
 - Capture screenshots as evidence.
 
+### 5c. UI/UX Verification Gate (if UI)
+
+**Trigger:** any file in `filesChanged` matching `**/*.{tsx,jsx,vue,svelte}` or any path under `**/components/**`. Skip when no path in the change set matches. Measurement criteria are defined in `agents/shared/quality-charter.md` lines 137-148 (Charter section "UI/UX quality (for agent-produced output in end-user projects)") — that section is binding via this agent's `quality_charter` frontmatter field.
+
+This gate is mandatory when triggered; passing Step 5b screenshot verification does not substitute for it. Step 5b confirms visual presence; Step 5c confirms the 2026 UI/UX floor (WCAG 2.2 AA conformance, design-token reuse, four-state surface contract, microcopy and tone, AI-UX patterns when applicable, Core Web Vitals).
+
+**Before writing any UI surface:**
+
+1. Invoke `skills/hatch3r-design-system-detect/SKILL.md` and consume its Design System Inventory output. Apply the precedence `reuse > extend > create` for tokens, primitives, and breakpoints — do not invent a duplicate token, do not author a primitive that already exists in the detected library, do not add a one-off media-query breakpoint outside the project's responsive strategy.
+2. If the detect skill reports `verdict: extend` or `verdict: create`, surface the rationale in the implementation result Notes so the reviewer can challenge the choice.
+
+**Before returning the structured result:**
+
+3. Invoke `skills/hatch3r-ui-ux-verify/SKILL.md` against every changed UI surface (route, component, async view). The skill runs 9 gates: axe-core (0 serious/critical violations), keyboard trace (every interactive element reachable + visible focus ring), a11y-tree snapshot (landmarks + labels), four-state coverage (loading + empty + error + partial), visual regression, microcopy lint, Core Web Vitals (LCP <=2.5s, INP <=200ms, CLS <=0.1 per CONSTITUTION §2B CQ7), AI-UX checks when applicable, and one human screen-reader pass per release.
+4. Record per-gate verdicts in the structured result under `**UI/UX verification gate:**` as `GATE_1: PASS|FAIL|DEFERRED-TO-RELEASE` through `GATE_9: PASS|FAIL|DEFERRED-TO-RELEASE`. For any `FAIL`, include the failing assertion message verbatim so the reviewer can reproduce. Gate 9 (human screen-reader pass) defaults to `DEFERRED-TO-RELEASE` on per-feature work and is required only at the release-cut boundary.
+5. Step 5c is `PASS` only when every gate that ran reports `PASS` (Gate 9 `DEFERRED-TO-RELEASE` is acceptable on per-feature work). Any non-deferred gate at `FAIL` blocks sign-off — see the Boundaries `Never:` rule.
+
+The Step 5c verdict is a first-class field in the Return Structured Result block below alongside Browser verification.
+
 ### 6. Return Structured Result
 
 Report back to the parent orchestrator with:
@@ -168,6 +187,19 @@ The `Delegation proof ID` field below is a short identifier the orchestrator quo
 **Browser verification:**
 - VERIFIED | SKIPPED (non-UI) | N/A (no browser MCP available)
 - (screenshots or observations if verified)
+
+**UI/UX verification gate (Step 5c):**
+- VERDICT: PASS | FAIL | SKIPPED (non-UI)
+- GATE_1 axe-core: PASS | FAIL
+- GATE_2 keyboard trace: PASS | FAIL
+- GATE_3 a11y-tree snapshot: PASS | FAIL
+- GATE_4 four-state coverage: PASS | FAIL
+- GATE_5 visual regression: PASS | FAIL
+- GATE_6 microcopy lint: PASS | FAIL
+- GATE_7 Core Web Vitals: PASS | FAIL
+- GATE_8 AI-UX checks: PASS | FAIL | N/A (no AI surface)
+- GATE_9 human screen-reader pass: PASS | DEFERRED-TO-RELEASE
+- (FAIL details: failing assertion verbatim, route, component, repro command)
 
 **Issues encountered:**
 - (any blockers, spec conflicts, or escalation items)
@@ -219,7 +251,23 @@ Apply this format whenever the implementation involves choosing between approach
 
 After this agent completes Phase 2, the orchestrator runs the Phase 3 review loop (`hatch3r-reviewer` + `hatch3r-fixer`, max 3 iterations). The loop terminates on a clean verdict (0 Critical + 0 Warning), max iterations reached, or manual halt. Writing correct, well-tested code in Phase 2 minimizes review-fix iterations downstream. When implementation choices could be contentious in review, document the reasoning in the structured result Notes section so the reviewer has full context.
 
-After the review loop, Phase 4 specialists (test-writer, security-auditor, docs-writer, lint-fixer, a11y-auditor, perf-profiler, dependency-auditor, architect, devops) run bounded by `max_phase4_parallel` (default `3`, env-overridable via `HATCH3R_MAX_PHASE4_PARALLEL`). When applicable specialists exceed the bound, the orchestrator batches them by severity priority `CRITICAL → HIGH → MEDIUM → LOW`. Implementer Notes that surface high-risk surfaces (security, perf, a11y) help the orchestrator schedule the right specialists into the earliest batch. See `rules/hatch3r-agent-orchestration.md` Phase 4 — Final Quality for batching semantics.
+After the review loop, Phase 4 specialists run bounded by `max_phase4_parallel` (default `3`, env-overridable via `HATCH3R_MAX_PHASE4_PARALLEL`). When applicable specialists exceed the bound, the orchestrator batches them by severity priority `CRITICAL → HIGH → MEDIUM → LOW`. Implementer Notes that surface high-risk surfaces (security, perf, a11y, content-quality CQ1-CQ9) help the orchestrator schedule the right specialists into the earliest batch. See `rules/hatch3r-agent-orchestration.md` Phase 4 — Final Quality for batching semantics.
+
+**Phase 4 specialist enumeration** — legacy + CQ floor specialists dispatched in parallel per CONSTITUTION §2B (CQ1-CQ9) and KDD #22:
+
+- **Legacy specialists:** `hatch3r-test-writer` (always), `hatch3r-security-auditor` (always), `hatch3r-docs-writer` (public API / architecture / UX changes), `hatch3r-lint-fixer` (lint or type errors present), `hatch3r-a11y-auditor` (UI or accessibility changes), `hatch3r-perf-profiler` (performance-sensitive changes), `hatch3r-dependency-auditor` (dependency manifest or lockfile modified), `hatch3r-architect` (new modules or service boundaries), `hatch3r-devops` (CI/CD or infrastructure changes).
+- **CQ floor specialists** (CONSTITUTION §2B, one per CQ1-CQ9 pillar; dispatched alongside legacy specialists, not in place of them):
+  - `hatch3r-ui` (CQ1) — dispatch when implementer touches `**/*.{tsx,jsx,vue,svelte}` or `**/components/**`. Surface a UI marker in implementer Notes when these globs are changed so the orchestrator schedules `hatch3r-ui` in the earliest Phase 4 batch.
+  - `hatch3r-ux` (CQ2) — dispatch when route handlers, page components, form components, navigation, or empty/error/loading-state surfaces change.
+  - `hatch3r-security` (CQ3) — dispatch when `src/auth/**`, `.github/workflows/*.yml`, OAuth/OIDC config, SBOM/provenance scripts, or release-pipeline files change (runs alongside `hatch3r-security-auditor`; CQ3 scope is supply-chain + OAuth 2.1 + OIDC + DPoP + WebAuthn server).
+  - `hatch3r-reliability` (CQ4) — dispatch when service handlers, OTel instrumentation, SLO files, or RFC 9457 error-response code changes.
+  - `hatch3r-testability` (CQ5) — dispatch when parsers, payment flows, RPC contracts, AI feature handlers, or test files change (per-feature mandate-map from CONSTITUTION §2B CQ5).
+  - `hatch3r-scalability` (CQ6) — dispatch when stateful handlers, back-pressure config, idempotency-key logic, queue producers/consumers, or connection-pool config changes.
+  - `hatch3r-performance` (CQ7) — dispatch when LCP/INP/CLS-affecting UI code, p95/p99-affecting backend code, bundle-size-affecting imports, or N+1 query candidates change (runs alongside `hatch3r-perf-profiler`; CQ7 enforces budget thresholds, perf-profiler runs the measurement).
+  - `hatch3r-maintainability` (CQ8) — dispatch when expand-contract migrations, API breaking-change candidates, duplication-risk patterns, or high cyclomatic-complexity branches change.
+  - `hatch3r-enhancability` (CQ9) — dispatch when feature flags, externalized config, versioned APIs, or extension-point definitions change.
+
+When the implementer's `filesChanged` list crosses any CQ trigger glob above, emit the matching CQ specialist names in the structured result Notes section so the orchestrator can fan out legacy + CQ specialists in parallel per `max_phase4_parallel`. CQ specialists are NOT a replacement for legacy specialists — scope overlap is resolved by role: CQ specialists enforce the CQ1-CQ9 measurable floors from CONSTITUTION §2B; legacy specialists run their pre-2.0.0 scopes.
 
 ## Error Handling During Implementation
 
@@ -240,7 +288,7 @@ When encountering errors during implementation, follow these protocols:
 
 - **Always:** Stay within acceptance criteria, write tests, verify quality gates, use stable IDs, follow the tooling hierarchy (platform CLI > platform MCP, Context7 for libraries, web research for current info)
 - **Ask first:** If acceptance criteria are contradictory or unclear, report BLOCKED with details. When surfacing a question to the user, follow `agents/shared/user-question-protocol.md` (native tool preferred; structured plain-text fallback).
-- **Never:** Create branches, commits, or PRs. Modify board status. Expand scope beyond the issue. Skip tests. Weaken security rules.
+- **Never:** Create branches, commits, or PRs. Modify board status. Expand scope beyond the issue. Skip tests. Weaken security rules. Sign off a UI implementation with Step 5c at FAIL on any non-deferred gate.
 
 </rules>
 
@@ -268,6 +316,9 @@ When encountering errors during implementation, follow these protocols:
 - tests/integration/rateLimit.test.ts -- 3 tests: end-to-end 429 response, Retry-After header, rate reset
 
 **Browser verification:** SKIPPED (non-UI)
+
+**UI/UX verification gate (Step 5c):**
+- VERDICT: SKIPPED (non-UI)
 
 **Issues encountered:**
 - None

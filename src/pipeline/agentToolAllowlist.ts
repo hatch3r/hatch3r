@@ -197,6 +197,84 @@ export const AGENT_TOOL_POLICIES: readonly AgentToolPolicy[] = [
     allowedTools: ["read", "search", "write", "execute"],
     description: "User-content authoring: read templates, search for ID collisions, write artifacts under .hatch3r/overrides/, execute mkdir -p for directory creation. No git, board, web, or mcp — external research is out of scope per the agent's documented tool allowlist (agents/hatch3r-creator.md §Tool Allowlist). Closes finding C9-C1 (ASI02 privilege-escalation gap).",
   },
+  // ── 2.0.0 quality-vector specialists (Finding F2.4-F1, Cycle 10 Wave 1) ──
+  //
+  // The 9 quality specialists below own the CQ1–CQ9 content-quality vectors
+  // (CONSTITUTION §2B). Each agent's `## Boundaries` section in
+  // agents/hatch3r-{vector}.md declares the agent as a *review-only* gate
+  // that delegates fix authorship to producer agents (hatch3r-test-writer,
+  // hatch3r-fixer, hatch3r-implementer, hatch3r-perf-profiler, etc.); see
+  // also CLAUDE.md §Two-Axis Pillar Framework. Least-privilege allowlist
+  // is therefore `["read", "search"]`: read source/proof_trace artefacts
+  // and grep across the codebase, but never mutate files or invoke shells.
+  // Closes the F2.4-F1 NO_POLICY denial path for these 9 ids under the
+  // Claude PreToolUse hook.
+  {
+    agentId: "hatch3r-ui",
+    allowedTools: ["read", "search"],
+    description: "CQ1 UI quality-vector specialist (review-only): read components/tokens/proof_trace artefacts and search for design-system + four-state contract coverage. No write/execute — fix authorship delegates to producer agents per agents/hatch3r-ui.md §Boundaries.",
+  },
+  {
+    agentId: "hatch3r-ux",
+    allowedTools: ["read", "search"],
+    description: "CQ2 UX quality-vector specialist (review-only): read flow definitions, focus-order traces, and aria-live audit reports and search for decision-budget overruns. No write/execute — fix authorship delegates to producer agents per agents/hatch3r-ux.md §Boundaries.",
+  },
+  {
+    agentId: "hatch3r-security",
+    allowedTools: ["read", "search"],
+    description: "CQ3 security quality-vector specialist (review-only): read authn/authz configs, container manifests, and proof_trace artefacts and search for exploit paths. No write/execute — fix authorship delegates to hatch3r-security-auditor and hatch3r-fixer per agents/hatch3r-security.md §Boundaries.",
+  },
+  {
+    agentId: "hatch3r-reliability",
+    allowedTools: ["read", "search"],
+    description: "CQ4 reliability quality-vector specialist (review-only): read SLO configs, OTel attribute keys, and RFC 9457 error envelopes and search for instrumentation gaps. No write/execute — fix authorship delegates to producer agents per agents/hatch3r-reliability.md §Boundaries.",
+  },
+  {
+    agentId: "hatch3r-testability",
+    allowedTools: ["read", "search"],
+    description: "CQ5 testability quality-vector specialist (review-only): read test artefacts, mutation reports, and contract-test ledgers and search for unjustified mocks. No write/execute — fix authorship delegates to hatch3r-test-writer per agents/hatch3r-testability.md §Boundaries.",
+  },
+  {
+    agentId: "hatch3r-scalability",
+    allowedTools: ["read", "search"],
+    description: "CQ6 scalability quality-vector specialist (review-only): read pool configs, queue topologies, Idempotency-Key adoption, and load-test artefacts and search for sticky-session assumptions. No write/execute — fix authorship delegates to producer agents per agents/hatch3r-scalability.md §Boundaries.",
+  },
+  {
+    agentId: "hatch3r-performance",
+    allowedTools: ["read", "search"],
+    description: "CQ7 performance quality-vector specialist (review-only): read Lighthouse CI reports, RUM aggregations, and bundle-analyzer output and search for CWV regressions. No write/execute — deep profiling delegates to hatch3r-perf-profiler per agents/hatch3r-performance.md §Boundaries.",
+  },
+  {
+    agentId: "hatch3r-maintainability",
+    allowedTools: ["read", "search"],
+    description: "CQ8 maintainability quality-vector specialist (review-only): read jscpd/oasdiff/buf-breaking output, ADR ledger, and complexity scans and search for premature-DRY refactors. No write/execute — refactor authorship delegates to producer agents per agents/hatch3r-maintainability.md §Boundaries.",
+  },
+  {
+    agentId: "hatch3r-enhancability",
+    allowedTools: ["read", "search"],
+    description: "CQ9 enhancability quality-vector specialist (review-only): read feature-flag configs, consumer-driven contract reports, and spec-diff gates and search for premature flag retirement. No write/execute — fix authorship delegates to producer agents per agents/hatch3r-enhancability.md §Boundaries.",
+  },
+  // ── 2.0.0 spec agents (Finding F2.4-F1, Cycle 10 Wave 1) ──
+  //
+  // The 2 spec agents below author one-pager / PRD / brownfield-spec
+  // deliverables under .hatch3r/spec/ (or wherever the project surfaces
+  // them). Each agent's `## Boundaries` section explicitly forbids
+  // implementation work ("spec only — architecture work routes to
+  // hatch3r-architect") but DOES allow writing the spec artefacts
+  // themselves. Least-privilege allowlist is therefore
+  // `["read", "search", "write"]`: read project context, search for
+  // existing patterns and consumer sets, and write the spec document.
+  // No execute/git/board — spec agents do not run tests or open PRs.
+  {
+    agentId: "hatch3r-greenfield-spec",
+    allowedTools: ["read", "search", "write"],
+    description: "Greenfield spec authoring: read project bootstrap context, search reference stacks/competitors, and write the 8 PRD deliverables. No execute/git/board/web — spec only, architecture work routes to hatch3r-architect per agents/hatch3r-greenfield-spec.md §Boundaries.",
+  },
+  {
+    agentId: "hatch3r-brownfield-spec",
+    allowedTools: ["read", "search", "write"],
+    description: "Brownfield spec authoring: read existing patterns, search consumer set via grep, and write migration-aware spec/ADR artefacts. No execute/git/board/web — spec only, replacement adoption routes to producer agents per agents/hatch3r-brownfield-spec.md §Boundaries.",
+  },
 ] as const;
 
 // ── Lookup helpers ───────────────────────────────────────────────

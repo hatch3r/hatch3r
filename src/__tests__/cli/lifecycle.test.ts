@@ -14,16 +14,33 @@ import { HATCH3R_VERSION } from "../../version.js";
  * where any adapter output drifts by even one byte. Skips `.git/` and
  * `node_modules/` (irrelevant + slow), and orphan `.tmp.<hex>` files
  * (atomic-write tmpfiles that may exist transiently).
+ *
+ * Cycle 10 F2.7-F1 / D11-C-3 wiring: `.hatch3r/snapshots/<sessionId>/` is
+ * excluded from the byte-identical comparison because each `sync` /
+ * `update` / `init` / `config` / `clean` run captures its own pre-mutation
+ * rollback target under a session id of the form
+ * `${command}-${ISO timestamp}` (`src/pipeline/snapshot.ts::buildSessionId`).
+ * The session-id timestamp is intentionally per-run — two consecutive
+ * idempotent syncs MUST produce two distinct snapshot directories so
+ * `hatch3r rollback --session=<id>` can revert each run independently.
+ * The idempotency invariant the test protects (adapter outputs, managed
+ * files, `hatch.json`, `.worktreeinclude`, wrap/insert round-trips) still
+ * holds — only the rollback ledger is per-session, analogous to how
+ * `.git/objects/` and journal entries are not compared between two
+ * equivalent operations.
  */
 async function snapshotProject(root: string): Promise<Map<string, string>> {
   const snapshot = new Map<string, string>();
-  async function walk(dir: string): Promise<void> {
+  async function walk(dir: string, relPathFromRoot: string): Promise<void> {
     const entries = await readdir(dir, { withFileTypes: true });
     for (const entry of entries) {
       const full = join(dir, entry.name);
+      const entryRel = relPathFromRoot ? `${relPathFromRoot}/${entry.name}` : entry.name;
       if (entry.isDirectory()) {
         if (entry.name === ".git" || entry.name === "node_modules") continue;
-        await walk(full);
+        // Skip per-session rollback ledger — see JSDoc above.
+        if (entryRel === ".hatch3r/snapshots") continue;
+        await walk(full, entryRel);
         continue;
       }
       if (!entry.isFile()) continue;
@@ -33,7 +50,7 @@ async function snapshotProject(root: string): Promise<Map<string, string>> {
       snapshot.set(relative(root, full), hash);
     }
   }
-  await walk(root);
+  await walk(root, "");
   return snapshot;
 }
 

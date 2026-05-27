@@ -480,7 +480,7 @@ export async function persistLearning(
 
   // Refuse to overwrite an existing learning file (mirrors writeHandoff
   // discipline and the `Never overwrite existing learning files` guardrail
-  // in `commands/hatch3r-learn.md`).
+  // in `skills/hatch3r-learn/SKILL.md`).
   let exists = false;
   try {
     await stat(targetPath);

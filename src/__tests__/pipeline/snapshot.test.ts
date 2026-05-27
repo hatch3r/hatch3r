@@ -4,10 +4,12 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import {
   applyRollback,
+  buildSessionId,
   createSnapshot,
   listSnapshots,
   sessionDir,
   snapshotsRoot,
+  withSnapshot,
   SNAPSHOT_FILES_DIR,
   SNAPSHOT_META_FILE,
   SNAPSHOT_SCHEMA_VERSION,
@@ -459,5 +461,155 @@ describe("pipeline/snapshot", () => {
   it("resolve helper exists for absolute-path normalization", () => {
     expect(typeof resolve).toBe("function");
     expect(typeof stat).toBe("function");
+  });
+
+  // Decision 27 (Bucket 2.2) wiring: cover the `withSnapshot` helper that
+  // the four mutation commands invoke before any disk write. The helper
+  // exists so a single `hatch3r rollback --session=<id>` can revert an
+  // entire run; these tests verify session-id construction, dry-run
+  // bypass, listing visibility, and round-trip rollback for each
+  // command-name namespace surfaced to the operator.
+  describe("buildSessionId", () => {
+    it("composes <command>-<ISO> with `:` and `.` replaced by `-`", () => {
+      const id = buildSessionId("sync", new Date("2026-05-27T12:34:56.789Z"));
+      expect(id).toBe("sync-2026-05-27T12-34-56-789Z");
+      expect(id.includes(":")).toBe(false);
+      expect(id.includes(".")).toBe(false);
+    });
+
+    it("is filesystem-safe (no `/` or `\\` after sanitization)", () => {
+      const id = buildSessionId("init", new Date("2026-01-01T00:00:00.000Z"));
+      expect(id.includes("/")).toBe(false);
+      expect(id.includes("\\")).toBe(false);
+    });
+  });
+
+  describe("withSnapshot", () => {
+    it("captures the supplied paths and returns the session id", async () => {
+      const fileA = join(projectRoot, "wire-a.txt");
+      await writeFile(fileA, "wire-a-original");
+      const fixedNow = new Date("2026-03-15T10:20:30.000Z");
+      let mutatorSawSessionId: string | null = null;
+      const out = await withSnapshot(
+        "sync",
+        [fileA],
+        async (sessionId) => {
+          mutatorSawSessionId = sessionId;
+          return "mutated" as const;
+        },
+        { projectRoot, now: () => fixedNow },
+      );
+      expect(out.result).toBe("mutated");
+      expect(out.sessionId).toMatch(/^sync-/);
+      expect(out.snapshotPath).not.toBeNull();
+      expect(out.count).toBe(1);
+      expect(mutatorSawSessionId).toBe(out.sessionId);
+
+      const sessions = await listSnapshots({ projectRoot });
+      expect(sessions.find((s) => s.sessionId === out.sessionId)).toBeDefined();
+    });
+
+    it("namespaces session ids by command name (init / sync / update / config / clean)", async () => {
+      const baseTime = Date.now();
+      const commands = ["init", "sync", "update", "config", "clean"] as const;
+      let i = 0;
+      for (const cmd of commands) {
+        i += 1;
+        // Ensure each session id has a distinct timestamp to avoid
+        // accumulation under the same directory.
+        const fixedNow = new Date(baseTime + i * 1000);
+        const out = await withSnapshot(
+          cmd,
+          [],
+          async () => undefined,
+          { projectRoot, now: () => fixedNow },
+        );
+        expect(out.sessionId).not.toBeNull();
+        expect(out.sessionId!.startsWith(`${cmd}-`)).toBe(true);
+      }
+    });
+
+    it("skips snapshot capture when dryRun=true", async () => {
+      const fileA = join(projectRoot, "wire-dry.txt");
+      await writeFile(fileA, "dry-original");
+      const out = await withSnapshot(
+        "sync",
+        [fileA],
+        async (sessionId) => {
+          expect(sessionId).toBeNull();
+          return "ok" as const;
+        },
+        { projectRoot, dryRun: true },
+      );
+      expect(out.result).toBe("ok");
+      expect(out.sessionId).toBeNull();
+      expect(out.snapshotPath).toBeNull();
+      expect(out.count).toBe(0);
+      const sessions = await listSnapshots({ projectRoot });
+      expect(sessions.length).toBe(0);
+    });
+
+    it("filters out empty/falsy entries before capture", async () => {
+      const fileA = join(projectRoot, "wire-filter.txt");
+      await writeFile(fileA, "filter-original");
+      const out = await withSnapshot(
+        "init",
+        ["", fileA, ""],
+        async () => undefined,
+        { projectRoot },
+      );
+      expect(out.count).toBe(1);
+    });
+
+    it("supports empty-paths snapshot so the session still appears in `rollback list`", async () => {
+      const out = await withSnapshot(
+        "init",
+        [],
+        async () => undefined,
+        { projectRoot },
+      );
+      expect(out.sessionId).not.toBeNull();
+      expect(out.count).toBe(0);
+      const sessions = await listSnapshots({ projectRoot });
+      expect(sessions.find((s) => s.sessionId === out.sessionId)).toBeDefined();
+    });
+
+    it("round-trip: a withSnapshot call followed by applyRollback restores the file", async () => {
+      const fileA = join(projectRoot, "wire-roundtrip.txt");
+      await writeFile(fileA, "roundtrip-original");
+      const captured = await withSnapshot(
+        "sync",
+        [fileA],
+        async () => {
+          await writeFile(fileA, "roundtrip-mutated");
+        },
+        { projectRoot },
+      );
+      const after = await readFile(fileA, "utf-8");
+      expect(after).toBe("roundtrip-mutated");
+
+      const result = await applyRollback(captured.sessionId!, { projectRoot });
+      expect(result.errors).toEqual([]);
+      expect(result.filesRestored).toBe(1);
+      const restored = await readFile(fileA, "utf-8");
+      expect(restored).toBe("roundtrip-original");
+    });
+
+    it("snapshot capture failure propagates and does not invoke the mutator", async () => {
+      const fileA = join(projectRoot, "wire-fail.txt");
+      await writeFile(fileA, "fail-original");
+      let mutatorRan = false;
+      await expect(
+        withSnapshot(
+          "bad/name",
+          [fileA],
+          async () => {
+            mutatorRan = true;
+          },
+          { projectRoot, now: () => new Date("2026-01-01T00:00:00.000Z") },
+        ),
+      ).rejects.toThrow(/invalid sessionId/);
+      expect(mutatorRan).toBe(false);
+    });
   });
 });

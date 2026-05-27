@@ -1,4 +1,7 @@
+import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { describe, it, expect } from "vitest";
+import { parse as parseYaml } from "yaml";
 import {
   AGENT_TOOL_POLICIES,
   ALL_TOOL_CATEGORIES,
@@ -11,6 +14,48 @@ import {
 } from "../../pipeline/agentToolAllowlist.js";
 import { parseFailureLog, formatLogEntry } from "../../pipeline/failureLog.js";
 import { HatchError } from "../../types.js";
+
+/**
+ * F2.4-F1 (Cycle 10 Wave 1, D2 Critical, ASI02): enumerate every published
+ * agent under `agents/*.md` at test time and assert each id has a registered
+ * AGENT_TOOL_POLICIES entry. The previous regression coverage hard-coded a
+ * small core-agent list (see `should have policies for all core agents`),
+ * which masked the 11 missing 2.0.0 agents (9 quality specialists + 2 spec
+ * agents) introduced in commit a5c8984. Under the Claude PreToolUse hook
+ * every NO_POLICY agent silently denies all tool calls; under Cursor/Copilot
+ * the readonly frontmatter is omitted so policies widen silently. This
+ * filesystem-enumeration test makes any future agent addition that forgets
+ * to register a policy a hard test failure.
+ *
+ * Only top-level `agents/*.md` files with frontmatter `type: agent` are in
+ * scope. Support files under `agents/shared/`, `agents/modes/`, and any
+ * non-agent frontmatter type are filtered out so the test stays aligned with
+ * `governance/inventory.json.counts.agents` (per CLAUDE.md §Architecture).
+ */
+async function enumeratePublishedAgentIds(): Promise<string[]> {
+  const agentsDir = join(process.cwd(), "agents");
+  const entries = await readdir(agentsDir, { withFileTypes: true });
+  const ids: string[] = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
+    const filePath = join(agentsDir, entry.name);
+    const raw = await readFile(filePath, "utf-8");
+    if (!raw.startsWith("---")) continue;
+    const endIdx = raw.indexOf("---", 3);
+    if (endIdx === -1) continue;
+    let fm: Record<string, unknown> | null;
+    try {
+      fm = parseYaml(raw.slice(3, endIdx).trim()) as Record<string, unknown> | null;
+    } catch {
+      continue;
+    }
+    if (!fm || typeof fm !== "object") continue;
+    if (fm.type !== "agent") continue;
+    if (typeof fm.id !== "string") continue;
+    ids.push(fm.id);
+  }
+  return ids.sort();
+}
 
 describe("agentToolAllowlist", () => {
   describe("AGENT_TOOL_POLICIES", () => {
@@ -54,6 +99,102 @@ describe("agentToolAllowlist", () => {
           `${policy.agentId} has write+git+board`,
         ).toBe(false);
       }
+    });
+
+    // F2.4-F1 (Cycle 10 Wave 1, D2 Critical, ASI02): every published agent
+    // under `agents/*.md` (frontmatter `type: agent`) must have a registered
+    // policy. Without this, the Claude PreToolUse hook silently denies all
+    // tool calls (NO_POLICY) and the Cursor/Copilot adapters omit readonly
+    // frontmatter so the policy widens silently. The enumeration scans the
+    // filesystem at test time so any future agent addition that forgets the
+    // policy is a hard failure, not a missed checklist item.
+    describe("F2.4-F1 policy coverage for every published agent", () => {
+      it("registers a policy for every agent file under agents/*.md", async () => {
+        const filesystemIds = await enumeratePublishedAgentIds();
+        // Sanity: the enumeration found agents — guard against a path bug
+        // silently turning the assertion into a no-op.
+        expect(filesystemIds.length, "expected agents/*.md to contain at least one agent").toBeGreaterThan(0);
+        const policyIds = new Set(AGENT_TOOL_POLICIES.map((p) => p.agentId));
+        const missing = filesystemIds.filter((id) => !policyIds.has(id));
+        expect(
+          missing,
+          `Missing AGENT_TOOL_POLICIES entries for agents/*.md ids: ${missing.join(", ")}. ` +
+            `Add an AgentToolPolicy entry to src/pipeline/agentToolAllowlist.ts for each missing agent.`,
+        ).toEqual([]);
+      });
+
+      it("includes the 11 2.0.0 agents introduced after the C9-C1 patch", () => {
+        const required = [
+          // 9 quality-vector specialists (CQ1–CQ9, review-only)
+          "hatch3r-ui",
+          "hatch3r-ux",
+          "hatch3r-security",
+          "hatch3r-reliability",
+          "hatch3r-testability",
+          "hatch3r-scalability",
+          "hatch3r-performance",
+          "hatch3r-maintainability",
+          "hatch3r-enhancability",
+          // 2 spec agents (read+search+write)
+          "hatch3r-greenfield-spec",
+          "hatch3r-brownfield-spec",
+        ];
+        for (const id of required) {
+          const policy = getAgentToolPolicy(id);
+          expect(policy, `Missing AGENT_TOOL_POLICIES entry for ${id}`).toBeDefined();
+        }
+      });
+
+      it("applies review-only allowlist to all 9 quality-vector specialists", () => {
+        // Per each agent's `## Boundaries` section: review-only — fix
+        // authorship delegates to producer agents (hatch3r-fixer,
+        // hatch3r-test-writer, hatch3r-implementer, hatch3r-perf-profiler,
+        // etc.). Least-privilege allowlist is read + search.
+        const qualitySpecialists = [
+          "hatch3r-ui",
+          "hatch3r-ux",
+          "hatch3r-security",
+          "hatch3r-reliability",
+          "hatch3r-testability",
+          "hatch3r-scalability",
+          "hatch3r-performance",
+          "hatch3r-maintainability",
+          "hatch3r-enhancability",
+        ];
+        for (const id of qualitySpecialists) {
+          const policy = getAgentToolPolicy(id);
+          expect(policy, `${id} has no policy`).toBeDefined();
+          expect(policy!.allowedTools).toEqual(["read", "search"]);
+          // Per-tool checkToolAccess: read + search allowed, everything else denied.
+          expect(checkToolAccess(id, "read").allowed).toBe(true);
+          expect(checkToolAccess(id, "search").allowed).toBe(true);
+          expect(checkToolAccess(id, "write").allowed).toBe(false);
+          expect(checkToolAccess(id, "execute").allowed).toBe(false);
+          expect(checkToolAccess(id, "git").allowed).toBe(false);
+          expect(checkToolAccess(id, "board").allowed).toBe(false);
+          expect(checkToolAccess(id, "web").allowed).toBe(false);
+          expect(checkToolAccess(id, "mcp").allowed).toBe(false);
+        }
+      });
+
+      it("applies spec-author allowlist to the 2 spec agents", () => {
+        // Per each agent's `## Boundaries`: spec only — architecture work
+        // routes to hatch3r-architect; producer agents handle adoption.
+        // Allowlist is read + search + write (no execute/git/board).
+        for (const id of ["hatch3r-greenfield-spec", "hatch3r-brownfield-spec"]) {
+          const policy = getAgentToolPolicy(id);
+          expect(policy, `${id} has no policy`).toBeDefined();
+          expect(policy!.allowedTools).toEqual(["read", "search", "write"]);
+          expect(checkToolAccess(id, "read").allowed).toBe(true);
+          expect(checkToolAccess(id, "search").allowed).toBe(true);
+          expect(checkToolAccess(id, "write").allowed).toBe(true);
+          expect(checkToolAccess(id, "execute").allowed).toBe(false);
+          expect(checkToolAccess(id, "git").allowed).toBe(false);
+          expect(checkToolAccess(id, "board").allowed).toBe(false);
+          expect(checkToolAccess(id, "web").allowed).toBe(false);
+          expect(checkToolAccess(id, "mcp").allowed).toBe(false);
+        }
+      });
     });
   });
 

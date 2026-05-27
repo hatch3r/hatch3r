@@ -206,7 +206,44 @@ describe("CopilotAdapter", () => {
     expect(parsed.servers.github).toBeDefined();
   });
 
-  it("uses env object (not envFile) on STDIO servers in .vscode/mcp.json", async () => {
+  // D9-C-2 (Cycle 10, Pillar P3): VS Code's MCP schema requires per-server
+  // `type` discriminator. Verified against
+  // https://code.visualstudio.com/docs/copilot/reference/mcp-configuration
+  // (accessed 2026-05-27). Every emitted server entry must carry
+  // `type: "stdio"` or `type: "http"`.
+  it("emits per-server `type` discriminator on every entry (D9-C-2)", async () => {
+    const manifest = makeManifest({ mcpServers: ["github", "brave-search", "context7"] });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const mcp = outputs.find((o) => o.path === ".vscode/mcp.json");
+    expect(mcp).toBeDefined();
+
+    const parsed = JSON.parse(mcp!.content);
+    expect(Object.keys(parsed.servers).length).toBeGreaterThan(0);
+
+    for (const [, server] of Object.entries(parsed.servers as Record<string, Record<string, unknown>>)) {
+      // Every server entry MUST declare its connection type.
+      expect(server.type).toBeDefined();
+      expect(["stdio", "http"]).toContain(server.type);
+      // STDIO entries carry `command`; HTTP entries carry `url`.
+      if (server.type === "stdio") {
+        expect(server.command).toBeDefined();
+      } else if (server.type === "http") {
+        expect(server.url).toBeDefined();
+      }
+    }
+  });
+
+  // D11-C-2 (Cycle 10, Pillar P6): STDIO MCP servers must route secrets
+  // through VS Code's native envFile loader because the MCP loader does
+  // NOT perform shell expansion — the prior `${env:VAR}` → `$VAR`
+  // (shell) transform silently shipped each placeholder as a literal
+  // string, breaking every secret-bearing STDIO MCP server. Verified
+  // against https://code.visualstudio.com/docs/copilot/reference/mcp-configuration
+  // (accessed 2026-05-27). `${workspaceFolder}/.env.mcp` matches the
+  // existing `TOOL_SECRET_NOTES.copilot` UX promise that `.env.mcp` is
+  // auto-loaded.
+  it("emits envFile on STDIO servers and drops broken shell env object (D11-C-2)", async () => {
     const manifest = makeManifest({ mcpServers: ["github", "brave-search", "context7"] });
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
@@ -216,8 +253,12 @@ describe("CopilotAdapter", () => {
     const parsed = JSON.parse(mcp!.content);
 
     for (const [, server] of Object.entries(parsed.servers as Record<string, Record<string, unknown>>)) {
-      // envFile is no longer used; env vars are passed via env object
-      expect(server.envFile).toBeUndefined();
+      if (server.type === "stdio") {
+        // STDIO secrets ride on `envFile` (VS Code-native), never the
+        // broken `env` object filled with `$VAR` literals.
+        expect(server.envFile).toBe("${workspaceFolder}/.env.mcp");
+        expect(server.env).toBeUndefined();
+      }
     }
   });
 

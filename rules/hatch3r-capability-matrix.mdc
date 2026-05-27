@@ -2,7 +2,7 @@
 id: hatch3r-capability-matrix
 type: rule
 description: Per-cycle adapter capability matrix audit — twin metric currency + utilization. Surfaces unutilized platform-native features per adapter each cycle.
-tags: [adapters, currency, capability, floor:content-quality]
+tags: [adapters, currency, capability, floor:content-quality, tier:team-plus]
 precedence: high
 globs: ["src/adapters/**", "docs/adapter-capability-matrix.md"]
 alwaysApply: false

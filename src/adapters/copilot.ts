@@ -232,8 +232,34 @@ jobs:
 
     const mcp = await this.readFilteredMcp(ctx);
     if (mcp && Object.keys(mcp).length > 0) {
-      // Use shared buildStdMcpEntries to avoid redundant env construction (#2.19)
-      const vscodeServers = this.buildStdMcpEntries(mcp, "shell");
+      // D9-C-2 + D11-C-2 (Cycle 10, Pillars P3 + P6):
+      //   - D9-C-2: VS Code's MCP schema requires per-server `type`
+      //     (`stdio` | `http` | `sse`) — verified against
+      //     https://code.visualstudio.com/docs/copilot/reference/mcp-configuration
+      //     (accessed 2026-05-27). Without it, schema-aware tooling
+      //     (mcp-inspector, VS Code 2026.05+ strict mode, awesome-copilot
+      //     lint) rejects the server entries. `buildStdMcpEntries` now
+      //     emits the discriminator on every entry.
+      //   - D11-C-2: VS Code's MCP loader does NOT perform shell
+      //     expansion — passing `envVarFormat: "shell"` silently shipped
+      //     each `${env:TOKEN}` as a literal `$TOKEN` that VS Code
+      //     treated as a string, so every secret-bearing STDIO MCP
+      //     server (github, brave-search, sentry, postgres, linear,
+      //     azure-devops, gitlab) was broken at runtime. Route STDIO
+      //     secrets through VS Code's native `envFile` loader pointing
+      //     at the hatch3r-managed `.env.mcp` file (matches the existing
+      //     `TOOL_SECRET_NOTES.copilot` UX claim that `.env.mcp` is
+      //     auto-loaded). HTTP-transport entries continue to ship their
+      //     secrets via `headers` with `${env:VAR}` rewritten to `$VAR`
+      //     — VS Code substitutes header `${input:NAME}` references at
+      //     prompt time; the shell form is preserved on the HTTP path
+      //     pending a follow-up that wires `${input:NAME}` + `inputs[]`
+      //     (out-of-scope for D11-C-2's STDIO-focused fix).
+      const vscodeServers = this.buildStdMcpEntries(
+        mcp,
+        "shell",
+        "${workspaceFolder}/.env.mcp",
+      );
       results.push(output(".vscode/mcp.json", JSON.stringify({ servers: vscodeServers }, null, 2) + "\n"));
     }
 

@@ -112,7 +112,7 @@ describe("injection-patterns.md catalog synchronization", () => {
     const content = await readFile(CATALOG_PATH, "utf-8");
     expect(content).toContain("src/pipeline/promptGuard.ts");
     expect(content).toContain("src/content/learningsValidation.ts");
-    expect(content).toContain("commands/hatch3r-learn.md");
+    expect(content).toContain("skills/hatch3r-learn/SKILL.md");
   });
 
   it("catalog pattern IDs follow the documented format (P-PIPE-NN, P-LEARN-NN, C-UI-NN)", async () => {

@@ -459,6 +459,55 @@ describe("SPECIALIST_TRIGGER_TABLE", () => {
     expect(depAuditor.triggerFilePatterns).toContain("Gemfile");
     expect(depAuditor.triggerFilePatterns).toContain("pom.xml");
   });
+
+  // ── CQ1-CQ9 vector specialists (Finding F7.3-C1) ──────────────────
+
+  const CQ_SPECIALISTS = [
+    "hatch3r-ui",
+    "hatch3r-ux",
+    "hatch3r-security",
+    "hatch3r-reliability",
+    "hatch3r-testability",
+    "hatch3r-scalability",
+    "hatch3r-performance",
+    "hatch3r-maintainability",
+    "hatch3r-enhancability",
+  ] as const;
+
+  it("should include all 9 CQ vector specialists (F7.3-C1)", () => {
+    for (const name of CQ_SPECIALISTS) {
+      const entry = SPECIALIST_TRIGGER_TABLE.find((t) => t.specialist === name);
+      expect(entry, `${name} missing from SPECIALIST_TRIGGER_TABLE`).toBeDefined();
+      expect(entry!.mode).toBe("conditional");
+      expect(entry!.triggerConditions.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("should trigger hatch3r-ui on UI component file changes", () => {
+    const result = shouldTriggerSpecialist("hatch3r-ui", ["src/components/Button.tsx"]);
+    expect(result.triggered).toBe(true);
+    expect(result.reasons.length).toBeGreaterThan(0);
+  });
+
+  it("should trigger hatch3r-performance on Vue component file changes", () => {
+    const result = shouldTriggerSpecialist("hatch3r-performance", ["src/views/Home.vue"]);
+    expect(result.triggered).toBe(true);
+  });
+
+  it("should trigger hatch3r-maintainability on OpenAPI spec changes", () => {
+    const result = shouldTriggerSpecialist("hatch3r-maintainability", ["openapi.yaml"]);
+    expect(result.triggered).toBe(true);
+  });
+
+  it("should trigger hatch3r-enhancability on AsyncAPI spec changes", () => {
+    const result = shouldTriggerSpecialist("hatch3r-enhancability", ["asyncapi.yaml"]);
+    expect(result.triggered).toBe(true);
+  });
+
+  it("should NOT trigger hatch3r-ui on non-UI file changes", () => {
+    const result = shouldTriggerSpecialist("hatch3r-ui", ["src/server/route.ts"]);
+    expect(result.triggered).toBe(false);
+  });
 });
 
 describe("LANGUAGE_SPECIALIST_CONFIGS", () => {

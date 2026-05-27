@@ -772,27 +772,70 @@ export abstract class BaseAdapter implements Adapter {
     return Object.keys(filtered).length > 0 ? filtered : null;
   }
 
-  /** Build a standard MCP server configuration object from filtered entries, with env var syntax transformation. */
+  /**
+   * Build a standard MCP server configuration object from filtered entries.
+   *
+   * Emits a per-server `type` discriminator (`"stdio"` when `command` is set,
+   * `"http"` when `url` is set) on every entry. The `type` field is required
+   * by the VS Code MCP schema (verified against
+   * https://code.visualstudio.com/docs/copilot/reference/mcp-configuration,
+   * accessed 2026-05-27) and accepted as an additive field by Cursor and
+   * Claude Code, so every consumer benefits.
+   *
+   * `envVarFormat` controls how `${env:VAR}` references are rewritten:
+   *   - "claude"      → `${VAR}` (Claude Code native env-var syntax)
+   *   - "shell"       → `$VAR` (legacy shell expansion; VS Code does NOT
+   *                     perform this expansion, so prefer `envFileStrategy`
+   *                     below for VS Code consumers)
+   *   - "passthrough" → keep `${env:VAR}` as-is (Cursor / MCP spec native)
+   *
+   * D9-C-2 + D11-C-2 (Cycle 10, Pillars P3 + P6): on a VS Code consumer
+   * (`.vscode/mcp.json`), shell `$VAR` is silently treated as a literal
+   * string and `${env:VAR}` is unsupported — both leak the placeholder
+   * verbatim and break every secret-bearing STDIO MCP server (github,
+   * brave-search, sentry, postgres, linear, azure-devops, gitlab). Pass
+   * `envFileStrategy: "${workspaceFolder}/.env.mcp"` to emit a per-entry
+   * `envFile` field pointing at the hatch3r-managed `.env.mcp` file (which
+   * already exists in the user repo; see `TOOL_SECRET_NOTES.copilot`) and
+   * drop the otherwise-broken `env` object entirely. STDIO MCP servers
+   * then receive their secrets via VS Code's native envFile-loading path.
+   */
   protected buildStdMcpEntries(
     filtered: Record<string, CleanMcpEntry>,
     envVarFormat: "claude" | "shell" | "passthrough" = "passthrough",
+    envFileStrategy?: string,
   ): Record<string, Record<string, unknown>> {
     const result: Record<string, Record<string, unknown>> = {};
     for (const [name, server] of Object.entries(filtered)) {
       if (server.command) {
+        // D9-C-2: emit `type: "stdio"` per VS Code MCP schema. Cursor and
+        // Claude Code accept the field as additive (each adapter already
+        // emits an explicit `type` on its own MCP path; this centralises
+        // the discriminator at the shared helper boundary).
         const entry: Record<string, unknown> = {
+          type: "stdio",
           command: server.command,
           args: server.args || [],
-          ...(server.env && Object.keys(server.env).length > 0
-            ? { env: transformEnvVarSyntax(server.env, envVarFormat) }
-            : {}),
         };
+        // D11-C-2: STDIO secrets path. When the caller declares an
+        // envFile strategy, route secrets via VS Code's native envFile
+        // loader (`${workspaceFolder}/.env.mcp`) and drop the `env`
+        // object — otherwise every value would still ship as a broken
+        // `$VAR` literal that VS Code does not expand.
+        if (envFileStrategy) {
+          entry.envFile = envFileStrategy;
+        } else if (server.env && Object.keys(server.env).length > 0) {
+          entry.env = transformEnvVarSyntax(server.env, envVarFormat);
+        }
         if (server.headers && Object.keys(server.headers).length > 0) {
           entry.headers = transformEnvVarSyntax(server.headers, envVarFormat);
         }
         result[name] = entry;
       } else if (server.url) {
-        const entry: Record<string, unknown> = { url: server.url };
+        // D9-C-2: emit `type: "http"` per VS Code MCP schema. The HTTP
+        // path has no env object (secrets ride in headers); envFile is
+        // not used here.
+        const entry: Record<string, unknown> = { type: "http", url: server.url };
         if (server.headers && Object.keys(server.headers).length > 0) {
           entry.headers = transformEnvVarSyntax(server.headers, envVarFormat);
         }

@@ -59,6 +59,11 @@ export const TOOL_TRIGGERS: Record<string, string> = {
   miller: "awk-like record processing across CSV, TSV, JSON line streams",
   csvkit: "Python-powered CSV toolkit covering csvlook, csvsql, csvjoin, csvstat",
   podman: "rootless OCI-image execution without a privileged daemon",
+  curl: "scripted HTTP/S transfers — file upload, header injection, cookie sessions, OAuth flows",
+  httpie: "human-readable HTTP/S requests with JSON-first defaults and colourised response framing",
+  xh: "fast Rust HTTP/S client speaking HTTPie-compatible syntax with HTTP/2 and HTTP/3 support",
+  dasel: "cross-format selectors over JSON, YAML, TOML, XML, CSV under one path-query DSL",
+  "container-use": "Dagger-managed sandbox containers for agentic coding environments",
 };
 
 /**
@@ -98,6 +103,7 @@ export const CATEGORY_CLOSERS: Record<string, string> = {
   container: "Composes with OCI-image layer caches and registry pull-through proxies.",
   ai: "Streams tokens to stdout so downstream `grep`/`tee` consumers see partial results.",
   interactive: "Requires a TTY; degrade gracefully to non-interactive batch in CI.",
+  http: "Sends and receives HTTP/S over the wire; pairs with `jq` or `dasel` for response parsing.",
 };
 
 /**

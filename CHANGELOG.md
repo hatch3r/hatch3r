@@ -6,7 +6,7 @@ All notable changes to hatch3r are documented in this file.
 
 ### Headline
 
-Two-axis pillar framework (governance P1-P8 × content-quality CQ1-CQ9) backed by 9 quality-vector specialist agents, 2 spec agents (greenfield/brownfield) with an orchestrator command, 3 new audit domains (D22 Content Architecture, D23 Agentic Engineering Trends, D24 Governance Self-Audit), 6 new canonical rules, 4 new audit templates, and 6 code modules adding maturity-tier config, resumability + per-session snapshot rollback, cost visibility, tag-filtered routing, adapter capability-utilization audit, and an opt-in Playwright browser-verification skill. CONSTITUTION restructured (§2 two-axis, §3 second matrix, 17 new Key Design Decisions). Tag registry expanded from 44 to 76 tags. This is a major release without breaking CLI surface; manifest schema unchanged from v1.9.0.
+Two-axis pillar framework (governance P1-P8 × content-quality CQ1-CQ9) backed by 9 quality-vector specialist agents, 2 spec agents (greenfield/brownfield) with an orchestrator command, 3 new audit domains (D22 Content Architecture, D23 Agentic Engineering Trends, D24 Governance Self-Audit), 6 new canonical rules, 4 new audit templates, and 6 code modules adding maturity-tier config, resumability + per-session snapshot rollback wired into every mutation command (`init`, `sync`, `update`, `config`, `clean`), cost visibility, tag-filtered routing, adapter capability-utilization audit, and an opt-in Playwright browser-verification skill. CONSTITUTION restructured (§2 two-axis, §3 second matrix, 17 new Key Design Decisions). Tag registry expanded from 44 to 76 tags. This is a major release without breaking CLI surface; manifest schema unchanged from v1.9.0.
 
 ### Two-Axis Pillar Framework (CONSTITUTION §2)
 
@@ -66,8 +66,9 @@ Each rule ships with `.md` + `.mdc` twin per `scripts/validate-rule-parity.ts`.
 ### Bucket 2.2 — Resumability + Rollback (Decision 27)
 
 - `src/pipeline/checkpoint.ts` — workspace-checkpointed orchestrator resumability via `.{cmd}-workspace/checkpoint.json`
-- `src/pipeline/snapshot.ts` — pre-mutation snapshots under `.hatch3r/snapshots/<session-id>/`; tombstone sentinels handle file deletion on rollback
+- `src/pipeline/snapshot.ts` — pre-mutation snapshots under `.hatch3r/snapshots/<session-id>/`; tombstone sentinels handle file deletion on rollback. Exports `createSnapshot`, `applyRollback`, `listSnapshots`, plus the new `withSnapshot(commandName, paths, mutator)` helper used by every mutation command.
 - `src/cli/commands/rollback.ts` — `hatch3r rollback --session=<id>` + `list` + `--dry-run` + `--yes`
+- Snapshot capture wired into every mutation command: `init`, `sync`, `update`, `config` (interactive + scalar `key=value` forms), and `clean`. Each run prints the captured session id in its success summary and surfaces a one-line revert command (`hatch3r rollback --session=<id>`). Session ids are namespaced by command (`init-...`, `sync-...`, `update-...`, `config-...`, `clean-...`). `--dry-run` on sync skips capture.
 - `--resume` flag surface declared on `init` + `sync`
 - 63 new tests; coverage exceeds 90/80/90/90 on all new pipeline modules
 

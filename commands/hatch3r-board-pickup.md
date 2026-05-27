@@ -2,7 +2,7 @@
 id: hatch3r-board-pickup
 type: command
 orchestrator: true
-agentPipeline: [hatch3r-researcher, hatch3r-implementer, hatch3r-reviewer, hatch3r-fixer, hatch3r-test-writer, hatch3r-security-auditor, hatch3r-docs-writer, hatch3r-lint-fixer, hatch3r-a11y-auditor, hatch3r-perf-profiler]
+agentPipeline: [hatch3r-researcher, hatch3r-implementer, hatch3r-reviewer, hatch3r-fixer, hatch3r-test-writer, hatch3r-security-auditor, hatch3r-docs-writer, hatch3r-lint-fixer, hatch3r-a11y-auditor, hatch3r-ui, hatch3r-ux, hatch3r-perf-profiler]
 description: Pick up one or more epics/issues from the project board for development. Handles dependency-aware selection, collision detection, branching, parallel sub-agent delegation, and batch execution. Supports GitHub, Azure DevOps, and GitLab. Platform-specific details are in commands/board/pickup-{platform}.md.
 tags: [board, ctx:team-only]
 quality_charter: agents/shared/quality-charter.md
@@ -11,8 +11,8 @@ cache_friendly: true
 parallel_tool_default: true
 triage_tiers: [1, 2, 3]
 sub_agents_spawned:
-  count: 10
-  rationale: Full delivery pipeline — researcher, implementer (one per independent issue in batch mode), reviewer ↔ fixer review loop, then a parallel final-quality batch (test-writer, security-auditor, docs-writer, lint-fixer, a11y-auditor, perf-profiler) bounded by max_phase4_parallel.
+  count: 12
+  rationale: Full delivery pipeline — researcher, implementer (one per independent issue in batch mode), reviewer ↔ fixer review loop, then a parallel final-quality batch (test-writer, security-auditor, docs-writer, lint-fixer, a11y-auditor, hatch3r-ui (CQ1), hatch3r-ux (CQ2), perf-profiler) bounded by max_phase4_parallel.
 ---
 
 ## §0 Detect Ambiguity (P8 B1)

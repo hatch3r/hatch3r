@@ -1,6 +1,6 @@
 ---
 id: hatch3r-cli-toolbox
-description: "Category-indexed reference for 25 specialist CLI tools beyond the always-on five (ripgrep, jq, gh, fd, fzf). Use to pick the right tool for ai-chat, structural-search, sed-style edits, data ops, browser automation, container ops, and more."
+description: "Category-indexed reference for 29 specialist CLI tools beyond the always-on five (ripgrep, jq, gh, fd, fzf). Use to pick the right tool for HTTP clients, ai-chat, structural-search, sed-style edits, data ops, browser automation, container ops, and more."
 tags: [cli-tools, reference, orchestration, maintenance]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
@@ -8,7 +8,7 @@ cache_friendly: true
 ---
 # CLI Toolbox
 
-Compact decision reference for 25 specialist CLI tools agents may reach for in addition to the five always-on skills (`hatch3r-cli-ripgrep`, `hatch3r-cli-jq`, `hatch3r-cli-gh`, `hatch3r-cli-fd`, `hatch3r-cli-fzf`).
+Compact decision reference for 29 specialist CLI tools agents may reach for in addition to the five always-on skills (`hatch3r-cli-ripgrep`, `hatch3r-cli-jq`, `hatch3r-cli-gh`, `hatch3r-cli-fd`, `hatch3r-cli-fzf`).
 
 Each entry below states a single discriminator ("When to use"), one representative recipe, and the better alternative ("Wrong choice when"). Tools are installed via `npx hatch3r cli-tools`; this skill governs *selection*, not installation.
 
@@ -16,12 +16,13 @@ Each entry below states a single discriminator ("When to use"), one representati
 
 | Category | Tools |
 |----------|-------|
+| HTTP clients | `curl`, `httpie`, `xh` |
 | AI / LLM | `aichat`, `llm`, `mods`, `rtk` |
 | Structural search & rewrite | `ast-grep`, `comby` |
 | Sed-style literal edits | `sd` |
-| Format converters / queriers | `yq`, `taplo` |
+| Format converters / queriers | `yq`, `taplo`, `dasel` |
 | Data ops (CSV / Parquet / JSON-Lines) | `csvkit`, `duckdb`, `miller`, `qsv` |
-| Containers | `docker`, `podman` |
+| Containers | `docker`, `podman`, `container-use` |
 | Git TUI / diff viewers | `lazygit`, `delta`, `difftastic`, `bat` |
 | Visualisation / view | `bat`, `overview` |
 | Forges (non-GitHub) | `glab` (GitLab), `az-devops` (Azure DevOps) |
@@ -34,6 +35,25 @@ Each entry below states a single discriminator ("When to use"), one representati
 ## Token-cost discipline
 
 CLI tools return structured stdout that fits in <1 KB for typical queries; equivalent MCP calls regularly exceed 10 KB. Reference: Anthropic engineering (Nov 4 2025) — code-execution-over-MCP yields 98.7% token reduction. Apply this same discipline across every tool below: prefer `--json`/`--output json`, scope with flags, cap with `--max-count` / `LIMIT`, project with `jq -r`.
+
+---
+
+## HTTP clients
+
+### curl
+- **When to use:** scripted HTTP/S transfers across any platform — file upload (`--upload-file`), header injection (`-H`), cookie sessions (`-b`/`-c`), OAuth flows, custom write-out templates (`-w`). Tier-1 default-on.
+- **Recipe:** `curl -sS -H "Authorization: Bearer $TOKEN" https://api.example.com/v1/runs | jq '.runs[] | {id, status}'`
+- **Wrong choice when:** quick exploratory request that you want highlighted — use `httpie`; HTTP/2 / HTTP/3 throughput-sensitive bulk transfers — use `xh`. **Version floor:** >=8.20.0 — 8.18.0–8.19.0 carry CVE-2026-7168/7009/6429/6253/6276/3805/3783 (credential-leak and connection-reuse cluster patched in 8.20.0, 2026-04-29).
+
+### httpie
+- **When to use:** human-readable HTTP/S exploration — JSON-first defaults, syntax highlighting, persistent named sessions, intuitive expression DSL for query params and headers.
+- **Recipe:** `http --session=staging POST api.example.com/v1/auth username=admin password=$PW Content-Type:application/json`
+- **Wrong choice when:** large-volume scripting where the colour codes confuse downstream consumers — use plain `curl`; HTTP/2 + HTTP/3 throughput — use `xh`. **Note:** latest release 3.2.4 (2024-11-01) — project under maintenance but on a stable-cadence release tempo.
+
+### xh
+- **When to use:** fast Rust client with HTTPie-compatible syntax — single static binary (no Python runtime), HTTP/2 default, HTTP/3 opt-in via `--http3`, JSON output (`--json`), resume-on-416 download recovery.
+- **Recipe:** `xh --http3 GET api.example.com/v1/runs Authorization:"Bearer $TOKEN" | jq '.runs[] | {id, status}'`
+- **Wrong choice when:** existing `httpie` workflows that depend on a Python plugin — keep `httpie`; environments without a Rust toolchain (or no Homebrew/winget) — use `curl`. **Version floor:** >=0.25.3 (2025-12-16) — earlier 0.24.x builds miss recent `--http3` and resume fixes.
 
 ---
 
@@ -95,7 +115,12 @@ CLI tools return structured stdout that fits in <1 KB for typical queries; equiv
 ### taplo
 - **When to use:** formatting, linting, and querying TOML (`pyproject.toml`, `Cargo.toml`); bundled schemas for both.
 - **Recipe:** `taplo get -f Cargo.toml package.version`
-- **Wrong choice when:** YAML/JSON — use `yq`/`jq`; cross-format conversion — use `dasel`.
+- **Wrong choice when:** YAML/JSON — use `yq`/`jq`; cross-format conversion — use `dasel` (pin >=3.11.0).
+
+### dasel
+- **When to use:** single binary spanning JSON / YAML / TOML / XML / CSV under one path-query DSL — handy in CI where you do not want jq+yq+taplo and the input format is not known up-front. NDJSON read support added in v3.11.0.
+- **Recipe:** `dasel -r yaml -w json -f config.yaml '.services.app.env'`
+- **Wrong choice when:** format-specific in-place edits with comment preservation — use `yq` (YAML) or `taplo` (TOML); stream-friendly JSON filtering — use `jq` with its richer filter language. **Version floor:** >=3.11.0 — earlier builds carry CVE-2026-46377 / CVE-2026-46378 / CVE-2026-33320 (selector-lexer DoS, index-out-of-range panic, YAML alias DoS — all fixed in 3.11.0, 2026-05-19).
 
 ---
 
@@ -134,6 +159,12 @@ CLI tools return structured stdout that fits in <1 KB for typical queries; equiv
 - **When to use:** rootless OCI-image execution without a privileged daemon — ideal for hardened CI workers.
 - **Recipe:** `podman run --rm -v "$PWD:/app:Z" -w /app node:22 npm test` (`:Z` triggers SELinux relabel on Fedora/RHEL).
 - **Wrong choice when:** Swarm / Docker-Desktop integration — use `docker`; tools that hard-code `/var/run/docker.sock` (unless `podman system service` is running).
+
+### container-use
+- **Caveat (pre-1.0 stale upstream):** v0.4.2 shipped 2025-08-19; no further tagged release at 2026-05-27 (281-day gap) and no `SECURITY.md` is published. Adopt only if you accept undefined CVE disclosure paths. Track: https://github.com/dagger/container-use/releases.
+- **When to use:** spinning up Dagger-managed sandbox containers for agentic coding environments — single-tenant CLI mode, git-reference checkout, lock-scoped concurrent runs.
+- **Recipe:** `container-use env create --git-ref refs/heads/main --image node:22 --workdir /repo` then `cu exec npm test`.
+- **Wrong choice when:** general-purpose container runtime — use `docker` or `podman`; stable D15 sandbox-escape boundary required — use `podman` rootless + selinux relabel.
 
 ---
 
@@ -216,12 +247,16 @@ Verify each tool with `command -v <bin>`. Install commands:
 | `az-devops` | `brew install azure-cli && az extension add --name azure-devops` | `apt install azure-cli && az extension add --name azure-devops` |
 | `bat` | `brew install bat` | `apt install bat` (binary may be `batcat`) |
 | `comby` | `brew install comby` | `bash <(curl -sL get.comby.dev)` |
+| `container-use` | `brew install dagger/tap/container-use` | `curl -fsSL https://raw.githubusercontent.com/dagger/container-use/main/install.sh \| bash` |
 | `csvkit` | `pipx install csvkit` | `pipx install csvkit` |
+| `curl` | `brew install curl` (pin >=8.20.0) | `apt install curl` (verify >=8.20.0) |
+| `dasel` | `brew install dasel` (pin >=3.11.0) | `go install github.com/tomwright/dasel/v3/cmd/dasel@latest` |
 | `delta` | `brew install git-delta` | `apt install git-delta` (or download release) |
 | `difftastic` | `brew install difftastic` | `cargo install difftastic` |
 | `docker` | `brew install --cask docker` | `apt install docker.io` |
 | `duckdb` | `brew install duckdb` | download from https://duckdb.org/ |
 | `glab` | `brew install glab` | `apt install glab` (or GitLab release) |
+| `httpie` | `brew install httpie` | `snap install httpie` (or `pipx install httpie`) |
 | `lazygit` | `brew install lazygit` | `apt install lazygit` |
 | `llm` | `brew install llm` | `pipx install llm` |
 | `miller` | `brew install miller` | `apt install miller` |
@@ -233,6 +268,7 @@ Verify each tool with `command -v <bin>`. Install commands:
 | `sd` | `brew install sd` | `cargo install sd` |
 | `stagehand` | `npm install -g @browserbasehq/stagehand` | same |
 | `taplo` | `brew install taplo` | `cargo install taplo-cli --locked` |
+| `xh` | `brew install xh` (pin >=0.25.3) | `cargo install xh --locked` |
 | `yq` | `brew install yq` | `apt install yq` (verify mikefarah Go build, not python wrapper) |
 | `zstd` | `brew install zstd` | `apt install zstd` |
 

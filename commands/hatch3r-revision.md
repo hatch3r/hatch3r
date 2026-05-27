@@ -460,7 +460,7 @@ Capture revision-specific learnings. Focus on patterns that inform future implem
    - Were there any integration issues between sub-agent outputs?
 
 2. If significant learnings are identified:
-   - Create learning files in `.hatch3r/learnings/` following the `hatch3r-learn` command format.
+   - Create learning files in `.hatch3r/learnings/` following the `hatch3r-learn` skill format (`skills/hatch3r-learn/SKILL.md`).
    - Use category `pitfall` for issues agents commonly miss.
    - Use category `pattern` for revision approaches that worked well.
    - Tag with relevant area labels.

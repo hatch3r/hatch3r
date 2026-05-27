@@ -8,6 +8,7 @@ import { readManifest, writeManifest, addManagedFile } from "../../manifest/hatc
 import { getApplicableCheckpoints } from "../../version/checkpoints.js";
 import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
 import { safeWriteFile } from "../../merge/safeWrite.js";
+import { withSnapshot } from "../../pipeline/snapshot.js";
 import { sweepOrphansForAdapter, formatOrphanCleanupDiagnostic, type OrphanCleanupEntry } from "../../merge/orphanCleanup.js";
 import { HATCH3R_DIR, HATCH3R_PREFIX, HatchError, WORKTREE_CAPABLE_TOOLS, WORKTREE_INCLUDE_FILE, type HatchManifest, type Platform } from "../../types.js";
 import { resolveBundledContentRoot } from "../../content/contentRoot.js";
@@ -212,6 +213,14 @@ export interface UpdateResult {
   /** Diff data: before/after snapshots for each generated file (only populated when --diff is used). */
   diffBefore?: Map<string, string | null>;
   diffAfter?: Map<string, string | null>;
+  /**
+   * Decision 27 (Bucket 2.2): session id of the pre-mutation snapshot
+   * captured at the start of this run. `null` when no snapshot was taken
+   * (e.g. test stub or future skip flag). Surfaced to the operator in the
+   * success summary so `hatch3r rollback --session=<id>` is one keypress
+   * away after a regret.
+   */
+  snapshotSessionId?: string | null;
 }
 
 /**
@@ -251,7 +260,7 @@ export async function runPackageUpdate(
 export async function runRegenerate(
   rootDir: string,
   manifest: HatchManifest,
-  options: { stepOffset?: number; totalSteps?: number; diff?: boolean } = {},
+  options: { stepOffset?: number; totalSteps?: number; diff?: boolean; snapshotCommandName?: string } = {},
 ): Promise<UpdateResult> {
   const offset = options.stepOffset ?? 0;
   const total = options.totalSteps ?? 3;
@@ -261,6 +270,33 @@ export async function runRegenerate(
   await migrateAgentsToHatch3r(rootDir);
   // Wave 7: failure log writes target `.hatch3r/.failures.log`.
   const hatch3rDir = join(rootDir, HATCH3R_DIR);
+
+  // Decision 27 (Bucket 2.2) wiring: snapshot every file `runRegenerate`
+  // is about to overwrite before any adapter writes. The caller passes a
+  // `snapshotCommandName` so the session id namespaces correctly (e.g.
+  // `update-...`, `config-...`). `runRegenerate` is also exported and
+  // exercised from tests / batch tooling — when the caller omits the
+  // name we default to "update" to match the historical entry point.
+  const snapshotCommandName = options.snapshotCommandName ?? "update";
+  const regenSnapshotPaths: string[] = [join(rootDir, HATCH3R_DIR, "hatch.json")];
+  if (manifest.worktree?.enabled) {
+    regenSnapshotPaths.push(join(rootDir, WORKTREE_INCLUDE_FILE));
+  }
+  for (const rel of manifest.managedFiles) {
+    regenSnapshotPaths.push(join(rootDir, rel));
+  }
+  if (manifest.managedFilesByAdapter) {
+    for (const paths of Object.values(manifest.managedFilesByAdapter)) {
+      for (const rel of paths) regenSnapshotPaths.push(join(rootDir, rel));
+    }
+  }
+  const regenSnapshot = await withSnapshot(
+    snapshotCommandName,
+    Array.from(new Set(regenSnapshotPaths)),
+    async (_sessionId) => undefined,
+    { projectRoot: rootDir, onWarn: warn },
+  );
+  const snapshotSessionId = regenSnapshot.sessionId;
 
   const s1 = createSpinner(step(offset + 1, total, "Resolving canonical content..."));
   s1.start();
@@ -466,6 +502,7 @@ export async function runRegenerate(
     syncedTools: manifest.tools.length - adapterFailures.length,
     failedTools: adapterFailures.length,
     version: HATCH3R_VERSION,
+    snapshotSessionId,
     ...(options.diff ? { diffBefore, diffAfter } : {}),
   };
 }
@@ -615,7 +652,7 @@ async function enumerateHatch3rFiles(
 export async function runUpdate(
   rootDir: string,
   manifest: HatchManifest,
-  options: { stepOffset?: number; totalSteps?: number; diff?: boolean } = {},
+  options: { stepOffset?: number; totalSteps?: number; diff?: boolean; snapshotCommandName?: string } = {},
 ): Promise<UpdateResult> {
   const offset = options.stepOffset ?? 0;
   const total = options.totalSteps ?? 4;
@@ -626,6 +663,7 @@ export async function runUpdate(
     stepOffset: offset + 1,
     totalSteps: total,
     diff: options.diff,
+    snapshotCommandName: options.snapshotCommandName ?? "update",
   });
 }
 
@@ -1025,11 +1063,20 @@ export async function updateCommand(
     failedTools: result.failedTools,
     version: result.version,
   });
-  printBox("Update complete", [
+  const updateSummaryLines = [
     label("Files", `${compactedResult.copiedFiles} canonical files updated`),
     label("Tools", `${compactedResult.syncedTools} tool(s) re-synced`),
     label("Version", `v${compactedResult.version}`),
-  ], "success");
+  ];
+  if (result.snapshotSessionId) {
+    updateSummaryLines.push(
+      label(
+        "Snapshot",
+        `${result.snapshotSessionId} (revert: hatch3r rollback --session=${result.snapshotSessionId})`,
+      ),
+    );
+  }
+  printBox("Update complete", updateSummaryLines, "success");
 
   // CLI-tooling pivot (plan §4.7 update touchpoint): nudge users who
   // upgraded without ever opting in to the CLI tooling surface. Repeats

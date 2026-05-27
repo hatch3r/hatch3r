@@ -2,7 +2,7 @@
 id: hatch3r-workflow
 type: command
 orchestrator: true
-agentPipeline: [hatch3r-researcher, hatch3r-implementer, hatch3r-reviewer, hatch3r-fixer, hatch3r-test-writer, hatch3r-security-auditor, hatch3r-docs-writer, hatch3r-lint-fixer, hatch3r-a11y-auditor, hatch3r-perf-profiler]
+agentPipeline: [hatch3r-researcher, hatch3r-implementer, hatch3r-reviewer, hatch3r-fixer, hatch3r-test-writer, hatch3r-security-auditor, hatch3r-docs-writer, hatch3r-lint-fixer, hatch3r-a11y-auditor, hatch3r-perf-profiler, hatch3r-ui, hatch3r-ux, hatch3r-security, hatch3r-reliability, hatch3r-testability, hatch3r-scalability, hatch3r-performance, hatch3r-maintainability, hatch3r-enhancability]
 description: Guided development lifecycle with 4 phases (Analyze, Plan, Implement, Review) and scale-adaptive Quick Mode for small tasks.
 tags: [implementation, orchestration]
 quality_charter: agents/shared/quality-charter.md
@@ -11,8 +11,8 @@ cache_friendly: true
 parallel_tool_default: true
 triage_tiers: [1, 2, 3]
 sub_agents_spawned:
-  count: 10
-  rationale: Full 4-phase delivery pipeline — researcher (Phase 1), implementer (one per independent module, Phase 3), reviewer ↔ fixer review loop (Phase 4a), then a parallel Phase-4b final-quality batch (test-writer, security-auditor, docs-writer, lint-fixer, a11y-auditor, perf-profiler) bounded by max_phase4_parallel.
+  count: 19
+  rationale: Full 4-phase delivery pipeline — researcher (Phase 1), implementer (one per independent module, Phase 3), reviewer ↔ fixer review loop (Phase 4a), then a parallel Phase-4b final-quality batch (legacy specialists test-writer + security-auditor + docs-writer + lint-fixer + a11y-auditor + perf-profiler PLUS CQ1-CQ9 vector specialists ui/ux/security/reliability/testability/scalability/performance/maintainability/enhancability) bounded by max_phase4_parallel.
 ---
 
 ## §0 Detect Ambiguity (P8 B1)

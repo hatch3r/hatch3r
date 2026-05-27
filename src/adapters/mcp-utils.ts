@@ -601,7 +601,107 @@ const VALID_SERVER_NAME = /^[a-zA-Z0-9_-]+$/;
  *     character classes for spawn-based command construction.
  */
 export const DANGEROUS_ARG_CHARS =
+  // Explicit set: NUL through unit-separator (control chars including \n, \r, \t),
+  // DEL (0x7f), then shell metacharacters `| ; & ` $ ( )`, redirection/quoting
+  // `< > \ ' "`. Implemented as a single regex character class — no ranges over
+  // printable bytes, so the pattern cannot inadvertently subsume legitimate
+  // argument characters.
   /[ -|;&`$()<>\\'"]/;
+
+/**
+ * Result of {@link validateMcpServerArgs} — `ok: true` when every arg in the
+ * entry is safe; `ok: false` carries a `reason` and `offendingArg` suitable
+ * for the {@link readMcpConfig} drop-path warning. Mirrors the
+ * {@link McpHttpEndpointResult} shape used by {@link validateMcpHttpEndpoint}.
+ *
+ * Origin: F15.5-C1 (D15 / Pillar P6). Wires the previously-unused
+ * {@link DANGEROUS_ARG_CHARS} constant into a refusal-grade scan.
+ */
+export interface McpServerArgsResult {
+  ok: boolean;
+  reason?: string;
+  /** The first arg that contained a dangerous character, if any. */
+  offendingArg?: string;
+  /** Zero-based index of the offending arg within `entry.args`, if any. */
+  offendingIndex?: number;
+}
+
+/**
+ * Scan an MCP server entry's `args[]` for characters that no legitimate MCP
+ * argument needs but every adversarial argv-injection payload requires.
+ *
+ * Refusal-grade contract (F15.5-C1, D15 / Pillar P6): unlike the warning-only
+ * `SHELL_METACHAR` pass inside {@link validateMcpEntry}, a hit here makes
+ * {@link readMcpConfig} **drop the entire server entry** — the entry never
+ * reaches an adapter, so the launcher-level shell can never expand the
+ * metacharacters at child-process spawn time. This is the parallel of the
+ * `validateServerName` reject path: refuse, do not emit.
+ *
+ * Returns `{ ok: true }` when:
+ * - `entry.args` is absent or empty (nothing to scan), OR
+ * - every arg is a string AND contains no character matched by
+ *   {@link DANGEROUS_ARG_CHARS}.
+ *
+ * Returns `{ ok: false, reason, offendingArg, offendingIndex }` when:
+ * - any arg is not a string (type-coercion guard), OR
+ * - any arg contains a character in {@link DANGEROUS_ARG_CHARS}.
+ *
+ * The first offender short-circuits the scan; callers receive enough context
+ * to log the offending position without exposing the full arg vector.
+ *
+ * Threat model basis (D15 trust tier ≥ independent-analysis, accessed
+ * 2026-05-27):
+ *   - SecurityWeek "By-Design Flaw in MCP Could Enable Widespread AI
+ *     Supply Chain Attacks" — confirms argv-injection vector in MCP STDIO
+ *     transports launches arbitrary processes.
+ *   - Ox Security "The Mother of All AI Supply Chains" — describes the
+ *     parameter-injection blast radius (RCE on any system running a
+ *     vulnerable MCP implementation).
+ */
+export function validateMcpServerArgs(
+  entry: McpServerEntry,
+): McpServerArgsResult {
+  if (!entry.args || entry.args.length === 0) {
+    return { ok: true };
+  }
+
+  for (let i = 0; i < entry.args.length; i++) {
+    const arg = entry.args[i];
+
+    // Type-coercion guard: a non-string arg (number, boolean, null, object)
+    // would bypass the string-only regex scan. Treat as refusal — a
+    // legitimate MCP config never carries non-string positional args.
+    if (typeof arg !== "string") {
+      return {
+        ok: false,
+        reason:
+          `arg at index ${i} is not a string (got ${typeof arg}). ` +
+          `MCP args must be strings; non-string args could bypass the ` +
+          `injection scan. Entry refused.`,
+        offendingIndex: i,
+      };
+    }
+
+    if (DANGEROUS_ARG_CHARS.test(arg)) {
+      // Truncate the offender so a binary blob does not flood the warning
+      // stream — operators only need enough context to locate the entry.
+      const display = arg.length > 64 ? arg.slice(0, 61) + "..." : arg;
+      return {
+        ok: false,
+        reason:
+          `arg at index ${i} contains a dangerous character ` +
+          `(shell metacharacter, redirection, quoting, newline, or ASCII ` +
+          `control byte). Entry refused to prevent argv-level injection ` +
+          `at child-process spawn time. Offender (truncated): ` +
+          `${JSON.stringify(display)}.`,
+        offendingArg: arg,
+        offendingIndex: i,
+      };
+    }
+  }
+
+  return { ok: true };
+}
 
 /**
  * Validate an MCP server name. Returns a warning string if invalid, or null if valid.
@@ -652,6 +752,18 @@ export async function readMcpConfig(
         const nameWarning = validateServerName(name);
         if (nameWarning) {
           warnings.push(nameWarning);
+          continue;
+        }
+        // F15.5-C1 (D15 / Pillar P6): refusal-grade argv scan. Parallel
+        // to the validateServerName reject path — a dangerous-character
+        // hit DROPS the entry so the adapter never emits an unsafe
+        // launcher invocation. The warning is auditable (Silent Failure
+        // Contract, CONSTITUTION.md §2 P5) so operators see the drop.
+        const argsResult = validateMcpServerArgs(entry);
+        if (!argsResult.ok) {
+          warnings.push(
+            `MCP server "${name}" entry dropped: ${argsResult.reason ?? "invalid args"}`,
+          );
           continue;
         }
         warnings.push(...validateMcpEntry(name, entry));

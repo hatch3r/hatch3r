@@ -65,12 +65,12 @@ Compact (`-c`) one-object-per-line projection — perfect input for `xargs -L1` 
 |------|----------------|
 | `yq` (toolbox section) | YAML, TOML, XML input — yq speaks them all, jq is JSON-only. |
 | `gron` | Flatten JSON to `path = value` lines for grep-based exploration and reverse-translation. |
-| `dasel` | Single binary across JSON/YAML/TOML/XML with a path-query DSL — handy in CI where you do not want jq+yq. |
+| `dasel` | Single binary across JSON/YAML/TOML/XML with a path-query DSL — handy in CI where you do not want jq+yq. Pin to >=3.11.0 (CVE-2026-46377 / -46378 / -33320 fixed there). |
 | `fx` | Interactive JSON browsing in a TTY; jq is the right call in scripts. |
 
 ## Known Issues
 
-- **CVE-2026-32316 (active, no tagged fix as of 2026-05-18):** jq 1.8.1 ships with a heap buffer overflow in expression evaluation. Six additional CVEs were disclosed 2026-04-15; patches are committed on `jqlang/jq` `main` but no superseding tagged release exists yet. Do not invoke `jq` on JSON sourced from an untrusted producer (third-party API webhook, user-supplied upload) until a tagged release past 1.8.1 lands. Reference: https://github.com/jqlang/jq/security/advisories.
+- **Multiple unfixed advisories on jq 1.8.1 (the only tagged release as of 2026-05-27):** the upstream advisories tab listed 10+ GHSA entries through April-May 2026 — all stack-overflow, integer-overflow, or NUL-truncation classes triggerable by attacker-controlled JSON or attacker-controlled jq filter paths. Validate JSON inputs externally (e.g. `python -m json.tool`, `jaq`) or sandbox jq in a network-isolated container before running on untrusted input. Canonical roster: https://github.com/jqlang/jq/security/advisories.
 
 ## Detection / Install
 

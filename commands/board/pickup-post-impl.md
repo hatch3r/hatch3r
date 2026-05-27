@@ -142,7 +142,7 @@ After PR creation, capture learnings from this development session.
    - Were any pitfalls discovered that should be avoided next time?
 
 2. If learnings are identified:
-   - Create learning files in `.hatch3r/learnings/` following the learning file format (see `hatch3r-learn` command).
+   - Create learning files in `.hatch3r/learnings/` following the learning file format (see `skills/hatch3r-learn/SKILL.md`).
    - Include the issue number as `source-issue`.
    - Tag with relevant area labels from the issue.
    - **ASK:** "Learnings captured: {list}. Anything else to note? (add more / done)"

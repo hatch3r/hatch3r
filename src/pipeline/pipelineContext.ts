@@ -349,6 +349,131 @@ export const SPECIALIST_TRIGGER_TABLE: readonly SpecialistTrigger[] = [
     mode: "conditional",
     triggerConditions: ["CI/CD changes", "Infrastructure or deployment changes"],
   },
+  // ── CQ1–CQ9 quality-vector specialists (Finding F7.3-C1 / KDD #22) ──
+  // One per CONSTITUTION §2B content-quality pillar. Each specialist enforces
+  // measurable floors on end-user generated code via Phase 4 dispatch. Scope
+  // boundaries vs legacy specialists are documented in each agent file (e.g.,
+  // hatch3r-ui covers WCAG + design-token + four-state; hatch3r-a11y-auditor
+  // remains the deep ARIA-focused sweep).
+  {
+    specialist: "hatch3r-ui",
+    mode: "conditional",
+    triggerConditions: [
+      "UI component files modified",
+      "Design-token or theme files modified",
+      "Component-library imports changed",
+    ],
+    triggerFilePatterns: [
+      "*.tsx",
+      "*.jsx",
+      "*.vue",
+      "*.svelte",
+      "tailwind.config.js",
+      "tailwind.config.ts",
+      "theme.ts",
+    ],
+  },
+  {
+    specialist: "hatch3r-ux",
+    mode: "conditional",
+    triggerConditions: [
+      "Flow / route-transition / modal / error-state files modified",
+      "Microcopy or i18n strings modified",
+      "Async-view wrappers modified",
+    ],
+    triggerFilePatterns: [
+      "*.tsx",
+      "*.jsx",
+      "*.vue",
+      "*.svelte",
+    ],
+  },
+  {
+    specialist: "hatch3r-security",
+    mode: "conditional",
+    triggerConditions: [
+      "Auth / JWT / OAuth / WebAuthn code modified",
+      "Release workflow modified",
+      "Cookie / session handling modified",
+    ],
+  },
+  {
+    specialist: "hatch3r-reliability",
+    mode: "conditional",
+    triggerConditions: [
+      "Service handler / request handler modified",
+      "OpenTelemetry / SLO / observability config modified",
+      "Retry / circuit-breaker / error-format code modified",
+      "Kubernetes probe / health-check manifests modified",
+    ],
+  },
+  {
+    specialist: "hatch3r-testability",
+    mode: "conditional",
+    triggerConditions: [
+      "Test code added, modified, or removed",
+      "Mandate-map feature class introduced (parser / payment / RPC / AI eval)",
+      "Coverage threshold or test-runner config modified",
+    ],
+  },
+  {
+    specialist: "hatch3r-scalability",
+    mode: "conditional",
+    triggerConditions: [
+      "Request handler / route definition modified",
+      "Queue client / connection-pool config modified",
+      "Session storage / cache layer modified",
+      "Background-job / horizontally-scaled tier code modified",
+    ],
+  },
+  {
+    specialist: "hatch3r-performance",
+    mode: "conditional",
+    triggerConditions: [
+      "ORM query / data-access layer modified",
+      "UI-rendering component modified",
+      "Bundle config or vendor dependency >50KB introduced",
+      "Hot-path code modified",
+    ],
+    triggerFilePatterns: [
+      "*.tsx",
+      "*.jsx",
+      "*.vue",
+      "*.svelte",
+    ],
+  },
+  {
+    specialist: "hatch3r-maintainability",
+    mode: "conditional",
+    triggerConditions: [
+      "Any code mutation (duplication-index + complexity scan)",
+      "Schema or migration file modified",
+      "API spec (OpenAPI / GraphQL SDL / Protobuf) modified",
+    ],
+    triggerFilePatterns: [
+      "*.proto",
+      "openapi.yaml",
+      "openapi.json",
+      "schema.graphql",
+    ],
+  },
+  {
+    specialist: "hatch3r-enhancability",
+    mode: "conditional",
+    triggerConditions: [
+      "User-visible behavior modified",
+      "Public API surface modified (OpenAPI / GraphQL SDL / AsyncAPI)",
+      "Config schema or feature-flag definition modified",
+      "Extension-point interface modified",
+    ],
+    triggerFilePatterns: [
+      "*.proto",
+      "openapi.yaml",
+      "openapi.json",
+      "schema.graphql",
+      "asyncapi.yaml",
+    ],
+  },
 ] as const;
 
 // ── Project-type-aware specialist selection (Finding #56) ────────
@@ -585,7 +710,7 @@ export function shouldTriggerSpecialist(
 
   const reasons: string[] = [];
 
-  // Check file pattern triggers (e.g., dependency-auditor)
+  // Check file pattern triggers (e.g., dependency-auditor, CQ specialists)
   if (trigger.triggerFilePatterns) {
     const matchedFiles = changedFiles.filter((file) => {
       const basename = file.split("/").pop() ?? file;
@@ -597,7 +722,11 @@ export function shouldTriggerSpecialist(
       });
     });
     if (matchedFiles.length > 0) {
-      reasons.push(`Dependency files modified: ${matchedFiles.join(", ")}`);
+      const label =
+        trigger.specialist === "hatch3r-dependency-auditor"
+          ? "Dependency files modified"
+          : "Trigger files modified";
+      reasons.push(`${label}: ${matchedFiles.join(", ")}`);
     }
   }
 

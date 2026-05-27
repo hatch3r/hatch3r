@@ -6,6 +6,7 @@ import inquirer from "inquirer";
 import { readManifest, writeManifest, isValidGitBranchName, readMaturityTier } from "../../manifest/hatchJson.js";
 import {
   DEFAULT_FEATURES,
+  HATCH3R_DIR,
   HatchError,
   MATURITY_TIERS,
   VALID_MATURITY_TIERS,
@@ -69,6 +70,7 @@ import {
 import { PRESETS, getPreset, type PresetId } from "../../content/presets.js";
 import { generateCanonicalAgentsMd, generateRootAgentsMd } from "../shared/agentsContent.js";
 import { safeWriteFile } from "../../merge/safeWrite.js";
+import { withSnapshot } from "../../pipeline/snapshot.js";
 import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -280,11 +282,23 @@ async function handleScalarConfig(
   const inlineSet = parseScalarKeyValue(arg1);
   if (inlineSet) {
     const { previous, next } = applyScalarConfigWrite(manifest, inlineSet.key, inlineSet.value);
+    // Decision 27 (Bucket 2.2): snapshot the manifest before the
+    // scalar-config write so a misconfigured maturity tier can be undone
+    // with `hatch3r rollback --session=<id>`.
+    const scalarSnap = await withSnapshot(
+      "config",
+      [join(rootDir, HATCH3R_DIR, "hatch.json")],
+      async (_sessionId) => undefined,
+      { projectRoot: rootDir, onWarn: warn },
+    );
     await writeManifest(rootDir, manifest);
     if (previous === next) {
       info(`${inlineSet.key} is already set to "${next}". No change.`);
     } else {
       info(`Set ${inlineSet.key}: ${chalk.dim(previous ?? "<default>")} ${chalk.cyan("→")} ${chalk.bold(next)}`);
+      if (scalarSnap.sessionId) {
+        info(`Snapshot: ${scalarSnap.sessionId} (revert: hatch3r rollback --session=${scalarSnap.sessionId})`);
+      }
     }
     return true;
   }
@@ -336,11 +350,21 @@ async function handleScalarConfig(
       );
     }
     const { previous, next } = applyScalarConfigWrite(manifest, key, value);
+    // Decision 27 (Bucket 2.2): snapshot before `set` form writes too.
+    const scalarSnap = await withSnapshot(
+      "config",
+      [join(rootDir, HATCH3R_DIR, "hatch.json")],
+      async (_sessionId) => undefined,
+      { projectRoot: rootDir, onWarn: warn },
+    );
     await writeManifest(rootDir, manifest);
     if (previous === next) {
       info(`${key} is already set to "${next}". No change.`);
     } else {
       info(`Set ${key}: ${chalk.dim(previous ?? "<default>")} ${chalk.cyan("→")} ${chalk.bold(next)}`);
+      if (scalarSnap.sessionId) {
+        info(`Snapshot: ${scalarSnap.sessionId} (revert: hatch3r rollback --session=${scalarSnap.sessionId})`);
+      }
     }
     return true;
   }
@@ -965,8 +989,11 @@ export async function configCommand(arg1?: string, arg2?: string): Promise<void>
   // C7-H9 (D1): Config changes only need to copy canonical content and
   // re-run adapters — not fetch a newer package. Using `runRegenerate`
   // skips the 30s npm update step that offered no value here.
+  // Decision 27 (Bucket 2.2): pass `snapshotCommandName: "config"` so the
+  // pre-mutation snapshot captured inside `runRegenerate` is namespaced
+  // `config-...` rather than `update-...`.
   console.log();
-  const updateResult = await runRegenerate(rootDir, manifest);
+  const updateResult = await runRegenerate(rootDir, manifest, { snapshotCommandName: "config" });
 
   // --- Handle .env.mcp for new MCP servers ---
   if (features.mcp && mcpServers.length > 0) {
@@ -1030,6 +1057,14 @@ export async function configCommand(arg1?: string, arg2?: string): Promise<void>
   summaryLines.push(label("Files", `${updateResult.copiedFiles} canonical files updated`));
   summaryLines.push(label("Tools", `${updateResult.syncedTools} tool(s) synced`));
   summaryLines.push(label("Version", `v${updateResult.version}`));
+  if (updateResult.snapshotSessionId) {
+    summaryLines.push(
+      label(
+        "Snapshot",
+        `${updateResult.snapshotSessionId} (revert: hatch3r rollback --session=${updateResult.snapshotSessionId})`,
+      ),
+    );
+  }
 
   if (allArchivedFiles.length > 0) {
     summaryLines.push("");

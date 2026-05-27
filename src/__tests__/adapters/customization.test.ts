@@ -217,6 +217,156 @@ describe("applyCustomization", () => {
     expect(result.skip).toBe(false);
   });
 
+  // ── F2.3-C1 (Cycle 10 Wave 1): floor-admission invariant at customization
+  //    layer. The selection-layer floor admission (`src/content/index.ts::
+  //    resolveSelection` stage 2) admits any item carrying a `floor:*` tag
+  //    unconditionally for every non-custom preset. Before F2.3-C1,
+  //    `enabled: false` in `.customize.yaml` could still silently drop a
+  //    floor-tagged unprotected canonical artifact from adapter emission,
+  //    creating a reverse channel that bypassed the structural invariant.
+  //    These tests mirror the `rejects enabled: false for protected agents`
+  //    block, one per floor class registered in `src/content/tags.ts`.
+  it("rejects enabled: false for floor:security-tagged agents", async () => {
+    const projectRoot = await setup();
+    const dir = join(projectRoot, ".hatch3r", "agents");
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, "hatch3r-reviewer.customize.yaml"),
+      "enabled: false",
+      "utf-8",
+    );
+    const floorAgent: CanonicalFile = { ...baseAgent, tags: ["review", "floor:security"] };
+    const result = await applyCustomization(projectRoot, floorAgent);
+    expect(result.skip).toBe(false);
+    expect(result.overrides).toEqual({});
+    expect(result.warnings.some((w) => w.includes("floor-tagged") && w.includes("hatch3r-reviewer"))).toBe(true);
+  });
+
+  it("rejects enabled: false for floor:ui-ux-tagged agents", async () => {
+    const projectRoot = await setup();
+    const dir = join(projectRoot, ".hatch3r", "agents");
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, "hatch3r-reviewer.customize.yaml"),
+      "enabled: false",
+      "utf-8",
+    );
+    const floorAgent: CanonicalFile = { ...baseAgent, tags: ["review", "floor:ui-ux"] };
+    const result = await applyCustomization(projectRoot, floorAgent);
+    expect(result.skip).toBe(false);
+    expect(result.overrides).toEqual({});
+    expect(result.warnings.some((w) => w.includes("floor-tagged"))).toBe(true);
+  });
+
+  it("rejects enabled: false for floor:protocol-tagged agents", async () => {
+    const projectRoot = await setup();
+    const dir = join(projectRoot, ".hatch3r", "agents");
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, "hatch3r-reviewer.customize.yaml"),
+      "enabled: false",
+      "utf-8",
+    );
+    const floorAgent: CanonicalFile = { ...baseAgent, tags: ["review", "floor:protocol"] };
+    const result = await applyCustomization(projectRoot, floorAgent);
+    expect(result.skip).toBe(false);
+    expect(result.overrides).toEqual({});
+    expect(result.warnings.some((w) => w.includes("floor-tagged"))).toBe(true);
+  });
+
+  it("rejects enabled: false for floor:content-quality-tagged agents", async () => {
+    const projectRoot = await setup();
+    const dir = join(projectRoot, ".hatch3r", "agents");
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, "hatch3r-reviewer.customize.yaml"),
+      "enabled: false",
+      "utf-8",
+    );
+    const floorAgent: CanonicalFile = { ...baseAgent, tags: ["review", "floor:content-quality"] };
+    const result = await applyCustomization(projectRoot, floorAgent);
+    expect(result.skip).toBe(false);
+    expect(result.overrides).toEqual({});
+    expect(result.warnings.some((w) => w.includes("floor-tagged"))).toBe(true);
+  });
+
+  it("rejects enabled: false for floor:enterprise-only-tagged agents", async () => {
+    const projectRoot = await setup();
+    const dir = join(projectRoot, ".hatch3r", "agents");
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, "hatch3r-reviewer.customize.yaml"),
+      "enabled: false",
+      "utf-8",
+    );
+    const floorAgent: CanonicalFile = { ...baseAgent, tags: ["review", "floor:enterprise-only"] };
+    const result = await applyCustomization(projectRoot, floorAgent);
+    expect(result.skip).toBe(false);
+    expect(result.overrides).toEqual({});
+    expect(result.warnings.some((w) => w.includes("floor-tagged"))).toBe(true);
+  });
+
+  it("rejects enabled: false on floor-tagged skill (non-agent type)", async () => {
+    // floor tags can appear on any canonical type — verify skill type path.
+    const projectRoot = await setup();
+    const dir = join(projectRoot, ".hatch3r", "skills");
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, "hatch3r-browser-verify.customize.yaml"),
+      "enabled: false",
+      "utf-8",
+    );
+    const floorSkill: CanonicalFile = {
+      id: "hatch3r-browser-verify",
+      type: "skill",
+      description: "Browser verify",
+      content: "Run browser verification.",
+      rawContent: "---\nid: hatch3r-browser-verify\n---\nRun browser verification.",
+      sourcePath: "/fake/skills/hatch3r-browser-verify/SKILL.md",
+      tags: ["browser", "floor:content-quality"],
+    };
+    const result = await applyCustomization(projectRoot, floorSkill);
+    expect(result.skip).toBe(false);
+    expect(result.overrides).toEqual({});
+    expect(result.warnings.some((w) => w.includes("floor-tagged") && w.includes("hatch3r-browser-verify"))).toBe(true);
+  });
+
+  it("allows enabled: false on non-floor non-protected agent (unchanged behavior)", async () => {
+    // Regression guard: F2.3-C1 must not affect non-floor non-protected items.
+    // baseAgent has no `tags` field and no `protected` flag — `enabled: false`
+    // continues to drop it from emission.
+    const projectRoot = await setup();
+    const dir = join(projectRoot, ".hatch3r", "agents");
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, "hatch3r-reviewer.customize.yaml"),
+      "enabled: false",
+      "utf-8",
+    );
+    const plainAgent: CanonicalFile = { ...baseAgent, tags: ["review", "ui"] };
+    const result = await applyCustomization(projectRoot, plainAgent);
+    expect(result.skip).toBe(true);
+  });
+
+  it("preserves scope/description on floor-only non-protected items (floor blocks disable, not edit)", async () => {
+    // Per F2.3-C1: floor admission blocks the reverse-channel `enabled: false`
+    // only. scope and description overrides remain authorised on floor-only
+    // (non-protected) items — only `file.protected` locks those fields.
+    const projectRoot = await setup();
+    const dir = join(projectRoot, ".hatch3r", "rules");
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, "hatch3r-testing.customize.yaml"),
+      "scope: src/**/*.ts\ndescription: Floor-tagged but editable",
+      "utf-8",
+    );
+    const floorRule: CanonicalFile = { ...baseRule, tags: ["floor:content-quality"] };
+    const result = await applyCustomization(projectRoot, floorRule);
+    expect(result.overrides.scope).toBe("src/**/*.ts");
+    expect(result.overrides.description).toBe("Floor-tagged but editable");
+    expect(result.skip).toBe(false);
+  });
+
   it("truncates customize markdown exceeding 10KB", async () => {
     const projectRoot = await setup();
     const dir = join(projectRoot, ".hatch3r", "agents");

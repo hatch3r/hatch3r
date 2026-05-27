@@ -1,13 +1,18 @@
 ---
 id: hatch3r-security-audit
 type: command
-orchestrator: false
+orchestrator: true
+agentPipeline: [hatch3r-implementer, hatch3r-dependency-auditor, hatch3r-security]
 description: Open an OWASP ASI security epic reviewing auth boundaries, input validation, and supply-chain risks with one hardening sub-issue per module plus trust-boundary audit
 tags: [maintenance, floor:security]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
 parallel_tool_default: true
+triage_tiers: [2, 3]
+sub_agents_spawned:
+  count: 3
+  rationale: Module-taxonomy discovery and audit-sub-issue authoring delegate to `hatch3r-implementer`; the two cross-cutting security axes fan out in parallel to `hatch3r-dependency-auditor` (supply-chain + dependency-CVE posture) and `hatch3r-security` (CQ3 OWASP ASI01-10 coverage). Fan-out is disjoint across module and cross-cutting axes; serialization would violate P8 B2 task decomposition.
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -16,15 +21,28 @@ Before any action, scan the user's request and provided context for unresolved q
 
 ## Agent Pipeline
 
-This command creates audit issues and epics. It does not spawn implementation sub-agents.
+This command discovers the module taxonomy via static analysis, then delegates security-audit sub-issue authoring and two cross-cutting security axes to parallel sub-agents via the Task tool. Pipeline:
 
 | Stage | Agent(s) | Parallel | Required |
 |-------|----------|----------|----------|
 | 1. Context & Pre-flight | Orchestrator (inline) | No | Yes |
-| 2. Issue Creation | Orchestrator (GitHub MCP) | No | Yes |
-| 3. Board Sync | Orchestrator (Projects v2 sync) | No | Yes |
+| 2. Module Audit Authoring | `hatch3r-implementer` (one Task call per module sub-issue body) | Yes (across modules) | Yes |
+| 3. Cross-Cutting Security Axes | `hatch3r-dependency-auditor` + `hatch3r-security` (parallel sub-issue authoring) | Yes | Yes |
+| 4. Issue Creation | Orchestrator (GitHub MCP) | No | Yes |
+| 5. Board Sync | Orchestrator (Projects v2 sync) | No | Yes |
 
 All issue operations MUST follow the Projects v2 Enforcement rules defined in `hatch3r-board-shared`.
+
+Sub-agent fan-out scales with module count per `rules/fan-out-discipline.md` (P8 B2). For each discovered module, a `hatch3r-implementer` Task call authors that module's security-audit sub-issue body in parallel; the two cross-cutting audits (`hatch3r-dependency-auditor` for supply-chain, `hatch3r-security` for OWASP ASI01-10) run as one parallel batch.
+
+## Triage
+
+Classify the security-audit request before fan-out:
+
+- **Tier 2 (standard)**: single repository with discovered module count <=8; parallel module sub-agents bounded by `max_phase4_parallel`.
+- **Tier 3 (deep)**: monorepo with module count >8 OR cross-module trust-boundary depth >=3; same fan-out shape, longer review loop.
+
+Tier is derived from Module Discovery output (Step 2). Tier 1 is not supported — single-target security fixes belong to `hatch3r-quick-change` with a `hatch3r-security-auditor` Phase 4 gate.
 
 # Security Audit — Full Product Security Audit
 

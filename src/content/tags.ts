@@ -143,6 +143,17 @@ export const TAG_LANG_RUST       = "lang:rust";
 export const TAG_LANG_JAVA       = "lang:java";
 export const TAG_LANG_RUBY       = "lang:ruby";
 
+// ── Maturity-tier admission tags (Decision 4 / #16) ───────────────
+// Frontmatter-side spellings of the per-tier admission gates consumed by
+// `resolveSelection`'s tier stage in `src/content/index.ts`. Matched by
+// the gate via string equality against `TIER_TAG_REQUIREMENTS`; registry
+// presence here is for compound-test tag validity and `facetOf()` lookup.
+
+export const TAG_TIER_ENTERPRISE_ONLY = "tier:enterprise-only";
+export const TAG_TIER_SCALEUP_PLUS    = "tier:scaleup-plus";
+export const TAG_TIER_TEAM_PLUS       = "tier:team-plus";
+export const TAG_FLOOR_ENTERPRISE_ONLY = "floor:enterprise-only"; // alias for tier:enterprise-only per bucket spec
+
 // ── Facet registry — single source of truth ──────────────────────
 
 /**
@@ -161,7 +172,8 @@ export type TagFacet =
   | "ui-ux-specialisation"
   | "cli-tool"
   | "cli-tool-category"
-  | "language";
+  | "language"
+  | "tier";
 
 /**
  * The single source of truth. Every recognised tag is registered with exactly
@@ -256,6 +268,14 @@ export const TAG_REGISTRY: Record<string, TagFacet> = {
   [TAG_LANG_RUST]:       "language",
   [TAG_LANG_JAVA]:       "language",
   [TAG_LANG_RUBY]:       "language",
+
+  // Decision 4 / #16 — maturity-tier admission tags (consumed by
+  // `resolveSelection` tier stage; registry placement keeps compound
+  // tag-validity tests honest without changing gate semantics).
+  [TAG_TIER_ENTERPRISE_ONLY]:  "tier",
+  [TAG_TIER_SCALEUP_PLUS]:     "tier",
+  [TAG_TIER_TEAM_PLUS]:        "tier",
+  [TAG_FLOOR_ENTERPRISE_ONLY]: "tier",
 };
 
 export function facetOf(tag: string): TagFacet | undefined {
@@ -276,6 +296,7 @@ export const isContextTag         = (t: string): boolean => facetOf(t) === "cont
 export const isCustomizeTag       = (t: string): boolean => facetOf(t) === "customize";
 export const isUiUxSpecialisation = (t: string): boolean => facetOf(t) === "ui-ux-specialisation";
 export const isLanguageTag        = (t: string): boolean => facetOf(t) === "language";
+export const isTierTag            = (t: string): boolean => facetOf(t) === "tier";
 
 // ── Language helpers ─────────────────────────────────────────────
 

@@ -3,7 +3,7 @@ id: hatch3r-ux
 type: agent
 description: UX quality specialist — reviews generated UX flows for error-recovery clarity, first-run success, decisions-per-flow discipline, focus management, and screen-reader announcement. Use when UX flows are authored or modified.
 model: standard
-tags: [review, ux, accessibility, floor:content-quality]
+tags: [review, ux, accessibility, floor:content-quality, tier:scaleup-plus]
 pillars:
   governance: [P1, P2]
   content-quality: [CQ2]
@@ -13,6 +13,13 @@ efficiency_tier: standard
 cache_friendly: true
 parallel_tool_default: true
 browser_capability: opt-in
+phase_4_trigger:
+  mode: conditional
+  conditions:
+    - Flow / route-transition / modal / error-state files modified
+    - Microcopy or i18n strings modified
+    - Async-view wrappers modified
+  file_patterns: ["*.tsx", "*.jsx", "*.vue", "*.svelte"]
 ---
 You are the UX quality-vector specialist for the project.
 

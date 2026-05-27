@@ -28,7 +28,7 @@ vi.mock("inquirer", () => {
 const AGENTS_DIR = HATCH3R_DIR;
 
 describe("init command", () => {
-  let initCommand: (opts?: { tools?: string; yes?: boolean; cliTools?: string; noCliTools?: boolean; mcp?: boolean }) => Promise<void>;
+  let initCommand: (opts?: { tools?: string; yes?: boolean; cliTools?: string; noCliTools?: boolean; mcp?: boolean; resume?: boolean }) => Promise<void>;
   let tempDir: string;
   let cwdSpy: MockInstance;
   let exitSpy: MockInstance;
@@ -476,6 +476,69 @@ describe("init command", () => {
 
     // hooks feature should be enabled by default
     expect(manifest.features.hooks).toBe(true);
+  });
+
+  // F1.1-C1 (Cycle 10 Wave 1): Decision 27 / Bucket 2.2 wiring.
+  // `hatch3r init` MUST capture a pre-mutation snapshot under
+  // `.hatch3r/snapshots/<sessionId>/` so `hatch3r rollback list` is
+  // non-empty after a fresh init and `hatch3r rollback --session=<id>`
+  // can revert the run. Without this wiring `--resume` and `rollback`
+  // were dead surface (D1 synthesis F1.1).
+  describe("Decision 27 snapshot wiring (F1.1-C1)", () => {
+    it("captures a pre-mutation snapshot when init writes adapter outputs", async () => {
+      await initCommand({ yes: true, tools: "claude" });
+
+      // listSnapshots() reads `<rootDir>/.hatch3r/snapshots/*/meta.json`.
+      const { listSnapshots } = await import("../../pipeline/snapshot.js");
+      const sessions = await listSnapshots({ projectRoot: tempDir });
+      expect(sessions.length).toBeGreaterThan(0);
+      // Session id format is `init-<ISO-timestamp>` per runInitInner.
+      const initSession = sessions.find((s) => s.sessionId.startsWith("init-"));
+      expect(initSession).toBeDefined();
+      expect(initSession!.paths.length).toBeGreaterThan(0);
+      // The captured paths include the manifest target and the CLAUDE.md
+      // adapter output — both files about to be created.
+      const relativePaths = initSession!.relativePaths;
+      expect(relativePaths.some((p) => p.endsWith("hatch.json"))).toBe(true);
+      expect(relativePaths.some((p) => p === "CLAUDE.md")).toBe(true);
+    }, 90_000);
+
+    it("`hatch3r rollback list` enumerates the captured init session", async () => {
+      // Integration test per F1.1-C1 recommendation step 4: running init
+      // followed by `rollback list` must report a non-empty list so the
+      // surface advertised in `src/cli/commands/rollback.ts` is real.
+      await initCommand({ yes: true, tools: "claude" });
+      const { rollbackListCommand } = await import("../../cli/commands/rollback.js");
+      await rollbackListCommand();
+      const out = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      const errOut = consoleErrorSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      const combined = out + "\n" + errOut;
+      // The list output is "Snapshot sessions (<n>):" — assert the header
+      // is present (i.e. the empty-state branch did NOT fire).
+      expect(combined).toMatch(/Snapshot sessions/);
+      expect(combined).not.toMatch(/No snapshot sessions/);
+      // The init session id appears in the listing.
+      expect(combined).toMatch(/init-/);
+    }, 90_000);
+
+    it("`--resume` surfaces a warning instead of silently discarding", async () => {
+      // Synthesis F1.1: prior behaviour was `void opts.resume;` which
+      // discarded the flag with no signal. The fix surfaces a warn() so
+      // users see that resume is reserved-but-not-yet-implemented.
+      // Capture stderr (warn routes through `info` ui module helper).
+      await initCommand({ yes: true, resume: true });
+      // Init still completes normally — `--resume` is documented as
+      // reserved surface, not a hard error.
+      const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
+      await expect(access(manifestPath)).resolves.toBeUndefined();
+      // The warning text appears in console.error (warn() in ui.ts
+      // routes through the warn helper) or stdout (info routes there).
+      const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      const stderr = consoleErrorSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      const combined = stdout + "\n" + stderr;
+      expect(combined).toMatch(/--resume/);
+      expect(combined).toMatch(/not yet wired/);
+    }, 90_000);
   });
 
   // C7-H8 (D1): writeManifest must run AFTER adapter generation so that a
@@ -1955,9 +2018,11 @@ describe("init --yes CLI tooling flags (Wave 5 plan §4.3)", () => {
     );
     expect(manifest.cliTools.enabled).toBe(true);
     // TIER1_CLI_TOOLS (plan §3) = ripgrep, fd, jq, yq, gh, delta, bat, sd,
-    // ast-grep, zstd (10 entries). Assert membership rather than exact
-    // equality so trigger-driven additions on a real CI runner do not flake
-    // the test — `--cli-tools tier1` explicitly resolves to TIER1 only.
+    // ast-grep, zstd, curl (11 entries). Cycle 10 D21-SA21.7-F-1 added
+    // `curl` to TIER1 as the canonical HTTP transfer tool (security-pinned
+    // 8.20.0). Assert membership rather than exact equality so trigger-
+    // driven additions on a real CI runner do not flake the test —
+    // `--cli-tools tier1` explicitly resolves to TIER1 only.
     expect(manifest.cliTools.selected).toEqual([
       "ripgrep",
       "fd",
@@ -1969,6 +2034,7 @@ describe("init --yes CLI tooling flags (Wave 5 plan §4.3)", () => {
       "sd",
       "ast-grep",
       "zstd",
+      "curl",
     ]);
   });
 

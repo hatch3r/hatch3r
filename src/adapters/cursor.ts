@@ -144,7 +144,15 @@ export class CursorAdapter extends BaseAdapter {
 
     const mcp = await this.readFilteredMcp(ctx);
     if (mcp) {
-      const transformed = transformEnvVarSyntax(mcp, "shell") as Record<string, Record<string, unknown>>;
+      // D11-C-1 (Cycle 10, Pillar P6): Cursor's MCP runtime supports only
+      // `${env:NAME}`, `${userHome}`, `${workspaceFolder}` interpolation
+      // (cursor.com/docs/context/mcp accessed 2026-05-27). Shell-style
+      // `$VAR` is treated as a literal string by Cursor, so emitting it
+      // breaks every secret-bearing MCP server (github, brave-search,
+      // sentry, postgres, linear, azure-devops, gitlab). The canonical
+      // MCP fixture already uses `${env:VAR}` form, so "passthrough"
+      // keeps it byte-identical to Cursor's required syntax.
+      const transformed = transformEnvVarSyntax(mcp, "passthrough") as Record<string, Record<string, unknown>>;
       results.push(output(".cursor/mcp.json", JSON.stringify({ mcpServers: transformed }, null, 2)));
     }
 

@@ -307,6 +307,128 @@ export async function listSnapshots(
 }
 
 /**
+ * Build a deterministic, on-disk-safe session id of the form
+ * `${commandName}-${ISO timestamp}` with the ISO `:` and `.` separators
+ * replaced by `-` so the id is also a valid directory name on every host
+ * file system (Windows in particular refuses `:` in directory names).
+ *
+ * Exposed for tests; production callers should prefer {@link withSnapshot}
+ * which threads this through `createSnapshot` automatically.
+ */
+export function buildSessionId(commandName: string, now: Date = new Date()): string {
+  const iso = now.toISOString().replace(/[:.]/g, "-");
+  return `${commandName}-${iso}`;
+}
+
+/** Options accepted by {@link withSnapshot}. */
+export interface WithSnapshotOptions {
+  /** Override the resolved project root (defaults to `process.cwd()`). */
+  projectRoot?: string;
+  /**
+   * When `true`, skip the snapshot capture entirely. Used by the mutation
+   * commands' `--dry-run` flags so dry runs do not produce snapshot
+   * directories — those previews never modify disk and rolling them back
+   * would be a no-op.
+   */
+  dryRun?: boolean;
+  /**
+   * Override the clock used to build the session id. Defaults to a fresh
+   * `new Date()`. Threaded through for deterministic-test usage.
+   */
+  now?: () => Date;
+  /**
+   * Silent Failure Contract hook: when set, snapshot capture failures
+   * route the diagnostic through this callback (defaults to
+   * `console.warn`). The mutator still runs and the returned `sessionId`
+   * is `null` so the caller can suppress its "revert with: …" line.
+   * Production callers wire this to the per-command `warn()` UI helper so
+   * the warning lands in the same channel as other orchestrator output.
+   */
+  onWarn?: (message: string) => void;
+}
+
+/**
+ * Wrap a mutation block with a pre-mutation snapshot. Captures the
+ * supplied `paths` under `.hatch3r/snapshots/<sessionId>/files/` before
+ * invoking `mutator(sessionId)`, then surfaces the session id back to the
+ * caller so the orchestrator can print it in the success summary.
+ *
+ * Semantics:
+ *   1. Filter `paths` for falsy / blank entries (the orchestrator may
+ *      pass a list that includes optional outputs like `.worktreeinclude`
+ *      that are only present under certain features).
+ *   2. When `options.dryRun === true`, skip the snapshot capture and
+ *      proceed straight to `mutator` with a `null` session id. The mutator
+ *      itself is responsible for honouring dry-run semantics — this helper
+ *      only suppresses the snapshot write.
+ *   3. When `paths` is empty after filtering, still emit a snapshot
+ *      (with zero captured files) so `hatch3r rollback list` shows the run
+ *      and the operator can confirm the command ran without writing.
+ *      The session id is still returned to the mutator.
+ *   4. Silent Failure Contract: a snapshot capture I/O failure routes
+ *      through `options.onWarn` (defaults to `console.warn`) and the
+ *      mutator still runs. The returned `sessionId` is `null` to signal
+ *      "no rollback target captured" so the caller can suppress its
+ *      "revert with: …" line when the safety net is unavailable. This
+ *      matches the F1.1-C1 init wiring contract — an unwritable
+ *      `.hatch3r/snapshots/` must not block a fresh install. Errors
+ *      whose cause is a malformed session id (path separator etc.) still
+ *      propagate because they indicate a programming bug, not an
+ *      environmental failure.
+ *
+ * Returns `{ sessionId, snapshotPath, count }` so callers can include the
+ * session id in their success box for `hatch3r rollback --session=<id>`.
+ */
+export async function withSnapshot<T>(
+  commandName: string,
+  paths: string[],
+  mutator: (sessionId: string | null) => Promise<T>,
+  options: WithSnapshotOptions = {},
+): Promise<{ result: T; sessionId: string | null; snapshotPath: string | null; count: number }> {
+  if (options.dryRun) {
+    const result = await mutator(null);
+    return { result, sessionId: null, snapshotPath: null, count: 0 };
+  }
+
+  const projectRoot = options.projectRoot ?? process.cwd();
+  const now = options.now ? options.now() : new Date();
+  const sessionId = buildSessionId(commandName, now);
+
+  const filtered = paths.filter((p) => typeof p === "string" && p.length > 0);
+  let snapshotPath: string | null = null;
+  let count = 0;
+  let capturedSessionId: string | null = sessionId;
+  try {
+    const captured = await createSnapshot(sessionId, filtered, { projectRoot });
+    snapshotPath = captured.snapshotPath;
+    count = captured.count;
+  } catch (err) {
+    // Programming-bug class (invalid session id) propagates per the doc
+    // contract — a malformed session id indicates the caller composed the
+    // command name incorrectly. Environmental failures (ENOENT on a stub
+    // project root, EACCES on a read-only filesystem) downgrade to a
+    // warning so the mutation can still proceed and the operator sees
+    // the loss of the safety net.
+    if (
+      err instanceof HatchError &&
+      err.errorCode === "VALIDATION_ERROR" &&
+      /invalid sessionId/.test(err.message)
+    ) {
+      throw err;
+    }
+    capturedSessionId = null;
+    const msg = err instanceof Error ? err.message : String(err);
+    const warning =
+      `Pre-mutation snapshot failed for session ${sessionId}: ${msg}. ` +
+      `Continuing ${commandName}; \`hatch3r rollback --session=${sessionId}\` will not be available.`;
+    if (options.onWarn) options.onWarn(warning);
+    else console.warn(warning);
+  }
+  const result = await mutator(capturedSessionId);
+  return { result, sessionId: capturedSessionId, snapshotPath, count };
+}
+
+/**
  * Restore every file captured in the named session. Returns the count
  * of files restored plus any per-file errors encountered. Unknown
  * session ids produce a single-entry error array and a zero count.

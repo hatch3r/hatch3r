@@ -6,7 +6,7 @@ import chalk from "chalk";
 import { parse as parseYaml } from "yaml";
 import { readManifest } from "../../manifest/hatchJson.js";
 import { isValidHookEvent } from "../../hooks/types.js";
-import { HATCH3R_PREFIX, HatchError } from "../../types.js";
+import { HATCH3R_DIR, HATCH3R_PREFIX, HatchError } from "../../types.js";
 import type { HatchManifest } from "../../types.js";
 import { HATCH3R_VERSION } from "../../version.js";
 import { scanForDeniedPatterns } from "../../adapters/customization.js";
@@ -766,8 +766,12 @@ async function validateContentConsistency(
     }
   }
 
-  // Validate learnings: schema, size, encoding, and denied patterns (#19 D15/D6)
-  const learningsDir = join(agentsDir, "learnings");
+  // Validate learnings: schema, size, encoding, and denied patterns (#19 D15/D6).
+  // F6.4-C1: learnings and handoffs live under the user's `.hatch3r/` state
+  // directory, NOT under the bundled canonical content tree. Scanning the
+  // bundled tree (which ships zero learnings) short-circuited via ENOENT and
+  // silently passed poisoned user learnings.
+  const learningsDir = join(rootDir, HATCH3R_DIR, "learnings");
   const learningsResult = await validateLearningsDirectory(learningsDir);
   for (const e of learningsResult.errors) {
     result.errors.push(e);
@@ -777,8 +781,8 @@ async function validateContentConsistency(
   }
 
   // Validate handoffs: schema, size, integrity, expiry, git_ref drift
-  const handoffsActiveDir = join(agentsDir, "handoffs", "active");
-  const handoffsArchivedDir = join(agentsDir, "handoffs", "archived");
+  const handoffsActiveDir = join(rootDir, HATCH3R_DIR, "handoffs", "active");
+  const handoffsArchivedDir = join(rootDir, HATCH3R_DIR, "handoffs", "archived");
   const handoffsResult = await validateHandoffsDirectory(handoffsActiveDir, {
     archivedDir: handoffsArchivedDir,
   });
@@ -1391,6 +1395,75 @@ async function validateContentBody(
   }
 }
 
+/**
+ * F2.4-F1 (Cycle 10 Wave 1, D2 Critical, ASI02): enumerate every published
+ * agent under `<canonicalRoot>/agents/*.md` (frontmatter `type: agent`) and
+ * verify each id has a registered entry in `AGENT_TOOL_POLICIES`. Closes the
+ * NO_POLICY silent-denial path under the Claude PreToolUse hook for the 11
+ * 2.0.0 agents (9 quality specialists + 2 spec agents) that were absent from
+ * the registry. Mirrors the runtime check used by
+ * `src/__tests__/pipeline/agentToolAllowlist.test.ts` so the build-time and
+ * validate-time gates stay aligned.
+ *
+ * Errors emit on `result.errors` so CI exits non-zero when an agent file
+ * exists without a matching policy.
+ */
+async function validateAgentToolPolicyCoverage(
+  canonicalRoot: string,
+  result: ValidationResult,
+): Promise<void> {
+  // Lazy-import the registry to avoid pulling the pipeline module into every
+  // validate invocation when the canonical agents/ directory is absent
+  // (e.g., consumer repo with a partial bundle).
+  const agentsDir = join(canonicalRoot, "agents");
+  let entries;
+  try {
+    entries = await readdir(agentsDir, { withFileTypes: true });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw err;
+  }
+
+  const filesystemIds: string[] = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
+    const filePath = join(agentsDir, entry.name);
+    let raw: string;
+    try {
+      raw = await readFile(filePath, "utf-8");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw err;
+    }
+    if (!raw.startsWith("---")) continue;
+    const endIdx = raw.indexOf("---", 3);
+    if (endIdx === -1) continue;
+    let fm: Record<string, unknown> | null;
+    try {
+      fm = parseYaml(raw.slice(3, endIdx).trim()) as Record<string, unknown> | null;
+    } catch {
+      continue;
+    }
+    if (!fm || typeof fm !== "object") continue;
+    if (fm.type !== "agent") continue;
+    if (typeof fm.id !== "string") continue;
+    filesystemIds.push(fm.id);
+  }
+
+  if (filesystemIds.length === 0) return;
+
+  const { AGENT_TOOL_POLICIES } = await import("../../pipeline/agentToolAllowlist.js");
+  const policyIds = new Set(AGENT_TOOL_POLICIES.map((p) => p.agentId));
+  const missing = filesystemIds.filter((id) => !policyIds.has(id)).sort();
+  for (const id of missing) {
+    result.errors.push(
+      `Agent "${id}" (agents/${id}.md) has no AGENT_TOOL_POLICIES entry — ` +
+        `add an AgentToolPolicy in src/pipeline/agentToolAllowlist.ts so ASI02 deny-by-default ` +
+        `does not silently block every tool call by this agent.`,
+    );
+  }
+}
+
 export async function validateDocsCounts(rootDir: string): Promise<{ mismatches: string[]; checked: number }> {
   const mismatches: string[] = [];
   let checked = 0;
@@ -1673,6 +1746,14 @@ export async function validateCommand(opts?: {
     // Secret detection in .env.mcp (#82 D15)
     await validateEnvMcpSecrets(rootDir, result);
   }
+
+  // F2.4-F1 (Cycle 10 Wave 1, D2 Critical, ASI02): every agents/*.md with
+  // frontmatter `type: agent` must have a registered AGENT_TOOL_POLICIES
+  // entry. Without this, NO_POLICY silently denies every tool call by the
+  // affected agent under the Claude PreToolUse hook and widens privilege
+  // silently under Cursor/Copilot (no readonly frontmatter emitted).
+  verbose("Checking AGENT_TOOL_POLICIES coverage...");
+  await validateAgentToolPolicyCoverage(canonicalRoot, result);
 
   // Security compliance verification (#86 D15)
   await validateSecurityCompliance(result);

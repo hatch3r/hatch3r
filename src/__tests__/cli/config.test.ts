@@ -784,7 +784,14 @@ describe("config command", () => {
 
       await (await importConfigCommand())();
 
-      expect(vi.mocked(runRegenerate)).toHaveBeenCalledWith(tempDir, expect.objectContaining({ tools: ["cursor", "claude"] }));
+      // Decision 27 (Bucket 2.2) wiring: config passes
+      // `snapshotCommandName: "config"` so the pre-mutation snapshot
+      // captured inside `runRegenerate` is namespaced `config-...`.
+      expect(vi.mocked(runRegenerate)).toHaveBeenCalledWith(
+        tempDir,
+        expect.objectContaining({ tools: ["cursor", "claude"] }),
+        expect.objectContaining({ snapshotCommandName: "config" }),
+      );
     });
 
     it("should call ensureEnvMcp for MCP servers when mcp feature enabled", async () => {

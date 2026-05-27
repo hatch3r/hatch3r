@@ -422,11 +422,26 @@ async function applyCustomizationImpl(
 
   const overrides: Customization = yaml ?? {};
 
-  if (file.protected) {
+  // F2.3-C1 (Cycle 10 Wave 1): mirror the selection-layer floor-admission
+  // invariant (`src/content/index.ts::resolveSelection` stage 2). Any artifact
+  // carrying a `floor:*` tag is unconditionally admitted by every non-custom
+  // preset; the customization layer must not provide a reverse channel via
+  // `enabled: false`. Treat floor-tagged artifacts the same way as protected
+  // artifacts here so `enabled: false` is rejected with a warning instead of
+  // silently dropping the file from adapter emission. The check is parallel
+  // to `file.protected` (not "in addition to") because either condition is
+  // sufficient to block disablement; scope/description overrides remain
+  // permitted on floor-tagged-only items (only protected items lock those).
+  const isFloor = file.tags?.some((t) => t.startsWith("floor:")) ?? false;
+  if (file.protected || isFloor) {
     if (overrides.enabled === false) {
-      warnings.push(`Cannot disable protected ${file.type} "${file.id}" via customization. Ignoring enabled: false.`);
+      const reason = file.protected ? "protected" : "floor-tagged";
+      warnings.push(`Cannot disable ${reason} ${file.type} "${file.id}" via customization. Ignoring enabled: false.`);
       return { content: file[contentKey], skip: false, overrides: {}, warnings };
     }
+  }
+
+  if (file.protected) {
     if (overrides.scope !== undefined || overrides.description !== undefined) {
       if (overrides.scope !== undefined) {
         warnings.push(`Cannot override scope on protected ${file.type} "${file.id}" via customization. Using original scope.`);

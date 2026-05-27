@@ -2,7 +2,7 @@
 id: hatch3r-board-fill
 type: command
 orchestrator: true
-agentPipeline: [hatch3r-reviewer, hatch3r-fixer]
+agentPipeline: [hatch3r-reviewer, hatch3r-fixer, hatch3r-ui, hatch3r-ux, hatch3r-security, hatch3r-reliability, hatch3r-testability, hatch3r-scalability, hatch3r-performance, hatch3r-maintainability, hatch3r-enhancability]
 description: Create epics and issues/work items from todo.md, reorganize the board with dependency analysis, readiness assessment, and implementation ordering. Supports GitHub, Azure DevOps, and GitLab.
 tags: [board, ctx:team-only]
 quality_charter: agents/shared/quality-charter.md
@@ -11,8 +11,8 @@ cache_friendly: true
 parallel_tool_default: true
 triage_tiers: [1, 2, 3]
 sub_agents_spawned:
-  count: 2
-  rationale: Two specialist agents per issue — Step 7.9 fans out one hatch3r-reviewer per issue plus one hatch3r-fixer per accepted finding; batch mode scales reviewer count to N issues with serialization only on the per-issue reviewer→fixer hand-off.
+  count: 11
+  rationale: Per-issue review cycle (reviewer + fixer) plus 9 CQ vector specialists (ui/ux/security/reliability/testability/scalability/performance/maintainability/enhancability) consulted on readiness assessment so that issue acceptance criteria encode the measurable floors the implementation must meet; batch mode scales reviewer count to N issues with serialization only on the per-issue reviewer→fixer hand-off.
 ---
 
 ## §0 Detect Ambiguity (P8 B1)

@@ -21,18 +21,20 @@ import {
 describe("AVAILABLE_CLI_TOOLS registry", () => {
   const allEntries = Object.values(AVAILABLE_CLI_TOOLS) as readonly CliToolMeta[];
 
-  it("contains the expected tier counts (10/11/8)", () => {
+  it("contains the expected tier counts (11/13/10)", () => {
     const tier1 = allEntries.filter((t) => t.tier === 1);
     const tier2 = allEntries.filter((t) => t.tier === 2);
     const tier3 = allEntries.filter((t) => t.tier === 3);
 
-    // Plan §3: 10 tier-1 default-on, 11 tier-2 conditional, 8 tier-3 opt-in.
-    expect(tier1.length).toBe(10);
-    expect(tier2.length).toBe(11);
-    expect(tier3.length).toBe(8);
-    // Total catalog size 29 — surfaces accidental tool additions without
+    // Cycle 10 D21-SA21.7-F-21.7.1: tier counts updated when the HTTP
+    // category (curl/httpie/xh), dasel, and container-use landed —
+    // 11 tier-1 default-on, 13 tier-2 conditional, 10 tier-3 opt-in.
+    expect(tier1.length).toBe(11);
+    expect(tier2.length).toBe(13);
+    expect(tier3.length).toBe(10);
+    // Total catalog size 34 — surfaces accidental tool additions without
     // tier classification updates.
-    expect(allEntries.length).toBe(29);
+    expect(allEntries.length).toBe(34);
   });
 
   it("snapshot of AVAILABLE_CLI_TOOLS keys (drift gate)", () => {
@@ -47,7 +49,10 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
         "az-devops",
         "bat",
         "comby",
+        "container-use",
         "csvkit",
+        "curl",
+        "dasel",
         "delta",
         "difftastic",
         "docker",
@@ -56,6 +61,7 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
         "fzf",
         "gh",
         "glab",
+        "httpie",
         "jq",
         "lazygit",
         "llm",
@@ -69,6 +75,7 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
         "sd",
         "stagehand",
         "taplo",
+        "xh",
         "yq",
         "zstd",
       ]
@@ -91,28 +98,28 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     expect(qsv!.homepage).toContain("jqnatividad/qsv");
   });
 
-  it("jq entry carries a securityNote citing CVE-2026-32316 (D21-SA21.3-F02)", () => {
-    // jq 1.8.1 ships with CVE-2026-32316 (heap buffer overflow) plus six
-    // additional CVEs disclosed 2026-04-15 with no tagged release yet. The
-    // registry surfaces this via securityNote so the picker/installer/skill
-    // generator can warn downstream consumers.
+  it("jq entry carries a minVersion floor at 1.8.1 (D21-SA21.3-F-21.3.1, Cycle 10)", () => {
+    // Cycle 10 D21-SA21.3-F-21.3.1 (F-21.7.1 work-unit jq pin refresh):
+    // 1.8.1 (2025-07-01) remains the only tagged release at audit time;
+    // pinning the floor forces older 1.7.x installs (still on Ubuntu 22.04
+    // LTS apt) to upgrade past the 2024 CVE-2023-49355 / CVE-2024-53427
+    // cluster before exposure to the 2026 advisory pressure.
     const jq = AVAILABLE_CLI_TOOLS.jq;
-    expect(jq.securityNote).toBeDefined();
-    expect(jq.securityNote).toContain("CVE-2026-32316");
+    expect(jq.minVersion).toBe(">=1.8.1");
   });
 
-  it("jq securityNote enumerates the additional 2026-04-15 CVE IDs (D21-SA21.3-F03)", () => {
-    // C9-H87: Cycle 9 D21-SA21.3-F03 — extend the jq securityNote to
-    // enumerate the three confirmed additional CVE IDs from the 2026-04-15
-    // oss-sec batch. Three further IDs from that batch were not assigned
-    // canonical names in audit sources and remain referenced by batch URL.
+  it("jq securityNote points at the upstream advisories page as canonical roster (D21-SA21.3-F-21.3.2, Cycle 10)", () => {
+    // Cycle 10 D21-SA21.3-F-21.3.2 (F-21.7.1 work-unit jq pin refresh):
+    // the upstream tab is the canonical CVE roster (10+ GHSA entries at
+    // audit time, growing). Enumerating specific CVE IDs in the registry
+    // comment created maintenance debt that aged out within weeks — the
+    // refreshed note routes consumers to the stable URL plus an install-
+    // side mitigation contract while no tagged release supersedes 1.8.1.
     const jq = AVAILABLE_CLI_TOOLS.jq;
-    expect(jq.securityNote).toContain("CVE-2026-40612");
-    expect(jq.securityNote).toContain("CVE-2026-43894");
-    expect(jq.securityNote).toContain("CVE-2026-43896");
-    // The oss-sec batch URL anchors the unenumerated remainder so consumers
-    // can pivot to the canonical disclosure list.
-    expect(jq.securityNote).toContain("seclists.org/oss-sec");
+    expect(jq.securityNote).toBeDefined();
+    expect(jq.securityNote).toContain("https://github.com/jqlang/jq/security/advisories");
+    expect(jq.securityNote).toContain("1.8.1");
+    expect(jq.securityNote).toMatch(/sandbox|isolat/i);
   });
 
   it("sd entry is annotated releaseCadence:'stable' (D21-SA21.2-F01)", () => {
@@ -143,6 +150,84 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     expect(docker.minVersion).toBe("29.5.0");
     expect(docker.securityNote).toBeDefined();
     expect(docker.securityNote).toContain("CVE-2026-32288");
+  });
+
+  it("curl entry registered as tier-1 with minVersion >=8.20.0 + securityNote citing the seven Mar-Apr 2026 CVEs (D21-SA21.4-F02, Cycle 10)", () => {
+    // Cycle 10 D21-SA21.4-F02 (F-21.7.1): the HTTP category was documented
+    // in the D21 audit source set but no registry entry existed. curl 8.20.0
+    // (released 2026-04-29) supersedes the seven-CVE batch enumerated below;
+    // earlier builds carry credential-leak and connection-reuse exposure.
+    const curl = (AVAILABLE_CLI_TOOLS as Record<string, CliToolMeta | undefined>).curl;
+    expect(curl).toBeDefined();
+    expect(curl!.id).toBe("curl");
+    expect(curl!.tier).toBe(1);
+    expect(curl!.category).toBe("http");
+    expect(curl!.minVersion).toBe(">=8.20.0");
+    expect(curl!.securityNote).toBeDefined();
+    expect(curl!.securityNote).toContain("CVE-2026-7168");
+    expect(curl!.securityNote).toContain("8.20.0");
+  });
+
+  it("httpie entry registered as tier-2 web-project with releaseCadence stable (D21-SA21.4-F03, Cycle 10)", () => {
+    // Cycle 10 D21-SA21.4-F03 (F-21.7.1): httpie/cli 3.2.4 (2024-11-01) is
+    // 572 days old at audit but the project remains under maintenance.
+    // releaseCadence: "stable" dampens the staleness heuristic for the
+    // long gap without claiming the tool is abandoned.
+    const httpie = (AVAILABLE_CLI_TOOLS as Record<string, CliToolMeta | undefined>).httpie;
+    expect(httpie).toBeDefined();
+    expect(httpie!.id).toBe("httpie");
+    expect(httpie!.probe).toBe("http");
+    expect(httpie!.tier).toBe(2);
+    expect(httpie!.category).toBe("http");
+    expect(httpie!.trigger).toBe("web-project");
+    expect(httpie!.releaseCadence).toBe("stable");
+  });
+
+  it("xh entry registered as tier-2 web-project with minVersion >=0.25.3 + releaseCadence quarterly (D21-SA21.4-F04, Cycle 10)", () => {
+    // Cycle 10 D21-SA21.4-F04 (F-21.7.1): xh v0.25.3 (2025-12-16) is the
+    // latest stable; cadence ~quarterly per release history; entry pins to
+    // the latest stable so 0.24.x builds get an upgrade hint at install.
+    const xh = (AVAILABLE_CLI_TOOLS as Record<string, CliToolMeta | undefined>).xh;
+    expect(xh).toBeDefined();
+    expect(xh!.id).toBe("xh");
+    expect(xh!.tier).toBe(2);
+    expect(xh!.category).toBe("http");
+    expect(xh!.trigger).toBe("web-project");
+    expect(xh!.minVersion).toBe(">=0.25.3");
+    expect(xh!.releaseCadence).toBe("quarterly");
+  });
+
+  it("dasel entry registered as tier-3 with minVersion >=3.11.0 + securityNote citing 3-CVE cluster (D21-SA21.3-F-21.3.5/F-21.3.6, Cycle 10)", () => {
+    // Cycle 10 D21-SA21.3-F-21.3.5/F-21.3.6 (F-21.7.1): dasel was
+    // referenced in skill prose but absent from the registry, leaving the
+    // CVE-2026-46377/-46378/-33320 cluster unsurfaced to consumers. v3.11.0
+    // (2026-05-19) ships the upstream fix.
+    const dasel = (AVAILABLE_CLI_TOOLS as Record<string, CliToolMeta | undefined>).dasel;
+    expect(dasel).toBeDefined();
+    expect(dasel!.id).toBe("dasel");
+    expect(dasel!.tier).toBe(3);
+    expect(dasel!.category).toBe("data");
+    expect(dasel!.minVersion).toBe(">=3.11.0");
+    expect(dasel!.securityNote).toBeDefined();
+    expect(dasel!.securityNote).toContain("CVE-2026-46377");
+    expect(dasel!.securityNote).toContain("CVE-2026-46378");
+    expect(dasel!.securityNote).toContain("CVE-2026-33320");
+    expect(dasel!.securityNote).toContain("3.11.0");
+  });
+
+  it("container-use entry registered as tier-3 container with caveat tagging pre-1.0 + missing-security-policy (D21-SA21.6-F03/F07, Cycle 10)", () => {
+    // Cycle 10 D21-SA21.6-F03/F07 (F-21.7.1): dagger/container-use v0.4.2
+    // (2025-08-19) is 281 days old with no SECURITY.md published; the
+    // catalog must register it because D15 sandbox-escape control names
+    // it alongside docker/playwright. caveat surfaces the pre-1.0 state.
+    const containerUse = (AVAILABLE_CLI_TOOLS as Record<string, CliToolMeta | undefined>)["container-use"];
+    expect(containerUse).toBeDefined();
+    expect(containerUse!.id).toBe("container-use");
+    expect(containerUse!.tier).toBe(3);
+    expect(containerUse!.category).toBe("container");
+    expect(containerUse!.caveat).toBe("pre-1.0-stale-no-security-policy");
+    expect(containerUse!.minVersion).toBe(">=0.4.2");
+    expect(containerUse!.releaseCadence).toBe("quarterly");
   });
 
   it("podman entry carries minVersion + Windows-only securityNote citing CVE-2026-33414 (D21-SA21.6-F03)", () => {
@@ -227,13 +312,14 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
 });
 
 describe("TIER1_CLI_TOOLS", () => {
-  it("has exactly 10 entries", () => {
-    expect(TIER1_CLI_TOOLS.length).toBe(10);
+  it("has exactly 11 entries", () => {
+    expect(TIER1_CLI_TOOLS.length).toBe(11);
   });
 
   it("has stable ordering (snapshot)", () => {
-    // Plan §3 tier-1 tool list — order drives picker display order, so a
-    // re-ordering needs explicit acknowledgement.
+    // Tier-1 tool list — order drives picker display order, so a re-ordering
+    // needs explicit acknowledgement. curl appended at Cycle 10 per
+    // D21-SA21.4-F02 / F-21.7.1 (HTTP category implementation).
     expect([...TIER1_CLI_TOOLS]).toEqual([
       "ripgrep",
       "fd",
@@ -245,6 +331,7 @@ describe("TIER1_CLI_TOOLS", () => {
       "sd",
       "ast-grep",
       "zstd",
+      "curl",
     ]);
   });
 
@@ -291,8 +378,8 @@ describe("TIER2_CLI_TOOLS_BY_TRIGGER", () => {
 });
 
 describe("TIER3_CLI_TOOLS", () => {
-  it("has exactly 8 entries", () => {
-    expect(TIER3_CLI_TOOLS.length).toBe(8);
+  it("has exactly 10 entries", () => {
+    expect(TIER3_CLI_TOOLS.length).toBe(10);
   });
 
   it("every TIER3 id resolves to a tier-3 entry", () => {

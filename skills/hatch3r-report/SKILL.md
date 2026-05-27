@@ -1,23 +1,33 @@
 ---
 id: hatch3r-report
-type: command
-orchestrator: false
-description: Generate an in-chat session report from the active or named transcript — every tool call, sub-agent delegation, and file edit, with diagnostics for missed parallelism, redundant work, and over-serialization.
+type: skill
+description: Generate an in-chat session report from the active or named transcript — every tool call, sub-agent delegation, and file edit, with diagnostics for missed parallelism, redundant work, and over-serialization. Default = current session, executive summary, in-chat.
 tags: [maintenance]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
-parallel_tool_default: true
 ---
-## Agent Pipeline
-
-This command runs inline and does not spawn sub-agents. Parsing is driven by Bash + jq over the on-disk session transcript; the LLM only sees aggregated counts and triggered-heuristic evidence, never the raw JSONL. This keeps the command efficient (P7) even on 1000+ record sessions.
 
 # Session Report — Agentic Action Replay
 
 Render an in-chat report of what happened in a Claude Code session: every tool call, every sub-agent `Agent` delegation, every file edit, every hook event. Default = current session, executive summary, in-chat. Flags extend scope and depth. Two audiences: (a) users who want to understand the session end-to-end; (b) maintainers investigating runtime shape for framework-level optimizations.
 
----
+## Quick Start
+
+```
+Task Progress:
+- [ ] Step 0: Detect ambiguity (P8 B1) — only if invocation arguments are ambiguous
+- [ ] Step 1: Discover the session
+- [ ] Step 2: Aggregate via jq
+- [ ] Step 3: Compute diagnostics
+- [ ] Step 4: Render executive summary
+- [ ] Step 5: Render verbose timeline (--verbose only)
+- [ ] Step 6: Save to disk (--save only)
+```
+
+## Step 0 — Detect Ambiguity (P8 B1)
+
+This skill is read-only over local transcripts and produces no file mutations outside `.hatch3r/reports/` (and only with `--save`). The platform-native question tool is invoked only when the user's `--session <value>` argument fails to resolve to a readable file or when `--save` would overwrite an existing report — see Error Handling. Otherwise the skill runs without an ASK gate.
 
 ## Argument Parsing
 
@@ -80,8 +90,6 @@ Append `## Timeline`. For each assistant turn containing ≥1 tool_use, emit a n
 
 Create `.hatch3r/reports/` if missing. Write the rendered markdown (executive summary + timeline if `--verbose` set) to `.hatch3r/reports/{sessionId-short8}-{YYYYMMDD-HHMMSS}.md`. Append a `## Raw Counts (machine-readable)` section containing the jq-aggregated JSON in a fenced ```json``` block — this lets future tooling grep across sessions without re-parsing the source JSONL. Print the file path back to chat. The `.hatch3r/` directory is gitignored.
 
----
-
 ## Output Format
 
 ```markdown
@@ -125,8 +133,6 @@ Create `.hatch3r/reports/` if missing. Write the rendered markdown (executive su
 Re-run `/hatch3r-report --verbose` for the chronological timeline.
 ```
 
----
-
 ## Diagnostic Heuristics
 
 | ID | Heuristic | Trigger | Severity |
@@ -143,8 +149,6 @@ Re-run `/hatch3r-report --verbose` for the chronological timeline.
 
 Each fired record: `{id, severity, turns:[n,...], evidence, suggestion}`. Consolidate same-rule fires into one record per session.
 
----
-
 ## Error Handling
 
 | Condition | Action |
@@ -156,12 +160,10 @@ Each fired record: `{id, severity, turns:[n,...], evidence, suggestion}`. Consol
 | Malformed JSONL record encountered | Skip the record; increment a `skipped` counter; surface the count in the executive summary footer when non-zero. |
 | Read access denied to a transcript file | Print: "Cannot read {path}: permission denied." Exit. |
 
----
-
 ## Guardrails
 
 - **Never modify the JSONL.** Read-only access. All scratch files go to `$(mktemp)` and are deleted at end-of-run.
 - **Mask obvious secret patterns** (`sk-`, `ghp_`, `xoxb-`, `AIza`, `Bearer `) in any rendered tool_use input — substitute `{REDACTED-{prefix}}`. The transcript may contain ephemeral tokens from user pastes.
 - **Never write outside `.hatch3r/reports/`.** The `--save` target is fixed; do not honor flags or env vars that redirect output to other paths.
 - **Never abort on a malformed record.** Skip-and-count is the contract; aborting would hide the rest of the session from the operator (Silent Failure Contract — surface the skip count rather than swallowing it).
-- **Honor the iteration summary contract** (`rules/hatch3r-iteration-summary.md`) at the end of the parent assistant turn that invoked this command. The report content is not a substitute for the canonical Status / Outcome / Done block.
+- **Honor the iteration summary contract** (`rules/hatch3r-iteration-summary.md`) at the end of the parent assistant turn that invoked this skill. The report content is not a substitute for the canonical Status / Outcome / Done block.
