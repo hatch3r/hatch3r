@@ -11,7 +11,7 @@ hatch3r ships a full agentic setup out of the box. During `hatch3r init`, you ch
 |----------|-------|-----------|
 | **Agents** | 30 | Code reviewer, test writer, security auditor, implementer (sub-agentic), fixer, researcher, architect, DevOps, nine quality-vector specialists (UI, UX, security, reliability, testability, scalability, performance, maintainability, enhancability), and more |
 | **Skills** | 43 | Bug fix, feature implementation, issue workflow, release, incident response, context health, cost tracking, recipes, customization, and more |
-| **Rules** | 54 | Code standards, testing, API design, observability, theming, i18n, security patterns, agent orchestration, deep context, and more |
+| **Rules** | 55 | Code standards, testing, API design, observability, theming, i18n, security patterns, agent orchestration, deep context, and more |
 | **Commands** | 23 | Board init, board fill, board groom, board pickup, board refresh, planning (feature, bug, refactor, test), healthcheck, security-audit, context-health, cost-tracking, customization, and more |
 | **MCP Servers** | 10 (3 default + 7 opt-in) | Playwright, Context7, Filesystem (default); GitHub, Brave Search, Sentry, Postgres, Linear, Azure DevOps, GitLab (opt-in) |
 
