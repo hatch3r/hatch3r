@@ -342,8 +342,20 @@ async function main(): Promise<void> {
   process.exit(1);
 }
 
-main().catch((err) => {
-  // eslint-disable-next-line no-console
-  console.error("validate:rule-parity failed:", err);
-  process.exit(1);
-});
+// Only auto-run when executed as a script, never when imported by
+// `src/cli/commands/validate.ts` (F1.4-H2) or by tests.
+const isMain = (() => {
+  try {
+    return resolve(process.argv[1] ?? "") === __filename;
+  } catch {
+    return false;
+  }
+})();
+
+if (isMain) {
+  main().catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error("validate:rule-parity failed:", err);
+    process.exit(1);
+  });
+}

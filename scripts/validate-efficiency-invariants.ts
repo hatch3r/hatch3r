@@ -2,26 +2,32 @@
 /**
  * scripts/validate-efficiency-invariants.ts — Pillar P7 (Efficiency-First)
  *
- * Three flag-mode invariants over canonical agent + command artifacts and
+ * Four flag-mode invariants over canonical agent + command artifacts and
  * the governance audit-execute prompt:
  *
- *   --triage-first   Orchestrator commands (and `governance/AUDIT-EXECUTE.md`)
- *                    declare a `triage_tiers` array (subset of [1,2,3]) and
- *                    contain a Triage/Tier/Scale heading.
- *   --static-first   Orchestrator commands, agents, and AUDIT-EXECUTE.md do
- *                    not reference volatile tokens (timestamp, now, run-id,
- *                    session-counter, "today is") before their first `##`
- *                    heading.
- *   --parallel-tool  Files with >=2 tool/sub-agent mentions include a
- *                    parallel-execution directive (warning only).
+ *   --triage-first    Orchestrator commands (and `governance/AUDIT-EXECUTE.md`)
+ *                     declare a `triage_tiers` array (subset of [1,2,3]) and
+ *                     contain a Triage/Tier/Scale heading.
+ *   --static-first    Orchestrator commands, agents, and AUDIT-EXECUTE.md do
+ *                     not reference volatile tokens (timestamp, now, run-id,
+ *                     session-counter, "today is") before their first `##`
+ *                     heading.
+ *   --parallel-tool   Files with >=2 tool/sub-agent mentions include a
+ *                     parallel-execution directive (warning only).
+ *   --proof-id        Phase 2 (`hatch3r-implementer.md`) and Phase 3
+ *                     (`hatch3r-fixer.md`) code-mutating agents declare a
+ *                     `Delegation proof ID` field in their structured-result
+ *                     section (P8 B2 forgery-resistant attestation; audit
+ *                     Cycle 10 F5.1-H1).
  *
- * No flags → all three modes run. Exit 0 unless >=1 error-level finding;
+ * No flags → all four modes run. Exit 0 unless >=1 error-level finding;
  * warnings never block. The audit-cycle prompt (`governance/AUDIT.md`,
  * `governance/RE-ENVISION.md`, `commands/hatch3r-audit-cycle*.md`) remains
  * hard-exempt; `governance/AUDIT-EXECUTE.md` is no longer exempt as of
  * 2026-04 — it carries `triage_tiers` and is checked alongside commands.
  *
- * Pillars: P7 (Efficiency-First), P5 (Governance Self-Quality).
+ * Pillars: P7 (Efficiency-First), P8 (Clarification & Fan-out Discipline,
+ * via --proof-id), P5 (Governance Self-Quality).
  *
  * Usage: `npm run validate:efficiency` (umbrella entry wired by sub-agent 2d).
  */
@@ -81,6 +87,7 @@ interface ModeFlags {
   triageFirst: boolean;
   staticFirst: boolean;
   parallelTool: boolean;
+  proofId: boolean;
 }
 
 interface RunOptions {
@@ -106,15 +113,16 @@ interface RunResult {
 // ── CLI parsing ───────────────────────────────────────────────────
 
 function parseArgs(argv: readonly string[]): ModeFlags {
-  const known = new Set(["--triage-first", "--static-first", "--parallel-tool"]);
+  const known = new Set(["--triage-first", "--static-first", "--parallel-tool", "--proof-id"]);
   const requested = new Set(argv.filter((a) => known.has(a)));
   if (requested.size === 0) {
-    return { triageFirst: true, staticFirst: true, parallelTool: true };
+    return { triageFirst: true, staticFirst: true, parallelTool: true, proofId: true };
   }
   return {
     triageFirst: requested.has("--triage-first"),
     staticFirst: requested.has("--static-first"),
     parallelTool: requested.has("--parallel-tool"),
+    proofId: requested.has("--proof-id"),
   };
 }
 
@@ -257,6 +265,36 @@ function checkParallelTool(file: ParsedFile): Finding[] {
   }];
 }
 
+// ── Mode D: proof-id ──────────────────────────────────────────────
+//
+// Audit Cycle 10 F5.1-H1 — both Phase 2 (implementer) and Phase 3 (fixer)
+// code-mutating agents MUST declare a `Delegation proof ID` field in their
+// structured-result section so the orchestrator's End-of-Turn Delegation
+// Attestation can quote a forgery-resistant token per file mutated. The
+// validator asserts the literal string `Delegation proof ID` appears in
+// each agent's body; the surrounding format/JSON-shape is enforced by the
+// agent file's own contract, not by this regex check.
+
+const PROOF_ID_REQUIRED_AGENTS: readonly string[] = [
+  "agents/hatch3r-implementer.md",
+  "agents/hatch3r-fixer.md",
+];
+
+const PROOF_ID_FIELD_RE = /Delegation proof ID/;
+
+function checkProofId(file: ParsedFile): Finding[] {
+  if (!PROOF_ID_REQUIRED_AGENTS.includes(file.relPath)) return [];
+  if (PROOF_ID_FIELD_RE.test(file.body)) return [];
+  return [{
+    level: "error",
+    code: "P8-PROOF-ID-MISS",
+    file: file.relPath,
+    message:
+      "missing `Delegation proof ID` field in structured-result section " +
+      "(P8 B2 forgery-resistant attestation required for Phase 2/3 mutating agents)",
+  }];
+}
+
 // ── Orchestrator ──────────────────────────────────────────────────
 
 async function loadDir(dir: string, baseDir: string, sink: Finding[]): Promise<ParsedFile[]> {
@@ -334,6 +372,9 @@ export async function runValidator(opts: RunOptions): Promise<RunResult> {
     for (const f of commandFiles) {
       if (isOrchestrator(f.frontmatter)) findings.push(...checkParallelTool(f));
     }
+  }
+  if (opts.flags.proofId) {
+    for (const f of agentFiles) findings.push(...checkProofId(f));
   }
 
   let errorCount = 0, warningCount = 0;

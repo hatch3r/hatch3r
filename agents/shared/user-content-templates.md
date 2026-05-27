@@ -239,7 +239,7 @@ Use the Task tool to invoke <AGENT-ID-1>. Pass collected slots as structured inp
 - <GUARDRAIL-1>
 ```
 
-The §0 block is required on every user-authored orchestrator command per CONSTITUTION §2 P8 B1 (Clarification-First, Default-Path). It must reference `agents/shared/user-question-protocol.md` verbatim — `hatch3r-creator` rejects orchestrator commands whose §0 block is missing the reference (strict gate, see D20 SA20.1 audit checklist).
+Every user-authored orchestrator command should contain the §0 block above per CONSTITUTION §2 P8 B1 (Clarification-First, Default-Path), and the block should reference `agents/shared/user-question-protocol.md` verbatim. `hatch3r-creator` enforces this via authoring discipline (the skeleton above is the canonical template the creator emits at composition time) — the runtime strict gate inside `runUserContentGates` is tracked under audit finding D20-F20.1.B1 and lands in the same wave as the strict-gate implementation in `src/content/userContent.ts`. Until that gate ships, a hand-written orchestrator command missing the §0 reference will save without rejection, so the creator skeleton is the single source of compliance.
 
 The strict gate `validateCommandOrchestratorFrontmatter` (`src/cli/commands/validate.ts:171`) rejects `orchestrator: true` without a non-empty `agentPipeline` array.
 

@@ -47,7 +47,7 @@ Each lifecycle preset delegates body authoring to the matching author skill — 
 | adapter (`src/adapters/`) | `h4tcher-adapter-author` |
 | audit domain (`governance/audit/domains/`) | `h4tcher-domain-author` |
 
-Pipeline modules under `src/merge/`, `src/integrity/`, `src/content/` have no canonical author skill — preset runs inline and flags for future skill coverage.
+Pipeline modules under `src/merge/`, `src/content/`, `src/pipeline/` have no canonical author skill — preset runs inline and flags for future skill coverage.
 
 ## Gate checklist
 

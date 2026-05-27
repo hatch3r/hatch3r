@@ -26,6 +26,7 @@ const sidebars: SidebarsConfig = {
         'guides/sub-agentic-architecture',
         'guides/agentic-process',
         'guides/agent-teams',
+        'guides/quality-vector-specialists',
       ],
     },
     {

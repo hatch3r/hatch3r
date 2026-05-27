@@ -13,6 +13,6 @@ When creating or modifying a platform adapter in `src/adapters/`:
 7. **Write tests** in `src/__tests__/adapters/{name}.test.ts` covering: output paths, format, feature flags, MCP, hooks, managed blocks, error paths
 8. **Run gates:** `npm test`, `npx tsc --noEmit`, `npm run lint`
 
-Reference adapters: `src/adapters/cursor.ts` (full-featured), `src/adapters/claude.ts` (CLAUDE.md output), `src/adapters/zed.ts` (minimal).
+Reference adapters (3 supported per CONSTITUTION §6 Decision 12, 1.9.0 hard-cut): `src/adapters/cursor.ts` (full-featured), `src/adapters/claude.ts` (CLAUDE.md output), `src/adapters/copilot.ts` (GitHub Copilot custom-instructions).
 
 Audit checklist: `governance/audit/domains/D09-platform-adapters.md`

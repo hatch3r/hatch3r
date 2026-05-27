@@ -13,6 +13,10 @@ quality_charter: agents/shared/quality-charter.md
 
 Lifecycle preset for adding new framework artifacts. Owns the >70% overlap block, the inventory regen requirement, and cross-skill delegation to `h4tcher-content-author` / `h4tcher-adapter-author` / `h4tcher-domain-author`. Triage-first hybrid modeled on `.claude/skills/h4tcher-pr-resolve/SKILL.md`.
 
+## §0.1: Ambiguity Gate (P8 B1)
+
+Per CONSTITUTION §2 P8 B1: every framework-dev workflow mutating canonical artifacts detects and resolves ambiguity via `agents/shared/user-question-protocol.md` BEFORE executing — default behavior, not exception-driven. Apply the protocol when any hold: (a) ambiguous scope (request maps to ≥2 reasonable artifact targets), (b) multiple valid interpretations with materially different cost/scope/risk, (c) irreversible action (id rename, frontmatter-field drop), or (d) missing acceptance criteria. Use the platform-native question tool; one question per turn; 2-4 numbered options with one-line trade-offs; declare the default-if-no-response.
+
 ## Step 0: Triage
 
 Classify the addition before any work:

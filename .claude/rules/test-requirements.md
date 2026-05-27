@@ -1,7 +1,7 @@
 ---
 id: test-requirements
 type: rule
-description: Testing standards from vitest.config.ts — 78/65/80/80 global coverage, 90/80/90/90 for src/merge and src/integrity, 85/75/85/85 for src/content and adapters/customization.
+description: Testing standards from vitest.config.ts — 78/65/80/80 global coverage, 90/80/90/90 for src/merge, 85/75/85/85 for src/content and adapters/customization, 85/75/85/85 for src/install and src/audit.
 tags: [maintainer, testing, p2, p5]
 scope: always
 precedence: high
@@ -16,8 +16,9 @@ Testing standards from `vitest.config.ts`:
 **Global thresholds:** 78% statements, 65% branches, 80% functions, 80% lines.
 
 **Critical module thresholds:**
-- `src/merge/` and `src/integrity/`: 90/80/90/90 (stmt/branch/func/line)
+- `src/merge/`: 90/80/90/90 (stmt/branch/func/line)
 - `src/content/` and `src/adapters/customization.ts`: 85/75/85/85
+- `src/install/` and `src/audit/`: 85/75/85/85
 
 **Rules:**
 - Every new source file in `src/` gets a corresponding test in `src/__tests__/`

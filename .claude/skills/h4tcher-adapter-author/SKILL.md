@@ -9,6 +9,17 @@ allowed-tools: Read Grep Glob Bash(*) Write Edit WebSearch WebFetch
 
 Create or modify a platform adapter for hatch3r.
 
+## Step 0: P8 B1 Ambiguity Gate
+
+Before any read or write, scan the user request against the four B1 triggers from `.claude/rules/clarification-default.md` (which carries the verbatim directive from `governance/CONSTITUTION.md` §2 P8 B1):
+
+1. **Ambiguous scope** — request maps to ≥2 reasonable interpretations producing different adapters (e.g., "add Zed adapter" without specifying rules-only vs full-feature surface).
+2. **Multiple valid interpretations** — ≥2 viable approaches with materially different cost, scope, or risk (e.g., bundling MCP support vs. deferring to a follow-up).
+3. **Irreversible action** — deleting an existing adapter, renaming its public id, dropping output paths users may already depend on.
+4. **Missing acceptance criteria** — no testable definition of done (e.g., no list of file paths, no capability matrix targets, no test coverage threshold).
+
+If any trigger fires, ask via the platform-native question tool per `agents/shared/user-question-protocol.md`: one question per turn; bundle related sub-questions into a single multiple-choice prompt; 2-4 numbered options with one-line trade-offs; declare the default-if-no-response option. Do NOT proceed to Step 1 until the ambiguity is resolved or the user has confirmed the default.
+
 ## Step 1: Understand the Contract
 
 1. Read `src/adapters/base.ts` — the `BaseAdapter` abstract class defines:

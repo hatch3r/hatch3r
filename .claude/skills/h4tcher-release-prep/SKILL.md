@@ -9,6 +9,17 @@ allowed-tools: Read Grep Glob Bash(*) Write Edit
 
 Prepare a hatch3r framework release with full quality gates. The dev runs Steps 1-10 locally; CI (`.github/workflows/release.yml`) re-runs the publish-critical subset and extracts the `CHANGELOG.md` section authored here as the GitHub release body.
 
+## Step 0: P8 B1 Ambiguity Gate
+
+Before any version bump or write, scan the release intent against the four B1 triggers from `.claude/rules/clarification-default.md` (verbatim directive from `governance/CONSTITUTION.md` §2 P8 B1):
+
+1. **Ambiguous scope** — release line unclear (patch vs minor vs major); breaking-change scope undeclared; whether website + plugin manifests bump in lock-step.
+2. **Multiple valid interpretations** — release notes grouping (Adapters/Content/CLI/Governance/Dependencies/Chore) when a PR could land in two groups; whether to roll up multiple unreleased patch PRs into a minor.
+3. **Irreversible action** — `npm publish`, force-push of a tag, force-push to main, marketplace re-submission with a public manifest change.
+4. **Missing acceptance criteria** — CHANGELOG section header absent or version-mismatched; orphan PRs missing from the new section; lockfile or audit gate failing without owner assignment.
+
+If any trigger fires, ask via the platform-native question tool per `agents/shared/user-question-protocol.md`: one question per turn; bundle related sub-questions into a single multiple-choice prompt; 2-4 numbered options with one-line trade-offs; declare the default-if-no-response option. Do NOT proceed to Step 1 until the ambiguity is resolved or the user has confirmed the default. This block subsumes the ad-hoc Step 9.31 "Confirm with user before pushing" prompt.
+
 ## Step 1: Determine Version
 
 1. Check current version: `node -e "console.log(require('./package.json').version)"`
@@ -42,7 +53,7 @@ Run all gates — ALL must pass:
 
 ## Step 4: Adapter Verification
 
-15. Verify all 15 adapters are registered in `src/adapters/index.ts`
+15. Verify all 3 supported adapters (claude, cursor, copilot) are registered in `src/adapters/index.ts` (count tracked dynamically at `governance/inventory.json::counts.adapters` — auto-derived per CONSTITUTION §6 Decision 12)
 16. Verify `ADAPTER_CAPABILITIES` matrix is complete (no undefined entries)
 17. Check that `package.json` `files` array includes all content directories:
     - `agents/`, `checks/`, `commands/`, `rules/`, `skills/`, `prompts/`, `github-agents/`, `mcp/`, `hooks/`
