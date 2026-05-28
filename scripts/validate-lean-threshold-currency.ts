@@ -87,10 +87,47 @@ interface ThresholdRow {
 // ── Key normalization ─────────────────────────────────────────────
 
 /**
+ * Distinguishing trailing-parenthetical patterns. The CONSTITUTION §2 P5
+ * table contains row pairs whose only difference is the trailing
+ * parenthetical — `rules/*.md (precedence: critical or high)` vs
+ * `rules/*.md (precedence: normal or low)`, and `Domain file (SA ≤5)` vs
+ * `Domain file (SA >5)`. Stripping the parenthetical (the pre-cycle-10
+ * behavior) collapsed both pairs to one key each, so `Map.set()` in
+ * `diffAgainstConstitution` lost the first row to last-insert-wins. The
+ * patterns below preserve the parenthetical as part of the canonical key
+ * so each variant survives independently. Non-matching parentheticals
+ * (e.g. `(Cursor)`, vendor-tag suffixes) are stripped — they are label
+ * drift, not row identity.
+ */
+const DISTINGUISHING_PAREN_PATTERNS: Array<{ re: RegExp; canonical: (m: RegExpMatchArray) => string }> = [
+  {
+    re: /\s*\(\s*precedence:\s*critical\s+or\s+high\s*\)\s*$/i,
+    canonical: () => " (precedence: critical or high)",
+  },
+  {
+    re: /\s*\(\s*precedence:\s*normal\s+or\s+low\s*\)\s*$/i,
+    canonical: () => " (precedence: normal or low)",
+  },
+  // SA ≤ N variants: accept `≤`, `<=`, or bare `<` followed by a digit.
+  {
+    re: /\s*\(\s*sa\s*(?:≤|<=)\s*(\d+)\s*\)\s*$/i,
+    canonical: (m) => ` (sa ≤${m[1]})`,
+  },
+  // SA > N variants: accept `>` or `>=`.
+  {
+    re: /\s*\(\s*sa\s*(?:>=|>)\s*(\d+)\s*\)\s*$/i,
+    canonical: (m) => ` (sa >${m[1]})`,
+  },
+];
+
+/**
  * Collapse first-column text into a normalization key so equivalent
  * labels in the three tables match. Strips backticks, surrounding
- * whitespace, optional file path prefixes, and case. Applies a small
- * synonym map for label drift between the three surfaces.
+ * whitespace, optional file path prefixes, and case. Preserves
+ * distinguishing trailing parentheticals (see `DISTINGUISHING_PAREN_PATTERNS`)
+ * so canonical row pairs that differ only in qualifier survive as
+ * separate keys. Applies a small synonym map for label drift between
+ * the three surfaces.
  */
 export function normalizeKey(label: string): string {
   let s = label.replace(/`/g, "").trim();
@@ -99,8 +136,20 @@ export function normalizeKey(label: string): string {
   // `governance/CONSTITUTION.md` aligns with CLAUDE.md `CONSTITUTION.md`.
   s = s.replace(/^governance\//i, "");
 
-  // Strip optional trailing " (Cursor)" or similar parenthetical
-  // qualifications — they don't change the row identity.
+  // Capture distinguishing trailing parenthetical (if any) and remove
+  // it from the working string. We re-append a canonical form at the end.
+  let distinguishingSuffix = "";
+  for (const p of DISTINGUISHING_PAREN_PATTERNS) {
+    const m = s.match(p.re);
+    if (m) {
+      distinguishingSuffix = p.canonical(m);
+      s = s.replace(p.re, "");
+      break;
+    }
+  }
+
+  // Strip any remaining trailing parenthetical (non-distinguishing label
+  // drift such as " (Cursor)", " (`governance/audit/domains/D*.md`)").
   s = s.replace(/\s*\([^)]*\)\s*$/, "").trim();
 
   // Lowercase for case-insensitive comparison.
@@ -117,7 +166,7 @@ export function normalizeKey(label: string): string {
   };
   if (synonyms[s] !== undefined) s = synonyms[s];
 
-  return s;
+  return s + distinguishingSuffix;
 }
 
 // ── Limit normalization ───────────────────────────────────────────

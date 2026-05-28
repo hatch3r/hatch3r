@@ -4,7 +4,6 @@ import { join, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { HatchError } from "../../types.js";
 import { HATCH3R_VERSION } from "../../version.js";
 
 /**

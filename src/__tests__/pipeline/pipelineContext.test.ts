@@ -11,6 +11,8 @@ import {
   type AgentStatus,
   type PipelineContext,
   type ProjectTypeContext,
+  type ReviewVerdict,
+  type ValidationPass,
 } from "../../pipeline/pipelineContext.js";
 
 // ── Fixture helpers ──────────────────────────────────────────────
@@ -155,7 +157,8 @@ describe("validatePhaseTransition", () => {
       const ctx = {
         ...validBaseContext(),
         researchFindings: validResearchFindings(),
-        implementationResult: { ...validImplementationResult(), status: "INVALID" as any },
+        // Intentionally invalid status to verify the validator rejects it.
+        implementationResult: { ...validImplementationResult(), status: "INVALID" as unknown as AgentStatus },
       };
       const errors = validatePhaseTransition(ctx, 3);
       expect(errors.some((e) => e.field === "implementationResult.status")).toBe(true);
@@ -189,7 +192,8 @@ describe("validatePhaseTransition", () => {
         ...validBaseContext(),
         researchFindings: validResearchFindings(),
         implementationResult: validImplementationResult(),
-        reviewResult: { ...validReviewResult(), finalVerdict: "INVALID" as any },
+        // Intentionally invalid verdict to verify the validator rejects it.
+        reviewResult: { ...validReviewResult(), finalVerdict: "INVALID" as unknown as ReviewVerdict },
       };
       const errors = validatePhaseTransition(ctx, 4);
       expect(errors.some((e) => e.field === "reviewResult.finalVerdict")).toBe(true);
@@ -237,7 +241,8 @@ describe("validatePhaseTransition", () => {
         researchFindings: validResearchFindings(),
         implementationResult: validImplementationResult(),
         reviewResult: validReviewResult(),
-        qualityResults: { specialists: [], validationPass: undefined as any },
+        // Intentionally missing validationPass to verify the validator rejects it.
+        qualityResults: { specialists: [], validationPass: undefined as unknown as ValidationPass },
       };
       const errors = validatePhaseTransition(ctx, "completion");
       expect(errors.some((e) => e.field === "qualityResults.validationPass")).toBe(true);

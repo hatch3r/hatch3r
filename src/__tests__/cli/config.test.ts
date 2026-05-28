@@ -209,6 +209,14 @@ import { readWorkspaceManifest, writeWorkspaceManifest } from "../../workspace/m
 import { syncWorkspaceRepos } from "../../workspace/sync.js";
 import { findMissingCliTools } from "../../cliTools/detect.js";
 import { printMissingCliToolsDisclaimer } from "../../cliTools/install.js";
+import type { WorkspaceManifest } from "../../workspace/types.js";
+
+// ── Local test types ─────────────────────────────────────────
+//
+// Inquirer's `Question` union is wide and noisy at the use sites here;
+// the tests only inspect `name`, so a narrow structural type captures
+// the contract without committing to inquirer's full type surface.
+type PromptQuestion = { name?: string };
 
 // ── Local test helpers (thin wrappers around shared harness) ──
 
@@ -333,9 +341,9 @@ describe("config command", () => {
       await (await importConfigCommand())();
 
       const promptCalls = vi.mocked(inquirer.prompt).mock.calls;
-      const repoPrompt = promptCalls[1][0] as any[];
-      expect(repoPrompt.some((p: any) => p.name === "owner")).toBe(true);
-      expect(repoPrompt.some((p: any) => p.name === "repo")).toBe(true);
+      const repoPrompt = promptCalls[1][0] as unknown as PromptQuestion[];
+      expect(repoPrompt.some((p) => p.name === "owner")).toBe(true);
+      expect(repoPrompt.some((p) => p.name === "repo")).toBe(true);
     });
 
     it("should prompt for org, project, and repo on Azure DevOps platform", async () => {
@@ -348,10 +356,10 @@ describe("config command", () => {
       await (await importConfigCommand())();
 
       const promptCalls = vi.mocked(inquirer.prompt).mock.calls;
-      const repoPrompt = promptCalls[1][0] as any[];
-      expect(repoPrompt.some((p: any) => p.name === "org")).toBe(true);
-      expect(repoPrompt.some((p: any) => p.name === "project")).toBe(true);
-      expect(repoPrompt.some((p: any) => p.name === "repo")).toBe(true);
+      const repoPrompt = promptCalls[1][0] as unknown as PromptQuestion[];
+      expect(repoPrompt.some((p) => p.name === "org")).toBe(true);
+      expect(repoPrompt.some((p) => p.name === "project")).toBe(true);
+      expect(repoPrompt.some((p) => p.name === "repo")).toBe(true);
     });
 
     it("should prompt for namespace and project on GitLab platform", async () => {
@@ -364,9 +372,9 @@ describe("config command", () => {
       await (await importConfigCommand())();
 
       const promptCalls = vi.mocked(inquirer.prompt).mock.calls;
-      const repoPrompt = promptCalls[1][0] as any[];
-      expect(repoPrompt.some((p: any) => p.name === "namespace")).toBe(true);
-      expect(repoPrompt.some((p: any) => p.name === "project")).toBe(true);
+      const repoPrompt = promptCalls[1][0] as unknown as PromptQuestion[];
+      expect(repoPrompt.some((p) => p.name === "namespace")).toBe(true);
+      expect(repoPrompt.some((p) => p.name === "project")).toBe(true);
     });
 
     it("should set namespace and project to owner and repo for GitHub", async () => {
@@ -527,8 +535,8 @@ describe("config command", () => {
 
       const promptCalls = vi.mocked(inquirer.prompt).mock.calls;
       const mcpCall = promptCalls.find((call) => {
-        const questions = call[0] as any[];
-        return Array.isArray(questions) && questions.some((q: any) => q.name === "mcp");
+        const questions = call[0] as unknown as PromptQuestion[];
+        return Array.isArray(questions) && questions.some((q) => q.name === "mcp");
       });
       expect(mcpCall).toBeDefined();
     });
@@ -546,8 +554,8 @@ describe("config command", () => {
 
       const promptCalls = vi.mocked(inquirer.prompt).mock.calls;
       const mcpCall = promptCalls.find((call) => {
-        const questions = call[0] as any[];
-        return Array.isArray(questions) && questions.some((q: any) => q.name === "mcp");
+        const questions = call[0] as unknown as PromptQuestion[];
+        return Array.isArray(questions) && questions.some((q) => q.name === "mcp");
       });
       expect(mcpCall).toBeUndefined();
     });
@@ -1326,7 +1334,8 @@ describe("config command", () => {
     });
 
     it("printCurrentConfig: handles missing platform", async () => {
-      const manifest = makeManifest({ platform: undefined as any });
+      // Intentionally undefined to exercise the missing-platform branch.
+      const manifest = makeManifest({ platform: undefined as unknown as HatchManifest["platform"] });
       primeConfig(manifest, { platform: "github" });
 
       await (await importConfigCommand())();
@@ -1358,8 +1367,8 @@ describe("config command", () => {
 
       const promptCalls = vi.mocked(inquirer.prompt).mock.calls;
       const contentCall = promptCalls.find((call) => {
-        const questions = call[0] as any[];
-        return Array.isArray(questions) && questions.some((q: any) => q.name === "manage");
+        const questions = call[0] as unknown as PromptQuestion[];
+        return Array.isArray(questions) && questions.some((q) => q.name === "manage");
       });
       expect(contentCall).toBeUndefined();
     });
@@ -1492,7 +1501,7 @@ describe("config command", () => {
           content: makeContentSelection(),
         },
         syncStrategy: "manual",
-      } as any);
+      } satisfies WorkspaceManifest);
 
       // Change tools to create a diff so config proceeds past "no changes"
       setupStandardPrompts(manifest, { tools: ["cursor", "claude"] });
@@ -1566,7 +1575,7 @@ describe("config command", () => {
             content: makeContentSelection(),
           },
           syncStrategy: "manual",
-        } as any);
+        } satisfies WorkspaceManifest);
         return manifest;
       }
 

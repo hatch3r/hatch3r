@@ -404,6 +404,21 @@ Quick Change Complete:
 
 ---
 
+## Resumability (Decision 27/30)
+
+quick-change runs adaptive ceremony — trivial items execute inline with no checkpoint surface, but a Tier 2/3 batch of multiple nontrivial items can grow to span per-item implementer delegation (Step 4), lint-fix (Step 5), the reviewer ↔ fixer review loop (Step 6), parallel CQ specialist Phase 4 batch (Step 6 final-quality), and the commit phase (Step 7). Per `governance/CONSTITUTION.md` §6 Decision 30 (Workspace-checkpointed resumability), checkpoint progress on nontrivial batches so an interrupted run re-enters at the last completed step rather than re-implementing items that already wrote code.
+
+**Checkpoint contract** (`src/pipeline/checkpoint.ts`):
+
+1. **Workspace + file:** write `.quick-change-workspace/checkpoint.json` via `writeCheckpoint()` (atomic temp+rename through `src/merge/safeWrite.ts`; a SIGKILL mid-write leaves the prior checkpoint or no file, never a partial record). Schema (`schemaVersion: 1`): `phase` (the Step 1 → Step 8 progression), `wave` (per-item implementer-batch index when batch mode is active), `status` (`in-progress` | `passed` | `failed`), and `meta` `{ baselineSha, lastPassedGateN, registrySha, timestamp, batchItems, completedItemIds }` where `completedItemIds` is the set of batch items already implemented and reviewed (idempotency guard for resume).
+2. **Write points:** Tier 1 trivial inline items skip checkpoint emission (the resume cost would exceed the re-run cost). For nontrivial items: after Step 1 input + batch parsing, after Step 2 tier assessment + soft-guard pass, after Step 3 per-item classification, after each Step 4 implementer batch returns per item (so completed implementations survive a crash and are not re-implemented on resume), after Step 5 lint-fix, after each Step 6 review-loop iteration, after the Step 6 final-quality batch, and after Step 7 git commit.
+3. **`--resume` invocation:** `hatch3r-quick-change --resume` calls `readCheckpoint()` then `verifyResumability(workspace, currentSha)`. Baseline drift fails closed (the repo / branch HEAD / `batchItems` source files changed since the checkpoint) — re-run from scratch or rebase to the checkpoint baseline. A `failed` status halts for operator triage. A resume invocation against a Tier 1 trivial run with no checkpoint emits the cold-start message and re-runs the inline path.
+4. **Snapshot rollback:** pre-mutation snapshots of per-item working-tree state land in `.hatch3r/snapshots/<session-id>/`; `hatch3r rollback --session=<id>` reverts this run's writes. Diff preview precedes every file write per Decision 30.
+
+If `--resume` is passed with no checkpoint, `verifyResumability` returns `drift: "no checkpoint found"` — treat as a cold start.
+
+---
+
 ## Per-Turn Pipeline-State Header (Bypass Protection)
 
 For Tier 2 and Tier 3 runs, emit the header at the start of every assistant turn that touches this task, per `rules/hatch3r-agent-orchestration.md` -> Per-Turn Pipeline-State Header. Format:

@@ -29,7 +29,6 @@ import {
   type ContentIndex,
 } from "../../content/index.js";
 import { getPreset } from "../../content/presets.js";
-import type { ContentSelection } from "../../types.js";
 
 // ── Constants ──────────────────────────────────────────────────
 

@@ -57,7 +57,6 @@ describe("worktreeSetupCommand", () => {
   let execFileSyncMock: ReturnType<typeof vi.fn>;
   let tempDir: string;
   let consoleSpy: MockInstance;
-  let consoleErrorSpy: MockInstance;
   let originalStdinIsTTY: boolean | undefined;
 
   beforeEach(async () => {
@@ -94,7 +93,7 @@ describe("worktreeSetupCommand", () => {
 
     tempDir = await mkdtemp(join(tmpdir(), "hatch3r-wt-setup-"));
     consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(process, "cwd").mockReturnValue(tempDir);
     originalStdinIsTTY = process.stdin.isTTY;
     (process.stdin as { isTTY?: boolean }).isTTY = false;

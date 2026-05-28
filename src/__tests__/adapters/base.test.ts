@@ -31,7 +31,7 @@ class WarningThenThrowAdapter extends BaseAdapter {
     super();
   }
 
-  protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
+  protected async doGenerate(_ctx: AdapterContext): Promise<AdapterOutput[]> {
     // Simulate warnings added during generation (e.g. from inlineRules/readFilteredMcp)
     this.warnings.push(...this.preWarnings);
     throw this.error;
@@ -225,7 +225,7 @@ describe("BaseAdapter", () => {
       let stripped = "";
       class StripCheck extends BaseAdapter {
         readonly name = "strip-check";
-        protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
+        protected async doGenerate(_ctx: AdapterContext): Promise<AdapterOutput[]> {
           stripped = this.stripMinimal("before <!-- comment --> after");
           return [output("test.md", "content")];
         }
@@ -241,7 +241,7 @@ describe("BaseAdapter", () => {
       let stripped = "";
       class StripCheck extends BaseAdapter {
         readonly name = "strip-check";
-        protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
+        protected async doGenerate(_ctx: AdapterContext): Promise<AdapterOutput[]> {
           stripped = this.stripMinimal("line1\n---\nline2\n***\nline3");
           return [output("test.md", "content")];
         }
@@ -258,7 +258,7 @@ describe("BaseAdapter", () => {
       let stripped = "";
       class StripCheck extends BaseAdapter {
         readonly name = "strip-check";
-        protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
+        protected async doGenerate(_ctx: AdapterContext): Promise<AdapterOutput[]> {
           stripped = this.stripMinimal("a\n\n\n\n\nb");
           return [output("test.md", "content")];
         }

@@ -1,5 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from "vitest";
-import { join } from "node:path";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { WorktreeListEntry, WorktreeStatus } from "../../worktree/types.js";
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
@@ -51,8 +50,6 @@ describe("worktreeCleanupCommand", () => {
   let cleanupWorktree: ReturnType<typeof vi.fn>;
   let removeGitWorktree: ReturnType<typeof vi.fn>;
   let inquirerPrompt: ReturnType<typeof vi.fn>;
-  let consoleSpy: MockInstance;
-  let consoleErrorSpy: MockInstance;
   let originalStdinIsTTY: boolean | undefined;
 
   beforeEach(async () => {
@@ -82,8 +79,8 @@ describe("worktreeCleanupCommand", () => {
     const cmdModule = await import("../../cli/commands/worktreeCleanup.js");
     worktreeCleanupCommand = cmdModule.worktreeCleanupCommand;
 
-    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(process, "cwd").mockReturnValue(MAIN);
     originalStdinIsTTY = process.stdin.isTTY;
     (process.stdin as { isTTY?: boolean }).isTTY = false;

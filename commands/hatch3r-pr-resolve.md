@@ -674,6 +674,21 @@ Status decision rules:
 
 ---
 
+## Resumability (Decision 27/30)
+
+pr-resolve is long-running — a Tier 3 PR with many open comments runs identity resolution (Step 1), full-platform comment fetch (Step 2), normalization + rigor-contract evaluation (Steps 3–4), the only mutation-gate ASK (Step 5), parallel-per-finding fix implementation (Step 6), the reviewer ↔ fixer review loop + Phase 4 specialist batch (Step 7), per-comment platform-API replies (Step 8), and commit + push (Step 9). Per `governance/CONSTITUTION.md` §6 Decision 30 (Workspace-checkpointed resumability), checkpoint progress so an interrupted run re-enters at the last completed step rather than re-fetching comments, re-evaluating findings, or re-posting platform-API replies that already shipped.
+
+**Checkpoint contract** (`src/pipeline/checkpoint.ts`):
+
+1. **Workspace + file:** write `.pr-resolve-workspace/checkpoint.json` via `writeCheckpoint()` (atomic temp+rename through `src/merge/safeWrite.ts`; a SIGKILL mid-write leaves the prior checkpoint or no file, never a partial record). Schema (`schemaVersion: 1`): `phase` (the Step 0 → Step 10 progression), `wave` (per-finding fix-batch index in Step 6 and review-loop iteration index in Step 7a), `status` (`in-progress` | `passed` | `failed`), and `meta` `{ baselineSha, lastPassedGateN, registrySha, timestamp, prNumber, normalizedFindings, postedCommentIds, branchName }` where `postedCommentIds` is the set of comment IDs already replied to (idempotency guard for Step 8).
+2. **Write points:** after Step 1 PR identity resolves, after Step 2 comment fetch locks the normalizedFindings input, after Step 3 normalization, after Step 4 rigor-contract evaluation, after the Step 5 ASK checkpoint (only mutation gate — confirmed routing decisions persist so resume does not re-prompt), after each Step 6 per-finding implementer/lint-fixer/testability batch returns, after each Step 7a review-loop iteration, after each Step 7b–7c specialist batch returns, after each Step 8 platform-API reply records its commentId in `postedCommentIds` (the resume path skips replies with an entry there — no double-posts), and after Step 9 commit + push.
+3. **`--resume` invocation:** `hatch3r pr-resolve --resume` calls `readCheckpoint()` then `verifyResumability(workspace, currentSha)`. Baseline drift fails closed (PR head SHA / branch HEAD / new comments since the checkpoint) — re-run from scratch or rebase to the checkpoint baseline; new PR comments since the checkpoint force a cold start so the rigor-contract evaluation covers the full set. A `failed` status halts for operator triage before resuming.
+4. **Snapshot rollback:** pre-mutation snapshots of pre-commit working-tree state and the per-comment reply attempt log land in `.hatch3r/snapshots/<session-id>/`; `hatch3r rollback --session=<id>` reverts this run's filesystem mutations (posted platform replies remain a manual revert via the platform CLI — `gh pr review --dismiss`, `az repos pr update`, etc., since they are platform mutations outside the snapshot scope). Diff preview precedes every file write per Decision 30.
+
+If `--resume` is passed with no checkpoint, `verifyResumability` returns `drift: "no checkpoint found"` — treat as a cold start.
+
+---
+
 ## Per-Turn Pipeline-State Header (Bypass Protection)
 
 For Tier 2 and Tier 3 runs, emit the header at the start of every assistant turn that touches this task, per `rules/hatch3r-agent-orchestration.md` -> Per-Turn Pipeline-State Header. Format:

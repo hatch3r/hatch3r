@@ -1225,6 +1225,21 @@ Which would you like to run next? (or none)"
 
 ---
 
+## Resumability (Decision 27/30)
+
+project-spec is long-running — a Tier 3 enterprise-scale greenfield fans out seven parallel hatch3r-researcher domains in Step 3 (stack, features, architecture, pitfalls, UX, business-model-and-market, production-and-scale), then runs a second parallel batch of docs-writers in Step 7 (one per document category: business spec, technical spec, ADRs) plus an AGENTS.md generation pass. Per `governance/CONSTITUTION.md` §6 Decision 30 (Workspace-checkpointed resumability), checkpoint progress so an interrupted run re-enters at the last completed step rather than re-running the seven-researcher + docs-writer-batch fan-out.
+
+**Checkpoint contract** (`src/pipeline/checkpoint.ts`):
+
+1. **Workspace + file:** write `.project-spec-workspace/checkpoint.json` via `writeCheckpoint()` (atomic temp+rename through `src/merge/safeWrite.ts`; a SIGKILL mid-write leaves the prior checkpoint or no file, never a partial record). Schema (`schemaVersion: 1`): `phase` (the Step 0 → Step 9 progression), `wave` (researcher-batch index across the 7 parallel domains, then docs-writer-batch index), `status` (`in-progress` | `passed` | `failed`), and `meta` `{ baselineSha, lastPassedGateN, registrySha, timestamp, projectName, projectVision }`.
+2. **Write points:** after Step 1 project-vision context locks, after Step 2 scope ASK, after the Step 3 seven-researcher fan-out returns (all domains complete), after Step 4 synthesis confirmed by ASK, after each Step 5 file write under `docs/specs/business/` and `docs/specs/technical/`, after Step 6 ADR generation, after the Step 7 docs-writer batch returns, after Step 8 AGENTS.md generation, and after Step 9 todo.md entry generation.
+3. **`--resume` invocation:** `hatch3r-project-spec --resume` calls `readCheckpoint()` then `verifyResumability(workspace, currentSha)`. Baseline drift fails closed (the repo / `docs/specs/` / `docs/adr/` / `AGENTS.md` / `todo.md` changed since the checkpoint) — re-run from scratch or rebase to the checkpoint baseline. A `failed` status halts for operator triage before resuming.
+4. **Snapshot rollback:** pre-mutation snapshots of `docs/specs/business/`, `docs/specs/technical/`, `docs/adr/`, `AGENTS.md`, and `todo.md` land in `.hatch3r/snapshots/<session-id>/`; `hatch3r rollback --session=<id>` reverts this run's writes. Diff preview precedes every file write per Decision 30.
+
+If `--resume` is passed with no checkpoint, `verifyResumability` returns `drift: "no checkpoint found"` — treat as a cold start.
+
+---
+
 ## Per-Turn Pipeline-State Header (Bypass Protection)
 
 For Tier 2 and Tier 3 runs, emit the header at the start of every assistant turn that touches this task, per `rules/hatch3r-agent-orchestration.md` -> Per-Turn Pipeline-State Header. Format:

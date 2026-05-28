@@ -161,7 +161,7 @@ Branch on the cached `type`:
 - **skill:** Confirm the subdirectory layout. Show: "Skill files are stored as `.hatch3r/overrides/skills/{name}/SKILL.md` (a new directory will be created). Continue?" — ASK Y/n.
 - **rule:** Ask for scope: `always` (loaded every session) or `conditional` (loaded by glob match). If `conditional`, ASK for a comma-separated glob list (e.g., `src/**/*.ts, src/**/*.tsx`). Then ASK for `precedence` (one of `critical | high | normal | low`, default `normal`). Cache as `ruleScope`, `ruleGlobs`, `rulePrecedence`.
 - **command:** ASK whether this is an orchestrator command. If yes, ASK for the agent pipeline as a comma-separated list of agent IDs (each ID must reference an existing agent — canonical or under `.hatch3r/overrides/agents/`). Cache as `isOrchestrator` and `agentPipeline`.
-- **hook:** ASK for the hook event from the enum: `pre-commit | post-merge | ci-failure | file-save | session-start | pre-push | worktree-create | worktree-remove`. This 8-value enum mirrors `VALID_HOOK_EVENTS` in `src/hooks/types.ts` exactly — the strict gate at `saveUserContent` enforces the same set, so any value outside it is a strict-gate failure. Reject any value outside this enum and re-ask. Cache as `hookEvent`.
+- **hook:** ASK for the hook event from the enum: `pre-commit | post-merge | ci-failure | file-save | session-start | pre-push | worktree-create | worktree-remove | review-loop-cap`. This 9-value enum mirrors `VALID_HOOK_EVENTS` in `src/hooks/types.ts` exactly (Cycle 10 F15.2-H1 added `review-loop-cap` — the framework-neutral event materialized per-adapter for the review-loop iteration cap, see `hooks/hatch3r-review-loop-cap.md`) — the strict gate at `saveUserContent` enforces the same set, so any value outside it is a strict-gate failure. Reject any value outside this enum and re-ask. Cache as `hookEvent`.
 
 #### 1.6a: Structured Tool Declaration (C9-H81, D20-F20.1.3)
 
@@ -266,6 +266,21 @@ Next step:
 Edit your artifact directly anytime — `.hatch3r/overrides/` is preserved across
 `hatch3r update` and `hatch3r clean`.
 ```
+
+---
+
+## Resumability (Decision 27/30)
+
+create is long-running in multi-artifact mode — Phase 1 collects every artifact's frontmatter inputs upfront, Phase 2 delegates one `hatch3r-creator` Task per artifact (parallel when artifacts are independent), and Phase 3 runs `hatch3r validate` plus the strict + gentle gate funnel. Per `governance/CONSTITUTION.md` §6 Decision 30 (Workspace-checkpointed resumability), checkpoint progress so an interrupted run re-enters at the last completed step rather than re-prompting collected inputs or re-running already-completed creator delegations.
+
+**Checkpoint contract** (`src/pipeline/checkpoint.ts`):
+
+1. **Workspace + file:** write `.create-workspace/checkpoint.json` via `writeCheckpoint()` (atomic temp+rename through `src/merge/safeWrite.ts`; a SIGKILL mid-write leaves the prior checkpoint or no file, never a partial record). Schema (`schemaVersion: 1`): `phase` (Phase 1 input collection → Phase 2 creator fan-out → Phase 3 validation), `wave` (creator-batch index in multi-artifact mode), `status` (`in-progress` | `passed` | `failed`), and `meta` `{ baselineSha, lastPassedGateN, registrySha, timestamp, artifactPlan }` where `artifactPlan` is the per-artifact `{type, name, hookEvent?, agentPipeline?}` tuples collected in Phase 1.
+2. **Write points:** after each Phase 1 ASK is confirmed and `artifactPlan` is fully assembled, after the plan-summary ASK in Step 1.7, after each Phase 2 creator delegation returns (one checkpoint per artifact so already-saved overrides under `.hatch3r/overrides/{type}/` survive a crash and are not re-authored on resume), after Phase 3 strict-gate funnel passes, and after the optional adapter sync.
+3. **`--resume` invocation:** `hatch3r-create --resume` calls `readCheckpoint()` then `verifyResumability(workspace, currentSha)`. Baseline drift fails closed (the repo / `.hatch3r/overrides/{type}/` changed since the checkpoint) — re-run from scratch or rebase to the checkpoint baseline. A `failed` status halts for operator triage before resuming; mid-Phase-2 crashes preserve already-saved artifacts but re-delegate creators for unfinished items.
+4. **Snapshot rollback:** pre-mutation snapshots of `.hatch3r/overrides/{type}/` and adapter sync targets land in `.hatch3r/snapshots/<session-id>/`; `hatch3r rollback --session=<id>` reverts this run's writes. Diff preview precedes every file write per Decision 30.
+
+If `--resume` is passed with no checkpoint, `verifyResumability` returns `drift: "no checkpoint found"` — treat as a cold start.
 
 ---
 

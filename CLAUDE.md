@@ -1,6 +1,6 @@
 # hatch3r — Development Instructions
 
-> Last updated: 2026-05-27
+> Last updated: 2026-05-28
 
 > This file governs framework development. It is NOT generated output — it is the agentic setup for developing hatch3r itself.
 
@@ -139,7 +139,7 @@ Zero tolerance in all `.md` files under `governance/`, `agents/`, `commands/`, `
 
 ## Lean Thresholds
 
-From `governance/CONSTITUTION.md` §2 P5:
+Mirrors `governance/CONSTITUTION.md` §2 P5 verbatim (validator `scripts/validate-lean-threshold-currency.ts` enforces row-by-row parity):
 
 | Metric | Limit |
 |--------|-------|
@@ -150,17 +150,42 @@ From `governance/CONSTITUTION.md` §2 P5:
 | RE-ENVISION.md | <=550 lines |
 | EVOLVE.md | <=400 lines |
 | pack-trust-model.md | <=300 lines |
+| rules/*.md (precedence: critical or high) | <=250 lines |
 | rules/*.md (precedence: normal or low) | <=120 lines |
 | CLAUDE.md | <=300 lines |
 | README.md | <=200 lines |
 | docs/*.md per file | <=400 lines |
+| Static-first prompt structure | required for `orchestrator: true` and `agents/*.md` |
+| Parallel-tool-by-default directive | required when artifact uses ≥2 independent tool calls |
+| Triage-first orchestrator | required when `orchestrator: true` |
+| Audit-execute SA-per-finding ratio (Critical/High/Medium/Low/Info) | 1:1 / ≤1:8 / ≤1:15 / ≤1:30 / ≤1:50 |
+| Finding impact-gating (Decision 17) | required: impact_horizon ∈ {short, medium, long} + progress_toward_pillar = <pillar_id>+<delta> |
+| Anti-cache patterns | 0 per artifact |
+| Domain file (SA ≤5) | 30-80 lines |
 | Domain file (SA >5) | SA × 15 lines |
+| Template file | 80-200 lines |
 | Cross-file duplication | <5% |
-| Anti-slop phrases | 0 per file |
-| Checklist items/sub-agent | 4-8 |
+| Finding inflation | <2.0x pre-dedup/post-impact-gating/post-triage |
 | Governance total | <=3000 lines |
-
-Note: this CLAUDE.md table is a curated subset of CONSTITUTION §2 P5; full per-row calibration text (including the +25/+15/+5/+3 calibration on CONSTITUTION.md, the auto-derived-counts exclusion on CLAUDE.md, the `<=250 lines` ceiling on `rules/*.md (precedence: critical or high)`, the `30-80 lines` band on Domain file (SA ≤5), and the qualitative P7/P8 invariants like static-first / parallel-tool-by-default / triage-first / anti-cache / ambiguity-detection gate / sub-agent count emission) lives in `governance/CONSTITUTION.md` §2 P5. Validator: `npx tsx scripts/validate-lean-threshold-currency.ts`.
+| Generated UI a11y violations (axe-core, serious/critical) | 0 |
+| Design-token adoption in generated code (color, spacing, typography) | >=95% |
+| Four-state surface contract coverage on generated async views | 100% |
+| Generated-service OTel instrumentation on request path | 100% |
+| Migration expand-contract conformance | 100% |
+| API breaking-change events on stable endpoints | 0 per release |
+| AI feature eval coverage | 100% |
+| Per-feature test-class mandate compliance | 100% |
+| Supply-chain floor coverage | 100% |
+| User-facing service SLO defined | 100% |
+| Auth depth coverage | 100% |
+| Anti-slop phrases | 0 per file |
+| Checklist items/SA | 4-8 |
+| Ambiguity-detection gate coverage (agents/skills/commands) | 100% |
+| Sub-agent count emission on delegating artifacts | 100% |
+| Floor admission (security + UI/UX + protocol + content-quality) | structural invariant: every non-custom preset admits every item tagged `floor:security`, `floor:ui-ux`, `floor:protocol`, or `floor:content-quality` unconditionally |
+| Tag-facet integrity on canonical artifacts | every canonical agent/skill/rule/command/hook carries ≥1 capability tag OR ≥1 floor tag in frontmatter; `customize` and `floor:*` items are exempt from capability-gate filtering |
+| Rule-precedence assignment policy | security + secrets rules → `precedence: critical` (rank 100, prefix `10-`); rules implementing CONSTITUTION §2 P2 hard-mandate floors (supply-chain, observability, migrations, auth depth, AI evals, accessibility, etc.) and framework-dev gatekeepers → `precedence: high` (rank 300, prefix `30-`); cosmetic/style → `precedence: normal` (rank 500, prefix `50-`); deprecation hawks → `precedence: low` (rank 700, prefix `70-`) |
+| Detail-rule frontmatter declaration (`rules/*-detail.{md,mdc}`) | required: `detail_rule: true` + `consumed_by: <parent-rule-id>` on both `.md` and `.mdc` |
 
 ---
 

@@ -66,18 +66,6 @@ const CANONICAL_SUBDIRS = [
 const ALWAYS_CANONICAL_BASENAMES = new Set<string>(["mcp.json"]);
 
 /**
- * Top-level `.agents/` files that are framework-emitted metadata, not
- * canonical inventory items. Never flagged as orphans.
- */
-const RESERVED_TOP_LEVEL_FILES = new Set<string>([
-  "hatch.json",
-  ".integrity.json",
-  ".provenance.json",
-  ".failure-log.jsonl",
-  "AGENTS.md",
-]);
-
-/**
  * Per-orphan disposition. Returned to callers so the CLI can both surface
  * a one-line summary and emit the action taken on each file when the
  * `cleanOrphans` flag is set.
@@ -263,7 +251,6 @@ export function formatOrphanScanDiagnostic(
     const noun = result.entries.length === 1 ? "orphan file" : "orphan files";
     if (cleanOrphans) {
       const removed = result.entries.filter((e) => e.removed).length;
-      const kept = result.entries.length - removed;
       lines.push(`Cleaned ${removed} of ${result.entries.length} ${noun} in .agents/:`);
     } else {
       lines.push(`Detected ${result.entries.length} ${noun} in .agents/ (not part of canonical inventory):`);

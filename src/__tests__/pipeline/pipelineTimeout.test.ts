@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   clampPipelineTimeout,
   createPipelineExecution,
@@ -132,7 +132,7 @@ describe("pipelineTimeout", () => {
       state = markPhaseCompleted(markPhaseStarted(state, "generation"), "generation", 1000);
       state = markPhaseStarted(state, "merge");
 
-      const { state: terminated, report } = terminatePipeline(state);
+      const { state: terminated } = terminatePipeline(state);
 
       expect(terminated.running).toBe(false);
       expect(terminated.timedOut).toBe(true);

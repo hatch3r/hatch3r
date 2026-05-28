@@ -8,8 +8,6 @@ import {
   createPhaseReasoning,
   appendReasoningBlock,
   summarizeReasoning,
-  type PhaseReasoning,
-  type ReasoningBlock,
 
   // Finding #64 — Per-phase token estimation
   estimateTokens,
@@ -18,14 +16,12 @@ import {
   formatTokenSummary,
   CHARS_PER_TOKEN,
   type PhaseTokenEstimate,
-  type PipelineTokenSummary,
 
   // Finding #65 — Replay guidance
   createReplayGuidance,
   addReplayStep,
   formatReplayGuidance,
   type ReplayGuidance,
-  type ReplayStep,
 
   // P7 — Efficiency telemetry
   isEfficiencyTelemetryEnabled,

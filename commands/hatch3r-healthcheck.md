@@ -365,6 +365,21 @@ All issue and epic operations in this command MUST follow the Projects v2 Enforc
 
 ---
 
+## Resumability (Decision 27/30)
+
+healthcheck is long-running — module discovery (Step 2) seeds a per-module hatch3r-implementer fan-out for audit sub-issue authoring (Step 4) bounded by `max_phase4_parallel`, alongside parallel hatch3r-ui (CQ1) + hatch3r-security (CQ3 supply-chain slice) cross-cutting axes (Step 5), then Step 6 batch-creates GitHub issues and Step 7 syncs Projects v2 board state. Per `governance/CONSTITUTION.md` §6 Decision 30 (Workspace-checkpointed resumability), checkpoint progress so an interrupted run re-enters at the last completed step rather than re-creating issues or re-running implementers for modules already audited.
+
+**Checkpoint contract** (`src/pipeline/checkpoint.ts`):
+
+1. **Workspace + file:** write `.healthcheck-workspace/checkpoint.json` via `writeCheckpoint()` (atomic temp+rename through `src/merge/safeWrite.ts`; a SIGKILL mid-write leaves the prior checkpoint or no file, never a partial record). Schema (`schemaVersion: 1`): `phase` (the Step 1 → Step 7 progression), `wave` (per-module implementer-batch index across modules and the cross-cutting axes batch), `status` (`in-progress` | `passed` | `failed`), and `meta` `{ baselineSha, lastPassedGateN, registrySha, timestamp, discoveredModules, createdIssueIds, epicNumber }`.
+2. **Write points:** after Step 2 module discovery locks `discoveredModules`, after each Step 4 implementer batch returns per `max_phase4_parallel` slot (so completed audit-sub-issue bodies survive a crash and are not re-authored), after the Step 5 cross-cutting axes batch returns, after each Step 6 GitHub issue create call records its `issueId` in `createdIssueIds` (so already-created issues survive a crash and are not re-created — the resume path skips issues with an entry in `createdIssueIds`), after Step 6 epic-link creation, and after Step 7 Projects v2 board sync completes.
+3. **`--resume` invocation:** `hatch3r healthcheck --resume` calls `readCheckpoint()` then `verifyResumability(workspace, currentSha)`. Baseline drift fails closed (the repo / `discoveredModules` content / board state changed since the checkpoint) — re-run from scratch or rebase to the checkpoint baseline. A `failed` status halts for operator triage before resuming.
+4. **Snapshot rollback:** pre-mutation snapshots of any module-audit-spec writes under `docs/audits/` land in `.hatch3r/snapshots/<session-id>/`; `hatch3r rollback --session=<id>` reverts this run's filesystem mutations (created GitHub issues remain a manual revert via `gh issue close`, since they are platform mutations outside the snapshot scope). Diff preview precedes every file write per Decision 30.
+
+If `--resume` is passed with no checkpoint, `verifyResumability` returns `drift: "no checkpoint found"` — treat as a cold start.
+
+---
+
 ## Per-Turn Pipeline-State Header (Bypass Protection)
 
 For Tier 2 and Tier 3 runs (healthcheck declares `triage_tiers: [2, 3]`), emit the header at the start of every assistant turn that touches this task, per `rules/hatch3r-agent-orchestration.md` -> Per-Turn Pipeline-State Header. Format:

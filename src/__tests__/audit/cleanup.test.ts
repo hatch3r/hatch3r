@@ -64,7 +64,6 @@ async function setMtime(path: string, ms: number): Promise<void> {
   await utimes(path, seconds, seconds);
 }
 
-const NOW = 1_777_000_000_000; // arbitrary fixed "now" for deterministic tests
 const STALE_CUTOFF = 1_776_000_000_000; // 1000s earlier
 const STALE_TIME = STALE_CUTOFF - 1_000_000; // older than cutoff
 const FRESH_TIME = STALE_CUTOFF + 1_000_000; // newer than cutoff

@@ -379,6 +379,21 @@ If yes, instruct the user to invoke the `hatch3r-board-fill` command. Board-fill
 
 ---
 
+## Resumability (Decision 27/30)
+
+migration-plan is long-running — a Tier 3 multi-major-version or framework migration fans out two parallel hatch3r-researcher modes (dependency-changelog, breaking-change-inventory) in Step 3, then runs hatch3r-architect for codebase impact mapping (Step 4) and hatch3r-docs-writer for phased plan generation (Step 5). Per `governance/CONSTITUTION.md` §6 Decision 30 (Workspace-checkpointed resumability), checkpoint progress so an interrupted run re-enters at the last completed step rather than re-running the changelog research and re-deriving the breaking-change inventory.
+
+**Checkpoint contract** (`src/pipeline/checkpoint.ts`):
+
+1. **Workspace + file:** write `.migration-plan-workspace/checkpoint.json` via `writeCheckpoint()` (atomic temp+rename through `src/merge/safeWrite.ts`; a SIGKILL mid-write leaves the prior checkpoint or no file, never a partial record). Schema (`schemaVersion: 1`): `phase` (the Step 0 → Step 8 progression), `wave` (researcher-batch index across the 2 parallel modes), `status` (`in-progress` | `passed` | `failed`), and `meta` `{ baselineSha, lastPassedGateN, registrySha, timestamp, fromVersion, toVersion, packageName }`.
+2. **Write points:** after Step 1 migration-target context locks, after Step 2 scope ASK, after the Step 3 two-researcher fan-out returns, after Step 4 architect impact-mapping returns, after Step 5 docs-writer plan synthesis is confirmed by ASK, after each Step 6 file write (`docs/migrations/`, `docs/adr/`), after Step 7 todo.md phased-entry generation, and after the optional Step 8 chain-to-`hatch3r-board-fill` handoff.
+3. **`--resume` invocation:** `hatch3r-migration-plan --resume` calls `readCheckpoint()` then `verifyResumability(workspace, currentSha)`. Baseline drift fails closed (the repo / package manifest / lockfile / `docs/migrations/` changed since the checkpoint) — re-run from scratch or rebase to the checkpoint baseline. A `failed` status halts for operator triage before resuming. A toVersion bump between checkpoint and resume forces a cold start (the breaking-change inventory is no longer valid).
+4. **Snapshot rollback:** pre-mutation snapshots of `docs/migrations/`, `docs/adr/`, and `todo.md` land in `.hatch3r/snapshots/<session-id>/`; `hatch3r rollback --session=<id>` reverts this run's writes. Diff preview precedes every file write per Decision 30.
+
+If `--resume` is passed with no checkpoint, `verifyResumability` returns `drift: "no checkpoint found"` — treat as a cold start.
+
+---
+
 ## Per-Turn Pipeline-State Header (Bypass Protection)
 
 For Tier 2 and Tier 3 runs, emit the header at the start of every assistant turn that touches this task, per `rules/hatch3r-agent-orchestration.md` -> Per-Turn Pipeline-State Header. Format:

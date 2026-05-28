@@ -25,12 +25,10 @@ vi.mock("../../cli/shared/ui.js", () => ({
 }));
 
 // Import after mock so the helper picks up our stub.
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 import inquirer from "inquirer";
 import { printBox } from "../../cli/shared/ui.js";
 
 function stripAnsi(s: string): string {
-  // eslint-disable-next-line no-control-regex
   return s.replace(/\[[0-9;]*m/g, "");
 }
 

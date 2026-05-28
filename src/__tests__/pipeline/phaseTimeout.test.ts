@@ -135,8 +135,6 @@ describe("phaseTimeout", () => {
     });
 
     it("should abort signal when timeout occurs", async () => {
-      let signalAborted = false;
-
       // Use a long-running task that checks the signal
       const promise = executeWithPhaseTimeout(
         "adapter",
@@ -144,7 +142,6 @@ describe("phaseTimeout", () => {
           return new Promise<string>((resolve) => {
             const check = setInterval(() => {
               if (signal.aborted) {
-                signalAborted = true;
                 clearInterval(check);
                 resolve("aborted");
               }

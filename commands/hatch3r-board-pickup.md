@@ -348,6 +348,21 @@ Execute Steps 7-10 in order after all implementation completes:
 
 ---
 
+## Resumability (Decision 27/30)
+
+board-pickup is long-running — a Tier 3 batch picks up multiple epics/sub-issues, branches, delegates parallel implementers per dependency level (Step 6), runs the reviewer ↔ fixer review loop (Step 7a), and fans out the Phase 4 specialist batch (Step 7b–7c) across 11 sub-agents in `agentPipeline`. Per `governance/CONSTITUTION.md` §6 Decision 30 (Workspace-checkpointed resumability), checkpoint progress so an interrupted run re-enters at the last completed step rather than re-claiming issues, re-creating branches, or repeating implementer work that already wrote code.
+
+**Checkpoint contract** (`src/pipeline/checkpoint.ts`):
+
+1. **Workspace + file:** write `.board-pickup-workspace/checkpoint.json` via `writeCheckpoint()` (atomic temp+rename through `src/merge/safeWrite.ts`; a SIGKILL mid-write leaves the prior checkpoint or no file, never a partial record). Schema (`schemaVersion: 1`): `phase` (the Step 0 → Step 10 progression), `wave` (dependency-level batch index when parallel implementers run), `status` (`in-progress` | `passed` | `failed`), and `meta` `{ baselineSha, lastPassedGateN, registrySha, timestamp, branchName, claimedIssueIds, batchMode }`.
+2. **Write points:** after Step 1 work selection ASK, after Step 2 scope + dependency lock, after Step 3 collision detection, after Step 4 board-status update (issues moved to In Progress), after Step 5 branch creation (atomic with `branchName` persistence), after each Step 6 implementer batch returns per dependency level (so completed implementations survive a crash and are not re-implemented on resume), after each Step 7a review-loop iteration, after each Step 7b/7c parallel-specialist batch completes, after Step 8 git commit, and after Step 9 PR-readiness gate.
+3. **`--resume` invocation:** `hatch3r board-pickup --resume` calls `readCheckpoint()` then `verifyResumability(workspace, currentSha)`. Baseline drift fails closed (the board state / claimed-issue status / branch HEAD changed since the checkpoint) — re-run from scratch or rebase to the checkpoint baseline. A `failed` status halts for operator triage before resuming; mid-implementer-batch crashes preserve already-merged implementer changes (no re-implementation) but re-spawn implementers for unfinished batch items.
+4. **Snapshot rollback:** pre-mutation snapshots of `.hatch3r/handoffs/` entries written by `hatch3r-handoff` and pre-commit working-tree state land in `.hatch3r/snapshots/<session-id>/`; `hatch3r rollback --session=<id>` reverts this run's mutations (board status remains a manual revert via the platform CLI, as documented in the Auto-Advance section). Diff preview precedes every file write per Decision 30.
+
+If `--resume` is passed with no checkpoint, `verifyResumability` returns `drift: "no checkpoint found"` — treat as a cold start.
+
+---
+
 ## Per-Turn Pipeline-State Header (Bypass Protection)
 
 For Tier 2 and Tier 3 runs, emit the header at the start of every assistant turn that touches this task, per `rules/hatch3r-agent-orchestration.md` -> Per-Turn Pipeline-State Header. Format:

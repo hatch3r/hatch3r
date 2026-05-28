@@ -98,7 +98,7 @@ export const ADAPTER_WORKTREE_PATTERNS: Record<
  */
 export async function generateWorktreeInclude(
   manifest: HatchManifest,
-  rootDir: string,
+  _rootDir: string,
 ): Promise<string> {
   const lines: string[] = [];
   const entries: { pattern: string; strategy: "copy" | "symlink"; reason: string }[] = [];

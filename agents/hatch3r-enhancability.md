@@ -78,7 +78,7 @@ See `agents/shared/quality-specialist-frame.md` → §Confidence Expression. CQ9
 
 ## Sub-Agent Delegation
 
-See `agents/shared/quality-specialist-frame.md` → §Sub-Agent Delegation (cost-dominance, wall-clock advisory, attestation included). CQ9 unit of decomposition: **enhancability surface** present in the diff. Per-surface specialist briefs:
+See `agents/shared/quality-specialist-frame.md` → §Sub-Agent Delegation (cost-dominance, wall-clock advisory, attestation included). Independent specialist briefs run in parallel per `.claude/rules/fan-out-discipline.md` (P8 B2); token cost is never a serialization justification. CQ9 unit of decomposition: **enhancability surface** present in the diff. Per-surface specialist briefs:
 
 - **Feature-flag specialist** — verifies OpenFeature client wiring, evaluation-context completeness, flag-key inventory matched to user-visible behaviors, default values, rollout plan attached.
 - **Config-externalization specialist** — runs the schema validator at startup, greps `src/` for hardcoded URLs / timeouts / thresholds, verifies env-overrideable paths.

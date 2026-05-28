@@ -12,8 +12,6 @@ vi.mock("node:child_process", async (importOriginal) => {
   return { ...actual, execFileSync: vi.fn() };
 });
 
-const FAKE_GLOBAL_ROOT = "/fake/global/lib/node_modules";
-
 describe("runSelfUpdate", () => {
   let tempDir: string;
   const originalArgv1 = process.argv[1];

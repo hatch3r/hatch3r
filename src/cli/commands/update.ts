@@ -1,7 +1,7 @@
-import { appendFile, cp, mkdir, readFile, readdir, stat } from "node:fs/promises";
-import { execFileSync, spawnSync } from "node:child_process";
+import { appendFile, readFile, readdir, stat } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { dirname, join, sep } from "node:path";
+import { dirname, join } from "node:path";
 import chalk from "chalk";
 import inquirer from "inquirer";
 import { readManifest, writeManifest, addManagedFile } from "../../manifest/hatchJson.js";
@@ -10,7 +10,7 @@ import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.
 import { safeWriteFile } from "../../merge/safeWrite.js";
 import { withSnapshot } from "../../pipeline/snapshot.js";
 import { sweepOrphansForAdapter, formatOrphanCleanupDiagnostic, type OrphanCleanupEntry } from "../../merge/orphanCleanup.js";
-import { HATCH3R_DIR, HATCH3R_PREFIX, HatchError, WORKTREE_CAPABLE_TOOLS, WORKTREE_INCLUDE_FILE, type HatchManifest, type Platform } from "../../types.js";
+import { HATCH3R_DIR, HatchError, WORKTREE_CAPABLE_TOOLS, WORKTREE_INCLUDE_FILE, type HatchManifest, type Platform } from "../../types.js";
 import { resolveBundledContentRoot } from "../../content/contentRoot.js";
 import { migrateAgentsToHatch3r } from "../../migration/agentsToHatch3r.js";
 import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
@@ -57,7 +57,6 @@ import {
   label,
   verbose,
 } from "../shared/ui.js";
-import { findPackageRoot } from "../shared/paths.js";
 import { runSelfUpdate, pickReExecBin } from "../../install/selfUpdate.js";
 import { pruneArchives } from "../../archive/index.js";
 import { buildSelectionsFromDisk } from "../../content/index.js";
@@ -66,8 +65,6 @@ import { validateLearningsDirectory } from "../../content/learningsValidation.js
 import { isBack } from "../shared/initSteps.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CONTENT_DIRS = ["agents", "commands", "rules", "skills", "prompts", "github-agents", "mcp", "hooks"];
-const ALWAYS_COPY_FILES = new Set(["mcp.json"]);
 
 /**
  * Translate updateCommand options back into CLI args for the re-exec child.
@@ -149,69 +146,6 @@ async function appendFailure(agentsDir: string, phase: string, error: unknown, t
     const message = err instanceof Error ? err.message : String(err);
     verbose(`update: appendFailure suppressed — ${message}`);
   }
-}
-
-async function copyHatch3rFiles(
-  srcDir: string,
-  destDir: string,
-  insideHatch3rDir = false,
-  selectedIds?: Set<string>,
-): Promise<string[]> {
-  // D20 invariant: package source must never contain a `/user/` subtree.
-  // User-authored content is project-side under `.agents/user/`, never
-  // package-side. This defensive assertion guarantees `hatch3r update` can
-  // never overwrite user content because it never reads from a `user/`
-  // package directory in the first place. No-op at runtime today (the
-  // canonical package layout has no `user/` directory) — this cements the
-  // contract for future contributors who might mistakenly add one.
-  if (srcDir.includes(sep + "user" + sep) || srcDir.endsWith(sep + "user")) {
-    throw new HatchError(
-      `Invariant violation: package source path '${srcDir}' contains a 'user/' segment. User content must live project-side under .hatch3r/overrides/, not in the package.`,
-      1,
-      "FS_ERROR",
-      "This indicates a packaging bug — report it at https://github.com/hatch3r/hatch3r/issues with your hatch3r version.",
-    );
-  }
-
-  const copied: string[] = [];
-  let entries: { name: string; isDirectory: () => boolean }[];
-  try {
-    entries = await readdir(srcDir, { withFileTypes: true });
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
-    throw err;
-  }
-
-  for (const entry of entries) {
-    const srcPath = join(srcDir, entry.name);
-    const destPath = join(destDir, entry.name);
-
-    if (entry.isDirectory()) {
-      // If we have selectedIds and this is a skill dir, check if the skill is selected
-      if (selectedIds && entry.name.startsWith(HATCH3R_PREFIX)) {
-        if (!selectedIds.has(entry.name)) continue;
-      }
-      await mkdir(destPath, { recursive: true });
-      const subCopied = await copyHatch3rFiles(
-        srcPath,
-        destPath,
-        insideHatch3rDir || !entry.name.startsWith(HATCH3R_PREFIX),
-        selectedIds,
-      );
-      copied.push(...subCopied.map((p) => join(entry.name, p)));
-    } else if (entry.name.startsWith(HATCH3R_PREFIX) || insideHatch3rDir || ALWAYS_COPY_FILES.has(entry.name)) {
-      // If we have selectedIds, check if this file's base ID is selected
-      if (selectedIds && entry.name.startsWith(HATCH3R_PREFIX)) {
-        const baseId = entry.name.replace(/\.(md|mdc)$/, "");
-        if (!selectedIds.has(baseId)) continue;
-      }
-      await mkdir(dirname(destPath), { recursive: true });
-      await cp(srcPath, destPath, { force: true });
-      copied.push(entry.name);
-    }
-  }
-
-  return copied;
 }
 
 export interface UpdateResult {
@@ -712,48 +646,6 @@ export async function runUpdateDryRun(
   console.log();
   printBox("Update dry run (no writes)", summaryLines.length > 0 ? summaryLines : [chalk.dim("No adapters configured.")], "info");
   return { canonicalCandidates, adapterChanges };
-}
-
-/**
- * Recursively enumerate files that would be copied under `copyHatch3rFiles`
- * without actually copying. Mirrors the filter rules (hatch3r prefix,
- * insideHatch3rDir, ALWAYS_COPY_FILES, selectedIds). Used by the dry-run
- * branch so we do not need a `dry` flag threaded through copyHatch3rFiles.
- */
-async function enumerateHatch3rFiles(
-  srcDir: string,
-  insideHatch3rDir: boolean,
-  selectedIds: Set<string> | undefined,
-): Promise<string[]> {
-  let entries: { name: string; isDirectory: () => boolean }[];
-  try {
-    entries = await readdir(srcDir, { withFileTypes: true });
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
-    throw err;
-  }
-  const out: string[] = [];
-  for (const entry of entries) {
-    const srcPath = join(srcDir, entry.name);
-    if (entry.isDirectory()) {
-      if (selectedIds && entry.name.startsWith(HATCH3R_PREFIX)) {
-        if (!selectedIds.has(entry.name)) continue;
-      }
-      const sub = await enumerateHatch3rFiles(
-        srcPath,
-        insideHatch3rDir || !entry.name.startsWith(HATCH3R_PREFIX),
-        selectedIds,
-      );
-      out.push(...sub.map((p) => join(entry.name, p)));
-    } else if (entry.name.startsWith(HATCH3R_PREFIX) || insideHatch3rDir || ALWAYS_COPY_FILES.has(entry.name)) {
-      if (selectedIds && entry.name.startsWith(HATCH3R_PREFIX)) {
-        const baseId = entry.name.replace(/\.(md|mdc)$/, "");
-        if (!selectedIds.has(baseId)) continue;
-      }
-      out.push(entry.name);
-    }
-  }
-  return out;
 }
 
 /**

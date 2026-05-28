@@ -30,8 +30,6 @@ vi.mock("../../../cliTools/install.js", () => ({
   printMissingCliToolsDisclaimer: vi.fn(),
 }));
 
-const AGENTS_DIR = ".agents";
-
 describe("init disclaimer after Hatch complete (repo)", () => {
   let initCommand: (opts?: { tools?: string; yes?: boolean; cliTools?: string; noCliTools?: boolean }) => Promise<void>;
   let findMissingCliTools: ReturnType<typeof vi.fn>;

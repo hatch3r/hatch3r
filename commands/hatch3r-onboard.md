@@ -316,6 +316,21 @@ Recommended Follow-ups:
 
 ---
 
+## Resumability (Decision 27/30)
+
+onboard is long-running — a Tier 3 staff-level guide for a large monorepo fans out three parallel hatch3r-researcher modes (codebase-overview, architecture-mapping, conventions-extraction) in Step 3, then assembles a tailored onboarding guide via hatch3r-docs-writer covering project setup, architecture walkthrough, coding conventions, key workflows, tribal knowledge, and a quick-reference cheat sheet. Per `governance/CONSTITUTION.md` §6 Decision 30 (Workspace-checkpointed resumability), checkpoint progress so an interrupted run re-enters at the last completed step rather than re-running the three-researcher fan-out and regenerating the guide.
+
+**Checkpoint contract** (`src/pipeline/checkpoint.ts`):
+
+1. **Workspace + file:** write `.onboard-workspace/checkpoint.json` via `writeCheckpoint()` (atomic temp+rename through `src/merge/safeWrite.ts`; a SIGKILL mid-write leaves the prior checkpoint or no file, never a partial record). Schema (`schemaVersion: 1`): `phase` (the Step 0 → Step 7 progression), `wave` (researcher-batch index across the 3 parallel modes), `status` (`in-progress` | `passed` | `failed`), and `meta` `{ baselineSha, lastPassedGateN, registrySha, timestamp, role, experienceLevel }`.
+2. **Write points:** after Step 1 developer-role + experience-level context locks, after Step 2 setup verification, after the Step 3 three-researcher fan-out returns, after Step 4 guide-section ASK is confirmed, after each Step 5 guide section is generated (so already-generated sections survive a crash and are not regenerated on resume), after Step 6 guide assembly is confirmed by ASK, and after Step 7 file write to the onboarding-guide path.
+3. **`--resume` invocation:** `hatch3r-onboard --resume` calls `readCheckpoint()` then `verifyResumability(workspace, currentSha)`. Baseline drift fails closed (the repo / existing onboarding-guide path content changed since the checkpoint) — re-run from scratch or rebase to the checkpoint baseline. A `failed` status halts for operator triage before resuming.
+4. **Snapshot rollback:** pre-mutation snapshots of the onboarding-guide target path land in `.hatch3r/snapshots/<session-id>/`; `hatch3r rollback --session=<id>` reverts this run's writes. Diff preview precedes every file write per Decision 30.
+
+If `--resume` is passed with no checkpoint, `verifyResumability` returns `drift: "no checkpoint found"` — treat as a cold start.
+
+---
+
 ## Per-Turn Pipeline-State Header (Bypass Protection)
 
 For Tier 2 and Tier 3 runs, emit the header at the start of every assistant turn that touches this task, per `rules/hatch3r-agent-orchestration.md` -> Per-Turn Pipeline-State Header. Format:

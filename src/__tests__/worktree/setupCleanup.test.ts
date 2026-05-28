@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   mkdtemp,
   mkdir,
@@ -6,7 +6,6 @@ import {
   readFile,
   rm,
   lstat,
-  readlink,
   symlink,
   access,
 } from "node:fs/promises";
@@ -17,7 +16,7 @@ import {
   rmSync,
 } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { join, relative } from "node:path";
+import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   WORKTREE_INCLUDE_FILE,

@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import chalk from "chalk";
 import { parse as parseYaml } from "yaml";
 import { readManifest } from "../../manifest/hatchJson.js";
-import { isValidHookEvent } from "../../hooks/types.js";
+import { isValidHookEvent, VALID_HOOK_EVENTS } from "../../hooks/types.js";
 import { HATCH3R_DIR, HATCH3R_PREFIX, HatchError } from "../../types.js";
 import type { HatchManifest } from "../../types.js";
 import { HATCH3R_VERSION } from "../../version.js";
@@ -21,7 +21,7 @@ import { readCustomizationWithWarnings } from "../../models/customize.js";
 import type { CustomizableType } from "../../models/customize.js";
 import { parseEnvFile } from "../../env/mcpEnv.js";
 import { detectSecrets } from "../../env/secretDetection.js";
-import { runComplianceChecks, formatComplianceReport } from "../../pipeline/complianceVerification.js";
+import { runComplianceChecks } from "../../pipeline/complianceVerification.js";
 import { detectCliTools } from "../../cliTools/detect.js";
 import {
   printBanner,
@@ -409,7 +409,7 @@ async function validateHooks(
       const fm = parseYaml(hookContent.slice(3, endIdx).trim()) as Record<string, unknown> | null;
       if (fm?.event && typeof fm.event === "string") {
         if (!isValidHookEvent(fm.event)) {
-          result.errors.push(`Hook "${hookFile}" has invalid event "${fm.event}". Valid events: pre-commit, post-merge, ci-failure, file-save, session-start, pre-push`);
+          result.errors.push(`Hook "${hookFile}" has invalid event "${fm.event}". Valid events: ${[...VALID_HOOK_EVENTS].join(", ")}`);
         }
       }
       if (fm?.agent && typeof fm.agent === "string" && agentFiles) {
@@ -1038,13 +1038,14 @@ async function validateUserContent(
     // Strict gate: hook event enum.
     if (item.type === "hook") {
       const event = typeof fm.event === "string" ? fm.event : undefined;
+      const validEventList = [...VALID_HOOK_EVENTS].join(", ");
       if (!event) {
         result.errors.push(
-          `${fileLabel}: hook missing 'event' field — declare one of pre-commit, post-merge, ci-failure, file-save, session-start, pre-push, worktree-create, worktree-remove`,
+          `${fileLabel}: hook missing 'event' field — declare one of ${validEventList}`,
         );
       } else if (!isValidHookEvent(event)) {
         result.errors.push(
-          `${fileLabel}: hook has invalid event "${event}" — valid: pre-commit, post-merge, ci-failure, file-save, session-start, pre-push, worktree-create, worktree-remove`,
+          `${fileLabel}: hook has invalid event "${event}" — valid: ${validEventList}`,
         );
       }
     }
@@ -1691,7 +1692,7 @@ export async function validateDocsCounts(rootDir: string): Promise<{ mismatches:
     ["adapters", join(rootDir, "src/adapters"), (e) => e.endsWith(".ts") && !["base.ts", "index.ts", "canonical.ts", "customization.ts", "types.ts", "mcp-utils.ts", "toml-utils.ts", "contextBudget.ts"].includes(e)],
     ["commands", join(rootDir, "src/cli/commands"), (e) => e.endsWith(".ts")],
     ["agents", join(rootDir, "agents"), (e) => e.endsWith(".md")],
-    ["skills", join(rootDir, "skills"), (e) => true],
+    ["skills", join(rootDir, "skills"), (_e) => true],
     ["rules", join(rootDir, "rules"), (e) => e.endsWith(".md")],
     ["hooks", join(rootDir, "hooks"), (e) => e.endsWith(".md")],
   ];

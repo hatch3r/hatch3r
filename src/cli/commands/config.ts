@@ -55,14 +55,12 @@ import { offerInstaller, printMissingCliToolsDisclaimer } from "../../cliTools/i
 import { buildTagGroupedCustomContentChoices } from "../shared/customContentChoices.js";
 import {
   buildContentIndex,
-  getAvailableItems,
   addContentItem,
   removeContentItem,
   countSelectionItems,
   selectionSummary,
   extractContentReferences,
   validateOrchestrationDependencies,
-  TYPE_TO_SELECTION_KEY,
   resolveSelection,
   countPresetExclusions,
   estimatePresetItemCount,

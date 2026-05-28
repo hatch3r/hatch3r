@@ -457,6 +457,21 @@ If the user chooses to commit:
 
 ---
 
+## Resumability (Decision 27/30)
+
+debug is long-running across a user-checkpoint boundary — Stage 2 instruments the codebase with strategic `[HATCH3R-DEBUG]` log lines, Stage 3 pauses for the user to reproduce the issue and provide runtime logs, Stage 4 root-cause-analyzes from the collected evidence, and Stage 5 implements the fix and removes all debug artifacts through the implementer → reviewer ↔ fixer review loop and the parallel testability + security final-quality gate. Per `governance/CONSTITUTION.md` §6 Decision 30 (Workspace-checkpointed resumability), checkpoint progress so an interrupted run re-enters at the last completed stage rather than re-instrumenting log statements that already shipped or re-implementing a fix the user has already accepted.
+
+**Checkpoint contract** (`src/pipeline/checkpoint.ts`):
+
+1. **Workspace + file:** write `.debug-workspace/checkpoint.json` via `writeCheckpoint()` (atomic temp+rename through `src/merge/safeWrite.ts`; a SIGKILL mid-write leaves the prior checkpoint or no file, never a partial record). Schema (`schemaVersion: 1`): `phase` (the Stage 1 → Stage 5 progression), `wave` (review-loop iteration index in Stage 5b), `status` (`in-progress` | `passed` | `failed`), and `meta` `{ baselineSha, lastPassedGateN, registrySha, timestamp, debugMarker, instrumentedFiles }` where `instrumentedFiles` is the list of files carrying `[HATCH3R-DEBUG]` markers requiring cleanup.
+2. **Write points:** after Stage 1 context capture, after Stage 2 debug-logging implementer returns (so instrumented files are recorded and a crash leaves the cleanup contract intact), after Stage 3 user-log collection ASK, after Stage 4 root-cause synthesis is confirmed, after each Stage 5b review-loop iteration, after the Stage 5c parallel testability + security gate completes, and after the mandatory Stage 5 debug-artifact cleanup pass (the cleanup-complete signal closes the cleanup guarantee).
+3. **`--resume` invocation:** `hatch3r-debug --resume` calls `readCheckpoint()` then `verifyResumability(workspace, currentSha)`. Baseline drift fails closed (the repo / `instrumentedFiles` content changed since the checkpoint) — re-run from scratch or rebase to the checkpoint baseline. A `failed` status halts for operator triage. A resume mid-Stage-5 that finds the cleanup pass uncompleted ALWAYS re-runs the cleanup before declaring done — the Scope contract's "Debug artifact cleanup guarantee" overrides resumption short-circuits.
+4. **Snapshot rollback:** pre-mutation snapshots of `instrumentedFiles` (pre-instrumentation) and pre-fix working-tree state land in `.hatch3r/snapshots/<session-id>/`; `hatch3r rollback --session=<id>` reverts this run's mutations. Diff preview precedes every file write per Decision 30.
+
+If `--resume` is passed with no checkpoint, `verifyResumability` returns `drift: "no checkpoint found"` — treat as a cold start.
+
+---
+
 ## Per-Turn Pipeline-State Header (Bypass Protection)
 
 For Tier 2 and Tier 3 runs, emit the header at the start of every assistant turn that touches this task, per `rules/hatch3r-agent-orchestration.md` -> Per-Turn Pipeline-State Header. Format:

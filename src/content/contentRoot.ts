@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { findPackageRoot } from "../cli/shared/paths.js";
+import { HatchError } from "../types.js";
 
 let cached: string | null = null;
 
@@ -42,8 +43,11 @@ export function resolveBundledContentRoot(): string {
     return cached;
   }
 
-  throw new Error(
+  throw new HatchError(
     `Bundled content not found. Looked in ${distContent} and ${pkgRoot}. ` +
       `Reinstall hatch3r (npm i -g hatch3r) or run 'npm run build' in development.`,
+    1,
+    "FS_ERROR",
+    "Reinstall hatch3r (`npm i -g hatch3r`) or run `npm run build` in the source checkout to stage the bundled content under `dist/content/`.",
   );
 }

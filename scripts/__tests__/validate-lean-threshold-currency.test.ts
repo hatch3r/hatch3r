@@ -142,6 +142,35 @@ describe("normalizeKey", () => {
   it("strips trailing parenthetical qualifications", () => {
     expect(normalizeKey("CONSTITUTION.md (Cursor)")).toBe("constitution.md");
   });
+
+  it("preserves distinguishing precedence qualifiers on rules/*.md", () => {
+    // Cycle 10 Wave 1G: the unrestricted strip used to collapse these two
+    // canonical rows into a single key, which then dropped one row via
+    // last-insert-wins in `diffAgainstConstitution`'s map. Preserve them.
+    expect(normalizeKey("rules/*.md (precedence: critical or high)")).toBe(
+      "rules/*.md (precedence: critical or high)",
+    );
+    expect(normalizeKey("rules/*.md (precedence: normal or low)")).toBe(
+      "rules/*.md (precedence: normal or low)",
+    );
+    // Backticked + governance-prefixed form normalizes to the same key.
+    expect(normalizeKey("`rules/*.md` (precedence: critical or high)")).toBe(
+      "rules/*.md (precedence: critical or high)",
+    );
+  });
+
+  it("preserves distinguishing SA-bound qualifiers on Domain file rows", () => {
+    expect(normalizeKey("Domain file (SA ≤5)")).toBe("domain files (sa ≤5)");
+    expect(normalizeKey("Domain file (SA >5)")).toBe("domain files (sa >5)");
+    // ASCII bound forms also accepted.
+    expect(normalizeKey("Domain file (SA <= 5)")).toBe("domain files (sa ≤5)");
+    expect(normalizeKey("Domain file (SA >= 8)")).toBe("domain files (sa >8)");
+  });
+
+  it("Domain file with no SA qualifier still collapses to plural form", () => {
+    expect(normalizeKey("Domain file")).toBe("domain files");
+    expect(normalizeKey("Domain files")).toBe("domain files");
+  });
 });
 
 // ── normalizeLimit ──────────────────────────────────────────────────

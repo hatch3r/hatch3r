@@ -2,7 +2,6 @@ import { readFile, readdir, lstat } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { parse as parseYaml } from "yaml";
 import type { CanonicalFile, CanonicalMetadata, RulePrecedence } from "../types.js";
-import { sanitizePipelineInput } from "../pipeline/promptGuard.js";
 
 /**
  * Set of valid rule precedence values. Kept in one place so the parser,

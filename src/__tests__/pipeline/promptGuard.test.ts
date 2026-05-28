@@ -49,7 +49,7 @@ describe("promptGuard", () => {
   describe("wrapWithBoundary / extractBoundedContent", () => {
     it("should round-trip content through wrap and extract", () => {
       const content = "This is trusted pipeline content.";
-      const { wrapped, markers } = wrapWithBoundary(content, "review", "fixednonce");
+      const { wrapped } = wrapWithBoundary(content, "review", "fixednonce");
       const extracted = extractBoundedContent(wrapped, "review", "fixednonce");
       expect(extracted).toBe(content);
     });

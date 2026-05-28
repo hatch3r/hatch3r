@@ -434,6 +434,21 @@ The benchmark report follows this structure:
 
 ---
 
+## Resumability (Decision 27/30)
+
+benchmark is long-running — a Tier 3 full-suite run executes a multi-iteration benchmark sweep (Step 5), statistical analysis (Step 7), and regression root-cause delegation (Step 8) across the researcher → performance → docs-writer pipeline. Per `governance/CONSTITUTION.md` §6 Decision 30 (Workspace-checkpointed resumability), checkpoint progress so an interrupted run re-enters at the last completed step rather than re-running the suite from scratch — benchmark iterations are expensive wall-clock and the statistical-validity floor mandates a minimum of 3 iterations per Guardrails.
+
+**Checkpoint contract** (`src/pipeline/checkpoint.ts`):
+
+1. **Workspace + file:** write `.benchmark-workspace/checkpoint.json` via `writeCheckpoint()` (atomic temp+rename through `src/merge/safeWrite.ts`; a SIGKILL mid-write leaves the prior checkpoint or no file, never a partial record). Schema (`schemaVersion: 1`): `phase` (the Step 0 → Step 10 progression), `wave` (suite/iteration batch index), `status` (`in-progress` | `passed` | `failed`), and `meta` `{ baselineSha, lastPassedGateN, registrySha, timestamp, baselineRef, iterationCount }`.
+2. **Write points:** after Step 1 context discovery, after Step 2 benchmark inventory locks, after Step 4 environment preparation is confirmed, after every Step 5 iteration batch completes (so partial measurements survive a crash and are not re-collected), after Step 6 baseline comparison, after Step 7 statistical analysis, after Step 8 root-cause delegation returns, after Step 9 report assembly, and after Step 10 results are persisted to `.benchmarks/results.json`.
+3. **`--resume` invocation:** `hatch3r-benchmark --resume` calls `readCheckpoint()` then `verifyResumability(workspace, currentSha)`. Baseline drift fails closed (the repo / benchmark target source / `.benchmarks/results.json` changed since the checkpoint) — re-run from scratch or rebase to the checkpoint baseline. A `failed` status halts for operator triage before resuming; partial iteration measurements below the 3-iteration statistical-validity floor force a cold start.
+4. **Snapshot rollback:** pre-mutation snapshots of `.benchmarks/results.json` and any report files under `docs/performance/` land in `.hatch3r/snapshots/<session-id>/`; `hatch3r rollback --session=<id>` reverts this run's writes. Diff preview precedes every file write per Decision 30.
+
+If `--resume` is passed with no checkpoint, `verifyResumability` returns `drift: "no checkpoint found"` — treat as a cold start.
+
+---
+
 ## Per-Turn Pipeline-State Header (Bypass Protection)
 
 For Tier 2 and Tier 3 runs, emit the header at the start of every assistant turn that touches this task, per `rules/hatch3r-agent-orchestration.md` -> Per-Turn Pipeline-State Header. Format:

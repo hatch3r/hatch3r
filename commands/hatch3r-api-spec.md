@@ -335,6 +335,21 @@ Files Created/Updated:
 - **Respect the project's tooling hierarchy** for knowledge augmentation: project docs → codebase exploration → Context7 MCP → web research.
 - **Spec must be valid.** Never write a spec that fails structural validation. Fix issues before writing.
 
+## Resumability (Decision 27/30)
+
+api-spec is long-running — a Tier 3 full-codebase scan runs the hatch3r-researcher (codebase-analysis mode) over route definitions and handlers (Step 1), then orchestrator-inline TypeScript-schema + validation-schema extraction (Step 2), then hatch3r-docs-writer assembling the OpenAPI 3.1 spec under `docs/api/` (Step 3), then hatch3r-reviewer validating structural correctness in validate mode (Step 4). Per `governance/CONSTITUTION.md` §6 Decision 30 (Workspace-checkpointed resumability), checkpoint progress so an interrupted run re-enters at the last completed step rather than re-running the route scan or re-extracting schemas.
+
+**Checkpoint contract** (`src/pipeline/checkpoint.ts`):
+
+1. **Workspace + file:** write `.api-spec-workspace/checkpoint.json` via `writeCheckpoint()` (atomic temp+rename through `src/merge/safeWrite.ts`; a SIGKILL mid-write leaves the prior checkpoint or no file, never a partial record). Schema (`schemaVersion: 1`): `phase` (the Step 0 → Step 8 progression), `wave` (researcher-batch index in multi-framework detection), `status` (`in-progress` | `passed` | `failed`), and `meta` `{ baselineSha, lastPassedGateN, registrySha, timestamp, mode, frameworkDetected }` where `mode` is `generate` or `validate`.
+2. **Write points:** after Step 1 route-scan researcher returns, after Step 2 schema-extraction completes (so endpoint-to-schema map survives a crash), after Step 3 docs-writer spec assembly is confirmed by ASK, after each Step 4 file write under `docs/api/` (so already-generated spec sections survive a crash), after Step 5 reviewer validation returns in validate mode (the drift-classification verdict persists), and after the Step 6 chain handoff in generate mode.
+3. **`--resume` invocation:** `hatch3r-api-spec --resume` calls `readCheckpoint()` then `verifyResumability(workspace, currentSha)`. Baseline drift fails closed (the repo / route handlers / schemas / `docs/api/` changed since the checkpoint) — re-run from scratch or rebase to the checkpoint baseline. A `failed` status halts for operator triage before resuming. Framework-detection mismatch (framework changed since checkpoint) forces a cold start.
+4. **Snapshot rollback:** pre-mutation snapshots of `docs/api/` land in `.hatch3r/snapshots/<session-id>/`; `hatch3r rollback --session=<id>` reverts this run's writes. Diff preview precedes every file write per Decision 30.
+
+If `--resume` is passed with no checkpoint, `verifyResumability` returns `drift: "no checkpoint found"` — treat as a cold start.
+
+---
+
 ## Per-Turn Pipeline-State Header (Bypass Protection)
 
 For Tier 2 and Tier 3 runs, emit the header at the start of every assistant turn that touches this task, per `rules/hatch3r-agent-orchestration.md` -> Per-Turn Pipeline-State Header. Format:

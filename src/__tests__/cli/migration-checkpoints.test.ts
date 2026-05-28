@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } fr
 import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { HatchError, DEFAULT_FEATURES, type HatchManifest, type ContentSelection } from "../../types.js";
+import { HatchError, type ContentSelection } from "../../types.js";
 import { HATCH3R_VERSION } from "../../version.js";
 
 // ── Mock dependencies before imports ───────────────────────────
