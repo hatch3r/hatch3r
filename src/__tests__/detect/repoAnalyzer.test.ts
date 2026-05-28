@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { analyzeRepo, formatRepoSummary, detectLinters, detectTestFrameworks, detectCIProviders, detectMonorepoPackages } from "../../detect/repoAnalyzer.js";
+import { analyzeRepo, formatRepoSummary, detectLinters, detectTestFrameworks, detectCIProviders, detectMonorepoPackages, analyzeConventionConflicts } from "../../detect/repoAnalyzer.js";
 
 describe("analyzeRepo", () => {
   let tempDir: string;
@@ -672,6 +672,73 @@ describe("formatRepoSummary", () => {
     expect(summary).toContain("Linters: eslint, prettier");
     expect(summary).toContain("Test frameworks: vitest");
     expect(summary).toContain("CI providers: github-actions");
+  });
+
+  it("surfaces convention conflicts in the summary (F14.4-H3)", () => {
+    const summary = formatRepoSummary({
+      languages: ["typescript"],
+      packageManager: "npm",
+      frameworks: [],
+      isMonorepo: false,
+      hasExistingAgents: false,
+      existingTools: [],
+      rootDir: "/test",
+      linters: ["eslint"],
+      testFrameworks: ["vitest", "jest"],
+    });
+
+    expect(summary).toContain("Convention conflicts detected:");
+    expect(summary).toContain("jest, vitest");
+  });
+
+  it("omits the conflict block when toolchains are unambiguous (F14.4-H3)", () => {
+    const summary = formatRepoSummary({
+      languages: ["typescript"],
+      packageManager: "npm",
+      frameworks: [],
+      isMonorepo: false,
+      hasExistingAgents: false,
+      existingTools: [],
+      rootDir: "/test",
+      linters: ["eslint", "prettier"],
+      testFrameworks: ["vitest", "playwright"],
+    });
+
+    expect(summary).not.toContain("Convention conflicts detected:");
+  });
+});
+
+// ── F14.4-H3 (D14): convention-conflict consumer re-export ────────
+
+describe("analyzeConventionConflicts", () => {
+  it("returns conflicts detected on a RepoInfo", () => {
+    const conflicts = analyzeConventionConflicts({
+      languages: ["typescript"],
+      packageManager: "npm",
+      frameworks: [],
+      isMonorepo: false,
+      hasExistingAgents: false,
+      existingTools: [],
+      rootDir: "/test",
+      testFrameworks: ["vitest", "jest"],
+    });
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]!.dimension).toBe("testFramework");
+  });
+
+  it("returns no conflicts for a single-toolchain RepoInfo", () => {
+    const conflicts = analyzeConventionConflicts({
+      languages: ["typescript"],
+      packageManager: "npm",
+      frameworks: [],
+      isMonorepo: false,
+      hasExistingAgents: false,
+      existingTools: [],
+      rootDir: "/test",
+      testFrameworks: ["vitest"],
+      linters: ["eslint"],
+    });
+    expect(conflicts).toEqual([]);
   });
 });
 

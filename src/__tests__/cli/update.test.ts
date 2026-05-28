@@ -587,4 +587,81 @@ describe("update command", () => {
       }
     });
   });
+
+  // F8.3.4 (D8): the regenerate adapter phase is wrapped in
+  // `runWithPipelineDeadman` (parity with sync). A wall-clock breach surfaces
+  // as a HatchError(exit 2), not a silent partial regenerate.
+  describe("pipeline deadman (F8.3.4)", () => {
+    it("surfaces a PipelineTimeoutError as a HatchError(exit 2)", async () => {
+      await createTestProject(tempDir);
+      const ptMod = await import("../../pipeline/pipelineTimeout.js");
+      const { PipelineTimeoutError } = ptMod;
+      const spy = vi
+        .spyOn(ptMod, "runWithPipelineDeadman")
+        .mockRejectedValue(new PipelineTimeoutError(900_000, 901_000));
+
+      const { updateCommand } = await import("../../cli/commands/update.js");
+      try {
+        await updateCommand({ offline: true });
+        expect.fail("expected updateCommand to throw on deadman breach");
+      } catch (e) {
+        const err = e as HatchError;
+        expect(err).toBeInstanceOf(HatchError);
+        expect(err.exitCode).toBe(2);
+        expect(err.message).toMatch(/pipeline budget|aborted/i);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+  });
+
+  // F16.1-C1 (Decision 27): runRegenerate writes a checkpoint after each
+  // mutation phase under `.update-workspace/checkpoint.json`.
+  describe("resumability checkpoints (F16.1-C1)", () => {
+    it("writes a `passed` checkpoint at .update-workspace/checkpoint.json after a successful regenerate", async () => {
+      await createTestProject(tempDir);
+      const { updateCommand } = await import("../../cli/commands/update.js");
+      await updateCommand({ offline: true });
+
+      const cpRaw = await readFile(join(tempDir, ".update-workspace", "checkpoint.json"), "utf-8");
+      const cp = JSON.parse(cpRaw) as { phase: string; status: string; wave: number; meta: { baselineSha: string } };
+      expect(cp.phase).toBe("update");
+      expect(cp.status).toBe("passed");
+      expect(cp.wave).toBe(2);
+      expect(cp.meta.baselineSha).toBe(HATCH3R_VERSION);
+    });
+  });
+
+  // F6.4-H1 (D6, OWASP ASI06): materialization-time learnings gate in the
+  // regenerate write path (parity with sync).
+  describe("learnings materialization gate (F6.4-H1)", () => {
+    it("refuses to regenerate when a learning file exceeds the byte limit (no --force)", async () => {
+      await createTestProject(tempDir);
+      const learningsDir = join(tempDir, HATCH3R_DIR, "learnings");
+      await mkdir(learningsDir, { recursive: true });
+      await writeFile(join(learningsDir, "huge.md"), "x".repeat(70_000));
+
+      const { updateCommand } = await import("../../cli/commands/update.js");
+      await expect(updateCommand({ offline: true })).rejects.toThrow(HatchError);
+
+      const output = [
+        ...consoleSpy.mock.calls.map((c) => String(c[0])),
+        ...consoleErrorSpy.mock.calls.map((c) => String(c[0])),
+      ].join("\n");
+      expect(output).toMatch(/Learnings validation|byte limit/i);
+    });
+
+    it("allows the regenerate with --force despite invalid learnings", async () => {
+      await createTestProject(tempDir);
+      const learningsDir = join(tempDir, HATCH3R_DIR, "learnings");
+      await mkdir(learningsDir, { recursive: true });
+      await writeFile(join(learningsDir, "huge.md"), "x".repeat(70_000));
+
+      const { updateCommand } = await import("../../cli/commands/update.js");
+      await updateCommand({ offline: true, force: true });
+
+      const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(output).toContain("Update complete");
+    });
+  });
 });

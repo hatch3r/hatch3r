@@ -204,7 +204,7 @@ See [Tooling Hierarchy](../rules/hatch3r-tooling-hierarchy.md) for the canonical
 This agent participates in the Phase 3 review loop (see `hatch3r-agent-orchestration`). The loop terminates when any of these conditions is met:
 
 1. **Clean verdict** -- The reviewer returns 0 Critical + 0 Warning findings. The loop exits successfully.
-2. **Max iterations reached** -- After 3 review-fix cycles (default, configurable up to 10), the loop exits with status UNRESOLVED. Remaining findings are surfaced to the user for manual resolution.
+2. **Max iterations reached** -- After 4 review-fix cycles (default `DEFAULT_MAX_REVIEW_ITERATIONS=4`, configurable up to 10), the loop exits with status UNRESOLVED. Remaining findings are surfaced to the user for manual resolution.
 3. **Manual termination** -- The orchestrator or user explicitly halts the loop.
 
 When producing fix results, be aware that a PARTIAL status with unresolved findings may trigger another review-fix iteration. A BLOCKED status signals the orchestrator to escalate to the user rather than retry.

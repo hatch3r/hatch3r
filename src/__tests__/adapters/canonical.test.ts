@@ -870,6 +870,87 @@ describe("parseFrontmatter precedence field", () => {
   });
 });
 
+// D9-H-6 (Cycle 10 D9, Pillar P1): the canonical frontmatter parser must
+// capture an optional `allowed_tools` (or `allowed-tools`) array so the Copilot
+// adapter can render it as a skill pre-approval line. Non-array values fall back
+// to undefined and surface a TYPE_MISMATCH warning.
+describe("parseFrontmatter allowed_tools field (D9-H-6)", () => {
+  let tempDir: string;
+
+  afterEach(async () => {
+    if (tempDir) {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("reads an allowed_tools array onto the canonical skill", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-canonical-allowed-"));
+    await mkdir(join(tempDir, "skills", "hatch3r-cli-ripgrep"), { recursive: true });
+    await writeFile(
+      join(tempDir, "skills", "hatch3r-cli-ripgrep", "SKILL.md"),
+      '---\nid: hatch3r-cli-ripgrep\ntype: skill\ndescription: d\nallowed_tools: ["rg"]\n---\n# body\n',
+    );
+
+    const results = await readCanonicalFiles(tempDir, "skills");
+    expect(results).toHaveLength(1);
+    expect(results[0]!.allowedTools).toEqual(["rg"]);
+  });
+
+  it("accepts the hyphen spelling allowed-tools", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-canonical-allowed-"));
+    await mkdir(join(tempDir, "skills", "hatch3r-cli-jq"), { recursive: true });
+    await writeFile(
+      join(tempDir, "skills", "hatch3r-cli-jq", "SKILL.md"),
+      '---\nid: hatch3r-cli-jq\ntype: skill\ndescription: d\nallowed-tools: ["jq", "gron"]\n---\n# body\n',
+    );
+
+    const results = await readCanonicalFiles(tempDir, "skills");
+    expect(results).toHaveLength(1);
+    expect(results[0]!.allowedTools).toEqual(["jq", "gron"]);
+  });
+
+  it("leaves allowedTools undefined when the field is absent", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-canonical-allowed-"));
+    await mkdir(join(tempDir, "skills", "hatch3r-cli-fd"), { recursive: true });
+    await writeFile(
+      join(tempDir, "skills", "hatch3r-cli-fd", "SKILL.md"),
+      "---\nid: hatch3r-cli-fd\ntype: skill\ndescription: d\n---\n# body\n",
+    );
+
+    const results = await readCanonicalFiles(tempDir, "skills");
+    expect(results).toHaveLength(1);
+    expect(results[0]!.allowedTools).toBeUndefined();
+  });
+
+  it("drops a non-array allowed_tools and surfaces a TYPE_MISMATCH warning", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-canonical-allowed-"));
+    await mkdir(join(tempDir, "skills", "hatch3r-cli-bad"), { recursive: true });
+    await writeFile(
+      join(tempDir, "skills", "hatch3r-cli-bad", "SKILL.md"),
+      '---\nid: hatch3r-cli-bad\ntype: skill\ndescription: d\nallowed_tools: "rg"\n---\n# body\n',
+    );
+
+    const warnings: string[] = [];
+    const results = await readCanonicalFiles(tempDir, "skills", warnings);
+    expect(results).toHaveLength(1);
+    expect(results[0]!.allowedTools).toBeUndefined();
+    expect(warnings.some((w) => /allowed_tools field must be an array/.test(w))).toBe(true);
+  });
+
+  it("filters non-string entries out of the allowed_tools array", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-canonical-allowed-"));
+    await mkdir(join(tempDir, "skills", "hatch3r-cli-mixed"), { recursive: true });
+    await writeFile(
+      join(tempDir, "skills", "hatch3r-cli-mixed", "SKILL.md"),
+      '---\nid: hatch3r-cli-mixed\ntype: skill\ndescription: d\nallowed_tools: ["rg", 42, "jq"]\n---\n# body\n',
+    );
+
+    const results = await readCanonicalFiles(tempDir, "skills");
+    expect(results).toHaveLength(1);
+    expect(results[0]!.allowedTools).toEqual(["rg", "jq"]);
+  });
+});
+
 // F2.2-F3 (Cycle 10 Wave 2): a leading UTF-8 BOM must not silently disable
 // frontmatter parsing. Windows authoring tools (PowerShell `Set-Content`,
 // "UTF-8 with BOM" in VS Code) prepend U+FEFF, which would otherwise push the

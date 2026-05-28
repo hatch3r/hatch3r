@@ -74,7 +74,15 @@ interface AdapterCapability {
 export const ADAPTER_CAPABILITIES: Record<Tool, AdapterCapability> = {
   cursor:   { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false, worktree: true,  customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: true  },
   claude:   { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false, worktree: true,  customization: true,  modelOverride: true,  nativeQuestionTool: true,  cliTools: true  },
-  copilot:  { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: true,  prompts: true,  githubAgents: true,  worktree: true,  customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: true  },
+  // D9-H-5 (Cycle 10 D9, Pillar P4): `prompts: false`. hatch3r ships no
+  // canonical `prompts/` content, so the Copilot adapter emits no
+  // `.github/prompts/*.prompt.md` from a prompts source — the prior
+  // `prompts: true` advertised a capability the adapter never exercised and
+  // gated a dead `prompts/` read branch (now removed from copilot.ts).
+  // Copilot's commands still route to `.github/prompts/` under the `commands`
+  // flag; Copilot's *native* prompts-file picker support is recorded as an
+  // unutilized enhancement surface in src/adapters/capabilityMatrix.ts.
+  copilot:  { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: true,  prompts: false, githubAgents: true,  worktree: true,  customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: true  },
 };
 
 /**

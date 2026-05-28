@@ -28,6 +28,14 @@ import { HATCH3R_VERSION } from "../../version.js";
  * holds — only the rollback ledger is per-session, analogous to how
  * `.git/objects/` and journal entries are not compared between two
  * equivalent operations.
+ *
+ * F16.1-C1 (Cycle 10): the per-command resumability checkpoint
+ * (`.{init,sync,update,config}-workspace/checkpoint.json`) is excluded for
+ * the same reason — it is an operational progress ledger carrying a per-write
+ * `timestamp`, not deterministic generated output. Two idempotent syncs
+ * produce two checkpoints with distinct timestamps by design (so `--resume`
+ * has an accurate "when did the last phase complete" record); the adapter
+ * outputs they protect remain byte-identical.
  */
 async function snapshotProject(root: string): Promise<Map<string, string>> {
   const snapshot = new Map<string, string>();
@@ -40,6 +48,9 @@ async function snapshotProject(root: string): Promise<Map<string, string>> {
         if (entry.name === ".git" || entry.name === "node_modules") continue;
         // Skip per-session rollback ledger — see JSDoc above.
         if (entryRel === ".hatch3r/snapshots") continue;
+        // Skip per-command resumability checkpoint ledgers (F16.1-C1) — the
+        // checkpoint.json timestamp is per-write by design.
+        if (/^\.(init|sync|update|config)-workspace$/.test(entry.name)) continue;
         await walk(full, entryRel);
         continue;
       }

@@ -1,0 +1,79 @@
+---
+id: hatch3r-reviewer-calibration
+type: rule
+description: "Reviewer runtime confidence-calibration contract: every Nth (default N=5) consecutive clean PASS triggers an out-of-band second-pass review before loop exit; divergence reverts to REQUEST CHANGES; each second pass logs to .hatch3r/calibration-log.jsonl. Canonical source of the N-default and the directive that agents/hatch3r-reviewer.md and calibration-protocol.md reference."
+tags: [review, orchestration, floor:protocol]
+scope: always
+precedence: high
+quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
+---
+# hatch3r Reviewer Confidence Calibration
+
+**Pillars:** P2 (Scientific & Practical Quality), P5 (Governance Self-Quality)
+
+A reviewer's `confidence` rating is self-assigned by the same model that produced the verdict. Without an out-of-band check it is structurally over-trusted, and over-confident models systematically under-emit `confidence: low` (arxiv:2508.06225). This rule is the canonical, always-on source for the **runtime** (within-loop) bound that closes that gap before the review loop exits on a clean PASS. It owns the N-default and the directive that `agents/hatch3r-reviewer.md` §Runtime Confidence Calibration and `governance/audit/templates/calibration-protocol.md` cite.
+
+Scope split (do not duplicate across the two artifacts):
+
+- **Runtime, within-loop (this rule + `agents/hatch3r-reviewer.md`):** bounds an unbounded run of self-trusted clean verdicts inside one review-loop session. Fires before loop exit.
+- **Across-cycle measurement (`governance/audit/templates/calibration-protocol.md`):** samples N=20 prior-cycle PASS findings at cycle close and scores realized over-claim rate. Fires at cycle archive time.
+
+The two are complements, not substitutes — neither replaces the other.
+
+## Directive (verbatim)
+
+> Every Nth consecutive clean PASS verdict on a review-loop exit triggers one out-of-band second-pass review of the same diff. If the second pass surfaces any Critical or Warning the first pass did not, the loop does NOT exit clean — it reverts to REQUEST CHANGES. Each second pass appends one record to `.hatch3r/calibration-log.jsonl`.
+
+## N-default (authoritative)
+
+`N = 5` consecutive clean PASS verdicts. This is the single source of truth for the default; `agents/hatch3r-reviewer.md` and `governance/audit/templates/calibration-protocol.md` cite this value rather than redeclaring it.
+
+- **Counter scope:** count consecutive clean PASS verdicts across the loop, not per-iteration. A REQUEST CHANGES or DESIGN_OBJECTION verdict resets the counter to 0.
+- **Project override:** a project may set a different cadence via its own config; the override widens or narrows the cadence but never disables the second pass while a second pass remains available (see Unavailability below).
+
+## Trigger
+
+On a review-loop exit where the verdict would be a clean PASS (0 Critical + 0 Warning) AND the consecutive-clean-PASS counter has reached a multiple of `N`.
+
+## Action
+
+Run one second-pass review of the same diff with an independent judge:
+
+1. **Preferred:** a different model class, when the orchestrator can route one. The second pass renders its own independent verdict + confidence.
+2. **Fallback:** the same model class re-rolled at higher temperature, when no second model class is available.
+
+The second pass applies the same Review Checklist as the first (`agents/hatch3r-reviewer.md` → Review Checklist); it is a full re-review, not a spot check.
+
+## Divergence handling
+
+- **Divergent** — the second pass surfaces any Critical or Warning the first pass did not: do NOT exit clean. Revert the loop verdict to REQUEST CHANGES, record both verdicts, and feed the divergence to the next fixer iteration.
+- **Aligned** — both passes agree (both clean): exit clean and record alignment.
+
+A divergent second pass is the failure mode of interest — it is the runtime signal that the first pass was over-confident.
+
+## Logging
+
+Append exactly one record per second pass to `.hatch3r/calibration-log.jsonl` (project-local, JSON Lines). One JSON object per line:
+
+```json
+{"timestamp":"<ISO-8601>","first_pass_verdict":"PASS","second_pass_verdict":"PASS|REQUEST CHANGES","divergent":false,"second_pass_model_class":"different|re-roll","consecutive_clean_count":5}
+```
+
+The project-local over-claim rate derived from this log feeds the iteration-summary `Confidence` field per `rules/hatch3r-iteration-summary.md`.
+
+## Unavailability (visible skip, never silent)
+
+Skip the second pass ONLY when no second model class is available AND the orchestrator has disabled same-model re-roll. In that case emit `calibration: skipped (no second pass available)` in the verdict so the gap is visible rather than silent — a silent skip is a Silent-Failure-Contract violation (`governance/CONSTITUTION.md` §2). A skip does NOT reset the consecutive-clean-PASS counter; the next eligible exit re-attempts the second pass.
+
+## Pillar Service
+
+- **P2 Scientific & Practical Quality (primary).** Adds an adversarial out-of-band check to a self-assigned confidence value; over-claimed clean verdicts become detectable at runtime, not just at cycle close.
+- **P5 Governance Self-Quality (supporting).** Removes the "reviewer as sole judge of its own confidence" structural over-trust pattern from the within-loop path, mirroring the across-cycle loop that `calibration-protocol.md` adds at cycle scope.
+
+## References
+
+- `agents/hatch3r-reviewer.md` §Runtime Confidence Calibration — the consuming agent body that invokes this contract (accessed 2026-05-28, trust tier: canonical).
+- `governance/audit/templates/calibration-protocol.md` §Runtime complement (F13.2-F1) — the across-cycle measurement loop this runtime bound complements (accessed 2026-05-28, trust tier: canonical).
+- `rules/hatch3r-iteration-summary.md` — consumes the project-local over-claim rate for the `Confidence` field (accessed 2026-05-28, trust tier: canonical).
+- Anthropic / arXiv. "Confidence calibration in large language models" (arxiv:2508.06225). `https://arxiv.org/abs/2508.06225` (accessed 2026-05-28, peer-reviewed-methodology). Evidence that self-reported model confidence under-emits low-confidence signals, motivating the out-of-band second pass.

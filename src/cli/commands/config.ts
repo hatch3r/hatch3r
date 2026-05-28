@@ -71,6 +71,8 @@ import {
 import { PRESETS, getPreset, type PresetId } from "../../content/presets.js";
 import { acquireWriteLock, safeWriteFile } from "../../merge/safeWrite.js";
 import { withSnapshot } from "../../pipeline/snapshot.js";
+import { writeCheckpoint, type CheckpointMeta } from "../../pipeline/checkpoint.js";
+import { HATCH3R_VERSION } from "../../version.js";
 import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -334,6 +336,26 @@ async function handleScalarConfig(
   arg1?: string,
   arg2?: string,
 ): Promise<boolean> {
+  // F16.1-C1 (Decision 27 / Bucket 2.2): record a `passed` checkpoint after a
+  // scalar-config manifest write under `.config-workspace/checkpoint.json`.
+  // The scalar set/get forms are a single-phase mutation (no adapter
+  // regenerate), so one wave-1 "passed" marker is the complete progress
+  // record. Best-effort: failure routes through verbose() and never blocks
+  // the config write that already succeeded.
+  const recordScalarCheckpoint = async (): Promise<void> => {
+    const meta: CheckpointMeta = {
+      baselineSha: HATCH3R_VERSION,
+      lastPassedGateN: 1,
+      registrySha: "",
+      timestamp: new Date().toISOString(),
+    };
+    try {
+      await writeCheckpoint(join(rootDir, ".config-workspace"), "config", 1, "passed", meta);
+    } catch (err) {
+      verbose(`config: scalar checkpoint write skipped — ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
   // Form 1: bare `key=value` ─ e.g. `hatch3r config maturity=team`
   const inlineSet = parseScalarKeyValue(arg1);
   if (inlineSet) {
@@ -348,6 +370,7 @@ async function handleScalarConfig(
       { projectRoot: rootDir, onWarn: warn },
     );
     await writeManifest(rootDir, manifest);
+    await recordScalarCheckpoint();
     if (previous === next) {
       info(`${inlineSet.key} is already set to "${next}". No change.`);
     } else {
@@ -415,6 +438,7 @@ async function handleScalarConfig(
       { projectRoot: rootDir, onWarn: warn },
     );
     await writeManifest(rootDir, manifest);
+    await recordScalarCheckpoint();
     if (previous === next) {
       info(`${key} is already set to "${next}". No change.`);
     } else {

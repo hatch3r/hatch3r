@@ -290,6 +290,13 @@ const PLATFORM_CAPABILITY_SEED: Record<AuditedAdapter, PlatformCapability[]> = {
   ],
   copilot: [
     { id: "copilot-instructions", name: ".github/copilot-instructions.md", status: "supported" },
+    // D9-H-5 (D9, P4): the platform natively supports a `.github/prompts/`
+    // file picker, so the seed status stays `supported`. hatch3r retracted the
+    // *adapter* claim (`ADAPTER_CAPABILITIES.copilot.prompts = false`) because
+    // it ships no canonical `prompts/` content — `computeUtilization` therefore
+    // classifies this row `unutilized`, surfacing it as the correct
+    // enhancement-surface finding (author canonical prompts to utilize it)
+    // rather than the prior dead-code branch.
     { id: "prompts", name: "Prompts (.github/prompts/)", status: "supported" },
     { id: "agent-definitions", name: "Agent definitions (.github/agents/)", status: "supported", detail: "tools: allowlist via Copilot frontmatter" },
     { id: "instructions-scoped", name: "Scoped instructions (.github/instructions/)", status: "supported", detail: "applyTo glob frontmatter" },

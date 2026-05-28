@@ -36,11 +36,14 @@ import {
 } from "../../pipeline/circuitBreaker.js";
 import { executeWithPhaseTimeout } from "../../pipeline/phaseTimeout.js";
 import {
-  createPipelineExecution,
-  isPipelineTimedOut,
-  terminatePipeline,
+  runWithPipelineDeadman,
+  PipelineTimeoutError,
   DEFAULT_PIPELINE_TIMEOUT_MS,
 } from "../../pipeline/pipelineTimeout.js";
+import {
+  writeCheckpoint,
+  type CheckpointMeta,
+} from "../../pipeline/checkpoint.js";
 import { compactPhaseOutput } from "../../pipeline/phaseOutputSchema.js";
 import { retryWithBackoff } from "../../pipeline/retryWithBackoff.js";
 import {
@@ -59,6 +62,7 @@ import { runSelfUpdate, pickReExecBin } from "../../install/selfUpdate.js";
 import { pruneArchives } from "../../archive/index.js";
 import { buildSelectionsFromDisk } from "../../content/index.js";
 import { scanOrphanFiles, formatOrphanScanDiagnostic } from "../../content/orphanScan.js";
+import { validateLearningsDirectory } from "../../content/learningsValidation.js";
 import { isBack } from "../shared/initSteps.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -303,6 +307,66 @@ export async function runRegenerate(
   );
   const snapshotSessionId = regenSnapshot.sessionId;
 
+  // F16.1-C1 (Decision 27 / Bucket 2.2): record a checkpoint after each
+  // mutation phase under `.<command>-workspace/checkpoint.json` (namespaced by
+  // `snapshotCommandName`, so `update`, `config`, etc. don't collide). This
+  // makes the resumability substrate functional even though `update`/`config`
+  // run single-pass — the checkpoint records "this phase completed at this
+  // hatch3r version" so a future resume read (or an operator inspecting state)
+  // sees an authoritative progress marker. Best-effort: a checkpoint-write
+  // failure routes through verbose() and never aborts the regenerate.
+  const regenWorkspace = join(rootDir, `.${snapshotCommandName}-workspace`);
+  const recordPhase = async (
+    wave: number,
+    status: "in-progress" | "passed" | "failed",
+  ): Promise<void> => {
+    const meta: CheckpointMeta = {
+      baselineSha: HATCH3R_VERSION,
+      lastPassedGateN: status === "passed" ? wave : Math.max(0, wave - 1),
+      registrySha: "",
+      timestamp: new Date().toISOString(),
+    };
+    try {
+      await writeCheckpoint(regenWorkspace, snapshotCommandName, wave, status, meta);
+    } catch (err) {
+      verbose(`${snapshotCommandName}: checkpoint write (wave ${wave}, ${status}) skipped — ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  // F6.4-H1 (D6, OWASP ASI06): materialization-time learnings gate. Like
+  // `hatch3r sync`, the regenerate write path pours `.hatch3r/learnings/` into
+  // each tool's context file. Run the deterministic `validateLearningsDirectory`
+  // pass before any adapter materializes output. Errors refuse the regenerate
+  // unless `--force`; denied-pattern matches are surfaced as a quarantine
+  // notice (loaded user-tier, not as instructions). ENOENT = clean.
+  try {
+    const learnings = await validateLearningsDirectory(join(rootDir, HATCH3R_DIR, "learnings"));
+    if (learnings.warnings.length > 0) {
+      warn(`Learnings content scan: ${learnings.warnings.length} suspicious pattern(s) quarantined (loaded with user-tier markers, not as instructions):`);
+      for (const w of learnings.warnings) warn(`  ${w}`);
+    }
+    if (!learnings.valid) {
+      warn(`Learnings validation: ${learnings.errors.length} error(s) detected`);
+      for (const e of learnings.errors) warn(`  ${e}`);
+      if (!options.force) {
+        logError(
+          "Refusing to materialize tool context files with invalid learnings. " +
+          "Fix the offending file(s) under .hatch3r/learnings/, or re-run with --force.",
+        );
+        throw new HatchError(
+          "Learnings pre-flight scan failed (use --force to override)",
+          1,
+          "VALIDATION_ERROR",
+          "Fix the offending learning file(s) listed above (oversized, binary, or invalid name), or re-run with `--force` to materialize them as-is.",
+        );
+      }
+      warn("Continuing with --force: invalid learnings will be materialized into tool context.");
+    }
+  } catch (err) {
+    if (err instanceof HatchError) throw err;
+    verbose(`Learnings pre-flight scan skipped: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
   const s1 = createSpinner(step(offset + 1, total, "Resolving canonical content..."));
   s1.start();
 
@@ -331,8 +395,19 @@ export async function runRegenerate(
   // Per-adapter circuit breakers and a phase-level timeout protect the
   // re-sync loop the same way they protect `hatch3r sync`.
   const breakers = new Map<string, CircuitBreakerState>();
-  const adapterPhaseResult = await executeWithPhaseTimeout("adapter", async () => {
-    for (const tool of manifest.tools) {
+  // F16.1-C1: generation phase begins.
+  await recordPhase(1, "in-progress");
+  // F8.3.4 (D8): wrap the adapter regenerate phase in a wall-clock deadman —
+  // parity with `hatch3r sync`. The deadman aborts the in-flight phase on a
+  // budget breach (threaded as `executeWithPhaseTimeout`'s parentSignal),
+  // replacing the prior post-loop advisory `isPipelineTimedOut` check that
+  // could never fire on a true hang.
+  const adapterPhaseResult = await runWithPipelineDeadman(
+    (deadmanSignal) =>
+      executeWithPhaseTimeout(
+        "adapter",
+        async () => {
+          for (const tool of manifest.tools) {
       let breaker = breakers.get(tool) ?? createCircuitBreaker({ serviceId: `adapter:${tool}` });
       const allowResult = shouldAllowRequest(breaker);
       breaker = allowResult.state;
@@ -426,7 +501,28 @@ export async function runRegenerate(
         await appendFailure(hatch3rDir, "update:adapter-generate", err, tool);
       }
     }
+        },
+        undefined,
+        deadmanSignal,
+      ),
+    DEFAULT_PIPELINE_TIMEOUT_MS,
+  ).catch((err: unknown) => {
+    // F8.3.4: wall-clock breach — the in-flight adapter phase was signalled
+    // to abort. Surface a usage-actionable timeout (exit 2) instead of a
+    // silent partial regenerate.
+    if (err instanceof PipelineTimeoutError) {
+      logError(err.message);
+      throw new HatchError(
+        `Update exceeded its ${Math.round(err.timeoutMs / 1000)}s pipeline budget and was aborted.`,
+        2,
+        "ADAPTER_ERROR",
+        "A hanging adapter or filesystem call exceeded the wall-clock budget. Re-run `hatch3r update --offline` to regenerate without the package fetch, or check for an unresponsive network mount under the project root.",
+      );
+    }
+    throw err;
   });
+  // F16.1-C1: generation/adapter phase completed.
+  await recordPhase(1, "passed");
   if (!adapterPhaseResult.completed && adapterPhaseResult.error) {
     warn(adapterPhaseResult.error);
   }
@@ -503,6 +599,9 @@ export async function runRegenerate(
   s3.start();
   manifest.hatch3rVersion = HATCH3R_VERSION;
   await writeManifest(rootDir, manifest);
+
+  // F16.1-C1: merge phase (worktree + mcp env + manifest) committed.
+  await recordPhase(2, "passed");
 
   // Wave 3: integrity manifest writes removed; Wave 7 will reintroduce a
   // bundled-content integrity model. Adapter outputs are no longer covered
@@ -913,12 +1012,12 @@ export async function updateCommand(
 ): Promise<void> {
   printBanner(true);
 
-  // Pipeline-level timeout: tracks overall command duration and emits a
-  // warning at the end if the run exceeded the configured budget.
-  const pipelineState = createPipelineExecution(
-    ["generation", "adapter", "merge", "integrity"],
-    DEFAULT_PIPELINE_TIMEOUT_MS,
-  );
+  // F8.3.4 (D8): the pipeline wall-clock deadman now lives inside
+  // `runRegenerate` (which wraps the adapter phase in
+  // `runWithPipelineDeadman`), so the command-level advisory
+  // `isPipelineTimedOut`/`terminatePipeline` state that used to be tracked
+  // here — and only checked after all disk writes completed — is removed. A
+  // true hang now aborts in-flight rather than being reported after the fact.
 
   const rootDir = process.cwd();
   // Wave 6: relocate pre-1.9 `.agents/` state before reading the manifest.
@@ -1145,10 +1244,7 @@ export async function updateCommand(
     info("CLI tooling available as a token-efficient alternative to MCP — run `npx hatch3r cli-tools` to opt in.");
   }
 
-  // Pipeline timeout advisory: surface a warning if total wall time exceeded
-  // the budget. Disk writes are already complete; this is informational only.
-  if (isPipelineTimedOut(pipelineState)) {
-    const { report } = terminatePipeline(pipelineState);
-    warn(report.summary);
-  }
+  // F8.3.4: the pipeline-timeout advisory previously emitted here is now
+  // enforced (not just reported) by the `runWithPipelineDeadman` wrapper
+  // inside `runRegenerate`.
 }

@@ -636,10 +636,24 @@ export abstract class BaseAdapter implements Adapter {
    * CLI-filtered twin of {@link processSkillsWithFm}. Adapters that emit
    * skills as managed-block files prefixed with a `name: + description:`
    * YAML stub call this after Wave 3 instead of `processSkillsWithFm`.
+   *
+   * D9-H-6 (D9, P1): when `opts.emitAllowedTools` is true AND the canonical
+   * skill declares a non-empty `allowed_tools` list, an `allowed-tools:` YAML
+   * array line is appended to the frontmatter stub. This pre-approves those
+   * tools on the GitHub Copilot Skills surface so the runtime skips the
+   * per-invocation tool-confirmation prompt
+   * (https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/create-skills,
+   * accessed 2026-05-26). The flag is opt-in because the Cursor adapter
+   * shares this helper and its SKILL.md format does not document
+   * `allowed-tools` — emitting it there would be inert cruft. When the flag
+   * is false or the skill declares no tools, the stub is the historical
+   * `name: + description:` shape and output is byte-identical to the prior
+   * behavior.
    */
   protected async processSkillsWithFmCliFiltered(
     ctx: AdapterContext,
     pathFn: (id: string) => string,
+    opts?: { emitAllowedTools?: boolean },
   ): Promise<AdapterOutput[]> {
     if (!ctx.features.skills) return [];
     const results: AdapterOutput[] = [];
@@ -651,7 +665,15 @@ export abstract class BaseAdapter implements Adapter {
       if (skip) continue;
       const content = this.substituteCanonicalContent(raw, ctx);
       const desc = overrides.description ?? skill.description;
-      const fm = `---\nname: ${skill.id}\ndescription: ${desc}\n---`;
+      const fmLines = [`name: ${skill.id}`, `description: ${desc}`];
+      // D9-H-6: append the Copilot `allowed-tools` pre-approval array when
+      // the adapter opts in and the skill declares tools. Each entry is
+      // JSON-quoted so binaries containing characters that would otherwise
+      // need YAML escaping (none today, but future-proof) stay valid.
+      if (opts?.emitAllowedTools && skill.allowedTools && skill.allowedTools.length > 0) {
+        fmLines.push(`allowed-tools: [${skill.allowedTools.map((t) => `"${t}"`).join(", ")}]`);
+      }
+      const fm = `---\n${fmLines.join("\n")}\n---`;
       results.push(output(pathFn(skill.id), `${fm}\n\n${wrapInManagedBlock(content)}`, content));
     }
     return results;

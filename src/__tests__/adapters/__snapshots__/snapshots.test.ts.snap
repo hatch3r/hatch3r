@@ -172,7 +172,6 @@ exports[`adapter output snapshots > CopilotAdapter > file paths match snapshot 1
   ".github/instructions/50-hatch3r-scoped-rule.instructions.md",
   ".github/prompts/board/pickup-fake.md",
   ".github/prompts/hatch3r-test-command.prompt.md",
-  ".github/prompts/hatch3r-test-prompt.prompt.md",
   ".github/skills/hatch3r-test-skill/SKILL.md",
   ".github/workflows/copilot-setup-steps.yml",
   ".vscode/mcp.json",
@@ -258,14 +257,6 @@ exports[`adapter output snapshots > CopilotAdapter > output structure matches sn
     ],
     "hasManagedContent": true,
     "path": ".github/prompts/hatch3r-test-command.prompt.md",
-  },
-  {
-    "action": "create",
-    "contentMarkers": [
-      "MANAGED_BLOCK",
-    ],
-    "hasManagedContent": true,
-    "path": ".github/prompts/hatch3r-test-prompt.prompt.md",
   },
   {
     "action": "create",

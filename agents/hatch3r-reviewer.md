@@ -257,7 +257,7 @@ Your confidence rating is self-assigned by the same model that produced the verd
 - **Divergence handling:** if the second pass surfaces any Critical or Warning the first pass did not, do NOT exit clean — return to `REQUEST CHANGES` and record both verdicts. If the verdicts agree, exit clean and record alignment.
 - **Logging:** append one record per second-pass to `.hatch3r/calibration-log.jsonl` (project-local) with first-pass verdict, second-pass verdict, divergence flag, and timestamp.
 
-Directive and N-default source: `rules/hatch3r-reviewer-calibration.md` (authored as a separate artifact — see Cross-reference). The project-local over-claim rate from this log feeds the iteration-summary `Confidence` field per `rules/hatch3r-iteration-summary.md`. Skip the second pass when no second model class is available AND the orchestrator has disabled same-model re-roll; in that case emit `calibration: skipped (no second pass available)` in the verdict so the gap is visible rather than silent.
+Directive and N-default source: `rules/hatch3r-reviewer-calibration.md` (the canonical runtime calibration contract; this section is its consumer). The project-local over-claim rate from this log feeds the iteration-summary `Confidence` field per `rules/hatch3r-iteration-summary.md`. Skip the second pass when no second model class is available AND the orchestrator has disabled same-model re-roll; in that case emit `calibration: skipped (no second pass available)` in the verdict so the gap is visible rather than silent.
 
 ## Structured Reasoning
 
@@ -286,7 +286,7 @@ This agent participates in the Phase 3 review loop (see `hatch3r-agent-orchestra
 
 1. **Clean verdict** -- 0 Critical + 0 Warning findings. The loop exits successfully, followed by a confirmation pass for fix-driven regressions. On every Nth consecutive clean PASS (default `N=5`), run the Runtime Confidence Calibration second pass (see Confidence Expression) before exiting; a divergent second pass reverts the exit to `REQUEST CHANGES`.
 2. **Design objection** -- Verdict is `DESIGN_OBJECTION`. The loop exits immediately without fixer iteration. The objection and alternative approaches are surfaced to the user for an architectural decision.
-3. **Max iterations reached** -- After 3 review-fix cycles (default, configurable up to 10), the loop exits with status UNRESOLVED. Remaining findings are surfaced to the user.
+3. **Max iterations reached** -- After 4 review-fix cycles (default `DEFAULT_MAX_REVIEW_ITERATIONS=4`, configurable up to 10), the loop exits with status UNRESOLVED. Remaining findings are surfaced to the user.
 4. **Manual termination** -- The orchestrator or user explicitly halts the loop.
 
 Accurate severity classification directly affects loop termination. Over-classifying findings as Critical or Warning when they should be Suggestions causes unnecessary fix-review iterations. Under-classifying causes real issues to slip through. Use structured reasoning (above) when severity is non-obvious.

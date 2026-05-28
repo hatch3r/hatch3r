@@ -2,6 +2,11 @@ import { access, readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { Framework, PackageEntry, RepoInfo, Tool } from "../types.js";
 import { detectPackageManager } from "./packageManager.js";
+import {
+  detectConventionConflicts,
+  formatConventionConflicts,
+  type ConventionConflict,
+} from "./conventionConflict.js";
 
 /**
  * Analyze a repository directory to detect languages, frameworks, package
@@ -599,5 +604,27 @@ export function formatRepoSummary(info: RepoInfo): string {
     lines.push(`CI providers: ${info.ciProviders.join(", ")}`);
   }
 
+  // F14.4-H3 (D14): surface mutually-exclusive convention conflicts (e.g. two
+  // test runners, two linters) detected from the toolchain lists above, so the
+  // init summary warns when generated single-toolchain guidance contradicts a
+  // mid-migration repo. Empty string when there are no conflicts.
+  const conflictBlock = formatConventionConflicts(detectConventionConflicts(info));
+  if (conflictBlock.length > 0) {
+    lines.push(conflictBlock);
+  }
+
   return lines.join("\n");
 }
+
+/**
+ * Convenience consumer for `hatch3r init` (F14.4-H3): run convention-conflict
+ * detection directly against a `RepoInfo`. Re-exported here so init.ts imports
+ * a single detect surface; the manifest-persistence + post-init-box wiring is
+ * cross-WU (init.ts / types.ts) — see the remainder note in
+ * `src/detect/conventionConflict.ts`.
+ */
+export function analyzeConventionConflicts(info: RepoInfo): ConventionConflict[] {
+  return detectConventionConflicts(info);
+}
+
+export { detectConventionConflicts, formatConventionConflicts, type ConventionConflict };

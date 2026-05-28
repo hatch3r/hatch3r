@@ -107,25 +107,32 @@ describe("CopilotAdapter", () => {
     expect(setupSteps!.managedContent).toBeDefined();
   });
 
-  it("generates prompt files from prompts and commands", async () => {
+  // D9-H-5 (D9, P4): the dead canonical `prompts/` read branch was removed —
+  // hatch3r ships no `prompts/hatch3r-*.prompt.md` content, so the only
+  // `.github/prompts/*.prompt.md` top-level entries come from canonical
+  // commands (which Copilot surfaces in its native prompts-file picker). The
+  // fixture's `prompts/test-prompt.md` is therefore NOT emitted.
+  it("generates prompt files from commands only (no canonical prompts/ source)", async () => {
     const manifest = makeManifest();
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
     // Top-level picker entries — companion subtrees (`.github/prompts/board/`,
     // `.github/prompts/revision/`) are emitted but excluded from this count.
     const prompts = outputs.filter((o) => /^\.github\/prompts\/[^/]+\.md$/.test(o.path));
-    expect(prompts.length).toBe(2);
+    // Only the command-derived prompt file remains (1), not the fixture's
+    // prompts-dir entry.
+    expect(prompts.length).toBe(1);
 
+    // The fixture's prompts/test-prompt.md must NOT surface — the read branch
+    // is gone.
     const promptFromPrompts = prompts.find((p) => p.path.includes("test-prompt"));
-    expect(promptFromPrompts).toBeDefined();
-    expect(promptFromPrompts!.path).toBe(".github/prompts/hatch3r-test-prompt.prompt.md");
-    expect(promptFromPrompts!.content).toContain("test-prompt");
-    expect(promptFromPrompts!.managedContent).toBeDefined();
+    expect(promptFromPrompts).toBeUndefined();
 
     const commands = prompts.filter((p) => p.path.includes("test-command"));
     expect(commands.length).toBe(1);
     const promptFromCommands = commands[0];
     expect(promptFromCommands).toBeDefined();
+    expect(promptFromCommands!.path).toBe(".github/prompts/hatch3r-test-command.prompt.md");
     expect(promptFromCommands!.managedContent).toBeDefined();
   });
 
@@ -284,12 +291,34 @@ describe("CopilotAdapter", () => {
     expect(scopedInstructions.length).toBe(0);
   });
 
-  it("skips prompts when features.prompts and features.commands are false", async () => {
+  it("skips prompts when features.commands is false", async () => {
     const manifest = makeManifest({ features: { prompts: false, commands: false } });
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
     const prompts = outputs.filter((o) => o.path.startsWith(".github/prompts/"));
     expect(prompts.length).toBe(0);
+  });
+
+  // D9-H-5 (D9, P4): with the dead `prompts/` read branch removed, the
+  // `features.prompts` flag no longer drives any Copilot output. Toggling it
+  // alone (commands still enabled) must produce byte-identical output — this
+  // is the inverse of the capability matrix's `prompts: false` declaration and
+  // the reason the drift test passes.
+  it("treats features.prompts as a no-op for Copilot output (D9-H-5)", async () => {
+    const withPrompts = await adapter.generate(
+      FIXTURES_DIR,
+      makeManifest({ features: { prompts: true } }),
+    );
+    const withoutPrompts = await adapter.generate(
+      FIXTURES_DIR,
+      makeManifest({ features: { prompts: false } }),
+    );
+    const digest = (outs: { path: string; content: string }[]) =>
+      [...outs]
+        .sort((a, b) => a.path.localeCompare(b.path))
+        .map((o) => `${o.path}\n${o.content}`)
+        .join("\n---\n");
+    expect(digest(withPrompts)).toBe(digest(withoutPrompts));
   });
 
   it("skips agent files when features.agents and features.githubAgents are false", async () => {
@@ -461,6 +490,91 @@ You are a test agent.`,
       expect(
         outputs.filter((o) => o.path.startsWith(".github/skills/hatch3r-cli-")),
       ).toEqual([]);
+    });
+  });
+
+  // ── D9-H-6 (D9, P1): Copilot skill `allowed-tools` pre-approval ─────────────
+  //
+  // Source: https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/create-skills
+  // (accessed 2026-05-26). A skill that declares `allowed_tools` in its
+  // canonical frontmatter must emit an `allowed-tools:` YAML array line on
+  // `.github/skills/<id>/SKILL.md` so the runtime pre-approves the wrapped
+  // shell binaries and skips per-invocation confirmation.
+  describe("D9-H-6 allowed-tools skill pre-approval", () => {
+    /**
+     * Stage a temp canonical root with a single CLI skill whose frontmatter
+     * carries the supplied `allowed_tools` line (or no line when omitted), then
+     * generate with that skill selected.
+     */
+    async function runWithCliSkill(
+      skillId: string,
+      allowedToolsLine: string | null,
+    ): Promise<Awaited<ReturnType<typeof adapter.generate>>> {
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-allowedtools-"));
+      const skillDir = join(tempDir, "skills", skillId);
+      await mkdir(skillDir, { recursive: true });
+      const fm = [
+        "---",
+        `id: ${skillId}`,
+        `description: ${skillId} fixture`,
+        ...(allowedToolsLine ? [allowedToolsLine] : []),
+        "---",
+      ].join("\n");
+      await writeFile(join(skillDir, "SKILL.md"), `${fm}\n# ${skillId}\n\nbody\n`, "utf-8");
+      const manifest: HatchManifest = {
+        ...makeManifest(),
+        cliTools: { enabled: true, selected: [skillId.replace(/^hatch3r-cli-/, "")] },
+      };
+      try {
+        return await adapter.generate(tempDir, manifest);
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    }
+
+    it("emits allowed-tools: array when the skill declares allowed_tools", async () => {
+      const outputs = await runWithCliSkill("hatch3r-cli-ripgrep", 'allowed_tools: ["rg"]');
+      const skill = outputs.find(
+        (o) => o.path === ".github/skills/hatch3r-cli-ripgrep/SKILL.md",
+      );
+      expect(skill).toBeDefined();
+      const fmMatch = skill!.content.match(/^---\n([\s\S]*?)\n---/);
+      expect(fmMatch).not.toBeNull();
+      const fm = fmMatch![1];
+      expect(fm).toContain("name: hatch3r-cli-ripgrep");
+      expect(fm).toMatch(/allowed-tools:\s*\["rg"\]/);
+    });
+
+    it("accepts the hyphen spelling allowed-tools in canonical frontmatter", async () => {
+      const outputs = await runWithCliSkill("hatch3r-cli-jq", 'allowed-tools: ["jq"]');
+      const skill = outputs.find(
+        (o) => o.path === ".github/skills/hatch3r-cli-jq/SKILL.md",
+      );
+      expect(skill).toBeDefined();
+      const fm = skill!.content.match(/^---\n([\s\S]*?)\n---/)![1];
+      expect(fm).toMatch(/allowed-tools:\s*\["jq"\]/);
+    });
+
+    it("omits allowed-tools: when the skill declares none", async () => {
+      const outputs = await runWithCliSkill("hatch3r-cli-fd", null);
+      const skill = outputs.find(
+        (o) => o.path === ".github/skills/hatch3r-cli-fd/SKILL.md",
+      );
+      expect(skill).toBeDefined();
+      const fm = skill!.content.match(/^---\n([\s\S]*?)\n---/)![1];
+      expect(fm).not.toContain("allowed-tools:");
+    });
+
+    it("emits a multi-entry allowed-tools array verbatim", async () => {
+      const outputs = await runWithCliSkill(
+        "hatch3r-cli-gh",
+        'allowed_tools: ["gh", "git"]',
+      );
+      const skill = outputs.find(
+        (o) => o.path === ".github/skills/hatch3r-cli-gh/SKILL.md",
+      );
+      const fm = skill!.content.match(/^---\n([\s\S]*?)\n---/)![1];
+      expect(fm).toMatch(/allowed-tools:\s*\["gh", "git"\]/);
     });
   });
 });

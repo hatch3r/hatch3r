@@ -78,7 +78,9 @@ describe("capabilityMatrix", () => {
       const row = enumerateAdapterCapabilities("copilot");
       expect(row.adapter).toBe("copilot");
       expect(row.declared.hooks).toBe(false);
-      expect(row.declared.prompts).toBe(true);
+      // D9-H-5 (D9, P4): copilot.prompts retracted to false — hatch3r ships no
+      // canonical prompts/ content, so the adapter emits no prompts source.
+      expect(row.declared.prompts).toBe(false);
       expect(row.declared.githubAgents).toBe(true);
     });
 

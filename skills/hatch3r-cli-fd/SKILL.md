@@ -5,6 +5,11 @@ tags: ["cli-tools", "search", "orchestration"]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
+# D9-H-6 (D9, P1): pre-approve the wrapped shell binary on the GitHub Copilot
+# Skills surface so the runtime skips per-invocation confirmation for `fd`.
+# Rendered as an `allowed-tools:` frontmatter line on `.github/skills/.../SKILL.md`
+# by the Copilot adapter; other adapters ignore the field.
+allowed_tools: ["fd"]
 cli_tool:
   id: fd
   bin: fd

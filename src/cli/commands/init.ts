@@ -51,6 +51,7 @@ import {
   step,
   label,
   warn,
+  verbose,
   setQuiet,
   setJson,
   isJson,
@@ -59,7 +60,6 @@ import {
 import { findPackageRoot } from "../shared/paths.js";
 import { buildTagGroupedCustomContentChoices } from "../shared/customContentChoices.js";
 import { TOOL_DISPLAY_NAMES, TOOL_PROMPT_CHOICES, MCP_CHOICES, PLATFORM_DISPLAY_NAMES, PLATFORM_MCP_SERVER, sanitizeInput, isWSL, formatCommandHint, TOOL_SECRET_NOTES } from "../shared/constants.js";
-import { pickCliTools, pickMcpServers } from "../shared/pickers.js";
 import {
   BACK,
   isBack,
@@ -77,7 +77,7 @@ import { findMissingCliTools } from "../../cliTools/detect.js";
 import { offerInstaller, printMissingCliToolsDisclaimer } from "../../cliTools/install.js";
 import { applyPlatformTriggers, evaluateTier2Triggers } from "../../cliTools/triggers.js";
 import { HATCH3R_VERSION } from "../../version.js";
-import { buildContentIndex, resolveSelection, countSelectionItems, selectionSummary, getAllContentIds, validateOrchestrationDependencies, countPresetExclusions, countProjectTypeExclusions, countTeamSizeExclusions, estimatePresetItemCount } from "../../content/index.js";
+import { buildContentIndex, resolveSelection, countSelectionItems, selectionSummary, getAllContentIds, validateOrchestrationDependencies, countPresetExclusions, estimatePresetItemCount } from "../../content/index.js";
 import { PRESETS, getPreset, type PresetId } from "../../content/presets.js";
 import { detectSubRepos, shouldSuggestWorkspace } from "../../workspace/detect.js";
 import { createWorkspaceManifest, writeWorkspaceManifest } from "../../workspace/manifest.js";
@@ -86,7 +86,8 @@ import type { WorkspaceRepoEntry } from "../../workspace/types.js";
 import { parseGitRemote, parseGitDefaultBranch, getGitRemoteUrl, detectPlatformFromRemote, detectRepoGitIdentity } from "../../workspace/git.js";
 import { createSnapshot } from "../../pipeline/snapshot.js";
 import { estimateCost, formatCostBlock } from "../../pipeline/costEstimator.js";
-import { readCheckpoint, checkpointPath } from "../../pipeline/checkpoint.js";
+import { readCheckpoint, writeCheckpoint, checkpointPath, type CheckpointMeta } from "../../pipeline/checkpoint.js";
+import { execFileSync } from "node:child_process";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONTENT_ROOT = findPackageRoot(__dirname);
@@ -322,6 +323,43 @@ function deriveWorkspacePlatform(identities: Array<{ platform: Platform }>): Pla
   return best;
 }
 
+/**
+ * F10.3-2 (D10, P1): infer team size from git history instead of prompting.
+ * The interactive `teamSize` prompt was dropped to bring the first-run flow to
+ * the P1 ≤5-prompt ceiling (Decision 25 / Vercel-Heroku benchmark). We count
+ * distinct commit authors via `git log` — `>1` distinct author email implies a
+ * `team` repo; a single author (or an unreadable / empty / non-git history)
+ * falls back to `solo`, which matches the prior prompt default and the `--yes`
+ * default. Degradation mirrors `parseGitDefaultBranch`: any git error returns
+ * the safe default rather than throwing. Overridable post-init via
+ * `hatch3r config`.
+ */
+function inferTeamSizeFromGit(cwd: string): "solo" | "team" {
+  try {
+    const out = execFileSync("git", ["log", "--format=%ae", "-n", "200"], {
+      cwd,
+      stdio: "pipe",
+    })
+      .toString()
+      .trim();
+    if (out.length === 0) return "solo";
+    const distinct = new Set(
+      out
+        .split(/\r?\n/)
+        .map((line) => line.trim().toLowerCase())
+        .filter((line) => line.length > 0),
+    );
+    return distinct.size > 1 ? "team" : "solo";
+  } catch (err) {
+    // No git, no commits, or git not on PATH — fall back to the historical
+    // prompt default. Surface under --verbose per the Silent Failure Contract
+    // (P5) so the inference outcome is observable; this is a convenience over
+    // an explicit prompt, not a correctness gate, so we never throw.
+    verbose(`init: inferTeamSizeFromGit fell back to "solo" — ${err instanceof Error ? err.message : String(err)}`);
+    return "solo";
+  }
+}
+
 export interface RunInitOptions {
   rootDir: string;
   platform: Platform;
@@ -435,6 +473,36 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     .replace(/[:.]/g, "-")
     .replace(/-Z$/, "Z")}`;
 
+  // F16.1-C1 (Decision 27 / Bucket 2.2): write a checkpoint after each init
+  // mutation phase under `.init-workspace/checkpoint.json` — the same path
+  // `initCommand --resume` reads. Wave 1 = adapter generation/write,
+  // wave 2 = finalize (manifest + seeds + mcp). This makes the resumability
+  // substrate functional: a `--resume` after a completed init detects the
+  // `passed` checkpoint and reports it; a crashed init leaves an in-progress
+  // marker. Best-effort — a checkpoint-write failure routes to a warning and
+  // never aborts a fresh install (matches the snapshot Silent Failure Contract).
+  const initWorkspace = join(rootDir, ".init-workspace");
+  const recordPhase = async (
+    wave: number,
+    status: "in-progress" | "passed" | "failed",
+  ): Promise<void> => {
+    const meta: CheckpointMeta = {
+      baselineSha: HATCH3R_VERSION,
+      lastPassedGateN: status === "passed" ? wave : Math.max(0, wave - 1),
+      registrySha: "",
+      timestamp: new Date().toISOString(),
+    };
+    try {
+      await writeCheckpoint(initWorkspace, "init", wave, status, meta);
+    } catch (err) {
+      // Surface under non-quiet so the operator knows resume state was not
+      // captured, but never block the install.
+      if (!isQuiet()) {
+        warn(`init: checkpoint write (wave ${wave}, ${status}) skipped — ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  };
+
   // Wave 6: relocate any pre-1.9 `.agents/` state (hatch.json, learnings/,
   // handoffs/, mcp/mcp.json) to `.hatch3r/` before reading the manifest so a
   // re-init over a legacy install discovers the manifest at the new path.
@@ -512,6 +580,10 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     step(3, totalSteps, `Generating ${tools.map((t) => TOOL_DISPLAY_NAMES[t] ?? t).join(", ")} output...`),
   );
   s3.start();
+
+  // F16.1-C1: generation phase begins — an in-progress checkpoint so a
+  // `--resume` after a crash mid-generation sees the run did not complete.
+  await recordPhase(1, "in-progress");
 
   // Decision 27 (Bucket 2.2) wiring coordination: the pre-mutation
   // snapshot for init is captured below as part of F1.1-C1's two-pass
@@ -624,6 +696,9 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     ? `Adapter output generated (${adapterFailures.length} failed)`
     : "Adapter output generated"));
 
+  // F16.1-C1: adapter generation/write phase done.
+  await recordPhase(1, "passed");
+
   for (const tool of tools) {
     const warnings = getUnsupportedFeatureWarnings(tool, manifest);
     for (const w of warnings) {
@@ -720,6 +795,11 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   }
 
   s4.succeed(step(4, totalSteps, "Done"));
+
+  // F16.1-C1: finalize phase (manifest + learnings/handoffs seeds + mcp +
+  // env) committed. Record wave 2 passed — the resumable "done" marker for
+  // init. A subsequent `init --resume` reads this and reports completion.
+  await recordPhase(2, "passed");
 
   const enabledFeatures = Object.entries(features)
     .filter(([, v]) => v)
@@ -1118,15 +1198,14 @@ export async function initCommand(
   if (!skipBanner) {
     printBanner();
   }
-  // D11-H-7 (Decision 27 / Bucket 2.2): `--resume` reads the recorded
-  // checkpoint at `.init-workspace/checkpoint.json` via `readCheckpoint()`
-  // from `src/pipeline/checkpoint.ts`. Init runs as a single-pass
-  // orchestrator with no mid-run pause point, so resume surfaces the
-  // recorded phase/wave to the operator and proceeds as a fresh init that
-  // captures a new pre-mutation snapshot (rollback-revertable). When init
-  // learns multi-wave decomposition, this branch becomes the dispatch path
-  // that skips earlier phases the checkpoint records as completed. Absence
-  // of a checkpoint is reported via warn() and falls through to fresh init.
+  // F16.1-C1 / D11-H-7 (Decision 27 / Bucket 2.2): `--resume` reads the
+  // checkpoint at `.init-workspace/checkpoint.json` (now written by
+  // `runInitInner` after each phase). A `passed` checkpoint at the current
+  // hatch3r version means the prior init completed — report it and exit
+  // early (re-running would re-prompt and re-overwrite managed files, which
+  // is wasteful and surprising on an explicit `--resume`). A baseline
+  // mismatch, a `failed`/`in-progress` checkpoint, or no checkpoint at all
+  // falls through to a fresh init (which captures a new rollback snapshot).
   if (opts.resume) {
     const cwd = process.cwd();
     const initWorkspace = join(cwd, ".init-workspace");
@@ -1137,21 +1216,29 @@ export async function initCommand(
         `${checkpointPath(initWorkspace)}. Continuing as a fresh init. ` +
         `Use \`hatch3r rollback --session=<id>\` after the run if you need to revert.`,
       );
+    } else if (checkpoint.meta.baselineSha === HATCH3R_VERSION && checkpoint.status === "passed") {
+      info(
+        `Resume: the last init at this hatch3r version (v${HATCH3R_VERSION}) completed ` +
+        `(phase=${checkpoint.phase} wave=${checkpoint.wave}). Nothing to resume — re-run ` +
+        `\`hatch3r init\` without --resume to re-initialize from scratch.`,
+      );
+      return;
+    } else if (checkpoint.meta.baselineSha !== HATCH3R_VERSION) {
+      warn(
+        `Resume: checkpoint baseline (v${checkpoint.meta.baselineSha}) differs from the ` +
+        `installed hatch3r (v${HATCH3R_VERSION}). Running a fresh init.`,
+      );
     } else {
       info(chalk.dim(
-        `Resuming from checkpoint: phase=${checkpoint.phase} wave=${checkpoint.wave} ` +
-        `status=${checkpoint.status} (baseline=${checkpoint.meta.baselineSha.slice(0, 7)})`,
+        `Resume: prior init left a ${checkpoint.status} checkpoint at phase=${checkpoint.phase} ` +
+        `wave=${checkpoint.wave}. Re-running from the start (init captures a fresh rollback snapshot).`,
       ));
       if (checkpoint.status === "failed") {
         warn(
           `Checkpoint records a failed status at phase=${checkpoint.phase} wave=${checkpoint.wave}. ` +
-          `Init is single-pass — re-running may not reproduce the failure but the prior failure cause is not auto-detected. ` +
-          `Triage the recorded failure before treating success as conclusive.`,
+          `Triage the recorded failure before treating a fresh-init success as conclusive.`,
         );
       }
-      // Init has no mid-run pause point yet — we surface the checkpoint
-      // and continue with a fresh single-pass run that captures a new
-      // snapshot. Multi-wave decomposition lands in a later release.
     }
   }
 
@@ -1328,21 +1415,42 @@ export async function initCommand(
   const filterIndex = await buildContentIndex(CONTENT_ROOT);
   const projectLanguages = languagesForSelection(repoInfo);
   const detection = await detectProjectType(repoInfo, rootDir);
-  const greenfieldExcl = countProjectTypeExclusions("greenfield", filterIndex.items);
-  const brownfieldExcl = countProjectTypeExclusions("brownfield", filterIndex.items);
-  const detectionHint = detection.signals.length > 0
-    ? ` (detected: ${detection.signals.slice(0, 3).join(", ")})`
-    : "";
-  const soloExcl = countTeamSizeExclusions("solo", filterIndex.items);
   const totalItems = filterIndex.items.length;
-  const defaultBranchDefault = parseGitDefaultBranch();
   const wslTheme = isWSL()
     ? { icon: { checked: chalk.green("[x]"), unchecked: "[ ]", cursor: ">" } }
     : undefined;
   const toolDefaults = repoInfo.existingTools.length > 0 ? repoInfo.existingTools : DEFAULT_TOOLS;
-  const tier2Suggested = Array.from(new Set([
-    ...evaluateTier2Triggers(repoInfo),
-    ...applyPlatformTriggers(detectedPlatform, []),
+
+  // F10.3-2 (D10, P1): smart defaults for the four prompts dropped to reach
+  // the ≤5-prompt ceiling. Each value is computed from detection / git so the
+  // resolved selection is identical to what the dropped prompt would have
+  // defaulted to; every value is overridable post-init via `hatch3r config`.
+  const inferredDefaultBranch = parseGitDefaultBranch();
+  const inferredProjectType: "greenfield" | "brownfield" = validateFlag(
+    opts.projectType,
+    ["greenfield", "brownfield"],
+    detection.type,
+    "project-type",
+  );
+  // step (d): infer team size from distinct git commit authors.
+  const inferredTeamSize: "solo" | "team" = validateFlag(
+    opts.teamSize,
+    ["solo", "team"],
+    inferTeamSizeFromGit(rootDir),
+    "team-size",
+  );
+  // maturity is a 2.0.0 addition (post-finding); default + `--maturity` flag.
+  const inferredMaturity: MaturityTier = validateFlag(
+    opts.maturity,
+    [...MATURITY_TIERS],
+    DEFAULT_MATURITY_TIER,
+    "maturity",
+  );
+  // CLI tools default to the post-pivot tier-1 + triggered tier-2 set (matches
+  // `--yes`); customizable later via `hatch3r cli-tools`.
+  const inferredCliTools: CliToolId[] = Array.from(new Set([
+    ...DEFAULT_CLI_TOOLS,
+    ...applyPlatformTriggers(detectedPlatform, evaluateTier2Triggers(repoInfo)),
   ]));
 
   // Step-machine drives the interactive flow with back-navigation.
@@ -1350,28 +1458,29 @@ export async function initCommand(
   // pre-Slice-E inline prompts used so existing test queues match
   // unchanged. The orchestrator awaits `runStepMachine` and consumes
   // the resolved state below.
+  // F10.3-2 (D10, P1): the interactive first-run flow is capped at ≤5 prompts
+  // (Decision 25 / Vercel-Heroku OSS-onboarding benchmark). The five retained
+  // prompts are: platform, identity, preset, tools, and a single collapsed MCP
+  // multi-select (recommendation step c — `(none)` = decline). The four
+  // dropped prompts use smart defaults, each overridable post-init:
+  //   - defaultBranch → `parseGitDefaultBranch()` (git-detected)
+  //   - projectType   → `detectProjectType()` (auto-detected)
+  //   - teamSize      → `inferTeamSizeFromGit()` (recommendation step d)
+  //   - maturity      → `--maturity` flag / DEFAULT_MATURITY_TIER (2.0.0 add)
+  //   - cliTools      → tier-1 + triggered tier-2 (matches `--yes`; the pivot
+  //                     default — customize later via `hatch3r cli-tools`)
+  // `customItems` stays as a conditional power-user prompt (preset=custom only),
+  // so it does not count against the common-path ceiling.
   interface SingleRepoState {
     platform: Platform;
     identity: { owner: string; repo: string; namespace: string; project: string };
-    defaultBranch: string;
-    projectType: "greenfield" | "brownfield";
-    teamSize: "solo" | "team";
-    // F1.1-H1 / F14.3-H1: new maturity slot. Populated by the maturity step
-    // (skipped under `--maturity`); orchestrator reads it after the
-    // step-machine returns.
-    maturity: MaturityTier;
     preset: PresetId;
     customItems: string[] | undefined;
     tools: Tool[];
-    // F10.3-2 (PARTIAL): the ≤5-prompt ceiling recommendation collapses
-    // `wantMcp` + `mcpServers` into a single multi-select. Deferred to a
-    // follow-up PR because the existing init-test corpus queues `wantMcp`
-    // answers in 11+ places — adjusting them is a higher-risk refactor
-    // tracked separately. The wantMcp step stays for now so vitest queue
-    // offsets remain valid.
-    wantMcp: boolean;
+    // F10.3-2 step (c): collapsed MCP picker. Empty selection = no MCP
+    // (`features.mcp` is derived from `mcpServers.length`). Replaces the prior
+    // two-prompt `wantMcp` confirm + conditional `mcpServers` picker.
     mcpServers: string[];
-    cliTools: CliToolId[];
   }
 
   const steps: Array<Step<SingleRepoState, keyof SingleRepoState>> = [
@@ -1434,94 +1543,11 @@ export async function initCommand(
       },
     },
     {
-      id: "defaultBranch",
-      async run(_state, previous): Promise<StepResult<string>> {
-        const answers = await inquirer.prompt<{ defaultBranch: string | typeof BACK }>([
-          {
-            type: "input",
-            name: "defaultBranch",
-            message: "Default branch (for checkout, PR base, release):",
-            default: previous ?? defaultBranchDefault,
-            // C8-D1-M9: reject values that fail `git check-ref-format`. Empty
-            // input is allowed through (falls back to detected default below).
-            validate: (v: string) => {
-              const trimmed = v.trim();
-              if (trimmed === "") return true;
-              return (
-                isValidGitBranchName(trimmed) ||
-                `Invalid git branch name: "${trimmed}". See git-check-ref-format(1).`
-              );
-            },
-          },
-        ]);
-        if (isBack(answers.defaultBranch)) return BACK;
-        return (answers.defaultBranch as string).trim() || defaultBranchDefault;
-      },
-    },
-    {
-      id: "projectType",
-      async run(_state, previous): Promise<StepResult<"greenfield" | "brownfield">> {
-        const answer = await inquirer.prompt<{ projectType: "greenfield" | "brownfield" | typeof BACK }>([
-          {
-            type: "select",
-            name: "projectType",
-            message: `Is this a new (greenfield) or existing (brownfield) project?${detectionHint}`,
-            choices: [
-              { name: `Greenfield — new project from scratch${greenfieldExcl > 0 ? ` (filters out ${greenfieldExcl} brownfield-only item${greenfieldExcl === 1 ? "" : "s"})` : ""}`, value: "greenfield" as const },
-              { name: `Brownfield — existing codebase${brownfieldExcl > 0 ? ` (filters out ${brownfieldExcl} greenfield-only item${brownfieldExcl === 1 ? "" : "s"})` : ""}`, value: "brownfield" as const },
-            ],
-            default: previous ?? detection.type,
-          },
-        ]);
-        return isBack(answer.projectType) ? BACK : (answer.projectType as "greenfield" | "brownfield");
-      },
-    },
-    {
-      id: "teamSize",
-      async run(_state, previous): Promise<StepResult<"solo" | "team">> {
-        const answer = await inquirer.prompt<{ teamSize: "solo" | "team" | typeof BACK }>([
-          {
-            type: "select",
-            name: "teamSize",
-            message: "Solo developer or team collaboration?",
-            choices: [
-              { name: `Solo — just me${soloExcl > 0 ? ` (filters out ${soloExcl} team-only item${soloExcl === 1 ? "" : "s"})` : ""}`, value: "solo" as const },
-              { name: "Team — multiple contributors", value: "team" as const },
-            ],
-            default: previous ?? "solo",
-          },
-        ]);
-        return isBack(answer.teamSize) ? BACK : (answer.teamSize as "solo" | "team");
-      },
-    },
-    {
-      // F1.1-H1 / F14.3-H1 (Decision 4 / #16): maturity tier gates content
-      // admission. Skipped when `--maturity=<tier>` is passed on the CLI.
-      id: "maturity",
-      skip: () => opts.maturity !== undefined,
-      async run(_state, previous): Promise<StepResult<MaturityTier>> {
-        const answer = await inquirer.prompt<{ maturity: MaturityTier | typeof BACK }>([
-          {
-            type: "select",
-            name: "maturity",
-            message: "Project maturity tier (gates content admission):",
-            choices: [
-              { name: "Solo — individual developer / hobby project (default)", value: "solo" as const },
-              { name: "Team — small team with shared repo", value: "team" as const },
-              { name: "Scaleup — multi-team org with formal review", value: "scaleup" as const },
-              { name: "Enterprise — regulated environment, full audit posture", value: "enterprise" as const },
-            ],
-            default: previous ?? DEFAULT_MATURITY_TIER,
-          },
-        ]);
-        return isBack(answer.maturity) ? BACK : (answer.maturity as MaturityTier);
-      },
-    },
-    {
       id: "preset",
-      async run(state, previous): Promise<StepResult<PresetId>> {
-        const projectType2 = state.projectType!;
-        const teamSize2 = state.teamSize!;
+      async run(_state, previous): Promise<StepResult<PresetId>> {
+        // F10.3-2: projectType + teamSize are no longer prompted — the item-
+        // count estimate uses the auto-detected projectType and the
+        // git-inferred teamSize resolved above the step machine.
         const answer = await inquirer.prompt<{ preset: PresetId | typeof BACK }>([
           {
             type: "select",
@@ -1529,7 +1555,7 @@ export async function initCommand(
             message: "Select content profile:",
             choices: PRESETS.map((p) => {
               const excluded = countPresetExclusions(p, filterIndex);
-              const estimated = p.id !== "custom" ? estimatePresetItemCount(p, projectType2, teamSize2, filterIndex, projectLanguages) : 0;
+              const estimated = p.id !== "custom" ? estimatePresetItemCount(p, inferredProjectType, inferredTeamSize, filterIndex, projectLanguages) : 0;
               const countHint = estimated > 0 ? ` (~${estimated} items)` : "";
               const suffix = excluded > 0 ? ` (excludes ${excluded} of ${totalItems})` : "";
               // F10.6-1 (D10): name WHAT each preset drops, not just a count, so
@@ -1591,37 +1617,33 @@ export async function initCommand(
       },
     },
     {
-      // F10.3-2 (PARTIAL): per the ≤5-prompt ceiling, this `wantMcp`
-      // confirm + the conditional `mcpServers` picker below should
-      // collapse into a single multi-select with `(none)`. Deferred to a
-      // follow-up PR — test fixtures queue wantMcp answers in 11+ places
-      // so the collapse is a higher-risk refactor tracked separately.
-      id: "wantMcp",
-      async run(): Promise<StepResult<boolean>> {
-        const { wantMcp } = await inquirer.prompt<{ wantMcp: boolean | typeof BACK }>([
+      // F10.3-2 step (c): single collapsed MCP multi-select. The prior
+      // `wantMcp` confirm + conditional `mcpServers` picker (2 prompts) are
+      // folded into one checkbox where leaving everything unchecked is the
+      // `(none)` no-op. `features.mcp` is derived from the result length
+      // after the step machine, so an empty pick disables MCP cleanly.
+      id: "mcpServers",
+      async run(state, previous): Promise<StepResult<string[]>> {
+        const platformMcp = PLATFORM_MCP_SERVER[state.platform!];
+        const { mcp } = await inquirer.prompt<{ mcp: string[] | typeof BACK }>([
           {
-            type: "confirm",
-            name: "wantMcp",
-            message: "Configure MCP servers (tool-server integration)?",
-            default: false,
+            type: "checkbox",
+            name: "mcp",
+            message: "Select MCP servers to enable (leave empty for none — you can add later with `hatch3r mcp setup`):",
+            choices: MCP_CHOICES,
+            default: previous ?? [],
             ...(wslTheme && { theme: wslTheme }),
           },
         ]);
-        if (isBack(wantMcp)) return BACK;
-        return wantMcp as boolean;
-      },
-    },
-    {
-      id: "mcpServers",
-      skip: (s) => !s.wantMcp,
-      async run(state): Promise<StepResult<string[]>> {
-        return await pickMcpServers({ platform: state.platform!, wslTheme });
-      },
-    },
-    {
-      id: "cliTools",
-      async run(): Promise<StepResult<CliToolId[]>> {
-        return await pickCliTools({ tier2Suggested, wslTheme });
+        if (isBack(mcp)) return BACK;
+        const servers = (mcp ?? []) as string[];
+        // Mirror pickMcpServers: if the user selected ANY server, ensure the
+        // platform server is present (board/platform integration depends on
+        // it). An empty selection stays empty — that is the `(none)` path.
+        if (servers.length > 0 && !servers.includes(platformMcp)) {
+          servers.unshift(platformMcp);
+        }
+        return servers;
       },
     },
   ];
@@ -1630,21 +1652,20 @@ export async function initCommand(
 
   const platform = stepState.platform;
   const { owner, repo, namespace, project } = stepState.identity;
-  const defaultBranch = stepState.defaultBranch;
-  const projectType = stepState.projectType;
-  const teamSize = stepState.teamSize;
-  // F1.1-H1 / F14.3-H1: pick `--maturity` over the step-machine prompt
-  // result, then fall back to canonical default. The step-machine slot is
-  // only populated when the user runs interactively without `--maturity`.
-  const maturity: MaturityTier = opts.maturity !== undefined
-    ? validateFlag(opts.maturity, [...MATURITY_TIERS], DEFAULT_MATURITY_TIER, "maturity")
-    : (stepState.maturity ?? DEFAULT_MATURITY_TIER);
+  // F10.3-2: the four dropped prompts resolve to the smart defaults computed
+  // above the step machine (git-detected branch, auto-detected projectType,
+  // git-inferred teamSize, flag/default maturity).
+  const defaultBranch = inferredDefaultBranch;
+  const projectType = inferredProjectType;
+  const teamSize = inferredTeamSize;
+  const maturity: MaturityTier = inferredMaturity;
   const selectedPreset = getPreset(stepState.preset);
   const customSelections = stepState.customItems;
   const tools = stepState.tools;
-  // F10.3-2 (PARTIAL): `wantMcp` retained for test-compat; the finding's
-  // collapse recommendation is tracked in a follow-up PR.
-  const features: Features = { ...DEFAULT_FEATURES, mcp: stepState.wantMcp };
+  // F10.3-2 step (c): `features.mcp` is now derived from the collapsed MCP
+  // multi-select — a non-empty pick enables MCP, an empty pick (the `(none)`
+  // path) leaves it off. Replaces the prior `wantMcp` confirm.
+  const features: Features = { ...DEFAULT_FEATURES, mcp: (stepState.mcpServers ?? []).length > 0 };
 
   // C9-H32 (D10-SA10.5-F2): Surface MCP secret-loading divergence at
   // tool-selection time — before commit — so a user picking Claude alongside
@@ -1662,11 +1683,14 @@ export async function initCommand(
   // selected; honor explicit --worktree/--no-worktree override.
   const worktreeEnabled = opts.worktree ?? tools.some(t => WORKTREE_CAPABLE_TOOLS.has(t));
 
-  // MCP server list is empty unless the user opted in via the gate.
+  // MCP server list is the collapsed multi-select result (empty = no MCP).
   const mcpServers: string[] = stepState.mcpServers ?? [];
 
-  // CLI tools selection + detection + installer follow-up.
-  const selectedCliTools = stepState.cliTools;
+  // F10.3-2: CLI tools are no longer prompted in the ≤5-prompt flow — they
+  // default to the post-pivot tier-1 + triggered tier-2 set (same as `--yes`),
+  // customizable later via `hatch3r cli-tools`. Detection + installer follow-up
+  // still runs so a user with missing tools on PATH gets the same guidance.
+  const selectedCliTools = inferredCliTools;
   if (selectedCliTools.length > 0) {
     const detectSpinner = createSpinner(`Detecting ${selectedCliTools.length} CLI tool(s)...`);
     detectSpinner.start();
@@ -1895,99 +1919,43 @@ async function runWorkspaceInit(
     const wsFilterIndex = await buildContentIndex(CONTENT_ROOT);
     const projectLanguages = languagesForSelection(repoInfo);
     const wsDetection = await detectProjectType(repoInfo, rootDir);
-    const wsGreenfieldExcl = countProjectTypeExclusions("greenfield", wsFilterIndex.items);
-    const wsBrownfieldExcl = countProjectTypeExclusions("brownfield", wsFilterIndex.items);
-    const wsDetectionHint = wsDetection.signals.length > 0
-      ? ` (detected: ${wsDetection.signals.slice(0, 3).join(", ")})`
-      : "";
-    const wsSoloExcl = countTeamSizeExclusions("solo", wsFilterIndex.items);
     const wsTotalItems = wsFilterIndex.items.length;
     const wsToolDefaults = repoInfo.existingTools.length > 0 ? repoInfo.existingTools : DEFAULT_TOOLS;
-    const wsTier2Suggested = Array.from(new Set([
-      ...evaluateTier2Triggers(repoInfo),
-      ...applyPlatformTriggers(platform, []),
+
+    // F10.3-2 (D10, P1): workspace flow mirrors the single-repo ≤5-prompt
+    // collapse. projectType / teamSize / maturity / cliTools are no longer
+    // prompted — they resolve to detection / git-inference / flag defaults.
+    const wsInferredProjectType: "greenfield" | "brownfield" = validateFlag(
+      opts.projectType,
+      ["greenfield", "brownfield"],
+      wsDetection.type,
+      "project-type",
+    );
+    const wsInferredTeamSize: "solo" | "team" = validateFlag(
+      opts.teamSize,
+      ["solo", "team"],
+      inferTeamSizeFromGit(rootDir),
+      "team-size",
+    );
+    wsMaturity = validateFlag(opts.maturity, [...MATURITY_TIERS], DEFAULT_MATURITY_TIER, "maturity");
+    const wsInferredCliTools: CliToolId[] = Array.from(new Set([
+      ...DEFAULT_CLI_TOOLS,
+      ...applyPlatformTriggers(platform, evaluateTier2Triggers(repoInfo)),
     ]));
 
+    // The collapsed workspace prompt set: preset, customItems (conditional),
+    // tools, mcp (single multi-select with `(none)`).
     interface WorkspaceState {
-      projectType: "greenfield" | "brownfield";
-      teamSize: "solo" | "team";
-      // F1.1-H1 / F14.3-H1: workspace flow maturity slot.
-      maturity: MaturityTier;
       preset: PresetId;
       customItems: string[] | undefined;
       tools: Tool[];
-      // F10.3-2 (PARTIAL): collapse deferred; wantMcp retained for
-      // test-compat.
-      wantMcp: boolean;
       mcpServers: string[];
-      cliTools: CliToolId[];
     }
 
     const wsSteps: Array<Step<WorkspaceState>> = [
       {
-        id: "projectType",
-        async run(_state, previous): Promise<StepResult<"greenfield" | "brownfield">> {
-          const answer = await inquirer.prompt<{ projectType: "greenfield" | "brownfield" | typeof BACK }>([
-            {
-              type: "select",
-              name: "projectType",
-              message: `Is this a new (greenfield) or existing (brownfield) project?${wsDetectionHint}`,
-              choices: [
-                { name: `Greenfield — new project from scratch${wsGreenfieldExcl > 0 ? ` (filters out ${wsGreenfieldExcl} brownfield-only item${wsGreenfieldExcl === 1 ? "" : "s"})` : ""}`, value: "greenfield" as const },
-                { name: `Brownfield — existing codebase${wsBrownfieldExcl > 0 ? ` (filters out ${wsBrownfieldExcl} greenfield-only item${wsBrownfieldExcl === 1 ? "" : "s"})` : ""}`, value: "brownfield" as const },
-              ],
-              default: previous ?? wsDetection.type,
-            },
-          ]);
-          return isBack(answer.projectType) ? BACK : (answer.projectType as "greenfield" | "brownfield");
-        },
-      },
-      {
-        id: "teamSize",
-        async run(_state, previous): Promise<StepResult<"solo" | "team">> {
-          const answer = await inquirer.prompt<{ teamSize: "solo" | "team" | typeof BACK }>([
-            {
-              type: "select",
-              name: "teamSize",
-              message: "Solo developer or team collaboration?",
-              choices: [
-                { name: `Solo — just me${wsSoloExcl > 0 ? ` (filters out ${wsSoloExcl} team-only item${wsSoloExcl === 1 ? "" : "s"})` : ""}`, value: "solo" as const },
-                { name: "Team — multiple contributors", value: "team" as const },
-              ],
-              default: previous ?? "solo",
-            },
-          ]);
-          return isBack(answer.teamSize) ? BACK : (answer.teamSize as "solo" | "team");
-        },
-      },
-      {
-        // F1.1-H1 / F14.3-H1: workspace flow maturity prompt; mirrors the
-        // single-repo flow. Skipped when `--maturity=<tier>` is supplied.
-        id: "maturity",
-        skip: () => opts.maturity !== undefined,
-        async run(_state, previous): Promise<StepResult<MaturityTier>> {
-          const answer = await inquirer.prompt<{ maturity: MaturityTier | typeof BACK }>([
-            {
-              type: "select",
-              name: "maturity",
-              message: "Workspace maturity tier (gates content admission):",
-              choices: [
-                { name: "Solo — individual developer / hobby project (default)", value: "solo" as const },
-                { name: "Team — small team with shared repo", value: "team" as const },
-                { name: "Scaleup — multi-team org with formal review", value: "scaleup" as const },
-                { name: "Enterprise — regulated environment, full audit posture", value: "enterprise" as const },
-              ],
-              default: previous ?? DEFAULT_MATURITY_TIER,
-            },
-          ]);
-          return isBack(answer.maturity) ? BACK : (answer.maturity as MaturityTier);
-        },
-      },
-      {
         id: "preset",
-        async run(state, previous): Promise<StepResult<PresetId>> {
-          const pt = state.projectType!;
-          const ts = state.teamSize!;
+        async run(_state, previous): Promise<StepResult<PresetId>> {
           const answer = await inquirer.prompt<{ preset: PresetId | typeof BACK }>([
             {
               type: "select",
@@ -1995,7 +1963,7 @@ async function runWorkspaceInit(
               message: "Select content profile:",
               choices: PRESETS.map((p) => {
                 const excluded = countPresetExclusions(p, wsFilterIndex);
-                const wsEstimated = p.id !== "custom" ? estimatePresetItemCount(p, pt, ts, wsFilterIndex, projectLanguages) : 0;
+                const wsEstimated = p.id !== "custom" ? estimatePresetItemCount(p, wsInferredProjectType, wsInferredTeamSize, wsFilterIndex, projectLanguages) : 0;
                 const wsCountHint = wsEstimated > 0 ? ` (~${wsEstimated} items)` : "";
                 const suffix = excluded > 0 ? ` (excludes ${excluded} of ${wsTotalItems})` : "";
                 // F10.6-1 (D10): name the omitted capability clusters (not just a
@@ -2055,51 +2023,36 @@ async function runWorkspaceInit(
         },
       },
       {
-        // F10.3-2 (PARTIAL): collapse deferred — wantMcp + mcpServers
-        // stays as two prompts for now; test fixtures rely on the two-
-        // prompt ordering.
-        id: "wantMcp",
-        async run(): Promise<StepResult<boolean>> {
-          const { wantMcp } = await inquirer.prompt<{ wantMcp: boolean | typeof BACK }>([
+        // F10.3-2 step (c): single collapsed MCP multi-select (workspace
+        // parity with the single-repo flow). Empty = no MCP.
+        id: "mcpServers",
+        async run(_state, previous): Promise<StepResult<string[]>> {
+          const platformMcp = PLATFORM_MCP_SERVER[platform];
+          const { mcp } = await inquirer.prompt<{ mcp: string[] | typeof BACK }>([
             {
-              type: "confirm",
-              name: "wantMcp",
-              message: "Configure MCP servers (tool-server integration)?",
-              default: false,
+              type: "checkbox",
+              name: "mcp",
+              message: "Select MCP servers to enable (leave empty for none — you can add later with `hatch3r mcp setup`):",
+              choices: MCP_CHOICES,
+              default: previous ?? [],
               ...(wslTheme && { theme: wslTheme }),
             },
           ]);
-          if (isBack(wantMcp)) return BACK;
-          return wantMcp as boolean;
-        },
-      },
-      {
-        id: "mcpServers",
-        skip: (s) => !s.wantMcp,
-        async run(): Promise<StepResult<string[]>> {
-          return await pickMcpServers({ platform, wslTheme });
-        },
-      },
-      {
-        id: "cliTools",
-        async run(): Promise<StepResult<CliToolId[]>> {
-          return await pickCliTools({
-            tier2Suggested: wsTier2Suggested,
-            wslTheme,
-          });
+          if (isBack(mcp)) return BACK;
+          const servers = (mcp ?? []) as string[];
+          if (servers.length > 0 && !servers.includes(platformMcp)) {
+            servers.unshift(platformMcp);
+          }
+          return servers;
         },
       },
     ];
 
     const wsState = await runStepMachine<WorkspaceState>(wsSteps);
 
-    const projectType = wsState.projectType;
-    const teamSize = wsState.teamSize;
-    // F1.1-H1 / F14.3-H1: pick `--maturity` over the step-machine prompt
-    // result; falls back to default when neither is set.
-    wsMaturity = opts.maturity !== undefined
-      ? validateFlag(opts.maturity, [...MATURITY_TIERS], DEFAULT_MATURITY_TIER, "maturity")
-      : (wsState.maturity ?? DEFAULT_MATURITY_TIER);
+    const projectType = wsInferredProjectType;
+    const teamSize = wsInferredTeamSize;
+    // wsMaturity resolved above from `--maturity` / git / default.
     const selectedPreset = getPreset(wsState.preset);
     const customSelections = wsState.customItems;
     tools = wsState.tools;
@@ -2116,12 +2069,13 @@ async function runWorkspaceInit(
     }
 
     worktreeEnabled = opts.worktree ?? tools.some(t => WORKTREE_CAPABLE_TOOLS.has(t));
-    // F10.3-2 (PARTIAL): collapse deferred — `features.mcp` continues to
-    // mirror the `wantMcp` confirm answer rather than `mcpServers.length`.
-    features = { ...DEFAULT_FEATURES, mcp: wsState.wantMcp };
+    // F10.3-2 step (c): `features.mcp` is derived from the collapsed MCP
+    // multi-select result (empty = off).
     mcpServers = wsState.mcpServers ?? [];
+    features = { ...DEFAULT_FEATURES, mcp: mcpServers.length > 0 };
 
-    const wsSelectedCliTools = wsState.cliTools;
+    // F10.3-2: CLI tools default to tier-1 + triggered tier-2 (no prompt).
+    const wsSelectedCliTools = wsInferredCliTools;
     if (wsSelectedCliTools.length > 0) {
       const wsDetectSpinner = createSpinner(`Detecting ${wsSelectedCliTools.length} CLI tool(s)...`);
       wsDetectSpinner.start();

@@ -241,15 +241,14 @@ jobs:
       }
     }
 
-    if (ctx.features.prompts) {
-      // C9-H39 (D11-SA11.1-01): tracked read wrapper for prompt provenance.
-      const prompts = await this.readTrackedCanonicalFiles(ctx.canonicalRoot, "prompts", ctx.userRepoRoot);
-      for (const prompt of prompts) {
-        const body = prompt.rawContent;
-        results.push(output(`.github/prompts/${toPrefixedId(prompt.id)}.prompt.md`, wrapInManagedBlock(body), body));
-      }
-    }
-
+    // D9-H-5 (D9, P4): no canonical `prompts/` read branch. hatch3r ships no
+    // `prompts/hatch3r-*.prompt.md` content, so the former
+    // `if (ctx.features.prompts) { readTrackedCanonicalFiles(..., "prompts") }`
+    // block read a directory that does not exist at the canonical root (ENOENT
+    // → empty) and emitted nothing in production — dead code that also made
+    // `ADAPTER_CAPABILITIES.copilot.prompts` mis-advertise the capability.
+    // Commands still surface in Copilot's native prompts-file picker via the
+    // `.github/prompts/` path below, gated on `features.commands`.
     results.push(
       ...await this.processCommandsRaw(ctx, (id) => `.github/prompts/${toPrefixedId(id)}.prompt.md`),
     );
@@ -263,8 +262,19 @@ jobs:
       }
     }
 
+    // D9-H-6 (D9, P1): emit the Copilot `allowed-tools` pre-approval array on
+    // each skill that declares `allowed_tools` in its canonical frontmatter,
+    // so the GitHub Copilot Skills runtime skips per-invocation tool
+    // confirmation for the shell binaries the skill wraps (e.g. `rg`, `jq`).
+    // Verified field name per
+    // https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/create-skills
+    // (accessed 2026-05-26).
     results.push(
-      ...await this.processSkillsWithFmCliFiltered(ctx, (id) => `.github/skills/${toPrefixedId(id)}/SKILL.md`),
+      ...await this.processSkillsWithFmCliFiltered(
+        ctx,
+        (id) => `.github/skills/${toPrefixedId(id)}/SKILL.md`,
+        { emitAllowedTools: true },
+      ),
     );
 
     // Companion/reference content (see `BaseAdapter.processCompanionSubdir`
@@ -272,9 +282,9 @@ jobs:
     // so command companions land beside the per-command prompt files;
     // agents and checks follow the per-adapter agent/check directories.
     // Gating mirrors the primary feature; `checks/` rides either agents
-    // or commands. Copilot's `prompts` feature flag covers both the
-    // canonical `prompts/` dir and the commands → `.github/prompts/`
-    // emission, so command companions follow `features.commands`.
+    // or commands. Command emission to `.github/prompts/` is gated on
+    // `features.commands` (D9-H-5 removed the dead canonical `prompts/`
+    // read branch), so command companions follow `features.commands`.
     const companionMappings: Array<[string, boolean, (f: string) => string]> = [
       ["agents/modes", ctx.features.agents, (f) => `.github/agents/modes/${f}`],
       ["agents/shared", ctx.features.agents, (f) => `.github/agents/shared/${f}`],

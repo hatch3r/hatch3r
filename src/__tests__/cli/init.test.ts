@@ -585,6 +585,158 @@ describe("init command", () => {
   });
 });
 
+// F16.1-C1 (Decision 27 / Bucket 2.2): init writes a checkpoint after each
+// mutation phase under `.init-workspace/checkpoint.json`, and `--resume`
+// short-circuits when a `passed` checkpoint at the current hatch3r version
+// already exists.
+describe("init resumability checkpoints (F16.1-C1)", () => {
+  let initCommand: (opts?: { yes?: boolean; resume?: boolean; tools?: string }) => Promise<void>;
+  let tempDir: string;
+  let cwdSpy: MockInstance;
+  let exitSpy: MockInstance;
+  let consoleSpy: MockInstance;
+  let consoleErrorSpy: MockInstance;
+
+  beforeAll(async () => {
+    ({ initCommand } = await import("../../cli/commands/init.js"));
+  });
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-init-cp-"));
+    cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+    exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("process.exit called");
+    }) as never);
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(async () => {
+    cwdSpy.mockRestore();
+    exitSpy.mockRestore();
+    consoleSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("writes a `passed` checkpoint at .init-workspace/checkpoint.json after a successful init", async () => {
+    await initCommand({ yes: true, tools: "claude" });
+
+    const cpRaw = await readFile(join(tempDir, ".init-workspace", "checkpoint.json"), "utf-8");
+    const cp = JSON.parse(cpRaw) as { phase: string; status: string; wave: number; meta: { baselineSha: string } };
+    expect(cp.phase).toBe("init");
+    expect(cp.status).toBe("passed");
+    expect(cp.wave).toBe(2);
+    expect(cp.meta.baselineSha).toBe(HATCH3R_VERSION);
+  });
+
+  it("--resume short-circuits when a passed checkpoint at the current version exists", async () => {
+    // First run writes the checkpoint.
+    await initCommand({ yes: true, tools: "claude" });
+
+    consoleSpy.mockClear();
+    consoleErrorSpy.mockClear();
+    // Second run with --resume should report completion and not re-run init.
+    await initCommand({ yes: true, resume: true, tools: "claude" });
+
+    const output = [
+      ...consoleSpy.mock.calls.map((c) => String(c[0])),
+      ...consoleErrorSpy.mock.calls.map((c) => String(c[0])),
+    ].join("\n");
+    expect(output).toMatch(/Nothing to resume|completed/i);
+    // The resume short-circuit returns before the "Hatch complete" box.
+    expect(output).not.toContain("Hatch complete");
+  });
+
+  it("--resume with no checkpoint warns and continues as a fresh init", async () => {
+    await initCommand({ yes: true, resume: true, tools: "claude" });
+
+    const output = [
+      ...consoleSpy.mock.calls.map((c) => String(c[0])),
+      ...consoleErrorSpy.mock.calls.map((c) => String(c[0])),
+    ].join("\n");
+    expect(output).toMatch(/no checkpoint found|fresh init/i);
+    // Fresh init completes.
+    await expect(access(join(tempDir, AGENTS_DIR, "hatch.json"))).resolves.toBeUndefined();
+  });
+});
+
+// F10.3-2 (D10, P1): the interactive first-run flow is capped at ≤5 prompts.
+describe("init interactive ≤5-prompt ceiling (F10.3-2)", () => {
+  let initCommand: () => Promise<void>;
+  let tempDir: string;
+  let cwdSpy: MockInstance;
+  let exitSpy: MockInstance;
+  let consoleSpy: MockInstance;
+  let consoleErrorSpy: MockInstance;
+
+  beforeAll(async () => {
+    ({ initCommand } = await import("../../cli/commands/init.js"));
+  });
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-init-5p-"));
+    cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+    exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("process.exit called");
+    }) as never);
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(inquirer.prompt).mockReset();
+  });
+
+  afterEach(async () => {
+    cwdSpy.mockRestore();
+    exitSpy.mockRestore();
+    consoleSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("the common-path interactive flow consumes exactly 5 prompts (platform, identity, preset, tools, mcp)", async () => {
+    const inq = vi.mocked(inquirer.prompt);
+    inq.mockResolvedValueOnce({ platform: "github" });
+    inq.mockResolvedValueOnce({ owner: "o", repo: "r" });
+    inq.mockResolvedValueOnce({ preset: "minimal" });
+    inq.mockResolvedValueOnce({ tools: ["claude"] });
+    inq.mockResolvedValueOnce({ mcp: [] });
+
+    await initCommand();
+
+    // Exactly five inquirer.prompt calls — the ≤5-prompt ceiling. (No
+    // defaultBranch / projectType / teamSize / maturity / wantMcp / cliTools
+    // prompts; those resolve to smart defaults.)
+    expect(inq.mock.calls.length).toBe(5);
+
+    const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
+    // Empty MCP selection → MCP feature off (the `(none)` path).
+    expect(manifest.features.mcp).toBe(false);
+    // Dropped prompts resolved: defaultBranch from git fallback ("main"),
+    // cliTools defaulted to the tier-1 + triggered set (non-empty).
+    expect(manifest.board?.defaultBranch).toBe("main");
+    expect(Array.isArray(manifest.cliTools?.selected)).toBe(true);
+  });
+
+  it("a non-empty MCP multi-select enables the MCP feature (collapsed picker)", async () => {
+    const inq = vi.mocked(inquirer.prompt);
+    inq.mockResolvedValueOnce({ platform: "github" });
+    inq.mockResolvedValueOnce({ owner: "o", repo: "r" });
+    inq.mockResolvedValueOnce({ preset: "minimal" });
+    inq.mockResolvedValueOnce({ tools: ["claude"] });
+    // User picks a server in the collapsed MCP step.
+    inq.mockResolvedValueOnce({ mcp: ["playwright"] });
+
+    await initCommand();
+
+    expect(inq.mock.calls.length).toBe(5);
+    const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
+    expect(manifest.features.mcp).toBe(true);
+    // The platform server is auto-included alongside an explicit pick.
+    expect(manifest.mcp.servers).toContain("playwright");
+    expect(manifest.mcp.servers).toContain("github");
+  });
+});
+
 describe("workspace init", () => {
   let initCommand: (opts?: { tools?: string; yes?: boolean; workspace?: boolean }) => Promise<void>;
   let tempDir: string;
@@ -1031,17 +1183,11 @@ describe("init worktree generation (claude tool present)", () => {
     const tools = opts.tools ?? ["claude"];
     inq.mockResolvedValueOnce({ platform: "github" });
     inq.mockResolvedValueOnce({ owner: "test-owner", repo: "test-repo" });
-    inq.mockResolvedValueOnce({ defaultBranch: "main" });
-    inq.mockResolvedValueOnce({ projectType: "brownfield" });
-    inq.mockResolvedValueOnce({ teamSize: "solo" });
-    inq.mockResolvedValueOnce({ maturity: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools });
     // Slice B: feature checkbox replaced by single wantMcp confirm.
-    inq.mockResolvedValueOnce({ wantMcp: false });
-    // C9-H28: CLI tools picker follows MCP — empty selection skips
-    // detection/installer.
-    inq.mockResolvedValueOnce({ tools: [] });
+    // F10.3-2: collapsed MCP multi-select — empty = no MCP.
+    inq.mockResolvedValueOnce({ mcp: [] });
   }
 
   it("interactive init auto-enables worktree when a worktree-capable tool is selected", async () => {
@@ -1228,10 +1374,6 @@ describe("init interactive single-repo flow", () => {
     const tools = opts.tools ?? ["claude"];
     inq.mockResolvedValueOnce({ platform: "github" });
     inq.mockResolvedValueOnce({ owner: "test-owner", repo: "test-repo" });
-    inq.mockResolvedValueOnce({ defaultBranch: "main" });
-    inq.mockResolvedValueOnce({ projectType: opts.projectType ?? "brownfield" });
-    inq.mockResolvedValueOnce({ teamSize: opts.teamSize ?? "solo" });
-    inq.mockResolvedValueOnce({ maturity: opts.maturity ?? "solo" });
     inq.mockResolvedValueOnce({ preset: opts.preset ?? "full" });
     if (opts.preset === "custom") {
       inq.mockResolvedValueOnce({ items: opts.customItems ?? [] });
@@ -1243,13 +1385,8 @@ describe("init interactive single-repo flow", () => {
     // anything else means MCP off.
     const featuresList = opts.features ?? (opts.mcpServers !== undefined ? ["mcp"] : []);
     const wantMcp = featuresList.includes("mcp");
-    inq.mockResolvedValueOnce({ wantMcp });
-    if (wantMcp) {
-      inq.mockResolvedValueOnce({ mcp: opts.mcpServers ?? ["github", "playwright", "context7"] });
-    }
-    // C9-H28: CLI tools picker follows MCP — empty selection skips
-    // detection + installer.
-    inq.mockResolvedValueOnce({ tools: opts.cliTools ?? [] });
+    // F10.3-2: collapsed MCP multi-select (empty = none).
+    inq.mockResolvedValueOnce({ mcp: wantMcp ? (opts.mcpServers ?? ["github", "playwright", "context7"]) : [] });
   }
 
   it("runs the GitHub interactive flow end-to-end", async () => {
@@ -1285,17 +1422,12 @@ describe("init interactive single-repo flow", () => {
     const inq = vi.mocked(inquirer.prompt);
     inq.mockResolvedValueOnce({ platform: "azure-devops" });
     inq.mockResolvedValueOnce({ org: "ado-org", project: "ado-proj", repo: "ado-repo" });
-    inq.mockResolvedValueOnce({ defaultBranch: "main" });
-    inq.mockResolvedValueOnce({ projectType: "brownfield" });
-    inq.mockResolvedValueOnce({ teamSize: "solo" });
-    inq.mockResolvedValueOnce({ maturity: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     // Slice B: feature checkbox replaced by wantMcp confirm; this test
     // exercises MCP-off.
-    inq.mockResolvedValueOnce({ wantMcp: false });
-    // C9-H28: CLI tools picker now follows features + MCP.
-    inq.mockResolvedValueOnce({ tools: [] });
+    // F10.3-2: collapsed MCP multi-select — empty = no MCP.
+    inq.mockResolvedValueOnce({ mcp: [] });
 
     await initCommand({});
 
@@ -1311,17 +1443,12 @@ describe("init interactive single-repo flow", () => {
     const inq = vi.mocked(inquirer.prompt);
     inq.mockResolvedValueOnce({ platform: "gitlab" });
     inq.mockResolvedValueOnce({ namespace: "gl-ns", project: "gl-proj" });
-    inq.mockResolvedValueOnce({ defaultBranch: "main" });
-    inq.mockResolvedValueOnce({ projectType: "brownfield" });
-    inq.mockResolvedValueOnce({ teamSize: "solo" });
-    inq.mockResolvedValueOnce({ maturity: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     // Slice B: feature checkbox replaced by wantMcp confirm; this test
     // exercises MCP-off.
-    inq.mockResolvedValueOnce({ wantMcp: false });
-    // C9-H28: CLI tools picker now follows features + MCP.
-    inq.mockResolvedValueOnce({ tools: [] });
+    // F10.3-2: collapsed MCP multi-select — empty = no MCP.
+    inq.mockResolvedValueOnce({ mcp: [] });
 
     await initCommand({});
 
@@ -1338,18 +1465,13 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ platform: "github" });
     inq.mockResolvedValueOnce({ owner: "", repo: "" });
     // Empty branch -> falls back to detected default ("main" via parseGitDefaultBranch)
-    inq.mockResolvedValueOnce({ defaultBranch: "" });
-    inq.mockResolvedValueOnce({ projectType: "brownfield" });
-    inq.mockResolvedValueOnce({ teamSize: "solo" });
-    inq.mockResolvedValueOnce({ maturity: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     // Empty tool selection -> falls back to DEFAULT_TOOLS (= ["claude"])
     inq.mockResolvedValueOnce({ tools: [] });
     // Slice B: feature checkbox replaced by wantMcp confirm; this test
     // exercises MCP-off.
-    inq.mockResolvedValueOnce({ wantMcp: false });
-    // C9-H28: CLI tools picker now follows features + MCP.
-    inq.mockResolvedValueOnce({ tools: [] });
+    // F10.3-2: collapsed MCP multi-select — empty = no MCP.
+    inq.mockResolvedValueOnce({ mcp: [] });
 
     await initCommand({});
 
@@ -1381,17 +1503,12 @@ describe("init interactive single-repo flow", () => {
     const inq = vi.mocked(inquirer.prompt);
     inq.mockResolvedValueOnce({ platform: "github" });
     inq.mockResolvedValueOnce({ owner: "o", repo: "r" });
-    inq.mockResolvedValueOnce({ defaultBranch: "main" });
-    inq.mockResolvedValueOnce({ projectType: "brownfield" });
-    inq.mockResolvedValueOnce({ teamSize: "solo" });
-    inq.mockResolvedValueOnce({ maturity: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     // Slice B: feature checkbox replaced by wantMcp confirm; this test
     // exercises MCP-off.
-    inq.mockResolvedValueOnce({ wantMcp: false });
-    // C9-H28: CLI tools picker now follows features + MCP.
-    inq.mockResolvedValueOnce({ tools: [] });
+    // F10.3-2: collapsed MCP multi-select — empty = no MCP.
+    inq.mockResolvedValueOnce({ mcp: [] });
     // The checkExisting prompt — accept overwrite
     inq.mockResolvedValueOnce({ proceed: true });
 
@@ -1413,17 +1530,12 @@ describe("init interactive single-repo flow", () => {
     const inq = vi.mocked(inquirer.prompt);
     inq.mockResolvedValueOnce({ platform: "github" });
     inq.mockResolvedValueOnce({ owner: "o", repo: "r" });
-    inq.mockResolvedValueOnce({ defaultBranch: "main" });
-    inq.mockResolvedValueOnce({ projectType: "brownfield" });
-    inq.mockResolvedValueOnce({ teamSize: "solo" });
-    inq.mockResolvedValueOnce({ maturity: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     // Slice B: feature checkbox replaced by wantMcp confirm; this test
     // exercises MCP-off.
-    inq.mockResolvedValueOnce({ wantMcp: false });
-    // C9-H28: CLI tools picker now follows features + MCP.
-    inq.mockResolvedValueOnce({ tools: [] });
+    // F10.3-2: collapsed MCP multi-select — empty = no MCP.
+    inq.mockResolvedValueOnce({ mcp: [] });
     // Reject overwrite
     inq.mockResolvedValueOnce({ proceed: false });
 
@@ -1480,11 +1592,8 @@ describe("init interactive workspace flow", () => {
     // 2) Accept detected repo identities (line 784) — true means skip per-repo edit
     inq.mockResolvedValueOnce({ acceptIdentity: true });
     // 3) Project type
-    inq.mockResolvedValueOnce({ projectType: "brownfield" });
     // 4) Team size
-    inq.mockResolvedValueOnce({ teamSize: "solo" });
     // 4b) Maturity tier (F1.1-H1 / F14.3-H1)
-    inq.mockResolvedValueOnce({ maturity: "solo" });
     // 5) Preset
     inq.mockResolvedValueOnce({ preset: "minimal" });
     // 6) Tools
@@ -1492,9 +1601,8 @@ describe("init interactive workspace flow", () => {
     // 7) Features (C9-H28: moved before CLI tools; Slice D: worktree auto-enabled)
     // Slice B: feature checkbox replaced by wantMcp confirm; this test
     // exercises MCP-off.
-    inq.mockResolvedValueOnce({ wantMcp: false });
-    // 7b) CLI tools picker — empty selection skips detection/installer.
-    inq.mockResolvedValueOnce({ tools: [] });
+    // F10.3-2: collapsed MCP multi-select — empty = no MCP.
+    inq.mockResolvedValueOnce({ mcp: [] });
     // 8) Repo selection for sync
     inq.mockResolvedValueOnce({ syncRepos: [] });
 
@@ -1514,17 +1622,12 @@ describe("init interactive workspace flow", () => {
     // 2-9) Single-repo prompts (C9-H28 order)
     inq.mockResolvedValueOnce({ platform: "github" });
     inq.mockResolvedValueOnce({ owner: "o", repo: "r" });
-    inq.mockResolvedValueOnce({ defaultBranch: "main" });
-    inq.mockResolvedValueOnce({ projectType: "brownfield" });
-    inq.mockResolvedValueOnce({ teamSize: "solo" });
-    inq.mockResolvedValueOnce({ maturity: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     // Slice B: feature checkbox replaced by wantMcp confirm; this test
     // exercises MCP-off.
-    inq.mockResolvedValueOnce({ wantMcp: false });
-    // C9-H28: CLI tools picker now follows features + MCP.
-    inq.mockResolvedValueOnce({ tools: [] });
+    // F10.3-2: collapsed MCP multi-select — empty = no MCP.
+    inq.mockResolvedValueOnce({ mcp: [] });
 
     await initCommand({});
 
@@ -1548,11 +1651,8 @@ describe("init interactive workspace flow", () => {
     // 3) Per-repo identity prompt for "api"
     inq.mockResolvedValueOnce({ owner: "edited-owner", repo: "edited-repo", defaultBranch: "develop" });
     // 4) Project type
-    inq.mockResolvedValueOnce({ projectType: "brownfield" });
     // 5) Team size
-    inq.mockResolvedValueOnce({ teamSize: "solo" });
     // 5b) Maturity tier (F1.1-H1 / F14.3-H1)
-    inq.mockResolvedValueOnce({ maturity: "solo" });
     // 6) Preset
     inq.mockResolvedValueOnce({ preset: "minimal" });
     // 7) Tools
@@ -1560,9 +1660,8 @@ describe("init interactive workspace flow", () => {
     // 8) Features (C9-H28: moved before CLI tools; Slice D: worktree auto-enabled)
     // Slice B: feature checkbox replaced by wantMcp confirm; this test
     // exercises MCP-off.
-    inq.mockResolvedValueOnce({ wantMcp: false });
-    // 8b) CLI tools picker — empty selection skips detection/installer.
-    inq.mockResolvedValueOnce({ tools: [] });
+    // F10.3-2: collapsed MCP multi-select — empty = no MCP.
+    inq.mockResolvedValueOnce({ mcp: [] });
     // 9) Repo sync selection
     inq.mockResolvedValueOnce({ syncRepos: [] });
 
@@ -1734,17 +1833,12 @@ describe("init eager flag validation (C8-D1-M4)", () => {
     // Validation passes; the usual interactive flow runs (C9-H28 order).
     inq.mockResolvedValueOnce({ platform: "github" });
     inq.mockResolvedValueOnce({ owner: "o", repo: "r" });
-    inq.mockResolvedValueOnce({ defaultBranch: "main" });
-    inq.mockResolvedValueOnce({ projectType: "brownfield" });
-    inq.mockResolvedValueOnce({ teamSize: "solo" });
-    inq.mockResolvedValueOnce({ maturity: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     // Slice B: feature checkbox replaced by wantMcp confirm; this test
     // exercises MCP-off.
-    inq.mockResolvedValueOnce({ wantMcp: false });
-    // C9-H28: CLI tools picker now follows features + MCP.
-    inq.mockResolvedValueOnce({ tools: [] });
+    // F10.3-2: collapsed MCP multi-select — empty = no MCP.
+    inq.mockResolvedValueOnce({ mcp: [] });
 
     await initCommand({ preset: "minimal" });
 
@@ -1893,16 +1987,12 @@ describe("init workspace conflict guard (C8-D1-M3)", () => {
     const inq = vi.mocked(inquirer.prompt);
     inq.mockResolvedValueOnce({ useWorkspace: true });
     inq.mockResolvedValueOnce({ acceptIdentity: true });
-    inq.mockResolvedValueOnce({ projectType: "brownfield" });
-    inq.mockResolvedValueOnce({ teamSize: "solo" });
-    inq.mockResolvedValueOnce({ maturity: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     // Slice B: feature checkbox replaced by wantMcp confirm; this test
     // exercises MCP-off.
-    inq.mockResolvedValueOnce({ wantMcp: false });
-    // C9-H28: CLI tools picker now follows features + MCP.
-    inq.mockResolvedValueOnce({ tools: [] });
+    // F10.3-2: collapsed MCP multi-select — empty = no MCP.
+    inq.mockResolvedValueOnce({ mcp: [] });
     // Select the repo with existing hatch3r for sync (triggers conflict prompt)
     inq.mockResolvedValueOnce({ syncRepos: ["api"] });
     // Decline the overwrite
@@ -1923,16 +2013,12 @@ describe("init workspace conflict guard (C8-D1-M3)", () => {
     const inq = vi.mocked(inquirer.prompt);
     inq.mockResolvedValueOnce({ useWorkspace: true });
     inq.mockResolvedValueOnce({ acceptIdentity: true });
-    inq.mockResolvedValueOnce({ projectType: "brownfield" });
-    inq.mockResolvedValueOnce({ teamSize: "solo" });
-    inq.mockResolvedValueOnce({ maturity: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     // Slice B: feature checkbox replaced by wantMcp confirm; this test
     // exercises MCP-off.
-    inq.mockResolvedValueOnce({ wantMcp: false });
-    // C9-H28: CLI tools picker now follows features + MCP.
-    inq.mockResolvedValueOnce({ tools: [] });
+    // F10.3-2: collapsed MCP multi-select — empty = no MCP.
+    inq.mockResolvedValueOnce({ mcp: [] });
     inq.mockResolvedValueOnce({ syncRepos: ["api"] });
     inq.mockResolvedValueOnce({ confirmConflict: true });
 
@@ -1949,16 +2035,12 @@ describe("init workspace conflict guard (C8-D1-M3)", () => {
     const inq = vi.mocked(inquirer.prompt);
     inq.mockResolvedValueOnce({ useWorkspace: true });
     inq.mockResolvedValueOnce({ acceptIdentity: true });
-    inq.mockResolvedValueOnce({ projectType: "brownfield" });
-    inq.mockResolvedValueOnce({ teamSize: "solo" });
-    inq.mockResolvedValueOnce({ maturity: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     // Slice B: feature checkbox replaced by wantMcp confirm; this test
     // exercises MCP-off.
-    inq.mockResolvedValueOnce({ wantMcp: false });
-    // C9-H28: CLI tools picker now follows features + MCP.
-    inq.mockResolvedValueOnce({ tools: [] });
+    // F10.3-2: collapsed MCP multi-select — empty = no MCP.
+    inq.mockResolvedValueOnce({ mcp: [] });
     inq.mockResolvedValueOnce({ syncRepos: ["api"] });
     // NO confirmConflict prompt expected here
 
@@ -2305,16 +2387,12 @@ describe("init tool-secret-notes ordering (C9-H32)", () => {
     const inq = vi.mocked(inquirer.prompt);
     inq.mockResolvedValueOnce({ platform: "github" });
     inq.mockResolvedValueOnce({ owner: "o", repo: "r" });
-    inq.mockResolvedValueOnce({ defaultBranch: "main" });
-    inq.mockResolvedValueOnce({ projectType: "brownfield" });
-    inq.mockResolvedValueOnce({ teamSize: "solo" });
-    inq.mockResolvedValueOnce({ maturity: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     // Slice B: feature checkbox replaced by wantMcp confirm; this test
     // exercises MCP-off.
-    inq.mockResolvedValueOnce({ wantMcp: false });
-    inq.mockResolvedValueOnce({ tools: [] });
+    // F10.3-2: collapsed MCP multi-select — empty = no MCP.
+    inq.mockResolvedValueOnce({ mcp: [] });
 
     await initCommand({});
 

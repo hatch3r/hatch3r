@@ -1976,4 +1976,43 @@ describe("config command", () => {
       await expect(configCommand("maturity=team")).rejects.toThrow(HatchError);
     });
   });
+
+  // F16.1-C1 (Decision 27): config wires checkpoints. The scalar setter records
+  // a best-effort `.config-workspace` checkpoint after its manifest write (the
+  // write is swallowed if it fails, so the setter must still complete); the
+  // interactive flow's checkpoint comes from runRegenerate with
+  // snapshotCommandName "config".
+  describe("resumability checkpoints (F16.1-C1)", () => {
+    it("scalar set completes successfully even though the checkpoint write is best-effort", async () => {
+      const manifest = makeManifest();
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+
+      const configCommand = await importConfigCommand();
+      // Must not throw — the checkpoint write is wrapped in a verbose()-routed
+      // try/catch, so a (mocked) atomicWriteFile failure cannot break the set.
+      await expect(configCommand("maturity=scaleup")).resolves.toBeUndefined();
+      expect(vi.mocked(writeManifest)).toHaveBeenCalledWith(
+        tempDir,
+        expect.objectContaining({ maturity: "scaleup" }),
+      );
+    });
+
+    it("interactive config delegates regeneration with snapshotCommandName 'config' (checkpoint namespacing)", async () => {
+      // A tool add triggers the regenerate pipeline (the seam that writes the
+      // `.config-workspace` checkpoint).
+      const manifest = makeManifest({ tools: ["cursor"] });
+      primeConfig(manifest, { tools: ["cursor", "claude"] });
+
+      const configCommand = await importConfigCommand();
+      await configCommand();
+
+      // config must pass the "config" namespace so its checkpoint does not
+      // collide with the `.update-workspace` checkpoint.
+      expect(vi.mocked(runRegenerate)).toHaveBeenCalledWith(
+        tempDir,
+        expect.anything(),
+        expect.objectContaining({ snapshotCommandName: "config" }),
+      );
+    });
+  });
 });

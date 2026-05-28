@@ -438,4 +438,129 @@ describe("sync command", () => {
       expect(updatedManifest.managedFilesByAdapter!.cursor.length).toBeGreaterThan(0);
     });
   });
+
+  // F8.3.4 (D8): the adapter generation phase is wrapped in
+  // `runWithPipelineDeadman`. A wall-clock breach (PipelineTimeoutError) must
+  // surface as a HatchError with exit code 2 — not a silent partial sync.
+  describe("pipeline deadman (F8.3.4)", () => {
+    it("surfaces a PipelineTimeoutError as a HatchError(exit 2) instead of a silent partial", async () => {
+      await createTestProject(tempDir);
+
+      const { PipelineTimeoutError } = await import("../../pipeline/pipelineTimeout.js");
+      const ptMod = await import("../../pipeline/pipelineTimeout.js");
+      // Force the deadman to fire: the wrapped body never settles before the
+      // (mocked) budget elapses. We stub runWithPipelineDeadman to reject with
+      // the same error the real timer would throw, exercising the catch path.
+      const spy = vi
+        .spyOn(ptMod, "runWithPipelineDeadman")
+        .mockRejectedValue(new PipelineTimeoutError(900_000, 901_000));
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      try {
+        await syncCommand();
+        expect.fail("expected syncCommand to throw on deadman breach");
+      } catch (e) {
+        const err = e as HatchError;
+        expect(err).toBeInstanceOf(HatchError);
+        expect(err.exitCode).toBe(2);
+        expect(err.message).toMatch(/pipeline budget|aborted/i);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+  });
+
+  // F16.1-C1 (Decision 27): sync writes a checkpoint after each mutation phase
+  // under `.sync-workspace/checkpoint.json`, and `--resume` short-circuits when
+  // a `passed` checkpoint at the current hatch3r version already exists.
+  describe("resumability checkpoints (F16.1-C1)", () => {
+    it("writes a `passed` checkpoint at .sync-workspace/checkpoint.json after a successful sync", async () => {
+      await createTestProject(tempDir);
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand();
+
+      const cpRaw = await readFile(join(tempDir, ".sync-workspace", "checkpoint.json"), "utf-8");
+      const cp = JSON.parse(cpRaw) as { phase: string; status: string; wave: number; meta: { baselineSha: string } };
+      expect(cp.phase).toBe("sync");
+      expect(cp.status).toBe("passed");
+      expect(cp.wave).toBe(2);
+      const { HATCH3R_VERSION } = await import("../../version.js");
+      expect(cp.meta.baselineSha).toBe(HATCH3R_VERSION);
+    });
+
+    it("--resume short-circuits when a passed checkpoint at the current version exists", async () => {
+      await createTestProject(tempDir);
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      // First run writes the checkpoint.
+      await syncCommand();
+
+      consoleSpy.mockClear();
+      consoleErrorSpy.mockClear();
+      // Second run with --resume should report completion and not re-emit.
+      await syncCommand({ resume: true });
+
+      const output = [
+        ...consoleSpy.mock.calls.map((c) => String(c[0])),
+        ...consoleErrorSpy.mock.calls.map((c) => String(c[0])),
+      ].join("\n");
+      expect(output).toMatch(/Nothing to resume|completed/i);
+      // The resume path returns before printing a fresh "Sync complete" box.
+      expect(output).not.toContain("Sync complete");
+    });
+
+    it("--resume with no checkpoint warns and continues as a fresh sync", async () => {
+      await createTestProject(tempDir);
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand({ resume: true });
+
+      const output = [
+        ...consoleSpy.mock.calls.map((c) => String(c[0])),
+        ...consoleErrorSpy.mock.calls.map((c) => String(c[0])),
+      ].join("\n");
+      expect(output).toMatch(/no checkpoint found|fresh sync/i);
+      expect(output).toContain("Sync complete");
+    });
+  });
+
+  // F6.4-H1 (D6, OWASP ASI06): materialization-time learnings gate. An invalid
+  // learning file (oversized / binary / malformed) refuses the sync unless --force.
+  describe("learnings materialization gate (F6.4-H1)", () => {
+    async function seedBadLearning(): Promise<void> {
+      const learningsDir = join(tempDir, HATCH3R_DIR, "learnings");
+      await mkdir(learningsDir, { recursive: true });
+      // Oversized file (>65536 bytes) is an error-level violation in
+      // validateLearningContent (exceeds MAX_LEARNING_FILE_BYTES): flips
+      // `valid` to false and refuses the sync unless --force (error-level,
+      // not a denied-pattern warning).
+      await writeFile(join(learningsDir, "huge.md"), "x".repeat(70_000));
+    }
+
+    it("refuses to sync when a learning file is invalid (no --force)", async () => {
+      await createTestProject(tempDir);
+      await seedBadLearning();
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await expect(syncCommand()).rejects.toThrow(HatchError);
+
+      const output = [
+        ...consoleSpy.mock.calls.map((c) => String(c[0])),
+        ...consoleErrorSpy.mock.calls.map((c) => String(c[0])),
+      ].join("\n");
+      expect(output).toMatch(/Learnings validation|byte limit/i);
+    });
+
+    it("allows the sync with --force despite invalid learnings", async () => {
+      await createTestProject(tempDir);
+      await seedBadLearning();
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand({ force: true });
+
+      const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(output).toContain("Sync complete");
+    });
+  });
 });

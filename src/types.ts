@@ -394,6 +394,21 @@ export interface CanonicalFile {
    * declared on user-tier artifacts.
    */
   adapters?: string[];
+  /**
+   * D9-H-6 (Cycle 10 D9, Pillar P1): optional list of tools a skill
+   * pre-approves. Parsed from the canonical frontmatter `allowed_tools:`
+   * (or `allowed-tools:`) array. Consumed by the Copilot adapter's skill
+   * emission ({@link src/adapters/base.ts} `processSkillsWithFmCliFiltered`
+   * with `emitAllowedTools`), which renders an `allowed-tools:` line so the
+   * GitHub Copilot Skills runtime pre-approves those tools and skips the
+   * per-invocation confirmation prompt
+   * (https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/create-skills,
+   * accessed 2026-05-26). Absent / empty means no pre-approval line is
+   * emitted — the runtime falls back to per-tool confirmation. Other
+   * adapters (cursor/claude) ignore the field; their SKILL.md format does
+   * not document `allowed-tools`.
+   */
+  allowedTools?: string[];
 }
 
 export interface CanonicalMetadata {
@@ -425,6 +440,12 @@ export interface CanonicalMetadata {
    * Mirrors {@link CanonicalFile.adapters}.
    */
   adapters?: string[];
+  /**
+   * D9-H-6: optional skill tool pre-approval list parsed from the
+   * `allowed_tools:` / `allowed-tools:` frontmatter array. Mirrors
+   * {@link CanonicalFile.allowedTools}; see that field for emission semantics.
+   */
+  allowedTools?: string[];
 }
 
 export interface ContentSelection {

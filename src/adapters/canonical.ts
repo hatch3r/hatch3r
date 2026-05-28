@@ -344,6 +344,21 @@ export function parseFrontmatter(
         `adapters field must be an array of strings, got ${describeYamlType(parsed.adapters)} (value: ${JSON.stringify(parsed.adapters)})`,
       );
     }
+    // D9-H-6 (D9, P1): optional skill tool pre-approval list. Accept both the
+    // YAML-underscore (`allowed_tools`) and the Copilot-native hyphen
+    // (`allowed-tools`) spellings — `allowed_tools` wins when both appear so
+    // a canonical author who mirrors the rendered output form still parses.
+    // Only the Copilot adapter renders this field (`processSkillsWithFmCliFiltered`
+    // with `emitAllowedTools`); other adapters ignore it. A non-array value is
+    // surfaced on the warning channel and the field falls back to undefined.
+    const allowedToolsRaw = parsed.allowed_tools ?? parsed["allowed-tools"];
+    if (Array.isArray(allowedToolsRaw)) {
+      metadata.allowedTools = allowedToolsRaw.filter((t: unknown) => typeof t === "string");
+    } else if (allowedToolsRaw !== undefined && typeMismatches) {
+      typeMismatches.push(
+        `allowed_tools field must be an array of strings, got ${describeYamlType(allowedToolsRaw)} (value: ${JSON.stringify(allowedToolsRaw)})`,
+      );
+    }
     // Wave A1: optional rule precedence bucket. Validated by
     // scripts/validate-rule-parity.ts (enum check + pass-through parity).
     // The parser accepts the value only when it is a string matching the
@@ -505,6 +520,10 @@ async function readSingleMd(
     // treats absence as "full parity" (emit unconditionally), so canonical
     // emission is unchanged.
     adapters: metadata.adapters,
+    // D9-H-6: pass through the optional skill `allowed_tools` pre-approval
+    // list. Undefined for artifacts that do not declare it (every non-skill
+    // type, and skills that pre-approve nothing).
+    allowedTools: metadata.allowedTools,
     content,
     rawContent,
     sourcePath: fullPath,

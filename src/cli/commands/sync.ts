@@ -45,15 +45,20 @@ import {
 } from "../../pipeline/circuitBreaker.js";
 import { executeWithPhaseTimeout } from "../../pipeline/phaseTimeout.js";
 import {
-  createPipelineExecution,
-  isPipelineTimedOut,
-  terminatePipeline,
+  runWithPipelineDeadman,
+  PipelineTimeoutError,
   DEFAULT_PIPELINE_TIMEOUT_MS,
 } from "../../pipeline/pipelineTimeout.js";
+import {
+  writeCheckpoint,
+  readCheckpoint,
+  type CheckpointMeta,
+} from "../../pipeline/checkpoint.js";
 import { compactPhaseOutput } from "../../pipeline/phaseOutputSchema.js";
 import { retryWithBackoff } from "../../pipeline/retryWithBackoff.js";
 import { discoverUserContent, validateContentBody } from "../../content/userContent.js";
 import { scanOrphanFiles, formatOrphanScanDiagnostic } from "../../content/orphanScan.js";
+import { validateLearningsDirectory } from "../../content/learningsValidation.js";
 import {
   printBanner,
   createSpinner,
@@ -217,31 +222,72 @@ export async function syncCommand(
   } = {},
 ): Promise<void> {
   setVerbose(!!opts.verbose);
-  // F1.3-H1 (Decision 27 / Bucket 2.2): `--resume` is reserved CLI surface.
-  // Sync currently runs as a single-pass orchestrator that captures a
-  // snapshot (rollback works) but does not write checkpoints (no mid-run
-  // pause point). Surface the gap explicitly rather than silently
-  // discarding the flag. Mirrors init.ts:972-979.
-  if (opts.resume) {
-    warn(
-      "`hatch3r sync --resume` is not yet wired in 2.0.0: sync runs as a " +
-      "single-pass orchestrator with no checkpoint write. Continuing as a " +
-      "fresh sync. Use `hatch3r rollback --session=<id>` after the run if " +
-      "you need to revert.",
-    );
-  }
   printBanner(true);
 
-  // Pipeline-level timeout: track overall command duration and emit a warning
-  // if the run exceeds the configured budget. The state is read after the
-  // critical work completes so a slow run still surfaces as a notice without
-  // aborting in-progress disk writes.
-  const pipelineState = createPipelineExecution(
-    ["generation", "adapter", "merge", "integrity"],
-    DEFAULT_PIPELINE_TIMEOUT_MS,
-  );
-
   const rootDir = process.cwd();
+
+  // F16.1-C1 (Decision 27 / Bucket 2.2): sync writes a checkpoint after each
+  // mutation phase under `.sync-workspace/checkpoint.json` so `--resume` can
+  // detect a previously-completed run and short-circuit instead of redoing
+  // every adapter write. The baseline is the bundled hatch3r version: a
+  // checkpoint left by a different hatch3r version is correctly flagged as
+  // drift and re-run from scratch. `readCheckpoint` throws on a corrupt file
+  // (with a preserved-backup recovery hint), so resume fails loud.
+  const syncWorkspace = join(rootDir, ".sync-workspace");
+  const checkpointMeta = (): CheckpointMeta => ({
+    baselineSha: HATCH3R_VERSION,
+    lastPassedGateN: 0,
+    registrySha: "",
+    timestamp: new Date().toISOString(),
+  });
+  // Numbered mutation phases for checkpoint replay: 1=generation/adapter,
+  // 2=merge (worktree+mcp+manifest writes). `recordPhase` is best-effort —
+  // a checkpoint-write failure is surfaced via verbose() and never aborts a
+  // sync that is otherwise succeeding (Silent Failure Contract, P5).
+  const recordPhase = async (
+    wave: number,
+    status: "in-progress" | "passed" | "failed",
+  ): Promise<void> => {
+    try {
+      await writeCheckpoint(syncWorkspace, "sync", wave, status, {
+        ...checkpointMeta(),
+        lastPassedGateN: status === "passed" ? wave : Math.max(0, wave - 1),
+      });
+    } catch (err) {
+      verbose(`sync: checkpoint write (wave ${wave}, ${status}) skipped — ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+  // F16.1-C1: on `--resume`, read the recorded checkpoint. A `passed`
+  // checkpoint at the current baseline means the prior sync finished — report
+  // it and exit early (rerunning would re-emit identical output). A baseline
+  // mismatch or `failed`/`in-progress` checkpoint falls through to a full
+  // sync (the snapshot below still makes the run rollback-revertable).
+  if (opts.resume) {
+    const checkpoint = await readCheckpoint(syncWorkspace);
+    if (checkpoint === null) {
+      warn(
+        `\`hatch3r sync --resume\` requested but no checkpoint found at ` +
+        `${join(syncWorkspace, "checkpoint.json")}. Continuing as a fresh sync.`,
+      );
+    } else if (checkpoint.meta.baselineSha === HATCH3R_VERSION && checkpoint.status === "passed") {
+      info(
+        `Resume: the last sync at this hatch3r version (v${HATCH3R_VERSION}) completed ` +
+        `(phase=${checkpoint.phase} wave=${checkpoint.wave}). Nothing to resume — re-run ` +
+        `\`hatch3r sync\` without --resume to force a fresh regeneration.`,
+      );
+      return;
+    } else if (checkpoint.meta.baselineSha !== HATCH3R_VERSION) {
+      warn(
+        `Resume: checkpoint baseline (v${checkpoint.meta.baselineSha}) differs from the ` +
+        `installed hatch3r (v${HATCH3R_VERSION}). Running a full fresh sync.`,
+      );
+    } else {
+      info(
+        `Resume: prior sync left a ${checkpoint.status} checkpoint at phase=${checkpoint.phase} ` +
+        `wave=${checkpoint.wave}. Re-running from the start (sync is idempotent).`,
+      );
+    }
+  }
 
   const wsContext = await detectWorkspaceContext(rootDir);
   if (wsContext.type === "workspace-member") {
@@ -321,6 +367,48 @@ export async function syncCommand(
     // Scan failure must not break sync; log via verbose so the diagnostic is
     // available without polluting the default summary.
     verbose(`User-content pre-flight scan skipped: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  // F6.4-H1 (D6, OWASP ASI06 Memory & Context Poisoning): materialization-time
+  // learnings gate. Adapters pour `.hatch3r/learnings/` into the per-tool
+  // context file (CLAUDE.md / `.cursor/rules/*` / copilot-instructions). The
+  // loader agent's "invoke sanitizeUserContent" prose is unenforceable — the
+  // LLM is the very actor being hijacked and has no JS runtime. We run the
+  // deterministic `validateLearningsDirectory` pass HERE, in the CLI write
+  // path, BEFORE any adapter materializes the context file. `validate.ts`
+  // already runs this at `validate` time; this closes the runtime-write gap.
+  // Errors (oversized / binary / malformed-name files) refuse the sync unless
+  // `--force`; warnings (denied-pattern matches) are surfaced as a quarantine
+  // notice and never block (the loader's instruction-hierarchy markers keep
+  // them user-tier). Missing `.hatch3r/learnings/` is a valid clean state
+  // (the function returns valid+empty on ENOENT).
+  try {
+    const learnings = await validateLearningsDirectory(join(rootDir, HATCH3R_DIR, "learnings"));
+    if (learnings.warnings.length > 0) {
+      warn(`Learnings content scan: ${learnings.warnings.length} suspicious pattern(s) quarantined (loaded with user-tier markers, not as instructions):`);
+      for (const w of learnings.warnings) warn(`  ${w}`);
+    }
+    if (!learnings.valid) {
+      warn(`Learnings validation: ${learnings.errors.length} error(s) detected`);
+      for (const e of learnings.errors) warn(`  ${e}`);
+      if (!opts.force) {
+        logError(
+          "Refusing to materialize tool context files with invalid learnings. " +
+          "Fix the offending file(s) under .hatch3r/learnings/, or re-run with --force.",
+        );
+        throw new HatchError(
+          "Learnings pre-flight scan failed (use --force to override)",
+          1,
+          "VALIDATION_ERROR",
+          "Fix the offending learning file(s) listed above (oversized, binary, or invalid name), or re-run with `--force` to materialize them as-is.",
+        );
+      }
+      warn("Continuing with --force: invalid learnings will be materialized into tool context.");
+      console.log();
+    }
+  } catch (err) {
+    if (err instanceof HatchError) throw err;
+    verbose(`Learnings pre-flight scan skipped: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   // Wave 7: the canonical-content integrity preflight is gone — adapters now
@@ -420,11 +508,29 @@ export async function syncCommand(
   // (e.g., during retry) accumulates state correctly.
   const breakers = new Map<string, CircuitBreakerState>();
 
-  // Wrap the entire per-adapter generation loop in a phase timeout so a
-  // hanging adapter cohort surfaces as a phase-level timeout in addition
-  // to the per-adapter timeout.
-  const phaseResult = await executeWithPhaseTimeout("adapter", async () => {
-    for (const tool of m.tools) {
+  // F16.1-C1: generation phase begins — record an in-progress checkpoint so a
+  // `--resume` after a crash mid-generation knows the run did not complete.
+  await recordPhase(1, "in-progress");
+
+  // F8.3.4 (D8): wrap the adapter generation phase in a top-level wall-clock
+  // deadman. The prior post-loop `isPipelineTimedOut`/`terminatePipeline`
+  // check was advisory only — it ran AFTER the loop, so a single adapter that
+  // hangs without yielding (e.g. a stat on a dead network mount inside
+  // generation) never tripped it. `runWithPipelineDeadman` races the work
+  // against a wall-clock timer and aborts its AbortController when the budget
+  // elapses; we thread that signal into `executeWithPhaseTimeout` as the
+  // parentSignal (C9-H20) so the abort actually propagates into the in-flight
+  // adapter phase instead of being observed only after the fact.
+  const phaseResult = await runWithPipelineDeadman(
+    (deadmanSignal) =>
+      // Wrap the entire per-adapter generation loop in a phase timeout so a
+      // hanging adapter cohort surfaces as a phase-level timeout in addition
+      // to the per-adapter timeout. The deadman signal is chained in so a
+      // wall-clock breach aborts the phase controller too.
+      executeWithPhaseTimeout(
+        "adapter",
+        async () => {
+          for (const tool of m.tools) {
     const s = createSpinner(step(++currentStep, totalSteps, `Generating ${tool} output...`));
     s.start();
 
@@ -607,10 +713,34 @@ export async function syncCommand(
       await appendFailure(hatch3rDir, "sync:adapter-generate", err, tool);
     }
     }
+        },
+        undefined,
+        deadmanSignal,
+      ),
+    DEFAULT_PIPELINE_TIMEOUT_MS,
+  ).catch((err: unknown) => {
+    // F8.3.4: a wall-clock breach rejects the deadman with PipelineTimeoutError.
+    // Unlike the old advisory check, the in-flight adapter phase has already
+    // been signalled to abort. Surface it as a usage-actionable timeout (exit
+    // 2 — the run did not complete within budget) rather than a silent partial.
+    if (err instanceof PipelineTimeoutError) {
+      logError(err.message);
+      throw new HatchError(
+        `Sync exceeded its ${Math.round(err.timeoutMs / 1000)}s pipeline budget and was aborted.`,
+        2,
+        "ADAPTER_ERROR",
+        "A hanging adapter or filesystem call exceeded the wall-clock budget. Re-run `hatch3r sync --verbose` to see which adapter stalled, or check for an unresponsive network mount under the project root.",
+      );
+    }
+    throw err;
   });
   if (!phaseResult.completed && phaseResult.error) {
     warn(phaseResult.error);
   }
+  // F16.1-C1: generation/adapter phase completed (with or without per-adapter
+  // failures — those are handled below). Record wave 1 passed so resume can
+  // skip a fully-regenerated run.
+  await recordPhase(1, "passed");
   // C8-D8-M1 (D8): classify each adapter failure and aggregate transience
   // across tools so the thrown HatchError carries actionable guidance in
   // addition to the per-tool log lines. classifiedFailures persists past
@@ -858,6 +988,11 @@ export async function syncCommand(
     m.managedFilesByAdapter = mergedByAdapter;
     await writeManifest(rootDir, m);
 
+    // F16.1-C1: merge phase (worktree + mcp env + manifest) committed to disk.
+    // Record wave 2 passed — this is the resumable "done" marker for a
+    // non-dry-run sync.
+    await recordPhase(2, "passed");
+
     // Prune stale archive entries
     await pruneArchives(rootDir);
 
@@ -940,13 +1075,11 @@ export async function syncCommand(
     return `${icon} ${r.path} ${chalk.dim(`(${r.action})`)}`;
   });
 
-  // Pipeline timeout advisory: if total wall time exceeded the budget, surface
-  // it as a warning. We do not abort an in-flight sync — disk writes are
-  // already complete by this point — but the user gets visibility.
-  if (isPipelineTimedOut(pipelineState)) {
-    const { report } = terminatePipeline(pipelineState);
-    warn(report.summary);
-  }
+  // F8.3.4: the prior post-loop `isPipelineTimedOut`/`terminatePipeline`
+  // advisory check lived here. It was advisory-only (it ran after disk writes
+  // completed, so a true hang in the adapter phase never reached it). It is
+  // replaced by the `runWithPipelineDeadman` wrapper around the adapter phase
+  // above, which aborts in-flight on a wall-clock breach.
 
   // --diff: show file change summary
   if (opts.diff && diffBefore.size > 0) {

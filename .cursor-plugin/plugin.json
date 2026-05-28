@@ -1,7 +1,7 @@
 {
   "name": "hatch3r",
   "displayName": "Hatch3r",
-  "description": "Agentic coding setup audited each release across 24 governance domains: 30 agents, 43 skills, 55 rules, 23 commands, 6 hooks, and MCP integrations -- in one plugin. Counts derived from governance/inventory.json.",
+  "description": "Agentic coding setup audited each release across 24 governance domains: 30 agents, 43 skills, 56 rules, 23 commands, 6 hooks, and MCP integrations -- in one plugin. Counts derived from governance/inventory.json.",
   "version": "2.0.0",
   "author": {
     "name": "hatch3r"

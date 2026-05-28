@@ -1592,6 +1592,89 @@ async function validateAgentToolPolicyCoverage(
   }
 }
 
+/**
+ * D9-H-6 (Cycle 10 D9, Pillar P1): a canonical skill that declares an execute
+ * capability — i.e. it wraps a shell binary via a `cli_tool.bin` frontmatter
+ * field — MUST also declare a non-empty `allowed_tools` (or `allowed-tools`)
+ * array. The Copilot adapter renders that array as an `allowed-tools:` line on
+ * `.github/skills/<id>/SKILL.md` so the GitHub Copilot Skills runtime
+ * pre-approves the wrapped binary and skips the per-invocation
+ * tool-confirmation prompt
+ * (https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/create-skills,
+ * accessed 2026-05-26). Without the field the skill ships, Copilot re-prompts
+ * for every shell call, and the friction the finding closes returns silently.
+ *
+ * Scope: only `skills/<id>/SKILL.md` files whose frontmatter carries a
+ * `cli_tool.bin`. Reference/selection skills that wrap no executable (e.g.
+ * `hatch3r-cli-toolbox`, which indexes 29 tools but invokes none itself) have
+ * no `cli_tool.bin` and are exempt — they expose no execute capability to
+ * pre-approve.
+ *
+ * Errors emit on `result.errors` so CI exits non-zero when an execute-capable
+ * skill omits `allowed_tools`.
+ */
+export async function validateSkillAllowedTools(
+  canonicalRoot: string,
+  result: ValidationResult,
+): Promise<void> {
+  const skillsDir = join(canonicalRoot, "skills");
+  let entries;
+  try {
+    entries = await readdir(skillsDir, { withFileTypes: true });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw err;
+  }
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const skillPath = join(skillsDir, entry.name, "SKILL.md");
+    let raw: string;
+    try {
+      raw = await readFile(skillPath, "utf-8");
+    } catch (err) {
+      // Missing SKILL.md is reported by validateFrontmatter; not this gate's
+      // concern. Any other read error propagates.
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw err;
+    }
+    if (!raw.startsWith("---")) continue;
+    const endIdx = raw.indexOf("---", 3);
+    if (endIdx === -1) continue;
+    let fm: Record<string, unknown> | null;
+    try {
+      fm = parseYaml(raw.slice(3, endIdx).trim()) as Record<string, unknown> | null;
+    } catch {
+      // Malformed YAML is reported by validateFrontmatter; skip here.
+      continue;
+    }
+    if (!fm || typeof fm !== "object") continue;
+
+    // Execute capability = a `cli_tool.bin` shell binary. Skills without it
+    // wrap no executable and are exempt.
+    const cliTool = fm.cli_tool;
+    const bin =
+      cliTool && typeof cliTool === "object" && !Array.isArray(cliTool)
+        ? (cliTool as Record<string, unknown>).bin
+        : undefined;
+    if (typeof bin !== "string" || bin.length === 0) continue;
+
+    // The skill wraps `bin` → it MUST pre-approve at least one tool.
+    const allowed = fm.allowed_tools ?? fm["allowed-tools"];
+    const hasAllowed =
+      Array.isArray(allowed) && allowed.some((t) => typeof t === "string" && t.length > 0);
+    if (!hasAllowed) {
+      result.errors.push(
+        `Skill "${entry.name}" (skills/${entry.name}/SKILL.md) wraps shell binary "${bin}" ` +
+          `(cli_tool.bin) but declares no allowed_tools — add a non-empty ` +
+          `\`allowed_tools: ["${bin}"]\` frontmatter array so the Copilot Skills runtime ` +
+          `pre-approves the binary and skips the per-invocation confirmation prompt ` +
+          `(D9-H-6, P1).`,
+      );
+    }
+  }
+}
+
 export async function validateDocsCounts(rootDir: string): Promise<{ mismatches: string[]; checked: number }> {
   const mismatches: string[] = [];
   let checked = 0;
@@ -1910,6 +1993,11 @@ export async function validateCommand(opts?: {
   // silently under Cursor/Copilot (no readonly frontmatter emitted).
   verbose("Checking AGENT_TOOL_POLICIES coverage...");
   await validateAgentToolPolicyCoverage(canonicalRoot, result);
+
+  // D9-H-6 (D9, P1): execute-capable skills must pre-approve their wrapped
+  // shell binary via `allowed_tools` so the Copilot Skills runtime skips the
+  // per-invocation confirmation prompt.
+  await validateSkillAllowedTools(canonicalRoot, result);
 
   // Security compliance verification (#86 D15)
   await validateSecurityCompliance(result);

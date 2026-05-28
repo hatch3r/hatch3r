@@ -79,22 +79,15 @@ describe("init post-init tip", () => {
 
   it("interactive mode prints the /hatch3r-create tip exactly once", async () => {
     const inq = vi.mocked(inquirer.prompt);
-    // Queue all prompts for an interactive minimal flow. C9-H28
-    // (D10-SA10.3-F1) moved features + MCP ahead of the CLI tools picker.
+    // F10.3-2 (D10, P1): the interactive first-run flow is collapsed to the
+    // ≤5-prompt ceiling — platform, identity, preset, tools, and a single
+    // MCP multi-select (empty = none). defaultBranch / projectType / teamSize
+    // / maturity / cliTools are resolved from smart defaults, not prompted.
     inq.mockResolvedValueOnce({ platform: "github" });
     inq.mockResolvedValueOnce({ owner: "o", repo: "r" });
-    inq.mockResolvedValueOnce({ defaultBranch: "main" });
-    inq.mockResolvedValueOnce({ projectType: "brownfield" });
-    inq.mockResolvedValueOnce({ teamSize: "solo" });
-    // F1.1-H1 / F14.3-H1: maturity step (Decision 4 / #16).
-    inq.mockResolvedValueOnce({ maturity: "solo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    // Slice D removed the interactive worktree confirm — auto-enabled when a
-    // worktree-capable tool (claude) is selected.
-    // Slice B: feature checkbox replaced by wantMcp confirm.
-    inq.mockResolvedValueOnce({ wantMcp: false });
-    inq.mockResolvedValueOnce({ tools: [] }); // C9-H28: CLI tools picker follows MCP
+    inq.mockResolvedValueOnce({ mcp: [] });
 
     await initCommand({});
 

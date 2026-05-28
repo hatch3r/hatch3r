@@ -238,6 +238,19 @@ jobs:
         if: matrix.os == 'ubuntu-latest' && matrix.node-version == 22
         run: npm run validate:wiring
 
+      # Cycle 10 H F7.3-H3 (D7): the Phase 4 specialist roster
+      # (src/pipeline/pipelineContext.ts::SPECIALIST_TRIGGER_TABLE, the single
+      # source of truth) must stay in lock-step with every prose/frontmatter
+      # dispatch surface: the orchestration rule's Phase 4 table, the
+      # implementer + reviewer Phase 4 enumerations, each full-pipeline
+      # command's agentPipeline, and an agents/<id>.md file per specialist.
+      # F-1's root cause was adding 9 specialists to the constant while leaving
+      # 0 dispatch surfaces updated; this gate fails the PR when the SSOT and a
+      # surface diverge. Validator: scripts/validate-specialist-roster.ts.
+      - name: Specialist roster drift check
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 22
+        run: npm run validate:specialist-roster
+
       # Audit-state hygiene: finding-registry shape + invariants 1-7 from
       # AUDIT-EXECUTE.md §Finding Registry. Blocking once Phase 3 archival
       # tooling lands (plan-implementing-a-sofficticated-ancient-penguin.md).
