@@ -103,7 +103,7 @@ The `statusFieldId`, `statusOptions`, and `labels` fields are populated automati
     "default": "opus",
     "agents": {
       "hatch3r-lint-fixer": "sonnet",
-      "hatch3r-test-writer": "gemini-pro"
+      "hatch3r-testability": "gemini-pro"
     }
   }
 }

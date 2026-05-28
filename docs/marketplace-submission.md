@@ -2,7 +2,7 @@
 
 This document is the agent-prepared submission package for listing **hatch3r** on the official Anthropic Claude Plugins marketplace (`anthropics/claude-plugins-official`).
 
-> **Status:** PARTIAL (agent portion of audit finding C7-H16 complete). The remaining human portion is to fill out the in-app submission forms linked under "Submission Channels" below.
+> **Status:** PARTIAL — agent portion of audit finding C7-H16 complete (description-count refresh against `governance/inventory.json` re-verified Cycle 10 close-out, 2026-05-28). Human portion remains pending: in-app form submission at https://claude.ai/settings/plugins/submit (see "Submission Channels" below).
 
 ## Submission Channels
 
@@ -22,11 +22,11 @@ The `external_plugins/` PR convention referenced in the original C7-H16 finding 
 
 ### One-line description
 
-Battle-tested agentic coding setup: 30 agents, 43 skills, 55 rules, 23 commands, 6 hooks, and MCP integrations for Claude Code.
+10-cycle-audited agentic coding setup: 30 agents, 43 skills, 56 rules, 23 commands, 6 hooks, and MCP integrations for Claude Code.
 
 ### Long description
 
-hatch3r is an open-source CLI and Claude Code plugin that installs a tool-agnostic agentic coding setup into any repository. One command installs 30 agents, 43 skills, 55 rules, 23 commands, 6 lifecycle hooks, and MCP integrations. Selective install lets users choose only what their project needs (greenfield vs brownfield, solo vs team, minimal/standard/full presets).
+hatch3r is an open-source CLI and Claude Code plugin that installs a tool-agnostic agentic coding setup into any repository. One command installs 30 agents, 43 skills, 56 rules, 23 commands, 6 lifecycle hooks, and MCP integrations. Selective install lets users choose only what their project needs (greenfield vs brownfield, solo vs team, minimal/standard/full presets).
 
 The plugin packages a 4-phase sub-agent pipeline (Research → Implement → Review → Quality) that maps directly to Claude Code Agent Teams, board-management commands for GitHub/Azure DevOps/GitLab, security-audit and accessibility-audit skills, and customization via `.hatch3r/{type}/{id}.customize.yaml` without editing managed files.
 
@@ -76,7 +76,7 @@ The submission requires a valid `.claude-plugin/plugin.json`. The current manife
 ```json
 {
   "name": "hatch3r",
-  "description": "Battle-tested agentic coding setup: 30 agents, 43 skills, 55 rules, 23 commands, 6 hooks, and MCP integrations. Counts derived from governance/inventory.json.",
+  "description": "10-cycle-audited agentic coding setup: 30 agents, 43 skills, 56 rules, 23 commands, 6 hooks, and MCP integrations. Counts derived from governance/inventory.json.",
   "version": "2.0.0",
   "author": {
     "name": "hatch3r",
@@ -118,7 +118,7 @@ If the marketplace later requires a PR to `anthropics/claude-plugins-official/ex
 ```markdown
 ## hatch3r
 
-**Description:** Battle-tested agentic coding setup framework. One command installs 30 agents, 43 skills, 55 rules, 23 commands, 6 hooks, and MCP integrations into any repo.
+**Description:** 10-cycle-audited agentic coding setup framework. One command installs 30 agents, 43 skills, 56 rules, 23 commands, 6 hooks, and MCP integrations into any repo.
 
 **License:** MIT
 **Repository:** https://github.com/hatch3r/hatch3r

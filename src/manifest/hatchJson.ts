@@ -111,6 +111,16 @@ export function createManifest(options: {
    * `{enabled: false, selected: []}`.
    */
   cliTools?: CliToolsConfig;
+  /**
+   * F14.2-H1 (D14): monorepo package layout enumerated by
+   * `detectMonorepoPackages` at init time. Persisted on the manifest so
+   * `hatch3r sync` knows which `<package>/.hatch3r/` targets to refresh
+   * without re-running repo detection. Absence collapses to "no packages"
+   * — sync behaves as a single-package repo. Empty array is treated the
+   * same as absence (preserves manifest byte-identity for non-monorepo
+   * repos).
+   */
+  packages?: PackageEntry[];
 }): HatchManifest {
   const platform = options.platform ?? "github";
   const owner = options.owner ?? "";
@@ -143,6 +153,12 @@ export function createManifest(options: {
   }
   if (options.cliTools) {
     manifest.cliTools = options.cliTools;
+  }
+  // F14.2-H1 (D14): persist the package layout so sync.ts can fan adapter
+  // output into each `<package>/.hatch3r/` without re-running `analyzeRepo`.
+  // Empty/absent collapses to single-package emission (no field written).
+  if (options.packages && options.packages.length > 0) {
+    manifest.packages = options.packages;
   }
   if (options.languages && options.languages.length > 0 && options.languages[0] !== "unknown") {
     manifest.languages = options.languages;

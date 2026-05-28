@@ -1,5 +1,6 @@
 ---
 id: hatch3r-cli-ripgrep
+name: hatch3r-cli-ripgrep
 description: "Fast recursive grep with sane defaults and gitignore awareness. Use when regex content searches across large source trees with gitignore filtering; invoke `rg`. Outputs newline-separated hit records; bound results with `-c` or `--max-count`."
 tags: ["cli-tools", "search", "orchestration"]
 quality_charter: agents/shared/quality-charter.md

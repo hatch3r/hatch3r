@@ -38,9 +38,9 @@ Some agents ship with a default model in their canonical frontmatter, tuned for 
 | `hatch3r-lint-fixer` | `haiku` | Mechanical pattern fixes; speed and low cost matter most |
 | `hatch3r-ci-watcher` | `haiku` | Log parsing and pattern recognition; fast feedback loops |
 | `hatch3r-docs-writer` | `sonnet` | Writing quality and technical accuracy need a capable model |
-| `hatch3r-dependency-auditor` | `sonnet` | Structured CVE/freshness analysis with clear SLAs |
-| `hatch3r-a11y-auditor` | `sonnet` | WCAG standard interpretation requires solid reasoning |
-| `hatch3r-test-writer` | `sonnet` | Edge-case identification and test design need reasoning depth |
+| `hatch3r-security` | `sonnet` | OAuth/OIDC/supply-chain analysis requires solid reasoning |
+| `hatch3r-ui` | `sonnet` | WCAG 2.2 AA + design-token interpretation requires solid reasoning |
+| `hatch3r-testability` | `sonnet` | Edge-case identification and test design need reasoning depth |
 
 Agents without a default use the platform's own default. Override any agent's model via [Model Selection](../guides/model-selection).
 

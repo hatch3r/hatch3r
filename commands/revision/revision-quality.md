@@ -65,8 +65,8 @@ After the review loop is clean, spawn specialist agents in parallel via the Task
 
 ### Always Spawn (Mandatory for Code Changes)
 
-- **`hatch3r-test-writer`** — write or update tests for code changes. Unit tests for new logic, regression tests for bug fixes, integration tests for cross-module changes.
-- **`hatch3r-security-auditor`** — security review of code changes. Audit data flows, access control, input validation, and secret management.
+- **`hatch3r-testability`** (CQ5) — verify tests for code changes meet the mandate map / coverage floor. Unit tests for new logic, regression tests for bug fixes, integration tests for cross-module changes.
+- **`hatch3r-security`** (CQ3) — security review of code changes. Audit data flows, access control, input validation, and secret management.
 
 ### Always Evaluate (Spawn When Applicable)
 
@@ -75,13 +75,13 @@ After the review loop is clean, spawn specialist agents in parallel via the Task
 ### Conditional Specialists (Spawn When Triggered)
 
 - **`hatch3r-lint-fixer`** — spawn when lint errors are present after fix implementation (Step 6 lint-fixer may have missed errors introduced by other sub-agents).
-- **`hatch3r-a11y-auditor`** — spawn when the diff includes UI component changes (`area:ui` or `area:a11y` label on linked issues, or component/style files in the diff).
-- **`hatch3r-perf-profiler`** — spawn when the diff includes hot-path changes (`area:performance` label on linked issues, or changes to database queries, API handlers, rendering loops).
+- **`hatch3r-ui`** (CQ1) — spawn when the diff includes UI component changes (`area:ui` or `area:a11y` label on linked issues, or component/style files in the diff).
+- **`hatch3r-performance`** (CQ7) — spawn when the diff includes hot-path changes (`area:performance` label on linked issues, or changes to database queries, API handlers, rendering loops).
 
 ### Specialist Prompt Requirements
 
 Each specialist sub-agent prompt MUST include:
-- The agent protocol to follow (e.g., "Follow the hatch3r-test-writer agent protocol").
+- The agent protocol to follow (e.g., "Follow the hatch3r-testability agent protocol").
 - All `scope: always` rule directives from `rules/` (sub-agents do not inherit rules automatically).
 - The diff or file changes to review.
 - The linked issue's acceptance criteria (if available).

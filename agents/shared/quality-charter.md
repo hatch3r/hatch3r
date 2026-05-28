@@ -258,6 +258,6 @@ When an agent produces an auth flow — sign-in, token exchange, session handlin
 - **MFA per NIST 800-63B-4 AAL:** authenticator strength matches the assurance level the resource requires; phishing-resistant authenticator for AAL3.
 - **RBAC/ABAC/ReBAC rubric:** authorization model is chosen with a documented rubric — RBAC for static roles, ABAC for attribute-driven decisions, ReBAC for relationship-driven systems (Zanzibar-class) — and the choice is justified in an ADR.
 - **WebAuthn server-side ceremony:** passkey flows implement the server-side ceremony in full (challenge generation, RP ID binding, attestation verification, sign-count monotonicity, transports). Reference `rules/hatch3r-passkey-server.md`.
-- **Verification gate:** a feature is not done until `agents/hatch3r-security-auditor.md` confirms OAuth 2.1 + OIDC validation + DPoP + cookie flags + MFA AAL alignment + RBAC/ABAC/ReBAC choice documented + WebAuthn server-side complete.
+- **Verification gate:** a feature is not done until `agents/hatch3r-security.md` (CQ3) confirms OAuth 2.1 + OIDC validation + DPoP + cookie flags + MFA AAL alignment + RBAC/ABAC/ReBAC choice documented + WebAuthn server-side complete.
 
 Cross-reference: AUDIT Directive 16 (h), CONSTITUTION §2 P2 production-readiness measurement (auth depth coverage = 100%), forthcoming D22.

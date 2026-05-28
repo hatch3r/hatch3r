@@ -51,13 +51,21 @@ const CONTENT_DIRS: { dir: string; type: string; strategy: "glob" | "subdirector
   { dir: "github-agents", type: "github-agent", strategy: "glob" },
 ];
 
-// Agents required by the orchestration pipeline
+// Agents required by the orchestration pipeline ("Always" in Agent Roster).
+// F16.3-H1 (Cycle 10 Wave 1C): the legacy test-writer + security-auditor
+// always-mode roles collapsed into the CQ specialists. Only currently-
+// protected + full-preset-admitted CQ agents (hatch3r-security at CQ3)
+// are listed here; hatch3r-testability (CQ5) carries the always-mode
+// floor in SPECIALIST_TRIGGER_TABLE but currently ships as
+// `tier:enterprise-only` without `protected: true`, so it is gated out
+// of the default full preset and is not yet appropriate to enforce in
+// the strict-orchestration roster. The always-mode behaviour is still
+// enforced at orchestrator runtime via SPECIALIST_TRIGGER_TABLE.
 const ORCHESTRATION_AGENTS = [
   "hatch3r-researcher",
   "hatch3r-implementer",
   "hatch3r-reviewer",
-  "hatch3r-test-writer",
-  "hatch3r-security-auditor",
+  "hatch3r-security",
 ];
 
 // The canonical 5-level severity scale

@@ -42,7 +42,7 @@ For Tier 2/3: cache researcher output (reference conventions, blast radius data)
 |-----------------|-----------|----------|
 | Bugs, missing features, error handling, logic fixes | `hatch3r-implementer` | hatch3r-implementer agent protocol |
 | Dead code, unused imports, type fixes, lint errors | `hatch3r-lint-fixer` | hatch3r-lint-fixer agent protocol |
-| Missing tests, insufficient coverage | `hatch3r-test-writer` | hatch3r-test-writer agent protocol |
+| Missing tests, insufficient coverage | `hatch3r-testability` | hatch3r-testability agent protocol |
 
 ### Blast-Radius-Aware Grouping
 

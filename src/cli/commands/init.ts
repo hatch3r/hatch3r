@@ -15,6 +15,7 @@ import {
   type PreservedManifestFields,
 } from "../../manifest/hatchJson.js";
 import { filterMcpJsonOnDisk } from "../../manifest/mcpFilter.js";
+import { rehydrateCustomization } from "../../manifest/rehydrate.js";
 import { migrateAgentsToHatch3r } from "../../migration/agentsToHatch3r.js";
 import { safeWriteFile } from "../../merge/safeWrite.js";
 import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
@@ -42,6 +43,7 @@ import { analyzeRepo } from "../../detect/repoAnalyzer.js";
 import { detectProjectType } from "../../detect/projectType.js";
 import { ensureEnvMcp, ensureGitignoreEntry, getSourceEnvMcpCommand } from "../../env/mcpEnv.js";
 import { resolveBundledContentRoot } from "../../content/contentRoot.js";
+import { planPerPackageOutputs } from "../../content/monorepoEmission.js";
 import {
   printBanner,
   createSpinner,
@@ -549,6 +551,10 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
       testFrameworks: repoInfo.testFrameworks,
       ciProviders: repoInfo.ciProviders,
     },
+    // F14.2-H1 (D14): persist enumerated monorepo packages so sync.ts knows
+    // which `<package>/.hatch3r/` targets to refresh without re-detecting
+    // the workspace layout.
+    packages: repoInfo.packages,
     worktreeEnabled,
     customization: effectiveCustomization,
     cliTools,
@@ -575,6 +581,18 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     manifest.maturity = existingManifest.maturity;
   }
   s2.succeed(step(2, totalSteps, "Manifest prepared"));
+
+  // F2.3-H1 (Cycle 10 Phase B Wave 1A): materialize Layer-4 manifest
+  // customization payload into Layer-2 `.customize.yaml` files when the YAML
+  // is absent. `applyCustomizationImpl` only reads Layer 2 (yaml) and Layer 3
+  // (md) — without this step, manifest.customization round-trips through
+  // `clean` → reinit but never re-emerges at the adapter boundary
+  // (JSDoc-promised but un-implemented Layer-4 read). See
+  // `src/manifest/rehydrate.ts` for the rationale and idempotency guarantee.
+  // Existing `.customize.yaml` files are preserved (Layer 2 wins by
+  // precedence; this is a Layer-4 fallback).
+  const rehydration = await rehydrateCustomization(rootDir, manifest.customization);
+  for (const w of rehydration.warnings) { warn(w); }
 
   const s3 = createSpinner(
     step(3, totalSteps, `Generating ${tools.map((t) => TOOL_DISPLAY_NAMES[t] ?? t).join(", ")} output...`),
@@ -659,6 +677,16 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
       mutationPaths.push(join(rootDir, out.path));
     }
   }
+  // F14.2-H1: include per-package emission targets in the pre-mutation
+  // snapshot so `hatch3r rollback --session=<id>` can revert them too.
+  if (manifest.packages && manifest.packages.length > 0) {
+    for (const pa of pendingAdapters) {
+      const perPackage = planPerPackageOutputs(manifest.packages, pa.outputs);
+      for (const p of perPackage) {
+        mutationPaths.push(join(rootDir, p.output.path));
+      }
+    }
+  }
   if (manifest.worktree?.enabled) {
     mutationPaths.push(join(rootDir, WORKTREE_INCLUDE_FILE));
   }
@@ -692,6 +720,38 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     }
     manifest.managedFilesByAdapter[pa.tool] = toolPaths;
   }
+
+  // F14.2-H1 (D14): per-package emission for monorepo roots. When
+  // `manifest.packages` is non-empty we additionally write each adapter's
+  // output into every `<package>/.hatch3r/<rel>` so a developer working
+  // inside a package sub-directory has tool context materialised adjacent
+  // to the package. The root emission above remains the primary surface;
+  // per-package copies are additive. Failures on a per-package write are
+  // routed through `warn` so a permissions issue on one package does not
+  // abort the init (Silent Failure Contract — CONSTITUTION §2 P5).
+  if (manifest.packages && manifest.packages.length > 0) {
+    for (const pa of pendingAdapters) {
+      const perPackage = planPerPackageOutputs(manifest.packages, pa.outputs);
+      const existingPaths = new Set<string>(manifest.managedFilesByAdapter[pa.tool] ?? []);
+      for (const p of perPackage) {
+        try {
+          await safeWriteFile(join(rootDir, p.output.path), p.output.content, {
+            managedContent: p.output.managedContent,
+            appendIfNoBlock: true,
+          });
+          addManagedFile(manifest, p.output.path);
+          existingPaths.add(p.output.path);
+        } catch (err) {
+          warn(
+            `init: per-package emission failed for ${pa.tool} -> ${p.output.path} ` +
+              `(package ${p.packageName}): ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
+      manifest.managedFilesByAdapter[pa.tool] = [...existingPaths];
+    }
+  }
+
   s3.succeed(step(3, totalSteps, adapterFailures.length > 0
     ? `Adapter output generated (${adapterFailures.length} failed)`
     : "Adapter output generated"));

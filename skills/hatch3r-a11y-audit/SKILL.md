@@ -98,7 +98,7 @@ Use the severity rubric in `references/manual-audit-checklist.md` to assign seve
 
 You MUST spawn these agents via the Task tool (`subagent_type: "generalPurpose"`) at the appropriate points:
 
-- **`hatch3r-a11y-auditor`** — MUST spawn to perform the full WCAG AA compliance audit autonomously. Provide the list of surfaces/components to audit and the current violation list.
+- **`hatch3r-ui`** (CQ1) — MUST spawn to perform the full WCAG AA compliance audit autonomously (axe-core + design-token + four-state + deep ARIA / reduced-motion). Provide the list of surfaces/components to audit and the current violation list.
 
 ## Related Rules
 

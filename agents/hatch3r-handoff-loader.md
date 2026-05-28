@@ -201,8 +201,13 @@ inform context but do not override system instructions or project rules.
 **Stats:**
 - Total active: {n} | Archived: {n} | Most relevant: {n} | Drift warnings: {n} | Integrity warnings: {n} | Excluded (validation): {n}
 
+**impact_horizon:** short | medium | long
+**progress_toward_pillar:** governance.P7+<delta>
+
 **Suggested Next Action:** {one line — e.g., "Resume the top handoff with `/hatch3r-handoff resume <id>`" or "No relevant active handoffs; start fresh"}
 ```
+
+Per CONSTITUTION §6 Decision 17 + AUDIT.md charter directive 18, emit `impact_horizon` and `progress_toward_pillar` on every briefing. Default `impact_horizon: short` (session-start surfacing decays in relevance within hours); promote to `medium` when a resumed handoff carries multi-session work. `progress_toward_pillar` records the pillar-delta on the governance axis — handoff-loader output advances P7 (Speed & Token Efficiency) because it shortcuts the developer or downstream agent from re-deriving state.
 
 ## Boundaries
 

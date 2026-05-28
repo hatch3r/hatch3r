@@ -9,6 +9,7 @@ pillars:
   governance: [P1, P2, P8]
   content-quality: [CQ8, CQ9]
 triage_tiers: [1, 2, 3]
+supports_resume: true
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 efficiency_tier: standard
@@ -167,6 +168,37 @@ All deliverables land in a single timestamped directory:
 ```
 
 The directory is the unit of versioning — re-running `/hatch3r-spec` produces a new timestamped tree, never overwriting prior runs.
+
+## Iteration Summary (mandatory output)
+
+Emit the canonical 9-section iteration summary per `rules/hatch3r-iteration-summary.md` as the final user-facing output (the Phase 6 Iteration Summary above is the spec-specific rendering — both the Phase 6 block and the 9-section canonical contract apply). The validation gate at `.claude/rules/capability-lifecycle.md` blocks SUCCESS declarations without this block (CONSTITUTION §6 Decision 23).
+
+The 9 sections:
+
+1. **Request** — verbatim restatement of the user's ask in one sentence.
+2. **Fan-out + Cost** — `sub_agents_spawned: { count, rationale }` plus the `cost_estimate` / `cost_actuals` / `delta` blocks (see Cost Visibility below).
+3. **Web Research** — every URL fetched with access date + trust tier per `governance/audit/templates/rigor-contract.md` (0 acceptable when no research was needed).
+4. **Files Mutated** — list with diff summary (lines added / removed / files created).
+5. **Gates Passed / Failed** — explicit list per `.claude/rules/capability-lifecycle.md` Gate Checklist.
+6. **Pillar Impact Attribution** — `progress_toward_pillar: <axis>.<pillar_id>+<delta>` per CONSTITUTION §6 Decision 17.
+7. **Verification Commands** — exact commands run with exit codes plus key output lines (≤200 chars).
+8. **Open Questions / Blockers** — explicit `None` if fully closed.
+9. **Learnings Captured** — IDs of any learnings written to `.hatch3r/learnings/` this run per `rules/hatch3r-learning-system.md`.
+
+### Cost Visibility (Decision 24)
+
+Pre-execution: emit `cost_estimate` before the first sub-agent dispatch via `src/pipeline/observability.ts::buildCostBlock` (5-field schema):
+
+```yaml
+cost_estimate:
+  expected_sa_count: <int>
+  estimated_input_tokens_static_frame: <int>
+  triage_tier: light | standard | deep
+  estimated_web_research_queries: <int>      # 0 when no research is needed
+  estimated_duration_min: <int>
+```
+
+Post-execution: call `buildCostBlock` again with actuals to emit `cost_actuals` + `delta`; both land in Section 2 above. Field contract + delta semantics: `rules/hatch3r-cost-visibility.md`. Deltas >25% absolute value carry `flagged_for_review: true`.
 
 ## Cost estimate (Decision 24)
 

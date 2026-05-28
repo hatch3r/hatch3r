@@ -527,6 +527,21 @@ export interface RepoInfo {
   testFrameworks?: string[];
   /** D14 Medium (#14.7): Detected CI provider(s). */
   ciProviders?: string[];
+  /**
+   * F14.2-H1 (D14): Enumerated monorepo package directories resolved from the
+   * package manager's workspace globs (pnpm-workspace.yaml `packages:`,
+   * package.json `workspaces`, lerna.json `packages`). Populated by
+   * `analyzeRepo` via {@link detectMonorepoPackages} when `isMonorepo` is true
+   * and at least one glob resolves to a `package.json`-bearing directory.
+   * Absent / empty when the repo is single-package or the workspace globs
+   * resolve to zero candidate directories.
+   *
+   * Consumed by `init`/`sync` to fan adapter outputs into each
+   * `<package>/.hatch3r/` so per-package tool context files reflect the
+   * canonical content set without forcing the user to re-run init in every
+   * sub-directory.
+   */
+  packages?: PackageEntry[];
 }
 
 export const MANAGED_BLOCK_START = "<!-- HATCH3R:BEGIN -->";

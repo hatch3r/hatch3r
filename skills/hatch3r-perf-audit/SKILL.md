@@ -118,7 +118,7 @@ npm run build
 
 You MUST spawn these agents via the Task tool (`subagent_type: "generalPurpose"`) at the appropriate points:
 
-- **`hatch3r-perf-profiler`** — MUST spawn to perform autonomous performance profiling and optimization. Provide the target areas, budget thresholds, and baseline measurements.
+- **`hatch3r-performance`** (CQ7) — MUST spawn to perform autonomous performance profiling and optimization (CWV, p95/p99, bundle-size, N+1, hot-path analysis). Provide the target areas, budget thresholds, and baseline measurements.
 
 ## Related Rules
 

@@ -306,13 +306,13 @@ describe("explainCommand", () => {
   });
 
   it("--customizations: reports a failed row when enabled: false is set on a protected/floor artifact", async () => {
-    // hatch3r-security-auditor is protected + floor:security-tagged in the
+    // hatch3r-security is protected + floor:security-tagged in the
     // canonical content. enabled: false on it must be rejected by
     // applyCustomization (F2.3-C1) and surface as a `failed` outcome.
     const customDir = join(tempDir, ".hatch3r", "agents");
     await mkdir(customDir, { recursive: true });
     await writeFile(
-      join(customDir, "hatch3r-security-auditor.customize.yaml"),
+      join(customDir, "hatch3r-security.customize.yaml"),
       "enabled: false\n",
       "utf-8",
     );
@@ -321,7 +321,7 @@ describe("explainCommand", () => {
     await explainCommand({ customizations: true });
 
     const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
-    expect(output).toContain("hatch3r-security-auditor");
+    expect(output).toContain("hatch3r-security");
     expect(output).toContain("failed");
     expect(output).toMatch(/[1-9]\d* failed/);
   });

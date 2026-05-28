@@ -60,7 +60,7 @@ Unknown values are passed through as-is.
     "default": "opus",
     "agents": {
       "hatch3r-lint-fixer": "sonnet",
-      "hatch3r-test-writer": "gemini-pro"
+      "hatch3r-testability": "gemini-pro"
     }
   }
 }
@@ -96,11 +96,11 @@ Some agents ship with a default model in their canonical frontmatter. These defa
 | `hatch3r-lint-fixer` | `haiku` | Mechanical pattern fixes; speed and low cost |
 | `hatch3r-ci-watcher` | `haiku` | Log parsing and pattern recognition; fast feedback |
 | `hatch3r-docs-writer` | `sonnet` | Writing quality and technical accuracy |
-| `hatch3r-dependency-auditor` | `sonnet` | Structured CVE/freshness analysis |
-| `hatch3r-a11y-auditor` | `sonnet` | WCAG standard interpretation |
-| `hatch3r-test-writer` | `sonnet` | Edge-case identification and test design |
+| `hatch3r-security` | `sonnet` | OAuth/OIDC/supply-chain analysis |
+| `hatch3r-ui` | `sonnet` | WCAG 2.2 AA + design-token interpretation |
+| `hatch3r-testability` | `sonnet` | Edge-case identification and test design |
 
-Agents without a default (`hatch3r-implementer`, `hatch3r-researcher`, `hatch3r-reviewer`, `hatch3r-security-auditor`, `hatch3r-perf-profiler`) use the platform's own default.
+Agents without a default (`hatch3r-implementer`, `hatch3r-researcher`, `hatch3r-reviewer`, `hatch3r-performance`) use the platform's own default.
 
 Override at any higher precedence level:
 

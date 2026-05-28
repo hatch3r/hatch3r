@@ -68,13 +68,13 @@ describe("workspace resolve", () => {
     it("adds content IDs from include", () => {
       const overrides: WorkspaceRepoOverrides = {
         contentOverrides: {
-          include: ["hatch3r-security-auditor", "hatch3r-a11y-audit"],
+          include: ["hatch3r-security", "hatch3r-a11y-audit"],
         },
       };
       const result = resolveRepoConfig(defaults, overrides);
-      expect(result.contentIds.has("hatch3r-security-auditor")).toBe(true);
+      expect(result.contentIds.has("hatch3r-security")).toBe(true);
       expect(result.contentIds.has("hatch3r-a11y-audit")).toBe(true);
-      expect(result.addedContent).toContain("hatch3r-security-auditor");
+      expect(result.addedContent).toContain("hatch3r-security");
       expect(result.addedContent).toContain("hatch3r-a11y-audit");
     });
 
@@ -104,12 +104,12 @@ describe("workspace resolve", () => {
     it("handles include and exclude together", () => {
       const overrides: WorkspaceRepoOverrides = {
         contentOverrides: {
-          include: ["hatch3r-security-auditor"],
+          include: ["hatch3r-security"],
           exclude: ["hatch3r-feature"],
         },
       };
       const result = resolveRepoConfig(defaults, overrides);
-      expect(result.contentIds.has("hatch3r-security-auditor")).toBe(true);
+      expect(result.contentIds.has("hatch3r-security")).toBe(true);
       expect(result.contentIds.has("hatch3r-feature")).toBe(false);
     });
 

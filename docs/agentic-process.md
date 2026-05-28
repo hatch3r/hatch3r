@@ -114,8 +114,8 @@ flowchart TB
     end
 
     subgraph quality["Final Quality (parallel)"]
-        tests["hatch3r-test-writer\nUnit, integration,\nE2E tests"]
-        security["hatch3r-security-auditor\nOWASP, privacy,\nentitlements"]
+        tests["hatch3r-testability\nUnit, integration,\nE2E tests"]
+        security["hatch3r-security\nOWASP, privacy,\nentitlements"]
     end
 
     pr["Create Pull Request\n• Label transitions\n• Projects V2 sync\n• Board status update"]

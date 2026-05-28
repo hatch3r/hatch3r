@@ -51,6 +51,8 @@ Every image carries a CycloneDX 1.6 SBOM, generated at build time and either emb
 
 ## Image Signing — cosign
 
+> Maturity tier: team+ — solo projects with no external consumers may defer signing. Cosign keyless + admission enforcement becomes mandatory once images are pulled by anyone outside the build pipeline.
+
 Every image is signed with cosign keyless mode via OIDC. Sigstore Fulcio issues a short-lived signing certificate scoped to the workflow identity; Rekor records the signature for tamper-evident audit.
 
 - Sign in CI: `cosign sign --yes <registry>/<image>@<digest>`. Workflow grants `id-token: write` permission; no long-lived signing key.
@@ -58,6 +60,8 @@ Every image is signed with cosign keyless mode via OIDC. Sigstore Fulcio issues 
 - Admission enforcement: Sigstore Policy Controller (native admission with CUE or Rego), Kyverno (`verifyImages` rule), or OPA Gatekeeper + Ratify. Unsigned images rejected at admission, not just warned.
 
 ## CVE Scanning in CI
+
+> Maturity tier: team+ — solo projects may run a single scanner ad hoc. Two-scanner CI gating with suppression lifecycle earns its cost once a team owns the release pipeline.
 
 Two scanners are run per image build: `trivy` for breadth (Wolfi advisory database, OS+language deps) and `grype` for Chainguard parity. Release is blocked on unpatched Critical or High CVEs without a documented suppression record.
 
@@ -75,6 +79,8 @@ The same digest-not-tag rule extends beyond `FROM` lines to every place the imag
 - Pull policy: `imagePullPolicy: IfNotPresent` (digests are immutable so pull-once is safe); `Always` is only required when tags are used.
 
 ## Reproducible Builds
+
+> Maturity tier: scaleup+ — team projects may defer the `repro-build` verification step until a compliance or supply-chain audit requests it. Solo and team projects still pin syntax + package versions; the digest-comparison gate is the scaleup add.
 
 Build inputs are pinned so the same `git checkout` produces the same image digest.
 
@@ -110,6 +116,8 @@ Runtime image targets under 200 MB compressed. Builds exceeding 500 MB compresse
 
 ## Verification Gate at Release
 
+> Maturity tier: team+ — solo projects may defer the full five-gate release block. The non-root + digest-pin gates remain mandatory at every tier; cosign verification, dual-scanner thresholds, and SBOM attachment fire once a team owns admission policy.
+
 Every release pipeline executes the following gates before publish, all green:
 
 - `cosign verify` against the workflow OIDC identity.
@@ -118,7 +126,7 @@ Every release pipeline executes the following gates before publish, all green:
 - Pod spec runs as non-root (`runAsNonRoot: true`), read-only root filesystem, dropped capabilities.
 - SBOM attached and downloadable via `cosign download sbom`.
 
-Cross-reference `agents/hatch3r-security-auditor.md` for runtime security audit; `agents/hatch3r-devops.md` for delivery integration; `rules/hatch3r-secrets-management.md` for OIDC trust-policy conditions; `rules/hatch3r-dependency-management.md` for SBOM tooling and SLSA provenance.
+Cross-reference `agents/hatch3r-security.md` (CQ3) for runtime security audit; `agents/hatch3r-devops.md` for delivery integration; `rules/hatch3r-secrets-management.md` for OIDC trust-policy conditions; `rules/hatch3r-dependency-management.md` for SBOM tooling and SLSA provenance.
 
 ## References
 

@@ -169,16 +169,18 @@ describe("validate-specialist-roster", () => {
   // ── Command agentPipeline drift ────────────────────────────────
 
   it("ERRORs when a full-pipeline command drops an always-mode specialist", async () => {
+    // F16.3-H1 (Cycle 10 Wave 1C): always-mode floor moved from
+    // legacy security-auditor to CQ3 hatch3r-security; assertion follows.
     const wfPath = join(fx.rootDir, "commands", "hatch3r-workflow.md");
     const { readFile } = await import("node:fs/promises");
     const body = await readFile(wfPath, "utf-8");
-    const stripped = body.replace("hatch3r-security-auditor, ", "");
+    const stripped = body.replace("hatch3r-security, ", "");
     expect(stripped).not.toBe(body);
     await writeFile(wfPath, stripped, "utf-8");
 
     const r = await runValidator({ rootDir: fx.rootDir });
     const miss = r.findings.find(
-      (f) => f.code === "ROSTER-CMD-MISSING" && f.message.includes("hatch3r-security-auditor"),
+      (f) => f.code === "ROSTER-CMD-MISSING" && f.message.includes("hatch3r-security"),
     );
     expect(miss).toBeDefined();
     expect(miss?.file).toBe("commands/hatch3r-workflow.md");
@@ -211,10 +213,12 @@ describe("validate-specialist-roster", () => {
   });
 
   it("ERRORs when quick-change drops an always-mode specialist (floor still enforced)", async () => {
+    // F16.3-H1 (Cycle 10 Wave 1C): always-mode floor moved from legacy
+    // test-writer to CQ5 hatch3r-testability; assertion follows.
     const qcPath = join(fx.rootDir, "commands", "hatch3r-quick-change.md");
     const { readFile } = await import("node:fs/promises");
     const body = await readFile(qcPath, "utf-8");
-    const stripped = body.replace("hatch3r-test-writer, ", "");
+    const stripped = body.replace("hatch3r-testability, ", "");
     expect(stripped).not.toBe(body);
     await writeFile(qcPath, stripped, "utf-8");
 
@@ -223,7 +227,7 @@ describe("validate-specialist-roster", () => {
       (f) =>
         f.file === "commands/hatch3r-quick-change.md" &&
         f.code === "ROSTER-CMD-MISSING" &&
-        f.message.includes("hatch3r-test-writer"),
+        f.message.includes("hatch3r-testability"),
     );
     expect(miss).toBeDefined();
   });

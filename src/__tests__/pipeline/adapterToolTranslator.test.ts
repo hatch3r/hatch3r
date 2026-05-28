@@ -56,14 +56,12 @@ describe("adapterToolTranslator", () => {
       expect(fm).toContain("Bash");
     });
 
-    it("emits Bash for the security-auditor (read+search+execute, no write)", () => {
-      const fm = toClaudeToolsFrontmatter("hatch3r-security-auditor");
-      expect(fm).not.toBeNull();
-      expect(fm).toContain("Read");
-      expect(fm).toContain("Bash");
-      expect(fm).not.toContain("Write");
-      expect(fm).not.toContain("Edit");
-    });
+    // F16.3-H1 (Cycle 10 Wave 1C): the legacy security-auditor agent was
+    // retired; CQ3 hatch3r-security is review-only (read+search) per its
+    // §Boundaries section, so the historical "execute without write" mid-tier
+    // policy no longer exists. The privilege-mode tests covered by this case
+    // are exercised on read-only/implementer ends of the spectrum elsewhere
+    // in this file.
   });
 
   describe("toCopilotToolsFrontmatter", () => {
@@ -115,9 +113,10 @@ describe("adapterToolTranslator", () => {
       expect(toCursorReadonlyFrontmatter("hatch3r-implementer")).toBe(false);
     });
 
-    it("returns false for security-auditor (has execute)", () => {
-      expect(toCursorReadonlyFrontmatter("hatch3r-security-auditor")).toBe(false);
-    });
+    // F16.3-H1 (Cycle 10 Wave 1C): legacy security-auditor retired; the CQ
+    // security agent is review-only (read+search), so it now reports readonly
+    // = true. The "returns false for an agent with execute" path is covered
+    // by the implementer assertion above.
   });
 
   describe("monotonic-privilege invariant (regression guard for F15.5-01)", () => {

@@ -69,13 +69,19 @@ const CONTENT_DIRS: ContentDirConfig[] = [
 // Source: `.audit-workspace/council-D-architect.md` §4 (Council D Architect).
 
 const RETAG_MAP: Record<string, string[]> = {
-  // ── Agents (19) ─────────────────────────────────────────────────
-  "hatch3r-a11y-auditor":        ["review", "floor:ui-ux", "a11y"],
+  // ── Agents (19 originally; 14 after F16.3-H1 cycle 10 Wave 1C) ─────
+  //
+  // F16.3-H1 (Cycle 10 Wave 1C): the 5 legacy meta-agents
+  // (hatch3r-a11y-auditor, hatch3r-dependency-auditor, hatch3r-perf-profiler,
+  // hatch3r-security-auditor, hatch3r-test-writer) were retired into the CQ
+  // specialists. Their original Wave-2 retag entries are removed from this map
+  // because the underlying agent files no longer exist — the migration script
+  // walks the filesystem, so the map entries became unreachable. Historical
+  // tags for those agents survive in git history.
   "hatch3r-architect":           ["planning"], // unchanged — explicit for completeness
   "hatch3r-ci-watcher":          ["devops"], // unchanged
   "hatch3r-context-rules":       ["orchestration", "maintenance"],
   "hatch3r-creator":             ["orchestration", "customize"],
-  "hatch3r-dependency-auditor":  ["maintenance", "floor:security"],
   "hatch3r-devops":              ["devops"], // unchanged
   "hatch3r-docs-writer":         ["maintenance"], // unchanged
   "hatch3r-fixer":               ["implementation", "floor:protocol"],
@@ -84,11 +90,8 @@ const RETAG_MAP: Record<string, string[]> = {
   "hatch3r-implementer":         ["implementation", "floor:protocol"],
   "hatch3r-learnings-loader":    ["orchestration", "maintenance"],
   "hatch3r-lint-fixer":          ["implementation", "orchestration"],
-  "hatch3r-perf-profiler":       ["review", "performance"],
   "hatch3r-researcher":          ["planning", "floor:protocol"],
   "hatch3r-reviewer":            ["review", "floor:protocol"],
-  "hatch3r-security-auditor":    ["review", "floor:security"],
-  "hatch3r-test-writer":         ["review", "floor:protocol"],
 
   // ── Skills (63 — only those whose tags change) ─────────────────
   "hatch3r-a11y-audit":               ["review", "floor:ui-ux", "a11y"],

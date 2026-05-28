@@ -1,5 +1,6 @@
 ---
 id: hatch3r-release
+name: hatch3r-release
 description: Cut a release with version bump, changelog, tagging, and deploy verification. Use when preparing a release, cutting a version, or deploying to production.
 tags: [devops]
 quality_charter: agents/shared/quality-charter.md

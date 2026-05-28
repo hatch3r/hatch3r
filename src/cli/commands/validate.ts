@@ -1,5 +1,6 @@
 import { readdir, readFile, access, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { dirname, join, posix } from "node:path";
 import { fileURLToPath } from "node:url";
 import chalk from "chalk";
@@ -33,13 +34,19 @@ import {
   verbose,
 } from "../shared/ui.js";
 
-// Default fallback set; overridden by manifest.content when available
+// Default fallback set; overridden by manifest.content when available.
+// F16.3-H1 (Cycle 10 Wave 1C): the 5 legacy meta-agents (a11y-auditor,
+// dependency-auditor, perf-profiler, security-auditor, test-writer) were
+// retired into the 9 CQ specialists (ui/ux/security/reliability/testability/
+// scalability/performance/maintainability/enhancability) plus the 2 spec
+// agents (greenfield-spec, brownfield-spec) per agents/ inventory.
 const DEFAULT_KNOWN_AGENTS = new Set([
-  "hatch3r-a11y-auditor", "hatch3r-architect", "hatch3r-ci-watcher", "hatch3r-context-rules",
-  "hatch3r-dependency-auditor", "hatch3r-devops", "hatch3r-docs-writer", "hatch3r-fixer",
-  "hatch3r-handoff-loader", "hatch3r-handoff-preparer",
-  "hatch3r-implementer", "hatch3r-learnings-loader", "hatch3r-lint-fixer", "hatch3r-perf-profiler",
-  "hatch3r-researcher", "hatch3r-reviewer", "hatch3r-security-auditor", "hatch3r-test-writer",
+  "hatch3r-architect", "hatch3r-brownfield-spec", "hatch3r-ci-watcher", "hatch3r-context-rules",
+  "hatch3r-creator", "hatch3r-devops", "hatch3r-docs-writer", "hatch3r-enhancability",
+  "hatch3r-fixer", "hatch3r-greenfield-spec", "hatch3r-handoff-loader", "hatch3r-handoff-preparer",
+  "hatch3r-implementer", "hatch3r-learnings-loader", "hatch3r-lint-fixer", "hatch3r-maintainability",
+  "hatch3r-performance", "hatch3r-reliability", "hatch3r-researcher", "hatch3r-reviewer",
+  "hatch3r-scalability", "hatch3r-security", "hatch3r-testability", "hatch3r-ui", "hatch3r-ux",
 ]);
 
 export interface ValidationResult {
@@ -1753,6 +1760,132 @@ function emitJson(output: ValidateJsonOutput): void {
   process.stdout.write(JSON.stringify(output) + "\n");
 }
 
+/**
+ * F1.4-H2 (Cycle 10 Wave 1E close-out, D1, P1+P5): execute a sub-validator
+ * script under `<packageRoot>/scripts/` via `spawnSync("npx", ["tsx", path])`
+ * and fold its findings into the shared `ValidationResult`. Sub-validators
+ * exit non-zero on error, zero on pass; their stdout/stderr is captured and,
+ * on failure, the first non-empty line is surfaced as the error message with
+ * the full transcript appended in verbose mode.
+ *
+ * The wrapper is gated on script presence: published npm bundles ship only
+ * `dist/` (per package.json `files`), so `scripts/` is absent in consumer
+ * repos. In that case the sub-validator is silently skipped — these checks
+ * are framework-dev invariants, not consumer-repo gates. A verbose log line
+ * records the skip so the omission is observable.
+ *
+ * Why spawnSync (not import): the existing sub-validator scripts call
+ * `process.exit(1)` directly from their `main()` and `.catch()` paths (see
+ * `validate-rule-parity.ts:342`, `validate-efficiency-invariants.ts:581`).
+ * An in-process import would terminate the whole `hatch3r validate` process
+ * mid-run, losing every subsequent check's findings. Spawning isolates the
+ * exit semantics.
+ */
+function runSubValidator(
+  scriptPath: string,
+  scriptLabel: string,
+  result: ValidationResult,
+): void {
+  if (!existsSync(scriptPath)) {
+    verbose(
+      `validate: sub-validator ${scriptLabel} skipped — ${scriptPath} not present (consumer-repo install, expected)`,
+    );
+    return;
+  }
+
+  const child = spawnSync("npx", ["tsx", scriptPath], {
+    encoding: "utf-8",
+    stdio: ["ignore", "pipe", "pipe"],
+    cwd: dirname(dirname(scriptPath)),
+  });
+
+  if (child.error) {
+    result.warnings.push(
+      `Sub-validator ${scriptLabel} failed to launch (${child.error.message}) — ` +
+        `verify Node.js + tsx are installed and re-run \`npx hatch3r validate\``,
+    );
+    return;
+  }
+
+  const stdout = (child.stdout ?? "").trim();
+  const stderr = (child.stderr ?? "").trim();
+  const status = child.status ?? 0;
+
+  if (status === 0) {
+    // On pass, the script prints a one-line summary to stdout (e.g.
+    // "validate:rule-parity: 14 pairs checked, 0 drift"). Surface it in
+    // verbose mode so operators see the coverage even on green runs.
+    if (stdout) verbose(`${scriptLabel}: ${stdout.split("\n")[0]}`);
+    return;
+  }
+
+  // Non-zero exit: fold the first non-empty stderr/stdout line into warnings[]
+  // (not errors[]) so a single `hatch3r validate` surfaces the failure summary
+  // for operator visibility without failing validate-command when the cwd is
+  // a user-content sandbox missing the canonical content tree. Append the full
+  // transcript as a verbose log line so --verbose preserves detail.
+  const firstLine =
+    [...stderr.split("\n"), ...stdout.split("\n")]
+      .map((l) => l.trim())
+      .find((l) => l.length > 0) ?? `${scriptLabel} exited with status ${status}`;
+  result.warnings.push(`${scriptLabel} reported issues: ${firstLine}`);
+  const transcript = [stderr, stdout].filter((s) => s.length > 0).join("\n");
+  if (transcript) {
+    verbose(`${scriptLabel} transcript:\n${transcript}`);
+  }
+}
+
+/**
+ * F1.4-H2 (Cycle 10 Wave 1E close-out, D1, P5): rule-parity sub-validators.
+ * Mirrors `npm run validate:rule-parity` from package.json — runs both
+ * `validate-rule-parity.ts` (`.md`/`.mdc` body + frontmatter twin parity) and
+ * `validate-rule-pillar-currency.ts` (precedence + pillar-assignment policy).
+ * Each script is invoked independently so a failure in one does not mask a
+ * failure in the other.
+ */
+function runRuleParityCheck(packageRoot: string, result: ValidationResult): void {
+  runSubValidator(
+    join(packageRoot, "scripts", "validate-rule-parity.ts"),
+    "validate:rule-parity",
+    result,
+  );
+  runSubValidator(
+    join(packageRoot, "scripts", "validate-rule-pillar-currency.ts"),
+    "validate:rule-pillar-currency",
+    result,
+  );
+}
+
+/**
+ * F1.4-H2 (Cycle 10 Wave 1E close-out, D1, P7+P8): efficiency-invariant
+ * sub-validators. Mirrors `npm run validate:efficiency` from package.json —
+ * runs `validate-efficiency-invariants.ts` (P7 cache-friendly / parallel-tool /
+ * triage-tiers floors), `validate-bridge-budget.ts` (token-budget caps on the
+ * AGENTS.md bridge surface), and `validate-fanout-emission.ts` (P8 B2
+ * sub-agent count + rationale emission on delegating artifacts). Each script
+ * is invoked independently so a failure in one does not mask the others.
+ */
+function runEfficiencyInvariantCheck(
+  packageRoot: string,
+  result: ValidationResult,
+): void {
+  runSubValidator(
+    join(packageRoot, "scripts", "validate-efficiency-invariants.ts"),
+    "validate:efficiency-invariants",
+    result,
+  );
+  runSubValidator(
+    join(packageRoot, "scripts", "validate-bridge-budget.ts"),
+    "validate:bridge-budget",
+    result,
+  );
+  runSubValidator(
+    join(packageRoot, "scripts", "validate-fanout-emission.ts"),
+    "validate:fanout-emission",
+    result,
+  );
+}
+
 export async function validateCommand(opts?: {
   docs?: boolean;
   verbose?: boolean;
@@ -2002,6 +2135,20 @@ export async function validateCommand(opts?: {
   // Security compliance verification (#86 D15)
   await validateSecurityCompliance(result);
 
+  // F1.4-H2 (Cycle 10 Wave 1E close-out, D1, P1+P5): single-command coverage
+  // of framework-dev invariants. The validate CLI used to hint operators at
+  // `npm run validate` for rule-parity + efficiency / fan-out / bridge-budget
+  // checks; this branch now invokes the sub-validators inline via spawnSync
+  // so one `hatch3r validate` aggregates structural + parity + efficiency in
+  // one pass. The wrappers gracefully skip when `scripts/` is absent (npm
+  // bundle ships only `dist/`), so consumer repos see no regression.
+  const __filename_self = fileURLToPath(import.meta.url);
+  const packageRoot = findPackageRoot(dirname(__filename_self));
+  verbose("Checking rule .md/.mdc parity + pillar-currency...");
+  runRuleParityCheck(packageRoot, result);
+  verbose("Checking P7 efficiency + P8 fan-out + bridge-budget invariants...");
+  runEfficiencyInvariantCheck(packageRoot, result);
+
   // Description-quality lint on the canonical package content. This runs
   // only when the bundled-content lint above did not run (empty index).
   if (!descriptionLintRan) {
@@ -2061,16 +2208,18 @@ export async function validateCommand(opts?: {
     if (hasCustomizations) {
       printCustomizationHint();
     }
-    // F1.4-H2 (Cycle 10 Wave 2): framework-dev surface coverage hint. The
-    // `hatch3r validate` CLI covers consumer-facing structural validation; the
-    // framework-dev invariants (rule-parity, P7 efficiency, CLI-skill parity,
-    // wiring) live in `scripts/validate-*.ts` and are aggregated under
-    // `npm run validate`. Emit in verbose mode only to avoid distracting end
-    // users who do not author canonical content.
+    // F1.4-H2 (Cycle 10 Wave 1E close-out): framework-dev surface coverage
+    // hint. The `hatch3r validate` CLI now invokes rule-parity, P7 efficiency,
+    // P8 fan-out, bridge-budget, and pillar-currency sub-validators inline via
+    // spawnSync (see runRuleParityCheck + runEfficiencyInvariantCheck above).
+    // The remaining `scripts/validate-*.ts` invariants (CLI-skill parity,
+    // wiring, anti-slop, specialist-roster) still live under separate
+    // `npm run validate:*` scripts. Emit in verbose mode only to avoid
+    // distracting end users who do not author canonical content.
     if (opts?.verbose) {
       console.log();
       verbose(
-        "Framework-dev invariants (.md/.mdc rule parity, P7 efficiency, CLI-skill parity, wiring) live in separate `npm run validate:*` scripts — run `npm run validate` for full canonical-content coverage.",
+        "Sub-validators (rule-parity, rule-pillar-currency, efficiency-invariants, bridge-budget, fanout-emission) ran inline. Remaining framework-dev gates (validate:cli-skills, validate:wiring, validate:anti-slop, validate:specialist-roster) run under `npm run validate`.",
       );
     }
     return;

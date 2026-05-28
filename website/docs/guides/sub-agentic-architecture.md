@@ -58,7 +58,7 @@ When agents need information, they follow this priority order:
 For dependent work (implement, then test, then review):
 
 1. Spawn `hatch3r-implementer` with file scope
-2. Collect results, spawn `hatch3r-test-writer` with implementation summary
+2. Collect results, spawn `hatch3r-testability` with implementation summary
 3. Collect results, spawn `hatch3r-reviewer` with full diff
 
 ### Parallel Fan-Out

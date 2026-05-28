@@ -226,7 +226,7 @@ describe("workspace sync", () => {
     projectType: "brownfield",
     teamSize: "solo",
     items: {
-      agents: ["hatch3r-researcher", "hatch3r-implementer", "hatch3r-reviewer", "hatch3r-test-writer", "hatch3r-security-auditor"],
+      agents: ["hatch3r-researcher", "hatch3r-implementer", "hatch3r-reviewer", "hatch3r-security"],
       skills: [],
       rules: ["hatch3r-agent-orchestration"],
       commands: [],

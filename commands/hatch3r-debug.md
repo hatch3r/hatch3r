@@ -2,7 +2,7 @@
 id: hatch3r-debug
 type: command
 orchestrator: true
-agentPipeline: [hatch3r-researcher, hatch3r-implementer, hatch3r-reviewer, hatch3r-fixer, hatch3r-test-writer, hatch3r-security-auditor]
+agentPipeline: [hatch3r-researcher, hatch3r-implementer, hatch3r-reviewer, hatch3r-fixer, hatch3r-testability, hatch3r-security]
 description: Standalone debug-and-fix workflow — add strategic debug logging, collect runtime logs from the user, perform root cause analysis, implement the fix, and clean up all debug artifacts.
 tags: [implementation, orchestration]
 quality_charter: agents/shared/quality-charter.md
@@ -10,9 +10,10 @@ efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
 parallel_tool_default: true
 triage_tiers: [1, 2, 3]
+supports_resume: true
 sub_agents_spawned:
   count: 6
-  rationale: Six-stage pipeline per agentPipeline — researcher → implementer → reviewer ↔ fixer review loop (max 3 iterations) → parallel final-quality pass (test-writer + security-auditor); serialization only across true dependency edges (logs → root cause → fix → verify). Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  rationale: Six-stage pipeline per agentPipeline — researcher → implementer → reviewer ↔ fixer review loop (max 3 iterations) → parallel final-quality pass (testability (CQ5) + security (CQ3)); serialization only across true dependency edges (logs → root cause → fix → verify). Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
 ---
 ## §0 Detect Ambiguity (P8 B1)
 
@@ -40,7 +41,7 @@ Standalone debug-and-fix command that instruments the codebase with strategic de
 | 4. Root Cause Analysis | `hatch3r-researcher` (mode: `root-cause`) | No | Yes |
 | 5a. Fix | `hatch3r-implementer` | No | Yes |
 | 5b. Review Loop | `hatch3r-reviewer` → `hatch3r-fixer` (max 3) | No | Yes |
-| 5c. Final Quality | `hatch3r-test-writer` + `hatch3r-security-auditor` | Yes | Yes |
+| 5c. Final Quality | `hatch3r-testability` + `hatch3r-security` | Yes | Yes |
 
 **Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
 
@@ -58,7 +59,7 @@ This command intentionally skips:
 It retains:
 - Quality checks (lint, typecheck, test) — always mandatory
 - Sub-agent delegation for all non-trivial work
-- Full review pipeline in Stage 5 (reviewer, test-writer, security-auditor)
+- Full review pipeline in Stage 5 (reviewer, testability (CQ5), security (CQ3))
 - `scope: always` rules from `rules/`
 - Debug artifact cleanup guarantee
 
@@ -406,14 +407,14 @@ Run a review-fix loop, maximum 3 iterations, until the reviewer reports a clean 
 
 After the review loop completes clean (or the user proceeds), spawn these two sub-agents **in parallel** via the Task tool (`subagent_type: "generalPurpose"`):
 
-1. **`hatch3r-test-writer`** — write regression tests for the fix. The prompt MUST include:
+1. **`hatch3r-testability`** (CQ5) — confirm regression tests for the fix meet the mandate map / coverage floor and represent the failure mode. The prompt MUST include:
    - The bug context from Stage 1c (what was broken).
    - The fix diff (what was changed).
    - The root cause from Stage 4b.
-   - Instruction to write tests that would have caught this bug — regression tests targeting the specific failure mode.
+   - Instruction to verify tests that would have caught this bug — regression tests targeting the specific failure mode.
    - All `scope: always` rule directives from `rules/`.
 
-2. **`hatch3r-security-auditor`** — security review of the fix. The prompt MUST include:
+2. **`hatch3r-security`** (CQ3) — security review of the fix. The prompt MUST include:
    - The fix diff.
    - The affected files and data flows.
    - All `scope: always` rule directives from `rules/`.
@@ -456,6 +457,61 @@ If the user chooses to commit:
 
 ---
 
+## Per-Turn Pipeline-State Header (Bypass Protection)
+
+For Tier 2 and Tier 3 runs, emit the header at the start of every assistant turn that touches this task, per `rules/hatch3r-agent-orchestration.md` -> Per-Turn Pipeline-State Header. Format:
+
+```
+[hatch3r-pipeline: phase {1|2|3|4} | last: {agent} → {SUCCESS|PARTIAL|FAILED|BLOCKED|n/a} | next: {agent or "user-confirmation" or "complete"}]
+```
+
+Phase mapping for debug: `1` = symptom + scope intake, `2` = debugger sub-agent dispatch + hypothesis enumeration, `3` = root-cause validation, `4` = report + iteration-summary. Tier 1 runs are exempt per the Tier 1 exemption.
+
+## End-of-Turn Delegation Attestation (Bypass Protection)
+
+Every turn that mutated files (debug notes, reproduction scripts, instrumentation diff) at Tier 2 or Tier 3 emits the attestation block immediately before the Iteration Summary, per `rules/hatch3r-agent-orchestration.md` -> End-of-Turn Delegation Attestation. Quote the per-file `delegation_proof_id` returned by each spawned sub-agent verbatim:
+
+```
+[hatch3r-delegation-attestation]
+files_mutated_this_turn:
+  - <relative path>: via <hatch3r-agent-name> (proof: <delegation_proof_id>)
+mutating_subagent_invocations: <integer>
+inline_edits_by_orchestrator: none
+```
+
+Unattributable rows are a self-declared P8 B2 violation — halt and queue re-delegation.
+
+## Iteration Summary (mandatory output)
+
+Emit the canonical 9-section iteration summary per `rules/hatch3r-iteration-summary.md` as the final user-facing output. The validation gate at `.claude/rules/capability-lifecycle.md` blocks SUCCESS declarations without this block (CONSTITUTION §6 Decision 23).
+
+The 9 sections:
+
+1. **Request** — verbatim restatement of the user's ask in one sentence.
+2. **Fan-out + Cost** — `sub_agents_spawned: { count, rationale }` plus the `cost_estimate` / `cost_actuals` / `delta` blocks (see Cost Visibility below).
+3. **Web Research** — every URL fetched with access date + trust tier per `governance/audit/templates/rigor-contract.md` (0 acceptable when no research was needed).
+4. **Files Mutated** — list with diff summary (lines added / removed / files created).
+5. **Gates Passed / Failed** — explicit list per `.claude/rules/capability-lifecycle.md` Gate Checklist.
+6. **Pillar Impact Attribution** — `progress_toward_pillar: <axis>.<pillar_id>+<delta>` per CONSTITUTION §6 Decision 17.
+7. **Verification Commands** — exact commands run with exit codes plus key output lines (≤200 chars).
+8. **Open Questions / Blockers** — explicit `None` if fully closed.
+9. **Learnings Captured** — IDs of any learnings written to `.hatch3r/learnings/` this run per `rules/hatch3r-learning-system.md`.
+
+### Cost Visibility (Decision 24)
+
+Pre-execution: emit `cost_estimate` before the first sub-agent dispatch via `src/pipeline/observability.ts::buildCostBlock` (5-field schema):
+
+```yaml
+cost_estimate:
+  expected_sa_count: <int>
+  estimated_input_tokens_static_frame: <int>
+  triage_tier: light | standard | deep
+  estimated_web_research_queries: <int>      # 0 when no research is needed
+  estimated_duration_min: <int>
+```
+
+Post-execution: call `buildCostBlock` again with actuals to emit `cost_actuals` + `delta`; both land in Section 2 above. Field contract + delta semantics: `rules/hatch3r-cost-visibility.md`. Deltas >25% absolute value carry `flagged_for_review: true`.
+
 ## Cost estimate (Decision 24)
 
 This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 24/29:
@@ -463,7 +519,7 @@ This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and 
 - **Pre-execution `cost_estimate`** — emitted in the Pre-Execution Cost Preview above before the first researcher dispatch.
 - **Post-execution `cost_actuals` + `delta`** — appended to the Stage 5f fix summary's Fan-out + Cost section per `rules/hatch3r-iteration-summary.md` §2.
 
-Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.count: 6` × tier heuristic in `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate): Tier 1 ≈ 3 (researcher + implementer + one review pass); Tier 2 ≈ 5 (researcher ×2 + implementer + reviewer/fixer); Tier 3 up to 6 (full pipeline including the parallel test-writer + security-auditor final-quality pass). Deltas beyond 25% absolute value carry `flagged_for_review: true`. Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
+Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.count: 6` × tier heuristic in `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate): Tier 1 ≈ 3 (researcher + implementer + one review pass); Tier 2 ≈ 5 (researcher ×2 + implementer + reviewer/fixer); Tier 3 up to 6 (full pipeline including the parallel testability + security final-quality pass). Deltas beyond 25% absolute value carry `flagged_for_review: true`. Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
 
 ---
 
@@ -473,7 +529,7 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 - **Implementer sub-agent failure (Stage 2b or 5a):** Retry once. If the retry fails, fall back to direct implementation and warn the user that the change may be less thorough.
 - **Quality check failure after 2 retries:** Present specific failures and ASK the user whether to commit partial progress, keep trying, or abort.
 - **User provides insufficient logs (Stage 3):** If the log output contains zero `[HATCH3R-DEBUG]` lines, warn the user that the debug logging may not have been reached during reproduction. Suggest verifying that the correct code path was exercised, then ASK for new logs.
-- **No clear root cause (Stage 4):** If all hypotheses are low-confidence, state this clearly. Recommend adding more targeted debug logging (loop back to Stage 2 with refined instrumentation points) or switching to `hatch3r-bug-plan` for a broader investigation. ASK the user how to proceed.
+- **No clear root cause (Stage 4):** If all hypotheses are low-confidence, state this in the diagnosis report (named verdict: "Root cause unconfirmed; top hypothesis confidence=low"). Recommend adding more targeted debug logging (loop back to Stage 2 with refined instrumentation points) or switching to `hatch3r-bug-plan` for a broader investigation. ASK the user how to proceed.
 - **Debug artifacts remain after cleanup (Stage 5b):** If `[HATCH3R-DEBUG]` occurrences are found after the implementer's cleanup pass, remove them directly. Do not proceed until zero occurrences remain.
 - **Review loop exhaustion (Stage 5c):** After 3 iterations without a clean review, present remaining findings and ASK the user for direction.
 - **Context degradation (>20 turns):** Suggest starting a fresh chat with a progress summary capturing the current stage, diagnosis, and remaining work.
@@ -491,6 +547,6 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 - **Prefer `gh` CLI for GitHub reads** (e.g., `gh issue view`, `gh pr list`). Fall back to GitHub MCP tools only if `gh` is unavailable.
 - **No board operations.** Never create issues, update project boards, or sync with GitHub Projects. This is a standalone command.
 - **Respect `scope: always` rules** when delegating to sub-agents. Sub-agents do not inherit rules automatically — include them in every prompt.
-- **This command composes existing hatch3r agents** (researcher, implementer, reviewer, fixer, test-writer, security-auditor) — it does not replace them.
+- **This command composes existing hatch3r agents** (researcher, implementer, reviewer, fixer, testability, security) — it does not replace them.
 - **Browser verification is opt-in.** Ask once at command start. Never enable browser steps without user consent.
 - **Never force a diagnosis.** If the logs are inconclusive, say so. Do not fabricate a root cause to proceed.

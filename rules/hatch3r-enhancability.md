@@ -1,0 +1,154 @@
+---
+id: hatch3r-enhancability-rule
+type: rule
+description: CQ9 Enhancability Quality measurement rule — feature-flag adoption on user-visible behavior, config externalization, API versioning + deprecation policy, forward-compat patterns, extension-point definition
+scope: "src/**,**/config/**,**/openapi.yaml,**/openapi.json,**/*.proto,**/schema.graphql,**/asyncapi.yaml,**/flags*,**/plugins/**,**/extensions/**"
+tags: [review, enhancability, code-standards, floor:content-quality]
+precedence: high
+quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
+---
+# Enhancability Quality (CQ9)
+
+**Pillars:** P4 (Comprehensive Lean Coverage), CQ9 (Enhancability Quality)
+
+## Scope
+
+This rule binds the CQ9 measurement set across end-user code that hatch3r-generated agents produce. It owns:
+
+- The feature-flag adoption floor on user-visible behavior changes.
+- The configuration-externalization floor on environment-dependent values.
+- The API versioning + deprecation policy on stable endpoints.
+- The forward-compatibility pattern gate (additive schema, Deprecation + Sunset headers, contract tests).
+- The extension-point definition gate for cross-cutting concerns.
+- Specialist routing to `agents/hatch3r-enhancability.md`.
+
+This complements (does not duplicate) `rules/hatch3r-feature-flags.md` (flag-system implementation pattern), `rules/hatch3r-api-versioning.md` (semver + deprecation timeline), and `rules/hatch3r-progressive-delivery.md` (rollout strategy).
+
+## CQ9 Threshold Set
+
+Source: `governance/CONSTITUTION.md` §2B CQ9. Every threshold below is measurable per audit cycle.
+
+| Threshold | Target | Measurement source |
+|-----------|--------|--------------------|
+| Feature-flag adoption | 100% on user-visible behavior changes | Diff scan vs flag-key inventory (`flags.yaml` or in-code registry) |
+| Configuration externalization | 100% on environment-dependent values | Grep diff for hardcoded URLs, timeouts, retry counts, batch sizes, toggles, credentials |
+| API versioning compliance | Semver 2.0.0 per release | MAJOR/MINOR/PATCH bump matches diff classification |
+| Forward-compat patterns | 100% on stable endpoints | Additive schema; Deprecation (RFC 9745) + Sunset (RFC 8594) headers; consumer-driven contract tests |
+| Extension-point definition | Per cross-cutting concern | Named interface; plugin registry; documented lifecycle hooks (onInit, onShutdown, onConfigChange); `## Stability` block |
+| Spec-diff CI gate | Exit-zero per release | `oasdiff`, `buf breaking`, `graphql-inspector diff` CI step active |
+
+## Feature-Flag Adoption
+
+Every user-visible behavior change MUST ship behind an OpenFeature (or vendor-equivalent) flag. The rule:
+
+1. **Provider registration** — application code wires a flag provider via `OpenFeature.setProvider()` (vendor SDK: LaunchDarkly, flagd, Unleash, Flagsmith, Split). Provider config lives in env-overridable settings.
+2. **Flag-key inventory** — every flag key is registered in `flags.yaml` (or equivalent) with metadata: owner, description, default-value, kill-switch flag.
+3. **Evaluation context** — flag evaluations carry a documented attribute schema (user-id, account-id, org-id, environment, locale, beta-cohort).
+4. **Kill-switch** — every behavior-changing flag has a documented kill-switch path: setting the flag to OFF reverts to the previous behavior without code rollback.
+5. **Cleanup window** — flags retired ≤90 days after 100% rollout per `rules/hatch3r-feature-flags.md`.
+
+Behavior changes shipped without a flag are CRITICAL findings.
+
+## Configuration Externalization
+
+Every environment-dependent value MUST be externalized — hardcoded values in `src/` paths are FINDINGS minimum. Externalize via:
+
+- **Schema-validated env** — Zod (`z.object({...}).parse(process.env)`), Joi (`Joi.object({...}).validate()`), Pydantic (`class Settings(BaseSettings)`), envalid (`cleanEnv()`).
+- **Dotenv-flow** — `.env.development`, `.env.production`; secrets via secret-manager not file.
+- **Startup-time validation** — config schema parsed once at boot; mis-config fails fast with named missing field.
+
+Forbidden in `src/` paths:
+
+- Hardcoded URLs to external services.
+- Hardcoded timeouts, retry counts, batch sizes.
+- Hardcoded feature toggles (`if (true)` ahead of a feature).
+- Hardcoded credentials, API keys, tokens (see also `rules/hatch3r-secrets-management.md`).
+- Silent fallback on config-validation error (catch + log + continue) — fail fast or document the explicit recovery path.
+
+## API Versioning + Deprecation
+
+Source: semver 2.0.0 (semver.org) + `rules/hatch3r-api-versioning.md`. The diff classification determines the version bump:
+
+| Diff classification | Required bump |
+|---------------------|---------------|
+| Breaking change (removed field, changed type, renamed endpoint, semantics change) | MAJOR |
+| Additive (new field, new endpoint, new method, new enum value) | MINOR |
+| Fix (clarification, doc-only, bug-fix matching documented behavior) | PATCH |
+
+The OpenAPI / AsyncAPI / GraphQL SDL `info.version` MUST be aligned to the release tag. Skipping a MAJOR bump on a breaking change is CRITICAL.
+
+## Forward-Compatibility Patterns
+
+On stable endpoints:
+
+- **Additive schema** — new fields are optional; default values are documented; consumers ignore unknown fields. Removing a field is breaking; renaming is breaking.
+- **Deprecation header (RFC 9745)** — emit `Deprecation: @1735689600` (Unix-time) or `Deprecation: Tue, 20 May 2025 00:00:00 GMT` (IMF-fixdate) on retiring endpoints.
+- **Sunset header (RFC 8594)** — emit `Sunset: Tue, 31 Dec 2025 23:59:59 GMT` (IMF-fixdate only) on retiring endpoints. Sunset date MUST be later than Deprecation date.
+- **Migration link** — emit `Link: <https://api.example.com/docs/migration>; rel="deprecation"` + `Link: <…>; rel="sunset"`.
+- **Consumer-driven contract tests** — every public surface has a Pact (or equivalent) contract test from the consumer side; provider verification CI step exits-zero.
+- **Spec-diff CI gate** — `oasdiff breaking --fail-on-diff` (REST), `buf breaking --against` (protobuf), `graphql-inspector diff` (GraphQL); the gate exits non-zero on breaks.
+
+## Extension-Point Definition
+
+Cross-cutting concerns (logging, auth, persistence, telemetry, error handling) get a named extension point:
+
+- **Plugin interface** — exported TypeScript interface (`export interface AuthPlugin { ... }`) or Python protocol (`class AuthPlugin(Protocol)`).
+- **Plugin registry** — central registration via `Plugin.register('auth', new MyAuthPlugin())` or dependency-injection container.
+- **Lifecycle hooks** — `onInit(config)`, `onShutdown()`, `onConfigChange(newConfig)`.
+- **Stability block** — `## Stability: stable | experimental | deprecated` block in the plugin's documentation.
+- **Version-stable contract** — once a plugin interface is `stable`, the contract is bound to the deprecation policy and semver rules.
+
+## Specialist Agent Routing
+
+| Trigger | Route to |
+|---------|----------|
+| User-visible behavior modified | `agents/hatch3r-enhancability.md` (flag adoption gate) |
+| Public API surface modified (OpenAPI / GraphQL SDL / AsyncAPI / protobuf) | `agents/hatch3r-enhancability.md` (versioning + forward-compat gate) |
+| Config schema or feature-flag definition modified | `agents/hatch3r-enhancability.md` (externalization gate) |
+| Extension-point interface modified | `agents/hatch3r-enhancability.md` (plugin contract gate) |
+| Release-prep audit | `agents/hatch3r-enhancability.md` |
+
+## Per-Finding Output Format
+
+Every finding emitted under this rule MUST include the rigor-contract fields per `governance/audit/templates/rigor-contract.md`:
+
+- `proof_trace`: file:line citation + spec-diff/grep output excerpt.
+- `impact_horizon`: short | medium | long per CONSTITUTION Decision 17.
+- `progress_toward_pillar: content-quality.CQ9+<delta>`: numeric delta against the threshold.
+- `confidence`: high | medium | low with explicit basis.
+- `causal_chain`: ≥3-step linkage from observation → root cause → impact.
+
+## Severity Mapping
+
+Source: `governance/audit/templates/severity-mapping.md`.
+
+| Specialist Status | Canonical Severity | Action |
+|-------------------|--------------------|--------|
+| `CRITICAL` | Critical | Behavior change shipped without a flag; breaking change on stable endpoint without major-version bump; hardcoded credential or secret; silent fallback on config-validation error; missing CI spec-diff gate |
+| `FINDINGS` | High + Medium | Externalization gap (hardcoded URL/timeout/batch-size); missing Deprecation/Sunset header; semver-policy gap; under-documented extension point |
+| `PASS` | Low + Info | All thresholds met; surface in iteration summary |
+
+## Irreversibility Trigger
+
+Retiring a feature flag, dropping an API endpoint, or hardcoding a previously-externalized value is irreversible at production traffic. Each MUST go through `agents/shared/user-question-protocol.md` per `rules/hatch3r-clarification-default.md` B1 before action, with its own ask cycle.
+
+## When to Invoke
+
+- Every PR that modifies user-visible behavior, public API surfaces, config schema, or extension-point interfaces.
+- Implementer pre-write check when authoring a new user-visible behavior — confirms the flag-gating + config-externalization plan before code is written.
+- Verifier pre-merge gate on protected branches that touch the public API or behavior-toggle surface.
+- API change audit during a D14 or forthcoming D22 cycle, or whenever the maturity tier escalates.
+- Plugin / extension-point surface review before declaring an interface stable.
+
+## References
+
+- `governance/CONSTITUTION.md` §2B CQ9 (measurement set + specialist owner).
+- `governance/audit/domains/D14-extensibility.md` (D14 enhancability domain).
+- `agents/hatch3r-enhancability.md` (CQ9 reviewer / gate).
+- `rules/hatch3r-feature-flags.md` (flag-system implementation pattern).
+- `rules/hatch3r-api-versioning.md` (semver + deprecation timeline).
+- `rules/hatch3r-progressive-delivery.md` (rollout strategy).
+- `rules/hatch3r-secrets-management.md` (secret hygiene — paired with externalization).
+- RFC 9745 (Deprecation header), RFC 8594 (Sunset header), semver 2.0.0 (semver.org).
+- OpenFeature spec (https://openfeature.dev/specification/) — vendor-neutral flag SDK pattern.

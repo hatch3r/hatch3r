@@ -60,13 +60,15 @@ async function enumeratePublishedAgentIds(): Promise<string[]> {
 describe("agentToolAllowlist", () => {
   describe("AGENT_TOOL_POLICIES", () => {
     it("should have policies for all core agents", () => {
+      // F16.3-H1 (Cycle 10 Wave 1C): legacy test-writer + security-auditor
+      // collapsed into the CQ specialists testability + security.
       const coreAgents = [
         "hatch3r-researcher",
         "hatch3r-implementer",
         "hatch3r-reviewer",
         "hatch3r-fixer",
-        "hatch3r-test-writer",
-        "hatch3r-security-auditor",
+        "hatch3r-testability",
+        "hatch3r-security",
         "hatch3r-docs-writer",
       ];
       for (const agentId of coreAgents) {
@@ -148,8 +150,7 @@ describe("agentToolAllowlist", () => {
       it("applies review-only allowlist to all 9 quality-vector specialists", () => {
         // Per each agent's `## Boundaries` section: review-only — fix
         // authorship delegates to producer agents (hatch3r-fixer,
-        // hatch3r-test-writer, hatch3r-implementer, hatch3r-perf-profiler,
-        // etc.). Least-privilege allowlist is read + search.
+        // hatch3r-implementer). Least-privilege allowlist is read + search.
         const qualitySpecialists = [
           "hatch3r-ui",
           "hatch3r-ux",

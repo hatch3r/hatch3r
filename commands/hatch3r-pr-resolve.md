@@ -2,7 +2,7 @@
 id: hatch3r-pr-resolve
 type: command
 orchestrator: true
-agentPipeline: [hatch3r-implementer, hatch3r-lint-fixer, hatch3r-test-writer, hatch3r-reviewer, hatch3r-fixer, hatch3r-security-auditor, hatch3r-docs-writer, hatch3r-a11y-auditor, hatch3r-perf-profiler]
+agentPipeline: [hatch3r-implementer, hatch3r-lint-fixer, hatch3r-testability, hatch3r-reviewer, hatch3r-fixer, hatch3r-security, hatch3r-docs-writer, hatch3r-ui, hatch3r-performance]
 description: Read all open PR comments (inline + review summary + general discussion) across GitHub, Azure DevOps, and GitLab; evaluate each against current code via the rigor contract; implement accepted findings through the standard agent pipeline; and reply per comment with rationale. Auto-detects the PR from the current branch (or accepts an explicit PR number).
 tags: [implementation, review, ctx:team-only]
 quality_charter: agents/shared/quality-charter.md
@@ -10,9 +10,10 @@ efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
 parallel_tool_default: true
 triage_tiers: [1, 2, 3]
+supports_resume: true
 sub_agents_spawned:
   count: 9
-  rationale: Per-PR fanout — implementer, lint-fixer, test-writer (FIX NOW group, parallel), reviewer ↔ fixer review loop (max 3 iterations), then parallel Tier-3 final-quality specialists (security-auditor, docs-writer, a11y-auditor, perf-profiler) per the Tier-3 specialist mandate. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  rationale: Per-PR fanout — implementer, lint-fixer, testability (CQ5, FIX NOW group, parallel), reviewer ↔ fixer review loop (max 3 iterations), then parallel Tier-3 final-quality specialists (security (CQ3), docs-writer, ui (CQ1), performance (CQ7)) per the Tier-3 specialist mandate. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -28,10 +29,10 @@ Before any action, scan the user's request and provided context for unresolved q
 | 3. Normalize | Orchestrator (inline) | No | Yes |
 | 4. Evaluate (rigor contract) | Orchestrator (inline) | Per finding | Yes |
 | 5. Triage routing + ASK gate | Orchestrator (inline) | No | Yes |
-| 6. Fix implementation | `hatch3r-implementer`, `hatch3r-lint-fixer`, `hatch3r-test-writer` | Per finding group | When FIX NOW items exist |
+| 6. Fix implementation | `hatch3r-implementer`, `hatch3r-lint-fixer`, `hatch3r-testability` | Per finding group | When FIX NOW items exist |
 | 7a. Review loop | `hatch3r-reviewer` -> `hatch3r-fixer` (max 3 iterations) | No (sequential) | When code changed (Tier 2/3) |
-| 7b. Final quality — mandatory | `hatch3r-test-writer`, `hatch3r-security-auditor` | Yes | When code changed |
-| 7c. Final quality — conditional | `hatch3r-docs-writer`, `hatch3r-a11y-auditor`, `hatch3r-perf-profiler`, `hatch3r-lint-fixer` | Yes | When triggered |
+| 7b. Final quality — mandatory | `hatch3r-testability`, `hatch3r-security` | Yes | When code changed |
+| 7c. Final quality — conditional | `hatch3r-docs-writer`, `hatch3r-ui`, `hatch3r-performance`, `hatch3r-lint-fixer` | Yes | When triggered |
 | 8. Post replies | Orchestrator (inline, platform CLI) | Per comment | Yes |
 | 9. Commit and push | Orchestrator (inline) | No | When code changed |
 | 10. Iteration Summary | Orchestrator (inline) | No | Yes |
@@ -370,7 +371,7 @@ After Step 4 completes, recompute Step 0's tier using the now-known severities. 
 
 ## Step 5: Triage Routing + ASK Checkpoint (only mutation gate)
 
-**Tier-3 specialist mandate (P8 B2).** For Tier 3 PRs (6+ findings OR any Critical severity), the post-fix specialist pass (`hatch3r-test-writer`, `hatch3r-security-auditor`, `hatch3r-docs-writer`) MUST run in parallel. Specialists may NOT be deferred via "Needs your call" for cost reasons. Cost-dominance principle applies: token cost of specialist sub-agents is dominated by the quality gain of catching defects pre-merge.
+**Tier-3 specialist mandate (P8 B2).** For Tier 3 PRs (6+ findings OR any Critical severity), the post-fix specialist pass (`hatch3r-testability`, `hatch3r-security`, `hatch3r-docs-writer`) MUST run in parallel. Specialists may NOT be deferred via "Needs your call" for cost reasons. Cost-dominance principle applies: token cost of specialist sub-agents is dominated by the quality gain of catching defects pre-merge.
 
 #### 5a. Apply Routing Heuristics
 
@@ -416,7 +417,7 @@ NEEDS_CLARIFICATION ({n}):
 Needs your call ({n}):
   [7] @bob   • inline src/cache.ts:88 • Important/Low → may be intentional eviction
 
-Escalation for low-confidence accepted findings: trigger a mandatory `hatch3r-security-auditor` pass if any are security-adjacent (auth, crypto, input validation, access control, secret handling); otherwise flag in commit message for elevated reviewer attention.
+Escalation for low-confidence accepted findings: trigger a mandatory `hatch3r-security` pass if any are security-adjacent (auth, crypto, input validation, access control, secret handling); otherwise flag in commit message for elevated reviewer attention.
 
 DEFER (cosmetic, with reply) ({n}):
   [8] @eve   • inline src/auth.ts:55 • Cosmetic/Medium → naming nitpick
@@ -467,7 +468,7 @@ Delegate every FIX NOW finding to specialist sub-agents using the delegation con
 |------------------|-----------|----------|
 | Bugs, missing features, error handling, logic fixes | `hatch3r-implementer` | hatch3r-implementer agent protocol |
 | Dead code, unused imports, type fixes, lint errors | `hatch3r-lint-fixer` | hatch3r-lint-fixer agent protocol |
-| Missing tests, insufficient coverage | `hatch3r-test-writer` | hatch3r-test-writer agent protocol |
+| Missing tests, insufficient coverage | `hatch3r-testability` | hatch3r-testability agent protocol |
 
 Blast-radius rule: same-file findings → same sub-agent (priority: implementer > lint-fixer > test-writer); disjoint files → parallel sub-agents.
 
@@ -521,13 +522,13 @@ After the loop terminates, re-run Step 7a quality gates.
 After 7b is clean:
 
 **Mandatory when code changed:**
-- `hatch3r-test-writer` — write/update tests for changed code paths.
-- `hatch3r-security-auditor` — security review of all changes.
+- `hatch3r-testability` (CQ5) — verify tests for changed code paths meet the mandate map / coverage floor.
+- `hatch3r-security` (CQ3) — security review of all changes.
 
 **Conditional:**
 - `hatch3r-docs-writer` — when fixes touched public APIs, architectural patterns, or user-facing behavior.
-- `hatch3r-a11y-auditor` — when the diff includes UI component or style files.
-- `hatch3r-perf-profiler` — when the diff includes hot-path changes (DB queries, API handlers, render loops).
+- `hatch3r-ui` (CQ1) — when the diff includes UI component or style files.
+- `hatch3r-performance` (CQ7) — when the diff includes hot-path changes (DB queries, API handlers, render loops).
 - `hatch3r-lint-fixer` — when residual lint/type errors surfaced after Step 6.
 
 Each specialist prompt mirrors the requirements in `commands/revision/revision-quality.md:82-89` (agent protocol, scope:always rules, diff, acceptance criteria, confidence requirement). Apply specialist outputs; re-run 7a gates if changes were made.
@@ -672,6 +673,61 @@ Status decision rules:
 - **BLOCKED** — cannot proceed without user input (e.g., Critical-deferred rationale not provided, semantic conflict requiring a design decision).
 
 ---
+
+## Per-Turn Pipeline-State Header (Bypass Protection)
+
+For Tier 2 and Tier 3 runs, emit the header at the start of every assistant turn that touches this task, per `rules/hatch3r-agent-orchestration.md` -> Per-Turn Pipeline-State Header. Format:
+
+```
+[hatch3r-pipeline: phase {1|2|3|4} | last: {agent} → {SUCCESS|PARTIAL|FAILED|BLOCKED|n/a} | next: {agent or "user-confirmation" or "complete"}]
+```
+
+Phase mapping for pr-resolve: `1` = comment fetch + triage classification, `2` = per-comment researcher/implementer/fixer dispatch, `3` = reply drafting + reviewer verdict, `4` = posting + Step 10 resolution-summary + iteration-summary. Tier 1 runs are exempt per the Tier 1 exemption.
+
+## End-of-Turn Delegation Attestation (Bypass Protection)
+
+Every turn that mutated files (PR file changes, reply drafts, status updates) at Tier 2 or Tier 3 emits the attestation block immediately before the Iteration Summary, per `rules/hatch3r-agent-orchestration.md` -> End-of-Turn Delegation Attestation. Quote the per-file `delegation_proof_id` returned by each spawned sub-agent verbatim:
+
+```
+[hatch3r-delegation-attestation]
+files_mutated_this_turn:
+  - <relative path or comment ref>: via hatch3r-{implementer|fixer|reviewer} (proof: <delegation_proof_id>)
+mutating_subagent_invocations: <integer>
+inline_edits_by_orchestrator: none
+```
+
+Unattributable rows are a self-declared P8 B2 violation — halt and queue re-delegation.
+
+## Iteration Summary (mandatory output)
+
+Emit the canonical 9-section iteration summary per `rules/hatch3r-iteration-summary.md` as the final user-facing output (the Step 10 Resolution Summary block above adapts these sections to the PR-resolution domain — both the Step 10 block and the 9-section canonical contract apply). The validation gate at `.claude/rules/capability-lifecycle.md` blocks SUCCESS declarations without this block (CONSTITUTION §6 Decision 23).
+
+The 9 sections:
+
+1. **Request** — verbatim restatement of the user's ask in one sentence.
+2. **Fan-out + Cost** — `sub_agents_spawned: { count, rationale }` plus the `cost_estimate` / `cost_actuals` / `delta` blocks (see Cost Visibility below).
+3. **Web Research** — every URL fetched with access date + trust tier per `governance/audit/templates/rigor-contract.md` (0 acceptable when no research was needed).
+4. **Files Mutated** — list with diff summary (lines added / removed / files created).
+5. **Gates Passed / Failed** — explicit list per `.claude/rules/capability-lifecycle.md` Gate Checklist.
+6. **Pillar Impact Attribution** — `progress_toward_pillar: <axis>.<pillar_id>+<delta>` per CONSTITUTION §6 Decision 17.
+7. **Verification Commands** — exact commands run with exit codes plus key output lines (≤200 chars).
+8. **Open Questions / Blockers** — explicit `None` if fully closed.
+9. **Learnings Captured** — IDs of any learnings written to `.hatch3r/learnings/` this run per `rules/hatch3r-learning-system.md`.
+
+### Cost Visibility (Decision 24)
+
+Pre-execution: emit `cost_estimate` before the first sub-agent dispatch via `src/pipeline/observability.ts::buildCostBlock` (5-field schema):
+
+```yaml
+cost_estimate:
+  expected_sa_count: <int>
+  estimated_input_tokens_static_frame: <int>
+  triage_tier: light | standard | deep
+  estimated_web_research_queries: <int>      # 0 when no research is needed
+  estimated_duration_min: <int>
+```
+
+Post-execution: call `buildCostBlock` again with actuals to emit `cost_actuals` + `delta`; both land in Section 2 above. Field contract + delta semantics: `rules/hatch3r-cost-visibility.md`. Deltas >25% absolute value carry `flagged_for_review: true`.
 
 ## Cost estimate (Decision 24)
 

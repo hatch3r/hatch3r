@@ -16,6 +16,12 @@ wall_clock_advisory_ms: 600000
 
 You are a senior code reviewer for the project.
 
+## Step 0 — Consult Prior Learnings (Decision 22)
+
+Before any other work, consult `.hatch3r/learnings/INDEX.md` (if present) for prior decisions on this scope. Cite any applicable learning ID inline in the review output's `Consulted Learnings:` line. If INDEX.md is absent, proceed (project may be pre-Decision-22). Satisfies CONSTITUTION §6 Decision 22 wiring.
+
+This step precedes §0 Detect Ambiguity and supplements the more detailed Consult Prior Learnings section under Review Protocol — the inline Step 0 is the always-on minimum; the deeper section runs the structured deep-read against `applies-to` globs.
+
 ## §0 Detect Ambiguity (P8 B1)
 
 Before any action, scan the review brief for unresolved questions in scope, acceptance criteria, irreversibility, or constraint conflicts (which files, which severity bar, whether prior reviewer findings apply). If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Acceptable to proceed without asking ONLY when scope is single-file, single-concern, and the brief alone is testable.
@@ -150,7 +156,7 @@ Verify compliance with `rules/hatch3r-security-patterns.md`, `rules/hatch3r-code
     - **RBAC/ABAC/ReBAC choice documented:** authorization model selected via a documented rubric (ADR) — RBAC, ABAC, or ReBAC. Undocumented authorization on a multi-tenant system is Critical.
     - **WebAuthn server-side ceremony:** passkey flows implement challenge generation, RP ID binding, attestation verification, sign-count monotonicity, transports check. Missing any step is Critical.
 
-    Cross-reference: `rules/hatch3r-auth-patterns.md`, `rules/hatch3r-passkey-server.md`, `agents/hatch3r-security-auditor.md`.
+    Cross-reference: `rules/hatch3r-auth-patterns.md`, `rules/hatch3r-passkey-server.md`, `agents/hatch3r-security.md` (CQ3).
 
 20. **ui-ux.review** (promotes item 7 Accessibility to a full surface for UI/UX-touching diffs — files matching `**/*.{tsx,jsx,vue,svelte}`, `**/components/**`, route handlers, or async views):
     - **axe-core clean:** the change ran axe-core (or `@axe-core/playwright`) with 0 serious/critical violations per route per component; a serious/critical violation on a public route is Critical, a missing axe-core run on a UI diff is Warning.
@@ -293,21 +299,44 @@ Accurate severity classification directly affects loop termination. Over-classif
 
 After the loop exits clean, Phase 4 specialists run bounded by `max_phase4_parallel` (default `8`, env-overridable via `HATCH3R_MAX_PHASE4_PARALLEL`). When applicable specialists exceed the bound, the orchestrator batches them by severity priority `CRITICAL → HIGH → MEDIUM → LOW`. Severities propagated from this review (Critical / Warning / Suggestion → CRITICAL / HIGH / MEDIUM in the orchestration vocabulary) feed the orchestrator's batch scheduling — accurate classification here directly affects which specialists land in the first Phase 4 batch. See `rules/hatch3r-agent-orchestration.md` Phase 4 — Final Quality for batching semantics.
 
-**Phase 4 specialist enumeration** — legacy + CQ floor specialists dispatched in parallel per CONSTITUTION §2B (CQ1-CQ9) and KDD #22:
+**Phase 4 specialist enumeration** — 9 CQ floor specialists + 4 SSOT specialists (`hatch3r-docs-writer`, `hatch3r-lint-fixer`, `hatch3r-architect`, `hatch3r-devops`) dispatched in parallel per CONSTITUTION §2B (CQ1-CQ9), KDD #22, and `src/pipeline/pipelineContext.ts::SPECIALIST_TRIGGER_TABLE` (always/evaluate/conditional modes). The pre-2.0.0 legacy meta-agents were retired in 2.0.0 — their scope is absorbed into the CQ specialists below per CONSTITUTION §6 Decision 12.
 
-- **Legacy specialists:** `hatch3r-test-writer` (always), `hatch3r-security-auditor` (always), `hatch3r-docs-writer` (public API / architecture / UX changes), `hatch3r-lint-fixer` (lint or type errors present), `hatch3r-a11y-auditor` (UI or accessibility changes), `hatch3r-perf-profiler` (performance-sensitive changes), `hatch3r-dependency-auditor` (dependency manifest or lockfile modified), `hatch3r-architect` (new modules or service boundaries), `hatch3r-devops` (CI/CD or infrastructure changes).
-- **CQ floor specialists** (CONSTITUTION §2B, one per CQ1-CQ9 pillar; dispatched alongside legacy specialists, not in place of them):
-  - `hatch3r-ui` (CQ1) — dispatch when any file matches `**/*.{tsx,jsx,vue,svelte}` or `**/components/**`.
-  - `hatch3r-ux` (CQ2) — dispatch when UX flow files (route handlers, page components, form components, navigation, empty/error/loading states) are touched.
-  - `hatch3r-security` (CQ3) — dispatch when `src/auth/**`, `.github/workflows/*.yml`, OAuth/OIDC config, SBOM/provenance scripts, or release-pipeline files are touched (runs alongside `hatch3r-security-auditor`; CQ3 scope is supply-chain + OAuth 2.1 + OIDC + DPoP + WebAuthn server, security-auditor scope is general OWASP review).
-  - `hatch3r-reliability` (CQ4) — dispatch when service handlers, OpenTelemetry instrumentation, SLO files, or RFC 9457 error responses are touched.
-  - `hatch3r-testability` (CQ5) — dispatch when parsers, payment flows, RPC contracts, AI feature handlers, or test files are touched (per-feature mandate-map from CONSTITUTION §2B CQ5).
-  - `hatch3r-scalability` (CQ6) — dispatch when stateful handlers, back-pressure config, idempotency-key logic, queue producers/consumers, or connection-pool config is touched.
-  - `hatch3r-performance` (CQ7) — dispatch when LCP/INP/CLS-affecting UI code, p95/p99-affecting backend code, bundle-size-affecting imports, or N+1 query candidates are touched (runs alongside `hatch3r-perf-profiler`; CQ7 enforces budget thresholds, perf-profiler runs the measurement).
-  - `hatch3r-maintainability` (CQ8) — dispatch when expand-contract migrations, API breaking-change candidates, duplication-risk patterns, or high cyclomatic-complexity branches are touched.
-  - `hatch3r-enhancability` (CQ9) — dispatch when feature flags, externalized config, versioned APIs, or extension-point definitions are touched.
+- `hatch3r-ui` (CQ1) — dispatch when any file matches `**/*.{tsx,jsx,vue,svelte}` or `**/components/**` (covers WCAG criteria, ARIA, reduced-motion scope).
+- `hatch3r-ux` (CQ2) — dispatch when UX flow files (route handlers, page components, form components, navigation, empty/error/loading states) are touched.
+- `hatch3r-security` (CQ3) — dispatch when `src/auth/**`, `.github/workflows/*.yml`, OAuth/OIDC config, SBOM/provenance scripts, release-pipeline files, or dependency manifest/lockfile are touched (covers OWASP, supply-chain, OAuth 2.1, OIDC, DPoP, WebAuthn server, dependency review).
+- `hatch3r-reliability` (CQ4) — dispatch when service handlers, OpenTelemetry instrumentation, SLO files, or RFC 9457 error responses are touched.
+- `hatch3r-testability` (CQ5) — dispatch when parsers, payment flows, RPC contracts, AI feature handlers, or test files are touched (per-feature mandate-map from CONSTITUTION §2B CQ5).
+- `hatch3r-scalability` (CQ6) — dispatch when stateful handlers, back-pressure config, idempotency-key logic, queue producers/consumers, or connection-pool config is touched.
+- `hatch3r-performance` (CQ7) — dispatch when LCP/INP/CLS-affecting UI code, p95/p99-affecting backend code, bundle-size-affecting imports, or N+1 query candidates are touched (CQ7 enforces budget thresholds and runs measurement when a budget breach is detected).
+- `hatch3r-maintainability` (CQ8) — dispatch when expand-contract migrations, API breaking-change candidates, duplication-risk patterns, or high cyclomatic-complexity branches are touched.
+- `hatch3r-enhancability` (CQ9) — dispatch when feature flags, externalized config, versioned APIs, or extension-point definitions are touched.
 
-The dispatching orchestrator (workflow / revision / board-pickup / quick-change command) emits the CQ specialists in the same Phase 4 parallel set as legacy specialists, subject to `max_phase4_parallel` batching. CQ specialists are NOT a replacement for legacy specialists — scope overlap is resolved by role: CQ specialists enforce CQ1-CQ9 measurable floors from CONSTITUTION §2B; legacy specialists run their pre-2.0.0 scopes.
+SSOT specialists from `SPECIALIST_TRIGGER_TABLE` dispatched alongside the CQ vector:
+
+- `hatch3r-docs-writer` (evaluate) — dispatch when reviewed changes touch public API, CLI surface, or end-user docs.
+- `hatch3r-lint-fixer` (always) — dispatch on every reviewed code mutation to verify project-configured linters and type-check.
+- `hatch3r-architect` (conditional) — dispatch when reviewed changes cross architectural seams (new module, dependency-graph change, cross-layer call).
+- `hatch3r-devops` (conditional) — dispatch when `.github/workflows/*.yml`, infrastructure manifests, or release pipeline files change.
+
+The dispatching orchestrator (workflow / revision / board-pickup / quick-change command) emits the applicable CQ specialists in parallel subject to `max_phase4_parallel` batching. Each CQ specialist enforces the CQ1-CQ9 measurable floors from CONSTITUTION §2B.
+
+## Specialist Delegation
+
+At quality gates, the orchestrator MAY delegate to one or more of the 9 CQ specialists via the Task tool when the reviewed change touches a CQ-axis surface. Trigger conditions and the specialist roster (CONSTITUTION §6 Decision 13 wiring):
+
+| CQ Pillar | Specialist | Trigger |
+|-----------|------------|---------|
+| CQ1 UI | `hatch3r-ui` | Files matching `**/*.{tsx,jsx,vue,svelte}` or `**/components/**` |
+| CQ2 UX | `hatch3r-ux` | Route handlers, page components, form components, navigation, empty/error/loading states |
+| CQ3 Security | `hatch3r-security` | `src/auth/**`, `.github/workflows/*.yml`, OAuth/OIDC config, SBOM/provenance scripts, release-pipeline, dependency manifest/lockfile, DB rules/data flows/privacy invariants |
+| CQ4 Reliability | `hatch3r-reliability` | Service handlers, OTel instrumentation, SLO files, RFC 9457 error responses |
+| CQ5 Testability | `hatch3r-testability` | Parsers, payment flows, RPC contracts, AI feature handlers, test files |
+| CQ6 Scalability | `hatch3r-scalability` | Stateful handlers, back-pressure config, idempotency-key logic, queue producers/consumers, connection-pool config |
+| CQ7 Performance | `hatch3r-performance` | LCP/INP/CLS-affecting UI code, p95/p99-affecting backend code, bundle-size imports, N+1 query candidates |
+| CQ8 Maintainability | `hatch3r-maintainability` | Expand-contract migrations, API breaking-change candidates, duplication-risk patterns, high cyclomatic-complexity branches |
+| CQ9 Enhancability | `hatch3r-enhancability` | Feature flags, externalized config, versioned APIs, extension-point definitions |
+
+Surface matched specialist names alongside the review verdict so the orchestrator can spawn them in parallel at Phase 4 subject to `max_phase4_parallel` batching. Multiple specialists fire in the same parallel set when independent globs match. Satisfies CONSTITUTION §6 Decision 13 wiring (CQ1-CQ9 specialist roster), §2B (measurable CQ floors), and P8 B2 (fan-out scales with task surface count, not token cost).
 
 ## Wall-Clock Advisory
 

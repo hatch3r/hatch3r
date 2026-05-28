@@ -19,7 +19,7 @@ import {
  * @param rootDir - Absolute path to the repository root directory.
  */
 export async function analyzeRepo(rootDir: string): Promise<RepoInfo> {
-  const [languages, pm, isMonorepo, hasExistingAgents, existingTools, frameworks, linters, testFrameworks, ciProviders] =
+  const [languages, pm, isMonorepo, hasExistingAgents, existingTools, frameworks, linters, testFrameworks, ciProviders, packages] =
     await Promise.all([
       detectLanguages(rootDir),
       detectPackageManager(rootDir),
@@ -30,10 +30,15 @@ export async function analyzeRepo(rootDir: string): Promise<RepoInfo> {
       detectLinters(rootDir),
       detectTestFrameworks(rootDir),
       detectCIProviders(rootDir),
+      // F14.2-H1 (D14): always run the package enumerator; it returns an empty
+      // array for single-package repos, so the cost is one workspace-file
+      // probe in the non-monorepo path. Populating this here means init/sync
+      // never re-run repo detection just to learn the package layout.
+      detectMonorepoPackages(rootDir),
     ]);
   const packageManager = pm.name;
 
-  return {
+  const info: RepoInfo = {
     languages,
     packageManager,
     frameworks,
@@ -45,6 +50,10 @@ export async function analyzeRepo(rootDir: string): Promise<RepoInfo> {
     testFrameworks,
     ciProviders,
   };
+  if (packages.length > 0) {
+    info.packages = packages;
+  }
+  return info;
 }
 
 /** Detect programming languages by probing for language-specific config files. */

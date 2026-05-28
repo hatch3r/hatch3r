@@ -2,7 +2,7 @@
 id: hatch3r-revision
 type: command
 orchestrator: true
-agentPipeline: [hatch3r-implementer, hatch3r-lint-fixer, hatch3r-test-writer, hatch3r-reviewer, hatch3r-fixer, hatch3r-security-auditor, hatch3r-docs-writer, hatch3r-a11y-auditor, hatch3r-perf-profiler]
+agentPipeline: [hatch3r-implementer, hatch3r-lint-fixer, hatch3r-testability, hatch3r-reviewer, hatch3r-fixer, hatch3r-security, hatch3r-docs-writer, hatch3r-ui, hatch3r-performance]
 description: User-guided revision of agent-implemented code in a fresh context window. Reconstructs what was done, interviews the user for feedback, fixes issues, cleans up leftovers, and drives toward merge readiness. Delegation, quality pipeline, modes, and board integration details are in commands/revision/.
 tags: [implementation, ctx:team-only]
 quality_charter: agents/shared/quality-charter.md
@@ -10,9 +10,10 @@ efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
 parallel_tool_default: true
 triage_tiers: [1, 2, 3]
+supports_resume: true
 sub_agents_spawned:
   count: 9
-  rationale: Per-revision fanout — implementer, lint-fixer, test-writer (Stage 1 fix group), reviewer ↔ fixer review loop, then parallel Stage 2 final-quality specialists (security-auditor, docs-writer, a11y-auditor, perf-profiler) bounded by max_phase4_parallel. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  rationale: Per-revision fanout — implementer, lint-fixer, testability (Stage 1 fix group), reviewer ↔ fixer review loop, then parallel Stage 2 final-quality CQ specialists (security, docs-writer, ui, performance) bounded by max_phase4_parallel. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -26,12 +27,12 @@ Before any action, scan the user's request and provided context for unresolved q
 | 1. Context Reconstruction | Orchestrator (inline) | No | Yes |
 | 2. User Feedback | User interview (ASK checkpoints) | No | Yes |
 | 3. Leftover Scan + Triage Routing | Orchestrator (inline) | No | Yes |
-| 4. Fix Implementation | `hatch3r-implementer`, `hatch3r-lint-fixer`, `hatch3r-test-writer` | Per finding type | [FIX NOW] items only |
+| 4. Fix Implementation | `hatch3r-implementer`, `hatch3r-lint-fixer`, `hatch3r-testability` | Per finding type | [FIX NOW] items only |
 | 5a. Review Loop | `hatch3r-reviewer` -> `hatch3r-fixer` (max 3 iterations) | No (sequential) | Yes |
-| 5b. Final Quality — Testing | `hatch3r-test-writer` | Yes | Yes (code changes) |
-| 5c. Final Quality — Security | `hatch3r-security-auditor` | Yes | Yes (code changes) |
+| 5b. Final Quality — Testing | `hatch3r-testability` | Yes | Yes (code changes) |
+| 5c. Final Quality — Security | `hatch3r-security` | Yes | Yes (code changes) |
 | 5d. Final Quality — Docs | `hatch3r-docs-writer` | Yes | When APIs/architecture/UX affected |
-| 5e. Final Quality — Conditional | `hatch3r-lint-fixer`, `hatch3r-a11y-auditor`, `hatch3r-perf-profiler` | Yes | When triggered |
+| 5e. Final Quality — Conditional | `hatch3r-lint-fixer`, `hatch3r-ui`, `hatch3r-performance` | Yes | When triggered |
 
 **Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
 
@@ -391,7 +392,7 @@ If all findings were deferred (no [FIX NOW] items), skip Step 6 entirely and pro
 
 > Full details: see `commands/revision/revision-quality.md`
 
-Two-stage quality pipeline: Stage 1 runs a sequential review loop (`hatch3r-reviewer` -> `hatch3r-fixer`, max 3 iterations). Stage 2 spawns final quality specialists in parallel — mandatory (`hatch3r-test-writer`, `hatch3r-security-auditor`), evaluated (`hatch3r-docs-writer`), and conditional (`hatch3r-a11y-auditor`, `hatch3r-perf-profiler`, `hatch3r-lint-fixer`).
+Two-stage quality pipeline: Stage 1 runs a sequential review loop (`hatch3r-reviewer` -> `hatch3r-fixer`, max 3 iterations). Stage 2 spawns final quality CQ specialists in parallel — mandatory (`hatch3r-testability`, `hatch3r-security`), evaluated (`hatch3r-docs-writer`), and conditional (`hatch3r-ui`, `hatch3r-performance`, `hatch3r-lint-fixer`).
 
 ---
 
@@ -493,6 +494,76 @@ Capture revision-specific learnings. Focus on patterns that inform future implem
 3. If no significant learnings: skip silently. Not every revision produces learnings.
 
 ---
+
+## Resumability (Decision 27/30)
+
+revision is long-running — a Tier 2/3 run walks 10 sequential steps (context reconstruction → user feedback → proactive scan → consolidated triage → multi-agent fix loops → quality verification → commit & push → merge-readiness → learnings) and delegates to multiple sub-agents per finding. Per `governance/CONSTITUTION.md` §6 Decision 30 (Workspace-checkpointed resumability), checkpoint progress so an interrupted run re-enters at the last completed step rather than re-interviewing the user or re-running the proactive scan.
+
+**Checkpoint contract** (`src/pipeline/checkpoint.ts`):
+
+1. **Workspace + file:** write `.revision-workspace/checkpoint.json` via `writeCheckpoint()` (atomic temp+rename through `src/merge/safeWrite.ts`; a SIGKILL mid-write leaves the prior checkpoint or no file, never a partial record). Schema (`schemaVersion: 1`): `phase` (the Step 0 → Step 10 progression), `wave` (fix-loop iteration index for Step 6), `status` (`in-progress` | `passed` | `failed`), and `meta` `{ baselineSha, lastPassedGateN, registrySha, timestamp, runCacheRef }`. The full Run Cache (diff, findings with triage routing and fix status, quality agents spawned, errors) lives alongside in `.revision-workspace/run-cache.json` per `commands/revision/revision-board-integration.md`.
+2. **Write points:** after Step 1 context reconstruction completes, after Step 2 user validation is confirmed, after Step 3 user feedback closes, after Step 4 proactive scan finishes, after Step 5 triage routing locks, and after every Step 6 fixer sub-agent returns so per-finding fix results survive a crash and are not re-applied on resume. Also after Step 7 quality gate result, after Step 8 commit, and after Step 9 merge-readiness assessment.
+3. **`--resume` invocation:** `hatch3r-revision --resume` calls `readCheckpoint()` then `verifyResumability(workspace, currentSha)`. Baseline drift fails closed (the working tree / branch state changed since the checkpoint) — re-run from scratch or rebase to the checkpoint baseline. A `failed` status halts for operator triage before resuming.
+4. **Snapshot rollback:** pre-mutation snapshots of every file touched by Step 6 fixers land in `.hatch3r/snapshots/<session-id>/`; `hatch3r rollback --session=<id>` reverts this run's mutations. Diff preview precedes every fix-loop mutation per Decision 30.
+
+If `--resume` is passed with no checkpoint, `verifyResumability` returns `drift: "no checkpoint found"` — treat as a cold start.
+
+---
+
+## Per-Turn Pipeline-State Header (Bypass Protection)
+
+For Tier 2 and Tier 3 runs, emit the header at the start of every assistant turn that touches this task, per `rules/hatch3r-agent-orchestration.md` -> Per-Turn Pipeline-State Header. Format:
+
+```
+[hatch3r-pipeline: phase {1|2|3|4} | last: {agent} → {SUCCESS|PARTIAL|FAILED|BLOCKED|n/a} | next: {agent or "user-confirmation" or "complete"}]
+```
+
+Phase mapping for revision: `1` = revision target detection + scope, `2` = sub-agent dispatch (review modes, mode-specific revision tasks), `3` = revision synthesis + acceptance check, `4` = revised artifact write + iteration-summary. Tier 1 runs are exempt per the Tier 1 exemption.
+
+## End-of-Turn Delegation Attestation (Bypass Protection)
+
+Every turn that mutated files (revised artifact, revision log, retained-version copy) at Tier 2 or Tier 3 emits the attestation block immediately before the Iteration Summary, per `rules/hatch3r-agent-orchestration.md` -> End-of-Turn Delegation Attestation. Quote the per-file `delegation_proof_id` returned by each spawned sub-agent verbatim:
+
+```
+[hatch3r-delegation-attestation]
+files_mutated_this_turn:
+  - <relative path>: via <hatch3r-agent-name> (proof: <delegation_proof_id>)
+mutating_subagent_invocations: <integer>
+inline_edits_by_orchestrator: none
+```
+
+Unattributable rows are a self-declared P8 B2 violation — halt and queue re-delegation.
+
+## Iteration Summary (mandatory output)
+
+Emit the canonical 9-section iteration summary per `rules/hatch3r-iteration-summary.md` as the final user-facing output. The validation gate at `.claude/rules/capability-lifecycle.md` blocks SUCCESS declarations without this block (CONSTITUTION §6 Decision 23).
+
+The 9 sections:
+
+1. **Request** — verbatim restatement of the user's ask in one sentence.
+2. **Fan-out + Cost** — `sub_agents_spawned: { count, rationale }` plus the `cost_estimate` / `cost_actuals` / `delta` blocks (see Cost Visibility below).
+3. **Web Research** — every URL fetched with access date + trust tier per `governance/audit/templates/rigor-contract.md` (0 acceptable when no research was needed).
+4. **Files Mutated** — list with diff summary (lines added / removed / files created).
+5. **Gates Passed / Failed** — explicit list per `.claude/rules/capability-lifecycle.md` Gate Checklist.
+6. **Pillar Impact Attribution** — `progress_toward_pillar: <axis>.<pillar_id>+<delta>` per CONSTITUTION §6 Decision 17.
+7. **Verification Commands** — exact commands run with exit codes plus key output lines (≤200 chars).
+8. **Open Questions / Blockers** — explicit `None` if fully closed.
+9. **Learnings Captured** — IDs of any learnings written to `.hatch3r/learnings/` this run per `rules/hatch3r-learning-system.md`.
+
+### Cost Visibility (Decision 24)
+
+Pre-execution: emit `cost_estimate` before the first sub-agent dispatch via `src/pipeline/observability.ts::buildCostBlock` (5-field schema):
+
+```yaml
+cost_estimate:
+  expected_sa_count: <int>
+  estimated_input_tokens_static_frame: <int>
+  triage_tier: light | standard | deep
+  estimated_web_research_queries: <int>      # 0 when no research is needed
+  estimated_duration_min: <int>
+```
+
+Post-execution: call `buildCostBlock` again with actuals to emit `cost_actuals` + `delta`; both land in Section 2 above. Field contract + delta semantics: `rules/hatch3r-cost-visibility.md`. Deltas >25% absolute value carry `flagged_for_review: true`.
 
 ## Cost estimate (Decision 24)
 

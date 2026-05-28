@@ -10,6 +10,7 @@ efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
 parallel_tool_default: true
 triage_tiers: [1, 2, 3]
+supports_resume: true
 sub_agents_spawned:
   count: 5
   rationale: Five parallel hatch3r-researcher modes per test-planning brief — coverage-analysis, complexity-and-risk, test-pattern, boundary-analysis, risk-prioritization — dispatched concurrently in Step 3; a docs-writer composes the test plan on their merged output. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
@@ -31,7 +32,7 @@ Before any action, scan the user's request and provided context for unresolved q
 
 # Test Plan -- Comprehensive Test Strategy from Scope to Board-Ready Epic
 
-Take a test planning scope (feature, module, or codebase area) and produce a complete test plan specification (`docs/specs/`), architectural decision records (`docs/adr/`) when significant testing infrastructure decisions are involved, and structured `todo.md` entries (epic + sub-items) ready for `hatch3r-board-fill`. Spawns parallel researcher sub-agents (coverage analysis, complexity & risk mapping, test pattern extraction, boundary analysis, risk-based prioritization) to analyze the testing landscape from multiple angles before generating artifacts. AI proposes all outputs; user confirms before any files are written. Supports two modes: feature-scoped test planning (plan tests for a specific feature) and module/codebase-level coverage auditing (assess and improve test coverage across an area). Optionally chains into `hatch3r-test-writer` for immediate test implementation or `hatch3r-board-fill` to create tracking issues.
+Take a test planning scope (feature, module, or codebase area) and produce a complete test plan specification (`docs/specs/`), architectural decision records (`docs/adr/`) when significant testing infrastructure decisions are involved, and structured `todo.md` entries (epic + sub-items) ready for `hatch3r-board-fill`. Spawns parallel researcher sub-agents (coverage analysis, complexity & risk mapping, test pattern extraction, boundary analysis, risk-based prioritization) to analyze the testing landscape from multiple angles before generating artifacts. AI proposes all outputs; user confirms before any files are written. Supports two modes: feature-scoped test planning (plan tests for a specific feature) and module/codebase-level coverage auditing (assess and improve test coverage across an area). Optionally chains into `hatch3r-testability` for CQ5 mandate verification or `hatch3r-board-fill` to create tracking issues.
 
 ---
 
@@ -135,7 +136,7 @@ After the test planning brief is confirmed, probe for missing requirements acros
    - **Test data requirements**: Data generation approach? Fixture vs factory preference? Seeding requirements? PII concerns in test data?
    - **Browser/E2E scope**: Which user flows need E2E coverage? Browser matrix? Mobile viewport testing?
    - **Flaky test tolerance**: Existing flaky tests? Quarantine process in place? Retry budget in CI?
-3. Skip dimensions that the brief already addresses clearly.
+3. Skip dimensions that the brief already addresses with a stated answer.
 
 **ASK:** "Before research begins, I have {N} questions to confirm the test plan covers all relevant dimensions:
 {numbered question list -- each with the dimension label and why the answer matters}
@@ -210,7 +211,7 @@ The `coverage-analysis` sub-agent establishes the baseline -- its output tells u
 
 The `risk-prioritization` sub-agent's output is critical for ordering the test plan -- it determines which tests should be written first for maximum risk reduction.
 
-The `test-pattern` sub-agent ensures the plan aligns with existing conventions, so new tests fit naturally into the codebase.
+The `test-pattern` sub-agent ensures the plan aligns with existing conventions, so new tests fit the codebase's existing patterns (file layout, fixture style, assertion idiom).
 
 **Each sub-agent prompt must also include** the Resolved Requirements from Step 1b (user's answers to dimension-probing questions) so researchers can factor in the user's explicit decisions.
 
@@ -375,7 +376,7 @@ Reference conventions from `hatch3r-testing` rule:
 | Deterministic (no wall clock) | {aligned / needs attention} | {details} |
 | Isolated (own setup/teardown) | {aligned / needs attention} | {details} |
 | Fast (unit < 50ms, integration < 2s) | {aligned / needs attention} | {details} |
-| Named clearly (behavior descriptions) | {aligned / needs attention} | {details} |
+| Named per behavior description (verb + outcome) | {aligned / needs attention} | {details} |
 | No network in unit tests | {aligned / needs attention} | {details} |
 | Fakes > stubs > mocks hierarchy | {aligned / needs attention} | {details} |
 | Factory over fixtures | {aligned / needs attention} | {details} |
@@ -554,15 +555,85 @@ Files Created/Updated:
 ### Step 9 (Optional): Chain into Test Writer or Board-Fill
 
 **ASK:** "All files written. What would you like to do next?
-- **Run `hatch3r-test-writer`** to implement the highest-priority (P0) tests immediately
+- **Run `hatch3r-testability`** to verify the highest-priority (P0) tests meet the CQ5 mandate map / coverage floor
 - **Run `hatch3r-board-fill`** to create GitHub issues from the new todo.md entries
 - **Neither** -- I'll take it from here"
 
-If `hatch3r-test-writer`: instruct the user to invoke `hatch3r-test-writer`, passing the P0 test cases from the test plan spec as the scope.
+If `hatch3r-testability`: instruct the user to invoke `hatch3r-testability`, passing the P0 test cases from the test plan spec as the scope.
 
 If `hatch3r-board-fill`: instruct the user to invoke `hatch3r-board-fill`. Note that board-fill will perform its own deduplication, grouping, dependency analysis, and readiness assessment on the entries.
 
 ---
+
+## Resumability (Decision 27/30)
+
+test-plan is long-running — a Tier 3 plan fans out parallel researcher sub-agents across coverage, framework, and convention modes (Step 3), drives an ASK synthesis (Step 4), then writes a multi-file test plan spec + ADRs + todo.md (Steps 5–8). Per `governance/CONSTITUTION.md` §6 Decision 30 (Workspace-checkpointed resumability), checkpoint progress so an interrupted run re-enters at the last completed step rather than re-running the researcher batch.
+
+**Checkpoint contract** (`src/pipeline/checkpoint.ts`):
+
+1. **Workspace + file:** write `.test-plan-workspace/checkpoint.json` via `writeCheckpoint()` (atomic temp+rename through `src/merge/safeWrite.ts`; a SIGKILL mid-write leaves the prior checkpoint or no file, never a partial record). Schema (`schemaVersion: 1`): `phase` (the Step 0 → Step 9 progression), `wave` (researcher-batch index), `status` (`in-progress` | `passed` | `failed`), and `meta` `{ baselineSha, lastPassedGateN, registrySha, timestamp, testPlanSlug }`.
+2. **Write points:** after Step 1 scope confirmation, after Step 2 context load, after Step 3 researcher fan-out completes, after the Step 4 ASK synthesis is confirmed, and after each Step 5–8 file write (test plan spec, ADRs, todo.md) so already-generated artifacts survive a crash and are not regenerated on resume.
+3. **`--resume` invocation:** `hatch3r-test-plan --resume` calls `readCheckpoint()` then `verifyResumability(workspace, currentSha)`. Baseline drift fails closed (the target module / existing test suite / `todo.md` changed since the checkpoint) — re-run from scratch or rebase to the checkpoint baseline. A `failed` status halts for operator triage before resuming.
+4. **Snapshot rollback:** pre-mutation snapshots of `docs/specs/`, `docs/adr/`, and `todo.md` land in `.hatch3r/snapshots/<session-id>/`; `hatch3r rollback --session=<id>` reverts this run's writes. Diff preview precedes every file write per Decision 30.
+
+If `--resume` is passed with no checkpoint, `verifyResumability` returns `drift: "no checkpoint found"` — treat as a cold start.
+
+---
+
+## Per-Turn Pipeline-State Header (Bypass Protection)
+
+For Tier 2 and Tier 3 runs, emit the header at the start of every assistant turn that touches this task, per `rules/hatch3r-agent-orchestration.md` -> Per-Turn Pipeline-State Header. Format:
+
+```
+[hatch3r-pipeline: phase {1|2|3|4} | last: {agent} → {SUCCESS|PARTIAL|FAILED|BLOCKED|n/a} | next: {agent or "user-confirmation" or "complete"}]
+```
+
+Phase mapping for test-plan: `1` = feature/diff intake + mandate-class detection, `2` = hatch3r-testability sub-agent dispatch (fuzz / mutation / contract / property / visual / AI-eval), `3` = plan synthesis + coverage analysis, `4` = plan write + iteration-summary. Tier 1 runs are exempt per the Tier 1 exemption.
+
+## End-of-Turn Delegation Attestation (Bypass Protection)
+
+Every turn that mutated files (test-plan doc, mandate matrix, coverage spec) at Tier 2 or Tier 3 emits the attestation block immediately before the Iteration Summary, per `rules/hatch3r-agent-orchestration.md` -> End-of-Turn Delegation Attestation. Quote the per-file `delegation_proof_id` returned by each spawned sub-agent verbatim:
+
+```
+[hatch3r-delegation-attestation]
+files_mutated_this_turn:
+  - <relative path>: via hatch3r-testability (proof: <delegation_proof_id>)
+mutating_subagent_invocations: <integer>
+inline_edits_by_orchestrator: none
+```
+
+Unattributable rows are a self-declared P8 B2 violation — halt and queue re-delegation.
+
+## Iteration Summary (mandatory output)
+
+Emit the canonical 9-section iteration summary per `rules/hatch3r-iteration-summary.md` as the final user-facing output. The validation gate at `.claude/rules/capability-lifecycle.md` blocks SUCCESS declarations without this block (CONSTITUTION §6 Decision 23).
+
+The 9 sections:
+
+1. **Request** — verbatim restatement of the user's ask in one sentence.
+2. **Fan-out + Cost** — `sub_agents_spawned: { count, rationale }` plus the `cost_estimate` / `cost_actuals` / `delta` blocks (see Cost Visibility below).
+3. **Web Research** — every URL fetched with access date + trust tier per `governance/audit/templates/rigor-contract.md` (0 acceptable when no research was needed).
+4. **Files Mutated** — list with diff summary (lines added / removed / files created).
+5. **Gates Passed / Failed** — explicit list per `.claude/rules/capability-lifecycle.md` Gate Checklist.
+6. **Pillar Impact Attribution** — `progress_toward_pillar: <axis>.<pillar_id>+<delta>` per CONSTITUTION §6 Decision 17.
+7. **Verification Commands** — exact commands run with exit codes plus key output lines (≤200 chars).
+8. **Open Questions / Blockers** — explicit `None` if fully closed.
+9. **Learnings Captured** — IDs of any learnings written to `.hatch3r/learnings/` this run per `rules/hatch3r-learning-system.md`.
+
+### Cost Visibility (Decision 24)
+
+Pre-execution: emit `cost_estimate` before the first sub-agent dispatch via `src/pipeline/observability.ts::buildCostBlock` (5-field schema):
+
+```yaml
+cost_estimate:
+  expected_sa_count: <int>
+  estimated_input_tokens_static_frame: <int>
+  triage_tier: light | standard | deep
+  estimated_web_research_queries: <int>      # 0 when no research is needed
+  estimated_duration_min: <int>
+```
+
+Post-execution: call `buildCostBlock` again with actuals to emit `cost_actuals` + `delta`; both land in Section 2 above. Field contract + delta semantics: `rules/hatch3r-cost-visibility.md`. Deltas >25% absolute value carry `flagged_for_review: true`.
 
 ## Cost estimate (Decision 24)
 
@@ -595,7 +666,7 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 - **Stay within the test planning scope** defined by the user in Step 1. Do not invent test areas the user did not describe or imply. Flag coverage expansion opportunities but do not act on them without explicit approval.
 - **Coverage targets must align with `hatch3r-testing` rule thresholds.** Statement 80%, branch 70%, critical modules 90%/85%. If the user requests lower targets, note the divergence explicitly.
 - **Test cases must follow the convention hierarchy.** Fakes > stubs > mocks, as specified in `hatch3r-testing` rule. If the codebase uses a different convention, note the divergence and recommend gradual alignment.
-- **Do not prescribe implementation details.** The test plan specifies what to test, not how to implement the tests. Implementation details are `hatch3r-test-writer`'s responsibility. Test case outlines include behavior descriptions and acceptance criteria, not code.
+- **Do not prescribe implementation details.** The test plan specifies what to test, not how to implement the tests. Implementation details are the implementer's responsibility, gated by `hatch3r-testability` (CQ5). Test case outlines include behavior descriptions and acceptance criteria, not code.
 - **Property-based and mutation testing are opt-in.** Only include these in the plan if the user opts in during Step 1b or the codebase already uses them.
 - **All 5 researchers must complete before proceeding to Step 4.** Do not generate specs from partial research.
 - **todo.md must be compatible with board-fill format** -- markdown checklist with bold titles, grouped by priority, referencing source specs.

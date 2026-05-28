@@ -37,6 +37,8 @@ cache_friendly: true
 
 ## Cloud Secret Managers
 
+> Maturity tier: team+ — solo projects may keep secrets in a local `.env` outside git. A managed vault earns its cost once a second engineer, a deployed environment, or a compliance audit enters the picture.
+
 - **AWS Secrets Manager:** Store secrets as JSON key-value pairs. Use IAM policies to scope access per service/role. Enable automatic rotation with Lambda rotation functions. Use `aws-sdk` `GetSecretValue` at runtime — never bake secrets into container images or deployment artifacts.
 - **GCP Secret Manager:** Store each secret as a versioned resource. Grant `secretmanager.secretAccessor` role per service account with resource-level IAM. Access secrets via `@google-cloud/secret-manager` client library at startup. Use secret versions (not `latest` in production) for auditability.
 - **Azure Key Vault:** Store secrets, keys, and certificates. Use Managed Identity for authentication — no credentials needed to access the vault. Apply access policies per application identity. Enable soft-delete and purge protection.
@@ -56,6 +58,8 @@ cache_friendly: true
 
 ## OIDC Trust-Policy Conditions (Cloud Auth)
 
+> Maturity tier: team+ — solo projects with no CI-to-cloud federation may defer. OIDC trust-policy hardening matters once CI deploys to a shared cloud account; before that, scoped local credentials are acceptable.
+
 Long-lived cloud secrets (`AWS_ACCESS_KEY_ID`, `GOOGLE_APPLICATION_CREDENTIALS` JSON file, Azure SP password) in CI are an anti-pattern in 2026. GitHub OIDC issues a per-run JWT; the cloud provider's trust policy exchanges it for short-lived credentials scoped to the workflow.
 
 - **Branch + environment conditions are required.** The `sub` claim must be matched to a specific `(repository, ref, environment)` triple. PR workflows assume a read-only role; main-branch workflows assume the production role.
@@ -66,6 +70,8 @@ Long-lived cloud secrets (`AWS_ACCESS_KEY_ID`, `GOOGLE_APPLICATION_CREDENTIALS` 
 
 ## Secret Manager Mandate
 
+> Maturity tier: scaleup+ — team projects may run a single vault per environment; scaleup adds per-service IAM/IRSA scoping and automated rotation. Solo projects skip this section.
+
 Every production secret lives in a managed vault — AWS Secrets Manager, GCP Secret Manager, Azure Key Vault, HashiCorp Vault, or a SaaS equivalent (Doppler, 1Password Secrets Automation, Infisical). Direct `.env`-file secret storage is permitted only for local development, and the file is never committed.
 
 - Repository ships `.env.example` only — a template with placeholder values and per-variable descriptions. Actual `.env` is in `.gitignore`.
@@ -74,6 +80,8 @@ Every production secret lives in a managed vault — AWS Secrets Manager, GCP Se
 - Vault access scoped per service via IAM / IRSA / Workload Identity / AppRole — no shared "master" reader.
 
 ## Certificate Automation
+
+> Maturity tier: team+ — solo projects with a single managed-cert endpoint may defer the monitoring + SPKI-pinning controls. Cert-manager and pager alerts become mandatory once a team owns more than one TLS endpoint.
 
 TLS certificate expiry is a recurring outage class — manual renewal is forbidden in production. Automate via ACME.
 

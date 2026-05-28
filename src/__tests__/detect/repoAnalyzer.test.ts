@@ -313,6 +313,51 @@ describe("analyzeRepo", () => {
       const info = await analyzeRepo(root);
       expect(info.isMonorepo).toBe(false);
     });
+
+    // F14.2-H1 (D14): `analyzeRepo` now populates `RepoInfo.packages` when a
+    // monorepo's workspace globs resolve to package.json-bearing directories.
+    it("populates packages when workspaces resolve to package.json directories", async () => {
+      const root = await createTempRepo();
+      await writeFile(
+        join(root, "package.json"),
+        JSON.stringify({ workspaces: ["packages/*"] }),
+      );
+      await mkdir(join(root, "packages", "alpha"), { recursive: true });
+      await writeFile(
+        join(root, "packages", "alpha", "package.json"),
+        JSON.stringify({ name: "@scope/alpha" }),
+      );
+
+      const info = await analyzeRepo(root);
+      expect(info.isMonorepo).toBe(true);
+      expect(info.packages).toEqual([
+        { name: "@scope/alpha", path: "packages/alpha" },
+      ]);
+    });
+
+    it("omits packages on non-monorepo repos", async () => {
+      const root = await createTempRepo();
+      await writeFile(
+        join(root, "package.json"),
+        JSON.stringify({ name: "single" }),
+      );
+
+      const info = await analyzeRepo(root);
+      expect(info.isMonorepo).toBe(false);
+      expect(info.packages).toBeUndefined();
+    });
+
+    it("omits packages when workspace globs resolve to no directories", async () => {
+      const root = await createTempRepo();
+      await writeFile(
+        join(root, "package.json"),
+        JSON.stringify({ workspaces: ["packages/*"] }),
+      );
+      // packages/ directory deliberately absent
+      const info = await analyzeRepo(root);
+      expect(info.isMonorepo).toBe(true);
+      expect(info.packages).toBeUndefined();
+    });
   });
 
   describe("existing tools detection", () => {

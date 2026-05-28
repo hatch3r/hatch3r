@@ -2,7 +2,7 @@
 id: hatch3r-benchmark
 type: command
 orchestrator: true
-agentPipeline: [hatch3r-researcher, hatch3r-perf-profiler, hatch3r-docs-writer]
+agentPipeline: [hatch3r-researcher, hatch3r-performance, hatch3r-docs-writer]
 description: Run and analyze performance benchmarks. Compare results against baselines, identify regressions, and produce performance reports.
 tags: [review, performance]
 quality_charter: agents/shared/quality-charter.md
@@ -10,9 +10,10 @@ efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
 parallel_tool_default: true
 triage_tiers: [1, 2, 3]
+supports_resume: true
 sub_agents_spawned:
   count: 3
-  rationale: Three-stage pipeline per agentPipeline — researcher gathers prior baselines, perf-profiler executes the suite, docs-writer assembles the report; each receives the run cache and emits a structured slice. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  rationale: Three-stage pipeline per agentPipeline — researcher gathers prior baselines, performance (CQ7) executes the suite, docs-writer assembles the report; each receives the run cache and emits a structured slice. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -25,7 +26,7 @@ Before any action, scan the user's request and provided context for unresolved q
 |-------|----------|----------|----------|
 | 1. Discovery | `hatch3r-researcher` (codebase-analysis mode) | No | Yes |
 | 2. Execution | Orchestrator (inline, runs benchmarks) | No | Yes |
-| 3. Analysis | `hatch3r-perf-profiler` | No | Yes |
+| 3. Analysis | `hatch3r-performance` | No | Yes |
 | 4. Reporting | `hatch3r-docs-writer` | No | If regressions found |
 
 **Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
@@ -65,7 +66,7 @@ Execute these steps in order. **Do not skip any step.** Ask the user at every ch
 
 Classify the benchmark request before delegating:
 
-- **Tier 1 (trivial)**: single benchmark with `none` baseline or quick re-run of an existing suite; inline execution, no `hatch3r-perf-profiler` fanout.
+- **Tier 1 (trivial)**: single benchmark with `none` baseline or quick re-run of an existing suite; inline execution, no `hatch3r-performance` fanout.
 - **Tier 2 (standard)**: standard suite with `previous-run` or git-ref baseline; standard pipeline including statistical analysis and reporting.
 - **Tier 3 (deep)**: full-suite cross-environment benchmark with regression triage and root-cause tracing; full pipeline with research and confirm scope with the user before saving results.
 
@@ -77,7 +78,7 @@ Before the first sub-agent dispatch (Step 2 discovery researcher), surface the c
 
 ```yaml
 cost_estimate:
-  expected_sa_count: <triage tier → Tier 1 inline ~0, Tier 2 ~2 (perf-profiler + docs-writer when regressions), Tier 3 up to 3>
+  expected_sa_count: <triage tier → Tier 1 inline ~0, Tier 2 ~2 (performance + docs-writer when regressions), Tier 3 up to 3>
   estimated_input_tokens_static_frame: <int>
   estimated_web_research_queries: <int>
   triage_tier: light | standard | deep
@@ -254,7 +255,7 @@ Comparison:
 
 ### Step 7: Statistical Analysis
 
-Delegate to `hatch3r-perf-profiler` for analysis of the collected metrics.
+Delegate to `hatch3r-performance` (CQ7) for analysis of the collected metrics.
 
 1. Calculate statistical significance for each delta:
    - Use coefficient of variation (CV) to assess measurement noise
@@ -433,6 +434,61 @@ The benchmark report follows this structure:
 
 ---
 
+## Per-Turn Pipeline-State Header (Bypass Protection)
+
+For Tier 2 and Tier 3 runs, emit the header at the start of every assistant turn that touches this task, per `rules/hatch3r-agent-orchestration.md` -> Per-Turn Pipeline-State Header. Format:
+
+```
+[hatch3r-pipeline: phase {1|2|3|4} | last: {agent} → {SUCCESS|PARTIAL|FAILED|BLOCKED|n/a} | next: {agent or "user-confirmation" or "complete"}]
+```
+
+Phase mapping for benchmark: `1` = scope + tool selection, `2` = benchmark execution / sub-agent dispatch, `3` = result aggregation + regression detection, `4` = report + iteration-summary. Tier 1 runs are exempt per the Tier 1 exemption.
+
+## End-of-Turn Delegation Attestation (Bypass Protection)
+
+Every turn that mutated files (benchmark reports, baseline updates, dashboard refreshes) at Tier 2 or Tier 3 emits the attestation block immediately before the Iteration Summary, per `rules/hatch3r-agent-orchestration.md` -> End-of-Turn Delegation Attestation. Quote the per-file `delegation_proof_id` returned by each spawned sub-agent verbatim:
+
+```
+[hatch3r-delegation-attestation]
+files_mutated_this_turn:
+  - <relative path>: via <hatch3r-agent-name> (proof: <delegation_proof_id>)
+mutating_subagent_invocations: <integer>
+inline_edits_by_orchestrator: none
+```
+
+Unattributable rows are a self-declared P8 B2 violation — halt and queue re-delegation.
+
+## Iteration Summary (mandatory output)
+
+Emit the canonical 9-section iteration summary per `rules/hatch3r-iteration-summary.md` as the final user-facing output. The validation gate at `.claude/rules/capability-lifecycle.md` blocks SUCCESS declarations without this block (CONSTITUTION §6 Decision 23).
+
+The 9 sections:
+
+1. **Request** — verbatim restatement of the user's ask in one sentence.
+2. **Fan-out + Cost** — `sub_agents_spawned: { count, rationale }` plus the `cost_estimate` / `cost_actuals` / `delta` blocks (see Cost Visibility below).
+3. **Web Research** — every URL fetched with access date + trust tier per `governance/audit/templates/rigor-contract.md` (0 acceptable when no research was needed).
+4. **Files Mutated** — list with diff summary (lines added / removed / files created).
+5. **Gates Passed / Failed** — explicit list per `.claude/rules/capability-lifecycle.md` Gate Checklist.
+6. **Pillar Impact Attribution** — `progress_toward_pillar: <axis>.<pillar_id>+<delta>` per CONSTITUTION §6 Decision 17.
+7. **Verification Commands** — exact commands run with exit codes plus key output lines (≤200 chars).
+8. **Open Questions / Blockers** — explicit `None` if fully closed.
+9. **Learnings Captured** — IDs of any learnings written to `.hatch3r/learnings/` this run per `rules/hatch3r-learning-system.md`.
+
+### Cost Visibility (Decision 24)
+
+Pre-execution: emit `cost_estimate` before the first sub-agent dispatch via `src/pipeline/observability.ts::buildCostBlock` (5-field schema):
+
+```yaml
+cost_estimate:
+  expected_sa_count: <int>
+  estimated_input_tokens_static_frame: <int>
+  triage_tier: light | standard | deep
+  estimated_web_research_queries: <int>      # 0 when no research is needed
+  estimated_duration_min: <int>
+```
+
+Post-execution: call `buildCostBlock` again with actuals to emit `cost_actuals` + `delta`; both land in Section 2 above. Field contract + delta semantics: `rules/hatch3r-cost-visibility.md`. Deltas >25% absolute value carry `flagged_for_review: true`.
+
 ## Cost estimate (Decision 24)
 
 This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 24/29:
@@ -440,7 +496,7 @@ This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and 
 - **Pre-execution `cost_estimate`** — emitted in Step 0.5 before the first researcher dispatch (Step 2 discovery).
 - **Post-execution `cost_actuals` + `delta`** — appended to the Step 9 report's Fan-out + Cost section per `rules/hatch3r-iteration-summary.md` §2.
 
-Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.count: 3` × tier heuristic in `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate): Tier 1 ≈ 0 (inline discovery + execution, no fan-out); Tier 2 ≈ 2 (perf-profiler for analysis + docs-writer when regressions found); Tier 3 up to 3 (researcher + perf-profiler + docs-writer). Benchmark wall-clock execution is reported separately and not counted as LLM token cost. Deltas beyond 25% absolute value carry `flagged_for_review: true`. Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
+Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.count: 3` × tier heuristic in `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate): Tier 1 ≈ 0 (inline discovery + execution, no fan-out); Tier 2 ≈ 2 (performance for analysis + docs-writer when regressions found); Tier 3 up to 3 (researcher + performance + docs-writer). Benchmark wall-clock execution is reported separately and not counted as LLM token cost. Deltas beyond 25% absolute value carry `flagged_for_review: true`. Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
 
 ---
 
@@ -469,7 +525,7 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 
 ## Related
 
-- **Agent:** `hatch3r-perf-profiler` — deep performance profiling and analysis
+- **Agent:** `hatch3r-performance` (CQ7) — deep performance profiling and analysis
 - **Check:** `checks/performance.md` — performance budget checks
 - **Rule:** `hatch3r-performance-budgets` — performance budget thresholds and enforcement
 - **Command:** `hatch3r-refactor-plan` — plan optimizations identified by benchmark regressions

@@ -81,10 +81,14 @@ describe("buildTaskRouterModel", () => {
   });
 
   it("picks the id-matching agent as primary", () => {
+    // F16.3-H1 (Cycle 10 Wave 1C): legacy a11y-auditor + security-auditor
+    // collapsed into CQ specialists. The test uses CQ specialists as
+    // alphabetical-tie-break fallback fixtures because the legacy ids no
+    // longer exist on disk.
     const index = makeIndex([
       agent("hatch3r-reviewer", ["core", "review"]),
-      agent("hatch3r-a11y-auditor", ["review", "a11y"]),
-      agent("hatch3r-security-auditor", ["review", "security"]),
+      agent("hatch3r-security", ["review", "security"]),
+      agent("hatch3r-ui", ["review", "a11y"]),
     ]);
 
     const rows = buildTaskRouterModel(index);
@@ -93,24 +97,29 @@ describe("buildTaskRouterModel", () => {
     expect(reviewRow!.primary).toEqual({ kind: "agent", id: "hatch3r-reviewer" });
     // Specialists appear as fallbacks in alphabetical order.
     expect(reviewRow!.fallbackAgents).toEqual([
-      "hatch3r-a11y-auditor",
-      "hatch3r-security-auditor",
+      "hatch3r-security",
+      "hatch3r-ui",
     ]);
   });
 
   it("produces domain-tag rows for floor + customize + ui-ux specialisations", () => {
     // Wave 1 split the old DOMAIN_TAGS array into floor markers (`floor:*`),
     // customize, and ui-ux-specialisation tags; the router now concatenates
-    // the three facets when emitting domain rows. The `a11y` row still picks
-    // up the id-substring match (hatch3r-a11y-auditor) under the unchanged
-    // rankItemForTag scoring; the `floor:security` row no longer benefits
-    // from id substring matching (ids don't carry the `floor:` prefix), so
-    // the primary falls back to the alphabetical tie-break — that's the
-    // new behaviour and is exercised here so a regression is loud.
+    // the three facets when emitting domain rows. The `a11y` row picks up
+    // the id-substring match on the skill (hatch3r-a11y-audit) under the
+    // unchanged rankItemForTag scoring; the `floor:security` row no longer
+    // benefits from id substring matching (ids don't carry the `floor:`
+    // prefix), so the primary falls back to the alphabetical tie-break —
+    // that behaviour is exercised here so a regression is loud.
+    // F16.3-H1 (Cycle 10 Wave 1C): legacy auditor ids replaced with CQ
+    // specialists (hatch3r-security carries floor:security; hatch3r-ui
+    // carries the a11y tag per its WCAG scope; legacy a11y-auditor's
+    // alphabetical-id role is filled by hatch3r-maintainability as a
+    // second floor:security peer tag for the tie-break assertion).
     const index = makeIndex([
-      agent("hatch3r-security-auditor", ["review", "floor:security"]),
-      agent("hatch3r-dependency-auditor", ["maintenance", "floor:security"]),
-      agent("hatch3r-a11y-auditor", ["review", "a11y"]),
+      agent("hatch3r-security", ["review", "floor:security"]),
+      agent("hatch3r-maintainability", ["maintenance", "floor:security"]),
+      agent("hatch3r-ui", ["review", "a11y"]),
       skill("hatch3r-a11y-audit", ["review", "a11y"]),
       rule("hatch3r-security-patterns", ["floor:security"]),
     ]);
@@ -119,16 +128,19 @@ describe("buildTaskRouterModel", () => {
     const securityRow = rows.find((r) => r.tag === "floor:security");
     expect(securityRow).toBeDefined();
     expect(securityRow!.tagKind).toBe("domain");
-    // Both `hatch3r-security-auditor` and `hatch3r-dependency-auditor` tie on
-    // the rank vector (neither id contains `floor:security` or its 5-char
-    // prefix `floor`); alphabetical id wins, so dependency-auditor is primary.
-    expect(securityRow!.primary).toEqual({ kind: "agent", id: "hatch3r-dependency-auditor" });
-    expect(securityRow!.fallbackAgents).toContain("hatch3r-security-auditor");
+    // Both `hatch3r-security` and `hatch3r-maintainability` tie on the rank
+    // vector (neither id contains `floor:security` or its 5-char prefix
+    // `floor`); alphabetical id wins, so maintainability is primary.
+    expect(securityRow!.primary).toEqual({ kind: "agent", id: "hatch3r-maintainability" });
+    expect(securityRow!.fallbackAgents).toContain("hatch3r-security");
     expect(securityRow!.relevantRules).toEqual(["hatch3r-security-patterns"]);
 
     const a11yRow = rows.find((r) => r.tag === "a11y");
     expect(a11yRow).toBeDefined();
-    expect(a11yRow!.primary).toEqual({ kind: "agent", id: "hatch3r-a11y-auditor" });
+    // The skill `hatch3r-a11y-audit` contains the `a11y` substring at a
+    // higher rank than the agent `hatch3r-ui` (no substring match), but
+    // agents outrank skills at the type tier, so `hatch3r-ui` wins primary.
+    expect(a11yRow!.primary).toEqual({ kind: "agent", id: "hatch3r-ui" });
     expect(a11yRow!.relevantSkills).toEqual(["hatch3r-a11y-audit"]);
   });
 
@@ -255,8 +267,8 @@ describe("generateBridgeOrchestration — Task Type routing", () => {
       "utf-8",
     );
     await writeFile(
-      join(tempDir, "agents", "hatch3r-a11y-auditor.md"),
-      "---\nid: hatch3r-a11y-auditor\ntype: agent\ndescription: a11y auditor\ntags: [review, a11y]\n---\n# A11y\n",
+      join(tempDir, "agents", "hatch3r-ui.md"),
+      "---\nid: hatch3r-ui\ntype: agent\ndescription: CQ1 UI/a11y specialist\ntags: [review, a11y]\n---\n# UI\n",
       "utf-8",
     );
 

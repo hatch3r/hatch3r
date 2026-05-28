@@ -239,7 +239,7 @@ export const PHASE_SKIP_CRITERIA: readonly PhaseSkipCriteria[] = [
       "All items are trivial AND quality checks pass (quick-change only)",
     ],
     mandatoryMinimum: [
-      "test-writer and security-auditor are always required for code changes regardless of command",
+      "testability and security specialists are always required for code changes regardless of command",
       "Quality checks must pass before completion",
     ],
   },
@@ -251,8 +251,9 @@ export const PHASE_SKIP_CRITERIA: readonly PhaseSkipCriteria[] = [
  * Phase 4 specialist trigger conditions.
  *
  * Defines when each specialist should be triggered based on the changes
- * made during implementation. The dependency-auditor is included for
- * dependency file modifications.
+ * made during implementation. The CQ3 security specialist owns dependency
+ * file modifications (absorbing the legacy dependency-auditor scope per
+ * F16.3-H1, Cycle 10 Wave 1C).
  */
 export interface SpecialistTrigger {
   specialist: string;
@@ -260,21 +261,11 @@ export interface SpecialistTrigger {
   mode: "always" | "evaluate" | "conditional";
   /** File patterns or conditions that trigger this specialist. */
   triggerConditions: string[];
-  /** Dependency file patterns (for dependency-auditor). */
+  /** Dependency file patterns (e.g., for CQ3 security specialist's supply-chain checks). */
   triggerFilePatterns?: string[];
 }
 
 export const SPECIALIST_TRIGGER_TABLE: readonly SpecialistTrigger[] = [
-  {
-    specialist: "hatch3r-test-writer",
-    mode: "always",
-    triggerConditions: ["Any code change"],
-  },
-  {
-    specialist: "hatch3r-security-auditor",
-    mode: "always",
-    triggerConditions: ["Any code change"],
-  },
   {
     specialist: "hatch3r-docs-writer",
     mode: "evaluate",
@@ -291,55 +282,6 @@ export const SPECIALIST_TRIGGER_TABLE: readonly SpecialistTrigger[] = [
     triggerConditions: ["Lint or type errors present after implementation"],
   },
   {
-    specialist: "hatch3r-a11y-auditor",
-    mode: "conditional",
-    triggerConditions: ["UI or accessibility changes"],
-  },
-  {
-    specialist: "hatch3r-perf-profiler",
-    mode: "conditional",
-    triggerConditions: ["Performance-sensitive changes", "Hot path modifications"],
-  },
-  {
-    specialist: "hatch3r-dependency-auditor",
-    mode: "conditional",
-    triggerConditions: [
-      "Dependency files modified",
-      "New dependency added",
-      "Dependency version changed",
-      "Lockfile modified",
-    ],
-    triggerFilePatterns: [
-      "package.json",
-      "package-lock.json",
-      "pnpm-lock.yaml",
-      "yarn.lock",
-      "go.mod",
-      "go.sum",
-      "Cargo.toml",
-      "Cargo.lock",
-      "requirements.txt",
-      "Pipfile",
-      "Pipfile.lock",
-      "pyproject.toml",
-      "poetry.lock",
-      "Gemfile",
-      "Gemfile.lock",
-      "composer.json",
-      "composer.lock",
-      "pubspec.yaml",
-      "pubspec.lock",
-      "mix.exs",
-      "mix.lock",
-      "build.gradle",
-      "build.gradle.kts",
-      "pom.xml",
-      "Package.swift",
-      ".npmrc",
-      ".nvmrc",
-    ],
-  },
-  {
     specialist: "hatch3r-architect",
     mode: "conditional",
     triggerConditions: ["Architectural decisions needed", "New module or service introduced"],
@@ -351,10 +293,12 @@ export const SPECIALIST_TRIGGER_TABLE: readonly SpecialistTrigger[] = [
   },
   // ── CQ1–CQ9 quality-vector specialists (Finding F7.3-C1 / KDD #22) ──
   // One per CONSTITUTION §2B content-quality pillar. Each specialist enforces
-  // measurable floors on end-user generated code via Phase 4 dispatch. Scope
-  // boundaries vs legacy specialists are documented in each agent file (e.g.,
-  // hatch3r-ui covers WCAG + design-token + four-state; hatch3r-a11y-auditor
-  // remains the deep ARIA-focused sweep).
+  // measurable floors on end-user generated code via Phase 4 dispatch.
+  // F16.3-H1 (Cycle 10 Wave 1C): the 5 legacy meta-agents (test-writer,
+  // security-auditor, a11y-auditor, perf-profiler, dependency-auditor) were
+  // retired into their CQ successors (testability/security/ui/performance/
+  // security respectively). The CQ specialists below now carry the always-mode
+  // floor that test-writer + security-auditor previously enforced.
   {
     specialist: "hatch3r-ui",
     mode: "conditional",
@@ -390,11 +334,45 @@ export const SPECIALIST_TRIGGER_TABLE: readonly SpecialistTrigger[] = [
   },
   {
     specialist: "hatch3r-security",
-    mode: "conditional",
+    mode: "always",
     triggerConditions: [
+      "Any code change (always-mode floor — absorbs legacy security-auditor scope)",
       "Auth / JWT / OAuth / WebAuthn code modified",
       "Release workflow modified",
       "Cookie / session handling modified",
+      "Dependency files modified (absorbs legacy dependency-auditor scope)",
+      "New dependency added",
+      "Dependency version changed",
+      "Lockfile modified",
+    ],
+    triggerFilePatterns: [
+      "package.json",
+      "package-lock.json",
+      "pnpm-lock.yaml",
+      "yarn.lock",
+      "go.mod",
+      "go.sum",
+      "Cargo.toml",
+      "Cargo.lock",
+      "requirements.txt",
+      "Pipfile",
+      "Pipfile.lock",
+      "pyproject.toml",
+      "poetry.lock",
+      "Gemfile",
+      "Gemfile.lock",
+      "composer.json",
+      "composer.lock",
+      "pubspec.yaml",
+      "pubspec.lock",
+      "mix.exs",
+      "mix.lock",
+      "build.gradle",
+      "build.gradle.kts",
+      "pom.xml",
+      "Package.swift",
+      ".npmrc",
+      ".nvmrc",
     ],
   },
   {
@@ -409,8 +387,9 @@ export const SPECIALIST_TRIGGER_TABLE: readonly SpecialistTrigger[] = [
   },
   {
     specialist: "hatch3r-testability",
-    mode: "conditional",
+    mode: "always",
     triggerConditions: [
+      "Any code change (always-mode floor — absorbs legacy test-writer scope)",
       "Test code added, modified, or removed",
       "Mandate-map feature class introduced (parser / payment / RPC / AI eval)",
       "Coverage threshold or test-runner config modified",
@@ -502,14 +481,14 @@ export const LANGUAGE_SPECIALIST_CONFIGS: readonly LanguageSpecialistConfig[] = 
     dependencyFiles: ["package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "tsconfig.json"],
     specialistHints: [
       { specialist: "hatch3r-lint-fixer", hint: "Check for TypeScript strict mode violations and type errors" },
-      { specialist: "hatch3r-test-writer", hint: "Use project test framework (vitest/jest); ensure type-safe test assertions" },
+      { specialist: "hatch3r-testability", hint: "Use project test framework (vitest/jest); ensure type-safe test assertions" },
     ],
   },
   {
     language: "javascript",
     dependencyFiles: ["package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"],
     specialistHints: [
-      { specialist: "hatch3r-test-writer", hint: "Use project test framework (vitest/jest/mocha)" },
+      { specialist: "hatch3r-testability", hint: "Use project test framework (vitest/jest/mocha)" },
     ],
   },
   {
@@ -517,8 +496,8 @@ export const LANGUAGE_SPECIALIST_CONFIGS: readonly LanguageSpecialistConfig[] = 
     dependencyFiles: ["requirements.txt", "Pipfile", "Pipfile.lock", "pyproject.toml", "poetry.lock", "setup.py"],
     specialistHints: [
       { specialist: "hatch3r-lint-fixer", hint: "Run ruff/flake8/mypy per project config" },
-      { specialist: "hatch3r-test-writer", hint: "Use pytest; check for type annotations" },
-      { specialist: "hatch3r-security-auditor", hint: "Check for pickle deserialization, SQL injection, SSTI" },
+      { specialist: "hatch3r-testability", hint: "Use pytest; check for type annotations" },
+      { specialist: "hatch3r-security", hint: "Check for pickle deserialization, SQL injection, SSTI" },
     ],
   },
   {
@@ -526,8 +505,8 @@ export const LANGUAGE_SPECIALIST_CONFIGS: readonly LanguageSpecialistConfig[] = 
     dependencyFiles: ["go.mod", "go.sum"],
     specialistHints: [
       { specialist: "hatch3r-lint-fixer", hint: "Run golangci-lint; check for go vet warnings" },
-      { specialist: "hatch3r-test-writer", hint: "Use standard testing package; check for table-driven tests" },
-      { specialist: "hatch3r-security-auditor", hint: "Run govulncheck; check for unsafe pointer usage" },
+      { specialist: "hatch3r-testability", hint: "Use standard testing package; check for table-driven tests" },
+      { specialist: "hatch3r-security", hint: "Run govulncheck; check for unsafe pointer usage" },
     ],
   },
   {
@@ -535,67 +514,67 @@ export const LANGUAGE_SPECIALIST_CONFIGS: readonly LanguageSpecialistConfig[] = 
     dependencyFiles: ["Cargo.toml", "Cargo.lock"],
     specialistHints: [
       { specialist: "hatch3r-lint-fixer", hint: "Run clippy with project-configured lints" },
-      { specialist: "hatch3r-security-auditor", hint: "Run cargo-audit; check for unsafe blocks" },
+      { specialist: "hatch3r-security", hint: "Run cargo-audit; check for unsafe blocks" },
     ],
   },
   {
     language: "java",
     dependencyFiles: ["pom.xml", "build.gradle", "build.gradle.kts"],
     specialistHints: [
-      { specialist: "hatch3r-test-writer", hint: "Use JUnit 5; check for integration test coverage" },
-      { specialist: "hatch3r-dependency-auditor", hint: "Check for OWASP dependency-check findings" },
+      { specialist: "hatch3r-testability", hint: "Use JUnit 5; check for integration test coverage" },
+      { specialist: "hatch3r-security", hint: "Check for OWASP dependency-check findings" },
     ],
   },
   {
     language: "ruby",
     dependencyFiles: ["Gemfile", "Gemfile.lock"],
     specialistHints: [
-      { specialist: "hatch3r-test-writer", hint: "Use RSpec or minitest per project convention" },
-      { specialist: "hatch3r-security-auditor", hint: "Run bundler-audit; check for mass assignment" },
+      { specialist: "hatch3r-testability", hint: "Use RSpec or minitest per project convention" },
+      { specialist: "hatch3r-security", hint: "Run bundler-audit; check for mass assignment" },
     ],
   },
   {
     language: "php",
     dependencyFiles: ["composer.json", "composer.lock"],
     specialistHints: [
-      { specialist: "hatch3r-test-writer", hint: "Use PHPUnit per project convention" },
-      { specialist: "hatch3r-security-auditor", hint: "Check for SQL injection, XSS, deserialization" },
+      { specialist: "hatch3r-testability", hint: "Use PHPUnit per project convention" },
+      { specialist: "hatch3r-security", hint: "Check for SQL injection, XSS, deserialization" },
     ],
   },
   {
     language: "swift",
     dependencyFiles: ["Package.swift", "Package.resolved"],
     specialistHints: [
-      { specialist: "hatch3r-test-writer", hint: "Use XCTest; check for async test patterns" },
+      { specialist: "hatch3r-testability", hint: "Use XCTest; check for async test patterns" },
     ],
   },
   {
     language: "dart",
     dependencyFiles: ["pubspec.yaml", "pubspec.lock"],
     specialistHints: [
-      { specialist: "hatch3r-test-writer", hint: "Use flutter_test or test package" },
+      { specialist: "hatch3r-testability", hint: "Use flutter_test or test package" },
     ],
   },
   {
     language: "elixir",
     dependencyFiles: ["mix.exs", "mix.lock"],
     specialistHints: [
-      { specialist: "hatch3r-test-writer", hint: "Use ExUnit; check for doctest coverage" },
+      { specialist: "hatch3r-testability", hint: "Use ExUnit; check for doctest coverage" },
     ],
   },
   {
     language: "csharp",
     dependencyFiles: ["*.csproj", "*.sln", "Directory.Packages.props"],
     specialistHints: [
-      { specialist: "hatch3r-test-writer", hint: "Use xUnit/NUnit per project convention" },
-      { specialist: "hatch3r-security-auditor", hint: "Check for SQL injection, CSRF, insecure deserialization" },
+      { specialist: "hatch3r-testability", hint: "Use xUnit/NUnit per project convention" },
+      { specialist: "hatch3r-security", hint: "Check for SQL injection, CSRF, insecure deserialization" },
     ],
   },
   {
     language: "kotlin",
     dependencyFiles: ["build.gradle.kts", "build.gradle"],
     specialistHints: [
-      { specialist: "hatch3r-test-writer", hint: "Use JUnit 5 or kotest per project convention" },
+      { specialist: "hatch3r-testability", hint: "Use JUnit 5 or kotest per project convention" },
     ],
   },
 ] as const;
@@ -703,12 +682,21 @@ export function shouldTriggerSpecialist(
     return { triggered: false, reasons: [`Unknown specialist: ${specialist}`] };
   }
 
-  // "always" mode specialists are always triggered for code changes
-  if (trigger.mode === "always" && changedFiles.length > 0) {
+  // "always" mode specialists are always triggered for code changes.
+  // F16.3-H1 (Cycle 10 Wave 1C): when an always-mode specialist also carries
+  // triggerFilePatterns (e.g., hatch3r-security absorbed the legacy
+  // dependency-auditor file-pattern scope), continue past the early-return so
+  // the file-pattern + language-aware reasoning still annotates the result.
+  if (trigger.mode === "always" && changedFiles.length > 0 && !trigger.triggerFilePatterns) {
     return { triggered: true, reasons: trigger.triggerConditions };
   }
 
   const reasons: string[] = [];
+  // Always-mode specialists with file patterns: prepend the always-mode floor
+  // reason so the conditional-pattern reasons add specificity on top.
+  if (trigger.mode === "always" && changedFiles.length > 0) {
+    reasons.push(...trigger.triggerConditions);
+  }
 
   // Check file pattern triggers (e.g., dependency-auditor, CQ specialists)
   if (trigger.triggerFilePatterns) {
@@ -723,7 +711,7 @@ export function shouldTriggerSpecialist(
     });
     if (matchedFiles.length > 0) {
       const label =
-        trigger.specialist === "hatch3r-dependency-auditor"
+        trigger.specialist === "hatch3r-security"
           ? "Dependency files modified"
           : "Trigger files modified";
       reasons.push(`${label}: ${matchedFiles.join(", ")}`);
@@ -731,7 +719,9 @@ export function shouldTriggerSpecialist(
   }
 
   // Project-type-aware trigger enhancement (Finding #56)
-  if (projectType && trigger.specialist === "hatch3r-dependency-auditor") {
+  // F16.3-H1 (Cycle 10 Wave 1C): hatch3r-security absorbed the legacy
+  // dependency-auditor scope including language-aware dependency-file checks.
+  if (projectType && trigger.specialist === "hatch3r-security") {
     const langConfigs = LANGUAGE_SPECIALIST_CONFIGS.filter((lc) =>
       projectType.languages.includes(lc.language),
     );

@@ -88,14 +88,18 @@ Return to the orchestrator:
 
 ```
 {
-  status:         "WRITTEN" | "STRICT_GATE_FAILED" | "BLOCKED",
-  paths:          ["<absolute path>", ...],
-  strictErrors:   [{message, gate, line?}],
-  gentleWarnings: [{message, gate, line?}]
+  status:                 "WRITTEN" | "STRICT_GATE_FAILED" | "BLOCKED",
+  paths:                  ["<absolute path>", ...],
+  strictErrors:           [{message, gate, line?}],
+  gentleWarnings:         [{message, gate, line?}],
+  impact_horizon:         "short" | "medium" | "long",
+  progress_toward_pillar: "governance.P5+<delta>"
 }
 ```
 
 `status: "WRITTEN"` is returned only when every strict gate passes. `STRICT_GATE_FAILED` lists every blocking error. `BLOCKED` signals a precondition failure (e.g., file collision detected before the gate funnel ran).
+
+Per CONSTITUTION §6 Decision 17 + AUDIT.md charter directive 18, `impact_horizon` declares whether this user artifact yields short-, medium-, or long-term value (default `medium` for new agents/skills, `short` for one-shot rules, `long` for new commands that ship with reusable orchestration). `progress_toward_pillar` records the pillar-delta — creator output is governance-axis P5 (Governance Self-Quality) because user-tier content extends the framework's quality-floor surface.
 
 ---
 

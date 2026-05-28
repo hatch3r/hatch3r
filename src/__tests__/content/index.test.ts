@@ -2318,14 +2318,17 @@ describe("content/index", () => {
     });
 
     it("returns no warnings when all required agents are present", () => {
+      // F16.3-H1 (Cycle 10 Wave 1C): legacy test-writer + security-auditor
+      // collapsed into the CQ specialists. Strict orchestration roster lists
+      // only protected + full-preset-admitted CQ agents (security); the
+      // testability always-mode contract is enforced via the trigger table.
       const selection = emptySelection({
         items: {
           agents: [
             "hatch3r-researcher",
             "hatch3r-implementer",
             "hatch3r-reviewer",
-            "hatch3r-test-writer",
-            "hatch3r-security-auditor",
+            "hatch3r-security",
           ],
           skills: [],
           rules: ["hatch3r-agent-orchestration"],
@@ -2352,12 +2355,14 @@ describe("content/index", () => {
         },
       });
       const warnings = validateOrchestrationDependencies(selection);
-      // Missing: implementer, reviewer, test-writer, security-auditor
-      expect(warnings.length).toBe(4);
+      // Missing: implementer, reviewer, security
+      // (post-F16.3-H1: strict roster lists only protected + full-preset
+      // CQ agents; testability's always-mode floor is enforced via the
+      // trigger table rather than this roster check.)
+      expect(warnings.length).toBe(3);
       expect(warnings.some((w) => w.includes("hatch3r-implementer"))).toBe(true);
       expect(warnings.some((w) => w.includes("hatch3r-reviewer"))).toBe(true);
-      expect(warnings.some((w) => w.includes("hatch3r-test-writer"))).toBe(true);
-      expect(warnings.some((w) => w.includes("hatch3r-security-auditor"))).toBe(true);
+      expect(warnings.some((w) => w.includes("hatch3r-security"))).toBe(true);
     });
 
     it("warning messages mention the 4-phase pipeline", () => {

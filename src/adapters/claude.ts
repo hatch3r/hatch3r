@@ -147,7 +147,7 @@ const AGENT_TEAMS_SECTION = [
   "| **1 — Research** | `researcher` | `hatch3r-researcher`, `hatch3r-learnings-loader` | Read-only; shares findings via task list |",
   "| **2 — Implement** | `implementer` | `hatch3r-implementer` | Require plan approval for complex tasks |",
   "| **3 — Review** | `reviewer` | `hatch3r-reviewer`, `hatch3r-fixer` | Review loop: reviewer finds issues, fixer resolves them |",
-  "| **4 — Quality** | `quality-*` (parallel) | `hatch3r-test-writer`, `hatch3r-security-auditor`, `hatch3r-docs-writer`, `hatch3r-lint-fixer`, `hatch3r-a11y-auditor`, `hatch3r-perf-profiler`, `hatch3r-dependency-auditor` | Spawn in parallel; each owns distinct files |",
+  "| **4 — Quality** | `quality-*` (parallel) | `hatch3r-testability`, `hatch3r-security`, `hatch3r-docs-writer`, `hatch3r-lint-fixer`, `hatch3r-ui`, `hatch3r-ux`, `hatch3r-reliability`, `hatch3r-scalability`, `hatch3r-performance`, `hatch3r-maintainability`, `hatch3r-enhancability` | Spawn in parallel; each owns distinct files |",
   "",
   "### Spawn Prompt Template",
   "",
@@ -161,8 +161,8 @@ const AGENT_TEAMS_SECTION = [
   "   Require plan approval before making changes.",
   "3. reviewer — review the implementer's changes for correctness, style, and security.",
   "   Post findings to the task list.",
-  "4. test-writer — write tests for the implemented changes in {test directories}.",
-  "5. security-auditor — audit changes for security vulnerabilities. Read-only.",
+  "4. testability — write tests for the implemented changes in {test directories}.",
+  "5. security — audit changes for security vulnerabilities. Read-only.",
   "```",
   "",
   "### Delegation Rules",
@@ -202,7 +202,7 @@ const AGENT_TEAMS_SECTION_MINIMAL = [
   "| Research | `researcher` | `hatch3r-researcher` |",
   "| Implement | `implementer` | `hatch3r-implementer` |",
   "| Review | `reviewer` | `hatch3r-reviewer`, `hatch3r-fixer` |",
-  "| Quality | `quality-*` | `hatch3r-test-writer`, `hatch3r-security-auditor`, + conditional |",
+  "| Quality | `quality-*` | `hatch3r-testability`, `hatch3r-security`, + conditional CQ specialists |",
   "",
   "Use `/hatch3r-agent-team` for guided team creation.",
 ];
@@ -297,6 +297,7 @@ function mapToClaudeEvent(event: HookEvent): string {
     "pre-push": "PreToolUse",
     "worktree-create": "WorktreeCreate",
     "worktree-remove": "WorktreeRemove",
+    "review-loop-cap": "Stop",
   };
   return mapping[event] || event;
 }
@@ -312,6 +313,8 @@ function getClaudeToolMatcher(hook: HookDefinition): string {
     // Worktree events are lifecycle-scoped, not tool-scoped; match any context.
     "worktree-create": ".*",
     "worktree-remove": ".*",
+    // review-loop-cap maps to Claude Code Stop event; no tool matcher needed.
+    "review-loop-cap": ".*",
   };
   return eventToolMap[hook.event] || ".*";
 }
@@ -548,11 +551,11 @@ export class ClaudeAdapter extends BaseAdapter {
 
     hooksConfig.TaskCompleted = [{
       matcher: ".*",
-      hooks: [{ type: "command", command: "echo \"HATCH3R_QUALITY_GATE: Before marking this task complete, verify: (1) Phase 3 review loop passed with 0 Critical + 0 Warning, (2) Phase 4 specialists ran (hatch3r-test-writer + hatch3r-security-auditor at minimum), (3) all acceptance criteria met. If any check fails, do NOT mark complete — spawn the appropriate agent to address the gap.\"" }],
+      hooks: [{ type: "command", command: "echo \"HATCH3R_QUALITY_GATE: Before marking this task complete, verify: (1) Phase 3 review loop passed with 0 Critical + 0 Warning, (2) Phase 4 specialists ran (hatch3r-testability + hatch3r-security at minimum), (3) all acceptance criteria met. If any check fails, do NOT mark complete — spawn the appropriate agent to address the gap.\"" }],
     }];
     hooksConfig.TeammateIdle = [{
       matcher: ".*",
-      hooks: [{ type: "command", command: "echo \"HATCH3R_PIPELINE_CHECK: Idle teammate detected. Check for pending Phase 4 quality tasks: hatch3r-test-writer, hatch3r-security-auditor, hatch3r-docs-writer, hatch3r-lint-fixer, hatch3r-a11y-auditor. If any are pending and within this teammate's scope, pick up the next task.\"" }],
+      hooks: [{ type: "command", command: "echo \"HATCH3R_PIPELINE_CHECK: Idle teammate detected. Check for pending Phase 4 quality tasks: hatch3r-testability, hatch3r-security, hatch3r-docs-writer, hatch3r-lint-fixer, hatch3r-ui. If any are pending and within this teammate's scope, pick up the next task.\"" }],
     }];
 
     // C7.5-W2B2-H50 (D17-SA17.2-B, P3): Worktree file isolation uses Claude Code

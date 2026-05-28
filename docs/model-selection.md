@@ -55,7 +55,7 @@ Unknown values are passed through as-is.
     "default": "opus",
     "agents": {
       "hatch3r-lint-fixer": "sonnet",
-      "hatch3r-test-writer": "gemini-pro"
+      "hatch3r-testability": "gemini-pro"
     }
   }
 }
@@ -91,11 +91,11 @@ Some agents ship with a default model in their canonical frontmatter. These defa
 | `hatch3r-lint-fixer` | `haiku` | Mechanical pattern fixes; speed and low cost matter most |
 | `hatch3r-ci-watcher` | `haiku` | Log parsing and pattern recognition; fast feedback loops |
 | `hatch3r-docs-writer` | `sonnet` | Writing quality and technical accuracy need a capable model |
-| `hatch3r-dependency-auditor` | `sonnet` | Structured CVE/freshness analysis with clear SLAs |
-| `hatch3r-a11y-auditor` | `sonnet` | WCAG standard interpretation requires solid reasoning |
-| `hatch3r-test-writer` | `sonnet` | Edge-case identification and test design need reasoning depth |
+| `hatch3r-security` | `sonnet` | OAuth/OIDC/supply-chain analysis requires solid reasoning |
+| `hatch3r-ui` | `sonnet` | WCAG 2.2 AA + design-token interpretation requires solid reasoning |
+| `hatch3r-testability` | `sonnet` | Edge-case identification and test design need reasoning depth |
 
-Agents without a default (`hatch3r-implementer`, `hatch3r-researcher`, `hatch3r-reviewer`, `hatch3r-security-auditor`, `hatch3r-perf-profiler`, `hatch3r-architect`, `hatch3r-context-rules`, `hatch3r-devops`, `hatch3r-fixer`, `hatch3r-learnings-loader`) use the platform's own default. Their task complexity varies too widely for a single tier to fit.
+Agents without a default (`hatch3r-implementer`, `hatch3r-researcher`, `hatch3r-reviewer`, `hatch3r-performance`, `hatch3r-architect`, `hatch3r-context-rules`, `hatch3r-devops`, `hatch3r-fixer`, `hatch3r-learnings-loader`) use the platform's own default. Their task complexity varies too widely for a single tier to fit.
 
 These defaults sit at precedence level 3 (canonical frontmatter). Override them at any higher level:
 

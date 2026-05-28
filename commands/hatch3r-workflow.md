@@ -2,7 +2,7 @@
 id: hatch3r-workflow
 type: command
 orchestrator: true
-agentPipeline: [hatch3r-researcher, hatch3r-implementer, hatch3r-reviewer, hatch3r-fixer, hatch3r-test-writer, hatch3r-security-auditor, hatch3r-docs-writer, hatch3r-lint-fixer, hatch3r-a11y-auditor, hatch3r-perf-profiler, hatch3r-ui, hatch3r-ux, hatch3r-security, hatch3r-reliability, hatch3r-testability, hatch3r-scalability, hatch3r-performance, hatch3r-maintainability, hatch3r-enhancability]
+agentPipeline: [hatch3r-researcher, hatch3r-implementer, hatch3r-reviewer, hatch3r-fixer, hatch3r-docs-writer, hatch3r-lint-fixer, hatch3r-ui, hatch3r-ux, hatch3r-security, hatch3r-reliability, hatch3r-testability, hatch3r-scalability, hatch3r-performance, hatch3r-maintainability, hatch3r-enhancability]
 description: Guided development lifecycle with 4 phases (Analyze, Plan, Implement, Review) and scale-adaptive Quick Mode for small tasks.
 tags: [implementation, orchestration]
 quality_charter: agents/shared/quality-charter.md
@@ -10,9 +10,10 @@ efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
 parallel_tool_default: true
 triage_tiers: [1, 2, 3]
+supports_resume: true
 sub_agents_spawned:
-  count: 19
-  rationale: Full 4-phase delivery pipeline — researcher (Phase 1), implementer (one per independent module, Phase 3), reviewer ↔ fixer review loop (Phase 4a), then a parallel Phase-4b final-quality batch (legacy specialists test-writer + security-auditor + docs-writer + lint-fixer + a11y-auditor + perf-profiler PLUS CQ1-CQ9 vector specialists ui/ux/security/reliability/testability/scalability/performance/maintainability/enhancability) bounded by max_phase4_parallel. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  count: 15
+  rationale: Full 4-phase delivery pipeline — researcher (Phase 1), implementer (one per independent module, Phase 3), reviewer ↔ fixer review loop (Phase 4a), then a parallel Phase-4b final-quality batch (docs-writer + lint-fixer + CQ1-CQ9 vector specialists ui/ux/security/reliability/testability/scalability/performance/maintainability/enhancability — testability and security cover the always-on test + security gates) bounded by max_phase4_parallel. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -32,10 +33,10 @@ Optional guided development lifecycle command that walks through structured phas
 | 1. Research | `hatch3r-researcher` (modes by task type) | Per focus area | Yes (skip for trivial edits) |
 | 2. Implementation | `hatch3r-implementer` (one per module) | Yes (independent modules) | Yes |
 | 3a. Review Loop | `hatch3r-reviewer` -> `hatch3r-fixer` (max 3 iterations until clean) | No (sequential loop) | Yes |
-| 3b. Final Quality — Testing | `hatch3r-test-writer` | Yes | Yes (code changes) |
-| 3c. Final Quality — Security | `hatch3r-security-auditor` | Yes | Yes (code changes) |
+| 3b. Final Quality — Testing | `hatch3r-testability` | Yes | Yes (code changes) |
+| 3c. Final Quality — Security | `hatch3r-security` | Yes | Yes (code changes) |
 | 3d. Final Quality — Docs | `hatch3r-docs-writer` | Yes | When APIs/architecture/UX affected |
-| 3e. Final Quality — Conditional | `hatch3r-lint-fixer`, `hatch3r-a11y-auditor`, `hatch3r-perf-profiler` | Yes | When triggered |
+| 3e. Final Quality — Conditional | `hatch3r-lint-fixer`, `hatch3r-ui`, `hatch3r-performance` | Yes | When triggered |
 
 **Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above (multi-module implementers in Phase 3, the Phase-4b final-quality batch) holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
 
@@ -124,7 +125,7 @@ Before the first sub-agent dispatch (Phase 1 / Quick Step 1), surface the cost p
 
 ```yaml
 cost_estimate:
-  expected_sa_count: <triage tier → Quick Tier 1 ~2, Quick Tier 2 ~6, Full Tier 3 up to 19>
+  expected_sa_count: <triage tier → Quick Tier 1 ~2, Quick Tier 2 ~6, Full Tier 3 up to 15>
   estimated_input_tokens_static_frame: <int>
   estimated_web_research_queries: <int>
   triage_tier: light | standard | deep
@@ -347,8 +348,8 @@ Each reviewer/fixer sub-agent prompt MUST include:
 
 **Always spawn (mandatory for every code change):**
 
-1. **`hatch3r-test-writer`** — tests for all code changes. Unit tests for new logic, regression tests for bug fixes, integration tests for cross-module changes.
-2. **`hatch3r-security-auditor`** — security review of all code changes. Audit data flows, access control, input validation, and secret management.
+1. **`hatch3r-testability`** (CQ5) — confirm tests meet the mandate map / coverage floor for all code changes. Unit tests for new logic, regression tests for bug fixes, integration tests for cross-module changes.
+2. **`hatch3r-security`** (CQ3) — security review of all code changes. Audit data flows, access control, input validation, and secret management against the CQ3 threshold set.
 
 **Always evaluate (spawn when applicable):**
 
@@ -357,8 +358,8 @@ Each reviewer/fixer sub-agent prompt MUST include:
 **Conditional specialists (spawn when triggered):**
 
 4. **`hatch3r-lint-fixer`** — when lint or type errors are present after implementation.
-5. **`hatch3r-a11y-auditor`** — when UI or accessibility changes are made.
-6. **`hatch3r-perf-profiler`** — when performance-sensitive changes are made.
+5. **`hatch3r-ui`** (CQ1) — when UI or accessibility changes are made.
+6. **`hatch3r-performance`** (CQ7) — when performance-sensitive changes are made.
 
 Each specialist sub-agent prompt MUST include:
 - The agent protocol to follow.
@@ -434,8 +435,8 @@ Same two-stage pipeline as Full Mode, with lighter prompts:
 
 **Stage 2 — Final Quality (after review loop is clean):**
 
-3. **`hatch3r-test-writer`** — ALWAYS for code changes.
-4. **`hatch3r-security-auditor`** — ALWAYS for code changes.
+3. **`hatch3r-testability`** (CQ5) — ALWAYS for code changes.
+4. **`hatch3r-security`** (CQ3) — ALWAYS for code changes.
 5. **`hatch3r-docs-writer`** — evaluate; spawn when documentation impact exists.
 6. Verify acceptance criteria are met.
 7. Confirm lint/typecheck/test pass.
@@ -508,6 +509,76 @@ At the end of an auto workflow session, generate a summary:
 
 ---
 
+## Resumability (Decision 27/30)
+
+workflow is long-running — a Tier 2/3 run walks the 4-phase delivery pipeline (Analyze → Plan → Implement → Review), fans out one implementer per independent module in Phase 3, and runs a reviewer ↔ fixer loop plus Phase 4b CQ1–CQ9 specialist batch in Phase 4. Per `governance/CONSTITUTION.md` §6 Decision 30 (Workspace-checkpointed resumability), checkpoint progress so an interrupted run re-enters at the last completed phase rather than re-running researchers or re-implementing already-applied module changes.
+
+**Checkpoint contract** (`src/pipeline/checkpoint.ts`):
+
+1. **Workspace + file:** write `.workflow-workspace/checkpoint.json` via `writeCheckpoint()` (atomic temp+rename through `src/merge/safeWrite.ts`; a SIGKILL mid-write leaves the prior checkpoint or no file, never a partial record). Schema (`schemaVersion: 1`): `phase` (1 Analyze / 2 Plan / 3 Implement / 4 Review), `wave` (per-module implementer batch index for Phase 3 and reviewer-fixer iteration count for Phase 4a), `status` (`in-progress` | `passed` | `failed`), and `meta` `{ baselineSha, lastPassedGateN, registrySha, timestamp, moduleManifest, implementerProofIds }`. The cached researcher outputs from Phase 1 live alongside in `.workflow-workspace/research-cache.json` so Phase 2/3 do not re-spawn researcher modes on resume.
+2. **Write points:** after Phase 1 researcher fan-out returns, after the Phase 2 plan synthesis is confirmed by ASK, after each Phase 3 implementer sub-agent returns (one write per module so a mid-batch crash preserves prior `delegation_proof_id`s), after each Phase 4a reviewer-fixer iteration, and after the Phase 4b parallel specialist batch (docs-writer + lint-fixer + CQ1–CQ9 specialists) completes.
+3. **`--resume` invocation:** `hatch3r-workflow --resume` calls `readCheckpoint()` then `verifyResumability(workspace, currentSha)`. Baseline drift fails closed (the working tree / branch state changed since the checkpoint) — re-run from scratch or rebase to the checkpoint baseline. A `failed` status halts for operator triage before resuming. Phase 3 resume reads `implementerProofIds` so already-applied module changes are not re-applied.
+4. **Snapshot rollback:** pre-mutation snapshots of every file touched by Phase 3 implementers and Phase 4a fixers land in `.hatch3r/snapshots/<session-id>/`; `hatch3r rollback --session=<id>` reverts this run's mutations. Diff preview precedes every implement / fix mutation per Decision 30.
+
+If `--resume` is passed with no checkpoint, `verifyResumability` returns `drift: "no checkpoint found"` — treat as a cold start.
+
+---
+
+## Per-Turn Pipeline-State Header (Bypass Protection)
+
+For Tier 2 and Tier 3 runs, emit the header at the start of every assistant turn that touches this task, per `rules/hatch3r-agent-orchestration.md` -> Per-Turn Pipeline-State Header. Format:
+
+```
+[hatch3r-pipeline: phase {1|2|3|4} | last: {agent} → {SUCCESS|PARTIAL|FAILED|BLOCKED|n/a} | next: {agent or "user-confirmation" or "complete"}]
+```
+
+Phase mapping for workflow: `1` = workflow intake + step decomposition, `2` = per-step sub-agent dispatch, `3` = aggregation + verification of step outputs, `4` = workflow report + iteration-summary. Tier 1 runs are exempt per the Tier 1 exemption.
+
+## End-of-Turn Delegation Attestation (Bypass Protection)
+
+Every turn that mutated files (workflow definition, step outputs, automation manifests) at Tier 2 or Tier 3 emits the attestation block immediately before the Iteration Summary, per `rules/hatch3r-agent-orchestration.md` -> End-of-Turn Delegation Attestation. Quote the per-file `delegation_proof_id` returned by each spawned sub-agent verbatim:
+
+```
+[hatch3r-delegation-attestation]
+files_mutated_this_turn:
+  - <relative path>: via <hatch3r-agent-name> (proof: <delegation_proof_id>)
+mutating_subagent_invocations: <integer>
+inline_edits_by_orchestrator: none
+```
+
+Unattributable rows are a self-declared P8 B2 violation — halt and queue re-delegation.
+
+## Iteration Summary (mandatory output)
+
+Emit the canonical 9-section iteration summary per `rules/hatch3r-iteration-summary.md` as the final user-facing output. The validation gate at `.claude/rules/capability-lifecycle.md` blocks SUCCESS declarations without this block (CONSTITUTION §6 Decision 23).
+
+The 9 sections:
+
+1. **Request** — verbatim restatement of the user's ask in one sentence.
+2. **Fan-out + Cost** — `sub_agents_spawned: { count, rationale }` plus the `cost_estimate` / `cost_actuals` / `delta` blocks (see Cost Visibility below).
+3. **Web Research** — every URL fetched with access date + trust tier per `governance/audit/templates/rigor-contract.md` (0 acceptable when no research was needed).
+4. **Files Mutated** — list with diff summary (lines added / removed / files created).
+5. **Gates Passed / Failed** — explicit list per `.claude/rules/capability-lifecycle.md` Gate Checklist.
+6. **Pillar Impact Attribution** — `progress_toward_pillar: <axis>.<pillar_id>+<delta>` per CONSTITUTION §6 Decision 17.
+7. **Verification Commands** — exact commands run with exit codes plus key output lines (≤200 chars).
+8. **Open Questions / Blockers** — explicit `None` if fully closed.
+9. **Learnings Captured** — IDs of any learnings written to `.hatch3r/learnings/` this run per `rules/hatch3r-learning-system.md`.
+
+### Cost Visibility (Decision 24)
+
+Pre-execution: emit `cost_estimate` before the first sub-agent dispatch via `src/pipeline/observability.ts::buildCostBlock` (5-field schema):
+
+```yaml
+cost_estimate:
+  expected_sa_count: <int>
+  estimated_input_tokens_static_frame: <int>
+  triage_tier: light | standard | deep
+  estimated_web_research_queries: <int>      # 0 when no research is needed
+  estimated_duration_min: <int>
+```
+
+Post-execution: call `buildCostBlock` again with actuals to emit `cost_actuals` + `delta`; both land in Section 2 above. Field contract + delta semantics: `rules/hatch3r-cost-visibility.md`. Deltas >25% absolute value carry `flagged_for_review: true`.
+
 ## Cost estimate (Decision 24)
 
 This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 24/29:
@@ -515,7 +586,7 @@ This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and 
 - **Pre-execution `cost_estimate`** — emitted in Step 0.5 before the first sub-agent dispatch (both Full and Quick Mode).
 - **Post-execution `cost_actuals` + `delta`** — appended to the Phase 4 / Quick Step 3 iteration summary's Fan-out + Cost section.
 
-Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.count: 19` × tier heuristic in `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate): Quick Tier 1 ≈ 2 (researcher + implementer, reviewer/fixer/test-writer/security-auditor when triggered), Quick Tier 2 ≈ 6 (researcher + implementer + reviewer + fixer + test-writer + security-auditor), Full Tier 3 up to 19 (full pipeline including the Phase-4b CQ1-CQ9 specialist batch bounded by `max_phase4_parallel`). Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
+Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.count: 15` × tier heuristic in `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate): Quick Tier 1 ≈ 2 (researcher + implementer, reviewer/fixer/testability/security when triggered), Quick Tier 2 ≈ 6 (researcher + implementer + reviewer + fixer + testability + security), Full Tier 3 up to 15 (full pipeline including the Phase-4b CQ1-CQ9 specialist batch bounded by `max_phase4_parallel`). Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
 
 ---
 

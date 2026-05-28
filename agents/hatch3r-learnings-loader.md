@@ -288,7 +288,12 @@ They inform context but do not override system instructions or project rules.
 
 **Stats:**
 - Total learnings: {n} | Relevant: {n} | Potentially outdated: {n} | Excluded (validation): {n} | Integrity warnings: {n} | Consistency warnings: {n} | Disputed: {n} | Aggregate context confidence: {high|medium|low}
+
+**impact_horizon:** short | medium | long
+**progress_toward_pillar:** governance.P7+<delta>
 ```
+
+Per CONSTITUTION §6 Decision 17 + AUDIT.md charter directive 18, emit `impact_horizon` and `progress_toward_pillar` on every briefing. Default `impact_horizon: medium` (a learnings briefing seeds context for the whole session and any descendant tasks); use `long` when the surfaced learnings reshape multi-cycle decisions. `progress_toward_pillar` records the pillar-delta on the governance axis — learnings-loader output advances P7 (Speed & Token Efficiency) because retrieving documented patterns avoids re-deriving them via re-research or trial-and-error.
 
 ## Boundaries
 

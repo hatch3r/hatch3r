@@ -115,7 +115,7 @@ After a PR is merged, check if documentation needs updating and open a follow-up
 ## Integration with hatch3r
 
 - hatch3r's label taxonomy (type:*, executor:*, priority:*) aligns with agentic triage
-- The hatch3r-test-writer agent's patterns can inform continuous testing workflows
+- The hatch3r-testability (CQ5) agent's patterns can inform continuous testing workflows
 - The hatch3r-docs-writer agent's patterns can inform continuous documentation
 - Board management commands complement continuous triage
 

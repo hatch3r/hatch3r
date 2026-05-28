@@ -2,7 +2,7 @@
 id: hatch3r-quick-change
 type: command
 orchestrator: true
-agentPipeline: [hatch3r-implementer, hatch3r-lint-fixer, hatch3r-reviewer, hatch3r-fixer, hatch3r-test-writer, hatch3r-security-auditor, hatch3r-ui, hatch3r-ux, hatch3r-security, hatch3r-reliability, hatch3r-testability, hatch3r-scalability, hatch3r-performance, hatch3r-maintainability, hatch3r-enhancability]
+agentPipeline: [hatch3r-implementer, hatch3r-lint-fixer, hatch3r-reviewer, hatch3r-fixer, hatch3r-ui, hatch3r-ux, hatch3r-security, hatch3r-reliability, hatch3r-testability, hatch3r-scalability, hatch3r-performance, hatch3r-maintainability, hatch3r-enhancability]
 description: Lightweight command for small changes not worth tracking on the board. Adaptive ceremony with inline or sub-agent implementation, batch support, and soft scope guards.
 tags: [implementation, orchestration]
 quality_charter: agents/shared/quality-charter.md
@@ -11,8 +11,8 @@ cache_friendly: true
 parallel_tool_default: true
 triage_tiers: [1, 2, 3]
 sub_agents_spawned:
-  count: 15
-  rationale: Six-stage core pipeline (implementer + lint-fixer + reviewer ↔ fixer + test-writer + security-auditor) plus 9 CQ vector specialists (ui/ux/security/reliability/testability/scalability/performance/maintainability/enhancability) dispatched conditionally per their trigger conditions. Tier 1 trivial edits skip CQ specialists per Phase Skip Criteria. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  count: 13
+  rationale: Four-stage core pipeline (implementer + lint-fixer + reviewer ↔ fixer) plus 9 CQ vector specialists (ui/ux/security/reliability/testability/scalability/performance/maintainability/enhancability) dispatched conditionally per their trigger conditions; the always-on testing + security gates collapse onto `hatch3r-testability` (CQ5) and `hatch3r-security` (CQ3) respectively. Tier 1 trivial edits skip CQ specialists per Phase Skip Criteria. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -27,7 +27,7 @@ Before any action, scan the user's change description for unresolved questions i
 | 2. Implementation | `hatch3r-implementer` (nontrivial items) | Per item | Nontrivial only |
 | 3. Lint Fix | `hatch3r-lint-fixer` | No | When lint/type errors |
 | 4a. Review Loop | `hatch3r-reviewer` -> `hatch3r-fixer` (max 3 iterations) | No (sequential) | Nontrivial only |
-| 4b. Final Quality | `hatch3r-test-writer` + `hatch3r-security-auditor` | Yes | Nontrivial code changes |
+| 4b. Final Quality | `hatch3r-testability` + `hatch3r-security` | Yes | Nontrivial code changes |
 
 **Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
 
@@ -55,7 +55,7 @@ This command intentionally skips:
 - Board context (`hatch3r-board-shared`)
 - GitHub issues and PRs
 - Researcher sub-agent
-- Full review pipeline (security-auditor, test-writer, docs-writer)
+- Full review pipeline (deep security audit, full test authoring, docs-writer)
 - Learnings capture (consultation of existing learnings retained — see Step 2c)
 
 It retains:
@@ -106,7 +106,7 @@ Before any sub-agent dispatch (Step 4b implementer), surface the cost preview so
 
 ```yaml
 cost_estimate:
-  expected_sa_count: <Tier 1 inline ~0, Tier 2 ~3 (researcher + implementer + reviewer), up to 15 when CQ specialists trigger>
+  expected_sa_count: <Tier 1 inline ~0, Tier 2 ~3 (researcher + implementer + reviewer), up to 13 when CQ specialists trigger>
   estimated_input_tokens_static_frame: <int>
   estimated_web_research_queries: <int>
   triage_tier: light | standard | deep
@@ -337,8 +337,8 @@ The reviewer prompt MUST include:
 
 After the review loop is clean, spawn both agents in parallel via the Task tool:
 
-1. `hatch3r-test-writer` — write or update tests for nontrivial code changes.
-2. `hatch3r-security-auditor` — lightweight security review of nontrivial code changes.
+1. `hatch3r-testability` (CQ5) — confirm tests for nontrivial code changes meet the mandate map / coverage floor.
+2. `hatch3r-security` (CQ3) — lightweight security review of nontrivial code changes (OAuth/OIDC, secrets, supply-chain).
 
 Both prompts MUST include:
 - The diff of all changes made.
@@ -404,6 +404,61 @@ Quick Change Complete:
 
 ---
 
+## Per-Turn Pipeline-State Header (Bypass Protection)
+
+For Tier 2 and Tier 3 runs, emit the header at the start of every assistant turn that touches this task, per `rules/hatch3r-agent-orchestration.md` -> Per-Turn Pipeline-State Header. Format:
+
+```
+[hatch3r-pipeline: phase {1|2|3|4} | last: {agent} → {SUCCESS|PARTIAL|FAILED|BLOCKED|n/a} | next: {agent or "user-confirmation" or "complete"}]
+```
+
+Phase mapping for quick-change: `1` = scope intake + complexity scoring, `2` = inline edit OR implementer dispatch (Tier 1 carve-out per `rules/hatch3r-agent-orchestration.md` Mandatory Delegation Directive applies only at Tier 1), `3` = lint + typecheck + test verification, `4` = Step 8 summary + iteration-summary. Tier 1 runs are exempt per the Tier 1 exemption.
+
+## End-of-Turn Delegation Attestation (Bypass Protection)
+
+Every turn that mutated files (target edit, test additions) at Tier 2 or Tier 3 emits the attestation block immediately before the Iteration Summary, per `rules/hatch3r-agent-orchestration.md` -> End-of-Turn Delegation Attestation. Quote the per-file `delegation_proof_id` returned by each spawned sub-agent verbatim:
+
+```
+[hatch3r-delegation-attestation]
+files_mutated_this_turn:
+  - <relative path>: via hatch3r-implementer (proof: <delegation_proof_id>)
+mutating_subagent_invocations: <integer>
+inline_edits_by_orchestrator: none | <carve-out: Tier-1 inline edit per quick-change scope>
+```
+
+Unattributable rows are a self-declared P8 B2 violation — halt and queue re-delegation.
+
+## Iteration Summary (mandatory output)
+
+Emit the canonical 9-section iteration summary per `rules/hatch3r-iteration-summary.md` as the final user-facing output (the Step 8 Summary above is the quick-change-specific rendering — both the Step 8 block and the 9-section canonical contract apply). The validation gate at `.claude/rules/capability-lifecycle.md` blocks SUCCESS declarations without this block (CONSTITUTION §6 Decision 23).
+
+The 9 sections:
+
+1. **Request** — verbatim restatement of the user's ask in one sentence.
+2. **Fan-out + Cost** — `sub_agents_spawned: { count, rationale }` plus the `cost_estimate` / `cost_actuals` / `delta` blocks (see Cost Visibility below).
+3. **Web Research** — every URL fetched with access date + trust tier per `governance/audit/templates/rigor-contract.md` (0 acceptable when no research was needed).
+4. **Files Mutated** — list with diff summary (lines added / removed / files created).
+5. **Gates Passed / Failed** — explicit list per `.claude/rules/capability-lifecycle.md` Gate Checklist.
+6. **Pillar Impact Attribution** — `progress_toward_pillar: <axis>.<pillar_id>+<delta>` per CONSTITUTION §6 Decision 17.
+7. **Verification Commands** — exact commands run with exit codes plus key output lines (≤200 chars).
+8. **Open Questions / Blockers** — explicit `None` if fully closed.
+9. **Learnings Captured** — IDs of any learnings written to `.hatch3r/learnings/` this run per `rules/hatch3r-learning-system.md`.
+
+### Cost Visibility (Decision 24)
+
+Pre-execution: emit `cost_estimate` before the first sub-agent dispatch via `src/pipeline/observability.ts::buildCostBlock` (5-field schema):
+
+```yaml
+cost_estimate:
+  expected_sa_count: <int>
+  estimated_input_tokens_static_frame: <int>
+  triage_tier: light | standard | deep
+  estimated_web_research_queries: <int>      # 0 when no research is needed
+  estimated_duration_min: <int>
+```
+
+Post-execution: call `buildCostBlock` again with actuals to emit `cost_actuals` + `delta`; both land in Section 2 above. Field contract + delta semantics: `rules/hatch3r-cost-visibility.md`. Deltas >25% absolute value carry `flagged_for_review: true`.
+
 ## Cost estimate (Decision 24)
 
 This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 24/29:
@@ -411,7 +466,7 @@ This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and 
 - **Pre-execution `cost_estimate`** — emitted in the Pre-Execution Cost Preview above before the first sub-agent dispatch.
 - **Post-execution `cost_actuals` + `delta`** — appended to the Step 8 summary's Fan-out + Cost section per `rules/hatch3r-iteration-summary.md` §2.
 
-Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.count: 15` × tier heuristic in `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate): Tier 1 trivial inline ≈ 0 (no sub-agent); Tier 2 ≈ 3 (researcher + implementer + reviewer, plus lint-fixer/fixer/test-writer/security-auditor when triggered); up to 15 when the conditional CQ vector specialists fire per their trigger conditions. Deltas beyond 25% absolute value carry `flagged_for_review: true`. Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
+Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.count: 13` × tier heuristic in `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate): Tier 1 trivial inline ≈ 0 (no sub-agent); Tier 2 ≈ 3 (researcher + implementer + reviewer, plus lint-fixer/fixer/testability/security when triggered); up to 13 when the conditional CQ vector specialists fire per their trigger conditions. Deltas beyond 25% absolute value carry `flagged_for_review: true`. Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
 
 ---
 

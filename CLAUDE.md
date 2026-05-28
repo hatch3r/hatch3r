@@ -14,7 +14,7 @@ hatch3r is an open-source CLI (TypeScript, Commander.js) that generates tool-agn
 |-----------|----------|
 | `src/cli/commands/` | 15 CLI commands: init, sync, status, update, validate, verify, config, clean, add, worktree-setup, worktree-cleanup, cliTools, mcp, explain, rollback <!-- count auto-derived; see governance/inventory.json (cliCommands) --> |
 | `src/adapters/` | 3 platform adapters: cursor, claude, copilot <!-- count auto-derived; see governance/inventory.json (adapters) --> |
-| `src/pipeline/` | 21 pipeline modules: adapterTimeout, adapterToolTranslator, agentIdentity, agentToolAllowlist, checkpoint, circuitBreaker, complianceVerification, costEstimator, diffHash, failureLog, mcpDescriptionScan, observability, phaseOutputSchema, phaseTimeout, pipelineContext, pipelineTimeout, promptGuard, repoSubstitution, retryWithBackoff, reviewLoop, snapshot <!-- count auto-derived; see governance/inventory.json (pipeline) --> |
+| `src/pipeline/` | 22 pipeline modules: adapterTimeout, adapterToolTranslator, agentIdentity, agentToolAllowlist, checkpoint, circuitBreaker, complianceVerification, costEstimator, diffHash, failureLog, mcpDescriptionScan, observability, phaseOutputSchema, phaseTimeout, pipelineContext, pipelineTimeout, promptGuard, repoSubstitution, retryWithBackoff, reviewLoop, snapshot, spaceTelemetry <!-- count auto-derived; see governance/inventory.json (pipeline) --> |
 | `src/content/` | Content indexing, presets (minimal/standard/full), tag system |
 | `src/merge/` | Safe write (temp+rename atomic), managed block tracking |
 | `src/content/contentRoot.ts` | `resolveBundledContentRoot()` — locates bundled canonical content shipped inside the npm package |
@@ -143,23 +143,24 @@ From `governance/CONSTITUTION.md` §2 P5:
 
 | Metric | Limit |
 |--------|-------|
-| CONSTITUTION.md | <=550 lines (+25 per governance pillar, P8 baseline; +15 per content-quality vector, CQ1-CQ9 baseline) |
+| CONSTITUTION.md | <=550 lines |
 | VISION.md | <=250 lines |
 | AUDIT.md | <=600 lines |
 | AUDIT-EXECUTE.md | <=720 lines |
 | RE-ENVISION.md | <=550 lines |
 | EVOLVE.md | <=400 lines |
 | pack-trust-model.md | <=300 lines |
-| rules/*.md (precedence: critical or high) | <=250 lines |
 | rules/*.md (precedence: normal or low) | <=120 lines |
-| CLAUDE.md | <=300 lines (auto-derived counts excluded) |
+| CLAUDE.md | <=300 lines |
 | README.md | <=200 lines |
 | docs/*.md per file | <=400 lines |
-| Domain file | 30-80 lines (SA ≤5); SA × 15 lines (SA >5) |
+| Domain file (SA >5) | SA × 15 lines |
 | Cross-file duplication | <5% |
 | Anti-slop phrases | 0 per file |
 | Checklist items/sub-agent | 4-8 |
 | Governance total | <=3000 lines |
+
+Note: this CLAUDE.md table is a curated subset of CONSTITUTION §2 P5; full per-row calibration text (including the +25/+15/+5/+3 calibration on CONSTITUTION.md, the auto-derived-counts exclusion on CLAUDE.md, the `<=250 lines` ceiling on `rules/*.md (precedence: critical or high)`, the `30-80 lines` band on Domain file (SA ≤5), and the qualitative P7/P8 invariants like static-first / parallel-tool-by-default / triage-first / anti-cache / ambiguity-detection gate / sub-agent count emission) lives in `governance/CONSTITUTION.md` §2 P5. Validator: `npx tsx scripts/validate-lean-threshold-currency.ts`.
 
 ---
 

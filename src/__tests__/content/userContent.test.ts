@@ -1421,10 +1421,12 @@ describe("hook-event enum parity (F20.1.A1)", () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
-  // The orchestrator (`commands/hatch3r-create.md`) advertises 8 hook events;
-  // the gate enforces `VALID_HOOK_EVENTS`. The audit flagged a "told 6, enforced
-  // 8" drift. Pin the enforced set so any future shrink/expand of the runtime
-  // enum is a test failure that forces a matching orchestrator-doc update.
+  // The orchestrator (`commands/hatch3r-create.md`) advertises 9 hook events;
+  // the gate enforces `VALID_HOOK_EVENTS`. Cycle 10 F15.2-H1 added
+  // `review-loop-cap` (framework-neutral event materialized per-adapter for the
+  // review-loop iteration cap, hooks/hatch3r-review-loop-cap.md). Pin the
+  // enforced set so any future shrink/expand of the runtime enum is a test
+  // failure that forces a matching orchestrator-doc update.
   const EXPECTED_HOOK_EVENTS = [
     "pre-commit",
     "post-merge",
@@ -1434,9 +1436,10 @@ describe("hook-event enum parity (F20.1.A1)", () => {
     "pre-push",
     "worktree-create",
     "worktree-remove",
+    "review-loop-cap",
   ];
 
-  it("the enforced VALID_HOOK_EVENTS set is exactly the 8 advertised events", () => {
+  it("the enforced VALID_HOOK_EVENTS set is exactly the 9 advertised events", () => {
     expect([...VALID_HOOK_EVENTS].sort()).toEqual([...EXPECTED_HOOK_EVENTS].sort());
   });
 

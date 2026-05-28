@@ -46,7 +46,7 @@ Do not modify: tests/, docs/, config/
 Teammates work best with explicit file boundaries to avoid conflicts:
 
 - **Assign non-overlapping directories** to each teammate
-- **Use the agent's natural scope** -- `hatch3r-test-writer` owns `src/__tests__/`, `hatch3r-docs-writer` owns `docs/`
+- **Use the agent's natural scope** -- `hatch3r-testability` owns `src/__tests__/`, `hatch3r-docs-writer` owns `docs/`
 - **Specify boundaries in the spawn prompt** with both include and exclude paths
 - **Shared files** (types, configs) should be assigned to one primary teammate
 
@@ -74,7 +74,7 @@ Teammates operate independently. Pass context explicitly:
 **Sequential pipeline** -- for dependent work:
 
 1. Spawn `hatch3r-implementer` with file scope
-2. Collect results, spawn `hatch3r-test-writer` with implementation summary
+2. Collect results, spawn `hatch3r-testability` with implementation summary
 3. Collect results, spawn `hatch3r-reviewer` with full diff
 
 **Parallel fan-out** -- for independent work:

@@ -25,39 +25,6 @@
           }
         ]
       }
-    ],
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "echo 'hatch3r-dev: governance/ changes require Binding Pillar (P1-P8) alignment. src/adapters/ changes require D09 checklist. Run: npm test && npx tsc --noEmit'"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "echo 'hatch3r-dev: Content artifacts require YAML frontmatter (id, type, description, tags) + Pillar alignment + duplication check. Governance files must respect lean thresholds (CONSTITUTION <=200, AUDIT <=600, domains 30-80 lines).'"
-          }
-        ]
-      }
-    ],
-    "SubagentStart": [
-      {
-        "matcher": ".*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "echo 'hatch3r-dev: Sub-agent inherits governance. 8 Binding Pillars (P1-P8) in governance/CONSTITUTION.md. All changes must serve at least one.'"
-          }
-        ]
-      }
     ]
   }
 }

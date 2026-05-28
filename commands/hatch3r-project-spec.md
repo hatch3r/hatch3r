@@ -10,6 +10,7 @@ efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
 parallel_tool_default: true
 triage_tiers: [1, 2, 3]
+supports_resume: true
 sub_agents_spawned:
   count: 7
   rationale: Seven parallel hatch3r-researcher domains per vision brief in Step 3 — stack, features, architecture, pitfalls, UX, business-model-and-market, production-and-scale; docs-writers fan out in a second parallel batch in Step 7 (one per document category). Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
@@ -498,7 +499,7 @@ Launch one sub-agent per research domain below concurrently using the Task tool 
 
 **Prompt context:** Full vision summary, business context, company stage, and stack researcher output (if available via sequential dependency — otherwise use the vision's platform targets).
 
-**Task:** Design production-grade infrastructure calibrated to the company stage. Use **web search** for cloud provider pricing, infrastructure best practices for the chosen stack, and SLA benchmarks for the industry.
+**Task:** Design infrastructure calibrated to the company maturity tier per CONSTITUTION §6 Decision 4 (solo / team / scaleup / enterprise). Use **web search** for cloud provider pricing, infrastructure patterns for the chosen stack, and SLA benchmarks for the industry.
 
 1. **Infrastructure architecture**:
    - Hosting recommendation (cloud provider, serverless, containers, edge)
@@ -1224,6 +1225,61 @@ Which would you like to run next? (or none)"
 
 ---
 
+## Per-Turn Pipeline-State Header (Bypass Protection)
+
+For Tier 2 and Tier 3 runs, emit the header at the start of every assistant turn that touches this task, per `rules/hatch3r-agent-orchestration.md` -> Per-Turn Pipeline-State Header. Format:
+
+```
+[hatch3r-pipeline: phase {1|2|3|4} | last: {agent} → {SUCCESS|PARTIAL|FAILED|BLOCKED|n/a} | next: {agent or "user-confirmation" or "complete"}]
+```
+
+Phase mapping for project-spec: `1` = product intake + persona detection, `2` = spec sub-agent dispatch (vision / personas / scope / data-model / architecture), `3` = synthesis + cross-spec consistency check, `4` = spec write + iteration-summary. Tier 1 runs are exempt per the Tier 1 exemption.
+
+## End-of-Turn Delegation Attestation (Bypass Protection)
+
+Every turn that mutated files (vision doc, persona files, scope spec, architecture spec) at Tier 2 or Tier 3 emits the attestation block immediately before the Iteration Summary, per `rules/hatch3r-agent-orchestration.md` -> End-of-Turn Delegation Attestation. Quote the per-file `delegation_proof_id` returned by each spawned sub-agent verbatim:
+
+```
+[hatch3r-delegation-attestation]
+files_mutated_this_turn:
+  - <relative path>: via <hatch3r-agent-name> (proof: <delegation_proof_id>)
+mutating_subagent_invocations: <integer>
+inline_edits_by_orchestrator: none
+```
+
+Unattributable rows are a self-declared P8 B2 violation — halt and queue re-delegation.
+
+## Iteration Summary (mandatory output)
+
+Emit the canonical 9-section iteration summary per `rules/hatch3r-iteration-summary.md` as the final user-facing output. The validation gate at `.claude/rules/capability-lifecycle.md` blocks SUCCESS declarations without this block (CONSTITUTION §6 Decision 23).
+
+The 9 sections:
+
+1. **Request** — verbatim restatement of the user's ask in one sentence.
+2. **Fan-out + Cost** — `sub_agents_spawned: { count, rationale }` plus the `cost_estimate` / `cost_actuals` / `delta` blocks (see Cost Visibility below).
+3. **Web Research** — every URL fetched with access date + trust tier per `governance/audit/templates/rigor-contract.md` (0 acceptable when no research was needed).
+4. **Files Mutated** — list with diff summary (lines added / removed / files created).
+5. **Gates Passed / Failed** — explicit list per `.claude/rules/capability-lifecycle.md` Gate Checklist.
+6. **Pillar Impact Attribution** — `progress_toward_pillar: <axis>.<pillar_id>+<delta>` per CONSTITUTION §6 Decision 17.
+7. **Verification Commands** — exact commands run with exit codes plus key output lines (≤200 chars).
+8. **Open Questions / Blockers** — explicit `None` if fully closed.
+9. **Learnings Captured** — IDs of any learnings written to `.hatch3r/learnings/` this run per `rules/hatch3r-learning-system.md`.
+
+### Cost Visibility (Decision 24)
+
+Pre-execution: emit `cost_estimate` before the first sub-agent dispatch via `src/pipeline/observability.ts::buildCostBlock` (5-field schema):
+
+```yaml
+cost_estimate:
+  expected_sa_count: <int>
+  estimated_input_tokens_static_frame: <int>
+  triage_tier: light | standard | deep
+  estimated_web_research_queries: <int>      # 0 when no research is needed
+  estimated_duration_min: <int>
+```
+
+Post-execution: call `buildCostBlock` again with actuals to emit `cost_actuals` + `delta`; both land in Section 2 above. Field contract + delta semantics: `rules/hatch3r-cost-visibility.md`. Deltas >25% absolute value carry `flagged_for_review: true`.
+
 ## Cost estimate (Decision 24)
 
 This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 24/29:
@@ -1256,7 +1312,7 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 - **Specs must use stable IDs from the glossaries.** Generate glossaries first, then reference their IDs in all subsequent specs. Business and technical glossaries must cross-reference each other.
 - **todo.md must be compatible with board-fill format** — markdown checklist with bold titles, grouped by priority, referencing source specs, tagged with `[BIZ]`/`[TECH]`/`[BOTH]`.
 - **Do not over-specify.** Keep specs at the right level of detail for the project's stage. Avoid implementation details that belong in code, not documentation.
-- **Stage-adaptive recommendations.** Never recommend enterprise-grade solutions for pre-revenue startups. Never recommend MVP shortcuts for scale/enterprise companies. Calibrate all recommendations to the company stage from Step 1c.
+- **Stage-adaptive recommendations.** Never recommend enterprise-tier (per CONSTITUTION §6 Decision 4) solutions for solo-tier pre-revenue startups. Never recommend MVP shortcuts for scaleup-tier or enterprise-tier companies. Calibrate all recommendations to the company stage from Step 1c.
 - **All 7 researchers must complete before proceeding to Step 3.** Do not generate specs from partial research.
 - **Sub-agents must not create files.** They return structured text results to the orchestrator. Only the orchestrator writes files in Step 7.
 - **Never overwrite `AGENTS.md`** without explicit user confirmation.

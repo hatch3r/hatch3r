@@ -390,15 +390,17 @@ describe("validate-severity-vocabulary", () => {
 
   it("ALLOWs off-canonical severity terms when the file references severity-mapping.md", async () => {
     await mkdir(join(fx.rootDir, "agents"), { recursive: true });
+    // F16.3-H1 (Cycle 10 Wave 1C): legacy a11y-auditor retired; CQ1 ui agent
+    // carries the WCAG (Critical/Major/Minor) vocabulary mapping today.
     await seedFile(
       fx.rootDir,
-      "agents/hatch3r-a11y-auditor.md",
+      "agents/hatch3r-ui.md",
       [
         "---",
-        "id: hatch3r-a11y-auditor",
+        "id: hatch3r-ui",
         "type: agent",
         "---",
-        "# A11y Auditor",
+        "# CQ1 UI / WCAG Specialist",
         "",
         "> Severity vocabulary: see [mapping](../governance/audit/templates/severity-mapping.md).",
         "",

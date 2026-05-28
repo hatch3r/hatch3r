@@ -649,12 +649,12 @@ describe("config command", () => {
         items: { agents: ["hatch3r-implementer"], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
       });
       const manifest = makeManifest({ content: contentItems });
-      primeContent(manifest, ["hatch3r-implementer", "hatch3r-test-writer"]);
+      primeContent(manifest, ["hatch3r-implementer", "hatch3r-testability"]);
 
       const newSelection = makeContentSelection({
-        items: { agents: ["hatch3r-implementer", "hatch3r-test-writer"], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
+        items: { agents: ["hatch3r-implementer", "hatch3r-testability"], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
       });
-      stubContentIdsTransition(getAllContentIds, ["hatch3r-implementer"], ["hatch3r-implementer", "hatch3r-test-writer"]);
+      stubContentIdsTransition(getAllContentIds, ["hatch3r-implementer"], ["hatch3r-implementer", "hatch3r-testability"]);
       vi.mocked(resolveSelection).mockReturnValue(newSelection);
 
 
@@ -663,7 +663,7 @@ describe("config command", () => {
       expect(vi.mocked(writeManifest)).toHaveBeenCalled();
       const writtenManifest = getWrittenManifest(writeManifest);
       expect(writtenManifest.content?.items.agents).toContain("hatch3r-implementer");
-      expect(writtenManifest.content?.items.agents).toContain("hatch3r-test-writer");
+      expect(writtenManifest.content?.items.agents).toContain("hatch3r-testability");
     });
 
     it("should NOT emit AGENTS.md after content changes (F10.5-1 Cycle 10)", async () => {

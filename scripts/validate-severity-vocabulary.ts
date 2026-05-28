@@ -12,11 +12,11 @@
  * (`governance/audit/templates/severity-mapping.md`).
  *
  * The canonical mapping reference is a documented opt-out — agents like
- * `hatch3r-a11y-auditor` (WCAG Critical/Major/Minor) and
- * `hatch3r-dependency-auditor` (CVSS Critical/High/Moderate/Low) carry the
- * reference and explicitly map their domain vocabulary back to canonical.
- * Files without that reference must stick to the canonical 5-tier strings
- * in any structured severity context.
+ * `hatch3r-ui` (WCAG Critical/Major/Minor) and `hatch3r-security`
+ * (CVSS Critical/High/Moderate/Low) carry the reference and explicitly map
+ * their domain vocabulary back to canonical. Files without that reference
+ * must stick to the canonical 5-tier strings in any structured severity
+ * context.
  *
  * Failure modes (each emits one ERROR finding per offending occurrence):
  *

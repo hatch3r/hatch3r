@@ -59,9 +59,13 @@ Tier 1 trivial single-line edits per its declared scope.`;
  * These agents are the Phase-2/3/4 producer + gate roles the orchestrator
  * drives; they stay user-invocable (a human can still select them
  * deliberately) but are removed from the model's automatic-selection pool.
- * The set is intentionally narrow — the 5 ids the D9-H-7 finding names. A
- * future enhancement (deferred to the frontmatter-parser work unit) will let
- * canonical agents declare an explicit `copilot_invocation_policy` to
+ * F16.3-H1 (Cycle 10 Wave 1C): the legacy test-writer + security-auditor
+ * always-floor roles have collapsed into hatch3r-testability (CQ5) and
+ * hatch3r-security (CQ3); the orchestrator-only gate moves with them so the
+ * Phase-4 always-floor specialists continue to require explicit delegation.
+ *
+ * A future enhancement (deferred to the frontmatter-parser work unit) will
+ * let canonical agents declare an explicit `copilot_invocation_policy` to
  * override this default per-agent.
  *
  * Stored in canonical prefixed form (`hatch3r-…`) and matched against the
@@ -73,8 +77,8 @@ const COPILOT_ORCHESTRATOR_ONLY_AGENTS = new Set<string>([
   "hatch3r-implementer",
   "hatch3r-fixer",
   "hatch3r-reviewer",
-  "hatch3r-test-writer",
-  "hatch3r-security-auditor",
+  "hatch3r-testability",
+  "hatch3r-security",
 ]);
 
 export class CopilotAdapter extends BaseAdapter {

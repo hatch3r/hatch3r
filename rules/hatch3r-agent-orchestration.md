@@ -30,7 +30,7 @@ Pipeline-phase agents (Phases 1-3):
 | `hatch3r-fixer` | Fix reviewer findings | Phase 3 — Critical/Warning findings |
 | `hatch3r-ci-watcher` | CI failure diagnosis | Conditional — CI fails |
 
-Phase 4 specialists (test-writer, security-auditor, docs-writer, lint-fixer, a11y-auditor, perf-profiler, dependency-auditor, architect, devops, and the CQ1-CQ9 vector specialists ui/ux/security/reliability/testability/scalability/performance/maintainability/enhancability) and their trigger conditions are enumerated once in the Phase 4 Specialist Trigger Table below. That table mirrors the single source of truth `src/pipeline/pipelineContext.ts::SPECIALIST_TRIGGER_TABLE` — add a specialist there first, never here.
+Phase 4 specialists (docs-writer, lint-fixer, architect, devops, and the CQ1-CQ9 vector specialists ui/ux/security/reliability/testability/scalability/performance/maintainability/enhancability) and their trigger conditions are enumerated once in the Phase 4 Specialist Trigger Table below. That table mirrors the single source of truth `src/pipeline/pipelineContext.ts::SPECIALIST_TRIGGER_TABLE` — add a specialist there first, never here.
 
 ## Deep Context Integration
 
@@ -110,7 +110,7 @@ For multi-sub-task implementations, the implementer performs a lightweight mini-
 
 **Phase 4 — Final Quality** (after review loop is clean):
 
-Launch Phase 4 specialists in parallel, bounded by `max_phase4_parallel` (default `8` — covers the empirical maximum of applicable specialists per the trigger table, so a typical Tier 3 change fans out in at most 2 batches; override via `HATCH3R_MAX_PHASE4_PARALLEL`, valid range 1-16, values outside the range fall back to default with a logged warning). The bound exists for upstream provider rate-limit headroom (RPM/TPM) — a true dependency edge — NOT per-orchestrator context cost; token cost never serializes independent work (P8 dominates P7). For non-rate-limited orchestrators set `HATCH3R_MAX_PHASE4_PARALLEL=16`. **Runtime rate-limit probe:** when the orchestrator observes ≥3 consecutive rate-limit-class transient failures, auto-reduce `max_phase4_parallel` by 1 and emit an observability event; never silently cap by default. When applicable specialists exceed the bound, batch by severity-descending priority `CRITICAL → HIGH → MEDIUM → LOW` (severity is the worst-case finding class the specialist surfaces: always-on test-writer/security-auditor → CRITICAL, conditional UI/security/perf → HIGH, docs/lint → MEDIUM, low-impact → LOW); within a bucket, dispatch in trigger-table order. Each batch runs to completion before the next starts; the validation pass runs once after the final batch. The applicable specialists and their trigger conditions are listed in the Phase 4 Specialist Trigger Table below.
+Launch Phase 4 specialists in parallel, bounded by `max_phase4_parallel` (default `8` — covers the empirical maximum of applicable specialists per the trigger table, so a typical Tier 3 change fans out in at most 2 batches; override via `HATCH3R_MAX_PHASE4_PARALLEL`, valid range 1-16, values outside the range fall back to default with a logged warning). The bound exists for upstream provider rate-limit headroom (RPM/TPM) — a true dependency edge — NOT per-orchestrator context cost; token cost never serializes independent work (P8 dominates P7). For non-rate-limited orchestrators set `HATCH3R_MAX_PHASE4_PARALLEL=16`. **Runtime rate-limit probe:** when the orchestrator observes ≥3 consecutive rate-limit-class transient failures, auto-reduce `max_phase4_parallel` by 1 and emit an observability event; never silently cap by default. When applicable specialists exceed the bound, batch by severity-descending priority `CRITICAL → HIGH → MEDIUM → LOW` (severity is the worst-case finding class the specialist surfaces: always-on testability (CQ5) / security (CQ3) → CRITICAL, conditional CQ1/CQ4/CQ7 (ui/reliability/performance) → HIGH, docs/lint → MEDIUM, low-impact → LOW); within a bucket, dispatch in trigger-table order. Each batch runs to completion before the next starts; the validation pass runs once after the final batch. The applicable specialists and their trigger conditions are listed in the Phase 4 Specialist Trigger Table below.
 
 **Specialist Prompt Enrichment:** When spawning Phase 4 specialists, include the Phase 2 `filesChanged` list (focus on affected code), the Phase 3 review verdict summary (avoid re-flagging reviewed issues), and `researchFindings.blastRadius` (assess downstream impact).
 
@@ -118,13 +118,8 @@ Launch Phase 4 specialists in parallel, bounded by `max_phase4_parallel` (defaul
 
 | Specialist | Mode | Trigger Conditions |
 |-----------|------|--------------------|
-| `hatch3r-test-writer` | Always | Any code change; may skip per Phase Skip Criteria |
-| `hatch3r-security-auditor` | Always | Any code change; may skip per Phase Skip Criteria |
 | `hatch3r-docs-writer` | Evaluate | Public API, architecture, or UX changes |
 | `hatch3r-lint-fixer` | Conditional | Lint/type errors present |
-| `hatch3r-a11y-auditor` | Conditional | UI/accessibility changes |
-| `hatch3r-perf-profiler` | Conditional | Performance-sensitive changes |
-| `hatch3r-dependency-auditor` | Conditional | Dependency files modified (package.json, go.mod, Cargo.toml, requirements.txt, Gemfile, pom.xml, pubspec.yaml, mix.exs, composer.json, and their lockfiles) |
 | `hatch3r-architect` | Conditional | Architectural decisions, new modules/services |
 | `hatch3r-devops` | Conditional | CI/CD or infrastructure changes |
 | `hatch3r-ui` (CQ1) | Conditional | UI component / theme / token files modified (`*.{tsx,jsx,vue,svelte}`, `tailwind.config.*`, design-token registries) |
@@ -137,7 +132,7 @@ Launch Phase 4 specialists in parallel, bounded by `max_phase4_parallel` (defaul
 | `hatch3r-maintainability` (CQ8) | Conditional | Any code mutation (duplication + complexity scan); schema / migration / API spec (OpenAPI / GraphQL SDL / Protobuf) modified |
 | `hatch3r-enhancability` (CQ9) | Conditional | User-visible behavior modified; public API surface modified (OpenAPI / GraphQL SDL / AsyncAPI); config schema or feature-flag definition modified |
 
-**Scope disambiguation (legacy vs CQ specialists).** Where a legacy specialist overlaps a CQ-vector specialist, the orchestrator dispatches BOTH — each within its declared boundary: `a11y-auditor` (deep ARIA / reduced-motion) vs `ui` (CQ1: axe-core + design-token + four-state + reuse); `security-auditor` (always-on security floor) vs `security` (CQ3: OAuth 2.1 + OIDC + DPoP, SBOM/cosign, OWASP ASI); `perf-profiler` (conditional profile) vs `performance` (CQ7: CWV, p95/p99, bundle size, N+1). Per-agent boundaries are documented in each agent file's opening section.
+**CQ specialist consolidation.** Each CQ-vector specialist owns the full scope previously split between a legacy specialist and the CQ row. `ui` (CQ1) covers axe-core + design-token + four-state + reuse plus deep ARIA / reduced-motion; `security` (CQ3) covers OAuth 2.1 + OIDC + DPoP, SBOM/cosign, OWASP ASI plus the always-on security floor and project-specific deep audits; `performance` (CQ7) covers CWV, p95/p99, bundle size, N+1 plus profile-driven hot-path analysis; `testability` (CQ5) covers mandate-map verification plus test authoring. Per-agent boundaries are documented in each agent file's opening section.
 
 **Verification harness binding (CQ specialist → verify skill).** A CQ specialist runs its matching verify-class skill as the pass/fail evidence harness for its Phase 4 gate, so audit semantics are not re-authored in two places (D16.3): `ui` (CQ1) + `ux` (CQ2) → `hatch3r-ui-ux-verify`; `reliability` (CQ4) → `hatch3r-reliability-verify` + `hatch3r-observability-verify` (the latter covers OTel span / trace-id correlation on the request path). `hatch3r-qa-validation` (no 1:1 CQ specialist — release/acceptance E2E) and `hatch3r-browser-verify` (multi-purpose Playwright tool, default-ON per UI-affecting invocation) stay standalone harnesses invoked by the orchestrator, not bound to one CQ row. The reciprocal "Invoked by" upstream-citation lives in each verify skill's `## Invoked by` subsection.
 
@@ -149,13 +144,12 @@ After all Phase 4 specialists complete, run a validation pass: run the test suit
 
 ### Specialist Success Criteria
 
-- **test-writer:** all new/modified code paths have tests; no untested branches in changed files.
-- **security-auditor:** no HIGH/CRITICAL findings unresolved; MEDIUM documented with plan.
+- **testability (CQ5):** all new/modified code paths have tests meeting the mandate map; no untested branches in changed files.
+- **security (CQ3):** no HIGH/CRITICAL findings unresolved; MEDIUM documented with plan; CQ3 thresholds (npm provenance, SBOM, SHA-pin, OWASP ASI) met for in-scope changes.
 - **docs-writer:** affected APIs, architecture, and UX reflected in docs.
 - **lint-fixer:** zero lint/type errors in changed files.
-- **a11y-auditor:** WCAG AA compliance; no new a11y violations.
-- **perf-profiler:** no performance regressions; new hot paths benchmarked.
-- **dependency-auditor:** no known CVEs; license compatibility verified.
+- **ui (CQ1):** WCAG AA compliance; no new a11y violations; design-token + four-state coverage; reuse-first delta.
+- **performance (CQ7):** no performance regressions; new hot paths benchmarked; CWV / p95/p99 / bundle-size budgets met.
 - **architect:** ADRs documented; design aligns with patterns or divergence justified.
 - **devops:** CI/CD passes end-to-end; deployment config validated.
 
@@ -220,7 +214,7 @@ All commands that use the pipeline MUST reference these criteria — do not inve
 | **Phase 1 (Research)** | Trivial single-line edit (typo, comment, single-value config); Tier 1 single-file change with no cross-module impact; Research already cached in PipelineContext | Affected files identified (even via quick scan); existing tests noted |
 | **Phase 2 (Implement)** | Never — implementation is always required for code changes | All changes via hatch3r-implementer (never inline except trivial items in quick-change) |
 | **Phase 3 (Review)** | All items trivial (quick-change only); documentation-only change with no code | Quality checks (lint/typecheck/test) must pass; acceptance criteria verified |
-| **Phase 4 (Quality)** | Review loop unresolved AND user chose manual resolution; documentation-only; all trivial + quality checks pass (quick-change only) | test-writer + security-auditor always required for code changes; quality checks must pass |
+| **Phase 4 (Quality)** | Review loop unresolved AND user chose manual resolution; documentation-only; all trivial + quality checks pass (quick-change only) | testability (CQ5) + security (CQ3) always required for code changes; quality checks must pass |
 
 See `src/pipeline/pipelineContext.ts` for the programmatic `PHASE_SKIP_CRITERIA` constant.
 
@@ -244,7 +238,7 @@ Reject superficial fixes from any subagent. If a fixer's output contains suppres
 All `scope: always` rules apply to every task including subagent work; include rule directives in subagent prompts. Inclusion tiers:
 
 - **Tier 1 — always include (every subagent):** `hatch3r-security-patterns`, `hatch3r-code-standards`.
-- **Tier 2 — by phase:** `hatch3r-testing` (test-writer/implementer/reviewer); `hatch3r-accessibility-standards` (a11y-auditor, UI reviewer); `hatch3r-git-conventions` (orchestrator git ops); `hatch3r-ci-cd` (ci-watcher/devops); `hatch3r-dependency-management` (dependency-auditor).
+- **Tier 2 — by phase:** `hatch3r-testing` (testability/implementer/reviewer); `hatch3r-accessibility-standards` (ui, UI reviewer); `hatch3r-git-conventions` (orchestrator git ops); `hatch3r-ci-cd` (ci-watcher/devops); `hatch3r-dependency-management` (security CQ3 supply-chain slice).
 - **Tier 3 — on-demand by role + scope:** `hatch3r-api-design`, `hatch3r-secrets-management`, `hatch3r-data-classification`, `hatch3r-performance-budgets`, `hatch3r-browser-verification`, `hatch3r-component-conventions`, `hatch3r-i18n`, `hatch3r-theming`, `hatch3r-migrations`, `hatch3r-feature-flags`, `hatch3r-observability-logging`, `hatch3r-observability-metrics`, `hatch3r-observability-tracing`.
 
 For limited context windows, Tier 1 is mandatory; Tier 2/3 included selectively.

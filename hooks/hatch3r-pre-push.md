@@ -1,16 +1,16 @@
 ---
-id: pre-push-security-auditor
+id: pre-push-security
 type: hook
 event: pre-push
-agent: security-auditor
+agent: security
 description: Scan for secrets and security issues before push
 tags: [floor:security]
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true
 ---
-# Hook: pre-push → security-auditor
+# Hook: pre-push → security
 
-Activate the security-auditor agent before pushing to scan for accidentally committed secrets, API keys, credentials, and other security-sensitive content.
+Activate the security agent before pushing to scan for accidentally committed secrets, API keys, credentials, and other security-sensitive content.
 
 ## Agent Behavior
 

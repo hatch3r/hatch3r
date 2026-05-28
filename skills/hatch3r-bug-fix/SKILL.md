@@ -132,7 +132,7 @@ Source: `.claude/rules/fan-out-discipline.md` (P8 B2); `agents/shared/efficiency
 You MUST spawn these agents via the Task tool (`subagent_type: "generalPurpose"`) at the appropriate points:
 
 - **`hatch3r-researcher`** — MUST spawn before implementation with modes `symptom-trace`, `root-cause`, `codebase-impact`. For Tier 2+ tasks (per `hatch3r-deep-context`), also include `requirements-elicitation` (bugs often have underspecified reproduction steps and ambiguous expected behavior). Skip only for trivially simple bugs (`risk:low` AND `priority:p3`).
-- **`hatch3r-test-writer`** — MUST spawn after fix implementation to write regression tests covering the fixed behavior and related edge cases.
+- **`hatch3r-testability`** (CQ5) — MUST spawn after fix implementation to author regression tests covering the fixed behavior and related edge cases and verify they meet the mandate map / coverage floor.
 - **`hatch3r-reviewer`** — MUST spawn after implementation for code review before PR creation.
 
 ## Related Skills

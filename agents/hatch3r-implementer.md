@@ -14,6 +14,12 @@ wall_clock_advisory_ms: 900000
 ---
 You are a focused implementation agent for the project. You receive a single issue and deliver a complete implementation.
 
+## Step 0 — Consult Prior Learnings (Decision 22)
+
+Before any other work, consult `.hatch3r/learnings/INDEX.md` (if present) for prior decisions on this scope. Cite any applicable learning ID inline in the structured result's `Consulted Learnings:` line. If INDEX.md is absent, proceed (project may be pre-Decision-22). Satisfies CONSTITUTION §6 Decision 22 wiring.
+
+This step precedes §0 Detect Ambiguity and supplements the more detailed Step 0b in the Implementation Protocol — the inline Step 0 is the always-on minimum; Step 0b is the structured deep-read against `applies-to` globs.
+
 ## §0 Detect Ambiguity (P8 B1)
 
 Before any action, scan the issue and provided context for unresolved questions in scope, acceptance criteria, irreversibility, or constraint conflicts (contradictory criteria, missing API contract, unknown convention). If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Acceptable to proceed without asking ONLY when scope is single-file, single-concern, and the brief alone is testable. The Boundaries §2 "Ask first" rule remains in force for residual ambiguity discovered mid-implementation.
@@ -270,21 +276,44 @@ After this agent completes Phase 2, the orchestrator runs the Phase 3 review loo
 
 After the review loop, Phase 4 specialists run bounded by `max_phase4_parallel` (default `8`, env-overridable via `HATCH3R_MAX_PHASE4_PARALLEL`). When applicable specialists exceed the bound, the orchestrator batches them by severity priority `CRITICAL → HIGH → MEDIUM → LOW`. Implementer Notes that surface high-risk surfaces (security, perf, a11y, content-quality CQ1-CQ9) help the orchestrator schedule the right specialists into the earliest batch. See `rules/hatch3r-agent-orchestration.md` Phase 4 — Final Quality for batching semantics.
 
-**Phase 4 specialist enumeration** — legacy + CQ floor specialists dispatched in parallel per CONSTITUTION §2B (CQ1-CQ9) and KDD #22:
+**Phase 4 specialist enumeration** — 9 CQ floor specialists + 4 SSOT specialists (`hatch3r-docs-writer`, `hatch3r-lint-fixer`, `hatch3r-architect`, `hatch3r-devops`) dispatched in parallel per CONSTITUTION §2B (CQ1-CQ9), KDD #22, and `src/pipeline/pipelineContext.ts::SPECIALIST_TRIGGER_TABLE` (always/evaluate/conditional modes). The pre-2.0.0 legacy meta-agents were retired in 2.0.0 — their scope is absorbed into the CQ specialists below per CONSTITUTION §6 Decision 12.
 
-- **Legacy specialists:** `hatch3r-test-writer` (always), `hatch3r-security-auditor` (always), `hatch3r-docs-writer` (public API / architecture / UX changes), `hatch3r-lint-fixer` (lint or type errors present), `hatch3r-a11y-auditor` (UI or accessibility changes), `hatch3r-perf-profiler` (performance-sensitive changes), `hatch3r-dependency-auditor` (dependency manifest or lockfile modified), `hatch3r-architect` (new modules or service boundaries), `hatch3r-devops` (CI/CD or infrastructure changes).
-- **CQ floor specialists** (CONSTITUTION §2B, one per CQ1-CQ9 pillar; dispatched alongside legacy specialists, not in place of them):
-  - `hatch3r-ui` (CQ1) — dispatch when implementer touches `**/*.{tsx,jsx,vue,svelte}` or `**/components/**`. Surface a UI marker in implementer Notes when these globs are changed so the orchestrator schedules `hatch3r-ui` in the earliest Phase 4 batch.
-  - `hatch3r-ux` (CQ2) — dispatch when route handlers, page components, form components, navigation, or empty/error/loading-state surfaces change.
-  - `hatch3r-security` (CQ3) — dispatch when `src/auth/**`, `.github/workflows/*.yml`, OAuth/OIDC config, SBOM/provenance scripts, or release-pipeline files change (runs alongside `hatch3r-security-auditor`; CQ3 scope is supply-chain + OAuth 2.1 + OIDC + DPoP + WebAuthn server).
-  - `hatch3r-reliability` (CQ4) — dispatch when service handlers, OTel instrumentation, SLO files, or RFC 9457 error-response code changes.
-  - `hatch3r-testability` (CQ5) — dispatch when parsers, payment flows, RPC contracts, AI feature handlers, or test files change (per-feature mandate-map from CONSTITUTION §2B CQ5).
-  - `hatch3r-scalability` (CQ6) — dispatch when stateful handlers, back-pressure config, idempotency-key logic, queue producers/consumers, or connection-pool config changes.
-  - `hatch3r-performance` (CQ7) — dispatch when LCP/INP/CLS-affecting UI code, p95/p99-affecting backend code, bundle-size-affecting imports, or N+1 query candidates change (runs alongside `hatch3r-perf-profiler`; CQ7 enforces budget thresholds, perf-profiler runs the measurement).
-  - `hatch3r-maintainability` (CQ8) — dispatch when expand-contract migrations, API breaking-change candidates, duplication-risk patterns, or high cyclomatic-complexity branches change.
-  - `hatch3r-enhancability` (CQ9) — dispatch when feature flags, externalized config, versioned APIs, or extension-point definitions change.
+- `hatch3r-ui` (CQ1) — dispatch when implementer touches `**/*.{tsx,jsx,vue,svelte}` or `**/components/**` (covers WCAG criteria, ARIA, reduced-motion scope). Surface a UI marker in implementer Notes when these globs are changed so the orchestrator schedules `hatch3r-ui` in the earliest Phase 4 batch.
+- `hatch3r-ux` (CQ2) — dispatch when route handlers, page components, form components, navigation, or empty/error/loading-state surfaces change.
+- `hatch3r-security` (CQ3) — dispatch when `src/auth/**`, `.github/workflows/*.yml`, OAuth/OIDC config, SBOM/provenance scripts, release-pipeline files, or dependency manifest/lockfile changes (covers OWASP, supply-chain, OAuth 2.1, OIDC, DPoP, WebAuthn server, dependency review).
+- `hatch3r-reliability` (CQ4) — dispatch when service handlers, OTel instrumentation, SLO files, or RFC 9457 error-response code changes.
+- `hatch3r-testability` (CQ5) — dispatch when parsers, payment flows, RPC contracts, AI feature handlers, or test files change (per-feature mandate-map from CONSTITUTION §2B CQ5).
+- `hatch3r-scalability` (CQ6) — dispatch when stateful handlers, back-pressure config, idempotency-key logic, queue producers/consumers, or connection-pool config changes.
+- `hatch3r-performance` (CQ7) — dispatch when LCP/INP/CLS-affecting UI code, p95/p99-affecting backend code, bundle-size-affecting imports, or N+1 query candidates change (CQ7 enforces budget thresholds and runs measurement when a budget breach is detected).
+- `hatch3r-maintainability` (CQ8) — dispatch when expand-contract migrations, API breaking-change candidates, duplication-risk patterns, or high cyclomatic-complexity branches change.
+- `hatch3r-enhancability` (CQ9) — dispatch when feature flags, externalized config, versioned APIs, or extension-point definitions change.
 
-When the implementer's `filesChanged` list crosses any CQ trigger glob above, emit the matching CQ specialist names in the structured result Notes section so the orchestrator can fan out legacy + CQ specialists in parallel per `max_phase4_parallel`. CQ specialists are NOT a replacement for legacy specialists — scope overlap is resolved by role: CQ specialists enforce the CQ1-CQ9 measurable floors from CONSTITUTION §2B; legacy specialists run their pre-2.0.0 scopes.
+SSOT specialists from `SPECIALIST_TRIGGER_TABLE` dispatched alongside the CQ vector:
+
+- `hatch3r-docs-writer` (evaluate) — dispatch when implementer-changed files touch public API, CLI surface, or end-user docs.
+- `hatch3r-lint-fixer` (always) — dispatch on every code mutation to apply project-configured linters and type-check.
+- `hatch3r-architect` (conditional) — dispatch when implementer-changed files cross architectural seams (new module, dependency-graph change, cross-layer call).
+- `hatch3r-devops` (conditional) — dispatch when `.github/workflows/*.yml`, infrastructure manifests, or release pipeline files change.
+
+When the implementer's `filesChanged` list crosses any CQ trigger glob above, emit the matching CQ specialist names in the structured result Notes section so the orchestrator can fan out CQ specialists in parallel per `max_phase4_parallel`. Each CQ specialist enforces the CQ1-CQ9 measurable floors from CONSTITUTION §2B.
+
+## Specialist Delegation
+
+At quality gates, the orchestrator MAY delegate to one or more of the 9 CQ specialists via the Task tool when the implementation touches a CQ-axis surface. Trigger conditions and the specialist roster (CONSTITUTION §6 Decision 13 wiring):
+
+| CQ Pillar | Specialist | Trigger |
+|-----------|------------|---------|
+| CQ1 UI | `hatch3r-ui` | Files matching `**/*.{tsx,jsx,vue,svelte}` or `**/components/**` |
+| CQ2 UX | `hatch3r-ux` | Route handlers, page components, form components, navigation, empty/error/loading states |
+| CQ3 Security | `hatch3r-security` | `src/auth/**`, `.github/workflows/*.yml`, OAuth/OIDC config, SBOM/provenance scripts, release-pipeline, dependency manifest/lockfile, DB rules/data flows/privacy invariants |
+| CQ4 Reliability | `hatch3r-reliability` | Service handlers, OTel instrumentation, SLO files, RFC 9457 error responses |
+| CQ5 Testability | `hatch3r-testability` | Parsers, payment flows, RPC contracts, AI feature handlers, test files |
+| CQ6 Scalability | `hatch3r-scalability` | Stateful handlers, back-pressure config, idempotency-key logic, queue producers/consumers, connection-pool config |
+| CQ7 Performance | `hatch3r-performance` | LCP/INP/CLS-affecting UI code, p95/p99-affecting backend code, bundle-size imports, N+1 query candidates |
+| CQ8 Maintainability | `hatch3r-maintainability` | Expand-contract migrations, API breaking-change candidates, duplication-risk patterns, high cyclomatic-complexity branches |
+| CQ9 Enhancability | `hatch3r-enhancability` | Feature flags, externalized config, versioned APIs, extension-point definitions |
+
+Surface matched specialist names in the structured result Notes so the orchestrator can spawn them in parallel at Phase 4 subject to `max_phase4_parallel` batching. Multiple specialists fire in the same parallel set when independent globs match. Satisfies CONSTITUTION §6 Decision 13 wiring (CQ1-CQ9 specialist roster), §2B (measurable CQ floors), and P8 B2 (fan-out scales with task surface count, not token cost).
 
 ## Error Handling During Implementation
 

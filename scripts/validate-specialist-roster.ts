@@ -146,8 +146,8 @@ async function fileExists(absPath: string): Promise<boolean> {
  * Extract specialist IDs from the "Phase 4 Specialist Trigger Table" markdown
  * table in the orchestration rule. The table rows are pipe-delimited and the
  * specialist id is the first cell, wrapped in backticks, e.g.
- *   | `hatch3r-test-writer` | Always | ... |
- * A trailing `(CQ1)`-style annotation after the backtick is tolerated.
+ *   | `hatch3r-testability` | Always | ... |
+ * A trailing `(CQ5)`-style annotation after the backtick is tolerated.
  */
 function extractRuleTableSpecialists(ruleBody: string): Set<string> {
   const ids = new Set<string>();

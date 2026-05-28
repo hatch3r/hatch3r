@@ -112,7 +112,7 @@ All tasks use this four-phase pipeline. Never implement inline; always delegate.
 **Phase 1 — Research:** Spawn \`hatch3r-researcher\`. Skip only for trivial edits. Score complexity per \`hatch3r-deep-context\` and add tier modes.
 **Phase 2 — Implement:** Spawn \`hatch3r-implementer\` (one per task). Pass research context.
 **Phase 3 — Review Loop:** \`hatch3r-reviewer\` → if Critical/Warning: \`hatch3r-fixer\` → re-review → repeat (max 3). After clean verdict: one confirmation pass (regressions, acceptance criteria). Remaining findings after max iterations → surface to user.
-**Phase 4 — Final Quality** (after clean review): \`hatch3r-test-writer\` + \`hatch3r-security-auditor\` (always), \`hatch3r-docs-writer\` (evaluate), then conditional: lint-fixer, a11y-auditor, perf-profiler, dependency-auditor.
+**Phase 4 — Final Quality** (after clean review): \`hatch3r-testability\` + \`hatch3r-security\` (always), \`hatch3r-docs-writer\` (evaluate), then conditional CQ specialists: \`hatch3r-ui\`, \`hatch3r-ux\`, \`hatch3r-reliability\`, \`hatch3r-scalability\`, \`hatch3r-performance\`, \`hatch3r-maintainability\`, \`hatch3r-enhancability\`, plus \`hatch3r-lint-fixer\`.
 
 ## Mandatory Behaviors
 
@@ -130,14 +130,13 @@ All tasks use this four-phase pipeline. Never implement inline; always delegate.
 | \`hatch3r-implementer\` | Always — one per task |
 | \`hatch3r-reviewer\` | Always (Phase 3 loop) |
 | \`hatch3r-fixer\` | Critical/Warning findings (Phase 3) |
-| \`hatch3r-test-writer\` | Always for code changes (Phase 4) |
-| \`hatch3r-security-auditor\` | Always for code changes (Phase 4) |
+| \`hatch3r-testability\` (CQ5) | Always for code changes (Phase 4) |
+| \`hatch3r-security\` (CQ3) | Always for code changes (Phase 4); dependency-file changes |
 | \`hatch3r-docs-writer\` | Evaluate; spawn if doc impact (Phase 4) |
 | \`hatch3r-lint-fixer\` | Lint/type errors after impl |
-| \`hatch3r-a11y-auditor\` | UI/accessibility changes |
+| \`hatch3r-ui\` (CQ1) | UI/accessibility changes |
 | \`hatch3r-architect\` | Architectural decisions, API design |
-| \`hatch3r-perf-profiler\` | Performance-sensitive changes |
-| \`hatch3r-dependency-auditor\` | Dependency changes |
+| \`hatch3r-performance\` (CQ7) | Performance-sensitive changes |
 | \`hatch3r-ci-watcher\` | CI failures |
 | \`hatch3r-devops\` | Infra, deployment, CI/CD changes |
 

@@ -113,7 +113,7 @@ describe("workspace manifest", () => {
           overrides: {
             tools: ["claude"],
             contentOverrides: {
-              include: ["hatch3r-security-auditor"],
+              include: ["hatch3r-security"],
               exclude: ["hatch3r-researcher"],
             },
           },
@@ -124,7 +124,7 @@ describe("workspace manifest", () => {
       const read = await readWorkspaceManifest(dir);
 
       expect(read!.repos[0].overrides?.tools).toEqual(["claude"]);
-      expect(read!.repos[0].overrides?.contentOverrides?.include).toEqual(["hatch3r-security-auditor"]);
+      expect(read!.repos[0].overrides?.contentOverrides?.include).toEqual(["hatch3r-security"]);
       expect(read!.repos[0].overrides?.contentOverrides?.exclude).toEqual(["hatch3r-researcher"]);
     });
 

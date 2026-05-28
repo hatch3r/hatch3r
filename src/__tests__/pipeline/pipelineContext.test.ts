@@ -60,7 +60,7 @@ function validReviewResult() {
 function validQualityResults() {
   return {
     specialists: [
-      { specialist: "hatch3r-test-writer", status: "SUCCESS" as const, findingsCount: 0, summary: "All tests pass" },
+      { specialist: "hatch3r-testability", status: "SUCCESS" as const, findingsCount: 0, summary: "All tests pass" },
     ],
     validationPass: {
       testsPass: true,
@@ -248,49 +248,53 @@ describe("validatePhaseTransition", () => {
 // ── shouldTriggerSpecialist ──────────────────────────────────────
 
 describe("shouldTriggerSpecialist", () => {
-  it("should always trigger test-writer for code changes", () => {
-    const result = shouldTriggerSpecialist("hatch3r-test-writer", ["src/foo.ts"]);
+  // F16.3-H1 (Cycle 10 Wave 1C): legacy test-writer + security-auditor +
+  // dependency-auditor roles collapsed into hatch3r-testability (CQ5) and
+  // hatch3r-security (CQ3); the always-mode floors and dependency-file
+  // triggers now live on the CQ specialists.
+  it("should always trigger testability (CQ5) for code changes", () => {
+    const result = shouldTriggerSpecialist("hatch3r-testability", ["src/foo.ts"]);
     expect(result.triggered).toBe(true);
   });
 
-  it("should always trigger security-auditor for code changes", () => {
-    const result = shouldTriggerSpecialist("hatch3r-security-auditor", ["src/foo.ts"]);
+  it("should always trigger security (CQ3) for code changes", () => {
+    const result = shouldTriggerSpecialist("hatch3r-security", ["src/foo.ts"]);
     expect(result.triggered).toBe(true);
   });
 
   it("should not trigger always-mode specialists for empty changes", () => {
-    const result = shouldTriggerSpecialist("hatch3r-test-writer", []);
+    const result = shouldTriggerSpecialist("hatch3r-testability", []);
     expect(result.triggered).toBe(false);
   });
 
-  it("should trigger dependency-auditor for package.json changes", () => {
-    const result = shouldTriggerSpecialist("hatch3r-dependency-auditor", ["package.json"]);
+  it("should trigger security (CQ3) for package.json changes", () => {
+    const result = shouldTriggerSpecialist("hatch3r-security", ["package.json"]);
     expect(result.triggered).toBe(true);
     expect(result.reasons.some((r) => r.includes("package.json"))).toBe(true);
   });
 
-  it("should trigger dependency-auditor for go.mod changes", () => {
-    const result = shouldTriggerSpecialist("hatch3r-dependency-auditor", ["go.mod"]);
+  it("should trigger security (CQ3) for go.mod changes", () => {
+    const result = shouldTriggerSpecialist("hatch3r-security", ["go.mod"]);
     expect(result.triggered).toBe(true);
   });
 
-  it("should trigger dependency-auditor for Cargo.toml changes", () => {
-    const result = shouldTriggerSpecialist("hatch3r-dependency-auditor", ["Cargo.toml"]);
+  it("should trigger security (CQ3) for Cargo.toml changes", () => {
+    const result = shouldTriggerSpecialist("hatch3r-security", ["Cargo.toml"]);
     expect(result.triggered).toBe(true);
   });
 
-  it("should trigger dependency-auditor for nested package.json", () => {
-    const result = shouldTriggerSpecialist("hatch3r-dependency-auditor", ["packages/core/package.json"]);
+  it("should trigger security (CQ3) for nested package.json", () => {
+    const result = shouldTriggerSpecialist("hatch3r-security", ["packages/core/package.json"]);
     expect(result.triggered).toBe(true);
   });
 
-  it("should not trigger dependency-auditor for non-dependency files", () => {
-    const result = shouldTriggerSpecialist("hatch3r-dependency-auditor", ["src/foo.ts", "src/bar.ts"]);
-    expect(result.triggered).toBe(false);
-  });
+  // security (CQ3) is always-mode so any non-empty changed-files list triggers
+  // it, regardless of dependency-file membership. The pre-F16.3-H1 conditional
+  // dependency-auditor "non-dependency files don't trigger" assertion no
+  // longer applies — security as always-mode subsumes it.
 
-  it("should trigger dependency-auditor for lockfile changes", () => {
-    const result = shouldTriggerSpecialist("hatch3r-dependency-auditor", ["pnpm-lock.yaml"]);
+  it("should trigger security (CQ3) for lockfile changes", () => {
+    const result = shouldTriggerSpecialist("hatch3r-security", ["pnpm-lock.yaml"]);
     expect(result.triggered).toBe(true);
   });
 
@@ -315,9 +319,9 @@ describe("shouldTriggerSpecialist", () => {
       packageManager: "unknown",
     };
 
-    it("should trigger dependency-auditor with language context for Node.js", () => {
+    it("should trigger security (CQ3) with language context for Node.js", () => {
       const result = shouldTriggerSpecialist(
-        "hatch3r-dependency-auditor",
+        "hatch3r-security",
         ["package.json"],
         nodeProject,
       );
@@ -325,9 +329,9 @@ describe("shouldTriggerSpecialist", () => {
       expect(result.reasons.some((r) => r.includes("typescript"))).toBe(true);
     });
 
-    it("should trigger dependency-auditor with language context for Go", () => {
+    it("should trigger security (CQ3) with language context for Go", () => {
       const result = shouldTriggerSpecialist(
-        "hatch3r-dependency-auditor",
+        "hatch3r-security",
         ["go.mod"],
         goProject,
       );
@@ -335,13 +339,18 @@ describe("shouldTriggerSpecialist", () => {
       expect(result.reasons.some((r) => r.includes("go"))).toBe(true);
     });
 
-    it("should not trigger language-specific for unrelated files", () => {
+    // security (CQ3) is always-mode: any non-empty changed-files list
+    // triggers it (its always-mode floor absorbs the legacy "no trigger on
+    // unrelated files" assertion that dependency-auditor exercised in its
+    // conditional mode). Project-type-aware language hints attach only when
+    // dependency files are in the change set.
+    it("should trigger security (CQ3) even for unrelated files (always-mode floor)", () => {
       const result = shouldTriggerSpecialist(
-        "hatch3r-dependency-auditor",
+        "hatch3r-security",
         ["src/main.go"],
         goProject,
       );
-      expect(result.triggered).toBe(false);
+      expect(result.triggered).toBe(true);
     });
   });
 });
@@ -349,8 +358,8 @@ describe("shouldTriggerSpecialist", () => {
 // ── getSpecialistHints ───────────────────────────────────────────
 
 describe("getSpecialistHints", () => {
-  it("should return TypeScript hints for test-writer", () => {
-    const hints = getSpecialistHints("hatch3r-test-writer", {
+  it("should return TypeScript hints for testability (CQ5)", () => {
+    const hints = getSpecialistHints("hatch3r-testability", {
       languages: ["typescript"],
       frameworks: [],
       isMonorepo: false,
@@ -360,8 +369,8 @@ describe("getSpecialistHints", () => {
     expect(hints[0]).toContain("typescript");
   });
 
-  it("should return Go hints for security-auditor", () => {
-    const hints = getSpecialistHints("hatch3r-security-auditor", {
+  it("should return Go hints for security (CQ3)", () => {
+    const hints = getSpecialistHints("hatch3r-security", {
       languages: ["go"],
       frameworks: [],
       isMonorepo: false,
@@ -372,7 +381,7 @@ describe("getSpecialistHints", () => {
   });
 
   it("should return hints for multiple languages", () => {
-    const hints = getSpecialistHints("hatch3r-test-writer", {
+    const hints = getSpecialistHints("hatch3r-testability", {
       languages: ["typescript", "python"],
       frameworks: [],
       isMonorepo: true,
@@ -384,7 +393,7 @@ describe("getSpecialistHints", () => {
   });
 
   it("should return empty for unknown language", () => {
-    const hints = getSpecialistHints("hatch3r-test-writer", {
+    const hints = getSpecialistHints("hatch3r-testability", {
       languages: ["brainfuck"],
       frameworks: [],
       isMonorepo: false,
@@ -431,33 +440,38 @@ describe("PHASE_SKIP_CRITERIA", () => {
 });
 
 describe("SPECIALIST_TRIGGER_TABLE", () => {
-  it("should include dependency-auditor (Finding #55)", () => {
-    const depAuditor = SPECIALIST_TRIGGER_TABLE.find(
-      (t) => t.specialist === "hatch3r-dependency-auditor",
+  // F16.3-H1 (Cycle 10 Wave 1C): the legacy dependency-auditor scope
+  // collapsed into hatch3r-security (CQ3) — security now carries the
+  // dependency-file trigger patterns AND owns the always-mode floor that
+  // legacy security-auditor enforced. testability (CQ5) carries the
+  // always-mode floor that legacy test-writer enforced.
+  it("should include security (CQ3) with dependency-file trigger patterns", () => {
+    const security = SPECIALIST_TRIGGER_TABLE.find(
+      (t) => t.specialist === "hatch3r-security",
     );
-    expect(depAuditor).toBeDefined();
-    expect(depAuditor!.mode).toBe("conditional");
-    expect(depAuditor!.triggerFilePatterns).toBeDefined();
-    expect(depAuditor!.triggerFilePatterns!.length).toBeGreaterThan(0);
+    expect(security).toBeDefined();
+    expect(security!.mode).toBe("always");
+    expect(security!.triggerFilePatterns).toBeDefined();
+    expect(security!.triggerFilePatterns!.length).toBeGreaterThan(0);
   });
 
-  it("should include all mandatory specialists", () => {
+  it("should include all mandatory specialists (CQ-renamed)", () => {
     const mandatory = SPECIALIST_TRIGGER_TABLE.filter((t) => t.mode === "always");
     const names = mandatory.map((t) => t.specialist);
-    expect(names).toContain("hatch3r-test-writer");
-    expect(names).toContain("hatch3r-security-auditor");
+    expect(names).toContain("hatch3r-testability");
+    expect(names).toContain("hatch3r-security");
   });
 
-  it("should have trigger file patterns for dependency-auditor", () => {
-    const depAuditor = SPECIALIST_TRIGGER_TABLE.find(
-      (t) => t.specialist === "hatch3r-dependency-auditor",
+  it("should have dependency-file trigger patterns on security (CQ3)", () => {
+    const security = SPECIALIST_TRIGGER_TABLE.find(
+      (t) => t.specialist === "hatch3r-security",
     )!;
-    expect(depAuditor.triggerFilePatterns).toContain("package.json");
-    expect(depAuditor.triggerFilePatterns).toContain("go.mod");
-    expect(depAuditor.triggerFilePatterns).toContain("Cargo.toml");
-    expect(depAuditor.triggerFilePatterns).toContain("requirements.txt");
-    expect(depAuditor.triggerFilePatterns).toContain("Gemfile");
-    expect(depAuditor.triggerFilePatterns).toContain("pom.xml");
+    expect(security.triggerFilePatterns).toContain("package.json");
+    expect(security.triggerFilePatterns).toContain("go.mod");
+    expect(security.triggerFilePatterns).toContain("Cargo.toml");
+    expect(security.triggerFilePatterns).toContain("requirements.txt");
+    expect(security.triggerFilePatterns).toContain("Gemfile");
+    expect(security.triggerFilePatterns).toContain("pom.xml");
   });
 
   // ── CQ1-CQ9 vector specialists (Finding F7.3-C1) ──────────────────
@@ -475,10 +489,16 @@ describe("SPECIALIST_TRIGGER_TABLE", () => {
   ] as const;
 
   it("should include all 9 CQ vector specialists (F7.3-C1)", () => {
+    // F16.3-H1 (Cycle 10 Wave 1C): hatch3r-testability (CQ5) and
+    // hatch3r-security (CQ3) absorbed the legacy test-writer +
+    // security-auditor always-mode floors, so their mode is "always".
+    // The remaining 7 CQ specialists keep their conditional dispatch.
+    const ALWAYS_MODE_CQ = new Set(["hatch3r-testability", "hatch3r-security"]);
     for (const name of CQ_SPECIALISTS) {
       const entry = SPECIALIST_TRIGGER_TABLE.find((t) => t.specialist === name);
       expect(entry, `${name} missing from SPECIALIST_TRIGGER_TABLE`).toBeDefined();
-      expect(entry!.mode).toBe("conditional");
+      const expectedMode = ALWAYS_MODE_CQ.has(name) ? "always" : "conditional";
+      expect(entry!.mode).toBe(expectedMode);
       expect(entry!.triggerConditions.length).toBeGreaterThan(0);
     }
   });

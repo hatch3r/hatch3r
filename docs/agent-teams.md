@@ -46,14 +46,14 @@ When implementing the reviewer → fixer loop as teammates:
 2. If the reviewer returns Critical or Warning findings, spawn `hatch3r-fixer` teammate with the findings
 3. Spawn `hatch3r-reviewer` again with the fixed code
 4. Repeat steps 2–3 until clean or max 3 iterations
-5. Only then spawn `hatch3r-test-writer` and `hatch3r-security-auditor` as parallel teammates
+5. Only then spawn `hatch3r-testability` and `hatch3r-security` as parallel teammates
 
 ## File Boundary Assignment
 
 Teammates work best with explicit file boundaries to avoid conflicts:
 
 - **Assign non-overlapping directories** to each teammate. If two teammates touch the same files, they'll conflict.
-- **Use the agent's natural scope** — the `hatch3r-test-writer` agent naturally owns `src/__tests__/`, the `hatch3r-docs-writer` owns `docs/`.
+- **Use the agent's natural scope** — the `hatch3r-testability` agent naturally owns `src/__tests__/`, the `hatch3r-docs-writer` owns `docs/`.
 - **Specify boundaries in the spawn prompt** with both include and exclude paths.
 - **Shared files** (types, configs) should be assigned to one primary teammate. Other teammates reference but don't modify.
 
@@ -83,7 +83,7 @@ Teammates operate independently. Pass context explicitly:
 1. Spawn `hatch3r-researcher` for context gathering. For Tier 2/3 tasks (per `hatch3r-deep-context` rule), include `requirements-elicitation` and `similar-implementation` modes alongside the standard task-type modes. Present elicitation questions to the user and await answers.
 2. Spawn `hatch3r-implementer` with file scope, researcher output, reference conventions (from `similar-implementation`), resolved requirements (user's elicitation answers), and blast radius data (from enhanced `codebase-impact`). The implementer's Convention Lock step (Step 1b) uses the reference conventions to align with established patterns.
 3. Review loop: spawn `hatch3r-reviewer`, if Critical/Warning findings exist spawn `hatch3r-fixer`, re-review — repeat until clean (max 3 iterations)
-4. Final quality: spawn `hatch3r-test-writer` + `hatch3r-security-auditor` in parallel (only after review loop is clean)
+4. Final quality: spawn `hatch3r-testability` + `hatch3r-security` in parallel (only after review loop is clean)
 
 **Parallel fan-out** — for independent work across areas:
 

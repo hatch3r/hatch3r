@@ -192,15 +192,15 @@ After all implementations complete, run the two-stage quality pipeline across th
 Launch as many independent sub-agents in parallel as the platform supports.
 
 **Always spawn (mandatory for every code change):**
-- **hatch3r-test-writer** — tests for all code changes across the batch.
-- **hatch3r-security-auditor** — security review of all code changes across the batch.
+- **hatch3r-testability** (CQ5) — verify tests for all code changes across the batch meet the mandate map / coverage floor.
+- **hatch3r-security** (CQ3) — security review of all code changes across the batch.
 
 **Always evaluate (spawn when applicable):**
 - **hatch3r-docs-writer** — spawn when any changes affect public APIs, architectural patterns, or user-facing behavior.
 
 **Conditional specialists (spawn when triggered by any issue in the batch):**
 - **hatch3r-lint-fixer** — spawn when lint errors are present after implementation.
-- **hatch3r-a11y-auditor** — spawn when any issue has `area:ui` or `area:a11y` labels.
-- **hatch3r-perf-profiler** — spawn when any issue has `area:performance` label.
+- **hatch3r-ui** (CQ1) — spawn when any issue has `area:ui` or `area:a11y` labels.
+- **hatch3r-performance** (CQ7) — spawn when any issue has `area:performance` label.
 
 Await all specialist sub-agents. Apply their feedback before proceeding to Step 7.

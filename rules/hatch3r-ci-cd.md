@@ -36,6 +36,8 @@ cache_friendly: true
 
 ## Deployment Strategies
 
+> Maturity tier: team+ — solo projects may deploy directly from CI to a single environment. Approval gates, canary/blue-green progressive rollouts, and automated rollback triggers earn their cost once production has external users or a team owns operations.
+
 - **Staging:** Auto-deploy on merge to the default branch. No manual approval needed.
 - **Production:** Require explicit approval from at least one team member.
 - Use progressive deployment (canary or blue-green) for production services.
@@ -43,6 +45,8 @@ cache_friendly: true
 - Database migrations run before application deployment. They must be backward-compatible.
 
 ## Environment Promotion
+
+> Maturity tier: team+ — solo projects may collapse staging into local + production. The three-environment ladder and identical-artifact promotion matter once more than one engineer ships changes or staging serves as the pre-production smoke layer.
 
 - Environments: `development` → `staging` → `production`.
 - Each promotion uses the exact same artifact — no rebuilds between environments.
@@ -59,6 +63,8 @@ cache_friendly: true
 - Post-rollback: create an incident ticket, run root cause analysis, fix forward.
 
 ## Branch Protection
+
+> Maturity tier: team+ — solo projects on a single-author repo may direct-commit to the default branch when CI is the only gate. Required reviews and force-push prohibition become mandatory once a second contributor lands a change.
 
 - The default branch requires: passing CI, at least one approval, no force pushes.
 - Feature branches auto-delete after merge.

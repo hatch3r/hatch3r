@@ -12,7 +12,8 @@ export type HookEvent =
   | "session-start"
   | "pre-push"
   | "worktree-create"
-  | "worktree-remove";
+  | "worktree-remove"
+  | "review-loop-cap";
 
 /** Set of all valid hook event names for runtime validation. */
 export const VALID_HOOK_EVENTS = new Set<HookEvent>([
@@ -24,6 +25,7 @@ export const VALID_HOOK_EVENTS = new Set<HookEvent>([
   "pre-push",
   "worktree-create",
   "worktree-remove",
+  "review-loop-cap",
 ]);
 
 /** Type guard: check if a string is a valid hook event name. */

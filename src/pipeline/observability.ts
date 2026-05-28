@@ -27,6 +27,18 @@ import { dirname, join } from "node:path";
 
 import { createFailureLogEntry, formatLogEntry, FAILURE_LOG_FILE } from "./failureLog.js";
 import type { PhaseName } from "./phaseTimeout.js";
+// Cost-block dependencies (Decision 24): the canonical fan-out cost estimate
+// type, actuals type, delta function, and triage-tier enum live in
+// costEstimator.ts. Imported under disambiguating aliases because this module
+// already re-exports `UsdCostEstimate as CostEstimate` (legacy public name for
+// the token→USD shape — see "Token → USD cost conversion" section in
+// costEstimator.ts).
+import {
+  computeDelta as computeCostDelta,
+  type CostEstimate as CostEstimateData,
+  type CostActuals as CostActualsData,
+  type TriageTier,
+} from "./costEstimator.js";
 
 // ── Reasoning Block Persistence (Finding #63) ────────────────────
 
@@ -644,4 +656,130 @@ function appendCostTelemetry(
       void err;
     }
   }
+}
+
+// ─── Structured cost-block serialisation (Decision 24, 2.0.0 #29) ───
+// Pillar P7 (Speed & Token Efficiency) + CQ4 (Reliability).
+//
+// `formatCostBlock(estimate, actuals?)` in costEstimator.ts returns the
+// YAML *string* form embedded directly in stderr / log output. Orchestrator
+// command runners that build the §2 "Fan-out + Cost" section of an iteration
+// summary need the same data as a *structured object* so they can splice it
+// into a larger YAML/JSON payload without round-tripping through a string.
+// `buildCostBlock` returns that object using the canonical iteration-summary
+// field names from `rules/hatch3r-iteration-summary.md`:
+//   {expected_sa_count, estimated_input_tokens_static_frame, triage_tier,
+//    web_research_budget, estimated_duration_min}
+// — note: the iteration-summary schema canonicalises the web-research field
+// as `web_research_budget`, whereas {@link CostEstimate} uses the internal
+// name `estimated_web_research_queries`. This helper performs that rename so
+// orchestrators emit the canonical name without extra mapping at the call
+// site.
+
+/**
+ * Estimate side of the iteration-summary cost block — canonical 5 fields
+ * per CONSTITUTION §6 Decision 24 / Bucket 29.
+ */
+export interface CostBlockEstimate {
+  expected_sa_count: number;
+  estimated_input_tokens_static_frame: number;
+  triage_tier: TriageTier;
+  web_research_budget: number;
+  estimated_duration_min: number;
+}
+
+/**
+ * Actuals side of the iteration-summary cost block — 5 fields mirroring
+ * {@link CostBlockEstimate} so the per-field delta is well-defined.
+ */
+export interface CostBlockActuals {
+  actual_sa_count: number;
+  actual_input_tokens_static_frame: number;
+  actual_web_research_queries: number;
+  actual_duration_min: number;
+  recorded_at: string;
+}
+
+/**
+ * Per-field delta-percent map plus the over-variance flag, matching the
+ * `delta_percent:` sub-block in the iteration-summary YAML template.
+ */
+export interface CostBlockDelta {
+  sa_count: number;
+  input_tokens: number;
+  web_research: number;
+  duration: number;
+  /** True when any |delta_percent| exceeds {@link VARIANCE_THRESHOLD_PERCENT}. */
+  over_variance: boolean;
+  /** Fields that triggered the over-variance flag (empty when not flagged). */
+  flagged_fields: string[];
+}
+
+/**
+ * Structured cost block ready to be serialised into an orchestrator's
+ * iteration summary. The estimate side is always present; the actuals +
+ * delta sides are populated only when the orchestrator records actuals.
+ */
+export interface CostBlock {
+  estimate: CostBlockEstimate;
+  actuals?: CostBlockActuals;
+  delta?: CostBlockDelta;
+}
+
+/**
+ * Build the structured cost block for an orchestrator's iteration summary.
+ *
+ * Returns an object — NOT a string — so command runners can splice it into
+ * a larger YAML/JSON payload without re-parsing. Field names match the
+ * canonical iteration-summary schema in `rules/hatch3r-iteration-summary.md`
+ * (notably `web_research_budget`, not `estimated_web_research_queries`).
+ *
+ * When `actuals` is omitted only the estimate side is emitted (pre-execution
+ * preview). When supplied, the helper additionally fills in the matching
+ * `actuals` block and a `delta` object derived via {@link computeDelta}.
+ *
+ * Cite: CONSTITUTION §6 Decision 24 / Bucket 29 — every orchestrator emits
+ * at plan time `{expected_sa_count, estimated_input_tokens_static_frame,
+ * triage_tier, web_research_budget, estimated_duration_min}`; post-execution
+ * actuals + delta close the loop in the §2 "Fan-out + Cost" section of the
+ * iteration summary.
+ *
+ * Pure function — no I/O, never throws.
+ */
+export function buildCostBlock(input: {
+  estimate: CostEstimateData;
+  actuals?: CostActualsData;
+}): CostBlock {
+  const block: CostBlock = {
+    estimate: {
+      expected_sa_count: input.estimate.expected_sa_count,
+      estimated_input_tokens_static_frame:
+        input.estimate.estimated_input_tokens_static_frame,
+      triage_tier: input.estimate.triage_tier,
+      web_research_budget: input.estimate.estimated_web_research_queries,
+      estimated_duration_min: input.estimate.estimated_duration_min,
+    },
+  };
+
+  if (input.actuals) {
+    const delta = computeCostDelta(input.estimate, input.actuals);
+    block.actuals = {
+      actual_sa_count: input.actuals.actual_sa_count,
+      actual_input_tokens_static_frame:
+        input.actuals.actual_input_tokens_static_frame,
+      actual_web_research_queries: input.actuals.actual_web_research_queries,
+      actual_duration_min: input.actuals.actual_duration_min,
+      recorded_at: input.actuals.recorded_at,
+    };
+    block.delta = {
+      sa_count: delta.sa_count_delta_percent,
+      input_tokens: delta.input_tokens_delta_percent,
+      web_research: delta.web_research_delta_percent,
+      duration: delta.duration_delta_percent,
+      over_variance: delta.over_variance,
+      flagged_fields: delta.flagged_fields,
+    };
+  }
+
+  return block;
 }

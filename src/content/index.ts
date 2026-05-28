@@ -200,13 +200,19 @@ export async function validateCrossReferences(
   return { warnings };
 }
 
-// Agents required by the orchestration pipeline ("Always" in Agent Roster)
+// Agents required by the orchestration pipeline ("Always" in Agent Roster).
+// F16.3-H1 (Cycle 10 Wave 1C): the legacy test-writer + security-auditor
+// always-mode floors are now carried by hatch3r-testability (CQ5) and
+// hatch3r-security (CQ3) per SPECIALIST_TRIGGER_TABLE. Only hatch3r-security
+// is listed here today because it is the currently-protected + full-preset-
+// admitted CQ agent; hatch3r-testability is `tier:enterprise-only` without
+// `protected: true`, so the always-mode contract is enforced at orchestrator
+// runtime via SPECIALIST_TRIGGER_TABLE rather than via this strict roster.
 const ORCHESTRATION_REQUIRED_AGENTS = [
   "hatch3r-researcher",
   "hatch3r-implementer",
   "hatch3r-reviewer",
-  "hatch3r-test-writer",
-  "hatch3r-security-auditor",
+  "hatch3r-security",
 ];
 
 /**

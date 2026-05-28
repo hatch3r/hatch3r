@@ -84,16 +84,16 @@ After implementation completes, run the two-stage quality pipeline. Use the Task
 Launch as many independent sub-agents in parallel as the platform supports.
 
 **Always spawn (mandatory for every code change):**
-- **hatch3r-test-writer** — tests for all code changes. Unit tests for new logic, regression tests for bug fixes, integration tests for cross-module changes.
-- **hatch3r-security-auditor** — security review of all code changes. Audit data flows, access control, input validation, and secret management.
+- **hatch3r-testability** (CQ5) — verify tests for all code changes meet the mandate map / coverage floor. Unit tests for new logic, regression tests for bug fixes, integration tests for cross-module changes.
+- **hatch3r-security** (CQ3) — security review of all code changes. Audit data flows, access control, input validation, and secret management.
 
 **Always evaluate (spawn when applicable):**
 - **hatch3r-docs-writer** — spawn when changes affect public APIs, architectural patterns, or user-facing behavior. Skip silently if no documentation impact.
 
 **Conditional specialists (spawn when triggered):**
 - **hatch3r-lint-fixer** — spawn when lint errors are present after implementation.
-- **hatch3r-a11y-auditor** — spawn when issue has `area:ui` or `area:a11y` labels.
-- **hatch3r-perf-profiler** — spawn when issue has `area:performance` label or changes touch hot paths.
+- **hatch3r-ui** (CQ1) — spawn when issue has `area:ui` or `area:a11y` labels.
+- **hatch3r-performance** (CQ7) — spawn when issue has `area:performance` label or changes touch hot paths.
 
 Each specialist sub-agent prompt MUST include:
 - The agent protocol to follow (e.g., "Follow the hatch3r-reviewer agent protocol").

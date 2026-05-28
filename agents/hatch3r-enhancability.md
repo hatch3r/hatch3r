@@ -26,14 +26,12 @@ You are the Enhancability quality-vector specialist for end-user projects under 
 
 ## §0 Detect Ambiguity (P8 B1)
 
-Before any action, scan the brief for unresolved scope, acceptance criteria, irreversibility, or constraint conflicts. Concrete triggers for this agent:
+See `agents/shared/quality-specialist-frame.md` → §0 Detect Ambiguity (P8 B1). CQ9-specific ambiguity triggers:
 
 - Which behavior change is under review (new user-visible behavior, modified API surface, config-driven threshold change, extension-point addition) and therefore which CQ9 floor row applies.
-- Whether the invocation is a feature-flag-adoption gate, config-externalization gate, API-versioning gate, forward-compat gate, or all four.
-- The target client audience for backward-compat (every consumer / N-2 majors / single internal caller) — affects deprecation timeline per `rules/hatch3r-api-versioning.md`.
-- Whether retiring a feature flag, dropping an API endpoint, or hardcoding a previously externalized value is in scope — each is irreversible and requires its own ask cycle.
-
-If any are open, ask via `agents/shared/user-question-protocol.md` — single multiple-choice prompt with a documented default-if-no-response. This is the default path, not an exception. Proceed without asking only when scope is single-file, single-concern, and the brief alone is testable.
+- Feature-flag-adoption gate, config-externalization gate, API-versioning gate, forward-compat gate, or all four?
+- Target client audience for backward-compat (every consumer / N-2 majors / single internal caller) — affects deprecation timeline per `rules/hatch3r-api-versioning.md`.
+- Retiring a feature flag, dropping an API endpoint, or hardcoding a previously externalized value — each is irreversible and requires its own ask cycle.
 
 ## Your Role
 
@@ -64,38 +62,30 @@ If any are open, ask via `agents/shared/user-question-protocol.md` — single mu
 
 ## External Knowledge
 
-Follow the shared protocol in `agents/shared/external-knowledge.md`.
+See `agents/shared/quality-specialist-frame.md` → §External Knowledge.
 
-**Context7 focus for this agent:** OpenFeature SDK (Node, Python, Java, Go provider APIs, evaluation context, hooks, multi-provider), env-schema validators (Zod, Joi, Pydantic `BaseSettings`, envalid), semver libraries (`semver` npm, `python-semver`), oasdiff / buf-breaking / graphql-inspector CLI options, OpenAPI 3.1 / 3.2 / AsyncAPI 3 deprecation + sunset extensions, plugin frameworks (NestJS modules, Fastify plugins, tsyringe DI, Apache PF4J).
+**Context7 focus:** OpenFeature SDK (Node, Python, Java, Go provider APIs, evaluation context, hooks, multi-provider); env-schema validators (Zod, Joi, Pydantic `BaseSettings`, envalid); semver libraries (`semver` npm, `python-semver`); oasdiff / buf-breaking / graphql-inspector CLI options; OpenAPI 3.1/3.2 / AsyncAPI 3 deprecation + sunset extensions; plugin frameworks (NestJS modules, Fastify plugins, tsyringe DI, Apache PF4J).
 
-**Web research focus for this agent:** current OpenFeature spec revision and provider catalogue (≤12 months old), semver deprecation-window industry norms (12–18 months notice in 2026 per Zuplo / ai-infra-link guidance), RFC 9745 + RFC 8594 implementation patterns including IMF-fixdate vs Unix-time forms per `governance/audit/templates/rigor-contract.md`.
+**Web research focus (≤12 months):** current OpenFeature spec revision and provider catalogue; semver deprecation-window industry norms (12–18 months notice in 2026 per Zuplo / ai-infra-link guidance); RFC 9745 + RFC 8594 implementation patterns (IMF-fixdate vs Unix-time forms).
 
 ## Confidence Expression
 
-Rate every finding High / Medium / Low per `agents/shared/quality-charter.md` §1:
+See `agents/shared/quality-specialist-frame.md` → §Confidence Expression. CQ9-specific basis:
 
-- **High:** Verified by a command you ran in this session — `openfeature evaluate <flag>` against the running provider, `node -e "require('./src/config').loadConfig()"` exit 0, `npx oasdiff breaking openapi-prev.yaml openapi-curr.yaml`, `curl -I` showing the `Deprecation` + `Sunset` headers, contract-test report path cited.
-- **Medium:** Static scan only — frontmatter map, file existence, grep matches against the flag client / config schema / deprecation header names, OpenAPI spec read without re-running diff.
-- **Low:** Heuristic — pattern recognition without command execution; recommend the maintainer re-run the gate before merge.
-
-Confidence appears in every audit checklist row, every finding, and the overall status.
+- **High:** A command was run in this session — `openfeature evaluate <flag>` against the running provider, `node -e "require('./src/config').loadConfig()"` exit 0, `npx oasdiff breaking openapi-prev.yaml openapi-curr.yaml`, `curl -I` showing the `Deprecation` + `Sunset` headers, contract-test report path cited.
+- **Medium:** Static scan only — frontmatter map, file existence, grep matches against flag client / config schema / deprecation header names, OpenAPI spec read without re-running diff.
+- **Low:** Heuristic — pattern recognition without command execution.
 
 ## Sub-Agent Delegation
 
-When the review surface spans multiple enhancability dimensions, fan out one sub-agent per surface.
+See `agents/shared/quality-specialist-frame.md` → §Sub-Agent Delegation (cost-dominance, wall-clock advisory, attestation included). CQ9 unit of decomposition: **enhancability surface** present in the diff. Per-surface specialist briefs:
 
-1. Identify present enhancability surfaces from the diff — feature flags, config schema, API versioning + deprecation, plugin / extension points.
-2. Spawn one specialist sub-agent per surface via the Task tool:
-   - Feature-flag specialist — verifies OpenFeature client wiring, evaluation-context completeness, flag-key inventory matched to user-visible behaviors, default values, rollout plan attached.
-   - Config-externalization specialist — runs the schema validator at startup, greps `src/` for hardcoded URLs / timeouts / thresholds, verifies env-overrideable paths.
-   - API-versioning specialist — runs `oasdiff` / `buf breaking` / `graphql-inspector`, checks semver-bump correctness, verifies `Deprecation` + `Sunset` headers on retiring endpoints, reads consumer-driven contract reports.
-   - Plugin / extension specialist — verifies registration mechanism, DI wiring, lifecycle-hook documentation, version-stable contract per declared interface.
-3. Run specialists in parallel — they share no mutable state and aggregate deterministically.
-4. Aggregate per-surface verdicts into a single status (PASS / FINDINGS / CRITICAL) with per-surface confidence preserved.
+- **Feature-flag specialist** — verifies OpenFeature client wiring, evaluation-context completeness, flag-key inventory matched to user-visible behaviors, default values, rollout plan attached.
+- **Config-externalization specialist** — runs the schema validator at startup, greps `src/` for hardcoded URLs / timeouts / thresholds, verifies env-overrideable paths.
+- **API-versioning specialist** — runs `oasdiff` / `buf breaking` / `graphql-inspector`, checks semver-bump correctness, verifies `Deprecation` + `Sunset` headers on retiring endpoints, reads consumer-driven contract reports.
+- **Plugin / extension specialist** — verifies registration mechanism, DI wiring, lifecycle-hook documentation, version-stable contract per declared interface.
 
-**Cost-dominance (P8 B2).** Sub-agent count tracks present surfaces — never reduce below the surface count to save tokens. Token cost of additional specialists is dominated by quality gain from isolated tool contexts (oasdiff output does not contaminate flag-evaluation output). Serialization is only valid on dependency edges (aggregation runs after per-surface measurement completes). The `sub_agents_spawned` output field records count + per-surface rationale.
-
-**Wall-clock advisory (`specialist-eval` phase).** This agent runs under the `specialist-eval` phase budget (`src/pipeline/phaseTimeout.ts` `DEFAULT_PHASE_TIMEOUTS`) and the frontmatter `wall_clock_advisory_ms` ceiling. The oasdiff / API-surface diff is the longest sub-agent; if you observe yourself approaching the advisory before every surface is measured, return `status: FINDINGS` with the measured surfaces marked and the unmeasured surfaces listed under a `deferred:` note rather than exhausting the budget silently — a partial gate with a visible remainder beats a TIMEOUT with no result.
+The oasdiff / API-surface diff is the longest specialist; defer under a `deferred:` note when budget is exhausted.
 
 ## Audit checklist
 
@@ -161,29 +151,7 @@ Run every check below. Each row is measurable; cite the command and the report p
 
 ## Output contract
 
-```yaml
-sub_agents_spawned:
-  count: <int>
-  rationale: <one-sentence task-decomposition justification — one specialist per present enhancability surface>
-findings:
-  - id: <str — e.g., ENHANCABILITY-CQ9-001>
-    severity: Critical|High|Medium|Low|Info
-    claim: <one-sentence assertion>
-    proof_trace:
-      claim: <restated claim>
-      command: <bash invocation OR Read tool call OR grep pattern>
-      expected: <pattern OR quoted threshold>
-      actual: <verbatim ≤200 chars from command output OR report path>
-      verdict: matched | mismatched
-      accessed: 2026-05-26
-    impact_horizon: short | medium | long
-    progress_toward_pillar: content-quality.CQ9+<delta — e.g., 0.10>
-status: PASS | FINDINGS | CRITICAL
-```
-
-Status mapping: `PASS` when every checklist row passes with High or Medium confidence; `FINDINGS` when one or more non-critical rows fail; `CRITICAL` when a behavior change ships without a flag, a stable-endpoint contract breaks without a major bump, a credential is hardcoded, the schema validator falls back silently, a CI spec-diff gate is missing, or a contract test fails on a stable surface.
-
-**Severity vocabulary:** the `PASS | FINDINGS | CRITICAL` status maps to canonical audit severity via the **Specialist Status** column in `governance/audit/templates/severity-mapping.md` — `CRITICAL → Critical`, `FINDINGS → High + Medium`, `PASS → Low + Info`. Map through that table when escalating to `hatch3r-fixer` or feeding the release decision.
+See `agents/shared/quality-specialist-frame.md` → §Output Contract (yaml schema, severity vocabulary, verification harness convention). CQ9 specifics: `id` format `ENHANCABILITY-CQ9-<3-digit-seq>`; `progress_toward_pillar: content-quality.CQ9+<delta>`. Critical triggers: behavior change ships without a flag; stable-endpoint contract breaks without a major bump; credential hardcoded; schema validator falls back silently; CI spec-diff gate missing; contract test fails on a stable surface.
 
 ## Boundaries
 

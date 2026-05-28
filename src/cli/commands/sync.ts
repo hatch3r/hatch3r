@@ -10,6 +10,7 @@ import chalk from "chalk";
 // from the on-disk managed block.
 import { hashEmittedContent } from "./status.js";
 import { readManifest, writeManifest, addManagedFile } from "../../manifest/hatchJson.js";
+import { rehydrateCustomization } from "../../manifest/rehydrate.js";
 import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
 import { checkContextBudget, formatBudgetWarning } from "../../adapters/contextBudget.js";
 import { safeWriteFile } from "../../merge/safeWrite.js";
@@ -23,6 +24,7 @@ import { readWorkspaceManifest } from "../../workspace/manifest.js";
 import { detectWorkspaceContext } from "../../workspace/detect.js";
 import { syncWorkspaceRepos } from "../../workspace/sync.js";
 import { resolveBundledContentRoot } from "../../content/contentRoot.js";
+import { planPerPackageOutputs } from "../../content/monorepoEmission.js";
 import { pruneArchives } from "../../archive/index.js";
 import { HATCH3R_VERSION } from "../../version.js";
 import {
@@ -59,6 +61,7 @@ import { retryWithBackoff } from "../../pipeline/retryWithBackoff.js";
 import { discoverUserContent, validateContentBody } from "../../content/userContent.js";
 import { scanOrphanFiles, formatOrphanScanDiagnostic } from "../../content/orphanScan.js";
 import { validateLearningsDirectory } from "../../content/learningsValidation.js";
+import { loadValidatedLearnings } from "../../content/learningsLoader.js";
 import {
   printBanner,
   createSpinner,
@@ -411,6 +414,34 @@ export async function syncCommand(
     verbose(`Learnings pre-flight scan skipped: ${err instanceof Error ? err.message : String(err)}`);
   }
 
+  // F6.4-H1 (D6, OWASP ASI06): runtime materialization-time per-file loader
+  // hook. The directory-level scan above is the hard pre-flight that refuses
+  // the run; this is the defense-in-depth per-file gate that runs even
+  // under `--force` — invalid individual files are silently skipped from
+  // adapter materialization, with the skip routed through the
+  // `.failure-log.jsonl` channel (Silent Failure Contract — CONSTITUTION
+  // §2 P5). The loader is a read-only enumeration; adapters consuming the
+  // canonical learnings type still go through their existing reader, so
+  // this hook acts as an audit-visible counter that mirrors the same gates
+  // and surfaces them via observability. Skipping a single bad file does
+  // not poison the rest of the sync.
+  try {
+    const loaderResult = await loadValidatedLearnings(rootDir, {
+      onWarn: (msg) => warn(msg),
+      source: "sync:learnings-loader",
+    });
+    if (loaderResult.skipped.length > 0) {
+      warn(
+        `Learnings loader skipped ${loaderResult.skipped.length} file(s) at materialization — ` +
+          `audit detail in ${HATCH3R_DIR}/${FAILURE_LOG_FILE}`,
+      );
+    }
+  } catch (err) {
+    // The loader is contracted never to throw; any escape is unexpected
+    // and routes through verbose() rather than aborting the sync.
+    verbose(`Learnings loader hook skipped: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
   // Wave 7: the canonical-content integrity preflight is gone — adapters now
   // source content directly from the bundled package (`resolveBundledContentRoot`),
   // which is read-only and verified by npm's tarball signature. Drift is
@@ -424,6 +455,16 @@ export async function syncCommand(
   //      hatch3r-prefixed filename rule does not silently skip a file the
   //      user has stripped of managed-block markers but still wants
   //      overwritten. Threaded into every `safeWriteFile` call below.
+
+  // F2.3-H1 (Cycle 10 Phase B Wave 1A): materialize Layer-4 manifest
+  // customization payload into Layer-2 `.customize.yaml` files when YAML
+  // is absent. Mirrors the init.ts step. Skipped under `--dry-run` to keep
+  // the no-write contract; the rehydration would otherwise create files
+  // even when sync is supposed to be read-only.
+  if (!opts.dryRun) {
+    const rehydration = await rehydrateCustomization(rootDir, m.customization);
+    for (const w of rehydration.warnings) { warn(w); }
+  }
 
   const results: { path: string; action: string }[] = [];
   // Wave 3: no AGENTS.md bridge step; one step per adapter.
@@ -459,6 +500,13 @@ export async function syncCommand(
       for (const rel of paths) syncSnapshotPaths.push(join(rootDir, rel));
     }
   }
+  // F14.2-H1 (D14): manifest.packages already participate via the
+  // `managedFiles` + `managedFilesByAdapter` entries written by the prior
+  // sync. A first-time sync against a freshly-detected monorepo where the
+  // per-package paths are not yet in either bucket still snapshots them
+  // correctly because the snapshot writer records absent files as
+  // tombstones — `rollback` then deletes the per-package outputs that the
+  // current run is about to create.
   const syncSnapshot = await withSnapshot(
     "sync",
     Array.from(new Set(syncSnapshotPaths)),
@@ -674,6 +722,62 @@ export async function syncCommand(
           addManagedFile(m, out.path);
           if (opts.diff) {
             diffAfter.set(out.path, await readFileOrNull(join(rootDir, out.path)));
+          }
+        }
+      }
+
+      // F14.2-H1 (D14): per-package emission for monorepo roots. When
+      // `m.packages` is non-empty we additionally write each adapter's
+      // output into every `<package>/.hatch3r/<rel>`. The root emission
+      // above remains the primary surface; per-package copies are
+      // additive. Skipped under `--dry-run` (recorded as dry-run rows
+      // instead). Per-write failures route through `warn` so a single
+      // permissions issue does not abort the sync (Silent Failure
+      // Contract — CONSTITUTION §2 P5).
+      if (m.packages && m.packages.length > 0) {
+        const perPackage = planPerPackageOutputs(m.packages, outputs);
+        for (const p of perPackage) {
+          if (opts.dryRun) {
+            results.push({ path: p.output.path, action: "dry-run" });
+            if (opts.diff) {
+              diffBefore.set(p.output.path, await readFileOrNull(join(rootDir, p.output.path)));
+              diffAfter.set(p.output.path, p.output.content);
+            }
+            continue;
+          }
+          const fullPath = join(rootDir, p.output.path);
+          if (opts.diff) {
+            diffBefore.set(p.output.path, await readFileOrNull(fullPath));
+          }
+          try {
+            const isManagedMerge = Boolean(p.output.managedContent);
+            const result = p.output.managedContent
+              ? await safeWriteFile(fullPath, p.output.content, {
+                  managedContent: p.output.managedContent,
+                  appendIfNoBlock: true,
+                  force: opts.force,
+                })
+              : await safeWriteFile(fullPath, p.output.content, { force: opts.force });
+            if (result.warning) warn(result.warning);
+            verbose(`${p.output.path}: ${result.action} (package ${p.packageName})`);
+            results.push({
+              path: p.output.path,
+              action: renderAction(result.action, isManagedMerge),
+            });
+            addManagedFile(m, p.output.path);
+            // Append to the new managed-by-adapter list so a future sync
+            // can orphan-cleanup stale per-package files when packages get
+            // removed from the workspace globs.
+            const arr = newManagedByAdapter[tool] ?? (newManagedByAdapter[tool] = []);
+            if (!arr.includes(p.output.path)) arr.push(p.output.path);
+            if (opts.diff) {
+              diffAfter.set(p.output.path, await readFileOrNull(fullPath));
+            }
+          } catch (err) {
+            warn(
+              `sync: per-package emission failed for ${tool} -> ${p.output.path} ` +
+                `(package ${p.packageName}): ${err instanceof Error ? err.message : String(err)}`,
+            );
           }
         }
       }

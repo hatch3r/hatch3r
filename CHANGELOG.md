@@ -104,9 +104,21 @@ Each rule ships with `.md` + `.mdc` twin per `scripts/validate-rule-parity.ts`.
 
 `ALL_TAGS` 44 → 76. `tagsForFacet("capability")` 9 → 40. `tagsForFacet("floor")` 3 → 4.
 
+### Bucket 3.1 — Legacy Meta-Agent Retirement (F16.3-H1, Cycle 10)
+
+Retired 5 legacy meta-agents in favor of the 9 CQ specialists per CONSTITUTION §6 Decision 13. Per F16.3-H1 close-out, Cycle 10. Successor mapping for downstream references:
+
+- `agents/hatch3r-a11y-auditor.md` → `agents/hatch3r-ui.md` (CQ1 — WCAG 2.2 AA via axe-core, design-token ≥95%)
+- `agents/hatch3r-dependency-auditor.md` → `agents/hatch3r-security.md` (CQ3 — supply-chain via SBOM/SLSA/CVE feeds)
+- `agents/hatch3r-perf-profiler.md` → `agents/hatch3r-performance.md` (CQ7 — Core Web Vitals p75, backend p95)
+- `agents/hatch3r-security-auditor.md` → `agents/hatch3r-security.md` (CQ3 — OAuth 2.1 + OIDC + DPoP + WebAuthn)
+- `agents/hatch3r-test-writer.md` → `agents/hatch3r-testability.md` (CQ5 — test mandate-map, real-deal ratio ≥80%)
+
+Cross-references in canonical content, framework-dev docs, website docs, governance templates, and `governance/inventory.json` updated to the successor agent IDs. Historical audit findings, finding-registry entries, and prior-release CHANGELOG entries retain their original IDs as immutable cycle records.
+
 ### Inventory
 
-agents 19 → 30; skills 39 → 40; rules 40 → 45; commands 25 → 26; pipeline modules 18 → 21; CLI commands 14 → 15; audit domains 21 → 24.
+agents 19 → 25 (30 transient peak in the CQ-specialist rollout reduced by 5 legacy retirements per Bucket 3.1); skills 39 → 40; rules 40 → 45; commands 25 → 26; pipeline modules 18 → 21; CLI commands 14 → 15; audit domains 21 → 24.
 
 ### Gates
 
