@@ -20,6 +20,13 @@ describe("createProgram() command registration", () => {
     // CLI-tooling pivot (1.7.5 Wave 3): mcp + cli-tools side-door commands
     "mcp",
     "cli-tools",
+    // SA12.1-F-D12-M9 (Cycle 10 Wave 3): inspection commands
+    "show",
+    "list",
+    // SA12.1-F-D12-M11 (Cycle 10 Wave 3): dedicated provenance reader
+    "provenance",
+    // SA12.1-F-D12-M13 (Cycle 10 Wave 3): orchestration dependency surface
+    "deps",
     // Cycle 9 Wave 2 C9-H13: hatch3r explain --cost <command>
     "explain",
     // Decision 27 (hatch3r 2.0.0 / Bucket 2.2): per-session snapshot rollback

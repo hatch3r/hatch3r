@@ -49,10 +49,12 @@ Loaded on demand during Step 3 of the accessibility audit workflow when a detail
 
 ## Severity Cataloging
 
-| Severity | Definition                              | Examples                                                      |
-| -------- | --------------------------------------- | ------------------------------------------------------------- |
-| Critical | Blocks core functionality, fails WCAG A | Missing form labels, no keyboard access to primary actions    |
-| Major    | Significant barrier, fails WCAG AA      | Contrast < 4.5:1, missing focus indicators, no reduced motion |
-| Minor    | Improves experience, best practice      | Redundant labels, suboptimal heading order                    |
+WCAG conformance levels map to the canonical audit severity 5-tier via `governance/audit/templates/severity-mapping.md` — `Critical → Critical`, `Major → Medium` (escalate to High when blocking a critical user journey per the table's A11y-Auditor row), `Minor → Low`. Findings reported to consumers (`hatch3r-fixer`, audit registry) MUST use the canonical 5-tier or carry the mapping reference; this file documents the local WCAG vocabulary alongside the canonical pointer.
+
+| Severity (local WCAG) | Canonical map         | Definition                              | Examples                                                      |
+| --------------------- | --------------------- | --------------------------------------- | ------------------------------------------------------------- |
+| Critical              | Critical              | Blocks core functionality, fails WCAG A | Missing form labels, no keyboard access to primary actions    |
+| Major                 | Medium (High if blocking critical journey) | Significant barrier, fails WCAG AA      | Contrast < 4.5:1, missing focus indicators, no reduced motion |
+| Minor                 | Low                   | Improves experience, best practice      | Redundant labels, suboptimal heading order                    |
 
 Produce a findings table: ID, severity, WCAG criterion, description, location, fix suggestion. Prioritize critical first, then major. Minor can be batched.

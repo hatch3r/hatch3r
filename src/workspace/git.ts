@@ -40,9 +40,61 @@ function recordGitFailure(
 // ── Detection Functions ────────────────────────────────────────
 
 /**
+ * Strip the `.git` suffix, query string, and trailing slash from a single
+ * URL path segment so platform parsers don't have to re-do it.
+ */
+function stripGitSuffix(segment: string): string {
+  return segment.replace(/\.git$/i, "").replace(/[?#].*$/, "");
+}
+
+/**
+ * Pull the path-portion of a git remote URL (after `host:` or `host/`) and
+ * split it into segments. Handles both HTTPS forms (`https://host/path`,
+ * `https://user@host/path`) and SSH short-form (`git@host:path`).
+ * Returns `null` when no path can be extracted.
+ */
+function extractPathSegments(url: string): string[] | null {
+  // SSH short-form `git@host:path/to/repo` — the colon separates host from path.
+  const sshMatch = url.match(/^[^@]+@[^:]+:(.+)$/);
+  if (sshMatch) {
+    return sshMatch[1].split("/").filter(Boolean);
+  }
+  // HTTPS / ssh:// / git:// — anchor on the first `://` then drop the host.
+  const protoMatch = url.match(/^[a-z][a-z0-9+.-]*:\/\/[^/]+\/(.+)$/i);
+  if (protoMatch) {
+    return protoMatch[1].split("/").filter(Boolean);
+  }
+  return null;
+}
+
+/**
  * Parse the owner and repo name from the git `origin` remote URL.
  * Returns empty strings on failure. When `warnings` is provided, a descriptive
  * entry is appended on failure (verbose() always fires regardless).
+ *
+ * D1-M20 (Cycle 10): the prior single regex `/[:\/]([^/]+)\/([^/]+?)(?:\.git)?$/`
+ * captured only the last two path segments, which silently dropped parent
+ * groups on GitLab nested groups (`gitlab.com/group/subgroup/project` →
+ * `subgroup/project`) and produced nonsense on Azure DevOps
+ * (`dev.azure.com/org/project/_git/repo` → `_git/repo`). We now dispatch
+ * to a per-platform parser:
+ *
+ * - **GitHub** (`github.com`, `git@github.com:`): owner is the first
+ *   segment, repo is the second — GitHub does not support nested
+ *   subgroups (per https://docs.github.com/en/repositories/creating-and-
+ *   managing-repositories/about-repositories, accessed 2026-05-28).
+ * - **GitLab** (`gitlab.com`, self-hosted `gitlab.*`): owner is every
+ *   segment EXCEPT the last (joined with `/`) so nested subgroups are
+ *   preserved — `group/subgroup/...` is canonical GitLab namespace syntax
+ *   (per https://docs.gitlab.com/ee/user/group/subgroups/, accessed
+ *   2026-05-28). Repo is the trailing segment.
+ * - **Azure DevOps** (`dev.azure.com`, `*.visualstudio.com`,
+ *   `ssh.dev.azure.com`): URL layout is `org/project/_git/repo` (HTTPS) or
+ *   `v3/org/project/repo` (SSH). Owner = `org/project`, repo = the
+ *   trailing segment (per https://learn.microsoft.com/en-us/azure/devops/
+ *   repos/git/clone, accessed 2026-05-28).
+ * - **Unknown host:** fall back to last-two-segments (preserves the
+ *   pre-Cycle-10 contract).
  */
 export function parseGitRemote(
   cwd?: string,
@@ -56,16 +108,46 @@ export function parseGitRemote(
       .toString()
       .trim();
 
-    const sshMatch = url.match(/[:\/]([^/]+)\/([^/]+?)(?:\.git)?$/);
-    if (sshMatch) {
-      return { owner: sshMatch[1], repo: sshMatch[2] };
+    const segments = extractPathSegments(url);
+    if (!segments || segments.length < 2) {
+      verbose(`git: parseGitRemote could not parse remote URL "${url}"`);
+      if (warnings) {
+        warnings.push(`git remote URL unparseable: "${url}"`);
+      }
+      return { owner: "", repo: "" };
     }
 
-    verbose(`git: parseGitRemote could not parse remote URL "${url}"`);
-    if (warnings) {
-      warnings.push(`git remote URL unparseable: "${url}"`);
+    // Strip `.git` from the last segment only — middle segments (groups,
+    // org, project) never carry the suffix on any of the four supported
+    // hosts.
+    const lastIdx = segments.length - 1;
+    segments[lastIdx] = stripGitSuffix(segments[lastIdx]);
+
+    const platform = detectPlatformFromRemote(url);
+    if (platform === "azure-devops") {
+      // HTTPS: org/project/_git/repo (4 segments) → owner=org/project
+      // SSH:   v3/org/project/repo (4 segments) → owner=org/project
+      const gitIdx = segments.indexOf("_git");
+      if (gitIdx >= 1 && gitIdx === segments.length - 2) {
+        return { owner: segments.slice(0, gitIdx).join("/"), repo: segments[lastIdx] };
+      }
+      // SSH form starts with `v3/`; drop it then owner=org/project.
+      if (segments[0] === "v3" && segments.length >= 4) {
+        return { owner: segments.slice(1, lastIdx).join("/"), repo: segments[lastIdx] };
+      }
+      // Fall through to last-two if the shape doesn't match.
+    } else if (platform === "gitlab") {
+      // GitLab: every segment except the last belongs to the namespace.
+      return { owner: segments.slice(0, lastIdx).join("/"), repo: segments[lastIdx] };
+    } else if (platform === "github") {
+      // GitHub: owner is the first segment, repo is the second. Extra
+      // trailing segments (e.g. blob URLs accidentally set as the remote)
+      // are ignored — the canonical clone URL only ever has owner/repo.
+      return { owner: segments[0], repo: segments[1] };
     }
-    return { owner: "", repo: "" };
+
+    // Unknown host — preserve the pre-Cycle-10 last-two-segments contract.
+    return { owner: segments[lastIdx - 1], repo: segments[lastIdx] };
   } catch (err) {
     recordGitFailure("parseGitRemote (git remote get-url origin)", err, warnings, cwd);
     return { owner: "", repo: "" };

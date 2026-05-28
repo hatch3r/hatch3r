@@ -23,9 +23,12 @@ type: agent
 description: <DESCRIPTION>
 model: <MODEL>
 tags: [<TAG-1>, <TAG-2>]
+pillars: [<P1-OR-CQ1-PILLAR-ID>]
 quality_charter: agents/shared/quality-charter.md
 ---
 ```
+
+The `pillars:` array carries the governance-axis (P1–P8) or content-quality-axis (CQ1–CQ9) ids the artifact serves. Required by the strict pillar-declaration gate in `runUserContentGates` (`src/content/userContent.ts`); omit the field only if the body carries a `**Pillars:**` line instead. Values outside the P1–P8 ∪ CQ1–CQ9 union are rejected at save time (`validateStructuredPillars`).
 
 ```markdown
 You are <ROLE-STATEMENT> for the project. You receive <INPUT-SUMMARY> and produce <OUTPUT-SUMMARY>.
@@ -95,6 +98,7 @@ id: <NAME>
 type: skill
 description: <DESCRIPTION>
 tags: [<TAG-1>, <TAG-2>]
+pillars: [<P1-OR-CQ1-PILLAR-ID>]
 quality_charter: agents/shared/quality-charter.md
 ---
 ```
@@ -147,6 +151,7 @@ scope: <SHAPE-A-VALUE-OR-SHAPE-B-CSV-OR-conditional>
 globs: "<GLOB-CSV>"          # required for Shape C; omit for A/B
 precedence: <PRECEDENCE>     # Shape C only; default normal
 tags: [<TAG-1>]
+pillars: [<P1-OR-CQ1-PILLAR-ID>]
 quality_charter: agents/shared/quality-charter.md
 ---
 ```
@@ -181,6 +186,7 @@ type: command
 orchestrator: false
 description: <DESCRIPTION>
 tags: [<TAG-1>]
+pillars: [<P1-OR-CQ1-PILLAR-ID>]
 quality_charter: agents/shared/quality-charter.md
 ---
 ```
@@ -194,6 +200,7 @@ orchestrator: true
 agentPipeline: [<AGENT-ID-1>, <AGENT-ID-2>]
 description: <DESCRIPTION>
 tags: [<TAG-1>]
+pillars: [<P1-OR-CQ1-PILLAR-ID>]
 quality_charter: agents/shared/quality-charter.md
 ---
 ```
@@ -259,6 +266,7 @@ agent: <AGENT-ID>
 description: <DESCRIPTION>
 globs: "<GLOB-CSV>"
 tags: [<TAG-1>]
+pillars: [<P1-OR-CQ1-PILLAR-ID>]
 quality_charter: agents/shared/quality-charter.md
 ---
 ```
@@ -278,6 +286,8 @@ When this hook fires, the assigned agent should:
 ```
 
 The `agent` field must reference an existing agent — canonical (e.g., `lint-fixer` resolves to `agents/hatch3r-lint-fixer.md`) or under `.hatch3r/overrides/agents/`. Missing references are rejected at strict-gate time.
+
+**Transitive trust warning (D20-M6).** A hook fires its referenced agent with that agent's declared tool grants. When `agent: <AGENT-ID>` resolves to a user-authored agent under `.hatch3r/overrides/agents/`, the hook inherits whatever `tools.allowed` set that user agent declared — a broad allowlist on the referenced agent silently widens the hook's blast radius. `hatch3r-creator` surfaces a gentle warning when a hook references a user-authored agent (rather than a canonical `agents/hatch3r-*.md` agent) so authors verify the downstream tool grants are intentional. Mitigation: prefer canonical agents for hooks, or pin the referenced user agent to a narrow `tools.allowed` list with a cited `**Security baseline:**` per §1.
 
 ## Reference Implementations
 

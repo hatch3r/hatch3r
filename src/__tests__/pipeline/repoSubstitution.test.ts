@@ -62,8 +62,15 @@ describe("renderDetectionList", () => {
 });
 
 describe("REPO_SUBSTITUTION_TOKENS", () => {
-  it("includes all three documented tokens", () => {
-    expect(REPO_SUBSTITUTION_TOKENS).toEqual([LINTER_TOKEN, TEST_FRAMEWORK_TOKEN, CI_PROVIDER_TOKEN]);
+  it("includes all documented tokens (3 detection + 4 verification-gate per D14-M2)", () => {
+    // D14-M2 (Cycle 10 rollover): the registry now also lists the
+    // verification-gate tokens. Match by membership rather than exact
+    // ordering so future additions do not need a wholesale re-shape of
+    // this assertion.
+    expect(REPO_SUBSTITUTION_TOKENS).toEqual(
+      expect.arrayContaining([LINTER_TOKEN, TEST_FRAMEWORK_TOKEN, CI_PROVIDER_TOKEN]),
+    );
+    expect(REPO_SUBSTITUTION_TOKENS).toHaveLength(7);
   });
 
   it("declares the exact wire-format literals", () => {

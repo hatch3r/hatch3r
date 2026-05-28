@@ -119,7 +119,8 @@ describe("worktreeSetupCommand", () => {
     try {
       await worktreeSetupCommand();
     } catch (e) {
-      expect((e as HatchError).exitCode).toBe(1);
+      // C8-D1-M5: VALIDATION_ERROR -> EX_USAGE (64) via central map.
+      expect((e as HatchError).exitCode).toBe(64);
     }
   });
 

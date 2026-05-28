@@ -169,7 +169,8 @@ describe("init command", () => {
     try {
       await initCommand({ yes: true, tools: "invalid-tool" });
     } catch (e) {
-      expect((e as HatchError).exitCode).toBe(1);
+      // C8-D1-M5: VALIDATION_ERROR -> EX_USAGE (64) via central map.
+      expect((e as HatchError).exitCode).toBe(64);
       // C9-H27 (D10-SA10.2-F2): invalid-tool throw site carries an
       // actionable recoveryHint listing the valid ids — verifies the new
       // structured field is threaded through the --yes init path.
@@ -410,7 +411,8 @@ describe("init command", () => {
     const { initCommand } = await import("../../cli/commands/init.js");
 
     await expect(initCommand({ yes: true, tools: "cursor,bogus" })).rejects.toThrow(HatchError);
-    try { await initCommand({ yes: true, tools: "cursor,bogus" }); } catch (e) { expect((e as HatchError).exitCode).toBe(1); }
+    // C8-D1-M5: VALIDATION_ERROR -> EX_USAGE (64) via central map.
+    try { await initCommand({ yes: true, tools: "cursor,bogus" }); } catch (e) { expect((e as HatchError).exitCode).toBe(64); }
     // C8-D12-M1: `error()` routes to stderr per POSIX; check both streams.
     const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join(" ");
     const stderr = consoleErrorSpy.mock.calls.map((c) => String(c[0])).join(" ");
@@ -915,7 +917,8 @@ describe("init validation flags (--yes path)", () => {
     try {
       await initCommand({ yes: true, preset: "kitchen-sink" });
     } catch (e) {
-      expect((e as HatchError).exitCode).toBe(1);
+      // C8-D1-M5: VALIDATION_ERROR -> EX_USAGE (64) via central map.
+      expect((e as HatchError).exitCode).toBe(64);
       expect((e as HatchError).errorCode).toBe("VALIDATION_ERROR");
       // C9-H27 (D10-SA10.2-F2): validateFlag carries a hint with the
       // valid options the user can re-run with.

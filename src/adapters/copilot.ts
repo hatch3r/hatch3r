@@ -1,3 +1,12 @@
+// Last updated: 2026-05-28 (P3 platform-currency anchor; D9-M2 Cycle 10 Wave-3
+// re-verified the `.github/agents/{name}.agent.md` repository-level custom
+// agent path schema against the current GitHub Copilot how-to docs at
+// https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/create-custom-agents
+// (accessed 2026-05-28) — repository-level template path is still
+// `.github/agents/{name}.agent.md`; org/enterprise-level path drops the
+// `.github/` prefix to root `agents/{name}.agent.md`. The reference doc at
+// /reference/custom-agents-configuration enumerates the frontmatter schema
+// fields cited below.
 import type {
   AdapterOutput,
   CanonicalFile,
@@ -273,6 +282,17 @@ jobs:
     // Verified field name per
     // https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/create-skills
     // (accessed 2026-05-26).
+    //
+    // D9-M3 (Cycle 10 D9 Wave-3, P3): the `.github/skills/{name}/SKILL.md`
+    // emission path matches the Agent Skills standard discovery contract
+    // re-verified 2026-05-28 against the same docs page — project skills
+    // live under `.github/skills/`, `.claude/skills/`, or `.agents/skills/`;
+    // each skill is its own subdirectory; the entry file MUST be literally
+    // `SKILL.md` (case-sensitive). This adapter targets the `.github/skills/`
+    // root because Copilot's primary discovery loader scans that path in
+    // .github-hosted repositories; the dual `.agents/skills/` discovery is
+    // out-of-scope for the copilot adapter (canonical content ships only
+    // bundled via npm in 1.9.0+; see resolveBundledContentRoot).
     results.push(
       ...await this.processSkillsWithFmCliFiltered(
         ctx,

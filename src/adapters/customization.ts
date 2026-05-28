@@ -494,6 +494,23 @@ async function applyCustomizationImpl(
     delete overrides.scope;
   }
 
+  // D2-M06 (D2 Medium, Cycle 10 Wave 3 rollover): warn when `model` is
+  // overridden on types that don't carry a model. Only agents pass through
+  // `resolveAgentModel(agent.id, agent, ctx.manifest, overrides)` in
+  // `src/adapters/base.ts::processAgents`; every other canonical type
+  // ignores the field entirely, so a `.customize.yaml` setting
+  // `model: claude-opus-4-5` on a skill/rule/command/prompt/hook previously
+  // succeeded silently with no runtime effect. Match the `TYPES_WITHOUT_SCOPE`
+  // pattern: surface a warning and drop the field so the user sees their
+  // override was a no-op instead of debugging a runtime that never picked it
+  // up. `agent` retains its model override; everything else now emits a
+  // diagnostic.
+  const TYPES_WITHOUT_MODEL = new Set(["skill", "rule", "command", "prompt", "hook"]);
+  if (overrides.model !== undefined && TYPES_WITHOUT_MODEL.has(file.type)) {
+    warnings.push(`Model override on ${file.type} "${file.id}" has no effect — only agents carry a model. Ignoring.`);
+    delete overrides.model;
+  }
+
   for (const field of ["description", "scope", "model"] as const) {
     const value = overrides[field];
     if (value !== undefined) {

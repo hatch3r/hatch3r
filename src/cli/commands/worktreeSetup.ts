@@ -29,6 +29,7 @@ import {
   label,
 } from "../shared/ui.js";
 import { copyToClipboard } from "../shared/clipboard.js";
+import { enableDefaultCrossProcessLocking } from "../../merge/safeWrite.js";
 
 /**
  * C8-D15-M2 (CWE-552, https://cwe.mitre.org/data/definitions/552.html):
@@ -118,7 +119,7 @@ async function readIncludeOrThrow(mainRoot: string): Promise<string> {
       console.log(chalk.dim("  Run `hatch3r init` or `hatch3r sync` to generate it.\n"));
       throw new HatchError(
         `Missing ${WORKTREE_INCLUDE_FILE}`,
-        1,
+        undefined,
         "FS_ERROR",
         "Run `hatch3r init` or `hatch3r sync` to generate the worktree-include file.",
       );
@@ -237,7 +238,7 @@ async function runFromPath(targetPath: string, opts: SetupOptions): Promise<void
     console.log(chalk.dim("  Did you run `git worktree add` first?\n"));
     throw new HatchError(
       "from-path target missing",
-      1,
+      undefined,
       "FS_ERROR",
       "Run `git worktree add <path>` first, then point --from-path at that path.",
     );
@@ -266,7 +267,7 @@ async function runFromPath(targetPath: string, opts: SetupOptions): Promise<void
   if (!sync.ok) {
     throw new HatchError(
       "Adapter sync failed inside the new worktree.",
-      1,
+      undefined,
       "FS_ERROR",
       "cd into the worktree and run `hatch3r sync --verbose` to see the adapter failure.",
     );
@@ -284,7 +285,7 @@ async function runByName(name: string, opts: SetupOptions): Promise<void> {
     console.log(chalk.dim("  Names must be valid git branch names (no spaces, no '..', no leading '-').\n"));
     throw new HatchError(
       "Invalid worktree name",
-      1,
+      undefined,
       "VALIDATION_ERROR",
       "Use a valid git branch name (no spaces, no '..', no leading '-').",
     );
@@ -297,7 +298,7 @@ async function runByName(name: string, opts: SetupOptions): Promise<void> {
     console.log(chalk.dim("  Pick a different name, or run `hatch3r worktree-cleanup` to remove the existing worktree first.\n"));
     throw new HatchError(
       "Target path exists",
-      1,
+      undefined,
       "FS_ERROR",
       "Pick a different name, or run `hatch3r worktree-cleanup` to remove the existing worktree first.",
     );
@@ -341,7 +342,7 @@ async function runByName(name: string, opts: SetupOptions): Promise<void> {
   if (!sync.ok) {
     throw new HatchError(
       "Adapter sync failed inside the new worktree.",
-      1,
+      undefined,
       "FS_ERROR",
       "cd into the worktree and run `hatch3r sync --verbose` to see the adapter failure.",
     );
@@ -356,6 +357,13 @@ export async function worktreeSetupCommand(
 ): Promise<void> {
   printBanner(true);
 
+  // D8-M3: worktree contexts multiply the surface for concurrent writes from
+  // the main repo + N worktrees onto the same upstream `.hatch3r/` and copied
+  // `.env.*` files. Default-on cross-process locking closes the silent-clobber
+  // window observed in CHANGELOG #73 without forcing every operator to know
+  // about the `HATCH3R_LOCK=1` env var. Set `HATCH3R_LOCK=0` to opt out.
+  enableDefaultCrossProcessLocking();
+
   if (opts.fromPath) {
     if (nameOrUndefined) {
       warn("Both <name> positional and --from-path supplied; using --from-path.");
@@ -369,7 +377,7 @@ export async function worktreeSetupCommand(
     console.log(chalk.dim("         hatch3r worktree-setup --from-path <existing-worktree-path>\n"));
     throw new HatchError(
       "Missing worktree name",
-      1,
+      undefined,
       "VALIDATION_ERROR",
       "Provide a name: `hatch3r worktree-setup <name>` (or use --from-path <path>).",
     );

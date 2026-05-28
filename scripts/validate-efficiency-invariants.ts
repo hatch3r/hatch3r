@@ -13,7 +13,9 @@
  *                     session-counter, "today is") before their first `##`
  *                     heading.
  *   --parallel-tool   Files with >=2 tool/sub-agent mentions include a
- *                     parallel-execution directive (warning only).
+ *                     parallel-execution directive (error since Cycle 9 D6-M9
+ *                     — multi-tool serialization without a dependency edge
+ *                     violates P7 efficiency and P8 fan-out discipline).
  *   --proof-id        Phase 2 (`hatch3r-implementer.md`) and Phase 3
  *                     (`hatch3r-fixer.md`) code-mutating agents declare a
  *                     `Delegation proof ID` field in their structured-result
@@ -283,6 +285,14 @@ function checkStaticFirst(file: ParsedFile): Finding[] {
 }
 
 // ── Mode C: parallel-tool ─────────────────────────────────────────
+//
+// Audit Cycle 9 D6-M9 (Wave 3): promoted from warning to error. Multi-tool
+// agents shipping without a parallel-execution directive serialize work that
+// has no dependency edge — P7 (Efficiency) AND P8 B2 (fan-out discipline)
+// both reject this pattern. The promotion is safe because every canonical
+// agent and command in `agents/` and `commands/` carries a parallel-tool
+// directive (`parallel_tool_default: true` frontmatter, "in parallel" body
+// language, or both); validation in this repo runs clean.
 
 const TOOL_MENTION_RE = /(Task tool|tool calls|sub-agent)/gi;
 const PARALLEL_DIRECTIVE_RE = /(parallel|in\s*parallel|concurrent|single\s+message|batched)/i;
@@ -292,8 +302,12 @@ function checkParallelTool(file: ParsedFile): Finding[] {
   const count = matches ? matches.length : 0;
   if (count < 2 || PARALLEL_DIRECTIVE_RE.test(file.body)) return [];
   return [{
-    level: "warning", code: "P7-PARALLEL-MISS", file: file.relPath,
-    message: `${count} tool/sub-agent mentions, no parallel directive nearby`,
+    level: "error", code: "P7-PARALLEL-MISS", file: file.relPath,
+    message:
+      `${count} tool/sub-agent mentions, no parallel directive nearby ` +
+      `(P7 efficiency + P8 fan-out — serialization without a dependency edge is not permitted; ` +
+      `add "in parallel" / "single message" / "batched" language or set parallel_tool_default: true ` +
+      `in frontmatter)`,
   }];
 }
 

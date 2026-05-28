@@ -1493,3 +1493,137 @@ describe("lean-threshold doc round-trip (F20.1.E1)", () => {
     }
   });
 });
+
+describe("saveUserContent — hook transitive-trust warning (D20-M6)", () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-uc-transitive-"));
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  // A hook fires its referenced agent with that agent's tool grants. When the
+  // referenced agent lives under `.hatch3r/overrides/agents/`, the hook
+  // inherits whatever `tools.allowed` set was declared on that user agent —
+  // a broad allowlist silently widens the hook's blast radius. The gate
+  // surfaces a gentle warning so the author verifies the downstream grants
+  // are intentional.
+  it("warns when a hook references a user-authored agent (transitive trust)", async () => {
+    // Seed a user-authored agent first so the byTypeAndId lookup finds it.
+    await saveUserContent(
+      tempDir,
+      makeArtifact({
+        type: "agent",
+        name: "my-user-agent",
+        body: "**Pillars:** P4\n\nA narrowly-scoped user agent for the transitive-trust test.\n",
+      }),
+    );
+
+    const result = await saveUserContent(
+      tempDir,
+      makeArtifact({
+        type: "hook",
+        name: "my-hook",
+        hookEvent: "pre-commit",
+        body: "**Pillars:** P6\n\nA hook body referencing a user-authored agent.\n",
+        frontmatter: {
+          tags: ["core", "customize"],
+          quality_charter: "agents/shared/quality-charter.md",
+          agent: "my-user-agent",
+        },
+      }),
+    );
+    expect(result.strictFailures).toEqual([]);
+    expect(result.written).toHaveLength(1);
+    expect(
+      result.gentleWarnings.some((w) =>
+        /transitive trust|user-authored agent/.test(w),
+      ),
+    ).toBe(true);
+  });
+
+  it("does NOT warn when a hook references a canonical agent", async () => {
+    // hatch3r-implementer is a known canonical agent (`agents/hatch3r-implementer.md`).
+    const result = await saveUserContent(
+      tempDir,
+      makeArtifact({
+        type: "hook",
+        name: "hook-canonical-ref",
+        hookEvent: "pre-commit",
+        body: "**Pillars:** P6\n\nA hook body referencing a canonical agent.\n",
+        frontmatter: {
+          tags: ["core", "customize"],
+          quality_charter: "agents/shared/quality-charter.md",
+          agent: "hatch3r-implementer",
+        },
+      }),
+    );
+    expect(result.strictFailures).toEqual([]);
+    expect(result.written).toHaveLength(1);
+    expect(
+      result.gentleWarnings.some((w) => /transitive trust/.test(w)),
+    ).toBe(false);
+  });
+});
+
+describe("saveUserContent — description-keyword overlap (D20-M7)", () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-uc-keyword-overlap-"));
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  // D20.2 row 6: a user artifact whose description shares ≥50% tokenized
+  // keywords with a same-type canonical artifact is flagged as a likely
+  // duplicate. The author either narrows the description, scopes the
+  // artifact differently, or adds a rationale to differentiate.
+  it("warns when a user agent description heavily overlaps a canonical agent's description", async () => {
+    // Read the canonical hatch3r-implementer.md description to seed an
+    // intentionally overlapping user description.
+    const repoRoot = resolve(__dirname, "..", "..", "..");
+    const implementerPath = join(repoRoot, "agents", "hatch3r-implementer.md");
+    const raw = await readFile(implementerPath, "utf-8");
+    // Pull the description: <line> from the YAML frontmatter.
+    const m = raw.match(/^description:\s*(.+)$/m);
+    expect(m, "implementer agent must declare a description").toBeTruthy();
+    const overlappingDescription = m![1].trim();
+
+    const result = await saveUserContent(
+      tempDir,
+      makeArtifact({
+        name: "near-duplicate",
+        description: overlappingDescription,
+        body: "**Pillars:** P4\n\nA body intentionally overlapping the canonical implementer.\n",
+      }),
+    );
+    expect(result.strictFailures).toEqual([]);
+    expect(result.written).toHaveLength(1);
+    expect(
+      result.gentleWarnings.some((w) => /keyword overlap with canonical/.test(w)),
+    ).toBe(true);
+  });
+
+  it("does NOT warn when a description shares few keywords with any canonical artifact", async () => {
+    const result = await saveUserContent(
+      tempDir,
+      makeArtifact({
+        name: "distinct-helper",
+        description:
+          "Distinct helper that translates raw telemetry pings into aggregated rollup buckets for downstream dashboards.",
+        body: "**Pillars:** P4\n\nDistinct body that does not overlap canonical descriptions.\n",
+      }),
+    );
+    expect(result.strictFailures).toEqual([]);
+    expect(result.written).toHaveLength(1);
+    expect(
+      result.gentleWarnings.some((w) => /keyword overlap with canonical/.test(w)),
+    ).toBe(false);
+  });
+});

@@ -123,3 +123,17 @@ Never pre-checked — opt in informed.
 | Podman | `podman` | Daemonless container engine, rootless by default |
 
 See [CLI Tools](./cli-tools) for the decision tree, install commands per OS, and the trade-off discussion vs MCP.
+
+## Switching between tools
+
+You can mix tools (e.g. Cursor + Claude Code on the same repo) or migrate from one to another. The path is deterministic and adapter outputs survive a swap:
+
+| Goal | Command | What it does |
+|------|---------|--------------|
+| Add a tool (e.g. add Claude Code to a Cursor repo) | `npx hatch3r config` | Pick the new tool from the multi-select. The next `sync` materializes its outputs (`.claude/`, `CLAUDE.md`, `.mcp.json`); existing tools' outputs are untouched. |
+| Remove a tool (e.g. drop Copilot) | `npx hatch3r config` | Deselect the tool. hatch3r previews the file list it will archive — confirm to move the outputs to `.hatch3r/archive/<tool>/`. Manifest is updated; other tools' outputs are untouched. |
+| Replace tool A with tool B in one step | `npx hatch3r config` | Deselect A, select B in the same picker. The archive runs first (preview + confirm), then `sync` generates B's outputs. |
+| Recover an archived tool | `mv .hatch3r/archive/<tool>/* <target-dir>/` then `npx hatch3r config` to re-add | Files in `.hatch3r/archive/<tool>/` are kept indefinitely until `pruneArchives` rotation; restore by moving the contents back to the tool's output root, then re-enable the tool in `config`. |
+| Inspect what a tool wrote | `cat .hatch3r/hatch.json` → `managedFilesByAdapter[<tool>]` | The manifest tracks every path each adapter emitted, so you can audit the footprint before changing tool selection. |
+
+MCP credentials in `.env.mcp` survive tool changes — secrets are tool-agnostic. After a tool switch, restart the new tool's editor process so it picks up the freshly generated config.

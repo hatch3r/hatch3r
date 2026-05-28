@@ -125,6 +125,28 @@ describe("validate-specialist-roster", () => {
     expect(extra?.message).toMatch(/hatch3r-nonexistent/);
   });
 
+  // ── Trigger-mode parity (D7-M7 / D7-SA7.3-1) ───────────────────
+
+  it("ERRORs when the rule table trigger mode disagrees with the SSOT", async () => {
+    const rulePath = join(fx.rootDir, "rules", "hatch3r-agent-orchestration.md");
+    const { readFile } = await import("node:fs/promises");
+    const body = await readFile(rulePath, "utf-8");
+    // hatch3r-security is "Always" in the SSOT; flip the rule row to
+    // "Conditional" and expect the new parity check to surface the drift.
+    const drifted = body.replace(
+      /(\| `hatch3r-security`[^|]*\|\s*)Always(\s*\|)/,
+      "$1Conditional$2",
+    );
+    expect(drifted).not.toBe(body);
+    await writeFile(rulePath, drifted, "utf-8");
+
+    const r = await runValidator({ rootDir: fx.rootDir });
+    const drift = r.findings.find((f) => f.code === "ROSTER-RULE-MODE-MISMATCH");
+    expect(drift).toBeDefined();
+    expect(drift?.message).toMatch(/hatch3r-security/);
+    expect(drift?.message).toMatch(/"always" in SSOT but "conditional"/);
+  });
+
   // ── Agent-file roster gap ──────────────────────────────────────
 
   it("ERRORs when a specialist's agent file is missing", async () => {

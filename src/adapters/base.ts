@@ -25,6 +25,7 @@ import { PLATFORM_TOOL_MARKER, toAskUserPlatformNote } from "../pipeline/adapter
 import {
   detectionContextFromManifest,
   substituteRepoTokens,
+  substituteVerificationGateTokens,
 } from "../pipeline/repoSubstitution.js";
 
 export interface Adapter {
@@ -118,6 +119,21 @@ function defaultModelFormat(model: string): ModelFormat {
 
 export abstract class BaseAdapter implements Adapter {
   abstract readonly name: string;
+  /**
+   * Per-invocation diagnostics surfaced from canonical reads, customization
+   * application, MCP loading, and adapter-internal validation.
+   *
+   * C9-M12 (D2 Medium, Cycle 10 Wave 3 rollover): every `generate()` invocation
+   * is the OWNER of this array between the entry `this.warnings = []` reset
+   * and its return — callers MUST NOT share a single adapter instance across
+   * concurrent `generate()` calls. `getAdapter()` in `src/adapters/index.ts`
+   * returns a fresh instance per call to enforce this at the construction
+   * site. Helpers that mutate `this.warnings` (e.g. `inlineRules`,
+   * `processSkillsRaw`, `loadAndAssembleMcp`) and external utilities that
+   * receive `this.warnings` as an out-parameter (`readCanonicalFiles`,
+   * `applyCustomization`, `readHookDefinitions`, `readMcpConfig`) all rely on
+   * this single-owner contract.
+   */
   warnings: string[] = [];
 
   /**
@@ -243,12 +259,41 @@ export abstract class BaseAdapter implements Adapter {
     // retain their value — we only fill the default tracked set for outputs
     // that left the field unset. The tracked list is deterministic (sorted)
     // so downstream diffs over `.provenance.json` stay stable across runs.
+    //
+    // SA12.1-F-D12-M5 (Cycle 10 Wave 3, D12, P1): when an adapter produced
+    // outputs without using `readTrackedCanonicalFiles` AND without setting
+    // `sourceFiles` explicitly, the historical behavior left every output
+    // with `sourceFiles: undefined`, which surfaced as an empty array in
+    // `.hatch3r/provenance.json` — indistinguishable from "this output
+    // legitimately has no canonical inputs" (e.g. `mcp.json` assembled from
+    // user config). Emit a single per-adapter warning so the gap is visible
+    // at sync time; consumers of `explain --source` see the same `[]` but
+    // can correlate with the warn() output to identify a tracking bug.
     const trackedList = [...this._trackedSourceFiles].sort();
     if (trackedList.length > 0) {
       for (const out of outputs) {
         if (out.sourceFiles === undefined) {
           out.sourceFiles = trackedList;
         }
+      }
+    } else {
+      // No canonical-file tracking happened. Warn ONLY when at least one
+      // output had no explicit `sourceFiles` AND the adapter actually
+      // produces canonical-file-shaped output (i.e. has any outputs). A
+      // pure-config adapter that legitimately has no canonical inputs
+      // suppresses the warning by setting `sourceFiles: []` on each output.
+      const untracked = outputs.filter((o) => o.sourceFiles === undefined);
+      if (untracked.length > 0) {
+        this.warnings.push(
+          `[${this.name}] ${untracked.length} output(s) emitted without canonical-source ` +
+          `tracking — use readTrackedCanonicalFiles (or set sourceFiles: [] for ` +
+          `config-only outputs) to populate .hatch3r/provenance.json. ` +
+          `Affected: ${untracked.slice(0, 3).map((o) => o.path).join(", ")}` +
+          `${untracked.length > 3 ? ` … (${untracked.length} total)` : ""}`,
+        );
+        // Default to `[]` so downstream consumers see the empty array
+        // explicitly rather than `undefined`.
+        for (const out of untracked) out.sourceFiles = [];
       }
     }
 
@@ -807,6 +852,25 @@ export abstract class BaseAdapter implements Adapter {
     this.warnings.push(...warnings);
     if (Object.keys(mcpServers).length === 0) return null;
     const selectedSet = new Set(ctx.manifest.mcp.servers);
+    const canonicalNames = new Set(Object.keys(mcpServers));
+    // D11-M6 (Cycle 10 Wave-3 Medium, P2): surface manifest selections that
+    // have no matching server in the bundled canonical mcp.json. The prior
+    // implementation silently filtered these out — a user who adds a custom
+    // server name to `.hatch3r/hatch.json::mcp.servers` (or whose canonical
+    // bundle gets pruned after a hatch3r upgrade) saw zero indication that
+    // the server was never emitted to the adapter output. Routed through
+    // `this.warnings` (Silent Failure Contract, CONSTITUTION §2 P5) so the
+    // operator sees which selection was dropped and can either fix the
+    // manifest or rerun `hatch3r mcp` to align it with the bundled set.
+    for (const selected of selectedSet) {
+      if (!canonicalNames.has(selected)) {
+        this.warnings.push(
+          `MCP server "${selected}" listed in hatch.json::mcp.servers ` +
+            `but not present in the bundled mcp/mcp.json — selection dropped. ` +
+            `Run \`hatch3r mcp\` to align the manifest with the available servers.`,
+        );
+      }
+    }
     const filtered: Record<string, CleanMcpEntry> = {};
     for (const [name, entry] of Object.entries(mcpServers)) {
       if (entry._disabled) continue;
@@ -946,20 +1010,40 @@ export abstract class BaseAdapter implements Adapter {
   }
 
   /**
+   * D14-M2 (Cycle 10 rollover): Replace verification-gate tokens
+   * (`${HATCH3R:VERIFY_GATE_TEST}`, etc.) with the language-aware command
+   * strings resolved from the project's manifest. Canonical agents
+   * (hatch3r-implementer / hatch3r-fixer / hatch3r-reviewer) reference
+   * these tokens in their Verify step so the generated adapter output
+   * carries `pytest` for Python, `cargo test` for Rust, `pnpm run test`
+   * for a pnpm-managed JS project, etc., rather than the historical
+   * hard-coded `npm run test`. Idempotent: a body without any token
+   * passes through unchanged.
+   */
+  protected substituteVerifyGateTokens(content: string, ctx: AdapterContext): string {
+    return substituteVerificationGateTokens(content, ctx.manifest);
+  }
+
+  /**
    * Canonical-content post-processing pipeline. Composes every output-time
    * substitution helper in a fixed order so adapter call sites stay one
-   * line and the substitution surface is identical across the 15 adapters
+   * line and the substitution surface is identical across the 3 adapters
    * (parity invariant from D9 + the audit's D14-SA14.4-H01 wiring).
    *
    * Order:
    *  1. `substituteAskUserMarker`  — replaces the PLATFORM-TOOL marker.
    *  2. `substituteDetectedRepoTokens` — replaces detected LINTER /
    *     TEST_FRAMEWORK / CI_PROVIDER tokens.
+   *  3. `substituteVerifyGateTokens` — D14-M2: replaces VERIFY_GATE_*
+   *     tokens with language-aware command strings.
    *
    * Idempotent: a body without any tokens passes through unchanged.
    */
   protected substituteCanonicalContent(content: string, ctx: AdapterContext): string {
-    return this.substituteDetectedRepoTokens(this.substituteAskUserMarker(content), ctx);
+    return this.substituteVerifyGateTokens(
+      this.substituteDetectedRepoTokens(this.substituteAskUserMarker(content), ctx),
+      ctx,
+    );
   }
 
   /**

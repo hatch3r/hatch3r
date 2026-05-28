@@ -272,7 +272,7 @@ const PLATFORM_CAPABILITY_SEED: Record<AuditedAdapter, PlatformCapability[]> = {
     { id: "skills", name: "Skills (.claude/skills/)", status: "supported", detail: "SKILL.md format" },
     { id: "claude-md", name: "CLAUDE.md project instructions", status: "supported" },
     { id: "native-question-tool", name: "AskUserQuestion native tool", status: "supported" },
-    { id: "agent-teams", name: "Agent Teams (parallel teammates)", status: "supported", detail: "v2.1+ experimental → GA" },
+    { id: "agent-teams", name: "Agent Teams (parallel teammates)", status: "supported", detail: "v2.1.32+ experimental; CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 required (verified 2026-05-28)" },
     { id: "worktree-isolation", name: "Worktree isolation (--worktree)", status: "supported" },
   ],
   cursor: [

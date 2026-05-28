@@ -208,6 +208,64 @@ describe("workspace manifest", () => {
       await writeFile(join(dir, AGENTS_DIR, "workspace.json"), raw);
       await expect(readWorkspaceManifest(dir)).rejects.toThrow("Invalid workspace manifest");
     });
+
+    // D3-M8 (Cycle 10 Wave-3 Medium rollover): workspace/manifest.ts measured
+    // 66.3% statements — three error-handling branches in
+    // `readWorkspaceManifest` and the schema validator had no direct test.
+    // Cover each so a future schema-tightening change fails loudly instead
+    // of silently dropping rejection.
+
+    it("throws a HatchError with `Malformed JSON` when the manifest file is not valid JSON", async () => {
+      const dir = await setup();
+      await writeFile(join(dir, AGENTS_DIR, "workspace.json"), "{ not valid");
+      await expect(readWorkspaceManifest(dir)).rejects.toThrow("Malformed JSON");
+    });
+
+    it("rejects a manifest with the wrong syncStrategy value", async () => {
+      const dir = await setup();
+      const raw = JSON.stringify({
+        version: "1.0.0",
+        hatch3rVersion: "1.4.0",
+        name: "bad-sync",
+        repos: [],
+        defaults: minimalDefaults,
+        syncStrategy: "auto", // not in the allowed list ("manual" | "on-sync")
+      });
+      await writeFile(join(dir, AGENTS_DIR, "workspace.json"), raw);
+      await expect(readWorkspaceManifest(dir)).rejects.toThrow("Invalid workspace manifest");
+    });
+
+    it("rejects a manifest with malformed cliTools selected entries", async () => {
+      // Force the cliTools sub-schema's per-element string check to fire.
+      const dir = await setup();
+      const raw = JSON.stringify({
+        version: "1.0.0",
+        hatch3rVersion: "1.7.5",
+        name: "bad-cli",
+        repos: [],
+        defaults: {
+          ...minimalDefaults,
+          cliTools: { enabled: true, selected: [123, "ripgrep"] },
+        },
+        syncStrategy: "manual",
+      });
+      await writeFile(join(dir, AGENTS_DIR, "workspace.json"), raw);
+      await expect(readWorkspaceManifest(dir)).rejects.toThrow("Invalid workspace manifest");
+    });
+
+    it("rejects a manifest missing the required defaults block", async () => {
+      const dir = await setup();
+      const raw = JSON.stringify({
+        version: "1.0.0",
+        hatch3rVersion: "1.4.0",
+        name: "no-defaults",
+        repos: [],
+        // defaults intentionally omitted
+        syncStrategy: "manual",
+      });
+      await writeFile(join(dir, AGENTS_DIR, "workspace.json"), raw);
+      await expect(readWorkspaceManifest(dir)).rejects.toThrow("Invalid workspace manifest");
+    });
   });
 
   describe("isUnsafeRepoPath", () => {

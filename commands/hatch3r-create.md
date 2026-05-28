@@ -365,3 +365,11 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 ## Quality Charter
 
 This command and the `hatch3r-creator` sub-agent both inherit the standards in `agents/shared/quality-charter.md` — confidence levels, root-cause orientation, measurable acceptance criteria, and graceful failure with corrective messages.
+
+## References
+
+- `agents/shared/user-question-protocol.md` (B1 gate — applies at §0 Detect Ambiguity above plus every mid-workflow ASK checkpoint per Finding D7-M14)
+- `agents/shared/quality-charter.md` §1, §3, §7, §8 (confidence, ambiguity, measurable criteria)
+- `rules/hatch3r-agent-orchestration.md` (Per-Turn Pipeline-State Header, End-of-Turn Delegation Attestation, Mandatory Delegation Directive)
+- `agents/hatch3r-creator.md` (delegated authoring sub-agent)
+- `agents/shared/user-content-templates.md` (frontmatter shapes + body skeletons)

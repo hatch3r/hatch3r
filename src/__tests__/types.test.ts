@@ -43,14 +43,22 @@ describe("ERROR_CODE_TO_EXIT_CODE (C8-D1-M5)", () => {
     }
   });
 
-  it("uses exit code 1 as the current default for runtime errors", () => {
-    // Baseline assertion: current CLI convention is 0 = success, 1 = runtime
-    // error, 2 = usage error. All defined errorCodes are runtime-class today
-    // (usage errors surface via Commander -> classifyCliError path, not via
-    // HatchError). Changes to this invariant require updating src/cli/index.ts.
-    for (const code of Object.values(ERROR_CODE_TO_EXIT_CODE)) {
-      expect(code).toBe(1);
-    }
+  it("differentiates exit codes per sysexits.h (SA12.1-F-D12-M1)", () => {
+    // SA12.1-F-D12-M1 (Cycle 10 Wave 3, D12, P1): each HatchErrorCode maps to
+    // the closest matching sysexits.h convention so CI consumers and shell
+    // pipelines can branch on failure kind. Source: FreeBSD `/usr/include/
+    // sysexits.h`, accessed 2026-05-28. Explicit exitCode arguments still
+    // override this default (see "preserves an explicit non-default exitCode"
+    // below).
+    expect(ERROR_CODE_TO_EXIT_CODE.VALIDATION_ERROR).toBe(64); // EX_USAGE
+    expect(ERROR_CODE_TO_EXIT_CODE.CONFIG_ERROR).toBe(65); // EX_DATAERR
+    expect(ERROR_CODE_TO_EXIT_CODE.FS_ERROR).toBe(74); // EX_IOERR
+    expect(ERROR_CODE_TO_EXIT_CODE.INTEGRITY_ERROR).toBe(73); // EX_CANTCREAT
+    expect(ERROR_CODE_TO_EXIT_CODE.ADAPTER_ERROR).toBe(69); // EX_UNAVAILABLE
+    expect(ERROR_CODE_TO_EXIT_CODE.NETWORK_ERROR).toBe(75); // EX_TEMPFAIL
+    expect(ERROR_CODE_TO_EXIT_CODE.CLEAN_ERROR).toBe(74); // EX_IOERR
+    expect(ERROR_CODE_TO_EXIT_CODE.LOCK_TIMEOUT).toBe(75); // EX_TEMPFAIL
+    expect(ERROR_CODE_TO_EXIT_CODE.UNKNOWN_ERROR).toBe(70); // EX_SOFTWARE
   });
 });
 
@@ -131,7 +139,8 @@ describe("HatchError.recoveryHint (C9-H27 / D10-SA10.2-F2)", () => {
     const err = new HatchError("transient", undefined, undefined, "Retry in a moment.");
     expect(err.recoveryHint).toBe("Retry in a moment.");
     expect(err.errorCode).toBe("UNKNOWN_ERROR");
-    expect(err.exitCode).toBe(1);
+    // SA12.1-F-D12-M1: default exitCode comes from ERROR_CODE_TO_EXIT_CODE.
+    expect(err.exitCode).toBe(ERROR_CODE_TO_EXIT_CODE.UNKNOWN_ERROR);
   });
 
   it("treats recoveryHint as readonly (compile-time invariant)", () => {

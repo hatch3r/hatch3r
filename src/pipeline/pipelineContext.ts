@@ -119,6 +119,159 @@ export interface QualityResults {
   validationPass: ValidationPass;
 }
 
+/**
+ * Phase 4 (Final Quality) completion contract.
+ *
+ * Finding D7-M8 (D7-SA7.3-3): Phase 4 completion criteria were scattered
+ * across `rules/hatch3r-agent-orchestration.md` Phase 4 Validation Pass +
+ * Specialist Success Criteria + per-command bodies, with no canonical typed
+ * contract a caller could check programmatically. This interface aggregates
+ * the criteria into a single record alongside `QualityResults` so consumers
+ * read one structure to decide "is Phase 4 truly complete?". Mirrors the
+ * `Phase 4 Validation Pass` semantics in the orchestration rule.
+ *
+ * Completion is `complete: true` only when ALL of the following hold:
+ * 1. `validationPass.testsPass === true` AND `validationPass.typecheckPass === true`
+ *    (test suite + type checker pass against the Phase 3 baseline cached in
+ *    `PipelineContext.implementationResult.filesChanged`).
+ * 2. `validationPass.regressionsPersist === false` (no Phase-4-introduced
+ *    failures persist after up to 2 validation-pass fixer iterations per
+ *    `rules/hatch3r-agent-orchestration.md` Phase 4 Validation Pass).
+ * 3. `mandatoryFloorsSatisfied === true` (always-mode floor specialists —
+ *    `hatch3r-security` and `hatch3r-testability` — returned `SUCCESS` per
+ *    `rules/hatch3r-agent-orchestration.md` Specialist Success Criteria).
+ * 4. `reReviewIterations <= 1` (at most one lightweight re-review after
+ *    specialists produced code fixes, per Phase 4 Validation Pass; Critical
+ *    findings trigger a single fixer pass).
+ * 5. `unresolvedCriticalFindings === 0` (no Phase-4 specialist surfaced
+ *    Critical-severity findings that were not resolved by the fixer pass).
+ */
+export interface Phase4CompletionContract {
+  complete: boolean;
+  /** Whether always-mode floor specialists (security + testability) succeeded. */
+  mandatoryFloorsSatisfied: boolean;
+  /** Number of lightweight reviewer re-reviews after specialist code fixes. */
+  reReviewIterations: number;
+  /** Critical findings still unresolved after the fixer pass. */
+  unresolvedCriticalFindings: number;
+  /**
+   * Specialists that produced code mutations (not just findings) — used to
+   * scope the Phase 4 Validation Pass re-review per the orchestration rule.
+   */
+  codeMutatingSpecialists: string[];
+  /**
+   * Reason the contract is `complete: false`, if applicable. Cited per
+   * Charter directive 20 (proof_trace) — never report incompleteness without
+   * naming which clause failed.
+   */
+  incompletionReason?: string;
+}
+
+/**
+ * Evaluate the Phase 4 completion contract against a populated PipelineContext.
+ *
+ * Finding D7-M8: provides a single typed predicate the orchestrator (or a
+ * downstream AI tool consuming the typed state-model) checks before declaring
+ * Phase 4 complete. Pure function with no side effects; safe to call from
+ * read-only contexts. Returns `complete: false` with `incompletionReason`
+ * naming the first failing clause so callers can surface the gap to the user
+ * without re-implementing the clause set.
+ */
+export function evaluatePhase4Completion(
+  qualityResults: QualityResults,
+  options: {
+    reReviewIterations?: number;
+    unresolvedCriticalFindings?: number;
+    codeMutatingSpecialists?: string[];
+  } = {},
+): Phase4CompletionContract {
+  const reReviewIterations = options.reReviewIterations ?? 0;
+  const unresolvedCriticalFindings = options.unresolvedCriticalFindings ?? 0;
+  const codeMutatingSpecialists = options.codeMutatingSpecialists ?? [];
+
+  const securitySpec = qualityResults.specialists.find(
+    (s) => s.specialist === "hatch3r-security",
+  );
+  const testabilitySpec = qualityResults.specialists.find(
+    (s) => s.specialist === "hatch3r-testability",
+  );
+  const mandatoryFloorsSatisfied =
+    securitySpec?.status === "SUCCESS" && testabilitySpec?.status === "SUCCESS";
+
+  const v = qualityResults.validationPass;
+
+  if (!v.testsPass) {
+    return {
+      complete: false,
+      mandatoryFloorsSatisfied,
+      reReviewIterations,
+      unresolvedCriticalFindings,
+      codeMutatingSpecialists,
+      incompletionReason: "validationPass.testsPass === false",
+    };
+  }
+  if (!v.typecheckPass) {
+    return {
+      complete: false,
+      mandatoryFloorsSatisfied,
+      reReviewIterations,
+      unresolvedCriticalFindings,
+      codeMutatingSpecialists,
+      incompletionReason: "validationPass.typecheckPass === false",
+    };
+  }
+  if (v.regressionsPersist) {
+    return {
+      complete: false,
+      mandatoryFloorsSatisfied,
+      reReviewIterations,
+      unresolvedCriticalFindings,
+      codeMutatingSpecialists,
+      incompletionReason: "validationPass.regressionsPersist === true",
+    };
+  }
+  if (!mandatoryFloorsSatisfied) {
+    return {
+      complete: false,
+      mandatoryFloorsSatisfied,
+      reReviewIterations,
+      unresolvedCriticalFindings,
+      codeMutatingSpecialists,
+      incompletionReason:
+        "mandatory floor specialist (hatch3r-security or hatch3r-testability) did not return SUCCESS",
+    };
+  }
+  if (reReviewIterations > 1) {
+    return {
+      complete: false,
+      mandatoryFloorsSatisfied,
+      reReviewIterations,
+      unresolvedCriticalFindings,
+      codeMutatingSpecialists,
+      incompletionReason:
+        "Phase 4 Validation Pass re-review exceeded max 1 iteration (rules/hatch3r-agent-orchestration.md)",
+    };
+  }
+  if (unresolvedCriticalFindings > 0) {
+    return {
+      complete: false,
+      mandatoryFloorsSatisfied,
+      reReviewIterations,
+      unresolvedCriticalFindings,
+      codeMutatingSpecialists,
+      incompletionReason: `${unresolvedCriticalFindings} Critical finding(s) unresolved after Phase 4 fixer pass`,
+    };
+  }
+
+  return {
+    complete: true,
+    mandatoryFloorsSatisfied,
+    reReviewIterations,
+    unresolvedCriticalFindings,
+    codeMutatingSpecialists,
+  };
+}
+
 export interface ReviewResult {
   iterations: number;
   finalVerdict: ReviewVerdict;
@@ -140,6 +293,43 @@ export interface ProjectTypeContext {
 }
 
 /**
+ * Variance budget for opt-in non-determinism handling.
+ *
+ * Finding D7-M10 / D7-SA7.4-3 (CL-2 spec for `varianceTracker.ts`). The audit
+ * prompt (`governance/AUDIT.md` §Reproducibility) acknowledges LLM sampling
+ * variance for findings; framework runtime orchestrators inherit no analogous
+ * posture. This typed record is the CL-2 stub that future implementations
+ * read — `N` is the sample count (`1` = single-pass default at Tier 1/2),
+ * `majorityVoteUsed` records whether the orchestrator already reached a
+ * majority verdict and can short-circuit further runs. Tier 3 with
+ * `floor:security` items defaults to `N=3` on Phase 4 security-auditor per
+ * `agents/shared/quality-charter.md` §Non-Determinism Budget; lower-stakes
+ * orchestrators set `N=1`. Opt-in via `--variance-runs=N` flag on any
+ * orchestrator command. When `N > 1`, downstream specialist agents emit
+ * structured per-run verdicts and the orchestrator reconciles via the
+ * reconciliation rule documented alongside the (future) `varianceTracker.ts`
+ * module. Until that module lands, the field acts as a typed contract for
+ * downstream pack integrators.
+ */
+export interface VarianceBudget {
+  /** Sample count for variance reduction. `1` = single-pass default. */
+  N: number;
+  /** Whether a majority verdict was reached before all N runs completed. */
+  majorityVoteUsed: boolean;
+  /**
+   * Reproducibility key components recorded when `N > 1` runs land — the
+   * future `varianceTracker.ts` writes these per-run for replay audit.
+   * Mirrors `rules/hatch3r-ai-evals.md` reproducibility key vocabulary.
+   */
+  reproducibilityKey?: {
+    model: string;
+    promptHash: string;
+    seed?: number;
+    temperature?: number;
+  };
+}
+
+/**
  * The PipelineContext is the canonical handoff object passed between
  * all four pipeline phases. Each phase populates its section.
  */
@@ -154,6 +344,14 @@ export interface PipelineContext {
 
   /** Detected project type for specialist selection (Finding #56). */
   projectType?: ProjectTypeContext;
+
+  /**
+   * Variance budget for opt-in non-determinism handling (CL-2 spec per
+   * Finding D7-M10 / D7-SA7.4-3). `null` or absent → single-pass default;
+   * non-null → opt-in sampled run per `agents/shared/quality-charter.md`
+   * §Non-Determinism Budget.
+   */
+  varianceBudget?: VarianceBudget | null;
 
   // Phase 1 outputs (Research)
   researchFindings?: ResearchFindings;

@@ -70,11 +70,11 @@ Auto-tiering can misclassify — a trivial brief scored as Deep, or a multi-doma
 
 ## Confidence Propagation Contract
 
-The Phase 2 spec-agent delegation prompt MUST include the confidence expression requirement below (verbatim), per the quality charter §1 rule.
+Every sub-agent delegation prompt in this command MUST include the confidence expression requirement below (verbatim). Sub-agents are invoked with the `quality_charter: agents/shared/quality-charter.md` reference in their frontmatter, but the orchestrator repeats the directive to override runtime prompt defaults per the charter §1 rule.
 
 > Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
 
-Downstream propagation: the Phase 0 project-state classification (already scored against the brownfield-signal table), each of the 8 deliverables' risk and acceptance-criteria confidence, and the Phase 6 iteration-summary Confidence field MUST carry a high/medium/low rating sourced from the spec agent. Market-research figures (greenfield) are medium at best unless tied to a cited source per Decision 14. Dropping the signal between stages is a gate failure.
+Downstream propagation: the Phase 0 project-state classification (already scored against the brownfield-signal table), each of the 8 deliverables' risk and acceptance-criteria confidence, and the Phase 6 iteration-summary Confidence field MUST carry a high/medium/low rating sourced from the spec agent. Market-research figures (greenfield) are medium at best unless tied to a cited source per Decision 14. Every ASK checkpoint that reports verification quality, every gate that evaluates a sub-agent verdict, and every output block that surfaces merge-readiness MUST carry a high/medium/low confidence rating sourced from the upstream sub-agent. Dropping the signal between stages is a gate failure.
 
 ## Phase 1.5 — Emit Pre-Execution Cost Preview
 

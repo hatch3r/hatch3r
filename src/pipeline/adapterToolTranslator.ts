@@ -123,7 +123,11 @@ export function toCopilotToolsFrontmatter(agentId: string): readonly string[] | 
  * Cursor subagent frontmatter does not expose an explicit tool
  * allowlist — the closest analogue is `readonly: true`, which blocks
  * file edits and state-changing shell commands (per Cursor subagents
- * docs, accessed 2026-04-20).
+ * docs at https://cursor.com/docs/agent/subagents, re-verified
+ * 2026-05-28 — the documented frontmatter set still lists
+ * `name | description | model | readonly | is_background` with
+ * `readonly: boolean (default false)` carrying the restricted-write
+ * semantics).
  *
  * Returns `true` when the agent's policy lacks both `write` and
  * `execute` categories (i.e., the strongest restriction Cursor can
@@ -198,7 +202,10 @@ export const ADAPTER_ALLOWLIST_COVERAGE: readonly AdapterAllowlistCoverage[] = [
     coverage: "full",
     translator: "toCursorReadonlyFrontmatter",
     rationale: "Cursor exposes only a `readonly: true` boolean — emitted when policy lacks write+execute.",
-    sourceUrl: "https://cursor.com/docs/agents",
+    // D9-M1 (Cycle 10 D9 Wave-3, P3): re-verified 2026-05-28 — subagents
+    // docs moved from /docs/agents to /docs/agent/subagents; `readonly`
+    // boolean remains the documented restricted-write primitive.
+    sourceUrl: "https://cursor.com/docs/agent/subagents",
   },
 ];
 
@@ -249,9 +256,19 @@ export interface AskUserToolEntry {
   readonly invocationHint?: string;
 }
 
+// D9-M5 (Cycle 10 D9 Wave-3, P3): per-entry access-date stamps so the
+// per-cycle currency mechanism can be audited without grepping the wider
+// codebase. Each entry MUST carry a `// verified YYYY-MM-DD @ <docs URL>`
+// comment that is refreshed during the D9 per-cycle web-research pass
+// (governance/audit/domains/D09-platform-adapters.md SA9.1-9.3 checklist
+// item "User-question tool"). Bumping a tool name without updating the
+// date stamp is a Medium finding.
 const ASK_USER_TOOLS: Readonly<Record<string, AskUserToolEntry | null>> = {
+  // verified 2026-05-28 @ https://code.claude.com/docs/en/sub-agents (AskUserQuestion native tool documented).
   claude: { name: "AskUserQuestion" },
+  // verified 2026-05-28 @ https://cursor.com/docs/agent/subagents (no native question tool documented; plain-text fallback applies).
   cursor: null,
+  // verified 2026-05-28 @ https://docs.github.com/en/copilot/reference/custom-agents-configuration (no native question tool documented; plain-text fallback applies).
   copilot: null,
 };
 

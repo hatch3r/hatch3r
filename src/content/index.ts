@@ -19,6 +19,9 @@ import {
   isCapabilityTag,
   isCustomizeTag,
   isFloorTag,
+  type RoleId,
+  FACET_TAG_ADMISSIONS,
+  type FacetId,
 } from "./tags.js";
 
 /**
@@ -120,6 +123,16 @@ export function assertSafePath(relativePath: string, label: string): void {
  * name, etc.). User-tier artifacts use a separate, opt-in scanner — see
  * {@link extractUserContentReferences} — applied only to user bodies during
  * D20 cross-reference checks.
+ *
+ * D2-M10 (D2 Medium, Cycle 10 Wave 3 rollover): bare prose references
+ * (e.g. "delegate to hatch3r-implementer" without backticks) are detected
+ * by a sibling scanner {@link extractBareContentReferences} and surfaced
+ * by {@link validateCrossReferences} as advisory warnings ONLY when the
+ * bare match resolves to a known content id. This avoids the
+ * adjective-modifier false-positive class ("hatch3r-generated code",
+ * "hatch3r-managed file", "hatch3r-driven workflow") that broadening this
+ * primary scanner would create — those phrases are prose modifiers, not
+ * delegations, and have no corresponding id in the index.
  */
 export function extractContentReferences(content: string): string[] {
   const refs = new Set<string>();
@@ -127,6 +140,52 @@ export function extractContentReferences(content: string): string[] {
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(content)) !== null) {
     refs.add(match[1]);
+  }
+  return [...refs];
+}
+
+/**
+ * D2-M10 (D2 Medium, Cycle 10 Wave 3 rollover): scan markdown for bare
+ * prose mentions of `hatch3r-foo` / `cmd-hatch3r-foo` outside backticks,
+ * with carve-outs for clear non-reference contexts. Returns a deduplicated
+ * list of candidate ids — the CALLER is responsible for resolving each
+ * against the content index and deciding whether to warn.
+ *
+ * The "candidates only, no judgement" return contract mitigates the
+ * adjective-modifier false-positive class (`hatch3r-generated code`,
+ * `hatch3r-managed file`, `hatch3r-driven workflow`) — those phrasal
+ * modifiers DO match the bare regex but have no corresponding id in the
+ * content index. {@link validateCrossReferences} applies a resolve-or-skip
+ * discipline that keeps phrasal modifiers off the warnings channel even
+ * though they match here.
+ *
+ * Carve-outs (all suppress the candidate):
+ *   - URL hosts/paths: preceded by `/`, `\`, or `:` (covers `https://...`,
+ *     `github.com/.../hatch3r-foo`, Windows paths)
+ *   - File extensions: followed by `.md`, `.mdc`, `.json`, `.yaml`, `.yml`,
+ *     `.ts`, `.js`, `.tsx`, `.jsx` so `hatch3r-foo.md` (a filename) does not
+ *     surface as a reference
+ *   - Intra-token suffixes: a trailing `-` followed by more name chars means
+ *     the regex stopped at the wrong boundary
+ *   - Backtick-adjacent: characters at boundary positions matching the
+ *     backticked-pattern emitter so we do not duplicate hits already
+ *     captured by {@link extractContentReferences}
+ */
+export function extractBareContentReferences(content: string): string[] {
+  const refs = new Set<string>();
+  const FILE_EXT = /\.(?:md|mdc|json|ya?ml|tsx?|jsx?)\b/;
+  const barePattern = /\b((?:cmd-)?hatch3r-[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)/g;
+  let match: RegExpExecArray | null;
+  while ((match = barePattern.exec(content)) !== null) {
+    const ref = match[1];
+    const start = match.index;
+    const prev = start > 0 ? content[start - 1] : "";
+    if (prev === "/" || prev === "\\" || prev === ":" || prev === "`") continue;
+    const after = content.slice(start + ref.length);
+    if (FILE_EXT.test(after.slice(0, 6))) continue;
+    if (after.startsWith("-")) continue;
+    if (after.startsWith("`")) continue;
+    refs.add(ref);
   }
   return [...refs];
 }
@@ -165,6 +224,18 @@ export interface CrossReferenceResult {
  * Validate cross-references between content items.
  * Parses markdown bodies for references to other content IDs and verifies
  * all referenced IDs exist in the index.
+ *
+ * D2-M10 (D2 Medium, Cycle 10 Wave 3 rollover): in addition to the strict
+ * backtick-scoped check, scan for BARE prose references (via
+ * {@link extractBareContentReferences}) and surface a typo-detection
+ * warning when a bare candidate is "close to" a known id (Levenshtein
+ * distance ≤ 2) but does not exactly match any indexed id. This catches
+ * the silent-invisibility class — a paragraph like "delegate to
+ * hatch3r-implementr" (typo, missing "e") previously passed validation
+ * because the unbacticked reference fell outside the scanner. The
+ * distance threshold avoids the adjective-modifier false-positive class
+ * ("hatch3r-generated" is distance 4-5+ from any real id and is correctly
+ * suppressed).
  */
 export async function validateCrossReferences(
   contentRoot: string,
@@ -172,6 +243,28 @@ export async function validateCrossReferences(
 ): Promise<CrossReferenceResult> {
   const warnings: string[] = [];
   const allIds = new Set(index.items.map((item) => item.id));
+  const allIdsList = [...allIds];
+
+  // D2-M10: cheap Levenshtein distance for bare-ref typo detection. Scoped
+  // small (≤ 2) so adjective-modifier matches like "hatch3r-generated" never
+  // pair with a real id; only single-edit typos like "hatch3r-implementr"
+  // resolve to "hatch3r-implementer".
+  const editDistance = (a: string, b: string): number => {
+    if (a === b) return 0;
+    if (a.length === 0) return b.length;
+    if (b.length === 0) return a.length;
+    let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+    const curr = new Array<number>(b.length + 1);
+    for (let i = 1; i <= a.length; i++) {
+      curr[0] = i;
+      for (let j = 1; j <= b.length; j++) {
+        const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+        curr[j] = Math.min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost);
+      }
+      prev = [...curr];
+    }
+    return prev[b.length];
+  };
 
   for (const item of index.items) {
     let content: string;
@@ -195,6 +288,37 @@ export async function validateCrossReferences(
         );
       }
     }
+
+    // D2-M10: bare-prose typo scan. Look at bare candidates NOT already
+    // captured by the backticked scan and NOT already a known id — only
+    // surface a warning when the candidate is within Levenshtein 2 of a
+    // real id, which is a strong signal it is a typo (not an adjective).
+    const bareRefs = extractBareContentReferences(content);
+    const backticked = new Set(refs);
+    for (const bareRef of bareRefs) {
+      if (backticked.has(bareRef)) continue; // already covered by strict scan
+      if (bareRef === item.id) continue;
+      if (allIds.has(bareRef) || allIds.has(`${COMMAND_ID_PREFIX}${bareRef}`)) {
+        continue; // resolves cleanly — bare prose mention of a real id
+      }
+      // Find nearest existing id; only warn when distance ≤ 2 (single
+      // character typo or short transposition).
+      let best: string | undefined;
+      let bestDistance = Infinity;
+      for (const known of allIdsList) {
+        const d = editDistance(bareRef, known);
+        if (d < bestDistance) {
+          bestDistance = d;
+          best = known;
+        }
+        if (bestDistance === 0) break;
+      }
+      if (best && bestDistance > 0 && bestDistance <= 2) {
+        warnings.push(
+          `${item.type} "${item.id}" contains bare prose reference "${bareRef}" which appears to be a typo of "${best}" (edit distance ${bestDistance})`,
+        );
+      }
+    }
   }
 
   return { warnings };
@@ -208,7 +332,12 @@ export async function validateCrossReferences(
 // admitted CQ agent; hatch3r-testability is `tier:enterprise-only` without
 // `protected: true`, so the always-mode contract is enforced at orchestrator
 // runtime via SPECIALIST_TRIGGER_TABLE rather than via this strict roster.
-const ORCHESTRATION_REQUIRED_AGENTS = [
+// Exported so the custom-content picker can surface a "required by 4-phase
+// pipeline" hint inline at item-selection time (D10-M18) — previously the
+// dependency check ran only AFTER `resolveSelection`, so a user deselecting
+// `hatch3r-implementer` discovered the warning post-submission instead of
+// at the row that caused it.
+export const ORCHESTRATION_REQUIRED_AGENTS = [
   "hatch3r-researcher",
   "hatch3r-implementer",
   "hatch3r-reviewer",
@@ -593,7 +722,7 @@ export function resolveSelection(
   index: ContentIndex,
   customSelections?: string[],
   projectLanguages?: string[],
-  options?: { skipContextFilters?: boolean; maturity?: MaturityTier },
+  options?: { skipContextFilters?: boolean; maturity?: MaturityTier; role?: RoleId; facets?: ReadonlyArray<FacetId> },
 ): ContentSelection {
   let selected: CatalogItem[];
   const maturity = options?.maturity ?? DEFAULT_MATURITY_TIER;
@@ -629,6 +758,18 @@ export function resolveSelection(
     const includeIdSet = new Set<string>(preset.includeIds ?? []);
     const excludeIdSet = new Set<string>(preset.excludeIds ?? []);
 
+    // D14-M9 (Cycle 10): build the union of facet-admission tags from the
+    // user-supplied `--facets` list (a11y, performance, observability).
+    // Items carrying any of these tags are admitted by the capability
+    // stage even when the preset's `capabilities` would not have admitted
+    // them — graduated customization without dropping to full custom.
+    const facetTagUnion = new Set<string>();
+    for (const facet of options?.facets ?? []) {
+      const admissions = FACET_TAG_ADMISSIONS[facet];
+      if (!admissions) continue;
+      for (const tag of admissions) facetTagUnion.add(tag);
+    }
+
     for (const item of index.items) {
       if (admitted.has(item.id)) continue;
       // excludeIds is subtractive but cannot remove floor / protected items —
@@ -638,8 +779,14 @@ export function resolveSelection(
       const itemCapabilities = item.tags.filter(isCapabilityTag);
       const hasMatchingCapability = itemCapabilities.some((t) => capSet.has(t));
       const isCustomizeItem = item.tags.some(isCustomizeTag);
+      // D14-M9: facet admission. An item matches a facet when it carries
+      // any of the facet's mapped tags (FACET_TAG_ADMISSIONS).
+      const hasMatchingFacet =
+        facetTagUnion.size > 0 && item.tags.some((t) => facetTagUnion.has(t));
 
       if (hasMatchingCapability) {
+        admitted.add(item.id);
+      } else if (hasMatchingFacet) {
         admitted.add(item.id);
       } else if (isCustomizeItem && preset.includeCustomize) {
         admitted.add(item.id);
@@ -699,6 +846,26 @@ export function resolveSelection(
   selected = selected.filter((item) =>
     isAdmittedByMaturityTier(item.tags, maturity, item.protected === true),
   );
+
+  // ── Stage 7: Role filter (D14-M6, Cycle 10 rollover) ──
+  // When a role is selected (e.g. `--role reviewer`), keep only items that
+  // (a) are floor-admitted (security and UI/UX floor still applies), or
+  // (b) are protected (orchestration pipeline survives every role), or
+  // (c) carry a matching `role:<id>` tag at the artifact source.
+  //
+  // A role with no matching tagged items collapses to "floor + protected
+  // only" — the role exists but the canonical corpus has not yet been
+  // re-tagged for it. This is deliberate: the surface lands without the
+  // tagging effort blocking it; later commits add `role:*` tags to the
+  // existing artifacts.
+  if (options?.role) {
+    const roleTag = `role:${options.role}`;
+    selected = selected.filter((item) => {
+      if (item.protected) return true;
+      if (item.tags.some(isFloorTag)) return true;
+      return item.tags.includes(roleTag);
+    });
+  }
 
   // Build the selection items grouped by type
   const items: ContentSelection["items"] = {
@@ -1254,7 +1421,7 @@ export function estimatePresetItemCount(
   teamSize: "solo" | "team",
   index: ContentIndex,
   projectLanguages?: string[],
-  options?: { skipContextFilters?: boolean; maturity?: MaturityTier },
+  options?: { skipContextFilters?: boolean; maturity?: MaturityTier; role?: RoleId; facets?: ReadonlyArray<FacetId> },
 ): number {
   const selection = resolveSelection(preset, projectType, teamSize, index, undefined, projectLanguages, options);
   return Object.values(selection.items).reduce((sum, arr) => sum + arr.length, 0);

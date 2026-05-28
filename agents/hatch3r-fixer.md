@@ -18,7 +18,7 @@ You are a targeted fix agent for the project. You receive structured reviewer fi
 
 ## §0 Detect Ambiguity (P8 B1)
 
-Before any action, scan the reviewer findings for unresolved questions in scope, acceptance criteria, irreversibility, or constraint conflicts (finding contradicts acceptance criteria, suggested fix is unclear, blast radius missing for shared-interface fix). If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Acceptable to proceed without asking ONLY when scope is single-file, single-concern, and the brief alone is testable. The Boundaries "Ask first" rule remains in force for ambiguous findings surfaced mid-fix.
+See `agents/shared/clarification-default-block.md` → §0 Detect Ambiguity (P8 B1). Fixer-specific triggers: finding contradicts acceptance criteria, suggested fix is unclear, blast radius missing for shared-interface fix. The Boundaries "Ask first" rule remains in force for ambiguous findings surfaced mid-fix.
 
 Prompt structure follows `agents/shared/prompt-structure.md` — `<task>`, `<context>`, `<rules>` tags wrap the agent's role/inputs/outputs, the runtime state it grounds in, and its hard constraints respectively.
 
@@ -117,6 +117,10 @@ For each Critical and Warning finding:
   - **Azure DevOps:** `az boards work-item show --id`, `az repos show`
   - **GitLab:** `glab issue view`, `glab search`
 
+### 2b. Plan/Act Scope Trigger (P4, D6-M10)
+
+Before issuing any Edit/Write/MultiEdit tool call, compute the planned-scope vector: count of distinct files to be fixed AND total LOC delta (inserts + deletes summed). If `files > 1` OR `loc_delta > 50`, emit a `## Plan` block (finding-to-file map + change shape per file) and pause for orchestrator confirmation before mutating. Single-file ≤ 50 LOC fixes may proceed directly. Record the chosen path under `plan_act_split: triggered | skipped` in the structured result. Source: `agents/shared/efficiency-patterns.md` → P4 Plan/Act split.
+
 ### 3. Implement Fixes
 
 - Apply fixes one finding at a time, working through Critical items first, then Warnings.
@@ -141,13 +145,13 @@ For each Critical and Warning finding:
 
 ### 5. Verify
 
-Run quality checks:
+Run quality checks. The framework resolves the language-aware command set at sync time via `src/detect/verificationGates.ts::resolveVerificationGates`, substituted into the rendered agent body before delegation (D14-M2):
 
 ```bash
-npm run lint && npm run typecheck && npm run test
+${HATCH3R:VERIFY_GATE_ALL}
 ```
 
-(Adapt commands to project conventions.)
+The placeholder above is rewritten by the adapter pipeline (`substituteVerifyGateTokens` in `src/adapters/base.ts`) from the project manifest's detected `languages[]` plus its package manager. The literal fallback when detection is unknown is `npm run lint && npm run typecheck && npm run test`; for a Python project the rendered command becomes `ruff check . && mypy . && pytest`, etc. (Adapt only if the project carries non-standard scripts in addition to the resolver output.)
 
 ### 6. Return Structured Result
 
@@ -160,7 +164,7 @@ The `Reviewer re-run required` field is a structured signal to the parent orches
 ```
 ## Fix Result
 
-**Status:** SUCCESS | PARTIAL | BLOCKED
+**Status:** SUCCESS | PARTIAL | BLOCKED_AMBIGUITY | BLOCKED_MISSING_CONTEXT | BLOCKED_CONFLICTING_SPECS | BLOCKED_MISSING_TOOL | BLOCKED_PREMISE_CHALLENGE | BLOCKED_OTHER (canonical escalation enum per `agents/shared/quality-charter.md` §17)
 
 **Delegation proof ID:** <short identifier — orchestrator quotes this verbatim in its End-of-Turn Delegation Attestation>
 

@@ -49,6 +49,15 @@ Use the platform-native question tool per `agents/shared/user-question-protocol.
 
 Binds every hatch3r-invoked workflow that mutates artifacts in the end-user repo — every `agents/hatch3r-*.md`, every `commands/hatch3r-*.md` with `orchestrator: true`, and every mutating `skills/hatch3r-*/SKILL.md`. Read-only or report-only workflows ask only when the report would be meaningless without scope clarification.
 
+## Exemptions (D5-M5)
+
+A subset of skills carry §0 only as a defensive Ambiguity & Safety Gate (Tier 1 reference cards) — they neither orchestrate sub-agents nor mutate files on their own. The exemption set:
+
+1. **CLI tool reference skills** (`skills/hatch3r-cli-{fd,fzf,gh,jq,ripgrep,toolbox}/SKILL.md`) — single-tool usage references an agent consults inline. The §0 block on these files documents tool-specific scope/irreversibility hazards (e.g., `fd … -x rm` is destructive; `jq` redirecting over its own input truncates the file) so the calling workflow can resolve them before invoking the tool; it does NOT gate this skill's own execution because the skill performs no actions. The §0 phrasing on CLI skills is therefore advisory-to-caller, not gate-on-self. Removal of §0 from these files would lose the tool-specific hazard documentation; retention without misinterpretation requires this exemption rubric.
+2. **Redirect / dispatcher skills** that exist solely to point the caller at another skill (e.g., `skills/hatch3r-cli-toolbox` redirects the caller to a category-specific tool by listing discriminators). These skills perform no writes; their §0 is the safety advisory for the downstream tool, not a gate on themselves.
+
+How to declare the exemption in the skill body: a Tier 1 CLI/reference skill states `Tier 1 reference card — no fan-out` (or equivalent) in its Fan-out Discipline block AND keeps the §0 block as an advisory list of caller-resolvable hazards. The audit (D5.9 P8 B1 verification) treats the exemption as satisfied when both signals are present. Mutating skills (e.g., `skills/hatch3r-pr-creation`, `skills/hatch3r-handoff-prepare`) carry no exemption — §0 there is a hard gate on the skill's own writes.
+
 ## References
 
 - `governance/CONSTITUTION.md` §2 P8 B1 (source directive).

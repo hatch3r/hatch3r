@@ -1,7 +1,12 @@
-import { appendFile, readFile, stat, readdir } from "node:fs/promises";
+import { appendFile, readFile, stat, readdir, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import chalk from "chalk";
+// D10-M12 (Cycle 10): surface `.customize.yaml` syntax errors during sync so
+// users do not silently lose customization. The full validator lives in
+// `validate.ts::validateCustomizeYaml`; this sync-time pass runs only the
+// parse + size checks (the cheap, high-signal half) and emits warnings.
+import { parse as parseYaml } from "yaml";
 // SA12.4-F1 / F2.7-F5 (D12/D2): the provenance writer records an emit-time
 // content hash per output so `hatch3r status` can later attribute drift
 // direction (user edit vs outdated canonical). `hashEmittedContent` is the
@@ -13,7 +18,7 @@ import { readManifest, writeManifest, addManagedFile } from "../../manifest/hatc
 import { rehydrateCustomization } from "../../manifest/rehydrate.js";
 import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
 import { checkContextBudget, formatBudgetWarning } from "../../adapters/contextBudget.js";
-import { safeWriteFile } from "../../merge/safeWrite.js";
+import { safeWriteFile, enableDefaultCrossProcessLocking } from "../../merge/safeWrite.js";
 import { withSnapshot } from "../../pipeline/snapshot.js";
 import { sweepOrphansForAdapter, formatOrphanCleanupDiagnostic, type OrphanCleanupEntry } from "../../merge/orphanCleanup.js";
 import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
@@ -43,6 +48,9 @@ import {
   classifyFailure,
   classifyDependency,
   getRecoveryGuidance,
+  hydrateBreakersFromLog,
+  serializeBreakerMap,
+  BREAKER_STATE_FILE,
   type CircuitBreakerState,
 } from "../../pipeline/circuitBreaker.js";
 import { executeWithPhaseTimeout } from "../../pipeline/phaseTimeout.js";
@@ -73,6 +81,9 @@ import {
   setVerbose,
   verbose,
 } from "../shared/ui.js";
+import { emitJson, parseFormatOption, type CliOutputFormat } from "../shared/output.js";
+import { getRunId } from "../shared/runId.js";
+import { buildCustomizationSummary } from "../../adapters/customizationSummary.js";
 
 /**
  * Check if docs/specs/ exists and whether spec files are older than
@@ -152,17 +163,29 @@ async function appendFailure(agentsDir: string, phase: string, error: unknown, t
       }
     } catch (err) {
       // File does not exist yet — that is fine, appendFile will create it.
-      // Surface under --verbose so unexpected read failures stay observable.
+      // Read failures other than ENOENT may indicate disk corruption, so
+      // surface them. ENOENT is the normal first-run path; suppress under
+      // --verbose only.
       const message = err instanceof Error ? err.message : String(err);
-      verbose(`sync: appendFailure read-before-rotate skipped — ${message}`);
+      if (err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code === "ENOENT") {
+        verbose(`sync: appendFailure read-before-rotate skipped (file does not exist yet) — ${message}`);
+      } else {
+        // D1-M7 (Cycle 10 Wave-3 Medium): emit a one-line stderr diagnostic
+        // even outside --verbose mode so persistent read failures (perm
+        // denied, disk corruption) are visible. Prior behavior swallowed
+        // silently, masking the underlying fs error from operators.
+        console.error(`[hatch3r sync] appendFailure read-before-rotate failed — ${message}`);
+      }
     }
 
     await appendFile(logPath, line);
   } catch (err) {
-    // Failure logging must not break the sync command. Surface under --verbose
-    // so persistent write failures still get attention from operators.
+    // Failure logging must not break the sync command, but the operator
+    // needs to know when the audit trail is failing to persist. Emit a
+    // single-line diagnostic to stderr regardless of --verbose so the
+    // signal is visible in CI logs. D1-M7 (Cycle 10 Wave-3).
     const message = err instanceof Error ? err.message : String(err);
-    verbose(`sync: appendFailure suppressed — ${message}`);
+    console.error(`[hatch3r sync] failure-log write suppressed — ${message}`);
   }
 }
 
@@ -222,10 +245,43 @@ export async function syncCommand(
      * commander and downstream tooling can detect resume intent.
      */
     resume?: boolean;
+    /**
+     * SA12.1-F-D12-M2 (D12, P1): output format for CI consumers. `"json"`
+     * emits a one-shot structured payload to stdout right before the
+     * decorated summary box (or before the terminal HatchError throw).
+     * `"human"` (default) keeps the legacy chrome.
+     */
+    format?: string;
+    /**
+     * SA12.1-F-D12-M8 (D12, P1): under `--dry-run`, print the FULL content
+     * body that the named adapter would write so the operator can verify
+     * the bytes before any write happens. Without this flag, `--dry-run`
+     * only records `{path, action}` rows, leaving the actual content unseen.
+     * Accepts a single adapter id (cursor | claude | copilot). Implied to
+     * `--dry-run`; passing without `--dry-run` is rejected as a usage error.
+     */
+    previewTool?: string;
   } = {},
 ): Promise<void> {
-  setVerbose(!!opts.verbose);
-  printBanner(true);
+  // SA12.1-F-D12-M2: branch on `--format json` BEFORE banner/spinner so
+  // CI consumers see exactly one JSON document on stdout.
+  const format: CliOutputFormat = parseFormatOption(opts.format);
+  const jsonMode = format === "json";
+  setVerbose(jsonMode ? false : !!opts.verbose);
+  if (!jsonMode) printBanner(true);
+
+  // SA12.1-F-D12-M8 (D12, P1): `--preview-tool <name>` only makes sense
+  // alongside `--dry-run` — without it, the bytes are written immediately
+  // and a "preview" is moot. Reject the combination loudly so the operator
+  // does not run a destructive sync expecting a preview.
+  if (opts.previewTool && !opts.dryRun) {
+    throw new HatchError(
+      `--preview-tool requires --dry-run`,
+      2,
+      "VALIDATION_ERROR",
+      "Re-run with both flags: `hatch3r sync --dry-run --preview-tool=<adapter-id>`.",
+    );
+  }
 
   const rootDir = process.cwd();
 
@@ -299,6 +355,17 @@ export async function syncCommand(
       `Run ${chalk.cyan("hatch3r sync")} from the workspace root to sync all repos.`,
     );
   }
+  // D8-M3: workspace sync runs N parallel repo writes against a shared
+  // `.hatch3r/workspace.json` + per-repo manifests. Default-on cross-process
+  // locking serializes the read-modify-write window so two concurrent
+  // operators (or CI matrix runners) on the same workspace cannot silently
+  // clobber each other's `lastSync` timestamps. Set `HATCH3R_LOCK=0` to opt
+  // out. Single-repo sync invocations still inherit the prior default
+  // (no lock unless `HATCH3R_LOCK=1`) so the existing standalone flow is
+  // unchanged.
+  if (wsContext.type === "workspace-root" || wsContext.type === "workspace-member") {
+    enableDefaultCrossProcessLocking();
+  }
 
   // Wave 6: relocate any pre-1.9 `.agents/` state before reading the manifest
   // so legacy installs sync without manual `init` first.
@@ -313,7 +380,7 @@ export async function syncCommand(
     console.log(chalk.dim("  Run `npx hatch3r init` to set up your project first.\n"));
     throw new HatchError(
       `No ${HATCH3R_DIR}/hatch.json found.`,
-      1,
+      undefined,
       "CONFIG_ERROR",
       "Run `npx hatch3r init` to set up your project first.",
     );
@@ -357,7 +424,7 @@ export async function syncCommand(
         );
         throw new HatchError(
           "User-content pre-flight scan failed (use --force to override)",
-          1,
+          undefined,
           "VALIDATION_ERROR",
           "Edit the offending file(s) listed above, delete via `rm`, or re-run with `--force` to propagate as-is.",
         );
@@ -401,7 +468,7 @@ export async function syncCommand(
         );
         throw new HatchError(
           "Learnings pre-flight scan failed (use --force to override)",
-          1,
+          undefined,
           "VALIDATION_ERROR",
           "Fix the offending learning file(s) listed above (oversized, binary, or invalid name), or re-run with `--force` to materialize them as-is.",
         );
@@ -554,7 +621,37 @@ export async function syncCommand(
   // transient errors trips and is short-circuited until the cooldown
   // elapses. Maintained across the loop so a tool seen multiple times
   // (e.g., during retry) accumulates state correctly.
-  const breakers = new Map<string, CircuitBreakerState>();
+  //
+  // D8-M4: hydrate from the on-disk JSONL log so a recurring transient
+  // failure (e.g. a flaky MCP endpoint) is recognised as already-open
+  // across invocations. Entries older than BREAKER_STATE_TTL_MS (24h) are
+  // dropped on read; hydrate failures degrade to an empty map silently
+  // since persistence is best-effort.
+  const breakerStatePath = join(hatch3rDir, BREAKER_STATE_FILE);
+  let breakers = new Map<string, CircuitBreakerState>();
+  try {
+    const breakerLog = await readFile(breakerStatePath, "utf-8");
+    breakers = hydrateBreakersFromLog(breakerLog);
+    if (breakers.size > 0) {
+      verbose(`Hydrated ${breakers.size} circuit breaker(s) from ${BREAKER_STATE_FILE}`);
+    }
+  } catch (err) {
+    // ENOENT on first run is expected; any other failure is logged under
+    // --verbose per the Silent Failure Contract (no functional impact —
+    // we just start from a fresh map).
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== "ENOENT") {
+      const message = err instanceof Error ? err.message : String(err);
+      verbose(`Breaker-state hydrate skipped: ${message}`);
+    }
+  }
+
+  // SA12.1-F-D12-M6 (D12, P1): the partial-failure callout is now built
+  // inside the post-loop block and emitted AFTER the main summary box as a
+  // dedicated boxed warning, so the half-state warning is visually distinct
+  // and impossible to miss. Declared at this scope so both the inner adapter
+  // loop and the post-summary block can refer to the same list.
+  const partialFailureLines: string[] = [];
 
   // F16.1-C1: generation phase begins — record an in-progress checkpoint so a
   // `--resume` after a crash mid-generation knows the run did not complete.
@@ -626,7 +723,7 @@ export async function syncCommand(
         breakers.set(tool, breaker);
         throw new HatchError(
           errMessage,
-          1,
+          undefined,
           "ADAPTER_ERROR",
           `Re-run with --verbose for ${tool} detail, or run \`npx hatch3r validate\` to check canonical content.`,
         );
@@ -671,11 +768,23 @@ export async function syncCommand(
 
       if (opts.dryRun) {
         // --dry-run: show what adapter would generate without writing files
+        // SA12.1-F-D12-M8 (D12, P1): when `--preview-tool <name>` matches this
+        // adapter, ALSO write the full content body to stderr so the operator
+        // can verify the bytes before re-running without --dry-run. Stderr
+        // (not stdout) so the preview does not pollute a piped JSON consumer
+        // (`hatch3r sync --dry-run --format=json` keeps a clean stdout).
+        const previewActive = !!opts.previewTool && opts.previewTool === tool;
         for (const out of outputs) {
           results.push({ path: out.path, action: "dry-run" });
           if (opts.diff) {
             diffBefore.set(out.path, await readFileOrNull(join(rootDir, out.path)));
             diffAfter.set(out.path, out.content);
+          }
+          if (previewActive) {
+            const banner = `\n${chalk.dim("───")} ${chalk.bold(out.path)} ${chalk.dim("─".repeat(40))}`;
+            console.error(banner);
+            console.error(out.content);
+            console.error(chalk.dim("─".repeat(60)));
           }
         }
       } else {
@@ -822,12 +931,37 @@ export async function syncCommand(
         deadmanSignal,
       ),
     DEFAULT_PIPELINE_TIMEOUT_MS,
-  ).catch((err: unknown) => {
+  ).catch(async (err: unknown) => {
     // F8.3.4: a wall-clock breach rejects the deadman with PipelineTimeoutError.
     // Unlike the old advisory check, the in-flight adapter phase has already
     // been signalled to abort. Surface it as a usage-actionable timeout (exit
     // 2 — the run did not complete within budget) rather than a silent partial.
     if (err instanceof PipelineTimeoutError) {
+      // D8-M5: before re-throwing, reconcile any partial writes into the
+      // manifest so the next `hatch3r status` / `hatch3r verify` sees the
+      // half-state instead of treating already-written files as drift. The
+      // adapter loop populates `newManagedByAdapter` incrementally; merge the
+      // partial entries with prior history and persist so the post-crash
+      // inventory matches reality.
+      try {
+        const mergedByAdapter: Record<string, string[]> = { ...previousManagedByAdapter };
+        for (const [tool, paths] of Object.entries(newManagedByAdapter)) {
+          mergedByAdapter[tool] = [...paths];
+        }
+        if (Object.keys(mergedByAdapter).length > 0) {
+          m.managedFilesByAdapter = mergedByAdapter;
+          await writeManifest(rootDir, m);
+          verbose(
+            `Sync deadman fired: reconciled ${Object.keys(mergedByAdapter).length} adapter entry(ies) ` +
+              `into manifest before re-throw.`,
+          );
+        }
+      } catch (reconcileErr) {
+        // Reconciliation is best-effort — if it fails we still throw the
+        // timeout error, but the operator sees the partial inconsistency.
+        const message = reconcileErr instanceof Error ? reconcileErr.message : String(reconcileErr);
+        warn(`Manifest reconciliation after pipeline timeout failed: ${message}`);
+      }
       logError(err.message);
       throw new HatchError(
         `Sync exceeded its ${Math.round(err.timeoutMs / 1000)}s pipeline budget and was aborted.`,
@@ -845,6 +979,21 @@ export async function syncCommand(
   // failures — those are handled below). Record wave 1 passed so resume can
   // skip a fully-regenerated run.
   await recordPhase(1, "passed");
+
+  // D8-M4: persist the final breaker state to `.hatch3r/.breaker-state.jsonl`
+  // so a recurring transient failure surface is recognised as already-open on
+  // the next sync invocation. Best-effort: a write failure is logged but does
+  // not abort the run since breaker state is an optimisation, not correctness.
+  if (breakers.size > 0) {
+    try {
+      await mkdir(hatch3rDir, { recursive: true });
+      await safeWriteFile(breakerStatePath, serializeBreakerMap(breakers));
+      verbose(`Persisted ${breakers.size} circuit breaker(s) to ${BREAKER_STATE_FILE}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      verbose(`Breaker-state persist failed (continuing): ${message}`);
+    }
+  }
   // C8-D8-M1 (D8): classify each adapter failure and aggregate transience
   // across tools so the thrown HatchError carries actionable guidance in
   // addition to the per-tool log lines. classifiedFailures persists past
@@ -862,10 +1011,12 @@ export async function syncCommand(
     }
     if (adapterFailures.length === m.tools.length) {
       // C7.5-W2B2-H22: when --strict-budget tripped the only adapter(s) in
-      // this run, surface a usage-error exit code (2) instead of the generic
-      // runtime-error exit code (1). This matches the finding's contract:
-      // --strict-budget is a caller-driven gate, not an internal fault.
-      const exitCode = budgetGateFailed ? 2 : 1;
+      // this run, surface a usage-error exit code (2) instead of the central
+      // sysexits-mapped ADAPTER_ERROR (69). --strict-budget is a caller-driven
+      // gate, not an internal fault. C8-D1-M5 migration: when the budget gate
+      // did NOT trip, pass `undefined` so the central map provides the
+      // sysexits-aligned ADAPTER_ERROR code (69, EX_UNAVAILABLE).
+      const exitCode = budgetGateFailed ? 2 : undefined;
       const allTransient = classifiedFailures.every((c) => c.failType === "transient");
       const aggregateGuidance = budgetGateFailed
         ? "Re-run without --strict-budget, or reduce output size with `hatch3r sync --minimal` / `hatch3r config`."
@@ -949,31 +1100,32 @@ export async function syncCommand(
     const successfulAdapters = m.tools.filter(
       (t) => !adapterFailures.some((f) => f.tool === t),
     );
+    // SA12.1-F-D12-M6 (D12, P1): build the partial-failure callout into the
+    // outer-scope `partialFailureLines` array so the post-summary block can
+    // emit it as a dedicated boxed warning AFTER the main summary box. The
+    // prior inline `warn()` lines got buried mid-scroll among per-file
+    // warnings and users routinely missed them.
     if (adapterFailures.length > 0) {
       // D11-H-4: the adapter loop is non-transactional — successful adapters
       // already wrote new bytes to disk while failed adapters left their
       // prior outputs in place. Emit a per-adapter disposition so the
       // operator has the actionable half-state list (which files are new
       // vs stale), then point at the pre-sync snapshot (captured by
-      // withSnapshot above, D11-C-3) as the all-or-nothing recovery. The
-      // generic "N successful" line alone hid which on-disk files changed.
+      // withSnapshot above, D11-C-3) as the all-or-nothing recovery.
       const failedTools = adapterFailures.map((f) => f.tool);
-      warn(
-        `Adapter outputs: ${successfulAdapters.length}/${m.tools.length} adapters successful — repo is in a partial state.`,
+      partialFailureLines.push(
+        `${successfulAdapters.length}/${m.tools.length} adapter(s) successful — repo is in a partial state.`,
       );
       if (successfulAdapters.length > 0) {
-        warn(`  Updated on disk (new output): ${successfulAdapters.join(", ")}`);
+        partialFailureLines.push(`Updated on disk (new output): ${successfulAdapters.join(", ")}`);
       }
-      warn(`  Unchanged (prior output retained): ${failedTools.join(", ")}`);
+      partialFailureLines.push(`Unchanged (prior output retained): ${failedTools.join(", ")}`);
       if (syncSessionId) {
-        warn(
-          `  To revert the whole repo to its pre-sync state, run ` +
-          `\`hatch3r rollback --session=${syncSessionId}\`. ` +
-          `Otherwise re-run \`hatch3r sync\` after resolving the failed adapter(s).`,
+        partialFailureLines.push(
+          `Revert to pre-sync state: hatch3r rollback --session=${syncSessionId}`,
         );
-      } else {
-        warn(`  Re-run \`hatch3r sync\` after resolving the failed adapter(s).`);
       }
+      partialFailureLines.push(`Otherwise: resolve the failed adapter(s) and re-run hatch3r sync.`);
     }
 
     // SA12.4-F1 (D12): Restore a minimal on-disk provenance manifest at
@@ -993,7 +1145,14 @@ export async function syncCommand(
     // available for any consumer to read once those land.
     try {
       const provenancePath = join(rootDir, HATCH3R_DIR, "provenance.json");
-      const outputs = perAdapterOutputs
+      // F2.7-F5 idempotency contract: sort `successfulOutputs` by
+      // `[adapter, path]` to match the on-disk sort applied to `outputs` below
+      // (line ~1218). Without this, the `.every((p, i) => …)` index-by-index
+      // comparison against the previous (already-sorted) manifest fails on the
+      // first row even when both runs emit byte-identical adapter output —
+      // forcing a fresh `generatedAt` / `lastRunId` on every re-sync and
+      // breaking the sync-idempotency lifecycle test.
+      const successfulOutputs = perAdapterOutputs
         .flatMap((entry) =>
           entry.outputs.map((out) => ({
             path: out.path,
@@ -1012,25 +1171,35 @@ export async function syncCommand(
           if (byAdapter !== 0) return byAdapter;
           return a.path.localeCompare(b.path);
         });
-      // Read previous manifest for idempotency comparison. Failure to
-      // read (missing or malformed) is treated as "no previous" so the
-      // new manifest writes with a fresh timestamp.
+      // Read previous manifest for idempotency comparison and for D11-M2
+      // partial-sync provenance merge (see comment on `outputs` below).
       let previousGeneratedAt: string | null = null;
+      let previousLastRunId: string | null = null;
+      let previousEntries: Array<{
+        path: string;
+        adapter: string;
+        sourceFiles: string[];
+        contentHash?: string;
+      }> = [];
       try {
         const prevRaw = await readFile(provenancePath, "utf-8");
         const prev = JSON.parse(prevRaw) as {
           schemaVersion?: number;
           hatch3rVersion?: string;
           generatedAt?: string;
+          lastRunId?: string;
           outputs?: Array<{ path: string; adapter: string; sourceFiles: string[]; contentHash?: string }>;
         };
+        if (prev.schemaVersion === 1 && Array.isArray(prev.outputs)) {
+          previousEntries = prev.outputs;
+        }
         if (
           prev.schemaVersion === 1 &&
           prev.hatch3rVersion === HATCH3R_VERSION &&
           Array.isArray(prev.outputs) &&
-          prev.outputs.length === outputs.length &&
+          prev.outputs.length === successfulOutputs.length &&
           prev.outputs.every((p, i) => {
-            const c = outputs[i];
+            const c = successfulOutputs[i];
             return (
               p.adapter === c.adapter &&
               p.path === c.path &&
@@ -1044,15 +1213,39 @@ export async function syncCommand(
           })
         ) {
           previousGeneratedAt = typeof prev.generatedAt === "string" ? prev.generatedAt : null;
+          previousLastRunId = typeof prev.lastRunId === "string" ? prev.lastRunId : null;
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         verbose(`sync: provenance idempotency read skipped — ${message}`);
       }
+      // D11-M2 (Cycle 10 Wave-3 Medium, P2): split-brain repair after partial
+      // sync. The non-transactional adapter loop leaves failed adapters' prior
+      // outputs on disk untouched, so the failed adapter still owns real
+      // files. Writing only the successful-adapter outputs into provenance.json
+      // would drop those rows; `hatch3r status` then loses the baseline hash
+      // for every failed-adapter output and degrades drift attribution to
+      // `unknown`. Carry the prior provenance entries for FAILED adapters
+      // forward so the half-state on disk stays attributable. Successful
+      // adapters' entries are always refreshed from this run.
+      const failedAdapterSet = new Set(adapterFailures.map((f) => f.tool));
+      const carriedEntries = previousEntries.filter((p) => failedAdapterSet.has(p.adapter));
+      const outputs = [...successfulOutputs, ...carriedEntries].sort((a, b) => {
+        const byAdapter = a.adapter.localeCompare(b.adapter);
+        if (byAdapter !== 0) return byAdapter;
+        return a.path.localeCompare(b.path);
+      });
+      // SA12.1-F-D12-M4 (D12, P1): record which CLI command produced this
+      // provenance manifest and under which per-run correlation id. Operators
+      // tracing a stale provenance entry back to a run can grep .failures.log
+      // by `lastRunId`, and CI consumers can branch on `lastCommand` to
+      // distinguish a sync-emitted manifest from an update-emitted one.
       const provenance = {
         schemaVersion: 1 as const,
         hatch3rVersion: HATCH3R_VERSION,
         generatedAt: previousGeneratedAt ?? new Date().toISOString(),
+        lastCommand: "sync" as const,
+        lastRunId: previousLastRunId ?? getRunId(),
         outputs,
       };
       await safeWriteFile(
@@ -1122,6 +1315,31 @@ export async function syncCommand(
                 !allContentIds.has(`cmd-${itemId}`) && !allContentIds.has(`cmd-${prefixed}`)) {
               warn(`Orphaned customization: .hatch3r/${dir}/${f} — content no longer in manifest. Consider removing it.`);
             }
+
+            // D10-M12 (Cycle 10): syntax-check .customize.yaml during sync so
+            // an invalid override fails loud here rather than silently
+            // dropping during adapter generation. Mirrors the cheap half of
+            // `validate.ts::validateCustomizeYaml`: 10KB size cap (matches
+            // `src/models/customize.ts` skip threshold) + YAML parse.
+            if (f.endsWith(".customize.yaml")) {
+              const yamlPath = join(rootDir, ".hatch3r", dir, f);
+              try {
+                const raw = await readFile(yamlPath, "utf-8");
+                if (Buffer.byteLength(raw, "utf-8") > 10_240) {
+                  warn(`.hatch3r/${dir}/${f} exceeds 10KB and will be skipped during adapter generation. Trim or split the override.`);
+                } else {
+                  try {
+                    parseYaml(raw);
+                  } catch (parseErr) {
+                    const msg = parseErr instanceof Error ? parseErr.message : String(parseErr);
+                    warn(`Invalid YAML in .hatch3r/${dir}/${f} — ${msg}. Run \`npx hatch3r validate\` for the full error context.`);
+                  }
+                }
+              } catch (readErr) {
+                const message = readErr instanceof Error ? readErr.message : String(readErr);
+                verbose(`sync: .customize.yaml read failed for ${yamlPath} — ${message}`);
+              }
+            }
           }
         } catch (err) {
           // .hatch3r/{dir} does not exist — no customizations to check.
@@ -1179,6 +1397,30 @@ export async function syncCommand(
     return `${icon} ${r.path} ${chalk.dim(`(${r.action})`)}`;
   });
 
+  // D10-M11 (Cycle 10): prepend a one-line action-tally so the user reads
+  // "X created, Y merged (preserved your edits), Z regenerated (full
+  // overwrite)" before scanning the per-file list. The prior summary only
+  // showed per-file actions, so a fresh user could not tell at a glance
+  // whether their customizations were preserved or wiped.
+  const actionCounts: Record<string, number> = {};
+  for (const r of results) {
+    if (typeof r !== "string") {
+      actionCounts[r.action] = (actionCounts[r.action] ?? 0) + 1;
+    }
+  }
+  const tallyParts: string[] = [];
+  if (actionCounts.created) tallyParts.push(chalk.green(`${actionCounts.created} created`));
+  if (actionCounts.merged) tallyParts.push(chalk.cyan(`${actionCounts.merged} merged (your edits preserved)`));
+  if (actionCounts.regenerated) tallyParts.push(chalk.yellow(`${actionCounts.regenerated} regenerated (full overwrite)`));
+  if (actionCounts.updated) tallyParts.push(chalk.yellow(`${actionCounts.updated} updated`));
+  if (actionCounts.unchanged) tallyParts.push(chalk.dim(`${actionCounts.unchanged} unchanged`));
+  if (actionCounts.skipped) tallyParts.push(chalk.dim(`${actionCounts.skipped} skipped`));
+  if (actionCounts["dry-run"]) tallyParts.push(chalk.cyan(`${actionCounts["dry-run"]} dry-run`));
+  if (tallyParts.length > 0) {
+    summaryLines.unshift(tallyParts.join(chalk.dim(" · ")));
+    summaryLines.splice(1, 0, "");
+  }
+
   // F8.3.4: the prior post-loop `isPipelineTimedOut`/`terminatePipeline`
   // advisory check lived here. It was advisory-only (it ran after disk writes
   // completed, so a true hang in the adapter phase never reached it). It is
@@ -1217,11 +1459,79 @@ export async function syncCommand(
     summaryLines.push(`${chalk.dim("Snapshot:")} ${syncSessionId} ${chalk.dim(`(revert: hatch3r rollback --session=${syncSessionId})`)}`);
   }
 
-  printBox(
-    boxTitle,
-    summaryLines,
-    opts.dryRun ? "info" : adapterFailures.length > 0 ? "info" : "success",
-  );
+  // SA12.1-F-D12-M2 (D12, P1): in JSON mode, emit a structured summary in
+  // place of the decorated box. The schema lets CI consumers branch on
+  // `status` (passed | failed | dry-run), `adapterFailures` (per-tool
+  // outcome), and `results` (per-file action). One-shot, single document.
+  if (jsonMode) {
+    const payload = {
+      status: opts.dryRun
+        ? ("dry-run" as const)
+        : adapterFailures.length > 0
+          ? ("failed" as const)
+          : ("passed" as const),
+      dryRun: !!opts.dryRun,
+      adapterFailures: adapterFailures.map((f) => ({ tool: f.tool, error: f.error })),
+      successfulAdapters: m.tools.filter((t) => !adapterFailures.some((f) => f.tool === t)),
+      // Use the raw per-file `results` array (not the compacted human view)
+      // so CI consumers see every emission and can branch on per-file action
+      // ("created" / "merged" / "regenerated" / "skipped" / "dry-run").
+      results,
+      partialFailureLines,
+      snapshotSessionId: syncSessionId ?? null,
+      hatch3rVersion: HATCH3R_VERSION,
+      timestamp: new Date().toISOString(),
+    };
+    emitJson(payload);
+  } else {
+    printBox(
+      boxTitle,
+      summaryLines,
+      opts.dryRun ? "info" : adapterFailures.length > 0 ? "info" : "success",
+    );
+    // SA12.1-F-D12-M6 (D12, P1): partial-failure callout — emit AFTER the
+    // main summary box as a dedicated boxed block so the half-state warning
+    // is visually distinct and impossible to miss (the prior inline `warn()`
+    // lines got buried mid-scroll among per-file warnings).
+    if (partialFailureLines.length > 0) {
+      printBox("Partial sync — adapter failures", partialFailureLines, "warning");
+    }
+
+    // SA12.1-F-D12-M10 (D12, P1): customizations applied during sync used to
+    // produce no positive confirmation line — the sync just emitted the file
+    // list and customization-applied state stayed silent. Emit a one-line
+    // post-summary confirmation listing the artifacts whose `.customize.{yaml,md}`
+    // overrides were honored on this run, plus the skipped/failed counts so
+    // the operator can see "yes, my overrides were applied". Skipped when no
+    // customization files exist so the chrome stays compact for fresh installs.
+    try {
+      const customizationSummary = await buildCustomizationSummary(rootDir);
+      if (customizationSummary.entries.length > 0) {
+        const c = customizationSummary.counts;
+        const activeIds = customizationSummary.entries
+          .filter((e) => e.outcome === "active")
+          .map((e) => `${e.type}/${e.id}`);
+        if (c.active > 0) {
+          const head = activeIds.slice(0, 4).join(", ");
+          const tail = activeIds.length > 4 ? ` … (+${activeIds.length - 4} more)` : "";
+          info(
+            `Customizations applied: ${chalk.bold(String(c.active))} active (${head}${tail})` +
+              (c.skipped > 0 ? `, ${c.skipped} skipped` : "") +
+              (c.failed > 0 ? `, ${chalk.red(String(c.failed))} failed` : ""),
+          );
+        } else if (c.skipped > 0 || c.failed > 0) {
+          info(
+            `Customizations: 0 active` +
+              (c.skipped > 0 ? `, ${c.skipped} skipped` : "") +
+              (c.failed > 0 ? `, ${chalk.red(String(c.failed))} failed` : "") +
+              ` (run \`hatch3r explain --customizations\` for detail).`,
+          );
+        }
+      }
+    } catch (err) {
+      verbose(`sync: customization confirmation skipped — ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
 
   // Dry-run: skip error throwing and return before workspace cascade
   // (workspace sync has its own dry-run handling below)
@@ -1237,6 +1547,37 @@ export async function syncCommand(
     const aggregateGuidance = allTransient
       ? "Failures appear transient. Retry `hatch3r sync` after transient conditions clear."
       : "At least one failure is substantive. See the per-adapter messages above for remediation.";
+
+    // SA12.1-F-D12-M12 (D12, P1): structured replay guidance integration.
+    // `createReplayGuidance` / `formatReplayGuidance` shipped in observability.ts
+    // but no CLI catch-block ever called them; the failure surface stayed
+    // ad-hoc. Build a guidance block here so operators (and CI logs) see the
+    // structured reproduction steps, then fold the formatted output through
+    // the same `warn()` channel that backs the partial-failure callout.
+    try {
+      const { createReplayGuidance, formatReplayGuidance } = await import("../../pipeline/observability.js");
+      const guidance = createReplayGuidance(
+        getRunId(),
+        "adapter",
+        `Sync completed with ${adapterFailures.length} adapter failure(s): ${adapterFailures.map((f) => f.tool).join(", ")}`,
+        {
+          relevantFiles: adapterFailures.map((f) => f.tool),
+          environmentSnapshot: {
+            HATCH3R_VERSION,
+            NODE_VERSION: process.version,
+          },
+        },
+      );
+      const formatted = formatReplayGuidance(guidance);
+      if (!jsonMode) {
+        console.error();
+        for (const line of formatted.split("\n")) console.error(`  ${line}`);
+        console.error();
+      }
+    } catch (err) {
+      verbose(`sync: replay guidance emission skipped — ${err instanceof Error ? err.message : String(err)}`);
+    }
+
     throw new HatchError(
       `Sync completed with ${adapterFailures.length} adapter failure(s). ${aggregateGuidance}`,
       2,

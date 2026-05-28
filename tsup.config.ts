@@ -12,7 +12,19 @@ export default defineConfig({
   splitting: false,
   dts: true,
   clean: true,
-  sourcemap: true,
+  // Cycle 10 M D4-M1 (D4): the previous `sourcemap: true` produced
+  // dist/cli/index.js.map at 2.49 MB — 271 % of the 919 KB runtime bundle —
+  // and `package.json` "files: [\"dist/\"]" published that map to npm on every
+  // release. The map exposes the full TypeScript source tree (governance
+  // identifiers, internal module names) to anyone running `npm view hatch3r`
+  // without serving end-user debugging value (npm package consumers cannot
+  // step through a CLI invocation). Setting sourcemap to false drops the
+  // .map file from `dist/` and from the published tarball — see
+  // governance/audit/domains/D04-build-cicd.md SA 4.1 "Sourcemaps" + 4.2
+  // "Minimal dependency surface". Local debugging during development can
+  // re-enable via `npm run dev` (tsup --watch) + the TSX REPL, which both
+  // run unbundled source.
+  sourcemap: false,
   outDir: "dist/cli",
   define: {
     __VERSION__: JSON.stringify(pkg.version),

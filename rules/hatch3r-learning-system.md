@@ -111,6 +111,34 @@ When a trigger fires:
 
 Project-local; learnings never escape the project boundary. The canonical framework repository's `agents/` and `rules/` do not consume project learnings.
 
+## Outcome-Weighted Promotion (D13 — outcome quality, not reference count)
+
+Reference count alone is a popularity signal, not a quality signal. A bad learning consulted by every implementer is still bad. To promote learnings by outcome quality rather than raw consultation count, the consulting agent emits an `outcome` field after the iteration completes:
+
+```yaml
+outcome: helpful|neutral|harmful|untested
+```
+
+- `helpful` — applying the learning produced a verified pass (test green, review clean, no fixer churn).
+- `neutral` — learning was read but not directly applied.
+- `harmful` — applying the learning produced a regression (test red, review rejected, fixer reverted).
+- `untested` — applying was inconclusive (no verification ran or signals were ambiguous).
+
+After every meaningful run that consulted at least one learning, the orchestrator appends one line per consulted entry to `.hatch3r/learnings/.usage.jsonl` (append-only, atomic via `src/merge/safeWrite.ts`):
+
+```json
+{"ts": "<ISO-8601>", "learning_id": "<id>", "agent": "<consumer agent id>", "outcome": "helpful|neutral|harmful|untested", "session_id": "<id>", "verification": "<test-pass|review-clean|test-fail|fixer-revert|none>"}
+```
+
+Promotion / demotion at the next auto-consolidation pass:
+
+1. Rolling 20-row outcome window per `learning_id`.
+2. `helpful` ratio >=70% → promote confidence one band (low→medium, medium→high).
+3. `harmful` ratio >=30% → demote confidence one band (high→medium, medium→low) and flag for review.
+4. `harmful` ratio >=50% → archive automatically with `archive_reason: outcome-harmful` in the archived file's frontmatter.
+
+Outcome telemetry never leaves the project boundary. The `.usage.jsonl` is project-local and excluded from any sync to the canonical corpus.
+
 ## Pillar Service
 
 - P5 — learning system applies to itself via auto-consolidation (no learning bloat)

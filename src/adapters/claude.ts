@@ -124,9 +124,12 @@ const AGENT_TEAMS_SECTION = [
   "",
   "### Enabling Agent Teams",
   "",
-  "Agent Teams is generally available in Claude Code v2.1.120+ — no env var or opt-in flag is required.",
-  "(The legacy `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` flag is emitted only if you set `claude.agentTeams: true`",
-  "in `.hatch3r/hatch.json`, which hatch3r flags as deprecated.) Request a team in the prompt:",
+  "Agent Teams is experimental in Claude Code v2.1.32+ (re-verified 2026-05-28 against",
+  "https://code.claude.com/docs/en/agent-teams — \"Agent teams are experimental and disabled by default. Enable",
+  "them by adding CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS to your settings.json or environment.\"). Hatch3r emits",
+  "the env var into `.claude/settings.json` so the feature is available; set `claude.agentTeams: false` in",
+  "`.hatch3r/hatch.json` to suppress the flag if you do not want Agent Teams enabled. Request a team in the",
+  "prompt:",
   "",
   "```",
   'Create an agent team for this task. Use the hatch3r 4-phase pipeline.',
@@ -195,7 +198,7 @@ const AGENT_TEAMS_SECTION = [
 const AGENT_TEAMS_SECTION_MINIMAL = [
   "## Agent Teams",
   "",
-  "Pipeline maps to Claude Code Agent Teams (GA in v2.1.120+; no env var required).",
+  "Pipeline maps to Claude Code Agent Teams (experimental in v2.1.32+; requires CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1, emitted by hatch3r unless disabled via claude.agentTeams: false).",
   "",
   "| Phase | Role | Agents |",
   "|-------|------|--------|",
@@ -470,7 +473,9 @@ export class ClaudeAdapter extends BaseAdapter {
     const defaultAllow = ["Read", "Edit", "MultiEdit", "Write", "Grep", "Glob", "LS", "TodoRead", "TodoWrite"];
     const claudeConfig = ctx.manifest.claude;
 
-    // Agent Teams GA compatibility: use "auto" as default teammateMode.
+    // Agent Teams: use "auto" as default teammateMode (per current docs at
+    // https://code.claude.com/docs/en/agent-teams accessed 2026-05-28 — "auto"
+    // uses split panes if inside tmux, in-process otherwise).
     // #264 (D9-9.35): Legacy values are deprecated; warn and map to "auto".
     const DEPRECATED_TEAMMATE_MODES = new Set(["tool-using", "full-trust", "manual-approval"]);
     const rawTeammateMode = claudeConfig?.teammateMode ?? "auto";
@@ -586,26 +591,33 @@ export class ClaudeAdapter extends BaseAdapter {
 
     settingsObj.hooks = hooksConfig;
 
-    // D9-H-2 (D9, P3): Agent Teams reached GA in Claude Code v2.1.120+, where
-    // CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS is "no longer required"
-    // (code.claude.com/docs/en/changelog, accessed 2026-05-26). Default to
-    // GA treatment: omit the experimental env var so operators do not inherit
-    // confusing legacy state. The env var is emitted only when an operator
-    // explicitly opts back into the experimental flag (agentTeams === true),
-    // in which case we also surface a deprecation warning. agentTeams === "ga"
-    // and undefined both omit the flag; agentTeams === false also omits it
-    // (Agent Teams is GA and not gated by the env var, so there is nothing to
-    // suppress).
+    // D9-M4 (Cycle 10 D9 Wave-3, P3): Agent Teams remains EXPERIMENTAL in
+    // Claude Code per https://code.claude.com/docs/en/agent-teams accessed
+    // 2026-05-28 — "Agent teams are experimental and disabled by default.
+    // Enable them by adding CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS to your
+    // settings.json or environment." The earlier D9-H-2 reading that
+    // assumed v2.1.120+ GA was contradicted by the live docs page on
+    // re-verification; reverse to the docs-correct default of emitting the
+    // env var so Agent Teams actually functions when CLAUDE.md tells the
+    // operator to spawn a team. Explicit opt-out: `claude.agentTeams: false`
+    // in `.hatch3r/hatch.json` suppresses the env var for users who do not
+    // want the experimental gate flipped on. `agentTeams: true` or unset
+    // both emit the env var; `agentTeams: "ga"` is preserved as an alias
+    // for true so callers that switched to it during the prior cycle keep
+    // working but receive a one-time warning that the GA-anchor reading
+    // is no longer accurate.
     const agentTeamsSetting = ctx.manifest.claude?.agentTeams;
-    if (agentTeamsSetting === true) {
+    const emitAgentTeamsEnv = agentTeamsSetting !== false;
+    if (agentTeamsSetting === "ga") {
       this.warnings.push(
-        "claude: agentTeams=true sets the legacy CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS env var, " +
-        "which is no longer required (Agent Teams is GA in Claude Code v2.1.120+). " +
-        "Remove the setting (or set agentTeams: \"ga\") to drop the deprecated flag.",
+        "claude: agentTeams=\"ga\" is preserved as an alias for true, but Agent Teams remains experimental " +
+        "(https://code.claude.com/docs/en/agent-teams accessed 2026-05-28). " +
+        "Switch to agentTeams: true (or omit) to drop the alias.",
       );
+    }
+    if (emitAgentTeamsEnv) {
       settingsObj.env = { CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1" };
     }
-    // agentTeamsSetting of undefined | "ga" | false: GA-native, emit no env var.
     results.push(output(".claude/settings.json", JSON.stringify(settingsObj, null, 2)));
 
     // C7-H17 + C7.5-W2B2-H50 (D9, D17, P3): Emit Claude Code plugin-style hooks

@@ -61,6 +61,32 @@ function validateWorkspaceManifest(data: unknown): data is WorkspaceManifest {
     }
   }
 
+  // D14-M4 (Cycle 10): validate optional groups field on defaults.
+  if (defaults.groups !== undefined) {
+    if (typeof defaults.groups !== "object" || defaults.groups === null || Array.isArray(defaults.groups)) return false;
+    for (const [_, delta] of Object.entries(defaults.groups)) {
+      if (!delta || typeof delta !== "object") return false;
+      const d = delta as Record<string, unknown>;
+      if (d.tools !== undefined && !Array.isArray(d.tools)) return false;
+      if (d.features !== undefined && (typeof d.features !== "object" || d.features === null)) return false;
+      if (d.mcp !== undefined && (typeof d.mcp !== "object" || d.mcp === null)) return false;
+      if (d.contentOverrides !== undefined) {
+        if (typeof d.contentOverrides !== "object" || d.contentOverrides === null) return false;
+        const co = d.contentOverrides as Record<string, unknown>;
+        if (co.include !== undefined && !Array.isArray(co.include)) return false;
+        if (co.exclude !== undefined && !Array.isArray(co.exclude)) return false;
+      }
+    }
+  }
+
+  // D14-M7 (Cycle 10): validate optional lockedContent on defaults.
+  if (defaults.lockedContent !== undefined) {
+    if (!Array.isArray(defaults.lockedContent)) return false;
+    for (const id of defaults.lockedContent) {
+      if (typeof id !== "string") return false;
+    }
+  }
+
   for (const repo of obj.repos as unknown[]) {
     if (!repo || typeof repo !== "object") return false;
     const r = repo as Record<string, unknown>;
@@ -71,6 +97,13 @@ function validateWorkspaceManifest(data: unknown): data is WorkspaceManifest {
     if (r.repo !== undefined && typeof r.repo !== "string") return false;
     if (r.defaultBranch !== undefined && typeof r.defaultBranch !== "string") return false;
     if (r.platform !== undefined && typeof r.platform !== "string") return false;
+    // D14-M4 (Cycle 10): validate optional groups membership on repo entry.
+    if (r.groups !== undefined) {
+      if (!Array.isArray(r.groups)) return false;
+      for (const g of r.groups) {
+        if (typeof g !== "string") return false;
+      }
+    }
   }
 
   return true;

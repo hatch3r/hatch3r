@@ -146,7 +146,7 @@ Coordination edges:
 
 ## Output contract
 
-See `agents/shared/quality-specialist-frame.md` → §Output Contract (yaml schema, severity vocabulary, verification harness convention). CQ4 specifics: `id` format `cq4-<short-slug>`; `progress_toward_pillar: content-quality.CQ4+<delta>`. Status mapping per `agents/shared/quality-charter.md` §14 Severity Discipline.
+See `agents/shared/quality-specialist-frame.md` → §Output Contract (yaml schema, canonical id format, sub_agents_spawned emission contract, severity vocabulary, verification harness convention). CQ4 specifics: `id` follows the canonical `cq4-rel-<short-slug>-<3-digit-seq>` pattern (e.g., `cq4-rel-auth-001`); `progress_toward_pillar: content-quality.CQ4+<delta>`. Every CQ4 output emits `sub_agents_spawned: {count, rationale}` per the P8 B2 emission contract — typical decomposition is one sub-agent per service or request-graph layer; `count: 0, rationale: "single-service audit"` is valid for a one-service review. Status mapping per `agents/shared/quality-charter.md` §14 Severity Discipline.
 
 **Verification harness:** `skills/hatch3r-reliability-verify` + `skills/hatch3r-observability-verify` produce the trace-store, SLO-validation, and induced-failure evidence captured in `proof_trace.actual`. This agent owns the CQ4 budget decision (span coverage, SLO definition, RFC 9457 shape, resilience pattern).
 

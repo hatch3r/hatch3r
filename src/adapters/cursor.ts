@@ -1,6 +1,8 @@
-// Last updated: 2026-05-27 (P3 platform-currency anchor; cursor.com/docs/hooks
-// + cursor.com/docs/agents access dates inside this file remain authoritative
-// for individual claims).
+// Last updated: 2026-05-28 (P3 platform-currency anchor; cursor.com/docs/hooks
+// + cursor.com/docs/agent/subagents access dates inside this file remain
+// authoritative for individual claims. D9-M1 Cycle 10 Wave-3 re-verified the
+// `readonly: true` subagent frontmatter primitive against the current
+// /docs/agent/subagents URL.).
 import type {
   AdapterOutput,
   CanonicalFile,

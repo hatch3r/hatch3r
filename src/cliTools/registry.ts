@@ -72,6 +72,28 @@ export interface CveScan {
 }
 
 /**
+ * Optional follow-up probe to verify a tool extension is installed AFTER the
+ * base binary has been detected on PATH. Closes the false-positive gap for
+ * tools whose registry `probe` resolves to a shared binary (e.g. `az` for
+ * `az-devops`, which only confirms the Azure CLI itself, not the
+ * azure-devops extension). Used by `src/cliTools/detect.ts::detectCliTool`.
+ *
+ * `args` is the argv tail passed verbatim after the base `probe` binary —
+ * each entry is validated against the same character allowlist as the
+ * binary name so the command stays shell-injection-safe. `expectInStdout`
+ * is the substring that must appear in the extension probe's stdout for the
+ * extension to be considered present.
+ */
+export interface ExtensionProbe {
+  /** Argv tail after the base binary (e.g. `["extension", "list", "-o", "tsv"]`). */
+  args: readonly string[];
+  /** Substring that must appear in stdout for the extension to be present. */
+  expectInStdout: string;
+  /** Human-readable name of the extension surfaced in detection diagnostics. */
+  name: string;
+}
+
+/**
  * Catalog entry for a single CLI tool. The `id` is the canonical
  * identifier (kebab-case, matches the `hatch3r-cli-{id}` skill directory
  * name); `probe` is the binary name passed to `command -v` / `where`.
@@ -92,6 +114,15 @@ export interface CliToolMeta {
   trigger?: Tier2Trigger;
   /** Free-form caveat string (e.g. RTK pipe-output corruption). */
   caveat?: string;
+  /**
+   * Optional follow-up extension probe — see `ExtensionProbe`. When set,
+   * detection runs the args after the base `probe` succeeds and only
+   * reports the tool as installed when `expectInStdout` is found in the
+   * follow-up output. Currently set on `az-devops` (D21-M6, Cycle 10) to
+   * stop the `command -v az` base probe from reporting installed when
+   * Azure CLI ships without the azure-devops extension.
+   */
+  extensionProbe?: ExtensionProbe;
   /**
    * Security advisory note — populated when the upstream tool has an active
    * CVE that ships in the recommended install version. Surfaced verbatim by
@@ -143,6 +174,14 @@ export const AVAILABLE_CLI_TOOLS = {
       linux: [{ manager: "apt", command: "sudo apt install ripgrep" }],
       win: [{ manager: "scoop", command: "scoop install ripgrep" }],
     },
+    // Cycle 10 D21-M1: ripgrep 15.1.0 (released 2025-10-31) is 208 days old at
+    // the 2026-05-26 audit. BurntSushi/ripgrep is mature steady-state — the
+    // 14.x → 15.x cadence shows multi-month gaps as normal (14.0 Aug 2023,
+    // 14.1 Sep 2023, 14.1.1 Apr 2024, 15.0 Oct 2024, 15.1 Oct 2025). Tagged
+    // `stable` so src/cliTools/triggers.ts staleness heuristic suppresses
+    // amber-flag noise for the long gap; the tool is the canonical search
+    // primitive across hatch3r-cli-* skills and not at risk of abandonment.
+    releaseCadence: "stable",
     homepage: "https://github.com/BurntSushi/ripgrep",
   },
   fd: {
@@ -239,6 +278,14 @@ export const AVAILABLE_CLI_TOOLS = {
       linux: [{ manager: "apt", command: "sudo apt install bat" }],
       win: [{ manager: "winget", command: "winget install sharkdp.bat" }],
     },
+    // Cycle 10 D21-M3: bat 0.26.1 (released 2025-12-12) is 167 days old at the
+    // 2026-05-26 audit. sharkdp/bat shares the same author + cadence pattern
+    // as fd — mature steady-state tooling with multi-month gaps between
+    // minor releases (0.24 Mar 2024, 0.25 Mar 2025, 0.26 Dec 2025). Tag
+    // `stable` so the staleness heuristic stops auto-flagging the long gap
+    // as abandonment; bat is the canonical syntax-aware view tool in
+    // hatch3r-cli-toolbox and remains under active maintenance.
+    releaseCadence: "stable",
     homepage: "https://github.com/sharkdp/bat",
   },
   sd: {
@@ -438,6 +485,19 @@ export const AVAILABLE_CLI_TOOLS = {
       win: [{ manager: "winget", command: "winget install Microsoft.AzureCLI && az extension add --name azure-devops" }],
     },
     requiresEnv: ["AZURE_DEVOPS_PAT", "AZURE_DEVOPS_ORG"],
+    // Cycle 10 D21-M6: the base `command -v az` probe resolves whenever Azure
+    // CLI is on PATH, even if the azure-devops extension is missing — a false
+    // positive for users who install `azure-cli` standalone (e.g. via apt
+    // packages.microsoft.com) without the follow-up `az extension add`. The
+    // extension probe runs `az extension list -o tsv` after the base probe
+    // succeeds and only reports installed when "azure-devops" appears in the
+    // extension roster. Args are character-allowlisted in detect.ts to stay
+    // shell-injection-safe.
+    extensionProbe: {
+      args: ["extension", "list", "-o", "tsv"],
+      expectInStdout: "azure-devops",
+      name: "azure-devops",
+    },
     // Cycle 10 D15-SA15.7-F (F15.7-H7): the linux recipe pipes the aka.ms
     // redirect to `sudo bash` — root execution with no signature or checksum
     // gate (highest blast radius of the unsigned recipes). Microsoft also

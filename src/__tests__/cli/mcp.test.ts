@@ -81,7 +81,7 @@ import {
   parseEnvFile,
   collectRequiredEnvVars,
 } from "../../env/mcpEnv.js";
-import { printBox, info, warn, error as logError } from "../../cli/shared/ui.js";
+import { printBox, warn, error as logError } from "../../cli/shared/ui.js";
 import { isWSL } from "../../cli/shared/constants.js";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
@@ -140,16 +140,16 @@ describe("mcpSetupCommand", () => {
     expect(ensureEnvMcp).toHaveBeenCalledWith(expect.any(String), ["github", "context7"]);
     expect(ensureGitignoreEntry).toHaveBeenCalledTimes(1);
 
-    // newVars present → warn() + info() must surface so the user knows
-    // to fill in the new entry and re-source the env file.
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining("GITHUB_PAT"));
-    expect(info).toHaveBeenCalledWith(expect.stringContaining("source"));
-
-    expect(printBox).toHaveBeenCalledWith(
-      "MCP configured",
-      expect.any(Array),
-      "success",
-    );
+    // D10-M7 (Cycle 10): the env-var advisory moved INSIDE the success box
+    // so users no longer miss it. Assert the env-var name and the source
+    // command appear among the box's lines instead of `warn()` / `info()`.
+    expect(warn).not.toHaveBeenCalled();
+    const printBoxCall = vi.mocked(printBox).mock.calls.find((c) => c[0] === "MCP configured");
+    expect(printBoxCall).toBeDefined();
+    const boxLines = (printBoxCall?.[1] ?? []) as string[];
+    expect(boxLines.some((l) => l.includes("GITHUB_PAT"))).toBe(true);
+    expect(boxLines.some((l) => l.includes("source") || l.includes(".env.mcp"))).toBe(true);
+    expect(printBoxCall?.[2]).toBe("success");
   });
 
   it("skips env-file work when the picker returns an empty selection", async () => {
@@ -180,14 +180,16 @@ describe("mcpSetupCommand", () => {
     expect(printBox).toHaveBeenCalledWith("MCP configured", expect.any(Array), "success");
   });
 
-  it("throws HatchError(CONFIG_ERROR, exitCode 1) when no manifest exists", async () => {
+  it("throws HatchError(CONFIG_ERROR, central-map exitCode 65) when no manifest exists", async () => {
     vi.mocked(readManifest).mockResolvedValue(null);
 
     await expect(mcpSetupCommand()).rejects.toThrow(HatchError);
     try {
       await mcpSetupCommand();
     } catch (e) {
-      expect((e as HatchError).exitCode).toBe(1);
+      // C8-D1-M5: CONFIG_ERROR resolves through ERROR_CODE_TO_EXIT_CODE to
+      // sysexits.h EX_DATAERR (65). The call site no longer hand-picks `1`.
+      expect((e as HatchError).exitCode).toBe(65);
       expect((e as HatchError).errorCode).toBe("CONFIG_ERROR");
     }
 
@@ -306,14 +308,16 @@ describe("mcpRemoveCommand", () => {
     expect(lines).toMatch(/Remaining[^\w]*none/);
   });
 
-  it("throws HatchError(VALIDATION_ERROR, exitCode 1) when the server is not configured", async () => {
+  it("throws HatchError(VALIDATION_ERROR, central-map exitCode 64) when the server is not configured", async () => {
     vi.mocked(readManifest).mockResolvedValue(makeManifest(["github"]));
 
     await expect(mcpRemoveCommand("brave-search")).rejects.toThrow(HatchError);
     try {
       await mcpRemoveCommand("brave-search");
     } catch (e) {
-      expect((e as HatchError).exitCode).toBe(1);
+      // C8-D1-M5: VALIDATION_ERROR resolves to sysexits.h EX_USAGE (64). The
+      // call site no longer hand-picks `1`.
+      expect((e as HatchError).exitCode).toBe(64);
       expect((e as HatchError).errorCode).toBe("VALIDATION_ERROR");
     }
 

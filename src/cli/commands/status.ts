@@ -9,6 +9,8 @@ import { extractManagedBlock } from "../../merge/managedBlocks.js";
 import { resolveBundledContentRoot } from "../../content/contentRoot.js";
 import { discoverUserContent } from "../../content/userContent.js";
 import { buildCustomizationSummary } from "../../adapters/customizationSummary.js";
+import { emitJson, parseFormatOption, type CliOutputFormat } from "../shared/output.js";
+import { HATCH3R_VERSION } from "../../version.js";
 import {
   printBanner,
   createSpinner,
@@ -281,32 +283,66 @@ function renderDriftLines(report: DriftReport): string[] {
   return lines;
 }
 
-export async function statusCommand(opts?: { verbose?: boolean }): Promise<void> {
-  setVerbose(!!opts?.verbose);
-  printBanner(true);
+export async function statusCommand(opts?: { verbose?: boolean; format?: string }): Promise<void> {
+  // SA12.1-F-D12-M2 (D12, P1): JSON mode emits a single structured document
+  // for CI consumers — see {@link buildStatusJsonOutput}. Human mode keeps
+  // the legacy decorated chrome (banner, spinner, printBox panels).
+  const format: CliOutputFormat = parseFormatOption(opts?.format);
+  const jsonMode = format === "json";
+  setVerbose(jsonMode ? false : !!opts?.verbose);
+  if (!jsonMode) printBanner(true);
 
   const rootDir = process.cwd();
   const manifest = await readManifest(rootDir);
 
   if (!manifest) {
-    logError("No .hatch3r/hatch.json found.");
-    console.log(chalk.dim("  Run `npx hatch3r init` to set up your project first.\n"));
+    if (jsonMode) {
+      emitJson({
+        status: "failed",
+        error: "No .hatch3r/hatch.json found.",
+        errorCode: "CONFIG_ERROR",
+        recoveryHint: "Run `npx hatch3r init` to set up your project first.",
+        timestamp: new Date().toISOString(),
+        hatch3rVersion: HATCH3R_VERSION,
+      });
+    } else {
+      logError("No .hatch3r/hatch.json found.");
+      console.log(chalk.dim("  Run `npx hatch3r init` to set up your project first.\n"));
+    }
     throw new HatchError(
       "No .hatch3r/hatch.json found.",
-      1,
+      undefined,
       "CONFIG_ERROR",
       "Run `npx hatch3r init` to set up your project first.",
     );
   }
 
-  const spinner = createSpinner("Checking adapter-output drift...");
-  spinner.start();
+  const spinner = jsonMode ? null : createSpinner("Checking adapter-output drift...");
+  spinner?.start();
 
   verbose(`Checking ${manifest.tools.length} tool(s): ${manifest.tools.join(", ")}`);
 
   const report = await computeAdapterDrift(rootDir, manifest);
 
-  spinner.stop();
+  spinner?.stop();
+
+  // SA12.1-F-D12-M2: emit the JSON payload before any human chrome and exit
+  // early so CI consumers see exactly one JSON document on stdout.
+  if (jsonMode) {
+    const hasDrift =
+      report.counts.modified > 0 || report.counts.missing > 0 || report.counts.unexpected > 0;
+    emitJson({
+      status: hasDrift ? "drift" : "in-sync",
+      counts: report.counts,
+      driftKindCounts: report.driftKindCounts,
+      entries: report.entries,
+      tools: manifest.tools,
+      hatch3rVersion: HATCH3R_VERSION,
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
   console.log();
 
   for (const line of renderDriftLines(report)) {
@@ -391,7 +427,13 @@ export async function statusCommand(opts?: { verbose?: boolean }): Promise<void>
     if (missing.length > 0) {
       cliLines.push("");
       for (const r of missing) {
-        cliLines.push(`  ${chalk.yellow("✗")} ${r.id} not on PATH`);
+        // D21-M6 (Cycle 10): differentiate "binary missing" from "extension
+        // missing" so the user reaches for the right remediation.
+        if (r.extensionMissing) {
+          cliLines.push(`  ${chalk.yellow("✗")} ${r.id} — extension missing: ${r.extensionMissing}`);
+        } else {
+          cliLines.push(`  ${chalk.yellow("✗")} ${r.id} not on PATH`);
+        }
       }
       cliLines.push("");
       cliLines.push(chalk.dim(`Run \`npx hatch3r cli-tools install\` to see install commands.`));
@@ -447,6 +489,12 @@ export async function statusCommand(opts?: { verbose?: boolean }): Promise<void>
   // table identical to `hatch3r explain --customizations`. Skipped when no
   // customization files exist so the status output stays compact for fresh
   // installs.
+  //
+  // SA12.1-F-D12-M7 (Cycle 10 Wave 3, D12, P1): default mode now ALSO lists
+  // the active customizations (capped at 8 rows) so the operator sees which
+  // canonical artifacts carry `.hatch3r/*.customize.*` overrides without
+  // needing `--verbose` or `hatch3r explain --customizations`. The prior
+  // one-line "N active" summary hid the per-artifact id list.
   try {
     const customizationSummary = await buildCustomizationSummary(rootDir);
     if (customizationSummary.entries.length > 0) {
@@ -470,8 +518,44 @@ export async function statusCommand(opts?: { verbose?: boolean }): Promise<void>
           const reason = entry.reason ? chalk.dim(` — ${entry.reason}`) : "";
           customLines.push(`  ${icon} ${entry.type}/${entry.id}${reason}`);
         }
-      } else if (c.failed > 0 || c.skipped > 0) {
-        customLines.push(chalk.dim(`  Run \`hatch3r explain --customizations\` for the per-artifact table.`));
+      } else {
+        // SA12.1-F-D12-M7: list non-active entries first (failed > skipped >
+        // active) so problems are immediately visible. Cap the active rows at
+        // 8 to keep the box readable on a fresh install with many overrides;
+        // the operator runs `--verbose` or `hatch3r explain --customizations`
+        // for the full list.
+        const FAILED_FIRST = customizationSummary.entries
+          .filter((e) => e.outcome === "failed")
+          .sort((a, b) => a.id.localeCompare(b.id));
+        const SKIPPED_NEXT = customizationSummary.entries
+          .filter((e) => e.outcome === "skipped")
+          .sort((a, b) => a.id.localeCompare(b.id));
+        const ACTIVE_LAST = customizationSummary.entries
+          .filter((e) => e.outcome === "active")
+          .sort((a, b) => a.id.localeCompare(b.id));
+        const visible = [...FAILED_FIRST, ...SKIPPED_NEXT, ...ACTIVE_LAST.slice(0, 8)];
+        const hiddenActive = Math.max(0, ACTIVE_LAST.length - 8);
+        if (visible.length > 0) {
+          customLines.push("");
+          for (const entry of visible) {
+            const icon =
+              entry.outcome === "failed"
+                ? chalk.red("✗")
+                : entry.outcome === "skipped"
+                  ? chalk.yellow("○")
+                  : chalk.green("✓");
+            const reason = entry.reason ? chalk.dim(` — ${entry.reason}`) : "";
+            customLines.push(`  ${icon} ${entry.type}/${entry.id}${reason}`);
+          }
+          if (hiddenActive > 0) {
+            customLines.push(
+              chalk.dim(`  … +${hiddenActive} more active (run with --verbose for the full list)`),
+            );
+          }
+        }
+        if (c.failed > 0 || c.skipped > 0) {
+          customLines.push(chalk.dim(`  Run \`hatch3r explain --customizations\` for the per-artifact table.`));
+        }
       }
       printBox(
         "Customizations",

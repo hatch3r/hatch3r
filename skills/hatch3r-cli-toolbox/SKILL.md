@@ -164,12 +164,13 @@ CLI tools return structured stdout that fits in <1 KB for typical queries; equiv
 
 ### docker
 - **When to use:** image build, container run, exec inspection, registry push against a running Docker Engine daemon.
-- **Recipe:** `docker run --rm -v "$PWD":/app -w /app node:22 npm test`
+- **Recipe (trusted image, repo workload):** `docker run --rm -v "$PWD":/app -w /app node:22 npm test`
+- **Recipe (untrusted image OR agent-generated command, default for AI runs):** prefer the hardened equivalent below — read-only filesystem, dropped capabilities, `:ro` sub-tree bind.
 - **Wrong choice when:** rootless / daemonless required — use `podman`; Kubernetes deploy — use `kubectl`/`helm`.
 
 #### Sandbox callout — host-mount + privilege
 
-The recipe above bind-mounts the entire repo root read-write, which exposes `.env`, `.git`, `.hatch3r/learnings/`, and `node_modules` to a compromised post-install script inside the container. F15.7-H5 (Cycle 10 D15-SA15.7) hardening — copy the relevant flags into your runs when the workload comes from untrusted sources (third-party image, agent-generated `docker run` command, public Dockerfile):
+The default recipe above bind-mounts the entire repo root read-write, which exposes `.env*`, `.git/`, `.aws/`, `.npmrc`, `.docker/config.json`, `~/.kube/config`, `.hatch3r/learnings/`, and `node_modules` to a compromised post-install script inside the container (D15-M15). On Linux, a process running as root inside a non-rootless container can write back through that mount with host-root semantics. F15.7-H5 (Cycle 10 D15-SA15.7) + D15-M15 hardening — copy the relevant flags into your runs when the workload comes from untrusted sources (third-party image, agent-generated `docker run` command, public Dockerfile):
 
 - Read-only filesystem: `--read-only --tmpfs /tmp` keeps the container from writing back to the host even via `/app`.
 - Drop root: `--user "$(id -u):$(id -g)"` or rely on the image's non-root `USER` directive. Without it, a process inside the container runs as host root on Linux when Docker Desktop's user remapping is disabled.
@@ -259,6 +260,7 @@ Playwright launches real Chrome / Firefox / WebKit processes that inherit the ho
 - Run inside the official sandbox image: Microsoft maintains pinned, signed Playwright containers — `mcr.microsoft.com/playwright:v1.49.0-jammy` (pin the exact tag). The image preinstalls every browser binary and isolates filesystem + network from the host. Reference: https://playwright.dev/docs/docker (Microsoft's official Playwright image is the maintained surface; pin to the immutable digest).
 - Disable hardware acceleration / GPU access on untrusted runs: `args: ['--disable-gpu', '--no-sandbox']` is acceptable inside a hardened container, never on the host.
 - Reset between scenarios: `await context.close(); context = await browser.newContext();` between unvetted URLs so cookie state does not leak across hops.
+- **D15-M14: `playwright codegen <url>` against an authed site.** `npx playwright codegen` opens a browser session the user logs into, then writes the captured locators and credentials into a test file on disk. Running codegen against a host browser profile bakes the live session cookie / Authorization header into the emitted test, exposing the credential in any artefact the test is checked into. Mitigation: always pass `--save-storage=storageState.json` to capture state into a single named file you can scrub or `.gitignore` (instead of writing inline credentials), pass `--user-data-dir=$(mktemp -d)` so codegen does not start from the host's logged-in profile, and review the emitted test for any literal token, bearer string, or `cookie:` header before committing. Reference: https://playwright.dev/docs/codegen#preserve-authenticated-state (preserve auth via the storage-state file rather than inline credentials).
 - Reference: https://playwright.dev/docs/release-notes (current release surface), https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/ (AAI04 untrusted-input handling).
 
 Hardened equivalent of the recipe above (inside Microsoft's pinned image):
@@ -286,7 +288,20 @@ docker run --rm --network none -v "$PWD:/work:ro" -w /work \
 
 ## Detection & install
 
-Verify each tool with `command -v <bin>`. Install commands:
+Verify each tool with `command -v <bin>`. Install commands.
+
+#### D15-M16: provenance / signature posture per channel
+
+Each install command below resolves to one of four trust postures. Read the posture before running any install command on an end-user machine — `cargo install` and `bash <(curl … | sh)` channels lack vendor-signed artefacts and require additional vetting.
+
+| Posture | Channels | What it means | Mitigation when posture is "unsigned" |
+|---------|----------|---------------|---------------------------------------|
+| Signed | `brew` (homebrew/cask), `apt` (signed repo + `Signed-By`), `snap`, `npm` with `--provenance` / `npm audit signatures`, Microsoft Store, Mac App Store | Channel verifies a vendor signature against a pinned key before installing | (none) |
+| Vendor-pinned | `pipx`, `pip` (lockfile + `--require-hashes`), `go install` against `proxy.golang.org` + `GOSUMDB=on` | Channel checksums or transparency log verifies that the resolved tarball matches the version's pinned hash | Verify lockfile committed, `GOSUMDB=sum.golang.org` not set to `off` |
+| Unsigned | `cargo install <crate>` (crates.io publishes tarballs without per-release Sigstore signatures), `pipx install` directly from PyPI without `--require-hashes` | Channel ships the resolved tarball but does not verify it against a vendor signature; integrity is per-channel checksum only | Pin the version, verify SHA-256 against the project's published release, prefer `--locked` (cargo) or `--require-hashes` (pip); avoid running on a credential-bearing machine |
+| Curl-piped-shell | `bash <(curl … get.comby.dev)`, `curl -fsSL … install.sh \| bash` | No checksum, no signature, attacker who controls the URL gets shell on your machine. Vendor maintained but unsigned at the channel level | Download the script first (`curl -fsSL <url> -o install.sh`), inspect it, optionally pin to a committed SHA via `git show <ref>:install.sh \| bash`, never `\| bash` straight from an untrusted network |
+
+Install commands:
 
 | Tool | mac (`brew`) | linux (`apt` / `pip` / other) |
 |------|--------------|--------------------------------|

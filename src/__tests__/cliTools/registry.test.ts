@@ -131,6 +131,41 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     expect(sd.releaseCadence).toBe("stable");
   });
 
+  it("ripgrep entry is annotated releaseCadence:'stable' (D21-M1, Cycle 10)", () => {
+    // D21-M1: ripgrep 15.1.0 (released 2025-10-31) is 208 days old at the
+    // 2026-05-26 audit. BurntSushi/ripgrep is mature steady-state — multi-
+    // month gaps between minor releases are the norm, not abandonment.
+    // releaseCadence: 'stable' suppresses staleness-heuristic amber flags
+    // without claiming the canonical search primitive is at risk.
+    const ripgrep = AVAILABLE_CLI_TOOLS.ripgrep;
+    expect(ripgrep.releaseCadence).toBe("stable");
+  });
+
+  it("bat entry is annotated releaseCadence:'stable' (D21-M3, Cycle 10)", () => {
+    // D21-M3: bat 0.26.1 (released 2025-12-12) is 167 days old at the
+    // 2026-05-26 audit. sharkdp/bat matches the fd cadence pattern — mature
+    // steady-state tooling with multi-month gaps between minor releases.
+    // releaseCadence: 'stable' dampens the staleness heuristic without
+    // claiming the canonical syntax-aware view tool is abandoned.
+    const bat = AVAILABLE_CLI_TOOLS.bat;
+    expect(bat.releaseCadence).toBe("stable");
+  });
+
+  it("az-devops entry declares an extensionProbe for the azure-devops extension (D21-M6, Cycle 10)", () => {
+    // D21-M6: the base `command -v az` probe is a false positive for users
+    // who install Azure CLI standalone without the azure-devops extension.
+    // The registered extensionProbe runs `az extension list -o tsv` after
+    // the base probe and only reports installed when "azure-devops" appears
+    // in the roster; detect.ts consumes this to surface
+    // result.extensionMissing instead of treating the tool as ready.
+    const azDevops = (AVAILABLE_CLI_TOOLS as Record<string, CliToolMeta | undefined>)["az-devops"];
+    expect(azDevops).toBeDefined();
+    expect(azDevops!.extensionProbe).toBeDefined();
+    expect(azDevops!.extensionProbe!.args).toEqual(["extension", "list", "-o", "tsv"]);
+    expect(azDevops!.extensionProbe!.expectInStdout).toBe("azure-devops");
+    expect(azDevops!.extensionProbe!.name).toBe("azure-devops");
+  });
+
   it("gh entry carries minVersion + securityNote citing GHSA-crc3-h8v6-qh57 (D21-SA21.5-F01)", () => {
     // C9-H88: gh CLI before 2.92.0 (released 2026-05-06) leaks tokens via
     // auxiliary host extension calls per GHSA-crc3-h8v6-qh57. Surface

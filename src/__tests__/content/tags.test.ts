@@ -262,8 +262,8 @@ describe("TAG_REGISTRY consistency", () => {
     expect(unique.size).toBe(ALL_TAGS.length);
   });
 
-  it("ALL_TAGS contains exactly 80 elements (40 capability + 4 floor + 3 context + 1 customize + 5 ui-ux + 4 cli-tool + 13 cli-cat + 6 language + 4 tier) — Cycle 10 tier expansion", () => {
-    expect(ALL_TAGS).toHaveLength(80);
+  it("ALL_TAGS contains exactly 83 elements (40 capability + 4 floor + 3 context + 1 customize + 5 ui-ux + 4 cli-tool + 13 cli-cat + 6 language + 4 tier + 3 role) — Cycle 10 tier expansion + D14-M6 role facet", () => {
+    expect(ALL_TAGS).toHaveLength(83);
   });
 
   it("facetOf returns 'capability' for every capability tag", () => {

@@ -116,7 +116,8 @@ describe("update command", () => {
     const { updateCommand } = await import("../../cli/commands/update.js");
 
     await expect(updateCommand()).rejects.toThrow(HatchError);
-    try { await updateCommand(); } catch (e) { expect((e as HatchError).exitCode).toBe(1); }
+    // C8-D1-M5: CONFIG_ERROR -> EX_DATAERR (65) via central map.
+    try { await updateCommand(); } catch (e) { expect((e as HatchError).exitCode).toBe(65); }
 
     // Wave 6: error message references the new manifest location.
     const allOutput = [

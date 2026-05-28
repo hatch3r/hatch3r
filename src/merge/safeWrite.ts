@@ -11,7 +11,7 @@ import {
   readdir,
 } from "node:fs/promises";
 import { dirname, basename, join } from "node:path";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import * as properLockfile from "proper-lockfile";
 import { HATCH3R_PREFIX, HatchError, type MergeResult } from "../types.js";
 import { insertManagedBlock, hasManagedBlock, extractCustomContent } from "./managedBlocks.js";
@@ -50,9 +50,68 @@ const LOCK_STALE_MS = 15_000;
 const HELD_LOCKS = new Set<string>();
 
 /**
- * D1-SA1.5.1: Acquire a cross-process advisory lock for {@link filePath} when
- * the `HATCH3R_LOCK=1` opt-in env var is set. Default (unset) is a no-op so
- * existing behavior is preserved.
+ * D8-M3 (Cycle 10 rollover): default-on cross-process file locking for
+ * workspace and worktree contexts. The `HATCH3R_LOCK=1` env var was the only
+ * way to opt in, and it was undiscoverable — operators running `hatch3r sync`
+ * against a workspace from two shells silently raced manifest writes. The
+ * workspace and worktree command entry points now call
+ * `enableDefaultCrossProcessLocking()` at startup so cross-process safety is
+ * default-on for those contexts. The env var still works for single-repo
+ * flows where the operator explicitly wants locking (e.g. CI matrix runs in
+ * `hatch3r init`).
+ *
+ * To force-disable in a context where the default would otherwise enable
+ * locking (advanced/test only), set `HATCH3R_LOCK=0`.
+ */
+let defaultCrossProcessLockingEnabled = false;
+
+/**
+ * Enable default cross-process locking for the current process. Called by
+ * workspace and worktree command entry points so concurrent invocations from
+ * two shells (or two CI matrix runners) do not race manifest writes. Idempotent.
+ *
+ * After this is called, {@link acquireWriteLock} takes the on-disk advisory
+ * lock unless the operator has explicitly set `HATCH3R_LOCK=0` to opt out.
+ */
+export function enableDefaultCrossProcessLocking(): void {
+  defaultCrossProcessLockingEnabled = true;
+}
+
+/**
+ * Reset default-on state. Used by tests so each test starts from the
+ * single-process default. Not part of the public CLI surface.
+ */
+export function resetDefaultCrossProcessLocking(): void {
+  defaultCrossProcessLockingEnabled = false;
+}
+
+/**
+ * D8-M3: returns true when {@link acquireWriteLock} should actually take an
+ * on-disk lock for this process. Precedence:
+ *   1. `HATCH3R_LOCK=0` → explicit opt-out wins, even when default is enabled.
+ *   2. `HATCH3R_LOCK=1` → explicit opt-in.
+ *   3. {@link defaultCrossProcessLockingEnabled} → default-on for
+ *      workspace/worktree contexts.
+ *   4. Otherwise → no-op (single-repo default unchanged).
+ */
+function isLockingEnabled(): boolean {
+  const envVal = process.env.HATCH3R_LOCK;
+  if (envVal === "0") return false;
+  if (envVal === "1") return true;
+  return defaultCrossProcessLockingEnabled;
+}
+
+/**
+ * D1-SA1.5.1: Acquire a cross-process advisory lock for {@link filePath}.
+ *
+ * Locking activates when either:
+ *  - `HATCH3R_LOCK=1` is set explicitly, OR
+ *  - the process is running a workspace/worktree command that called
+ *    {@link enableDefaultCrossProcessLocking} (D8-M3).
+ *
+ * Set `HATCH3R_LOCK=0` to force-disable when the default would otherwise
+ * enable locking. The default (no env var, no command-level enable) is a
+ * no-op so existing single-process behavior is preserved.
  *
  * Returns a release function. Callers MUST invoke release in a finally block
  * — even when the wrapped write throws — to prevent stale locks.
@@ -67,7 +126,7 @@ const HELD_LOCKS = new Set<string>();
  * holder owns the lifecycle.
  */
 export async function acquireWriteLock(filePath: string): Promise<() => Promise<void>> {
-  if (process.env.HATCH3R_LOCK !== "1") {
+  if (!isLockingEnabled()) {
     return async () => { /* locking disabled */ };
   }
   if (HELD_LOCKS.has(filePath)) {
@@ -202,7 +261,11 @@ export async function atomicWriteFile(filePath: string, content: string): Promis
     try {
       await release();
     } catch (releaseErr) {
-      if (process.env.HATCH3R_LOCK === "1") {
+      // D8-M3: emit the diagnostic when locking was active for this call —
+      // either via explicit env-var opt-in OR the workspace/worktree default.
+      // Without the broader gate, a lock taken by default-on (no env var set)
+      // would still fail silently on release.
+      if (isLockingEnabled()) {
         console.error(
           `hatch3r: failed to release write lock for ${filePath}: ` +
             `${releaseErr instanceof Error ? releaseErr.message : String(releaseErr)}`,
@@ -427,7 +490,18 @@ export async function safeWriteFile(
           return { path: filePath, action: "unchanged" };
         }
         await atomicWriteFile(filePath, prepended);
-        return { path: filePath, action: "updated" };
+        // D10-M13 (Cycle 10): the prior implementation prepended the managed
+        // block to an existing file silently, so a user who deleted the
+        // HATCH3R:BEGIN/END markers (intentionally or by mistake) saw a
+        // mysterious re-injection on the next sync with no signal that
+        // marker recovery had run. Surface a warning so the operator can
+        // distinguish "block was missing — I am restoring it" from "block
+        // was present — I merged the update."
+        return {
+          path: filePath,
+          action: "updated",
+          warning: `Recovered missing managed-block markers in ${filePath}: HATCH3R:BEGIN/END were absent, so the managed content was prepended and your existing content preserved below it. If you intended to permanently detach this file from hatch3r, remove it from the manifest or move it outside the managed paths.`,
+        };
       }
       // #144 (D19-15): Improved recovery guidance — avoid suggesting init --force
       return {
@@ -462,6 +536,11 @@ export async function safeWriteFile(
       // Managed block is corrupted (duplicate markers, wrong order, etc.).
       // Create a .bak backup before overwriting so user content is not lost.
       // #242 (D8-8.9): Verify backup integrity before proceeding with overwrite.
+      // D1-M12 (Cycle 10 Wave-3): file-size equality is necessary but not
+      // sufficient — a partial copy that happened to land at the same byte
+      // count would pass the size check while the bytes diverged. Compare
+      // SHA-256 digests of the in-memory source and the on-disk backup so
+      // we abort auto-repair on any byte-level divergence.
       // Auto-repair always writes through — skipIfUnchanged does not apply
       // here because the file shape on disk is broken even when bytes
       // happen to match.
@@ -472,6 +551,20 @@ export async function safeWriteFile(
       if (bakStat.size !== srcStat.size) {
         throw new HatchError(
           `Backup verification failed for ${filePath}: source=${srcStat.size} bytes, backup=${bakStat.size} bytes. ` +
+          `Aborting auto-repair to prevent data loss.`,
+          1,
+          "FS_ERROR",
+        );
+      }
+      // existingContent was read above as the file's pre-repair bytes. Hash
+      // it directly and compare with the just-written backup so we detect
+      // partial-write or fs-corruption cases the size check misses.
+      const srcHash = createHash("sha256").update(existingContent, "utf-8").digest("hex");
+      const bakBytes = await readFile(bakPath);
+      const bakHash = createHash("sha256").update(bakBytes).digest("hex");
+      if (srcHash !== bakHash) {
+        throw new HatchError(
+          `Backup verification failed for ${filePath}: SHA-256 mismatch (source=${srcHash.slice(0, 12)}…, backup=${bakHash.slice(0, 12)}…). ` +
           `Aborting auto-repair to prevent data loss.`,
           1,
           "FS_ERROR",

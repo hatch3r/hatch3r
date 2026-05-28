@@ -1,4 +1,5 @@
 import { access, cp, mkdir, open, readFile, readdir, rm, stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { dirname, join, sep } from "node:path";
 import type { HatchManifest, Tool } from "../types.js";
 import { ARCHIVE_DIR, HATCH3R_PREFIX, HatchError, sanitizeId } from "../types.js";
@@ -103,6 +104,41 @@ async function fileExists(path: string): Promise<boolean> {
   }
 }
 
+/**
+ * D2-M14 (D2 Medium, Cycle 10 Wave 3 rollover): SHA-256 hash a file's bytes
+ * via an already-open FileHandle. Streams in 64 KiB chunks so memory stays
+ * bounded on large files, and reads from the same inode the caller's stat
+ * was taken against — avoiding the TOCTOU window of a fresh path-based
+ * read. Returns the lowercase hex digest. Resets the handle position before
+ * hashing so the caller's previous reads do not affect the digest.
+ */
+async function hashFileHandle(fh: { read: (opts: {
+  buffer: Buffer;
+  offset: number;
+  length: number;
+  position: number;
+}) => Promise<{ bytesRead: number }> }): Promise<string> {
+  const hash = createHash("sha256");
+  const CHUNK = 64 * 1024;
+  const buf = Buffer.alloc(CHUNK);
+  let position = 0;
+  // Loop until read returns bytesRead === 0 (EOF). Explicit position-based
+  // read so the FileHandle's internal cursor is not consulted (the caller
+  // may have done a stat() / read() before us).
+  while (true) {
+    const { bytesRead } = await fh.read({
+      buffer: buf,
+      offset: 0,
+      length: CHUNK,
+      position,
+    });
+    if (bytesRead === 0) break;
+    hash.update(buf.subarray(0, bytesRead));
+    position += bytesRead;
+  }
+  return hash.digest("hex");
+}
+
 export async function collectToolFiles(rootDir: string, tool: Tool): Promise<string[]> {
   const prefixes = TOOL_PATH_PREFIXES[tool];
   if (!prefixes) return [];
@@ -188,6 +224,16 @@ export async function archiveToolOutputs(
     // #243 (D8-8.10): Use fd-based stat to avoid TOCTOU race between stat
     // calls. Opening both files and using fh.stat() ensures we read sizes
     // atomically from the same inodes we just wrote/read.
+    //
+    // D2-M14 (D2 Medium, Cycle 10 Wave 3 rollover): size-only validation
+    // is insufficient — a bit flip from disk corruption, an intermediate
+    // network filesystem hiccup, or a concurrent writer hitting the source
+    // mid-copy could yield a same-size-different-content destination. The
+    // post-copy validation now SHA-256 hashes both inodes from the open
+    // file descriptors and compares the digests; size mismatch is still
+    // reported first (cheap fast-path) while a same-size-content-divergent
+    // copy fails with an explicit hash-mismatch HatchError that names both
+    // hashes for forensic comparison.
     const srcFh = await open(absPath, "r");
     try {
       const destFh = await open(archiveDest, "r");
@@ -197,6 +243,24 @@ export async function archiveToolOutputs(
         if (destStat.size !== srcStat.size) {
           throw new HatchError(
             `Archive copy size mismatch for ${relPath}: source=${srcStat.size}, dest=${destStat.size}`,
+            1,
+            "FS_ERROR",
+          );
+        }
+        // D2-M14: hash both fds and compare. We read via the open fds (not
+        // a fresh path-based read) so the bytes hashed come from the same
+        // inodes whose size we just validated — closing the residual
+        // TOCTOU window where a swap-rename could replace either file
+        // between size check and content check.
+        const [srcHash, destHash] = await Promise.all([
+          hashFileHandle(srcFh),
+          hashFileHandle(destFh),
+        ]);
+        if (srcHash !== destHash) {
+          throw new HatchError(
+            `Archive copy content mismatch for ${relPath}: source SHA-256=${srcHash}, dest SHA-256=${destHash}. ` +
+              `Sizes matched but bytes diverged — likely disk corruption, concurrent writer, or network filesystem inconsistency. ` +
+              `Source NOT removed; investigate the destination at ${archiveDest}.`,
             1,
             "FS_ERROR",
           );

@@ -9,6 +9,11 @@ import {
   getRecoveryGuidance,
   formatActionableError,
   circuitBreakerSummary,
+  formatBreakerStateEntry,
+  parseBreakerStateLog,
+  hydrateBreakersFromLog,
+  serializeBreakerMap,
+  BREAKER_STATE_TTL_MS,
   type CircuitBreakerState,
 } from "../../pipeline/circuitBreaker.js";
 
@@ -377,6 +382,102 @@ describe("circuitBreaker", () => {
       const out = formatActionableError("update", err);
       expect(out.dependencyClass).toBe("auth");
       expect(out.message).toContain("credentials");
+    });
+  });
+
+  // D8-M4 (Cycle 10 rollover): persisted-state JSONL + TTL semantics. The
+  // adapter cohort under `hatch3r sync` / `hatch3r update` hydrates the
+  // breaker map from `.hatch3r/.breaker-state.jsonl` so a recurring transient
+  // failure surface is recognised as already-open across invocations.
+  describe("persistence (D8-M4)", () => {
+    it("formatBreakerStateEntry produces valid JSON with persistedAt + state", () => {
+      const cb = createCircuitBreaker({ serviceId: "adapter:claude" });
+      const line = formatBreakerStateEntry(cb);
+      const parsed = JSON.parse(line) as { persistedAt: string; state: CircuitBreakerState };
+      expect(typeof parsed.persistedAt).toBe("string");
+      expect(parsed.state.config.serviceId).toBe("adapter:claude");
+    });
+
+    it("parseBreakerStateLog skips malformed lines without aborting", () => {
+      const valid = formatBreakerStateEntry(createCircuitBreaker({ serviceId: "ok" }));
+      const content = [valid, "not json at all", "{}", valid].join("\n");
+      const map = parseBreakerStateLog(content);
+      expect(map.size).toBe(1);
+      expect(map.has("ok")).toBe(true);
+    });
+
+    it("parseBreakerStateLog drops entries older than the TTL", () => {
+      const cb = createCircuitBreaker({ serviceId: "stale" });
+      // Manually construct a stale entry (persistedAt = 48h ago).
+      const staleEntry = {
+        persistedAt: new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString(),
+        state: cb,
+      };
+      const freshEntry = {
+        persistedAt: new Date().toISOString(),
+        state: createCircuitBreaker({ serviceId: "fresh" }),
+      };
+      const content = [JSON.stringify(staleEntry), JSON.stringify(freshEntry)].join("\n");
+      const map = parseBreakerStateLog(content);
+      expect(map.has("stale")).toBe(false);
+      expect(map.has("fresh")).toBe(true);
+    });
+
+    it("parseBreakerStateLog keeps the latest entry when serviceId repeats", () => {
+      const sid = "adapter:cursor";
+      const olderState = createCircuitBreaker({ serviceId: sid });
+      const newerState: CircuitBreakerState = {
+        ...createCircuitBreaker({ serviceId: sid }),
+        state: "OPEN",
+        consecutiveFailures: 3,
+      };
+      const olderEntry = {
+        persistedAt: new Date(Date.now() - 60_000).toISOString(),
+        state: olderState,
+      };
+      const newerEntry = {
+        persistedAt: new Date().toISOString(),
+        state: newerState,
+      };
+      // Order in the log: older first, then newer. parse must pick newer.
+      const content = [JSON.stringify(olderEntry), JSON.stringify(newerEntry)].join("\n");
+      const map = parseBreakerStateLog(content);
+      const got = map.get(sid);
+      expect(got?.state).toBe("OPEN");
+      expect(got?.consecutiveFailures).toBe(3);
+    });
+
+    it("hydrateBreakersFromLog returns an empty map for empty content", () => {
+      expect(hydrateBreakersFromLog("").size).toBe(0);
+      expect(hydrateBreakersFromLog("\n\n").size).toBe(0);
+    });
+
+    it("serializeBreakerMap returns empty string for empty input", () => {
+      expect(serializeBreakerMap(new Map())).toBe("");
+    });
+
+    it("serializeBreakerMap → hydrateBreakersFromLog is a round-trip", () => {
+      const a = createCircuitBreaker({ serviceId: "adapter:claude" });
+      const b: CircuitBreakerState = {
+        ...createCircuitBreaker({ serviceId: "adapter:cursor" }),
+        state: "OPEN",
+        consecutiveFailures: 3,
+        lastFailureAt: new Date().toISOString(),
+      };
+      const inputMap = new Map<string, CircuitBreakerState>([
+        ["adapter:claude", a],
+        ["adapter:cursor", b],
+      ]);
+      const serialized = serializeBreakerMap(inputMap);
+      const hydrated = hydrateBreakersFromLog(serialized);
+      expect(hydrated.size).toBe(2);
+      expect(hydrated.get("adapter:claude")?.state).toBe("CLOSED");
+      expect(hydrated.get("adapter:cursor")?.state).toBe("OPEN");
+      expect(hydrated.get("adapter:cursor")?.consecutiveFailures).toBe(3);
+    });
+
+    it("TTL constant exposes a 24h budget so callers can scale tests", () => {
+      expect(BREAKER_STATE_TTL_MS).toBe(24 * 60 * 60 * 1000);
     });
   });
 });

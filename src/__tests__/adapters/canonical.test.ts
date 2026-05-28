@@ -653,6 +653,63 @@ describe("readCanonicalFiles", () => {
     });
   });
 
+  // D2-M04 (D2 Medium, Cycle 10 Wave 3 rollover): promptGuard injection
+  // findings carry the dedicated `INJECTION_TOKEN` error code instead of
+  // sharing the `TYPE_MISMATCH` bucket reserved for frontmatter YAML type
+  // errors. Downstream consumers can now filter the P6 (Security & Trust)
+  // signal from P2 (authoring) signals by inspecting the code prefix.
+  describe("D2-M04 INJECTION_TOKEN code disambiguates from TYPE_MISMATCH", () => {
+    it("emits INJECTION_TOKEN (not TYPE_MISMATCH) for null-byte body injection", async () => {
+      const dir = await createTempAgentsDir();
+      await mkdir(join(dir, "rules"), { recursive: true });
+      await writeFile(
+        join(dir, "rules", "nullbyte.md"),
+        "---\nid: nullbyte\ntype: rule\ndescription: has nul\n---\nNormal\x00hidden",
+      );
+
+      const warnings: string[] = [];
+      await readCanonicalFiles(dir, "rules", warnings);
+      const injectionWarnings = warnings.filter((w) => w.includes("INJECTION_TOKEN"));
+      const typeMismatchWarnings = warnings.filter((w) => w.includes("TYPE_MISMATCH"));
+      expect(injectionWarnings.length).toBeGreaterThan(0);
+      expect(typeMismatchWarnings.length).toBe(0);
+      expect(injectionWarnings[0]).toContain("promptGuard");
+      expect(injectionWarnings[0].toLowerCase()).toContain("null byte");
+    });
+
+    it("emits TYPE_MISMATCH (not INJECTION_TOKEN) for YAML type errors", async () => {
+      const dir = await createTempAgentsDir();
+      await mkdir(join(dir, "rules"), { recursive: true });
+      await writeFile(
+        join(dir, "rules", "bad-id.md"),
+        "---\nid: 123\ntype: rule\ndescription: numeric id\n---\nBody.",
+      );
+
+      const warnings: string[] = [];
+      await readCanonicalFiles(dir, "rules", warnings);
+      const injectionWarnings = warnings.filter((w) => w.includes("INJECTION_TOKEN"));
+      const typeMismatchWarnings = warnings.filter((w) => w.includes("TYPE_MISMATCH"));
+      expect(typeMismatchWarnings.length).toBeGreaterThan(0);
+      expect(injectionWarnings.length).toBe(0);
+    });
+
+    it("emits both codes side-by-side when a file has YAML type errors AND body injection", async () => {
+      const dir = await createTempAgentsDir();
+      await mkdir(join(dir, "rules"), { recursive: true });
+      await writeFile(
+        join(dir, "rules", "both.md"),
+        "---\nid: 123\ntype: rule\ndescription: numeric id\n---\nNormal [INST] bad [/INST]",
+      );
+
+      const warnings: string[] = [];
+      await readCanonicalFiles(dir, "rules", warnings);
+      const injectionWarnings = warnings.filter((w) => w.includes("INJECTION_TOKEN"));
+      const typeMismatchWarnings = warnings.filter((w) => w.includes("TYPE_MISMATCH"));
+      expect(typeMismatchWarnings.length).toBeGreaterThan(0);
+      expect(injectionWarnings.length).toBeGreaterThan(0);
+    });
+  });
+
   // C8-D2-M3 (D2-SA2.2-3): CanonicalType extended to cover every on-disk
   // `.agents/{dir}/` directory with frontmatter-bearing markdown — not just
   // the original 6. The glob reader is unchanged; only new discriminants

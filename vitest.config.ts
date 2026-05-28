@@ -21,6 +21,17 @@ export default defineConfig({
         "src/hooks/types.ts",
         "src/worktree/types.ts",
         "src/workspace/types.ts",
+        // D3-M3 (Cycle 10 Wave-3 Medium rollover): exclude the CLI bootstrap
+        // entry point. `src/cli/index.ts` is top-level executed code (process
+        // signal handlers, argv parsing, program.parseAsync) — running it
+        // under vitest invokes the actual CLI flow. The natural test for it
+        // (`src/__tests__/cli/entrypoint.test.ts`) spawns a built binary via
+        // `execFileSync(node, dist/cli/index.js)`, which v8 coverage cannot
+        // attribute back to the source file. The result was a persistent 0%
+        // line on the coverage report that misrepresented overall coverage
+        // health. Exclude is the right move — the dist subprocess test still
+        // exercises every documented branch end-to-end.
+        "src/cli/index.ts",
         "**/*.test.ts",
         "**/__tests__/**",
       ],

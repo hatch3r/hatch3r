@@ -189,237 +189,355 @@ export function createManifest(options: {
   return manifest;
 }
 
+/**
+ * D1-M14 (Cycle 10 Wave-3 Medium): declarative manifest-migration registry.
+ *
+ * Previously migrateManifest was an ad-hoc spread of inline mutations: it
+ * was difficult to read which version-bumps and field-renames had landed,
+ * impossible to test individual steps, and easy to introduce ordering
+ * regressions when the next migration arrived. Refactored to a single
+ * registry of {id, description, apply} so each migration is independently
+ * inspectable and unit-testable, and operators can list executed migrations
+ * via the exported `MANIFEST_MIGRATIONS` table.
+ *
+ * Apply order: declaration order. Each migration receives the manifest
+ * mutated by every earlier migration. Migrations are idempotent — running
+ * the registry twice on the same input MUST produce the same output.
+ */
+export interface ManifestMigration {
+  /** Stable identifier (used in logs and tests). */
+  id: string;
+  /** Human-readable summary of what this migration does. */
+  description: string;
+  /** Apply step. Mutates the manifest in place; returns the same reference. */
+  apply: (m: Record<string, unknown>) => void;
+}
+
+export const MANIFEST_MIGRATIONS: readonly ManifestMigration[] = [
+  {
+    id: "namespace-from-owner",
+    description: "Default namespace to owner when missing (platform-neutral identity).",
+    apply(m) {
+      if (!m.namespace && typeof m.owner === "string") m.namespace = m.owner;
+      if (!m.namespace) m.namespace = "";
+    },
+  },
+  {
+    id: "project-from-repo",
+    description: "Default project to repo when missing (platform-neutral identity).",
+    apply(m) {
+      if (!m.project && typeof m.repo === "string") m.project = m.repo;
+      if (!m.project) m.project = "";
+    },
+  },
+  {
+    id: "v1-to-v2",
+    description: "Bump manifest version 1.0.0 -> 2.0.0.",
+    apply(m) {
+      if (m.version === "1.0.0") m.version = "2.0.0";
+    },
+  },
+  {
+    id: "drop-agents-md-tool",
+    description: "1.7.0: agents-md is no longer a selectable tool; remove it from tools[].",
+    apply(m) {
+      if (Array.isArray(m.tools)) {
+        m.tools = (m.tools as unknown[]).filter(
+          (t) => typeof t !== "string" || t !== "agents-md",
+        );
+      }
+    },
+  },
+  {
+    id: "drop-shared-sentinel",
+    description: "Wave 6 (1.9.0): drop the _shared sentinel bucket from managedFilesByAdapter (legacy root-AGENTS.md bridge).",
+    apply(m) {
+      if (m.managedFilesByAdapter !== null && typeof m.managedFilesByAdapter === "object") {
+        const mfba = m.managedFilesByAdapter as Record<string, unknown>;
+        if ("_shared" in mfba) {
+          delete mfba._shared;
+        }
+      }
+    },
+  },
+  {
+    id: "v2-to-v3",
+    description: "Bump manifest version 2.0.0 -> 3.0.0.",
+    apply(m) {
+      if (m.version === "2.0.0") m.version = "3.0.0";
+    },
+  },
+];
+
 export function migrateManifest(raw: Record<string, unknown>): Record<string, unknown> {
   const migrated = { ...raw };
-
-  if (!migrated.namespace && typeof migrated.owner === "string") {
-    migrated.namespace = migrated.owner;
+  for (const migration of MANIFEST_MIGRATIONS) {
+    migration.apply(migrated);
   }
-  if (!migrated.namespace) {
-    migrated.namespace = "";
-  }
-
-  if (!migrated.project && typeof migrated.repo === "string") {
-    migrated.project = migrated.repo;
-  }
-  if (!migrated.project) {
-    migrated.project = "";
-  }
-
-  if (migrated.version === "1.0.0") {
-    migrated.version = "2.0.0";
-  }
-
-  // 1.7.0: `agents-md` is no longer a selectable tool. AGENTS.md is emitted
-  // unconditionally by init/update via generateRootAgentsMd; the standalone
-  // adapter caused duplicate writes (managed-block nesting, 8000-line growth)
-  // when combined with the amp adapter that targeted the same path.
-  if (Array.isArray(migrated.tools)) {
-    migrated.tools = (migrated.tools as unknown[]).filter(
-      (t) => typeof t !== "string" || t !== "agents-md",
-    );
-  }
-
-  // Wave 6 (1.9.0 / schemaVersion 3): drop the `_shared` sentinel bucket
-  // from `managedFilesByAdapter`. It previously tracked the root AGENTS.md
-  // bridge (Wave 3 removed the bridge); leaving the empty bucket on disk
-  // would survive forever. Idempotent — runs every load until cleared.
-  if (
-    migrated.managedFilesByAdapter !== null &&
-    typeof migrated.managedFilesByAdapter === "object"
-  ) {
-    const mfba = migrated.managedFilesByAdapter as Record<string, unknown>;
-    if ("_shared" in mfba) {
-      delete mfba._shared;
-    }
-  }
-
-  if (migrated.version === "2.0.0") {
-    migrated.version = "3.0.0";
-  }
-
   return migrated;
 }
 
-function validateManifest(data: unknown): data is HatchManifest {
-  if (!data || typeof data !== "object") return false;
-  const obj = data as Record<string, unknown>;
-  if (
-    typeof obj.version !== "string" ||
-    typeof obj.hatch3rVersion !== "string" ||
-    (obj.platform !== undefined && typeof obj.platform !== "string") ||
-    !Array.isArray(obj.tools) ||
-    obj.features === null ||
-    typeof obj.features !== "object" ||
-    Array.isArray(obj.features) ||
-    obj.mcp === null ||
-    typeof obj.mcp !== "object" ||
-    Array.isArray(obj.mcp) ||
-    !Array.isArray(obj.managedFiles)
-  ) {
-    return false;
+/**
+ * D1-M13 (Cycle 10 Wave-3 Medium): per-field manifest validator.
+ *
+ * Earlier implementations returned `false` on first malformed field, so
+ * callers got "required fields missing or malformed" with no clue which
+ * field was at fault. This helper threads a string[] accumulator through
+ * every check so the boolean wrapper below can format a single error
+ * message naming every field that failed schema. The boolean wrapper
+ * preserves the existing `data is HatchManifest` type-guard contract.
+ */
+function collectManifestErrors(data: unknown): string[] {
+  const errors: string[] = [];
+  if (!data || typeof data !== "object") {
+    errors.push("manifest is not an object");
+    return errors;
   }
+  const obj = data as Record<string, unknown>;
+
+  if (typeof obj.version !== "string") errors.push("`version` is missing or not a string");
+  if (typeof obj.hatch3rVersion !== "string") errors.push("`hatch3rVersion` is missing or not a string");
+  if (obj.platform !== undefined && typeof obj.platform !== "string") errors.push("`platform` is not a string");
+  if (!Array.isArray(obj.tools)) errors.push("`tools` is missing or not an array");
+  if (obj.features === null || typeof obj.features !== "object" || Array.isArray(obj.features)) {
+    errors.push("`features` is missing or not an object");
+  }
+  if (obj.mcp === null || typeof obj.mcp !== "object" || Array.isArray(obj.mcp)) {
+    errors.push("`mcp` is missing or not an object");
+  }
+  if (!Array.isArray(obj.managedFiles)) errors.push("`managedFiles` is missing or not an array");
 
   // F3.3-C1: Validate `mcp.servers` sub-schema — required, must be string[].
-  // Mirrors the pattern used for `tools` below. Previously `mcp` was permitted
-  // as `{}` with no servers field, leaving downstream consumers (adapters that
-  // read `manifest.mcp.servers.length`) to throw TypeError instead of HatchError.
-  const mcp = obj.mcp as Record<string, unknown>;
-  if (!Array.isArray(mcp.servers)) return false;
-  if (!(mcp.servers as unknown[]).every((s) => typeof s === "string")) return false;
+  if (obj.mcp && typeof obj.mcp === "object" && !Array.isArray(obj.mcp)) {
+    const mcp = obj.mcp as Record<string, unknown>;
+    if (!Array.isArray(mcp.servers)) {
+      errors.push("`mcp.servers` is missing or not an array");
+    } else if (!(mcp.servers as unknown[]).every((s) => typeof s === "string")) {
+      errors.push("`mcp.servers` contains non-string entries");
+    }
+  }
 
   // #108: Validate tools array entries are known tool strings
-  for (const tool of obj.tools as unknown[]) {
-    if (typeof tool !== "string" || !VALID_TOOLS.has(tool)) return false;
+  if (Array.isArray(obj.tools)) {
+    for (const tool of obj.tools as unknown[]) {
+      if (typeof tool !== "string" || !VALID_TOOLS.has(tool)) {
+        errors.push(`\`tools\` contains unknown entry ${JSON.stringify(tool)}`);
+      }
+    }
   }
 
-  // F1.2-H2 (Cycle 10 D1): Validate the optional `maturity` scalar at the
-  // persistence boundary. Previously `validateManifest` never inspected
-  // `obj.maturity`, so a hand-edited `.hatch3r/hatch.json` carrying
-  // `"maturity": "enterprice"` (typo) loaded without diagnostic and
-  // `readMaturityTier` silently fell back to "solo" — the user got the
-  // solo content surface with zero signal that their tier was discarded.
-  // Reject an out-of-enum or non-string value here so `readManifest`
-  // throws HatchError(CONFIG_ERROR) instead of degrading silently
-  // (CONSTITUTION §2 P5 Silent Failure Contract).
+  // F1.2-H2: validate optional `maturity` scalar at the persistence boundary.
   if (obj.maturity !== undefined) {
     if (typeof obj.maturity !== "string" || !VALID_MATURITY_TIERS.has(obj.maturity)) {
-      return false;
+      errors.push(`\`maturity\` is not a known tier (got ${JSON.stringify(obj.maturity)})`);
     }
   }
 
-  // #108: Validate board sub-schema when present
+  // #108: board sub-schema
   if (obj.board !== undefined) {
-    if (typeof obj.board !== "object" || obj.board === null) return false;
-    const board = obj.board as Record<string, unknown>;
-    if (typeof board.owner !== "string") return false;
-    if (typeof board.repo !== "string") return false;
-    if (board.defaultBranch !== undefined) {
-      if (typeof board.defaultBranch !== "string") return false;
-      // #1.15: Validate defaultBranch against git branch naming rules
-      if (!isValidGitBranchName(board.defaultBranch)) return false;
+    if (typeof obj.board !== "object" || obj.board === null) {
+      errors.push("`board` is not an object");
+    } else {
+      const board = obj.board as Record<string, unknown>;
+      if (typeof board.owner !== "string") errors.push("`board.owner` is not a string");
+      if (typeof board.repo !== "string") errors.push("`board.repo` is not a string");
+      if (board.defaultBranch !== undefined) {
+        if (typeof board.defaultBranch !== "string") {
+          errors.push("`board.defaultBranch` is not a string");
+        } else if (!isValidGitBranchName(board.defaultBranch)) {
+          errors.push(`\`board.defaultBranch\` (${JSON.stringify(board.defaultBranch)}) is not a valid git branch name`);
+        }
+      }
     }
   }
 
-  // #108: Validate worktree.extraPatterns when present
+  // #108: worktree.extraPatterns
   if (obj.worktree !== undefined) {
     const wt = obj.worktree as Record<string, unknown>;
     if (wt.extraPatterns !== undefined) {
-      if (!Array.isArray(wt.extraPatterns)) return false;
-      if (!(wt.extraPatterns as unknown[]).every((v) => typeof v === "string")) return false;
+      if (!Array.isArray(wt.extraPatterns)) {
+        errors.push("`worktree.extraPatterns` is not an array");
+      } else if (!(wt.extraPatterns as unknown[]).every((v) => typeof v === "string")) {
+        errors.push("`worktree.extraPatterns` contains non-string entries");
+      }
     }
   }
 
   if (obj.content !== undefined) {
-    if (typeof obj.content !== "object" || obj.content === null) return false;
-    const content = obj.content as Record<string, unknown>;
-    if (typeof content.preset !== "string") return false;
-    if (typeof content.projectType !== "string") return false;
-    if (typeof content.teamSize !== "string") return false;
-    if (!content.items || typeof content.items !== "object") return false;
-    const items = content.items as Record<string, unknown>;
-    const requiredKeys = ["agents", "skills", "rules", "commands", "prompts", "hooks", "githubAgents"];
-    for (const key of requiredKeys) {
-      if (!Array.isArray(items[key])) return false;
-      if (!(items[key] as unknown[]).every((v) => typeof v === "string")) return false;
+    if (typeof obj.content !== "object" || obj.content === null) {
+      errors.push("`content` is not an object");
+    } else {
+      const content = obj.content as Record<string, unknown>;
+      if (typeof content.preset !== "string") errors.push("`content.preset` is not a string");
+      if (typeof content.projectType !== "string") errors.push("`content.projectType` is not a string");
+      if (typeof content.teamSize !== "string") errors.push("`content.teamSize` is not a string");
+      if (!content.items || typeof content.items !== "object") {
+        errors.push("`content.items` is missing or not an object");
+      } else {
+        const items = content.items as Record<string, unknown>;
+        const requiredKeys = ["agents", "skills", "rules", "commands", "prompts", "hooks", "githubAgents"];
+        for (const key of requiredKeys) {
+          if (!Array.isArray(items[key])) {
+            errors.push(`\`content.items.${key}\` is missing or not an array`);
+          } else if (!(items[key] as unknown[]).every((v) => typeof v === "string")) {
+            errors.push(`\`content.items.${key}\` contains non-string entries`);
+          }
+        }
+      }
     }
   }
 
   if (obj.costTracking !== undefined) {
-    if (typeof obj.costTracking !== "object" || obj.costTracking === null) return false;
-    const ct = obj.costTracking as Record<string, unknown>;
-    if (ct.sessionBudget !== undefined && typeof ct.sessionBudget !== "number") return false;
-    if (ct.issueBudget !== undefined && typeof ct.issueBudget !== "number") return false;
-    if (ct.epicBudget !== undefined && typeof ct.epicBudget !== "number") return false;
-    if (ct.currency !== undefined && typeof ct.currency !== "string") return false;
-    if (ct.warningThresholds !== undefined) {
-      if (!Array.isArray(ct.warningThresholds)) return false;
-      if (!(ct.warningThresholds as unknown[]).every((v) => typeof v === "number")) return false;
+    if (typeof obj.costTracking !== "object" || obj.costTracking === null) {
+      errors.push("`costTracking` is not an object");
+    } else {
+      const ct = obj.costTracking as Record<string, unknown>;
+      if (ct.sessionBudget !== undefined && typeof ct.sessionBudget !== "number") errors.push("`costTracking.sessionBudget` is not a number");
+      if (ct.issueBudget !== undefined && typeof ct.issueBudget !== "number") errors.push("`costTracking.issueBudget` is not a number");
+      if (ct.epicBudget !== undefined && typeof ct.epicBudget !== "number") errors.push("`costTracking.epicBudget` is not a number");
+      if (ct.currency !== undefined && typeof ct.currency !== "string") errors.push("`costTracking.currency` is not a string");
+      if (ct.warningThresholds !== undefined) {
+        if (!Array.isArray(ct.warningThresholds)) {
+          errors.push("`costTracking.warningThresholds` is not an array");
+        } else if (!(ct.warningThresholds as unknown[]).every((v) => typeof v === "number")) {
+          errors.push("`costTracking.warningThresholds` contains non-number entries");
+        }
+      }
+      if (ct.hardStop !== undefined && typeof ct.hardStop !== "boolean") errors.push("`costTracking.hardStop` is not a boolean");
     }
-    if (ct.hardStop !== undefined && typeof ct.hardStop !== "boolean") return false;
   }
 
   if (obj.customization !== undefined) {
-    if (typeof obj.customization !== "object" || obj.customization === null) return false;
-    const cu = obj.customization as Record<string, unknown>;
-    if (cu.schemaVersion !== 1) return false;
-    const perTypeKeys = ["agents", "skills", "rules", "commands"] as const;
-    for (const key of perTypeKeys) {
-      const v = cu[key];
-      if (v === undefined) continue;
-      if (typeof v !== "object" || v === null || Array.isArray(v)) return false;
-      for (const inner of Object.values(v as Record<string, unknown>)) {
-        if (typeof inner !== "object" || inner === null || Array.isArray(inner)) return false;
+    if (typeof obj.customization !== "object" || obj.customization === null) {
+      errors.push("`customization` is not an object");
+    } else {
+      const cu = obj.customization as Record<string, unknown>;
+      if (cu.schemaVersion !== 1) errors.push(`\`customization.schemaVersion\` is not 1 (got ${JSON.stringify(cu.schemaVersion)})`);
+      const perTypeKeys = ["agents", "skills", "rules", "commands"] as const;
+      for (const key of perTypeKeys) {
+        const v = cu[key];
+        if (v === undefined) continue;
+        if (typeof v !== "object" || v === null || Array.isArray(v)) {
+          errors.push(`\`customization.${key}\` is not an object`);
+        } else {
+          for (const inner of Object.values(v as Record<string, unknown>)) {
+            if (typeof inner !== "object" || inner === null || Array.isArray(inner)) {
+              errors.push(`\`customization.${key}.*\` entry is not an object`);
+              break;
+            }
+          }
+        }
       }
-    }
-    if (cu.integrations !== undefined) {
-      if (typeof cu.integrations !== "object" || cu.integrations === null || Array.isArray(cu.integrations)) return false;
+      if (cu.integrations !== undefined) {
+        if (typeof cu.integrations !== "object" || cu.integrations === null || Array.isArray(cu.integrations)) {
+          errors.push("`customization.integrations` is not an object");
+        }
+      }
     }
   }
 
   if (obj.specs !== undefined) {
-    if (typeof obj.specs !== "object" || obj.specs === null) return false;
-    const specs = obj.specs as Record<string, unknown>;
-    if (!Array.isArray(specs.paths)) return false;
-    if (!(specs.paths as unknown[]).every((v) => typeof v === "string")) return false;
-    if (specs.lastGenerated !== undefined && typeof specs.lastGenerated !== "string") return false;
+    if (typeof obj.specs !== "object" || obj.specs === null) {
+      errors.push("`specs` is not an object");
+    } else {
+      const specs = obj.specs as Record<string, unknown>;
+      if (!Array.isArray(specs.paths)) {
+        errors.push("`specs.paths` is not an array");
+      } else if (!(specs.paths as unknown[]).every((v) => typeof v === "string")) {
+        errors.push("`specs.paths` contains non-string entries");
+      }
+      if (specs.lastGenerated !== undefined && typeof specs.lastGenerated !== "string") errors.push("`specs.lastGenerated` is not a string");
+    }
   }
 
   if (obj.workspace !== undefined) {
-    if (typeof obj.workspace !== "object" || obj.workspace === null) return false;
-    const ws = obj.workspace as Record<string, unknown>;
-    if (typeof ws.rootPath !== "string") return false;
-    if (typeof ws.lastSync !== "string") return false;
-    if (typeof ws.syncVersion !== "string") return false;
-    if (typeof ws.workspaceChecksum !== "string") return false;
-    if (ws.excludedContent !== undefined) {
-      if (!Array.isArray(ws.excludedContent)) return false;
-      if (!(ws.excludedContent as unknown[]).every((v) => typeof v === "string")) return false;
-    }
-    if (ws.localContent !== undefined) {
-      if (!Array.isArray(ws.localContent)) return false;
-      if (!(ws.localContent as unknown[]).every((v) => typeof v === "string")) return false;
+    if (typeof obj.workspace !== "object" || obj.workspace === null) {
+      errors.push("`workspace` is not an object");
+    } else {
+      const ws = obj.workspace as Record<string, unknown>;
+      if (typeof ws.rootPath !== "string") errors.push("`workspace.rootPath` is not a string");
+      if (typeof ws.lastSync !== "string") errors.push("`workspace.lastSync` is not a string");
+      if (typeof ws.syncVersion !== "string") errors.push("`workspace.syncVersion` is not a string");
+      if (typeof ws.workspaceChecksum !== "string") errors.push("`workspace.workspaceChecksum` is not a string");
+      if (ws.excludedContent !== undefined) {
+        if (!Array.isArray(ws.excludedContent)) {
+          errors.push("`workspace.excludedContent` is not an array");
+        } else if (!(ws.excludedContent as unknown[]).every((v) => typeof v === "string")) {
+          errors.push("`workspace.excludedContent` contains non-string entries");
+        }
+      }
+      if (ws.localContent !== undefined) {
+        if (!Array.isArray(ws.localContent)) {
+          errors.push("`workspace.localContent` is not an array");
+        } else if (!(ws.localContent as unknown[]).every((v) => typeof v === "string")) {
+          errors.push("`workspace.localContent` contains non-string entries");
+        }
+      }
     }
   }
 
   if (obj.managedFilesByAdapter !== undefined) {
-    if (typeof obj.managedFilesByAdapter !== "object" || obj.managedFilesByAdapter === null) return false;
-    for (const [k, v] of Object.entries(obj.managedFilesByAdapter as Record<string, unknown>)) {
-      if (typeof k !== "string") return false;
-      if (!Array.isArray(v)) return false;
-      if (!(v as unknown[]).every((p) => typeof p === "string")) return false;
+    if (typeof obj.managedFilesByAdapter !== "object" || obj.managedFilesByAdapter === null) {
+      errors.push("`managedFilesByAdapter` is not an object");
+    } else {
+      for (const [k, v] of Object.entries(obj.managedFilesByAdapter as Record<string, unknown>)) {
+        if (typeof k !== "string") {
+          errors.push("`managedFilesByAdapter` has a non-string key");
+        } else if (!Array.isArray(v)) {
+          errors.push(`\`managedFilesByAdapter.${k}\` is not an array`);
+        } else if (!(v as unknown[]).every((p) => typeof p === "string")) {
+          errors.push(`\`managedFilesByAdapter.${k}\` contains non-string entries`);
+        }
+      }
     }
   }
 
-  // C9-H47 (D14-SA14.4-H01): detected toolchain context (optional).
-  // Older manifests omit this field — token substitution falls back to
-  // the "unknown" sentinel in that case.
+  // C9-H47: detected toolchain context (optional).
   if (obj.detected !== undefined) {
-    if (typeof obj.detected !== "object" || obj.detected === null) return false;
-    const det = obj.detected as Record<string, unknown>;
-    const detectionKeys = ["linters", "testFrameworks", "ciProviders"] as const;
-    for (const key of detectionKeys) {
-      const v = det[key];
-      if (v === undefined) continue;
-      if (!Array.isArray(v)) return false;
-      if (!(v as unknown[]).every((s) => typeof s === "string")) return false;
+    if (typeof obj.detected !== "object" || obj.detected === null) {
+      errors.push("`detected` is not an object");
+    } else {
+      const det = obj.detected as Record<string, unknown>;
+      const detectionKeys = ["linters", "testFrameworks", "ciProviders"] as const;
+      for (const key of detectionKeys) {
+        const v = det[key];
+        if (v === undefined) continue;
+        if (!Array.isArray(v)) {
+          errors.push(`\`detected.${key}\` is not an array`);
+        } else if (!(v as unknown[]).every((s) => typeof s === "string")) {
+          errors.push(`\`detected.${key}\` contains non-string entries`);
+        }
+      }
     }
   }
 
-  // D20 user-content counters (optional). Older manifests omit this field.
+  // D20 user-content counters (optional).
   if (obj.userContent !== undefined) {
-    if (typeof obj.userContent !== "object" || obj.userContent === null) return false;
-    const uc = obj.userContent as Record<string, unknown>;
-    if (typeof uc.count !== "number") return false;
-    if (typeof uc.lastModified !== "string") return false;
-    if (typeof uc.types !== "object" || uc.types === null) return false;
-    for (const [k, v] of Object.entries(uc.types as Record<string, unknown>)) {
-      if (typeof k !== "string") return false;
-      if (typeof v !== "number") return false;
+    if (typeof obj.userContent !== "object" || obj.userContent === null) {
+      errors.push("`userContent` is not an object");
+    } else {
+      const uc = obj.userContent as Record<string, unknown>;
+      if (typeof uc.count !== "number") errors.push("`userContent.count` is not a number");
+      if (typeof uc.lastModified !== "string") errors.push("`userContent.lastModified` is not a string");
+      if (typeof uc.types !== "object" || uc.types === null) {
+        errors.push("`userContent.types` is not an object");
+      } else {
+        for (const [k, v] of Object.entries(uc.types as Record<string, unknown>)) {
+          if (typeof k !== "string") {
+            errors.push("`userContent.types` has a non-string key");
+          } else if (typeof v !== "number") {
+            errors.push(`\`userContent.types.${k}\` is not a number`);
+          }
+        }
+      }
     }
   }
 
-  return true;
+  return errors;
+}
+
+function validateManifest(data: unknown): data is HatchManifest {
+  return collectManifestErrors(data).length === 0;
 }
 
 /**
@@ -493,9 +611,24 @@ export async function readManifest(
 
   const migrated = migrateManifest(parsed as Record<string, unknown>);
 
-  if (!validateManifest(migrated)) {
+  // D1-M13: surface every malformed field in the diagnostic so users can
+  // fix their hand-edited manifest in one pass instead of recovering field
+  // by field across reruns. The type-guard wrapper narrows `migrated` to
+  // HatchManifest so the cast is sound — fail-closed when fieldErrors is
+  // non-empty so the unchecked return path is unreachable.
+  const fieldErrors = collectManifestErrors(migrated);
+  if (fieldErrors.length > 0) {
     throw new HatchError(
-      `Invalid manifest in ${manifestPath}: required fields missing or malformed. Run hatch3r init to regenerate.`,
+      `Invalid manifest in ${manifestPath}: ${fieldErrors.join("; ")}. Run hatch3r init to regenerate.`,
+      1,
+      "CONFIG_ERROR",
+    );
+  }
+  if (!validateManifest(migrated)) {
+    // Defense in depth — collectManifestErrors must keep parity with
+    // validateManifest. This branch is unreachable when both stay in sync.
+    throw new HatchError(
+      `Invalid manifest in ${manifestPath}: shape mismatch beyond per-field checks. Run hatch3r init to regenerate.`,
       1,
       "CONFIG_ERROR",
     );
@@ -508,11 +641,13 @@ export async function writeManifest(
   manifest: HatchManifest,
 ): Promise<void> {
   // C8-D1-M2: Validate manifest schema before persisting to disk.
-  if (!validateManifest(manifest)) {
+  // D1-M13: include per-field diagnostics so callers immediately see which
+  // field is malformed instead of guessing.
+  const writeFieldErrors = collectManifestErrors(manifest);
+  if (writeFieldErrors.length > 0) {
     throw new HatchError(
-      "Invalid manifest schema: required fields missing or malformed. " +
-      "Expected valid HatchManifest with tools, mcp, managedFiles populated. " +
-      "Check that tools are in VALID_TOOLS and all required fields present.",
+      "Invalid manifest schema: " + writeFieldErrors.join("; ") + ". " +
+      "Expected valid HatchManifest with tools, mcp, managedFiles populated.",
       undefined,
       "CONFIG_ERROR",
     );

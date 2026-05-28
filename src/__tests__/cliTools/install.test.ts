@@ -207,11 +207,17 @@ describe("offerInstaller", () => {
     expect(inquirer.prompt).toHaveBeenCalledTimes(1);
   });
 
-  it("prints the one-liner copy-paste line after the per-tool list", async () => {
+  it("prints the batched one-liner before the per-tool list (D10-M8)", async () => {
     await offerInstaller(["ripgrep", "fd"], { interactive: false, os: "mac" });
     const all = consoleLogSpy.mock.calls.map((c) => stripAnsi(String(c[0]))).join("\n");
-    expect(all).toContain("Or copy-paste this one-liner to install everything at once:");
+    // The one-liner banner now leads (no "Or" prefix) so users see the
+    // batched single-copy path first; the per-tool breakdown follows.
+    expect(all).toContain("Copy-paste this one-liner to install everything at once:");
     expect(all).toContain("brew install ripgrep fd");
+    expect(all).toContain("Or install individually:");
+    const oneLinerIdx = all.indexOf("Copy-paste this one-liner to install everything at once:");
+    const perToolIdx = all.indexOf("Or install individually:");
+    expect(oneLinerIdx).toBeLessThan(perToolIdx);
   });
 });
 

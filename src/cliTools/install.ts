@@ -90,6 +90,25 @@ export async function offerInstaller(
   console.log(chalk.yellow(`${missing.length} CLI tool${missing.length === 1 ? "" : "s"} not detected on PATH (${osLabel}):`));
   console.log("");
 
+  // D10-M8 (Cycle 10): lead with the batched per-package-manager one-liner so
+  // copy-paste is a single operation, then show the per-tool breakdown
+  // (manager + homepage) underneath for users who need to install only a
+  // subset or whose manager is not in the GROUPABLE_MANAGERS set
+  // (`src/cliTools/oneLiner.ts`). The prior layout reversed this order —
+  // per-tool first, batched one-liner last — which forced a second pass to
+  // find the single copy operation.
+  const oneLiner = buildOneLiner(plan);
+  if (oneLiner) {
+    console.log(chalk.yellow("Copy-paste this one-liner to install everything at once:"));
+    console.log("");
+    for (const line of oneLiner.split("\n")) {
+      console.log(`  ${chalk.cyan(line)}`);
+    }
+    console.log("");
+    console.log(chalk.gray("Or install individually:"));
+    console.log("");
+  }
+
   for (const entry of plan) {
     const header = entry.manager
       ? `${chalk.cyan(entry.id)} (${entry.manager})`
@@ -104,16 +123,6 @@ export async function offerInstaller(
   console.log("");
   console.log(chalk.gray("hatch3r will not run these commands for you — copy-paste in your shell."));
   console.log("");
-
-  const oneLiner = buildOneLiner(plan);
-  if (oneLiner) {
-    console.log(chalk.yellow("Or copy-paste this one-liner to install everything at once:"));
-    console.log("");
-    for (const line of oneLiner.split("\n")) {
-      console.log(`  ${chalk.cyan(line)}`);
-    }
-    console.log("");
-  }
 
   if (!interactive) return true;
 

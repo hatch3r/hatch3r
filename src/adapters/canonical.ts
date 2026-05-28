@@ -154,9 +154,30 @@ export interface CanonicalReadResult {
  * categorisation is emitted as a warning — the file still loads with the
  * offending field coerced to its empty fallback — so adversarial canonical
  * content cannot silently impersonate another id via type manipulation.
+ *
+ * D2-M04 (D2 Medium, Cycle 10 Wave 3 rollover) splits the previously
+ * overloaded TYPE_MISMATCH bucket into two codes:
+ *   - TYPE_MISMATCH: frontmatter scalar/array field carries the wrong YAML
+ *     type (e.g. `id: 123`, `tags: "foo,bar"`). Authoring mistake — caller
+ *     remedies by quoting the value or wrapping the list in `[ ... ]`.
+ *   - INJECTION_TOKEN: the canonical file body contains a structural
+ *     injection token (null byte, ANSI escape, `[INST]`, `<|im_start|>`,
+ *     `<|tool|>`, `<!-- SYSTEM -->`, etc.). P6 (Security & Trust) signal
+ *     — caller remedies by removing the token or routing through an
+ *     authoring sanitizer. Previously, both classes shared the
+ *     TYPE_MISMATCH code, which made it impossible to filter the
+ *     security-relevant subset (P6) from authoring mistakes (P2) in
+ *     downstream warnings UIs and CI gates.
  */
 export interface CanonicalReadError {
-  code: "NOT_FOUND" | "PERMISSION_DENIED" | "UTF8_DECODE_ERROR" | "YAML_PARSE_ERROR" | "TYPE_MISMATCH" | "UNKNOWN";
+  code:
+    | "NOT_FOUND"
+    | "PERMISSION_DENIED"
+    | "UTF8_DECODE_ERROR"
+    | "YAML_PARSE_ERROR"
+    | "TYPE_MISMATCH"
+    | "INJECTION_TOKEN"
+    | "UNKNOWN";
   message: string;
   cause?: unknown;
 }
@@ -557,10 +578,15 @@ async function readSingleMd(
   // sequences, chat template tokens, and tool-call delimiters, all of
   // which are smoking-gun indicators that a canonical file was
   // adversarially modified post-SHA-256 verification (or pre-publish).
+  //
+  // D2-M04 (D2 Medium, Cycle 10 Wave 3 rollover): emit injection findings
+  // with the dedicated `INJECTION_TOKEN` code instead of overloading
+  // `TYPE_MISMATCH`. Downstream consumers can now distinguish P6 security
+  // signals from P2 authoring mistakes by inspecting `error.code`.
   const injectionScan = scanCanonicalInjectionTokens(content);
   if (injectionScan.length > 0) {
     const injectionEntries = injectionScan.map(
-      (v) => ({ code: "TYPE_MISMATCH" as const, message: `${fullPath}: promptGuard: ${v}` }),
+      (v) => ({ code: "INJECTION_TOKEN" as const, message: `${fullPath}: promptGuard: ${v}` }),
     );
     result.typeMismatches = result.typeMismatches
       ? [...result.typeMismatches, ...injectionEntries]

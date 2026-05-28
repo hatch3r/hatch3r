@@ -2222,6 +2222,11 @@ describe("content/index", () => {
     });
 
     it("does not match non-backtick-quoted references", () => {
+      // D2-M10 (D2 Medium, Cycle 10 Wave 3 rollover): the primary scanner
+      // remains backtick-scoped to avoid the adjective-modifier false
+      // positive class ("hatch3r-generated code"). Bare prose mentions are
+      // handled by `extractBareContentReferences` and surfaced as typo
+      // warnings inside `validateCrossReferences` (resolve-or-skip).
       const content = "Use hatch3r-implementer without backticks.";
       const refs = extractContentReferences(content);
       expect(refs).toEqual([]);
@@ -2232,6 +2237,55 @@ describe("content/index", () => {
       const refs = extractContentReferences(content);
       expect(refs).toContain("hatch3r-alpha");
       expect(refs).toContain("hatch3r-beta");
+    });
+  });
+
+  // D2-M10 (D2 Medium, Cycle 10 Wave 3 rollover): bare prose scanner used
+  // by `validateCrossReferences` with resolve-or-skip discipline. Returns
+  // candidates only; CALLER decides whether to warn.
+  describe("extractBareContentReferences (D2-M10)", () => {
+    it("captures bare prose mentions of hatch3r-* ids", async () => {
+      const { extractBareContentReferences } = await import("../../content/index.js");
+      const content = "Delegate to hatch3r-implementer for the change.";
+      const refs = extractBareContentReferences(content);
+      expect(refs).toContain("hatch3r-implementer");
+    });
+
+    it("captures adjective-modifier mentions (caller filters via index)", async () => {
+      const { extractBareContentReferences } = await import("../../content/index.js");
+      // The scanner returns candidates without judging adjective vs id.
+      // It is the CALLER's job (validateCrossReferences resolve-or-skip)
+      // to drop adjective-style mentions that don't resolve.
+      const content = "Run hatch3r-generated code through hatch3r-managed checks.";
+      const refs = extractBareContentReferences(content);
+      expect(refs).toContain("hatch3r-generated");
+      expect(refs).toContain("hatch3r-managed");
+    });
+
+    it("skips filesystem path mentions", async () => {
+      const { extractBareContentReferences } = await import("../../content/index.js");
+      const content =
+        "See /repo/agents/hatch3r-implementer.md for details. " +
+        "Or https://github.com/anthropic/hatch3r-implementer for the source.";
+      const refs = extractBareContentReferences(content);
+      expect(refs).toEqual([]);
+    });
+
+    it("skips .md / .mdc / .ts filename mentions but keeps bare id", async () => {
+      const { extractBareContentReferences } = await import("../../content/index.js");
+      const content = "Edit hatch3r-implementer.md to update hatch3r-implementer.";
+      const refs = extractBareContentReferences(content);
+      expect(refs).toContain("hatch3r-implementer");
+      expect(refs.length).toBe(1);
+    });
+
+    it("does not duplicate backticked refs already captured", async () => {
+      const { extractBareContentReferences } = await import("../../content/index.js");
+      // The scanner's backtick carve-out matches at the boundary so this
+      // would not double-count when used alongside extractContentReferences.
+      const content = "`hatch3r-foo`";
+      const refs = extractBareContentReferences(content);
+      expect(refs).toEqual([]);
     });
   });
 
@@ -2297,6 +2351,70 @@ describe("content/index", () => {
       const result = await validateCrossReferences(dir, index);
       expect(result.warnings.length).toBe(1);
       expect(result.warnings[0]).toContain("hatch3r-missing-agent");
+    });
+
+    // D2-M10 (D2 Medium, Cycle 10 Wave 3 rollover): bare prose references
+    // that resolve to a near-by id via edit distance ≤ 2 surface as typo
+    // warnings, closing the silent-invisibility gap. Adjective-modifier
+    // mentions ("hatch3r-generated", "hatch3r-managed") stay quiet because
+    // their edit distance from any real id is well above the threshold.
+    describe("D2-M10 bare prose typo detection", () => {
+      it("warns when bare prose ref is one edit away from a real id", async () => {
+        const dir = await makeTempDir();
+        await mkdir(join(dir, "agents"), { recursive: true });
+        // The real id is "hatch3r-implementer"; the body mentions a typo
+        // "hatch3r-implementr" (missing "e") in bare prose. Pre-D2-M10 this
+        // silently passed because the validator only scanned backticks.
+        await writeFile(
+          join(dir, "agents", "hatch3r-impl.md"),
+          mdFile({ id: "hatch3r-impl", type: "agent", description: "Caller" }) +
+            "\nDelegate to hatch3r-implementr for the change.\n",
+        );
+        await writeFile(
+          join(dir, "agents", "hatch3r-implementer.md"),
+          mdFile({ id: "hatch3r-implementer", type: "agent", description: "Real" }),
+        );
+
+        const index = await buildContentIndex(dir);
+        const result = await validateCrossReferences(dir, index);
+        const typoWarnings = result.warnings.filter((w) => w.includes("typo of"));
+        expect(typoWarnings.length).toBe(1);
+        expect(typoWarnings[0]).toContain("hatch3r-implementr");
+        expect(typoWarnings[0]).toContain("hatch3r-implementer");
+      });
+
+      it("does NOT warn on adjective-modifier prose (distance > 2 from any id)", async () => {
+        const dir = await makeTempDir();
+        await mkdir(join(dir, "agents"), { recursive: true });
+        await writeFile(
+          join(dir, "agents", "hatch3r-x.md"),
+          mdFile({ id: "hatch3r-x", type: "agent", description: "Caller" }) +
+            "\nRun hatch3r-generated code through hatch3r-managed checks.\n",
+        );
+
+        const index = await buildContentIndex(dir);
+        const result = await validateCrossReferences(dir, index);
+        const typoWarnings = result.warnings.filter((w) => w.includes("typo of"));
+        expect(typoWarnings).toEqual([]);
+      });
+
+      it("does NOT warn on bare prose mention that exactly matches an existing id", async () => {
+        const dir = await makeTempDir();
+        await mkdir(join(dir, "agents"), { recursive: true });
+        await writeFile(
+          join(dir, "agents", "hatch3r-caller.md"),
+          mdFile({ id: "hatch3r-caller", type: "agent", description: "Caller" }) +
+            "\nDelegate to hatch3r-callee for the change.\n",
+        );
+        await writeFile(
+          join(dir, "agents", "hatch3r-callee.md"),
+          mdFile({ id: "hatch3r-callee", type: "agent", description: "Callee" }),
+        );
+
+        const index = await buildContentIndex(dir);
+        const result = await validateCrossReferences(dir, index);
+        expect(result.warnings).toEqual([]);
+      });
     });
   });
 

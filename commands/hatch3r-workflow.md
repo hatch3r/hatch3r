@@ -78,7 +78,7 @@ Downstream propagation: every ASK checkpoint that reports verification quality, 
 
 Classify the development task before delegating. Detailed mode classification runs in Step 0 (Triage / Scale-Adaptive Mode Selection); this section summarizes the routing:
 
-- **Tier 1 (trivial)**: single-line edit, typo, or trivial config change; Quick Mode skips most ASK checkpoints and runs the streamlined 3-step path.
+- **Tier 1 (trivial)**: single-line edit, typo, or trivial config change; Quick Mode runs the streamlined 3-step path. The B1 ambiguity gate (`§0 Detect Ambiguity` per `.claude/rules/clarification-default.md`) is NEVER skipped — Tier 1 admission already requires that the brief alone be testable, single-file, and single-concern, so the gate evaluates trivially and passes silently when those preconditions hold. ASK checkpoints downstream of the brief (mid-plan, end-of-implementation, mid-review) are reduced to one consolidated end-of-run "merge or revise?" prompt rather than per-phase prompts — Tier 1 work is short enough that incremental ASK fatigue would dominate the workflow without proportional benefit. Any mid-run ambiguity that wasn't visible at the brief surface re-invokes the B1 protocol on the spot. This satisfies P8 B1 default-not-exception: the protocol still applies; the checkpoint cadence is right-sized (Finding D7-M11 / D7-SA7.4-4).
 - **Tier 2 (standard)**: bug fix or small feature in 1–3 files; Quick Mode with full sub-agent delegation (researcher, implementer, reviewer, fixer, test-writer, security-auditor).
 - **Tier 3 (deep)**: multi-module feature, architectural change, or cross-cutting refactor; Full Mode with all 4 phases (Analyze, Plan, Implement, Review) and deep research before mutating files.
 
@@ -360,6 +360,8 @@ Each reviewer/fixer sub-agent prompt MUST include:
 4. **`hatch3r-lint-fixer`** — when lint or type errors are present after implementation.
 5. **`hatch3r-ui`** (CQ1) — when UI or accessibility changes are made.
 6. **`hatch3r-performance`** (CQ7) — when performance-sensitive changes are made.
+
+> **Single source of truth for triggers (D6-M11):** the canonical trigger map lives in `src/pipeline/pipelineContext.ts::SPECIALIST_TRIGGER_TABLE` and the predicate `shouldTriggerSpecialist(specialist, changedFiles, projectType)` returns `{ triggered, reasons }` for any specialist. The brief prose list above is a quick reference only; for the authoritative trigger evaluation at runtime, call `shouldTriggerSpecialist` from the orchestrator harness (or the equivalent mirror in `rules/hatch3r-agent-orchestration.md` → Phase 4 Specialist Trigger Table). Adding a specialist to the prose without updating the TS table is rejected by `npm run validate:specialist-roster`.
 
 Each specialist sub-agent prompt MUST include:
 - The agent protocol to follow.

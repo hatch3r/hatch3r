@@ -113,7 +113,7 @@ Run every check below. Each row is measurable; cite the command and the report p
 
 ## Output Contract
 
-See `agents/shared/quality-specialist-frame.md` → §Output Contract (yaml schema, severity vocabulary, verification harness convention). CQ5 specifics: `id` format `TESTABILITY-CQ5-<3-digit-seq>`; `progress_toward_pillar: content-quality.CQ5+<delta>`.
+See `agents/shared/quality-specialist-frame.md` → §Output Contract (yaml schema, canonical id format, sub_agents_spawned emission contract, severity vocabulary, verification harness convention). CQ5 specifics: `id` follows the canonical `cq5-test-<short-slug>-<3-digit-seq>` pattern (e.g., `cq5-test-payment-003`); `progress_toward_pillar: content-quality.CQ5+<delta>`. Every CQ5 output emits `sub_agents_spawned: {count, rationale}` per the P8 B2 emission contract — typical decomposition is one sub-agent per mandate class (parser→fuzz, payment→mutation, RPC→contract, state-machine→property, UI→visual regression).
 
 Status mapping:
 
@@ -127,7 +127,7 @@ Example findings entry (illustrative shape, not a template to copy verbatim):
 
 ```yaml
 findings:
-  - id: TESTABILITY-CQ5-003
+  - id: cq5-test-payment-003
     severity: High
     claim: Payment module `src/checkout/charge.ts` has line coverage 91% but Stryker mutation score 64% — below the documented 80% floor on critical paths.
     proof_trace:

@@ -230,3 +230,9 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 - **Never include secrets** (API keys, tokens, credentials) in any handoff body. The preparer scans for credential-shaped strings; reject the write if any are detected.
 - **Never write** outside `.hatch3r/handoffs/active/` for new handoffs. Archival is the only path into `archived/`.
 - **Always emit the Iteration Summary block** at the end of the iteration per `rules/hatch3r-iteration-summary.md`.
+
+## References
+
+- `agents/shared/user-question-protocol.md` (B1 gate — applies at §0 Detect Ambiguity above plus every mid-workflow ASK checkpoint per Finding D7-M14)
+- `agents/shared/quality-charter.md` §1, §3, §7, §8 (confidence, ambiguity, measurable criteria)
+- `rules/hatch3r-agent-orchestration.md` (Per-Turn Pipeline-State Header, End-of-Turn Delegation Attestation, Mandatory Delegation Directive)

@@ -5,7 +5,14 @@ import { createProgram } from "./program.js";
 import { classifyCliError } from "./errorClassification.js";
 import { checkForUpdates } from "./shared/updateNotifier.js";
 import { registerBackablePrompts } from "./shared/backablePrompts.js";
+import { getRunId } from "./shared/runId.js";
 import { HatchError } from "../types.js";
+
+// SA12.1-F-D12-M3 (D12, P1): mint the per-run correlation id once at startup
+// so every subsequent log line / error block / failure log entry references
+// the same identifier. Honors HATCH3R_RUN_ID from the environment to let CI
+// inject a build-correlated id; otherwise mints a fresh hr-... suffix.
+getRunId();
 
 // Shift+Tab → back-nav. Each entry has been audited to either route every
 // prompt through the step machine in `cli/shared/initSteps.ts` (which
@@ -60,13 +67,22 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 }
 
 process.on("unhandledRejection", (reason) => {
+  // D1-M17 (Cycle 10 Wave-3 Medium): apply the same stdout/stderr flush
+  // pattern used by the SIGINT/SIGTERM handlers above. A naked
+  // `process.exit(1)` truncates the diagnostic on slow stderr sinks
+  // (CI logs, piped redirection), so the operator never learns which
+  // promise rejected. Drain both streams before exiting.
   console.error(
     `\nhatch3r: unhandled promise rejection: ${reason instanceof Error ? reason.message : String(reason)}`,
   );
   if (process.env.DEBUG) {
     console.error(reason);
   }
-  process.exit(1);
+  process.stdout.write("", () => {
+    process.stderr.write("", () => {
+      process.exit(1);
+    });
+  });
 });
 
 // --no-update-check: a quiet global flag that maps to HATCH3R_NO_UPDATE_CHECK=1
@@ -90,6 +106,11 @@ const program = createProgram();
 try {
   await program.parseAsync();
 } catch (err) {
+  // SA12.1-F-D12-M3 (D12, P1): always surface the per-run correlation id in
+  // the error block so an operator (or a CI consumer grepping logs) can
+  // tie one failure to the entries in `.hatch3r/.failures.log` produced
+  // during the same run.
+  const runId = getRunId();
   if (err instanceof HatchError) {
     // C9-H27 (D10-SA10.2-F2): surface the structured recoveryHint on stderr
     // before exiting so the user sees an actionable next step. Skip on exit 0
@@ -100,6 +121,11 @@ try {
     if (err.exitCode !== 0 && err.recoveryHint) {
       console.error(`\nhatch3r: ${err.message}`);
       console.error(`  Try: ${err.recoveryHint}`);
+      console.error(`  Run id: ${runId}`);
+    } else if (err.exitCode !== 0) {
+      // Even when no hint is available, embed the run id so the failure can
+      // be correlated across logs.
+      console.error(`  Run id: ${runId}`);
     }
     process.exit(err.exitCode);
   }
@@ -121,6 +147,8 @@ try {
     console.error("  Check .hatch3r/.failure-log.jsonl for recent failure details.");
     console.error("  Set DEBUG=1 for a full stack trace.");
   }
+  // SA12.1-F-D12-M3: per-run correlation id for log triangulation.
+  console.error(`  Run id: ${runId}`);
   if (process.env.DEBUG) {
     console.error(err);
   }

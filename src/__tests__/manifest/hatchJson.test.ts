@@ -11,8 +11,17 @@ import {
   writeManifest,
   extractPreservedManifestFields,
   applyPreservedManifestFields,
+  readCliToolsConfig,
+  readMaturityTier,
+  isValidGitBranchName,
 } from "../../manifest/hatchJson.js";
-import { HatchError, type BoardConfig, type HatchManifest } from "../../types.js";
+import {
+  DEFAULT_MATURITY_TIER,
+  HatchError,
+  type BoardConfig,
+  type HatchManifest,
+  type MaturityTier,
+} from "../../types.js";
 import { HATCH3R_VERSION } from "../../version.js";
 
 describe("hatchJson", () => {
@@ -345,7 +354,7 @@ describe("hatchJson", () => {
         managedFiles: [],
       });
       await expect(readManifest(rootDir)).rejects.toThrow(
-        /Invalid manifest.*required fields missing or malformed/,
+        /Invalid manifest/,
       );
     });
 
@@ -364,7 +373,7 @@ describe("hatchJson", () => {
         managedFiles: [],
       });
       await expect(readManifest(rootDir)).rejects.toThrow(
-        /Invalid manifest.*required fields missing or malformed/,
+        /Invalid manifest/,
       );
     });
 
@@ -383,7 +392,7 @@ describe("hatchJson", () => {
         managedFiles: [],
       });
       await expect(readManifest(rootDir)).rejects.toThrow(
-        /Invalid manifest.*required fields missing or malformed/,
+        /Invalid manifest/,
       );
     });
 
@@ -402,7 +411,7 @@ describe("hatchJson", () => {
         // managedFiles: missing
       });
       await expect(readManifest(rootDir)).rejects.toThrow(
-        /Invalid manifest.*required fields missing or malformed/,
+        /Invalid manifest/,
       );
     });
 
@@ -421,7 +430,7 @@ describe("hatchJson", () => {
         managedFiles: [],
       });
       await expect(readManifest(rootDir)).rejects.toThrow(
-        /Invalid manifest.*required fields missing or malformed/,
+        /Invalid manifest/,
       );
     });
 
@@ -519,7 +528,7 @@ describe("hatchJson", () => {
         },
       });
       await expect(readManifest(rootDir)).rejects.toThrow(
-        /Invalid manifest.*required fields missing or malformed/,
+        /Invalid manifest/,
       );
     });
 
@@ -544,7 +553,7 @@ describe("hatchJson", () => {
         },
       });
       await expect(readManifest(rootDir)).rejects.toThrow(
-        /Invalid manifest.*required fields missing or malformed/,
+        /Invalid manifest/,
       );
     });
 
@@ -599,7 +608,7 @@ describe("hatchJson", () => {
       } catch (e) {
         expect(e).toBeInstanceOf(HatchError);
         expect((e as HatchError).errorCode).toBe("CONFIG_ERROR");
-        expect((e as Error).message).toMatch(/Invalid manifest.*required fields missing or malformed/);
+        expect((e as Error).message).toMatch(/Invalid manifest/);
       }
     });
 
@@ -619,7 +628,7 @@ describe("hatchJson", () => {
         maturity: 3,
       });
       await expect(readManifest(rootDir)).rejects.toThrow(
-        /Invalid manifest.*required fields missing or malformed/,
+        /Invalid manifest/,
       );
     });
 
@@ -821,7 +830,8 @@ describe("hatchJson", () => {
       } catch (e) {
         expect(e).toBeInstanceOf(HatchError);
         expect((e as HatchError).errorCode).toBe("CONFIG_ERROR");
-        expect((e as HatchError).exitCode).toBe(1);
+        // SA12.1-F-D12-M1: CONFIG_ERROR defaults to sysexits.h EX_DATAERR (65).
+        expect((e as HatchError).exitCode).toBe(65);
       }
     });
 
@@ -1557,6 +1567,115 @@ describe("hatchJson", () => {
       expect(target.board?.areas).toEqual(["a"]);
       expect(target.costTracking?.sessionBudget).toBe(3);
       expect(target.specs?.paths).toEqual(["a.md"]);
+    });
+  });
+
+  // D3-M5 (Cycle 10 Wave-3 Medium rollover): `readCliToolsConfig` and
+  // `readMaturityTier` were exported helpers with zero direct test coverage
+  // — together they sit on the persistence boundary for two manifest
+  // fields adapters consume on every sync. Pin the documented fallback
+  // contracts here so a future refactor of the default sentinels surfaces
+  // immediately.
+  describe("readCliToolsConfig", () => {
+    it("returns {enabled:false, selected:[]} when manifest.cliTools is absent (pre-1.7.5 manifest)", () => {
+      const manifest = createManifest({ tools: ["cursor"] });
+      // Confirm the precondition: createManifest does not auto-populate the
+      // CLI-tooling section.
+      expect(manifest.cliTools).toBeUndefined();
+      const cfg = readCliToolsConfig(manifest);
+      expect(cfg).toEqual({ enabled: false, selected: [] });
+    });
+
+    it("passes the manifest's cliTools through verbatim when present", () => {
+      const manifest = createManifest({ tools: ["cursor"] });
+      manifest.cliTools = { enabled: true, selected: ["ripgrep", "jq"] };
+      const cfg = readCliToolsConfig(manifest);
+      expect(cfg.enabled).toBe(true);
+      expect(cfg.selected).toEqual(["ripgrep", "jq"]);
+    });
+  });
+
+  describe("readMaturityTier", () => {
+    it("returns DEFAULT_MATURITY_TIER when manifest is null", () => {
+      expect(readMaturityTier(null)).toBe(DEFAULT_MATURITY_TIER);
+    });
+
+    it("returns DEFAULT_MATURITY_TIER when manifest is undefined", () => {
+      expect(readMaturityTier(undefined)).toBe(DEFAULT_MATURITY_TIER);
+    });
+
+    it("returns DEFAULT_MATURITY_TIER when manifest.maturity is absent", () => {
+      const manifest = createManifest({ tools: ["cursor"] });
+      expect(manifest.maturity).toBeUndefined();
+      expect(readMaturityTier(manifest)).toBe(DEFAULT_MATURITY_TIER);
+    });
+
+    it("returns the manifest tier when set to a valid value", () => {
+      const manifest = createManifest({ tools: ["cursor"] });
+      const tiers: MaturityTier[] = ["solo", "team", "scaleup", "enterprise"];
+      for (const tier of tiers) {
+        manifest.maturity = tier;
+        expect(readMaturityTier(manifest)).toBe(tier);
+      }
+    });
+
+    it("falls back to the default when a corrupt manifest carries an out-of-enum maturity", () => {
+      // Defense-in-depth path: the persistence validator rejects bad values
+      // at write time, but a hand-edited in-memory manifest can still reach
+      // this function. Confirm the fallback fires.
+      const manifest = createManifest({ tools: ["cursor"] });
+      (manifest as unknown as { maturity: string }).maturity = "not-a-real-tier";
+      expect(readMaturityTier(manifest)).toBe(DEFAULT_MATURITY_TIER);
+    });
+  });
+
+  // D3-M5 (Cycle 10 Wave-3 Medium rollover): pin the git-branch-name
+  // validator at the persistence boundary. The validator covers a handful
+  // of `git check-ref-format` rules and each one is a separate branch in
+  // hatchJson.ts; without direct unit coverage these branches drove the
+  // 72.56% statements score the finding flagged.
+  describe("isValidGitBranchName", () => {
+    it("accepts the common cases", () => {
+      expect(isValidGitBranchName("main")).toBe(true);
+      expect(isValidGitBranchName("feature/foo-bar")).toBe(true);
+      expect(isValidGitBranchName("release/2.0.0")).toBe(true);
+    });
+
+    it("rejects empty or whitespace-only names", () => {
+      expect(isValidGitBranchName("")).toBe(false);
+      expect(isValidGitBranchName("   ")).toBe(false);
+      expect(isValidGitBranchName(" main")).toBe(false);
+    });
+
+    it("rejects names with disallowed characters", () => {
+      expect(isValidGitBranchName("foo~bar")).toBe(false);
+      expect(isValidGitBranchName("foo^bar")).toBe(false);
+      expect(isValidGitBranchName("foo:bar")).toBe(false);
+      expect(isValidGitBranchName("foo\\bar")).toBe(false);
+      expect(isValidGitBranchName("foo bar")).toBe(false);
+      expect(isValidGitBranchName("foo\x01bar")).toBe(false);
+    });
+
+    it("rejects names with `..` or `//` or `@{`", () => {
+      expect(isValidGitBranchName("foo..bar")).toBe(false);
+      expect(isValidGitBranchName("foo//bar")).toBe(false);
+      expect(isValidGitBranchName("foo@{bar}")).toBe(false);
+    });
+
+    it("rejects names starting/ending with `/` or `.`", () => {
+      expect(isValidGitBranchName("/foo")).toBe(false);
+      expect(isValidGitBranchName("foo/")).toBe(false);
+      expect(isValidGitBranchName(".foo")).toBe(false);
+      expect(isValidGitBranchName("foo.")).toBe(false);
+    });
+
+    it("rejects names ending with `.lock`", () => {
+      expect(isValidGitBranchName("foo.lock")).toBe(false);
+      expect(isValidGitBranchName("feature/x.lock")).toBe(false);
+    });
+
+    it("rejects the special-case `@`", () => {
+      expect(isValidGitBranchName("@")).toBe(false);
     });
   });
 });

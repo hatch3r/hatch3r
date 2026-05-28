@@ -54,7 +54,15 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: website/package-lock.json
-      - run: npm ci
+      # Cycle 10 M D4-M2 (D4): env-scoped lifecycle-script deny per the same
+      # rationale documented in ci.yml / release.yml. The website install path
+      # uses a separate package-lock under website/, but the threat shape is
+      # identical — a compromised git+ transitive could ship an installconfig
+      # key that flips .npmrc settings mid-install.
+      - name: Install dependencies
+        env:
+          NPM_CONFIG_IGNORE_SCRIPTS: "true"
+        run: npm ci
       - run: npm run build
         env:
           NODE_OPTIONS: --max-old-space-size=4096

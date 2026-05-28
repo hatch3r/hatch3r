@@ -34,6 +34,8 @@ Score task complexity per the `hatch3r-deep-context` rule before Phase 1. Apply 
 - **Tier 2 hard gate (B1).** Before Phase 2, run `hatch3r-researcher` with `requirements-elicitation:quick` mode to detect ambiguity and ask the user via the platform-native question tool (per `agents/shared/user-question-protocol.md`). Orchestrator awaits answers and integrates them into the Phase 1 brief; do not begin Phase 2 with unresolved questions. Tier 1 is exempt only when scope is single-file, single-concern, and acceptance is testable from the user message alone.
 - **Tier 3 (Deep):** Present Pre-Implementation Summary and ASK for confirmation. Do NOT proceed until all unresolved questions are answered.
 
+**Tier-to-Phase-4 specialist depth mapping** (Finding D7-M9 / D7-SA7.4-1). Deep-context tier drives Phase 1 researcher depth; the same tier drives Phase 4 specialist depth so quality coverage scales with task risk: Tier 1 → run only the always-mode floor (`hatch3r-security` + `hatch3r-testability`) at `quick` depth — UI/perf/maintainability/etc. specialists are skipped per Phase Skip Criteria. Tier 2 → always-mode floor at `standard` depth + every triggered conditional specialist at `quick` depth. Tier 3 → every applicable specialist at `deep` depth — full WCAG AA / OWASP ASI / CWV / mandate-map sweep with N=3 sampling on always-mode specialists when `floor:security` items are touched (per the variance-budget heading in `agents/shared/quality-charter.md`). The depth signal rides on the specialist prompt as the explicit field `depth: quick | standard | deep`; specialists read it via the shared `agents/shared/quality-specialist-frame.md`.
+
 ## Mandatory Delegation Directives
 
 ### Context Gathering (Before Implementation)
@@ -109,6 +111,8 @@ Launch Phase 4 specialists in parallel, bounded by `max_phase4_parallel` (defaul
 
 **Specialist Prompt Enrichment:** When spawning Phase 4 specialists, include the Phase 2 `filesChanged` list (focus on affected code), the Phase 3 review verdict summary (avoid re-flagging reviewed issues), and `researchFindings.blastRadius` (assess downstream impact).
 
+**Runtime trigger evaluation (D6-M11):** the orchestrator harness calls `shouldTriggerSpecialist(specialist, changedFiles, projectType)` from `src/pipeline/pipelineContext.ts` to evaluate whether each specialist applies to the current change set. The function returns `{ triggered: boolean, reasons: string[] }` and consumes the same `SPECIALIST_TRIGGER_TABLE` that the prose table below mirrors. Treat the prose as a quick reference; treat the TS predicate as the authoritative gate. `npm run validate:specialist-roster` enforces parity.
+
 **Phase 4 Specialist Trigger Table:**
 
 | Specialist | Mode | Trigger Conditions |
@@ -119,9 +123,9 @@ Launch Phase 4 specialists in parallel, bounded by `max_phase4_parallel` (defaul
 | `hatch3r-devops` | Conditional | CI/CD or infrastructure changes |
 | `hatch3r-ui` (CQ1) | Conditional | UI component / theme / token files modified (`*.{tsx,jsx,vue,svelte}`, `tailwind.config.*`, design-token registries) |
 | `hatch3r-ux` (CQ2) | Conditional | Flow / modal / route-transition / error-state files modified; microcopy or i18n strings changed |
-| `hatch3r-security` (CQ3) | Conditional | Auth / JWT / OAuth / WebAuthn code modified; release workflow modified; cookie or session handling modified |
+| `hatch3r-security` (CQ3) | Always | Any code change (always-mode floor — absorbs legacy security-auditor scope); auth / JWT / OAuth / WebAuthn code modified; release workflow modified; cookie or session handling modified; dependency files modified |
 | `hatch3r-reliability` (CQ4) | Conditional | Service handler / OTel / SLO / retry / circuit-breaker code modified; Kubernetes probe manifests modified |
-| `hatch3r-testability` (CQ5) | Conditional | Test code added or modified; mandate-map feature class introduced; coverage threshold or runner config modified |
+| `hatch3r-testability` (CQ5) | Always | Any code change (always-mode floor — absorbs legacy test-writer scope); test code added or modified; mandate-map feature class introduced; coverage threshold or runner config modified |
 | `hatch3r-scalability` (CQ6) | Conditional | Request handler / queue client / connection-pool / cache / background-job code modified |
 | `hatch3r-performance` (CQ7) | Conditional | ORM query / data-access layer / UI-rendering component / bundle config modified; vendor dependency >50KB introduced |
 | `hatch3r-maintainability` (CQ8) | Conditional | Any code mutation (duplication + complexity scan); schema / migration / API spec (OpenAPI / GraphQL SDL / Protobuf) modified |
@@ -198,7 +202,11 @@ All subagents MUST map findings to this scale.
 
 ## Status Codes
 
-**SUCCESS** (fully completed, all criteria met) · **PARTIAL** (include `reason`) · **FAILED** (no usable output; include `reason`) · **SKIPPED** (intentionally not executed) · **TIMEOUT** (time budget exceeded; forward partial output).
+**SUCCESS** (fully completed, all criteria met) · **PARTIAL** (include `reason`) · **FAILED** (no usable output; include `reason`) · **SKIPPED** (intentionally not executed) · **TIMEOUT** (time budget exceeded; forward partial output) · **BLOCKED_AMBIGUITY** · **BLOCKED_MISSING_CONTEXT** · **BLOCKED_CONFLICTING_SPECS** · **BLOCKED_MISSING_TOOL** · **BLOCKED_PREMISE_CHALLENGE** · **BLOCKED_OTHER** (one-sentence reason required). The six BLOCKED_* values are the canonical named escalation enum codified in `agents/shared/quality-charter.md` §17; every `agents/hatch3r-*.md` main agent MUST declare a Status field selecting from this enum. BLOCKED_PREMISE_CHALLENGE triggers `isHaltStatus()` from `src/pipeline/pipelineContext.ts::AgentStatus` — orchestrator halts and surfaces the premise concern + ≥1 alternative approach (Finding D7-M1 / D7-SA7.1-1). The reviewer's Phase-3 equivalent is the `DESIGN_OBJECTION` verdict; implementer/researcher/fixer emit the agent status, reviewer emits the verdict — both surface the same premise-challenge across non-overlapping phases.
+
+## Phase Handoff Contract
+
+Each phase populates a typed slice of `PipelineContext` (canonical schema: `src/pipeline/pipelineContext.ts::PipelineContext`). Required fields per transition: Phase 1 → 2 sets `researchFindings` (or `researchGaps[]` when skip-documented); Phase 2 → 3 sets `implementationResult` (filesChanged, testsWritten, status ∈ `AgentStatus`, reason); Phase 3 → 4 sets `reviewResult` (iterations, finalVerdict, findings, confirmationPassResult, confidence); Phase 4 → completion sets `qualityResults` (specialists[], validationPass). The typed gate `validatePhaseTransition(context, targetPhase)` returns the `ValidationError[]` set the orchestrator MUST resolve before advancing; forwarding sub-agent output that omits a required field is a Phase Handoff Contract violation (Finding D7-M3 / D7-SA7.1-3) — re-spawn the upstream agent with the gap named. Phase 4 completion is additionally gated by `evaluatePhase4Completion(qualityResults, options)` — a typed predicate aggregating Phase 4 Validation Pass criteria; when `complete: false`, surface `incompletionReason` (Finding D7-M8 / D7-SA7.3-3).
 
 ## Phase Skip Criteria
 

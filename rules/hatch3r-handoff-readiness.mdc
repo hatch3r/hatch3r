@@ -32,6 +32,16 @@ Before writing a handoff to `.hatch3r/handoffs/active/`, verify each criterion. 
 
 The `hatch3r-handoff-preparer` agent applies this checklist before invoking `writeHandoff` in `src/content/handoffs/index.ts`. The `validateHandoffContent` function in `src/content/handoffs/validation.ts` runs criteria 1-7 as `errors[]` and 8-10 as `warnings[]`.
 
+## Retro-Discredit Rule (D13 — handoff self-assessment trust gate)
+
+Handoff confidence and completeness are self-rated by the preparing agent. When the resuming agent (or human) detects that the prior handoff overstated completeness — work flagged Done but reverted, tests claimed passing but failing on resume, blockers omitted — the resumer MUST:
+
+1. Append a `retro_discredit:` block to the handoff manifest (`.hatch3r/handoffs/active/<id>.md` frontmatter) with: `discredited_by: <resumer-id-or-human>`, `discredited_on: <ISO-8601>`, `discredit_reason: <one-sentence cause>`, `prior_confidence: <high|medium|low>`, `effective_confidence: <high|medium|low>` (downgraded post-discredit).
+2. Append a single line to `.hatch3r/handoffs/discredit-log.jsonl` (append-only, atomic append per `src/merge/safeWrite.ts`) with `{ts, handoff_id, discredited_by, prior_confidence, effective_confidence, reason}`.
+3. The `hatch3r-handoff-preparer` and `hatch3r-handoff-loader` agents consult the discredit-log on next write/read — if a handoff's preparer has a discredit ratio above 25% across the last 10 handoffs, downgrade the new handoff's preparer-rated confidence one band before accepting.
+
+Effect: self-assessed confidence becomes a track-record signal rather than a single-shot self-claim. Closes D13 SA13.4 F2 retro path (resumer undoes prior work but the handoff's confidence rating persists unchallenged).
+
 ## Cross-references
 
 - Body sections schema: `.hatch3r/handoffs/README.md`

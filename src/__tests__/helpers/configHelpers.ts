@@ -192,6 +192,13 @@ export interface PromptOverrides {
    * existing setups). Set to `false` to exercise the decline branch.
    */
   mcpGateProceed?: boolean;
+  /**
+   * D10-M14 (Cycle 10): answer to the `Archive these files?` confirm that
+   * fires whenever the diff removes ≥1 tool. The helper auto-queues a
+   * `proceed=true` for tests that drop tools so existing assertions keep
+   * passing; set to `false` to exercise the abort branch.
+   */
+  confirmArchiveTools?: boolean;
 }
 
 /**
@@ -338,6 +345,19 @@ export function setupStandardPrompts(
         items: overrides.contentItems ?? [],
       });
     }
+  }
+
+  // 12. D10-M14 (Cycle 10): tool-removal archive confirm. Fires only when
+  // the standard prompts above drop at least one tool relative to the
+  // manifest. Defaults to proceed=true so existing tool-swap tests pass
+  // without per-test plumbing; override `confirmArchiveTools: false` to
+  // exercise the abort branch.
+  const archiveToolSet = overrides.tools ?? manifest.tools;
+  const archiveToolsBeingRemoved = manifest.tools.some((t: string) => !archiveToolSet.includes(t));
+  if (archiveToolsBeingRemoved) {
+    inquirerMock.prompt.mockResolvedValueOnce({
+      confirmArchive: overrides.confirmArchiveTools ?? true,
+    });
   }
 }
 

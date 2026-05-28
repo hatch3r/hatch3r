@@ -56,6 +56,25 @@ export async function analyzeRepo(rootDir: string): Promise<RepoInfo> {
   return info;
 }
 
+/**
+ * Single-source-of-truth greenfield classifier (D1-M2, Cycle 10 Wave-3).
+ *
+ * A repo is greenfield when there is only one detected language and that
+ * language is `unknown` (no language probes hit), no existing AI tooling
+ * (`existingTools` empty), and no pre-existing agent layout
+ * (`hasExistingAgents` false). `init.ts` and the post-init JSON payload
+ * previously duplicated this 4-clause predicate at two call sites; future
+ * refactors that changed the clause shape risked them diverging.
+ */
+export function isGreenfield(repoInfo: Pick<RepoInfo, "languages" | "existingTools" | "hasExistingAgents">): boolean {
+  return (
+    repoInfo.languages.length === 1 &&
+    repoInfo.languages[0] === "unknown" &&
+    repoInfo.existingTools.length === 0 &&
+    !repoInfo.hasExistingAgents
+  );
+}
+
 /** Detect programming languages by probing for language-specific config files. */
 async function detectLanguages(rootDir: string): Promise<string[]> {
   const languages: string[] = [];
@@ -368,6 +387,12 @@ const FRAMEWORK_DEP_INDICATORS: { framework: Framework; deps: string[] }[] = [
   { framework: "remix", deps: ["@remix-run/react"] },
   { framework: "astro", deps: ["astro"] },
   { framework: "vue", deps: ["vue"] },
+  // D14-M1 (Cycle 10): 2026 JS meta-framework dep indicators. Listed before
+  // base react/solid so the suppression map (FRAMEWORK_SUPPRESSION) collapses
+  // the base entry once the meta-framework is detected.
+  { framework: "tanstack-start", deps: ["@tanstack/start", "@tanstack/react-start"] },
+  { framework: "solid-start", deps: ["@solidjs/start", "solid-start"] },
+  { framework: "qwik", deps: ["@builder.io/qwik", "@qwik.dev/core"] },
   { framework: "react", deps: ["react"] },
   { framework: "express", deps: ["express"] },
   { framework: "fastify", deps: ["fastify"] },
@@ -379,6 +404,9 @@ const FRAMEWORK_DEP_INDICATORS: { framework: Framework; deps: string[] }[] = [
 /**
  * Config-file-based indicators for non-JS frameworks.
  * D14 Medium (#344-#357): Broader framework detection across language ecosystems.
+ * D14-M1 (Cycle 10): Phoenix surfaces via `mix.exs` (Elixir-build manifest).
+ * FastAPI / Axum / Actix are detected via dep-name lookup on Python / Rust
+ * package manifests; see {@link NON_JS_FRAMEWORK_DEP_INDICATORS} below.
  */
 const NON_JS_FRAMEWORK_INDICATORS: { framework: Framework; configs: string[] }[] = [
   { framework: "django", configs: ["manage.py"] },
@@ -386,6 +414,32 @@ const NON_JS_FRAMEWORK_INDICATORS: { framework: Framework; configs: string[] }[]
   { framework: "rails", configs: ["Rakefile", "config/routes.rb"] },
   { framework: "spring", configs: ["src/main/resources/application.properties", "src/main/resources/application.yml"] },
   { framework: "laravel", configs: ["artisan"] },
+  { framework: "phoenix", configs: ["mix.exs"] },
+];
+
+/**
+ * D14-M1 (Cycle 10): Non-JS framework indicators that are detected by
+ * scanning the language-native manifest body for a dependency name. Each
+ * entry pairs a manifest filename with a list of substrings that, when
+ * present anywhere in the manifest body, imply the framework is in use.
+ *
+ * Substring matching is intentional — `Cargo.toml` lists deps under
+ * `[dependencies]` with `axum = "0.7"`, `pyproject.toml` lists `fastapi`
+ * under `dependencies = [...]` or `[tool.poetry.dependencies]`, and
+ * `requirements.txt` is a flat list. Parsing each format would multiply
+ * complexity for no detection benefit — every false-positive surface
+ * (a comment mentioning the framework) is small and the resulting agent
+ * output is still useful guidance.
+ */
+const NON_JS_FRAMEWORK_DEP_INDICATORS: {
+  framework: Framework;
+  manifest: string;
+  deps: string[];
+}[] = [
+  { framework: "fastapi", manifest: "pyproject.toml", deps: ["fastapi"] },
+  { framework: "fastapi", manifest: "requirements.txt", deps: ["fastapi"] },
+  { framework: "axum", manifest: "Cargo.toml", deps: ["axum"] },
+  { framework: "actix", manifest: "Cargo.toml", deps: ["actix-web", "actix_web"] },
 ];
 
 /**
@@ -398,6 +452,11 @@ const FRAMEWORK_SUPPRESSION: Partial<Record<Framework, Framework>> = {
   remix: "react",
   nuxt: "vue",
   sveltekit: "svelte",
+  // D14-M1 (Cycle 10): TanStack Start is React-based, so suppress the
+  // bare `react` entry once the meta-framework wraps it. SolidStart wraps
+  // SolidJS (not in this enum, so no suppression needed). Qwik's
+  // primitives are independent (no base framework to suppress).
+  "tanstack-start": "react",
 };
 
 /** Detect web/backend frameworks via config files, package.json deps, and language-specific indicators. Suppresses base frameworks when a meta-framework is present (e.g. Next.js suppresses React). */
@@ -449,6 +508,40 @@ async function detectFrameworks(rootDir: string): Promise<Framework[]> {
     }),
   );
   for (const r of nonJsResults) {
+    if (r.status === "fulfilled" && r.value !== null) {
+      detected.add(r.value);
+    }
+  }
+
+  // 3b. D14-M1 (Cycle 10): Non-JS framework dep-name probes — substring
+  // match against Python/Rust manifest bodies. Failures (ENOENT, parse
+  // errors) are silently skipped; the indicator is opt-in evidence rather
+  // than a correctness gate.
+  const manifestCache = new Map<string, string | null>();
+  const nonJsDepResults = await Promise.allSettled(
+    NON_JS_FRAMEWORK_DEP_INDICATORS.map(async ({ framework, manifest, deps }) => {
+      let body = manifestCache.get(manifest);
+      if (body === undefined) {
+        try {
+          body = await readFile(join(rootDir, manifest), "utf-8");
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+            body = null;
+          } else {
+            // Permission or other I/O issue — treat as "no signal" rather
+            // than failing the whole detect call (parity with the JS
+            // package.json branch above).
+            body = null;
+          }
+        }
+        manifestCache.set(manifest, body);
+      }
+      if (body === null) return null;
+      if (deps.some((d) => body!.includes(d))) return framework;
+      return null;
+    }),
+  );
+  for (const r of nonJsDepResults) {
     if (r.status === "fulfilled" && r.value !== null) {
       detected.add(r.value);
     }

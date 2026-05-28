@@ -15,6 +15,7 @@ import {
   DANGEROUS_ARG_CHARS,
   ON_DEMAND_FETCH_LAUNCHERS,
   DEFAULT_TRANSFORM_MAX_DEPTH,
+  MCP_ENV_VAR_FORMAT_PARITY,
 } from "../../adapters/mcp-utils.js";
 import type { McpServerEntry } from "../../adapters/mcp-utils.js";
 
@@ -1556,5 +1557,57 @@ describe("readMcpConfig drop-path (F15.5-C1)", () => {
       ),
     ).toBe(true);
     await rm(tmpRoot, { recursive: true, force: true });
+  });
+});
+
+/**
+ * D11-M5 (Cycle 10 Wave-3 Medium, P2): adapter env-var-format parity audit.
+ * Enforces that {@link MCP_ENV_VAR_FORMAT_PARITY} covers every supported
+ * adapter and that each row's `format` actually produces the expected
+ * platform-side syntax via {@link transformEnvVarSyntax}. A future adapter
+ * that picks the wrong format trips this gate at test time rather than at
+ * runtime when secrets fail to substitute.
+ */
+describe("MCP_ENV_VAR_FORMAT_PARITY", () => {
+  it("covers every supported adapter on both mcp-env and mcp-headers surfaces", () => {
+    const supported: ReadonlyArray<"claude" | "cursor" | "copilot"> = [
+      "claude",
+      "cursor",
+      "copilot",
+    ];
+    for (const adapter of supported) {
+      const rows = MCP_ENV_VAR_FORMAT_PARITY.filter((r) => r.adapter === adapter);
+      expect(
+        rows.some((r) => r.surface === "mcp-env"),
+        `${adapter}: missing mcp-env parity row`,
+      ).toBe(true);
+      expect(
+        rows.some((r) => r.surface === "mcp-headers"),
+        `${adapter}: missing mcp-headers parity row`,
+      ).toBe(true);
+    }
+  });
+
+  it("each row's format actually produces the documented platform syntax", () => {
+    const canonical = "${env:TOKEN}";
+    const expectedByFormat: Record<"claude" | "shell" | "passthrough", string> = {
+      claude: "${TOKEN}",
+      shell: "$TOKEN",
+      passthrough: "${env:TOKEN}",
+    };
+    for (const row of MCP_ENV_VAR_FORMAT_PARITY) {
+      const out = transformEnvVarSyntax(canonical, row.format);
+      expect(
+        out,
+        `${row.adapter}:${row.surface} (format=${row.format}) produced ${String(out)}`,
+      ).toBe(expectedByFormat[row.format]);
+    }
+  });
+
+  it("copilot mcp-env is gated via envFile so the shell format never reaches a VS Code STDIO consumer", () => {
+    const copilotEnv = MCP_ENV_VAR_FORMAT_PARITY.find(
+      (r) => r.adapter === "copilot" && r.surface === "mcp-env",
+    );
+    expect(copilotEnv?.viaEnvFile).toBe(true);
   });
 });

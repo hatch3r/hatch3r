@@ -143,6 +143,23 @@ export const TAG_LANG_RUST       = "lang:rust";
 export const TAG_LANG_JAVA       = "lang:java";
 export const TAG_LANG_RUBY       = "lang:ruby";
 
+// ── Role tags (D14-M6, Cycle 10 rollover) ────────────────────────
+// Role tags carve the canonical content into role-shaped bundles so a team
+// can ship a tighter agent / skill / rule set to a reviewer or security
+// lead than the catch-all `standard`/`full` presets. Role is a separate
+// admission axis from capability and team-size — a single artifact can
+// carry both `capability: review` and `role:reviewer` so it survives in
+// the reviewer bundle even when the user later trims capability tags.
+//
+// Conservatively scoped to 3 named roles per the D14-M6 finding: reviewer,
+// security-lead, senior-eng. Authoring guidance: tag an existing agent /
+// skill / rule with `role:<name>` to opt it into that bundle; absence is
+// the default (no implicit role admission).
+
+export const TAG_ROLE_REVIEWER      = "role:reviewer";       // PR / code review focus
+export const TAG_ROLE_SECURITY_LEAD = "role:security-lead";  // OWASP ASI + supply-chain owner
+export const TAG_ROLE_SENIOR_ENG    = "role:senior-eng";     // architecture + technical leadership
+
 // ── Maturity-tier admission tags (Decision 4 / #16) ───────────────
 // Frontmatter-side spellings of the per-tier admission gates consumed by
 // `resolveSelection`'s tier stage in `src/content/index.ts`. Matched by
@@ -173,7 +190,8 @@ export type TagFacet =
   | "cli-tool"
   | "cli-tool-category"
   | "language"
-  | "tier";
+  | "tier"
+  | "role";
 
 /**
  * The single source of truth. Every recognised tag is registered with exactly
@@ -276,6 +294,11 @@ export const TAG_REGISTRY: Record<string, TagFacet> = {
   [TAG_TIER_SCALEUP_PLUS]:     "tier",
   [TAG_TIER_TEAM_PLUS]:        "tier",
   [TAG_FLOOR_ENTERPRISE_ONLY]: "tier",
+
+  // D14-M6 (Cycle 10 rollover) — role admission tags.
+  [TAG_ROLE_REVIEWER]:      "role",
+  [TAG_ROLE_SECURITY_LEAD]: "role",
+  [TAG_ROLE_SENIOR_ENG]:    "role",
 };
 
 export function facetOf(tag: string): TagFacet | undefined {
@@ -297,6 +320,46 @@ export const isCustomizeTag       = (t: string): boolean => facetOf(t) === "cust
 export const isUiUxSpecialisation = (t: string): boolean => facetOf(t) === "ui-ux-specialisation";
 export const isLanguageTag        = (t: string): boolean => facetOf(t) === "language";
 export const isTierTag            = (t: string): boolean => facetOf(t) === "tier";
+export const isRoleTag            = (t: string): boolean => facetOf(t) === "role";
+
+/**
+ * D14-M6 (Cycle 10 rollover): Known role identifiers — string values minus
+ * the `role:` prefix, accepted by `init --role <id>` and consumed by
+ * `resolveSelection`'s role gate.
+ */
+export const KNOWN_ROLES = ["reviewer", "security-lead", "senior-eng"] as const;
+export type RoleId = typeof KNOWN_ROLES[number];
+
+/**
+ * D14-M9 (Cycle 10 rollover): graduated customization facets. The
+ * `--facets` flag lets a user add named capability clusters on top of a
+ * preset without dropping to full `custom` per-item selection. Each
+ * named facet maps to the tag(s) that admit the matching content; the
+ * additive admission step runs alongside the preset's capability gate so
+ * an item tagged with the facet is admitted even when the preset's
+ * capabilities would not have admitted it on their own.
+ *
+ * Scoped to 3 facets per the D14-M9 finding: a11y (accessibility),
+ * performance (perf budgets, profiling), observability (OTel + RED+USE +
+ * SLO). Authoring guidance: an existing capability-tagged artifact
+ * (performance, observability, accessibility / a11y) automatically maps
+ * to its facet — no re-tagging required.
+ */
+export const KNOWN_FACETS = ["a11y", "performance", "observability"] as const;
+export type FacetId = typeof KNOWN_FACETS[number];
+
+/**
+ * D14-M9: tag-set admitted by each facet. A facet may admit items that
+ * carry ANY of the listed tags — `a11y` admits both the long-form
+ * `accessibility` capability tag and the shorter `a11y` UI-UX
+ * specialisation tag so existing canonical artifacts tagged with either
+ * spelling land under the facet.
+ */
+export const FACET_TAG_ADMISSIONS: Record<FacetId, ReadonlyArray<string>> = {
+  a11y: [TAG_ACCESSIBILITY, TAG_A11Y],
+  performance: [TAG_PERFORMANCE],
+  observability: [TAG_OBSERVABILITY],
+};
 
 // ── Language helpers ─────────────────────────────────────────────
 

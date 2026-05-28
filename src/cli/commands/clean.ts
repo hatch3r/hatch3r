@@ -116,11 +116,19 @@ function printInventory(inventory: CleanInventory): void {
 }
 
 export async function cleanCommand(
-  opts: { yes?: boolean; dryRun?: boolean } = {},
+  opts: { yes?: boolean; dryRun?: boolean; learnings?: boolean } = {},
 ): Promise<void> {
   printBanner(true);
 
   const rootDir = process.cwd();
+
+  // D6-M7 (Cycle 9 Wave 3): documented session-corruption recovery path.
+  // When `--learnings` is passed, the operator opts in to wiping the
+  // `.hatch3r/learnings/` and `.hatch3r/handoffs/` directories — the two
+  // user-state surfaces that can poison subsequent agent invocations if a
+  // prior session left corrupted entries. The default clean flow preserves
+  // these directories.
+  const wipeLearnings = !!opts.learnings;
 
   // 1. Inventory
   const s1 = createSpinner(step(1, 3, "Scanning artifacts..."));
@@ -235,6 +243,23 @@ export async function cleanCommand(
   const result = await executeClean(rootDir, inventory, false);
   s2.succeed(step(2, 3, `Removed ${result.removed.length} item(s)`));
 
+  // D6-M7 (Cycle 9 Wave 3): session-corruption recovery — wipe learnings
+  // and handoffs when the operator explicitly opts in via `--learnings`.
+  // Default-preserved by `executeClean`; this branch is the documented
+  // recovery path for poisoned sessions.
+  if (wipeLearnings) {
+    const learningsDir = join(rootDir, HATCH3R_DIR, "learnings");
+    const handoffsDir = join(rootDir, HATCH3R_DIR, "handoffs");
+    for (const dir of [learningsDir, handoffsDir]) {
+      try {
+        await rm(dir, { recursive: true, force: true });
+        result.removed.push(dir.replace(rootDir + "/", ""));
+      } catch (err) {
+        result.errors.push(`${dir}: ${(err as Error).message}`);
+      }
+    }
+  }
+
   // Report errors
   if (result.errors.length > 0) {
     for (const e of result.errors) {
@@ -345,7 +370,7 @@ export async function cleanCommand(
         void learningsBackup;
         throw new HatchError(
           "Reinit failed during clean.",
-          1,
+          undefined,
           "CLEAN_ERROR",
           "Re-run `npx hatch3r init` to complete setup, or `--verbose` for the underlying failure.",
         );

@@ -40,7 +40,13 @@ The following agents demonstrate the pattern and serve as templates for future r
 - `agents/hatch3r-researcher.md`
 - `agents/hatch3r-reviewer.md`
 - `agents/hatch3r-fixer.md`
+- `agents/hatch3r-creator.md`
+- `agents/hatch3r-architect.md` (D6-M4 — Cycle 9 / Wave 3)
+- `agents/hatch3r-learnings-loader.md` (D6-M4 — Cycle 9 / Wave 3)
+- `agents/hatch3r-handoff-loader.md` (D6-M4 — Cycle 9 / Wave 3)
+- `agents/hatch3r-greenfield-spec.md` (D6-M4 — Cycle 9 / Wave 3)
+- `agents/hatch3r-brownfield-spec.md` (D6-M4 — Cycle 9 / Wave 3)
 
 ### Rollout Scope
 
-Cycle 7.5 applies the pattern to the four agents above as a representative subset. Remaining agents, skills, commands, and rules follow in Cycle 8 as a staged rollout — ordered by runtime-frequency and input-complexity, not by authorial date. See finding `C7.5-W2B2-H11` for the tracking entry.
+Cycle 7.5 applied the pattern to the first four agents above. Cycle 9 / Wave 3 (per D6-M4) extends it to the five largest remaining agents (architect, learnings-loader, handoff-loader, greenfield-spec, brownfield-spec), bringing total coverage to 10/19 main agents. Remaining single-purpose agents (e.g., `hatch3r-lint-fixer`, `hatch3r-ci-watcher`) do not require wrapping per the When-To-Apply rule. See finding `D6-M4` for the tracking entry.

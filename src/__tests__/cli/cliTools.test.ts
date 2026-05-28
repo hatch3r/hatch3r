@@ -146,7 +146,8 @@ describe("cliToolsInstallCommand end-of-flow disclaimer", () => {
 // C9-H8 (D3-3.2.2): coverage extensions — install success path, detect/--check
 // reporting path, manifest-missing platform-mismatch error path, and
 // HatchError formatting per CLAUDE.md P1 UX standards (actionable errors with
-// `npx hatch3r init` hint, CONFIG_ERROR code, exitCode=1).
+// `npx hatch3r init` hint, CONFIG_ERROR code; C8-D1-M5 mapped exit code 65
+// EX_DATAERR via ERROR_CODE_TO_EXIT_CODE).
 
 describe("cliToolsInstallCommand install success path (C9-H8)", () => {
   beforeEach(() => {
@@ -300,8 +301,9 @@ describe("manifest-missing error path & P1 actionable formatting (C9-H8)", () =>
 
   // Parametrised across every cli-tools subcommand: each one must surface the
   // same actionable hint via `error()` plus throw a HatchError carrying
-  // CONFIG_ERROR + exitCode=1 per CLAUDE.md P1 UX standards and types.ts
-  // ERROR_CODE_TO_EXIT_CODE.
+  // CONFIG_ERROR + sysexits exitCode=65 per CLAUDE.md P1 UX standards and
+  // types.ts ERROR_CODE_TO_EXIT_CODE (C8-D1-M5: call sites no longer
+  // hand-pick `1`).
   const commands: Array<[string, () => Promise<void>]> = [
     ["cliToolsCommand", cliToolsCommand],
     ["cliToolsListCommand", cliToolsListCommand],
@@ -310,7 +312,7 @@ describe("manifest-missing error path & P1 actionable formatting (C9-H8)", () =>
   ];
 
   for (const [name, fn] of commands) {
-    it(`${name}: throws HatchError(CONFIG_ERROR, exitCode=1) when manifest is missing`, async () => {
+    it(`${name}: throws HatchError(CONFIG_ERROR, central-map exitCode=65) when manifest is missing`, async () => {
       vi.mocked(readManifest).mockResolvedValue(null as never);
 
       await expect(fn()).rejects.toBeInstanceOf(HatchError);
@@ -321,7 +323,8 @@ describe("manifest-missing error path & P1 actionable formatting (C9-H8)", () =>
         expect(e).toBeInstanceOf(HatchError);
         const he = e as HatchError;
         expect(he.errorCode).toBe("CONFIG_ERROR");
-        expect(he.exitCode).toBe(1);
+        // C8-D1-M5: CONFIG_ERROR -> EX_DATAERR (65) via central map.
+        expect(he.exitCode).toBe(65);
         expect(he.message).toContain(".hatch3r/hatch.json");
       }
     });

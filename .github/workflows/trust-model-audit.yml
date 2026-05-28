@@ -1,0 +1,70 @@
+name: Trust model audit (weekly)
+
+# D15-M13: governance/audit/domains/D15-trust-reference.md "Compliance
+# Verification Schedule" declares a Weekly audit cadence for the full
+# trust-model review. Before this workflow landed there was no scheduled
+# CI runner — the cadence was prompt-only. This workflow runs `npm test`
+# scoped to the pipeline/compliance suite plus the explicit compliance
+# verification surface so the Weekly cadence has a machine-verifiable
+# attestation in the repo's Actions history.
+#
+# Cron: every Monday 06:00 UTC (offset from the busiest publish window).
+# Manual: `gh workflow run trust-model-audit.yml` triggers an ad-hoc run.
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  trust-model-compliance:
+    name: D15 trust-reference compliance
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2.19.3
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4.0.3
+        with:
+          node-version: 22
+          cache: npm
+
+      # Cycle 10 M D4-M2 (D4): env-scoped lifecycle-script deny — same rationale
+      # documented in ci.yml. NPM_CONFIG_IGNORE_SCRIPTS sits at a higher npm 11
+      # precedence band than .npmrc and is immune to transitive Git-dep
+      # installconfig overrides.
+      - name: Install dependencies (npm ci, lockfile-canonical)
+        env:
+          NPM_CONFIG_IGNORE_SCRIPTS: "true"
+        run: npm ci
+
+      # D15-M13: run the validate command's compliance verification end to
+      # end. This exercises the ASI01 / ASI02 / ASI03 / ASI07 surfaces plus
+      # the D15-M12 monotonic-privilege check and the D15-M6 fixer write-
+      # scope assertion — i.e. the full Per-commit row of the Compliance
+      # Verification Schedule, now on a Weekly cadence as well.
+      - name: Compliance verification (pipeline)
+        run: npx vitest run src/__tests__/pipeline/complianceVerification.test.ts src/__tests__/pipeline/agentToolAllowlist.test.ts src/__tests__/pipeline/agentIdentity.test.ts src/__tests__/pipeline/reviewLoop.test.ts
+
+      - name: Trust reference doc currency
+        run: |
+          if ! grep -q "## Compliance Verification Schedule" governance/audit/domains/D15-trust-reference.md; then
+            echo "::error::governance/audit/domains/D15-trust-reference.md is missing the Compliance Verification Schedule section."
+            exit 1
+          fi

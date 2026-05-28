@@ -174,7 +174,7 @@ Design systems with measurable trade-offs.
 
   // ── Mode C: parallel-tool ───────────────────────────────────────
 
-  it("Mode C: WARNs (non-blocking) on agent with 3 tool mentions and no parallel directive", async () => {
+  it("Mode C: ERRORs (blocking) on agent with 3 tool mentions and no parallel directive (D6-M9: promoted from warning)", async () => {
     await writeArtifact(
       join(fx.agentsDir, "hatch3r-architect.md"),
       `id: hatch3r-architect
@@ -196,12 +196,12 @@ You can issue tool calls one at a time.
       agentsDir: fx.agentsDir,
     });
 
-    const warns = findings.filter((f) => f.code === "P7-PARALLEL-MISS");
-    expect(warns).toHaveLength(1);
-    expect(warns[0].level).toBe("warning");
-    expect(warns[0].message).toMatch(/3 tool\/sub-agent mentions/);
-    expect(errorCount).toBe(0);
-    expect(warningCount).toBeGreaterThanOrEqual(1);
+    const errs = findings.filter((f) => f.code === "P7-PARALLEL-MISS");
+    expect(errs).toHaveLength(1);
+    expect(errs[0].level).toBe("error");
+    expect(errs[0].message).toMatch(/3 tool\/sub-agent mentions/);
+    expect(errorCount).toBeGreaterThanOrEqual(1);
+    expect(warningCount).toBe(0);
   });
 
   // ── extraOrchestratorFiles (governance/AUDIT-EXECUTE.md path) ───

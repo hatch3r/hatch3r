@@ -21,6 +21,7 @@ import { HatchError } from "../../types.js";
 import {
   validateCommandOrchestratorFrontmatter,
   validateEfficiencyFrontmatter,
+  validateTagsAgainstRegistry,
   scanAntiSlopHits,
   hasPillarReference,
   validateDocsCounts,
@@ -327,6 +328,70 @@ describe("validateDocsCounts", () => {
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════
+// D2-M12 (D2 Medium, Cycle 10 Wave 3 rollover): validateTagsAgainstRegistry
+// surfaces unknown tags from YAML frontmatter at runtime (ALL_TAGS lives at
+// TypeScript compile time only and never reaches a YAML author).
+// ═════════════════════════════════════════════════════════════════════
+
+describe("validateTagsAgainstRegistry (D2-M12)", () => {
+  it("does not warn on tags registered in TAG_REGISTRY", () => {
+    const r = makeResult();
+    validateTagsAgainstRegistry(
+      { tags: ["planning", "implementation", "floor:security"] },
+      "agents/hatch3r-foo.md",
+      r,
+    );
+    expect(r.warnings).toEqual([]);
+    expect(r.errors).toEqual([]);
+  });
+
+  it("warns on an unknown tag with a Did-you-mean suggestion within edit distance 2", () => {
+    const r = makeResult();
+    // "floor:secuirty" — typo of "floor:security" (edit distance 2).
+    validateTagsAgainstRegistry(
+      { tags: ["floor:secuirty"] },
+      "agents/hatch3r-foo.md",
+      r,
+    );
+    expect(r.warnings).toHaveLength(1);
+    expect(r.warnings[0]).toContain('Unknown tag "floor:secuirty"');
+    expect(r.warnings[0]).toContain('Did you mean "floor:security"');
+  });
+
+  it("warns on an unknown tag without suggestion when no known tag is within distance 2", () => {
+    const r = makeResult();
+    validateTagsAgainstRegistry(
+      { tags: ["totally-bogus-tag-name"] },
+      "agents/hatch3r-foo.md",
+      r,
+    );
+    expect(r.warnings).toHaveLength(1);
+    expect(r.warnings[0]).toContain('Unknown tag "totally-bogus-tag-name"');
+    expect(r.warnings[0]).not.toContain("Did you mean");
+  });
+
+  it("skips non-array tags (TYPE_MISMATCH is handled elsewhere)", () => {
+    const r = makeResult();
+    validateTagsAgainstRegistry(
+      { tags: "not-an-array" },
+      "agents/hatch3r-foo.md",
+      r,
+    );
+    expect(r.warnings).toEqual([]);
+  });
+
+  it("skips non-string entries in the tag array silently", () => {
+    const r = makeResult();
+    validateTagsAgainstRegistry(
+      { tags: ["planning", 42, null, "implementation"] },
+      "agents/hatch3r-foo.md",
+      r,
+    );
+    expect(r.warnings).toEqual([]);
   });
 });
 

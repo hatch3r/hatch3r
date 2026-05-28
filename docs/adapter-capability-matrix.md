@@ -64,9 +64,9 @@ Tracks whether the adapter exposes a documented platform-native question/triage 
 
 | Adapter | Native question tool | Notes |
 |---------|:--------------------:|-------|
-| **claude** | Y | `AskUserQuestion` tool |
-| **cursor** | -- | Pending per-cycle web-research verification by adapter author |
-| **copilot** | -- | Pending per-cycle web-research verification by adapter author |
+| **claude** | Y | `AskUserQuestion` tool (verified 2026-05-28 @ https://code.claude.com/docs/en/sub-agents) |
+| **cursor** | -- | No native question tool documented; plain-text fallback applies (verified 2026-05-28 @ https://cursor.com/docs/agent/subagents) |
+| **copilot** | -- | No native question tool documented; plain-text fallback applies (verified 2026-05-28 @ https://docs.github.com/en/copilot/reference/custom-agents-configuration) |
 
 When `nativeQuestionTool: false` (deny-by-default) the agent uses the plain-text numbered-options fallback per `agents/shared/user-question-protocol.md`.
 

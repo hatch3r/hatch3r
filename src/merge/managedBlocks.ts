@@ -6,6 +6,34 @@ import {
 } from "../types.js";
 
 /**
+ * D6-M13 (Cycle 9 / Wave 3): Managed-block markers are positionally inert
+ * for prompt-caching purposes. The `HATCH3R:BEGIN` / `HATCH3R:END` markers
+ * delimit which slice of an adapter-output file hatch3r owns vs. which is
+ * user-authored content. They do NOT participate in any provider's prompt
+ * caching mechanism (Anthropic `cache_control`, OpenAI Responses prefix
+ * caching, Google Gemini implicit caching). The caching boundary on every
+ * provider is purely positional — the static prefix at the top of a prompt
+ * is cached; anything below the first variable token is not. The markers
+ * are HTML/YAML comments invisible to the LLM, so reordering content around
+ * them has zero effect on cache hits.
+ *
+ * For static-first prompt structure (P1 in `agents/shared/efficiency-patterns.md`),
+ * what matters is byte-stable ordering of the prompt frame from one
+ * invocation to the next — not the presence or position of the managed-block
+ * markers. Two implications:
+ *
+ *   1. Editing user content above/below the managed block does NOT invalidate
+ *      any provider cache as long as the hatch3r-owned content inside the
+ *      block remains byte-stable.
+ *   2. Re-ordering the hatch3r-owned content (e.g., reshuffling adapter
+ *      directives) DOES invalidate prompt caching even if the markers stay
+ *      in place — because the cache hashes the actual byte stream, not the
+ *      logical sections.
+ *
+ * If positional-caching guarantees are needed, they must be implemented at
+ * the adapter level (`src/adapters/*.ts`) by ensuring static-frame ordering
+ * across the full adapter output, not by relying on the marker structure.
+ *
  * Scan {@link content} for any known marker variant and return the
  * matched variant + the indices of its start and end markers.
  *

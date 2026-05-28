@@ -4,10 +4,13 @@ import { AVAILABLE_CLI_TOOLS } from "./registry.js";
 
 /**
  * Result of probing a single CLI tool. `installed` reflects whether the
- * binary was found on PATH; `path` is the resolved path when known (empty
- * string otherwise). `error` carries the probe failure reason — populated
- * only when the spawn itself errored, not when the binary is simply
- * missing.
+ * binary was found on PATH AND any registered extension probe also resolved;
+ * `path` is the resolved path when known (empty string otherwise). `error`
+ * carries the probe failure reason — populated only when the spawn itself
+ * errored, not when the binary is simply missing. `extensionMissing` is set
+ * to the extension name when the base binary resolves but a registered
+ * extension probe fails (D21-M6, Cycle 10) — callers surface this to users
+ * so the installer prints the `az extension add --name azure-devops` step.
  */
 export interface CliToolDetectionResult {
   id: CliToolId;
@@ -15,6 +18,7 @@ export interface CliToolDetectionResult {
   installed: boolean;
   path: string;
   error?: string;
+  extensionMissing?: string;
 }
 
 const PROBE_TIMEOUT_MS = 2000;
@@ -98,19 +102,103 @@ export async function probeBin(name: string): Promise<string> {
 }
 
 /**
+ * D21-M6 (Cycle 10): run a follow-up extension probe AFTER the base binary
+ * has been resolved on PATH. Returns the stdout when the probe exits 0 and
+ * an empty string on timeout, spawn error, or non-zero exit — the caller
+ * uses `String.includes` against `expectInStdout` to decide whether the
+ * extension is present.
+ *
+ * Each argv entry must pass `isSafeProbeName` (same character allowlist as
+ * the base binary) so shell metacharacters can never leak into spawn.
+ * Direct `spawn(binary, args)` avoids `/bin/sh -c`, so even if the
+ * allowlist were ever loosened, no shell would interpret the args.
+ */
+async function runExtensionProbe(binary: string, args: readonly string[]): Promise<string> {
+  if (!isSafeProbeName(binary)) return "";
+  for (const arg of args) {
+    if (!isSafeProbeName(arg)) return "";
+  }
+
+  return new Promise<string>((resolve) => {
+    let settled = false;
+    let stdout = "";
+
+    // Direct spawn (no shell) — safe even if `isSafeProbeName` is ever
+    // loosened, because no interpolation happens.
+    const child = spawn(binary, [...args], {
+      stdio: ["ignore", "pipe", "ignore"],
+      windowsHide: true,
+    });
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      try {
+        child.kill("SIGKILL");
+        // intentional no-op: probe timeout fail-open mirror of probeBin
+        // eslint-disable-next-line silent-failure/no-silent-catch
+      } catch {
+        // child already gone
+      }
+      resolve("");
+    }, PROBE_TIMEOUT_MS);
+
+    child.stdout?.on("data", (chunk: Buffer | string) => {
+      stdout += typeof chunk === "string" ? chunk : chunk.toString("utf8");
+    });
+
+    child.on("error", () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve("");
+    });
+
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (code !== 0) { resolve(""); return; }
+      resolve(stdout);
+    });
+  });
+}
+
+/**
  * Probe one tool by `CliToolId`. Returns a detection result even when the
  * id is unknown to the registry (in that case `probe` is set to the id
  * itself so the caller can surface a useful warning).
+ *
+ * D21-M6 (Cycle 10): when the registry entry declares an `extensionProbe`,
+ * a successful base probe is followed by the extension verification before
+ * `installed: true` is returned. A missing extension surfaces as
+ * `installed: false` with `extensionMissing` set so the installer prints
+ * the extension-add step rather than silently treating the tool as ready.
  */
 export async function detectCliTool(id: CliToolId): Promise<CliToolDetectionResult> {
-  const meta = (AVAILABLE_CLI_TOOLS as Record<string, { probe: string } | undefined>)[id];
+  const meta = (AVAILABLE_CLI_TOOLS as Record<string, {
+    probe: string;
+    extensionProbe?: { args: readonly string[]; expectInStdout: string; name: string };
+  } | undefined>)[id];
   const probe = meta?.probe ?? id;
   const path = await probeBin(probe);
+  if (path.length === 0) {
+    return { id, probe, installed: false, path };
+  }
+  const extensionProbe = meta?.extensionProbe;
+  if (!extensionProbe) {
+    return { id, probe, installed: true, path };
+  }
+  const stdout = await runExtensionProbe(probe, extensionProbe.args);
+  if (stdout.includes(extensionProbe.expectInStdout)) {
+    return { id, probe, installed: true, path };
+  }
   return {
     id,
     probe,
-    installed: path.length > 0,
+    installed: false,
     path,
+    extensionMissing: extensionProbe.name,
   };
 }
 

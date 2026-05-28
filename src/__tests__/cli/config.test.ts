@@ -319,14 +319,15 @@ describe("config command", () => {
       expect(vi.mocked(logError)).toHaveBeenCalledWith(expect.stringContaining("No .hatch3r/hatch.json found"));
     });
 
-    it("should throw with exit code 1", async () => {
+    it("should throw with central-map exit code 65 (CONFIG_ERROR)", async () => {
       vi.mocked(readManifest).mockResolvedValue(null);
       const configCommand = await importConfigCommand();
       try {
         await configCommand();
       } catch (e) {
         expect(e).toBeInstanceOf(HatchError);
-        expect((e as HatchError).exitCode).toBe(1);
+        // C8-D1-M5: CONFIG_ERROR -> EX_DATAERR (65) via ERROR_CODE_TO_EXIT_CODE.
+        expect((e as HatchError).exitCode).toBe(65);
       }
     });
   });
@@ -442,7 +443,8 @@ describe("config command", () => {
         await configCommand();
       } catch (e) {
         expect((e as HatchError).message).toContain("At least one tool must be selected");
-        expect((e as HatchError).exitCode).toBe(1);
+        // C8-D1-M5: VALIDATION_ERROR -> EX_USAGE (64) via central map.
+        expect((e as HatchError).exitCode).toBe(64);
       }
     });
 
@@ -1878,7 +1880,8 @@ describe("config command", () => {
         expect(msg).toContain("team");
         expect(msg).toContain("scaleup");
         expect(msg).toContain("enterprise");
-        expect((e as HatchError).exitCode).toBe(1);
+        // C8-D1-M5: VALIDATION_ERROR -> EX_USAGE (64) via central map.
+        expect((e as HatchError).exitCode).toBe(64);
       }
     });
 

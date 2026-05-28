@@ -10,7 +10,7 @@
     "commands": 23,
     "hooks": 7,
     "pipeline": 22,
-    "cliCommands": 15
+    "cliCommands": 18
   },
   "files": {
     "adapters": [
@@ -294,10 +294,13 @@
       "clean.ts",
       "cliTools.ts",
       "config.ts",
+      "deps.ts",
       "explain.ts",
       "init.ts",
       "mcp.ts",
+      "provenance.ts",
       "rollback.ts",
+      "show.ts",
       "status.ts",
       "sync.ts",
       "update.ts",

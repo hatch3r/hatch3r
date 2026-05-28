@@ -462,6 +462,26 @@ describe("agentToolAllowlist", () => {
         expect(() => validateToolPolicies(allValid)).not.toThrow();
       });
     });
+
+    // D2-M08 (D2 Medium, Cycle 10 Wave 3 rollover): the canonical
+    // `AGENT_TOOL_POLICIES` registry is now validated at module-init time
+    // so a typo'd category fails fast on the first import — gating EVERY
+    // CLI path (init, sync, status, update, add, verify, ...) instead of
+    // requiring the user to run `hatch3r validate` to surface the typo.
+    // This test asserts that the canonical registry continues to pass that
+    // module-init pass; a regression that introduces a typo would have
+    // failed this test's import phase before this assertion ran.
+    describe("D2-M08 module-init validation of canonical registry", () => {
+      it("canonical AGENT_TOOL_POLICIES passes validateToolPolicies without throwing", () => {
+        // If the canonical registry contained a typo'd category, the
+        // module-level `validateToolPolicies()` call appended at the bottom
+        // of `src/pipeline/agentToolAllowlist.ts` would have thrown during
+        // import — this test would never run. The explicit re-invocation
+        // here pins the gate so a future refactor that drops the
+        // module-init call still keeps the canonical registry covered.
+        expect(() => validateToolPolicies()).not.toThrow();
+      });
+    });
   });
 
   // C7.5-W2B2-H44: Every denial path emits a structured event via the

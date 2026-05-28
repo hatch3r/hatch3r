@@ -22,7 +22,7 @@ This step precedes §0 Detect Ambiguity and supplements the deeper learnings con
 
 ## §0 Detect Ambiguity (P8 B1)
 
-Before any action, scan the brief for unresolved questions in scope, acceptance criteria, irreversibility, or constraint conflicts (multi-interpretation subject, missing mode selection, contradictory specs). If any are found, invoke the `requirements-elicitation` mode (`agents/modes/requirements-elicitation.md`) — which routes structured questions to the user via `agents/shared/user-question-protocol.md` — instead of guessing. This is the default path, not an exception. Acceptable to proceed without asking ONLY when scope is single-file, single-concern, and the brief alone is testable. The Boundaries "Ask first" rule remains in force for blockers surfaced mid-research (Status `BLOCKED_AMBIGUITY` per §5 BLOCKED Output Schema).
+See `agents/shared/clarification-default-block.md` → §0 Detect Ambiguity (P8 B1). Researcher-specific triggers: multi-interpretation subject, missing mode selection, contradictory specs. When triggers fire, invoke the `requirements-elicitation` mode (`agents/modes/requirements-elicitation.md`) — which routes structured questions to the user via `agents/shared/user-question-protocol.md` — instead of guessing. The Boundaries "Ask first" rule remains in force for blockers surfaced mid-research (Status `BLOCKED_AMBIGUITY` per §5 BLOCKED Output Schema).
 
 Prompt structure follows `agents/shared/prompt-structure.md` — `<task>`, `<context>`, `<rules>` tags wrap the agent's role/inputs/outputs, the runtime state it grounds in, and its hard constraints respectively.
 
@@ -68,6 +68,8 @@ For each requested mode, read its definition from `agents/modes/{mode-name}.md` 
 - **standard** — read relevant files, explore multiple sources, produce structured tables. Tables have 5-10 rows. Follow all 4 tiers of the tooling hierarchy. Target ~5k tokens output per mode.
 - **deep** — full structured analysis. Produce the complete output structure defined in the mode. No row limits. Follow all 4 tiers without omission. Target ~15k tokens output per mode.
 
+Apply the per-repo-size scan budget from `agents/shared/efficiency-patterns.md` → "Cost-scaling heuristic by repo size (D6-M5)" before issuing any breadth scan. Measure the current repo via `git ls-files | wc -l`; cap files-touched and deep-reads per the row matching that count. Breadth scans that would exceed the row's cap require either a narrower glob OR escalation via `requirements-elicitation` mode — never a silent over-spend.
+
 ### 4. Return Structured Result
 
 Report back to the parent orchestrator with results for each requested mode, using the output structure defined in the mode's specification.
@@ -78,7 +80,7 @@ Report back to the parent orchestrator with results for each requested mode, usi
 **Brief:** {one-line summary of what was researched}
 **Modes:** {list of modes executed}
 **Depth:** {quick/standard/deep}
-**Status:** COMPLETE | BLOCKED_AMBIGUITY | BLOCKED_MISSING_CONTEXT | BLOCKED_CONFLICTING_SPECS | BLOCKED_MISSING_TOOL | BLOCKED_OTHER
+**Status:** COMPLETE | BLOCKED_AMBIGUITY | BLOCKED_MISSING_CONTEXT | BLOCKED_CONFLICTING_SPECS | BLOCKED_MISSING_TOOL | BLOCKED_PREMISE_CHALLENGE | BLOCKED_OTHER
 **Breaking changes detected:** NONE | {count} (see Breaking Change Candidates below if >0)
 **Consulted Learnings:** {learning IDs matched in the Consult Prior Learnings gate, or "none available" / "none matched"}
 
@@ -95,7 +97,7 @@ If the brief is ambiguous, context is missing, specs contradict, a required tool
 ```
 ## Blocked Recovery
 
-**Blocker type:** BLOCKED_AMBIGUITY | BLOCKED_MISSING_CONTEXT | BLOCKED_CONFLICTING_SPECS | BLOCKED_MISSING_TOOL | BLOCKED_OTHER
+**Blocker type:** BLOCKED_AMBIGUITY | BLOCKED_MISSING_CONTEXT | BLOCKED_CONFLICTING_SPECS | BLOCKED_MISSING_TOOL | BLOCKED_PREMISE_CHALLENGE | BLOCKED_OTHER
 **Root cause:** {1-2 sentence description of the specific blocker — cite file:line or source}
 **Unblock action:** {specific action the orchestrator or user must take — e.g., "Provide API contract for /users endpoint", "Install Context7 MCP", "Resolve contradiction between docs/specs/auth.md:45 and docs/adr/0012.md:20"}
 **Retry inputs:** {concrete parameters the retry invocation needs — e.g., "Re-run with `feature-design` mode after spec clarification"}
@@ -109,7 +111,8 @@ Blocker-type decision rules:
 - **BLOCKED_MISSING_CONTEXT** — referenced spec, ADR, or file does not exist or is empty. Unblock requires artifact creation or path correction.
 - **BLOCKED_CONFLICTING_SPECS** — two or more sources make incompatible claims (example: ADR says SQL, spec says NoSQL). Unblock requires a human decision on which source wins.
 - **BLOCKED_MISSING_TOOL** — required tool (Context7 MCP, platform CLI, web search) is unavailable or returns errors. Unblock requires tool installation or credential fix.
-- **BLOCKED_OTHER** — any blocker not matching the four categories. Root-cause field must explain why the blocker does not fit the standard types.
+- **BLOCKED_PREMISE_CHALLENGE** — researcher determines the request premise itself is misconceived (e.g., the requested feature already exists in canonical content, the brief contradicts a CONSTITUTION invariant, or the asked-for change is internally contradictory). Maps to the canonical typed `BLOCKED_PREMISE_CHALLENGE` `AgentStatus` in `src/pipeline/pipelineContext.ts` so the orchestrator's `isHaltStatus()` halts the pipeline pending user clarification (Finding D7-M1 / D7-SA7.1-1). Root-cause field MUST cite the premise concern and `Unblock action` MUST list ≥1 alternative approach.
+- **BLOCKED_OTHER** — any blocker not matching the five categories. Root-cause field must explain why the blocker does not fit the standard types.
 
 ### 6. Full-Mode Breaking-Change Detection
 

@@ -17,7 +17,7 @@
 import { readFile, readdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { AGENT_TOOL_POLICIES, validateToolPolicies } from "./agentToolAllowlist.js";
+import { AGENT_TOOL_POLICIES, ALL_TOOL_CATEGORIES, validateToolPolicies, type AgentToolPolicy } from "./agentToolAllowlist.js";
 import { HARD_MAX_REVIEW_ITERATIONS, DEFAULT_MAX_REVIEW_ITERATIONS } from "./reviewLoop.js";
 import { MAX_PHASE_INPUT_LENGTH, MAX_AGENT_OUTPUT_LENGTH } from "./promptGuard.js";
 import { DEFAULT_PIPELINE_TIMEOUT_MS, MAX_PIPELINE_TIMEOUT_MS } from "./pipelineTimeout.js";
@@ -118,6 +118,76 @@ export async function detectResilienceInvocations(): Promise<Set<ResilienceModul
     if (invoked.size === RESILIENCE_MODULES.length) break;
   }
   return invoked;
+}
+
+// ── D15-M12: Monotonic privilege verification ──────────────────────
+
+/**
+ * D15-M12: verify the "monotonically decreasing privilege" invariant from
+ * `governance/audit/domains/D15-trust-reference.md` (Invariant 1).
+ *
+ * The invariant states every delegation grants a SUBSET of upstream trust.
+ * In the hatch3r agent registry the upstream root is the orchestrator,
+ * which by construction can spawn any of the canonical tool categories
+ * (`ALL_TOOL_CATEGORIES`). Each registered agent policy must therefore
+ * declare an `allowedTools` set that is a STRICT subset of
+ * `ALL_TOOL_CATEGORIES` — an agent claiming a tool category outside the
+ * canonical enum is either typo'd (already caught by `validateToolPolicies`
+ * earlier in this pipeline) or attempting to widen privilege past the
+ * upstream root, which violates the invariant.
+ *
+ * Additionally: no single agent may simultaneously hold EVERY canonical
+ * category. Holding the universal allowlist would collapse the
+ * "strictly less than orchestrator" boundary and trip the same surface
+ * the existing least-privilege warning observes at the `write+git+board`
+ * triplet — D15-M12 generalises that observation across the full
+ * `ALL_TOOL_CATEGORIES` set.
+ *
+ * Returns a structured report; the caller composes this into the
+ * compliance summary alongside the existing ASI checks.
+ */
+export interface MonotonicPrivilegeReport {
+  ok: boolean;
+  violations: ReadonlyArray<{
+    agentId: string;
+    kind: "unknown_category" | "universal_allowlist";
+    detail: string;
+  }>;
+}
+
+export function verifyMonotonicPrivilege(
+  policies: readonly AgentToolPolicy[] = AGENT_TOOL_POLICIES,
+  rootCategories: readonly string[] = ALL_TOOL_CATEGORIES,
+): MonotonicPrivilegeReport {
+  const rootSet = new Set<string>(rootCategories);
+  const violations: Array<{
+    agentId: string;
+    kind: "unknown_category" | "universal_allowlist";
+    detail: string;
+  }> = [];
+  for (const policy of policies) {
+    // Subset check: no agent may declare a category not in the root set.
+    for (const tool of policy.allowedTools) {
+      if (!rootSet.has(tool)) {
+        violations.push({
+          agentId: policy.agentId,
+          kind: "unknown_category",
+          detail: `"${tool}" is not a member of ALL_TOOL_CATEGORIES (${rootCategories.join(", ")}) — agent privilege exceeds the upstream root.`,
+        });
+      }
+    }
+    // Universal-allowlist check: no agent may hold every canonical
+    // category at once — that collapses the strictly-less-than boundary.
+    const hasAll = rootCategories.every((c) => policy.allowedTools.includes(c));
+    if (hasAll) {
+      violations.push({
+        agentId: policy.agentId,
+        kind: "universal_allowlist",
+        detail: `agent holds every canonical tool category (${rootCategories.join(", ")}) — monotonic-privilege invariant requires a strict subset of the orchestrator root.`,
+      });
+    }
+  }
+  return { ok: violations.length === 0, violations };
 }
 
 // ── Types ────────────────────────────────────────────────────────
@@ -238,6 +308,52 @@ export async function runComplianceChecks(): Promise<ComplianceReport> {
     detail: overPrivileged.length === 0
       ? "Least privilege maintained"
       : `${overPrivileged.length} agent(s) with excessive privileges: ${overPrivileged.map((p) => p.agentId).join(", ")}`,
+  });
+
+  // D15-M12: trust-reference Invariant 1 (monotonically decreasing
+  // privilege) — every agent's allowedTools must be a strict subset of
+  // ALL_TOOL_CATEGORIES (the orchestrator root) and no single agent may
+  // hold every canonical category. See verifyMonotonicPrivilege for the
+  // exact contract.
+  const monotonic = verifyMonotonicPrivilege();
+  checks.push({
+    id: "asi02-monotonic-privilege",
+    description:
+      "D15 trust Invariant 1: agent allowedTools is a strict subset of orchestrator root",
+    controlRef: "ASI03",
+    status: monotonic.ok ? "pass" : "fail",
+    detail: monotonic.ok
+      ? `All ${AGENT_TOOL_POLICIES.length} agents declare a strict subset of ALL_TOOL_CATEGORIES`
+      : `${monotonic.violations.length} violation(s): ${monotonic.violations
+          .map((v) => `${v.agentId}:${v.kind}`)
+          .slice(0, 3)
+          .join("; ")}${monotonic.violations.length > 3 ? "; …" : ""}`,
+  });
+
+  // D15-M6: implementer + fixer must not share an identical write+execute
+  // policy contract. The fixer's write surface is contractually narrower
+  // (bounded by diff-hash review scope) and must declare `writeScope`. This
+  // check fails closed if a future edit collapses the two policies back to
+  // an unbounded write+execute pair.
+  const implementerPolicy = AGENT_TOOL_POLICIES.find(
+    (p) => p.agentId === "hatch3r-implementer",
+  );
+  const fixerPolicy = AGENT_TOOL_POLICIES.find(
+    (p) => p.agentId === "hatch3r-fixer",
+  );
+  const fixerScopeOk =
+    !!fixerPolicy &&
+    fixerPolicy.writeScope === "diff-hash-review" &&
+    (!implementerPolicy || implementerPolicy.writeScope !== "diff-hash-review");
+  checks.push({
+    id: "asi02-fixer-write-scope",
+    description:
+      "hatch3r-fixer write surface is contractually bounded by diff-hash review (D15-M6)",
+    controlRef: "ASI02",
+    status: fixerScopeOk ? "pass" : "fail",
+    detail: fixerScopeOk
+      ? "fixer carries writeScope='diff-hash-review'; implementer remains unscoped (no surface collapse)."
+      : `expected fixer.writeScope='diff-hash-review' and implementer.writeScope!='diff-hash-review' — got fixer=${fixerPolicy?.writeScope ?? "undefined"}, implementer=${implementerPolicy?.writeScope ?? "undefined"}`,
   });
 
   // ── ASI07: Phase output size bounding ──

@@ -231,6 +231,41 @@ describe("reviewLoop", () => {
       expect(state.maxIterations).toBe(3);
     });
 
+    it("D15-M5: mechanical counter — recordReviewIteration is the only path that advances currentIteration", () => {
+      // D15-M5 (D15-SA15.2 review-loop integrity): the prior validation column
+      // for "Review Loop Limits" in D15-trust-reference.md was "Manual audit".
+      // This test makes the mechanical counter the validation surface so the
+      // automated trust-reference row "validate review-loop-mechanical" can cite
+      // an executable artefact instead of an unsigned human attestation.
+      //
+      // Three deterministic assertions, each closing a documented bypass route:
+      //   1. currentIteration is set to 0 by createReviewLoop and only advances
+      //      via the recordReviewIteration code path (no other exported function
+      //      mutates it).
+      //   2. recordReviewIteration THROWS once currentIteration === maxIterations,
+      //      so a caller cannot keep recording past the cap by accident.
+      //   3. After max_iterations termination, both the terminated flag and the
+      //      unresolvedFindings count are populated — a downstream gate cannot
+      //      observe an "in-progress" loop that has already exhausted its budget.
+      const initial = createReviewLoop(3);
+      expect(initial.currentIteration).toBe(0);
+      let s = recordReviewIteration(initial, "warning", 4);
+      expect(s.currentIteration).toBe(1);
+      s = recordReviewIteration(s, "warning", 3);
+      expect(s.currentIteration).toBe(2);
+      s = recordReviewIteration(s, "warning", 2);
+      expect(s.currentIteration).toBe(3);
+      expect(s.terminated).toBe(true);
+      expect(s.terminationReason).toBe("max_iterations");
+      expect(s.unresolvedFindings).toBe(2);
+      // Past the cap: any further recordReviewIteration is rejected with
+      // HatchError — the loop body cannot silently widen its budget.
+      expect(() => recordReviewIteration(s, "warning", 1)).toThrow(HatchError);
+      expect(() => recordReviewIteration(s, "warning", 1)).toThrow(
+        /already terminated/,
+      );
+    });
+
     it("rules/hatch3r-agent-orchestration.{md,mdc} declare the same default as DEFAULT_MAX_REVIEW_ITERATIONS", () => {
       // Finding C9-M48 (D16-F16.1, Medium): the code constant and the rule
       // directive at rules/hatch3r-agent-orchestration.md Phase 3 step 3
@@ -632,5 +667,40 @@ describe("evaluateReviewGate (C8-D13-M1)", () => {
   it("treats unknown confidence like low", () => {
     const r = evaluateReviewGate({ severityCount: clean, confidence: "unknown", iterationBudgetRemaining: 1 });
     expect(r.decision).toBe("second_pass");
+  });
+
+  describe("D15-M8: verdict independence", () => {
+    it("defaults verdictIndependence to 'unknown' when omitted", () => {
+      const r = evaluateReviewGate({ severityCount: clean, confidence: "high", iterationBudgetRemaining: 2 });
+      expect(r.verdictIndependence).toBe("unknown");
+    });
+
+    it("echoes verdictIndependence='different_family' on pass without same-family advisory", () => {
+      const r = evaluateReviewGate({
+        severityCount: clean,
+        confidence: "high",
+        iterationBudgetRemaining: 2,
+        verdictIndependence: "different_family",
+      });
+      expect(r.decision).toBe("pass");
+      expect(r.verdictIndependence).toBe("different_family");
+      expect(r.reason).not.toContain("share a model family");
+    });
+
+    it("annotates pass reason when verdictIndependence='same_family' (D15-M8 limitation surfaced)", () => {
+      const r = evaluateReviewGate({
+        severityCount: clean,
+        confidence: "high",
+        iterationBudgetRemaining: 2,
+        verdictIndependence: "same_family",
+      });
+      expect(r.decision).toBe("pass");
+      expect(r.reason).toContain("share a model family");
+    });
+
+    it("annotates pass reason on 'unknown' independence (default) — flags unattested gate", () => {
+      const r = evaluateReviewGate({ severityCount: clean, confidence: "high", iterationBudgetRemaining: 2 });
+      expect(r.reason).toContain("verdict independence not declared");
+    });
   });
 });

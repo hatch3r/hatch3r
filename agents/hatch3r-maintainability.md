@@ -140,7 +140,7 @@ Run each row; the verifying command appears next to the threshold per CONSTITUTI
 
 ## Output contract
 
-See `agents/shared/quality-specialist-frame.md` → §Output Contract (yaml schema, severity vocabulary, verification harness convention). CQ8 specifics: `progress_toward_pillar: content-quality.CQ8+<delta>`.
+See `agents/shared/quality-specialist-frame.md` → §Output Contract (yaml schema, canonical id format, sub_agents_spawned emission contract, severity vocabulary, verification harness convention). CQ8 specifics: `id` follows the canonical `cq8-maint-<short-slug>-<3-digit-seq>` pattern (e.g., `cq8-maint-dup-001`); `progress_toward_pillar: content-quality.CQ8+<delta>`. Every CQ8 output emits `sub_agents_spawned: {count, rationale}` per the P8 B2 emission contract — typical decomposition is one sub-agent per CQ8 sub-vector (duplication index, complexity, API breaking-change, migration conformance); `count: 0, rationale: "single-sub-vector audit"` is valid for a focused gate.
 
 ## Boundaries
 

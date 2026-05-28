@@ -646,4 +646,22 @@ Low priority rule body.
       expect(cliSkills).toEqual([]);
     });
   });
+
+  // D3-M1 (Cycle 10 Wave-3 Medium rollover): adapters had no documented
+  // error-path coverage. Pipeline timeouts (`hatch3r sync`'s circuit breaker)
+  // surface as a pre-aborted AbortSignal; `BaseAdapter.throwIfSignalAborted`
+  // is the documented contract. Pin the contract here so any future change
+  // that silently swallows the signal (e.g. a try/catch wrapping the loop)
+  // is caught by a failing test rather than a CI timeout regression.
+  describe("error paths", () => {
+    it("rejects with the abort reason when the signal is pre-aborted", async () => {
+      const manifest = makeManifest();
+      const controller = new AbortController();
+      const reason = new Error("pipeline timeout exceeded");
+      controller.abort(reason);
+      await expect(
+        adapter.generate(FIXTURES_DIR, manifest, FIXTURES_USER_REPO, "standard", controller.signal),
+      ).rejects.toThrow("pipeline timeout exceeded");
+    });
+  });
 });

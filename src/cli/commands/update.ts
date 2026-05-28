@@ -1,4 +1,4 @@
-import { appendFile, readFile, readdir, stat } from "node:fs/promises";
+import { appendFile, readFile, readdir, stat, mkdir } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -32,6 +32,9 @@ import {
   classifyFailure,
   classifyDependency,
   getRecoveryGuidance,
+  hydrateBreakersFromLog,
+  serializeBreakerMap,
+  BREAKER_STATE_FILE,
   type CircuitBreakerState,
 } from "../../pipeline/circuitBreaker.js";
 import { executeWithPhaseTimeout } from "../../pipeline/phaseTimeout.js";
@@ -57,6 +60,7 @@ import {
   label,
   verbose,
 } from "../shared/ui.js";
+import { emitJson, parseFormatOption, type CliOutputFormat } from "../shared/output.js";
 import { runSelfUpdate, pickReExecBin } from "../../install/selfUpdate.js";
 import { pruneArchives } from "../../archive/index.js";
 import { buildSelectionsFromDisk } from "../../content/index.js";
@@ -133,18 +137,26 @@ async function appendFailure(agentsDir: string, phase: string, error: unknown, t
         return;
       }
     } catch (err) {
-      // File does not exist yet -- appendFile will create it. Surface under
-      // --verbose so unexpected read failures stay observable.
+      // File does not exist yet -- appendFile will create it. Read failures
+      // other than ENOENT may indicate disk corruption, so surface them.
       const message = err instanceof Error ? err.message : String(err);
-      verbose(`update: appendFailure read-before-rotate skipped — ${message}`);
+      if (err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code === "ENOENT") {
+        verbose(`update: appendFailure read-before-rotate skipped (file does not exist yet) — ${message}`);
+      } else {
+        // D1-M7 (Cycle 10 Wave-3 Medium): emit a one-line stderr diagnostic
+        // even outside --verbose so persistent read failures are visible.
+        console.error(`[hatch3r update] appendFailure read-before-rotate failed — ${message}`);
+      }
     }
 
     await appendFile(logPath, line);
   } catch (err) {
-    // Failure logging must not break the update command. Surface under
-    // --verbose so persistent write failures still get attention.
+    // Failure logging must not break the update command, but the operator
+    // needs to know when the audit trail is failing to persist. Emit a
+    // single-line diagnostic to stderr regardless of --verbose so the
+    // signal is visible in CI logs. D1-M7 (Cycle 10 Wave-3).
     const message = err instanceof Error ? err.message : String(err);
-    verbose(`update: appendFailure suppressed — ${message}`);
+    console.error(`[hatch3r update] failure-log write suppressed — ${message}`);
   }
 }
 
@@ -289,7 +301,7 @@ export async function runRegenerate(
         );
         throw new HatchError(
           "Learnings pre-flight scan failed (use --force to override)",
-          1,
+          undefined,
           "VALIDATION_ERROR",
           "Fix the offending learning file(s) listed above (oversized, binary, or invalid name), or re-run with `--force` to materialize them as-is.",
         );
@@ -328,7 +340,27 @@ export async function runRegenerate(
   const orphanEntries: OrphanCleanupEntry[] = [];
   // Per-adapter circuit breakers and a phase-level timeout protect the
   // re-sync loop the same way they protect `hatch3r sync`.
-  const breakers = new Map<string, CircuitBreakerState>();
+  //
+  // D8-M4: hydrate from the on-disk JSONL log so a recurring transient
+  // failure surface (e.g. flaky MCP endpoint) is recognised as already-open
+  // on the next invocation. Entries older than BREAKER_STATE_TTL_MS (24h)
+  // are dropped on read; hydrate failures degrade to an empty map silently
+  // since persistence is best-effort.
+  const breakerStatePath = join(hatch3rDir, BREAKER_STATE_FILE);
+  let breakers = new Map<string, CircuitBreakerState>();
+  try {
+    const breakerLog = await readFile(breakerStatePath, "utf-8");
+    breakers = hydrateBreakersFromLog(breakerLog);
+    if (breakers.size > 0) {
+      verbose(`Hydrated ${breakers.size} circuit breaker(s) from ${BREAKER_STATE_FILE}`);
+    }
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== "ENOENT") {
+      const message = err instanceof Error ? err.message : String(err);
+      verbose(`Breaker-state hydrate skipped: ${message}`);
+    }
+  }
   // F16.1-C1: generation phase begins.
   await recordPhase(1, "in-progress");
   // F8.3.4 (D8): wrap the adapter regenerate phase in a wall-clock deadman —
@@ -382,7 +414,7 @@ export async function runRegenerate(
           breakers.set(tool, breaker);
           throw new HatchError(
             errMessage,
-            1,
+            undefined,
             "ADAPTER_ERROR",
             `Re-run with --verbose for ${tool} detail, or run \`npx hatch3r validate\` to check canonical content.`,
           );
@@ -440,11 +472,32 @@ export async function runRegenerate(
         deadmanSignal,
       ),
     DEFAULT_PIPELINE_TIMEOUT_MS,
-  ).catch((err: unknown) => {
+  ).catch(async (err: unknown) => {
     // F8.3.4: wall-clock breach — the in-flight adapter phase was signalled
     // to abort. Surface a usage-actionable timeout (exit 2) instead of a
     // silent partial regenerate.
     if (err instanceof PipelineTimeoutError) {
+      // D8-M5: reconcile partial writes into the manifest before re-throw so
+      // a post-timeout `hatch3r status` does not report drift on files the
+      // aborted adapter loop already wrote. Mirrors the same handling in
+      // `hatch3r sync`.
+      try {
+        const mergedByAdapter: Record<string, string[]> = { ...previousManagedByAdapter };
+        for (const [tool, paths] of Object.entries(newManagedByAdapter)) {
+          mergedByAdapter[tool] = [...paths];
+        }
+        if (Object.keys(mergedByAdapter).length > 0) {
+          manifest.managedFilesByAdapter = mergedByAdapter;
+          await writeManifest(rootDir, manifest);
+          verbose(
+            `Update deadman fired: reconciled ${Object.keys(mergedByAdapter).length} adapter entry(ies) ` +
+              `into manifest before re-throw.`,
+          );
+        }
+      } catch (reconcileErr) {
+        const message = reconcileErr instanceof Error ? reconcileErr.message : String(reconcileErr);
+        warn(`Manifest reconciliation after pipeline timeout failed: ${message}`);
+      }
       logError(err.message);
       throw new HatchError(
         `Update exceeded its ${Math.round(err.timeoutMs / 1000)}s pipeline budget and was aborted.`,
@@ -459,6 +512,20 @@ export async function runRegenerate(
   await recordPhase(1, "passed");
   if (!adapterPhaseResult.completed && adapterPhaseResult.error) {
     warn(adapterPhaseResult.error);
+  }
+  // D8-M4: persist the final breaker state so the next update/sync invocation
+  // recognises an already-open circuit instead of burning the failure
+  // threshold from zero again. Best-effort: write failures are logged but do
+  // not abort the run since breaker state is an optimisation, not correctness.
+  if (breakers.size > 0) {
+    try {
+      await mkdir(hatch3rDir, { recursive: true });
+      await safeWriteFile(breakerStatePath, serializeBreakerMap(breakers));
+      verbose(`Persisted ${breakers.size} circuit breaker(s) to ${BREAKER_STATE_FILE}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      verbose(`Breaker-state persist failed (continuing): ${message}`);
+    }
   }
   // Task #11: emit aggregated orphan diagnostic (unlinked + safety skips +
   // failures) per the Silent Failure Contract.
@@ -494,7 +561,33 @@ export async function runRegenerate(
       const aggregateGuidance = allTransient
         ? "All failures appear transient. Retry `hatch3r update`, or run with --offline to regenerate without the package fetch."
         : "One or more failures are substantive. Inspect the per-adapter messages above and resolve before retrying.";
-      throw new HatchError(`All adapters failed. ${aggregateGuidance}`, 1, "ADAPTER_ERROR", aggregateGuidance);
+
+      // SA12.1-F-D12-M12 (D12, P1): structured replay guidance integration.
+      // Format guidance via createReplayGuidance/formatReplayGuidance so the
+      // failure block carries reproduction steps + env snapshot inline.
+      try {
+        const { getRunId } = await import("../shared/runId.js");
+        const { createReplayGuidance, formatReplayGuidance } = await import("../../pipeline/observability.js");
+        const guidance = createReplayGuidance(
+          getRunId(),
+          "adapter",
+          `All adapters failed: ${adapterFailures.map((f) => f.tool).join(", ")}`,
+          {
+            relevantFiles: adapterFailures.map((f) => f.tool),
+            environmentSnapshot: {
+              HATCH3R_VERSION,
+              NODE_VERSION: process.version,
+            },
+          },
+        );
+        const formatted = formatReplayGuidance(guidance);
+        console.error();
+        for (const line of formatted.split("\n")) console.error(`  ${line}`);
+        console.error();
+      } catch (err) {
+        verbose(`update: replay guidance emission skipped — ${err instanceof Error ? err.message : String(err)}`);
+      }
+      throw new HatchError(`All adapters failed. ${aggregateGuidance}`, undefined, "ADAPTER_ERROR", aggregateGuidance);
     }
   }
   s2.succeed(step(offset + 2, total, adapterFailures.length > 0
@@ -900,9 +993,19 @@ export async function updateCommand(
      * the pin until the user passes `--pin-version latest` to clear it.
      */
     pinVersion?: string;
+    /**
+     * SA12.1-F-D12-M2 (D12, P1): output format for CI consumers. `"json"`
+     * emits a one-shot structured payload in place of the decorated summary
+     * box. `"human"` (default) keeps the legacy chrome.
+     */
+    format?: string;
   },
 ): Promise<void> {
-  printBanner(true);
+  // SA12.1-F-D12-M2: branch on `--format json` BEFORE banner so CI consumers
+  // see exactly one JSON document on stdout.
+  const format: CliOutputFormat = parseFormatOption(_opts?.format);
+  const jsonMode = format === "json";
+  if (!jsonMode) printBanner(true);
 
   // F8.3.4 (D8): the pipeline wall-clock deadman now lives inside
   // `runRegenerate` (which wraps the adapter phase in
@@ -917,11 +1020,22 @@ export async function updateCommand(
   const manifest = await readManifest(rootDir);
 
   if (!manifest) {
-    logError(`No ${HATCH3R_DIR}/hatch.json found.`);
-    console.log(chalk.dim("  Run `npx hatch3r init` to set up your project first.\n"));
+    if (jsonMode) {
+      emitJson({
+        status: "failed",
+        error: `No ${HATCH3R_DIR}/hatch.json found.`,
+        errorCode: "CONFIG_ERROR",
+        recoveryHint: "Run `npx hatch3r init` to set up your project first.",
+        hatch3rVersion: HATCH3R_VERSION,
+        timestamp: new Date().toISOString(),
+      });
+    } else {
+      logError(`No ${HATCH3R_DIR}/hatch.json found.`);
+      console.log(chalk.dim("  Run `npx hatch3r init` to set up your project first.\n"));
+    }
     throw new HatchError(
       `No ${HATCH3R_DIR}/hatch.json found.`,
-      1,
+      undefined,
       "CONFIG_ERROR",
       "Run `npx hatch3r init` to set up your project first.",
     );
@@ -1126,6 +1240,24 @@ export async function updateCommand(
       ),
     );
   }
+
+  // SA12.1-F-D12-M2 (D12, P1): in JSON mode, emit a single structured
+  // document in place of the decorated success box. The schema lets CI
+  // consumers branch on `status`, `failedTools`, and per-tool counts.
+  if (jsonMode) {
+    emitJson({
+      status: result.failedTools > 0 ? "partial" : "passed",
+      copiedFiles: result.copiedFiles,
+      syncedTools: result.syncedTools,
+      failedTools: result.failedTools,
+      version: result.version,
+      snapshotSessionId: result.snapshotSessionId ?? null,
+      hatch3rVersion: HATCH3R_VERSION,
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
   printBox("Update complete", updateSummaryLines, "success");
 
   // CLI-tooling pivot (plan §4.7 update touchpoint): nudge users who

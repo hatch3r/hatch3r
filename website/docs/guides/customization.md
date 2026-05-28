@@ -7,6 +7,19 @@ title: Customization
 
 hatch3r is designed to be extended without conflicting with managed updates.
 
+## When to use which mechanism
+
+Three mechanisms separate hatch3r-managed content from your project's customizations. Pick by intent, not by file type:
+
+| Intent | Mechanism | Where it lives | What survives `hatch3r sync` |
+|--------|-----------|----------------|-------------------------------|
+| Add a project-specific rule / agent / skill that hatch3r does not ship | **Non-prefixed file** (no `hatch3r-` prefix) | `.cursor/rules/my-rule.mdc`, `.claude/agents/my-agent.md`, etc. | The whole file — hatch3r never reads or writes it |
+| Append project-specific guidance to a hatch3r-managed file (e.g. notes under `CLAUDE.md`) | **Managed block** | Outside the `<!-- HATCH3R:BEGIN -->` / `<!-- HATCH3R:END -->` markers in the managed file | Everything outside the markers |
+| Override a single field on a hatch3r-shipped artifact (model, scope, frontmatter) without forking it | **`.customize.yaml`** | `.hatch3r/{agents,skills,rules,commands}/{id}.customize.yaml` | The override file — hatch3r reads it on every sync |
+| Replace a hatch3r-shipped artifact's body entirely | **Canonical override** | `.hatch3r/overrides/{type}/{id}.md` | The override file — adapters prefer this over the bundled canonical |
+
+Rule of thumb: use `.customize.yaml` for narrow field overrides (model selection, tag tweak), use canonical overrides for whole-body rewrites, use managed blocks for free-form notes alongside generated content, and use non-prefixed files for original project artifacts.
+
 ## Managed vs. Custom Files
 
 hatch3r uses a naming convention to separate managed from custom files:

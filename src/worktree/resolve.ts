@@ -21,6 +21,15 @@ function recordWorktreeProbeFailure(operation: string, err: unknown): void {
  * Writes the given gitignore-style patterns to a temp file, then runs
  * `git ls-files --others --ignored --exclude-from=<tmpfile>` to resolve
  * them against the working tree. Returns the matched file paths.
+ *
+ * D1-M21 (Cycle 10): emits a verbose() progress trace at entry/exit so the
+ * shell-out is observable under `--verbose`, and explicitly classifies an
+ * ENOBUFS / `stdout maxBuffer length exceeded` outcome with an actionable
+ * message instead of the generic execFileSync error. The maxBuffer is kept
+ * at 10 MiB (per the four other worktree git probes in this file); a repo
+ * whose `git ls-files --others --ignored` output exceeds 10 MiB has either
+ * an over-broad include pattern or a build-artifact tree that should not
+ * be copied into a worktree — both are user-actionable.
  */
 export async function resolvePatterns(
   rootDir: string,
@@ -33,6 +42,10 @@ export async function resolvePatterns(
     `hatch3r-worktree-${randomBytes(4).toString("hex")}`,
   );
 
+  verbose(
+    `worktree/resolve: resolvePatterns starting (cwd=${rootDir}, ${patterns.length} pattern(s))`,
+  );
+
   try {
     writeFileSync(tmpFile, patterns.join("\n") + "\n", "utf-8");
 
@@ -42,12 +55,31 @@ export async function resolvePatterns(
       { cwd: rootDir, encoding: "utf-8", maxBuffer: 10 * 1024 * 1024 },
     );
 
-    return output
+    const resolved = output
       .split("\n")
       .map((l) => l.trim())
       .filter(Boolean);
+    verbose(`worktree/resolve: resolvePatterns matched ${resolved.length} path(s)`);
+    return resolved;
   } catch (err) {
-    console.error(`[hatch3r] worktree pattern resolution failed: ${(err as Error).message}`);
+    // D1-M21: distinguish stdout-buffer overrun (ENOBUFS or the textual
+    // form Node emits when `maxBuffer` is exceeded) from a generic git
+    // failure. Both Node's docs (https://nodejs.org/api/child_process.html
+    // #child_processexecfilesyncfile-args-options, accessed 2026-05-28) and
+    // observed behavior describe the overrun as either `err.code === "ENOBUFS"`
+    // or a message containing "maxBuffer length exceeded".
+    const e = err as NodeJS.ErrnoException & { stderr?: Buffer };
+    const message = (err as Error).message ?? String(err);
+    const isBufferOverrun =
+      e.code === "ENOBUFS" || /maxBuffer length exceeded/.test(message);
+    if (isBufferOverrun) {
+      console.error(
+        `[hatch3r] worktree pattern resolution exceeded the 10 MiB stdout buffer in ${rootDir}. ` +
+          `Narrow your .worktreeinclude patterns (avoid build-artifact trees like dist/ or node_modules/) or split into multiple worktrees.`,
+      );
+    } else {
+      console.error(`[hatch3r] worktree pattern resolution failed: ${message}`);
+    }
     return [];
   } finally {
     try {
@@ -81,9 +113,16 @@ export function isInsideWorktree(dir: string): boolean {
  * pointer, and traverses up to find the main repo root.
  *
  * The gitdir typically points to `.git/worktrees/<name>`, so we go up 3
- * levels to reach the main repo root.
+ * levels to reach the main repo root. For bare-repo mains (no working tree
+ * at the parent of `.git`), or when the gitdir layout does not match the
+ * dirname-by-3 pattern (e.g. a worktree whose gitdir lives outside the
+ * main repo's `.git/worktrees/`), fall back to `git rev-parse
+ * --git-common-dir`, which is the official git query for the shared git
+ * directory across linked worktrees (per `git-rev-parse(1)`,
+ * https://git-scm.com/docs/git-rev-parse, accessed 2026-05-28).
  *
- * @throws if the `.git` file can't be read or parsed.
+ * @throws if neither the `.git` file nor `git rev-parse --git-common-dir`
+ *   yields a usable main-repo root.
  */
 export function findMainWorktree(worktreeDir: string): string {
   const gitFilePath = join(worktreeDir, ".git");
@@ -104,7 +143,44 @@ export function findMainWorktree(worktreeDir: string): string {
   const absGitdir = resolve(worktreeDir, rawGitdir);
 
   // Traverse: .git/worktrees/<name> → .git/worktrees → .git → repo root
-  const mainRoot = dirname(dirname(dirname(absGitdir)));
+  const dirnameMainRoot = dirname(dirname(dirname(absGitdir)));
+
+  // D1-M22 (Cycle 10): the dirname-by-3 traversal only holds when the main
+  // repo has a working tree (gitdir layout `<repo>/.git/worktrees/<name>`).
+  // For a *bare* main repo, the gitdir layout is `<repo.git>/worktrees/<name>`,
+  // so dirname-by-3 over-shoots and returns the parent of the bare repo
+  // instead of the bare repo itself. Detect this by checking the basename of
+  // the dirname-by-2 result: when it equals `.git` the parent layout holds
+  // and dirnameMainRoot is the main working tree; otherwise consult `git
+  // rev-parse --git-common-dir` for the authoritative shared-git-dir path
+  // (works for both bare and non-bare mains).
+  const dirnameTwoUp = dirname(dirname(absGitdir));
+  const layoutLooksWorking = dirnameTwoUp.endsWith(`${sep}.git`) || dirnameTwoUp.endsWith("/.git");
+  let mainRoot: string;
+  if (layoutLooksWorking) {
+    mainRoot = dirnameMainRoot;
+  } else {
+    try {
+      const commonDir = execFileSync(
+        "git",
+        ["-C", worktreeDir, "rev-parse", "--git-common-dir"],
+        { encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] },
+      ).trim();
+      // `git-common-dir` returns the *git dir* (the bare repo itself, or the
+      // `.git` directory of a non-bare repo). For a non-bare main with a
+      // working tree the main-repo root is the parent of `.git`; for a bare
+      // main the bare repo IS the main root.
+      const absCommonDir = resolve(worktreeDir, commonDir);
+      const commonBase = absCommonDir.split(sep).pop() ?? "";
+      mainRoot = commonBase === ".git" ? dirname(absCommonDir) : absCommonDir;
+    } catch (err) {
+      recordWorktreeProbeFailure(
+        `findMainWorktree(${worktreeDir}) git rev-parse --git-common-dir failed — falling back to dirname traversal`,
+        err,
+      );
+      mainRoot = dirnameMainRoot;
+    }
+  }
 
   // F1.10-H1 (Cycle 10 D1): canonicalise via the native realpath so this
   // return value can be compared byte-for-byte against `listWorktrees`, which

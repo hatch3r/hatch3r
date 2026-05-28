@@ -116,7 +116,13 @@ jobs:
           node-version: "22"
           cache: "npm"
 
+      # Cycle 10 M D4-M2 (D4): env-scoped lifecycle-script deny — .npmrc carries
+      # the same flag, but a malicious transitive Git-dep can ship installconfig
+      # keys that flip project-rc settings; the env var sits at a higher
+      # precedence band (npm 11 config order: env > project rc).
       - name: Install dependencies
+        env:
+          NPM_CONFIG_IGNORE_SCRIPTS: "true"
         run: npm ci
 
       - name: Build

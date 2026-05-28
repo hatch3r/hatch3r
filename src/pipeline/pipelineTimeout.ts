@@ -179,11 +179,55 @@ export function createPipelineExecution(
 
 /**
  * Check if the pipeline has exceeded its timeout.
+ *
+ * D8-M7 (Cycle 10 rollover): this is an OBSERVATIONAL helper for callers that
+ * inspect a {@link PipelineExecutionState} after the fact. It is NOT a
+ * functional enforcement mechanism — a phase that hangs without yielding back
+ * to the loop will never be detected by this check (the post-loop sentinel
+ * fires only after the loop iteration completes, which never happens). For
+ * functional enforcement use {@link runWithPipelineDeadman}, which races the
+ * body against a `setTimeout`-driven {@link AbortController} and aborts the
+ * in-flight phase the moment the budget elapses. The `sync` / `update`
+ * command entry points were migrated to `runWithPipelineDeadman` in F8.3.4
+ * (CHANGELOG #58); no production caller depends on the post-loop check.
  */
 export function isPipelineTimedOut(state: PipelineExecutionState): boolean {
   if (state.timedOut) return true;
   const elapsed = Date.now() - new Date(state.startedAt).getTime();
   return elapsed >= state.timeoutMs;
+}
+
+/**
+ * D8-M7: deadman-aware wrapper for callers that want both the
+ * setTimeout-driven AbortController enforcement of
+ * {@link runWithPipelineDeadman} AND the post-hoc observability that
+ * {@link isPipelineTimedOut} provides via the {@link PipelineExecutionState}
+ * tracker. Single-call helper for new call sites so the two mechanisms cannot
+ * drift apart.
+ *
+ * Returns `{ value, state }` where `state` carries the final phase progress
+ * (so the caller can render `pipelineProgressSummary` for the UI) and `value`
+ * is the body's return value. Throws {@link PipelineTimeoutError} on a
+ * wall-clock breach with the partially-updated state attached via the error's
+ * cause, so the caller can inspect what completed before the abort.
+ *
+ * Note: the wrapped body is responsible for calling
+ * {@link markPhaseStarted}/{@link markPhaseCompleted}/{@link markPhaseSkipped}
+ * against the state it receives so the tracker reflects per-phase progress.
+ * The wrapper threads the AbortController signal directly into `body` as its
+ * SECOND argument so the body can attach an `abort` listener.
+ */
+export async function runWithDeadmanTracker<T>(
+  phases: PhaseName[],
+  body: (state: PipelineExecutionState, signal: AbortSignal) => Promise<T>,
+  timeoutMs: number = DEFAULT_PIPELINE_TIMEOUT_MS,
+): Promise<{ value: T; state: PipelineExecutionState }> {
+  const tracker = createPipelineExecution(phases, timeoutMs);
+  const value = await runWithPipelineDeadman(
+    (signal) => body(tracker, signal),
+    timeoutMs,
+  );
+  return { value, state: tracker };
 }
 
 /**

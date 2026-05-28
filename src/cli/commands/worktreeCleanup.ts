@@ -31,6 +31,7 @@ import {
   warn,
   error as logError,
 } from "../shared/ui.js";
+import { enableDefaultCrossProcessLocking } from "../../merge/safeWrite.js";
 
 interface CleanupOptions {
   dryRun?: boolean;
@@ -395,6 +396,12 @@ export async function worktreeCleanupCommand(
 ): Promise<void> {
   printBanner(true);
 
+  // D8-M3: worktree cleanup races the main repo's `.hatch3r/` writes during
+  // partial-cleanup rollback. Default-on cross-process locking serializes the
+  // window without forcing operators to discover `HATCH3R_LOCK=1`. Set
+  // `HATCH3R_LOCK=0` to opt out.
+  enableDefaultCrossProcessLocking();
+
   const cwd = process.cwd();
   const mainRoot = isInsideWorktree(cwd) ? findMainWorktree(cwd) : cwd;
 
@@ -417,7 +424,7 @@ export async function worktreeCleanupCommand(
       console.log(chalk.dim(`  Try: cd ${mainRoot}\n`));
       throw new HatchError(
         "cwd is inside a candidate worktree",
-        1,
+        undefined,
         "VALIDATION_ERROR",
         `cd to the main repo (${mainRoot}) and re-run the cleanup.`,
       );
@@ -470,7 +477,7 @@ export async function worktreeCleanupCommand(
   if (result.failed.length > 0) {
     throw new HatchError(
       `${result.failed.length} worktree(s) failed to clean.`,
-      1,
+      undefined,
       "FS_ERROR",
       "Resolve the per-worktree reasons listed above (e.g. uncommitted changes), then re-run the cleanup.",
     );

@@ -152,11 +152,18 @@ function silentSpinner(): Ora {
 
 export function createSpinner(text: string): Ora {
   if (quietEnabled) return silentSpinner();
+  // D10-M6 (Cycle 10): pin the ora stream to `process.stderr` so progress
+  // chrome follows the same POSIX rationale already applied to `error()` /
+  // `warn()` below (line 195+). Keeps stdout clean for CI consumers that
+  // parse only structured output (e.g. `hatch3r status --json | jq`) while
+  // leaving the spinner visible interactively. ora respects stderr's
+  // `isTTY` and falls back to no-op rendering under redirection.
   return ora({
     text,
     color: "cyan",
     spinner: "dots",
     indent: 2,
+    stream: process.stderr,
   });
 }
 
@@ -173,6 +180,11 @@ export function printBox(
     warning: "#f59e0b" as const,
   };
   const content = lines.join("\n");
+  // D10-M5 (Cycle 10): `dimBorder` was previously applied to `style === "info"`,
+  // which made the most common box variant the least readable in low-contrast
+  // terminals (white-on-light themes, dimmed remote sessions). All four
+  // styles now use full-saturation borders — colour alone differentiates
+  // success / info / error / warning per WCAG-equivalent contrast intent.
   console.log(
     boxen(content, {
       title,
@@ -181,7 +193,6 @@ export function printBox(
       margin: { top: 0, bottom: 1, left: 1, right: 0 },
       borderColor: colors[style],
       borderStyle: "round",
-      dimBorder: style === "info",
     }),
   );
 }

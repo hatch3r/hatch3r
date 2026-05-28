@@ -82,7 +82,8 @@ describe("verify command", () => {
     try {
       await verifyCommand();
     } catch (e) {
-      expect((e as HatchError).exitCode).toBe(1);
+      // C8-D1-M5: CONFIG_ERROR -> EX_DATAERR (65) via central map.
+      expect((e as HatchError).exitCode).toBe(65);
       expect((e as HatchError).errorCode).toBe("CONFIG_ERROR");
     }
 
@@ -132,7 +133,8 @@ describe("verify command", () => {
     expect(thrown).toBeInstanceOf(HatchError);
     const err = thrown as HatchError;
     expect(err.errorCode).toBe("INTEGRITY_ERROR");
-    expect(err.exitCode).toBe(1);
+    // C8-D1-M5: INTEGRITY_ERROR -> EX_CANTCREAT (73) via central map.
+    expect(err.exitCode).toBe(73);
     expect(err.message).toMatch(/drift detected/i);
   });
 
@@ -159,7 +161,8 @@ describe("verify command", () => {
     expect(thrown).toBeInstanceOf(HatchError);
     const err = thrown as HatchError;
     expect(err.errorCode).toBe("INTEGRITY_ERROR");
-    expect(err.exitCode).toBe(1);
+    // C8-D1-M5: INTEGRITY_ERROR -> EX_CANTCREAT (73) via central map.
+    expect(err.exitCode).toBe(73);
     expect(err.message).toMatch(/drift detected/i);
 
     // Failure output should surface the verify: FAIL header so operators

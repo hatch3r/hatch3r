@@ -33,23 +33,34 @@ export async function filterMcpJsonOnDisk(
     throw err;
   }
 
-  let parsed: { mcpServers?: Record<string, Record<string, unknown>> };
+  let parsed: Record<string, unknown>;
   try {
-    parsed = JSON.parse(raw) as { mcpServers?: Record<string, Record<string, unknown>> };
+    parsed = JSON.parse(raw) as Record<string, unknown>;
   } catch (err) {
     if (err instanceof SyntaxError) return;
     throw err;
   }
 
-  if (!parsed.mcpServers) return;
+  const rawServers = parsed.mcpServers;
+  if (!rawServers || typeof rawServers !== "object") return;
+  const mcpServers = rawServers as Record<string, Record<string, unknown>>;
 
   const filtered: Record<string, Record<string, unknown>> = {};
-  for (const [name, server] of Object.entries(parsed.mcpServers)) {
+  for (const [name, server] of Object.entries(mcpServers)) {
     if (!selectedIds.has(name)) continue;
     const entry = { ...server };
     delete entry._disabled;
     filtered[name] = entry;
   }
 
-  await atomicWriteFile(targetPath, JSON.stringify({ mcpServers: filtered }, null, 2) + "\n");
+  // D11-M6 (Cycle 10 Wave-3 Medium, P2): preserve every top-level field beyond
+  // `mcpServers` (e.g., `protocolVersion`, user-added documentation keys).
+  // The prior writer emitted `{ mcpServers: filtered }` only, silently
+  // destroying hand-edits at sibling keys on every re-init run. The MCP spec
+  // and the Claude/Cursor/Copilot schemas all allow additional top-level
+  // fields; restricting the rewrite to `mcpServers` is the minimal change
+  // that preserves user state across the filter.
+  const rewritten: Record<string, unknown> = { ...parsed, mcpServers: filtered };
+
+  await atomicWriteFile(targetPath, JSON.stringify(rewritten, null, 2) + "\n");
 }

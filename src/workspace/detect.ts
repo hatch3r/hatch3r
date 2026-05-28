@@ -56,61 +56,102 @@ export interface DetectedRepo {
 }
 
 /**
- * Scan immediate subdirectories of rootDir for git repositories.
+ * D14-M3 (Cycle 10 rollover): maximum recursion depth for the sub-repo
+ * scan. The legacy `detectSubRepos` only walked one level deep — fine for
+ * a textbook `repos/<name>` layout but it missed the `apps/<area>/<name>`
+ * monorepo shape that the workspace classifier's upward walk
+ * ({@link MAX_WORKSPACE_PARENT_WALK}=10) already supports. The descend cap
+ * mirrors the upward walk so workspace suggestion and member
+ * classification stay symmetric.
+ *
+ * Set to 4 (not 10) because the descent fans out: at every level we list
+ * the directory and stat each entry, so 4 levels with ~20 entries each is
+ * 8000 stat calls in the worst case — still bounded but well below the
+ * 10-level upward walk's single-chain cost. Real monorepo layouts
+ * (apps/<area>/<name> = 3 levels, packages/<scope>/<name> = 3 levels) fit
+ * comfortably under 4.
+ */
+const MAX_SUBREPO_DESCEND_DEPTH = 4;
+
+/**
+ * Scan subdirectories of rootDir for git repositories.
  * Returns directories that contain a .git folder or file (worktree).
+ *
+ * D14-M3 (Cycle 10): the scan recurses up to {@link MAX_SUBREPO_DESCEND_DEPTH}
+ * levels below `rootDir` so deeply-nested monorepo members (apps/web/api,
+ * packages/scope/name) are still discovered. Hidden directories and
+ * `node_modules` are skipped at every level; a directory that is itself a
+ * git repo terminates the recursion at that subtree (we do not list
+ * sub-repos OF a sub-repo for the workspace-suggestion banner — that would
+ * be confusing UX). The returned `path` is the rel-path from `rootDir`
+ * (e.g. `apps/web` rather than `web`), so workspace-init can register the
+ * full sub-tree address.
  */
 export async function detectSubRepos(rootDir: string): Promise<DetectedRepo[]> {
   const repos: DetectedRepo[] = [];
 
-  let entries: { name: string; isDirectory: () => boolean }[];
-  try {
-    entries = await readdir(rootDir, { withFileTypes: true });
-  } catch (err) {
-    recordProbeFailure(`readdir(${rootDir}) failed`, err);
-    return repos;
-  }
-
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    // Skip hidden directories and node_modules
-    if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
-
-    const subDir = join(rootDir, entry.name);
-    const gitPath = join(subDir, ".git");
-
-    let isGitRepo = false;
+  async function visit(currentDir: string, relPrefix: string, depth: number): Promise<void> {
+    let entries: { name: string; isDirectory: () => boolean }[];
     try {
-      const gitStat = await stat(gitPath);
-      // .git can be a directory (normal repo) or file (worktree)
-      isGitRepo = gitStat.isDirectory() || gitStat.isFile();
+      entries = await readdir(currentDir, { withFileTypes: true });
     } catch (err) {
-      // Not a git repo — expected for most subdirectories. Surface under --verbose
-      // so unexpected failures (e.g., permission denied) remain observable.
-      recordProbeFailure(`stat(${gitPath}) — not a git repo`, err);
+      recordProbeFailure(`readdir(${currentDir}) failed`, err);
+      return;
     }
 
-    if (!isGitRepo) continue;
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      // Skip hidden directories and node_modules at every depth.
+      if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
 
-    // Wave 6: accept either `.hatch3r/hatch.json` (new layout) or
-    // `.agents/hatch.json` (pre-1.9 layout) as a hatch3r-managed repo.
-    const hasHatch3r = await accessHatchOrLegacy(subDir, "hatch.json");
-    if (!hasHatch3r) {
-      // No existing hatch3r setup — expected for repos not yet onboarded.
-      // Surface under --verbose so unexpected failures (e.g., permission) remain observable.
-      recordProbeFailure(
-        `access(${subDir}/{${HATCH3R_DIR},${LEGACY_AGENTS_DIR}}/hatch.json) — no hatch3r setup`,
-        new Error("ENOENT on both new and legacy paths"),
-      );
+      const subDir = join(currentDir, entry.name);
+      const gitPath = join(subDir, ".git");
+      const childRelPath = relPrefix ? `${relPrefix}/${entry.name}` : entry.name;
+
+      let isGitRepo = false;
+      try {
+        const gitStat = await stat(gitPath);
+        // .git can be a directory (normal repo) or file (worktree)
+        isGitRepo = gitStat.isDirectory() || gitStat.isFile();
+      } catch (err) {
+        // Not a git repo — expected for most subdirectories. Surface under --verbose
+        // so unexpected failures (e.g., permission denied) remain observable.
+        recordProbeFailure(`stat(${gitPath}) — not a git repo`, err);
+      }
+
+      if (isGitRepo) {
+        // Wave 6: accept either `.hatch3r/hatch.json` (new layout) or
+        // `.agents/hatch.json` (pre-1.9 layout) as a hatch3r-managed repo.
+        const hasHatch3r = await accessHatchOrLegacy(subDir, "hatch.json");
+        if (!hasHatch3r) {
+          // No existing hatch3r setup — expected for repos not yet onboarded.
+          // Surface under --verbose so unexpected failures (e.g., permission) remain observable.
+          recordProbeFailure(
+            `access(${subDir}/{${HATCH3R_DIR},${LEGACY_AGENTS_DIR}}/hatch.json) — no hatch3r setup`,
+            new Error("ENOENT on both new and legacy paths"),
+          );
+        }
+
+        repos.push({
+          path: childRelPath,
+          name: entry.name,
+          hasHatch3r,
+        });
+        // Terminate the recursion at the first git repo on this subtree —
+        // a sub-repo's own sub-tree is its own concern, not the workspace's.
+        continue;
+      }
+
+      // Not a git repo — descend if we still have depth budget.
+      if (depth + 1 < MAX_SUBREPO_DESCEND_DEPTH) {
+        await visit(subDir, childRelPath, depth + 1);
+      }
     }
-
-    repos.push({
-      path: entry.name,
-      name: entry.name,
-      hasHatch3r,
-    });
   }
 
-  return repos.sort((a, b) => a.name.localeCompare(b.name));
+  await visit(rootDir, "", 0);
+
+  return repos.sort((a, b) => a.path.localeCompare(b.path));
 }
 
 /**

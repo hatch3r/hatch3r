@@ -151,7 +151,7 @@ Run every check below. Each row is measurable; cite the command and the report p
 
 ## Output contract
 
-See `agents/shared/quality-specialist-frame.md` → §Output Contract (yaml schema, severity vocabulary, verification harness convention). CQ9 specifics: `id` format `ENHANCABILITY-CQ9-<3-digit-seq>`; `progress_toward_pillar: content-quality.CQ9+<delta>`. Critical triggers: behavior change ships without a flag; stable-endpoint contract breaks without a major bump; credential hardcoded; schema validator falls back silently; CI spec-diff gate missing; contract test fails on a stable surface.
+See `agents/shared/quality-specialist-frame.md` → §Output Contract (yaml schema, canonical id format, sub_agents_spawned emission contract, severity vocabulary, verification harness convention). CQ9 specifics: `id` follows the canonical `cq9-enh-<short-slug>-<3-digit-seq>` pattern (e.g., `cq9-enh-flag-001`); `progress_toward_pillar: content-quality.CQ9+<delta>`. Every CQ9 output emits `sub_agents_spawned: {count, rationale}` per the P8 B2 emission contract — typical decomposition is one sub-agent per CQ9 surface (flag adoption, schema validation, contract testing, spec-diff); `count: 0, rationale: "single-surface audit"` for focused review. Critical triggers: behavior change ships without a flag; stable-endpoint contract breaks without a major bump; credential hardcoded; schema validator falls back silently; CI spec-diff gate missing; contract test fails on a stable surface.
 
 ## Boundaries
 

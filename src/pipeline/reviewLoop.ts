@@ -1,27 +1,29 @@
 /**
  * Review loop iteration state-model and decision contract.
  *
- * The pipeline's Phase 3 (Review Loop) cycles between hatch3r-reviewer and
- * hatch3r-fixer. This module provides the iteration-counter state model and
- * the pure decision functions (cap clamping, oscillation detection,
- * confidence derivation, gate evaluation) that model a hard maximum on
- * iterations to prevent infinite loops when the fixer cannot resolve all
- * findings.
+ * @library_export_only — typed state-model + decision contract for the
+ * LLM-orchestrator-driven review loop. NOT invoked by any CLI command in the
+ * `src/cli/commands/` tree (`grep -rn "enforceReviewIteration|recordReviewIteration|createReviewLoop" src/cli` returns zero matches; the only non-test importer outside this module is `src/pipeline/complianceVerification.ts`, which consumes only the constants `HARD_MAX_REVIEW_ITERATIONS` + `DEFAULT_MAX_REVIEW_ITERATIONS` for prompt-text parity scanning). These exports serve three documented consumers, in this order:
  *
- * Execution-boundary note (Cycle 10, findings F7.2-H1 / F15.2-H1):
- * The hatch3r pipeline is LLM-orchestrator-driven — Phase 3 reviewer/fixer
- * rounds are spawned via the Task tool under the prompt directives in
- * `rules/hatch3r-agent-orchestration.md` (Phase 3 step 3) and the per-command
- * loop bodies (`commands/hatch3r-*.md`). No TypeScript CLI command drives the
- * loop in code. These exports are therefore a typed state-model + decision
- * contract for the LLM orchestrator and downstream AI-tool consumption — the
- * same disposition as the phase-shape contracts typed in `pipelineContext.ts`
- * (see `phaseOutputSchema.ts`). They are NOT an in-process runtime gate that
- * intercepts Task-tool spawns; the iteration cap is enforced by the prompt
- * directive, kept in lockstep with `DEFAULT_MAX_REVIEW_ITERATIONS` by the
- * rule-parity assertion in `reviewLoop.test.ts`. Infrastructure-level
- * enforcement (a Stop/PostToolUse hook that refuses to spawn a further fixer
- * pass past the cap) is tracked as out-of-module work in F15.2-H1.
+ * 1. **The LLM orchestrator's prompt-driven loop body.** Phase 3 reviewer/fixer
+ *    rounds are spawned via the Task tool under the prompt directives in
+ *    `rules/hatch3r-agent-orchestration.md` (Phase 3 step 3) and the per-command
+ *    loop bodies in `commands/hatch3r-*.md`. The iteration cap is enforced by
+ *    the prompt directive, held in lockstep with `DEFAULT_MAX_REVIEW_ITERATIONS`
+ *    by the rule-parity assertion in `reviewLoop.test.ts`.
+ * 2. **Downstream pack integrators** that ship a real TypeScript loop driver —
+ *    e.g., a Stop/PostToolUse hook refusing to spawn a further fixer pass past
+ *    the cap, tracked as out-of-module work in F15.2-H1.
+ * 3. **Unit-testable decision contracts** for governance proofs (oscillation
+ *    detection, confidence derivation, gate evaluation, calibration record).
+ *
+ * Finding D7-M6 / D7-SA7.2-4 (Cycle 10): the prior "production caller required"
+ * framing was retracted — the framework intentionally has no CLI loop driver
+ * because Phase 3 execution happens inside Claude Code / Cursor, not inside
+ * the CLI process. The library-only disposition above is the canonical answer.
+ *
+ * The module's prior execution-boundary note (Cycle 10, findings F7.2-H1 /
+ * F15.2-H1) is rolled into the @library_export_only block above.
  *
  * Finding #76 (D15, High): Add iteration counter with programmatic enforcement.
  * Finding #68 (D13, High): Add iteration-count-based confidence signal to review gate output.
@@ -32,7 +34,7 @@
  * Finding C7.5-W2B2-H40 (D15-F15.2-02, High): Expose the iteration-gate
  *   decision functions (`enforceReviewIteration`, `assertReviewIterationAllowed`)
  *   as the canonical state-model the orchestrator's loop body is checked
- *   against — superseded by the execution-boundary note above.
+ *   against — superseded by the library-only disposition above (D7-M6).
  */
 
 import { HatchError } from "../types.js";
@@ -126,7 +128,13 @@ export interface ReviewLoopCalibration {
 
 export const CALIBRATION: Readonly<ReviewLoopCalibration> = Object.freeze({
   basis: "informed_estimate",
-  source: "governance/audit/finding-registry.json (cycles 3-4 aggregate; per-finding iteration count not yet recorded)",
+  // Honest non-citation per Charter directive 20 — no historical iteration-
+  // count dataset exists. The pre-Cycle-10 phrasing "cycles 3-4 aggregate"
+  // implied a re-derivable source that does not exist (Finding D7-M4 /
+  // D7-SA7.2-1). When iteration-count telemetry lands per the CL-2 spec
+  // below, replace this with the path to the produced dataset.
+  source:
+    "no historical dataset; informed_estimate based on author judgment pending iteration-count telemetry (CL-2 spec in measurementMethodRef)",
   sampleSize: 0,
   measuredAt: null,
   split: Object.freeze({
@@ -139,7 +147,17 @@ export const CALIBRATION: Readonly<ReviewLoopCalibration> = Object.freeze({
     iteration1CleanRateBelow: 0.6,
     oscillationRateAbove: 0.1,
   }),
-  measurementMethodRef: ".audit-workspace/D7-SA7.2.findings.md",
+  // CL-2 spec for iteration-count telemetry (Finding D7-M4 / D7-SA7.2-1):
+  // (1) Add `iteration_count: number` + `reviewVerdictByIteration: ReviewVerdict[]`
+  //     columns to per-finding records in `governance/audit/finding-registry.json`.
+  // (2) Add `scripts/calibrate-review-loop.ts` that reads the registry, emits
+  //     the measured iteration split, and writes a candidate CALIBRATION
+  //     update PR when the sample size crosses 30 findings.
+  // (3) Promote `basis` to `"measured"` and set `measuredAt` once the script
+  //     runs against a 30+ finding sample.
+  // (4) Document the recalibration cadence (every Cycle 12 release).
+  measurementMethodRef:
+    "CL-2 spec: per-finding iteration_count column in governance/audit/finding-registry.json + scripts/calibrate-review-loop.ts (D7-M4 / D7-SA7.2-1)",
 });
 
 // ── Types ────────────────────────────────────────────────────────
@@ -169,8 +187,28 @@ export interface ReviewLoopState {
   maxIterations: number;
   /** Whether the loop has been terminated. */
   terminated: boolean;
-  /** Reason for termination, if terminated. */
-  terminationReason?: "clean" | "max_iterations" | "manual";
+  /**
+   * Reason for termination, if terminated.
+   *
+   * - `clean`: reviewer returned a clean verdict (0 critical + 0 warning).
+   * - `max_iterations`: iteration cap reached with unresolved findings.
+   * - `manual`: external caller terminated the loop early (user cancel, timeout).
+   * - `oscillation`: `detectOscillation()` reported a fix-break cycle; the
+   *   orchestrator halts the loop before the iteration cap so the conflict
+   *   pattern surfaces earlier. Matches the "Forced termination — oscillation"
+   *   semantics in `commands/hatch3r-board-fill.md` step 7.9d (Finding D7-M5 /
+   *   D7-SA7.2-2).
+   * - `design_objection`: reviewer emitted a `DESIGN_OBJECTION` verdict (the
+   *   premise itself is broken); halt the loop and surface the objection for
+   *   user clarification. Mirrors the board-fill forced-termination case and
+   *   the `BLOCKED_PREMISE_CHALLENGE` agent status in `pipelineContext.ts`.
+   */
+  terminationReason?:
+    | "clean"
+    | "max_iterations"
+    | "manual"
+    | "oscillation"
+    | "design_objection";
   /** History of review iterations. */
   history: ReviewIterationEntry[];
   /** Unresolved findings after loop termination. */
@@ -205,6 +243,11 @@ export function reviewLoopConfidence(state: ReviewLoopState): ReviewConfidenceLe
 
   // Manual termination — unknown state, default to low
   if (state.terminationReason === "manual") return "low";
+
+  // Oscillation / design_objection — fixer is unable to converge or the
+  // premise is broken; surface as low confidence so downstream gates escalate.
+  if (state.terminationReason === "oscillation") return "low";
+  if (state.terminationReason === "design_objection") return "low";
 
   // Confidence based on iteration count when terminated cleanly
   if (state.currentIteration <= 1) return "high";
@@ -439,6 +482,59 @@ export function terminateReviewLoop(
   return newState;
 }
 
+/**
+ * Terminate the review loop with an oscillation verdict.
+ *
+ * Finding D7-M5 (D7-SA7.2-2): when `detectOscillation()` reports a fix-break
+ * cycle, the orchestrator halts the loop before reaching `maxIterations` so the
+ * conflict pattern (fixer A breaks what fixer B fixed) surfaces earlier rather
+ * than burning the remaining budget on no-progress iterations. Mirrors the
+ * board-fill "Forced termination — oscillation" semantics (commands/hatch3r-
+ * board-fill.md step 7.9d) inside the typed state model so consumers can
+ * branch on `terminationReason === "oscillation"` deterministically.
+ */
+export function terminateReviewLoopOscillation(
+  state: ReviewLoopState,
+  unresolvedFindings: number,
+): ReviewLoopState {
+  if (state.terminated) return state;
+
+  const newState: ReviewLoopState = {
+    ...state,
+    terminated: true,
+    terminationReason: "oscillation",
+    unresolvedFindings,
+  };
+  newState.confidence = reviewLoopConfidence(newState);
+  return newState;
+}
+
+/**
+ * Terminate the review loop with a DESIGN_OBJECTION verdict.
+ *
+ * Finding D7-M5 (D7-SA7.2-2): the reviewer signals the premise itself is
+ * broken (e.g., requested behaviour is internally contradictory). Loop halts;
+ * caller surfaces the objection for user clarification. Cross-references the
+ * `BLOCKED_PREMISE_CHALLENGE` agent status in `pipelineContext.ts` — both
+ * mechanisms cover non-overlapping phases of the same premise-challenge
+ * surface (SA7.1-F7).
+ */
+export function terminateReviewLoopDesignObjection(
+  state: ReviewLoopState,
+  unresolvedFindings: number,
+): ReviewLoopState {
+  if (state.terminated) return state;
+
+  const newState: ReviewLoopState = {
+    ...state,
+    terminated: true,
+    terminationReason: "design_objection",
+    unresolvedFindings,
+  };
+  newState.confidence = reviewLoopConfidence(newState);
+  return newState;
+}
+
 // ── Oscillation Detection (#244, D8-8.11) ───────────────────────
 
 /**
@@ -517,6 +613,16 @@ export function reviewLoopSummary(state: ReviewLoopState): string {
       case "manual":
         parts.push("terminated: manual stop");
         break;
+      case "oscillation":
+        parts.push(
+          `terminated: oscillation detected (${state.unresolvedFindings} unresolved findings; fixer is editing the wrong line)`,
+        );
+        break;
+      case "design_objection":
+        parts.push(
+          "terminated: reviewer raised DESIGN_OBJECTION (premise itself is broken); user clarification required",
+        );
+        break;
     }
     // Include confidence signal in summary (Finding #68)
     if (state.confidence) {
@@ -577,6 +683,30 @@ export function calculateFindingsTrend(state: ReviewLoopState): FindingsTrend {
  */
 export type ReviewGateDecision = "pass" | "second_pass" | "escalate" | "fail";
 
+/**
+ * D15-M8: reviewer-vs-fixer model-family independence signal.
+ *
+ * The '0 Critical + 0 Warning' review gate is gameable when the reviewer and
+ * the fixer share the same model family — the fixer can produce output the
+ * same family is biased to approve. The hatch3r pipeline does NOT today
+ * spawn the reviewer and fixer on different model providers; the limitation
+ * is documented at `agents/hatch3r-reviewer.md` and surfaced here as a
+ * first-class gate input so callers that DO route the two agents to
+ * different providers (downstream pack integrators) can declare the
+ * independence and the gate can record the declaration.
+ *
+ * Values:
+ *   - `same_family` — reviewer and fixer share a model family
+ *     (e.g. both Anthropic Claude, both OpenAI GPT). Treat clean verdicts
+ *     with extra caution; the gate emits a non-fatal advisory in `reason`.
+ *   - `different_family` — reviewer and fixer come from distinct model
+ *     providers. Clean verdicts carry stronger independence guarantees.
+ *   - `unknown` — the caller did not declare independence. Default; the
+ *     gate behaves as it did before D15-M8 but the decision reason notes
+ *     the omission so audits can flag unattested gates.
+ */
+export type VerdictIndependence = "same_family" | "different_family" | "unknown";
+
 export interface ReviewGateInput {
   severityCount: {
     critical: number;
@@ -585,14 +715,29 @@ export interface ReviewGateInput {
   };
   confidence: "high" | "medium" | "low" | "unknown";
   iterationBudgetRemaining: number;
+  /**
+   * D15-M8: declared independence between the reviewer and the fixer.
+   * Optional for backward compatibility; defaults to `"unknown"`.
+   */
+  verdictIndependence?: VerdictIndependence;
 }
 
 export interface ReviewGateResult {
   decision: ReviewGateDecision;
   reason: string;
+  /** D15-M8: echo the independence value used in the decision. */
+  verdictIndependence?: VerdictIndependence;
 }
 
 export function evaluateReviewGate(input: ReviewGateInput): ReviewGateResult {
+  const independence: VerdictIndependence =
+    input.verdictIndependence ?? "unknown";
+  const independenceNote =
+    independence === "same_family"
+      ? " (reviewer and fixer share a model family per VerdictIndependence — clean verdict is not provider-independent)"
+      : independence === "unknown"
+      ? " (verdict independence not declared — see agents/hatch3r-reviewer.md D15-M8)"
+      : "";
   if (
     !Number.isFinite(input.severityCount.critical) ||
     !Number.isFinite(input.severityCount.warning) ||
@@ -601,34 +746,43 @@ export function evaluateReviewGate(input: ReviewGateInput): ReviewGateResult {
     input.severityCount.warning < 0 ||
     input.severityCount.suggestion < 0
   ) {
-    return { decision: "fail", reason: "malformed severity counts" };
+    return {
+      decision: "fail",
+      reason: "malformed severity counts",
+      verdictIndependence: independence,
+    };
   }
   if (input.severityCount.critical > 0) {
     return {
       decision: "fail",
       reason: `${input.severityCount.critical} Critical finding(s) require fixes`,
+      verdictIndependence: independence,
     };
   }
   if (input.severityCount.warning > 0) {
     return {
       decision: "fail",
       reason: `${input.severityCount.warning} Warning finding(s) require fixes`,
+      verdictIndependence: independence,
     };
   }
   if (input.confidence === "high" || input.confidence === "medium") {
     return {
       decision: "pass",
-      reason: `Clean verdict with ${input.confidence} confidence`,
+      reason: `Clean verdict with ${input.confidence} confidence${independenceNote}`,
+      verdictIndependence: independence,
     };
   }
   if (input.iterationBudgetRemaining > 0) {
     return {
       decision: "second_pass",
-      reason: `Low confidence clean verdict; retry review at higher rigor (${input.iterationBudgetRemaining} iterations remain)`,
+      reason: `Low confidence clean verdict; retry review at higher rigor (${input.iterationBudgetRemaining} iterations remain)${independenceNote}`,
+      verdictIndependence: independence,
     };
   }
   return {
     decision: "escalate",
-    reason: "Low confidence clean verdict with no iteration budget; escalate to human operator",
+    reason: `Low confidence clean verdict with no iteration budget; escalate to human operator${independenceNote}`,
+    verdictIndependence: independence,
   };
 }

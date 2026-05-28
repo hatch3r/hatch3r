@@ -116,7 +116,7 @@ export async function rollbackCommand(opts: RollbackOptions = {}): Promise<void>
     info("Run `hatch3r rollback list` to see available sessions.");
     throw new HatchError(
       `Session ${opts.session} not found.`,
-      1,
+      undefined,
       "CONFIG_ERROR",
       "Run `hatch3r rollback list` to see available sessions.",
     );
@@ -157,7 +157,7 @@ export async function rollbackCommand(opts: RollbackOptions = {}): Promise<void>
   console.log();
   throw new HatchError(
     `Rollback completed with ${result.errors.length} error(s)`,
-    1,
+    undefined,
     "FS_ERROR",
     "Inspect the messages above; re-run with --dry-run to preview.",
   );

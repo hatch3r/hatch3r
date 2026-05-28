@@ -2,7 +2,11 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { readFile, writeFile, rm, access, mkdtemp } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { atomicWriteFile } from "../../merge/safeWrite.js";
+import {
+  atomicWriteFile,
+  enableDefaultCrossProcessLocking,
+  resetDefaultCrossProcessLocking,
+} from "../../merge/safeWrite.js";
 import { HatchError } from "../../types.js";
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -22,6 +26,9 @@ describe("atomicWriteFile — HATCH3R_LOCK opt-in file locking (D1-SA1.5.1)", ()
     if (tempDir) await rm(tempDir, { recursive: true, force: true });
     if (origLock === undefined) delete process.env.HATCH3R_LOCK;
     else process.env.HATCH3R_LOCK = origLock;
+    // D8-M3: clear any default-on state set by the per-test block so each test
+    // starts from the single-process default.
+    resetDefaultCrossProcessLocking();
   });
 
   describe("default behavior (HATCH3R_LOCK unset)", () => {
@@ -198,6 +205,66 @@ describe("atomicWriteFile — HATCH3R_LOCK opt-in file locking (D1-SA1.5.1)", ()
       await atomicWriteFile(filePath, "after");
 
       expect(await readFile(filePath, "utf-8")).toBe("after");
+    });
+  });
+
+  // D8-M3 (Cycle 10 rollover): default-on locking for workspace/worktree
+  // contexts. Workspace/worktree command entry points call
+  // `enableDefaultCrossProcessLocking()` so concurrent writes are serialized
+  // without requiring operators to know `HATCH3R_LOCK=1`. `HATCH3R_LOCK=0`
+  // still wins as an explicit opt-out.
+  describe("D8-M3 default-on locking for workspace/worktree contexts", () => {
+    it("enableDefaultCrossProcessLocking() activates locking without env var", async () => {
+      delete process.env.HATCH3R_LOCK;
+      enableDefaultCrossProcessLocking();
+
+      const filePath = join(tempDir, "default-on.md");
+      const lockfilePath = filePath + ".hatch3r.lock";
+
+      // Pre-create a stale lockfile to force ELOCKED → LOCK_TIMEOUT, which
+      // proves that the lock was actually attempted (not bypassed).
+      const { mkdir } = await import("node:fs/promises");
+      await mkdir(lockfilePath, { recursive: true });
+
+      await expect(
+        atomicWriteFile(filePath, "blocked-by-default-on"),
+      ).rejects.toMatchObject({
+        name: "HatchError",
+        errorCode: "LOCK_TIMEOUT",
+      });
+
+      await rm(lockfilePath, { recursive: true, force: true });
+    }, 20_000);
+
+    it("HATCH3R_LOCK=0 wins over default-on (explicit opt-out)", async () => {
+      process.env.HATCH3R_LOCK = "0";
+      enableDefaultCrossProcessLocking();
+
+      const filePath = join(tempDir, "opt-out.md");
+      await atomicWriteFile(filePath, "no-lock-content");
+
+      expect(await readFile(filePath, "utf-8")).toBe("no-lock-content");
+
+      // No lockfile dir should have been created when opt-out is set.
+      const lockExists = await access(filePath + ".hatch3r.lock")
+        .then(() => true)
+        .catch(() => false);
+      expect(lockExists).toBe(false);
+    });
+
+    it("resetDefaultCrossProcessLocking() returns to single-process default", async () => {
+      delete process.env.HATCH3R_LOCK;
+      enableDefaultCrossProcessLocking();
+      resetDefaultCrossProcessLocking();
+
+      const filePath = join(tempDir, "after-reset.md");
+      await atomicWriteFile(filePath, "single-process");
+
+      expect(await readFile(filePath, "utf-8")).toBe("single-process");
+      const lockExists = await access(filePath + ".hatch3r.lock")
+        .then(() => true)
+        .catch(() => false);
+      expect(lockExists).toBe(false);
     });
   });
 });

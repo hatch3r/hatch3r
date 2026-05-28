@@ -577,4 +577,21 @@ You are a test agent.`,
       expect(fm).toMatch(/allowed-tools:\s*\["gh", "git"\]/);
     });
   });
+
+  // D3-M1 (Cycle 10 Wave-3 Medium rollover): adapters had no documented
+  // error-path coverage. Pipeline timeouts surface as a pre-aborted
+  // AbortSignal; `BaseAdapter.throwIfSignalAborted` is the documented
+  // contract (see src/adapters/base.ts:321). Pin the contract here so any
+  // future change that silently swallows the signal cannot regress.
+  describe("error paths", () => {
+    it("rejects with the abort reason when the signal is pre-aborted", async () => {
+      const manifest = makeManifest();
+      const controller = new AbortController();
+      const reason = new Error("copilot: pipeline timeout exceeded");
+      controller.abort(reason);
+      await expect(
+        adapter.generate(FIXTURES_DIR, manifest, FIXTURES_USER_REPO, "standard", controller.signal),
+      ).rejects.toThrow("copilot: pipeline timeout exceeded");
+    });
+  });
 });

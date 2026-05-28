@@ -53,6 +53,10 @@
  */
 
 import type { HatchManifest } from "../types.js";
+import {
+  resolveVerificationGates,
+  DEFAULT_GATE_COMMANDS,
+} from "../detect/verificationGates.js";
 
 /**
  * Sentinel value emitted when detection returned an empty array. Lower-case
@@ -69,6 +73,27 @@ export const TEST_FRAMEWORK_TOKEN = "${HATCH3R:TEST_FRAMEWORK}";
 
 /** Token replaced with the project's detected CI provider(s). */
 export const CI_PROVIDER_TOKEN = "${HATCH3R:CI_PROVIDER}";
+
+/**
+ * D14-M2 (Cycle 10 rollover): Verification-gate tokens. The framework's
+ * canonical implementer/fixer/reviewer agents hard-code `npm run lint`,
+ * `npm run typecheck`, `npm run test` for the Verify step. That fails
+ * silently on non-npm projects (Python/Go/Rust/etc) — the agent runs a
+ * command that does not exist, sees no output, and continues. These
+ * tokens close the gap by carrying the language-aware command set
+ * resolved at sync time from {@link resolveVerificationGates}.
+ *
+ * The resolver inspects `manifest.languages` + `manifest.packageManager`
+ * and returns the project's native commands (e.g. `pytest`, `go test ./...`,
+ * `cargo test`, or `pnpm run test`). When detection is unknown, the
+ * tokens collapse to the {@link DEFAULT_GATE_COMMANDS} (npm-based) which
+ * matches the pre-D14-M2 baseline — no behavioral regression for npm
+ * projects.
+ */
+export const VERIFY_GATE_TEST_TOKEN = "${HATCH3R:VERIFY_GATE_TEST}";
+export const VERIFY_GATE_LINT_TOKEN = "${HATCH3R:VERIFY_GATE_LINT}";
+export const VERIFY_GATE_TYPECHECK_TOKEN = "${HATCH3R:VERIFY_GATE_TYPECHECK}";
+export const VERIFY_GATE_ALL_TOKEN = "${HATCH3R:VERIFY_GATE_ALL}";
 
 /**
  * Subset of the manifest that carries detection results. Defined separately
@@ -104,6 +129,46 @@ export function detectionContextFromManifest(manifest: HatchManifest): DetectedR
 }
 
 /**
+ * D14-M2 (Cycle 10): resolve the verification-gate commands for a manifest.
+ * The manifest carries `languages?: string[]` (Decision 11 / Stage 5 input)
+ * and `cliTools?` / package-manager context, but the canonical agents need
+ * pre-resolved command strings (`pytest`, `go test ./...`, `pnpm run test`)
+ * rather than the raw detection result. This thin wrapper centralizes the
+ * lookup so the substitution loop and any future caller share one source
+ * of truth.
+ *
+ * Falls back to {@link DEFAULT_GATE_COMMANDS} when the manifest carries no
+ * language signal — matches the pre-D14-M2 hard-coded npm baseline so a
+ * project that was previously running `npm run test` continues to do so.
+ */
+export function verificationGatesFromManifest(manifest: HatchManifest): {
+  test: string;
+  lint: string;
+  typecheck: string;
+  all: string;
+} {
+  const languages = manifest.languages ?? [];
+  // The manifest does not persist the detected package manager on a top-
+  // level field today; npm is the safe default and `resolveVerificationGates`
+  // already accepts an undefined `packageManager` argument.
+  const gates =
+    languages.length > 0
+      ? resolveVerificationGates(languages, undefined)
+      : DEFAULT_GATE_COMMANDS;
+  // Collapse the nullable typecheck to a string so callers can substitute
+  // the token directly without branching. When the language has no
+  // typecheck step (e.g. plain JS), we emit a no-op `: # no typecheck` so
+  // the agent's joined command (lint && typecheck && test) still parses.
+  const typecheck = gates.typecheck ?? ": # no typecheck for this language";
+  return {
+    test: gates.test,
+    lint: gates.lint,
+    typecheck,
+    all: gates.all,
+  };
+}
+
+/**
  * Replace every `${HATCH3R:LINTER}` / `${HATCH3R:TEST_FRAMEWORK}` /
  * `${HATCH3R:CI_PROVIDER}` occurrence in `content` with the values from
  * `ctx`. Idempotent: a body with zero tokens passes through unchanged.
@@ -127,6 +192,45 @@ export function substituteRepoTokens(content: string, ctx: DetectedRepoContext):
 }
 
 /**
+ * D14-M2 (Cycle 10): Replace verification-gate tokens (`${HATCH3R:VERIFY_GATE_TEST}`,
+ * etc.) with the language-aware command strings from
+ * {@link verificationGatesFromManifest}. Idempotent on a body with zero
+ * tokens. Separate from {@link substituteRepoTokens} because the verify-gate
+ * tokens require the full manifest (for `languages`), whereas
+ * `substituteRepoTokens` already accepted the minimal `DetectedRepoContext`
+ * shape — splitting the helpers keeps existing callers unchanged.
+ */
+export function substituteVerificationGateTokens(
+  content: string,
+  manifest: HatchManifest,
+): string {
+  // Fast path: skip the resolver work when no token appears in the body.
+  if (
+    !content.includes(VERIFY_GATE_TEST_TOKEN) &&
+    !content.includes(VERIFY_GATE_LINT_TOKEN) &&
+    !content.includes(VERIFY_GATE_TYPECHECK_TOKEN) &&
+    !content.includes(VERIFY_GATE_ALL_TOKEN)
+  ) {
+    return content;
+  }
+  const gates = verificationGatesFromManifest(manifest);
+  let out = content;
+  if (out.includes(VERIFY_GATE_TEST_TOKEN)) {
+    out = out.split(VERIFY_GATE_TEST_TOKEN).join(gates.test);
+  }
+  if (out.includes(VERIFY_GATE_LINT_TOKEN)) {
+    out = out.split(VERIFY_GATE_LINT_TOKEN).join(gates.lint);
+  }
+  if (out.includes(VERIFY_GATE_TYPECHECK_TOKEN)) {
+    out = out.split(VERIFY_GATE_TYPECHECK_TOKEN).join(gates.typecheck);
+  }
+  if (out.includes(VERIFY_GATE_ALL_TOKEN)) {
+    out = out.split(VERIFY_GATE_ALL_TOKEN).join(gates.all);
+  }
+  return out;
+}
+
+/**
  * Public list of token literals — exposed for validators and tests that
  * need to assert the wire format without re-declaring the constants.
  */
@@ -134,4 +238,8 @@ export const REPO_SUBSTITUTION_TOKENS = [
   LINTER_TOKEN,
   TEST_FRAMEWORK_TOKEN,
   CI_PROVIDER_TOKEN,
+  VERIFY_GATE_TEST_TOKEN,
+  VERIFY_GATE_LINT_TOKEN,
+  VERIFY_GATE_TYPECHECK_TOKEN,
+  VERIFY_GATE_ALL_TOKEN,
 ] as const;

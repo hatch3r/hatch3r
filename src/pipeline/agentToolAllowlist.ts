@@ -32,6 +32,22 @@ export interface AgentToolPolicy {
   allowedTools: readonly string[];
   /** Human-readable description of the agent's capability scope. */
   description: string;
+  /**
+   * Optional write-scope qualifier. When present, the agent's `write` /
+   * `execute` privileges are CONTRACTUALLY bounded to the named scope
+   * (the runtime gate is the diff-hash review contract in `diffHash.ts`,
+   * not this field — this field is a machine-readable assertion that
+   * the boundary EXISTS so compliance can verify implementer + fixer do
+   * not share an identical unbounded policy).
+   *
+   * D15-M6: implementer and fixer previously declared identical
+   * `["read","search","write","execute"]` with no surface difference. The
+   * fixer's policy now carries `writeScope: "diff-hash-review"` to make
+   * the bounded write surface explicit. `complianceVerification.ts`
+   * verifies that implementer + fixer no longer share a byte-identical
+   * write+execute policy contract.
+   */
+  writeScope?: "diff-hash-review";
 }
 
 export interface ToolAccessResult {
@@ -130,7 +146,8 @@ export const AGENT_TOOL_POLICIES: readonly AgentToolPolicy[] = [
   {
     agentId: "hatch3r-fixer",
     allowedTools: ["read", "search", "write", "execute"],
-    description: "Fix application: file read/write, code search, command execution. No git, board, or web.",
+    description: "Fix application: file read/write, code search, command execution. No git, board, or web. Write scope is bounded by the diff-hash review contract (src/pipeline/diffHash.ts) — the fixer rewrites only the files cited in the reviewer's structured findings, and the resulting diff is hashed and verified back to the reviewer (D15-M6).",
+    writeScope: "diff-hash-review",
   },
   {
     agentId: "hatch3r-docs-writer",
@@ -487,6 +504,30 @@ export function validateToolPolicies(
   return warnings;
 }
 
+// D2-M08 (D2 Medium, Cycle 10 Wave 3 rollover): gate ALL CLI paths against
+// typo'd tool categories at module-init time.
+//
+// Previously, `validateToolPolicies()` was only invoked from
+// `src/pipeline/complianceVerification.ts::runComplianceChecks`, which runs
+// only under `hatch3r validate` (`src/cli/commands/validate.ts:2356`). Any
+// CLI invocation that did NOT run `validate` (init, sync, status, update,
+// add, verify, ...) would silently consume a typo'd `AGENT_TOOL_POLICIES`
+// entry — `checkToolAccess` matches by exact string equality, so an entry
+// like `"read-ony"` deny-all-reads at runtime with zero diagnostic surface
+// until a user happened to run `validate` later.
+//
+// The module is imported by every CLI surface (adapters, content scanner,
+// pipeline modules), so a single eager validation at module-init covers
+// every entry point — a typo in the canonical registry now fails fast on
+// the first import instead of slipping past until the next `validate`. The
+// HatchError thrown here has `errorCode: VALIDATION_ERROR` and exits 1 via
+// the CLI top-level error handler.
+//
+// Tests that exercise the typo path explicitly pass typo'd fixtures to
+// `validateToolPolicies(typoPolicies)`, so they are unaffected by the
+// module-init pass against the canonical default.
+validateToolPolicies();
+
 // ── Adapter emission helpers (C9-H49, D15 P6) ────────────────────
 //
 // The canonical allowlist enforces ASI02 at the hatch3r orchestrator
@@ -530,6 +571,10 @@ export function buildAgentToolPoliciesJson(): string {
       agentId: p.agentId,
       allowedTools: p.allowedTools,
       description: p.description,
+      // D15-M6: emit writeScope so downstream consumers (PreToolUse hook,
+      // Cursor allowlist rule) can read the contractual boundary alongside
+      // the categorical allowlist.
+      ...(p.writeScope ? { writeScope: p.writeScope } : {}),
     })),
   };
   return JSON.stringify(doc, null, 2);

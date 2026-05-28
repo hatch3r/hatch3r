@@ -14,7 +14,7 @@ Requires Node.js 22+.
 
 ```bash
 npx hatch3r init --default  # recommended: zero-prompt setup with the standard profile
-npx hatch3r init            # interactive: customize tools, profile, and MCP (asks <=5 questions)
+npx hatch3r init            # interactive: customize tools, profile, and MCP (6 prompts for GitHub greenfield; +1 for Azure DevOps, +1 for `custom` preset, +1 for workspace mode)
 ```
 
 `--default` generates a working standard-profile setup with no questions — the fastest path to a configured repo. The interactive `init` detects your repo, asks about your project context (greenfield/brownfield, solo/team), lets you choose a content profile (minimal/standard/full/custom), and generates everything. The platform (GitHub, Azure DevOps, or GitLab) is auto-detected from your git remote either way. Run into issues? See [Troubleshooting](https://docs.hatch3r.com/docs/troubleshooting).
@@ -137,6 +137,14 @@ After init, use `hatch3r config` to add or remove individual content items.
 ## Sub-Agentic Architecture
 
 A four-phase pipeline (Research, Implement, Review Loop with reviewer + fixer at max 3 iterations, Final Quality with testing + security) drives implementation. The implementer agent receives a single sub-issue and returns code + tests; the fixer agent applies targeted fixes from reviewer findings; the issue-workflow skill runs an 8-step flow with parallel sub-agent delegation for epics. Tooling hierarchy: project docs > codebase search > library docs (Context7) > web research. See [Agent Teams](https://docs.hatch3r.com/docs/guides/agent-teams) for delegation patterns and [governance/COMPETITIVE-ANALYSIS.md](governance/COMPETITIVE-ANALYSIS.md) for how hatch3r compares to rule-distribution tools like Ruler.
+
+## Why hatch3r vs just AGENTS.md?
+
+AGENTS.md (Linux Foundation AAIF spec, 60K+ repos as of January 2026 — see [governance/COMPETITIVE-ANALYSIS.md](governance/COMPETITIVE-ANALYSIS.md) §3.1) is the greatest-common-denominator markdown standard for agent instructions; it is consumed by 20+ tools including Cursor, Copilot, Codex, and Gemini CLI. hatch3r is complementary: AGENTS.md describes one file's content; hatch3r owns the entire generation pipeline that emits tool-native configurations across 5 artifact classes (rules, skills, commands, hooks, MCP servers) for 3 supported platforms (Claude Code, Cursor, GitHub Copilot). Three measurable differences:
+
+- **Scope:** AGENTS.md is one flat instruction file per repo; hatch3r generates platform-specific structured output (`.mdc` rules with frontmatter scoping for Cursor, `CLAUDE.md` with managed blocks for Claude Code, `.github/instructions/` + `.github/prompts/` for Copilot) plus board commands, MCP server configs, and event-driven hooks.
+- **Currency:** AGENTS.md content is hand-edited per project; hatch3r ships canonical content (62 rules + 48 skills + 23 commands + 6 hooks + 10 MCP servers — see [`governance/inventory.json`](governance/inventory.json)) audited weekly across 24 governance domains.
+- **Adoption path:** AGENTS.md remains the spec hatch3r-emitted Cursor / Claude / Copilot configurations align with — the 1.9.0 hard-cut withdrew direct AGENTS.md emission per CONSTITUTION §6 Decision #12, but AAIF spec evolution feeds per-adapter feature work for the 3 supported adapters. Use AGENTS.md alone when one flat file suffices for your project; use hatch3r when you need the full content + tooling stack.
 
 ## Customization
 

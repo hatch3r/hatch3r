@@ -10,6 +10,7 @@ import {
   terminatePipeline,
   pipelineProgressSummary,
   runWithPipelineDeadman,
+  runWithDeadmanTracker,
   PipelineTimeoutError,
   DEFAULT_PIPELINE_TIMEOUT_MS,
   MIN_PIPELINE_TIMEOUT_MS,
@@ -310,6 +311,50 @@ describe("pipelineTimeout", () => {
       expect(err.timeoutMs).toBe(30_000);
       expect(err.elapsedMs).toBe(31_000);
       expect(err.message).toContain("deadman");
+    });
+  });
+
+  // D8-M7 (Cycle 10 rollover): combined deadman + tracker wrapper so new
+  // call sites cannot wire the AbortController and the post-hoc
+  // PipelineExecutionState observer out of phase.
+  describe("runWithDeadmanTracker (D8-M7)", () => {
+    it("returns body value and state tracker on happy path", async () => {
+      const phases = ["adapter", "merge"] as const;
+      const { value, state } = await runWithDeadmanTracker(
+        [...phases],
+        async (tracker, signal) => {
+          expect(signal).toBeInstanceOf(AbortSignal);
+          expect(tracker.phases.length).toBe(2);
+          return 42;
+        },
+      );
+      expect(value).toBe(42);
+      expect(state.phases.length).toBe(2);
+      expect(state.phases[0].phase).toBe("adapter");
+    });
+
+    it("threads the abort signal so a long body can observe abortion", async () => {
+      vi.useFakeTimers();
+      try {
+        let observedAbort = false;
+        const promise = runWithDeadmanTracker(
+          ["adapter"],
+          (_tracker, signal) =>
+            new Promise<never>((_resolve, reject) => {
+              signal.addEventListener("abort", () => {
+                observedAbort = true;
+                reject(new PipelineTimeoutError(MIN_PIPELINE_TIMEOUT_MS, MIN_PIPELINE_TIMEOUT_MS));
+              });
+            }),
+          MIN_PIPELINE_TIMEOUT_MS,
+        );
+        const assertion = expect(promise).rejects.toBeInstanceOf(PipelineTimeoutError);
+        await vi.advanceTimersByTimeAsync(MIN_PIPELINE_TIMEOUT_MS + 1);
+        await assertion;
+        expect(observedAbort).toBe(true);
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 });

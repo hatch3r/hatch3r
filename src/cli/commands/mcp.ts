@@ -19,7 +19,6 @@ import {
   printBanner,
   printBox,
   info,
-  warn,
   error as logError,
   label,
 } from "../shared/ui.js";
@@ -45,7 +44,7 @@ function requireManifest(rootDir: string, manifest: HatchManifest | null): asser
     console.log(chalk.dim(`  Run \`npx hatch3r init\` to set up your project first.\n`));
     throw new HatchError(
       "No .hatch3r/hatch.json found.",
-      1,
+      undefined,
       "CONFIG_ERROR",
       "Run `npx hatch3r init` to set up your project first.",
     );
@@ -79,12 +78,20 @@ export async function mcpSetupCommand(): Promise<void> {
   manifest.mcp = { servers: selected };
   await writeManifest(rootDir, manifest);
 
+  // D10-M7 (Cycle 10): the `Add new secrets` warn() previously fired BEFORE
+  // the `MCP configured` success box, so users scanning the box bottom-up
+  // missed the credentials-action callout entirely (the visual hierarchy of
+  // boxen drew the eye to the green border first). Collect the advisory
+  // strings here and append them as bold rows inside the box so the
+  // success message and the next-step action sit in the same visual frame.
+  const envAdvisoryLines: string[] = [];
   if (selected.length > 0) {
     const envResult = await ensureEnvMcp(rootDir, selected);
     await ensureGitignoreEntry(rootDir);
     if (envResult.newVars.length > 0) {
-      warn(`Add new secrets to .env.mcp: ${envResult.newVars.join(", ")}`);
-      info(`Run this then start/restart your editor: ${getSourceEnvMcpCommand()}`);
+      envAdvisoryLines.push("");
+      envAdvisoryLines.push(`${chalk.yellow("!")} Add new secrets to ${chalk.bold(".env.mcp")}: ${envResult.newVars.join(", ")}`);
+      envAdvisoryLines.push(`  Then run: ${chalk.dim(getSourceEnvMcpCommand())}`);
     }
   }
 
@@ -94,6 +101,7 @@ export async function mcpSetupCommand(): Promise<void> {
       label("Servers", selected.length > 0 ? selected.join(", ") : "none"),
       label("Manifest", ".hatch3r/hatch.json"),
       label("Next", "Run `npx hatch3r sync` to regenerate adapter MCP configs"),
+      ...envAdvisoryLines,
     ],
     "success",
   );
@@ -150,7 +158,7 @@ export async function mcpRemoveCommand(id: string): Promise<void> {
     console.log(chalk.dim(`  Current servers: ${before.length > 0 ? before.join(", ") : "(none)"}\n`));
     throw new HatchError(
       `MCP server "${id}" not configured`,
-      1,
+      undefined,
       "VALIDATION_ERROR",
       "Run `npx hatch3r mcp list` to see configured servers, or `npx hatch3r mcp add <id>` to add one.",
     );

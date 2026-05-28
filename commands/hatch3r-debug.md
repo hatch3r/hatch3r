@@ -565,3 +565,9 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 - **This command composes existing hatch3r agents** (researcher, implementer, reviewer, fixer, testability, security) — it does not replace them.
 - **Browser verification is opt-in.** Ask once at command start. Never enable browser steps without user consent.
 - **Never force a diagnosis.** If the logs are inconclusive, say so. Do not fabricate a root cause to proceed.
+
+## References
+
+- `agents/shared/user-question-protocol.md` (B1 gate — applies at §0 Detect Ambiguity above plus every mid-workflow ASK checkpoint per Finding D7-M14)
+- `agents/shared/quality-charter.md` §1, §3, §7, §8 (confidence, ambiguity, measurable criteria)
+- `rules/hatch3r-agent-orchestration.md` (Per-Turn Pipeline-State Header, End-of-Turn Delegation Attestation, Mandatory Delegation Directive)

@@ -4,32 +4,39 @@ import { ClaudeAdapter } from "./claude.js";
 import { CopilotAdapter } from "./copilot.js";
 import { CursorAdapter } from "./cursor.js";
 
-// Adapter factory map — instantiates adapters lazily on first access to avoid
-// allocating all adapters at module load time (#117).
+// Adapter factory map — instantiates adapters lazily on each `getAdapter`
+// call. #117 originally introduced lazy allocation; C9-M12 (D2 Medium, Cycle
+// 10 Wave 3 rollover) removed the module-level instance cache because adapter
+// instances carry per-invocation mutable state (`this.warnings`,
+// `this._trackedSourceFiles`, `this._cachedOutputPaths`). Two concurrent
+// `generate()` calls against the same cached instance interleave warnings
+// across runs and corrupt provenance tracking. Adapter construction is
+// trivial (a single `new` of a class with no I/O), so dropping the cache
+// has no measurable cost and makes per-call state safe by default. See
+// `BaseAdapter.warnings` JSDoc for the per-invocation contract.
 const adapterFactories: Record<Tool, () => Adapter> = {
   cursor: () => new CursorAdapter(),
   copilot: () => new CopilotAdapter(),
   claude: () => new ClaudeAdapter(),
 };
 
-const adapterCache = new Map<Tool, Adapter>();
-
 /**
- * Retrieve or lazily instantiate the adapter for a given tool.
+ * Construct a fresh adapter instance for the given tool. Throws when the tool
+ * name is not in the factory map.
  *
- * Adapters are cached after first creation so repeated calls return the
- * same instance. Throws if the tool name is not in the factory map.
+ * C9-M12: returns a NEW instance on every call (no module-level cache) so
+ * that per-invocation mutable state on `BaseAdapter` (warnings, source-file
+ * provenance tracker, output-path cache) is isolated between callers. Callers
+ * that need to retain an adapter reference across multiple `generate()` calls
+ * may do so locally; they MUST NOT share the reference across concurrent
+ * `generate()` invocations.
  */
 export function getAdapter(tool: Tool): Adapter {
-  let adapter = adapterCache.get(tool);
-  if (adapter) return adapter;
   const factory = adapterFactories[tool];
   if (!factory) {
     throw new HatchError(`Unknown tool: ${tool}`, 1, "VALIDATION_ERROR");
   }
-  adapter = factory();
-  adapterCache.set(tool, adapter);
-  return adapter;
+  return factory();
 }
 
 // #258 (D9-9.29): Extended AdapterCapability to include worktree, customization, and modelOverride

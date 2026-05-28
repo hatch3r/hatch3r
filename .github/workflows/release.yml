@@ -46,6 +46,35 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
         with:
           persist-credentials: false
+          # Cycle 10 M D4-M4 (D4): full history needed so the next step can run
+          # `git merge-base --is-ancestor <tag-sha> origin/main` — the default
+          # shallow checkout (depth 1) has no main ref and the ancestry probe
+          # cannot resolve.
+          fetch-depth: 0
+
+      # Cycle 10 M D4-M4 (D4): a `v*` tag pushed from any branch will trigger
+      # this workflow and publish to npm. The "Validate version" step below
+      # asserts that the tag string matches package.json, but nothing prevents
+      # a tag placed on a feature branch (or a side branch a maintainer never
+      # reviewed) from reaching the publish step. `git merge-base --is-ancestor`
+      # is non-zero unless the tagged commit is reachable from `origin/main`,
+      # closing the side-channel where an attacker with write access could push
+      # `v2.1.0` to a branch they control and ship malicious code under the
+      # hatch3r npm name. Mirrors the GitHub Docs "trusted publishing — tag
+      # provenance" recommendation (2025-10).
+      - name: Verify tag commit is on main
+        run: |
+          TAG_SHA=$(git rev-list -n 1 "$GITHUB_REF")
+          echo "Tag $GITHUB_REF -> commit $TAG_SHA"
+          # actions/checkout@v4 with fetch-depth: 0 fetches all branches and
+          # tags but does NOT create a local tracking branch for `main` unless
+          # explicitly asked. Resolve via the remote ref directly.
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$TAG_SHA" FETCH_HEAD; then
+            echo "::error::Tagged commit $TAG_SHA is not an ancestor of origin/main. Refusing to publish."
+            exit 1
+          fi
+          echo "Tag ancestry verified: $TAG_SHA reachable from origin/main"
 
       - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -66,7 +95,18 @@ jobs:
           fi
           echo "Version validated: $TAG_VERSION"
 
+      # Cycle 10 M D4-M2 (D4): NPM_CONFIG_IGNORE_SCRIPTS=true takes precedence
+      # over .npmrc (npm 11 config order: cli > env > project rc > user rc >
+      # global rc). The release job holds id-token: write + npm publish creds —
+      # the highest-value secrets in the repo — so the lifecycle-script deny is
+      # enforced via env on every `npm ci`, not only via .npmrc which a malicious
+      # transitive Git-dep can rewrite mid-install with an `installconfig` key.
+      # Scoped to install steps only; the downstream `npm publish` step does NOT
+      # carry this env so `prepublishOnly` continues to run (build already ran
+      # above, but the convention stays clean).
       - name: Install dependencies
+        env:
+          NPM_CONFIG_IGNORE_SCRIPTS: "true"
         run: npm ci
 
       # npm ci already validates that package-lock.json is in sync with

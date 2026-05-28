@@ -38,7 +38,7 @@ Never rely solely on training data for technical decisions. Libraries change API
 Before building anything, verify that the requirements are clear and well-founded:
 
 - If a requirement is ambiguous, ask for clarification rather than guessing.
-- If a requirement seems misguided (solving the wrong problem, using an inappropriate pattern), raise the concern before implementing. Building the wrong thing well is worse than asking a clarifying question.
+- If a requirement seems misguided (solving the wrong problem, using an inappropriate pattern), raise the concern before implementing — this is the §0.5 Challenge the Premise trigger added to `agents/shared/user-question-protocol.md` "When To Ask" (architectural premise concern). Building the wrong thing well is worse than asking a clarifying question.
 - Frame challenges constructively: "Before I implement this, I want to confirm the approach because [specific concern]."
 - When asking, use the platform-native question tool documented in `agents/shared/user-question-protocol.md` rather than free-form prose.
 
@@ -133,6 +133,24 @@ Every external claim (library version, API behavior, platform feature) is verifi
 ### 16. Senior-Engineer Outside-In Posture
 
 Approach every task from the perspective of a senior engineer with an outside-in user-facing perspective: the user judges by user-visible quality (UI/UX, performance, error recovery), not internal cleverness. Solve for user-visible quality first; refactor for maintainability second. When trade-offs surface between internal elegance and user-facing correctness, choose user-facing correctness.
+
+### 17. Named Escalation Path (D13)
+
+Every agent that returns a structured result MUST declare a Status field using this canonical closed enum, so the orchestrator can route deterministically on failure modes rather than parsing free-form prose:
+
+```
+Status: COMPLETE | BLOCKED_AMBIGUITY | BLOCKED_MISSING_CONTEXT | BLOCKED_CONFLICTING_SPECS | BLOCKED_MISSING_TOOL | BLOCKED_PREMISE_CHALLENGE | BLOCKED_OTHER
+```
+
+- `COMPLETE` — work done; structured result is the deliverable.
+- `BLOCKED_AMBIGUITY` — §0 ambiguity gate fired and no resolution surfaced; orchestrator routes to ASK checkpoint.
+- `BLOCKED_MISSING_CONTEXT` — required artifact (file, prior decision, baseline) not found; orchestrator routes to researcher or asks user.
+- `BLOCKED_CONFLICTING_SPECS` — two or more requirements cannot all hold; orchestrator routes to architect / human reviewer.
+- `BLOCKED_MISSING_TOOL` — required CLI tool, MCP server, or permission absent; orchestrator routes to setup or downgrades scope.
+- `BLOCKED_PREMISE_CHALLENGE` — §0.5 architectural premise concern surfaced (per `agents/shared/user-question-protocol.md` "Architectural premise concern" trigger); orchestrator pauses for user decision.
+- `BLOCKED_OTHER` — escape hatch with a one-sentence reason field. Use sparingly; if a class repeats, codify it as a new enum value at the next audit cycle.
+
+Free-form "stuck" or "failed" prose substitution is rejected at the orchestrator boundary. Every Phase-2/3/4 agent in `agents/hatch3r-*.md` honors this enum.
 
 ### UI/UX quality (for agent-produced output in end-user projects)
 

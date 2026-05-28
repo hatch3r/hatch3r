@@ -29,6 +29,16 @@ export function getSourceEnvMcpCommand(): string {
 /**
  * Returns the sourcing disclaimer block for the .env.mcp template.
  * Includes both POSIX and Windows commands so the file is useful on any OS.
+ *
+ * D11-M7 (Cycle 10 Wave-3 Medium, P2): the prior disclaimer told users to
+ * "source then start your editor" without explaining the GUI-launch failure
+ * mode on macOS. Editors launched from Finder, the Dock, or Spotlight do not
+ * inherit shell-sourced env vars — they receive only the launchd-managed
+ * env (`/private/etc/launchd.conf`, `launchctl setenv`). VS Code mitigates
+ * this via its `terminal.integrated.inheritEnv`/`resolveShellEnvironment`
+ * shell-resolution probe at startup, but Cursor and Claude Code MCP STDIO
+ * spawns inherit the parent process env directly. The expanded block calls
+ * out the GUI-launch caveat and documents the two reliable workarounds.
  */
 export function getSourceEnvMcpDisclaimer(): string {
   return [
@@ -38,6 +48,13 @@ export function getSourceEnvMcpDisclaimer(): string {
     "# Windows (PowerShell):",
     `#   ${SOURCE_POWERSHELL}`,
     "# Windows (Git Bash): same as macOS/Linux",
+    "",
+    "# macOS GUI-launched editors (Finder, Dock, Spotlight) do NOT inherit shell-sourced env vars.",
+    "# Two reliable workarounds:",
+    "#   1. Launch the editor from a terminal AFTER sourcing this file:",
+    `#      ${SOURCE_POSIX} && open -a Cursor .   # or: code .  /  cursor .  /  claude .`,
+    "#   2. Make the values persistent across logins via launchctl (per var):",
+    "#      launchctl setenv VAR_NAME \"$VAR_NAME\"   # then quit and relaunch the editor",
     "",
   ].join("\n");
 }

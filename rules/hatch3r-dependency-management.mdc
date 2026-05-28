@@ -9,7 +9,7 @@ precedence: high
 - Always commit the lockfile. Never install without saving.
 - Justify new dependencies in PR description: what it does, why needed, alternatives considered, bundle size impact.
 - Prefer well-maintained packages: recent commits, active issues, no known CVEs.
-- Pin exact versions for production deps. Use clean install (e.g., `npm ci`, `pip install -r`, `cargo build`) in CI.
+- Pin exact versions for production deps. Use clean install (e.g., `npm ci`, `pip install -r`, `cargo build`) in CI. **hatch3r dogfoods this:** the framework's own runtime dependencies in `package.json` -> `dependencies` are pinned to exact versions (no `^` or `~`), with dev-only deps free to float per ecosystem convention. See D15-M9 for the originating finding; `.github/workflows/ci.yml` step `npm ci` enforces lockfile-only installs.
 - Run a dependency security scanner (e.g., `npm audit`, `pip-audit`, `cargo audit`) before merging dependency changes. Fix high/critical before merge.
 - No duplicate packages serving the same purpose. Consolidate on one.
 - Remove unused dependencies on every cleanup pass.

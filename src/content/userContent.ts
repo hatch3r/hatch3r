@@ -46,6 +46,7 @@ import {
   buildContentIndex,
   cursorCompanionFrontmatter,
   resolveUserContentRoot,
+  type CatalogItem,
   type ContentIndex,
 } from "./index.js";
 import { readManifest, writeManifest, readMaturityTier } from "../manifest/hatchJson.js";
@@ -271,6 +272,46 @@ function validateStructuredPillars(pillars: unknown): string[] {
     }
   }
   return violations;
+}
+
+/**
+ * Description-keyword overlap fraction above which a user artifact is flagged
+ * as a likely duplicate of a same-type canonical artifact (D20-M7, D20.2 row 6:
+ * "user artifact with ≥50% description-keyword overlap with canonical = Medium
+ * with rationale"). Tokens are extracted by {@link keywordTokens}; overlap is
+ * the intersection size over the user-side token set.
+ */
+const DESCRIPTION_KEYWORD_OVERLAP_THRESHOLD = 0.5;
+
+/**
+ * English stopword list dropped before tokenizing a description for the
+ * keyword-overlap check (D20-M7). Keeps the comparison focused on signal-
+ * carrying terms ("validate", "orchestrator", "rollback") rather than
+ * connective words that every short description shares ("a", "the", "for").
+ * Conservative — only the highest-frequency closed-class function words.
+ */
+const DESCRIPTION_KEYWORD_STOPWORDS: ReadonlySet<string> = new Set([
+  "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "has",
+  "have", "in", "is", "it", "its", "of", "on", "or", "that", "the", "to",
+  "via", "with", "when", "where", "which", "who", "why", "this", "these",
+  "those", "than", "then", "into", "onto", "over", "under", "between",
+  "user", "users",
+]);
+
+/**
+ * Tokenize a description into a deduplicated set of signal-carrying keywords
+ * (lowercase, ≥3 chars, stopwords removed). Used by the description-keyword
+ * overlap check (D20-M7). The 3-char floor drops noise like "is", "to", "be"
+ * even if a stopword variant slips through.
+ */
+function keywordTokens(text: string): Set<string> {
+  const out = new Set<string>();
+  for (const raw of text.toLowerCase().split(/[^a-z0-9]+/)) {
+    if (raw.length < 3) continue;
+    if (DESCRIPTION_KEYWORD_STOPWORDS.has(raw)) continue;
+    out.add(raw);
+  }
+  return out;
 }
 
 /**
@@ -527,6 +568,11 @@ async function runUserContentGates(
   maturityTier: MaturityTier = DEFAULT_MATURITY_TIER,
 ): Promise<{ strict: string[]; gentle: string[] }> {
   const strict: string[] = [];
+  // D14-M8 (Cycle 10): hoisted `gentle` so the canonical-collision branch
+  // (gate 3) can emit a gentle warning when `override: true` is declared.
+  // The original `const gentle: string[] = []` at the gentle-gate header
+  // is now an alias re-bind below, kept for blame stability.
+  const gentle: string[] = [];
   // Tier rank gates the progressive floor (Decision 4 / #16): `solo` (rank 0)
   // is the Cycle-9 baseline; `team`+ (rank >= 1) promote selected gentle
   // nudges to strict failures.
@@ -566,6 +612,13 @@ async function runUserContentGates(
   }
 
   // 3. ID collision against canonical (and existing user content).
+  // D14-M8 (Cycle 10): collisions are strict failures UNLESS the artifact
+  // carries `override: true` in frontmatter, which is the documented
+  // override-canonical escape hatch (an intentional power-user surface for
+  // teams that need to swap a canonical agent's behavior for their own).
+  // The override flag does NOT bypass any other gate — deny-pattern,
+  // injection, size, pillar, charter, etc. all still apply.
+  const isOverride = artifact.frontmatter?.override === true;
   const expectedId =
     artifact.type === "command"
       ? `cmd-hatch3r-${artifact.name}`
@@ -577,9 +630,18 @@ async function runUserContentGates(
     if (index.byId.has(candidate)) {
       const hit = index.byId.get(candidate);
       if (hit && hit.source === "canonical") {
-        strict.push(
-          `ID "${candidate}" collides with canonical ${hit.type} at ${hit.relativePath} — choose a different name`,
-        );
+        if (isOverride) {
+          // Override flag honored — emit a gentle warning so the override is
+          // visible in CI logs but the save proceeds.
+          gentle.push(
+            `User artifact "${candidate}" overrides canonical ${hit.type} at ${hit.relativePath} (override: true in frontmatter). ` +
+              "The user version will shadow the canonical artifact in adapter output. Verify intentional.",
+          );
+        } else {
+          strict.push(
+            `ID "${candidate}" collides with canonical ${hit.type} at ${hit.relativePath} — choose a different name or add 'override: true' to frontmatter`,
+          );
+        }
       }
     }
   }
@@ -667,7 +729,10 @@ async function runUserContentGates(
   }
 
   // ── Gentle gates (warn but save) ────────────────────────────
-  const gentle: string[] = [];
+  // D14-M8: `gentle` was hoisted to function start so the canonical-
+  // collision branch (gate 3) can push override-warning entries. The
+  // header below remains as the documented start of the gentle-gate
+  // section.
 
   // Anti-slop wordlist scan over body + frontmatter description.
   const lowerBody = artifact.body.toLowerCase();
@@ -781,6 +846,72 @@ async function runUserContentGates(
       if (!hasHorizonFm && !hasHorizonBody) {
         strict.push(
           `Maturity tier '${maturityTier}' requires an impact_horizon declaration (short|medium|long, Decision 17) — add 'impact_horizon: <horizon>' to frontmatter or reference it in the body`,
+        );
+      }
+    }
+  }
+
+  // ── Hook transitive-trust warning (D20-M6) ─────────────────────
+  // A hook fires its referenced agent with that agent's declared tool grants.
+  // When `agent:` resolves to a user-authored agent under
+  // `.hatch3r/overrides/agents/`, the hook inherits whatever `tools.allowed`
+  // set that user agent declared — a broad allowlist on the referenced agent
+  // silently widens the hook's blast radius. Emit a gentle warning so the
+  // author verifies the downstream tool grants are intentional. Canonical
+  // agents (`agents/hatch3r-*.md`) skip the warning because they pass the
+  // framework's own security review.
+  if (artifact.type === "hook") {
+    const referencedAgentId =
+      typeof fm.agent === "string" ? fm.agent.trim() : undefined;
+    if (referencedAgentId) {
+      // Resolve via byTypeAndId to avoid cross-type ID shadows (a skill and
+      // a hook may legitimately share a slug). The canonical agent index uses
+      // the `hatch3r-` prefix; user-authored agents do not.
+      const referenced =
+        index.byTypeAndId.get(`agent:${referencedAgentId}`) ??
+        index.byTypeAndId.get(`agent:hatch3r-${referencedAgentId}`);
+      if (referenced && referenced.source === "user") {
+        gentle.push(
+          `Hook references user-authored agent "${referencedAgentId}" (${referenced.relativePath}) — the hook inherits that agent's declared tool grants (transitive trust). ` +
+            "Verify the referenced agent's `tools.allowed` list is intentionally narrow, or prefer a canonical `agents/hatch3r-*.md` agent (D20-M6).",
+        );
+      }
+    }
+  }
+
+  // ── Description-keyword overlap with canonical (D20-M7, D20.2 row 6) ──
+  // A user artifact whose description shares ≥50% tokenized keywords with a
+  // canonical artifact of the same type is a duplication-against-canonical
+  // signal — the user may be re-implementing what already ships in the
+  // framework. Gentle warning per D20.2 row 6 ("user artifact with ≥50%
+  // description-keyword overlap with canonical = Medium with rationale"); the
+  // closest canonical match by token overlap is named in the warning so the
+  // author can compare and either rename, scope down, or override explicitly.
+  if (typeof artifact.description === "string" && artifact.description.trim().length > 0) {
+    const userTokens = keywordTokens(artifact.description);
+    if (userTokens.size > 0) {
+      let bestOverlap = 0;
+      let bestMatch: CatalogItem | undefined;
+      for (const item of index.items) {
+        if (item.source !== "canonical") continue;
+        if (item.type !== artifact.type) continue;
+        if (!item.description) continue;
+        const canonicalTokens = keywordTokens(item.description);
+        if (canonicalTokens.size === 0) continue;
+        let intersection = 0;
+        for (const t of userTokens) {
+          if (canonicalTokens.has(t)) intersection += 1;
+        }
+        const overlap = intersection / userTokens.size;
+        if (overlap > bestOverlap) {
+          bestOverlap = overlap;
+          bestMatch = item;
+        }
+      }
+      if (bestOverlap >= DESCRIPTION_KEYWORD_OVERLAP_THRESHOLD && bestMatch) {
+        gentle.push(
+          `Description shares ${Math.round(bestOverlap * 100)}% keyword overlap with canonical ${bestMatch.type} "${bestMatch.id}" (${bestMatch.relativePath}) — likely duplicates an existing artifact. ` +
+            "Compare scope before saving; if intentional, narrow the description or add a rationale to differentiate (D20-M7, D20.2 row 6).",
         );
       }
     }

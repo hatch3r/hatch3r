@@ -106,7 +106,7 @@ Each item carries a named tool, a threshold, and a citation. Failing any item pr
 
 ## Output contract
 
-See `agents/shared/quality-specialist-frame.md` → §Output Contract (yaml schema, severity vocabulary, verification harness convention). CQ7 specifics: `id` format `cq7-perf-<short-slug>-<3-digit-seq>`; `progress_toward_pillar: content-quality.CQ7+<delta>`. Critical triggers: p99 ≥2s on a checkout route, LCP ≥4s on a public landing page.
+See `agents/shared/quality-specialist-frame.md` → §Output Contract (yaml schema, canonical id format, sub_agents_spawned emission contract, severity vocabulary, verification harness convention). CQ7 specifics: `id` follows the canonical `cq7-perf-<short-slug>-<3-digit-seq>` pattern (e.g., `cq7-perf-products-001`); `progress_toward_pillar: content-quality.CQ7+<delta>`. Every CQ7 output emits `sub_agents_spawned: {count, rationale}` per the P8 B2 emission contract — typical decomposition is one sub-agent per surface (frontend route, backend route, data-access path). Critical triggers: p99 ≥2s on a checkout route, LCP ≥4s on a public landing page.
 
 ### Severity mapping for CQ7 findings
 

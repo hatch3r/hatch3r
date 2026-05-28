@@ -11,9 +11,7 @@ Citing this file via `See agents/shared/quality-specialist-frame.md → §<secti
 
 ## §0 Detect Ambiguity (P8 B1)
 
-Before any action, scan the brief for unresolved questions in scope, acceptance criteria, irreversibility, or constraint conflicts. If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Acceptable to proceed without asking ONLY when scope is single-file, single-component, and the brief alone is testable.
-
-Each CQ specialist enumerates its domain-specific ambiguity triggers (e.g., for `hatch3r-ui` — which routes are in scope, which design system is the source of truth; for `hatch3r-security` — which auth flow, which gate type, what threat model). The protocol above is the constant; the trigger list is the variable.
+The protocol body is the canonical text in `agents/shared/clarification-default-block.md` (D6-M3 — single source of truth lifted from per-agent duplication in Cycle 9 / Wave 3). Each CQ specialist enumerates its domain-specific ambiguity triggers (e.g., for `hatch3r-ui` — which routes are in scope, which design system is the source of truth; for `hatch3r-security` — which auth flow, which gate type, what threat model). The protocol is the constant; the trigger list is the variable.
 
 ---
 
@@ -64,12 +62,16 @@ Each CQ specialist runs under the `specialist-eval` phase budget (`src/pipeline/
 
 Every CQ specialist returns a structured result conforming to the schema below per `governance/audit/templates/rigor-contract.md` §Proof Trace Contract + Decision 17 (impact-gating). Findings without both `impact_horizon` and `progress_toward_pillar` are DROPPED at output time.
 
+### Canonical id format (D5-M1)
+
+All specialist finding ids follow the canonical pattern `cq<N>-<short-slug>-<3-digit-seq>` (e.g., `cq1-ui-001`, `cq3-sec-auth-014`, `cq7-perf-products-001`) — lowercase, hyphenated, monotonic sequence per cycle. `<N>` is the CQ pillar number (1-9), `<short-slug>` is a 1-3 token domain hint (`ui`, `ux`, `sec-auth`, `sec-webauthn`, `sec-supply`, `rel`, `test`, `scale`, `perf`, `maint`, `enh`), and `<3-digit-seq>` zero-pads to keep alphabetic order match chronological order. Per-specialist customizations (e.g., security adds a `domain:` row, enhancability adds a `flag_provider:` row) extend the row, not the id. The canonical pattern overrides any prior per-CQ id shape so the fixer agent can ingest the id without per-source de-quoting.
+
 ```yaml
 sub_agents_spawned:
   count: <integer>
   rationale: <one-sentence task-decomposition justification>
 findings:
-  - id: <stable-string, e.g., "cq<N>-<short-slug>-<seq>">
+  - id: cq<N>-<short-slug>-<3-digit-seq>      # D5-M1 canonical pattern
     severity: Critical | High | Medium | Low | Info
     claim: <one-sentence assertion of the violation>
     proof_trace:
@@ -85,6 +87,10 @@ status: PASS | FINDINGS | CRITICAL
 ```
 
 `status: PASS` requires every checklist item green AND every finding row High or Medium confidence. `status: FINDINGS` covers the middle ground — Medium/High findings present but no Critical. `status: CRITICAL` is produced when any item shows a Critical-severity finding (the specialist file documents the per-CQ critical triggers in its Severity Calibration table).
+
+### sub_agents_spawned emission contract (D5-M8, P8 B2)
+
+The `sub_agents_spawned` field is MANDATORY on every specialist output — not optional, not "emit when delegating". A specialist that ran no sub-agents emits `sub_agents_spawned: {count: 0, rationale: "single-unit audit — no decomposition triggered"}`; a specialist that delegated to N per-unit sub-agents emits `sub_agents_spawned: {count: N, rationale: "<one-sentence decomposition>"}`. Omitting the field on a specialist output is a P8 B2 violation per `.claude/rules/fan-out-discipline.md` ("Delegating artifacts emit sub-agent count + rationale as a first-class output field"). The orchestrator rejects a specialist response missing `sub_agents_spawned` and re-invokes the specialist with the contract restated.
 
 ### Severity vocabulary
 

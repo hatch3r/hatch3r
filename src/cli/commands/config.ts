@@ -92,6 +92,20 @@ interface ConfigDiff {
   removedCliTools: CliToolId[];
 }
 
+/**
+ * D1-M5 (Cycle 10 Wave-3 Medium): structured input for content-side diff
+ * pieces that are computed by the surrounding apply-loop (`addContentItem` /
+ * `removeContentItem` side effects). Previously `computeDiff` returned
+ * empty arrays for these fields and the caller patched them up after the
+ * call, leaving the return shape misleading on its own. Accept the lists
+ * here so the returned ConfigDiff is internally consistent without a
+ * post-construction mutation step at the call-site.
+ */
+interface ContentChanges {
+  added: Array<{ type: string; id: string }>;
+  removed: Array<{ type: string; id: string }>;
+}
+
 function computeDiff(
   oldManifest: HatchManifest,
   newTools: Tool[],
@@ -103,6 +117,7 @@ function computeDiff(
   newNamespace: string,
   newProject: string,
   newCliToolIds: CliToolId[],
+  contentChanges: ContentChanges = { added: [], removed: [] },
 ): ConfigDiff {
   const oldToolSet = new Set(oldManifest.tools);
   const newToolSet = new Set(newTools);
@@ -131,8 +146,8 @@ function computeDiff(
       newRepo !== oldManifest.repo ||
       newNamespace !== oldManifest.namespace ||
       newProject !== oldManifest.project,
-    addedContent: [],
-    removedContent: [],
+    addedContent: contentChanges.added,
+    removedContent: contentChanges.removed,
     addedCliTools: newCliToolIds.filter((id) => !oldCliSet.has(id)),
     removedCliTools: [...oldCliSet].filter((id) => !newCliSet.has(id)),
   };
@@ -281,7 +296,7 @@ function applyScalarConfigWrite(
     if (!VALID_MATURITY_TIERS.has(value)) {
       throw new HatchError(
         `Invalid maturity tier: "${value}". Valid: ${[...MATURITY_TIERS].join(", ")}`,
-        1,
+        undefined,
         "VALIDATION_ERROR",
         `Re-run with one of: ${[...MATURITY_TIERS].join(", ")}.`,
       );
@@ -294,7 +309,7 @@ function applyScalarConfigWrite(
   // is unreachable today.
   throw new HatchError(
     `Unsupported config key: ${key}`,
-    1,
+    undefined,
     "VALIDATION_ERROR",
     `Use one of: ${[...SCALAR_CONFIG_KEYS].join(", ")}.`,
   );
@@ -311,7 +326,7 @@ function readScalarConfigValue(manifest: HatchManifest, key: ScalarConfigKey): s
   }
   throw new HatchError(
     `Unsupported config key: ${key}`,
-    1,
+    undefined,
     "VALIDATION_ERROR",
     `Use one of: ${[...SCALAR_CONFIG_KEYS].join(", ")}.`,
   );
@@ -386,7 +401,7 @@ async function handleScalarConfig(
     if (!isScalarConfigKey(key)) {
       throw new HatchError(
         `Unknown config key: "${key}". Valid: ${[...SCALAR_CONFIG_KEYS].join(", ")}`,
-        1,
+        undefined,
         "VALIDATION_ERROR",
         `Re-run with one of: ${[...SCALAR_CONFIG_KEYS].join(", ")}.`,
       );
@@ -414,7 +429,7 @@ async function handleScalarConfig(
     if (!isScalarConfigKey(key)) {
       throw new HatchError(
         `Unknown config key: "${key}". Valid: ${[...SCALAR_CONFIG_KEYS].join(", ")}`,
-        1,
+        undefined,
         "VALIDATION_ERROR",
         `Re-run with one of: ${[...SCALAR_CONFIG_KEYS].join(", ")}.`,
       );
@@ -422,7 +437,7 @@ async function handleScalarConfig(
     if (!value) {
       throw new HatchError(
         `Missing value for "${key}". Usage: hatch3r config set ${key} <value>`,
-        1,
+        undefined,
         "VALIDATION_ERROR",
         `Re-run as \`hatch3r config set ${key} <value>\` with a value.`,
       );
@@ -473,13 +488,14 @@ export async function configCommand(arg1?: string, arg2?: string): Promise<void>
       await releaseManifestLock();
     } catch (releaseErr) {
       // Silent Failure Contract (P5): surface release failures so operators
-      // can clear a stale lockfile before re-running.
-      if (process.env.HATCH3R_LOCK === "1") {
-        console.error(
-          `hatch3r: failed to release manifest write lock at ${manifestPath}: ` +
-            `${releaseErr instanceof Error ? releaseErr.message : String(releaseErr)}`,
-        );
-      }
+      // can clear a stale lockfile before re-running. The release function
+      // returned by acquireWriteLock is a no-op when locking was inactive,
+      // so reaching this catch implies a real lock was taken (either via
+      // env-var opt-in or D8-M3 workspace/worktree default-on).
+      console.error(
+        `hatch3r: failed to release manifest write lock at ${manifestPath}: ` +
+          `${releaseErr instanceof Error ? releaseErr.message : String(releaseErr)}`,
+      );
     }
   }
 }
@@ -498,7 +514,7 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
     console.log(chalk.dim("  Run `npx hatch3r init` to set up your project first.\n"));
     throw new HatchError(
       "No .hatch3r/hatch.json found.",
-      1,
+      undefined,
       "CONFIG_ERROR",
       "Run `npx hatch3r init` to set up your project first.",
     );
@@ -889,7 +905,7 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
     logError("At least one tool must be selected.");
     throw new HatchError(
       "At least one tool must be selected.",
-      1,
+      undefined,
       "VALIDATION_ERROR",
       "Re-run `hatch3r config` and select at least one tool (claude, cursor, or copilot).",
     );
@@ -1049,9 +1065,10 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
   }
 
   // --- Compute diff ---
-  const diff = computeDiff(manifest, tools, features, mcpServers, platform, owner, repo, namespace, project, selectedCliTools);
-  diff.addedContent = contentChanges.added;
-  diff.removedContent = contentChanges.removed;
+  // D1-M5: pass content changes (computed by addContentItem/removeContentItem
+  // side effects above) directly into computeDiff instead of patching the
+  // returned struct afterwards.
+  const diff = computeDiff(manifest, tools, features, mcpServers, platform, owner, repo, namespace, project, selectedCliTools, contentChanges);
 
   if (isDiffEmpty(diff) && defaultBranch === currentBranch && !contentMetadataChanged) {
     console.log();
@@ -1066,6 +1083,46 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
   const totalArchiveSteps = diff.removedTools.length;
 
   if (totalArchiveSteps > 0) {
+    // D10-M14 (Cycle 10): preview the file list `managedFilesByAdapter`
+    // records for each tool BEFORE the archive runs. Previously the archive
+    // step succeeded silently from the user's perspective ("Archived N files"),
+    // so there was no chance to abort if the count was unexpected — a
+    // destructive operation hidden behind an OK message. We now print the
+    // per-tool file list and ask for explicit confirmation; `--yes` bypasses
+    // the prompt for headless / CI flows.
+    const previewLines: string[] = [];
+    for (const tool of diff.removedTools) {
+      const paths = manifest.managedFilesByAdapter?.[tool] ?? [];
+      previewLines.push(`  ${chalk.red("-")} ${TOOL_DISPLAY_NAMES[tool] ?? tool}: ${paths.length} file(s) will be archived`);
+      if (paths.length > 0 && paths.length <= 12) {
+        for (const p of paths) previewLines.push(`      ${chalk.dim(p)}`);
+      } else if (paths.length > 12) {
+        for (const p of paths.slice(0, 10)) previewLines.push(`      ${chalk.dim(p)}`);
+        previewLines.push(`      ${chalk.dim(`… and ${paths.length - 10} more`)}`);
+      }
+    }
+    if (previewLines.length > 0) {
+      console.log();
+      console.log(chalk.yellow("Tool removal preview:"));
+      for (const line of previewLines) console.log(line);
+      console.log();
+      // `configCommandImpl` runs fully interactively — there is no headless
+      // override flag here. The confirm gives the user one chance to abort
+      // before the archive step rewrites disk state. Cancelled config exits
+      // before manifest mutation, so the prior state is intact.
+      const { confirmArchive } = await inquirer.prompt<{ confirmArchive: boolean }>([
+        {
+          type: "confirm",
+          name: "confirmArchive",
+          message: "Archive these files? They move to `.hatch3r/archive/<tool>/` and can be recovered.",
+          default: true,
+        },
+      ]);
+      if (!confirmArchive) {
+        info("Tool removal cancelled. No files changed.");
+        return;
+      }
+    }
     console.log();
     for (let i = 0; i < diff.removedTools.length; i++) {
       const tool = diff.removedTools[i];

@@ -195,6 +195,29 @@ npx hatch3r --version
 npx hatch3r status
 ```
 
+## Per-Command Failure-Mode Map
+
+When a step in the four-phase pipeline fails, the symptom and the root cause are often two different layers. This table maps each top-level command to its common failure modes and the first probe to run (D10-M21).
+
+| Command | Common failure | First probe | Resolution path |
+|---------|----------------|-------------|-----------------|
+| `npx hatch3r init` | Adapter generation aborts mid-flight; partial `.hatch3r/` left on disk | `npx hatch3r rollback --session=<sessionId>` (sessionId printed in the snapshot line) | Roll back, fix root cause (PATH, permissions, network), re-run |
+| `npx hatch3r init` | Detected CLI tools missing from PATH | `npx hatch3r init` re-run with `--no-cli-tools` | Install missing tools per the printed copy-paste commands, or skip cli-tools |
+| `npx hatch3r sync` | Drift detected on a file you intentionally edited outside the managed block | `npx hatch3r status` (shows file-level diff) | Wrap your edit in `HATCH3R:BEGIN`/`HATCH3R:END` markers, or move content into `.hatch3r/overrides/` |
+| `npx hatch3r sync` | An adapter output file was unlinked unexpectedly | `git checkout HEAD -- <path>` | Rename the customization to a non-`hatch3r-` filename so future syncs leave it alone |
+| `npx hatch3r validate` | Frontmatter `description` < 60 chars | Re-read the validate output — it names the file + the count | Expand the `description` field to ≥60 chars |
+| `npx hatch3r validate` | Cross-reference points at a missing id | Re-read the validate output — it names the dangling id | Add the missing artifact or remove the cross-reference |
+| `npx hatch3r verify` | Exits non-zero with drift report | `npx hatch3r status` (same diff, exits 0) | Run `npx hatch3r sync` to regenerate, or commit your intentional edit |
+| `/hatch3r-board-init` | GraphQL 401/403 on Projects V2 | `gh auth status` then `gh auth refresh -s project` | Add the `project` scope to your PAT |
+| `/hatch3r-board-init` | Workflow verification mismatch | Open the Project's workflow settings in the GitHub UI | Enable required workflows, re-run `--resume` |
+| `/hatch3r-board-fill` | Retry budget exceeded (>20% of batch) | `tail -50 .hatch3r/.failure-log.jsonl | jq .` | Resolve the underlying GraphQL error (option-mapping race, null option, auth) and re-run |
+| `/hatch3r-board-pickup` | No `status:ready` items | Refresh the board (`/hatch3r-board-fill` or board UI) | Mark ≥1 item ready, re-run pickup |
+| `/hatch3r-board-pickup` | Reviewer + fixer loop exceeds 3 iterations | Read the last iteration's reviewer findings | Pick up manually, address the convergence-blocking finding, re-push |
+| MCP servers | `${env:VAR}` placeholder not resolved | Editor running without `.env.mcp` sourced | Re-run `set -a && source .env.mcp && set +a && cursor .` (or equivalent), restart editor |
+| MCP servers (Claude Code) | Connection fails despite valid PAT | Check `.mcp.json` uses `${VAR}` not `${env:VAR}` | Run `npx hatch3r sync` to regenerate with Claude-compatible syntax |
+
+For deeper failure analysis, every pipeline failure also writes a structured entry to `.hatch3r/.failure-log.jsonl` (see [Diagnostics and Failure Logs](#diagnostics-and-failure-logs) below).
+
 ## Getting Help
 
 If this guide didn't resolve your issue, [open an issue](https://github.com/hatch3r/hatch3r/issues) with:

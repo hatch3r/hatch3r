@@ -133,6 +133,47 @@ function transformEnvVarSyntaxInner(
   return value;
 }
 
+/**
+ * D11-M5 (Cycle 10 Wave-3 Medium, P2): canonical env-var-format parity table.
+ *
+ * Each row records the env-var syntax actually consumed by the target platform
+ * for a given adapter output surface (verified against the cited primary
+ * source) and the corresponding `transformEnvVarSyntax` format the adapter
+ * MUST request. Regression test `src/__tests__/adapters/mcp-utils.test.ts`
+ * loops over this table to enforce that every adapter call site stays aligned
+ * with the platform contract — a future adapter that picks the wrong format
+ * (e.g., emits `$VAR` to a consumer that does not perform shell expansion)
+ * breaks the test rather than silently shipping unsubstituted placeholders.
+ *
+ * Sources accessed 2026-05-27:
+ *   - Claude Code MCP: https://code.claude.com/docs/en/mcp (uses `${VAR}`).
+ *   - Cursor MCP: https://docs.cursor.com/context/model-context-protocol
+ *     (uses MCP spec native `${env:VAR}`).
+ *   - VS Code MCP STDIO env: https://code.visualstudio.com/docs/copilot/reference/mcp-configuration
+ *     (does NOT perform shell expansion on `env:` values; MUST route secrets
+ *     via `envFile` instead of substitution — see D11-C-2 in copilot.ts).
+ *   - VS Code MCP HTTP headers: same source (uses literal `$VAR` only
+ *     reachable via `${input:NAME}` prompts in current Copilot release;
+ *     `shell` format is retained on the headers path pending a follow-up
+ *     that wires `inputs[]`, tracked outside this work unit).
+ */
+export interface McpEnvVarFormatRow {
+  adapter: "claude" | "cursor" | "copilot";
+  surface: "mcp-env" | "mcp-headers";
+  format: "claude" | "shell" | "passthrough";
+  /** True when the surface uses `envFile` instead of inline substitution. */
+  viaEnvFile?: true;
+}
+
+export const MCP_ENV_VAR_FORMAT_PARITY: ReadonlyArray<McpEnvVarFormatRow> = [
+  { adapter: "claude", surface: "mcp-env", format: "claude" },
+  { adapter: "claude", surface: "mcp-headers", format: "claude" },
+  { adapter: "cursor", surface: "mcp-env", format: "passthrough" },
+  { adapter: "cursor", surface: "mcp-headers", format: "passthrough" },
+  { adapter: "copilot", surface: "mcp-env", format: "shell", viaEnvFile: true },
+  { adapter: "copilot", surface: "mcp-headers", format: "shell" },
+] as const;
+
 const ALLOWED_COMMANDS = new Set([
   "npx",
   "node",

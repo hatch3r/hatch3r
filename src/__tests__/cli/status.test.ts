@@ -77,7 +77,9 @@ describe("status command", () => {
     const { statusCommand } = await import("../../cli/commands/status.js");
 
     await expect(statusCommand()).rejects.toThrow(HatchError);
-    try { await statusCommand(); } catch (e) { expect((e as HatchError).exitCode).toBe(1); }
+    // C8-D1-M5: CONFIG_ERROR resolves through ERROR_CODE_TO_EXIT_CODE to
+    // sysexits.h EX_DATAERR (65) — the legacy `1` is no longer hand-picked.
+    try { await statusCommand(); } catch (e) { expect((e as HatchError).exitCode).toBe(65); }
 
     // Error message references the new manifest location.
     const allOutput = [
@@ -235,6 +237,141 @@ describe("status command", () => {
       expect(matching).toBeDefined();
       expect(matching!.status).toBe("missing");
       expect(afterDelete.counts.missing).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  // D3-M13 (Cycle 10 Wave-3 Medium rollover): status.ts branches were 53.5%.
+  // The JSON-mode emit path, the no-baseline-but-drifted attribution branch,
+  // and the `unexpected` (manifest-tracked-but-not-emitted) path were not
+  // covered by the prior `describe("status command")` block. Add tests so
+  // every documented status branch has a falsifiable assertion.
+  describe("status command — additional branches (D3-M13)", () => {
+    it("emits a JSON document with status:drift when --format json and drift exists", async () => {
+      await createTestProject(tempDir);
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand();
+
+      // Introduce drift by editing a tracked file post-sync.
+      const cursorRulesDir = join(tempDir, ".cursor", "rules");
+      const entries = await readdir(cursorRulesDir);
+      const ruleFile = entries.find((f) => f.endsWith(".mdc"));
+      expect(ruleFile).toBeDefined();
+      await writeFile(join(cursorRulesDir, ruleFile!), "modified drift content");
+
+      // emitJson writes via process.stdout.write, not console.log — spy on
+      // it for this test (and restore after).
+      const stdoutChunks: string[] = [];
+      const stdoutSpy = vi
+        .spyOn(process.stdout, "write")
+        .mockImplementation(((chunk: string | Uint8Array): boolean => {
+          stdoutChunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"));
+          return true;
+        }) as never);
+
+      try {
+        const { statusCommand } = await import("../../cli/commands/status.js");
+        await statusCommand({ format: "json" });
+      } finally {
+        stdoutSpy.mockRestore();
+      }
+
+      // Find the one JSON document we emitted.
+      const combined = stdoutChunks.join("");
+      const start = combined.indexOf("{");
+      expect(start).toBeGreaterThanOrEqual(0);
+      const payload = JSON.parse(combined.slice(start).trim()) as {
+        status: string;
+        counts: { modified: number };
+      };
+      expect(payload.status).toBe("drift");
+      expect(payload.counts.modified).toBeGreaterThanOrEqual(1);
+    });
+
+    it("emits status:failed with an errorCode when --format json and no manifest exists", async () => {
+      const stdoutChunks: string[] = [];
+      const stdoutSpy = vi
+        .spyOn(process.stdout, "write")
+        .mockImplementation(((chunk: string | Uint8Array): boolean => {
+          stdoutChunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"));
+          return true;
+        }) as never);
+
+      try {
+        const { statusCommand } = await import("../../cli/commands/status.js");
+        // tempDir has no manifest yet — JSON mode must emit status:failed and throw.
+        await expect(statusCommand({ format: "json" })).rejects.toThrow(HatchError);
+      } finally {
+        stdoutSpy.mockRestore();
+      }
+
+      const combined = stdoutChunks.join("");
+      const start = combined.indexOf("{");
+      expect(start).toBeGreaterThanOrEqual(0);
+      const payload = JSON.parse(combined.slice(start).trim()) as {
+        status: string;
+        errorCode?: string;
+      };
+      expect(payload.status).toBe("failed");
+      expect(payload.errorCode).toBe("CONFIG_ERROR");
+    });
+
+    it("classifies drift as `unknown` driftKind when no provenance baseline exists", async () => {
+      await createTestProject(tempDir);
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand();
+
+      // Remove the emit-time baseline so loadProvenanceBaseline returns an
+      // empty Map and any drifted file falls through to `driftKind: unknown`.
+      await rm(join(tempDir, HATCH3R_DIR, "provenance.json"), { force: true });
+
+      const cursorRulesDir = join(tempDir, ".cursor", "rules");
+      const entries = await readdir(cursorRulesDir);
+      const ruleFile = entries.find((f) => f.endsWith(".mdc"));
+      expect(ruleFile).toBeDefined();
+      await writeFile(join(cursorRulesDir, ruleFile!), "drift without baseline");
+
+      const { readManifest } = await import("../../manifest/hatchJson.js");
+      const manifest = await readManifest(tempDir);
+      const { computeAdapterDrift } = await import("../../cli/commands/status.js");
+      const report = await computeAdapterDrift(tempDir, manifest!);
+
+      const drifted = report.entries.find((e) => e.status === "modified");
+      expect(drifted).toBeDefined();
+      expect(drifted!.driftKind).toBe("unknown");
+      expect(report.driftKindCounts.unknown).toBeGreaterThanOrEqual(1);
+    });
+
+    it("classifies a manifest-tracked-but-unowned file as `unexpected`", async () => {
+      await createTestProject(tempDir);
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand();
+
+      // Stamp an extra path into the manifest that no adapter emits, then
+      // physically write the file so the `access()` probe inside the
+      // `unexpected` branch resolves successfully.
+      const manifestPath = join(tempDir, HATCH3R_DIR, "hatch.json");
+      const { readManifest, writeManifest } = await import("../../manifest/hatchJson.js");
+      const manifest = await readManifest(tempDir);
+      expect(manifest).not.toBeNull();
+      manifest!.managedFiles.push(".legacy/stale-file.txt");
+      await writeManifest(tempDir, manifest!);
+      // re-read to be sure
+      void manifestPath;
+      const legacyDir = join(tempDir, ".legacy");
+      const { mkdir: mk } = await import("node:fs/promises");
+      await mk(legacyDir, { recursive: true });
+      await writeFile(join(legacyDir, "stale-file.txt"), "leftover");
+
+      const fresh = await readManifest(tempDir);
+      const { computeAdapterDrift } = await import("../../cli/commands/status.js");
+      const report = await computeAdapterDrift(tempDir, fresh!);
+      const unexpected = report.entries.find((e) => e.status === "unexpected");
+      expect(unexpected).toBeDefined();
+      expect(unexpected!.path).toBe(".legacy/stale-file.txt");
+      expect(report.counts.unexpected).toBeGreaterThanOrEqual(1);
     });
   });
 

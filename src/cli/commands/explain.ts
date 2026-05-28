@@ -116,7 +116,7 @@ async function resolveCommandPath(rootDir: string, commandId: string): Promise<s
 
   throw new HatchError(
     `Command not found: ${commandId}. Looked in ${candidates.join(" and ")}.`,
-    1,
+    undefined,
     "FS_ERROR",
     "Run `hatch3r explain --cost <id>` with a known command id (e.g. hatch3r-quick-change), or check the `commands/` directory for the exact filename.",
   );
@@ -132,7 +132,7 @@ function parseCommandFrontmatter(raw: string, filePath: string): CommandFrontmat
   if (!match) {
     throw new HatchError(
       `Missing frontmatter in ${filePath}. Cost estimation requires id + orchestrator + triage_tiers.`,
-      1,
+      undefined,
       "VALIDATION_ERROR",
       "Add a YAML frontmatter block with `id`, `orchestrator`, and `triage_tiers` to the command file, then re-run.",
     );
@@ -144,7 +144,7 @@ function parseCommandFrontmatter(raw: string, filePath: string): CommandFrontmat
   if (!parsed || typeof parsed !== "object") {
     throw new HatchError(
       `Invalid frontmatter in ${filePath}: expected YAML object.`,
-      1,
+      undefined,
       "VALIDATION_ERROR",
       "Fix the frontmatter so it parses to a YAML mapping (key: value pairs between the `---` fences), then re-run.",
     );
@@ -166,7 +166,7 @@ function parseCommandFrontmatter(raw: string, filePath: string): CommandFrontmat
   if (orchestrator && triageTiers.length === 0) {
     throw new HatchError(
       `${id || filePath} is declared orchestrator: true but has no triage_tiers — cost cannot be split per tier.`,
-      1,
+      undefined,
       "VALIDATION_ERROR",
       "Add a `triage_tiers` array (e.g. [1, 2, 3]) to the command frontmatter, or set `orchestrator: false` if it does not fan out.",
     );
@@ -284,18 +284,28 @@ interface ExplainOptions {
    * value, or `--source all`) lists every recorded output.
    */
   source?: string;
+  /**
+   * D6-M2 (Cycle 9 / Wave 3): when set, render the per-artifact +
+   * per-phase aggregate from `.hatch3r/efficiency-events.jsonl` produced
+   * by `recordEfficiencyEvent` / `recordSubAgentSpawn` / `recordPhaseDuration`
+   * (gated by `HATCH3R_EFFICIENCY_TELEMETRY=1`). Without this CLI surface
+   * the JSONL stream was write-only at runtime; this closes the read loop.
+   */
+  efficiency?: boolean;
   verbose?: boolean;
   inputRate?: string;
   outputRate?: string;
 }
 
 /**
- * `hatch3r explain` entry point. Dispatches to one of three modes:
+ * `hatch3r explain` entry point. Dispatches to one of four modes:
  *   - `--cost <command-id>`     → per-tier sub-agent fan-out + USD cost table
  *   - `--customizations`        → per-artifact customize.{yaml,md} state table
  *   - `--source <output-path>`  → canonical source files behind a generated file
+ *   - `--efficiency`            → per-artifact + per-phase aggregate from
+ *                                  `.hatch3r/efficiency-events.jsonl` (D6-M2)
  *
- * The three modes are mutually exclusive; passing more than one or none is
+ * The four modes are mutually exclusive; passing more than one or none is
  * a usage error (exit code 2). The mode selector is checked before any I/O
  * so a missing flag returns immediately with an actionable message.
  */
@@ -309,31 +319,34 @@ export async function explainCommand(opts?: ExplainOptions): Promise<void> {
   // valueless / `all` form (commander stores `true` when the option takes
   // an optional value and none is supplied). Normalize to a string subject.
   const sourceRequested = opts?.source !== undefined;
-  const modesRequested = [costRequested, customizationsRequested, sourceRequested].filter(Boolean).length;
+  const efficiencyRequested = !!opts?.efficiency;
+  const modesRequested =
+    [costRequested, customizationsRequested, sourceRequested, efficiencyRequested].filter(Boolean).length;
 
   if (modesRequested > 1) {
-    logError("Conflicting flags: --cost, --customizations, and --source are mutually exclusive.");
+    logError("Conflicting flags: --cost, --customizations, --source, and --efficiency are mutually exclusive.");
     console.log(chalk.dim("  Pick one mode per invocation."));
     console.log();
     throw new HatchError(
-      "Conflicting flags: --cost, --customizations, --source",
+      "Conflicting flags: --cost, --customizations, --source, --efficiency",
       2,
       "VALIDATION_ERROR",
-      "Pass exactly one mode flag per invocation: `--cost <id>`, `--customizations`, or `--source <output-path>`.",
+      "Pass exactly one mode flag per invocation: `--cost <id>`, `--customizations`, `--source <output-path>`, or `--efficiency`.",
     );
   }
 
   if (modesRequested === 0) {
-    logError("Missing required mode flag: pass --cost <command-id>, --customizations, OR --source <output-path>.");
+    logError("Missing required mode flag: pass --cost <command-id>, --customizations, --source <output-path>, OR --efficiency.");
     console.log(chalk.dim("  Example: hatch3r explain --cost hatch3r-quick-change"));
     console.log(chalk.dim("  Example: hatch3r explain --customizations"));
     console.log(chalk.dim("  Example: hatch3r explain --source CLAUDE.md"));
+    console.log(chalk.dim("  Example: hatch3r explain --efficiency"));
     console.log();
     throw new HatchError(
-      "Missing required mode flag: --cost, --customizations, or --source",
+      "Missing required mode flag: --cost, --customizations, --source, or --efficiency",
       2,
       "VALIDATION_ERROR",
-      "Pass one of: `--cost <id>`, `--customizations`, or `--source <output-path>` (run `hatch3r --help` for usage).",
+      "Pass one of: `--cost <id>`, `--customizations`, `--source <output-path>`, or `--efficiency` (run `hatch3r --help` for usage).",
     );
   }
 
@@ -344,6 +357,11 @@ export async function explainCommand(opts?: ExplainOptions): Promise<void> {
 
   if (sourceRequested) {
     await explainSourceMode(opts!.source);
+    return;
+  }
+
+  if (efficiencyRequested) {
+    await explainEfficiencyMode();
     return;
   }
 
@@ -543,6 +561,160 @@ async function explainCustomizationsMode(): Promise<void> {
 }
 
 /**
+ * D6-M2 (Cycle 9 / Wave 3): render the per-artifact + per-phase aggregate from
+ * `.hatch3r/efficiency-events.jsonl`. The JSONL stream is produced at runtime
+ * by `recordEfficiencyEvent` / `recordSubAgentSpawn` / `recordPhaseDuration`
+ * in `src/pipeline/observability.ts` when `HATCH3R_EFFICIENCY_TELEMETRY=1` is
+ * set. Before this mode the JSONL was write-only — no CLI surface read it. This
+ * closes the integration gap (Integration Gap covered by C9-H56). Each event
+ * carries `artifactId` + `phase` (or `type` for spawn/duration variants), so
+ * the aggregate groups by `artifactId` then by `phase` and reports token in/out
+ * sums + invocation count.
+ */
+async function explainEfficiencyMode(): Promise<void> {
+  const rootDir = process.cwd();
+  const logPath = join(rootDir, HATCH3R_DIR, "efficiency-events.jsonl");
+
+  let raw: string;
+  try {
+    raw = await readFile(logPath, "utf-8");
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") {
+      logError(`No efficiency telemetry found at ${HATCH3R_DIR}/efficiency-events.jsonl.`);
+      console.log(
+        chalk.dim(
+          "  Telemetry is gated by HATCH3R_EFFICIENCY_TELEMETRY=1. Set the env var and re-run the orchestrator, then re-invoke `hatch3r explain --efficiency`.",
+        ),
+      );
+      console.log();
+      throw new HatchError(
+        `No ${HATCH3R_DIR}/efficiency-events.jsonl found`,
+        undefined,
+        "FS_ERROR",
+        "Set HATCH3R_EFFICIENCY_TELEMETRY=1, re-run an orchestrator command to emit events, then re-run `hatch3r explain --efficiency`.",
+      );
+    }
+    throw new HatchError(
+      `Unreadable ${HATCH3R_DIR}/efficiency-events.jsonl: ${err instanceof Error ? err.message : String(err)}`,
+      undefined,
+      "FS_ERROR",
+      "Delete the file manually if it remains corrupt, then re-run the orchestrator with telemetry enabled.",
+    );
+  }
+
+  interface PhaseAgg {
+    invocations: number;
+    inputTokens: number;
+    outputTokens: number;
+    totalLatencyMs: number;
+  }
+  interface ArtifactAgg {
+    spawnInvocations: number;
+    spawnSubAgents: number;
+    phases: Map<string, PhaseAgg>;
+  }
+  const perArtifact = new Map<string, ArtifactAgg>();
+
+  // Parse JSONL line-by-line. Malformed lines are tolerated (silent-failure
+  // contract — corrupt rows shouldn't block the read-side aggregate).
+  let totalLines = 0;
+  let parseFailures = 0;
+  for (const line of raw.split("\n")) {
+    if (line.trim().length === 0) continue;
+    totalLines++;
+    let evt: Record<string, unknown>;
+    try {
+      evt = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      parseFailures++;
+      continue;
+    }
+    const artifactId = typeof evt.artifactId === "string" ? evt.artifactId : "(unknown)";
+    let agg = perArtifact.get(artifactId);
+    if (!agg) {
+      agg = { spawnInvocations: 0, spawnSubAgents: 0, phases: new Map() };
+      perArtifact.set(artifactId, agg);
+    }
+    if (evt.type === "subagent_spawn") {
+      agg.spawnInvocations += 1;
+      const count = typeof evt.count === "number" ? Math.max(0, Math.floor(evt.count)) : 0;
+      agg.spawnSubAgents += count;
+      continue;
+    }
+    // Both `EfficiencyEvent` (no `type`) and `PhaseDurationEvent` (`type: phase_duration`)
+    // carry a `phase` string and contribute to the per-phase aggregate.
+    const phase = typeof evt.phase === "string" ? evt.phase : "(unknown)";
+    let pagg = agg.phases.get(phase);
+    if (!pagg) {
+      pagg = { invocations: 0, inputTokens: 0, outputTokens: 0, totalLatencyMs: 0 };
+      agg.phases.set(phase, pagg);
+    }
+    pagg.invocations += 1;
+    if (typeof evt.tokensIn === "number") pagg.inputTokens += Math.max(0, Math.floor(evt.tokensIn));
+    if (typeof evt.tokensOut === "number") pagg.outputTokens += Math.max(0, Math.floor(evt.tokensOut));
+    if (typeof evt.latencyMs === "number") pagg.totalLatencyMs += Math.max(0, Math.floor(evt.latencyMs));
+    if (typeof evt.durationMs === "number") pagg.totalLatencyMs += Math.max(0, Math.floor(evt.durationMs));
+  }
+
+  const headerLines = [
+    label("Log file", `${HATCH3R_DIR}/efficiency-events.jsonl`),
+    label("Events parsed", String(totalLines - parseFailures)),
+    label("Parse failures", String(parseFailures)),
+    label("Distinct artifacts", String(perArtifact.size)),
+  ];
+  printBox("Efficiency telemetry", headerLines, "info");
+
+  if (perArtifact.size === 0) {
+    info("No events recorded yet. Set HATCH3R_EFFICIENCY_TELEMETRY=1 and run an orchestrator.");
+    console.log();
+    return;
+  }
+
+  // Per-artifact table: one row per (artifact, phase) pair plus a spawn row if
+  // spawn events were observed for that artifact.
+  const sortedArtifacts = [...perArtifact.keys()].sort((a, b) => a.localeCompare(b));
+  const COL_ART = 32;
+  const COL_PHASE = 16;
+  const COL_INVOK = 8;
+  const COL_TOK = 11;
+  const COL_LAT = 12;
+
+  for (const artId of sortedArtifacts) {
+    const agg = perArtifact.get(artId)!;
+    const tableLines: string[] = [];
+    tableLines.push(
+      `${"Artifact".padEnd(COL_ART)}${"Phase".padEnd(COL_PHASE)}${"Inv".padEnd(COL_INVOK)}` +
+        `${"In".padEnd(COL_TOK)}${"Out".padEnd(COL_TOK)}${"Latency(ms)".padEnd(COL_LAT)}`,
+    );
+    tableLines.push(chalk.dim("─".repeat(COL_ART + COL_PHASE + COL_INVOK + COL_TOK * 2 + COL_LAT)));
+    if (agg.spawnInvocations > 0) {
+      tableLines.push(
+        `${artId.padEnd(COL_ART)}${"(spawns)".padEnd(COL_PHASE)}${String(agg.spawnInvocations).padEnd(COL_INVOK)}` +
+          `${"—".padEnd(COL_TOK)}${"—".padEnd(COL_TOK)}` +
+          chalk.dim(`${agg.spawnSubAgents} sub-agent(s) total`),
+      );
+    }
+    const sortedPhases = [...agg.phases.keys()].sort((a, b) => a.localeCompare(b));
+    for (const phase of sortedPhases) {
+      const p = agg.phases.get(phase)!;
+      tableLines.push(
+        `${artId.padEnd(COL_ART)}${phase.padEnd(COL_PHASE)}${String(p.invocations).padEnd(COL_INVOK)}` +
+          `${formatTokens(p.inputTokens).padEnd(COL_TOK)}${formatTokens(p.outputTokens).padEnd(COL_TOK)}${formatTokens(p.totalLatencyMs).padEnd(COL_LAT)}`,
+      );
+    }
+    printBox(artId, tableLines, "info");
+  }
+
+  info(
+    chalk.dim(
+      "Aggregates are sums across all sessions in the log. Truncate `.hatch3r/efficiency-events.jsonl` to reset.",
+    ),
+  );
+  console.log();
+}
+
+/**
  * SA12.4-F1 (D12): one provenance record for a generated output file. Mirrors
  * the schema written by `hatch3r sync` to `.hatch3r/provenance.json`
  * (`src/cli/commands/sync.ts` → SA12.4-F1 writer).
@@ -557,6 +729,18 @@ interface ProvenanceManifest {
   schemaVersion?: number;
   hatch3rVersion?: string;
   generatedAt?: string;
+  /**
+   * SA12.1-F-D12-M4 (D12, P1): identifier for the CLI command that produced
+   * this manifest (currently `"sync"`). Lets operators distinguish a
+   * sync-emitted manifest from a possible future update-emitted one.
+   */
+  lastCommand?: string;
+  /**
+   * SA12.1-F-D12-M4 (D12, P1): per-run correlation id of the producing
+   * command. Operators can grep `.hatch3r/.failures.log` by this id to find
+   * every entry recorded during the same run.
+   */
+  lastRunId?: string;
   outputs?: ProvenanceEntry[];
 }
 
@@ -588,7 +772,7 @@ async function explainSourceMode(subject: string | undefined): Promise<void> {
       console.log();
       throw new HatchError(
         `No ${HATCH3R_DIR}/provenance.json found`,
-        1,
+        undefined,
         "FS_ERROR",
         "Run `hatch3r sync` to generate adapter outputs and record their canonical sources, then re-run `hatch3r explain --source`.",
       );
@@ -597,7 +781,7 @@ async function explainSourceMode(subject: string | undefined): Promise<void> {
     console.log();
     throw new HatchError(
       `Unreadable ${HATCH3R_DIR}/provenance.json`,
-      1,
+      undefined,
       "FS_ERROR",
       "Re-run `hatch3r sync` to regenerate the provenance manifest; if it remains unreadable, delete it and sync again.",
     );
@@ -621,6 +805,10 @@ async function explainSourceMode(subject: string | undefined): Promise<void> {
       label("Manifest", `${HATCH3R_DIR}/provenance.json`),
       label("hatch3r", manifest.hatch3rVersion ?? "(unknown)"),
       label("Generated", manifest.generatedAt ?? "(unknown)"),
+      // SA12.1-F-D12-M4: surface the producing command + run id so operators
+      // can correlate the manifest back to a specific `.failures.log` entry.
+      label("Command", manifest.lastCommand ?? "(unknown)"),
+      label("Run id", manifest.lastRunId ?? "(unknown)"),
       label("Outputs", String(outputs.length)),
     ];
     printBox("Source provenance — all outputs", headerLines, "info");
@@ -645,7 +833,7 @@ async function explainSourceMode(subject: string | undefined): Promise<void> {
     console.log();
     throw new HatchError(
       `Output path not recorded: ${normalized}`,
-      1,
+      undefined,
       "CONFIG_ERROR",
       "Pass an output path exactly as recorded (run `hatch3r explain --source all` to list them), or re-run `hatch3r sync`.",
     );
@@ -667,6 +855,10 @@ function printSourceBlock(entry: ProvenanceEntry, manifest?: ProvenanceManifest)
   if (manifest) {
     lines.push(label("hatch3r", manifest.hatch3rVersion ?? "(unknown)"));
     lines.push(label("Generated", manifest.generatedAt ?? "(unknown)"));
+    // SA12.1-F-D12-M4: surface the producing command + run id when a
+    // single-output block is printed.
+    if (manifest.lastCommand) lines.push(label("Command", manifest.lastCommand));
+    if (manifest.lastRunId) lines.push(label("Run id", manifest.lastRunId));
   }
   if (entry.sourceFiles.length === 0) {
     lines.push(label("Sources", chalk.dim("(none recorded)")));

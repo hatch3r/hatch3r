@@ -546,6 +546,79 @@ describe("applyCustomization", () => {
     expect(result.overrides).toEqual({});
     expect(result.warnings).toEqual([]);
   });
+
+  // D2-M06 (D2 Medium, Cycle 10 Wave 3 rollover): `model:` overrides on
+  // canonical types that don't carry a model (rule/skill/command/prompt/hook)
+  // previously survived the customization layer silently. Only `agents/` pass
+  // through `resolveAgentModel` in `src/adapters/base.ts::processAgents`, so
+  // every other type ignored the override at runtime. Mirror the existing
+  // TYPES_WITHOUT_SCOPE diagnostic: surface a warning AND drop the field so
+  // the user sees their override was a no-op.
+  describe("D2-M06 model override on non-agent types", () => {
+    it("warns and drops `model` override on skill", async () => {
+      const projectRoot = await setup();
+      const dir = join(projectRoot, ".hatch3r", "skills");
+      await mkdir(dir, { recursive: true });
+      await writeFile(
+        join(dir, "hatch3r-browser-verify.customize.yaml"),
+        "model: claude-opus-4-5",
+        "utf-8",
+      );
+      const baseSkill: CanonicalFile = {
+        id: "hatch3r-browser-verify",
+        type: "skill",
+        description: "Browser verify",
+        content: "Run browser verification.",
+        rawContent: "---\nid: hatch3r-browser-verify\n---\nRun browser verification.",
+        sourcePath: "/fake/skills/hatch3r-browser-verify/SKILL.md",
+      };
+      const result = await applyCustomization(projectRoot, baseSkill);
+      expect(result.overrides.model).toBeUndefined();
+      expect(
+        result.warnings.some(
+          (w) =>
+            w.includes("Model override on skill") &&
+            w.includes("hatch3r-browser-verify") &&
+            w.includes("has no effect"),
+        ),
+      ).toBe(true);
+    });
+
+    it("warns and drops `model` override on rule", async () => {
+      const projectRoot = await setup();
+      const dir = join(projectRoot, ".hatch3r", "rules");
+      await mkdir(dir, { recursive: true });
+      await writeFile(
+        join(dir, "hatch3r-testing.customize.yaml"),
+        "model: claude-opus-4-5",
+        "utf-8",
+      );
+      const result = await applyCustomization(projectRoot, baseRule);
+      expect(result.overrides.model).toBeUndefined();
+      expect(
+        result.warnings.some(
+          (w) =>
+            w.includes("Model override on rule") &&
+            w.includes("hatch3r-testing") &&
+            w.includes("has no effect"),
+        ),
+      ).toBe(true);
+    });
+
+    it("preserves `model` override on agent (regression guard)", async () => {
+      const projectRoot = await setup();
+      const dir = join(projectRoot, ".hatch3r", "agents");
+      await mkdir(dir, { recursive: true });
+      await writeFile(
+        join(dir, "hatch3r-reviewer.customize.yaml"),
+        "model: opus",
+        "utf-8",
+      );
+      const result = await applyCustomization(projectRoot, baseAgent);
+      expect(result.overrides.model).toBe("opus");
+      expect(result.warnings.some((w) => w.includes("Model override"))).toBe(false);
+    });
+  });
 });
 
 describe("applyCustomizationRaw", () => {

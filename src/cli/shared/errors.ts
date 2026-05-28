@@ -23,6 +23,7 @@ import chalk from "chalk";
 import boxen from "boxen";
 import { HatchError, type HatchErrorCode } from "../../types.js";
 import { classifyCliError, type CliErrorKind } from "../errorClassification.js";
+import { getRunId } from "./runId.js";
 
 /**
  * SA12.1-F01 (D12, Cycle 10 Wave 2): default recovery hint keyed by
@@ -83,6 +84,13 @@ export interface FormattedCliError {
   kind: CliErrorKind | "hatch-error" | "hatch-cancel";
   /** The hint surfaced to the user (when present). */
   hint?: string;
+  /**
+   * SA12.1-F-D12-M3 (D12, P1): per-run correlation id, present on every
+   * non-cancellation outcome so operators can grep failure logs for one
+   * specific run. Honors `process.env.HATCH3R_RUN_ID` when present, otherwise
+   * a fresh `hr-<ts>-<rand>` is minted at process startup.
+   */
+  runId?: string;
 }
 
 /**
@@ -107,17 +115,21 @@ export function formatActionableError(
     if (err.exitCode === 0) {
       return { lines: [], exitCode: 0, kind: "hatch-cancel" };
     }
+    // SA12.1-F-D12-M3 (D12, P1): per-run correlation id embedded on every
+    // fatal HatchError so the operator can grep `.hatch3r/.failures.log`
+    // by this id to find every entry recorded during the same run.
+    const runId = getRunId();
     // SA12.1-F01: resolve the explicit per-call-site hint OR the
     // errorCode-keyed DEFAULT_RECOVERY_HINT floor. This converts the former
     // silent path (53% of fatal HatchErrors had no hint) into an actionable
     // boxed next step at the single funnel.
     const hint = resolveRecoveryHint(err);
     if (hint) {
-      // Box format: red title + bold message + dim "Try:" hint. Boxen
-      // bounds the message visually in terminals and keeps each hint
+      // Box format: red title + bold message + dim "Try:" hint + dim run id.
+      // Boxen bounds the message visually in terminals and keeps each hint
       // grep-able in plain-text CI logs.
       const title = chalk.red.bold("hatch3r error");
-      const body = `${err.message}\n\n${chalk.dim("Try:")} ${hint}`;
+      const body = `${err.message}\n\n${chalk.dim("Try:")} ${hint}\n${chalk.dim("Run id:")} ${runId}`;
       const box = boxen(body, {
         title,
         titleAlignment: "left",
@@ -132,6 +144,7 @@ export function formatActionableError(
         exitCode: err.exitCode,
         kind: "hatch-error",
         hint,
+        runId,
       };
     }
     // No explicit hint AND no default for this errorCode (e.g.
@@ -142,6 +155,7 @@ export function formatActionableError(
       lines: [],
       exitCode: err.exitCode,
       kind: "hatch-error",
+      runId,
     };
   }
 
@@ -159,6 +173,7 @@ export function formatActionableError(
 
   const isUsageError = kind === "usage";
   const msg = err instanceof Error ? err.message : String(err);
+  const runId = getRunId();
   const lines: string[] = [
     "",
     `hatch3r encountered an ${isUsageError ? "usage" : "unexpected"} error: ${msg}`,
@@ -170,10 +185,15 @@ export function formatActionableError(
     lines.push("  Check .hatch3r/.failure-log.jsonl for recent failure details.");
     lines.push("  Set DEBUG=1 for a full stack trace.");
   }
+  // SA12.1-F-D12-M3: per-run correlation id embedded as the final line so
+  // operators can grep the failure log by this id to find every entry
+  // recorded during the same run.
+  lines.push(`  Run id: ${runId}`);
   return {
     lines,
     exitCode: isUsageError ? 2 : 1,
     kind,
+    runId,
   };
 }
 

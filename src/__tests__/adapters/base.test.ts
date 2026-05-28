@@ -85,13 +85,21 @@ describe("BaseAdapter", () => {
       const manifest = makeManifest();
 
       await adapter.generate(FIXTURES_DIR, manifest);
-      expect(adapter.warnings).toEqual(["warning-1"]);
+      // SA12.1-F-D12-M5: BaseAdapter appends a tracking-gap warning when an
+      // adapter emits outputs without ever reading canonical files (this
+      // SuccessAdapter never does), so the assertion drops the M5 line and
+      // checks only that "warning-1" survives.
+      expect(adapter.warnings.filter((w) => !w.includes("canonical-source tracking"))).toEqual([
+        "warning-1",
+      ]);
 
       // Second call should reset warnings
       await adapter.generate(FIXTURES_DIR, manifest);
-      expect(adapter.warnings).toEqual(["warning-1"]);
+      expect(adapter.warnings.filter((w) => !w.includes("canonical-source tracking"))).toEqual([
+        "warning-1",
+      ]);
       // Should NOT have accumulated ["warning-1", "warning-1"]
-      expect(adapter.warnings.length).toBe(1);
+      expect(adapter.warnings.filter((w) => w === "warning-1").length).toBe(1);
     });
   });
 
@@ -345,7 +353,7 @@ describe("BaseAdapter", () => {
       expect(outputs[1]?.sourceFiles).toEqual(outputs[0]?.sourceFiles);
     });
 
-    it("leaves sourceFiles undefined when no canonical files are read", async () => {
+    it("defaults sourceFiles to [] and warns when no canonical files are read (SA12.1-F-D12-M5)", async () => {
       class NoCanonicalAdapter extends BaseAdapter {
         readonly name = "no-canonical";
         protected async doGenerate(_ctx: AdapterContext): Promise<AdapterOutput[]> {
@@ -354,9 +362,13 @@ describe("BaseAdapter", () => {
       }
       const adapter = new NoCanonicalAdapter();
       const outputs = await adapter.generate(FIXTURES_DIR, makeManifest());
-      // When no canonical files are read, the tracked set is empty and we
-      // should not fabricate a sourceFiles entry — absence is the signal.
-      expect(outputs[0]?.sourceFiles).toBeUndefined();
+      // SA12.1-F-D12-M5 (Cycle 10 Wave 3, D12, P1): un-migrated adapters
+      // previously left sourceFiles undefined which silently became `[]` in
+      // .hatch3r/provenance.json — indistinguishable from a legitimate
+      // config-only output. Now: BaseAdapter defaults to `[]` AND emits a
+      // per-adapter warning so the tracking gap is visible at sync time.
+      expect(outputs[0]?.sourceFiles).toEqual([]);
+      expect(adapter.warnings.some((w) => w.includes("canonical-source tracking"))).toBe(true);
     });
 
     it("preserves sourceFiles when the adapter sets it explicitly", async () => {
@@ -399,8 +411,10 @@ describe("BaseAdapter", () => {
       const second = await adapter.generate(FIXTURES_DIR, makeManifest());
       const capturedSecond: string[] | undefined = second[0]?.sourceFiles;
       expect(capturedFirst?.length).toBeGreaterThan(0);
-      // Second run read no canonical files; tracker reset → sourceFiles absent.
-      expect(capturedSecond).toBeUndefined();
+      // SA12.1-F-D12-M5: second run read no canonical files; tracker reset.
+      // BaseAdapter now defaults to [] (not undefined) so explain --source
+      // can distinguish "no tracking" from a missing field.
+      expect(capturedSecond).toEqual([]);
     });
   });
 
@@ -584,7 +598,15 @@ describe("BaseAdapter", () => {
       const adapter = new InvariantAdapter([output("ok.md", "content")]);
       const outs = await adapter.generate(FIXTURES_DIR, makeManifest());
       expect(outs).toHaveLength(1);
-      expect(adapter.warnings.length).toBe(0);
+      // SA12.1-F-D12-M5: BaseAdapter now warns once when an adapter emits
+      // outputs without canonical-source tracking. `InvariantAdapter` synthesises
+      // outputs without ever reading canonical files, so the M5 warning fires
+      // (separate from the legacy "Empty content" / "managedContent not
+      // substring" invariant warnings, which DO stay at 0 for valid outputs).
+      const invariantWarnings = adapter.warnings.filter(
+        (w) => !w.includes("canonical-source tracking"),
+      );
+      expect(invariantWarnings.length).toBe(0);
     });
   });
 

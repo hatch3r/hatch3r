@@ -3,6 +3,8 @@ import { HatchError, type HatchManifest } from "../../types.js";
 import { readManifest } from "../../manifest/hatchJson.js";
 import { computeAdapterDrift, type DriftReport } from "./status.js";
 import { runRegenerate } from "./update.js";
+import { emitJson, parseFormatOption, type CliOutputFormat } from "../shared/output.js";
+import { HATCH3R_VERSION } from "../../version.js";
 import {
   printBanner,
   createSpinner,
@@ -34,6 +36,12 @@ export interface VerifyOptions {
   fix?: boolean;
   /** Maximum regenerate→re-check cycles (default 2, clamped to [1, 5]). */
   maxFixAttempts?: number;
+  /**
+   * SA12.1-F-D12-M2 (D12, P1): output format for CI consumers. `"json"`
+   * emits a one-shot structured payload to stdout; `"human"` (default) keeps
+   * the legacy decorated chrome.
+   */
+  format?: string;
 }
 
 /** Render the drift counts as boxed summary lines (shared by report + fix paths). */
@@ -84,16 +92,32 @@ async function runFixLoop(
 }
 
 export async function verifyCommand(options: VerifyOptions = {}): Promise<void> {
-  printBanner(true);
+  // SA12.1-F-D12-M2 (D12, P1): JSON mode emits a single structured document
+  // for CI consumers (PASS/FAIL + drift counts + per-entry list). Human mode
+  // keeps the legacy decorated chrome (banner, spinner, printBox panels).
+  const format: CliOutputFormat = parseFormatOption(options.format);
+  const jsonMode = format === "json";
+  if (!jsonMode) printBanner(true);
 
   const rootDir = process.cwd();
   const manifest = await readManifest(rootDir);
   if (!manifest) {
-    logError("No .hatch3r/hatch.json found — run `hatch3r init` first.");
-    console.log();
+    if (jsonMode) {
+      emitJson({
+        status: "failed",
+        error: "No .hatch3r/hatch.json found",
+        errorCode: "CONFIG_ERROR",
+        recoveryHint: "Run `npx hatch3r init` to set up your project first.",
+        hatch3rVersion: HATCH3R_VERSION,
+        timestamp: new Date().toISOString(),
+      });
+    } else {
+      logError("No .hatch3r/hatch.json found — run `hatch3r init` first.");
+      console.log();
+    }
     throw new HatchError(
       "No .hatch3r/hatch.json found",
-      1,
+      undefined,
       "CONFIG_ERROR",
       "Run `npx hatch3r init` to set up your project first.",
     );
@@ -103,14 +127,34 @@ export async function verifyCommand(options: VerifyOptions = {}): Promise<void> 
   if (options.fix) {
     report = await runFixLoop(rootDir, manifest, options.maxFixAttempts);
   } else {
-    const spinner = createSpinner("Verifying adapter-output drift...");
-    spinner.start();
+    const spinner = jsonMode ? null : createSpinner("Verifying adapter-output drift...");
+    spinner?.start();
     report = await computeAdapterDrift(rootDir, manifest);
-    spinner.stop();
+    spinner?.stop();
   }
 
   const driftCount = driftCountOf(report);
   const summaryLines = buildSummaryLines(report);
+
+  if (jsonMode) {
+    emitJson({
+      status: driftCount === 0 ? "pass" : "fail",
+      driftCount,
+      counts: report.counts,
+      driftKindCounts: report.driftKindCounts,
+      entries: report.entries,
+      fixApplied: !!options.fix,
+      hatch3rVersion: HATCH3R_VERSION,
+      timestamp: new Date().toISOString(),
+    });
+    if (driftCount === 0) return;
+    throw new HatchError(
+      `Adapter output drift detected (${driftCount} file(s))`,
+      undefined,
+      "INTEGRITY_ERROR",
+      "Run `hatch3r sync` to regenerate drifted/missing files, or `hatch3r verify --fix` to auto-repair.",
+    );
+  }
 
   if (driftCount === 0) {
     printBox("verify: PASS", summaryLines, "success");
@@ -126,7 +170,7 @@ export async function verifyCommand(options: VerifyOptions = {}): Promise<void> 
   console.log();
   throw new HatchError(
     `Adapter output drift detected (${driftCount} file(s))`,
-    1,
+    undefined,
     "INTEGRITY_ERROR",
     "Run `hatch3r sync` to regenerate drifted/missing files, or `hatch3r verify --fix` to auto-repair.",
   );

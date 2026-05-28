@@ -42,7 +42,7 @@ function requireManifest(_rootDir: string, manifest: HatchManifest | null): asse
     console.log(chalk.dim(`  Run \`npx hatch3r init\` to set up your project first.\n`));
     throw new HatchError(
       "No .hatch3r/hatch.json found.",
-      1,
+      undefined,
       "CONFIG_ERROR",
       "Run `npx hatch3r init` to set up your project first.",
     );
@@ -151,9 +151,17 @@ export async function cliToolsListCommand(): Promise<void> {
   for (const r of results) {
     const meta = (AVAILABLE_CLI_TOOLS as Record<string, CliToolMeta | undefined>)[r.id];
     const tierLabel = meta ? `tier ${meta.tier}` : "(unknown)";
-    const status = r.installed
-      ? `${chalk.green("✓")} ${r.path}`
-      : `${chalk.yellow("✗")} not on PATH`;
+    let status: string;
+    if (r.installed) {
+      status = `${chalk.green("✓")} ${r.path}`;
+    } else if (r.extensionMissing) {
+      // D21-M6 (Cycle 10): the base binary is on PATH but the registered
+      // extension probe failed — surface the missing extension name so the
+      // user runs `<tool> extension add` rather than re-installing.
+      status = `${chalk.yellow("✗")} extension missing: ${r.extensionMissing}`;
+    } else {
+      status = `${chalk.yellow("✗")} not on PATH`;
+    }
     lines.push(`  ${chalk.cyan(r.id)} (${tierLabel}) — ${status}`);
   }
 
@@ -211,6 +219,10 @@ export async function cliToolsDetectCommand(): Promise<void> {
     if (r.installed) {
       lines.push(`  ${chalk.green("✓")} ${r.id} — ${r.path}`);
       installed++;
+    } else if (r.extensionMissing) {
+      // D21-M6: base binary on PATH but extension missing — instruct user
+      // to add the extension rather than re-installing the wrapper.
+      lines.push(`  ${chalk.yellow("✗")} ${r.id} — extension missing: ${r.extensionMissing}`);
     } else {
       lines.push(`  ${chalk.yellow("✗")} ${r.id} — not on PATH`);
     }

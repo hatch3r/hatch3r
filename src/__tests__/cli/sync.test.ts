@@ -95,7 +95,8 @@ describe("sync command", () => {
     const { syncCommand } = await import("../../cli/commands/sync.js");
 
     await expect(syncCommand()).rejects.toThrow(HatchError);
-    try { await syncCommand(); } catch (e) { expect((e as HatchError).exitCode).toBe(1); }
+    // C8-D1-M5: CONFIG_ERROR -> EX_DATAERR (65) via central map.
+    try { await syncCommand(); } catch (e) { expect((e as HatchError).exitCode).toBe(65); }
 
     // Wave 6: error message references the new manifest location.
     const allOutput = [
@@ -561,6 +562,96 @@ describe("sync command", () => {
 
       const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
       expect(output).toContain("Sync complete");
+    });
+  });
+
+  // D3-M4 (Cycle 10 Wave-3 Medium rollover): sync.ts branches measured 47.8%.
+  // Workspace-cascade branches (`!wsManifest` short-circuit, `syncReposRequested`
+  // vs. `syncOnSync` decision, partial-failure rendering) and the partial-
+  // failure callout (mixed transient/substantive class) were under-tested.
+  // Cover each branch with a deterministic fixture below.
+  describe("workspace cascade gate (D3-M4)", () => {
+    it("returns silently when no workspace.json exists at the rootDir", async () => {
+      await createTestProject(tempDir);
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand();
+      // Sync completes successfully — no workspace branches fired.
+      const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(output).toContain("Sync complete");
+      expect(output).not.toContain("Workspace sync:");
+    });
+
+    it("emits the `--repos to propagate` info when a workspace.json exists in manual mode and --repos was not passed", async () => {
+      await createTestProject(tempDir);
+      // Stage a minimal workspace.json with manual sync strategy and one
+      // syncable repo (no need for the repo path to actually exist — the
+      // info branch fires before syncWorkspaceRepos is invoked).
+      const wsManifest = {
+        version: "1.0.0",
+        hatch3rVersion: "1.9.0",
+        name: "test-ws",
+        repos: [{ path: "api", sync: true }],
+        defaults: {
+          platform: "github",
+          tools: ["cursor"],
+          features: {
+            agents: true,
+            skills: true,
+            rules: true,
+            prompts: false,
+            commands: true,
+            mcp: false,
+            githubAgents: false,
+            hooks: false,
+          },
+          mcp: { servers: [] },
+        },
+        syncStrategy: "manual",
+      };
+      await writeFile(
+        join(tempDir, HATCH3R_DIR, "workspace.json"),
+        JSON.stringify(wsManifest, null, 2),
+      );
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand();
+      const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      // The "Workspace: N repo(s) available for sync" info line fires.
+      expect(output).toMatch(/Workspace:.*repo\(s\) available for sync/);
+      // No actual cascade ran.
+      expect(output).not.toContain("Workspace sync:");
+    });
+  });
+
+  describe("partial-failure classification (D3-M4)", () => {
+    it("classifies all-transient failures with the transient guidance", async () => {
+      await createTestProject(tempDir, { tools: ["cursor"] });
+
+      const adapterTimeoutMod = await import("../../pipeline/adapterTimeout.js");
+      // sync.ts reconstructs the error via `new Error(f.error)`, so the
+      // failure string itself must contain a transient phrase that the
+      // circuit-breaker regex matches. "request timed out" matches the
+      // `/timeout|timed out/i` branch (src/pipeline/circuitBreaker.ts:116).
+      const spy = vi.spyOn(adapterTimeoutMod, "generateWithTimeout").mockResolvedValue({
+        tool: "cursor",
+        completed: false,
+        elapsedMs: 10,
+        error: "upstream request timed out after 30000ms",
+        warnings: [],
+      });
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      try {
+        await syncCommand();
+        expect.fail("expected syncCommand to throw HatchError");
+      } catch (e) {
+        const err = e as HatchError;
+        expect(err).toBeInstanceOf(HatchError);
+        expect(err.message).toMatch(/transient/i);
+        expect(err.message).toMatch(/Retry/i);
+      } finally {
+        spy.mockRestore();
+      }
     });
   });
 });

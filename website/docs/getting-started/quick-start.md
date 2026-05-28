@@ -8,7 +8,7 @@ title: Quick Start
 A copy-paste-runnable walkthrough that takes a project from empty to released using hatch3r. The path is the same for greenfield and brownfield work — the spec step (Step 4) auto-detects which one you are in and branches for you.
 
 :::info Last verified
-2026-05-27 against hatch3r 2.0.0. URLs and credential flows reverified each audit cycle (P3 — Adapter & MCP Currency).
+2026-05-28 against hatch3r 2.0.0. URLs and credential flows reverified each audit cycle (P3 — Adapter & MCP Currency). MCP became opt-in in 1.7.5 — leaving the MCP multi-select empty skips MCP entirely; selecting any server triggers automatic platform-MCP inclusion.
 :::
 
 ## Prerequisites
@@ -27,17 +27,16 @@ That is it. No global install, no preflight setup.
 npx hatch3r init
 ```
 
-Interactive flow (~2 minutes). hatch3r asks 9 questions, in this order:
+Interactive flow (~2 minutes). On a fresh GitHub greenfield repo hatch3r asks 6 prompts (Azure DevOps adds 1, GitLab matches GitHub at 6); `custom` preset adds 1; a workspace root with detected sub-repos adds 1; missing CLI tools add a single confirm:
 
 1. **Platform** — GitHub, Azure DevOps, or GitLab. Auto-detected from your git remote; press Enter to accept.
-2. **Repo identity** — owner / org / repo name. Auto-filled from git remote where possible.
-3. **Default branch** — used by board, PR, and release commands.
-4. **Project type** — `greenfield` (new) or `brownfield` (existing). Filters out content irrelevant to your situation.
-5. **Team size** — `solo` or `team`. Solo skips board-management content.
-6. **Content profile** — `minimal`, `standard` (recommended), `full`, or `custom`. See the [profile table](#content-profiles) below.
-7. **Tools** — multi-select from the 3 supported adapters (Cursor, Claude Code, Copilot).
-8. **Worktree isolation** — only asked if you selected a worktree-capable tool.
-9. **MCP servers** — multi-select from 10 servers (3 default, 7 opt-in). Platform-aware: the GitHub / ADO / GitLab MCP that matches your platform is pre-selected.
+2. **Repo identity** — 2 sub-prompts for GitHub (owner + repo) and GitLab (namespace + project); 3 for Azure DevOps (org + project + repo). Auto-filled from git remote where possible. Default branch is git-detected, not prompted; project type and team size are inferred and no longer prompted.
+3. **Content profile** — `minimal`, `standard` (recommended), `full`, or `custom`. See the [profile table](#content-profiles) below.
+4. **Custom content items** — only when `custom` is selected at step 3.
+5. **Tools** — multi-select from the 3 supported adapters (Cursor, Claude Code, Copilot).
+6. **MCP servers** — multi-select from 10 servers (3 default, 7 opt-in). Leaving everything unchecked is the `(none)` no-op and skips MCP entirely; selecting any server auto-includes the platform MCP that matches your detected platform (per `src/cli/commands/init.ts` mcpServers step).
+
+Headless `--yes` skips every prompt; `cli-tools` selection is auto-inferred from project triggers (no separate picker prompt). If detected CLI tools are missing from PATH, hatch3r prints copy-paste install commands and adds one `Mark these tools as 'install pending' and continue?` confirm.
 
 For headless / CI use, pass `--yes` with optional flags:
 
@@ -69,6 +68,20 @@ Canonical content (agents, skills, rules, commands, hooks) is no longer material
 | **Custom** | Interactive picker per artifact type | Fine-grained control |
 
 The profile is combined with greenfield/brownfield and solo/team filters, so a `solo + greenfield + standard` install carries materially less content than `team + brownfield + full`.
+
+**Upgrading between profiles is additive.** A Minimal → Standard re-run of `npx hatch3r init` shows the explicit add count in the confirmation prompt (e.g. `Switching Minimal → Standard (+45 added). Continue?`). User overrides under `.hatch3r/overrides/`, learnings under `.hatch3r/learnings/`, and handoffs under `.hatch3r/handoffs/` survive the upgrade — only managed adapter outputs regenerate. Downgrades (e.g. Full → Standard) surface a `−N removed` line so the change is visible before commit.
+
+### Time to first value
+
+Measured on a clean macOS / Linux box with Node 22 installed and a fresh git repo on `main`:
+
+| Milestone | Wall clock |
+|-----------|------------|
+| `npx hatch3r init` (interactive ≤5 prompts, default flags) | 1-2 min |
+| First successful spec (`/hatch3r-spec` → committed plan) | 5-10 min |
+| First PR from board pickup (`/hatch3r-board-pickup` → merged PR) | 30-60 min |
+
+`hatch3r init` prints a `Completed in Xs` line via the `printTimingSummary` helper (D10-M9) so you can compare your local install time against the benchmark above. If your init exceeds ~3 minutes, the most common cause is npm cache cold-start — re-running `npx hatch3r init --yes` shows the typical steady-state cost.
 
 ---
 

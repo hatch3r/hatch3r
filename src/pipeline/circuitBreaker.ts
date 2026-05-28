@@ -392,6 +392,136 @@ export function recordFailure(
   return newState;
 }
 
+// ── Persistence (D8-M4, Cycle 10 rollover) ───────────────────────
+//
+// Prior to D8-M4 the per-tool breaker map was rebuilt fresh on every
+// `hatch3r sync`/`hatch3r update` invocation, so a recurring transient
+// failure surface (a flaky MCP endpoint or a slow registry) had to trip
+// the threshold from zero on every run. Persisting the breaker state to
+// `.hatch3r/.breaker-state.jsonl` lets repeated invocations recognise an
+// already-open circuit and short-circuit without burning the threshold
+// budget again. Each entry is appended (JSONL) and the latest entry per
+// serviceId wins; entries older than the TTL are discarded on read so
+// stale state from a long-ago bad run cannot pin a circuit open.
+//
+// The on-disk schema is intentionally minimal: timestamp + the
+// CircuitBreakerState snapshot. Persistence is best-effort and silent
+// failures degrade to the in-memory default (no-op) so a permissions
+// problem on `.hatch3r/` never blocks a sync.
+
+/** Default filename for the persisted breaker log. */
+export const BREAKER_STATE_FILE = ".breaker-state.jsonl";
+
+/**
+ * Time-to-live for persisted breaker entries, in milliseconds. Older entries
+ * are ignored on read. 24h covers an overnight CI gap while preventing a
+ * week-old transient outage from spuriously short-circuiting a fresh run.
+ */
+export const BREAKER_STATE_TTL_MS = 24 * 60 * 60 * 1000;
+
+/** One persisted snapshot. The serviceId is on `state.config.serviceId`. */
+export interface PersistedBreakerEntry {
+  /** ISO-8601 timestamp the entry was written. */
+  persistedAt: string;
+  /** Full breaker state at the time of persistence. */
+  state: CircuitBreakerState;
+}
+
+/**
+ * Format a breaker state as a single JSONL line for append-only writes.
+ * Returns the line WITHOUT a trailing newline so the caller controls
+ * line termination (matches `failureLog.formatLogEntry`).
+ */
+export function formatBreakerStateEntry(state: CircuitBreakerState): string {
+  const entry: PersistedBreakerEntry = {
+    persistedAt: new Date().toISOString(),
+    state,
+  };
+  return JSON.stringify(entry);
+}
+
+/**
+ * Parse a JSONL breaker-state log into a serviceId → latest-state map.
+ *
+ * - Skips malformed lines (tolerant of in-flight rotation, partial writes).
+ * - Discards entries older than {@link BREAKER_STATE_TTL_MS} relative to
+ *   {@link nowMs} so stale state from a long-ago bad run cannot pin the
+ *   circuit open.
+ * - When multiple entries exist for the same serviceId, the latest entry
+ *   (by persistedAt) wins.
+ */
+export function parseBreakerStateLog(
+  content: string,
+  nowMs: number = Date.now(),
+): Map<string, CircuitBreakerState> {
+  const result = new Map<string, CircuitBreakerState>();
+  const latestPersistedAt = new Map<string, number>();
+
+  for (const line of content.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let entry: PersistedBreakerEntry;
+    try {
+      entry = JSON.parse(trimmed) as PersistedBreakerEntry;
+    } catch {
+      // Tolerate partial writes / corrupted lines without aborting the
+      // whole log — the next sync will overwrite via append.
+      continue;
+    }
+    if (
+      typeof entry.persistedAt !== "string" ||
+      !entry.state ||
+      !entry.state.config ||
+      typeof entry.state.config.serviceId !== "string"
+    ) {
+      continue;
+    }
+    const persistedAtMs = new Date(entry.persistedAt).getTime();
+    if (Number.isNaN(persistedAtMs)) continue;
+    // TTL gate: drop entries older than the budget.
+    if (nowMs - persistedAtMs > BREAKER_STATE_TTL_MS) continue;
+    const serviceId = entry.state.config.serviceId;
+    const prevPersistedAt = latestPersistedAt.get(serviceId);
+    if (prevPersistedAt === undefined || persistedAtMs > prevPersistedAt) {
+      latestPersistedAt.set(serviceId, persistedAtMs);
+      result.set(serviceId, entry.state);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Hydrate a Map<serviceId, breaker> from a previously persisted log content.
+ * Empty content → empty map. Returns a *fresh* Map so callers can mutate
+ * without affecting parser state.
+ */
+export function hydrateBreakersFromLog(
+  content: string,
+  nowMs: number = Date.now(),
+): Map<string, CircuitBreakerState> {
+  return parseBreakerStateLog(content, nowMs);
+}
+
+/**
+ * Serialize a serviceId → breaker map to JSONL for atomic write. One line
+ * per service; the caller is responsible for writing via
+ * `atomicWriteFile` (or the equivalent). Returns the FULL log content
+ * (replacing any prior log), not an append delta — this keeps the on-disk
+ * file bounded by the number of distinct serviceIds rather than growing
+ * unboundedly across sync invocations.
+ */
+export function serializeBreakerMap(
+  breakers: Map<string, CircuitBreakerState>,
+): string {
+  if (breakers.size === 0) return "";
+  const lines: string[] = [];
+  for (const state of breakers.values()) {
+    lines.push(formatBreakerStateEntry(state));
+  }
+  return lines.join("\n") + "\n";
+}
+
 /**
  * Get a human-readable summary of the circuit breaker state.
  */

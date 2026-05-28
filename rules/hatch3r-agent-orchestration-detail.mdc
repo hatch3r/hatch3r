@@ -194,6 +194,36 @@ After pipeline completion, the orchestrator captures lessons for future runs:
 2. **Phase duration ratios:** Record time spent per phase. Anomalous ratios (e.g., Phase 3 taking 5x Phase 2) indicate systemic issues worth investigating.
 3. **Specialist value:** Record which Phase 4 specialists produced actionable findings vs. clean reports. Over time, this data informs smarter specialist dispatch.
 
+## Multi-Task and Concurrent Pipeline Support
+
+Finding D7-M13 / D7-SA7.5-3: the orchestration rule's `Task Context Protocols` paragraph documents multi-task / epic / batch handling in a single sentence; the protocol benefits from an expanded canonical schema so downstream pack integrators have a deterministic specification.
+
+**Dependency-graph construction.** Multi-task input (epic, plain-chat multi-request, or board batch) is parsed into discrete units. Each unit carries its own `correlationId` (epic sub-issues get individual IDs sharing a parent epic ID; batch tasks share one ID with a sub-task index). The orchestrator builds a directed acyclic dependency graph from declared inter-unit constraints (e.g., "issue B depends on issue A's API changes"); units with no declared dependency form the root level.
+
+**Per-level parallelism.** At each dependency level, the orchestrator parallelizes researchers + implementers across all units in that level subject to the three Parallel Safety conditions in the canonical rule. The parallelism width per level is bounded by the same `max_phase4_parallel` ceiling (env-overridable via `HATCH3R_MAX_PHASE4_PARALLEL`) the Phase 4 specialists honor, plus an `HATCH3R_MAX_LEVEL_PARALLEL` ceiling (default `8`, valid range 1–16) when implementer fan-out width exceeds the Phase 4 ceiling at deeper levels.
+
+**Concurrent primitive — `concurrent_pipeline_unit`.** Each unit in a level is a `concurrent_pipeline_unit` record: `{ unitId: string; correlationId: string; parentEpicId?: string; level: number; dependsOn: string[]; priority: "p0"|"p1"|"p2"|"p3"; status: "pending"|"running"|"complete"|"blocked"; }`. Within a level the orchestrator dispatches by priority descending (p0 first); when concurrency limits cap the level, the in-flight pool is filled with highest-priority units first and the rest queue for the next dispatch slot.
+
+**File-overlap reconciliation.** When two parallel implementers in the same level touch the same file: accept disjoint-region edits without conflict; merge overlapping regions using the larger-scope change as base (the smaller change replays onto the larger); halt on semantic conflicts for user resolution. Per Parallel Safety condition 3, NO mid-pipeline writes to shared mutable state (`.hatch3r/hatch.json`, `.hatch3r/learnings/INDEX.md`) — learnings consolidation happens at pipeline completion only.
+
+**Review loop coordination.** After all level-N implementers complete, the orchestrator runs ONE consolidated Phase 3 review loop covering the union diff produced by the level. Per-unit Phase 4 specialist dispatch then runs in parallel bounded by `max_phase4_parallel`. Level-N+1 begins only after Level-N reaches Phase 4 completion (validated by `evaluatePhase4Completion`).
+
+**Concurrent-invocation handling.** Cross-pipeline (two `hatch3r` commands in two shells against the same repo) is deferred to a future cycle pending the Decision 27 resumability work — see CL-2 spec at the end of `governance/AUDIT-EXECUTE.md`.
+
+## Pipeline Pattern (Cross-Command Consistency)
+
+Finding D7-M12 / D7-SA7.5-2: implementation-flavored orchestrators (`workflow`, `board-pickup`, `revision`, `quick-change`, `board-fill`) MUST follow the canonical pattern below. Per-command deviations require an explicit rationale in the command body's "Pipeline Deviations" subsection.
+
+| Stage | Canonical agent | Required at Tier | Carve-out |
+|-------|-----------------|------------------|-----------|
+| Phase 1 Research | `hatch3r-researcher` | T2/T3 | T1 skip per Phase Skip Criteria |
+| Phase 2 Implement | `hatch3r-implementer` | All | T1 quick-change inline carve-out only |
+| Phase 3 Review Loop | `hatch3r-reviewer` ↔ `hatch3r-fixer` (max `DEFAULT_MAX_REVIEW_ITERATIONS`) | T2/T3 nontrivial | T1 all-trivial skip per Phase Skip Criteria |
+| Phase 4 Final Quality | CQ + SSOT specialists, batched by severity, bounded by `max_phase4_parallel` | T2/T3 | T1 — only always-mode floor (`security` + `testability`) |
+| Phase 4 Validation Pass | re-run tests/typecheck vs Phase-3 baseline; re-review on specialist code mutations | T2/T3 | — |
+
+Cross-command error-handling defaults: sub-agent failure → retry once then fall back to direct/inline implementation per command's carve-out; quality-check failure → max 2 retry loops then ASK; context-degradation threshold → 25 turns (quick-change tightens to 15 per its documented rationale). Concurrent-invocation handling and lockfile semantics are deferred to a future cycle pending the Decision 27 resumability work.
+
 ## Context Token Optimization
 
 When pipeline context exceeds 50% of the available context window, apply these compression strategies in order:

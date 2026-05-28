@@ -286,53 +286,54 @@ Applies to API code and protobufs.`,
     expect(parsed.teammateMode).toBe("auto");
   });
 
-  // D9-H-2 (D9, P3): Agent Teams reached GA in Claude Code v2.1.120+ where
-  // CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS is no longer required. Default
-  // emission must omit the legacy env var; it is emitted only on explicit
-  // experimental opt-in, with a deprecation warning.
-  describe("D9-H-2 Agent Teams GA env-var emission", () => {
+  // D9-M4 (Cycle 10 D9 Wave-3, P3): Agent Teams remains EXPERIMENTAL per
+  // https://code.claude.com/docs/en/agent-teams (accessed 2026-05-28) — the
+  // feature is "disabled by default" and requires
+  // CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS to be set. Default emission MUST
+  // include the env var so Agent Teams actually functions; explicit opt-out
+  // via `claude.agentTeams: false` suppresses it. The earlier D9-H-2 GA
+  // reading was reversed after the docs re-verification pass found the
+  // experimental warning unchanged.
+  describe("D9-M4 Agent Teams experimental env-var emission", () => {
     function parsedSettings(outputs: Awaited<ReturnType<typeof adapter.generate>>) {
       const settings = outputs.find((o) => o.path === ".claude/settings.json");
       expect(settings).toBeDefined();
       return JSON.parse(settings!.content) as { env?: Record<string, string> };
     }
 
-    it("omits the legacy env var by default (agentTeams unset)", async () => {
+    it("emits the experimental env var by default (agentTeams unset)", async () => {
       const manifest = makeManifest();
       const outputs = await adapter.generate(FIXTURES_DIR, manifest);
       const parsed = parsedSettings(outputs);
-      expect(parsed.env?.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS).toBeUndefined();
+      expect(parsed.env?.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS).toBe("1");
     });
 
-    it("omits the legacy env var when agentTeams is 'ga'", async () => {
-      const manifest = makeManifest({ claude: { agentTeams: "ga" } });
-      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
-      const parsed = parsedSettings(outputs);
-      expect(parsed.env?.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS).toBeUndefined();
-    });
-
-    it("omits the legacy env var when agentTeams is false", async () => {
-      const manifest = makeManifest({ claude: { agentTeams: false } });
-      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
-      const parsed = parsedSettings(outputs);
-      expect(parsed.env?.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS).toBeUndefined();
-    });
-
-    it("emits the legacy env var with a deprecation warning when agentTeams is true", async () => {
-      // Fresh adapter so `warnings` reflects only this generation
-      // (BaseAdapter.generate resets `this.warnings` per run).
+    it("emits the experimental env var with an alias warning when agentTeams is 'ga'", async () => {
       const localAdapter = new ClaudeAdapter();
-      const manifest = makeManifest({ claude: { agentTeams: true } });
+      const manifest = makeManifest({ claude: { agentTeams: "ga" } });
       const outputs = await localAdapter.generate(FIXTURES_DIR, manifest);
       const settings = outputs.find((o) => o.path === ".claude/settings.json");
       const parsed = JSON.parse(settings!.content);
       expect(parsed.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS).toBe("1");
       expect(
         localAdapter.warnings.some((w) =>
-          w.includes("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS") &&
-          w.includes("no longer required"),
+          w.includes("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS") || w.includes("alias"),
         ),
       ).toBe(true);
+    });
+
+    it("omits the experimental env var when agentTeams is false (explicit opt-out)", async () => {
+      const manifest = makeManifest({ claude: { agentTeams: false } });
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const parsed = parsedSettings(outputs);
+      expect(parsed.env?.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS).toBeUndefined();
+    });
+
+    it("emits the experimental env var when agentTeams is true (explicit opt-in)", async () => {
+      const manifest = makeManifest({ claude: { agentTeams: true } });
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const parsed = parsedSettings(outputs);
+      expect(parsed.env?.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS).toBe("1");
     });
   });
 
@@ -1535,6 +1536,23 @@ Low priority rule body.
       for (const out of managed) {
         expect(out.content.includes(out.managedContent!.trim())).toBe(true);
       }
+    });
+  });
+
+  // D3-M1 (Cycle 10 Wave-3 Medium rollover): adapters had no documented
+  // error-path coverage. Pipeline timeouts surface as a pre-aborted
+  // AbortSignal; `BaseAdapter.throwIfSignalAborted` is the documented
+  // contract (see src/adapters/base.ts:321). Pin the contract here so any
+  // future change that silently swallows the signal cannot regress.
+  describe("error paths", () => {
+    it("rejects with the abort reason when the signal is pre-aborted", async () => {
+      const manifest = makeManifest();
+      const controller = new AbortController();
+      const reason = new Error("claude: pipeline timeout exceeded");
+      controller.abort(reason);
+      await expect(
+        adapter.generate(FIXTURES_DIR, manifest, FIXTURES_USER_REPO, "standard", controller.signal),
+      ).rejects.toThrow("claude: pipeline timeout exceeded");
     });
   });
 });

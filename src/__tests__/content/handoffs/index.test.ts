@@ -324,4 +324,65 @@ describe("buildHandoffIndex", () => {
     expect(index.byBranch.get("feature/a")?.length).toBe(1);
     expect(index.byBranch.get("feature/b")?.length).toBe(1);
   });
+
+  // D3-M7 (Cycle 10 Wave-3 Medium rollover): `src/content/handoffs/index.ts`
+  // branches measured 64.17% — below the 70% per-directory floor. Add
+  // targeted negative-path tests so the missing branches in `loadDir` (parse
+  // failure, ENOENT swallowing), `readHandoff` (parse failure fallthrough),
+  // and `buildHandoffIndex` (empty work_item / empty branch) gain explicit
+  // coverage rather than relying on incidental traversal.
+
+  it("returns empty maps when no handoffs exist (loadDir ENOENT branch)", async () => {
+    const index = await buildHandoffIndex(tmpDir);
+    expect(index.active.size).toBe(0);
+    expect(index.archived.size).toBe(0);
+    expect(index.byWorkItem.size).toBe(0);
+    expect(index.byBranch.size).toBe(0);
+  });
+
+  it("does not gain a work_item bucket when a handoff carries no work_item field", async () => {
+    // buildHandoffIndex iterates active+archived handoffs and only pushes
+    // into `byWorkItem` when `frontmatter.work_item` is a non-empty string.
+    // The fixture omits `work_item` (the field is optional), so the
+    // resulting index must show an empty byWorkItem map even though we
+    // wrote one handoff.
+    await writeHandoff(
+      tmpDir,
+      buildHandoff({
+        id: "2026-05-17_T1432_dddd2_nowi",
+        branch: "feature/has-branch-no-wi",
+        // work_item intentionally omitted (undefined).
+      }),
+    );
+    const index = await buildHandoffIndex(tmpDir);
+    expect(index.active.size).toBe(1);
+    expect(index.byWorkItem.size).toBe(0);
+    expect(index.byBranch.get("feature/has-branch-no-wi")?.length).toBe(1);
+  });
+});
+
+// ── parse-failure / size-cap branches (D3-M7) ────────────────────
+
+describe("loadDir parse failures", () => {
+  it("listHandoffs skips a malformed file (missing leading `---`) without throwing", async () => {
+    const { writeFile, mkdir } = await import("node:fs/promises");
+    const path = await import("node:path");
+    const activeDir = path.join(tmpDir, "handoffs", "active");
+    await mkdir(activeDir, { recursive: true });
+    await writeFile(path.join(activeDir, "garbage.md"), "no frontmatter here", "utf-8");
+    // Should not throw, simply skip the malformed file.
+    const all = await listHandoffs(tmpDir);
+    expect(all).toEqual([]);
+  });
+
+  it("readHandoff returns null when the id resolves to an unparseable file", async () => {
+    const { writeFile, mkdir } = await import("node:fs/promises");
+    const path = await import("node:path");
+    const activeDir = path.join(tmpDir, "handoffs", "active");
+    await mkdir(activeDir, { recursive: true });
+    const id = "2026-05-17_T1430_garbage_unparseable";
+    await writeFile(path.join(activeDir, `${id}.md`), "---\nnot: closed", "utf-8");
+    const got = await readHandoff(tmpDir, id);
+    expect(got).toBeNull();
+  });
 });

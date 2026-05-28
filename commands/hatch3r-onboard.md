@@ -18,7 +18,16 @@ sub_agents_spawned:
 
 ## §0 Detect Ambiguity (P8 B1)
 
-Before any action, scan the user's request and provided context for unresolved questions in scope, acceptance criteria, irreversibility, or constraint conflicts (contradictory inputs, missing target, unknown convention). If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Acceptable to proceed without asking ONLY when scope is single-target, single-concern, and the brief alone is testable. Any residual ambiguity discovered mid-workflow invokes the same protocol.
+Before any action, scan the user's request and provided context for unresolved questions. Apply the platform-native question tool per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Default behavior on no response: lowest-blast-radius reversible option per `agents/shared/user-question-protocol.md`.
+
+**Triggers for this command:**
+- Developer role unspecified (frontend / backend / fullstack / devops / general) — guide content materially diverges per role.
+- Experience level unspecified (junior / mid / senior / staff) — depth + assumed knowledge tailoring differs.
+- Focus areas absent — guide either targets specific modules or covers all surfaces.
+- Output format ambiguous — markdown vs GitHub issue vs Notion changes write path.
+- Team context dimensions in Step 1b unanswered — guide either includes the section or omits it; do not invent team norms.
+
+Acceptable to proceed without asking ONLY when scope is single-target, single-concern, and the brief alone is testable. Any residual ambiguity discovered mid-workflow invokes the same protocol. If a question goes unanswered, return BLOCKED_AMBIGUITY in the structured result with the rendered question rather than silent-picking.
 
 ## Agent Pipeline
 
@@ -486,3 +495,9 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 - **Command:** `hatch3r-codebase-map` — deeper architecture documentation
 - **Command:** `hatch3r-project-spec` — full project specification
 - **Skill:** `hatch3r-feature` — standard feature development workflow (referenced in guide)
+
+## References
+
+- `agents/shared/user-question-protocol.md` (B1 gate — applies at §0 Detect Ambiguity above plus every mid-workflow ASK checkpoint per Finding D7-M14)
+- `agents/shared/quality-charter.md` §1, §3, §7, §8 (confidence, ambiguity, measurable criteria)
+- `rules/hatch3r-agent-orchestration.md` (Per-Turn Pipeline-State Header, End-of-Turn Delegation Attestation, Mandatory Delegation Directive)

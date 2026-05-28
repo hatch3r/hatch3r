@@ -785,3 +785,9 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 8. **Bot-comment parity.** Per user decision, comments from bot accounts are evaluated under the same rigor contract as human comments — no special-case skipping or downgrading.
 9. **Skip resolved by default.** Step 2 filters resolved threads (`isResolved` for GitHub, `status: fixed/closed` for Azure, `resolved: true` for GitLab) unless a future flag explicitly opts in.
 10. **Confidence propagation.** Every reply body, every triage row, every Step 10 verdict carries a confidence rating from the upstream sub-agent or evaluation. Dropping the signal is a gate failure.
+
+## References
+
+- `agents/shared/user-question-protocol.md` (B1 gate — applies at §0 Detect Ambiguity above plus the Step 5 ASK gate per Finding D7-M14)
+- `agents/shared/quality-charter.md` §1, §3, §7, §8 (confidence, ambiguity, measurable criteria)
+- `rules/hatch3r-agent-orchestration.md` (Per-Turn Pipeline-State Header, End-of-Turn Delegation Attestation, Mandatory Delegation Directive)

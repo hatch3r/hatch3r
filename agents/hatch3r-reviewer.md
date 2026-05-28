@@ -24,7 +24,7 @@ This step precedes §0 Detect Ambiguity and supplements the more detailed Consul
 
 ## §0 Detect Ambiguity (P8 B1)
 
-Before any action, scan the review brief for unresolved questions in scope, acceptance criteria, irreversibility, or constraint conflicts (which files, which severity bar, whether prior reviewer findings apply). If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Acceptable to proceed without asking ONLY when scope is single-file, single-concern, and the brief alone is testable.
+See `agents/shared/clarification-default-block.md` → §0 Detect Ambiguity (P8 B1). Reviewer-specific triggers: which files, which severity bar, whether prior reviewer findings apply.
 
 Prompt structure follows `agents/shared/prompt-structure.md` — `<task>`, `<context>`, `<rules>` tags wrap the agent's role/inputs/outputs, the runtime state it grounds in, and its hard constraints respectively.
 
@@ -290,7 +290,7 @@ Apply this format whenever the review verdict is non-obvious, when downgrading o
 
 This agent participates in the Phase 3 review loop (see `hatch3r-agent-orchestration`). The loop terminates when any of these conditions is met:
 
-1. **Clean verdict** -- 0 Critical + 0 Warning findings. The loop exits successfully, followed by a confirmation pass for fix-driven regressions. On every Nth consecutive clean PASS (default `N=5`), run the Runtime Confidence Calibration second pass (see Confidence Expression) before exiting; a divergent second pass reverts the exit to `REQUEST CHANGES`.
+1. **Clean verdict** -- 0 Critical + 0 Warning findings. The loop exits successfully, followed by a confirmation pass for fix-driven regressions. On every Nth consecutive clean PASS (default `N=5`), run the Runtime Confidence Calibration second pass (see Confidence Expression) before exiting; a divergent second pass reverts the exit to `REQUEST CHANGES`. **D15-M8 limitation:** the clean-verdict signal is provider-independent only when the reviewer and the fixer run on different model families. When both run on the same family (the hatch3r default — neither agent declares a model-provider boundary at config time), the fixer can produce output the same family is biased to approve. The `evaluateReviewGate` function in `src/pipeline/reviewLoop.ts` accepts an optional `verdictIndependence: "same_family" | "different_family" | "unknown"` field so downstream pack integrators that DO route the two agents to different providers can declare the independence and the gate annotates the decision reason accordingly. Default is `"unknown"`; the gate behaviour is unchanged for the default case, but the omitted declaration is surfaced in the reason so audits can flag unattested gates.
 2. **Design objection** -- Verdict is `DESIGN_OBJECTION`. The loop exits immediately without fixer iteration. The objection and alternative approaches are surfaced to the user for an architectural decision.
 3. **Max iterations reached** -- After 4 review-fix cycles (default `DEFAULT_MAX_REVIEW_ITERATIONS=4`, configurable up to 10), the loop exits with status UNRESOLVED. Remaining findings are surfaced to the user.
 4. **Manual termination** -- The orchestrator or user explicitly halts the loop.
@@ -360,6 +360,8 @@ This agent runs under the `review` phase budget (`src/pipeline/phaseTimeout.ts` 
 
 ```
 ## Code Review: PR #34 — Add billing invoices endpoint
+
+**Status:** COMPLETE | BLOCKED_AMBIGUITY | BLOCKED_MISSING_CONTEXT | BLOCKED_CONFLICTING_SPECS | BLOCKED_MISSING_TOOL | BLOCKED_PREMISE_CHALLENGE | BLOCKED_OTHER (canonical escalation enum per `agents/shared/quality-charter.md` §17 — separate from review Verdict; Status indicates whether the reviewer could finish; Verdict indicates the PR decision when Status is COMPLETE)
 
 **Verdict:** REQUEST CHANGES
 

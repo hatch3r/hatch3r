@@ -107,7 +107,7 @@ Each item carries a named tool, a threshold, and a citation. Failing any item pr
 
 ## Output contract
 
-See `agents/shared/quality-specialist-frame.md` → §Output Contract (yaml schema, severity vocabulary, verification harness convention). CQ1 specifics: `id` format `cq1-ui-<short-slug>-<3-digit-seq>`; `progress_toward_pillar: content-quality.CQ1+<delta>`. Critical trigger: axe-core serious + critical on a public route.
+See `agents/shared/quality-specialist-frame.md` → §Output Contract (yaml schema, canonical id format, sub_agents_spawned emission contract, severity vocabulary, verification harness convention). CQ1 specifics: `id` follows the canonical `cq1-ui-<short-slug>-<3-digit-seq>` pattern (e.g., `cq1-ui-dashboard-001`); `progress_toward_pillar: content-quality.CQ1+<delta>`. Every CQ1 output emits `sub_agents_spawned: {count, rationale}` per the P8 B2 emission contract — typical decomposition is one sub-agent per audited route. Critical trigger: axe-core serious + critical on a public route.
 
 **Verification harness:** `skills/hatch3r-ui-ux-verify` runs the 9-gate axe-core + keyboard + four-state + visual-regression sweep that produces the `proof_trace.actual` evidence. Cite its gate results in every High-confidence finding.
 

@@ -511,7 +511,20 @@ export type Framework =
   | "flask"
   | "rails"
   | "spring"
-  | "laravel";
+  | "laravel"
+  // D14-M1 (Cycle 10 rollover): 2026 stacks — Tanstack Start, SolidStart,
+  // Qwik (JS meta-frameworks), FastAPI (Python ASGI), Phoenix (Elixir),
+  // axum + actix (Rust web). Each is dep-detected via package.json (JS),
+  // pyproject.toml/requirements.txt (Python), mix.exs (Elixir), or
+  // Cargo.toml (Rust) — see FRAMEWORK_DEP_INDICATORS in
+  // src/detect/repoAnalyzer.ts.
+  | "tanstack-start"
+  | "solid-start"
+  | "qwik"
+  | "fastapi"
+  | "phoenix"
+  | "axum"
+  | "actix";
 
 export interface RepoInfo {
   languages: string[];
@@ -634,17 +647,37 @@ export type HatchErrorCode =
  * in one place so call sites can throw `new HatchError(msg, undefined, CODE)`
  * without hand-picking an exit code. Explicit exitCode (incl. 0 for user
  * cancellation, 2 for usage errors) always wins over this mapping.
+ *
+ * SA12.1-F-D12-M1 (Cycle 10 Wave 3, D12, P1): differentiated per the
+ * sysexits.h convention (FreeBSD `/usr/include/sysexits.h`, accessed
+ * 2026-05-28) so CI consumers and shell pipelines can branch on the kind
+ * of failure. The kept codes are the subset that maps cleanly to hatch3r
+ * errors:
+ *   - 64 EX_USAGE         — command-line usage error (VALIDATION_ERROR)
+ *   - 65 EX_DATAERR       — input data malformed (CONFIG_ERROR)
+ *   - 69 EX_UNAVAILABLE   — service unavailable (ADAPTER_ERROR)
+ *   - 70 EX_SOFTWARE      — internal software error (UNKNOWN_ERROR)
+ *   - 73 EX_CANTCREAT     — file output error (INTEGRITY_ERROR — adapter
+ *                            output cannot be regenerated to match canonical)
+ *   - 74 EX_IOERR         — I/O error (FS_ERROR, CLEAN_ERROR)
+ *   - 75 EX_TEMPFAIL      — temporary failure, retryable (NETWORK_ERROR,
+ *                            LOCK_TIMEOUT)
+ *
+ * The pre-2.0.0 contract collapsed every code to exit 1; consumers relying
+ * on the legacy behavior can grep stderr for the `errorCode` string (still
+ * surfaced via `HatchError.errorCode`) or branch on the structured JSON
+ * mode emitted by `validate --format json`.
  */
 export const ERROR_CODE_TO_EXIT_CODE: Record<HatchErrorCode, number> = {
-  VALIDATION_ERROR: 1,
-  CONFIG_ERROR: 1,
-  FS_ERROR: 1,
-  INTEGRITY_ERROR: 1,
-  ADAPTER_ERROR: 1,
-  NETWORK_ERROR: 1,
-  CLEAN_ERROR: 1,
-  LOCK_TIMEOUT: 1,
-  UNKNOWN_ERROR: 1,
+  VALIDATION_ERROR: 64,
+  CONFIG_ERROR: 65,
+  FS_ERROR: 74,
+  INTEGRITY_ERROR: 73,
+  ADAPTER_ERROR: 69,
+  NETWORK_ERROR: 75,
+  CLEAN_ERROR: 74,
+  LOCK_TIMEOUT: 75,
+  UNKNOWN_ERROR: 70,
 };
 
 export function exitCodeForErrorCode(code: HatchErrorCode): number {

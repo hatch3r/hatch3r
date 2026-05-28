@@ -13,6 +13,14 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
+# Cycle 10 M D4-M2 (D4): every `npm ci` step in this file carries an inline
+# `env: NPM_CONFIG_IGNORE_SCRIPTS: "true"` block. .npmrc declares the same flag,
+# but a malicious transitive Git-dep can ship `installconfig` keys that flip
+# project-rc settings mid-install. The env var sits at a higher precedence band
+# (npm 11 config order: cli > env > project rc > user rc > global rc) and is
+# not overridable by package-side configuration — hardening the Shai-Hulud /
+# Axios-1.14.1 / crypto-js-4.2.1 class of supply-chain compromise.
+
 # Cycle 9 C9-H9 (D4-H4.2.1): step-security/harden-runner installed as the
 # first step of every job to monitor outbound network egress, file writes,
 # and child-process spawns from inside the GitHub-hosted runner. Audit mode
@@ -51,6 +59,8 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
+        env:
+          NPM_CONFIG_IGNORE_SCRIPTS: "true"
         run: npm ci
 
       - name: Lockfile lint
@@ -154,8 +164,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Node 22 is the minimum supported version (engines >= 22.0.0)
-        node-version: [22, 24]
+        # Cycle 10 M D4-M3 (D4): Node 22 is the minimum supported version
+        # (engines >= 22.0.0). Node 24 is the current LTS lane; Node 26 is the
+        # April-2026 odd-numbered release exercising the upcoming runtime
+        # behaviors (V8 13.4, undici 7.x deprecations) so a regression there
+        # surfaces in CI before the version becomes LTS in October 2026. The
+        # `engines: >=22.0.0` declaration permits Node 26 today, so leaving the
+        # lane untested left users on the bleeding edge unprotected.
+        node-version: [22, 24, 26]
         os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
@@ -181,6 +197,8 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
+        env:
+          NPM_CONFIG_IGNORE_SCRIPTS: "true"
         run: npm ci
 
       - name: Security audit

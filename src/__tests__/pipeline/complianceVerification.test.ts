@@ -3,7 +3,9 @@ import {
   runComplianceChecks,
   formatComplianceReport,
   detectResilienceInvocations,
+  verifyMonotonicPrivilege,
 } from "../../pipeline/complianceVerification.js";
+import { ALL_TOOL_CATEGORIES } from "../../pipeline/agentToolAllowlist.js";
 
 describe("complianceVerification", () => {
   describe("runComplianceChecks", () => {
@@ -155,6 +157,45 @@ describe("complianceVerification", () => {
       const lines = formatComplianceReport(report);
       const joined = lines.join("\n");
       expect(joined).not.toContain("NON-COMPLIANT");
+    });
+  });
+
+  describe("D15-M12: verifyMonotonicPrivilege", () => {
+    it("returns ok=true for the canonical registry (no agent exceeds the orchestrator root)", () => {
+      const report = verifyMonotonicPrivilege();
+      expect(report.ok).toBe(true);
+      expect(report.violations).toEqual([]);
+    });
+
+    it("flags an agent that declares a category outside ALL_TOOL_CATEGORIES", () => {
+      const report = verifyMonotonicPrivilege([
+        {
+          agentId: "test-agent",
+          allowedTools: ["read", "rogue-category"],
+          description: "test",
+        },
+      ]);
+      expect(report.ok).toBe(false);
+      expect(report.violations.some((v) => v.kind === "unknown_category")).toBe(true);
+    });
+
+    it("flags an agent that holds every canonical category at once", () => {
+      const report = verifyMonotonicPrivilege([
+        {
+          agentId: "god-agent",
+          allowedTools: [...ALL_TOOL_CATEGORIES],
+          description: "test — should fail",
+        },
+      ]);
+      expect(report.ok).toBe(false);
+      expect(report.violations.some((v) => v.kind === "universal_allowlist")).toBe(true);
+    });
+
+    it("is wired into the compliance report as 'asi02-monotonic-privilege'", async () => {
+      const report = await runComplianceChecks();
+      const check = report.checks.find((c) => c.id === "asi02-monotonic-privilege");
+      expect(check).toBeDefined();
+      expect(check!.status).toBe("pass");
     });
   });
 });

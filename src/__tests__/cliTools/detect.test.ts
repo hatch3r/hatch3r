@@ -338,3 +338,64 @@ describe("findMissingCliTools", () => {
     expect(missing).toEqual(["ripgrep", "jq"]);
   });
 });
+
+describe("detectCliTool extensionProbe (D21-M6, Cycle 10)", () => {
+  it("returns installed:false + extensionMissing when az is on PATH but azure-devops extension is absent", async () => {
+    setPlatform("darwin");
+    // Base probe (/bin/sh -c command -v -- "az") returns a path; the
+    // extension probe (az extension list -o tsv) returns stdout that does
+    // NOT contain "azure-devops".
+    spawnHandler = (cmd, args) => {
+      if (cmd === "/bin/sh") {
+        return { stdout: "/opt/homebrew/bin/az\n", code: 0 };
+      }
+      // cmd === "az" — direct spawn of the extension probe
+      if (cmd === "az" && args[0] === "extension") {
+        return { stdout: "interpret\n", code: 0 };
+      }
+      return { stdout: "", code: 1 };
+    };
+
+    const promise = detectMod.detectCliTool("az-devops");
+    await vi.advanceTimersByTimeAsync(50);
+    const result = await promise;
+
+    expect(result.installed).toBe(false);
+    expect(result.extensionMissing).toBe("azure-devops");
+    expect(result.path).toBe("/opt/homebrew/bin/az");
+  });
+
+  it("returns installed:true + no extensionMissing when azure-devops extension is present", async () => {
+    setPlatform("darwin");
+    spawnHandler = (cmd, args) => {
+      if (cmd === "/bin/sh") {
+        return { stdout: "/opt/homebrew/bin/az\n", code: 0 };
+      }
+      if (cmd === "az" && args[0] === "extension") {
+        return { stdout: "azure-devops\t1.0.0\nfoo\t2.0.0\n", code: 0 };
+      }
+      return { stdout: "", code: 1 };
+    };
+
+    const promise = detectMod.detectCliTool("az-devops");
+    await vi.advanceTimersByTimeAsync(50);
+    const result = await promise;
+
+    expect(result.installed).toBe(true);
+    expect(result.extensionMissing).toBeUndefined();
+  });
+
+  it("does not run the extension probe when the base binary is missing", async () => {
+    setPlatform("darwin");
+    spawnHandler = () => ({ stdout: "", code: 1 });
+
+    const promise = detectMod.detectCliTool("az-devops");
+    await vi.advanceTimersByTimeAsync(50);
+    const result = await promise;
+
+    expect(result.installed).toBe(false);
+    expect(result.extensionMissing).toBeUndefined();
+    // Only the base /bin/sh probe should have been invoked.
+    expect(spawnCalls.every((c) => c.cmd === "/bin/sh")).toBe(true);
+  });
+});

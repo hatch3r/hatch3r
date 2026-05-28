@@ -49,6 +49,33 @@ Calibrate the fields to the triage tier (see `rules/hatch3r-deep-context`); sour
 - **Confidence + basis:** one of direct measurement | sampled observation | inference from analogue
 - **Consulted Learnings:** IDs of `.hatch3r/learnings/` entries the bound agents (implementer / reviewer / researcher / fixer) read this run per the `rules/hatch3r-learning-system.md` Mandatory Consultation Gate; `none` when INDEX.md is absent or zero `applies-to` rows matched. Distinct from §9 Learnings Captured (entries written this run). Citing zero when `applies-to` matched is a gate failure.
 
+## Optional Pattern Rationale (D13 in-flow teaching)
+
+Orchestrators MAY emit a `## Pattern Rationale` block before the Iteration Summary to teach the user the framework pattern applied — closing the knowledge-transfer gap surfaced by D13 SA13.4 F5. One line per pattern with rule citation + pillar served + plain-language reason:
+
+```
+pattern_rationale:
+  - pattern: <name, e.g., "circuit-breaker for outbound DB call">
+    rule: <rules/hatch3r-*.md path or governance/CONSTITUTION.md anchor>
+    pillar: <P1..P8 or CQ1..CQ9>
+    why: <≤1 sentence plain language>
+```
+
+Default omission policy: emit when at least one mutated file applies a named rule the user did not request explicitly. Skip on trivial edits (typo, frontmatter-only). When omitted entirely, no field appears — this preserves token budget for Tier 1 runs.
+
+## User-Accepted Bypass Record (D13)
+
+When the user explicitly accepts a low-confidence PASS at an ASK checkpoint (per the gate-failure rule in the Confidence Propagation Contract used by every core orchestrator), the orchestrator MUST:
+
+1. Emit `User-Accepted Bypass: yes` in §8 (Open Questions / Blockers) with the bypass reason verbatim from the user reply.
+2. Append a single line to `.hatch3r/bypass-log.jsonl` (one JSON object per line — append-only, never rewritten):
+
+```json
+{"ts": "<ISO-8601>", "command": "<hatch3r-* name>", "verdict": "low", "user_reason": "<verbatim ≤200 chars>", "files": ["<paths>"], "session_id": "<id>"}
+```
+
+Schema: `ts` ISO-8601 UTC timestamp; `command` the orchestrator command id; `verdict` always `low` (no bypass on high/medium per the contract); `user_reason` the user's verbatim acceptance string (truncated at 200 chars, no PII); `files` mutated file list; `session_id` the host runtime's session id when available, `unknown` otherwise. Atomic append via `src/merge/safeWrite.ts` pattern (temp+rename then concat). Absence of the line on a recorded bypass is a P5 gate failure.
+
 ## Validation Gate
 
 A skill or command that omits the 9-section block fails the lifecycle gate (`.claude/rules/capability-lifecycle.md`). Prose substitution is rejected. The orchestrator catches the omission before declaring SUCCESS.

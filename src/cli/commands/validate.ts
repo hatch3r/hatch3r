@@ -11,6 +11,7 @@ import { HATCH3R_DIR, HATCH3R_PREFIX, HatchError } from "../../types.js";
 import type { HatchManifest } from "../../types.js";
 import { HATCH3R_VERSION } from "../../version.js";
 import { scanForDeniedPatterns } from "../../adapters/customization.js";
+import { ALL_TAGS, facetOf } from "../../content/tags.js";
 import { buildContentIndex, validateCrossReferences, validateOrchestrationDependencies, resolveUserContentRoot } from "../../content/index.js";
 import type { CatalogItem, ContentIndex } from "../../content/index.js";
 import { findPackageRoot } from "../shared/paths.js";
@@ -34,20 +35,29 @@ import {
   verbose,
 } from "../shared/ui.js";
 
-// Default fallback set; overridden by manifest.content when available.
-// F16.3-H1 (Cycle 10 Wave 1C): the 5 legacy meta-agents (a11y-auditor,
-// dependency-auditor, perf-profiler, security-auditor, test-writer) were
-// retired into the 9 CQ specialists (ui/ux/security/reliability/testability/
-// scalability/performance/maintainability/enhancability) plus the 2 spec
-// agents (greenfield-spec, brownfield-spec) per agents/ inventory.
-const DEFAULT_KNOWN_AGENTS = new Set([
-  "hatch3r-architect", "hatch3r-brownfield-spec", "hatch3r-ci-watcher", "hatch3r-context-rules",
-  "hatch3r-creator", "hatch3r-devops", "hatch3r-docs-writer", "hatch3r-enhancability",
-  "hatch3r-fixer", "hatch3r-greenfield-spec", "hatch3r-handoff-loader", "hatch3r-handoff-preparer",
-  "hatch3r-implementer", "hatch3r-learnings-loader", "hatch3r-lint-fixer", "hatch3r-maintainability",
-  "hatch3r-performance", "hatch3r-reliability", "hatch3r-researcher", "hatch3r-reviewer",
-  "hatch3r-scalability", "hatch3r-security", "hatch3r-testability", "hatch3r-ui", "hatch3r-ux",
-]);
+/**
+ * C9-M7 (Cycle 10 Wave-3 Medium): the previous DEFAULT_KNOWN_AGENTS literal
+ * hard-coded the agent roster, so any cycle that added or retired an agent
+ * (e.g. F16.3-H1's 5 legacy meta-agent retirement + 9 CQ specialist intake)
+ * had to manually re-sync this constant against the on-disk `agents/`
+ * directory. Drift between the constant and the filesystem produced
+ * inventory false-positives — a freshly-added agent surfaced as "not in the
+ * standard hatch3r agent roster" until the next manual edit.
+ *
+ * Build the fallback set dynamically from the bundled `agents/` directory
+ * the first time it is needed (cached per process). The hook-validation
+ * path below uses `manifest.content` when available; this fallback only
+ * runs when the manifest predates the content-tracking schema.
+ */
+let cachedKnownAgents: Set<string> | undefined;
+async function getKnownAgents(canonicalRoot: string): Promise<Set<string>> {
+  if (cachedKnownAgents) return cachedKnownAgents;
+  const index = await buildContentIndex(canonicalRoot);
+  cachedKnownAgents = new Set(
+    index.items.filter((i) => i.type === "agent").map((i) => i.id),
+  );
+  return cachedKnownAgents;
+}
 
 export interface ValidationResult {
   errors: string[];
@@ -169,6 +179,19 @@ async function validateFrontmatter(
               if (parsedFm && typeof parsedFm === "object") {
                 validateEfficiencyFrontmatter(parsedFm, label, dir, result);
               }
+              // D2-M12 (D2 Medium, Cycle 10 Wave 3 rollover): runtime
+              // unknown-tag scan. `ALL_TAGS` lives only at TypeScript
+              // compile time, so a YAML author who wrote
+              // `tags: [floor:contntquality]` (typo) previously surfaced no
+              // diagnostic — the typo would survive `validate` and only
+              // misbehave at preset-resolution time when the unknown tag
+              // failed every facet predicate. Validate the tag list against
+              // the registry via `facetOf`; unknown tags surface as
+              // warnings with a "Did you mean?" suggestion from the closest
+              // known tag (Levenshtein ≤ 2).
+              if (parsedFm && typeof parsedFm === "object") {
+                validateTagsAgainstRegistry(parsedFm, label, result);
+              }
             }
           }
         } else if (entry.isDirectory()) {
@@ -192,6 +215,71 @@ async function validateFrontmatter(
 
   // Wave 4: the root AGENTS.md is no longer emitted (W3). Bundled content
   // contains no AGENTS.md either — the bridge file is the orchestration doc.
+}
+
+/**
+ * D2-M12 (D2 Medium, Cycle 10 Wave 3 rollover): validate the `tags:` array
+ * against the canonical `TAG_REGISTRY` so an unknown tag in YAML frontmatter
+ * surfaces as a warning instead of slipping past `validate` to misbehave at
+ * preset-resolution time. `ALL_TAGS` is a TypeScript compile-time export and
+ * never reaches a YAML author's editor; this validator closes that loop at
+ * runtime.
+ *
+ * `tier:*` and `floor:enterprise-only` are accepted through the registry
+ * (they are registered facet entries). Tags with no facet match surface as a
+ * warning with a "Did you mean?" suggestion within Levenshtein distance ≤ 2.
+ */
+export function validateTagsAgainstRegistry(
+  parsedFm: Record<string, unknown>,
+  fileLabel: string,
+  result: ValidationResult,
+): void {
+  const tags = parsedFm.tags;
+  if (!Array.isArray(tags)) return;
+  for (const tag of tags) {
+    if (typeof tag !== "string") continue;
+    if (facetOf(tag) !== undefined) continue;
+    const suggestion = nearestKnownTag(tag);
+    const didYouMean = suggestion ? ` Did you mean "${suggestion}"?` : "";
+    result.warnings.push(
+      `Unknown tag "${tag}" in frontmatter: ${fileLabel} — not present in TAG_REGISTRY.${didYouMean}`,
+    );
+  }
+}
+
+/**
+ * D2-M12: nearest-known-tag suggestion via Levenshtein distance ≤ 2. Returns
+ * undefined when no registered tag is within the threshold. TAG_REGISTRY is
+ * bounded (~80 entries) so the full sweep stays cheap.
+ */
+function nearestKnownTag(tag: string): string | undefined {
+  const editDistance = (a: string, b: string): number => {
+    if (a === b) return 0;
+    if (a.length === 0) return b.length;
+    if (b.length === 0) return a.length;
+    let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+    const curr = new Array<number>(b.length + 1);
+    for (let i = 1; i <= a.length; i++) {
+      curr[0] = i;
+      for (let j = 1; j <= b.length; j++) {
+        const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+        curr[j] = Math.min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost);
+      }
+      prev = [...curr];
+    }
+    return prev[b.length];
+  };
+  let best: string | undefined;
+  let bestDistance = Infinity;
+  for (const known of ALL_TAGS) {
+    const d = editDistance(tag, known);
+    if (d < bestDistance) {
+      bestDistance = d;
+      best = known;
+    }
+    if (bestDistance === 0) break;
+  }
+  return best && bestDistance > 0 && bestDistance <= 2 ? best : undefined;
 }
 
 /**
@@ -420,10 +508,11 @@ async function validateHooks(
         if (!agentFiles.has(expectedFile)) {
           result.errors.push(`Hook "${hookFile}" references agent "${fm.agent}" but agents/${expectedFile} does not exist`);
         }
-        // Build known agents set from manifest content or fallback
+        // Build known agents set from manifest content or fallback to the
+        // dynamic index of the bundled `agents/` directory (C9-M7).
         const knownAgents = manifest.content
           ? new Set(manifest.content.items.agents)
-          : DEFAULT_KNOWN_AGENTS;
+          : await getKnownAgents(canonicalRoot);
         if (!knownAgents.has(agentName)) {
           result.warnings.push(`Hook "${hookFile}" references agent "${fm.agent}" which is not in the standard hatch3r agent roster`);
         }
@@ -994,6 +1083,13 @@ async function validateUserContent(
     // Strict gate: ID collision against canonical artifacts. The
     // user-shadow-canonical collisions populated by buildContentIndex are
     // surfaced here as errors with both file paths.
+    //
+    // D14-M8 (Cycle 10 rollover): `override: true` in the user artifact's
+    // frontmatter is the documented escape hatch — collision emits a
+    // warning instead of an error so an intentional override does not fail
+    // CI. Any other gate (deny-pattern, injection, size, etc.) still
+    // applies.
+    const fmOverride = fm.override === true;
     for (const collision of index.collisions) {
       if (collision.kind !== "user-shadow-canonical") continue;
       // Match either the existing OR duplicate path against this user item
@@ -1002,9 +1098,15 @@ async function validateUserContent(
         const canonicalSide = collision.duplicatePath === item.relativePath
           ? `${collision.existingType} ${collision.existingPath}`
           : `${collision.duplicateType} ${collision.duplicatePath}`;
-        result.errors.push(
-          `${fileLabel}: id "${collision.id}" collides with canonical ${canonicalSide} — choose a different name`,
-        );
+        if (fmOverride) {
+          result.warnings.push(
+            `${fileLabel}: id "${collision.id}" overrides canonical ${canonicalSide} (override: true in frontmatter). The user version will shadow canonical in adapter output.`,
+          );
+        } else {
+          result.errors.push(
+            `${fileLabel}: id "${collision.id}" collides with canonical ${canonicalSide} — choose a different name or add 'override: true' to frontmatter`,
+          );
+        }
       }
     }
 
@@ -1441,8 +1543,18 @@ async function validateContentBody(
         if (endIdx !== -1) {
           try {
             parsedFm = parseYaml(raw.slice(3, endIdx).trim()) as Record<string, unknown> | null;
-          } catch {
-            // Malformed YAML is reported by validateFrontmatter; skip here.
+          } catch (err) {
+            // D8-M2 (Silent Failure Contract, CONSTITUTION §2 P5): emit a
+            // warning so operators see the parse failure even when the
+            // anti-slop/pillar pass is the only consumer that runs against
+            // this file. validateFrontmatter reports the same defect for
+            // canonical agents/skills/commands/hooks but is not guaranteed
+            // to fire here (sink is the per-pass results buffer); a silent
+            // skip was previously the only diagnostic surface.
+            const message = err instanceof Error ? err.message : String(err);
+            sink.push(
+              `${fileLabel}: YAML frontmatter parse failed during anti-slop scan — ${message}`,
+            );
             parsedFm = null;
           }
           body = raw.slice(endIdx + 3);
@@ -1577,7 +1689,17 @@ async function validateAgentToolPolicyCoverage(
     let fm: Record<string, unknown> | null;
     try {
       fm = parseYaml(raw.slice(3, endIdx).trim()) as Record<string, unknown> | null;
-    } catch {
+    } catch (err) {
+      // D8-M2 (Silent Failure Contract, CONSTITUTION §2 P5): a silent skip
+      // here previously hid malformed agent frontmatter from the
+      // AGENT_TOOL_POLICIES coverage gate, so an agent with broken YAML
+      // would slip past ASI02 deny-by-default detection. Surface the
+      // parse failure on `result.warnings` so the maintainer sees the
+      // root cause even when validateFrontmatter ran first.
+      const message = err instanceof Error ? err.message : String(err);
+      result.warnings.push(
+        `agents/${entry.name}: YAML frontmatter parse failed during agent-tool-policy coverage scan — ${message}`,
+      );
       continue;
     }
     if (!fm || typeof fm !== "object") continue;
@@ -1652,8 +1774,16 @@ export async function validateSkillAllowedTools(
     let fm: Record<string, unknown> | null;
     try {
       fm = parseYaml(raw.slice(3, endIdx).trim()) as Record<string, unknown> | null;
-    } catch {
-      // Malformed YAML is reported by validateFrontmatter; skip here.
+    } catch (err) {
+      // D8-M2 (Silent Failure Contract, CONSTITUTION §2 P5): a silent skip
+      // here previously hid malformed skill frontmatter from the
+      // allowed_tools coverage gate, so a skill with broken YAML could
+      // ship without the Copilot-skills pre-approval field and re-prompt
+      // every invocation. Surface the parse failure on result.warnings.
+      const message = err instanceof Error ? err.message : String(err);
+      result.warnings.push(
+        `skills/${entry.name}/SKILL.md: YAML frontmatter parse failed during allowed_tools coverage scan — ${message}`,
+      );
       continue;
     }
     if (!fm || typeof fm !== "object") continue;
@@ -1934,7 +2064,7 @@ export async function validateCommand(opts?: {
       }
       throw new HatchError(
         "Documentation counts do not match",
-        1,
+        undefined,
         "VALIDATION_ERROR",
         "Run `npm run inventory` to regenerate the counts, then re-run validation.",
       );
@@ -1994,7 +2124,7 @@ export async function validateCommand(opts?: {
     }
     throw new HatchError(
       message,
-      1,
+      undefined,
       "CONFIG_ERROR",
       "Re-run `hatch3r update` to refresh bundled content, or reinstall hatch3r if the package is corrupted.",
     );
@@ -2196,7 +2326,7 @@ export async function validateCommand(opts?: {
     if (hasErrors) {
       throw new HatchError(
         "Validation failed",
-        1,
+        undefined,
         "VALIDATION_ERROR",
         "Fix the errors listed in the JSON `errors` array, then re-run `hatch3r validate`.",
       );
@@ -2250,7 +2380,7 @@ export async function validateCommand(opts?: {
     printBox("Validation failed", summaryLines, "error");
     throw new HatchError(
       "Validation failed",
-      1,
+      undefined,
       "VALIDATION_ERROR",
       "Fix the errors listed above, then re-run `hatch3r validate`.",
     );

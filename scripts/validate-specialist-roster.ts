@@ -178,6 +178,37 @@ function extractRuleTableSpecialists(ruleBody: string): Set<string> {
   return ids;
 }
 
+/**
+ * Extract specialist trigger-mode pairs from the rule table. Each row carries
+ * the specialist id in column 1 and the trigger mode (Always/Evaluate/
+ * Conditional) in column 2. Used by checkRuleTriggerModes() to assert mode
+ * parity with the SSOT — a row that flips a specialist from "Conditional" to
+ * "Always" in the rule without the corresponding SSOT change is a Phase 4
+ * Specialist Trigger Table parity violation (Finding D7-M7 / D7-SA7.3-1).
+ */
+function extractRuleTableTriggerModes(ruleBody: string): Map<string, string> {
+  const modes = new Map<string, string>();
+  const lines = ruleBody.split(/\r?\n/);
+  let inTable = false;
+  for (const line of lines) {
+    if (/Phase 4 Specialist Trigger Table/.test(line)) {
+      inTable = true;
+      continue;
+    }
+    if (!inTable) continue;
+    const trimmed = line.trim();
+    if (inTable && trimmed.length > 0 && !trimmed.startsWith("|")) {
+      if (modes.size > 0) break;
+      continue;
+    }
+    const m = trimmed.match(
+      /^\|\s*`(hatch3r-[a-z0-9-]+)`[^|]*\|\s*(Always|Evaluate|Conditional)\s*\|/i,
+    );
+    if (m) modes.set(m[1], m[2].toLowerCase());
+  }
+  return modes;
+}
+
 // ── Agent-file enumeration parsing (rec step 3) ───────────────────
 
 /**
@@ -263,6 +294,36 @@ function checkRuleTable(ruleBody: string | null, ssot: string[]): Finding[] {
         code: "ROSTER-RULE-EXTRA",
         file: "rules/hatch3r-agent-orchestration.md",
         message: `Phase 4 Specialist Trigger Table lists \`${id}\` which is not in SPECIALIST_TRIGGER_TABLE (the SSOT in src/pipeline/pipelineContext.ts)`,
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * Assert trigger-mode parity between the SSOT and the rule table.
+ *
+ * Finding D7-M7 / D7-SA7.3-1: SPECIALIST_TRIGGER_TABLE is duplicated across
+ * TS+rule+3 commands; the prior validator covered id-set parity but not
+ * mode parity. A row that flips a specialist from `Conditional` in the SSOT
+ * to `Always` in the rule body (or vice versa) is a parity drift this check
+ * catches before merge.
+ */
+function checkRuleTriggerModes(ruleBody: string | null): Finding[] {
+  const out: Finding[] = [];
+  if (ruleBody === null) return out;
+  const ruleModes = extractRuleTableTriggerModes(ruleBody);
+  const ssotModes = new Map(
+    SPECIALIST_TRIGGER_TABLE.map((t) => [t.specialist, t.mode]),
+  );
+  for (const [id, ssotMode] of ssotModes) {
+    const ruleMode = ruleModes.get(id);
+    if (ruleMode && ruleMode !== ssotMode) {
+      out.push({
+        level: "error",
+        code: "ROSTER-RULE-MODE-MISMATCH",
+        file: "rules/hatch3r-agent-orchestration.md",
+        message: `specialist \`${id}\` trigger mode is "${ssotMode}" in SSOT but "${ruleMode}" in Phase 4 Specialist Trigger Table — update one to match the other (D7-M7 / D7-SA7.3-1)`,
       });
     }
   }
@@ -382,6 +443,7 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
 
   const findings: Finding[] = [];
   findings.push(...checkRuleTable(ruleBody, ssot));
+  findings.push(...checkRuleTriggerModes(ruleBody));
   findings.push(...(await checkAgentFiles(ssot, agentsDir)));
   findings.push(
     ...checkAgentEnumeration(implBody, ssot, "agents/hatch3r-implementer.md", "ROSTER-IMPL-MISSING"),

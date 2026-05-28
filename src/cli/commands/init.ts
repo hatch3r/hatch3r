@@ -39,7 +39,7 @@ import {
   type Tool,
 } from "../../types.js";
 import { readFile } from "node:fs/promises";
-import { analyzeRepo } from "../../detect/repoAnalyzer.js";
+import { analyzeRepo, isGreenfield } from "../../detect/repoAnalyzer.js";
 import { detectProjectType } from "../../detect/projectType.js";
 import { ensureEnvMcp, ensureGitignoreEntry, getSourceEnvMcpCommand } from "../../env/mcpEnv.js";
 import { resolveBundledContentRoot } from "../../content/contentRoot.js";
@@ -58,6 +58,7 @@ import {
   setJson,
   isJson,
   isQuiet,
+  printTimingSummary,
 } from "../shared/ui.js";
 import { findPackageRoot } from "../shared/paths.js";
 import { buildTagGroupedCustomContentChoices } from "../shared/customContentChoices.js";
@@ -69,6 +70,7 @@ import {
   type Step,
   type StepResult,
 } from "../shared/initSteps.js";
+import { promptRepoIdentity } from "../shared/repoIdentityPrompt.js";
 import {
   AVAILABLE_CLI_TOOLS,
   CLI_TOOL_SECRET_NOTES,
@@ -81,6 +83,7 @@ import { applyPlatformTriggers, evaluateTier2Triggers } from "../../cliTools/tri
 import { HATCH3R_VERSION } from "../../version.js";
 import { buildContentIndex, resolveSelection, countSelectionItems, selectionSummary, getAllContentIds, validateOrchestrationDependencies, countPresetExclusions, estimatePresetItemCount } from "../../content/index.js";
 import { PRESETS, getPreset, type PresetId } from "../../content/presets.js";
+import { KNOWN_ROLES, KNOWN_FACETS, type RoleId, type FacetId } from "../../content/tags.js";
 import { detectSubRepos, shouldSuggestWorkspace } from "../../workspace/detect.js";
 import { createWorkspaceManifest, writeWorkspaceManifest } from "../../workspace/manifest.js";
 import { syncWorkspaceRepos } from "../../workspace/sync.js";
@@ -433,7 +436,7 @@ export async function runInit(options: RunInitOptions): Promise<void> {
   if (RUNNING_INITS.has(rootDir)) {
     throw new HatchError(
       `runInit already in progress for ${rootDir}`,
-      1,
+      undefined,
       "CONFIG_ERROR",
       "Wait for the in-flight init to finish, or check for a stale process holding the directory.",
     );
@@ -450,6 +453,10 @@ export async function runInit(options: RunInitOptions): Promise<void> {
 async function runInitInner(options: RunInitOptions): Promise<void> {
   const { rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, customization, cliTools, maturity } = options;
   const totalSteps = 4;
+  // D10-M9 (Cycle 10): capture time-to-first-value at init entry so the
+  // success path can emit a `Completed in Xs` line via `printTimingSummary`.
+  // Pairs with the SPACE-framework "Efficiency" dimension in D10.8.
+  const initStartMs = Date.now();
 
   // Decision 24 / Bucket 2.x: surface a pre-execution cost estimate so an
   // operator sees the fan-out and token envelope before mutations begin.
@@ -657,7 +664,7 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
       s3.fail(step(3, totalSteps, "All adapters failed"));
       throw new HatchError(
         "All adapters failed",
-        1,
+        undefined,
         "ADAPTER_ERROR",
         "Re-run with `--verbose` to see per-adapter detail, then check `npx hatch3r validate` for upstream content errors.",
       );
@@ -871,11 +878,7 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   // still calls printBox (which is a no-op when isQuiet()). The summary
   // payload is a stable JSON schema for CI consumers.
   if (isJson()) {
-    const isGreenfieldForJson =
-      repoInfo.languages.length === 1 &&
-      repoInfo.languages[0] === "unknown" &&
-      repoInfo.existingTools.length === 0 &&
-      !repoInfo.hasExistingAgents;
+    const isGreenfieldForJson = isGreenfield(repoInfo);
     const payload = {
       status: "ok" as const,
       version: HATCH3R_VERSION,
@@ -919,6 +922,24 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     label("Tools", tools.map((t) => TOOL_DISPLAY_NAMES[t] ?? t).join(", ")),
     label("Features", enabledFeatures.join(", ")),
   ];
+  // D14-M5 (Cycle 10 rollover): when teamSize=solo + preset=full, the
+  // `ctx:team-only` items are silently kept (because preset=full has every
+  // capability, and floor admission bypasses team-size filtering for floor
+  // items). Solo developers running `full` end up with team-shaped
+  // workflows (`hatch3r-handoff-*`, board, etc.) they may not need. Emit a
+  // one-line disclosure so the choice is visible — the user can re-run
+  // `hatch3r config preset=standard` to drop the team-only surface.
+  if (
+    contentSelection.teamSize === "solo" &&
+    contentSelection.preset === "full"
+  ) {
+    summaryLines.push(
+      chalk.dim(
+        `  Note: full preset includes team-only workflows even on solo projects. ` +
+          `Switch to 'standard' via 'hatch3r config preset=standard' to drop them.`,
+      ),
+    );
+  }
   if (owner || repo) {
     const platformLabel = PLATFORM_DISPLAY_NAMES[platform];
     summaryLines.push(label(platformLabel, `${namespace || owner}/${project || repo}`));
@@ -955,21 +976,21 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   // brownfield both still surface roadmap / feature-plan / quick-change /
   // project-spec / codebase-map so the four-CTA substring assertions in
   // init.test.ts (multi-CTA post-init hint) keep matching.
-  const isGreenfield =
-    repoInfo.languages.length === 1 &&
-    repoInfo.languages[0] === "unknown" &&
-    repoInfo.existingTools.length === 0 &&
-    !repoInfo.hasExistingAgents;
+  // D10-M20 (Cycle 10 rollover): the lite path (no board) was previously
+  // rendered as a single dimmed bullet under the primary CTA, so a user who
+  // wanted feature-only work missed it on first scan. The board-less route is
+  // now surfaced as a cyan secondary heading with its own arrow marker, and
+  // names the no-board promise inline so the user does not have to drill into
+  // `feature-plan` docs to learn the lite path skips Steps 5-7 of this guide.
+  const repoIsGreenfield = isGreenfield(repoInfo);
   summaryLines.push("");
-  if (isGreenfield) {
+  if (repoIsGreenfield) {
     summaryLines.push(`${chalk.cyan("→")} Run ${chalk.bold(formatCommandHint(tools, "hatch3r-spec"))} to define your new project (routes greenfield/brownfield automatically), then ${chalk.bold(formatCommandHint(tools, "roadmap"))}`);
-    summaryLines.push(`${chalk.dim("·")} ${chalk.dim("Single feature: ")}${chalk.bold(formatCommandHint(tools, "feature-plan"))}`);
-    summaryLines.push(`${chalk.dim("·")} ${chalk.dim("Small change: ")}${chalk.bold(formatCommandHint(tools, "quick-change"))}`);
+    summaryLines.push(`${chalk.cyan("→")} Lite path (no board): ${chalk.bold(formatCommandHint(tools, "feature-plan"))} for one feature, ${chalk.bold(formatCommandHint(tools, "quick-change"))} for a tiny change`);
     summaryLines.push(`${chalk.dim("·")} ${chalk.dim("Legacy split-flow: ")}${chalk.bold(formatCommandHint(tools, "project-spec"))} ${chalk.dim("or")} ${chalk.bold(formatCommandHint(tools, "codebase-map"))}`);
   } else {
     summaryLines.push(`${chalk.cyan("→")} Run ${chalk.bold(formatCommandHint(tools, "hatch3r-spec"))} to map your existing codebase (routes greenfield/brownfield automatically)`);
-    summaryLines.push(`${chalk.dim("·")} ${chalk.dim("Single feature: ")}${chalk.bold(formatCommandHint(tools, "feature-plan"))}`);
-    summaryLines.push(`${chalk.dim("·")} ${chalk.dim("Small change: ")}${chalk.bold(formatCommandHint(tools, "quick-change"))}`);
+    summaryLines.push(`${chalk.cyan("→")} Lite path (no board): ${chalk.bold(formatCommandHint(tools, "feature-plan"))} for one feature, ${chalk.bold(formatCommandHint(tools, "quick-change"))} for a tiny change`);
     summaryLines.push(`${chalk.dim("·")} ${chalk.dim("Legacy split-flow: ")}${chalk.bold(formatCommandHint(tools, "codebase-map"))} ${chalk.dim("or")} ${chalk.bold(formatCommandHint(tools, "project-spec"))}`);
   }
 
@@ -989,6 +1010,12 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   if (!isQuiet()) {
     info(`Tip: Run /hatch3r-create anytime to author your own agents, skills, rules, commands, or hooks.`);
   }
+
+  // D10-M9 (Cycle 10): emit total time-to-first-value after the success box
+  // and any post-completion advisories so the user sees the elapsed wall
+  // clock for the whole init run. `printTimingSummary` is already a no-op
+  // under `setQuiet(true)`, so JSON/CI paths skip it automatically.
+  printTimingSummary(initStartMs);
 }
 
 async function checkExisting(rootDir: string, skipPrompt: boolean, newSelection?: ContentSelection): Promise<void> {
@@ -1060,7 +1087,7 @@ function validateFlag<T extends string>(value: string | undefined, valid: T[], f
     logError(`Invalid --${name}: "${value}". Valid: ${valid.join(", ")}`);
     throw new HatchError(
       `Invalid --${name}: "${value}"`,
-      1,
+      undefined,
       "VALIDATION_ERROR",
       `Re-run with one of: ${valid.join(", ")}.`,
     );
@@ -1100,7 +1127,7 @@ async function detectAmbiguity(opts: {
   if (opts.yes && opts.preset === "custom") {
     throw new HatchError(
       "Ambiguous flags: --yes is incompatible with --preset=custom (custom requires interactive per-item selection).",
-      1,
+      undefined,
       "VALIDATION_ERROR",
       "Re-run with one of: (a) drop `--yes` to pick items interactively; (b) replace `--preset=custom` with `--preset=minimal|standard|full`.",
     );
@@ -1115,7 +1142,7 @@ async function detectAmbiguity(opts: {
       if (opts.yes) {
         throw new HatchError(
           "Ambiguous flags: --workspace=true on a repo with `.git/` already present (workspace mode expects a workspace root, not a single-repo root).",
-          1,
+          undefined,
           "VALIDATION_ERROR",
           "Re-run with one of: (a) drop `--workspace` for a single-repo init; (b) run from the workspace root (one directory up).",
         );
@@ -1241,6 +1268,22 @@ export async function initCommand(
      * `.hatch3r/hatch.json` under `maturity`.
      */
     maturity?: string;
+    /**
+     * D14-M6 (Cycle 10 rollover): role-bundle selector. Accepts one of
+     * `KNOWN_ROLES`. When set, resolveSelection's role stage filters to
+     * items tagged `role:<value>` (plus floor and protected items). Absent
+     * or empty = no role filtering. Validated via `validateFlag`.
+     */
+    role?: string;
+    /**
+     * D14-M9 (Cycle 10 rollover): graduated-customization facet selector.
+     * Accepts a comma-separated list of `KNOWN_FACETS`. When set,
+     * resolveSelection admits items carrying the mapped tags (per
+     * FACET_TAG_ADMISSIONS) in addition to the preset's capability gate.
+     * Unknown facet names emit a warning and are skipped (do not fail the
+     * flag).
+     */
+    facets?: string;
   } = {},
 ): Promise<void> {
   // C9-H26 (D10-SA10.2-F1): chrome-suppression flags.
@@ -1318,6 +1361,24 @@ export async function initCommand(
   // F1.1-H1 / F14.3-H1: validate `--maturity` against the canonical tier set.
   if (opts.maturity !== undefined) {
     validateFlag(opts.maturity, [...MATURITY_TIERS], DEFAULT_MATURITY_TIER, "maturity");
+  }
+  // D14-M6 (Cycle 10): validate `--role` against the known role set early.
+  if (opts.role !== undefined) {
+    validateFlag(opts.role, [...KNOWN_ROLES], KNOWN_ROLES[0], "role");
+  }
+  // D14-M9 (Cycle 10): parse + validate `--facets` (comma-separated list).
+  // Unknown facets are dropped with a warning rather than failing the
+  // flag — the user picks the subset they want; a typo should not abort.
+  if (opts.facets !== undefined) {
+    const requested = opts.facets.split(",").map((s) => s.trim()).filter(Boolean);
+    for (const f of requested) {
+      if (!(KNOWN_FACETS as readonly string[]).includes(f)) {
+        warn(
+          `--facets: unknown facet "${f}" (known: ${KNOWN_FACETS.join(", ")}). ` +
+            "Skipping this entry; remove the unknown name to silence this warning.",
+        );
+      }
+    }
   }
 
   // F1.1-H2 (B1 ambiguity-detection gate). Resolve flag-combination
@@ -1401,7 +1462,7 @@ export async function initCommand(
         console.log(chalk.dim(`  Valid tools: ${[...VALID_TOOLS].join(", ")}`));
         throw new HatchError(
           `Invalid tool(s): ${invalid.join(", ")}`,
-          1,
+          undefined,
           "VALIDATION_ERROR",
           `Re-run with --tools set to one or more of: ${[...VALID_TOOLS].join(", ")}.`,
         );
@@ -1451,10 +1512,24 @@ export async function initCommand(
     // F1.1-H1 / F14.3-H1: read `--maturity` (already validated above) with
     // canonical default "solo".
     const maturity: MaturityTier = validateFlag(opts.maturity, [...MATURITY_TIERS], DEFAULT_MATURITY_TIER, "maturity");
+    // D14-M6 (Cycle 10): optional `--role` flag, validated above. Undefined
+    // when unset, which collapses to no role filtering in resolveSelection.
+    const role: RoleId | undefined = opts.role
+      ? (validateFlag(opts.role, [...KNOWN_ROLES], KNOWN_ROLES[0], "role") as RoleId)
+      : undefined;
+    // D14-M9 (Cycle 10): parse `--facets` (comma-separated list) to the
+    // typed FacetId[] passed into resolveSelection. Unknown entries were
+    // warned about above and are dropped here.
+    const facets: FacetId[] = opts.facets
+      ? opts.facets
+          .split(",")
+          .map((s) => s.trim())
+          .filter((s): s is FacetId => (KNOWN_FACETS as readonly string[]).includes(s))
+      : [];
     const preset = getPreset(presetId);
     const index = await buildContentIndex(CONTENT_ROOT);
     const projectLanguages = languagesForSelection(repoInfo);
-    const contentSelection = resolveSelection(preset, projectType, teamSize, index, undefined, projectLanguages, { maturity });
+    const contentSelection = resolveSelection(preset, projectType, teamSize, index, undefined, projectLanguages, { maturity, role, facets });
 
     // Warn if orchestration-critical agents are missing from selection
     const orchWarnings = validateOrchestrationDependencies(contentSelection);
@@ -1566,40 +1641,9 @@ export async function initCommand(
     {
       id: "identity",
       async run(state, previous): Promise<StepResult<SingleRepoState["identity"]>> {
-        const plat = state.platform!;
-        if (plat === "azure-devops") {
-          const ado = await inquirer.prompt<{ org: string | typeof BACK; project: string | typeof BACK; repo: string | typeof BACK }>([
-            { type: "input", name: "org", message: "Azure DevOps organization:", default: previous?.owner || remote.owner || undefined },
-            { type: "input", name: "project", message: "Azure DevOps project:", default: previous?.project || undefined },
-            { type: "input", name: "repo", message: "Repository name:", default: previous?.repo || remote.repo || undefined },
-          ]);
-          if (isBack(ado.org) || isBack(ado.project) || isBack(ado.repo)) return BACK;
-          const owner = sanitizeInput(ado.org as string);
-          return {
-            owner,
-            repo: sanitizeInput(ado.repo as string),
-            namespace: owner,
-            project: sanitizeInput(ado.project as string),
-          };
-        } else if (plat === "gitlab") {
-          const gl = await inquirer.prompt<{ namespace: string | typeof BACK; project: string | typeof BACK }>([
-            { type: "input", name: "namespace", message: "GitLab namespace (group or username):", default: previous?.namespace || remote.owner || undefined },
-            { type: "input", name: "project", message: "Project name:", default: previous?.project || remote.repo || undefined },
-          ]);
-          if (isBack(gl.namespace) || isBack(gl.project)) return BACK;
-          const owner = sanitizeInput(gl.namespace as string);
-          const repo2 = sanitizeInput(gl.project as string);
-          return { owner, repo: repo2, namespace: owner, project: repo2 };
-        } else {
-          const gh = await inquirer.prompt<{ owner: string | typeof BACK; repo: string | typeof BACK }>([
-            { type: "input", name: "owner", message: "GitHub owner (org or username):", default: previous?.owner || remote.owner || undefined },
-            { type: "input", name: "repo", message: "Repository name:", default: previous?.repo || remote.repo || undefined },
-          ]);
-          if (isBack(gh.owner) || isBack(gh.repo)) return BACK;
-          const owner = sanitizeInput(gh.owner as string);
-          const repo2 = sanitizeInput(gh.repo as string);
-          return { owner, repo: repo2, namespace: owner, project: repo2 };
-        }
+        // D1-M4: Delegate to the shared repoIdentityPrompt helper so the
+        // 3-branch GitHub / Azure DevOps / GitLab prompt is single-sourced.
+        return promptRepoIdentity(state.platform!, { previous, remote });
       },
     },
     {
@@ -1608,6 +1652,20 @@ export async function initCommand(
         // F10.3-2: projectType + teamSize are no longer prompted — the item-
         // count estimate uses the auto-detected projectType and the
         // git-inferred teamSize resolved above the step machine.
+        // D10-M17 (Cycle 10 rollover): surface the inferred projectType +
+        // teamSize filters BEFORE the picker so the operator sees which
+        // filters drive the `(~N items)` and `(excludes M of T)` counts on
+        // each choice. Previously the filter context was only visible in the
+        // post-init success summary, after the preset choice was already
+        // committed. The override path (`--project-type` / `--team-size`
+        // flags) is named inline so a user who disagrees with the inference
+        // can re-run with the flag instead of accepting an off-target preset.
+        info(
+          chalk.dim(
+            `Filters: projectType=${inferredProjectType}, teamSize=${inferredTeamSize}. ` +
+              `Override with --project-type / --team-size at re-run.`,
+          ),
+        );
         const answer = await inquirer.prompt<{ preset: PresetId | typeof BACK }>([
           {
             type: "select",
@@ -2016,6 +2074,16 @@ async function runWorkspaceInit(
       {
         id: "preset",
         async run(_state, previous): Promise<StepResult<PresetId>> {
+          // D10-M17 (Cycle 10 rollover): workspace flow mirrors the single-repo
+          // pre-picker filter banner so the operator sees which inferred
+          // projectType + teamSize drive the `(~N items)` / `(excludes M of T)`
+          // counts before picking a preset.
+          info(
+            chalk.dim(
+              `Filters: projectType=${wsInferredProjectType}, teamSize=${wsInferredTeamSize}. ` +
+                `Override with --project-type / --team-size at re-run.`,
+            ),
+          );
           const answer = await inquirer.prompt<{ preset: PresetId | typeof BACK }>([
             {
               type: "select",
@@ -2354,7 +2422,7 @@ function resolveToolsFromOpts(toolsFlag: string | undefined, repoInfo: RepoInfo)
       console.log(chalk.dim(`  Valid tools: ${[...VALID_TOOLS].join(", ")}`));
       throw new HatchError(
         `Invalid tool(s): ${invalid.join(", ")}`,
-        1,
+        undefined,
         "VALIDATION_ERROR",
         `Re-run with --tools set to one or more of: ${[...VALID_TOOLS].join(", ")}.`,
       );
@@ -2393,7 +2461,7 @@ function resolveCliToolsFlag(
     console.log(chalk.dim(`  Valid ids: ${[...valid].join(", ")}`));
     throw new HatchError(
       `Invalid CLI tool(s): ${invalid.join(", ")}`,
-      1,
+      undefined,
       "VALIDATION_ERROR",
       "Re-run with --cli-tools=tier1, --cli-tools=all, or a comma-separated subset of valid ids (run `hatch3r cli-tools list` to see them).",
     );

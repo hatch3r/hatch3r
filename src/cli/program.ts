@@ -12,6 +12,9 @@ import { verifyCommand } from "./commands/verify.js";
 import { statusCommand } from "./commands/status.js";
 import { explainCommand } from "./commands/explain.js";
 import { rollbackCommand, rollbackListCommand } from "./commands/rollback.js";
+import { showCommand, listCommand } from "./commands/show.js";
+import { provenanceCommand } from "./commands/provenance.js";
+import { depsCommand } from "./commands/deps.js";
 import {
   mcpSetupCommand,
   mcpListCommand,
@@ -80,6 +83,8 @@ export function createProgram(): Command {
     .option("--no-banner", "Skip the ASCII banner at startup (C9-H26)")
     .option("--resume", "Resume from the last checkpoint in .init-workspace/checkpoint.json (Decision 27)")
     .option("--maturity <tier>", "Project maturity tier: solo, team, scaleup, enterprise (default: solo) — gates content admission (Decision 4)")
+    .option("--role <role>", "Role bundle: reviewer, security-lead, senior-eng — filters content to items tagged for the named role (D14-M6)")
+    .option("--facets <list>", "Comma-separated graduated-customization facets to add on top of the preset: a11y, performance, observability (D14-M9)")
     .action(initCommand);
 
   program
@@ -94,6 +99,15 @@ export function createProgram(): Command {
     .option("--clean-orphans", "Remove generated adapter output files that no longer match canonical-inventory naming (no hatch3r- prefix). Default is informational only.")
     .option("--verbose", "Show detailed output for each file processed")
     .option("--resume", "Resume from the last checkpoint in .sync-workspace/checkpoint.json (Decision 27)")
+    .option(
+      "--format <format>",
+      "Output format for CI consumers: human (default) or json (SA12.1-F-D12-M2)",
+      "human",
+    )
+    .option(
+      "--preview-tool <name>",
+      "Under --dry-run, print the full content body that the named adapter would write (SA12.1-F-D12-M8)",
+    )
     .action(syncCommand);
 
   program
@@ -101,6 +115,11 @@ export function createProgram(): Command {
     .description("Check sync status between bundled canonical content and generated files")
     .option("--verbose", "Show detailed per-file status information")
     .option("--deep", "Regenerate every adapter's output in-memory to compare byte-for-byte (slower; default uses integrity-manifest fast path)")
+    .option(
+      "--format <format>",
+      "Output format for CI consumers: human (default) or json (SA12.1-F-D12-M2)",
+      "human",
+    )
     .action(statusCommand);
 
   program
@@ -113,6 +132,11 @@ export function createProgram(): Command {
     .option("--dry-run", "Preview what would change (added/modified/unchanged per adapter) without writing files")
     .option("--skip-audit-signatures", "EMERGENCY OVERRIDE: skip `npm audit signatures` verification on the freshly-fetched package. Default is to refuse update on signature failure.")
     .option("--clean-orphans", "Remove generated adapter output files that no longer match canonical-inventory naming (no hatch3r- prefix). Default is informational only.")
+    .option(
+      "--format <format>",
+      "Output format for CI consumers: human (default) or json (SA12.1-F-D12-M2)",
+      "human",
+    )
     .action(updateCommand);
 
   program
@@ -144,6 +168,11 @@ export function createProgram(): Command {
     .description("Check file integrity: SHA-256 hashes vs manifest (detect unauthorized modifications)")
     .option("--fix", "Auto-fix integrity issues by running hatch3r update")
     .option("--max-fix-attempts <n>", "Maximum verify-fix cycles (default: 2, max: 5)", parseInt)
+    .option(
+      "--format <format>",
+      "Output format for CI consumers: human (default) or json (SA12.1-F-D12-M2)",
+      "human",
+    )
     .action(verifyCommand);
 
   program
@@ -161,6 +190,10 @@ export function createProgram(): Command {
     .description("Remove all hatch3r artifacts from the current repo (optionally reinitialize after)")
     .option("--yes", "Skip confirmation prompts (cleans without reinit)")
     .option("--dry-run", "Show what would be removed without modifying files")
+    .option(
+      "--learnings",
+      "Also remove .hatch3r/learnings/ and .hatch3r/handoffs/ — use for session-corruption recovery when prior context is poisoning fresh runs (D6-M7)",
+    )
     .action(cleanCommand);
 
   program
@@ -260,6 +293,45 @@ export function createProgram(): Command {
     .description("Enumerate snapshot sessions captured under .hatch3r/snapshots/")
     .action(rollbackListCommand);
 
+  // SA12.1-F-D12-M9 (Cycle 10 Wave 3, D12, P1): inspect a single canonical
+  // artifact (frontmatter + resolved scope + body preview) or enumerate every
+  // artifact of a given type. Both are read-only — they delegate to
+  // `buildContentIndex` so the CLI sees exactly what adapters see.
+  program
+    .command("show <id>")
+    .description("Print frontmatter + resolved scope + body preview for a canonical artifact")
+    .action((id: string) => showCommand(id));
+
+  program
+    .command("list <type>")
+    .description("Enumerate canonical artifacts of a type (agent | skill | rule | command | hook | prompt | github-agent)")
+    .action((type: string) => listCommand(type));
+
+  // SA12.1-F-D12-M11 (Cycle 10 Wave 3, D12, P1): read affordance for the
+  // provenance manifest at `.hatch3r/provenance.json`. The file has shipped
+  // since Wave 7 but was previously only inspectable via `hatch3r explain
+  // --source <output-path>` (requires knowing the path) — this top-level
+  // subcommand lets operators answer "what's recorded right now?".
+  program
+    .command("provenance")
+    .description("Inspect the .hatch3r/provenance.json manifest (header + per-adapter rollup)")
+    .option(
+      "--format <format>",
+      "Output format for CI consumers: human (default) or json (SA12.1-F-D12-M2)",
+      "human",
+    )
+    .action(provenanceCommand);
+
+  // SA12.1-F-D12-M13 (Cycle 10 Wave 3, D12, P1): surface orchestration
+  // dependencies declared in frontmatter (commands' agentPipeline, agents'
+  // delegates list) plus the inverse "what depends on me?" view. The
+  // build-time validator already enforces these — this subcommand makes
+  // them inspectable from the CLI.
+  program
+    .command("deps <id>")
+    .description("Show orchestration dependencies (downstream + upstream) declared in frontmatter")
+    .action((id: string) => depsCommand(id));
+
   // C9-H13: surface the triage-first cost model declared in canonical
   // command frontmatter (triage_tiers + agentPipeline) so users can answer
   // "what will this command cost at each tier?" without running it.
@@ -268,10 +340,11 @@ export function createProgram(): Command {
   // exclusive and the action validates that exactly one is provided.
   program
     .command("explain")
-    .description("Explain a hatch3r command's cost model, the customization-applied state, OR a generated file's canonical sources")
+    .description("Explain a hatch3r command's cost model, the customization-applied state, a generated file's canonical sources, OR the recorded efficiency telemetry")
     .option("--cost <command-id>", "Command id to explain (e.g. hatch3r-quick-change, quick-change)")
     .option("--customizations", "List every .customize.yaml/.customize.md pair with applied state and reasons")
     .option("--source [output-path]", "Show the canonical source files behind a generated output (e.g. CLAUDE.md); omit the path or pass `all` to list every recorded output")
+    .option("--efficiency", "Show per-artifact + per-phase aggregate from .hatch3r/efficiency-events.jsonl (telemetry gated by HATCH3R_EFFICIENCY_TELEMETRY=1; D6-M2)")
     .option("--input-rate <usd-per-1m>", "Override input rate in USD per 1M tokens (--cost only)")
     .option("--output-rate <usd-per-1m>", "Override output rate in USD per 1M tokens (--cost only)")
     .option("--verbose", "Show detailed output")

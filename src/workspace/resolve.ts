@@ -62,10 +62,18 @@ export function resolveRepoConfig(
   const excludedContent: string[] = [];
   const addedContent: string[] = [];
 
+  // D14-M7 (Cycle 10): Locked content IDs from workspace defaults cannot be
+  // excluded by a per-repo override. The lock is checked alongside the
+  // protected-id check below so team-lead-declared invariants behave the
+  // same way as framework-declared invariants.
+  const lockedContentSet = new Set<string>(defaults.lockedContent ?? []);
+
   if (overrides?.contentOverrides?.exclude) {
     for (const id of overrides.contentOverrides.exclude) {
       // Protected items cannot be excluded
       if (protectedIds?.has(id)) continue;
+      // D14-M7: locked content set by the workspace lead cannot be excluded.
+      if (lockedContentSet.has(id)) continue;
       if (contentIds.has(id)) {
         contentIds.delete(id);
         excludedContent.push(id);
@@ -79,6 +87,17 @@ export function resolveRepoConfig(
         contentIds.add(id);
         addedContent.push(id);
       }
+    }
+  }
+
+  // D14-M7: Make sure every locked content ID is admitted, even if the
+  // workspace base selection somehow omitted it (e.g. a workspace
+  // operator added `lockedContent` after the base selection was
+  // computed).
+  for (const id of lockedContentSet) {
+    if (!contentIds.has(id)) {
+      contentIds.add(id);
+      addedContent.push(id);
     }
   }
 

@@ -20,6 +20,14 @@ export interface SecretPattern {
   severity: "critical" | "high" | "medium";
   /** Guidance for the user. */
   guidance: string;
+  /**
+   * D1-M15: when true, the value must carry an explicit credential context
+   * before this pattern flags. Either the variable name names a credential
+   * (matches /KEY|SECRET|TOKEN|PASSWORD|PWD|AUTH/i) or the value carries
+   * a `=` padding suffix and is at least 60 chars. Used by the generic
+   * long-base64 pattern to drop false positives on hash-shaped values.
+   */
+  contextRequired?: boolean;
 }
 
 export interface SecretDetectionResult {
@@ -103,10 +111,20 @@ export const SECRET_PATTERNS: readonly SecretPattern[] = [
     guidance: "Bearer tokens should be injected at runtime, not stored in env files.",
   },
   {
+    // D1-M15 (Cycle 10 Wave-3): the bare long-base64 pattern triggered on
+    // any 40+ char base64-shaped value, which produced false positives on
+    // benign payloads (e.g. SHA-256 digests stored verbatim, image hashes,
+    // public key fingerprints). The context-aware filter below requires
+    // either (a) the variable name carries a KEY/SECRET/TOKEN/PASSWORD
+    // signal, or (b) the value is qualified with an `=` padding suffix
+    // and at least 60 chars long. Both branches narrow to genuine
+    // credential-shaped inputs while leaving hash-shaped values alone.
+    // The `contextRequired` flag is honoured by scanValueForSecrets below.
     name: "Base64-encoded Secret (long)",
     pattern: /^[A-Za-z0-9+/]{40,}={0,2}$/,
     severity: "medium",
     guidance: "Long base64 strings may be encoded secrets. Verify this is not a credential.",
+    contextRequired: true,
   },
   // ── Generic Keyword Patterns ──
   {
@@ -160,6 +178,24 @@ export function maskValue(value: string): string {
 }
 
 /**
+ * D1-M15: classifier for credential-context variable names.
+ *
+ * Returns true when the variable name carries a credential signal
+ * (KEY/SECRET/TOKEN/PASSWORD/PWD/AUTH, case-insensitive). Used by the
+ * generic long-base64 pattern to suppress false positives on benign
+ * hash-shaped values stored under non-credential names.
+ */
+const CONTEXTUAL_CREDENTIAL_NAME = /(?:KEY|SECRET|TOKEN|PASSWORD|PWD|AUTH)/i;
+
+function hasCredentialContext(variableName: string, value: string): boolean {
+  if (CONTEXTUAL_CREDENTIAL_NAME.test(variableName)) return true;
+  // Padded base64 values >= 60 chars are highly likely to be encoded
+  // credentials rather than 32-byte hashes (which are 44 chars padded).
+  if (/=$/.test(value) && value.length >= 60) return true;
+  return false;
+}
+
+/**
  * Scan a single environment variable value for secret patterns.
  */
 export function scanValueForSecrets(
@@ -172,6 +208,9 @@ export function scanValueForSecrets(
 
   for (const sp of SECRET_PATTERNS) {
     if (sp.pattern.test(value)) {
+      // D1-M15: context-required patterns (e.g. generic long-base64) only
+      // flag when the variable name or value carries a credential signal.
+      if (sp.contextRequired && !hasCredentialContext(variableName, value)) continue;
       findings.push({
         variableName,
         secretType: sp.name,

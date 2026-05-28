@@ -163,3 +163,110 @@ describe("CursorAdapter hooks integration", () => {
     }
   });
 });
+
+// D2-M02 (D2 Medium, Cycle 10 Wave 3 rollover): the hook parser surfaces
+// diagnostics for malformed hooks (NO_FRONTMATTER, INVALID_EVENT,
+// MISSING_FIELD, YAML_PARSE_ERROR, DUPLICATE_ID, SYMLINK_SKIPPED) into the
+// optional `warnings` out-parameter. `BaseAdapter.loadHookDefinitions` calls
+// `readHookDefinitions(ctx.canonicalRoot, this.warnings)` so adapter
+// invocations must observe those diagnostics on `adapter.warnings` end-to-end.
+// Pre-fix, there was no test asserting this propagation — a regression that
+// removed the `this.warnings` argument would have produced an adapter that
+// silently dropped malformed hooks (Silent Failure Contract, CONSTITUTION §2
+// P5). These tests close that gap by exercising the full chain:
+//   bad hook file -> readHookDefinitions(warnings) -> adapter.warnings[]
+import { describe as describeProp, it as itProp, expect as expectProp } from "vitest";
+import { mkdtemp, mkdir, writeFile, cp, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+
+describeProp("hook-parse warning propagation (D2-M02)", () => {
+  async function stageMalformedHook(): Promise<string> {
+    // Mirror the canonical fixture layout (.agents-style root with agents/
+    // skills/rules/hooks/ subdirs) but inject a malformed hook so every
+    // generate() pass observes the warning.
+    const root = await mkdtemp(join(tmpdir(), "hatch3r-d2m02-"));
+    // Copy the existing fixture root so legitimate canonical reads succeed
+    // (the adapters require agents/, rules/, skills/ to be populated; we
+    // then ADD a malformed hook on top).
+    await cp(FIXTURES_DIR, root, { recursive: true });
+    // Author a hook with an INVALID_EVENT typo. The hook parser rejects it
+    // with `[hooks] INVALID_EVENT: ...` and we expect that warning on the
+    // adapter's `warnings` array after generate().
+    const hooksDir = join(root, "hooks");
+    await mkdir(hooksDir, { recursive: true });
+    await writeFile(
+      join(hooksDir, "typo-event.md"),
+      "---\nid: typo-event-hook\nevent: pre-comit\nagent: lint-fixer\n---\n# Typo\n",
+      "utf-8",
+    );
+    return root;
+  }
+
+  itProp(
+    "ClaudeAdapter propagates INVALID_EVENT hook diagnostics into adapter.warnings",
+    async () => {
+      const root = await stageMalformedHook();
+      try {
+        const adapter = new ClaudeAdapter();
+        const manifest = createManifest({ tools: ["claude"], mcpServers: [] });
+        await adapter.generate(root, manifest);
+        const hookWarnings = adapter.warnings.filter((w) =>
+          w.includes("[hooks] INVALID_EVENT"),
+        );
+        expectProp(hookWarnings.length).toBeGreaterThan(0);
+        expectProp(hookWarnings[0]).toContain("pre-comit");
+        expectProp(hookWarnings[0]).toContain("typo-event.md");
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
+
+  itProp(
+    "CursorAdapter propagates INVALID_EVENT hook diagnostics into adapter.warnings",
+    async () => {
+      const root = await stageMalformedHook();
+      try {
+        const adapter = new CursorAdapter();
+        const manifest = createManifest({ tools: ["cursor"], mcpServers: [] });
+        await adapter.generate(root, manifest);
+        const hookWarnings = adapter.warnings.filter((w) =>
+          w.includes("[hooks] INVALID_EVENT"),
+        );
+        expectProp(hookWarnings.length).toBeGreaterThan(0);
+        expectProp(hookWarnings[0]).toContain("pre-comit");
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
+
+  itProp(
+    "Hook parser MISSING_FIELD diagnostics propagate end-to-end through ClaudeAdapter",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "hatch3r-d2m02-miss-"));
+      try {
+        await cp(FIXTURES_DIR, root, { recursive: true });
+        const hooksDir = join(root, "hooks");
+        await mkdir(hooksDir, { recursive: true });
+        // Missing required `agent` field.
+        await writeFile(
+          join(hooksDir, "no-agent.md"),
+          "---\nid: no-agent-hook\nevent: pre-commit\n---\n# No agent\n",
+          "utf-8",
+        );
+        const adapter = new ClaudeAdapter();
+        const manifest = createManifest({ tools: ["claude"], mcpServers: [] });
+        await adapter.generate(root, manifest);
+        const missingFieldWarnings = adapter.warnings.filter((w) =>
+          w.includes("[hooks] MISSING_FIELD"),
+        );
+        expectProp(missingFieldWarnings.length).toBeGreaterThan(0);
+        expectProp(missingFieldWarnings[0]).toContain("agent");
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
+});

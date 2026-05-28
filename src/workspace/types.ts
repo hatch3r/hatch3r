@@ -31,6 +31,64 @@ export interface WorkspaceDefaults {
    * workspace manifests omit it and members fall back to their own selection.
    */
   cliTools?: CliToolsConfig;
+  /**
+   * D14-M4 (Cycle 10 rollover): Team / role groupings that sit between the
+   * workspace defaults and per-repo overrides. Each group is a named bundle
+   * of `Tool[]`, `Features` (partial), `mcp`, and `ContentSelection` deltas
+   * applied to every repo that names the group in `WorkspaceRepoEntry.groups[]`.
+   *
+   * Layered merge order at sync time: workspace defaults -> matched
+   * `groups[<name>]` deltas (in declared order) -> per-repo `overrides`. Each
+   * later layer wins on conflict, mirroring the existing
+   * defaults-then-overrides chain.
+   *
+   * Optional — pre-D14-M4 workspace manifests omit it and members fall back
+   * to the two-layer (defaults + overrides) merge. Backwards-compatible
+   * because the runtime treats the group layer as zero-deltas when absent.
+   */
+  groups?: Record<string, WorkspaceGroupDelta>;
+  /**
+   * D14-M7 (Cycle 10 rollover): Workspace-mandatory content IDs that no
+   * per-repo override can drop. The workspace sync treats each entry as an
+   * always-admitted item even if a repo's `contentOverrides.exclude` lists
+   * it. Team leads use this to anchor a security baseline (`hatch3r-security-patterns`,
+   * etc.) so a downstream repo cannot silently disable it via local
+   * customization.
+   *
+   * Optional — empty/omitted = no locked items. The enforcement is a
+   * structural filter applied after the per-repo override merge; see
+   * `WorkspaceManifest.repos[].overrides.contentOverrides.exclude` for the
+   * pairing.
+   */
+  lockedContent?: string[];
+}
+
+/**
+ * D14-M4 (Cycle 10 rollover): Subset of `WorkspaceDefaults` applied as a
+ * group-layer delta. Excludes the identity / structural fields (platform,
+ * cliTools.enabled flag) so a group cannot redefine the project shape;
+ * groups are scoped to *additive* configuration deltas.
+ *
+ * Fields are all optional — a group may carry only the deltas it needs
+ * (e.g. a `security-lead` group might only set `mcp` + `tools[]`; a
+ * `frontend` group might only inject `features.<flag>`).
+ */
+export interface WorkspaceGroupDelta {
+  /** Replaces the previous-layer tools entirely. */
+  tools?: Tool[];
+  /** Partial merge on top of the previous-layer features. */
+  features?: Partial<Features>;
+  /** Replaces the previous-layer MCP config entirely. */
+  mcp?: McpConfig;
+  /**
+   * Content additions / removals applied as deltas. Add-and-remove
+   * semantics mirror `WorkspaceRepoOverrides.contentOverrides`.
+   */
+  contentOverrides?: {
+    include?: string[];
+    exclude?: string[];
+  };
+  models?: ModelConfig;
 }
 
 // ── Repo Entries ────────────────────────────────────────────────
@@ -54,6 +112,20 @@ export interface WorkspaceRepoEntry {
   defaultBranch?: string;
   /** Platform for this repo. Auto-detected from remote URL. */
   platform?: Platform;
+  /**
+   * D14-M4 (Cycle 10 rollover): Named groups whose deltas apply to this
+   * repo. Each name must match a key in `WorkspaceDefaults.groups`; unknown
+   * names are skipped with a verbose() warning at sync time so a typo'd
+   * group reference does not silently broaden a member's selection.
+   *
+   * Merge order: workspace defaults -> groups[entries[0]] -> ... ->
+   * groups[entries[n-1]] -> per-repo `overrides`. Each later layer wins on
+   * conflict, mirroring the existing two-layer chain.
+   *
+   * Optional / empty array means "no group memberships" — the repo gets
+   * the legacy two-layer merge (defaults + overrides) unchanged.
+   */
+  groups?: string[];
 }
 
 export interface WorkspaceRepoOverrides {
