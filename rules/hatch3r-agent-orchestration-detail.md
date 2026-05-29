@@ -5,7 +5,7 @@ description: Extended orchestration reference — PipelineContext schemas, resil
 scope: conditional
 globs: "**/.hatch3r/**,**/pipeline/**,**/*orchestrat*,**/*agent*"
 tags: [orchestration, floor:protocol]
-precedence: normal
+precedence: high
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true
 detail_rule: true

@@ -4,6 +4,7 @@ type: rule
 description: REST, GraphQL, and gRPC contract patterns covering versioning, auth, CORS, pagination, webhooks, rate limiting, and security headers
 scope: "**/api/**,**/routes/**,**/controllers/**,**/endpoints/**,**/*route*,**/*controller*,**/*endpoint*,**/*handler*,**/graphql/**,**/trpc/**"
 tags: [planning]
+precedence: high
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true
 ---
