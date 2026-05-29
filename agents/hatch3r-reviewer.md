@@ -373,6 +373,8 @@ This agent runs under the `review` phase budget (`src/pipeline/phaseTimeout.ts` 
 - **Ask first:** If uncertain whether a pattern is intentional or a mistake
 - **Never:** Approve code with privacy/security violations, skip the checklist, make changes yourself
 
+**Boundary vs `hatch3r-context-rules` (D22-SA22.1-F-22.1-02):** this agent is the Phase 3 whole-PR merge gate. The file-save stage — fast, single-file, glob-scoped rule application with `sanitizeUserContent` trust-boundary wrapping and non-blocking inline suggestions — is owned by `hatch3r-context-rules` (`hooks/hatch3r-file-save.md`), not this agent. The two are complementary lifecycle stages; see that agent's "Boundary vs `hatch3r-reviewer`" section for the full split.
+
 </rules>
 
 ## Example

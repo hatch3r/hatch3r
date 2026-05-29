@@ -122,6 +122,31 @@ async function loadProvenanceBaseline(rootDir: string): Promise<Map<string, stri
  *
  * `verifyCommand` reuses this exact helper so verify+status share one
  * drift definition.
+ *
+ * D1-SA1.4-F8 (D2, P6) — concurrency contract: `status`/`verify` are
+ * read-only and BEST-EFFORT under concurrent writes. This function reads each
+ * on-disk output with `readFile` while regenerating the expected output from
+ * the manifest in memory; it acquires no lock. If a concurrent `hatch3r sync`
+ * is mid-write, `safeWriteFile`'s temp+rename keeps each individual file read
+ * atomic (old or new bytes, never a half-written file), but the manifest the
+ * concurrent sync is mutating (e.g. adding/removing a tool) and the on-disk
+ * files can momentarily belong to different generations, yielding a transient
+ * "modified"/"unexpected" entry. The advisory `.hatch3r/.lock` that top-level
+ * orchestrator pipelines acquire (see `rules/hatch3r-agent-orchestration.md`
+ * -> Concurrent Invocation Handling) is the coordination point; a drift report
+ * produced while that lock is held by a writer is a snapshot of an in-flight
+ * state. Re-run after the writer completes for an authoritative report; do not
+ * run `status`/`verify` in parallel with `sync` and treat the result as final.
+ *
+ * D2-SA2.7-F8 (D2, P7) — cost note: there is no result cache. Each invocation
+ * regenerates every adapter's output once (O(adapter x output-count) file
+ * reads + transforms). A cross-invocation cache would not help the single-shot
+ * CLI model — the process regenerates once per run and exits, so there is
+ * nothing to deduplicate within a call. A persisted on-disk cache keyed on
+ * (bundled-content version, manifest mtime, overrides mtime) is the only shape
+ * that could help repeated shell-prompt / pre-commit use; it is deferred until
+ * a profile on a representative repo confirms wall-clock > 250ms (the finding's
+ * own gate), to avoid adding invalidation surface for an unmeasured win.
  */
 export async function computeAdapterDrift(
   rootDir: string,
@@ -252,6 +277,38 @@ function driftKindTag(kind: DriftEntry["driftKind"]): string {
   }
 }
 
+/**
+ * D12-SA12.2-F5 (D12, P1): render a "Diff summary" box from a drift report,
+ * reusing the exact `+ added` / `~ modified` / `= unchanged` vocabulary that
+ * `hatch3r sync --diff` already emits (sync.ts ~line 1461) so `status --diff`
+ * and `verify --diff` read identically. The data is already computed in-memory
+ * by {@link computeAdapterDrift}; this only re-renders the per-file status as a
+ * sync-style line. `missing` maps to `+ added` (sync would create it) and
+ * `unexpected` maps to a distinct `! orphan` line (sync would NOT touch it —
+ * mirrors the unexpected-file handling in {@link renderDriftLines}). Shared by
+ * status and verify so a future drift-category addition lands in one place.
+ */
+export function renderDiffSummaryLines(report: DriftReport): string[] {
+  const lines: string[] = [];
+  for (const entry of report.entries) {
+    switch (entry.status) {
+      case "in-sync":
+        lines.push(`${chalk.dim("= unchanged")} ${entry.path}`);
+        break;
+      case "modified":
+        lines.push(`${chalk.yellow("~ modified")}  ${entry.path}`);
+        break;
+      case "missing":
+        lines.push(`${chalk.green("+ added")}     ${entry.path}`);
+        break;
+      case "unexpected":
+        lines.push(`${chalk.red("! orphan")}    ${entry.path}`);
+        break;
+    }
+  }
+  return lines;
+}
+
 /** Render the per-file drift lines for printing in status / verify output. */
 function renderDriftLines(report: DriftReport): string[] {
   const byTool = new Map<string, DriftEntry[]>();
@@ -283,7 +340,7 @@ function renderDriftLines(report: DriftReport): string[] {
   return lines;
 }
 
-export async function statusCommand(opts?: { verbose?: boolean; format?: string }): Promise<void> {
+export async function statusCommand(opts?: { verbose?: boolean; format?: string; diff?: boolean }): Promise<void> {
   // SA12.1-F-D12-M2 (D12, P1): JSON mode emits a single structured document
   // for CI consumers — see {@link buildStatusJsonOutput}. Human mode keeps
   // the legacy decorated chrome (banner, spinner, printBox panels).
@@ -375,6 +432,17 @@ export async function statusCommand(opts?: { verbose?: boolean; format?: string 
   const style = hasDrift ? "info" as const : "success" as const;
   printBox("Status", summaryLines, style);
 
+  // D12-SA12.2-F5 (D12, P1): `--diff` renders the same before/after summary box
+  // `hatch3r sync --diff` emits, computed in-memory from the drift report (no
+  // extra disk reads beyond the regeneration status already performed).
+  if (opts?.diff && report.entries.length > 0) {
+    const diffLines = renderDiffSummaryLines(report);
+    if (diffLines.length > 0) {
+      printBox("Diff summary", diffLines, "info");
+      console.log();
+    }
+  }
+
   if (report.counts.modified > 0) {
     // F2.7-F5 (D2): the emit-time baseline in `.hatch3r/provenance.json` now
     // lets status attribute drift direction, so the hint is tailored per
@@ -413,6 +481,21 @@ export async function statusCommand(opts?: { verbose?: boolean; format?: string 
   }
   if (report.counts.unexpected > 0) {
     info(`Unexpected files are tracked in the manifest but no longer produced. Run ${chalk.bold("hatch3r clean")} to remove them, or remove them manually.`);
+    console.log();
+  }
+
+  // D11-SA11.2-F10 (D11, P1): scope disclosure. Drift detection compares only
+  // the hatch3r-managed block (HATCH3R:BEGIN/END markers) against regeneration;
+  // content you author OUTSIDE those markers is yours and is never reported
+  // here. Surface this whenever drift exists so the operator does not read a
+  // clean managed-block report as "the whole file is unchanged".
+  if (hasDrift) {
+    console.log(
+      chalk.dim(
+        "  Note: drift detection covers hatch3r-managed blocks only " +
+        "(HATCH3R:BEGIN/END). Content outside the markers is yours — use `git diff` to inspect it.",
+      ),
+    );
     console.log();
   }
 

@@ -112,6 +112,19 @@ Include confidence in the output: each violation row and the overall **Status** 
 - **Ask first:** When two rules conflict or a pattern seems intentionally unconventional
 - **Never:** Change code logic or behavior, ignore project-specific rules in favor of generic standards, modify rule definitions, apply rules whose `sanitizeUserContent` result is `blocked: true`
 
+## Boundary vs `hatch3r-reviewer` (D22-SA22.1-F-22.1-02)
+
+This agent and `hatch3r-reviewer` both read `rules/` and report violations, but occupy non-overlapping lifecycle stages — neither subsumes the other:
+
+| Dimension | `hatch3r-context-rules` (this agent) | `hatch3r-reviewer` |
+| --- | --- | --- |
+| Trigger | File-save hook (`hooks/hatch3r-file-save.md`) | Phase 3 review loop, whole-PR |
+| Tier | `model: fast`, single-file, glob-scoped | `model: standard`, full diff + acceptance criteria |
+| Disposition | Non-blocking inline suggestions on the saved file | Merge gate — REQUEST CHANGES / APPROVE verdict |
+| Unique path | `sanitizeUserContent` trust-boundary wrap on every rule body (closes D6-SA6.4-F1) + rule-conflict surfacing + file-save debounce | PR-scoped privacy/security/test-existence checklist |
+
+The file-save sanitize-and-suggest path is the unique value that blocks any merge into the reviewer; the two are complementary, not duplicative.
+
 ## Example
 
 **Invocation:** Apply context rules to `src/components/UserCard.tsx` on save.

@@ -1,7 +1,7 @@
 import chalk from "chalk";
 import { HatchError, type HatchManifest } from "../../types.js";
 import { readManifest } from "../../manifest/hatchJson.js";
-import { computeAdapterDrift, type DriftReport } from "./status.js";
+import { computeAdapterDrift, renderDiffSummaryLines, type DriftReport } from "./status.js";
 import { runRegenerate } from "./update.js";
 import { emitJson, parseFormatOption, type CliOutputFormat } from "../shared/output.js";
 import { HATCH3R_VERSION } from "../../version.js";
@@ -38,6 +38,13 @@ const MAX_FIX_ATTEMPTS_CEILING = 5;
  * `--dry-run`). The write-side preview lives on the destructive twins,
  * `hatch3r sync --dry-run` and `hatch3r update --dry-run`; a `verify --dry-run`
  * would be a tautology of the default report.
+ *
+ * D12-SA12.2-F5 (D12, P1): `--diff` adds a symmetric before/after summary box
+ * (the same one `hatch3r sync --diff` and `hatch3r status --diff` render) so an
+ * operator can see WHICH files drifted without re-running sync. It is read-only
+ * — it re-renders the already-computed drift report, never writes — so it does
+ * not contradict the no-`--dry-run` rationale above (which is about write
+ * previews, not the read-only drift summary).
  */
 export interface VerifyOptions {
   /** Auto-repair drifted/missing adapter output by regenerating it. */
@@ -50,6 +57,11 @@ export interface VerifyOptions {
    * the legacy decorated chrome.
    */
   format?: string;
+  /**
+   * D12-SA12.2-F5 (D12, P1): when set, print the sync-style "Diff summary" box
+   * (added/modified/unchanged/orphan per file) after the PASS/FAIL box.
+   */
+  diff?: boolean;
 }
 
 /** Render the drift counts as boxed summary lines (shared by report + fix paths). */
@@ -95,6 +107,22 @@ function buildRecoveryHint(report: DriftReport): string {
   return unexpected > 0
     ? `${base} Run \`hatch3r clean\` to remove the unexpected (orphan) file(s).`
     : base;
+}
+
+/**
+ * D12-SA12.2-F5 (D12, P1): print the sync-style "Diff summary" box when
+ * `--diff` is set. Shared renderer ({@link renderDiffSummaryLines}) so verify,
+ * status, and sync all emit the identical added/modified/unchanged/orphan box.
+ * No-op in JSON mode (the per-entry list is already in the JSON payload) and
+ * when `--diff` is absent.
+ */
+function maybePrintDiffSummary(options: VerifyOptions, report: DriftReport): void {
+  if (!options.diff) return;
+  const diffLines = renderDiffSummaryLines(report);
+  if (diffLines.length > 0) {
+    printBox("Diff summary", diffLines, "info");
+    console.log();
+  }
 }
 
 /**
@@ -195,6 +223,7 @@ export async function verifyCommand(options: VerifyOptions = {}): Promise<void> 
 
   if (driftCount === 0) {
     printBox("verify: PASS", summaryLines, "success");
+    maybePrintDiffSummary(options, report);
     return;
   }
 
@@ -203,11 +232,21 @@ export async function verifyCommand(options: VerifyOptions = {}): Promise<void> 
   // would do nothing). Mirrors status.ts per-category guidance.
   const recoveryHint = buildRecoveryHint(report);
   printBox(`verify: FAIL (${driftCount} drift(s))`, summaryLines, "error");
+  maybePrintDiffSummary(options, report);
   if (options.fix) {
     info(`--fix could not clear all drift — run ${chalk.bold("hatch3r sync")} or inspect the failing tool(s).`);
   } else {
     info(recoveryHint);
   }
+  // D11-SA11.2-F10 (D11, P1): scope disclosure — verify compares only the
+  // hatch3r-managed block, never content outside HATCH3R:BEGIN/END. Mirrors the
+  // note status emits so the two commands describe their scope identically.
+  console.log(
+    chalk.dim(
+      "  Note: verify covers hatch3r-managed blocks only (HATCH3R:BEGIN/END). " +
+      "Content outside the markers is yours — use `git diff` to inspect it.",
+    ),
+  );
   console.log();
   throw new HatchError(
     `Adapter output drift detected (${driftCount} file(s))`,
